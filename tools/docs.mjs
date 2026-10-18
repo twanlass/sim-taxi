@@ -43,8 +43,11 @@ for (const file of walk(join(ROOT, 'src'), '.js')) {
     if (!inCode.has(m[1])) inCode.set(m[1], relative(ROOT, file));
   }
 }
-// The lab is its own page with its own parameters; docs/lab.md covers those.
-for (const [name, file] of inCode) if (file.startsWith('src/lab/')) inCode.delete(name);
+// The lab and the model workshop are pages of their own with their own parameters; docs/lab.md and
+// docs/workshop.md cover those.
+for (const [name, file] of inCode) {
+  if (file.startsWith('src/lab/') || file.startsWith('src/workshop/')) inCode.delete(name);
+}
 
 const table = readFileSync(join(ROOT, 'docs/params.md'), 'utf8');
 // A row is `| \`?name…\` |` — the first cell names the parameter, with or without a value.

@@ -45,7 +45,7 @@ export const TUG_BEAM = 2.4;
  * Two hulls built off the same `plan` meet exactly along a shared height, which is how the
  * sailboat gets its boot stripe: two pieces stacked, touching, not overlapping.
  */
-function hullPiece(length, beam, y0, y1, plan, rake, col) {
+function hullPiece(length, beam, y0, y1, plan, rake, col, finish = FINISH.PAINT) {
   const segs = plan.length - 1;
   const geo = new THREE.BoxGeometry(beam, y1 - y0, length, 1, 1, segs);
   geo.translate(0, (y0 + y1) / 2, 0);
@@ -56,7 +56,7 @@ function hullPiece(length, beam, y0, y1, plan, rake, col) {
     if (rake && pos.getY(i) < y1 - 1e-6) pos.setY(i, Math.min(y0 + rake[k], y1 - 0.02));
   }
   geo.computeVertexNormals();
-  return bakeColor(geo, col);
+  return setFinish(bakeColor(geo, col), finish);
 }
 
 /**
@@ -64,7 +64,7 @@ function hullPiece(length, beam, y0, y1, plan, rake, col) {
  * plan as the hull it sits in, so it cannot poke out through the bow where the hull narrows.
  * Half under the hull's top face and half over it, so the two never share a plane.
  */
-function deckLid(length, beam, inset, y, plan, col) {
+function deckLid(length, beam, inset, y, plan, col, finish = FINISH.MATTE) {
   const segs = plan.length - 1;
   const geo = new THREE.BoxGeometry(beam - inset * 2, 0.1, length - inset * 2, 1, 1, segs);
   geo.translate(0, y, 0);
@@ -73,32 +73,32 @@ function deckLid(length, beam, inset, y, plan, col) {
     const k = Math.round((pos.getZ(i) / (length - inset * 2) + 0.5) * segs);
     pos.setX(i, pos.getX(i) * plan[k]);
   }
-  return bakeColor(geo, col);
+  return setFinish(bakeColor(geo, col), finish);
 }
 
 /** A box `w` × `h` × `d` with its base centred on (x, y, z) — what most of a boat is. */
-function block(w, h, d, x, y, z, col) {
+function block(w, h, d, x, y, z, col, finish = FINISH.PAINT) {
   const geo = new THREE.BoxGeometry(w, h, d);
   geo.translate(x, y + h / 2, z);
-  return bakeColor(geo, col);
+  return setFinish(bakeColor(geo, col), finish);
 }
 
 /** A thin square rod from `a` to `b`: a stay, a shroud, a spreader. Rotation keeps the winding. */
-function rod(a, b, t, col) {
+function rod(a, b, t, col, finish = FINISH.METAL) {
   const dir = new THREE.Vector3().subVectors(b, a);
   const geo = new THREE.BoxGeometry(t, t, dir.length());
   geo.applyQuaternion(new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 0, 1), dir.normalize()));
   geo.translate((a.x + b.x) / 2, (a.y + b.y) / 2, (a.z + b.z) / 2);
-  return bakeColor(geo, col);
+  return setFinish(bakeColor(geo, col), finish);
 }
 
 /** A round spar lying along Z from `z0` up to `z1`, tapering `r0` → `r1`. */
-function spar(z0, z1, r0, r1, y, col, sides = 8) {
+function spar(z0, z1, r0, r1, y, col, sides = 8, finish = FINISH.METAL) {
   const geo = new THREE.CylinderGeometry(r1, r0, Math.abs(z1 - z0), sides);
   // +Y onto +Z, so the cylinder's top (r1) ends up at the larger z.
   geo.rotateX(Math.PI / 2);
   geo.translate(0, y, (z0 + z1) / 2);
-  return bakeColor(geo, col);
+  return setFinish(bakeColor(geo, col), finish);
 }
 
 // --- The barge ---------------------------------------------------------------
@@ -184,7 +184,7 @@ export function createBargeMesh(rng) {
     for (let k = 0; k < ring.length - 1; k++) {
       const a = new THREE.Vector3(side * (halfBeamAt(ring[k]) - 0.2), BARGE_DECK_Y + 0.11, ring[k]);
       const b = new THREE.Vector3(side * (halfBeamAt(ring[k + 1]) - 0.2), BARGE_DECK_Y + 0.11, ring[k + 1]);
-      parts.push(rod(a, b, 0.17, wall));
+      parts.push(rod(a, b, 0.17, wall, FINISH.PAINT));
     }
   }
   const stem = ring[ring.length - 1];
@@ -200,7 +200,7 @@ export function createBargeMesh(rng) {
       const tyre = new THREE.CylinderGeometry(0.2, 0.2, 0.12, 8);
       tyre.rotateZ(Math.PI / 2);
       tyre.translate(side * (BARGE_BEAM / 2 + 0.05), BARGE_FREEBOARD - 0.22, z + rng.jitter(0.15));
-      parts.push(bakeColor(tyre, PALETTE.trashTyre));
+      parts.push(setFinish(bakeColor(tyre, PALETTE.trashTyre), FINISH.TYRE));
     }
   }
 
@@ -220,7 +220,7 @@ export function createBargeMesh(rng) {
   for (let k = 0; k < mp.count; k++) {
     if (mp.getY(k) < BARGE_DECK_Y) mp.setY(k, BARGE_DECK_Y - 0.02);
   }
-  parts.push(bakeColor(mound, PALETTE.trashHeap));
+  parts.push(setFinish(bakeColor(mound, PALETTE.trashHeap), FINISH.MATTE));
 
   // The dome the pieces follow: full height at the middle, nothing at the edges.
   const heightAt = (x, z) => {
@@ -276,7 +276,7 @@ export function createBargeMesh(rng) {
     const base = BARGE_DECK_Y + heightAt(x, z) * 0.85 - h * 0.35;
     const y = base > ceil - h ? ceil - h - CAP_STEP * capped++ : base;
     geo.translate(x, Math.max(BARGE_DECK_Y, y) + h / 2, z);
-    parts.push(bakeColor(geo, col));
+    parts.push(setFinish(bakeColor(geo, col), FINISH.MATTE));
     // The tallest pieces near the middle make the perches.
     if (Math.abs(x) < ax * 0.6 && heightAt(x, z) > peak * 0.5) {
       perches.push({ x, y: Math.max(BARGE_DECK_Y, y) + h, z });
@@ -292,19 +292,19 @@ export function createBargeMesh(rng) {
   const roofY = roofTop - 0.11;
   const houseH = roofY - BARGE_DECK_Y;
   const winY = roofY - 0.38;
-  // Painted steel gone flat in the salt, hunter green with rust and grime over it. The walls go in
-  // with the hull, on its plain flat-shaded material, so the paint shows no glint and no sky. They
-  // were on the cars' gloss material until 2026-10-08, and its matte finish is no answer to "not
-  // shiny": `FINISH.TYRE` is a tyre, and its diffuse of 0.64 took the green to black.
+  // Painted steel, hunter green with rust and grime over it. The walls go in with the hull and wear
+  // its paint (Tyler, 2026-10-14: every vehicle on the cars' paint); the rust and the grime are
+  // `FINISH.MATTE`, so only the paint glints. They were briefly on the gloss material before, as
+  // `FINISH.TYRE`, whose diffuse of 0.64 took the green to black — which is why MATTE exists.
   const steel = jitterColor(PALETTE.trashHouse, rng, { l: 0.03 });
   const rust = PALETTE.trashRust;
   parts.push(
     block(HOUSE_W, houseH, HOUSE_D, 0, BARGE_DECK_Y, HOUSE_Z, steel),
     // The roof's lip, rusted through, and the roof in the walls' green: a shade darker drew it black.
-    block(HOUSE_W + 0.16, 0.08, HOUSE_D + 0.16, 0, roofY, HOUSE_Z, rust),
+    block(HOUSE_W + 0.16, 0.08, HOUSE_D + 0.16, 0, roofY, HOUSE_Z, rust, FINISH.MATTE),
     block(HOUSE_W + 0.04, 0.03, HOUSE_D + 0.04, 0, roofY + 0.08, HOUSE_Z, steel),
     // The scum line round the foot, where spray and the deck's slop sit, proud of the walls by 0.01.
-    block(HOUSE_W + 0.02, 0.2, HOUSE_D + 0.02, 0, BARGE_DECK_Y, HOUSE_Z, PALETTE.trashGrime),
+    block(HOUSE_W + 0.02, 0.2, HOUSE_D + 0.02, 0, BARGE_DECK_Y, HOUSE_Z, PALETTE.trashGrime, FINISH.MATTE),
   );
   // Rust run down from the window frames. Fixed rather than drawn from `rng`, which the gulls are
   // seeded off afterwards (game/boats.js), so a draw here would reshuffle every flock. Each streak is
@@ -315,9 +315,9 @@ export function createBargeMesh(rng) {
     for (const side of [-1, 1]) {
       // Down the long faces (x = ±W/2) and the two ends (z = HOUSE_Z ± D/2).
       parts.push(block(0.04, len, 0.1, side * (HOUSE_W / 2 + 0.01), winY - len,
-        HOUSE_Z + f * HOUSE_D * 0.45, rust));
+        HOUSE_Z + f * HOUSE_D * 0.45, rust, FINISH.MATTE));
       parts.push(block(0.1, len * 0.85, 0.04, f * HOUSE_W * 0.45 * side, winY - len * 0.85,
-        HOUSE_Z + side * (HOUSE_D / 2 + 0.01), rust));
+        HOUSE_Z + side * (HOUSE_D / 2 + 0.01), rust, FINISH.MATTE));
     }
   }
   // The windows: a band round the top of the house, proud of the walls by 0.015, in the cars'
@@ -337,13 +337,13 @@ export function createBargeMesh(rng) {
   const stackH = stackTop - BARGE_DECK_Y;
   const stack = new THREE.CylinderGeometry(0.2, 0.2, stackH - 0.06, 10);
   stack.translate(stackX, BARGE_DECK_Y + (stackH - 0.06) / 2, stackZ);
-  parts.push(bakeColor(stack, PALETTE.trashStack));
+  parts.push(setFinish(bakeColor(stack, PALETTE.trashStack), FINISH.PAINT));
   const band = new THREE.CylinderGeometry(0.215, 0.215, 0.09, 10);
   band.translate(stackX, stackTop - 0.14, stackZ);
-  parts.push(bakeColor(band, PALETTE.trashWhite));
+  parts.push(setFinish(bakeColor(band, PALETTE.trashWhite), FINISH.PAINT));
   const lip = new THREE.CylinderGeometry(0.225, 0.225, 0.06, 10);
   lip.translate(stackX, stackTop - 0.03, stackZ);
-  parts.push(bakeColor(lip, PALETTE.trashTyre));
+  parts.push(setFinish(bakeColor(lip, PALETTE.trashTyre), FINISH.METAL));
 
   // ...and the bow, on the stem where the bulwark comes round: a bird on the very front of the boat.
   perches.push({ x: 0, y: BARGE_DECK_Y + 0.22, z: stem });
@@ -397,7 +397,7 @@ export function createTugMesh(rng) {
   const parts = [
     hullPiece(L, TUG_BEAM, -SAIL_DRAFT, BOOT_Y, SAIL_PLAN, SAIL_RAKE, trim),
     hullPiece(L, TUG_BEAM, BOOT_Y, SAIL_FREEBOARD, SAIL_PLAN, null, white),
-    deckLid(L, TUG_BEAM, 0.12, SAIL_FREEBOARD, SAIL_PLAN, deckCol),
+    deckLid(L, TUG_BEAM, 0.12, SAIL_FREEBOARD, SAIL_PLAN, deckCol, FINISH.PAINT),
   ];
 
   // The coachroof: a low white cabin aft of the mast, with a dark band of windows down each side.
@@ -405,14 +405,14 @@ export function createTugMesh(rng) {
   // other.
   const cabinZ = -L * 0.1;
   parts.push(block(1.25, 0.32, L * 0.36, 0, SAIL_DECK_Y, cabinZ, white));
-  parts.push(block(1.27, 0.1, L * 0.36 - 0.25, 0, SAIL_DECK_Y + 0.12, cabinZ, PALETTE.rigging));
+  parts.push(block(1.27, 0.1, L * 0.36 - 0.25, 0, SAIL_DECK_Y + 0.12, cabinZ, PALETTE.rigging, FINISH.GLASS));
 
   // The mast, from the deck to `TUG_AIR` exactly.
   const foot = SAIL_DECK_Y;
   const mastH = TUG_AIR - foot;
   const mast = new THREE.CylinderGeometry(0.055, 0.09, mastH, 8);
   mast.translate(0, foot + mastH / 2, MAST_Z);
-  parts.push(bakeColor(mast, PALETTE.mast));
+  parts.push(setFinish(bakeColor(mast, PALETTE.mast), FINISH.METAL));
 
   // Spreaders, three fifths of the way up, and the shrouds over them to the deck edge.
   const top = new THREE.Vector3(0, TUG_AIR - 0.06, MAST_Z);
@@ -431,7 +431,7 @@ export function createTugMesh(rng) {
   // rolled up round it, so it is drawn as a thin white spar rather than as wire.
   const stem = new THREE.Vector3(0, SAIL_DECK_Y, L / 2 - 0.15);
   const transom = new THREE.Vector3(0, SAIL_DECK_Y, -L / 2 + 0.15);
-  parts.push(rod(top, stem, 0.08, white));
+  parts.push(rod(top, stem, 0.08, white, FINISH.PAINT));
   parts.push(rod(top, transom, 0.03, PALETTE.rigging));
 
   // The boom, and the mainsail lowered onto it under a blue cover: fat at the mast where the sail
@@ -440,12 +440,14 @@ export function createTugMesh(rng) {
   const boomY = SAIL_DECK_Y + 0.6;
   const boomAft = -L / 2 + 0.45;
   parts.push(spar(boomAft, MAST_Z - 0.02, 0.04, 0.04, boomY, PALETTE.mast, 6));
-  parts.push(spar(boomAft + 0.25, MAST_Z - 0.08, 0.08, 0.17, boomY + 0.12, trim, 8));
+  parts.push(spar(boomAft + 0.25, MAST_Z - 0.08, 0.08, 0.17, boomY + 0.12, trim, 8, FINISH.MATTE));
 
   return merge(parts);
 }
 
 function merge(parts) {
+  // Every part carries `aFinish`, or `mergeGeometries` returns null for the lot.
+  for (const p of parts) if (!p.attributes.aFinish) throw new Error('boat: a part has no finish');
   const geo = mergeGeometries(parts, false);
   parts.forEach((p) => p.dispose());
   return geo;

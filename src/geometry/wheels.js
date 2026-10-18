@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import { bakeColor, setFinish, FINISH } from '../util/geo.js';
+import { bakeColor, setFinish, softenNormals, FINISH, SMOOTH_BODY, BODY_ROUND } from '../util/geo.js';
 import { color } from '../palette.js';
 
 // Wheels, and the ride height that follows from them. Every vehicle in the game is built against
@@ -220,11 +220,58 @@ export function archOutlines(len, x0, x1, y0, y1, { gap = 0, below = false } = {
   });
 }
 
-/** Outlines from `archOutlines`, each extruded across car-local `z0..z1`, merged. Non-indexed. */
-export function extrudeOutlines(outlines, z0, z1) {
+/**
+ * An outline with its sharp convex corners swapped for arcs of `radius`, for a smooth body. Only
+ * corners between two long edges: the arches' facets are short, and rounding the tip where an
+ * arch meets the sill would open a notch the liner behind it does not fill.
+ */
+function filletOutline(outline, radius) {
+  const n = outline.length;
+  let area = 0;
+  for (let i = 0; i < n; i++) area += outline[i].cross(outline[(i + 1) % n]);
+  const out = [];
+  for (let i = 0; i < n; i++) {
+    const p = outline[(i + n - 1) % n], v = outline[i], q = outline[(i + 1) % n];
+    const e1 = v.clone().sub(p), e2 = q.clone().sub(v);
+    const l1 = e1.length(), l2 = e2.length();
+    const turn = Math.atan2(e1.cross(e2), e1.dot(e2));
+    const convex = Math.sign(turn) === Math.sign(area);
+    if (!convex || Math.abs(turn) < 0.6 || Math.min(l1, l2) < 2.5 * radius) { out.push(v); continue; }
+    const theta = Math.PI - Math.abs(turn);               // the interior angle
+    const t = radius / Math.tan(theta / 2);
+    const d1 = e1.clone().negate().normalize(), d2 = e2.clone().normalize();
+    const a = v.clone().addScaledVector(d1, t), b = v.clone().addScaledVector(d2, t);
+    const centre = v.clone().addScaledVector(d1.clone().add(d2).normalize(), radius / Math.sin(theta / 2));
+    const a0 = Math.atan2(a.y - centre.y, a.x - centre.x);
+    let da = Math.atan2(b.y - centre.y, b.x - centre.x) - a0;
+    da = Math.atan2(Math.sin(da), Math.cos(da));
+    const steps = 4;
+    for (let k = 0; k <= steps; k++) {
+      const ang = a0 + (da * k) / steps;
+      out.push(new THREE.Vector2(centre.x + radius * Math.cos(ang), centre.y + radius * Math.sin(ang)));
+    }
+  }
+  return out;
+}
+
+/**
+ * Outlines from `archOutlines`, each extruded across car-local `z0..z1`, merged. Non-indexed.
+ * `round`: a smooth body's (SMOOTH_BODY) — the outline's corners filleted by that radius and both
+ * flank edges bevelled by `FLANK_ROUND`, inside the same `z0..z1`. The flank's is smaller because
+ * the arches reach to within 0.13 of the body's top, and an outline shrunk further than that to
+ * make room for the bevel turns inside out over each wheel.
+ */
+const FLANK_ROUND = 0.05;
+export function extrudeOutlines(outlines, z0, z1, { round = 0 } = {}) {
+  const bevel = round ? FLANK_ROUND : 0;
   const parts = outlines.map((outline) => {
-    const solid = new THREE.ExtrudeGeometry(new THREE.Shape(outline), { depth: z1 - z0, bevelEnabled: false });
-    solid.translate(0, 0, z0);
+    const solid = round
+      ? new THREE.ExtrudeGeometry(new THREE.Shape(filletOutline(outline, round)), {
+        depth: z1 - z0 - 2 * bevel, bevelEnabled: true, bevelThickness: bevel, bevelSize: bevel,
+        bevelOffset: -bevel, bevelSegments: 3, curveSegments: 4,
+      })
+      : new THREE.ExtrudeGeometry(new THREE.Shape(outline), { depth: z1 - z0, bevelEnabled: false });
+    solid.translate(0, 0, z0 + bevel);
     solid.deleteAttribute('uv');
     solid.clearGroups();
     return solid;
@@ -243,11 +290,12 @@ export function extrudeOutlines(outlines, z0, z1) {
 export function archedBodyGeometries(len, width, centreY, height, paint) {
   const y0 = centreY - height / 2;
   const y1 = centreY + height / 2;
-  const panel = extrudeOutlines(archOutlines(len, -len / 2, len / 2, y0, y1), -width / 2, width / 2);
+  const panel = extrudeOutlines(archOutlines(len, -len / 2, len / 2, y0, y1), -width / 2, width / 2,
+    { round: SMOOTH_BODY ? BODY_ROUND : 0 });
   const back = Math.abs(wheelAnchors(len, width)[0].z) - WHEEL_W / 2 - WELL_BACK;
   const liner = extrudeOutlines(archOutlines(len, -len / 2, len / 2, y0, y1, { below: true }), -back, back);
   return [
-    setFinish(bakeColor(panel, paint), FINISH.PAINT),
+    setFinish(SMOOTH_BODY ? softenNormals(bakeColor(panel, paint)) : bakeColor(panel, paint), FINISH.PAINT),
     setFinish(bakeColor(liner, color('wheelWell')), FINISH.TYRE),
   ];
 }

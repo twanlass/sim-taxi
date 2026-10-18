@@ -108,7 +108,7 @@ function steeredWheels(group) {
     });
 }
 
-function lightBar(shell, carrier) {
+function lightBar(shell, carrier, lamps) {
   // One lamp per colour, red over the left lens and blue over the right — the same bar the
   // robbery's cop cars wear (see `sirenRedAnchor`). Switched by `visible`, never by a scale.
   const make = (material, at) => {
@@ -136,6 +136,8 @@ function lightBar(shell, carrier) {
   // scene by walking the *visible* graph, so a lamp under a hidden parent is not merely dark, it
   // is absent: `numPointLights` drops to zero and every lit program in the city is rebuilt.
   const lamp = (hex, z) => {
+    // A lampless cruiser keeps a stand-in the rest of this file can set an intensity on.
+    if (!lamps) return { intensity: 0 };
     const light = new THREE.PointLight(new THREE.Color(hex), 0, 34, 1.7);
     light.position.set(CABIN_X, 2.1 + CHASSIS_LIFT, z);
     // ...and on every layer, for the same reason one level up: see countInEveryPass.
@@ -152,7 +154,13 @@ function lightBar(shell, carrier) {
   };
 }
 
-export function createPolice(scene) {
+/**
+ * @param {object} [opts]
+ * @param {boolean} [opts.lamps]  Hang the two point lights. The extra patrol cruisers the harder
+ *   Difficulty modes add (main.js) go without: every point light in the scene is paid for by every
+ *   lit fragment in the city whether it is lit or not, and their bars still glow and bloom.
+ */
+export function createPolice(scene, { lamps = true } = {}) {
   const group = new THREE.Group();
   /**
    * Everything the cruiser *draws*, one level in from the group that carries it.
@@ -177,7 +185,7 @@ export function createPolice(scene) {
   body.castShadow = true;
   body.receiveShadow = true;
   shell.add(body);
-  const lights = lightBar(shell, group);
+  const lights = lightBar(shell, group, lamps);
   const wheels = steeredWheels(shell);
   /**
    * Everything that has to fade, dissolved rather than blended: `alphaHash` discards a noise-ordered

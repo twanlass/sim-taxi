@@ -1,26 +1,30 @@
 import * as THREE from 'three';
+// First, before anything builds a material: it patches three's fog chunk for every program.
+import { EDGE_FOG, createEdgeFogFloor, tickEdgeFog } from './game/edgefog.js';
 import { makeRng } from './util/rng.js';
 import { createScene, sinkShadowCaster, setHazeTop, HAZE_TOP } from './game/scene.js';
 import { createRain, GRIP } from './game/rain.js';
 import { createStorm } from './game/storm.js';
 import { createComboMeter, comboScope, formatMult } from './game/combometer.js';
-import { createSquall } from './game/squall.js';
+import { createSquall, RAMP, RAMP_CLASSIC, CELL_EDGE } from './game/squall.js';
 import { pedalZones as growPedalZones, pedalAfterMove } from './game/pedalzones.js';
 import {
-  collectPanes, litWindows, streetLamps, createTaxiHeadlights, setCityLights,
+  collectPanes, litWindows, streetLamps, switchedLights, createTaxiHeadlights, setCityLights,
 } from './game/citylights.js';
 import {
   createCityCamera, attachDragPan, VIEW_DIR, PLAY_ZOOM, LOCO_PUNCH_HOLD,
 } from './game/camera.js';
 import { createLayout } from './city/layout.js';
 import { createGround, KERB_H } from './city/ground.js';
+import { createManholes } from './city/manholes.js';
 import { createRiver, bridgeLines, bridgeSpan, deckHeightAt } from './city/river.js';
 import { createHarbor } from './city/harbor.js';
 import { createNorthPark } from './city/northpark.js';
 import { createSouthShore } from './city/southshore.js';
 import { createParkShore } from './city/parkshore.js';
 import { createWestEdge } from './city/westedge.js';
-import { tickRiverWater, syncRiverWater, bindRiverDrawbridge, setWaterStyle } from './city/riverwater.js';
+import { createHorizon } from './city/horizon.js';
+import { tickRiverWater, bindRiverDrawbridge, setWaterStyle } from './city/riverwater.js';
 import { createDrawbridge } from './game/drawbridge.js';
 import { createBoats } from './game/boats.js';
 import { createHarborShips } from './game/harborships.js';
@@ -30,15 +34,15 @@ import { createProps, parkPlots, setAutumn } from './city/props.js';
 import { createLeaves } from './game/leaves.js';
 import { createGrass } from './city/grass.js';
 import { createCanopyFuzz } from './city/canopyfuzz.js';
-import { createGarage } from './city/garage.js';
-import { createBurgerJoint, SIGN_SPIN } from './city/burgerjoint.js';
-import { createGraveyard } from './city/graveyard.js';
+import { createGarage, LANDMARK as GARAGE_LANDMARK } from './city/garage.js';
+import { createBurgerJoint, SIGN_SPIN, LANDMARK as BURGER_LANDMARK } from './city/burgerjoint.js';
+import { createGraveyard, LANDMARK as GRAVEYARD_LANDMARK } from './city/graveyard.js';
 import { plantedCrowns } from './city/props.js';
 import {
   createTraffic, placeCar, TRUCK_CHANCE, CLASSIC_CHANCE, TRUCK_LEN, TRUCK_W, laysPassRubber, copLaysRubber, SPEED,
   ROAD_Y, CAR_LEN, CAR_W, wheelAnchors,
   boostCruise, locoTuning, setLocoTuning, resetLocoTuning, locoRamp, LOCO_DEFAULTS, driftTaxi, kickDrift, driftHolds, DRIFT_CHAIN,
-  onDriftLaunch, hopProgress, setSpinStyle, setBarrelRoll,
+  onDriftLaunch, hopProgress, setSpinStyle, setBarrelRoll, setPassTurnGate, setPassPace, setHopStyle, setDodge,
   configureSignals, setGrip, setRunningLights, setRunningLightsAt, runningLightsAt, isLaneClosed,
 } from './sim/traffic.js';
 import { createCollisions, TAXI_HP } from './sim/collisions.js';
@@ -48,6 +52,7 @@ import {
   BOARD_SECONDS, MAX_STRIKES, RATING_FLOOR, ratingFor,
 } from './game/fares.js';
 import { createDebugPanel } from './game/debugpanel.js';
+import { createPhoneFrame } from './game/phoneframe.js';
 import { createDriveThru } from './game/drivethru.js';
 import { createBurgerRun } from './game/burgerrun.js';
 import { createDepotRun } from './game/depotrun.js';
@@ -55,7 +60,7 @@ import {
   createBoost, BOOST_FARE_REWARD, BOOST_PARCEL_REWARD, BOOST_BURGER_REWARD,
 } from './game/boost.js';
 import { createBoostMeter } from './game/boostmeter.js';
-import { bandPath as fuelBandPath, frontAt as fuelFrontAt, glintAt as fuelGlintAt, RIM as FUEL_RIM } from './game/fuelarc.js';
+import { bandPath as fuelBandPath, frontAt as fuelFrontAt, glintAt as fuelGlintAt, RIM as FUEL_RIM, useClassicArc as useClassicFuelArc } from './game/fuelarc.js';
 import { createImpact } from './game/impact.js';
 import { createTaxiDamage, SMOKE_FRACTION, BOOT_FRACTION } from './game/taxidamage.js';
 import { createHitCue, hitCueMode } from './game/hitcue.js';
@@ -87,6 +92,10 @@ import { createBirds, chooseRoosts } from './game/birds.js';
 import { createDucks } from './game/ducks.js';
 import { createHoopers } from './game/hoopers.js';
 import { createBoombox } from './game/boombox.js';
+import { createTubeMan } from './game/tubeman.js';
+import { createCarWash, LANDMARK as CARWASH_LANDMARK } from './city/carwash.js';
+import { createGasStation, LANDMARK as GAS_LANDMARK } from './city/gasstation.js';
+import { roadsideKind } from './city/roadside.js';
 import { createLTrain, planLTrain, LTRAIN_DIMENSIONS } from './game/ltrain.js';
 import { courtRect } from './city/blacktop.js';
 import { createSkaters } from './game/skaters.js';
@@ -118,18 +127,16 @@ import { createFarePointers } from './game/farepointers.js';
 import { createSirenGlow } from './game/sirenglow.js';
 import { createRobberyGlow } from './game/robberyglow.js';
 import { createRouteLine, routePath, pointAlongPath } from './game/routeline.js';
-import { createAmbientOcclusion, markOccluder } from './game/ssao.js';
-import { cullEmptyPools } from './util/emptypools.js';
-import { createBloom, markEmissive } from './game/bloom.js';
-import { createHdr } from './game/hdr.js';
-import { createCrayon } from './game/crayon.js';
-import { createCartoon } from './game/cartoon.js';
+import { markOccluder } from './game/ssao.js';
+import { markEmissive } from './game/bloom.js';
+import { renderBudget, decideLooks, createRenderPath } from './game/renderpath.js';
 import {
-  setAmbientOcclusion, setCrayon, setCartoon, setCloudShadows, setClassicPaint, setPaintLook, propMaterial, setGlossCity, setGlossGlobal,
+  propMaterial, setGlossCity, setGlossGlobal,
 } from './util/geo.js';
 import * as difficulty from './game/difficulty.js';
 import { createHomeScreenTip } from './game/homescreen.js';
 import { createTitleScreen } from './game/titlescreen.js';
+import { splashCovers } from './game/splash.js';
 import { createSettings, qualityOf } from './game/settings.js';
 import { createPause } from './game/pause.js';
 import { createInspect } from './game/inspect.js';
@@ -138,13 +145,15 @@ import {
 } from './game/route.js';
 import { streetAt, routeDrives, STREET_TAP_MAX_DETOUR } from './game/streettap.js';
 import { createPathDrag } from './game/pathdrag.js';
-import { getActiveShot, getSeed, getRunSeed, getCarCount, getDifficultyPin, getAmbientOcclusion,
-  getSafeMode, safeModeSource, getMsaa, getShadowMapSize, getPixelRatioCap,
-  getDiagnostics, getParcelsPin, getCrayon, getCartoon, getBloom, getHdr, getRain, getStorm, getSquall, getWetTyres, getWreckStyle, getFall, getFoliageClassic, getPaintClassic, getPaintLook, getWater, getUturnStyle } from './util/shot.js';
+import { getActiveShot, getSeed, getRunSeed, getCarCount, getDifficultyPin, getDifficultyMode,
+  getSafeMode, safeModeSource, getPixelRatioCap,
+  getDiagnostics, getParcelsPin, getRain, getStorm, getSquall, getSquallRampClassic, getWetTyres, getWreckStyle, getFall, getFoliageClassic, getWater, getUturnStyle } from './util/shot.js';
 import { createParcelSystem, TAP_MAX_DETOUR } from './game/parcels.js';
 import { createRobbery } from './game/robbery.js';
 import { createRadio, LOST_CALL, ROBBERY_CALL } from './game/radio.js';
-import { createPatrol, ESCAPE_HOLD, SIGHT_HOLD } from './game/patrol.js';
+import {
+  createPatrol, createPin, holdArrest, ramOf, ESCAPE_HOLD, SIGHT_HOLD,
+} from './game/patrol.js';
 import { createCopShout } from './game/copshout.js';
 import { createRobberLine, ROBBER_LINES } from './game/robberline.js';
 import { createBankJob } from './game/bankjob.js';
@@ -167,7 +176,7 @@ import { createGovernor } from './game/governor.js';
 import { createViewport } from './util/viewport.js';
 import { isNative } from './util/platform.js';
 import { tap as haptic, setHapticPrefs } from './util/haptics.js';
-import { createSfx } from './game/sfx.js';
+import { createSfx, DASH } from './game/sfx.js';
 import { attachContextRecovery } from './game/recovery.js';
 import { isCityConnected, GRID_I, GRID_J, MAX_SPAN, lineX, lineZ } from './city/grid.js';
 import { cityNetwork } from './city/roadnet.js';
@@ -229,22 +238,26 @@ difficulty.pinDifficulty(getDifficultyPin() ?? shot?.difficulty ?? null);
 // the Resolution choice is the pixel-ratio cap. Shot mode ignores it, so a stored 1.5 on the machine
 // taking screenshots cannot soften every reference image.
 const settings = createSettings();
+// The Difficulty row (Easy / Regular / Hard). Applied here, before the fare system budgets its first
+// clock, and live from then on: a change takes effect from the next rider to spawn. `?difficulty=`
+// pins it for the load and leaves the saved choice alone; shot mode holds Easy, so a stored Hard on
+// the machine taking screenshots cannot move a reference image.
+const difficultyPinned = shot ? 'easy' : getDifficultyMode();
+difficulty.setMode(difficultyPinned ?? settings.get().difficulty);
+// Only on an actual change of mode: any other setting moving would otherwise reset the tuning, and
+// wipe whatever the ⚙️ panel's sliders had dialled in.
+settings.onChange((v) => {
+  if (!difficultyPinned && v.difficulty !== difficulty.getMode()) difficulty.setMode(v.difficulty);
+});
 const resolutionPinned = new URLSearchParams(window.location.search).has('dpr');
 const budget = {
   safe: getSafeMode(),
   // 'url' | 'android' | null — see `safeModeSource`. The panel reports it, because a budget the
   // player asked for and one the platform default imposed are different things to be looking at.
   safeSource: safeModeSource(),
-  msaa: getMsaa(),
-  shadowMapSize: getShadowMapSize(),
   pixelRatioCap: getPixelRatioCap(getSafeMode() ? 1 : shot ? 2 : qualityOf(settings.get()).resolution),
-  ao: getAmbientOcclusion(),
-  crayon: getCrayon(),
-  cartoon: getCartoon(),
-  // The two bloom routes, and they are alternatives rather than layers — see `game/hdr.js`. `?hdr`
-  // wins where it can run at all; both are settled below, once it has had its say.
-  hdr: getHdr(),
-  bloom: getBloom(),
+  // msaa, shadowMapSize, ao, crayon, cartoon, hdr, bloom: the shared render path's (game/renderpath.js).
+  ...renderBudget(),
 };
 
 const renderer = new THREE.WebGLRenderer({
@@ -267,61 +280,31 @@ renderer.shadowMap.enabled = budget.shadowMapSize > 0;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 document.body.appendChild(renderer.domElement);
 
-// Ambient occlusion is decided here, before a single mesh exists, because `propMaterial()` bakes
-// the decision into the shader it builds — see `util/geo.js`. `?ao=off` turns it off for a
-// like-for-like cost comparison on a real device.
+// AO, Crayon, Cartoon, painterly, the paint look, the rim and cloud shadows: all baked into the
+// shader `propMaterial()` builds, so all decided here, before a single mesh exists. In
+// game/renderpath.js because the model workshop's bench takes the same decisions.
+decideLooks(budget);
 const aoEnabled = budget.ao;
-setAmbientOcclusion(aoEnabled);
-// Crayon Mode is the same kind of decision and has to be taken in the same breath: `propMaterial()`
-// bakes both into the shader it builds, so neither can move once a mesh exists. `?crayon`, and see
-// `game/crayon.js` for what the three layers of it are.
 const crayonEnabled = budget.crayon;
-setCrayon(crayonEnabled);
-setClassicPaint(getPaintClassic());
-setPaintLook(getPaintLook());
-// Cloud shadows are compiled into every lit material, so they are decided here with the look modes,
-// before anything is meshed. See CLOUD_UNIFORMS in util/geo.js.
-setCloudShadows(Boolean(getRain() ?? getStorm() ?? getSquall()));
-// The other look on offer, and independent of it — see `game/cartoon.js`. Its cel bands compile
-// into the same materials, so it is decided in the same breath and for the same reason.
 const cartoonEnabled = budget.cartoon;
-setCartoon(cartoonEnabled);
+// Which brush a static mesh wears (see PAINT_FRAGMENT): 1 buildings, 2 ground (lawns only).
+const brush = (mesh, kind) => {
+  mesh.material.userData.brush = kind;
+  return mesh;
+};
 // Notices raised while the passes below are being built, replayed into `game/diag.js` once it
 // exists. See `onNotice` on `createHdr`.
 const declined = [];
 
-// The comparison route first, because whether it can run at all is what decides the other one.
-// `?hdr` takes the whole frame through a composer with tone mapping on — see game/hdr.js — and
-// declines itself outright when a look mode is on or the GPU has no renderable float target.
-const hdr = createHdr(renderer, {
-  enabled: budget.hdr,
-  incompatible: [crayonEnabled && 'crayon', cartoonEnabled && 'cartoon'].filter(Boolean),
-  // Queued rather than passed straight to `diag`, which does not exist yet: this module declines
-  // the flag *during construction*, and reaching a `const` declared thirty lines further down is a
+// HDR, AO, bloom, Crayon and Cartoon, and the order a frame runs them in — game/renderpath.js,
+// shared with the workshop's bench. It settles `budget.hdr` and `budget.bloom` as it goes.
+const renderPath = createRenderPath(renderer, budget, {
+  // Queued rather than passed straight to `diag`, which does not exist yet: hdr declines the flag
+  // *during construction*, and reaching a `const` declared thirty lines further down is a
   // temporal-dead-zone throw that takes the whole page with it.
   onNotice: (text) => { declined.push(text); },
 });
-// Written back, not just read: the diagnostics panel reports the budget the page actually got, and
-// `?hdr&crayon` is a request that was refused rather than one that was honoured.
-budget.hdr = hdr.state.enabled;
-// **A declined `?hdr` stands the ordinary bloom back up.** The two are alternatives, so asking for
-// the composer takes this one's place — but only if the composer is actually running, or the flag
-// would leave a page with neither and no way to tell from the picture which of them was missing.
-budget.bloom = budget.bloom && !budget.hdr;
-
-// `edges` and `depth` are why the AO pass takes three flags: the crayon line is traced out of its
-// depth buffer and the bloom rejects its lamps against it, and Android's `?safe` default would
-// otherwise have turned the pass off on the platform most likely to be asked for a drawn look.
-const ao = createAmbientOcclusion(renderer, {
-  enabled: aoEnabled, edges: crayonEnabled || cartoonEnabled, depth: budget.bloom,
-});
-// Spill around every self-lit thing in the game — see game/bloom.js. Not a bright-pass over the
-// frame: an explicit draw list of lamps, rendered into a small half-float target of its own, so
-// the main render keeps its MSAA and the ghost outlines keep their stencil.
-const bloom = createBloom(renderer, {
-  enabled: budget.bloom, depth: ao.depth, depthSize: ao.depthSize,
-});
-const crayon = createCrayon(renderer, { enabled: crayonEnabled });
+const { ao, bloom, crayon, cartoon, hdr } = renderPath;
 // The weather. `?storm` runs a storm across the afternoon and back on a loop (game/storm.js);
 // `?rain` is the same storm pinned at its peak. Either way the whole wet city is built up front —
 // see game/rain.js — and `applyWeather` below turns each part of it up and down with the clock.
@@ -334,15 +317,22 @@ const squallFlag = getSquall();
 const stormFlag = squallFlag ? null : (getRain() ?? getStorm());
 const storm = stormFlag ? createStorm(stormFlag) : null;
 const squallRng = makeRng(runSeed + 733);
-const squall = squallFlag ? createSquall({ ...squallFlag, rng: () => squallRng.next() }) : null;
+// `?squallramp=classic`: the first front, which brought the shade, the rain and the lights in
+// together. The graded one is described at `RAMP` in game/squall.js.
+const squallRampClassic = getSquallRampClassic();
+const squall = squallFlag ? createSquall({
+  ...squallFlag, rng: () => squallRng.next(), ramp: squallRampClassic ? RAMP_CLASSIC : RAMP,
+}) : null;
 const rain = createRain(renderer, { enabled: Boolean(storm || squall), mood: stormFlag?.mood });
 if (squall) {
   rain.attachSquall(squall);
   // A car's headlights come on as the cell reaches it — from a third of the way into the soft edge
   // — rather than across the city at once.
-  setRunningLightsAt((x, z) => THREE.MathUtils.smoothstep(squall.rainAt(x, z), 0.15, 0.5));
+  // Headlights with the city's lights, half way through them — under the first front, with the rain.
+  setRunningLightsAt(squallRampClassic
+    ? (x, z) => THREE.MathUtils.smoothstep(squall.rainAt(x, z), 0.15, 0.5)
+    : (x, z) => THREE.MathUtils.smoothstep(squall.lightAt(x, z), 0.3, 0.6));
 }
-const cartoon = createCartoon({ enabled: cartoonEnabled });
 
 // `?diag`. A no-op without the flag; with it, the one readout that can tell a lost context from a
 // scene that submitted nothing from a scene that drew and came out black. See `game/diag.js`.
@@ -351,13 +341,8 @@ declined.forEach((text) => diag.note(text));
 
 const { scene, sun, hemi, sky, fog } = createScene({ shadowMapSize: budget.shadowMapSize });
 
-// The page, over the city and under every read-out — an ordinary object in the main scene at
-// `renderOrder` 1, not a post pass. See `game/crayon.js`; null when the flag is off.
-if (crayon.overlay) scene.add(crayon.overlay);
-
-// The bloom composite, on the same terms and under it — an ordinary object in the main scene, not
-// a post pass. See `game/bloom.js`; null under `?bloom=off` and under `?hdr`.
-if (bloom.overlay) scene.add(bloom.overlay);
+// The crayon page and the bloom composite, over the city and under every read-out.
+renderPath.addOverlays(scene);
 
 // The falling rain, and the two overlays that must stay out of its mirror pass.
 rain.addTo(scene);
@@ -405,31 +390,9 @@ settings.onChange((v) => {
  * bloom, the haze — and not a lesser render of its own.
  */
 function renderFrame(cam = camera) {
-  // Sized here rather than in the frame loop for the same reason the AO prepass is called here:
-  // shot mode and `__taxi.redraw()` both reach a render without ever reaching the loop.
-  crayon.prepare();
-  // `?diag` counts the whole frame's draws, every pass below included — a no-op without the flag.
-  diag.frameStart();
-  // Before every pass below, so an effect pool with nothing in it skips the shadow, AO and main
-  // draws alike — see util/emptypools.js.
-  cullEmptyPools();
-  // The wet road's mirror, before anything reads it. A no-op without `?rain`.
-  rainLightsOn?.();
-  rain.update(0, cam);
-  rain.renderReflection(scene, cam);
-  ao.render(scene, cam);
-  // After the AO prepass, which is what fills the depth buffer the lamps are rejected against.
-  bloom.render(scene, cam);
-  // Here rather than in the loop for the AO prepass's reason: shot mode renders without the loop.
-  syncRiverWater(scene.fog?.color);
-  // `?hdr` takes the whole frame through a composer instead; a no-op without the flag, and it
-  // returns false so the ordinary path below still runs.
-  if (!hdr.render(scene, cam)) renderer.render(scene, cam);
-  // Drops on the glass, over the finished frame.
-  rain.renderLens();
-  // After everything has drawn, so its counters and centre pixel are the frame on screen, and here
-  // rather than in the loop so a paused or replaying frame still counts toward the fps.
-  diag.update();
+  // The pass order lives in game/renderpath.js, shared with the workshop's bench; the weather and
+  // the diagnostics are the game's own and ride in with it.
+  renderPath.render(scene, cam, { rain, rainLightsOn, diag });
 }
 
 // Weather, ringing the island — see game/clouds.js. Scenery on the same terms as the aeroplane and
@@ -495,6 +458,21 @@ function setTaxiHeadlights(level) {
 let squallPresence = 0;
 
 /**
+ * How near the cell is to the middle of the frame, for that grey: 1 with it overhead, 0 from
+ * `SQUALL_NEAR` units outside its shade. The first front greyed the whole sky over 4s the moment a
+ * cell came on outside a corner, wherever the player was — the grey arrived with nothing to explain
+ * it, and then the rest of the storm arrived on top of it. Read by distance, it builds over ~30s
+ * as the cell comes closer and goes the same way, which is the sky ahead of a storm darkening.
+ */
+const SQUALL_NEAR = 60;
+function squallNearness(cell, c) {
+  if (!cell.on) return 0;
+  const d = Math.hypot(cell.x - c.x, cell.z - c.z);
+  const far = cell.r * 1.18 + CELL_EDGE * squall.ramp.shadeOut + SQUALL_NEAR;
+  return cell.strength * (1 - THREE.MathUtils.smoothstep(d, cell.r, far));
+}
+
+/**
  * The squall's half of `applyWeather`. Nothing here is city-wide except a faint grade while a cell
  * is on the map: the rain, the wet ground, the cloud shade and the city's lights all follow the
  * cell, through the uniforms `rain.attachSquall` wired up. What is left to do on the CPU is what
@@ -504,7 +482,8 @@ let squallPresence = 0;
 function applySquall(dt) {
   squall.update(dt);
   const { cell } = squall;
-  squallPresence += ((cell.on ? 1 : 0) - squallPresence) * Math.min(1, dt / 4);
+  const presence = squallRampClassic ? (cell.on ? 1 : 0) : squallNearness(cell, rain.centre);
+  squallPresence += (presence - squallPresence) * Math.min(1, dt / 4);
   // The lens follows the taxi, not the frame: it is the taxi's windscreen. Before the taxi exists
   // (the opening, a still) it falls back to the ground under the middle of the frame.
   const c = taxiNow?.() ?? rain.centre;
@@ -570,7 +549,15 @@ applyWeather();
 // `markOccluder` is what puts a mesh into the AO depth prepass. The rule it enforces is that
 // anything lit by `propMaterial()` has to be in there: a mesh that receives AO without casting it
 // samples the occlusion of whatever stands behind it. See `game/ssao.js`.
-scene.add(markOccluder(rain.wetGround(createGround(makeRng(seed + 11), layout))));
+scene.add(markOccluder(rain.wetGround(brush(createGround(makeRng(seed + 11), layout), 2))));
+// A few manhole covers in the streets (city/manholes.js). City seed, its own stream. Wet in the rain
+// like the asphalt they sit in; not brushed, because iron under a road stroke reads as road.
+// `?manholes=classic` is the street without them.
+const manholes = createManholes(makeRng(seed + 193),
+  { enabled: new URLSearchParams(location.search).get('manholes') !== 'classic' });
+if (manholes) scene.add(markOccluder(rain.wetGround(manholes)));
+// The ground past the coast, for the fog of war to swallow — game/edgefog.js.
+if (EDGE_FOG) scene.add(createEdgeFogFloor());
 
 // The river, and the spans that get over it. Its own stream, like every other generator, so that
 // moving a bridge cannot reshuffle a park.
@@ -613,7 +600,7 @@ if (harbor) scene.add(markOccluder(harbor.mesh));
 // Null under `?northpark=classic`.
 const northPark = createNorthPark(makeRng(seed + 53));
 if (northPark) {
-  scene.add(markOccluder(northPark.mesh));
+  scene.add(markOccluder(brush(northPark.mesh, 2)));
   scene.add(northPark.water);
   scene.add(northPark.fade);
 }
@@ -640,14 +627,21 @@ const fall = getFall();
 setAutumn(fall, { classicColours: getFoliageClassic() });
 const city = createBuildings(makeRng(seed + 22), layout);
 scene.add(markOccluder(city.mesh));
+// The bank's patinated dome is a glossy mesh of its own, not part of the merged one (city/bank.js).
+if (city.domeMesh) scene.add(markOccluder(city.domeMesh));
 // The high rises past the west ring road, the streets carrying on to them and the barricades shutting
 // them off (city/westedge.js). Built before the panes are collected, so Rain Mode lights their windows
 // too. Its own stream. Null under `?westedge=classic`.
 const westEdge = createWestEdge(makeRng(seed + 59));
-if (westEdge) scene.add(markOccluder(westEdge.ground), markOccluder(westEdge.towers));
+if (westEdge) scene.add(markOccluder(brush(westEdge.ground, 2)), markOccluder(westEdge.towers));
 // The northwest corner's asphalt skirt (`?westcorner=classic` drops the corner). Transparent, so not
 // an occluder.
 if (westEdge?.fade) scene.add(westEdge.fade);
+// The city carrying on past the edge of the map and fading into the sky (city/horizon.js,
+// `?horizon=classic` for the bare edge). Not an occluder and not in the entrance wave: it is the
+// world the island stands in, so it is already there while the island builds itself.
+const horizon = createHorizon(makeRng(seed + 63), sky.uniforms);
+if (horizon) scene.add(horizon.mesh);
 
 // Rain Mode's city lights — lit windows over the panes just built, and street lamps. A wet street
 // is a mirror for lamps, and a daytime city has almost none. See game/citylights.js. Their own
@@ -674,11 +668,24 @@ scene.add(markOccluder(propsMesh));
 // the AO prepass, for the river water's reasons (`pondWaterMesh` in city/pond.js). Null under
 // `?water=classic`, whose flat fan is still in `propsMesh`.
 if (props.pondMesh) scene.add(props.pondMesh);
+// The graveyard — the third block `createLayout` took out of the tower generator's hands. Scenery
+// only: not tappable, nothing routes into it. `null` on `?graveyard=classic` or a city with no
+// room, and nothing below needs to know. See city/graveyard.js.
+// Built here rather than beside the depot and the burger joint because its tree has to be planted
+// before the leaf cards below are dressed onto every tree, and its stones placed before the grass
+// below keeps off them.
+const graveyard = layout.graveyardBlock
+  ? createGraveyard(layout.graveyardBlock, makeRng(seed + 131)) : null;
+if (graveyard) {
+  scene.add(graveyard.group);
+  graveyard.meshes.forEach(markOccluder);
+}
 // Tufts of long grass on the same lawns, kept out of the furniture `createProps` just placed. Its own
 // stream, so retuning the grass moves no tree. **Not** `markOccluder`: the AO prepass would draw
 // every card as a solid quad. See city/grass.js.
 // The edge lawns (north park, park shore, south shore) grow the same tufts in the same mesh, off
-// a stream of their own and kept off the L's columns where it walks across them.
+// a stream of their own and kept off the L's columns where it walks across them. The graveyard's
+// lawn grows them last, off a third stream (`?gravegrass=classic` leaves it flat).
 const lColumns = new URLSearchParams(window.location.search).get('ltrain') !== 'classic'
   ? (() => { const plan = planLTrain(); return plan ? plan.columns.map((a) => plan.world(a)) : []; })() : [];
 const grass = createGrass(makeRng(seed + 122), layout, props, {
@@ -686,21 +693,10 @@ const grass = createGrass(makeRng(seed + 122), layout, props, {
   areas: [northPark?.grass, parkShoreStrip?.grass, southShore?.grass].filter(Boolean),
   avoid: (x, z, reach) => lColumns.some((c) => Math.abs(x - c.x) < LTRAIN_DIMENSIONS.FOOTING_W / 2 + reach
     && Math.abs(z - c.z) < LTRAIN_DIMENSIONS.FOOTING_W / 2 + reach),
-});
+}, graveyard ? { area: graveyard.grass, rng: makeRng(seed + 124) } : null);
 scene.add(grass.mesh);
 // Leaf cards round every tree crown — the parks', the medians' and the courtyard's — on the same
 // terms as the grass. See city/canopyfuzz.js.
-// The graveyard — the third block `createLayout` took out of the tower generator's hands. Scenery
-// only: not tappable, nothing routes into it. `null` on `?graveyard=classic` or a city with no
-// room, and nothing below needs to know. See city/graveyard.js.
-// Built here rather than beside the depot and the burger joint because its tree has to be planted
-// before the leaf cards below are dressed onto every tree.
-const graveyard = layout.graveyardBlock
-  ? createGraveyard(layout.graveyardBlock, makeRng(seed + 131)) : null;
-if (graveyard) {
-  scene.add(graveyard.group);
-  graveyard.meshes.forEach(markOccluder);
-}
 // Every tree in the city, whoever planted it (`plantedCrowns`, city/props.js) — so a new kind of
 // tree can't come out without its leaves.
 const canopyFuzz = createCanopyFuzz(makeRng(seed + 144), plantedCrowns());
@@ -724,7 +720,8 @@ const skaterFlag = new URLSearchParams(window.location.search).get('skater');
 const skaters = (skaterFlag === 'classic' ? createClassicSkaters : createSkaters)(
   scene, makeRng(runSeed + 349), props.skatepark, { stiff: skaterFlag === 'stiff' });
 
-// The elevated train over the north-south arterial's median (`?lroute=classic`: the east-west one) — see game/ltrain.js. On by default
+// The elevated train down the north-south arterial's median and west along the east-west one's
+// (`?ltrainwest=classic`: straight on south; `?lroute=classic`: the east-west one only) — see game/ltrain.js. On by default
 // since 2026-10-11 (Tyler); `?ltrain=classic` takes it out for comparison. Built here rather than beside the boats because the entrance wave below has to
 // be handed it. Run seed: where the line runs is the arterial's, so the map's already; which way
 // the first train goes and how long the line stands empty is the situation.
@@ -749,6 +746,8 @@ const depotFlag = new URLSearchParams(window.location.search).get('depot');
 const garage = layout.garageBlock
   ? createGarage(layout.garageBlock, makeRng(seed + 99), {
     sign: depotFlag === 'classic' || depotFlag === 'model' ? depotFlag : 'cutout',
+    // `?depotneon=classic`: no blue tube round the roofline.
+    trim: new URLSearchParams(window.location.search).get('depotneon') !== 'classic',
   })
   : null;
 if (garage) {
@@ -757,6 +756,16 @@ if (garage) {
   // ...and tappable, on the burger joint's terms (see below): a damaged taxi sent back here is
   // repaired, by the opening vignette played backwards and forwards again. See game/depotrun.js.
   garage.group.userData.pickable = 'depot';
+}
+// The depot's office windows, lit with the rest of the city when night or a squall comes over — so
+// only in a city with weather, like `litPanes`, and dark until the entrance wave is done the same
+// way. `?depotwindows=classic` leaves them dark.
+const depotPanes = garage && rain.enabled
+  && new URLSearchParams(window.location.search).get('depotwindows') !== 'classic'
+  ? switchedLights(garage.litWindows, 'depotWindows') : null;
+if (depotPanes) {
+  scene.add(depotPanes);
+  depotPanes.visible = false;
 }
 
 // The burger joint — the second block `createLayout` took out of the tower generator's hands, and
@@ -781,6 +790,19 @@ if (burger) {
   // mass is the one version that can never cover a marker the player can see past it.
   burger.group.userData.pickable = 'burger';
 }
+// The roadside business — the fourth block `createLayout` took from the towers, a car wash or a gas
+// station as the city seed rolls it (`?roadside=carwash` / `=gas` pins one) — and the inflatable tube man flailing on its corner, which is what
+// it is there for. Scenery only: not tappable, nothing routes into it. `null` on
+// `?roadside=classic` or a city with no room. See city/roadside.js. The tube man is
+// not tappable either: 4.5 units of tall thin target is exactly the shape that steals taps from a
+// marker up-screen of it (CLAUDE.md). Where he stands is the map's; how he flails is the run's.
+const roadside = !layout.roadsideBlock ? null
+  : (roadsideKind(seed) === 'gas' ? createGasStation : createCarWash)(layout.roadsideBlock, makeRng(seed + 141));
+if (roadside) {
+  scene.add(roadside.group);
+  roadside.meshes.forEach(markOccluder);
+}
+const tubeMan = createTubeMan(scene, makeRng(runSeed + 331), roadside?.site.tubeMan ?? null, roadside?.entry ?? null);
 
 // Which kerb corners this camera can see, settled once now that everything permanent is standing.
 // The board consults it when it places a marker — a rider, a drop-off ring or a courier pad on a
@@ -789,8 +811,8 @@ if (burger) {
 // the trees, and the depot. Nothing transient does — a construction zone is 3 units of barrier and
 // comes and goes, and the boards would have to be re-asked every time one moved.
 const occluders = setCityOccluders(
-  city.mesh, propsMesh, ...(garage?.meshes ?? []), ...(burger?.meshes ?? []),
-  ...(graveyard?.meshes ?? []),
+  city.mesh, ...(city.domeMesh ? [city.domeMesh] : []), propsMesh, ...(garage?.meshes ?? []),
+  ...(burger?.meshes ?? []), ...(graveyard?.meshes ?? []), ...(roadside?.meshes ?? []),
 );
 // The same field is what the cars' paint reflects (`propMaterial({ gloss })`, util/geo.js).
 setGlossCity(occluders, SKYLINE_CEILING);
@@ -839,6 +861,8 @@ const combo = createComboMeter({ scope: comboScope(new URLSearchParams(window.lo
 const ratingOn = new URLSearchParams(window.location.search).get('rating') !== 'off';
 const fares = createFareSystem(makeRng(runSeed + 55), scene, {
   rating: ratingOn,
+  // The bank rider's coin loads with every one who rides — BANK_ROBBER_STEP in game/fares.js.
+  risingOdds: new URLSearchParams(window.location.search).get('robberyodds') !== 'classic',
   reserved: () => parcels?.occupiedSpots() ?? [],
   judgeRun: () => combo.judge(),
 });
@@ -1021,6 +1045,11 @@ const robberLine = city.bank && !shot
 // bystander shoved over, the run to the cab — before the robber's line. See game/bankjob.js; the
 // module itself is built further down, once the cash trail it sheds notes into exists.
 const robberyIntro = new URLSearchParams(window.location.search).get('robbery') !== 'classic';
+// ...framed on the screen around everything in it, with the L's deck thinned over the shove
+// (`frameCut` in game/bankjob.js). `?robberycam=classic` is the first framing, averaged in the ground
+// plane round the cab, which put the bank at the edge of an upright phone whenever the cab was
+// picked up across the street.
+const classicRobberyCam = new URLSearchParams(window.location.search).get('robberycam') === 'classic';
 // ...and it starts with the bank rider: a fare on the bank's steps, a coin tossed when they spawn,
 // and the robber taking their seat on tails (BANK_CHANCE in game/fares.js). `?bankfare=classic`
 // keeps the drive-past, with a bystander always outside and the alarm always on the building.
@@ -1112,7 +1141,24 @@ function boardSound() {
 
 // The sound — see game/sfx.js. Silent in shot mode, which renders stills and has nobody listening.
 // Its own stream, which draws the take each one-shot plays (the designer's A/B/C variants).
-const sfx = shot ? null : createSfx({ rng: makeRng(runSeed + 811) });
+// `menuMusic`: the title menu plays songs alone and Play cuts to the announcer (`goOnAir` in
+// `beginRun`); with no title screen, `beginRun` runs at boot and the radio opens on the intro as
+// ever. `?menumusic=classic` opens on the intro under the menu too. `?songs=classic` puts the four
+// songs Nicolás's replaced back on the station.
+const sfx = shot ? null : createSfx({
+  rng: makeRng(runSeed + 811),
+  menuMusic: new URLSearchParams(window.location.search).get('menumusic') !== 'classic',
+  classicSongs: new URLSearchParams(window.location.search).get('songs') === 'classic',
+  // The DJ talks over the edges of the songs; `?radiofade=classic` cuts hard between tracks.
+  radioFade: new URLSearchParams(window.location.search).get('radiofade') !== 'classic',
+});
+// The dash radio (`DASH` in game/sfx.js): Play puts the station in the taxi's own speakers, and it
+// opens out into the full mix when the car rolls out of its garage. `?radiointro=classic` keeps the
+// station full-range from Play.
+const dashRadio = new URLSearchParams(window.location.search).get('radiointro') !== 'classic';
+// The vignette beats the car is still in its garage for, so the radio stays in the dash. Anything
+// else — `roll` onward, a skip, `?vignette=off`, a city with no depot — opens it.
+const DASH_PHASES = new Set(['wait', 'approach', 'settle', 'door', 'reveal']);
 // The ⚙️ panel's handle once it exists (`createDebugPanel` at the bottom of the file), so the frame
 // can ask whether it is open — the sound rings below show only then.
 let debugPanel = null;
@@ -1142,6 +1188,14 @@ window.addEventListener('keydown', (event) => {
 // crosses town edge to edge with its bar swinging red and blue, and comes after you if you boost in
 // front of it. "Pull over!" goes up over its roof the moment it does (game/copshout.js).
 const police = createPolice(scene);
+// ...and the extra cruisers the harder Difficulty modes put on patrol (`extraPatrols` in
+// game/difficulty.js), one per patrol the hardest mode can have. All built up front, so a mode
+// switched from the pause screen has its cars ready; until one wears a car it is a hidden shell and
+// costs no draw. No lamps on these: see `createPolice`.
+const cruisers = [police, ...Array.from(
+  { length: Math.max(...Object.values(difficulty.MODES).map((m) => m.tuning.extraPatrols ?? 0)) },
+  () => createPolice(scene, { lamps: false }),
+)];
 // The cops no longer talk during a chase — no "pull over" on spotting, no "lost the suspect" when
 // they give up (Tyler, 2026-10-13): the bar, the strobe and the chirp already say both. The bubbles
 // come back with `?copchat=classic`. The robbery's dispatch call is a different thing and stays.
@@ -1161,9 +1215,16 @@ const getaway = () => Boolean(robbery?.state.active);
  * game/tutorial.js.
  */
 const hushTips = () => getaway() || patrol.busy();
-const patrol = createPatrol({
-  rng: makeRng(runSeed + 66),
-  police,
+// How the police end a run (game/patrol.js, "The capture model"): a hit on a cop is a hit on a car,
+// and "Busted!" is being pinned — stopped with a chasing cop's bumper on you — by the patrol or by a
+// getaway's fleet alike. `?capture=classic` keeps the three rules it replaced: any patrol touch is
+// the bust, a boosted hit on any cop is the wreck, and a getaway's cops never arrest anybody.
+const captureClassic = new URLSearchParams(window.location.search).get('capture') === 'classic';
+const getawayPin = createPin(traffic.taxi);
+const makePatrol = (cruiser, k) => createPatrol({
+  // The first keeps the stream it always had, so an Easy run is the run it was.
+  rng: makeRng(k === 0 ? runSeed + 66 : runSeed + 6600 + k),
+  police: cruiser,
   traffic,
   taxi: traffic.taxi,
   // A robbery owns the streets while it runs, and its cops are still in the shared fleet while
@@ -1175,14 +1236,63 @@ const patrol = createPatrol({
     sfx?.play('chirp', { at: placeAt(cop.x, cop.z) });
   },
   onCaught: (cop, ram) => bustByPolice(ram),
+  capture: !captureClassic,
+  // A cop that loses you goes back on patrol, bar swinging; `?standdown=classic` has it go dark and
+  // drive off the map instead.
+  resume: new URLSearchParams(window.location.search).get('standdown') !== 'classic',
+  // A ram at speed is a hit like any other, charged through the same path a boosted one is.
+  onRammed: (cop) => { collisions.strike(cop); },
   // Said by the cruiser that lost you, from over its own roof — `?copchat=classic` only.
   onLost: (cop) => { if (copChat && !fares.state.gameOver) radio?.show(LOST_CALL, cop); },
   onHid: (cop) => { if (copChat && !fares.state.gameOver) radio?.show(LOST_CALL, cop); },
 });
+/**
+ * Every patrol, behind the one-patrol interface the rest of this file was written against. Each runs
+ * its own life (its own cruiser, cooldown, chase and pin), and `difficulty.patrolCount()` says how
+ * many may be out: one on Easy, two on Regular, three on Hard. One that drops out of the count
+ * mid-run (the mode switched down) finishes whatever it is doing before it stops.
+ *
+ * `state` is the busy patrol's when there is one, so the chase siren and the tips read the chase,
+ * and the first patrol's otherwise.
+ */
+const patrols = cruisers.map(makePatrol);
+// A run opens with a patrol due (5-12s); the extras come in later and a little apart, rather than
+// three cruisers arriving in the same breath.
+patrols.forEach((p, k) => { p.state.cooldown += k * 12; });
+const patrolOut = (p, k) => k < difficulty.patrolCount() || p.state.phase !== 'off';
+const patrol = {
+  get state() { return (patrols.find((p) => p.busy()) ?? patrols[0]).state; },
+  update(dt, opts) { patrols.forEach((p, k) => { if (patrolOut(p, k)) p.update(dt, opts); }); },
+  setCooldownRange(range) { for (const p of patrols) p.setCooldownRange(range); },
+  // A getaway's cop handed over goes to a patrol with no car of its own first, so the hand-off
+  // does not take a cruiser off the road mid-crossing; failing that, to the first, as it always did.
+  pursueNearest(cops) {
+    const free = patrols.filter((p, k) => patrolOut(p, k) && !p.state.cop);
+    for (const p of free.length ? free : [patrols[0]]) {
+      const cop = p.pursueNearest(cops);
+      if (cop) return cop;
+    }
+    return null;
+  },
+  rammed(cop) { for (const p of patrols) p.rammed(cop); },
+  hideout() { return patrols.map((p) => p.hideout()).some(Boolean); },
+  busy: () => patrols.some((p) => p.busy()),
+};
 // Boost, then two quick taps of the brake: the taxi spins round onto the far lane. See game/bootleg.js.
 setSpinStyle(getUturnStyle());
 // The drift launch rolls the taxi a full turn in mid-air; `?barrelroll=classic` flies it level.
 setBarrelRoll(new URLSearchParams(window.location.search).get('barrelroll'));
+// The taxi waits for a car already turning left before pulling out round it; `?passturn=classic`
+// pulls out anyway and grinds along its flank, as before.
+setPassTurnGate(new URLSearchParams(window.location.search).get('passturn'));
+// A swinging-out taxi keeps its pace instead of matching the car it is going round, and a truck it
+// is passing stops holding it back through junctions; `?passpace=classic` puts both back.
+setPassPace(new URLSearchParams(window.location.search).get('passpace'));
+// The overtake combo also swerves round a car stopped or creeping in the junction ahead;
+// `?swerve=classic` keeps it for leaders only.
+setDodge(new URLSearchParams(window.location.search).get('swerve'));
+// A hop always comes down; `?hop=classic` lets the brake park the taxi in mid-air again.
+setHopStyle(new URLSearchParams(window.location.search).get('hop'));
 const bootleg = createBootleg({
   taxi: traffic.taxi,
   destination: () => traffic.taxi.pendingTarget ?? null,
@@ -1212,6 +1322,9 @@ function overtakeGrace(params) {
 const overtake = createOvertakeCombo({
   taxi: traffic.taxi,
   grace: overtakeGrace(new URLSearchParams(window.location.search)),
+  // A fresh press behind a car is tailgated for OVERTAKE_PRESS_GRACE, so the combo's first tap
+  // from a taxi already sitting behind one is not itself a ram. `?pressgrace=classic` drops it.
+  ...(new URLSearchParams(window.location.search).get('pressgrace') === 'classic' ? { pressGrace: 0 } : {}),
 });
 // The vehicles, so a car reads as sitting *on* the road rather than pasted over it. The stop bars
 // are left out deliberately — they are 0.05-unit road paint, and their own outline is not a
@@ -1225,7 +1338,7 @@ markOccluder(traffic.truckBoxMesh);
 markOccluder(traffic.bumperMesh);
 markOccluder(traffic.truckBumperMesh);
 markOccluder(traffic.taxiGroup);
-markOccluder(police.group);
+for (const cruiser of cruisers) markOccluder(cruiser.group);
 
 // --- What glows ---------------------------------------------------------------------------
 // The bloom's draw list, marked here for the reason the AO occluders are: `sim/` may not import
@@ -1252,15 +1365,19 @@ if (taxiHeadlights) {
   markEmissive(taxiHeadlights.pods, 'pod');
 }
 if (lamps) markEmissive(lamps.heads, 'bay');
-for (const mesh of police.emissiveMeshes) markEmissive(mesh, 'siren');
+for (const mesh of cruisers.flatMap((c) => c.emissiveMeshes)) markEmissive(mesh, 'siren');
 if (ltrain?.lamps) markEmissive(ltrain.lamps, 'pod');
-// One mesh, three lit things: the pickup window, the menu board and the neon round the roofline
-// are merged into `burger.glow` (see city/burgerjoint.js), so the neon arrived in the bloom with
-// nothing to wire.
-if (burger) markEmissive(burger.glow, 'window');
-if (graveyard) markEmissive(graveyard.glow, 'window');
-if (garage) markEmissive(garage.light, 'bay');
-if (garage?.neon) markEmissive(garage.neon, 'window');
+// The landmarks name their own lit meshes (`LANDMARK.glow` in each module), the same list the
+// workshop's bench blooms, so a landmark cannot glow on one and not the other. One mesh can be
+// three lit things: the burger joint's pickup window, menu board and roofline neon are all merged
+// into its `glow`, so the neon arrived in the bloom with nothing to wire.
+for (const [built, landmark] of [
+  [burger, BURGER_LANDMARK], [graveyard, GRAVEYARD_LANDMARK], [garage, GARAGE_LANDMARK],
+  [roadside, roadsideKind(seed) === 'gas' ? GAS_LANDMARK : CARWASH_LANDMARK],
+]) {
+  if (built) for (const [mesh, kind] of landmark.glow(built)) markEmissive(mesh, kind);
+}
+if (depotPanes) markEmissive(depotPanes, 'window');
 // The riders. They receive AO through `propMaterial()` either way, so leaving them out of the
 // prepass would paint the kerb's own contact line across whoever is standing in front of it.
 // Only the figure is taken — `markOccluder` filters out the translucent target disc under them.
@@ -1278,7 +1395,7 @@ for (const slot of fares.slots) markOccluder(slot.passenger.group);
 // hull on every axis but a sliver, and at play zoom a truck is a shape while the taxi is *read*.
 if (cartoonEnabled) {
   cartoon.outline(traffic.taxiGroup, { group: 'taxi' });
-  cartoon.outline(police.group);
+  for (const cruiser of cruisers) cartoon.outline(cruiser.group);
   for (const source of [traffic.mesh, ...traffic.classicDrawn, traffic.truckMesh, traffic.truckBoxMesh]) {
     scene.add(...cartoon.fleet(source));
   }
@@ -1414,8 +1531,8 @@ const spray = createSpray(scene, makeRng(seed + 78));
 const cityEntry = createCityEntry({
   // The garage rises with everything else, shell and shutter alike — both are stamped with the one
   // anchor, so it comes up as a building rather than as a building and a door.
-  meshes: [city.mesh, ...(westEdge ? [westEdge.towers] : []), propsMesh, grass.mesh, canopyFuzz.mesh, ...(garage?.meshes ?? []),
-    ...(burger?.meshes ?? []), ...(graveyard?.meshes ?? []),
+  meshes: [city.mesh, ...(city.domeMesh ? [city.domeMesh] : []), ...(westEdge ? [westEdge.towers] : []), propsMesh, grass.mesh, canopyFuzz.mesh, ...(garage?.meshes ?? []),
+    ...(burger?.meshes ?? []), ...(graveyard?.meshes ?? []), ...(roadside?.meshes ?? []),
     ...(lamps ? [lamps.posts, lamps.heads] : []),
     ...(props.courtMesh ? [props.courtMesh] : []), ...(props.skateMesh ? [props.skateMesh] : []),
     ...(props.pondMesh ? [props.pondMesh] : [])],
@@ -1425,9 +1542,10 @@ const cityEntry = createCityEntry({
   objects: [...(garage ? [garage.entryObject] : []), ...(burger ? [burger.entryObject] : []),
     ...(graveyard ? [graveyard.entryObject] : []),
     ...hoopers.entryObjects, ...boombox.entryObjects, ...skaters.entryObjects,
-    ...(ltrain?.entryObjects ?? [])],
+    ...tubeMan.entryObjects, ...(roadside?.entryObjects ?? []), ...(ltrain?.entryObjects ?? [])],
   sites: [...city.entrySites, ...(garage ? [garage.entrySite] : []),
-    ...(burger ? [burger.entrySite] : []), ...(graveyard ? [graveyard.entrySite] : [])],
+    ...(burger ? [burger.entrySite] : []), ...(graveyard ? [graveyard.entrySite] : []),
+    ...(roadside ? [roadside.entrySite] : [])],
   dust,
   // The spawn point for now — the wave is re-aimed at the taxi's *post-warmup* position at the
   // bottom of this file, which is where the player actually first sees the car.
@@ -1437,10 +1555,10 @@ const cityEntry = createCityEntry({
 // is still being laid after the last building has landed.
 const replayLTrainIntro = (from) => ltrain?.intro?.start(from, cityEntry.tuning());
 replayLTrainIntro(traffic.taxi);
-if (litPanes || lamps) {
+if (litPanes || lamps || depotPanes) {
   rainLightsOn = () => {
     if (cityEntry.running()) return;
-    for (const mesh of [litPanes, lamps?.pools]) if (mesh) mesh.visible = true;
+    for (const mesh of [litPanes, lamps?.pools, depotPanes]) if (mesh) mesh.visible = true;
     rainLightsOn = null;
   };
 }
@@ -1478,6 +1596,8 @@ const bankJob = robbery && robberyIntro
     setDoor: traffic.setTaxiDoor,
     play: (name, x = null, z = null) => sfx?.play(name, x === null ? {} : { at: placeAt(x, z) }),
     scenery: !bankFare,
+    skippable: new URLSearchParams(window.location.search).get('robberyskip') === 'classic',
+    classicFraming: classicRobberyCam,
   })
   : null;
 if (bankJob && bankFare) {
@@ -1487,6 +1607,9 @@ if (bankJob && bankFare) {
     z: bankJob.home.z,
     away: bankJob.along,
     swapReady: () => robbery.swapReady(),
+    // Collected level with the steps, routed down the bank's own street (BANK_REACH_ALONG in
+    // game/fares.js). `?bankpickup=classic`: the junction's ARRIVE_RADIUS, from any side.
+    tight: new URLSearchParams(window.location.search).get('bankpickup') !== 'classic',
   });
 }
 // The other half of the tailpipe: `flames` is the bark on the press, this is the plume that burns
@@ -1533,7 +1656,7 @@ const struckGlass = createWindshield(scene, { rng: makeRng(runSeed + 921), roadY
 const tape = shot ? null : createTape(scene, {
   // ...and the patrol cruiser, which is a group of its own rather than an instance: left off, a
   // patrol the taxi rammed was missing from every cut of its own crash.
-  roots: [traffic.taxiGroup, police.group],
+  roots: [traffic.taxiGroup, ...cruisers.map((c) => c.group)],
   exclude: (mesh) => mesh.name === 'boat-wake',
 });
 const replayOverlay = document.getElementById('replay');
@@ -1732,7 +1855,23 @@ const harborShips = createHarborShips(scene, makeRng(runSeed + 431), harbor?.ber
 // emptiest road in the city with a ramp at each end. Run seed, like the flyover: which street and
 // when is part of the situation rather than part of the map.
 const roadwork = createRoadwork(makeRng(runSeed + 177), scene, camera);
+// Stuntman (Tyler, 2026-10-14): smashing through a barricade is a combo, and pays Loco back the way
+// a drift's first kick does. Any smash counts, at any speed — the taxi only gets there by being
+// routed down a street the city has closed, which is the choice; the hop off the trestle is what
+// it earns. `?stuntman=classic` keeps the smash as scenery and nothing else.
+const stuntman = new URLSearchParams(window.location.search).get('stuntman') !== 'classic';
+const STUNTMAN_FUEL = DRIFT_CHAIN.fuel[0];
 roadwork.onSmash(({ x, z }) => {
+  if (stuntman && !fares.state.gameOver) {
+    flyEnergyToBoost({
+      from: taxiScreenPos,
+      to: fuelScreenPos,
+      delay: 0,
+      onArrive: () => boost.topUp(STUNTMAN_FUEL),
+    });
+    haptic('drift-kick');
+    landCombo('stuntman');
+  }
   // Just under half the wreck's 2.4. It was 0.55, which is the shake a *kerb* would earn — this is
   // a trestle exploding across the windscreen, and the camera has to admit that something happened.
   // Still short of the wreck, because the wreck ends the run and this does not.
@@ -1999,10 +2138,11 @@ const TAXI_KEEP = 0.8;          // and the taxi this much less, for having hit s
 const SHELL_SPIN = 0.6;
 const STRUCK_SPIN = 1.9;
 
-// Ramming a police car is the wreck, whatever the taxi's HP (`lethalPolice` in sim/collisions.js).
-// `?cop=classic` keeps the old rule: a cop is priced like any other car.
+// A police car is priced like any other car (the capture model, above). Under `?capture=classic`,
+// ramming one is the wreck whatever the taxi's HP (`lethalPolice` in sim/collisions.js, #466) —
+// unless `?cop=classic` as well, which was the rule before that.
 const collisions = createCollisions(traffic.cars, traffic.taxi, {
-  lethalPolice: new URLSearchParams(window.location.search).get('cop') !== 'classic',
+  lethalPolice: captureClassic && new URLSearchParams(window.location.search).get('cop') !== 'classic',
 });
 
 // Hit points. Arming `hp` is what turns every contact but the last into a bump rather than the
@@ -2046,8 +2186,10 @@ collisions.onBump(({ x, z, closing, nx, nz, speed, rearEnd, other, taxiStruck, d
   hitCue?.hit({ damage, hp, taxi });
   const yaw = traffic.taxi.yaw;
   // Ramming the patrol car on the pill is a bump like any other, not a bust — game/patrol.js
-  // `rammed`. The collision pass runs before the patrol's, so this lands the same frame.
-  if (taxiStruck && other.police) patrol.rammed(other);
+  // `rammed`. The collision pass runs before the patrol's, so this lands the same frame. Under the
+  // capture model the cop ramming a boosting taxi is the same hit, already charged here, so the
+  // patrol is told either way — or it would charge the same contact a second time as its own ram.
+  if (other.police && (taxiStruck || !captureClassic)) patrol.rammed(other);
   // Every bump costs HP, and any HP lost empties the combo meter (game/combometer.js). When it was
   // showing a streak, the hand is told it has gone as the meter falls.
   if (combo.damage()) {
@@ -2248,6 +2390,11 @@ const wetTracks = createSkidMarks(scene, {
 // Lane-width, so it is sized in world units and needs no pixel factor: it is paint on the road
 // rather than an overlay drawn at a constant screen weight.
 const routeLine = createRouteLine(scene);
+// Out of the rain's mirror, like the lamp pools: it is paint on the road, and it sits at exactly the
+// mirror's clip height (both 0.03), so whether it made the reflection came down to rounding. Measured
+// headless: 3,128 mirror pixels at its own height, none 0.5mm lower. On a phone that tie flipped as
+// the camera moved and the band flashed in every wet street and puddle it crossed.
+rain.hideInMirror(routeLine.mesh);
 
 // `?blend=additive` picks how the band combines with the road. A URL parameter as well as the
 // ⚙️ dropdown because a screenshot has to be able to pin it: the panel doesn't exist in shot mode.
@@ -2328,9 +2475,11 @@ function onwardFrom(target) {
  * finger that slipped and a tap cannot slip (see `TAP_MAX_DETOUR` in game/parcels.js).
  *
  * `onto` names the *direction* the taxi has to be travelling when it gets there, which turns the
- * destination from a junction into a lane. Only the burger run asks for one — the drive-through's
- * mouth opens off one kerbside lane and a route that arrives from any other side drives past it —
- * and `findRouteOnto` carries why the obvious `via` version does not work.
+ * destination from a junction into a lane. The burger run and the depot run ask for one — the
+ * drive-through's mouth opens off one kerbside lane and a route that arrives from any other side
+ * drives past it — and `findRouteOnto` carries why the obvious `via` version does not work. A target
+ * can also carry its own: the bank rider's does (`bankApproach` in game/fares.js), so every re-plan
+ * of that trip — a tap, a drag, a reset — keeps coming down the bank's street without being told.
  *
  * `along` is a tapped street, `{ a, b }`, which the route has to drive down rather than merely touch
  * — see game/streettap.js. It takes `maxDetour` the way `via` does, and never comes with `onto`:
@@ -2340,7 +2489,7 @@ function onwardFrom(target) {
  * keeps the same destination must pass the same object rather than an equal one — otherwise every
  * frame of a drag replays the sweep and the band never finishes drawing itself.
  */
-function routeTo(target, { via = null, along = null, maxDetour, onto = null } = {}) {
+function routeTo(target, { via = null, along = null, maxDetour, onto = target?.onto ?? null } = {}) {
   const car = traffic.taxi;
   const plan = (from) => (along
     ? findRouteAlong(from, along, target, { maxDetour })
@@ -2472,6 +2621,8 @@ function divertToParcel(parcel) {
 function tapStreet(ray) {
   if (!ray || !pathDrag || !canBendRoute()) return;
   if (burgerRun?.active() || depotRun?.active()) return;
+  // Same for the bank rider, whose target carries its lane (see `routeTo`): `along` has no `onto`.
+  if (traffic.taxi.pendingTarget?.onto != null) return;
   const point = ray.intersectPlane(GROUND_PLANE, tapPoint);
   if (!point) return;
   // A finger on a roof is a finger on the roof. The ray reaches the ground a long way up-screen of
@@ -2784,6 +2935,42 @@ function panToTaxi() {
   });
 }
 
+// The camera comes home on its own, too. A swipe hands the framing to the player, and for a long time
+// nothing took it back: on a phone the city is bigger than the frame, so a look across town ended
+// with the taxi lost somewhere in a busy frame or off it entirely, found again by dragging the map
+// by hand. This is a fast game and a look is a glance, so once the map has been left alone for
+// CAMERA_RETURN_IDLE seconds the camera rides back to the car (`panToTaxi`, flash and all), and the
+// follow-cam picks it up from there. Any touch on the map restarts the count, and a finger resting
+// on it holds it, so reading the map with a thumb down never gets yanked away.
+// `?camreturn=classic` leaves the camera wherever the player put it.
+//
+// 1.5 seconds is a feel pick after playing the first guess of 3, not a measurement. It is a trade
+// with the edge arrow's look-out (below), which was deliberately *not* put on a timer: a player who
+// rode out to a fare and is deciding whether to take it can be reading the board, not touching it.
+const CAMERA_RETURN_IDLE = 1.5;
+const cameraReturns = new URLSearchParams(window.location.search).get('camreturn') !== 'classic';
+let cameraIdle = 0;
+let fingersOnMap = 0;
+if (!shot && cameraReturns) {
+  const el = renderer.domElement;
+  el.addEventListener('pointerdown', () => { fingersOnMap++; cameraIdle = 0; });
+  const lift = () => { fingersOnMap = Math.max(0, fingersOnMap - 1); cameraIdle = 0; };
+  el.addEventListener('pointerup', lift);
+  el.addEventListener('pointercancel', lift);
+  el.addEventListener('pointermove', () => { if (fingersOnMap > 0) cameraIdle = 0; });
+  el.addEventListener('wheel', () => { cameraIdle = 0; }, { passive: true });
+}
+function updateCameraReturn(dt) {
+  const waiting = cameraReturns && cameraTakenOver && isNarrow() && fingersOnMap === 0
+    && !fares.state.gameOver && !controller.isGliding() && !endSpot
+    && !title?.holding() && !opening?.holdsCamera() && !tutorial?.holdsCamera();
+  if (!waiting) { cameraIdle = 0; return; }
+  cameraIdle += dt;
+  if (cameraIdle < CAMERA_RETURN_IDLE) return;
+  cameraIdle = 0;
+  panToTaxi();
+}
+
 // A tap on an off-screen fare's edge arrow (see game/farepointers.js): ride the camera to the mark
 // the arrow was pointing at. The third of the three camera shortcuts, and the plainest — it is a
 // pan the player would otherwise have made by dragging the map in that direction and guessing when
@@ -2857,7 +3044,17 @@ const taxiFinder = createTaxiFinder({
 // game/cargochip.js. Built only when the layer is on, because it opens a WebGL context of its own
 // and a run under `?parcels=0` can never have anything to put in it.
 const cargoChip = parcels ? createCargoChip({ sun, hemi }) : null;
-// The 🚨 on the cash row while the police are after the taxi; `?chasesiren=classic` goes without.
+// The NES pedals (Tyler, 2026-10-15): B and A on plastic buttons with a dished centre, a shorter
+// fuel arc, and the 🚨 standing over Loco Mode rather than on the cash row. `?pedals=classic` puts
+// back the round pedals with their stop and lightning icons, the wider arc, and the siren beside
+// the pause. Both pedal drawings ship in the markup; the body class picks one (index.html).
+if (new URLSearchParams(window.location.search).get('pedals') === 'classic') {
+  document.body.classList.add('pedals-classic');
+  useClassicFuelArc();
+  const siren = document.getElementById('chase-siren');
+  if (siren) document.getElementById('hud')?.appendChild(siren);
+}
+// The 🚨 over Loco Mode while the police are after the taxi; `?chasesiren=classic` goes without.
 const chaseSiren = new URLSearchParams(window.location.search).get('chasesiren') !== 'classic'
   ? createChaseSiren() : null;
 const farePointers = createFarePointers({
@@ -2879,6 +3076,17 @@ const farePointers = createFarePointers({
 // The other half of the same problem, aimed the other way: the drop-off is somewhere the player is
 // driving to, and the police car is something driving at them. See game/sirenglow.js.
 const sirenGlow = createSirenGlow({ camera, viewport });
+const nearestLitCruiser = () => {
+  let best = police;
+  let bestD = Infinity;
+  for (const cruiser of cruisers) {
+    if (!cruiser.state.lit) continue;
+    const at = cruiser.group.position;
+    const d = Math.hypot(at.x - traffic.taxi.x, at.z - traffic.taxi.z);
+    if (d < bestD) { best = cruiser; bestD = d; }
+  }
+  return best;
+};
 // The robbery's version of the same light: round every edge at once while a getaway runs, since
 // four cop cars on every side have no one bearing to point at. See game/robberyglow.js.
 const robberyGlow = createRobberyGlow({ viewport });
@@ -4478,7 +4686,8 @@ function placeAt(x, z, y = 0) {
   const ear = controller.state.target;
   const d = Math.hypot(x - ear.x, z - ear.z);
   placeProbe.set(x, y, z).project(camera);
-  return { d, pan: placeProbe.x };
+  // Framed as a phone (the ⚙️ panel's 📱), the screen's edges are the frame's, not the window's.
+  return { d, pan: placeProbe.x * (phoneFrame?.panScale() ?? 1) };
 }
 
 // The street works: one zone a run, heard from the middle of its closed block while it stands.
@@ -4550,7 +4759,8 @@ function ambientLevels() {
 }
 
 // The one-shots: read off each system's own counters and phases, so none of them needs a callback
-// it did not already have. Every one is a no-op until the first tap has started the audio.
+// it did not already have. Every one is a no-op until the first tap has started the audio, and
+// until its own file has decoded.
 const birdCounts = flocks.map((f) => ({ up: f.state.flights, down: f.state.landings }));
 let lastBridgePhase = drawbridge?.state.phase ?? null;
 let bridgeVoice = null;
@@ -4561,6 +4771,7 @@ let lastVisits = chopper.state.visits;
 let heliVoice = null;
 let lastOpeningPhase = null;
 let spawnHeard = false;
+let lastEntryT = 0;
 // The aeroplane's run is ~10s of which the middle ~6 are on screen; the master is 7.25s, so it
 // starts this far in, which centres it on the pass. It is steered by distance besides.
 const PLANE_LEAD = 1.4;
@@ -4570,10 +4781,16 @@ const PLANE_LEAD = 1.4;
 const BRIDGE_SECONDS = 26;
 
 function cityOneShots(dt) {
-  if (!sfx?.state.ready) return;
-  // The city building itself, once, on the first frame there is both an entrance and a context.
-  if (!spawnHeard && cityEntry.running()) { sfx.play('spawn'); spawnHeard = true; }
-  if (!cityEntry.running()) spawnHeard = true;
+  if (!sfx) return;
+  // The city building itself, once per entrance, on the first frame of it there is a context and a
+  // decoded spawn take — `play` answers null until both, so this keeps asking for as long as the
+  // city is still rising and gives up once it has risen. Not gated on `sfx.state.ready`: that waits
+  // for all ~75 files, and on a slow decode the entrance was over first and the spawn never played.
+  // Re-armed when the entrance's clock goes back to zero, which is the ⚙️ panel's replay.
+  const entryT = cityEntry.time();
+  if (entryT < lastEntryT) spawnHeard = false;
+  lastEntryT = entryT;
+  if (!spawnHeard && cityEntry.running() && sfx.play('spawn')) spawnHeard = true;
 
   // The depot's door going up at the start of a run. Only out of 'settle' — the repair visit's
   // second 'door' is the same door already running.
@@ -4640,6 +4857,141 @@ function cityOneShots(dt) {
   }
 }
 
+// The ⚙️ panel's ⚡ buttons (game/audiopanel.js): make the rare thing behind a sound happen now,
+// rather than waiting a minute or three for it. Each one starts the *real* event — the systems'
+// own `launch`/`visit`/`takeOff`/`request`, the ones shot mode stages with — so the sound arrives
+// through `cityOneShots` above, placed and steered exactly as in play. Each answers null, or why
+// it could not.
+const soundTriggers = {
+  spawn: () => { cityEntry.replay(traffic.taxi); replayLTrainIntro(traffic.taxi); return null; },
+  plane: () => {
+    if (flyover.state.active) return 'already crossing';
+    flyover.launch();
+    return null;
+  },
+  heli: () => {
+    if (!chopper.group) return 'no helipad in this city';
+    if (chopper.state.mode !== 'away') return 'already on a visit';
+    chopper.visit();
+    return null;
+  },
+  // The flock nearest the taxi, since a scatter is heard from where the birds are. Its landing,
+  // `birdsDown`, follows on its own once it has settled again.
+  birdsUp: () => {
+    const grounded = flocks.filter((f) => f.state.mode === 'ground');
+    if (!grounded.length) return 'every flock is in the air';
+    const t = traffic.taxi;
+    const dist = (f) => { const c = f.centre(); return Math.hypot(c.x - t.x, c.z - t.z); };
+    grounded.reduce((a, b) => (dist(b) < dist(a) ? b : a)).takeOff();
+    return null;
+  },
+  bridge: () => {
+    if (!drawbridge) return 'no drawbridge in this city';
+    if (drawbridge.state.phase !== 'open') return 'already cycling';
+    // Lowered again by its own hold (HOLD_SECONDS in game/drawbridge.js) with no boat to wait for.
+    drawbridge.request();
+    return null;
+  },
+  // The walk-off, staged: a rider on one fixed kerb corner storms off with the purple curse bubble
+  // (`fares.demoBail`), the camera peeks at them, and the sound plays from that corner — so what
+  // is heard can be seen (Tyler, October 2026). Placed sounds are heard from the 👂, the camera's
+  // target, and the peek is what brings the 👂 to that corner — so the sound is played as heard
+  // from where the camera is going (full level, centred) rather than from where it starts. Placed
+  // from the start of the pan, it could be past `far`, and a placed one-shot that far off is not
+  // played at all: that is how this button once did nothing while the label blamed the min gap.
+  angry: () => {
+    if (!sfx?.state.ready) return 'no audio yet (tap the game)';
+    const kerb = fares.demoBail();
+    if (!kerb) return 'every rider slot is busy';
+    releaseCameraToPlayer();
+    controller.peekAt(kerb.x, kerb.z, () => traffic.taxi, () => { cameraTakenOver = false; });
+    if (!sfx.play('angry', { at: { d: 0, pan: 0 } })) return 'inside its min gap';
+    return null;
+  },
+};
+soundTriggers.birdsDown = soundTriggers.birdsUp;
+
+// ⏸ Hold (the ⚙️ panel): one moving source frozen where it is — its own update skipped, so the
+// taxi and the rest of the city carry on — with its sound looping and steered off it, so the
+// falloff can be tuned by driving to and from something that stays put. Held, a source is
+// `{ sound, voice, flock? }`; `heldSounds` below loops each. Holding something that is not in the
+// air sends it up first and steps it to where it can be seen.
+const holds = { plane: null, heli: null, birds: null };
+const holdOf = (key) => (key === 'birdsUp' || key === 'birdsDown' ? 'birds' : key);
+function heldAt(which) {
+  if (which === 'plane') { const p = flyover.group.position; return placeAt(p.x, p.z, p.y); }
+  if (which === 'heli') return placeAt(chopper.state.x, chopper.state.z, chopper.state.y);
+  const c = holds.birds.flock.centre();
+  return placeAt(c.x, c.z);
+}
+function setHold(key, on) {
+  const which = holdOf(key);
+  const held = holds[which];
+  if (!on) {
+    if (!held) return null;
+    holds[which] = null;
+    // The plane and the chopper go on with the loop playing out as their own voice, steered as
+    // usual; the birds' scatter is only ever a one-shot, so it just fades.
+    if (which === 'plane' && held.voice) { sfx?.unloop(held.voice); planeVoice = held.voice; }
+    else if (which === 'heli' && held.voice) { sfx?.unloop(held.voice); heliVoice = held.voice; }
+    else if (held.voice) sfx?.release(held.voice, 0.3);
+    return null;
+  }
+  if (held) return null;
+  let flock = null;
+  if (which === 'plane') {
+    if (!flyover.state.active) {
+      flyover.launch();
+      // To the middle of the run, which is over the city (`s` runs -RUN_MARGIN..RUN_MARGIN).
+      while (flyover.state.active && flyover.state.s < 0) flyover.update(1 / 60);
+    }
+    lastFlights = flyover.state.flights;   // or `cityOneShots` starts its own pass on top
+    if (planeVoice) { sfx.release(planeVoice, 0.2); planeVoice = null; }
+  } else if (which === 'heli') {
+    if (!chopper.group) return 'no helipad in this city';
+    if (chopper.state.mode === 'away') {
+      chopper.visit();
+      // Down onto the pad; capped, in case a visit ever cannot finish its approach.
+      for (let step = 0; step < 60 * 30 && !['settle', 'idle'].includes(chopper.state.mode); step++) {
+        chopper.update(1 / 60);
+      }
+    }
+    lastVisits = chopper.state.visits;
+    if (heliVoice) { sfx.release(heliVoice, 0.2); heliVoice = null; }
+  } else {
+    const t = traffic.taxi;
+    const dist = (f) => { const c = f.centre(); return Math.hypot(c.x - t.x, c.z - t.z); };
+    const seen = flocks.filter((f) => f.state.mode !== 'gone');
+    if (!seen.length) return 'every flock has flown off';
+    flock = seen.reduce((a, b) => (dist(b) < dist(a) ? b : a));
+    // A flock on the ground is sent up and held a second into the climb, where it is in the air.
+    if (flock.state.mode === 'ground') {
+      flock.takeOff();
+      for (let step = 0; step < 60; step++) flock.update(1 / 60);
+    }
+    const n = flocks.indexOf(flock);
+    birdCounts[n].up = flock.state.flights;
+    birdCounts[n].down = flock.state.landings;
+  }
+  holds[which] = { sound: key, voice: null, flock };
+  return null;
+}
+/** Loop each held source's sound, aimed at where it is frozen. Every frame, after `cityOneShots`. */
+function heldSounds() {
+  if (!sfx) return;
+  for (const which of Object.keys(holds)) {
+    const held = holds[which];
+    if (!held) continue;
+    const at = heldAt(which);
+    if (!held.voice || held.voice.ended) held.voice = sfx.play(held.sound, { at, steered: true, loop: true });
+    else sfx.steer(held.voice, held.sound, at);
+  }
+}
+const soundHolds = Object.fromEntries(['plane', 'heli', 'birdsUp', 'birdsDown'].map((key) => [key, {
+  held: () => Boolean(holds[holdOf(key)]),
+  set: (on) => setHold(key, on),
+}]));
+
 // The falloff circles for the ⚙️ panel (game/soundrings.js): every placed source the frame can
 // name, so the panel's "Full within"/"Silent past" sliders have something to move.
 const soundRings = sfx && debugMode ? createSoundRings(scene) : null;
@@ -4664,6 +5016,17 @@ function groundUnder(clientX, clientY) {
   return groundRay.ray.intersectPlane(groundPlane, groundHit) ? { x: groundHit.x, z: groundHit.z } : null;
 }
 const screenRight = new THREE.Vector3();
+// Where the panel's ▶ plays a sound from: its pin nearest the 👂 (the birds have one per flock),
+// measured the way the game measures it. Null for a sound with no pin on the map right now.
+function soundPlace(key) {
+  const ear = controller.state.target;
+  let best = null;
+  for (const s of soundSources()) {
+    if (s.key !== key) continue;
+    if (!best || Math.hypot(s.x - ear.x, s.z - ear.z) < Math.hypot(best.x - ear.x, best.z - ear.z)) best = s;
+  }
+  return best ? placeAt(best.x, best.z, best.y ?? 0) : null;
+}
 function soundSources() {
   const out = [];
   const works = roadworkSpot();
@@ -4794,6 +5157,7 @@ function parked() {
 let runBegun = false;
 function beginRun() {
   runBegun = true;
+  sfx?.goOnAir({ dash: dashRadio });
   if (!settings.get().tips) dropTutorial();
 }
 function dropTutorial() {
@@ -5040,6 +5404,10 @@ let lastFrameAt = 0;
 
 function frame(t) {
   requestAnimationFrame(frame);
+  // The startup screen is drawing over the whole page (game/splash.js): nothing here would be seen,
+  // and a city frame behind it is GPU the drop needs. The sim waits too — the dt clamp below is the
+  // whole of the catch-up when it lets go, and the governor ignores a gap that long.
+  if (splashCovers()) return;
   if (frameRateCap() < 60 && t - lastFrameAt < 1000 / frameRateCap() - 4) return;
   lastFrameAt = t;
   // Only frames of live play count toward the governor: a paused or finished run is cheap and
@@ -5054,6 +5422,7 @@ function frame(t) {
   bench?.end();
 }
 
+let edgeFogTime = 0;
 function tick() {
   // Read on every frame, paused or not: `getDelta` measures from its own last call, so skipping it
   // while paused would hand the first frame after a resume the whole length of the pause. The clamp
@@ -5104,6 +5473,10 @@ function tick() {
   // camera — running on wall time. It hands over to the robber's line above when the robber is in.
   if (bankJob?.running()) {
     bankJob.update(dt, aspect());
+    // The L's deck thins over the cut's own subjects rather than over wherever the taxi and the
+    // pins were on the frame the world stopped (`fadePoints` in game/bankjob.js). Left as they are
+    // for the robber's line after it, which is about the same cab.
+    if (ltrain && !classicRobberyCam) ltrain.setFadePoints(bankJob.fadePoints());
     renderFrame();
     return;
   }
@@ -5227,10 +5600,11 @@ function tick() {
   ejection.update(dt);
   windshield.update(dt);
   struckGlass.update(dt);
-  flyover.update(dt);
+  // A source held from the ⚙️ panel (`holds`) is frozen by skipping its update.
+  if (!holds.plane) flyover.update(dt);
   // Night, for the searchlight: off the sun's own power, which the day/night keys run 0 to 3.85.
   policeHeli?.update(dt, heliTarget(dt), { dark: 1 - THREE.MathUtils.smoothstep(sun.intensity, 0.3, 2.6) });
-  chopper.update(dt, { hold: Boolean(policeHeli?.busy()) });
+  if (!holds.heli) chopper.update(dt, { hold: Boolean(policeHeli?.busy()) });
   clouds.update(dt);
   rain.update(dt, camera);
   applyWeather(dt);
@@ -5238,7 +5612,7 @@ function tick() {
   // Handed last frame's taxi position, which is all a startle needs — it is a distance test with
   // eight units of slack, and running it here rather than after `traffic.update` keeps the whole
   // scenery block in one place.
-  for (const flock of flocks) flock.update(dt, traffic.taxi);
+  for (const flock of flocks) if (flock !== holds.birds?.flock) flock.update(dt, traffic.taxi);
   ducks.update(dt);
   leaves?.update(dt);
   hoopers.update(dt);
@@ -5256,6 +5630,9 @@ function tick() {
   // The burger turning on its pole. Scenery in the same sense the flock and the flyover are, and
   // paused with them: `frame()` has already returned by here on a paused frame.
   burger?.update(dt, SIGN_SPIN);
+  // The car wash's brushes and curtain, and the tube man on its corner.
+  roadside?.update(dt);
+  tubeMan.update(dt);
   // And the sign on the depot's roof, on the same terms — see DEPOT_SPIN in city/garage.js.
   garage?.update(dt);
   // The graveyard's ground mist, thicker after dark — the same night measure as the searchlight's.
@@ -5273,6 +5650,7 @@ function tick() {
   // the car's position, heading and speed by hand, and the render pass inside `traffic.update`
   // reads them on the same frame. See game/opening.js for the staging split.
   opening?.update(dt);
+  if (sfx?.state.dashRadio && !(opening?.running() && DASH_PHASES.has(opening.phase()))) sfx.openDash();
   // The pedals arrive the moment the taxi is the player's to drive — on the lane, with the
   // vignette's pull-back still running — rather than with the rest of the HUD. They used to wait
   // for `hud-ready`, which is the *tutorial's* second beat being answered: the pull-back, a
@@ -5385,6 +5763,7 @@ function tick() {
     ambient: sfx ? ambientLevels() : undefined,
   });
   cityOneShots(dt);
+  heldSounds();
   // Only the sound being edited in the panel — see `focused` in game/audiopanel.js.
   if (soundRings) {
     const open = Boolean(debugPanel && !debugPanel.panel.hidden);
@@ -5423,9 +5802,23 @@ function tick() {
   // fifth blue car that punishes the thing the event asks for. Reported from a real run before the
   // rule existed: "I got busted by the actual cop car; none of the other police actually moved."
   patrol.update(dt, { boosting: boost.isEngaged() && !fares.state.gameOver });
+  // The getaway's cops can arrest too, under the capture model: the same pin the patrol's catch is.
+  // Only once the alarm is up — the robber climbing in at the bank is a taxi stopped among nobody's
+  // police yet — and never the arrest crew at the drop-off, whose cars belong to their scene.
+  if (!captureClassic && getaway() && robbery.state.alarmed && !fares.state.gameOver) {
+    const cop = getawayPin.update(dt, traffic.policeCars.filter((c) => !c.patrol && !c.arrest && !c.staged));
+    if (cop) {
+      const ram = ramOf(cop, traffic.taxi);
+      holdArrest(cop);
+      getawayPin.reset();
+      bustByPolice(ram);
+    }
+  } else {
+    getawayPin.reset();
+  }
   // The cruiser's mesh and lamps, after the traffic car it wears has moved and after the patrol
   // has decided whether its bar is on.
-  police.update(dt);
+  for (const cruiser of cruisers) cruiser.update(dt);
   // Last of the three, and both halves of that matter. It copies the matrices traffic composed
   // *this* frame, so running it any earlier would slide every outline off its own car by a couple
   // of pixels at boost speed; and it runs after collisions so a car wrecked on this frame is
@@ -5450,6 +5843,8 @@ function tick() {
   harborShips?.update(dt);
   drawbridge?.update(dt, traffic.cars);
   tickRiverWater(dt);
+  edgeFogTime += dt;
+  tickEdgeFog(edgeFogTime);
   roadwork.update(dt, traffic.taxi, traffic.cars, fares.occupiedSpots());
   // After the traffic step for the same reason: it rides the truck's instance matrix, which has to
   // be this frame's, and it tests crates against the cars where they now are.
@@ -5472,9 +5867,10 @@ function tick() {
   // kick fires — the taxi left the frame at 1.4-1.7x the boost cruise with nothing following it.
   // The momentum chase keeps the boost's 3.2 through the post-release tail and any kick still being
   // carried, because the opening follow's 1.5 is set for cruising, not for a car at its fastest.
-  // A swipe after the release still takes the framing, at once. None of them has a gate on the way
-  // *out* once the player has it: the camera is left wherever it landed rather than snapping back. Both aim past the taxi rather than at it (`followAim`), so the road it is driving down
-  // gets the frame the road behind it used to.
+  // A swipe after the release still takes the framing, at once. The way *out* is idleness: once the
+  // player has left the map alone for CAMERA_RETURN_IDLE, the camera rides home to the taxi
+  // (`updateCameraReturn`). Both aim past the taxi rather than at it (`followAim`), so the road it
+  // is driving down gets the frame the road behind it used to.
   //
   // End-of-run focus outranks everything (and runs on every viewport, not only narrow ones): the
   // camera eases into whatever ended the run — the crash site, the cop pulling up, or the corner a
@@ -5490,6 +5886,7 @@ function tick() {
   // `holdsCamera` go false with the camera already sitting on `restFraming()` below, so there is
   // no gap for the follow-cam to snap across.
   // The title screen's drift sits above even the vignette, which is held behind it anyway.
+  updateCameraReturn(dt);
   const boosting = boost.isActive();
   // On the press, not every frame of the hold: a swipe made *while* holding is still the player
   // asking for the map, and it should hold once the button comes up.
@@ -5902,7 +6299,8 @@ function tick() {
   farePointers.update(aboard, fares.state.gameOver ? [] : fares.waitingAll(), fares.colorOf);
   // After the police update above, so the wash is aimed at where the cruiser is this frame rather
   // than trailing it by one.
-  sirenGlow.update(police, traffic.taxi);
+  // With more than one cruiser out, the wash warns about the nearest one with its bar up.
+  sirenGlow.update(nearestLitCruiser(), traffic.taxi);
   // Wall clock for the envelope, so the crash's slow-motion does not hold the frame up; the strobe
   // stays on the sim clock the cop cars' own bars run off.
   robberyGlow.update(wallDt, !!robbery?.state.alarmed && !fares.state.gameOver, traffic.stats.time);
@@ -5927,6 +6325,9 @@ const debugParams = new URLSearchParams(window.location.search);
 // `?audio` was the sound designer's own panel; it is the Audio sections of this one now, and the
 // flag still opens it.
 const wantsDebugPanel = debugMode;
+// The panel's 🖥 / 📱 switch (game/phoneframe.js): built with the panel, and read by `placeAt` for
+// the pan a phone would hear.
+const phoneFrame = !shot && wantsDebugPanel ? createPhoneFrame() : null;
 // Freeze-and-zoom for tuning things that are a few pixels across at play zoom — see
 // game/inspect.js. `I` toggles it; the debug panel has the buttons.
 const inspect = !shot && wantsDebugPanel ? createInspect({
@@ -6168,10 +6569,10 @@ if (shot) {
     controller.state.target.set(hoopers.court.x, 0, hoopers.court.z);
     controller.update(aspect());
   }
-  // And the L, framed on its median a block off the middle, where the train is settled below —
-  // a north-south line framed over its river crossing.
+  // And the L, framed on its focus, where the train is settled below: the corner where it turns
+  // west, or over the river crossing on the straight north-south line (`?ltrainwest=classic`).
   if (shot.atLTrain && ltrain) {
-    const at = ltrain.plan.world(ltrain.plan.axis === 'z' ? 0 : 10);
+    const at = ltrain.plan.focus;
     controller.state.target.set(at.x, 0, at.z);
     controller.update(aspect());
   }
@@ -6190,6 +6591,15 @@ if (shot) {
     controller.state.target.set(burger.site.focus.x, 0, burger.site.focus.z);
     controller.update(aspect());
   }
+  // The roadside business, framed on its lot; and its tube man, close enough to see his face.
+  if (shot.atCarWash && roadside) {
+    controller.state.target.set(roadside.site.focus.x, 0, roadside.site.focus.z);
+    controller.update(aspect());
+  }
+  if (shot.atTubeMan && tubeMan.at) {
+    controller.state.target.set(tubeMan.at.x, 0, tubeMan.at.z);
+    controller.update(aspect());
+  }
 
   // And the depot, on the same two framings. `site.focus` is the middle of the door opening, which
   // is a couple of units below the middle of the building — but an orthographic camera aimed at a
@@ -6197,6 +6607,14 @@ if (shot) {
   // taken flat off the ground the way every other `at*` shot here takes it.
   if (shot.atGraveyard && graveyard) {
     controller.state.target.set(graveyard.site.focus.x, 0, graveyard.site.focus.z);
+    controller.update(aspect());
+  }
+
+  // A manhole cover, the first one planned: close, does it read as iron; at play zoom, is it a
+  // detail you notice or noise on the road.
+  if (shot.atManhole && manholes) {
+    const at = manholes.userData.spots[0];
+    controller.state.target.set(at.x, 0, at.z);
     controller.update(aspect());
   }
 
@@ -6470,6 +6888,9 @@ if (shot) {
       onDrop: () => dust.burst(traffic.taxi.x, traffic.taxi.z, traffic.taxi.yaw, 7, 0.5),
       // What a repair visit shows while the door is down to its gap. See game/repairfx.js.
       workshop: repairFx,
+      // The car stays in its doorway until the dash radio's first song has played crushed for a
+      // few seconds (`DASH.music` in game/sfx.js), so the open lands on music, not the announcer.
+      holdReveal: () => Boolean(sfx?.state.dashRadio) && sfx.dashMusicSeconds() < DASH.music,
     });
     // `?vignette=off`, the same escape hatch `?tutorial=off` is: the opening is seven seconds
     // long and nobody iterating on the fare loop wants it on every reload. The module is
@@ -6546,6 +6967,7 @@ if (shot) {
 
 if (!shot && wantsDebugPanel) {
   debugPanel = createDebugPanel({
+    phoneFrame,
     sun,
     hemi,
     sky,
@@ -6574,12 +6996,17 @@ if (!shot && wantsDebugPanel) {
     /** True when the sliders opened on a tuning restored from a previous session. */
     locoRestored: Boolean(stashedLoco),
     sfx,
+    soundTriggers,
+    soundHolds,
+    soundPlace,
     wreck: { styles: Object.keys(WRECK_STYLES), current: getWreckStyle(), set: blast.setStyle },
   });
 }
 
 window.__taxi = {
   traffic,
+  // The city camera — `state.punch` is how a browser test stages a cut opening on a held Loco push-in.
+  controller,
   // The combo meter — see game/combometer.js — and the drop-off that cashes it in.
   combo,
   landCombo,
@@ -6633,8 +7060,10 @@ window.__taxi = {
   spray,
   wetTracks,
   police,
-  /** The patrol cruiser's life — patrol, chase, leave. See game/patrol.js. */
+  /** The patrol cruisers' lives — patrol, chase, leave — as one. See game/patrol.js. */
   patrol,
+  /** ...and each one on its own: one per cruiser, `difficulty.patrolCount()` of them out. */
+  patrols,
   /** The brake-tap spin (game/bootleg.js) — `spin()` fires one, `state` tallies them. */
   bootleg,
   overtake,
@@ -6725,6 +7154,10 @@ window.__taxi = {
   hoopers,
   /** The boom box beside the court — `boombox.emitter` is where its music will play from. */
   boombox,
+  /** The tube man on the roadside lot's corner — `tubeMan.at` is where he stands, null with none. */
+  tubeMan,
+  /** The car wash or gas station (`?roadside=`), or null. */
+  roadside,
   /** The riders on the skatepark, and `skaters.park` the park — absent if the city has none. */
   skaters,
   /** The elevated train, or null under `?ltrain=classic` — see game/ltrain.js. */
@@ -6817,6 +7250,9 @@ window.__taxi = {
   sfx: sfx ? {
     state: sfx.state, play: (name) => sfx.play(name),
     tuning: sfx.tuning, tune: sfx.tune, reset: sfx.reset,
+    // The mixer's mute and solo, and the peak meter on Master — see BUSES in game/sfx.js.
+    monitor: sfx.monitor, setMonitor: sfx.setMonitor, clearMonitor: sfx.clearMonitor,
+    audible: sfx.audible, meter: sfx.meter,
     // The ⚙️ panel's Replace… — which local file, if any, stands in for a sound this session.
     replaced: sfx.replaced,
     // The long city sounds that are steered while they play, and their gain right now — for
@@ -6833,6 +7269,9 @@ window.__taxi = {
    * capture. Harmless while the loop is running, since the next frame overwrites it anyway.
    */
   redraw: () => renderFrame(),
+  // The fog of war's clock, for filming its drift from a frozen shot: `edgeFogAt(12.5)` sets it and
+  // redraws (game/edgefog.js).
+  edgeFogAt: (seconds) => { tickEdgeFog(seconds); renderFrame(); },
   /**
    * Put the run-end screen up on demand, over a stub run — for `tools/smoke.mjs`.
    *

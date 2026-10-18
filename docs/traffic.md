@@ -1240,6 +1240,15 @@ be rammed, and holding past it still rams. At 0.6s reaction that takes the pass 
 a taxi that never throws the combo still rams 80 cars in the same runs. Tyler tried it behind a
 flag and kept it (2026-10-07).
 
+That grace is counted from catching the car, so a taxi already sitting behind one with Loco off has
+spent it, and the combo's first tap was then itself a ram: `BOOST_KICK` puts the taxi into the
+bumper inside the tap. Following within 14 units for 2s and then tap, 0.15s lift, hold, over 12
+cities: a 0.25s tap rammed 27 times and passed 7, a 0.4s tap rammed 35 of 40, and only the shortest
+taps (0.08s) got through. So a fresh press behind a car also gets `OVERTAKE_PRESS_GRACE` (0.5s) of
+tailgating, and the same runs ram 0-1 times on the tap at every length (Tyler, 2026-10-15: "hard to
+pull off when directly behind a car and not already loco'ing"). Holding on past it still rams;
+`?pressgrace=classic` drops it.
+
 The same day `OVERTAKE_PRE_HOLD` went from 0.2s to 0, so a quick tap, then tap-and-hold behind a
 car throws the combo too. The 0.2 was there to stop stabs at the pill arming it, but a double tap
 with a car in range is deliberate.
@@ -1440,10 +1449,41 @@ just entered the lane, typically. No gate refuses them.
 
 The route gate that was left here went too; see above.
 
-**One courtesy is kept.** A car being passed still does not *choose* a left turn across the taxi
-(`car === taxi.passTarget` in the exit roll). A car that has already committed to one when the taxi
-pulls out will turn into it — that is the case the old gate existed for, and it is now the player's
-risk to read.
+**One courtesy is kept, and half of one gate is back.** A car being passed still does not *choose*
+a left turn across the taxi (`car === taxi.passTarget` in the exit roll). And the taxi does not pull
+out round a car that is *already* part way round a left (`turningAcross`): it tailgates it for the
+fraction of a second the car takes to leave the lane instead. Without it, 12 of 73 passes (24 cities
+× 60s, Loco held) pulled out alongside a car mid-left and spent the rest of its arc grinding down its
+flank, with the contact (`lean` in `sim/collisions.js`) holding the taxi to the car's corner speed —
+boost down to ~10 u/s, side by side, which is how it got reported. The reason the gate was removed
+does not apply to this half of it: it gates only the pull-out, not `canPass`, so a refusal tailgates
+rather than rams, and the car it refuses for is leaving the road anyway. Over a second set of 48
+cities × 60s, passes with any contact while the taxi was level with its car went from 30 of 143 to
+18 of 130; what is left is oncoming and cross traffic, which the player can see coming. `?passturn=classic` pulls out regardless.
+
+**A pass keeps its pace.** Two things held a passing taxi to the speed of the car it was going
+round, both reported as the taxi "hesitating" alongside, worst beside a truck:
+
+- **The swing out.** While the taxi leaves its lane the tailgate shrinks with the offset
+  (`boostGap`), and the speed cap on it was the stopping-distance rule, `leader.v + sqrt(2·brake·room)`
+  on the room at the offset reached *so far*. The offset grows with every unit of road, so that
+  answer is too cautious, and for the first half of every pass that started from a tailgate it
+  held the taxi at the leader's speed. `swingCap` looks ahead along the swing instead: after `x`
+  more units the offset and the gap it needs are known exactly, so it solves for the steady speed
+  that never eats into that gap.
+- **Junctions, beside a truck.** The truck scan treats a truck heading for the taxi's exit lane
+  by straight-line distance (`bodyClearance`). An overtaking taxi is still on its own lane in the
+  bookkeeping, so a truck it was passing straight across a junction counted as "on its exit", 1-2
+  units off its nose from four units across the road. That capped the taxi at the truck's speed
+  plus a few u/s for every junction of the pass, and it was the biggest single loss. Out of its
+  lane, the taxi now asks the heading-based test, which sees the truck beside it rather than in
+  front of it.
+
+Measured over 24 cities × 60s with the combo thrown at every car and 30% trucks, against the speed
+free acceleration would have reached from the same start: a truck pass 0.75s after pulling out went
+from 16.7 u/s against a possible 23.3 to 22.7 against 22.9, and the speed lost to the leader and to
+junctions across all truck passes dropped from ~230 u/s to ~40. What is left is contact with
+oncoming and cross traffic. `?passpace=classic` puts both rules back.
 
 #### How dangerous it should be
 
@@ -1564,6 +1604,70 @@ that has a green — which is what [nothing stops the taxi](#nothing-stops-the-t
 **The rolling pass is untouched**, which is the check that matters most here: the lab's 130 staged
 approaches passed 130 and wrecked 0 both before and after.
 
+#### Swerving round a car stood in the junction
+
+The same combo, thrown short of a car **stopped or creeping in the junction ahead** — nosed in from
+a side street and waiting, or a cop parked across the box — swerves round it (Tyler, 2026-10-15).
+`findDodge` in `traffic.js` finds it (the dodge in the code, since `swerve` already names the
+weave there) and publishes the road to it as `taxi.dodgeGap`, which
+`game/overtake.js` arms on exactly as it arms on `passGap`. From there it *is* the pass: the same
+swing into the oncoming lane, latched on the blocker (`passTarget`) instead of a leader, carried
+straight through the junction, and tucked back in once `PASS_CLEAR` past it. It counts as an
+overtake for the combo meter and the haptic. `?swerve=classic` takes it out, and the blocker is hit
+as it always was.
+
+Such a car was never the pass's business: it is not on the taxi's lane, so the lane bookkeeping does
+not list it as a leader, and a boosting taxi [barges the box](#nothing-stops-the-taxi) and hits it.
+
+**What qualifies, and the trade-off in it.** Only a blocker moving at `DODGE_CREEP` (4 u/s, about
+half of cruise) or less. A car crossing at speed is the hazard that makes barging a junction a risk
+at all, and a gesture that steered round it would take that away. A car heading the taxi's own way
+is a leader, and passing it stays the pass's job.
+
+**Only where there is a line round it.** Every car in the box, the blocker and anything else there,
+is projected along its heading at its speed to where it will be when the taxi arrives (sampled at
+three points), and the swing line has to clear all their collision circles by the envelope. Three
+lines are tried in order:
+
+| line | across | for |
+|---|---|---|
+| the oncoming lane's centre | 4.0 (6.67 on an arterial) | a car poked in from the taxi's right |
+| a jink to the taxi's own kerb (`dodgeKerb`) | −1.15 | a roadblock cop on the centreline |
+| the far kerb (`dodgeWide`) | 5.15 (7.81) | a car further in, or a cop stopped on the taxi's side |
+
+Both kerb lines stop `CAR_W / 2` short of the kerb, which is the simulated body; the drawn taxi is
+`TAXI_SCALE` wider and hangs 0.15 over the pavement for the few units either side of the box. Using
+the drawn width cost the roadblock cop its line: slewed to 45° on the centreline, its circles sit
+0.67 either side of the middle, 1.33 from the oncoming lane's centre and 2.48 from either kerb line
+against a 2.31 envelope (2.32 with the drawn width, inside the margin). The robbery lets a cop land
+up to `BLOCK_ACROSS` off the middle (0.58 measured), which leaves one kerb or the other. A car from
+the left covers the far lane first and is not in the taxi's way. Two cops paired across both halves
+leave no line, and the box stays shut.
+
+A kerb jink swings the other way, so its offset is negative and its bank is mirrored. And the
+[Loco weave](#boost-crazy-taxi-mode) fades out for as long as a dodge is out: its 0.52 of wander is
+more than the kerb jink's whole margin, and with it left on the taxi bumped the cop it was squeezing
+past.
+
+**It pulls out late.** The swing starts `DODGE_LEAD` (10 units) plus the change's own length short
+of the blocker, rather than the moment the combo arms, so it reads as a swerve and not as a lap of
+the oncoming lane down the whole block. Ten rather than less because, like the pass, it is decided
+only on a lane, and the lane ends 7.4 short of a cop in the middle of the box: at 6 the kerb jink
+armed and never got a frame to pull out in.
+
+Staged in `tools/probe.mjs` on an ordinary street, a car held at increasing depths into the box from
+the taxi's right, and a cop slewed the way the robbery leaves one:
+
+| blocker | outcome |
+|---|---|
+| centre 0 past the box edge | swerves on the oncoming lane's centre, no contact |
+| 3.5 past | swerves wide, 5.15 across, no contact |
+| square across the middle | no line round it: not swerved, hit |
+| creeping in at 2 u/s | swerves wide (where it will be), no contact |
+| crossing at cruise | not a swerve |
+| roadblock cop on the centreline | jinks to the kerb, −1.15, no contact |
+| roadblock cop 0.58 toward the taxi's side | swerves wide, no contact |
+
 ### Seeing what you're about to hit
 
 Because a contact only costs anything while boosting, the one moment a car hidden behind a
@@ -1595,12 +1699,11 @@ Rear-ending a car at boost cruise closes at ~10.5 u/s and costs 24; T-boning cro
 cruise closes at ~21 and costs 37; anything in the overdrive band costs 49–55. So a sloppy tailgate
 is forgiven about four times and a red run flat out about twice.
 
-**Except a police car, which is always the wreck.** A charged hit on anything with `police` set
-empties the taxi's HP on the spot (`lethalPolice` in `createCollisions`), so it plays out as
-[the wreck](#the-wreck) — fireball, crash cam, ejection over `EJECT_CLOSING` — from full health.
-Only the charged path: a cop touching a taxi that is off the pill is still the patrol's arrest
-(`game/patrol.js`). `?cop=classic` prices a cop like any other car, where ramming the patrol is a
-bump that buys `RAMMED_GRACE`.
+**A police car is priced like any other.** That includes a cop ramming the taxi: under the
+[capture model](gameplay.md#getting-caught) a chasing cop that hits a taxi still doing over
+`PIN_SPEED` is charged through the same path (`strike` in `createCollisions`), off the pill or on.
+Under `?capture=classic` a charged hit on anything with `police` set empties the taxi's HP on the
+spot (`lethalPolice`, #466) — the wreck from full health — unless `?cop=classic` is set too.
 
 **The taxi rams — when it cannot pass.** A boosting taxi with `hp` that has no way round the car in
 front stops following it: no `BOOST_GAP`, no moving-leader cap, in lanes or junctions (`rams()` in
@@ -1972,7 +2075,8 @@ a build that shot every cut from behind the city showed it. See
 street is closed off: a striped trestle across each end, two rows of cones, a heap of spoil beside
 the hole it came out of, and two workers standing over it. Ambient traffic routes around it. **The
 player's taxi is sent through it**, so the closed street is the emptiest road in the city — and
-each barricade is a ramp.
+each barricade is a ramp. Smashing through one is the **Stuntman** combo
+([gameplay.md](gameplay.md#the-combo-meter)): a step on the meter and a sixth of the Loco tank back.
 
 ### The closure is soft, and that is not a shortcut
 
@@ -2566,7 +2670,7 @@ whole block at once.
 rule about appetite. Blocking those laps also removes the passes they were making, so `ENTER_CHANCE`
 carries the rate instead. What it is tuned against is not how many cars stop but **how much of the
 time there is a car in the lot at all**, measured over 24 minutes of traffic per density — a run
-played between 12 and 22 cars when this was measured, in the 5 × 6 city (`?city=classic` today; the 6 × 7 plays 16 to 30 over more street) ([difficulty.md](difficulty.md)):
+played between 12 and 22 cars when this was measured, in the 5 × 6 city (the default again; `?city=big`'s 6 × 7 plays 16 to 30 over more street) ([difficulty.md](difficulty.md)):
 
 | cars | pull in / min | a car in the lot |
 |---|---|---|
@@ -3131,13 +3235,14 @@ only a shell one level in is hidden, so the two lamps stay in the scene's light 
 | `off` | a cooldown off the difficulty ramp (`policeCooldown`, 16–30s falling to 8–14s) |
 | `patrol` | crossing: in at one edge, through a corner within `PATROL_REACH` (1 block) of the taxi (`PATROL_TIME`, 25s, caps that leg), out at the opposite edge; bar swinging |
 | `exiting` | out of traffic, driving straight off the island (`police.release`), dissolving past the slab's edge, then retired |
-| `chase` | it spotted you — bar strobing at the hunting rate, driving at you |
-| `leaving` | routed to the far corner, retired by `retirePolice` once out of sight |
+| `chase` | it spotted you — bar strobing at the hunting rate, driving at you; lost, it goes back to `patrol` |
+| `leaving` | a robbery started (or it lost you, under `?standdown=classic`): bar dark, routed to the far corner, retired by `retirePolice` once out of sight |
 
 **It crosses the map.** `enter` picks an axis, puts the car on the edge of the island furthest from
 the taxi across it and level with the taxi along it (`enterPolice` handed that edge junction, which
 still never places a car in frame), and picks an exit anywhere along the opposite edge but its
-corners. It **dissolves in** over `FADE_TIME` (0.8s): the materials use `alphaHash`, a define set
+corners. The exit has to have a street running into it pointed off the map (`openExit`): not every edge
+junction does, and a patrol sent to one with none lapped that corner for good. It **dissolves in** over `FADE_TIME` (0.8s): the materials use `alphaHash`, a define set
 once at construction, so the car stays in the opaque pass and the AO prepass and nothing relinks when
 it fades.
 
@@ -3167,9 +3272,16 @@ with 1.5s of grace before a touch counts. A cruiser still driving off from befor
 retired to make room: there is one cruiser mesh. See
 [gameplay.md](gameplay.md#the-drop-off-the-arrest-and-the-tail).
 
-**After a chase it leaves the way a robbery's cops stand down** (and so it does when a robbery
-starts): bar dark, routed to the corner furthest from the
-taxi, taken off only once `STAND_DOWN_RANGE` clear (`SPAWN_CLEARANCE` past the timeout, never
+**Lose it and it goes back on patrol** (`resumePatrol`): bar swinging again, chase flags off, and
+on the out leg of a crossing to an exit re-picked on the far side of town from the taxi — carrying
+on away from you along whichever axis it is further off, so it is not driving straight back to the
+taxi it just lost. It can still spot you on the way out. Ducking into the depot ends a chase the same
+way. It used to stand down after every chase, dark, and Tyler read that as "a dead patrol car"
+(2026-10-15); a cop rolling round town with its lights out looks broken rather than off duty.
+`?standdown=classic` keeps the old exit.
+
+**When a robbery starts it leaves the way a robbery's cops stand down**: bar dark, routed to the
+corner furthest from the taxi, taken off only once `STAND_DOWN_RANGE` clear (`SPAWN_CLEARANCE` past the timeout, never
 less), through `traffic.retirePolice` — the swap-to-tail-and-retire the robbery's recycling used to
 spell out inline, and which both now need because both can have cars in the fleet at once.
 
@@ -3186,7 +3298,7 @@ talking about them. A DOM bubble projected over the car every frame, not geometr
 be read, and there is no font in the scene.
 
 **The 🚨 in the HUD** says the chase is on for as long as it is on (`game/chasesiren.js`, Tyler's
-idea, 2026-10-14): a low-poly beacon on the cash row, just left of the pause, a squared-off solid red lens
+idea, 2026-10-14): a low-poly beacon standing over the Loco Mode button (on the cash row beside the pause under `?pedals=classic`), a squared-off solid red lens
 whose shader sweeps a hot spot round it, flashing once a turn as the spot swings past the camera. It pops in on the spot and is up for a [getaway](gameplay.md#the-bank-robbery) too. While
 the cop is losing you (the gap held past escape range, or the taxi out of its sight) the lamp cools
 with the patrol's own two counters: slower, dimmer, half faded. Lost, it spins down and fades out
@@ -3196,10 +3308,13 @@ cue that stays put when the cop drops round a corner. Its own 60 × 44 WebGL con
 lights (an icon has to read at night), drawing only while it is on screen. `?chasesiren=classic`
 goes without.
 
-**Caught** is a touch. Any contact of the cop's making — rammed from behind, sideswiped on a pass —
-is the arrest, and so is any contact at all off the pill (`touching` in
-`sim/collisions.js`, with `TOUCH_SLACK` of 0.15 because off boost contact is resolved by shoving the
-struck car out to the envelope before anything later in the frame can read it). To make that the
+**Caught** is a pin ([getting caught](gameplay.md#getting-caught)): the cop touching the taxi
+while it is doing under `PIN_SPEED` (3 u/s) for `PIN_HOLD` (0.75s), the clock running back down when
+it is free (`createPin` in `game/patrol.js`; `touching` in `sim/collisions.js`, with `TOUCH_SLACK`
+of 0.15 because off boost contact is resolved by shoving the struck car out to the envelope before
+anything later in the frame can read it). A touch at speed is a **ram**: a hit like any other car's
+(`onRammed` → `strike`), after which the cop holds off for `RAM_BACKOFF` (1.5s). Under
+`?capture=classic` any touch is the arrest, at any speed. To make contact the
 thing a chase is about, a chasing patrol sets `car.ram` and follows the taxi at `RAM_GAP` (3.9
 centre to centre, 0.3 inside the envelope) instead of the ordinary following gap: a cop that queued
 a car length back could only ever catch a taxi that reversed into it. It used to be a meter — within
@@ -3221,7 +3336,8 @@ arrests nor rams. Without it the bump was a bust one frame later: a boost within
 a patrolling cop on the very frame of the hit, the chase arms the touch, and the two cars are still
 in contact. Who hit whom is read off the contact normal before either speed is touched
 (`taxiStruck` on the bump event: the taxi brought more of the closing speed along it than the cop
-did), so a cop ramming a boosting taxi is still the arrest. The last bump is still the wreck.
+did), so under `?capture=classic` a cop ramming a boosting taxi is still the arrest; by default it
+is the same bump, and buys the same grace. The last bump is still the wreck.
 
 **Lost** is the gap between the two cars holding past `ESCAPE_BLOCKS` (2.5 blocks, 50 units) for
 `ESCAPE_HOLD` (1.5s) — a little inside the robbery's `LOST_RANGE`, which is "out of the picture" on

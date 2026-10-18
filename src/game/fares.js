@@ -196,7 +196,34 @@ const VIP_PAYOUT = 3;
 const BANK_MIN_DELIVERED = 2;     // the robbery's own MIN_DELIVERED: no rider at the bank before then
 const BANK_COOLDOWN = 35;         // seconds after a bank rider leaves the board before the next
 const BANK_CHANCE = 0.3;          // chance a qualifying spawn is the bank rider
-const BANK_ROBBER_ODDS = 0.5;     // the coin
+// The coin is loaded, and it loads further every time it lets the player off (Tyler, 2026-10-14):
+// even odds on the first bank rider of a run, then BANK_ROBBER_STEP more for each bank rider who got
+// in and rode, up to BANK_ROBBER_MAX — a player who keeps taking the bank's fares is pushing their
+// luck, and the game should say so. A robbery puts it back to even, so it does not then fire on
+// every visit for the rest of the run: 50, 65, 80, 95, robbery, 50... A rider who got in because
+// `swapReady` refused on tails counts as one who rode — from the player's seat, nothing happened.
+// Rolled at spawn like the coin always was, so the odds are the ones standing when the rider
+// appears. `?robberyodds=classic` keeps a fair coin.
+const BANK_ROBBER_ODDS = 0.5;     // the coin's first toss of a run (and every toss under classic)
+const BANK_ROBBER_STEP = 0.15;    // added per bank rider who rode
+const BANK_ROBBER_MAX = 0.95;     // never a certainty
+
+// Where the taxi has to be to collect the bank rider: on the bank's own street, level with the
+// steps (Tyler, 2026-10-17; `?bankpickup=classic` for the junction's ARRIVE_RADIUS). Measured from
+// where the rider stands, in the frontage's frame — `u` along the façade, `v` out across the road.
+//
+// The junction radius was the trouble. The bank's door is mid-block, so the junction it belongs to
+// is ~10 units along the street from it (nearestJunction in game/robbery.js breaks the tie), and a
+// 9.6 circle round *that* fires with the taxi on the cross street, round the corner — a block and
+// a half from a robber the cut then has to frame from there.
+//
+// BANK_REACH_ALONG keeps the whole window on the frontage: the junction centre is 11.7 along from
+// the stand, so its box starts at ~7.7 and the cross street's near lane at ~9.7. 12 units of window
+// is still 38 frames at a boosting 19 u/s. BANK_REACH_ACROSS takes both lanes of the street,
+// measured over twelve cities: 2.2 for the near lane, 6.2 for the far one, 8.87 on a divided
+// arterial — and stops short of the street behind the bank, 12.47 out the other side.
+const BANK_REACH_ALONG = 6;
+const BANK_REACH_ACROSS = 10.5;
 
 // The clock is a fraction of the run's own pace rather than a flat number, so a VIP tightens
 // along the same ramp as everything else — just harder. Never below VIP_MIN_PACE, which is about
@@ -701,7 +728,7 @@ export const waitingTargets = (slot) => [slot.passenger.group, slot.marker.group
  *                  Read per call, since the set moves every time a package is collected.
  */
 export function createFareSystem(rng, scene, {
-  reserved = () => [], judgeRun = () => ({ runs: [], mult: 1 }), rating = true,
+  reserved = () => [], judgeRun = () => ({ runs: [], mult: 1 }), rating = true, risingOdds = true,
 } = {}) {
   const state = {
     // Active fares, newest last. At most MAX_FARES, and up to MAX_FARES - 1 of them can be
@@ -735,6 +762,9 @@ export function createFareSystem(rng, scene, {
     // `state.elapsed` deliberately keeps running: it drives the spawn stagger and the marker
     // animations, neither of which is the player's to pay for.
     paused: false,
+    // Bank riders who got in and rode since the last robbery (or the start of the run). Loads the
+    // coin — see BANK_ROBBER_STEP. Always 0 under `risingOdds: false`.
+    bankRides: 0,
   };
 
   const slots = Array.from({ length: MAX_FARES }, (_, index) => createSlot(scene, index));
@@ -1033,6 +1063,32 @@ export function createFareSystem(rng, scene, {
   // the tools and `?bankfare=classic` — and then no bank rider ever spawns.
   let bankStop = null;
   let lastBankAt = -Infinity;
+  /**
+   * The heading the taxi has to arrive at the bank's junction on so that it drives past the steps:
+   * along the frontage, from the stand toward the junction. Either lane of the street will do — both
+   * are inside BANK_REACH_ACROSS — and this one is the one that *ends* at the fare's junction, which
+   * `findRouteOnto` needs.
+   */
+  function bankApproach() {
+    const c = intersectionCentre(bankStop.junction.i, bankStop.junction.j);
+    const { away } = bankStop;
+    const sign = Math.sign((c.x - bankStop.x) * away.x + (c.z - bankStop.z) * away.z) || 1;
+    const hx = away.x * sign;
+    const hz = away.z * sign;
+    // +X, +Z, -X, -Z — docs/city.md#direction-encoding.
+    return Math.abs(hx) > Math.abs(hz) ? (hx > 0 ? 0 : 2) : (hz > 0 ? 1 : 3);
+  }
+  /** Is the taxi level with the bank's steps, on the bank's street? See BANK_REACH_ALONG. */
+  function atBankSteps(taxiCar) {
+    const dx = taxiCar.x - bankStop.x;
+    const dz = taxiCar.z - bankStop.z;
+    const { away } = bankStop;
+    const u = dx * away.x + dz * away.z;
+    const v = dx * away.z - dz * away.x;
+    return Math.abs(u) <= BANK_REACH_ALONG && Math.abs(v) <= BANK_REACH_ACROSS;
+  }
+  /** The chance the next bank rider's coin comes up tails. See BANK_ROBBER_STEP. */
+  const robberOdds = () => Math.min(BANK_ROBBER_MAX, BANK_ROBBER_ODDS + BANK_ROBBER_STEP * state.bankRides);
   /** Is the next spawn the bank rider? See BANK_CHANCE. */
   function wantsBank(taxiCar, near) {
     if (!bankStop || state.delivered < BANK_MIN_DELIVERED) return false;
@@ -1144,8 +1200,10 @@ export function createFareSystem(rng, scene, {
     // That is the one spawn this cap applies to; every later empty-board refill is an ordinary one
     // and gets the ramp's own radius.
     const isFirstEver = state.lastSpawnAt === -Infinity;
+    // `onto` (see `bankApproach`) makes the route a lane rather than a corner — main.js's `routeTo`
+    // reads it off the target — so the taxi comes down the bank's street past the steps.
     const spot = bank
-      ? { i: bankStop.junction.i, j: bankStop.junction.j }
+      ? { i: bankStop.junction.i, j: bankStop.junction.j, ...(bankStop.tight ? { onto: bankApproach() } : {}) }
       : pickIntersection(taxiCar, near, isFirstEver ? FIRST_FARE_MAX_BLOCKS : null);
     const fare = {
       slot,
@@ -1154,7 +1212,7 @@ export function createFareSystem(rng, scene, {
       // The bank rider (see BANK_CHANCE): where they stand, and the coin. `stand` goes at pickup.
       bank,
       stand: bank ? { x: bankStop.x, z: bankStop.z } : null,
-      robberRoll: bank && rng.chance(BANK_ROBBER_ODDS),
+      robberRoll: bank && rng.chance(robberOdds()),
       target: spot,
       // Where they were picked up. `target` moves to the drop-off at `beginRide`, so without a
       // separate copy the trip distance (and its fare) can't be measured later.
@@ -1956,7 +2014,11 @@ export function createFareSystem(rng, scene, {
 
       // Proximity resolves the arrival, but only for a taxi the player actually sent here. No
       // extra confirmation tap is needed on arrival — the tap that set the route is the intent.
-      if (!fare.directed || distanceToTarget(fare, taxiCar) >= ARRIVE_RADIUS) continue;
+      if (!fare.directed) continue;
+      // The bank rider is collected from the steps rather than the corner — see BANK_REACH_ALONG.
+      if (fare.stage === 'waiting' && fare.stand && bankStop?.tight) {
+        if (!atBankSteps(taxiCar)) continue;
+      } else if (distanceToTarget(fare, taxiCar) >= ARRIVE_RADIUS) continue;
 
       if (fare.stage === 'waiting') {
         // The bank rider's coin, read now: the robbery takes their seat if it came up tails and the
@@ -1965,9 +2027,11 @@ export function createFareSystem(rng, scene, {
         if (fare.robberRoll && bankStop?.swapReady(fare)) {
           clear(fare);
           lastBankAt = state.elapsed;
+          state.bankRides = 0;
           emit('swapped', fare);
           continue;
         }
+        if (fare.bank && risingOdds) state.bankRides += 1;
         beginRide(fare);
         emit('pickup', fare);
       } else if (fare.checkpoints?.length) {
@@ -2173,6 +2237,35 @@ export function createFareSystem(rng, scene, {
     },
     crash,
     /**
+     * The ⚙️ panel's ⚡ on `angry`: a rider stands on the kerb and storms off swearing, purple
+     * bubble and all, exactly as a lost rider does (`beginBail`) — with no fare behind it, so
+     * nothing is struck, charged or broken. Always the same corner for a given city, so the sound
+     * can be tuned against one spot: the nearest usable one to the middle of the map, by the same
+     * rules a spawn obeys (not in the river, not mid-parkway, not behind a building). Answers the
+     * kerb's world position, or null when every slot is busy.
+     */
+    demoBail() {
+      const slot = slots.find((s) => !state.fares.some((f) => f.slot === s)
+        && !exits.some((e) => e.slot === s));
+      if (!slot) return null;
+      let spot = null;
+      let best = Infinity;
+      for (let i = 0; i <= GRID_I; i++) {
+        for (let j = 0; j <= GRID_J; j++) {
+          if (onWaterBlock({ i, j }) || isParkwayMid(i, j) || !cornerSeen(i, j)) continue;
+          const d = Math.hypot(i - GRID_I / 2, j - GRID_J / 2);
+          if (d < best - 1e-9) { best = d; spot = { i, j }; }
+        }
+      }
+      if (!spot) return null;
+      place(slot.passenger, spot.i, spot.j);
+      slot.passenger.standing?.rest?.();
+      slot.passenger.standing?.setRobber?.(false);
+      slot.destination.group.visible = false;
+      beginBail({ slot, stage: 'waiting', pickup: spot, stand: null }, null);
+      return kerbFor({ stand: null, target: spot });
+    },
+    /**
      * Put every marker's arrival animation straight into its landed state.
      *
      * **Shot mode only**, and it exists because of a real regression: a disc now grows out of its own
@@ -2199,6 +2292,7 @@ export function createFareSystem(rng, scene, {
      * BANK_CHANCE.
      */
     setBankStop: (stop) => { bankStop = stop; },
+    robberOdds,
     /** The bank job's robber is in — see `boardScripted`. */
     boardScripted,
     /** Is one in the car right now? The trigger's own cooldown reads it, and so does the HUD. */

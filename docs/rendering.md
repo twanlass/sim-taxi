@@ -111,12 +111,15 @@ History: [what the arches replaced](rendering-history.md#wheel-wells--archedbody
 ### Car finishes — `propMaterial({ gloss })` in `util/geo.js`
 
 Every vehicle body and every wheel — the fleet, truck cabs and boxes, the cop cars, the cruiser and
-the taxi — is `MeshPhongMaterial` rather than the Lambert everything else wears, with one more patch
-on top of `patchProp`. Wrecks stay plain Lambert.
+the taxi, and [every other vehicle](#every-other-vehicle) — is `MeshPhongMaterial` rather than the
+Lambert everything else wears, with one more patch on top of `patchProp`. Wrecks stay plain Lambert.
 
-**Four finishes, one program.** `setFinish()` bakes an `aFinish` attribute per part —
+**Six finishes, one program.** `setFinish()` bakes an `aFinish` attribute per part —
 `FINISH.TYRE`, `PAINT`, `GLASS`, `METAL` (the hubcaps, `geometry/wheels.js`, and the chrome
-bumpers, `geometry/bumpers.js`) — and the shader
+bumpers, `geometry/bumpers.js`), `MATTE`, for what a vehicle carries rather than what it is
+made of (below), and `PATINA`, oxidised copper (the bank's dome, [city.md](city.md#the-bank)):
+a satin sheen in its own green with no flop, since `METAL` is too hard a mirror and `PAINT` is
+shared with every car — and the shader
 indexes three shared `vec4` uniform arrays with it, so each finish has its own full set of numbers
 (`FINISH_DEFAULTS`: glint, glint sharpness, glint bend, sheen, sheen sharpness, flake, reflect,
 reflect edge, reflect bend, base colour) while every glossy material still compiles to the same
@@ -180,9 +183,39 @@ are per-material uniforms, not source. `tools/links.mjs` counts it at boot, not 
 
 History: [the first bent normal](rendering-history.md#car-finishes--propmaterial-gloss--in-utilgeojs).
 
+### Every other vehicle
+
+The plane, the civil and police helicopters, the trash barge, the sailboat, the container ships and
+the L train wear the same paint (Tyler, 2026-10-14). Each builder tags its parts by what they are
+made of — liveries, hulls, wheelhouses and car bodies are `PAINT`, glazing is `GLASS`, rotors,
+skids, masts, rigging and running gear are `METAL`, the barge's fender tyres `TYRE` — and hands
+its mesh `propMaterial({ gloss })`. `?vehiclepaint=classic` puts them all back on the plain
+material they wore before; the tags stay on the geometry either way, since a plain material
+ignores them.
+
+- **`MATTE` is for the cargo.** The barge's heap, its rust streaks and grime, the sailboat's sail
+  cover, the gulls riding the barge and a ship's deck and containers share their vehicle's mesh and
+  material but are not paint. Every number is zero and the diffuse is 1, so they draw exactly as a
+  plain prop does. `TYRE` is no answer to "not shiny": its diffuse of 0.64 turned the barge's green
+  wheelhouse black when it was tried as one.
+- **The aircraft keep their AO off** (`propMaterial({ ao: false, gloss })`): they are transparent
+  for their fade, so they cannot be in the AO prepass, and a receiver outside it wears the occlusion
+  of whatever is behind it. That is one more program than the fleet's, shared by the plane and both
+  helicopters.
+- **The ships' curve is centred on a whole ship**, hull to funnel cap, measured off a throwaway
+  build (`shipBounds` in `game/harborships.js`), because one material covers both hulls and
+  everything on deck.
+- **The ships and the train reflect at 0.55**, the cargo box's `amount`: a long flat side bends to
+  grazing along most of its length, and at full strength the toon coat's sky band covered the
+  whole train and a ship's whole bow — a silver streak across the city at play zoom.
+- **The L train's body gets its own material** with the deck's fade and intro patched on top, so
+  the deck and the columns stay plain.
+- **Not covered:** the depot's neon taxi is a sign, the flatbed's deck and crates ride on a
+  traffic truck that already wears the paint, and the skaters' boards are props.
+
 ### Car paint — the layered finish
 
-The shipped default is the `toon` look built on this (see the end of this section); everything below
+The shipped default is the `real` look built on this (see the end of this section); everything below
 is the layered paint it starts from, still one `?paint=layered` away. `?paint=classic` keeps the
 paint before the layered one — its own GLSL, not the new shader fed the old numbers; see
 [history](rendering-history.md#car-paint--the-layered-finish).
@@ -232,8 +265,58 @@ length (`GLOSS_HIT_SOFT`): the further the thing reflected, the blurrier its edg
 few overridden (`PAINT_LOOK_NUMBERS`) and up to four GLSL slots filled (`PAINT_LOOKS`):
 `chameleon` turns the base hue by up to 2.3 rad as a panel turns away, so edges flip colour;
 `satin` is a wrap — almost no coat, a broad sheen and a velvet rim; `toon` makes the glint and
-sheen hard shapes and the coat one band of sky past 0.6 graze. **Toon is the default** (picked
-2026-10-13); `?paint=layered` brings back the realistic layered paint described above.
+sheen hard shapes and the coat one band of sky past 0.6 graze.
+
+**`rim`** (the default 2026-10-16 to 17, `?paint=rim`): toon's hard glint and sheen in the paint's full hue, plus the
+rim line, which every look but classic now wears. Two things make it:
+
+- **The sheen takes the paint's full hue** (`tint` 1, toon has 0.5). Toon's half-white sheen is what
+  turned the taxi pale blue-grey from above: a hard shape over most of a sunlit flank, half of it
+  white. At 1 the taxi stays yellow.
+- **The highlights are small.** Toon's glint snaps on at cos 0.996 of the half-angle and its sheen at
+  0.975 (`uToonCut`, shared by toon and rim). The first cut, 0.982 and 0.86, drew a sun-sized oval
+  across the windscreen and a lobe over half the roof (Tyler, 2026-10-17).
+- **The rim is found on the screen, not on the surface.** The bodies are flat boxes, so no normal
+  says where an edge is. Each light steps the fragment 4 half-res texels toward itself across the
+  AO prepass's depth (`gRimEdge`); where the step lands more than 0.4 units further back — road, or
+  nothing — the fragment is on that light's edge of the car and takes the light's colour, shadow
+  map included. The sun lights the sun-side edges, a cop's bar lights the edges toward the bar, a
+  car in a tower's shadow has none, and turning moves the line. A second step straight up-screen
+  adds a fainter sky-coloured edge. It needs the AO depth pass, so the rim look asks for it even
+  under `?ao=off`. The first build, a Fresnel on the ellipsoid fitted to the body, painted patches
+  over whole corners instead of a line.
+
+The line takes each car's own hue by default (`?rim=paint`; a yellow taxi gets a gold edge, a white
+cop a white one), `?rim=magenta|cyan|gold|white` tints every car one colour (`RIM_COLORS`), and
+`?rim=off` compiles it out. The ⚙️ panel has its width (in half-res texels), strength, sky share,
+car-colour mix and depth gap live, and the two toon cuts (past 1, that highlight is gone). `?paint=toon` is the look before rim; `?paint=layered` the
+realistic layered paint described above, and `?paint=satin&rim=off` any look without the line.
+
+**Flip colour, realistic paint and smooth bodies** (2026-10-17, experiments from Tyler's car-paint
+brief). The flip colour turns the paint toward a deeper shade of itself (its own colour squared,
+so yellow goes amber and white stays white) as the bent normal turns away from the camera, at
+`uFlip` strength: 0.7 on `rim`, 0.8 on `real`, `?flip=` to override, ⚙️ sliders for strength and
+falloff. `?paint=real` is the brief's stack on this source: a sharp clear-coat glint over a soft
+sheen, flakes, the full Fresnel coat and the flip, with both bends cut to a quarter because the
+bends are what smeared the layered look's reflection across a box. `?carbody=smooth` rounds the
+bodies instead: the arched body's profile corners filleted (0.14) and its flanks bevelled (0.05,
+because the arches reach to within 0.13 of the top), cabins and the cop's cab as rounded boxes,
+normals softened across anything under 40 degrees (`softenNormals`), and the paint material
+lit from those normals rather than flat-shaded. Smooth bodies are not a default.
+
+**`real` is the default** (2026-10-17). It dropped its sky reflection (coat 0; it washed the taxi pale, Tyler 2026-10-17) for
+**painted reflection streaks** (`STREAKS`): a box panel reflects one point of the sky edge to
+edge, so instead each flank and end gets a horizon line, and every panel two diagonal bands,
+keyed to the body's box and slid by the flank's facing so they move as the car turns. Their colour
+is the sky's, lifted toward its own brightness, so they fade at night. `real` also doubles the rim
+to 8 texels, capped at 0.5 world units (`RIM_MAX_WORLD`), so the doubling shows in close-ups and
+play zoom keeps the rim look's width: uncapped, 8 texels at play zoom on a phone is 1.1 units, the
+whole flank of a car. The rim and the streaks only go on car- and truck-sized bodies
+(`gCarSized`); the harbour's ships wear the same paint and came out white under both. And it only
+draws on a fragment the AO prepass drew itself: the helicopter, the plane and the river boats are
+not occluders, so the ground behind their own pixel read as an edge everywhere and they came out
+white. The gap is measured against the fragment's own plane carried along the step, so a
+receding bonnet or roof is not mistaken for an edge (it striped the taxi's panels at 2x). ⚙️ "Reflection streaks" sets their strength (0.6 on `real`, Tyler's pick; 0 elsewhere).
 
 **Cost.** Per glossy fragment: two hashes, the derivatives, and two more Blinn-Phong lobes per
 light (one at play zoom, where the sparkle is skipped). Cars are a few percent of the frame, and
@@ -493,10 +576,21 @@ evidence it visited the rider, where it ends up is the evidence it came home.
 
 ### Getting back to the taxi
 
-`src/game/taxifinder.js`. The camera is the player's the moment they swipe, and it stays theirs —
-nothing here tows it back onto the car. The bill for that arrives when the taxi drives off the frame
-entirely, which on a phone is one look across town away: the only way home was to drag the map until
-the yellow car turned up, a hunt across near-identical blocks on a clock that is draining. So while
+The camera is the player's the moment they swipe, and it comes home on its own once they leave it:
+**1.5 seconds with no touch on the map** (`CAMERA_RETURN_IDLE`, `updateCameraReturn` in main.js) and
+it rides back to the taxi through the same `panToTaxi` the chip below uses, flash included, and the
+follow-cam picks it up from there. Any pointer activity on the canvas restarts the count, a finger
+resting on the map holds it, and nothing counts while another claim has the camera (a glide, the
+tutorial, the vignette, the end-of-run focus). It runs on phones only, where the follow-cam does.
+The 1.5 is a feel pick (it shipped at 3) rather than a measurement, and the trade it makes is with
+[the edge arrow's look](gameplay.md), which was left off any timer because a player who rode out to
+a fare may be reading the board with their thumb off the glass. `?camreturn=classic` leaves the
+camera wherever the player put it, as it was before
+([history](rendering-history.md#camera)).
+
+`src/game/taxifinder.js` covers the three seconds before that. The taxi can still drive off the
+frame entirely, which on a phone is one look across town away, and dragging the map until the
+yellow car turns up is a hunt across near-identical blocks on a clock that is draining. So while
 the taxi is **completely** off-frame a chip of it fades in at the opposite end of the bottom row
 from the rider chips, and a tap rides the camera back. Same affordance as those, pointed the other
 way: they answer *who is waiting*, this answers *where am I*.
@@ -846,6 +940,53 @@ from `refresh()` so it keeps up while the cycle drives the sky underneath it.
 
 At **Sky sample 1, Chroma 1** the colour comes out as `skyTop` exactly — the arithmetic stated in
 one line, and what the probe pins the whole derivation against.
+
+### Past the edge of the map — `city/horizon.js`
+
+The island does not end any more; it fades. Past the west towers and past the north park the grid
+carries on, block after block on the city's own pitch, and each block is more sky than the one
+before it until there is only sky. Tyler, 2026-10-14: "fill in with some more buildings then some fog
+to obscure the edge. Wanna create the illusion that the world goes on forever."
+`?horizon=classic` puts the bare edge back.
+
+- **Its own haze, not the scene's.** The scene's fog is a function of screen height (above), so it
+  cannot thicken past the coast without thickening over the top of the playable city by the same
+  amount. This one is a function of where a fragment stands on the ground: the distance outside the
+  last street to the west (`lineX(-2)`) and the corner's last street to the north, ramped to opaque
+  over `HORIZON_GONE` (92). Nothing on the island wears it. It feathers out over 14 units on the two
+  sides that face the sea (south of the south shore's line, east of the north park).
+- **It fades to the sky, exactly.** What the edge used to dissolve into was the dome, and the haze
+  colour above is deliberately *not* the dome. So each fragment finds the point of the dome behind it
+  — the camera is orthographic, so that is one ray along the view axis to the dome's sphere
+  (`SKY_RADIUS`, `SKY_DROP` in `game/scene.js`) — and runs the dome's own gradient there, reading the
+  dome's own uniform objects. The day cycle, Rain Mode's grade and the ⚙️ sky sliders move it with no
+  wiring, and at full haze it is the sky's own pixel, at dusk as at noon.
+- **Painted windows.** The towers are plain boxes (some with a set-back crown); the patch darkens a
+  grid of storey-by-bay cells on every wall, found from the screen-space normal. That is the one
+  detail that still says *building* through the haze, and it costs nothing in geometry.
+- **Cheap on purpose.** One mesh, one draw, ~2.3k triangles, no shadow cast, no AO, not in the
+  entrance wave (it is the world the island stands in, so it is already there while the island
+  builds). It receives the sun's shadow where the map reaches. `?bench` has a "horizon off" row.
+- **Every street stays open.** Blocks sit on the grid's pitch, so each street of the city runs on
+  out through the haze as a clear corridor; `tools/check.mjs` holds that, and that no block stands
+  on the island's own land. The river row is left as open ground.
+- **Heights stay out of the aircraft's way.** West of the island the skyline carries on under
+  `WEST_SKYLINE`, as the west towers do; north of the park it stays under 19, because the
+  helicopters transit at 22 and nothing keeps them out of the north.
+
+History: [the bare edge](rendering-history.md#past-the-edge-of-the-map).
+
+## The render path — `game/renderpath.js`
+
+The frame's shape, in one module so two pages can draw it: the game and the model workshop's
+bench ([workshop.md](workshop.md#the-bench)). `renderBudget()` reads the URL's rendering flags,
+`decideLooks()` takes every decision `propMaterial()` compiles in (AO, Crayon, Cartoon, painterly,
+the paint look, the rim, cloud shadows), and must run before any mesh exists. `createRenderPath()`
+builds the passes below and settles `?hdr` against `?bloom`. Its `render(scene, cam)` runs one
+frame in order: crayon sizing, empty-pool culling, the rain's mirror, the AO prepass, the rim's
+depth, the bloom, the river's fog sync, then the frame (or the HDR composer) and the rain on the
+lens. The game's weather and `?diag` ride in as optional extras. A change to how a frame is drawn
+goes here, never into `main.js`'s `renderFrame`, or the bench stops showing what the game shows.
 
 ## Ambient occlusion — `game/ssao.js`
 
@@ -1333,6 +1474,29 @@ only distinction being made.
 - **The bands are subtle at the shipped `steps` of 3**, since golden hour already puts most of a
   facade in one band. It is a slider for exactly that reason.
 
+## Painted streets — `game/brushtiles.js`, `PAINT_*` in `util/geo.js`
+
+The road surface carries dry-brush strokes, each a little lighter or darker and a little red or
+blue, so the asphalt reads as painted rather than flat grey. `?painterly=classic` turns it off.
+
+- **The strokes** are a 256² tile painted in code at boot (`paintRoad`), every dab drawn at its
+  eight wrapped neighbours so the tile is seamless, all on one heading. The ground's fragment
+  shader (`uBrushKind` 2, set by `brush(mesh, 2)` in `main.js`) reads it in world space every 12
+  units and only on dark, non-green pixels, so kerbs, paint and lawns are left alone.
+- **Direction.** The tile is read as (x, z) on an east–west street and (z, x) on a north–south one.
+  At a junction one road runs straight through and the other's strokes fade out over 3 units at its
+  kerb: the arterial wins, and between two of a kind the east–west road does, so a main street keeps
+  one heading across the map. The arterial lines reach the shader as two bitmasks
+  (`uRoadArt`, filled in `setPaintBrushes` after the layout exists). Splitting each box along its
+  diagonals was the first cut and drew a pinwheel in every junction.
+- **Patches.** Two octaves of value noise at a ~16-unit cell fade the strokes in and out, so some
+  stretches are brushed and some are bare, and the 12-unit repeat never lines up down a whole
+  street. The ground brush tile read at a big scale was tried first and came out as streaks.
+- **What was tried and is dialled to 0** (still in the shader, behind uniforms): a reddened,
+  saturated shadow terminator and cool shadow core after Valve's TF2 paper (read as a glowing
+  outline), a darker wall foot, and strokes on walls, roofs and lawns (read as dirty). Baked colour
+  blotches cost 1.2M extra vertices and were dropped outright.
+
 ## Rain Mode — `game/rain.js`
 
 `?rain`. An exploration and off by default: the city on a wet afternoon. Five layers, plus one
@@ -1460,15 +1624,25 @@ the start of the crossing, so a still frame shows the trail.
 Everything that was a level in the storm becomes a position here:
 
 - **The cell's footprint** is a soft, ragged disc: core radius `CELL_R` 30, soft edge `CELL_EDGE`
-  14, and its edge noised over time. It exists twice, as `cellMask` on the CPU and `cellCore` in
-  `CLOUD_GLSL`, built from the same hash, so the grip under the taxi agrees with the rain on
-  screen. Keep the two in step.
+  14, and its edge noised over time. It exists twice, as `cellFront`/`cellMask`/`cellShade` on the
+  CPU and `cellFront`/`cellRain`/`cellShade` in `CLOUD_GLSL`, built from the same hash, so the grip
+  under the taxi agrees with the rain on screen. Keep the two in step.
+- **The front arrives in order** (`RAMP` in game/squall.js, passed to the shaders as `uCellShape`
+  and `uCellLight`). At ~3.6 u/s an edge is about 4 s at one point, and the three things a storm
+  does are laid out across ~12 s of it: the shade first, from 3.2 edges out to full at 0.6; the
+  lights through the darkening; then a drizzle, a quarter of the rain from 1.6 edges in; then the
+  downpour over the last edge. Leaving, it runs backwards. Each cell also comes up to strength over
+  the first tenth of its crossing and dies away over the last, so its shade does not snap on over
+  the corner it starts beside. `?squallramp=classic` puts all three back on the same ~6 s.
 - **Cloud shade.** Under the cell, `CLOUD_LIGHT` cuts the sun's direct light by 88% and the sky's by
-  30%. It reaches 1.6 times the soft edge, past the rain itself, because the cloud is wider than
-  what falls out of it.
-- **Rain and splashes** fade by the footprint at each drop's position. Their wrap box closes in
-  around the cell, 2 × (radius + edge) + 20 across, so all the rain there is falls there, at the
-  density the whole sky had.
+  30%, by `cellShade`, well past the rain itself, because the cloud is wider than what falls out of
+  it.
+- **Rain and splashes** follow `cellRain` at each drop's position. In the drizzle a streak either
+  falls or does not, each against its own share, so the band is a quarter of the drops rather than
+  every drop at a quarter of its alpha; a drop that is not falling is clipped in the vertex shader
+  rather than drawn transparent. Their wrap box closes in around the cell out to the drizzle's edge,
+  2 × (radius + 1.6 edges) + 20 across, and carries drops by its area, so the downpour is as dense
+  as it was in the first front's 108-unit box.
 - **The wet map** is a 96² grid over 170 units of island. It soaks toward the footprint with a
   3 s time constant and dries with 45 s — any faster and the trail is half gone by the time the cell
   is halfway across, so the rain reads as drying the ground behind itself. The grid is uploaded as an
@@ -1476,13 +1650,17 @@ Everything that was a level in the storm becomes a position here:
   binds a white texel, so the lookup is one code path. Ripples follow the *rain* and not the wet
   map: a drying street is still, and only the street being rained on moves.
 - **The lights.** Windows, lamp heads and lamp pools take the larger of the city-wide level and
-  the footprint where they stand (`litLevelAt` in game/citylights.js). Each one still has its own
+  the shade where they stand, read over 0.15–0.95 of it (`litLevelAt` in game/citylights.js;
+  `squall.lightAt` on the CPU). Each one still has its own
   threshold, so a block lights up pane by pane as the cell arrives. The level is read at each
   light's **anchor** (`aLitXZ` — a pane's centre, a lamp's post), never per vertex: the footprint's
   22-unit edge varies across one pane by more than the ramp, and read per corner every window wiped
   on from one side as the edge went over it. Car headlights come from
-  `setRunningLightsAt(fn)` in sim/traffic.js, per car from its own position.
-- **What stays global:** a faint grade (`SQUALL_GREY` 0.2) while a cell is on the map, the grip
+  `setRunningLightsAt(fn)` in sim/traffic.js, per car from its own position, half way through the
+  city's lights.
+- **What stays global:** a faint grade (`SQUALL_GREY` 0.2), building as the cell comes within
+  `SQUALL_NEAR` (60 units) of its shade's edge from the middle of the frame and full with it
+  overhead (`squallNearness` in main.js), the grip
   (read under the *taxi*, so every car brakes as the player's patch of road does), and the lens
   drops (on while the *taxi* is under the rain — it is the taxi's windscreen — or within `LENS_REACH`
   (15 units) of its edge, easing in over 0.5s and clearing over 5s once it drives out,
@@ -1716,7 +1894,9 @@ not because they want to be loud.
 4. **Composite additively as one more object in the main scene**, at `renderOrder` 0 — the same
    trick [the crayon page](#the-page--one-tile-baked-in-code) uses, hoisted out of a render target
    and into the transparent queue. **This is the whole reason the frame keeps its MSAA and the
-   ghost outlines keep their stencil.**
+   ghost outlines keep their stencil.** Additive on colour only (`blendSrcAlpha` zero): the
+   composite's alpha is 1 across the quad, so plain `AdditiveBlending` made every pixel opaque and
+   blacked out a canvas with a see-through background (the workshop's new-chat taxi).
 
 The intensities are per *kind* of lamp because spill is a total rather than a peak: a brake pod is
 four pixels and a menu board forty times that, so equal intensities put a wash over the
@@ -1948,7 +2128,55 @@ Lambert, and carries an emissive at 0.35 of its own colour to hold its hue after
 
 Screenshot mode freezes the cycle: a rendered shot has to be reproducible.
 
-## The island edge — `city/ground.js`
+## The island edge — `game/edgefog.js`, `city/ground.js`
+
+The island sits in a **bank of soft white fog**, the way an RTS hides the map you have not explored:
+the ring road runs along its inner edge, and past it there is no coast and no sky, only fog, slowly
+billowing. Tyler, 2026-10-17: "helps us hide the city ends at the edges but
+gives the illusion you could unlock more city later". `?edgefog=classic` (`EDGEFOG=classic` headless)
+puts back the island feathering into the sky, which is the skirt described further down — still
+there under the fog, and what `?city=big` shows, since the fog is island-only.
+
+### The fog of war — `game/edgefog.js`
+
+- **A fog term, not a fog mesh.** A stack of translucent sheets is the obvious build and costs the
+  one thing a phone has least of: full-screen overdraw, once per sheet, every frame. Instead the
+  module appends to three's own fog chunks (`ShaderChunk.fog_*`) at import, before anything
+  compiles, so every material that already wears the [haze](#atmospheric-perspective) also mixes
+  toward the fog by where it stands on the *map*. No per-material patch to forget and no
+  `customProgramCacheKey` to keep honest: every program has it. It lives inside three's `USE_FOG`
+  guard, so [unlit markers](#unlit-means-unfogged) and the sky dome refuse it exactly as they refuse
+  the haze. `main.js` imports it first for that reason.
+- **One shared uniform, deliberately a plain object.** `edgeFog` is rgb (the colour) plus w (time).
+  Three clones each material's uniforms, deep-copying vectors and colours but passing any other
+  object by reference, so a plain `{ x, y, z, w }` is one object shared by every material — moving it
+  once a frame moves them all. A material that never got it reads vec4(0), which the shader takes as
+  "not wired" rather than painting black fog.
+- **The shape.** A signed distance to a rounded rectangle round the ring road's outer kerbs
+  (`FOG_HALF_X/Z`, `FOG_RADIUS`), ramped from 1 unit inside the kerb to opaque 7 outside it, with
+  value noise pushing the edge **outward only**, up to 8 units. Outward only is a gameplay rule: the
+  first cut billowed both ways, and on the near (south and east) side a hollow rolled the bank right
+  across the ring road. `tools/check.mjs` holds `FOG_START` short of the outer lane.
+- **The motion.** Two noise layers drift on headings about 100° apart at different speeds
+  (`FOG_DRIFT`, `FOG_DRIFT_FINE`), and both are read through a slowly drifting warp field
+  (`FOG_WARP`, up to 16 units of bend). The first cut slid one layer along one heading, which reads as
+  a texture on a conveyor; the warp is what makes a billow swell, curl and pinch off instead. All of it
+  stays outward-only, so the motion never brings the fog onto the road.
+- **A sloped top.** The distance is taken minus 1.1 × the fragment's height, so the outermost
+  buildings' roofs stand up out of the bank rather than being washed flat with their own pavement.
+- **A floor for it to swallow.** Past the coast there is nothing to fog, so a plain plane sits at
+  `FLOOR_Y` (−6, below the river's bed so it can never cover the channel) and is forced to full fog.
+  It is what stands in for the sky everywhere past the island.
+- **Colour follows the sky.** `daylight.js` calls `setEdgeFogSky` on every keyframe: the dome's
+  horizon colour lifted 45% toward white, so it greys under rain and darkens at night with no wiring
+  of its own. The noise shades it ±10% so the bank has bodies in it.
+- **Sim time** drives it (`tickEdgeFog`), so a paused game holds its fog still and shots repeat;
+  `__taxi.edgeFogAt(seconds)` sets the clock and redraws, for filming the drift from a frozen shot.
+- **No city in the fog.** A ring of pale towers standing in the bank to the west and north was
+  tried and dropped (Tyler, 2026-10-17: "let's not add the buildings in the distance then and just
+  keep the fog"); towers can only go up-screen, so seen whole they bunched into one corner.
+
+### The feathered skirt — `city/ground.js`
 
 The asphalt doesn't end on a line. A **fade skirt** hangs off the slab — `EDGE_FADE = 16` units of
 asphalt stepping outward from the slab's own outline, alpha 1 → 0 — so the city feathers into the
@@ -2875,7 +3103,7 @@ every unit of it is a unit of disagreement between the shading and the shape, wh
 flat-shaded canopy and a mottle here.
 
 **A fade at the edges**, in the alpha of a 4-component vertex colour — the same trick the island's
-own [edge fade](#the-island-edge--citygroundjs) uses, so it needs no shader. This is what actually
+own [edge fade](#the-feathered-skirt--citygroundjs) uses, so it needs no shader. This is what actually
 stops a cloud reading as low-poly: the silhouette is the one place a polygon can still be *seen* as
 a polygon, and dissolving it costs nothing but the numbers.
 
@@ -3326,6 +3554,20 @@ paint yellow across every car it passes.
 The band still offsets each *point* along its mitre rather than offsetting each segment
 independently. Independent segments leave a wedge of bare road on the outside of every join —
 invisible when the corner *was* the notch, obvious across a ten-step arc.
+
+### The taxi's roof — `geometry/taxi.js`
+
+The cabin is a band of dark windows under a **yellow roof** (`taxiBody`, painted), not one glass
+box. The camera looks down on the car, so the roof is most of what it sees: as an all-glass cabin
+the empty taxi read from above as dark glass and an unlit sign with yellow trim, and got lost in a
+busy frame. The glass runs from the body's top to `ROOF_BASE` (1.62) and the roof from there to the
+cabin's old top (1.75), overhanging the glass by 0.03 each way so it reads as a lid; the roof sign
+and the broken windscreen's plates sit where they always did. The depot's sign is built from the
+same parts, so it wears the roof too. `?taxiroof=classic` puts the glass box back.
+
+Still open: in low sun the bonnet and boot come out pale silver, because the paint's sky reflection
+washes the yellow out of every face that points up — which costs the car more of its yellow from
+above than the glass ever did.
 
 ### The taxi's chequer — `geometry/taxi.js`
 

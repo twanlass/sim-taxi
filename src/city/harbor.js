@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import { bakeColor, propMaterial } from '../util/geo.js';
+import { bakeColor, propMaterial, setFinish, FINISH } from '../util/geo.js';
 import { PALETTE, jitterColor } from '../palette.js';
 import { riverBanks, coastWest, GRID_J, isArterialX, lineZ, LTRAIN_NS } from './grid.js';
 import { KERB_H, PAVE_INSET, SLAB_RADIUS } from './ground.js';
@@ -235,28 +235,32 @@ export function ship(rng) {
   // matter here, and the bow still points +x.
   const hull = extrude(outline, hullH);
   hull.translate(0, -SHIP_DRAUGHT, 0);
-  hullParts.push(bakeColor(hull, PALETTE.shipHull));
+  hullParts.push(setFinish(bakeColor(hull, PALETTE.shipHull), FINISH.PAINT));
   // The boot-top: a band at the waterline in the hull's antifouling colour, a hair proud of it.
   const boot = extrude(outline, 0.45);
   boot.scale(1.004, 1, 1.02);
   boot.translate(0, -0.15, 0);
-  hullParts.push(bakeColor(boot, PALETTE.shipBoot));
+  hullParts.push(setFinish(bakeColor(boot, PALETTE.shipBoot), FINISH.PAINT));
   // The deck, inset so the hull's sheer shows as a rim round it.
-  const deck = box(SHIP_L - 4.2, 0.08, SHIP_B - 0.5, -0.6, SHIP_FREEBOARD + 0.04, 0, PALETTE.shipDeck);
+  // Every part is tagged with a finish for the cars' paint the moving ships wear
+  // (game/harborships.js): the hull, the house and the funnel are paint, the bridge's dark band is
+  // glass, and the deck and the boxes are matte — the yard's own containers are plain props, and a
+  // ship's load should not gleam beside them.
+  const deck = setFinish(box(SHIP_L - 4.2, 0.08, SHIP_B - 0.5, -0.6, SHIP_FREEBOARD + 0.04, 0, PALETTE.shipDeck), FINISH.MATTE);
   parts.push(deck);
 
   // The bridge and accommodation, aft, and its funnel.
   const houseX = -hl + 1.6;
-  parts.push(box(2.6, 3.4, SHIP_B - 0.6, houseX, SHIP_FREEBOARD + 1.7, 0, PALETTE.shipHouse));
-  parts.push(box(2.75, 0.45, SHIP_B - 0.3, houseX, SHIP_FREEBOARD + 2.9, 0, PALETTE.craneDark));
+  parts.push(setFinish(box(2.6, 3.4, SHIP_B - 0.6, houseX, SHIP_FREEBOARD + 1.7, 0, PALETTE.shipHouse), FINISH.PAINT));
+  parts.push(setFinish(box(2.75, 0.45, SHIP_B - 0.3, houseX, SHIP_FREEBOARD + 2.9, 0, PALETTE.craneDark), FINISH.GLASS));
   // The bridge wings' roof. It stops 0.1 short of the first bay rather than on it: at 3.0 wide its
   // forward edge landed exactly on the aft face of the containers, one plane shared by two faces
   // across the whole height of the plate, and the two flickered against each other.
-  parts.push(box(2.9, 0.18, SHIP_B + 0.6, houseX + 0.05, SHIP_FREEBOARD + 3.45, 0, PALETTE.shipHouse));
+  parts.push(setFinish(box(2.9, 0.18, SHIP_B + 0.6, houseX + 0.05, SHIP_FREEBOARD + 3.45, 0, PALETTE.shipHouse), FINISH.PAINT));
   // The funnel stops inside its cap rather than level with it: both tops at FREEBOARD + 4.85 was a
   // tie between two colours on one plane, and the cap's top drew half black, half grey.
-  parts.push(box(1.1, 1.45, 1.2, houseX - 0.5, SHIP_FREEBOARD + 4.075, 0, PALETTE.craneHouse));
-  parts.push(box(1.14, 0.3, 1.24, houseX - 0.5, SHIP_FREEBOARD + 4.7, 0, PALETTE.craneDark));
+  parts.push(setFinish(box(1.1, 1.45, 1.2, houseX - 0.5, SHIP_FREEBOARD + 4.075, 0, PALETTE.craneHouse), FINISH.PAINT));
+  parts.push(setFinish(box(1.14, 0.3, 1.24, houseX - 0.5, SHIP_FREEBOARD + 4.7, 0, PALETTE.craneDark), FINISH.PAINT));
 
   // The cargo: bays of containers across the beam, forward of the house. Stacked lower towards
   // the bow, the way a loaded ship's profile steps down.
@@ -268,7 +272,9 @@ export function ship(rng) {
     for (let r = 0; r < rows; r++) {
       const z = (r - (rows - 1) / 2) * (BOX_W + 0.05);
       const tiers = Math.max(1, cap - rng.int(0, 1));
-      parts.push(...stack(rng, bayX0 + b * (BOX_L + 0.15), SHIP_FREEBOARD + 0.08, z, tiers));
+      for (const piece of stack(rng, bayX0 + b * (BOX_L + 0.15), SHIP_FREEBOARD + 0.08, z, tiers)) {
+        parts.push(setFinish(piece, FINISH.MATTE));
+      }
     }
   }
   return { hull: hullParts, upper: parts };

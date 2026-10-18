@@ -95,6 +95,32 @@ const CHECK_DROP = 0.40;
 // at 0.44 × 0.46 on screen.
 const CHECK_SQ = 0.62;
 
+// --- The roofline neon ------------------------------------------------------
+// A blue tube tracing the parapet on the two elevations the camera sees, the way the burger joint
+// across town traces its own (`neonParts` in city/burgerjoint.js) — same placement argument, same
+// mitre, the sign's `depotNeon` blue. `?depotneon=classic` leaves it off.
+//
+// It hangs under the coping, in the reveal `CHECK_DROP` leaves above the chequer, and that reveal
+// is what it is replacing as the separator: a blue line between a dark lid and a dark-and-white
+// course does that job better than a sliver of wall did. Standing `TRIM_OUT` proud keeps it inside
+// the coping's 0.18 overhang with 0.04 to spare, so its outer face is never coplanar with the
+// coping's — and the lip over it hides only `0.04 × VIEW_RISE` = 0.04 of height, which is spent in
+// `TRIM_DROP` before the tube starts.
+const TRIM_H = 0.2;              // a pixel and a half at play zoom, as the burger's
+const TRIM_DROP = 0.06;          // under the coping's underside
+const TRIM_OUT = 0.14;           // proud of the wall
+
+// --- The office windows after dark ----------------------------------------------------------------
+// The two windows on the +Z elevation light up with the rest of the city when night or a squall
+// comes over (`switchedLights` in game/citylights.js — main.js builds the mesh, since only a city
+// with weather has the switch). Early in the darkening, with the shops rather than the flats: the
+// depot is where the night shift is. Each pane sits `LIT_PROUD` off the glass and inset a little,
+// so it reads as a lit room in a dark frame rather than as the frame changing colour.
+// `?depotwindows=classic` leaves them dark.
+const LIT_PROUD = 0.015;
+const LIT_INSET = 0.08;
+const LIT_AT = [0.1, 0.22];
+
 // --- The sign on the roof ---------------------------------------------------
 // The depot is where the player brings the taxi back for repairs and upgrades, and from play zoom
 // the building has to *say* that before anybody has learned it. So the roof carries a sign the way
@@ -622,7 +648,18 @@ function cutoutGeometry() {
  * its own building rather than leaving it hanging in the air. The light is unlit and outside the
  * wave, and the sign is outside it for a different reason — see `wrenchGeometry`.
  */
-export function createGarage(block, rng, { sign: style = 'cutout' } = {}) {
+/** What the model workshop finds this landmark by (src/workshop/catalog.js, `LANDMARKS`). */
+// `glow` is what blooms and at which `BLOOM_INTENSITY` kind (game/bloom.js), read by main.js and the
+// bench alike so the two cannot disagree. The office panes are not here: main.js builds them
+// through `switchedLights` from `litWindows`, and the bench has no evening to switch them on in.
+export const LANDMARK = {
+  id: 'depot',
+  label: 'Taxi depot',
+  create: createGarage,
+  glow: (g) => [[g.light, 'bay'], [g.neon, 'window'], [g.roofNeon, 'window']].filter(([m]) => m),
+};
+
+export function createGarage(block, rng, { sign: style = 'cutout', trim: withTrim = true } = {}) {
   const site = garageSite(block);
   const { x0, z0, z1 } = block.bounds;
   const { frontX, curtainX, doorZ, kerbX } = site;
@@ -684,6 +721,12 @@ export function createGarage(block, rng, { sign: style = 'cutout' } = {}) {
   const trim = color('garageTrim');
   const bay = color('garageBay');
 
+  // The office windows, shared by the glass below and the light behind it.
+  const officeWindows = [[bx0 + 3.0, bx0 + 4.6], [bx0 + 5.2, bx0 + 6.8]];
+  const winY0 = base + 1.6;
+  const winY1 = base + 2.9;
+  const glassZ = bz1 + 0.05;
+
   const parts = [
     // The mass, hollowed for the bay: a back slab, a wing either side of the opening, and a header
     // over it. Built as four solids rather than as one box with a hole because the faces lining
@@ -729,8 +772,7 @@ export function createGarage(block, rng, { sign: style = 'cutout' } = {}) {
     // they are also the only thing on the building giving its height a human scale.
     span(bx0 + 1.0, bx0 + 1.9, base, base + 2.1, bz1, bz1 + 0.06, color('door')),
     span(bx0 + 0.82, bx0 + 2.08, base, base + 2.28, bz1, bz1 + 0.03, trim),
-    span(bx0 + 3.0, bx0 + 4.6, base + 1.6, base + 2.9, bz1, bz1 + 0.05, color('shopfront')),
-    span(bx0 + 5.2, bx0 + 6.8, base + 1.6, base + 2.9, bz1, bz1 + 0.05, color('shopfront')),
+    ...officeWindows.map(([wx0, wx1]) => span(wx0, wx1, winY0, winY1, bz1, glassZ, color('shopfront'))),
 
     // Rooftop plant, on top of the coping rather than under it. Same argument as the elevation
     // above: a flat lid reads as an unfinished box, and the city's own towers all carry some.
@@ -806,6 +848,26 @@ export function createGarage(block, rng, { sign: style = 'cutout' } = {}) {
     color('garageLight'));
   const light = new THREE.Mesh(lightGeo, unlitMaterial({ vertexColors: true }));
   light.name = 'garage-light';
+
+  // --- The roofline neon ----------------------------------------------------
+  // Two arms mitred the burger joint's way: the +X arm carries the corner, running on past the +Z
+  // arm, and the +Z arm stops on its inner face, so no front-facing pair is ever coincident. Their
+  // far ends stop on the wall corners, where the caps face away and are culled. Stamped and in
+  // `meshes`, unlike the bay light: it is on the outside of the building, so it has to rise with it.
+  let roofNeon = null;
+  if (withTrim) {
+    const neonBlue = color('depotNeon');
+    const y1 = top - TRIM_DROP;
+    const y0 = y1 - TRIM_H;
+    const trimParts = [
+      span(frontX, frontX + TRIM_OUT, y0, y1, bz0, bz1 + TRIM_OUT, neonBlue),
+      span(bx0, frontX, y0, y1, bz1, bz1 + TRIM_OUT, neonBlue),
+    ];
+    trimParts.forEach(stampAll);
+    roofNeon = new THREE.Mesh(mergeGeometries(trimParts, false), unlitMaterial({ vertexColors: true }));
+    trimParts.forEach((p) => p.dispose());
+    roofNeon.name = 'garage-roof-neon';
+  }
 
   // --- The sign: the taxi, or under `?depot=classic` the wrench -------------
   // Built at the top of this function, because the pole is placed off its bounds. Its own mesh and
@@ -907,6 +969,7 @@ export function createGarage(block, rng, { sign: style = 'cutout' } = {}) {
 
   const group = new THREE.Group();
   group.add(shell, curtain, light, signPivot);
+  if (roofNeon) group.add(roofNeon);
 
   /**
    * Wind the curtain up. `open` is 0 (shut) to 1 (gone).
@@ -942,17 +1005,30 @@ export function createGarage(block, rng, { sign: style = 'cutout' } = {}) {
     signPivot.rotation.y += spin * dt;
   }
 
+  // Geometry only: `switchedLights` turns these into the mesh, in main.js.
+  const litWindows = officeWindows.map(([wx0, wx1], k) => ({
+    geo: span(wx0 + LIT_INSET, wx1 - LIT_INSET, winY0 + LIT_INSET, winY1 - LIT_INSET,
+      glassZ, glassZ + LIT_PROUD, color(k ? 'litPale' : 'litWarm')),
+    at: THREE.MathUtils.lerp(LIT_AT[0], LIT_AT[1], hash01(wx0, rand)),
+    x: (wx0 + wx1) / 2,
+    z: glassZ,
+  }));
+
   return {
     site,
     group,
     shell,
     curtain,
+    /** The office's lit panes, as `{ geo, at, x, z }` for `switchedLights`. */
+    litWindows,
     light,
     sign,
     signPivot,
     /** The cutout's yellow board and its neon tube; null on the other two signs. */
     board,
     neon,
+    /** The roofline neon; null under `?depotneon=classic`. */
+    roofNeon,
     /** The sign's centre, in world y — where the pole stops. */
     hub,
     update,
@@ -961,7 +1037,7 @@ export function createGarage(block, rng, { sign: style = 'cutout' } = {}) {
      * which is neither: the wave's vertex shader cannot reach a turning object, and a mesh whose
      * matrix changes every frame has no business writing into a screen-space occlusion buffer.
      */
-    meshes: [shell, curtain],
+    meshes: roofNeon ? [shell, curtain, roofNeon] : [shell, curtain],
     setDoor,
     /** ...so the sign grows on the CPU instead, on the shell's own delay. */
     entryObject: { object: signPivot, x: anchorX, z: anchorZ, rand },

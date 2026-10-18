@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { bakeColor } from '../util/geo.js';
+import { bakeColor, setFinish, propMaterial, FINISH } from '../util/geo.js';
 import { color } from '../palette.js';
 import { KERB_H } from './ground.js';
 import { lippedCap } from './buildings.js';
@@ -245,9 +245,24 @@ export function bankFrontage(site) {
  */
 export function chooseBankLot(rng, lots, buildableOf, exclude = null) {
   const options = lots.filter((entry) => entry !== exclude
-    && entry.block.type === 'built'
+    // A car wash's lots are still in the running (`ghost` in buildings.js): drawn among exactly as
+    // they were before it existed, so the draw lands where it always did, then moved if it lands there.
+    && (entry.block.type === 'built' || entry.ghost)
     && bankSite(buildableOf(entry.lot), entry.lot, entry.block.bounds) !== null);
   return options.length ? rng.pick(options) : null;
+}
+
+/**
+ * The dome as a mesh: the glossy material (`FINISH.PATINA` is already on its vertices) with soft
+ * normals, its bent highlight centred on its own geometry. One place, so the city and the workshop's
+ * bench draw the same dome.
+ */
+export function bankDomeMesh(geometry) {
+  const mesh = new THREE.Mesh(geometry, propMaterial({ smooth: true, gloss: { geometry } }));
+  mesh.castShadow = true;
+  mesh.receiveShadow = true;
+  mesh.name = 'bank-dome';
+  return mesh;
 }
 
 /**
@@ -300,8 +315,13 @@ export function buildBank(b, lot, bounds, parts) {
     // Course 0 is the front one and the lowest; the last is a full `PLINTH_H` and meets the
     // plinth's own face. Each course is a solid box from the pavement rather than a tread on a
     // riser — from 33° above, nothing can see under one.
+    //
+    // `v` runs *back* from the front plane, so the front course is at the smallest v. This was
+    // `STEP_RUN - tread * (k + 0.5)`, which put the lowest course against the plinth and the
+    // tallest at the kerb: a flight that descended toward the building, seen from the other side
+    // as steps that were backwards.
     const h = (PLINTH_H / STEP_COURSES) * (k + 1);
-    slab(stepWidth, h, tread, 0, KERB_H, STEP_RUN - tread * (k + 0.5), stepStone);
+    slab(stepWidth, h, tread, 0, KERB_H, tread * (k + 0.5), stepStone);
   }
 
   // --- The mass behind the portico -------------------------------------------
@@ -364,9 +384,9 @@ export function buildBank(b, lot, bounds, parts) {
 
   // --- The dome ---------------------------------------------------------------
   //
-  // On the mass's own centre, on a drum. A hemisphere at 10 × 4 segments is 70 triangles — six
-  // boxes' worth, where a punched-window tower on a lot this size emits several times that — and it
-  // is the only curved mass in the city, which is what the whole event's findability rests on.
+  // On the mass's own centre, on a drum. A hemisphere is a few boxes' worth of triangles, where a
+  // punched-window tower on a lot this size emits several times that — and it is the only curved
+  // mass in the city, which is what the whole event's findability rests on.
   //
   // `SphereGeometry`'s `phiLength`/`thetaLength` cut it open at the bottom, so nothing is drawn
   // under it. Left open on purpose: the camera is 33° above horizontal and the drum is 0.6 tall, so
@@ -375,9 +395,51 @@ export function buildBank(b, lot, bounds, parts) {
   const domeR = Math.min(width, massDepth) * 0.26;
   const drumTop = deck + DRUM_H;
   parts.push(box(domeR * 2.2, DRUM_H, domeR * 2.2, domeCentre.x, deck, domeCentre.z, columnStone));
-  const dome = new THREE.SphereGeometry(domeR, 10, 4, 0, Math.PI * 2, 0, Math.PI / 2);
+  //
+  // **Not in `parts`**, unlike everything else here: a patinated-copper dome wants a shiny material
+  // (`FINISH.PATINA`, util/geo.js) and the merged city mesh is a plain lit one. So it is handed back
+  // as `domeGeometry` for `createBuildings` to stamp with this lot's entry anchor (so it still rises
+  // with the building) and the caller to put on `propMaterial({ gloss, smooth })`. The normals are
+  // put back to the sphere's own, radial from its centre, after baking, since `bakeColor` computes
+  // face normals. 16 x 6 (168 triangles, not 70) so the silhouette is round enough to go with soft
+  // normals; still well under one punched-window tower.
+  const dome = new THREE.SphereGeometry(domeR, 16, 6, 0, Math.PI * 2, 0, Math.PI / 2);
   dome.translate(domeCentre.x, drumTop, domeCentre.z);
-  parts.push(bakeColor(dome, color('bankDome')));
+  const domeBaked = setFinish(bakeColor(dome, color('bankDome')), FINISH.PATINA);
+  const pos = domeBaked.attributes.position;
+  const nrm = domeBaked.attributes.normal;
+  const col = domeBaked.attributes.color;
+  const n = new THREE.Vector3();
+  for (let i = 0; i < pos.count; i++) {
+    n.set(pos.getX(i) - domeCentre.x, pos.getY(i) - drumTop, pos.getZ(i) - domeCentre.z).normalize();
+    nrm.setXYZ(i, n.x, n.y, n.z);
+  }
+  // Verdigris is never one tone: it pools and streaks where rain runs down it. Each pane (one gore
+  // of one ring) gets a hash-jittered lightness and hue off `bankDome`, a little darker the lower it
+  // runs, with the top ring lighter where the weather bleaches it. A hash of the pane rather than a
+  // draw from the rng, so it moves nothing else. Coloured per triangle off its centroid, because the
+  // geometry is non-indexed and a pane is two triangles that have to agree.
+  const SEGMENTS = 16;
+  const RINGS = 6;
+  const hsl = { h: 0, s: 0, l: 0 };
+  color('bankDome').getHSL(hsl);
+  const tint = new THREE.Color();
+  for (let i = 0; i < pos.count; i += 3) {
+    const cx = (pos.getX(i) + pos.getX(i + 1) + pos.getX(i + 2)) / 3 - domeCentre.x;
+    const cy = (pos.getY(i) + pos.getY(i + 1) + pos.getY(i + 2)) / 3 - drumTop;
+    const cz = (pos.getZ(i) + pos.getZ(i + 1) + pos.getZ(i + 2)) / 3 - domeCentre.z;
+    const polar = Math.acos(THREE.MathUtils.clamp(cy / Math.hypot(cx, cy, cz), -1, 1));
+    const ring = Math.min(RINGS - 1, Math.floor(polar / (Math.PI / 2 / RINGS)));
+    const gore = Math.floor(((Math.atan2(cz, cx) + Math.PI) / (Math.PI * 2)) * SEGMENTS) % SEGMENTS;
+    const r = Math.sin(gore * 12.9898 + ring * 78.233) * 43758.5453;
+    const jitter = r - Math.floor(r) - 0.5;                  // -0.5..0.5, fixed per pane
+    tint.setHSL(
+      hsl.h + jitter * 0.04,
+      THREE.MathUtils.clamp(hsl.s + jitter * 0.12, 0, 1),
+      hsl.l + jitter * 0.14 - ring * 0.012 + (ring === 0 ? 0.07 : 0),
+    );
+    for (let k = 0; k < 3; k++) col.setXYZ(i + k, tint.r, tint.g, tint.b);
+  }
   // A finial, so the dome has a top rather than trailing off into a facet seam.
   parts.push(box(0.22, 0.5, 0.22, domeCentre.x, drumTop + domeR - 0.05, domeCentre.z, columnStone));
 
@@ -386,6 +448,10 @@ export function buildBank(b, lot, bounds, parts) {
     /** The roofline and the top of the dome, for anything that has to reason about the skyline. */
     roofY: PLINTH_TOP + MASS_H + CORNICE_H,
     domeY: drumTop + domeR,
+    /** The dome, a glossy patina mesh of its own: not in `parts`, see above. Stamped by the caller. */
+    domeGeometry: domeBaked,
+    /** The dome's sphere: the one smooth-shaded mass in the city that is not a tree crown. */
+    dome: { x: domeCentre.x, y: drumTop, z: domeCentre.z, r: domeR },
     /**
      * The pediment's apex. Published because it is the one height here that is a sum of four other
      * constants, and so the one that drifts when any of them moves — a pediment poking above the

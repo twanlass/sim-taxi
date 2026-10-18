@@ -20,7 +20,8 @@
 //     without a bump an installed client keeps the status bar forever.
 // v4: the icons are rendered in the engine now (tools/icon/), the SVG favicon is gone and the
 //     manifest gained a 192.
-const CACHE_NAME = 'sim-taxi-v4';
+// v5: the manifest's `background_color` went from the sky to black, with the startup screen.
+const CACHE_NAME = 'sim-taxi-v5';
 
 const PRECACHE_URLS = [
   '/',
@@ -46,6 +47,14 @@ self.addEventListener('install', (event) => {
     // fingerprints /assets/* fresh on every build.
     const shellHtml = await (await fetch('/index.html', { cache: 'no-store' })).text();
     const assetPaths = [...shellHtml.matchAll(/(?:src|href)="(\/assets\/[^"]+)"/g)].map((m) => m[1]);
+    // One level further: the game itself is not in the page. src/boot.js imports it dynamically
+    // behind the startup screen, so its chunk is named only inside the entry chunk — in Vite's
+    // preload list as `assets/main-<hash>.js`. Read the page's scripts for those names too, or a
+    // single online visit would leave an offline launch with a startup screen and nothing after it.
+    for (const script of assetPaths.filter((path) => path.endsWith('.js'))) {
+      const source = await (await fetch(script, { cache: 'no-store' })).text();
+      for (const m of source.matchAll(/["'`]\/?(assets\/[\w.-]+\.(?:js|css))["'`]/g)) assetPaths.push(`/${m[1]}`);
+    }
 
     await cache.addAll([...PRECACHE_URLS, ...new Set(assetPaths)]);
     // Take over from any previous worker immediately rather than waiting for every tab of the

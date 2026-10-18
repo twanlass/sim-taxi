@@ -101,15 +101,19 @@ const TURN_R = LANE_TO_KERB;
  * it lands on — a car on the run, and the dropped kerb it drives over — has to still be on the
  * block. A first pass at 2.6 put the ramp 1.1 units out into the road behind it, which the
  * bounding-box check in `tools/probe.mjs` is there to catch.
+ *
+ * Written as that floor plus 0.2 rather than as the 3.4 it is on 8-unit streets, because `TURN_R`
+ * grows with the lanes (`?streets=`) and a fixed 3.4 put the ramp 0.3 off the block on 10-unit
+ * streets.
  */
-const EXIT_LIFT = 3.4;
+/** Half-width of a dropped kerb. Wider than a car and narrower than the lane's own asphalt. */
+const RAMP_HALF = 1.2;
+const EXIT_LIFT = TURN_R + RAMP_HALF + 0.2;
 
 const SIDE_INSET = 0.9;          // the building, off the block's −X and −Z edges
 const FRONT_INSET = 1.5;         // ...and back off its +Z edge, so it has a forecourt on the street
 const BUILD_GAP = 1.8;           // lane centre to the building's +X face
 const APRON_BACK = 0.2;          // the asphalt stops this far short of the block's −Z edge
-/** Half-width of a dropped kerb. Wider than a car and narrower than the lane's own asphalt. */
-const RAMP_HALF = 1.2;
 
 // --- What lies on the ground, and in what order ------------------------------
 //
@@ -593,8 +597,9 @@ function neonParts(wall, col) {
  * the CPU, on the same curve and the same delay as the building under it.
  *
  * Five slices and a scatter of seeds, every one of them a cylinder or a box — which at twelve
- * radial segments under `flatShading` is what makes it read as a *toy* burger rather than as a
- * small photograph of lunch. The cheese is the only piece that is not round: a square slice turned
+ * radial segments is what makes it read as a *toy* burger rather than as a small photograph of
+ * lunch. The round parts are smooth-shaded (`bakeSmooth`, tried on the workshop bench 2026-10-16;
+ * it was flat-shaded before), but the twelve sides still show in the silhouette. The cheese is the only piece that is not round: a square slice turned
  * 45° so its corners come out past the patty, which is the single detail that says "cheeseburger"
  * rather than "bap".
  *
@@ -602,13 +607,32 @@ function neonParts(wall, col) {
  * is the one place the sign's size lives and doubling it doubles the whole stack rather than
  * flattening it into a pancake.
  */
+/**
+ * `bakeColor` for a round part that keeps its soft normals. `bakeColor` recomputes normals on the
+ * de-indexed triangles, which gives every face its own and is what faceted everything here. Taking
+ * the normals across from the indexed geometry instead leaves the cylinders' sides and the dome
+ * smooth while their caps stay flat: three builds a cylinder's caps from vertices of their own, so
+ * the rim is still a hard edge. Same attributes as `bakeColor`'s (position, normal, colour), so the
+ * two merge.
+ */
+function bakeSmooth(geometry, col) {
+  const geo = geometry.toNonIndexed();
+  geometry.dispose();
+  if (geo.attributes.uv) geo.deleteAttribute('uv');
+  const c = new THREE.Color(col);
+  const colors = new Float32Array(geo.attributes.position.count * 3);
+  for (let i = 0; i < colors.length; i += 3) colors.set([c.r, c.g, c.b], i);
+  geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+  return geo;
+}
+
 export function burgerGeometry() {
   const parts = [];
   const R = BURGER_R;
   const disc = (rTop, rBottom, h, y, col) => {
     const geo = new THREE.CylinderGeometry(rTop, rBottom, h, 12);
     geo.translate(0, y + h / 2, 0);
-    return bakeColor(geo, col);
+    return bakeSmooth(geo, col);
   };
 
   // Stacked upward from zero and centred at the end — see the note by the return. It comes out
@@ -652,7 +676,8 @@ export function burgerGeometry() {
   const dome = new THREE.SphereGeometry(R * 0.90, 12, 5, 0, Math.PI * 2, 0, Math.PI / 2);
   dome.scale(1, DOME_SQUASH, 1);
   dome.translate(0, y, 0);
-  parts.push(bakeColor(dome, color('bunTop')));
+  dome.computeVertexNormals();   // the squash bent the sphere's own normals off its new surface
+  parts.push(bakeSmooth(dome, color('bunTop')));
 
   // Sesame. Five, and not a ring: an even ring reads as a machined pattern, and at play zoom these
   // are a pixel or two apiece whose whole job is to break the dome's silhouette. Each is placed by
@@ -689,6 +714,12 @@ export function burgerGeometry() {
  * lifts them as a single building, and the third is grown beside them by `createCityEntry`'s
  * `objects` list — see `burgerGeometry` for why it cannot ride in the shader with them.
  */
+/** What the model workshop finds this landmark by (src/workshop/catalog.js, `LANDMARKS`). */
+// `glow`: what blooms, at which kind (game/bloom.js) — read by main.js and the bench alike.
+export const LANDMARK = {
+  id: 'burger', label: 'Burger joint', create: createBurgerJoint, glow: (b) => [[b.glow, 'window']],
+};
+
 export function createBurgerJoint(block, rng) {
   const site = burgerSite(block);
   const { wall, apron, laneX, kerbZ, kerbX, turnZ, exitZ, orderZ, pickupZ } = site;
@@ -755,8 +786,12 @@ export function createBurgerJoint(block, rng) {
       pickupZ - 1.7, pickupZ + 1.7, band),
     span(laneX + CANOPY_OUT - 0.18, laneX + CANOPY_OUT, base + CANOPY_Y - 0.3, base + CANOPY_Y,
       pickupZ - 1.7, pickupZ + 1.7, trim),
-    // The one post holding the far edge of it up, at the back corner so it is not in a driver's way.
+    // A post at each corner of the far edge. There was only the back one, and the canopy read as
+    // hanging off one leg (the workshop bench, 2026-10-16). Both stand `CANOPY_POST` off the lane
+    // centre, beside the car rather than ahead of it, so the front one is no more in a driver's way
+    // than the back: the clearance is across the lane, and the car runs along it.
     box(0.2, base + CANOPY_Y - 0.3, 0.2, laneX + CANOPY_POST, 0, pickupZ + 1.55, trim),
+    box(0.2, base + CANOPY_Y - 0.3, 0.2, laneX + CANOPY_POST, 0, pickupZ - 1.55, trim),
 
     // The pole the sign turns on, and the plinth it comes out of. Both part of the shell and not
     // part of the sign: a pole that turned with the burger would be a barber's pole.
@@ -825,7 +860,9 @@ export function createBurgerJoint(block, rng) {
   // the lean, and the **mesh** turns inside it about the pivot's own (tilted) Y. One object cannot
   // do both — `rotation.y` on a tilted mesh turns it about the *world* vertical, which sweeps the
   // burger round a cone and reads as a coin about to fall over.
-  const sign = new THREE.Mesh(burgerGeometry(), propMaterial());
+  // Smooth, so the buns and the patty light round (`bakeSmooth`); the boxes in it — the cheese
+  // and the seeds — carry flat normals of their own and stay crisp.
+  const sign = new THREE.Mesh(burgerGeometry(), propMaterial({ smooth: true }));
   sign.castShadow = true;
   sign.name = 'burger-sign';
   // Opened at a hashed angle rather than at zero, and that is not decoration: shot mode ticks the

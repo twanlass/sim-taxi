@@ -733,7 +733,14 @@ export function createBloom(renderer, { enabled = true, depth = null, depthSize 
       depthTest: false,
       depthWrite: false,
       transparent: true,
-      blending: THREE.AdditiveBlending,
+      // Additive on colour only. three's AdditiveBlending is one `blendFunc(SRC_ALPHA, ONE)` for
+      // both, and the composite's alpha is 1 over the whole quad, so it set every pixel opaque: on
+      // a canvas with a see-through background (the workshop's new-chat taxi) the panel went black.
+      blending: THREE.CustomBlending,
+      blendSrc: THREE.SrcAlphaFactor,
+      blendDst: THREE.OneFactor,
+      blendSrcAlpha: THREE.ZeroFactor,
+      blendDstAlpha: THREE.OneFactor,
       fog: false,
     }),
   );

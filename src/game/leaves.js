@@ -180,7 +180,7 @@ export function createLeaves(parent, rng, crowns, plots, squall) {
   function update(dt) {
     const { cell } = squall;
     if (cell.on) {
-      const reach = cell.r * 1.18 + CELL_EDGE;
+      const reach = cell.r * 1.18 + CELL_EDGE * Math.max(1, squall.ramp?.drizzleReach ?? 1);
       for (const src of sources) {
         if (Math.abs(src.x - cell.x) > reach || Math.abs(src.z - cell.z) > reach) continue;
         const m = squall.rainAt(src.x, src.z);

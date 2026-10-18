@@ -28,6 +28,14 @@ glint and the reflection now read two *extra* bent normals and the diffuse keeps
 
 ## Car paint — the layered finish
 
+**Rim was the default from 2026-10-16 to 2026-10-17** (`?paint=rim`): toon's hard glint and sheen in
+the paint's full hue with the rim line, until the realistic look with painted streaks replaced it.
+
+**Toon was the default from 2026-10-13 to 2026-10-16** (`?paint=toon`): the same hard glint and
+sheen as the rim look, with the sheen half white (`tint` 0.5) and a band of sky mixed over the
+body past 0.6 graze where the rim look adds its coloured backlight. The half-white sheen is what
+made the taxi read silver from above.
+
 [Current](rendering.md#car-paint--the-layered-finish).
 
 **`?paint=classic`** keeps the paint from before the layered finish — its own GLSL, not the new
@@ -50,6 +58,12 @@ The layered paint was the default until **toon** replaced it, picked 2026-10-13 
 paint by default, with layered, chameleon, satin and classic behind ?paint=").
 
 ## Camera
+
+**The camera stayed where the player left it** until 2026-10 (`?camreturn=classic`). A swipe handed
+the framing over for good, on the reasoning that a camera fighting a deliberate pan is worse than
+one occasionally pointed at nothing; the taxi-finder chip and the peek's ride home were the only
+ways back. In practice a look across town left the car lost in the frame or off it, and finding it
+again was a drag by hand, so the camera now rides home after 1.5 idle seconds (3 at first).
 
 [Current](rendering.md#camera).
 
@@ -151,6 +165,23 @@ Measured on a rendered shot, as mean blue-minus-red per band, across those versi
 The road read #636972 → #5F7F97 at 0.17 and the zenith colour (56 points of blue-over-red against the
 bare road's 15). `scene.js` notes both want re-taking at 0.19 / 0.73.
 
+### Past the edge of the map
+
+[Current](rendering.md#past-the-edge-of-the-map--cityhorizonjs).
+
+Until 2026-10-14 the island simply stopped: past the west towers' last street, and past the north
+park, the asphalt and the lawn ran out over the slab's fade skirt and dissolved into the sky dome.
+With the 22–33 unit west skyline standing right at that line, the fade read as a dark smear with the
+sky behind it — reported as "the world just ends". `?horizon=classic` brings it back.
+
+### The island edge
+
+[Current](rendering.md#the-island-edge--gameedgefogjs-citygroundjs).
+
+Until 2026-10-17 the island's edge was the feathered skirt alone: the asphalt apron past the ring
+road faded to nothing over 16 units and the sky dome showed through, so the island read as a slab
+floating in the sky with its outline on show. `?edgefog=classic` brings it back.
+
 ## Crayon Mode — `game/crayon.js`
 
 ### The line — a texel, not a radius
@@ -210,6 +241,16 @@ was halfway across, so the rain read as drying the ground behind itself. It is 4
 first read the footprint per vertex, and every window wiped on from one side as the edge went over
 it; they read it at their anchor now. The lens drops' reach and linger were raised on 2026-10-08
 (#454).
+
+**The first front arrived all at once** (`?squallramp=classic`). The shade reached 1.6 edges past
+the core, the lights read that same shade, and the rain filled over the one edge inside it, so at any
+point the sun went, every window came on and the streaks appeared inside the same ~6 s — reported
+(2026-10-15) as "rain appears, lighting gets dark, lights pop on". The streaks faded every drop
+together rather than thinning them, so the edge of the rain was a faint full curtain, not a drizzle.
+And the city-wide grey came on over 4 s the moment a cell switched on outside a corner, wherever the
+player was, at full strength from the first frame, so the shade it cast over the nearest corner
+popped on too. The graded front pulls the three apart in space, thins the drops, fades each cell in
+and out over a tenth of its crossing, and reads the grey off the cell's distance from the frame.
 
 ### Autumn, and the leaves a squall strips — `autumnBase` in `city/props.js`, `game/leaves.js`
 
@@ -711,3 +752,16 @@ Until the lip, a flat roof's cap was one solid box — 0.3 tall on a tower, 0.26
 building thanks to the cornice's overhang, but from 33° up every roof was one flat plane of a
 single colour. Tyler asked for a raised lip and a sunk centre for detail; `?roofs=classic` keeps
 the solid cap. See [city.md](city.md).
+
+## The L train's route
+
+[Current](city.md#the-elevated-train-on-by-default-ltrainclassic-to-compare).
+
+The L first ran east-west along the river's arterial (`?lroute=classic`). On 2026-10-13 (#483) it
+moved to the north-south arterial and ran straight across the city: over the river on a through
+truss, past which a Big Air launch off the arched bridge flew up through the steel, and on south to
+fade out over the south shore's lawn, where its last column stood. Tyler, 2026-10-14: "Doesn't make
+sense fading off into the ocean." It now turns west at the east-west arterial instead, which is
+always north of the river, so the truss and the south half went with that stretch.
+`?ltrainwest=classic` brings the straight line back, truss and all.
+

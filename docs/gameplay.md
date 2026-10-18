@@ -1,5 +1,47 @@
 # Gameplay
 
+## The startup screen
+
+`src/game/splash.js`, entered from `src/boot.js`. A cold start is black from its first frame — the
+iOS launch screen, the web view and the page (`html.booting`) are all `PALETTE.splashVoid` — and
+stays black while the game loads. Then a patch of asphalt fades up in the middle of the black, seen
+from a low side-on camera (15° up), the taxi falls out of the sky onto it with the **Big Air landing** (the dust ring, the pale shockwave,
+sparks off all four wheels, a hard shake), bounces twice, sits for a beat, lights **Loco Mode** and
+leaves on its back wheels, laying rubber, off the right edge of the frame. Once it is fully gone,
+flame and all (`exitTime`), the empty patch holds for a second (`HOLD`) — skid marks, dust settling
+— and then fades to the title screen. About 3.8 s from the first frame of asphalt on a phone; a tap
+anywhere skips to a quick fade, and a player with reduced motion gets the fade alone.
+
+**It has sound where sound is allowed** (`game/splashsound.js`): the Big Air landing on the slam, a
+bump on each bounce, and the Loco press (launch, the activate's roar, a skid for the burnout) as it
+leaves, the roar fading as the car clears the frame. The game's own recordings at the shipped mix,
+under the player's mute and effects slider. It has to play before anyone has tapped, which a
+browser will not allow, so it makes its own context at once and stays silent unless that context
+is running: in the iOS app it is (the shell lifts the gesture rule), in Safari it never is, in
+Chrome only on a site the player already uses a lot. `?splashsound=classic` is the silent drop.
+
+**It covers the load without animating during it.** `main.js` builds the city in one synchronous
+task (13 s of one long task under headless SwiftShader, nothing in between), so nothing on the page
+can move while it runs. `boot.js` builds the splash first — its renderer, its scene and the effect
+pools it borrows from the game — then imports the game behind the black. When the game is up, the
+city draws a few frames behind it (`WARM_FRAMES`) so its first-frame shader links land where they
+cannot stutter anything, and then the drop plays with the city skipping its frames
+(`splashCovers()`, read at the top of `frame` in main.js). The fade reveals the last of those warm
+frames, still on the city's canvas, and the city picks up when the screen is gone.
+
+**It is built before the game is imported on purpose.** `propMaterial()` bakes the AO, Crayon and
+cloud-shadow switches into the shader at creation, and `main.js` throws them as it boots: a taxi made
+afterwards would sample the city's SSAO buffer at whatever pixel it stood on. Built and compiled
+first, it is the plain car.
+
+**Where it plays.** Every cold start. Not wherever the title screen would not be either — shot mode,
+`?dev`, `?title=off`, the reload "Play again" does — and not on **`?splash=classic`**, which is the
+old load: straight into the game, though the page is still black rather than sky until the city has
+drawn. The drop itself is walked in `tools/probe.mjs`: the body never dips into the road, and the
+car starts above the frame and is gone, plume included, at `exitTime` at a phone, a square and a
+desktop aspect, under both cameras. **`?splashcam=classic`** is the first cut's camera instead: the
+game's own 33° three-quarter view, with the car leaving off the top right.
+
 ## The title screen
 
 `src/game/titlescreen.js`, in `#title-screen`. A load opens on **Play, Settings, Credits**, left
@@ -51,7 +93,7 @@ near lane.
 | `approach` | `focusOn` eases target and zoom together onto the door, from the play framing at zoom 52 down to **15** | ~1.4s, capped at 1.9 |
 | `settle` | A beat on the shut door, so arriving and the door moving read as two events | 0.12s |
 | `door` | The curtain winds up on an ease-*out* — a roller door leaves fast under its counterweight and creeps the last few inches | 0.95s |
-| `reveal` | The car sitting in a lit doorway. This is the shot | 0.35s |
+| `reveal` | The car sitting in a lit doorway, the radio crushed through its speaker ([the dash radio](audio.md#the-dash-radio)). This is the shot | 0.35s, or until the first song has played 4s through the dash (up to 8s) |
 | `roll` | Out of the bay, across the forecourt, down the kerb, right into the lane. The zoom starts widening as the nose clears the door, so the pull-back is already under way; the **shutter starts coming back down** the moment the car reaches the kerb | ~2.7s |
 | `release` | `focusOn` back to whatever framing the run would have had — the city's centre on a desktop, the taxi on a phone, where the opening follow-cam picks it up | ~1.3s, capped at 2.0 |
 
@@ -1619,7 +1661,15 @@ in `game/fares.js`).
 Every combo the taxi lands on a job steps a multiplier up, and the drop-off pays the fare at it
 (`game/combometer.js`, Tyler's idea after the Duolingo combo streak). It starts each ride at ×1: an
 overtake or a bootleg U-turn +0.5, a drift kick +0.5 per chain tier (so a full chain of three is
-+3), the bridge launch +2, capped at ×5. Combos only count on a job — from the tap that sends the
++3), **Stuntman** +1, the bridge launch +2, capped at ×5.
+
+Stuntman is smashing through a [roadworks](traffic.md#roadworks-a-street-closed-at-both-ends)
+barricade, at any speed (Tyler, 2026-10-14). It also pays a sixth of the Loco tank back on the
+energy bits a drift kick uses, the same refund as the first kick of a chain (`DRIFT_CHAIN.fuel[0]`).
+The refund lands whether or not there is a job in hand; the step, like every combo, only on one.
+The zone comes up once a run, so this is a once-a-run move; the router already prices the closed
+street cheap and aims a drop-off at it, so a player on a fare usually gets the chance.
+`?stuntman=classic` makes the smash scenery again: no step, no refund. Combos only count on a job — from the tap that sends the
 taxi at a rider, through the pickup, to the drop-off (`fares.job()`) — so a stunt done idling
 between fares builds nothing.
 
@@ -1776,6 +1826,32 @@ the fare soak (`tools/soak.mjs`): frequent enough to be a real event, not so fre
 forgiving misses meaningfully padded the survival curve. Never on the tutorial fare
 (`VIP_MIN_DELIVERED`) — nothing on the board yet for a purple diamond to be distinguished *from*.
 
+## Getting caught
+
+One rule each way, the same for every cop in the game — the patrol cruiser, a getaway's fleet, a
+roadblock, the arrest crew at a drop-off (`game/patrol.js`, "The capture model"; Tyler, 2026-10-14):
+
+- **Hitting a cop is hitting a car.** HP off by closing speed, the same `bumpDamage` as anything
+  else ([bumps and hit points](traffic.md#bumps-and-hit-points)), whoever did the hitting. A flat-out
+  hit can still be the wreck — it just has to be the one that empties the HP. So a
+  [roadblock](#they-box-you-in) is something to smash through on the pill, at a price.
+- **"Busted!" is being stopped with a cop on you.** A chasing cop touching the taxi while it is doing
+  under `PIN_SPEED` (3 u/s, a third of cruise) for `PIN_HOLD` (0.75s) — boxed in, rammed to a stop at
+  a junction, nosed into a roadblock. The clock runs back down when the taxi gets free. A cop that
+  rams a taxi still doing a speed lands a hit (HP, the bump's knock) and drops back for
+  `RAM_BACKOFF` (1.5s) before it tries again. A getaway's cops arrest the same way once the alarm is
+  up; the arrest crew at a drop-off never does.
+
+The pin is not the proximity meter the patrol had before contact became the catch: that one filled
+on a cop being *near* a slow taxi and read as a timer. This one needs the cop's bumper on the taxi
+and the taxi stuck. There is no bar for it on screen.
+
+It replaced three rules that each meant something different by the same blue car: a patrol touch
+was "Busted!" at any speed, a boosted hit on *any* cop was the wreck whatever the HP (#466), and a
+getaway's cops could not arrest at all — which made the getaway's roadblocks, the one thing it asks
+you to smash, the one thing that ended a run outright. `?capture=classic` keeps them; see
+[history](gameplay-history.md#getting-caught-before-the-capture-model).
+
 ## The bank robbery
 
 `src/game/robbery.js`, `src/game/bankjob.js`, `src/city/bank.js`, `src/game/fares.js`
@@ -1783,7 +1859,15 @@ forgiving misses meaningfully padded the survival curve. Never on the tutorial f
 [bank](city.md#the-bank) — a low stone building under a colonnade with a dome behind it. **Now and
 then a rider spawns on its steps** (`BANK_CHANCE`: 30% of qualifying spawns from the second
 delivery, 35s after the last one left the board; #499). They are an ordinary tappable fare. Tap
-them and pull up, and a coin tossed when they spawned decides it: heads they get in like anybody
+them and pull up, and a coin tossed when they spawned decides it — **a loaded one**: even odds on
+the first bank rider of a run, then 15 points more robbery for each one who rode (50, 65, 80, 95,
+capped there), back to even once a robbery happens (`BANK_ROBBER_STEP`; #522,
+`?robberyodds=classic` for a fair coin every time). **The taxi collects them from the steps, not the
+corner**: the route comes down the bank's own street (the fare's target carries its lane, `onto`),
+and the pickup resolves only level with the door (`BANK_REACH_ALONG`, 6 either way along the
+façade, across both lanes). The junction's `ARRIVE_RADIUS` it used to share with everyone fired
+from the cross street round the corner, a block and a half from the robber the cut then had to
+frame (`?bankpickup=classic`). Heads they get in like anybody
 else; tails a robber bursts out of the bank, shoves them over and takes their seat — see
 [the bank job](#the-bank-job) — and the streets go blue for as long as it takes to get the robber
 where they are going. `?bankfare=classic` restores the drive-past robbery, where passing the bank
@@ -1817,10 +1901,9 @@ description, and it is worth listing what is *not* new, because none of it is:
   unsafe crossing would be a cop driving *through* a car rather than into it. See
   [the licence](traffic.md#the-one-licence-a-red-on-a-provably-empty-junction).
 - Loco Mode is untouched — the same finite tank, spent in a hold.
-- The fail state is untouched in kind. [`sim/collisions.js`](../src/sim/collisions.js) treats a cop
-  as a car, with one exception: **ramming a police car on the gas is the wreck outright**, whatever
-  the taxi's HP (`lethalPolice`, #466; `?cop=classic` prices a cop like any other car, a bump that
-  costs hit points). The police **put themselves in your way** — see
+- The fail state is the game's own ([getting caught](#getting-caught)): a cop is a car to
+  [`sim/collisions.js`](../src/sim/collisions.js), so ramming one costs hit points, and being pinned
+  by one is "Busted!". The police **put themselves in your way** — see
   [they box you in](#they-box-you-in) — so a cop in the road is something to route round or wait
   out rather than drive through.
 
@@ -1836,13 +1919,14 @@ the ride into a getaway is one they never see.
 An imposed event that can end a run is the one thing a score-attack cannot have. So a robber whose
 clock runs out does exactly what a missed VIP does: gets out mid-street, swears about it
 ([the outburst bubble](#they-leave-and-they-let-you-know)) and goes. The event costs the bonus and
-the seat it was occupying, and nothing else. The robbery's own cops never arrest anybody.
+the seat it was occupying, and nothing else. The clock running out cannot end the run.
 
 **What it can cost is the escape afterwards, and whatever the player drives into.** Deliver the
-robber and one cop comes after *you* as an ordinary [patrol chase](traffic.md#the-patrol-cruiser) —
-caught on a touch off the gas is "Busted!" ([the drop-off](#the-drop-off-the-arrest-and-the-tail)) —
-and ramming any cop on the gas is the wreck. Nothing about the event *being imposed* can end the
-run; a player who drives the getaway or rams a cop has chosen to. The drop-off fills the tank to pay
+robber and one cop comes after *you* as an ordinary [patrol chase](traffic.md#the-patrol-cruiser)
+([the drop-off](#the-drop-off-the-arrest-and-the-tail)). During the getaway and after it, the
+police end a run the way they do anywhere ([getting caught](#getting-caught)): pinned is "Busted!",
+and a ram that empties the HP is the wreck. Nothing about the event *being imposed* can end the
+run; a player who gets boxed in or drives the HP out of the taxi has done it themselves. The drop-off fills the tank to pay
 for the chase, so the choice is "boost clear", not "hope".
 
 ### The robber
@@ -1958,7 +2042,10 @@ player *sees* the robber get in.
 
 **It starts with the bank rider** (`BANK_CHANCE` in game/fares.js: 30% of qualifying spawns, from
 the second delivery, the bank junction within the spawn box, 35s after the last one left the
-board). A coin is tossed when they spawn. Tap them and pull up: heads they get in like anybody
+board). A coin is tossed when they spawn, loaded by every bank rider who has ridden since the last
+robbery: 50% robbery, then 65, 80 and 95, back to 50 after one fires (`BANK_ROBBER_STEP` in
+game/fares.js; a rider who got in because the gates were shut counts as one who rode). Keep taking
+the bank's fares and you are pushing your luck. Tap them and pull up: heads they get in like anybody
 else; tails, and if the robbery's fairness gates are open at that moment (`swapReady` in
 game/robbery.js — every [gate](#the-trigger) but the drive-past's range, with the bank rider's own
 clock left out of the calm test), they leave the board without a strike and the robber takes their
@@ -1971,7 +2058,8 @@ The event opens on a cut, and the world stops **one beat earlier** than the line
 anyway:
 
 1. One red alarm light appears on the bank's entablature, over the doorway (`bankFrontage` in
-   city/bank.js), and starts flashing, and the camera pulls in on the steps and the cab.
+   city/bank.js), and starts flashing, and the camera pulls in on the steps and the cab (see
+   [the cut's framing](#the-cuts-framing) below).
 2. The robber bursts out of the portico, shedding notes out of the sack (the getaway's own cash
    trail, fed from the robber), shoves the **bank rider** clean off their feet (airborne, spun, a
    bounce and a skid, then dazed and stirring on the ground — never landing on the cab), and
@@ -1982,10 +2070,42 @@ anyway:
 
 The shove plays in **slow motion**: from contact until just before the bystander comes down the
 cut's clock runs at 0.3x (`IMPACT_SLOW`), easing back to 1x so the bounce and skid land at full
-speed. About 4s of wall time in all, and a tap (or Space/Enter) skips straight to step 3. The alarm
+speed. About 4s of wall time in all, and **it cannot be skipped**: a tap landing as the cut opened
+(the player still steering onto the kerb) skipped the robbery before anyone saw it. The tap is still
+swallowed by a full-screen catcher, so it never reroutes the taxi. `?robberyskip=classic` puts back
+the tap (or Space/Enter) skipping straight to step 3. The alarm
 keeps going for as long as the robbery does and then goes; the rider gets up a few seconds into the
 getaway and walks back into the bank; the door slams and the camera eases back out when the line is
 cleared.
+
+#### The cut's framing
+
+The camera is fitted **on the screen**, not in the ground plane (`frameCut` in game/bankjob.js).
+Everything the cut shows is projected onto the camera's own axes — the doorway at a figure's
+height, the steps, the bystander at the top of their flight and where they come down, every corner
+of the run, the cab's nose and tail, and the point over the cab the robber's bubble hangs from — and
+the half-height is the smallest that holds the box at the current aspect ratio, with 1.5 units of
+room, between 15 and 34. The box is centred in the strip **between the HUD rows** (the cash at the
+top takes 15% of the height, the pedals at the bottom 20%), so the shove never plays under a
+button. It is refitted every frame, so a rotation mid-cut reframes rather than crops.
+
+**Loco Mode's push-in lets go for the cut.** The punch (`punchZoom` in game/camera.js) is eased by
+the frame loop the cut stops, so a player still holding the pill as they pulled up — which is how
+most pickups are driven — froze it at `LOCO_PUNCH` (0.76) through the cut and the line: a frame
+sized to hold everything shown at 76% of its size, the bank and the cab at opposite edges of the
+phone. The cut eases it back to 1 alongside its own framing.
+
+**The L's deck thins over the cut.** The deck already dithers out over the taxi and the fare pins
+(`setFadePoints` in game/ltrain.js), but the frame loop that feeds it stands still under the cut,
+so the points it held were wherever the taxi and the pins were on the frame the world stopped.
+During the cut it is fed the steps, the bystander and their landing, the robber where they are and
+the cab instead (`fadePoints`), and those stay set for the robber's line after it. About one city
+in eight puts the deck straight over the bank's steps (10 of 80 seeds measured with the deck's
+sightline lift).
+
+`?robberycam=classic` is the first framing: the steps, the bystander and the cab door averaged in
+the ground plane with the door counted twice, a zoom off the world distance between them capped at
+26, a held push-in left frozen, and the deck left as it was. See [history](gameplay-history.md#the-bank-job).
 
 **Stopped, not slowed** — the world, that is; the impact slow-mo is the cut's own clock, with
 everything else already frozen. Slowing the *world* would keep the traffic alive, but it runs every
@@ -2287,7 +2407,9 @@ in [the box-in](traffic.md#the-box-in-roadblocks-the-overtake-and-the-brake-chec
 
 - **Roadblocks.** A cop crossing a junction a block or two up your route skids to a stop at 45°
   *across the middle of your road* and holds it for up to four seconds, or until you have got past it. One at a
-  time, eight seconds apart.
+  time, eight seconds apart. The overtake combo thrown short of one swerves round it, squeezing past by
+  the kerb ([the swerve](traffic.md#swerving-round-a-car-stood-in-the-junction)), unless a second
+  cop is holding the other half.
 - **The overtake and the brake check.** A cop that catches you from behind goes round you in the
   oncoming lane, cuts in and slews across the road for 2.5 seconds, with the rest of the chase
   arriving behind you. A cop that is already ahead of you on your road skips the overtake and does
@@ -2809,10 +2931,14 @@ unbroken move: with nothing to arrive at on the car, the box has one destination
 ## Crazy-taxi mode
 
 The **Loco Mode** button is the gas pedal: the round orange button centred on the bottom edge,
-100px across, with the brake to its left (see [the pedal slide](#the-pedal-slide)). **Hold to
+100px across, with the brake to its left (see [the pedal slide](#the-pedal-slide)). Both are drawn
+as an NES pad's buttons — Loco Mode is **A**, the brake **B** — black plastic surround, a dished
+centre with the letter debossed in it, a hard glint (Tyler, 2026-10-15; `?pedals=classic` brings
+back the round pedals with lightning and stop icons). **Hold to
 enable, release to pause.** A short tap costs a short slice, a long hold flows until the tank is
 empty. Full tank is 15 seconds of boost. The decision is *how long* to press as well as *when*.
-The fuel level is the arc gauge round the pedal (`#boost-meter`, `game/fuelarc.js`), off a `--pct`
+The fuel level is the arc gauge round the pedal (`#boost-meter`, `game/fuelarc.js`), a 140° crown
+over the top of it (~197° under `?pedals=classic`), off a `--pct`
 CSS variable, dropping as you drain and climbing as a drop-off pours fuel in.
 
 **Every drop of it is earned, except the way back out of empty.** The run opens with **a third of a tank**, each

@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import { propMaterial } from '../util/geo.js';
+import { propMaterial, vehiclePaintOn } from '../util/geo.js';
+import { makeRng } from '../util/rng.js';
 import { WATER_Y } from '../city/river.js';
 import { coastEast } from '../city/grid.js';
 import { EDGE_FADE } from '../city/ground.js';
@@ -41,6 +42,22 @@ const SEA_FAR = 52;
 const HEAVE = 0.06;
 const ROLL = 0.012;
 
+/**
+ * A stand-in geometry carrying only a `boundingBox`: one ship's hull and upper works together,
+ * which is all `propMaterial({ gloss })` reads off it. Off its own rng, so building it draws
+ * nothing from the run's stream; the boxes on deck vary per ship and the box round them does not.
+ */
+function shipBounds() {
+  const { hull, upper } = shipParts(makeRng(1));
+  const box = new THREE.Box3();
+  for (const part of [...hull, ...upper]) {
+    part.computeBoundingBox();
+    box.union(part.boundingBox);
+    part.dispose();
+  }
+  return { boundingBox: box };
+}
+
 const ease = (t) => { const k = Math.min(1, Math.max(0, t)); return k * k * (3 - 2 * k); };
 
 /**
@@ -52,7 +69,16 @@ export function createHarborShips(scene, rng, berth) {
   // Hashed alpha rather than blending: the ship stays in the opaque pass, writes depth and needs no
   // sorting against the cranes, and still dissolves into the sky out past the sea's own fade the way
   // the water under it does, instead of popping into existence over nothing.
-  const material = propMaterial();
+  //
+  // The cars' paint, with the deck and the boxes tagged matte (`ship` in city/harbor.js). One
+  // material for both hulls and everything on them, so its curve is centred on one ship's whole
+  // bounds — a ship from the hull to the funnel cap — which `shipBounds` measures off a throwaway
+  // build. `?vehiclepaint=classic` is the plain prop material it was before.
+  // At the cargo box's 0.55 of the paint's reflection: at full strength the hull's whole bow went
+  // to a band of pale sky.
+  const material = vehiclePaintOn()
+    ? propMaterial({ gloss: { geometry: shipBounds(), amount: 0.55 } })
+    : propMaterial();
   material.alphaHash = true;
   const fadeFrom = coastEast() - 2;
   const fadeTo = coastEast() + EDGE_FADE * 0.7;

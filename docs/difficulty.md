@@ -43,11 +43,50 @@ ramp along `d` — they are the world, not the fare game.
 
 | World knob | `d = 0` | `d = 1` | |
 |---|---|---|---|
-| `carCount` | 16 | 30 | Ambient traffic. Pushed into `sim/traffic.js`. 12 to 22 under `?city=classic`: these are densities, scaled by the street length. |
+| `carCount` | 12 | 22 | Ambient traffic. Pushed into `sim/traffic.js`. 16 to 30 under `?city=big`: these are densities, scaled by the street length. |
 | `policeCooldown` | 16–30s | 8–14s | Between patrols. Pushed into `game/patrol.js`. |
 
 `?d=0..1` pins the curve. The ⚙️ panel has a slider for the same handle, and four more for the two
 dials' endpoints — they act on the next rider to spawn.
+
+## Modes
+
+Settings has a Difficulty row: **Easy, Regular, Hard** (`MODES` in difficulty.js, Tyler 2026-10-14).
+Each is a patch over the tuning above. **Easy is the shipped curve unchanged** and is the default, so
+every other table in this doc is Easy's. The choice is saved with the other settings, takes effect
+from the next rider to spawn (so it can be flipped from the pause screen), and `?difficulty=` pins
+it for one load. Shot mode always plays Easy.
+
+| | `paceStart` | `pressure` | `rampFares` | patrol cruisers |
+|---|---|---|---|---|
+| Easy | 1.5 | 0.5 → 1.4 | 12 | 1 |
+| Regular | 1.4 | 0.8 → 1.6 | 10 | 2 |
+| Hard | 1.25 | 1.0 → 1.9 | 7 | 3 |
+
+`paceEnd` stays 0.85 in all three: `LOCO_PACE_SELF` is 0.8, so there is no room below it that is not
+unwinnable. A shorter ramp also brings the car count and police cadence to their ceilings sooner,
+since they ride the same `d`.
+
+**Patrol cruisers** (`extraPatrols`, Tyler 2026-10-15) are the one world knob a mode sets outright.
+Each extra is a whole second patrol (main.js builds one `createPatrol` per cruiser behind the
+one-patrol interface the rest of the file uses) with its own cooldown off the same range, entering
+12s after the one before it at the start of a run. Any of them can chase, and two can chase at
+once. The extras carry no point lights (`createPolice({ lamps: false })`): a light costs every lit
+fragment in the city whether it is on or not, and the bar still glows through the bloom. The sweep
+above does not see them, because the autoplay bot plays the fare game without police.
+
+`node tools/difficulty-sweep.mjs 21 modes`, deliveries p10 / median and the share of kerbside picks
+made with more than one rider waiting:
+
+| | cruise | loco | choice (loco) |
+|---|---|---|---|
+| Easy | 7 / 9 | 11 / 12 | 10% |
+| Regular | 4 / 6 | 7 / 10 | 19% |
+| Hard | 3 / 4 | 5 / 7 | 29% |
+
+`tools/probe.mjs` asserts that every mode stays above `LOCO_PACE_SELF`, that each is at least as
+tight and as busy as the one before it at every delivery, and that switching back to Easy restores
+the shipped tuning exactly.
 
 ## Every rider is budgeted as if served next
 

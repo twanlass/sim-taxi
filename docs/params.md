@@ -1,7 +1,7 @@
 # URL parameters
 
 Every query parameter the game reads, in one place. Combine them with `&`:
-`/?dev&seed=7&cars=1`. The page at `/lab/` has its own, in [lab.md](lab.md).
+`/?dev&seed=7&cars=1`. The page at `/lab/` has its own, in [lab.md](lab.md), and so does the model workshop at `/workshop/`, in [workshop.md](workshop.md).
 
 `tools/docs.mjs` (part of `npm run check`) fails if the code reads a parameter that is not in a
 table here, or a row names one nothing reads any more. So adding a `?flag` means adding its row.
@@ -17,40 +17,80 @@ doc; what the classic version was, and why it changed, is in that doc's history 
 
 | Param | Brings back | PR | Doc |
 |---|---|---|---|
-| `?city=classic` | The 5 × 6 city (25 land blocks, straight roads only, three bridges). Headless tools take `CITY=classic` | #483 | [city.md](city.md) |
+| `?streets=classic` | 8-unit streets, the width they were before 2026-10-17. The default is 9. Blocks keep their size, so the map shrinks with the streets. Headless tools take `STREETS=` | | [city.md](city.md#street-width-streets) |
+| `?river=classic` | The 12-unit river, the width it was before 2026-10-18. The default is 15 (25% wider); the blocks keep their size, so the map is 3 units taller. `?city=big` keeps the 12-unit river either way. Headless tools take `RIVER=classic` | | [river.md](river.md#the-channel-is-wider-than-a-block-row-riverclassic) |
+| `?bridges=classic` | The island's old four crossings: both ring roads and the L's line bridged beside the drawbridge. The default (2026-10-18) is three: fixed bridges one line in from each coast and the drawbridge between them. `?city=big` is unaffected. Headless tools take `BRIDGES=classic` | | [river.md](river.md#which-crossings-bridge) |
+| `?city=big` | The 6 × 7 city (36 land blocks) with the central park, harbor, north park, shores, west edge high rises, horizon filler and the L's turn west. The default is the 5 × 5 island with feathered edges. Headless tools take `CITY=big` | #483 | [city.md](city.md) |
 | `?harbor=classic` | The old river mouth, with no harbor, cranes or ships | #488, #497 | [river.md](river.md) |
 | `?northpark=classic` | No park past the north ring road | #483 | [city.md](city.md) |
 | `?westedge=classic` | No high rises past the west ring road: the island ends at the old west coast. Headless tools take `WESTEDGE=classic` | #510 | [city.md](city.md#the-west-edge-high-rises-default-westedgeclassic-to-drop-them) |
 | `?westcorner=classic` | No mid-rises in the northwest corner: open asphalt between the west edge and the north park, which keeps its old west strip and feather. Headless tools take `WESTCORNER=classic` | | [city.md](city.md#the-west-edge-high-rises-default-westedgeclassic-to-drop-them) |
+| `?edgefog=classic` | The island feathering into the sky, with no fog bank round it. Headless tools take `EDGEFOG=classic` | | [rendering.md](rendering.md#the-island-edge--gameedgefogjs-citygroundjs) |
+| `?horizon=classic` | The bare edge of the map: no city carrying on past the west towers and the north park, the ground fading straight into the sky. Headless tools take `HORIZON=classic` | | [rendering.md](rendering.md#past-the-edge-of-the-map--cityhorizonjs) |
 | `?parkdrive=classic` | No arched drives round statues in the north park's wall | | [city.md](city.md) |
 | `?parkshore=classic` | The harbor's seawall curling west and stopping at the north park's corner, instead of running on north beside it. Headless tools take `PARKSHORE=classic` | #512 | [river.md](river.md#the-park-shore) |
 | `?southshore=classic` | The old south apron fading into the sky, instead of the rocky shore and park strip. Headless tools take `SOUTHSHORE=classic` | #512 | [river.md](river.md#the-south-shore) |
+| `?gravetree=classic` | The graveyard's one big plum-crowned tree in the back corner. Headless tools take `GRAVETREE=classic` | | [city.md](city.md#the-graveyard) |
+| `?gravemist=classic` | The graveyard's ground mist, drifting over the lawn and thicker after dark. Headless tools take `GRAVEMIST=classic` | | [city.md](city.md#the-graveyard) |
+| `?gravegrass=classic` | The graveyard's lawn flat, with no long grass between the stones. Headless tools take `GRAVEGRASS=classic` | | [city.md](city.md#long-grass) |
 | `?edgegrass=classic` | Flat green lawns on the north park, the park shore and the south shore, with no long grass. Headless tools take `EDGEGRASS=classic` | | [city.md](city.md#long-grass) |
 | `?parkway=twoway` | A two-lane road through the central park instead of the one-way one | #473 | [city.md](city.md) |
 | `?graveyard=single` / `=classic` | One graveyard block / no graveyard (default is two blocks with the street between closed) | #487, #491 | [city.md](city.md) |
 | `?ltrain=classic` | No L train | #482 | [city.md](city.md) |
 | `?lroute=classic` | The L train running east–west instead of north–south over the river | #483 | [city.md](city.md) |
+| `?ltrainwest=classic` | The L train running straight on south over the river truss to the south shore, instead of turning west at the east-west arterial and out through the west edge. Headless tools take `LTRAINWEST=classic` | | [city.md](city.md#the-elevated-train-on-by-default-ltrainclassic-to-compare) |
 | `?trainlights=classic` | The L's deck without its lamps | #489 | [city.md](city.md) |
 | `?trainintro=classic` | The L without its own intro | #494 | [city.md](city.md) |
 | `?depot=classic` / `=model` | The depot's wrench sign / a 3D taxi on its roof (default is the neon cutout) | #479 | [city.md](city.md) |
+| `?depotneon=classic` | No blue neon tube round the depot's roofline (default traces the two visible faces under the coping, like the burger joint's) | | [city.md](city.md#the-livery) |
+| `?depotwindows=classic` | The depot's two office windows stay dark at night and under a squall (default: they light with the city's windows) | | [city.md](city.md#the-livery) |
 | `?skater=classic` / `=stiff` | The first pair of skaters / the single skater before it got a waist joint | #461, #463 | [city.md](city.md) |
+| `?roadside=carwash` / `=gas` | Pin the roadside lot to the car wash or the gas station; by default each city seed rolls one. Headless tools take `ROADSIDE=` | | [city.md](city.md#the-roadside-lot-and-its-tube-man) |
+| `?roadside=classic` | No roadside lot: its block goes back to the towers, and the tube man goes with it | | [city.md](city.md#the-roadside-lot-and-its-tube-man) |
+| `?manholes=classic` | The streets without their manhole covers | | [city.md](city.md#manhole-covers) |
 | `?roofs=classic` | Solid flat roof caps, with no lip and no sunk deck | #511 | [city.md](city.md) |
 | `?foliage=classic` | The first, louder autumn palette | #486 | [rendering.md](rendering.md) |
 | `?water=classic` | The faceted first river surface | | [river.md](river.md) |
-| `?paint=classic` / `=layered` / `=chameleon` / `=satin` | Car paint before the layered finish, or one of the explored looks (default is `toon`) | #501 | [rendering.md](rendering.md) |
+| `?paint=classic` / `=layered` / `=chameleon` / `=satin` / `=toon` / `=rim` | Car paint before the layered finish, or one of the explored looks (default is `real`: sharp glint, flakes, flip colour, painted reflection streaks, double-width rim; `rim` was the default before it, `toon` before that) | #501 | [rendering.md](rendering.md) |
+| `?rim=off` / `=magenta` / `=cyan` / `=gold` / `=white` | The rim line every paint look wears: off, or one tint for every car (default: each car's own colour) | | [rendering.md](rendering.md#car-paint--the-layered-finish) |
+| `?flip=<0..1>` / `=off` | The paint's flip colour, a deeper shade of itself at grazing angles (default: 0.7 on `rim`, 0.8 on `real`, off elsewhere) | | [rendering.md](rendering.md#car-paint--the-layered-finish) |
+| `?carbody=smooth` | Experimental: cars with rounded body edges and soft normals instead of flat boxes | | [rendering.md](rendering.md#car-paint--the-layered-finish) |
+| `?vehiclepaint=classic` | The plane, helicopters, boats, container ships and L train back on the plain flat material instead of the cars' paint | | [rendering.md](rendering.md#every-other-vehicle) |
 | `?classics=classic` / `=0.3` | No convertibles or camper vans / that chance per car, capped at 0.5 (default 1 in 40) | #495 | [traffic.md](traffic.md) |
 | `?damage=classic` | The taxi's damage ladder before the first-hit flash, grime and steam | #456 | [gameplay.md](gameplay.md) |
 | `?wreck=classic` / `=quick` | The old fireball, or the quick cut (default is `flat`) | #398 | [traffic.md](traffic.md) |
-| `?cop=classic` | Boosting into a cop is a bump rather than a full wreck | #466 | [gameplay.md](gameplay.md) |
-| `?chasesiren=classic` | No 🚨 on the cash row during a chase | #513 | [traffic.md](traffic.md#spotted-and-then-caught-or-lost) |
+| `?capture=classic` | The old police rules: any patrol touch is "Busted!", a boosted hit on any cop is a full wreck, a getaway's cops never arrest. Default: hitting a cop costs HP like any car, and "Busted!" is being pinned by a chasing cop | #527 | [gameplay.md](gameplay.md#getting-caught) |
+| `?standdown=classic` | A patrol cop that loses you goes dark and drives off the map, instead of going back on patrol with its bar swinging | | [traffic.md](traffic.md#the-life-of-a-patrol) |
+| `?cop=classic` | With `?capture=classic`: boosting into a cop is a bump rather than a full wreck | #466 | [gameplay.md](gameplay.md) |
+| `?stuntman=classic` | Smashing a roadworks barricade is scenery: no Stuntman combo step, no Loco refund | | [gameplay.md](gameplay.md#the-combo-meter) |
+| `?camreturn=classic` | The camera stays where the player panned it, instead of riding back to the taxi after 1.5s with no touch on the map | #530 | [rendering.md](rendering.md#getting-back-to-the-taxi) |
+| `?taxiroof=classic` | The taxi's cabin is one dark glass box again, instead of a yellow roof over a band of windows | #530 | [rendering.md](rendering.md#the-taxis-roof--geometrytaxijs) |
+| `?pedals=classic` | The round pedals with stop and lightning icons (not the NES B and A buttons), the wider ~197° fuel arc, and the 🚨 on the cash row instead of over Loco Mode | — | [gameplay.md](gameplay.md#crazy-taxi-mode) |
+| `?chasesiren=classic` | No 🚨 during a chase | #513 | [traffic.md](traffic.md#spotted-and-then-caught-or-lost) |
 | `?helispot=classic` | The police helicopter's first, brighter and harder-edged searchlight | | [gameplay.md](gameplay.md) |
+| `?songs=classic` | The radio plays the four earlier songs (country, jazz, rock, funk) instead of Nicolás's four | | [audio.md](audio.md#the-radio) |
+| `?splashcam=classic` | The startup screen from the game's 33° three-quarter view (the first cut) instead of the low side-on camera | | [gameplay.md](gameplay.md#the-startup-screen) |
+| `?splashsound=classic` | The startup screen plays silent, as it first shipped, rather than with the landing, bounce and Loco sounds | | [gameplay.md](gameplay.md#the-startup-screen) |
+| `?splash=classic` | No startup screen: the game loads behind black and opens on the title menu, with no taxi drop first | | [gameplay.md](gameplay.md#the-startup-screen) |
+| `?radiofade=classic` | The station cuts hard between every track, instead of the DJ talking over the start and end of the songs | | [audio.md](audio.md#talking-over-the-music) |
+| `?radiointro=classic` | The radio is full-range from Play, instead of playing through the taxi's dash speakers until the car rolls out of its garage | | [audio.md](audio.md#the-dash-radio) |
+| `?menumusic=classic` | The radio's intro plays under the title menu on the first tap, rather than a song until Play | #519 | [audio.md](audio.md#the-radio) |
 | `?copchat=classic` | The cops' "pull over" and "lost the suspect" bubbles | #492 | [gameplay.md](gameplay.md) |
 | `?robbery=classic` | The robbery with no opening cut (straight to the drive-past). Also implies `?bankfare=classic` | #475, #478 | [gameplay.md](gameplay.md) |
 | `?bankfare=classic` | The drive-past robbery instead of the bank rider fare | #499 | [gameplay.md](gameplay.md) |
+| `?robberyskip=classic` | A tap (or Space/Enter) skips the bank job's cut, as it used to | | [gameplay.md](gameplay.md#the-bank-job) |
+| `?robberycam=classic` | The bank job's cut framed the first way, averaged on the cab in the ground plane, a held Loco push-in left on, and the L's deck left solid over the shove | | [gameplay.md](gameplay.md#the-cuts-framing) |
+| `?bankpickup=classic` | The bank rider is collected anywhere within `ARRIVE_RADIUS` of the bank's junction, from any side, instead of level with the steps on the bank's own street | | [gameplay.md](gameplay.md#the-bank-robbery) |
+| `?robberyodds=classic` | The bank rider's coin stays a fair 50/50 instead of loading toward a robbery with each bank ride | #522 | [gameplay.md](gameplay.md#the-bank-job) |
 | `?uturn=classic` | The first U-turn, a spin on the spot, instead of the handbrake turn | #458 | [gameplay.md](gameplay.md) |
 | `?barrelroll=classic` | Big Air flown level, no barrel roll | #485 | [river.md](river.md) |
+| `?passturn=classic` | The taxi pulls out to overtake a car already turning left across it, and grinds along its side | #520 | [traffic.md](traffic.md) |
+| `?swerve=classic` | The overtake combo is for a car in front only: a car stopped or creeping in the junction ahead is hit rather than swerved round | | [traffic.md](traffic.md#swerving-round-a-car-stood-in-the-junction) |
+| `?passpace=classic` | The overtaking taxi held back to the passed car's speed while it swings out, and to a truck's through every junction of the pass | #520 | [traffic.md](traffic.md) |
+| `?hop=classic` | A hop can stall in mid-air: braking (or crawling) over the hump hangs the taxi in the air | | [river.md](river.md) |
 | `?route=classic` | The route stops dead at the rider's kerb, with no stub past the pickup | #480 | [gameplay.md](gameplay.md) |
 | `?newmove=classic` | New Move cards mid-run instead of after the run | #493 | [gameplay.md](gameplay.md) |
+| `?squallramp=classic` | A squall's edge arriving all at once: shade, rain and city lights over the same few seconds, and the whole sky greying the moment a cell comes on | | [rendering.md](rendering.md#a-squall--the-default-weather-gamesqualljs) |
 
 ## Gameplay switches and tuning
 
@@ -61,6 +101,7 @@ doc; what the classic version was, and why it changed, is in that doc's history 
 | `?combo=run` | The combo meter carries across fares instead of cashing per ride | [gameplay.md](gameplay.md) |
 | `?rating=off` | Three strike rings instead of the star rating | [difficulty.md](difficulty.md) |
 | `?grace=1.6` | How long a newly caught car is tailgated before holding Loco rams it (default `OVERTAKE_GRACE`); `0` is the old rule | [gameplay.md](gameplay.md) |
+| `?pressgrace=classic` | No grace on a fresh Loco press behind a car: the combo's first tap from a taxi already sitting behind one can ram it | [traffic.md](traffic.md) |
 | `?hitcue=chip` / `edge` / `both` | A cue for how much a hit cost: a bar over the roof, a red edge, or both. Off by default | [gameplay.md](gameplay.md) |
 | `?lights=on` | Junctions run their signal phases instead of all-way stops (pair with `?stopbars=on`) | [traffic.md](traffic.md) |
 | `?stopbars=on` | Shows the stop bars, hidden by default | [traffic.md](traffic.md) |
@@ -70,6 +111,7 @@ doc; what the classic version was, and why it changed, is in that doc's history 
 | `?parcels=0` / `=1` | Packages off / forced on (they are off in shot mode by default) | [gameplay.md](gameplay.md) |
 | `?cars=N` | Total vehicles, taxi included. `?cars=1` leaves the taxi alone on the road | [testing.md](testing.md) |
 | `?d=0..1` | Pins the difficulty curve instead of the delivery count | [difficulty.md](difficulty.md) |
+| `?difficulty=easy\|regular\|hard` | Pins the Settings Difficulty mode for this load, leaving the saved choice alone | [difficulty.md](difficulty.md#modes) |
 | `?seed=N` | Pins the city. Random each load otherwise | [architecture.md](architecture.md) |
 | `?run=N` | Pins the situation (start, riders, events). Random each load otherwise | [architecture.md](architecture.md) |
 
@@ -90,6 +132,7 @@ doc; what the classic version was, and why it changed, is in that doc's history 
 
 | Param | Does |
 |---|---|
+| `?painterly=classic` | Without the painterly prototype: painted brush strokes running along the streets, each a little lighter or darker and a little red or blue, fading in and out in block-sized patches |
 | `?crayon` | Crayon Mode. Off by default |
 | `?cartoon` | Cartoon Mode. Off by default |
 | `?hdr` | The full HDR bloom route instead of the emissive bloom, as a comparison. Not with Crayon or Cartoon |

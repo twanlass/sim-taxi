@@ -11,19 +11,40 @@ happening to agree on the same magic number.
 ## Coordinates
 
 ```js
-GRID_I = 6    // block columns → i runs 0..6   (5 under ?city=classic)
-GRID_J = 7    // block rows    → j runs 0..7, and 7 × 8 = 56 intersections   (6 classic)
-PITCH = 20    // distance between road centrelines
-ROAD_W = 8    // full road width (two lanes)
-BLOCK = 12    // PITCH - ROAD_W, the buildable footprint between two ordinary streets
-LANE  = 2     // lane centre offset from the centreline
-SPAN_X = 120  // GRID_I * PITCH   (100 classic)
-SPAN_Z = 140  // GRID_J * PITCH   (120 classic)
+GRID_I = 5    // block columns → i runs 0..5   (6 under ?city=big)
+GRID_J = 6    // block rows    → j runs 0..6, and 6 × 7 = 42 intersections   (7 big)
+ROAD_W = 9    // full road width (two lanes): 8 under ?streets=classic
+BLOCK = 12    // the buildable footprint between two ordinary streets, on every width
+PITCH = 21    // BLOCK + ROAD_W, the distance between road centrelines (20 classic)
+LANE  = 2.25  // ROAD_W / 4, lane centre offset from the centreline
+SPAN_X = 105  // GRID_I * PITCH   (126 big)
+SPAN_Z = 126  // GRID_J * PITCH   (147 big)
 
-ARTERIAL_ROAD_W = 10.667   // ROAD_W × 4/3 — a main street is divided, see below
-LANE_TO_KERB    = 2        // lane centre to its own kerb, the same on every road
+ARTERIAL_ROAD_W = 11.667   // ROAD_W + 8/3 — a main street is divided, see below
+LANE_TO_KERB    = 2.25     // ROAD_W / 8, lane centre to its own kerb, the same on every road
 MEDIAN_W        = 2.4      // the planted island between an arterial's carriageways
 ```
+
+### Street width (`?streets=`)
+
+Streets are 9 units across, a unit wider than the 8 they were for most of the game's life (Tyler,
+2026-10-17: "I want to see if it helps gameplay feel less cramped"). `?streets=classic` puts them back to
+8; headless tools take `STREETS=`. A 10-unit option, half a lane wider, was tried alongside and
+judged too wide.
+Two choices travel with the number:
+
+- **The lanes widen with the road.** `LANE` is a quarter of `ROAD_W`, so the extra width lands on
+  both sides of every car rather than as a stripe down the middle. The overtake, the weave room, the
+  swerve's kerb jink and every turn radius grow with it.
+- **The blocks keep their size and the map grows.** `BLOCK` is fixed at 12 and `PITCH` is `BLOCK +
+  ROAD_W`, so the island is 5 units wider a side than on `classic`. Taking the width out
+  of the blocks instead was tried first and broke 28 probe checks, nearly all for one reason: a
+  lane between two junctions is `BLOCK` long, and the roadworks launch, the L train's spans, the
+  pond, the helipad and the bank's sightline band were all sized against 12 of it.
+
+The arterial's median gap stays a fixed 8/3 (`ARTERIAL_EXTRA`), so a main street is `ROAD_W + 8/3`
+rather than a third wider than whatever a side street is. The New Move cards play a recording per
+width (`game/*reel-<width>.js`); `STREETS=classic node tools/uturnreel.mjs --write` films one.
 
 Intersections are indexed `(i, j)` from `0..GRID_I` and `0..GRID_J`, and `lineX(i)` / `lineZ(j)`
 convert an index to a world coordinate. The city is centred on the origin **on both axes**, which is
@@ -37,11 +58,14 @@ Every other name in this file already means "runs along X" — `arterialX` is a 
 The size is a gameplay constant, not an aesthetic one. On a desktop the whole city fits in frame,
 which is what allows a fixed camera and unambiguous tap-to-select; on a phone in portrait it cannot,
 so the camera follows the taxi and the map can be dragged (`attachDragPan` in `game/camera.js`, see
-[rendering.md](rendering.md#camera)). The city grew from 5 × 5 land blocks to 6 × 6 in #483, with a
-2 × 2 central park in the middle; `?city=classic` keeps the old size.
+[rendering.md](rendering.md#camera)). The city is 5 × 5 land blocks on an island that feathers into
+the sky on every side. It grew to 6 × 6 in #483, with a 2 × 2 central park, the harbor, the north
+park, the shores, the west edge's high rises and the horizon filler round it; Tyler took that back
+on 2026-10-16 ("The bigger map is bugging me"), and `?city=big` (`CITY=big` headless) builds it.
+Every feature that only makes sense on it — those, plus the L's turn west — is off on the 5 × 5.
 
 The extra row is the one asymmetry, and it is **water** — see [river.md](river.md). Land is still a
-square (36 blocks); the extra row is what stops the river costing the map a street or a landmark.
+square (25 blocks); the extra row is what stops the river costing the map a street or a landmark.
 
 ## Direction encoding
 
@@ -231,29 +255,45 @@ consequence of the constraint rather than a choice, and it happens to suit munic
 
 ### The elevated train (on by default, `?ltrain=classic` to compare)
 
-`game/ltrain.js` stands a Chicago-style L over the **north-south** arterial: a steel deck on a
-column at each nose of every planted island, one track, and one four-car train that crosses the
-city, waits off the end, and comes back the other way. `?ltrain=classic` takes it out; shots
-`ltrain` and `ltrain-far` turn it on even then. `?lroute=classic` puts it back on the east-west
-arterial, beside the river, with the old crossings (Tyler moved it across the river, 2026-10-13).
+`game/ltrain.js` stands a Chicago-style L over the city's two arterials: in off the north park
+down the **north-south** one's median, a quarter turn right at the **east-west** one, and out west
+along its median, through the [west edge](#the-west-edge-high-rises-default-westedgeclassic-to-drop-them)'s
+high rises and off the island. A steel deck on a column at each nose of every planted island, one
+track, and one four-car train that crosses the city, waits off the end, and comes back the other
+way. `?ltrain=classic` takes it out; shots `ltrain` and `ltrain-far` turn it on even then, framed on
+the corner. Tyler, 2026-10-14: "make a right turn and head out of town through the west side high
+rises. Doesn't make sense fading off into the ocean." `?ltrainwest=classic` keeps the straight
+north-south line it replaced, and `?lroute=classic` the east-west one before that
+([rendering-history.md](rendering-history.md#the-l-trains-route)).
 
-- **Built along local +x and turned onto the line.** The geometry, the train and the timetable all
-  work in `a`, distance along the line; a north-south group takes a quarter turn, so local +x is
-  world −z (north) and local +z is world +x, the camera's side. `plan.world(a, o)` and
-  `plan.alongOf(x, z)` convert; the shader's coast fade reads `-z` instead of `x` (`uLAxis`).
-- **It crosses the river on a truss.** The river gap has no median — the road bridge runs junction
-  to junction — so the bents either side stand 34 apart against 7–13 everywhere else. Any span past
-  `TRUSS_FROM` (20) gets a through Warren truss standing up past the train's roof. The truss is
-  its own mesh on a plain material and never fades (Tyler: "don't do any truss fading"); the deck
-  under it still dithers round the taxi and the pins like the rest of the line.
-- **The drawbridge moves off its line.** A lifted leaf would go through a 6.4 deck, so `planRiver`
-  always gives the train's line a fixed (arched) bridge and puts the leaf one line over
-  ([river.md](river.md#which-crossings-bridge)). On the arch's crest (1.9) a box truck's top is
-  5.4 against the floor beams' 5.88; the tallest mast (`TUG_AIR`) tops out at 1.4. A Big Air
-  launch off that arch (`DRIFT_LAUNCH_HEIGHT` 10) does go up through the truss, and Tyler kept it
-  that way: the taxi flies through solid steel and the ghost outline shows it behind the members.
+- **Built along a path.** The geometry, the train and the timetable all work in `a`, distance along
+  the line (0 at the middle of the curve, growing towards the north end), and `o`, the offset across
+  it towards the camera. `planLTrain` turns the line into straight pieces and one quarter circle;
+  `plan.world(a, o)`, `plan.frame(a)` and `plan.alongOf(x, z)` convert. Lengthwise members are swept
+  along it (`sweepBox`, every triangle's winding checked against its face), cross members and bents
+  are turned square to it, and each car stands on the chord between its two trucks.
+- **The corner is a quarter circle across the junction, on no columns of its own.** Nothing stands
+  in a junction box, so the curve runs from the far nose of the island on one leg to the far nose on
+  the other: radius 13.65, a 21.4 span, the near noses dropped because they would stand under the
+  curve off its centreline. 5.2-unit cars on 13.65 is the ratio of the Loop's tightest curves; a
+  car's middle bows 0.11 in and its ends swing 0.13 out, and the probe walks every car round it
+  (worst corner 1.00 off the line against the deck's 1.35). The inner edge comes about 0.5 over the
+  corner of the block inside the curve, 6.4 up. Where a park district has closed the road next to
+  the junction (about 1 city in 12), a bent stands on its lawn at the curve's end instead.
+- **Out west it keeps the city's rhythm.** The west edge's streets have no islands, but the line
+  stands a bent where each nose would be, so the spacing does not change at the ring road. The first
+  stands on the centreline just behind the barricade, which leaves its middle cone out
+  (`RAIL_CLEAR` in city/westedge.js). Past the far column it carries on at `OFFSHORE_PITCH` and
+  dithers out with the coast. The coast fade tests all four coasts (`uLCoast`), since the line
+  leaves over two of them.
+- **The river.** The east-west arterial is always north of the river, so the turning line never
+  crosses it and has no truss. Under `?ltrainwest=classic` it does: the bents either side stand 34
+  apart, and any straight span past `TRUSS_FROM` (20) gets a through Warren truss standing up past
+  the train's roof, its own mesh on a plain material that never fades (Tyler: "don't do any truss
+  fading"). `planRiver` still keeps the drawbridge's leaf off the north-south arterial's line
+  ([river.md](river.md#which-crossings-bridge)), so the bridges are where they were.
 - **Off the north end** it runs on over the north park (`NORTH_PARK_DEPTH`, `coastNorth()`) and
-  fades past it; off the south end it fades out over the [south shore](river.md#the-south-shore)'s lawn.
+  fades past it; off the west end it fades between the far column's towers.
 
 - **The median is why it is on the arterial.** It is the one strip running the width of the city
   that no car drives on, so the columns need no clearance rule of their own: `planLTrain` reads
@@ -358,6 +398,9 @@ block them off from the game grid with construction barriers."
   slab's rounded corner, with its own feather off the west and north (`patchFade`). Tyler,
   2026-10-14: "fill in this corner with another some mid rise buildings and smooth out the park
   transition."
+- **Past all of it the city carries on into the haze** (`city/horizon.js`, `?horizon=classic` for the
+  bare edge): plain towers on the grid's pitch past the west towers and past the north park, fading
+  into the sky. See [rendering.md](rendering.md#past-the-edge-of-the-map--cityhorizonjs).
 
 ## Layout: what a block *is*
 
@@ -435,6 +478,19 @@ ever see. Four shapes of the same trap here, each worth knowing before moving an
   different lengths and neither divides by anything, so a fixed pitch ends a run on half a square at
   the corner. The probe walks the squares and demands the colour flips at every step, because a
   course that stopped alternating is still a course of squares from far enough away.
+
+**A blue neon tube runs round the roofline** in that reveal, under the coping, on the same two
+elevations: the burger joint's roofline neon in the sign's `depotNeon` blue, mitred the same way
+(the +X arm carries the corner, the +Z arm stops on its inner face). It stands 0.14 proud of the
+wall, inside the coping's 0.18 overhang so their outer faces are never coplanar, and hangs 0.06
+under the coping's underside, which is more than the 0.04 the lip hides. It is now the separator
+between the dark coping and the course, a job the sliver of yellow wall used to do. Unlit and in
+the bloom (kind `window`), like the sign. `?depotneon=classic` leaves it off.
+
+**The two office windows light up after dark**, on the same switch as the city's lit windows
+(`switchedLights` in game/citylights.js): night or a squall's shade passes each pane's threshold and
+it fades on. Their thresholds sit at 0.1–0.22, early, with the shops. Only a city with weather has
+the switch, so they exist only when `rain.enabled`. `?depotwindows=classic` leaves them dark.
 
 The forecourt gets **two guide lines** out of the bay — the last thing still wearing `garageSign`,
 which is `taxiBody`'s own hex, because two lines on the ground where the car is about to be are the
@@ -735,15 +791,16 @@ It is scenery only. Nothing routes into it, nothing on it can be tapped, and the
 know it exists. An iron railing on a stone plinth runs round the lawn, with a gate in the middle of
 the +Z fence.
 Headstones stand in rows either side of a gravel path that runs gate to gate (one gate in each
-end), one big tree stands in a back corner, one of the parks' statues (`statueParts`) stands on its
-plaza in the −X half for some asymmetry, and a little ground mist drifts across. The tree is
-an ordinary `treeParts` tree at 6.6 tall (the parks run 3.4–5.6) with a plum crown, so it lights and
-wears leaf cards exactly as every other tree does. The mist thickens after dark, using the
-same measure of darkness as the helicopter's searchlight.
+end), one of the parks' statues (`statueParts`) stands on its plaza in the −X half for some
+asymmetry, and long grass grows between the rows (see [Long grass](#long-grass)). The fence's piers
+stand every 6.4 units in a brownish stone (`gravePier`): at half that pitch and in the graves' own
+grey they read from across the map as one more row of headstones. The big plum-crowned tree that
+stood in the back corner is off since 2026-10-17; `?gravetree=classic` brings it back. The ground mist that used to drift across is off
+since 2026-10-15; `?gravemist=classic` brings it back, thickening after dark on the same measure of
+darkness as the helicopter's searchlight.
 
 - **It faces the camera, like the burger joint.** Only +X and +Z faces are ever seen, so the gate is
-  in the +Z fence, every stone faces +Z, and the tree stands in the back corner, behind the stones
-  rather than over them. A first cut had an above-ground crypt and bare spooky trees; Tyler cut
+  in the +Z fence and every stone faces +Z. A first cut had an above-ground crypt and bare spooky trees; Tyler cut
   both.
 - **The stones are drawn 1.4× life size** (`STONE_SCALE`). At life size they were four pixels at play
   zoom, and the lot read as a fenced lawn with grit on it.
@@ -771,7 +828,7 @@ same measure of darkness as the helicopter's searchlight.
 ## The bank
 
 `src/city/bank.js`. One per city: a low, wide stone building with a colonnade under a pediment and a
-patinated dome behind it. It is the third building the tower generator does not draw, and the first
+patinated-copper dome behind it. It is the third building the tower generator does not draw, and the first
 of the three that is **a lot rather than a whole block** — the depot needs a forecourt to pull out of
 and the burger joint needs a drive-through lane, both of which are ground `splitLot` would divide out
 from under them. A bank is a building with a door on the street.
@@ -795,7 +852,7 @@ than "a distinctive building" and is the whole of why it is shaped the way it is
 | **Low and wide** | Roofline a flat 6.95, dome to 9.59 on average (9.39–9.73 over 40 seeds), against neighbours that run 5 to 16. The bank is a gap in the skyline before it is anything else — and the roofline is [derived rather than drawn](#the-roofline-is-derived-not-drawn). |
 | **A colonnade** | The one vertical rhythm in a city of plain boxes. `bankColumn` is a paler stone than `bankStone` for this: at play zoom a column is about three pixels, and what reads is the column against the wall rather than the shadow between them. |
 | **A pediment** | The one triangle at street level. Pitched roofs exist (`pitchedRoof`) but they sit on low-rise and never at the front. |
-| **A dome** | The one curved mass in the city, in the one colour nothing else wears. |
+| **A dome** | The one curved mass in the city, in the one colour nothing else wears: verdigris (`bankDome`) on `FINISH.PATINA` (a broad green satin sheen, a faint clear shine, fine mottled sparkle) with soft normals. Each pane (a gore of a ring) gets a hash-jittered lightness and hue, darker the lower it runs and lighter on the top ring, so it streaks like weathered copper; coloured per triangle in `bank.js`. It is **not in `parts`**: `buildBank` hands it back as `site.domeGeometry` and `createBuildings` returns it as `domeMesh` (`bankDomeMesh`: a glossy `propMaterial` of its own, stamped with the lot's entry anchor so it rises with the building), which `main.js` adds, marks an occluder and puts in the entrance wave. The workshop bench draws it the same way. |
 
 The envelope stays **inside** the muted building family, unlike the depot's and the joint's. A bank
 is a bank among offices rather than a shed or a roadside box, and painting it to shout would have
@@ -833,6 +890,53 @@ So the mass ducks **under** 7.64 with margin rather than clearing 10.86: a talle
 corner honestly and cost the board a junction, and a low wide bank is what the silhouette wanted
 anyway. Everything at the front is then sized down to stay under the roof behind it, because a
 pediment poking above its own roofline is a gable rather than a portico.
+
+## The roadside lot, and its tube man
+
+The fourth block taken from the tower generator (`city/roadside.js`, `?roadside=classic` to give it
+back) is a roadside business with an inflatable tube man on its corner: a car wash or a gas
+station, a coin flip off the city seed (`roadsideKind`, on a stream of its own so the flip moves
+nothing else). Both stand on the same block. `?roadside=carwash` or `?roadside=gas` pins one. Tyler
+had the two built side by side to compare and then picked both (2026-10-17).
+
+**The car wash** (`city/carwash.js`) is a wash tunnel against the block's −Z edge, with its long +Z side open on posts so the brushes
+turning inside it show, a blue fascia covered in soap bubbles, a concrete lot out front with two
+vacuum bays and a pay kiosk, and a pylon sign spelling WASH in a pixel face. It is scenery only for
+now: no car goes through, and nothing routes into it. Chosen last in `createLayout`, after the
+graveyard, so adding it moves nothing above; it avoids touching the other landmarks and prefers
+quiet, inner blocks, as the burger joint does.
+
+**Taking the block moves no other building.** The towers on it are still split, drawn and built,
+into a scratch array that is thrown away (`ghost` in `city/buildings.js`), because skipping them the
+way the depot's and the joint's blocks are skipped shifts every draw after them and rebuilds the
+skyline. That is what turned the probe's corner sweep red the first time: a reshuffled tower three
+blocks away halving a kerb mark. A courtyard, the bank or the helipad drawn onto the roadside block
+moves to another lot, picked by hash so nothing else moves with it; the probe holds every other
+vertex in place.
+
+**The roof is as tall as it is so the brushes show.** A sightline into the open side climbs 0.92
+per unit of z on its way out under the eaves, and the top brush sits 2 up and 1.7 in, so the eaves
+have to clear 3.56. At 3.0 the roof hid it.
+
+**The gas station** (`city/gasstation.js`) is a convenience store with lit windows and a MART band
+on the block's −X half, and a green canopy over two pump islands on its +X half, pulled back from
+the +Z kerb so the tube man's corner stays open, plus a pylon with GAS over a price board. The
+canopy's depth and height are a sightline too: the pumps sit 1.8 in from its +Z edge, so a line
+from a pump's top climbs 1.66 on its way out and clears the 3.7 underside. Deeper or lower and the
+pumps vanish under their own roof; the probe fires a ray from each pump to check.
+
+**The tube man** (`game/tubeman.js`) flails on the lot's +X+Z corner, the one the camera faces: a
+red tube on a blower box, yellow streamers for hair and cuffs, a cartoon face. He is a chain of
+capsules jointed end to end, bent by two travelling waves so the S runs up the tube, and every few
+seconds he folds over and whips back up with an overshoot. The sway is across the screen, since a
+bend toward or away from a camera that never rotates barely shows; the fold goes back over the lot,
+because the two other ways out of that corner are roads. He is not tappable: a tall thin hit target
+steals taps from markers up-screen of it.
+
+**Which block is a sightline.** `chooseRoadsideBlock` only takes a block where the tube man's corner
+and the middle of the block can both be seen over every block up-camera of them, using
+the burger joint's height predictions. He stood on the burger joint's apron first, beside its
+drive-through lane; Tyler wanted him on a business of his own (2026-10-17).
 
 ## Park districts close roads
 
@@ -1101,6 +1205,14 @@ spread evenly, because an even scatter reads as a texture laid over the park.
   never stops on a line the lawn runs past. Measured headless (`tools/perf.mjs`, seed 7): ~2,950
   tufts north and ~3,450 south, 308 draws either way, 651.1k → 664.0k triangles a frame (+2%). The
   `?bench` row `edge grass off` is there for the alpha-tested overdraw, which only a phone measures.
+- **The graveyard grows it too** (default; `?gravegrass=classic` leaves the lawn flat): the lot
+  inside the fence hands `createGrass` an area (`grass` on what `createGraveyard` returns) off its
+  own stream (`seed + 124`), appended last. Rooted in `graveGrass` rather than the parks' green, at
+  0.75 of a park tuft's height so no clump tops a headstone, and kept off the plinth, the path, the
+  open gate leaves, the tree's trunk, the statue's square and each stone with the grave in front of
+  it — the front reach matters most, since a tuft on the grave stands between the camera and the
+  stone's face. About 90 tufts a lot, so ~180 triangles in the same draw. The probe checks the
+  built cards against the fence, the path and the stones the graveyard reports.
 
 ### Leaf fuzz on the crowns
 
@@ -1115,10 +1227,10 @@ trees; `seed + 144`. The atlas builder both share is `util/cutout.js`.
 
 ## The 6 × 7 city and the central park
 
-The city is 6 × 7 blocks, 36 of them land, with a **2 × 2 central park** and a curving road through
-it (`city/centralpark.js`). `?city=classic` (`CITY=classic` for a headless tool) builds the old
-5 × 6 city with straight roads only, for comparison. Ambient traffic scales with the street: 16 to
-30 cars against the old city's 12 to 22 ([difficulty.md](difficulty.md)).
+`?city=big` (`CITY=big` for a headless tool) is 6 × 7 blocks, 36 of them land, with a **2 × 2
+central park** and a curving road through it (`city/centralpark.js`). The default 5 × 6 city has
+straight roads only. Ambient traffic scales with the street: 16 to 30 cars on the big city against
+the default's 12 to 22 ([difficulty.md](difficulty.md)).
 
 The park road is a trick worth knowing before extending it. Every grid road round the park's middle
 junction is **closed**, so the road markings, the junction paint, the depot and drive-through
@@ -1144,8 +1256,8 @@ The park road is the one road the grid has no opinion about, so `tools/roadnet.m
 out of the grid comparisons. It also skips the trim checks at the road's two end junctions: the road
 leaves them 28° off square, so its kerb holds the cross street ~0.6 further back than
 `junctionReach` (which knows only square crossings) says. Several probe sweeps skip the park's
-middle junction facing against the one-way, which no car can be in. `npm run check` covers this
-city only; `CITY=classic npm run check` is the old one's suite.
+middle junction facing against the one-way, which no car can be in. `npm run check` covers the
+default city; `CITY=big npm run check` is the big one's suite.
 
 ## Ground, buildings, props
 
@@ -1154,6 +1266,27 @@ city only; `CITY=classic npm run check` is the old one's suite.
 | `ground.js` | asphalt slab, road surface, kerbs (`KERB_H = 0.35`), block tops — a park's is a walk around a lawn, [above](#a-park-has-a-frontage) — crosswalks | One merged mesh, plus the edge fade as a child — alpha can't ride in the merge's 3-component colour. Crosswalks are omitted at unsignalised junctions — a crosswalk implies a signal. |
 | `buildings.js` | towers, courtyard blocks, façades, roof furniture | One merged mesh. Height ceiling is deliberately low; tall towers hid the taxi. See [what a building is made of](#what-a-building-is-made-of). |
 | `props.js` | trees, park benches, the statue | Merged per material via `bakeColor`, so hundreds of props cost one draw call. Placement is [above](#benches-and-one-statue). |
+| `manholes.js` | four or five manhole covers | Its own mesh, wet in the rain, not brushed. [Below](#manhole-covers). |
+
+### Manhole covers
+
+Four or five cast-iron covers per city (`city/manholes.js`, `?manholes=classic` for none), placed
+off the city seed in **junctions**: one per chosen junction, set off the box's centre on both axes,
+at least 1.6 blocks apart (so never in neighbouring or diagonal junctions), inner junctions only and
+only ones with three or more open roads. The junction box is the one piece of road with no paint in
+it — crosswalks start just past its edge — and `BOX_CLEAR` keeps the disc half a unit inside it.
+(The first cut put them mid-block in a lane; Tyler asked for intersections.) Flat, at the paint's
+height, with no collision and no say in the traffic.
+
+They are drawn bigger than life (`COVER_R` 0.72, so ~11 px across at play zoom on a phone) because at
+true size they are four pixels. What reads at that distance is albedo — a lid darker than the
+asphalt inside a frame lighter than it — and that is also what still reads at night, when the glint
+has gone with the sun. Close up the lid's diamond tread and the frame's bevel are a height field in
+the fragment shader, bending the normal; a Blinn glint added inside three's own direct-light loop
+(`RE_Direct` wrapped) is what makes it metal, and being in that loop is what keeps it out of
+shadows. The tread fades out by `fwidth` before it can crawl. Their own mesh rather than part of the
+ground, because the ground wears the painterly road strokes and iron under a stroke reads as road;
+`rain.wetGround` still patches it, so the covers shine in a squall like the street round them.
 
 ### What a building is made of
 
@@ -1311,7 +1444,7 @@ leaves 2.2 units of clearance at the tightest point — the diagonal through a r
 
 That outline is also where the asphalt stops being solid: a 16-unit skirt fades outward from it into
 the sky, so the island has no hard edge at all. It is added *outside* the slab precisely because of
-the 2.2 units above — see [rendering.md](rendering.md#the-island-edge--citygroundjs).
+the 2.2 units above — see [rendering.md](rendering.md#the-feathered-skirt--citygroundjs).
 
 All three use the same technique: generate small geometries, bake colour into vertex attributes
 with `bakeColor()` from `util/geo.js`, then merge into a single non-indexed mesh with

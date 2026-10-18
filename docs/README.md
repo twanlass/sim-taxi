@@ -10,7 +10,7 @@ behind it that aren't obvious from the code.
 | [river.md](river.md) | The river, its bridges, the span that lifts, the boats it lifts for, and the harbor at its east mouth | `src/city/river.js`, `src/game/drawbridge.js`, `src/city/harbor.js` |
 | [roadnet.md](roadnet.md) | The road network: nodes, edges, lanes, turns, derived signals, blocks as graph faces | `src/city/roadnet.js`, `src/city/curves.js` |
 | [traffic.md](traffic.md) | Signal timing, arterials, the ring road, car physics, turns, the drive-through, the building fire and its engine, cop cars in ambient traffic, the patrol cruiser, and the wreck and its replay | `src/sim/`, `game/wreckage.js`, `game/replay.js` |
-| [gameplay.md](gameplay.md) | The title screen, the opening vignette and tutorial, the fare loop, routing and tapping a street, the bank robbery, the package courier, picking, the travelling clock, economy and the combo meter, the pedals and the moves (overtake, U-turn, drift), the New Move cards, the burger run, repairs at the depot, pause | `src/game/` |
+| [gameplay.md](gameplay.md) | The startup screen, the title screen, the opening vignette and tutorial, the fare loop, routing and tapping a street, the bank robbery, the package courier, picking, the travelling clock, economy and the combo meter, the pedals and the moves (overtake, U-turn, drift), the New Move cards, the burger run, repairs at the depot, pause | `src/game/` |
 | [gameplay-history.md](gameplay-history.md) | How each of those got to where it is: superseded designs, rejected attempts, and what each `?x=classic` brings back | |
 | [difficulty.md](difficulty.md) | The ramp: budgeted fare clocks, board size, shifts, and how the numbers were swept | `src/game/difficulty.js` |
 | [rendering.md](rendering.md) | Low-poly technique, palette, camera, lighting, the day/night cycle, the island's faded edge, car paint, weather, Crayon and Cartoon Mode, bloom, effects, sirens | `src/game/scene.js`, `src/geometry/` |
@@ -20,6 +20,7 @@ behind it that aren't obvious from the code.
 | [testing.md](testing.md) | `npm run check`, the headless tools, screenshots, and the iteration workflow | `tools/` |
 | [lab.md](lab.md) | The passing lab at `/lab/` — one straight road with no lights, for watching Loco Mode overtake | `src/lab/`, `lab/` |
 | [talk.md](talk.md) | The talk at `/talk/` — slides that turn into the live game, and the game's `presenter` hook | `src/talk/`, `talk/` |
+| [workshop.md](workshop.md) | The model workshop at `/workshop/` — one model on a bench, hot-reloading, with a chat panel that has Claude Code edit its source | `src/workshop/`, `workshop/`, `tools/workshop-agent.mjs` |
 | [ios.md](ios.md) | The App Store build: the WKWebView shell, why a custom URL scheme rather than `file://`, the native flag | `ios/`, `src/util/platform.js` |
 
 ## The 60-second version
@@ -32,7 +33,7 @@ rather than a dice roll, so it obeys every junction exactly like everyone else a
 way to a destination. On a desktop the whole city is in frame; on a phone the camera follows the
 taxi and the map can be dragged ([rendering.md](rendering.md#camera)).
 
-A run opens on the **title screen** over the live city ([gameplay.md](gameplay.md#the-title-screen)).
+A cold start is black, then the **startup screen**: the taxi drops out of the sky onto a patch of asphalt and boosts off it ([gameplay.md](gameplay.md#the-startup-screen)). A run opens on the **title screen** over the live city ([gameplay.md](gameplay.md#the-title-screen)).
 Press Play and the camera comes down onto the taxi's **garage**: the door goes up, the car drives out
 into traffic and the camera pulls back to the game ([the opening vignette](gameplay.md#the-opening-vignette)).
 Three speech bubbles from the taxi are the whole tutorial ([the opening tutorial](gameplay.md#the-opening-tutorial)).
@@ -82,8 +83,8 @@ rise over and a ramp the boosting taxi gets air off; the fourth is flat, because
 a tug through, closing that route for a dozen seconds. At the east mouth is a **harbor** with cranes,
 warehouses and ships moving in and out. See [river.md](river.md).
 
-**The L train** runs north–south on a raised track across the river, with sparks, lamps under the
-deck and an intro of its own; the deck fades where it would hide the taxi or a fare. See
+**The L train** comes south on a raised track off the north park, turns west at the east-west
+arterial and runs out through the west edge's high rises, with sparks, lamps and an intro of its own; the deck fades where it would hide the taxi or a fare. See
 [city.md](city.md#the-elevated-train-on-by-default-ltrainclassic-to-compare).
 
 **Landmarks**, one of each per city:

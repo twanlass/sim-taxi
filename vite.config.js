@@ -1,5 +1,6 @@
 import { defineConfig } from 'vite';
 import { fileURLToPath } from 'node:url';
+import { workshopAgent } from './tools/workshop-agent.mjs';
 
 // Three pages, not one. The game is `/`, the passing lab is `/lab/` — see docs/lab.md for what
 // the lab is and why it isn't reachable from the game — and the talk is `/talk/` (docs/talk.md).
@@ -9,6 +10,9 @@ import { fileURLToPath } from 'node:url';
 // with the lab silently missing. Nothing else here is configured: Vite's defaults were already
 // what this project wants.
 export default defineConfig({
+  // The model workshop's chat (`/workshop/`, docs/workshop.md). Dev server only: the plugin is
+  // `apply: 'serve'`, and the workshop page is deliberately not one of the build inputs below.
+  plugins: [workshopAgent()],
   build: {
     rollupOptions: {
       input: {

@@ -8,6 +8,23 @@ and each links back to the section that describes the game as it is today.
 
 Dates and PR numbers are given where the text or the commit log records them.
 
+## The startup screen
+
+[Now](gameplay.md#the-startup-screen): black, then the taxi drops onto a patch of asphalt and
+boosts off it, then the title menu.
+
+Before it (to 2026-10-16) a cold start showed the sky's `#DCEDF7` — the iOS launch screen, the web
+view behind the page and the page itself were all that colour, chosen so the frame before WebGL's
+first paint matched the city's horizon — for however long the game took to load, and then cut
+straight to the title menu. Reported as "it just shows blue sky when it first starts". `?splash=classic`
+skips the drop and goes straight to the game; the black underlay stays.
+
+The drop was first shot from the game's own three-quarter camera, the car leaving north (off the
+top right). Tyler asked to try it side-on; the low side camera became the default the same day, and
+`?splashcam=classic` keeps the three-quarter view.
+
+It first shipped silent; `?splashsound=classic` keeps that.
+
 ## The opening vignette
 
 Pacing numbers the vignette shipped with and later changed. Now: [The opening vignette](gameplay.md#the-opening-vignette).
@@ -539,6 +556,9 @@ charge; it tweens either way now, and the total never goes below zero (see `char
 
 Now: [The combo meter](gameplay.md#the-combo-meter).
 
+Before Stuntman (2026-10-14, `?stuntman=classic`), smashing through a roadworks barricade earned
+nothing but the hop: the closed street's only reward was being empty.
+
 **How it got here**, so nobody walks the same road twice. The [shift](difficulty.md#shifts) used to
 stamp 1×, 1.25×, 1.5× or 2× into every price at spawn, with no counter on screen, and VIPs stacked a
 streak of their own (3×, 4×, 5× back to back). Both paid for getting further rather than for *how*.
@@ -587,7 +607,7 @@ that is an alarm rather than a countdown: it says *now*, not *how long*.
 
 ## The bank robbery
 
-The robbery first shipped as a **drive-past**: an empty cab passing the bank set it off. The cut of the robber leaving the bank came in behind `?robbery=intro` (#475, 2026-10-11) and became the default with #478; the robber running round the block rather than through the building is #484; the bank rider replaced the drive-past as the trigger in #499 (2026-10-13), with `?bankfare=classic` keeping the drive-past. Ramming a cop on the pill became the wreck outright in #466 (2026-10-10, `?cop=classic` for the bump). The cop chat bubbles were cut in #492 (2026-10-12, `?copchat=classic`). Now: [The bank robbery](gameplay.md#the-bank-robbery).
+The robbery first shipped as a **drive-past**: an empty cab passing the bank set it off. The cut of the robber leaving the bank came in behind `?robbery=intro` (#475, 2026-10-11) and became the default with #478; the robber running round the block rather than through the building is #484; the bank rider replaced the drive-past as the trigger in #499 (2026-10-13), with `?bankfare=classic` keeping the drive-past. The bank rider's coin was fair (50/50 on every visit) until it became loaded — rising 15 points per bank rider who rode, reset by a robbery (2026-10-14, `?robberyodds=classic` for the fair coin). Ramming a cop on the pill became the wreck outright in #466 (2026-10-10, `?cop=classic` for the bump). The cop chat bubbles were cut in #492 (2026-10-12, `?copchat=classic`). The bank rider was collected like any other rider, within `ARRIVE_RADIUS` of the junction centre from any side, until 2026-10-17 (`?bankpickup=classic`): the door is mid-block, so that circle fired with the taxi on the cross street. Now: [The bank robbery](gameplay.md#the-bank-robbery).
 
 `src/game/robbery.js`, `src/city/bank.js`, `src/game/fares.js` (`spawnRobber`), `sim/traffic.js`
 (`setPoliceCars`). One city block is a [bank](city.md#the-bank) — a low stone building under a
@@ -635,6 +655,20 @@ setup, in three beats:
 ### The bank job
 
 Now: [The bank job](gameplay.md#the-bank-job).
+
+**The cut's first framing** (`?robberycam=classic`) was the steps, the bystander and the cab door
+averaged in the ground plane, the door counted twice so the cab stayed central, with a half-height
+of `10 + 0.9 × span` (the world distance from the steps or the bystander to the cab door) between
+15 and 26. Fine with the cab out front. Picked up across the street or across the junction, the cab
+is 14 screen units sideways from the steps, and an upright phone at a 26 half-height is 24 units
+wide, so the bank and the cab sat out towards opposite edges with the middle on roofs — and right
+on them whenever Loco was held into the pickup, because the push-in (0.76) is eased by the frame
+loop the cut stops and stayed frozen through the cut and the line. On a
+city whose L runs down the bank's street it was worse: the deck's fade was still keyed on where the
+taxi and the pins were when the world stopped, so the shove played under the girders. Reported off
+exactly that, with the robber's bubble pinned to the edge of the screen pointing at a cab you could
+not see. Replaced by a fit on the screen's own axes between the HUD rows, and the deck fed the cut's
+subjects.
 
 `game/bankjob.js`, the default since it was tried out behind a flag; `?robbery=classic` keeps the
 old drive-past. The robber's line fixed the event arriving
@@ -1136,3 +1170,20 @@ the per-car `heldKey` dedup that kept a held red from counting once per frame) a
 conversion were removed along with the rows.
 Nothing in the simulation uses the conversion; it exists so the stat is in a unit a player has a
 feel for.
+
+## Getting caught, before the capture model
+
+`?capture=classic`. Until 2026-10-14 the police ended a run by three rules, one per kind of cop:
+
+- **A patrol cop's touch was "Busted!"**, at any speed — rammed from behind on a straight at full
+  cruise was the same arrest as being pinned at a junction. Ramming the cop yourself on the pill was
+  the exception (`RAMMED_GRACE`), until the next rule made that a wreck instead.
+- **A boosted hit on any cop was the wreck**, whatever the HP (`lethalPolice` in
+  `sim/collisions.js`, #466; `?cop=classic` on top priced a cop like any other car).
+- **A getaway's cops could not arrest anybody**, so during a robbery the only way the police ended a
+  run was that wreck.
+
+Reported from play (Tyler, 2026-10-14): "hitting a cop is insta fail. That sucks during the robbery
+vignette where you wanna smash through roadblocks." The getaway fills the tank and throws roadblocks
+across your route; the third rule made the second the one thing it asked of you that ended the run.
+Replaced by [getting caught](gameplay.md#getting-caught).

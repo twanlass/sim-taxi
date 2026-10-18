@@ -19,7 +19,7 @@ import { makeRng } from '../src/util/rng.js';
 import { setCityNetwork, cityNetwork } from '../src/city/roadnet.js';
 import { createTraffic, placeCar, SPEED, MIN_GAP, laysPassRubber } from '../src/sim/traffic.js';
 import { createCollisions, TAXI_HP, penetration } from '../src/sim/collisions.js';
-import { DIR, dirSign, PITCH, HALF_ROAD, LANE } from '../src/city/grid.js';
+import { DIR, dirSign, PITCH, HALF_ROAD, LANE, ROAD_W } from '../src/city/grid.js';
 import { labNetwork, labRoadLength, labNodeX, labTreeBlocks, LAB_BLOCKS } from '../src/lab/labroad.js';
 
 const results = [];
@@ -60,8 +60,8 @@ check('every junction movement is straight on',
   hands.size === 1 && hands.has('straight'), [...hands].join(', '));
 
 check('junction geometry matches the city',
-  Math.abs(east.length - (PITCH - 8)) < 1e-9
-  && Math.abs(net.turnById.get(east.exits[0]).length - 8) < 1e-9,
+  Math.abs(east.length - (PITCH - ROAD_W)) < 1e-9
+  && Math.abs(net.turnById.get(east.exits[0]).length - ROAD_W) < 1e-9,
   `${east.length}-unit lanes, ${net.turnById.get(east.exits[0]).length}-unit junctions`);
 
 check('verge tree strips flank the road', (() => {
@@ -193,9 +193,12 @@ check('the lane change never stalls half way across', one.stalled === 0,
 // — and took it all off again in one frame at the other end. What is left is frame quantisation
 // and nothing else: the eased slope starts at zero, so the first frame can only reach
 // `e'(v·dt / PASS_FADE) · PASS_LATERAL / PASS_FADE`, which at the overdrive top and 60fps is 0.18.
-// The bar sits between the two so it still fails if anyone straightens the ramp back out.
-check('and eases into the crab angle rather than snapping to it', one.slopeJump < 0.3,
-  `biggest one-frame change in crab angle ${one.slopeJump.toFixed(3)} (a linear ramp jumps 0.571)`);
+// The bar sits between the two so it still fails if anyone straightens the ramp back out. All three
+// numbers are for 8-unit streets and scale with the lane: the change is 2·LANE across over the same
+// PASS_FADE, so on wider streets (`?streets=`) every slope in it is steeper by LANE / 2.
+const crabScale = LANE / 2;
+check('and eases into the crab angle rather than snapping to it', one.slopeJump < 0.3 * crabScale,
+  `biggest one-frame change in crab angle ${one.slopeJump.toFixed(3)} (a linear ramp jumps ${(0.571 * crabScale).toFixed(3)})`);
 // The bank rocks *both* ways per change — thrown out of the lane one way, settling into it the
 // other — which is what the curvature of the eased offset gives for free and what a constant-slope
 // translation could not express at all.
@@ -280,8 +283,11 @@ function standingApproach() {
   let wrecked = false;
   collisions.onImpact(() => { wrecked = true; });
 
-  placeAtX(leader, DIR.PX, labNodeX(0) + 30);
-  placeAtX(taxi, DIR.PX, labNodeX(0) + 30 - MIN_GAP);
+  // Ten units past the first junction, not 30 from the start of the road: on wider streets
+  // (`?streets=`) 30 can leave the taxi's spot inside the junction box, `placeAtX` clamps it out
+  // onto the leader's own, and the two start the run overlapped.
+  placeAtX(leader, DIR.PX, labNodeX(1) + 10);
+  placeAtX(taxi, DIR.PX, labNodeX(1) + 10 - MIN_GAP);
   taxi.v = 0;
   leader.v = 0;
   leader.parked = true;

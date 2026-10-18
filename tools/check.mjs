@@ -14,9 +14,9 @@ import { spawnSync } from 'node:child_process';
 const BOOT = ['../src/game/scene.js', '../src/game/debugpanel.js', '../src/geometry/taxi.js',
   '../src/game/faremarker.js', '../src/geometry/person.js', '../src/game/routeline.js',
   '../src/game/pathdrag.js', '../src/game/sfx.js', '../src/game/audiopanel.js', '../src/game/soundrings.js',
-  '../src/game/soundpins.js', '../src/game/quicktips.js', '../src/game/quicktips.js',
+  '../src/game/soundpins.js', '../src/game/phoneframe.js', '../src/game/quicktips.js', '../src/game/quicktips.js',
   '../src/game/dust.js', '../src/game/spray.js', '../src/game/blast.js', '../src/game/flyover.js', '../src/game/birds.js', '../src/game/ducks.js',
-  '../src/city/blacktop.js', '../src/game/hoopers.js', '../src/city/skatepark.js', '../src/city/northpark.js', '../src/city/southshore.js', '../src/city/parkshore.js', '../src/game/harborships.js', '../src/game/skaters.js', '../src/game/skatersclassic.js',
+  '../src/city/blacktop.js', '../src/game/hoopers.js', '../src/game/tubeman.js', '../src/city/carwash.js', '../src/city/gasstation.js', '../src/city/skatepark.js', '../src/city/northpark.js', '../src/city/southshore.js', '../src/city/parkshore.js', '../src/game/harborships.js', '../src/game/skaters.js', '../src/game/skatersclassic.js',
   '../src/game/clouds.js', '../src/geometry/cloud.js', '../src/game/rain.js', '../src/game/citylights.js', '../src/game/storm.js', '../src/game/squall.js',
   '../src/game/cityentry.js', '../src/city/garage.js', '../src/game/opening.js',
   '../src/city/burgerjoint.js', '../src/game/drivethru.js',
@@ -28,15 +28,15 @@ const BOOT = ['../src/game/scene.js', '../src/game/debugpanel.js', '../src/geome
   '../src/game/chopper.js', '../src/game/policeheli.js',
   '../src/game/flames.js', '../src/game/locoflame.js', '../src/game/sparks.js',
   '../src/game/repairfx.js',
-  '../src/game/daylight.js', '../src/game/riderfinder.js',
+  '../src/game/daylight.js', '../src/game/edgefog.js', '../src/game/riderfinder.js',
   '../src/game/taxifinder.js',
   '../src/game/farepointers.js', '../src/game/sirenglow.js', '../src/game/robberyglow.js',
   '../src/game/vanish.js', '../src/game/wreckage.js', '../src/game/ejection.js', '../src/game/windshield.js', '../src/game/replay.js', '../src/game/runend.js',
   '../src/game/impact.js', '../src/game/taxidamage.js', '../src/game/taxidoor.js',
   '../src/util/viewport.js',
   '../src/game/energybits.js', '../src/game/carghosts.js', '../src/game/homescreen.js',
-  '../src/game/ssao.js', '../src/game/crayon.js', '../src/game/cartoon.js',
-  '../src/game/bloom.js', '../src/game/hdr.js',
+  '../src/game/ssao.js', '../src/game/crayon.js', '../src/game/cartoon.js', '../src/game/brushtiles.js',
+  '../src/game/bloom.js', '../src/game/hdr.js', '../src/game/renderpath.js',
   '../src/game/diag.js', '../src/game/bench.js', '../src/game/soak.js', '../src/game/governor.js', '../src/game/recovery.js', '../src/game/pause.js', '../src/game/menupage.js', '../src/game/inspect.js',
   '../src/geometry/roadworks.js', '../src/game/roadwork.js',
   '../src/geometry/crate.js', '../src/game/flatbed.js',
@@ -47,7 +47,7 @@ const BOOT = ['../src/game/scene.js', '../src/game/debugpanel.js', '../src/geome
   '../src/geometry/parcel.js', '../src/geometry/food.js', '../src/geometry/cargo.js',
   '../src/geometry/parcelpad.js', '../src/game/parcels.js',
   '../src/game/cargochip.js', '../src/game/chasesiren.js',
-  '../src/game/tutorial.js', '../src/game/titlescreen.js', '../src/game/settings.js', '../src/game/highscores.js', '../src/game/locostash.js',
+  '../src/game/tutorial.js', '../src/game/titlescreen.js', '../src/game/splash.js', '../src/game/splashsound.js', '../src/game/settings.js', '../src/game/highscores.js', '../src/game/locostash.js',
   '../src/util/platform.js', '../src/util/haptics.js',
   '../src/lab/labroad.js'];
 
@@ -76,15 +76,18 @@ const TOOLS = [
   // The passing lab at /lab/. Nothing else imports `src/lab/`, so without this the one page in
   // the project whose entire job is to be looked at could stop working silently.
   { name: 'lab',     args: ['tools/lab.mjs'],          pick: /(\d+\/\d+) checks passed/ },
+  // The model workshop at /workshop/, for the same reason: every model on its bench is built, so a
+  // builder whose signature moved fails here rather than on the one model someone opened it for.
+  { name: 'workshop', args: ['tools/workshop.mjs'],    pick: /(\d+\/\d+) checks passed/ },
   // The docs against the code: every URL parameter in src/ has a row in docs/params.md (and every
   // row is still read), and every relative link between the docs lands on a heading that exists.
   { name: 'docs',    args: ['tools/docs.mjs'],         pick: /(\d+\/\d+) checks passed/ },
-  // The New Move card's U-turn is a recording of the sim (game/uturnreel.js); this films it again
+  // The New Move card's U-turn is a recording of the sim (game/uturnreel-<width>.js); this films it again
   // and fails if the game's U-turn has moved on without it.
   { name: 'uturn',   args: ['tools/uturnreel.mjs'],    pick: /(\d+\/\d+) checks passed/ },
-  // ...and the drift's card the same (game/driftreel.js).
+  // ...and the drift's card the same (game/driftreel-<width>.js).
   { name: 'drift',   args: ['tools/driftreel.mjs'],    pick: /(\d+\/\d+) checks passed/ },
-  // ...and the overtake's (game/overtakereel.js).
+  // ...and the overtake's (game/overtakereel-<width>.js).
   { name: 'overtake', args: ['tools/overtakereel.mjs'], pick: /(\d+\/\d+) checks passed/ },
 ];
 
@@ -107,6 +110,63 @@ try {
   sunk.customDepthMaterial.onBeforeCompile(stub);
   if (!stub.vertexShader.includes(`mvPosition.z -= ${SHADOW_SINK.toFixed(4)}`)) {
     throw new Error('sinkShadowCaster: the depth patch did not land in the shader');
+  }
+
+  // The fog of war (game/edgefog.js). Its term rides three's own fog chunks, so what is checked is
+  // that the chunks carry it and that built-in shaders share the one uniform object by reference —
+  // a copy would freeze the fog's colour and drift at whatever they were on the first frame. Then
+  // the rule that keeps it off the game: it never reaches the ring road's outer lane.
+  {
+    const THREE = await import('three');
+    const fog = await import('../src/game/edgefog.js');
+    const { LANE_TO_KERB } = await import('../src/city/grid.js');
+    if (fog.EDGE_FOG) {
+      if (!THREE.ShaderChunk.fog_fragment.includes('edgeFog')) throw new Error('edgefog: the fog chunk was not patched');
+      if (THREE.ShaderLib.standard.uniforms.edgeFog?.value !== fog.edgeFogUniform
+        || THREE.UniformsUtils.clone(THREE.ShaderLib.lambert.uniforms).edgeFog.value !== fog.edgeFogUniform) {
+        throw new Error('edgefog: a built-in shader does not share the one fog uniform');
+      }
+      if (fog.FOG_START <= -LANE_TO_KERB) throw new Error(`edgefog: FOG_START ${fog.FOG_START} reaches the outer lane`);
+    }
+  }
+
+  // The city past the edge of the map (city/horizon.js): its haze patch run against three's own
+  // Lambert source, for the reason the sink above is — a replace that misses is a city with no fade
+  // and nothing logged. And its blocks, which must stand clear of every piece of the island's own
+  // land and clear of every street line, so the streets carry on out as open corridors.
+  {
+    const THREE = await import('three');
+    const { hazeMaterial, horizonBlocks, horizonEdges, hazeAt, HORIZON } = await import('../src/city/horizon.js');
+    const { propMaterial } = await import('../src/util/geo.js');
+    const { westBlocks, cornerBlocks } = await import('../src/city/westedge.js');
+    const { northParkBounds } = await import('../src/city/northpark.js');
+    const { lineX, lineZ, GRID_I, GRID_J, HALF_ROAD } = await import('../src/city/grid.js');
+    const hazed = hazeMaterial(propMaterial({ ao: false }), world.sky.uniforms);
+    const lambert = THREE.ShaderLib.lambert;
+    const shader = { vertexShader: lambert.vertexShader, fragmentShader: lambert.fragmentShader, uniforms: {} };
+    hazed.onBeforeCompile(shader);
+    if (!shader.fragmentShader.includes('gl_FragColor.rgb = mix(gl_FragColor.rgb, hzCol, hzF)')
+      || !shader.vertexShader.includes('vHzWorld = (modelMatrix')) {
+      throw new Error('horizon: the haze patch did not land in the shader');
+    }
+    if (!hazed.customProgramCacheKey().endsWith('-horizon')) throw new Error('horizon: no program cache key of its own');
+    if (HORIZON) {
+      const e = horizonEdges();
+      const blocks = horizonBlocks(e);
+      if (blocks.length < 30) throw new Error(`horizon: only ${blocks.length} blocks past the edge`);
+      const park = northParkBounds();
+      const land = [...westBlocks(), ...cornerBlocks()].map((b) => b.bounds)
+        .concat([{ x0: lineX(0) - HALF_ROAD, x1: lineX(GRID_I) + HALF_ROAD, z0: lineZ(0) - HALF_ROAD, z1: lineZ(GRID_J) + HALF_ROAD }])
+        .concat([{ x0: park.x0, x1: park.x1, z0: park.z0, z1: park.z1 }]);
+      const overlaps = (a, b) => a.x0 < b.x1 - 1e-6 && b.x0 < a.x1 - 1e-6 && a.z0 < b.z1 - 1e-6 && b.z0 < a.z1 - 1e-6;
+      for (const { bounds } of blocks) {
+        if (land.some((l) => overlaps(bounds, l))) throw new Error(`horizon: a block at (${bounds.cx}, ${bounds.cz}) stands on the island`);
+        for (let k = -12; k <= GRID_I + 12; k++) {
+          if (lineX(k) > bounds.x0 - HALF_ROAD + 1e-6 && lineX(k) < bounds.x1 + HALF_ROAD - 1e-6) throw new Error('horizon: a block stands in a street');
+        }
+      }
+      if (hazeAt(lineX(-1), lineZ(0), e) !== 0) throw new Error('horizon: the haze reaches onto the island');
+    }
   }
 
   // The resolution governor (game/governor.js), fed synthetic frame times: a clean 60 holds, a
@@ -144,7 +204,7 @@ try {
   // finds a long enough street (side or ring) in the shipped cities.
   {
     const { reelAt, clipKeys, pickOvertakeStreet, CLIP_LOOP } = await import('../src/game/overtakeclip.js');
-    const { REEL } = await import('../src/game/overtakereel.js');
+    const { REEL } = await import('../src/game/overtakeclip.js');
     const leadAt = (t) => REEL.lead[Math.min(REEL.lead.length - 1, Math.round(t / REEL.step))];
     const start = reelAt(0);
     const end = reelAt(CLIP_LOOP);
@@ -501,7 +561,7 @@ try {
     if (w.flash.scale.x !== 0) fail.push('flash still up at 0.5s');
     // The pane left in the taxi: off until the screen breaks, back off on a reset, and its hole
     // faces out of the front of the cab (normal from the winding, not from computeVertexNormals).
-    const { createTaxiMesh } = await import('../src/geometry/taxi.js');
+    const { createTaxiMesh, SCREEN_RAKE, SCREEN_FOOT } = await import('../src/geometry/taxi.js');
     const taxi = createTaxiMesh();
     const screen = taxi.damage.screen;
     if (screen.scale.x !== 0) fail.push('the taxi starts with its screen broken');
@@ -516,8 +576,11 @@ try {
       for (let t = 0; t < pos.count; t += 3) {
         a.fromBufferAttribute(pos, t); b.fromBufferAttribute(pos, t + 1); c.fromBufferAttribute(pos, t + 2);
         const n = b.clone().sub(a).cross(c.clone().sub(a));
-        // The hole's fan: the only triangles lying in an x = const plane that far forward of the box plates.
-        if (Math.abs(n.y) < 1e-9 && Math.abs(n.z) < 1e-9 && a.x > 0.668 && b.x > 0.668) facing += Math.sign(n.x);
+        // The hole's fan: the only triangles lying in the raked screen's plane that far forward of the
+        // plates. The screen leans back SCREEN_RAKE per unit up, so "forward" is x measured back to its foot.
+        const fwd = (v) => v.x + SCREEN_RAKE * (v.y - SCREEN_FOOT);
+        const inPlane = Math.abs(n.z) < 1e-3 * Math.abs(n.x) && Math.abs(n.y - SCREEN_RAKE * n.x) < 1e-3 * Math.abs(n.x);
+        if (inPlane && Math.abs(n.x) > 1e-9 && fwd(a) > 0.668 && fwd(b) > 0.668) facing += Math.sign(n.x);
       }
       if (facing < 9) fail.push(`broken screen's hole has ${facing} triangles facing forward`);
     }
