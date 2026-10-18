@@ -143,7 +143,7 @@ import { setCityOccluders, sightlineClear, groundLineClear } from '../src/game/s
 import {
   createDiamond,
   bounceOffset, KICK_SCALE, KICK_HOP, RIM_SCALE, RIM_OFFSET, EMISSIVE, HIGHLIGHT_EMISSIVE,
-  DIAMOND_HALF_H, BOUNCE_HEIGHT,
+  DIAMOND_HALF_H, BOUNCE_HEIGHT, PLUMBOB_CLASSIC, HOURGLASS_TILT, insideHourglass, MARKER_SHAPE, PIE_TURN, PIE_FACES_PER_WEDGE, pieWedgeOf, PIE_SLICES, PIE_RIM,
 } from '../src/geometry/diamond.js';
 import { CRYSTAL_TOP, createFareMarker } from '../src/game/faremarker.js';
 import { QUESTION_GEO } from '../src/geometry/questionmark.js';
@@ -4680,7 +4680,53 @@ const PRESSURE_END = difficulty.getTuning().pressureEnd;
     // and cannot be: those four corners take the horizontal offset in full and then ride up a
     // little on the vertical scale as well, which lands them at 0.232 against 0.220. That is 0.09px
     // at play zoom. The tips, where a scale factor does real damage, are exact.
-    {
+    //
+    // The hourglass's hull is its own geometry — the profile offset, not the body scaled — so there
+    // it is measured vertex against vertex instead. The ceiling is looser there, because a mitred
+    // offset reaches further at a corner than along a facet: the plates' square edges are where it
+    // is widest, and a corner of the ring is a further 1/cos(30°) out than its facets. Measured
+    // 0.220 to 0.415 — the 0.415 is a plate corner, 3.2px at play zoom against 1.7.
+    //
+    // The pie's hull is one solid drum around four separate wedges, so there is no vertex to pair
+    // with: measured back in the disc's own frame instead, at its own lighter PIE_RIM, the drum's facets have to clear the
+    // furthest wedge by the weight all round, and its two faces clear the disc's by the same.
+    if (MARKER_SHAPE === 'pie') {
+      const untip = PIE_TURN.clone().invert();
+      const extent = (attr) => {
+        const v = new THREE.Vector3();
+        let r = 0;
+        let z = 0;
+        for (let i = 0; i < attr.count; i++) {
+          v.fromBufferAttribute(attr, i).applyQuaternion(untip);
+          r = Math.max(r, Math.hypot(v.x, v.y));
+          z = Math.max(z, Math.abs(v.z));
+        }
+        return { r, z };
+      };
+      const body = extent(diamond.mesh.geometry.attributes.position);
+      const drum = extent(hull.geometry.attributes.position);
+      // The drum is a 32-gon, so its thinnest point is the apothem.
+      const side = drum.r * Math.cos(Math.PI / 32) - body.r;
+      const face = drum.z - body.z;
+      check('and it stands its own weight off every edge of the pie',
+        side >= PIE_RIM - 1e-4 && side <= PIE_RIM * 1.1 && Math.abs(face - PIE_RIM) < 1e-4,
+        `${side.toFixed(3)} round the side, ${face.toFixed(3)} off the faces, against ${PIE_RIM}`);
+    } else if (!PLUMBOB_CLASSIC) {
+      const body = diamond.mesh.geometry.attributes.position;
+      const hullPos = hull.geometry.attributes.position;
+      const a = new THREE.Vector3();
+      const b = new THREE.Vector3();
+      let thinnest = Infinity;
+      let thickest = 0;
+      for (let i = 0; i < body.count; i++) {
+        const d = a.fromBufferAttribute(body, i).distanceTo(b.fromBufferAttribute(hullPos, i));
+        thinnest = Math.min(thinnest, d);
+        thickest = Math.max(thickest, d);
+      }
+      check('and it stands its own weight off every corner of the hourglass',
+        hullPos.count === body.count && thinnest >= RIM_OFFSET - 1e-6 && thickest <= RIM_OFFSET * 2,
+        `${thinnest.toFixed(3)} to ${thickest.toFixed(3)} against ${RIM_OFFSET}`);
+    } else {
       const body = diamond.mesh.geometry.attributes.position;
       const corner = new THREE.Vector3();
       let thinnest = Infinity;
@@ -4719,19 +4765,46 @@ const PRESSURE_END = difficulty.getTuning().pressureEnd;
       const centre = new THREE.Vector3();
       let inward = 0;
       let faces = 0;
+      // The pie is separate convex wedges: each face is tested against the middle of its own. A
+      // wedge's faces are not contiguous (every wall is drawn before every cap), so gather by slice.
+      const wedgeCentres = Array.from({ length: PIE_SLICES }, () => ({ sum: new THREE.Vector3(), n: 0 }));
+      if (MARKER_SHAPE === 'pie') {
+        for (let i = 0; i < pos.count; i++) {
+          const w = wedgeCentres[pieWedgeOf(Math.floor(i / 3))];
+          w.sum.add(a.fromBufferAttribute(pos, i));
+          w.n += 1;
+        }
+      }
+      const wedgeCentre = new THREE.Vector3();
       for (let i = 0; i < pos.count; i += 3) {
+        if (MARKER_SHAPE === 'pie') {
+          const w = wedgeCentres[pieWedgeOf(i / 3)];
+          wedgeCentre.copy(w.sum).divideScalar(w.n);
+        }
         a.fromBufferAttribute(pos, i);
         b.fromBufferAttribute(pos, i + 1);
         c.fromBufferAttribute(pos, i + 2);
         n.copy(b).sub(a).cross(edge.copy(c).sub(a)).normalize();
         centre.copy(a).add(b).add(c).divideScalar(3);
         faces += 1;
-        // The origin is inside the crystal, so an outward normal has a positive dot with any point
-        // on its own face. A reversed triangle fails this by exactly the sign.
-        if (n.dot(centre) <= 0) inward += 1;
+        if (MARKER_SHAPE === 'pie') {
+          if (n.dot(centre.clone().sub(wedgeCentre)) <= 0) inward += 1;
+        } else if (PLUMBOB_CLASSIC) {
+          // The origin is inside the crystal, so an outward normal has a positive dot with any point
+          // on its own face. A reversed triangle fails this by exactly the sign.
+          if (n.dot(centre) <= 0) inward += 1;
+        } else {
+          // The hourglass is not convex — the waist — so the origin test does not hold. Step off
+          // each face both ways instead, back in the untipped frame the profile is written in: a
+          // little along the normal must be outside, a little against it inside.
+          const untip = HOURGLASS_TILT.clone().invert();
+          const out = centre.clone().addScaledVector(n, 0.01).applyQuaternion(untip);
+          const into = centre.clone().addScaledVector(n, -0.01).applyQuaternion(untip);
+          if (insideHourglass(out.x, out.y, out.z) || !insideHourglass(into.x, into.y, into.z)) inward += 1;
+        }
       }
       check('every facet of the crystal faces outwards',
-        faces === 8 && inward === 0, `${faces} faces, ${inward} wound inside out`);
+        faces === { plumbob: 8, hourglass: 132, pie: PIE_SLICES * PIE_FACES_PER_WEDGE }[MARKER_SHAPE] && inward === 0, `${faces} faces, ${inward} wound inside out`);
     }
 
     // --- The VIP's question mark (geometry/questionmark.js).

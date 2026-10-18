@@ -1127,7 +1127,7 @@ that *disposes* an occluder has to hand it back with `unmarkOccluder()`. The roa
 
 The lookup itself rides in `propMaterial()` (`util/geo.js`) as an `onBeforeCompile` patch on
 three's `<aomap_fragment>` hook, keyed in screen space off `gl_FragCoord`. It carries a
-`customProgramCacheKey`, for [the reason the plumbob's fill does](#the-plumbob--geometrydiamondjs)
+`customProgramCacheKey`, for [the reason the pie's fill does](#the-pie--geometrydiamondjs)
 — this city is nothing but flat-shaded Lambert, and a patched material with no key gets handed
 whichever program compiled first. Whether the patch is installed at all is decided by
 `setAmbientOcclusion()` *before any geometry is meshed*, which is why `?ao=` is a URL flag and not a
@@ -1293,7 +1293,7 @@ takes `edges` as well as `enabled`, and runs the pass for either; with occlusion
 uniform is pinned to 0 and the occlusion multiply is never compiled into a material. All four
 combinations key to different programs, which `probe.mjs` checks — this city is nothing but
 flat-shaded Lambert, and a second independent flag makes the
-[cache-key trap](#the-plumbob--geometrydiamondjs) twice as easy to fall into.
+[cache-key trap](#the-pie--geometrydiamondjs) twice as easy to fall into.
 
 ### What it is not doing yet
 
@@ -3751,31 +3751,69 @@ exactly in step with the car being traced. It is called last in the frame, after
 for two reasons: a frame's lag is 0.31 units ≈ 2.4px of rim sliding off its own car at boost speed,
 and a car wrecked on this frame must not wear a ghost over its own fireball.
 
-### The plumbob — `geometry/diamond.js`
+### The pie — `geometry/diamond.js`
 
-The crystal a waiting rider floats: a **plumbob**, hanging point-down over whoever it belongs to,
-outlined in black, bouncing, and painted by [urgency](gameplay.md#urgency-is-one-scale). It is the
-rider's shape alone; it is its own module because the shape, the outline and the bounce are a vocabulary the next marker should
+The marker a waiting rider floats: a **pie**, a thick disc, bouncing, with no black outline, cut into
+eight slices, two per urgency level, the whole pie in the one [urgency](gameplay.md#urgency-is-one-scale)
+colour of the level the fare is at. The clock eats it clockwise from twelve o'clock, so each pair
+of slices that goes is a quarter of the clock, and the colour steps (with the kick) at that moment.
+What is left is solid and one even shade; eaten slices stay as a flat black tint at 30%
+(`PIE_EATEN_ALPHA`), not the pale glass of the hue the other vessels empty into: with no outline,
+pale glass vanished into the road at play zoom and a half-eaten pie read as a semicircle. A fresh pie already has a sixteenth missing at twelve o'clock (`PIE_STARTER_SLIVER`), so it reads as a timer before anything has drained. After that the clock takes a **whole slice at a time**, so the cut always lands on a
+slice's own radial wall, and a drained pie shows that wall as a solid edge of thickness where the
+missing slices were. Every wall is drawn before every cap (`pieWedgeOf` maps faces back to slices
+for the probe): the wall sits behind an eaten slice's glass face, and drawn after it the wall
+failed the depth test and the cut came out flat. An eaten slice's walls are discarded rather than
+drawn as glass, or they would stand in it as spokes. The walls on the vertical cut (twelve and six)
+are edge-on under this tilt, so it is the horizontal cuts that show the most depth.
+The marker sits `MARKER_CLEARANCE` (0.8) higher than the taller shapes, for air over the head.
+
+**The geometry** is eight touching wedges (`pieGeometry`), 2.4 across (~18px at play zoom) and
+0.55 thick, built face-on in their own XY plane and turned (`PIE_TURN`) toward the camera and
+tilted back to a 60° normal, 27° past face-on, so the face reads as a disc with depth and the near
+edge shows its thickness. The fill shader picks the cut and the alternate shading from the angle
+of the untilted `fillXY` attribute. The outline hull is still built (one solid 32-sided drum at a lighter `PIE_RIM` of
+0.14, since at the shared 0.22 it was the loudest thing on the marker) but hidden: the solid, lit,
+tilted disc separates from the city by its own edge, and Tyler asked to "try without the black
+outline".
+
+History of this round: the first pie was four slices of the one current hue, 3.1 across, cut apart
+by black gaps. Tyler: "More slices (8). Map to existing urgency colors. Smaller over all. Tilt
+back to give it some depth. No black internal lines." The next build painted each slice its own
+level's colour, so a fresh rider showed all four at once; Tyler: "Keep it a single color until it
+reaches the next tier then change." A translucent build (0.7 alpha, walls removed because they
+showed through as spokes) followed "let's try with less opacity", and was turned back: "Let's try
+solid, no opacity. Bring back the internal walls so it looks 3d in its drained states."
+
+`?plumbob=hourglass` brings back the hourglass below and `?plumbob=classic` the [plumbob before
+it](rendering-history.md#the-plumbob--geometrydiamondjs).
+
+#### The hourglass — `?plumbob=hourglass`
+
+An **hourglass**, outlined in black. The hue is the sand: a fresh rider's top bulb is full
+of it, it drains through the neck as their clock runs, and it piles up in the bottom bulb, with a
+thin stream of it falling between the two while the clock is running. It is the rider's shape alone; it is its own module because the shape, the outline and the bounce are a vocabulary the next marker should
 inherit rather than re-derive. (The file is still `diamond.js`: it is the crystal over a fare
 whatever silhouette it wears, and the rename would have cost a hundred references to buy nothing.)
 
-**The geometry** is a square bipyramid built by hand: an equator of half-width 1.4 sitting two
-thirds of the way up, a 1.5-unit cap above it and a 3.0-unit point below. 2.8 × 4.5 world units, so
-about 22px wide and — after the camera's 33° elevation foreshortens the height by 0.84 — 29px tall.
-History: [the octahedron it replaced](rendering-history.md#the-plumbob--geometrydiamondjs).
+**The geometry** is a six-sided lathe: a profile (`GLASS_PROFILE`) from a 0.16 neck out to a bulb
+of radius 1.2 and back in to 1.0 under each plate, then a walnut plate (`PALETTE.hourglassFrame`)
+1.45 in radius and 0.3 thick on each end. 2.9 × 4.4 world units, within a tenth of the plumbob's
+2.8 × 4.5, so it takes the same room on the board and `LIFT` barely moves. The plates overhang the
+glass, and at 22px that overhang is what turns "two cones" into "an hourglass".
 
-The **equator is turned 45°**, which is the difference between a plumbob and a lozenge. `VIEW_DIR`
-looks down the diagonal, so axis-aligned vertices put an *edge* toward the camera and the silhouette
-comes out a flat hexagon. A corner facing the camera runs a ridge down the middle
-of the shape and splits the front into two facets the sun lights differently. The camera never
-rotates, so this is baked into the geometry rather than maintained per frame.
+A **corner faces the camera**, turned to 45° for the plumbob's reason: `VIEW_DIR` looks down the
+diagonal, and a corner rather than a flat runs a ridge down the middle of the silhouette and splits
+the front into two facets the sun lights differently. The camera never rotates, so this is baked
+into the geometry rather than maintained per frame.
 
-Why this shape at all: a plumb bob is a pointed weight whose entire job is to *indicate a spot on
-the ground*, which is this marker's job too and the one thing a regular octahedron is worst at —
-symmetric top to bottom, it has no more claim on the pavement below it than on the sky above. A long
-lower point has a direction, and it points at the rider. It also borrows a silhouette players
-already know; nothing about what it *says* is borrowed, since the hue here is a clock rather than a
-mood.
+**Each bulb has its own level.** The fill shader picks the top bulb's surface (falling from the
+plate to the neck) above the neck and the bottom bulb's (rising from its plate to just under the
+neck) below it, both linear in height and both overshooting by one meniscus band so a fresh fare
+has a full top and a spotless bottom. The plates are frame rather than vessel: opaque, walnut, and
+lit by 0.3 of their own colour instead of the hue's. The stream is a separate thin box, a child of
+the mesh in the hue, hidden at either end of the clock — so a VIP's hourglass, whose clock never
+drains, never runs.
 
 Written as **non-indexed triangles wound counter-clockwise from outside**, and `tools/probe.mjs`
 computes every face normal *from the winding* — not from the normal attribute, which
@@ -3783,8 +3821,7 @@ computes every face normal *from the winding* — not from the normal attribute,
 were behind it (`flatShading` reads the screen-space derivative) and punch a hole in the
 back-faces-only rim. See the trap in [CLAUDE.md](../CLAUDE.md).
 
-One geometry serves every crystal on the board and every outline hull too — they differ from the
-surface they wrap only by scale. Colour and emissive are per instance, so a repaint is a `Color.set`
+One geometry serves every hourglass on the board, and one more serves every outline hull. Colour and emissive are per instance, so a repaint is a `Color.set`
 on one material.
 
 The outline is an **inverted hull**: the same geometry drawn a little larger with `side: BackSide`
@@ -3793,10 +3830,11 @@ around the silhouette. Cheaper than a post-processing edge pass and it needs no 
 these are small objects, not a whole-scene effect. Each hull is a *child* of the mesh it wraps, so
 it inherits animation for free.
 
-**The rim is a distance, not a factor**: `RIM_OFFSET` is 0.22 world units (≈1.7px at play zoom) and
-the hull's scale is computed per axis from it. On a shape three times longer below its equator than it is wide, a single multiplier hangs a black
-needle off the bottom point and shaves the flanks. `tools/probe.mjs` measures every hull corner
-against the body corner it came from. Crystal and hull sit at `renderOrder` **8** and **9** in the
+**The rim is a distance, not a factor**: `RIM_OFFSET` is 0.22 world units (≈1.7px at play zoom),
+and the hull is the profile pushed out along its own normals by that much (`offsetProfile`) rather
+than the body scaled. An hourglass is not convex, and a scale about the origin moves the neck out
+by its own tiny radius times the factor — about a hundredth of a unit, so the rim pinched to nothing
+at the waist. `tools/probe.mjs` measures every hull vertex against the body vertex it came from. Crystal and hull sit at `renderOrder` **8** and **9** in the
 transparent queue — after the ground layers (route band 4, target discs 3–4) and well before the
 ghost outlines at 9990+.
 
@@ -4514,7 +4552,7 @@ dark ones on a pale one to read at the same weight.
 The outline is an enlarged copy of the same silhouette rather than an inverted hull: a hull is a
 *volume* trick, and on a flat shape the enlarged copy's back faces point away from the camera and
 draw nothing at all. Its offset is in world units per axis, for the reason [the plumbob's
-rim](#the-plumbob--geometrydiamondjs) gives — the bubble is nearly twice as wide as it is tall, so
+rim](#the-pie--geometrydiamondjs) gives — the bubble is nearly twice as wide as it is tall, so
 one scale factor would draw a border half as thick at the top as at the sides.
 
 **The tail is a rim point, not a triangle stuck on the bottom.** The silhouette is one closed
