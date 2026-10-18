@@ -1253,6 +1253,27 @@ default city; `CITY=big npm run check` is the big one's suite.
 | `ground.js` | asphalt slab, road surface, kerbs (`KERB_H = 0.35`), block tops — a park's is a walk around a lawn, [above](#a-park-has-a-frontage) — crosswalks | One merged mesh, plus the edge fade as a child — alpha can't ride in the merge's 3-component colour. Crosswalks are omitted at unsignalised junctions — a crosswalk implies a signal. |
 | `buildings.js` | towers, courtyard blocks, façades, roof furniture | One merged mesh. Height ceiling is deliberately low; tall towers hid the taxi. See [what a building is made of](#what-a-building-is-made-of). |
 | `props.js` | trees, park benches, the statue | Merged per material via `bakeColor`, so hundreds of props cost one draw call. Placement is [above](#benches-and-one-statue). |
+| `manholes.js` | four or five manhole covers | Its own mesh, wet in the rain, not brushed. [Below](#manhole-covers). |
+
+### Manhole covers
+
+Four or five cast-iron covers per city (`city/manholes.js`, `?manholes=classic` for none), placed
+off the city seed: in a lane, half way along a block's worth of road, never on the ring road or a
+bridge, and at least 1.6 blocks from each other. The middle of a gap is the one stretch clear of
+everything else painted on the road — `ALONG_MARGIN` (4.5) from either junction box is past the
+crosswalk and the stop setback plus the cover's own radius — and the lane rather than the
+centreline because the centreline has the dashes, or on an arterial the median. Flat, at the paint's
+height, with no collision and no say in the traffic.
+
+They are drawn bigger than life (`COVER_R` 0.72, so ~11 px across at play zoom on a phone) because at
+true size they are four pixels. What reads at that distance is albedo — a lid darker than the
+asphalt inside a frame lighter than it — and that is also what still reads at night, when the glint
+has gone with the sun. Close up the lid's diamond tread and the frame's bevel are a height field in
+the fragment shader, bending the normal; a Blinn glint added inside three's own direct-light loop
+(`RE_Direct` wrapped) is what makes it metal, and being in that loop is what keeps it out of
+shadows. The tread fades out by `fwidth` before it can crawl. Their own mesh rather than part of the
+ground, because the ground wears the painterly road strokes and iron under a stroke reads as road;
+`rain.wetGround` still patches it, so the covers shine in a squall like the street round them.
 
 ### What a building is made of
 

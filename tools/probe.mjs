@@ -41,6 +41,7 @@ import {
 } from '../src/city/blacktop.js';
 import { createBoombox, BPM as BOOMBOX_BPM } from '../src/game/boombox.js';
 import { createTubeMan } from '../src/game/tubeman.js';
+import { createManholes, planManholes, manholeGeometry, COVER_R, COVER_COUNT } from '../src/city/manholes.js';
 import { createCarWash } from '../src/city/carwash.js';
 import { createGasStation } from '../src/city/gasstation.js';
 import { collectPanes } from '../src/game/citylights.js';
@@ -1590,6 +1591,57 @@ const onGrass = (city, i, j) => {
     check('cities roll both roadside businesses', kinds.size === 2, [...kinds].join(', '));
   }
   check('no roadside business (?roadside=classic) builds no tube man', createTubeMan(new THREE.Scene(), makeRng(9), null).at === null);
+
+// --- Manhole covers (city/manholes.js) ---------------------------------------------------------
+// Set dressing, so what can go wrong is where they land: off the asphalt, over the river, on a
+// crosswalk or a stop line, bunched together, or wound face down (an unlit-looking disc is still a
+// Lambert one, but a reversed triangle on a flat quad is the roadworks ramp all over again).
+{
+  let wrongCount = 0, offLane = 0, offRoad = 0, nearJunction = 0, bunched = 0, overRiver = 0;
+  const minSep = 1.6 * PITCH - 1e-6;
+  for (let s = 0; s < 40; s++) {
+    createLayout(makeRng(s));
+    const spots = planManholes(makeRng(s + 193));
+    if (spots.length < COVER_COUNT[0] || spots.length > COVER_COUNT[1]) wrongCount += 1;
+    for (const c of spots) {
+      const across = c.axis === 'z' ? c.x - lineX(c.line) : c.z - lineZ(c.line);
+      const laneOff = c.axis === 'z' ? laneOffZ(c.line) : laneOffX(c.line);
+      const half = c.axis === 'z' ? halfRoadZ(c.line) : halfRoadX(c.line);
+      if (Math.abs(Math.abs(across) - laneOff) > 1e-6) offLane += 1;
+      if (Math.abs(across) + COVER_R > half) offRoad += 1;
+      if (c.axis === 'z' && riverRow() !== null && c.k === riverRow()) overRiver += 1;
+      // Clear of both junctions' boxes by more than a crosswalk (1.65) plus the stop setback.
+      const along = c.axis === 'z' ? c.z : c.x;
+      const ends = c.axis === 'z'
+        ? [lineZ(c.k) + halfRoadX(c.k), lineZ(c.k + 1) - halfRoadX(c.k + 1)]
+        : [lineX(c.k) + halfRoadZ(c.k), lineX(c.k + 1) - halfRoadZ(c.k + 1)];
+      if (Math.min(along - ends[0], ends[1] - along) < STOP_SETBACK + COVER_R) nearJunction += 1;
+    }
+    for (let a = 0; a < spots.length; a++) {
+      for (let b = a + 1; b < spots.length; b++) {
+        if (Math.hypot(spots[a].x - spots[b].x, spots[a].z - spots[b].z) < minSep) bunched += 1;
+      }
+    }
+  }
+  createLayout(makeRng(seed));
+  check('manholes: four or five per city', wrongCount === 0, `${wrongCount}/40 cities outside ${COVER_COUNT.join('-')}`);
+  check('manholes: each sits in a lane, inside the kerbs, never over the river',
+    offLane === 0 && offRoad === 0 && overRiver === 0, `off lane ${offLane}, past kerb ${offRoad}, over river ${overRiver}`);
+  check('manholes: clear of the crosswalks and stop lines at both ends', nearJunction === 0, `${nearJunction} too close`);
+  check('manholes: spread at least 1.6 blocks apart', bunched === 0, `${bunched} pairs too close`);
+
+  const geo = manholeGeometry(planManholes(makeRng(seed + 193)));
+  const pos = geo.attributes.position;
+  let down = 0;
+  const pa = new THREE.Vector3(), pb = new THREE.Vector3(), pc = new THREE.Vector3();
+  for (let t = 0; t < pos.count; t += 3) {
+    pa.fromBufferAttribute(pos, t); pb.fromBufferAttribute(pos, t + 1); pc.fromBufferAttribute(pos, t + 2);
+    if (pb.sub(pa).cross(pc.sub(pa)).y <= 0) down += 1;
+  }
+  check('manholes: every triangle wound to face up', down === 0, `${down}/${pos.count / 3} face down`);
+  geo.dispose();
+  check('manholes: ?manholes=classic builds none', createManholes(makeRng(1), { enabled: false }) === null);
+}
 
   // The gas station on the same block. Its pumps stand under a canopy, and a canopy is exactly the
   // thing that hides what is under it from this camera: a line from the top of each pump's screen

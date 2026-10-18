@@ -273,6 +273,9 @@ export const SHOTS = [
   { name: 'carwash', description: 'the car wash and its tube man', target: [0, 0], zoom: 18, warmup: 12, atCarWash: true },
   { name: 'carwash-far', description: 'the car wash at play zoom', target: [0, 0], zoom: 52, warmup: 12, atCarWash: true },
   { name: 'tubeman', description: 'the tube man, close', target: [0, 0], zoom: 7, warmup: 12, atTubeMan: true },
+  // A manhole cover (city/manholes.js), on the usual pair. Appended, for the index reason.
+  { name: 'manhole', description: 'a manhole cover, close', target: [0, 0], zoom: 3, warmup: 12, atManhole: true },
+  { name: 'manhole-far', description: 'a manhole cover at play zoom', target: [0, 0], zoom: 52, warmup: 12, atManhole: true },
 ];
 
 export function getActiveShot() {
