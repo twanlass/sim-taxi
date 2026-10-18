@@ -3741,24 +3741,25 @@ and a car wrecked on this frame must not wear a ghost over its own fireball.
 ### The pie — `geometry/diamond.js`
 
 The marker a waiting rider floats: a **pie**, a thick disc outlined in black and bouncing, cut into
-eight slices, two per urgency level, each painted the [urgency](gameplay.md#urgency-is-one-scale)
-colour it stands for. The clock eats it clockwise from twelve o'clock: the two green slices go
-first, then yellow, orange and red, so what is left is always mostly the colour the fare is at now,
-and each pair that goes is a quarter of the clock, the same moment the disc under the rider steps.
+eight slices, two per urgency level, the whole pie in the one [urgency](gameplay.md#urgency-is-one-scale)
+colour of the level the fare is at. The clock eats it clockwise from twelve o'clock, so each pair
+of slices that goes is a quarter of the clock, and the colour steps (with the kick) at that moment.
 Eaten slices stay as the same see-through glass the other vessels empty into. Every other slice is
 a shade darker (`PIE_ALTERNATE`), which is what tells eight apart: there are no lines between them.
+The marker sits `MARKER_CLEARANCE` (0.8) higher than the taller shapes, for air over the head.
 
 **The geometry** is eight touching wedges (`pieGeometry`), 2.4 across (~18px at play zoom) and
 0.55 thick, built face-on in their own XY plane and turned (`PIE_TURN`) toward the camera and
 tilted back to a 60° normal, 27° past face-on, so the face reads as a disc with depth and the near
-edge shows its thickness. The fill shader picks both the cut and each slice's colour from the
-angle of the untilted `fillXY` attribute, and lights each slice by its own colour rather than the
-material's one hue. The outline hull is one solid 32-sided drum at a lighter `PIE_RIM` of 0.14: at
+edge shows its thickness. The fill shader picks the cut and the alternate shading from the angle
+of the untilted `fillXY` attribute. The outline hull is one solid 32-sided drum at a lighter `PIE_RIM` of 0.14: at
 the shared 0.22 the drum, thickened by the tilted edge, was the loudest thing on the marker.
 
 History of this round: the first pie was four slices of the one current hue, 3.1 across, cut apart
 by black gaps. Tyler: "More slices (8). Map to existing urgency colors. Smaller over all. Tilt
-back to give it some depth. No black internal lines."
+back to give it some depth. No black internal lines." The next build painted each slice its own
+level's colour, so a fresh rider showed all four at once; Tyler: "Keep it a single color until it
+reaches the next tier then change."
 
 `?plumbob=hourglass` brings back the hourglass below and `?plumbob=classic` the [plumbob before
 it](rendering-history.md#the-plumbob--geometrydiamondjs).

@@ -221,11 +221,12 @@ export function insideHourglass(x, y, z) {
 
 // --- The pie --------------------------------------------------------------------------------------
 //
-// A disc 2.4 across and 0.55 thick, cut into eight slices, two per urgency level and each painted
-// the level it stands for: the first two eaten are green, then yellow, orange, and the last two
-// red. So what is left of the pie is always mostly the colour the fare is at now, and the slices
-// still to go say what is coming. Every other slice is a shade darker, which is what tells eight
-// slices apart with no lines between them (Tyler, 2026-10-18: "no black internal lines" — the first
+// A disc 2.4 across and 0.55 thick, cut into eight slices, two per urgency level, the whole pie in
+// the one colour of the level the fare is at — it steps when the clock crosses into the next tier,
+// with the kick, like every other shape here. (A build that painted each slice its own level's
+// colour showed all four colours on a fresh rider, and was turned down: Tyler, 2026-10-18, "keep it
+// a single color until it reaches the next tier".) Every other slice is a shade darker, which is
+// what tells eight slices apart with no lines between them ("no black internal lines" — the first
 // build cut four slices apart with black gaps and read as a crosshair).
 //
 // Built in its own frame — the face in XY looking down +Z, twelve o'clock at +Y — and then turned
@@ -242,6 +243,14 @@ const PIE_ARC_STEPS = 4;
 // the full 0.22 the hull's drum, thickened by the disc's own tilted edge, came out as a black ring
 // a fifth of the marker's width and was the loudest thing on it.
 export const PIE_RIM = 0.14;
+
+/**
+ * Extra air between a rider's head and the bottom of the marker, on top of game/faremarker.js's
+ * `LIFT`. The pie is a third the height of the plumbob, so it ends up hanging lower over the head
+ * than the taller shapes' centres do, and it read as sitting on the rider's hair. 0.8 is ~6px at
+ * play zoom.
+ */
+export const MARKER_CLEARANCE = PIE ? 0.8 : 0;
 // The camera looks down at 33°, so a face-on disc's normal is raised 33°; 60° tips the top a
 // further 27° away, which keeps the face 0.89 of its height and shows 0.25 of edge below it.
 export const PIE_TURN = new THREE.Quaternion()
@@ -510,8 +519,6 @@ const PIE_SWEEP = 0.12;
 // How much darker every other slice is. Enough to count eight at 18px, not so much that the dark
 // ones read as a second hue.
 const PIE_ALTERNATE = 0.82;
-// The slices' colours, first eaten to last: two of each level, from the top of the scale down.
-const PIE_COLORS = [4, 3, 2, 1].map((level) => new THREE.Color(PALETTE.urgency[level]));
 
 const SAND_TOP = [-MENISCUS, GLASS_H + MENISCUS];
 const SAND_BOTTOM = [-GLASS_H - MENISCUS, -MENISCUS];
@@ -643,8 +650,7 @@ function patchFill(material, flipped = false) {
   // so the diamond drew with a building's program and the fill went missing with nothing logged.
   material.customProgramCacheKey = () => `${MARKER_SHAPE}-fill${flipped ? '-back' : ''}`;
   uniforms.uFillLow = { value: SAND_BOTTOM[0] };
-  uniforms.uSlice = { value: PIE_COLORS };
-  uniforms.uEmissiveK = { value: EMISSIVE };
+
   uniforms.uFrame = { value: new THREE.Color(PALETTE.hourglassFrame) };
 
   // The plumbob has one level. The hourglass has one per bulb, and its plates are frame rather
@@ -659,14 +665,9 @@ function patchFill(material, flipped = false) {
     ? `\tfloat pieAngle = atan(vFillXY.x, vFillXY.y);
 \tif (pieAngle < 0.0) pieAngle += ${glsl(2 * Math.PI)};
 \tfloat below = step(uFill, pieAngle);
-\t// Each slice wears the level it stands for, and every other one a shade darker.
-\tint quarter = int(clamp(floor(pieAngle / ${glsl(Math.PI / 2)}), 0.0, 3.0));
-\tvec3 sliceColor = uSlice[0];
-\tif (quarter == 1) sliceColor = uSlice[1];
-\tif (quarter == 2) sliceColor = uSlice[2];
-\tif (quarter == 3) sliceColor = uSlice[3];
-\tsliceColor *= mix(1.0, ${glsl(PIE_ALTERNATE)}, mod(floor(pieAngle / ${glsl((2 * Math.PI) / 8)}), 2.0));
-\tdiffuseColor.rgb = sliceColor;
+\t// Every other slice a shade darker: what tells eight apart with no lines between them.
+\tfloat sliceShade = mix(1.0, ${glsl(PIE_ALTERNATE)}, mod(floor(pieAngle / ${glsl((2 * Math.PI) / PIE_SLICES)}), 2.0));
+\tdiffuseColor.rgb *= sliceShade;
 \tvec2 sweep = vec2(sin(uFill), cos(uFill));
 \tfloat meniscus = uFillLow * step(0.0, dot(vFillXY, sweep))
 \t\t* (1.0 - smoothstep(${glsl(PIE_SWEEP * MENISCUS_CORE)}, ${glsl(PIE_SWEEP)}, abs(vFillXY.x * sweep.y - vFillXY.y * sweep.x)));`
@@ -682,8 +683,6 @@ function patchFill(material, flipped = false) {
       .replace('#include <common>', `#include <common>
 varying float vFillY;
 varying vec2 vFillXY;
-uniform vec3 uSlice[4];
-uniform float uEmissiveK;
 uniform float uFill;
 uniform float uFillLow;
 uniform vec3 uFrame;
@@ -700,7 +699,7 @@ ${split}
       // After `normal_fragment_begin`, which is where `normal` comes from — and still before
       // `lights_lambert_fragment` hands `diffuseColor` to the lighting.
       .replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
-${PIE ? '\t// Each slice lit by its own colour, not the material\'s one hue.\n\ttotalEmissiveRadiance = sliceColor * uEmissiveK;\n' : ''}${flipped ? '\tnormal = -normal;\n' : ''}\tfloat sheen = (1.0 - below) * pow(1.0 - abs(dot(normal, normalize(vViewPosition))), ${glsl(SHEEN_POWER)});
+${PIE ? '\ttotalEmissiveRadiance *= sliceShade;\n' : ''}${flipped ? '\tnormal = -normal;\n' : ''}\tfloat sheen = (1.0 - below) * pow(1.0 - abs(dot(normal, normalize(vViewPosition))), ${glsl(SHEEN_POWER)});
 \tdiffuseColor.rgb = mix(diffuseColor.rgb, uSurface, sheen * ${glsl(SHEEN)});
 \t// A highlight is light bouncing off the glass rather than passing through it, so it thickens the
 \t// surface where it lands. Without this the sheen dissolves into whatever is behind the marker.
@@ -852,7 +851,6 @@ export function createDiamond(colorHex) {
      */
     setHighlight(amount) {
       mesh.material.emissiveIntensity = THREE.MathUtils.lerp(EMISSIVE, HIGHLIGHT_EMISSIVE, amount);
-      fillUniforms.uEmissiveK.value = mesh.material.emissiveIntensity;
     },
     /**
      * How full the vessel is, 0..1. The fine hand of the clock: the colour says which quarter, this

@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { KERB_H } from '../city/ground.js';
 import { URGENCY_SEGMENTS, fareColor } from './urgency.js';
 import {
-  createDiamond, DIAMOND_HALF_H, bounceOffset, BOUNCE_HEIGHT,
+  createDiamond, DIAMOND_HALF_H, MARKER_CLEARANCE, bounceOffset, BOUNCE_HEIGHT,
   kickEnvelope, KICK_TIME, KICK_SCALE, KICK_HOP,
 } from '../geometry/diamond.js';
 import { createQuestionMark, ROCK_ANGLE, ROCK_RATE } from '../geometry/questionmark.js';
@@ -68,7 +68,10 @@ import { popEnvelope, popHighlight, POP_TIME, POP_SCALE_DIAMOND } from './select
 //
 // The plumbob's point hangs lower under its own origin than the octahedron's did, so this number
 // grew with the shape and the air above a rider's head did not move.
-const LIFT = DIAMOND_HALF_H + 4.7;
+//
+// The pie adds MARKER_CLEARANCE on top (geometry/diamond.js): a short shape gets no free air from
+// its own height, and Tyler asked for some space over the rider's head.
+const LIFT = DIAMOND_HALF_H + 4.7 + MARKER_CLEARANCE;
 
 /**
  * How high over its corner the crystal's top point reaches, at the top of its bounce.

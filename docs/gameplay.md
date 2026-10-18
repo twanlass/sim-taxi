@@ -1413,8 +1413,8 @@ staged dispatch is not a finger.
 
 `src/game/faremarker.js`. The countdown is a **physical object that belongs to the fare** — not a
 HUD number, not a property of a marker, and not something that changes hands. A **pie** floats
-over the rider's head on the kerb — a thick disc of eight slices in the urgency colours, eaten
-clockwise from the green ones to the red as their clock runs (`?plumbob=hourglass` and `?plumbob=classic` for the two shapes before
+over the rider's head on the kerb — a thick disc of eight slices, eaten clockwise two slices to a
+tier as their clock runs (`?plumbob=hourglass` and `?plumbob=classic` for the two shapes before
 it) — painted by how much of their clock is left:
 green → yellow → orange → red, [by level](#urgency-is-one-scale) — and [draining like a
 glass](#the-crystal-is-a-glass-of-time) between those steps. The instant they get in it **flies to the taxi**
