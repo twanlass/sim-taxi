@@ -5,7 +5,8 @@ import { PALETTE, color } from '../palette.js';
 import { coneGeometry, coneMaterial, coneQuat } from '../geometry/lights.js';
 import {
   GRID_I, GRID_J, lineX, lineZ, isArterialX, isArterialZ, laneOffX, laneOffZ, medianRuns, MEDIAN_W,
-  LTRAIN_NS, LTRAIN_WEST, MEDIAN_END_GAP, PITCH, HALF_ROAD, halfRoadZ, WEST_EDGE, WEST_COLUMNS,
+  LTRAIN_NS, LTRAIN_WEST, MEDIAN_END_GAP, PITCH, HALF_ROAD, halfRoadZ, halfRoadX, WEST_EDGE, WEST_COLUMNS,
+  HALF_SPAN_X, HALF_SPAN_Z,
 } from '../city/grid.js';
 import { EDGE_FADE, KERB_H } from '../city/ground.js';
 import { coastWest, coastEast, coastNorth, coastSouth } from '../city/grid.js';
@@ -112,6 +113,8 @@ export const CAP_UNDERSIDE = DECK_TOP - GIRDER_D - CAP_H;
  * the ring road would be a model on a table. Columns stand out there at this pitch.
  */
 const OFFSHORE_PITCH = 11;
+/** The first offshore column's centre, past the ring road's kerb. */
+const RING_CLEAR = 0.65;
 
 /**
  * Where the island ends on each side, as a distance from the origin. With the harbor
@@ -569,10 +572,18 @@ function planStraight(line) {
   // A closed segment (a park built over the arterial) has no island, so the line spans it on the
   // nearest bents either side. Out past the ring road it walks off the island on its own pitch.
   const ends = ns ? ['south', 'north'] : ['west', 'east'];
+  // The first one stands just past the ring road's far kerb. It used to be OFFSHORE_PITCH on from
+  // the last island's nose, which put it 0.65 past that kerb on 8-unit streets — and *on* the kerb
+  // once the streets widened (`?streets=`), because the ring road's kerb moves out by more than the
+  // last island does. Measured off the kerb, it lands at the same 0.65 on every width.
   const ringFrom = Math.max(...columns.map(Math.abs), 0);
+  const ringKerb = ns
+    ? HALF_SPAN_Z + Math.max(halfRoadX(0), halfRoadX(GRID_J))
+    : HALF_SPAN_X + Math.max(halfRoadZ(0), halfRoadZ(GRID_I));
+  const firstOffshore = Math.max(ringFrom + OFFSHORE_PITCH, ringKerb + RING_CLEAR);
   for (const side of [-1, 1]) {
     const end = LINE_END(ends[side < 0 ? 0 : 1]);
-    for (let x = ringFrom + OFFSHORE_PITCH; x < end; x += OFFSHORE_PITCH) columns.push(side * x);
+    for (let x = firstOffshore; x < end; x += OFFSHORE_PITCH) columns.push(side * x);
   }
   columns.sort((a, b) => a - b);
   const from = -LINE_END(ends[0]);
@@ -651,7 +662,9 @@ function planWest(iz, jx) {
   // On past the last island at the offshore pitch, to where each end runs off into the haze.
   const nEnd = cz + LINE_END('north');
   const wEnd = cx + LINE_END('west');
-  for (let d = Math.max(r, ...nd) + OFFSHORE_PITCH; d < nEnd; d += OFFSHORE_PITCH) nd.push(d);
+  // Not before the north ring road's far kerb, for the reason `planStraight` gives.
+  const northKerb = cz - (lineZ(0) - halfRoadX(0));
+  for (let d = Math.max(Math.max(r, ...nd) + OFFSHORE_PITCH, northKerb + RING_CLEAR); d < nEnd; d += OFFSHORE_PITCH) nd.push(d);
   for (let d = Math.max(r, ...wd) + OFFSHORE_PITCH; d < wEnd; d += OFFSHORE_PITCH) wd.push(d);
 
   // `a` is 0 at the middle of the curve, negative out along the west leg and positive up the north.
@@ -1316,6 +1329,10 @@ export function createLTrain(scene, rng, { sparks = null, lights = true, intro =
     // sparks were hidden by the body they came out of.
     const side = CAR_W / 2 + 0.05;
     const at = plan.world(state.x + bogieX, TRACK_OFF + side);
+    // The shower was gated on the train's middle, and its bogies and its later pulses run on past
+    // that: on wider streets (`?streets=`) the line is longer and a pulse landed 4 units out over
+    // the north coast's fade. The pulse that would land off the island is dropped.
+    if (coastKeep(at.x, at.z) < 1) return;
     sparks.burst(at.x, RAIL_TOP + 0.08, at.z, yaw, count, state.speed,
       { reach: 0.8, lift: 1.0, floor: 0 });
   }

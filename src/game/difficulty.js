@@ -112,7 +112,7 @@ const TUNING = {
   // second column — busy enough to be felt in every corner, short of the point where the boost
   // stops being usable at all. Those are densities, so they scale with the road: the 6 × 7 city
   // has ~1.35x the street of the 5 × 6 one (97 grid segments to 71), and 12/22 there read as an
-  // empty town. `?city=classic` keeps the old numbers.
+  // empty town. The default 5 × 5 island takes the old numbers; `?city=big` the new.
   carsStart: BIG_CITY ? 16 : 12,
   carsEnd: BIG_CITY ? 30 : 22,
 

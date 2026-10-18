@@ -274,12 +274,12 @@
       #chase-siren canvas { display: block; width: 60px; height: 44px; }
       /* Where it stands. By default it is a child of #boost-meter and sits on the crown of the
          fuel gauge (Tyler, 2026-10-15), centred over Loco Mode: the gauge's outer edge is
-         BASE_R + width + RIM = 97 units off the button's centre (game/fuelarc.js), at
+         BASE_R + width + RIM = 101 units off the button's centre (game/fuelarc.js), at
          `--gas-d` per 150, and it pops up out of that rather than down out of the top edge.
          `?pedals=classic` moves it back into #hud, on the cash row beside the pause. It rides
          the pedals' entrance, and #boost-meter's own hiding rules (replay, game over, shot mode). */
       #boost-meter #chase-siren {
-        left: calc(50% - 30px); bottom: calc(50% + 97 * var(--gas-d) / 150 + 2px);
+        left: calc(50% - 30px); bottom: calc(50% + 101 * var(--gas-d) / 150 + 2px);
         transform-origin: center bottom; transform: scale(0.3) translateY(30%);
       }
       #hud #chase-siren { top: calc((var(--hud-row) - 44px) / 2); right: var(--pause-w); }
@@ -2068,6 +2068,37 @@
         align-self: center;
       }
       .aud-play:hover { background: var(--dbg-fill-hi); }
+      .aud-trigger {
+        flex: none; height: 22px; padding: 0 6px; border: 1px solid #f5c56b; border-radius: 6px;
+        cursor: pointer; background: rgba(245, 197, 107, 0.12); color: #f5c56b; font-size: 11px; line-height: 1;
+        align-self: center;
+      }
+      .aud-trigger:hover { background: rgba(245, 197, 107, 0.25); }
+      .aud-hold { border-color: #7aa2ff; color: #7aa2ff; background: rgba(122, 162, 255, 0.12); }
+      .aud-hold:hover { background: rgba(122, 162, 255, 0.25); }
+      .aud-hold.is-on { background: #7aa2ff; color: #101014; }
+      /* A mix group's header: its fold, M, S and fader (src/game/audiopanel.js). */
+      .aud-group {
+        margin: 12px 0 4px; padding: 6px 8px 0; border-radius: 8px; background: rgba(255, 255, 255, 0.07);
+        border: 1px solid var(--dbg-line); border-left: 2px solid var(--dbg-line);
+      }
+      .aud-group.is-edited { border-left-color: var(--dbg-accent); }
+      .aud-group.is-silenced { opacity: 0.45; }
+      #dbg-panel .aud-group .dbg-row { grid-template-columns: 60px 1fr; }
+      .aud-group-name { display: flex; align-items: center; gap: 6px; margin-bottom: 4px; }
+      .aud-fold {
+        flex: 1; text-align: left; border: 0; background: none; color: var(--dbg-text); cursor: pointer;
+        font: 600 12px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif; padding: 2px 0;
+      }
+      .aud-ms {
+        flex: none; width: 24px; height: 22px; border: 1px solid var(--dbg-line); border-radius: 6px;
+        cursor: pointer; background: var(--dbg-fill); color: var(--dbg-text); font: 700 10px/1 system-ui, sans-serif;
+      }
+      .aud-ms.is-on { background: #f5c56b; color: #141416; border-color: #f5c56b; }
+      .aud-ms.is-on:last-child { background: #7aa2ff; border-color: #7aa2ff; }
+      /* A folded group hides its sounds — unless the panel's search is in use, which shows a match
+         wherever it is. A class, because `hidden` on these belongs to the search. */
+      #dbg-panel:has(.dbg-search:placeholder-shown) .aud-sound.is-folded { display: none; }
 
       /* The renderer readout — `?diag`, see src/game/diag.js. Bottom-left rather than top, which
          is where the boost meter and the money counter live, and above the boost pill's own corner.
@@ -2304,13 +2335,13 @@
           </linearGradient>
           <!-- The dish runs the other way — dark at the top, light at the bottom — which is what
                makes it read as sunk rather than domed. -->
-          <linearGradient id="nes-gas-dish" x1="0" y1="37" x2="0" y2="105" gradientUnits="userSpaceOnUse">
+          <linearGradient id="nes-gas-dish" x1="0" y1="27" x2="0" y2="115" gradientUnits="userSpaceOnUse">
             <stop stop-color="#D97900" /><stop offset="1" stop-color="#FFC453" />
           </linearGradient>
           <linearGradient id="nes-brake-face" x1="0" y1="9" x2="0" y2="133" gradientUnits="userSpaceOnUse">
             <stop stop-color="#F2514F" /><stop offset="1" stop-color="#D42B2E" />
           </linearGradient>
-          <linearGradient id="nes-brake-dish" x1="0" y1="37" x2="0" y2="105" gradientUnits="userSpaceOnUse">
+          <linearGradient id="nes-brake-dish" x1="0" y1="27" x2="0" y2="115" gradientUnits="userSpaceOnUse">
             <stop stop-color="#B91F22" /><stop offset="1" stop-color="#F8706E" />
           </linearGradient>
         </defs>
@@ -2321,8 +2352,8 @@
           <circle cx="75" cy="71" r="62" fill="url(#nes-gas-face)" />
           <path d="M25.15 47.76A55 55 0 0 1 56.19 19.32" stroke="#fff" stroke-opacity="0.6" stroke-width="5" stroke-linecap="round" fill="none" />
           <circle cx="67.35" cy="16.54" r="2.4" fill="#fff" fill-opacity="0.6" />
-          <circle cx="75" cy="71" r="34" fill="url(#nes-gas-dish)" stroke="#000" stroke-opacity="0.22" stroke-width="1.5" />
-          <path d="M104.44 88A34 34 0 0 1 45.56 88" stroke="#fff" stroke-opacity="0.4" stroke-width="1.5" fill="none" />
+          <circle cx="75" cy="71" r="44" fill="url(#nes-gas-dish)" stroke="#000" stroke-opacity="0.22" stroke-width="1.5" />
+          <path d="M113.11 93A44 44 0 0 1 36.89 93" stroke="#fff" stroke-opacity="0.4" stroke-width="1.5" fill="none" />
           <!-- Debossed, not printed (Tyler, 2026-10-15): the letter is the dish's own plastic, a
                tenth lighter, and reads by its walls alone — the top wall in shadow, the bottom
                one catching the light, the way a cut into the dish would. -->
@@ -2409,8 +2440,8 @@
           <circle cx="75" cy="71" r="62" fill="url(#nes-brake-face)" />
           <path d="M25.15 47.76A55 55 0 0 1 56.19 19.32" stroke="#fff" stroke-opacity="0.6" stroke-width="5" stroke-linecap="round" fill="none" />
           <circle cx="67.35" cy="16.54" r="2.4" fill="#fff" fill-opacity="0.6" />
-          <circle cx="75" cy="71" r="34" fill="url(#nes-brake-dish)" stroke="#000" stroke-opacity="0.22" stroke-width="1.5" />
-          <path d="M104.44 88A34 34 0 0 1 45.56 88" stroke="#fff" stroke-opacity="0.4" stroke-width="1.5" fill="none" />
+          <circle cx="75" cy="71" r="44" fill="url(#nes-brake-dish)" stroke="#000" stroke-opacity="0.22" stroke-width="1.5" />
+          <path d="M113.11 93A44 44 0 0 1 36.89 93" stroke="#fff" stroke-opacity="0.4" stroke-width="1.5" fill="none" />
           <!-- Debossed, not printed (Tyler, 2026-10-15): the letter is the dish's own plastic, a
                tenth lighter, and reads by its walls alone — the top wall in shadow, the bottom
                one catching the light, the way a cut into the dish would. -->

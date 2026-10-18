@@ -12,13 +12,17 @@
 // because every other name in this file already means "runs along X": `arterialX` is a set of `j`
 // values and `halfRoadX(j)` is a road's extent in z. A `GRID_X` would have read as the opposite of
 // what it is. `i` runs `0..GRID_I` and `j` runs `0..GRID_J`; blocks are `bi < GRID_I`, `bj < GRID_J`.
-// The city is 6 × 7 blocks, 36 of them land, with a 2 × 2 central park and a curving road through
-// it (`city/centralpark.js`). `?city=classic` keeps the old 5 × 6 (25 land blocks) with straight
-// roads only. Read at module load because every count below is a constant the rest of the city is
-// built from; headless tools have no `location` and take `CITY=classic` from the environment.
+// The city is 5 × 6 blocks, 25 of them land, on an island that feathers into the sky on every side.
+// `?city=big` is the 6 × 7 city (36 land blocks) with a 2 × 2 central park and a curving road
+// through it (`city/centralpark.js`), and everything that grew round it: the harbor, the north
+// park, the shores, the west edge's high rises and the horizon filler. That was the default from
+// #483 until Tyler took it back (2026-10-16: "The bigger map is bugging me. Can we go back to the
+// smaller 5x5 that had feathered out edges"). Read at module load because every count below is a
+// constant the rest of the city is built from; headless tools have no `location` and take
+// `CITY=big` from the environment.
 export const BIG_CITY = typeof location !== 'undefined'
-  ? new URLSearchParams(location.search).get('city') !== 'classic'
-  : globalThis.process?.env?.CITY !== 'classic';
+  ? new URLSearchParams(location.search).get('city') === 'big'
+  : globalThis.process?.env?.CITY === 'big';
 export const GRID_I = BIG_CITY ? 6 : 5;  // block columns
 // The L train runs north-south, down the north-south arterial (Tyler, 2026-10-13: across the river
 // rather than beside it). `?lroute=classic` keeps the old east-west line. Here rather than in
@@ -32,20 +36,52 @@ export const LTRAIN_NS = typeof location !== 'undefined'
 // rises (Tyler, 2026-10-14: "make a right turn and head out of town through the west side high
 // rises. Doesn't make sense fading off into the ocean"). `?ltrainwest=classic` keeps the straight
 // north-south line. Only means anything on a north-south line.
-export const LTRAIN_WEST = LTRAIN_NS && (typeof location !== 'undefined'
+// Only on `?city=big`: the turn was made for the west edge's high rises to take it, and the 5 × 5
+// island has none, so there the line runs straight on south into the feathered edge.
+export const LTRAIN_WEST = BIG_CITY && LTRAIN_NS && (typeof location !== 'undefined'
   ? new URLSearchParams(location.search).get('ltrainwest') !== 'classic'
   : globalThis.process?.env?.LTRAINWEST !== 'classic');
 // A row more than columns, because **one of the rows is the river** (`city/river.js`). The city is
 // a block row taller than it is wide so that the water costs it neither a street nor a buildable
 // block: 36 of the 42 blocks are land, a 6×6 city's worth (25 of 30, a 5×5's, under `?city=classic`).
 export const GRID_J = BIG_CITY ? 7 : 6;  // block rows, one of them water
-export const PITCH = 20;             // distance between road centrelines
-export const ROAD_W = 8;             // full road width (two lanes)
-export const BLOCK = PITCH - ROAD_W; // buildable footprint between two ordinary streets
-export const LANE = 2;               // lane centre offset from the road centreline
+// How wide an ordinary street is (Tyler, 2026-10-17: "making the streets a little bit wider ... I
+// want to see if it helps gameplay feel less cramped"). `touch` takes a street from 8 to 9;
+// `?streets=classic` keeps the 8-unit one. A 10-unit `half` was tried beside it and Tyler called it
+// too wide (2026-10-17: "Let's ship the default 9 units ... 10 is too wide"). The lanes widen with the road (`LANE` is a quarter of it), so the extra room lands on
+// both sides of every car rather than as a stripe down the middle: the weave, the overtake and the
+// turn radii all grow with it. Read at module load for the same reason as `BIG_CITY`; headless
+// tools take `STREETS=`.
+const STREETS = (typeof location !== 'undefined'
+  ? new URLSearchParams(location.search).get('streets')
+  : globalThis.process?.env?.STREETS) || 'touch';
+export const STREET_WIDTHS = { classic: 8, touch: 9 };
+/** Which of those this load is on — an unknown value falls back to the default. */
+export const STREETS_KEY = STREET_WIDTHS[STREETS] ? STREETS : 'touch';
+export const ROAD_W = STREET_WIDTHS[STREETS_KEY];  // full road width (two lanes)
+// **The block holds its size and the pitch grows instead**, so the map is 5 units wider a
+// side rather than every lot giving up what its roads gained. Taking it out of the blocks was tried
+// first and broke 28 probe checks, nearly all for one reason: the lane between two junctions is
+// `BLOCK` long, and a dozen along-the-lane chains were sized against 12 of it — the roadworks
+// launch (BARRIER_S + HOP_LEN + STOP_SETBACK = 11.0 left no lane on 10-unit streets it could land
+// on), the L train's spans, the follow-gap staging — along with the pond, the helipad's height and
+// the bank's sightline band, all sized off the block. Holding the block keeps every one of those.
+export const BLOCK = 12;             // buildable footprint between two ordinary streets
+export const PITCH = BLOCK + ROAD_W; // distance between road centrelines: 20 at classic
+export const LANE = ROAD_W / 4;      // lane centre offset from the road centreline (2 at classic)
 export const HALF_ROAD = ROAD_W / 2;
 export const SPAN_X = GRID_I * PITCH;
-export const SPAN_Z = GRID_J * PITCH;
+// The river row is wider than a block row (Tyler, 2026-10-18: "Can we widen the river by 25%?"):
+// 25% of the 12-unit channel, so 15 between the kerbs. Like the streets in #559 it **grows the map**
+// rather than coming out of the lots either side, and for the same reason — the lane between two
+// junctions stays at least `BLOCK` long, which the roadworks launch, the L train's spans and the
+// bank's sightline band are all sized against. Only the lanes that cross the river get longer.
+// `?river=classic` keeps the 12-unit channel; `?city=big` keeps it too (left as it was).
+const RIVER = typeof location !== 'undefined'
+  ? new URLSearchParams(location.search).get('river')
+  : globalThis.process?.env?.RIVER;
+export const RIVER_EXTRA = BIG_CITY || RIVER === 'classic' ? 0 : BLOCK * 0.25;
+export const SPAN_Z = GRID_J * PITCH + RIVER_EXTRA;
 export const HALF_SPAN_X = SPAN_X / 2;
 export const HALF_SPAN_Z = SPAN_Z / 2;
 /**
@@ -62,11 +98,32 @@ export const MAX_SPAN = Math.max(SPAN_X, SPAN_Z);
  * the wrong one. `lineX` takes an `i`, `lineZ` takes a `j`.
  */
 export const lineX = (i) => i * PITCH - HALF_SPAN_X;
-export const lineZ = (j) => j * PITCH - HALF_SPAN_Z;
+export const lineZ = (j) => j * PITCH - HALF_SPAN_Z + riverShift(j);
+
+// Every line south of the river sits `RIVER_EXTRA` further south than a uniform grid would put
+// it, so the z lines are **not** evenly spaced and `(z + HALF_SPAN_Z) / PITCH` does not invert
+// `lineZ`. `gridZ` undoes the shift (it maps a world z back onto the evenly spaced grid), and
+// anything that rounds or floors a z into an index goes through it. A city with no river yet (a
+// headless tool that never built a layout) is a uniform grid centred in the span.
+let riverRowIndex = null;
+const riverShift = (j) => (riverRowIndex === null ? RIVER_EXTRA / 2 : j > riverRowIndex ? RIVER_EXTRA : 0);
+/** The river's centreline in z, or null — where `gridZ` switches from one side's shift to the other. */
+export const riverMidZ = () => (riverRowIndex === null ? null
+  : (riverRowIndex + 0.5) * PITCH - HALF_SPAN_Z + RIVER_EXTRA / 2);
+export const gridZ = (z) => {
+  const mid = riverMidZ();
+  if (mid === null) return z - RIVER_EXTRA / 2;
+  return z > mid ? z - RIVER_EXTRA : z;
+};
+/** The z line index nearest a world z, unclamped — the inverse of `lineZ`. */
+export const lineIndexZ = (z) => Math.round((gridZ(z) + HALF_SPAN_Z) / PITCH);
+/** The block row a world z falls in, unclamped (a point exactly on a line goes to the row south). */
+export const rowIndexZ = (z) => Math.floor((gridZ(z) + HALF_SPAN_Z) / PITCH);
 
 // --- Divided arterials ------------------------------------------------------
 //
-// An arterial is a **third wider** than an ordinary street, and every bit of the extra width goes
+// An arterial is a **third wider** than an ordinary 8-unit street (8/3 wider on any width, see
+// `ARTERIAL_EXTRA`), and every bit of the extra width goes
 // into the middle. That is the whole trick: the two carriageways stay exactly where they would be
 // on an 8-unit street relative to their own kerb, and what opens up between them is a 2.67-unit
 // centre strip with nothing driving on it — a median, planted mid-block (`medianRuns` below).
@@ -81,9 +138,12 @@ export const lineZ = (j) => j * PITCH - HALF_SPAN_Z;
 //
 // It also gives the map a hierarchy you can read at a glance from a fixed camera, which is what
 // the arterials were always for and which a 64% green share alone could never show.
-export const ARTERIAL_SCALE = 4 / 3;
-export const ARTERIAL_ROAD_W = ROAD_W * ARTERIAL_SCALE;     // 10.667
-export const HALF_ARTERIAL = ARTERIAL_ROAD_W / 2;           // 5.333
+// The strip is a fixed 8/3 rather than a third of whatever `ROAD_W` is, so wider streets
+// (`?streets=`) widen the arterial's two carriageways and leave its median alone: the planted bed
+// is `MEDIAN_W` either way, and a gap that grew with the road would only take more off the blocks.
+export const ARTERIAL_EXTRA = 8 / 3;
+export const ARTERIAL_ROAD_W = ROAD_W + ARTERIAL_EXTRA;     // 10.667 at classic
+export const HALF_ARTERIAL = ARTERIAL_ROAD_W / 2;           // 5.333 at classic
 /** Lane centre to its own kerb. Held constant across both road widths — see above. */
 export const LANE_TO_KERB = HALF_ROAD - LANE;               // 2
 
@@ -221,7 +281,7 @@ export function turnControl(dIn, dOut, i, j) {
  */
 export function nearestJunction(x, z) {
   const near = (v, half, top) => Math.min(top, Math.max(0, Math.round((v + half) / PITCH)));
-  return { i: near(x, HALF_SPAN_X, GRID_I), j: near(z, HALF_SPAN_Z, GRID_J) };
+  return { i: near(x, HALF_SPAN_X, GRID_I), j: Math.min(GRID_J, Math.max(0, lineIndexZ(z))) };
 }
 
 /** Intersection reached by leaving (i, j) along d, or null if it would leave the grid. */
@@ -384,8 +444,6 @@ export const isParkBlock = (bi, bj) => parkBlocks.has(`${bi},${bj}`);
 // `null` until a layout has been built, so a headless tool that never called `createLayout`
 // measures a city with no river in it — the same contract `isSegmentClosed` and `isParkBlock` keep.
 
-let riverRowIndex = null;
-
 export function setRiverRow(row) {
   riverRowIndex = row ?? null;
 }
@@ -440,10 +498,11 @@ export function riverBanks() {
 // It is all *outside* the ring road. No street, block or junction moves, so the road network, the
 // routing, the fares and every probe staging see the same city they always did; the waterfront
 // road is the east ring road, and its junctions already take riders. `?harbor=classic` keeps the
-// old mouth. Read at module load for the same reason `BIG_CITY` is.
-export const HARBOR = typeof location !== 'undefined'
+// old mouth. Only on `?city=big`: the 5 × 5 island's river runs out into the feathered edge. Read at
+// module load for the same reason `BIG_CITY` is.
+export const HARBOR = BIG_CITY && (typeof location !== 'undefined'
   ? new URLSearchParams(location.search).get('harbor') !== 'classic'
-  : globalThis.process?.env?.HARBOR !== 'classic';
+  : globalThis.process?.env?.HARBOR !== 'classic');
 /** The island's margin past each ring road, before the fade. Owned here so the harbor can measure from it. */
 export const SLAB_MARGIN = ROAD_W * 3;
 /** How much further the island reaches east of the old coast to hold the harbor. */
@@ -455,9 +514,9 @@ export const COAST_X = (SPAN_X + SLAB_MARGIN) / 2;
 // barricaded off where they leave it. West, because west is the *far* edge: the camera looks down
 // the -x-z diagonal, so everything out there stands up-screen of the city and no tower can stand
 // between the camera and a street. Read at module load for the reason `HARBOR` is.
-export const WEST_EDGE = typeof location !== 'undefined'
+export const WEST_EDGE = BIG_CITY && (typeof location !== 'undefined'
   ? new URLSearchParams(location.search).get('westedge') !== 'classic'
-  : globalThis.process?.env?.WESTEDGE !== 'classic';
+  : globalThis.process?.env?.WESTEDGE !== 'classic');
 /** How many block columns stand west of the ring road, and how much further west the island reaches for them. */
 export const WEST_COLUMNS = WEST_EDGE ? 2 : 0;
 export const WEST_REACH = WEST_COLUMNS * PITCH;
@@ -467,9 +526,9 @@ export const coastEast = () => COAST_X + HARBOR_REACH;
 // The big park past the north ring road (city/northpark.js, `?northpark=classic` to drop it): how far
 // its lawn runs north of the ring road's kerb before it fades. Here for the reason HARBOR_REACH is:
 // the map's north edge moves with it, and the L's line has to know where that is.
-export const NORTH_PARK = typeof location !== 'undefined'
+export const NORTH_PARK = BIG_CITY && (typeof location !== 'undefined'
   ? new URLSearchParams(location.search).get('northpark') !== 'classic'
-  : globalThis.process?.env?.NORTHPARK !== 'classic';
+  : globalThis.process?.env?.NORTHPARK !== 'classic');
 export const NORTH_PARK_DEPTH = 46;
 // The corner where those two meet (city/westedge.js, `?westcorner=classic` to leave it empty): mid-rises
 // north of the north ring road's stubs, and the west ring road carried on north between them and the
@@ -485,15 +544,15 @@ export const coastSouth = () => (SPAN_Z + SLAB_MARGIN) / 2;
 // The south shore (city/southshore.js, `?southshore=classic` for the old apron): the harbor's rocky
 // shore carried on round the south end, with a strip of park between the ring road and the water.
 // It needs the harbor's sea to stand in, so it is off wherever the harbor is.
-export const SOUTH_SHORE = typeof location !== 'undefined'
+export const SOUTH_SHORE = BIG_CITY && (typeof location !== 'undefined'
   ? new URLSearchParams(location.search).get('southshore') !== 'classic'
-  : globalThis.process?.env?.SOUTHSHORE !== 'classic';
+  : globalThis.process?.env?.SOUTHSHORE !== 'classic');
 // The park shore (`?parkshore=classic`): the harbor's seawall and rocks carried straight on north
 // along the north park's east edge, where they used to curl west and stop at the park's corner.
 // Needs both the harbor and the north park.
-export const PARK_SHORE = typeof location !== 'undefined'
+export const PARK_SHORE = BIG_CITY && (typeof location !== 'undefined'
   ? new URLSearchParams(location.search).get('parkshore') !== 'classic'
-  : globalThis.process?.env?.PARKSHORE !== 'classic';
+  : globalThis.process?.env?.PARKSHORE !== 'classic');
 // The channel runs on at its own width for this far past the ring road's kerb before it opens out.
 // Enough for the ring bridge's footway (1.4) and a short walled run, so the river visibly *arrives*
 // at the basin rather than the bridge standing in it.

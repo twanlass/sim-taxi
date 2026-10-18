@@ -4,7 +4,7 @@ import { bakeColor, propMaterial } from '../util/geo.js';
 import { PALETTE, color, jitterColor } from '../palette.js';
 import {
   GRID_I, GRID_J, lineX, lineZ, halfRoadZ, riverBanks, riverRow, segmentKey,
-  harborBasin, coastEast, coastWest, coastNorth, isArterialZ, LTRAIN_NS,
+  harborBasin, coastEast, coastWest, coastNorth, isArterialZ, LTRAIN_NS, BIG_CITY,
 } from './grid.js';
 import {
   harborPiers, coastZ, seaInset, seaStartX, coastArcStart, southShore, shoreZ, seaRimSouth, southKerbZ,
@@ -143,11 +143,21 @@ export const DECK_OVERHANG = EMBANK_WALK;
  * the outermost street — the one that never stops for a signal, and the one the police corridor
  * drives end to end — on an embankment with water down one side.
  */
+// Where the fixed bridges stand on the 5 × 5 island: a block in from the coast, two of them
+// (`planRiver`). `?bridges=classic` keeps the ring bridges and the L's span beside the leaf.
+export const BRIDGES_INLAND = !BIG_CITY && (typeof location !== 'undefined'
+  ? new URLSearchParams(location.search).get('bridges') !== 'classic'
+  : globalThis.process?.env?.BRIDGES !== 'classic');
+
 const middleRow = (rng) => rng.int(Math.floor((GRID_J - 1) / 2), Math.ceil((GRID_J - 1) / 2));
 
 /**
  * Which crossings carry a bridge, and what kind. **Three of the six** in the 5 × 6 city, four of
  * the seven in the 6 × 7 (the fourth is fixed, beside the drawbridge — see below).
+ *
+ * **On the island the fixed bridges stand a line in from each coast** and the ring roads end at the
+ * water — see the end of this function. What follows is the rule under `?bridges=classic` and on
+ * `?city=big`.
  *
  * **The two ring roads always bridge.** The outermost roads are the signal-free ring (grid.js), the
  * police corridor drives one end to end, and ambient traffic yields into it rather than stopping —
@@ -217,8 +227,37 @@ export function planRiver(rng) {
     }
   } else if (GRID_I >= 2) {
     draw = rng.int(Math.floor(GRID_I / 2), Math.ceil(GRID_I / 2));
+    // The 5 × 5 island carries the L too, down an arterial drawn from the same two middle lines —
+    // so the leaf can land under the deck, and on any other line the train would cross on open
+    // water. The even grid's answer again: the leaf takes the other middle line if it has to, and
+    // the train's line gets a fixed bridge. Four crossings of six, the two in the middle side by
+    // side; the same single draw.
+    const rail = LTRAIN_NS ? [...Array(GRID_I + 1).keys()].find((i) => i > 0 && i < GRID_I && isArterialZ(i)) : undefined;
+    if (rail === draw) {
+      draw = draw === Math.floor(GRID_I / 2) ? Math.ceil(GRID_I / 2) : Math.floor(GRID_I / 2);
+      crossings.set(rail, 'fixed');
+    } else if (rail !== undefined) {
+      crossings.set(rail, 'fixed');
+    }
   }
   if (draw !== null) crossings.set(draw, 'draw');
+
+  // **The 5 × 5 island's crossings sit a block in from the coast, and there are three** (Tyler,
+  // 2026-10-18: "kill one of the fixed bridges. Pull the outer ones in a block"). The two ring
+  // bridges move to lines 1 and 4, and the L's fixed span goes: the train has its own truss over
+  // the water (game/ltrain.js) and needs no road under it, and of the three fixed spans it was the
+  // one sitting right beside the drawbridge, so it was the one doing the least. What is left is a
+  // fixed bridge, the leaf and a fixed bridge, one or two lines apart — the most even three of six
+  // can be once the leaf has to stay in the middle. The ring roads end at the water in a bend on
+  // each bank, the same two-armed node as a ring corner, so nothing needs a signal or a yield there.
+  //
+  // After the draw, so the layout stream reads exactly what it did. `?bridges=classic` keeps the
+  // old four; `?city=big` is left as it was.
+  if (BRIDGES_INLAND && GRID_I >= 4) {
+    for (const [i, kind] of crossings) if (kind === 'fixed') crossings.set(i, 'water');
+    crossings.set(1, 'fixed');
+    crossings.set(GRID_I - 1, 'fixed');
+  }
 
   // The crossings with no bridge are closed roads in the ordinary sense — `legalExits` drops them,
   // the network never bakes an edge, ambient traffic and the router both plan around them for free.

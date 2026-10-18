@@ -12,6 +12,14 @@ flame and all (`exitTime`), the empty patch holds for a second (`HOLD`) — skid
 — and then fades to the title screen. About 3.8 s from the first frame of asphalt on a phone; a tap
 anywhere skips to a quick fade, and a player with reduced motion gets the fade alone.
 
+**It has sound where sound is allowed** (`game/splashsound.js`): the Big Air landing on the slam, a
+bump on each bounce, and the Loco press (launch, the activate's roar, a skid for the burnout) as it
+leaves, the roar fading as the car clears the frame. The game's own recordings at the shipped mix,
+under the player's mute and effects slider. It has to play before anyone has tapped, which a
+browser will not allow, so it makes its own context at once and stays silent unless that context
+is running: in the iOS app it is (the shell lifts the gesture rule), in Safari it never is, in
+Chrome only on a site the player already uses a lot. `?splashsound=classic` is the silent drop.
+
 **It covers the load without animating during it.** `main.js` builds the city in one synchronous
 task (13 s of one long task under headless SwiftShader, nothing in between), so nothing on the page
 can move while it runs. `boot.js` builds the splash first — its renderer, its scene and the effect
@@ -85,7 +93,7 @@ near lane.
 | `approach` | `focusOn` eases target and zoom together onto the door, from the play framing at zoom 52 down to **15** | ~1.4s, capped at 1.9 |
 | `settle` | A beat on the shut door, so arriving and the door moving read as two events | 0.12s |
 | `door` | The curtain winds up on an ease-*out* — a roller door leaves fast under its counterweight and creeps the last few inches | 0.95s |
-| `reveal` | The car sitting in a lit doorway. This is the shot | 0.35s |
+| `reveal` | The car sitting in a lit doorway, the radio crushed through its speaker ([the dash radio](audio.md#the-dash-radio)). This is the shot | 0.35s, or until the first song has played 4s through the dash (up to 8s) |
 | `roll` | Out of the bay, across the forecourt, down the kerb, right into the lane. The zoom starts widening as the nose clears the door, so the pull-back is already under way; the **shutter starts coming back down** the moment the car reaches the kerb | ~2.7s |
 | `release` | `focusOn` back to whatever framing the run would have had — the city's centre on a desktop, the taxi on a phone, where the opening follow-cam picks it up | ~1.3s, capped at 2.0 |
 
@@ -1854,7 +1862,12 @@ delivery, 35s after the last one left the board; #499). They are an ordinary tap
 them and pull up, and a coin tossed when they spawned decides it — **a loaded one**: even odds on
 the first bank rider of a run, then 15 points more robbery for each one who rode (50, 65, 80, 95,
 capped there), back to even once a robbery happens (`BANK_ROBBER_STEP`; #522,
-`?robberyodds=classic` for a fair coin every time). Heads they get in like anybody
+`?robberyodds=classic` for a fair coin every time). **The taxi collects them from the steps, not the
+corner**: the route comes down the bank's own street (the fare's target carries its lane, `onto`),
+and the pickup resolves only level with the door (`BANK_REACH_ALONG`, 6 either way along the
+façade, across both lanes). The junction's `ARRIVE_RADIUS` it used to share with everyone fired
+from the cross street round the corner, a block and a half from the robber the cut then had to
+frame (`?bankpickup=classic`). Heads they get in like anybody
 else; tails a robber bursts out of the bank, shoves them over and takes their seat — see
 [the bank job](#the-bank-job) — and the streets go blue for as long as it takes to get the robber
 where they are going. `?bankfare=classic` restores the drive-past robbery, where passing the bank
@@ -2045,7 +2058,8 @@ The event opens on a cut, and the world stops **one beat earlier** than the line
 anyway:
 
 1. One red alarm light appears on the bank's entablature, over the doorway (`bankFrontage` in
-   city/bank.js), and starts flashing, and the camera pulls in on the steps and the cab.
+   city/bank.js), and starts flashing, and the camera pulls in on the steps and the cab (see
+   [the cut's framing](#the-cuts-framing) below).
 2. The robber bursts out of the portico, shedding notes out of the sack (the getaway's own cash
    trail, fed from the robber), shoves the **bank rider** clean off their feet (airborne, spun, a
    bounce and a skid, then dazed and stirring on the ground — never landing on the cab), and
@@ -2063,6 +2077,35 @@ the tap (or Space/Enter) skipping straight to step 3. The alarm
 keeps going for as long as the robbery does and then goes; the rider gets up a few seconds into the
 getaway and walks back into the bank; the door slams and the camera eases back out when the line is
 cleared.
+
+#### The cut's framing
+
+The camera is fitted **on the screen**, not in the ground plane (`frameCut` in game/bankjob.js).
+Everything the cut shows is projected onto the camera's own axes — the doorway at a figure's
+height, the steps, the bystander at the top of their flight and where they come down, every corner
+of the run, the cab's nose and tail, and the point over the cab the robber's bubble hangs from — and
+the half-height is the smallest that holds the box at the current aspect ratio, with 1.5 units of
+room, between 15 and 34. The box is centred in the strip **between the HUD rows** (the cash at the
+top takes 15% of the height, the pedals at the bottom 20%), so the shove never plays under a
+button. It is refitted every frame, so a rotation mid-cut reframes rather than crops.
+
+**Loco Mode's push-in lets go for the cut.** The punch (`punchZoom` in game/camera.js) is eased by
+the frame loop the cut stops, so a player still holding the pill as they pulled up — which is how
+most pickups are driven — froze it at `LOCO_PUNCH` (0.76) through the cut and the line: a frame
+sized to hold everything shown at 76% of its size, the bank and the cab at opposite edges of the
+phone. The cut eases it back to 1 alongside its own framing.
+
+**The L's deck thins over the cut.** The deck already dithers out over the taxi and the fare pins
+(`setFadePoints` in game/ltrain.js), but the frame loop that feeds it stands still under the cut,
+so the points it held were wherever the taxi and the pins were on the frame the world stopped.
+During the cut it is fed the steps, the bystander and their landing, the robber where they are and
+the cab instead (`fadePoints`), and those stay set for the robber's line after it. About one city
+in eight puts the deck straight over the bank's steps (10 of 80 seeds measured with the deck's
+sightline lift).
+
+`?robberycam=classic` is the first framing: the steps, the bystander and the cab door averaged in
+the ground plane with the door counted twice, a zoom off the world distance between them capped at
+26, a held push-in left frozen, and the deck left as it was. See [history](gameplay-history.md#the-bank-job).
 
 **Stopped, not slowed** — the world, that is; the impact slow-mo is the cut's own clock, with
 everything else already frozen. Slowing the *world* would keep the traffic alive, but it runs every
