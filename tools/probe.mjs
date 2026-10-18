@@ -21810,6 +21810,51 @@ for (const viewName of ['side', 'quarter']) {
   splash.setSplashView('side');
 }
 
+// The logo the taxi comes down through (game/splashlogo.js): whole and inside the frame at every
+// aspect before the drop, and the debris walked through the shipped timeline — struck by the car
+// before it lands, every piece knocked loose, none through the floor, all lying still by the fade.
+{
+  const splash = await import('../src/game/splash.js');
+  const { buildLogo, createDebris } = await import('../src/game/splashlogo.js');
+  splash.setSplashView('side');
+  const { right, up } = splash.splashView();
+  const logo = buildLogo();
+  const at = new THREE.Vector3();
+  const clipped = [];
+  for (const aspect of [390 / 844, 1, 1280 / 800]) {
+    const zoom = splash.splashZoom(aspect);
+    const out = logo.pieces.some((piece) => piece.hull.some((h) => {
+      at.copy(h).applyQuaternion(piece.homeQuat).add(piece.home);
+      return Math.abs(at.dot(right)) > zoom * aspect * 0.95 || Math.abs(at.dot(up)) > zoom * 0.95;
+    }));
+    if (out) clipped.push(aspect.toFixed(2));
+  }
+  check('splash logo: the whole word is inside the frame at every aspect', clipped.length === 0,
+    clipped.length ? `clipped at ${clipped.join(', ')}` : `${logo.pieces.length} pieces in ${logo.letters.length} letters`);
+
+  const phone = 390 / 844;
+  const debris = createDebris(logo);
+  const dt = 1 / 60;
+  let contactAt = null;
+  let deepest = 0;
+  let looseAtLand = 0;
+  for (let t = splash.STAGE_IN; t < splash.fadeAt(phone); t += dt) {
+    const p = splash.splashPose(t, phone);
+    const landed = t >= splash.LAND;
+    const ev = debris.update(dt, { x: p.x, y: p.y, z: p.z, landed, speed: t >= splash.IGNITE ? splash.LAUNCH_ACCEL * (t - splash.IGNITE) : 0 });
+    if (ev.contact && contactAt === null) contactAt = t;
+    if (landed && !looseAtLand) looseAtLand = debris.state.filter((s) => s.loose).length;
+    debris.state.forEach((_, i) => { deepest = Math.min(deepest, debris.lowest(i)); });
+  }
+  check('splash logo: the car meets the word on its way down, before it lands',
+    contactAt !== null && contactAt < splash.LAND, `contact ${contactAt?.toFixed(3)}s, land ${splash.LAND.toFixed(3)}s`);
+  check('splash logo: every piece is knocked loose by the landing', looseAtLand === logo.pieces.length,
+    `${looseAtLand} of ${logo.pieces.length}`);
+  check('splash logo: no piece goes through the floor', deepest > -0.02, `deepest ${deepest.toFixed(3)}`);
+  const moving = debris.state.filter((s) => !(s.grounded && s.vel.length() < 0.5)).length;
+  check('splash logo: the debris has come to rest by the fade', moving === 0, `${moving} still moving`);
+}
+
 // Average speed per car over the whole run — a stable throughput number, unlike a snapshot of
 // how many cars happen to be moving at the instant the sim stops.
 const throughput = stats.distance / stats.time / traffic.cars.length;
