@@ -225,9 +225,9 @@ export function insideHourglass(x, y, z) {
 // the one colour of the level the fare is at — it steps when the clock crosses into the next tier,
 // with the kick, like every other shape here. (A build that painted each slice its own level's
 // colour showed all four colours on a fresh rider, and was turned down: Tyler, 2026-10-18, "keep it
-// a single color until it reaches the next tier".) Every other slice is a shade darker, which is
-// what tells eight slices apart with no lines between them ("no black internal lines" — the first
-// build cut four slices apart with black gaps and read as a crosshair).
+// a single color until it reaches the next tier".) Every slice is the same shade ("keep slices the
+// same color shade family") and the pie is translucent, so the eight are a step of the clock rather
+// than something drawn: two to a tier, which is where the colour steps.
 //
 // Built in its own frame — the face in XY looking down +Z, twelve o'clock at +Y — and then turned
 // (`PIE_TURN`) to face the camera and **tilted back** past face-on, so the face reads as a disc in
@@ -258,8 +258,8 @@ export const PIE_TURN = new THREE.Quaternion()
   // About the screen's right, (1, 0, -1): a negative angle swings the face's normal upward.
   .premultiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, -1).normalize(), THREE.MathUtils.degToRad(-60)));
 
-/** Faces per slice, for the probe's winding check: two caps, the arc wall and two radial walls. */
-export const PIE_FACES_PER_WEDGE = PIE_ARC_STEPS * 4 + 4;
+/** Faces per slice, for the probe's winding check: the two faces and the arc wall. */
+export const PIE_FACES_PER_WEDGE = PIE_ARC_STEPS * 4;
 
 /**
  * The slices, as non-indexed triangles wound outward, with a `fillXY` attribute carrying each
@@ -286,11 +286,9 @@ function pieGeometry() {
       push(at(p, PIE_R, z), at(q, PIE_R, z), at(q, PIE_R, -z));
       push(at(p, PIE_R, z), at(q, PIE_R, -z), at(p, PIE_R, -z));
     }
-    // The two radial walls, at a0 and a1.
-    push(at(0, 0, z), at(a0, PIE_R, z), at(a0, PIE_R, -z));
-    push(at(0, 0, z), at(a0, PIE_R, -z), at(0, 0, -z));
-    push(at(0, 0, z), at(a1, PIE_R, -z), at(a1, PIE_R, z));
-    push(at(0, 0, z), at(0, 0, -z), at(a1, PIE_R, -z));
+    // No radial walls. With the remaining slices translucent (PIE_ALPHA) the walls between them
+    // showed straight through the face as a pale spoke pattern, so the disc is one hollow drum
+    // and the cut is drawn by the face and the rim alone.
   }
   const geo = new THREE.BufferGeometry();
   geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
@@ -516,9 +514,10 @@ const FILL_TOP = TOP_Y + MENISCUS;
 // because it runs across a face 3 units wide rather than along a rim, and at 0.2 it read as a
 // spoke of its own rather than as the edge of what is left.
 const PIE_SWEEP = 0.12;
-// How much darker every other slice is. Enough to count eight at 18px, not so much that the dark
-// ones read as a second hue.
-const PIE_ALTERNATE = 0.82;
+// How solid the pie's remaining slices are. Translucent rather than opaque (Tyler, 2026-10-18: "let's
+// try with less opacity"), but well above the eaten glass's GLASS_ALPHA, so what is left still
+// reads against what is gone.
+const PIE_ALPHA = 0.7;
 
 const SAND_TOP = [-MENISCUS, GLASS_H + MENISCUS];
 const SAND_BOTTOM = [-GLASS_H - MENISCUS, -MENISCUS];
@@ -665,9 +664,7 @@ function patchFill(material, flipped = false) {
     ? `\tfloat pieAngle = atan(vFillXY.x, vFillXY.y);
 \tif (pieAngle < 0.0) pieAngle += ${glsl(2 * Math.PI)};
 \tfloat below = step(uFill, pieAngle);
-\t// Every other slice a shade darker: what tells eight apart with no lines between them.
-\tfloat sliceShade = mix(1.0, ${glsl(PIE_ALTERNATE)}, mod(floor(pieAngle / ${glsl((2 * Math.PI) / PIE_SLICES)}), 2.0));
-\tdiffuseColor.rgb *= sliceShade;
+
 \tvec2 sweep = vec2(sin(uFill), cos(uFill));
 \tfloat meniscus = uFillLow * step(0.0, dot(vFillXY, sweep))
 \t\t* (1.0 - smoothstep(${glsl(PIE_SWEEP * MENISCUS_CORE)}, ${glsl(PIE_SWEEP)}, abs(vFillXY.x * sweep.y - vFillXY.y * sweep.x)));`
@@ -695,11 +692,11 @@ uniform vec3 uSurface;`)
 ${split}
 \tdiffuseColor.rgb = mix(uGlass, diffuseColor.rgb, below);
 \t// The liquid and its surface are solid; only the empty glass thins out.
-\tdiffuseColor.a = mix(${glsl(GLASS_ALPHA)}, 1.0, max(below, meniscus));`)
+\tdiffuseColor.a = mix(${glsl(GLASS_ALPHA)}, ${glsl(PIE ? PIE_ALPHA : 1)}, max(below, meniscus));`)
       // After `normal_fragment_begin`, which is where `normal` comes from — and still before
       // `lights_lambert_fragment` hands `diffuseColor` to the lighting.
       .replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
-${PIE ? '\ttotalEmissiveRadiance *= sliceShade;\n' : ''}${flipped ? '\tnormal = -normal;\n' : ''}\tfloat sheen = (1.0 - below) * pow(1.0 - abs(dot(normal, normalize(vViewPosition))), ${glsl(SHEEN_POWER)});
+${flipped ? '\tnormal = -normal;\n' : ''}\tfloat sheen = (1.0 - below) * pow(1.0 - abs(dot(normal, normalize(vViewPosition))), ${glsl(SHEEN_POWER)});
 \tdiffuseColor.rgb = mix(diffuseColor.rgb, uSurface, sheen * ${glsl(SHEEN)});
 \t// A highlight is light bouncing off the glass rather than passing through it, so it thickens the
 \t// surface where it lands. Without this the sheen dissolves into whatever is behind the marker.

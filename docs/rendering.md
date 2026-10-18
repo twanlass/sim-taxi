@@ -3744,8 +3744,9 @@ The marker a waiting rider floats: a **pie**, a thick disc outlined in black and
 eight slices, two per urgency level, the whole pie in the one [urgency](gameplay.md#urgency-is-one-scale)
 colour of the level the fare is at. The clock eats it clockwise from twelve o'clock, so each pair
 of slices that goes is a quarter of the clock, and the colour steps (with the kick) at that moment.
-Eaten slices stay as the same see-through glass the other vessels empty into. Every other slice is
-a shade darker (`PIE_ALTERNATE`), which is what tells eight apart: there are no lines between them.
+What is left is translucent (`PIE_ALPHA` 0.7) and one even shade; eaten slices stay as the
+fainter see-through glass the other vessels empty into. There are no walls between slices: with the
+pie translucent they showed through the face as spokes.
 The marker sits `MARKER_CLEARANCE` (0.8) higher than the taller shapes, for air over the head.
 
 **The geometry** is eight touching wedges (`pieGeometry`), 2.4 across (~18px at play zoom) and
