@@ -156,7 +156,7 @@ See [rendering.md](rendering.md) for all of these.
 | `?dpr=N` | Caps `devicePixelRatio` (0.5–4, default 2) and pins it against the Quality setting |
 | `?ao=off` | No ambient occlusion |
 | `?fps=30` | Caps the frame rate, overriding the Settings choice |
-| `?governor=off` | Holds the resolution where the budget put it, instead of stepping down when hot |
+| `?governor=classic` | Brings back the resolution governor, which steps the pixel ratio down when a hot phone drops frames (off by default: the resolution holds where Quality put it) |
 | `?diag` | The on-screen renderer readout |
 | `?bench` | The step-by-step GPU benchmark |
 | `?br=` | Internal to `?bench`: the rows measured so far, carried across its reloads |

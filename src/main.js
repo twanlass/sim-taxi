@@ -415,17 +415,16 @@ rain.hideInMirror(crayon.overlay, bloom.overlay, scene.getObjectByName('sky'));
 // split between them is where it is. Attached after the sun exists, since step one shrinks its
 // shadow map.
 attachContextRecovery({ renderer, sun, budget, onNotice: (text) => diag.note(text) });
-// Steps the pixel ratio down when a warm phone starts dropping frames, and back up once it can
-// keep up again. `?governor=off` holds it where the budget put it. See game/governor.js.
+// Off by default: the resolution holds where Quality put it, and a hot phone drops frames instead
+// (Tyler, 2026-10-18 — "If it gets bad, the user can change to regular in settings"). On Ultra it
+// had been stepping 3 → 1.5, softer than Regular. `?governor=classic` brings the stepping back.
+// See game/governor.js.
 const governor = createGovernor({
   renderer,
   budget,
-  enabled: !shot && new URLSearchParams(window.location.search).get('governor') !== 'off',
+  enabled: !shot && new URLSearchParams(window.location.search).get('governor') === 'classic',
   onChange: (text) => diag.note(text),
   targetMs: () => 1000 / Math.min(60, frameRateCap()),
-  // The chosen Quality's floor, so Ultra never steps below Regular's sharpness. A `?dpr=` pin is
-  // not the setting's to bound.
-  floor: () => (resolutionPinned ? 1 : qualityOf(settings.get()).floor),
 });
 // The Quality setting's resolution, live: the cap moves and the governor re-derives its ratio from
 // it. Not while `?dpr=` pins it, nor under `?safe`, whose whole point is the cheapest budget. The

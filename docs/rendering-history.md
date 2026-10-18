@@ -765,3 +765,15 @@ sense fading off into the ocean." It now turns west at the east-west arterial in
 always north of the river, so the truss and the south half went with that stretch.
 `?ltrainwest=classic` brings the straight line back, truss and all.
 
+## Heat — `game/governor.js`, and the paused still
+
+[Current](rendering.md#heat--gamegovernorjs-and-the-paused-still).
+
+Until 2026-10-18 the governor was on by default. It stepped the pixel ratio down a notch (×0.875 of
+the cap each step, to half the cap, never below 1) when a two-second window had 8% or more of its
+frames late, and back up after thirty seconds clean; a step up that slipped straight back doubled
+that wait, up to four minutes. On a warm iPhone under Ultra that walked 3 → 2.625 → 2.25 → 1.875 →
+1.5 and rarely climbed back, so Ultra ended up softer than Regular's 2 — reported as "while on
+ultra, sometimes it renders at regular". A floor that kept Ultra at 2.25 was tried first; Tyler
+preferred no resolution changes at all, with the Quality setting as the player's lever.
+`?governor=classic` restores it.

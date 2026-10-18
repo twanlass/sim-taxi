@@ -196,13 +196,6 @@ try {
     if (ratio !== 1) throw new Error(`governor: did not bottom out at dpr 1 (${ratio})`);
     run(32);
     if (ratio !== 1.25) throw new Error(`governor: did not climb one step after 30s clean (${ratio})`);
-    // Ultra's floor: a hot phone on a cap of 3 stops at 2.25 and never draws softer than Regular's 2.
-    const { QUALITIES } = await import('../src/game/settings.js');
-    ratio = 3;
-    const hot = createGovernor({ renderer, budget: { pixelRatioCap: 3 }, floor: () => QUALITIES.ultra.floor });
-    for (let i = 0, n = 60 * 60; i < n; i++) { t += i % 4 === 0 ? 34 : 1000 / 60; hot.frame(t); }
-    if (ratio !== 2.25) throw new Error(`governor: Ultra stepped to dpr ${ratio}, want a floor of 2.25`);
-    if (!(QUALITIES.ultra.floor > QUALITIES.regular.resolution)) throw new Error('governor: Ultra can step below Regular');
     globalThis.devicePixelRatio = hadDpr;
   }
 

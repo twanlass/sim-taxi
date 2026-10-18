@@ -8,9 +8,9 @@
  * setting for a long time and reports it a minute at a time.
  *
  * Whatever flags are on the URL are what it measures, so comparing two budgets is two runs from a
- * cool phone: `?soak` and, say, `?soak&dpr=1.5`. The resolution governor (game/governor.js) is on
- * unless `&governor=off` says otherwise, because what a player gets is with it on — and the canvas
- * size on each row is how far it had to step down.
+ * cool phone: `?soak` and, say, `?soak&dpr=1.5`. The resolution governor (game/governor.js) is off
+ * by default, as in play; `&governor=classic` turns it on, and the canvas size on each row is then
+ * how far it had to step down.
  *
  * Safari has no battery API, so the start card asks for the battery level to be noted by hand at
  * each end. The same pinned city, situation and self-driving taxi as `?bench` (BENCH_BASE).
@@ -40,7 +40,7 @@ export function readSoak(search = globalThis.location?.search ?? '') {
 
 /**
  * The URL of a soak in progress. The page's own flags win over BENCH_BASE — they are the setting
- * being measured — except that the governor is left at its default rather than BENCH_BASE's `off`.
+ * being measured — except that the governor is left at the URL's choice rather than BENCH_BASE's `off`.
  */
 export function soakSearch(search, elapsed, rows) {
   const own = new URLSearchParams(search);
