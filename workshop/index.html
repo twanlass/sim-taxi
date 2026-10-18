@@ -16,24 +16,42 @@
         color-scheme: light;
         --chat-w: 380px;
         --ink: #eef3f7;
-        --panel: rgba(22, 30, 38, 0.82);
-        --accent: #F5C130;
+        /* The one panel background: every floating panel (the bench, the chat, the pin note...) and
+           any new one takes this, with the blur below. */
+        --panel: rgb(22 30 38 / 67%);
+        /* Monochrome: the accent is black, with white on it. It is a *fill* (a selected pill, the
+           user's bubble, Send, Play), so anything that needs to read as a mark on a dark panel (a
+           dot, a label, a ring, a focus outline) uses --ink instead, which black cannot. */
+        --accent: #000;
+        --on-accent: #fff;
+        /* The panels' corner, shared so the bench, the inset and the chat read as one set. */
+        --radius: 12px;
       }
       * { margin: 0; padding: 0; box-sizing: border-box; }
       html, body {
-        width: 100%; height: 100%; overflow: hidden; background: #dcedf7;
+        /* What shows while the page reloads, before the first frame: the sky as the bench draws it
+           (about #b9d8ec across the middle of the view, between skyTop and skyBottom), not the pale
+           horizon blue this used to be, which read as a white flash. */
+        width: 100%; height: 100%; overflow: hidden; background: #b9d8ec;
         font: 500 13px/1.5 "Space Grotesk", system-ui, -apple-system, "Helvetica Neue", sans-serif;
       }
       /* The bench runs under the chat, which floats inset over its right side; viewer.js shifts
          both cameras' centre left by half the chat's footprint so the model sits in what is left. */
       #stage { position: fixed; inset: 0; }
       #stage canvas { position: absolute; inset: 0; display: block; touch-action: none; }
+      /* The previous run's last frame over the stage while this one loads (see the script in <head>),
+         fading out once the new frame is up. Above the canvas, below every panel. */
+      html.has-snapshot #stage::after {
+        content: ""; position: absolute; inset: 0; pointer-events: none;
+        background: var(--snapshot) 0 0 / 100% 100% no-repeat; transition: opacity 0.3s;
+      }
+      html.snapshot-done #stage::after { opacity: 0; }
 
       /* The bench's knobs, top-left over the canvas. Plain for the reason the lab gives. */
       #bench {
         position: absolute; top: 14px; left: 14px; z-index: 5;
         display: grid; gap: 8px; width: 236px;
-        padding: 12px 14px; border-radius: 12px;
+        padding: 12px 14px; border-radius: var(--radius);
         background: var(--panel); color: var(--ink);
         backdrop-filter: blur(6px);
         box-shadow: 0 6px 22px rgba(12, 24, 34, 0.28);
@@ -44,45 +62,75 @@
       }
       #bench select {
         width: 100%; padding: 5px 8px; border-radius: 8px; border: 0; font: inherit; font-weight: 700;
-        background: rgba(255, 255, 255, 0.14); color: inherit;
+        background-color: rgba(255, 255, 255, 0.14); color: inherit;
       }
       #bench select option, #bench select optgroup { color: #16120a; }
+      /* The native arrow sits flush against the pill's edge; drawn by hand instead so it has room.
+         One chevron for every select in the workshop (the bench's two and the chat's Speed). */
+      #bench select, #speed {
+        appearance: none; -webkit-appearance: none;
+        background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%23eef3f7' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+        background-repeat: no-repeat; background-position: right 10px center;
+      }
+      #bench select { padding-right: 28px; }
       .row { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
       .seg button, .act {
         padding: 4px 10px; border: 0; border-radius: 999px; cursor: pointer;
         background: rgba(255, 255, 255, 0.12); color: inherit; font: inherit; font-weight: 600;
       }
-      .seg button.on { background: var(--accent); color: #16120a; font-weight: 700; }
+      .seg button.on { background: var(--accent); color: var(--on-accent); font-weight: 700; }
+      /* Hover states, for every control that is a button, a select or a disclosure. Only where there
+         is a pointer to hover with (a touch screen would leave them stuck on after a tap), and never
+         on a disabled one. Pills go a step lighter, black fills a step off black, since there is
+         nothing darker to go to. */
+      .seg button, .act, #bench select, #speed, #attachments button, .msg.user.queued button, #play,
+      #inset-toggle { transition: background-color 0.12s, filter 0.12s, opacity 0.12s; }
+      @media (hover: hover) {
+        .seg button:hover:not(.on), .act:hover:not(:disabled):not(.primary),
+        #bench select:hover, #speed:hover { background-color: rgba(255, 255, 255, 0.22); }
+        .seg button.on:hover, .act.primary:hover:not(:disabled), .undo .act:hover:not(:disabled) {
+          background: #2a323a;
+        }
+        #play:hover { background: #2a323a; filter: none; }
+        body.playing #play:hover { background: rgb(22 30 38 / 85%); }
+        #attachments button:hover, .msg.user.queued button:hover { background: rgba(0, 0, 0, 0.85); }
+        .tools summary:hover .tool, .tools summary:hover .count { opacity: 1; }
+      }
+      .seg button:active:not(:disabled), .act:active:not(:disabled) { transform: translateY(0.5px); }
       label.slider { display: grid; grid-template-columns: 40px 1fr 38px; align-items: center; gap: 8px; }
-      label.slider input { width: 100%; accent-color: var(--accent); }
+      label.slider input { width: 100%; accent-color: var(--ink); }
       label.pick { display: grid; grid-template-columns: 40px 1fr; align-items: center; gap: 8px; }
       label.check { display: flex; gap: 6px; align-items: center; cursor: pointer; }
       .value { text-align: right; font-variant-numeric: tabular-nums; opacity: 0.8; }
       .source { font: 11px/1.4 ui-monospace, Menlo, monospace; opacity: 0.6; word-break: break-word; }
-      #reloaded { font-size: 11px; opacity: 0; transition: opacity 0.4s; color: var(--accent); }
+      #reloaded { font-size: 11px; opacity: 0; transition: opacity 0.4s; color: var(--ink); }
       #reloaded.show { opacity: 1; transition: none; }
-      /* The game-zoom inset's frame. The picture itself is drawn into the canvas underneath
-         (viewer.js), so this is only an outline and a label, and must not take the orbit's drags. */
+      /* The game-zoom inset. The picture is rendered through the bench's own renderer and copied
+         into the canvas in here each frame (viewer.js), so that the corners can be rounded: a
+         scissored pass on the main canvas can only ever be a rectangle. Must not take the orbit's
+         drags. Its size is INSET in viewer.js. */
       #inset-box {
-        position: absolute; top: 14px; right: 14px; width: 300px; height: 210px; z-index: 4;
-        border: 2px solid rgba(245, 193, 48, 0.85); border-radius: 4px; pointer-events: none;
+        position: absolute; top: 14px; right: 14px; width: 200px; height: 140px; z-index: 4;
+        border-radius: var(--radius); overflow: hidden; pointer-events: none;
         box-shadow: 0 6px 22px rgba(12, 24, 34, 0.28);
       }
-      #inset-box span {
-        position: absolute; left: 6px; top: 4px; font-size: 11px; font-weight: 700;
-        color: var(--ink); text-shadow: 0 1px 2px rgba(0, 0, 0, 0.6);
-      }
+      #inset-canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
       /* The one part of the frame that takes the pointer. Minimized, the frame shrinks to a tab
-         holding the label and this button, and the canvas stops drawing the inset (viewer.js). */
+         holding just this button, and the canvas stops drawing the inset (viewer.js). */
       #inset-toggle {
         position: absolute; right: 4px; top: 3px; width: 20px; height: 18px; pointer-events: auto;
         border: 0; border-radius: 4px; cursor: pointer; font: inherit; font-weight: 700; line-height: 1;
         background: rgba(22, 30, 38, 0.7); color: var(--ink);
       }
-      #inset-toggle:hover { background: var(--accent); color: #16120a; }
-      #inset-box.min {
-        width: 112px; height: 26px; background: var(--panel); border-color: rgba(245, 193, 48, 0.5);
-      }
+      #inset-toggle:hover { background: var(--accent); color: var(--on-accent); }
+      /* Shown only while the pointer is over the window. The box itself takes no pointer events (it
+         would swallow the orbit's drags), so :hover cannot see it: viewer.js sets `.hover` from the
+         pointer's position instead. Always shown when minimized, where it is all there is, and for
+         keyboard focus. */
+      #inset-toggle { opacity: 0; transition: opacity 0.15s; }
+      #inset-box.hover #inset-toggle, #inset-box.min #inset-toggle, #inset-toggle:focus-visible { opacity: 1; }
+      #inset-box.min { width: 28px; height: 24px; background: var(--panel); border-radius: 8px; }
+      #inset-box.min #inset-canvas { display: none; }
       /* Play: the real game in a frame over the bench, so an edit can be seen in play and the chat
          stays beside it. Laid out over the part of the stage the chat leaves uncovered (12px of chat
          margin and 12px of gap past --chat-w); on a narrow screen that is the whole stage. */
@@ -91,10 +139,9 @@
         left: calc((100% - var(--chat-w) - 24px) / 2); transform: translateX(-50%);
         display: flex; align-items: center; gap: 10px;
         padding: 10px 26px 10px 20px; border: 0; border-radius: 999px; cursor: pointer;
-        background: var(--accent); color: #16120a; font: inherit; font-size: 17px; font-weight: 700;
+        background: var(--accent); color: var(--on-accent); font: inherit; font-size: 17px; font-weight: 700;
         box-shadow: 0 6px 22px rgba(12, 24, 34, 0.32);
       }
-      #play:hover { filter: brightness(1.06); }
       #play .glyph { font-size: 15px; line-height: 1; }
       body.playing #play { background: var(--panel); color: var(--ink); font-size: 14px; padding: 7px 18px 7px 14px; }
       #game-frame {
@@ -107,7 +154,7 @@
          placed by a transform each frame so they follow the orbit; the pin is centred on its spot. */
       #pin, .pin {
         position: absolute; left: -9px; top: -9px; width: 18px; height: 18px; z-index: 5;
-        border: 3px solid var(--accent); border-radius: 50%; pointer-events: none;
+        border: 3px solid var(--ink); border-radius: 50%; pointer-events: none;
         box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.45), 0 2px 8px rgba(0, 0, 0, 0.35);
       }
       /* Sent and waiting on a reply (queued or in progress): dimmer, so the one being written is
@@ -135,19 +182,56 @@
       #chat {
         position: fixed; top: 12px; right: 12px; bottom: 12px; width: var(--chat-w);
         display: flex; flex-direction: column; overflow: hidden;
-        background: #151c23; color: var(--ink);
-        border: 1px solid rgba(255, 255, 255, 0.06); border-radius: 10px;
-        box-shadow: 0 8px 28px rgba(12, 24, 34, 0.35);
+        background: var(--panel); color: var(--ink);
+        backdrop-filter: blur(6px);
+        border-radius: var(--radius);
+        box-shadow: 0 6px 22px rgba(12, 24, 34, 0.28);
       }
+      /* Over the log rather than above it, with no background of its own: the conversation scrolls
+         underneath and fades out toward the top (the mask on #log), so the title and New chat sit
+         on a clear patch of the panel. */
       #chat header {
+        position: absolute; top: 0; left: 0; right: 0; z-index: 1;
         display: flex; align-items: center; gap: 8px; padding: 12px 14px;
-        border-bottom: 1px solid rgba(255, 255, 255, 0.07);
       }
       #chat header h2 { font-size: 13px; font-weight: 700; flex: 1; }
       #chat header .act { font-size: 12px; }
-      #log { flex: 1; overflow-y: auto; padding: 14px; display: flex; flex-direction: column; gap: 10px; }
+      /* The top padding is the header's height (~52px) plus 16px of margin, so the first message
+         starts clear of it; the mask's fade is pushed down by the same 16px, so what scrolls up
+         has mostly faded out by the time it reaches the header. */
+      #log {
+        flex: 1; overflow-y: auto; padding: 82px 14px 40px; display: flex; flex-direction: column; gap: 10px;
+        mask-image: linear-gradient(to bottom, transparent 0, transparent 30px, #000 78px, #000 calc(100% - 40px), transparent 100%);
+        -webkit-mask-image: linear-gradient(to bottom, transparent 0, transparent 30px, #000 78px, #000 calc(100% - 40px), transparent 100%);
+      }
       .msg { max-width: 92%; padding: 8px 11px; border-radius: 12px; white-space: pre-wrap; word-wrap: break-word; }
-      .msg.user { align-self: flex-end; background: var(--accent); color: #16120a; font-weight: 600; }
+      .msg.user { align-self: flex-end; background: var(--accent); color: var(--on-accent); font-weight: 600; }
+      /* The emoji reaction on a user's message (chat.js): hangs off its bottom edge, 8px in from the right, popping
+         in after a delay the script sets on it (`reaction-pop`). Lighter than the panel so it stands
+         off the black bubble it overlaps. */
+      .msg.user:has(.reaction) { position: relative; margin-bottom: 8px; }
+      .reaction {
+        position: absolute; right: 8px; bottom: -11px; padding: 3px 8px; border-radius: 999px;
+        font-size: 12px; line-height: 1.3; background: rgb(62 74 86); color: var(--ink);
+        box-shadow: 0 1px 4px rgba(0, 0, 0, 0.35);
+      }
+      /* The "…" before the reaction: three dots bouncing in the same pill. Its fade in and out is
+         `typing-life`, run over the whole wait by chat.js. */
+      .reaction.typing { display: inline-flex; gap: 3px; align-items: center; padding: 8px 9px; opacity: 0; }
+      .reaction.typing i {
+        width: 4px; height: 4px; border-radius: 50%; background: var(--ink); opacity: 0.8;
+        animation: typing-dot 0.9s ease-in-out infinite;
+      }
+      .reaction.typing i:nth-child(2) { animation-delay: 0.15s; }
+      .reaction.typing i:nth-child(3) { animation-delay: 0.3s; }
+      @keyframes typing-dot { 0%, 60%, 100% { transform: translateY(0); opacity: 0.45; } 30% { transform: translateY(-2px); opacity: 1; } }
+      @keyframes typing-life {
+        0%, 16% { opacity: 0; transform: scale(0.6); }
+        24% { opacity: 1; transform: scale(1); }
+        92% { opacity: 1; transform: scale(1); }
+        100% { opacity: 0; transform: scale(0.8); }
+      }
+      @keyframes reaction-pop { from { opacity: 0; transform: scale(0.3); } to { opacity: 1; transform: scale(1); } }
       .msg.agent { align-self: flex-start; background: rgba(255, 255, 255, 0.07); }
       .msg.agent.working::after { content: "▍"; animation: blink 1s steps(2) infinite; opacity: 0.7; }
       /* Sent while a reply was still going (chat.js): waiting its turn, below the live reply. */
@@ -160,7 +244,7 @@
       .msg.error { align-self: stretch; background: rgba(190, 50, 50, 0.25); color: #ffd9d4; }
       .msg code { font: 12px ui-monospace, Menlo, monospace; background: rgba(255, 255, 255, 0.09); padding: 0 3px; border-radius: 4px; }
       .tool { align-self: flex-start; font: 11px/1.4 ui-monospace, Menlo, monospace; opacity: 0.55; padding-left: 4px; }
-      .tool b { font-weight: 700; color: var(--accent); opacity: 0.9; }
+      .tool b { font-weight: 700; color: var(--ink); opacity: 0.9; }
       .tools { align-self: stretch; }
       .tools summary { list-style: none; cursor: pointer; display: flex; }
       .tools summary::-webkit-details-marker { display: none; }
@@ -168,26 +252,69 @@
       .tools summary .count { flex: none; margin-left: 8px; font-size: 11px; opacity: 0.45; }
       .tools summary .count::after { content: " ▸"; }
       .tools[open] summary .count::after { content: " ▾"; }
-      .tools.working summary .tool::before { content: "● "; color: var(--accent); animation: blink 1s steps(2) infinite; }
+      .tools.working summary .tool::before { content: "● "; color: var(--ink); animation: blink 1s steps(2) infinite; }
       .tools[open] summary .tool { display: none; }
       .tools[open] summary .count { margin-left: 4px; }
       .tool-list { display: flex; flex-direction: column; gap: 4px; padding: 4px 0; }
-      .undo { align-self: flex-start; font-size: 12px; opacity: 0.75; }
-      .undo .act { font-size: 12px; }
+      .undo { align-self: flex-start; font-size: 12px; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; }
+      .undo .act { font-size: 12px; background: #000; color: #fff; border-color: #000; }
+      .undo .undone { opacity: 0.75; }
+      .undo .changes { background: none; border: 0; padding: 0; color: inherit; font: inherit; cursor: pointer; opacity: 0.75; }
+      .undo .changes:hover { opacity: 1; }
+      .undo ul { flex-basis: 100%; margin: 0; padding-left: 18px; font: 11px/1.5 ui-monospace, Menlo, monospace; opacity: 0.75; }
+      .undo ul[hidden] { display: none; }
       .empty { opacity: 0.5; font-size: 12px; line-height: 1.55; }
+      .msg.note { align-self: flex-start; padding: 0 4px; font-size: 11px; opacity: 0.5; }
+      /* The checks and docs pass that run after a reply (chat.js, `backgroundElement`). */
+      .bg { align-self: stretch; font-size: 12px; opacity: 0.8; display: grid; gap: 6px; justify-items: start; }
+      .bg pre {
+        justify-self: stretch; max-height: 140px; overflow: auto; white-space: pre-wrap; padding: 6px 8px; border-radius: 8px;
+        font: 11px/1.45 ui-monospace, Menlo, monospace; background: rgba(190, 50, 50, 0.18); color: #ffd9d4;
+      }
+      .thinking { align-self: flex-start; padding: 0 4px; font-size: 12px; opacity: 0.7; }
+      .thinking .pulse {
+        display: inline-block; width: 7px; height: 7px; margin-right: 6px; border-radius: 50%;
+        background: var(--ink); vertical-align: 1px; animation: pulse 1.1s ease-in-out infinite;
+      }
+      .bg .act { font-size: 12px; }
+      /* The tests and the docs status side by side, spaced by a gap rather than a bullet. */
+      .bg-line { display: flex; flex-wrap: wrap; gap: 2px 14px; }
+      .bg .pulse {
+        display: inline-block; width: 7px; height: 7px; margin-right: 6px; border-radius: 50%;
+        background: var(--ink); vertical-align: 1px; animation: pulse 1.1s ease-in-out infinite;
+      }
+      @keyframes pulse { 0%, 100% { opacity: 0.25; transform: scale(0.75); } 50% { opacity: 1; transform: scale(1); } }
+      #speed {
+        padding: 3px 24px 3px 10px; border: 0; border-radius: 999px; font: inherit; font-size: 12px; font-weight: 600;
+        background-color: rgba(255, 255, 255, 0.12); color: inherit; cursor: pointer;
+      }
+      #speed option { color: #16120a; }
       @keyframes blink { 50% { opacity: 0; } }
-      #compose { padding: 10px; border-top: 1px solid rgba(255, 255, 255, 0.07); display: grid; gap: 6px; }
+      #compose { padding: 10px; display: grid; gap: 6px; }
       #input {
-        width: 100%; min-height: 64px; max-height: 200px; resize: vertical;
+        /* Grows with its text (chat.js, `autosize`) up to ten rows, then scrolls. The bottom padding
+           is the strip the buttons sit in, so there is always a row clear under the last line. Ten
+           rows is 10 line-heights (1.5em) plus the padding (9 + 40) and the border (2). */
+        width: 100%; min-height: 64px; max-height: calc(10 * 1.5em + 51px); resize: none; overflow-y: auto;
         padding: 9px 11px 40px; border-radius: 10px; border: 1px solid rgba(255, 255, 255, 0.12);
         background: rgba(255, 255, 255, 0.05); color: inherit; font: inherit;
       }
-      #input:focus { outline: 2px solid rgba(245, 193, 48, 0.5); outline-offset: -1px; }
+      /* White at reduced opacity rather than the browser's grey, which read as a disabled box. */
+      #input::placeholder { color: rgb(255 255 255 / 55%); opacity: 1; }
+      #input:focus { outline: 2px solid rgba(255, 255, 255, 0.35); outline-offset: -1px; }
       /* A text box with its buttons sitting inside its bottom-right corner: the chat's and the pin
          note's. The box keeps clear room under its last line so text never runs beneath them. */
       .field { position: relative; }
       .field textarea { display: block; }   /* the bottom padding is on each box's own rule */
       .field-actions { position: absolute; right: 7px; bottom: 7px; display: flex; gap: 6px; }
+      /* Every control in the composer is one height: the Speed picker, the mic (and the stop-dictation
+         state it turns into), Stop, and Send / Queue. They had been sized by their own padding and
+         content, so a select, an icon pill and a text pill all came out a few pixels apart. */
+      .field select, .field .act { height: 28px; box-sizing: border-box; line-height: 1; }
+      .field .act { display: inline-flex; align-items: center; justify-content: center; }
+      #speed, #mic, #stop { padding-top: 0; padding-bottom: 0; }
+      /* The Speed picker, bottom-left of the box (chat.js reads it by id). */
+      .field-left { position: absolute; left: 7px; bottom: 7px; display: flex; gap: 6px; }
       /* Images pasted or dropped into the chat, waiting to go with the next message (chat.js). */
       #attachments { display: flex; gap: 6px; flex-wrap: wrap; }
       #attachments[hidden] { display: none; }
@@ -197,8 +324,23 @@
         position: absolute; right: 2px; top: 2px; width: 16px; height: 16px; border: 0; border-radius: 50%;
         background: rgba(0, 0, 0, 0.6); color: #fff; font: inherit; font-size: 11px; line-height: 1; cursor: pointer;
       }
-      #compose.dropping #input { outline: 2px dashed var(--accent); outline-offset: -1px; }
-      .act.primary { background: var(--accent); color: #16120a; font-weight: 700; }
+      #compose.dropping #input { outline: 2px dashed var(--ink); outline-offset: -1px; }
+      /* Stop is an icon: a rounded square, centred in a pill as tall as Send. */
+      #stop { display: inline-flex; align-items: center; justify-content: center; padding: 4px 12px; }
+      #stop[hidden] { display: none; }
+      #stop svg { display: block; }
+      /* Voice mode (chat.js). The mic is an icon pill like Stop. Listening, it becomes a stop button
+         (the mic glyph swaps for the square, and it fills black) and the Speed picker, Stop and Send
+         step out of the way so the transcript has the box to itself. `hidden` stays the one switch
+         for the button existing at all, since not every browser has speech recognition. */
+      #mic { display: inline-flex; align-items: center; justify-content: center; padding: 4px 12px; }
+      #mic[hidden] { display: none; }
+      #mic svg { display: block; }
+      #mic .stop-icon, #compose.listening #mic .mic-icon { display: none; }
+      #compose.listening #mic .stop-icon { display: block; }
+      #compose.listening #mic { background: var(--accent); color: var(--on-accent); }
+      #compose.listening #speed, #compose.listening #stop, #compose.listening #send { display: none; }
+      .act.primary { background: var(--accent); color: var(--on-accent); font-weight: 700; }
       .act:disabled { opacity: 0.35; cursor: default; }
 
       @media (max-width: 760px) {
@@ -217,6 +359,20 @@
       body.bare #stage { bottom: 0; }
       body.bare #game-frame { width: 100%; }
     </style>
+    <!-- The last frame, back on screen before anything else runs. A reload (an edit Vite cannot swap in
+         place) blanks the page until the module loads and the shaders compile, which showed as a
+         flash. viewer.js saves the bench's last frame as it goes away (`stashSnapshot`); this puts it
+         back as the stage's overlay in the first paint, and viewer.js fades it out once the new frame
+         is drawn (`releaseSnapshot`). Inline and in the head so it runs before first paint. -->
+    <script>
+      try {
+        const snapshot = sessionStorage.getItem('workshop-snapshot');
+        if (snapshot) {
+          document.documentElement.style.setProperty('--snapshot', `url("${snapshot}")`);
+          document.documentElement.classList.add('has-snapshot');
+        }
+      } catch { /* a private window: no snapshot, the flash stays */ }
+    </script>
   </head>
   <body>
     <div id="stage">
@@ -233,11 +389,11 @@
         <div class="row">
           <label class="check"><input id="spin" type="checkbox" /> Turntable</label>
           <label class="check"><input id="wire" type="checkbox" /> Wireframe</label>
-          <button type="button" class="act" id="frame">Reframe</button>
+          <button type="button" class="act" id="frame" title="Reframe (R)">Reframe</button>
         </div>
         <div id="reloaded">Updated from source</div>
       </div>
-      <div id="inset-box"><span>Game zoom</span><button type="button" id="inset-toggle" aria-label="Minimize game zoom" title="Minimize">–</button></div>
+      <div id="inset-box"><canvas id="inset-canvas"></canvas><button type="button" id="inset-toggle" aria-label="Minimize game zoom" title="Minimize">–</button></div>
       <div id="pin" hidden></div>
       <div id="pin-note" hidden>
         <div class="field">
@@ -253,7 +409,7 @@
 
     <aside id="chat">
       <header>
-        <h2>Claude</h2>
+        <h2>Dispatch</h2>
         <button type="button" class="act" id="new-chat">New chat</button>
       </header>
       <div id="log"></div>
@@ -261,8 +417,22 @@
         <div id="attachments" hidden></div>
         <div class="field">
           <textarea id="input" placeholder="Make the taxi's roof sign bigger…" rows="3"></textarea>
+          <span class="field-left">
+            <select id="speed" title="Which model: Auto sends short, single requests to the fast one">
+              <option value="auto">Auto</option>
+              <option value="fast">Fast</option>
+              <option value="smart">Smart</option>
+            </select>
+          </span>
           <span class="field-actions">
-            <button type="button" class="act" id="stop" hidden>Stop</button>
+            <button type="button" class="act" id="mic" aria-label="Dictate" title="Dictate" hidden>
+              <svg class="mic-icon" width="12" height="14" viewBox="0 0 12 14" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round">
+                <rect x="3.75" y="0.75" width="4.5" height="8" rx="2.25" fill="currentColor" stroke="none"/>
+                <path d="M1.5 6.5a4.5 4.5 0 0 0 9 0M6 11v2.25"/>
+              </svg>
+              <svg class="stop-icon" width="10" height="10" viewBox="0 0 10 10" aria-hidden="true"><rect width="10" height="10" rx="2" fill="currentColor"/></svg>
+            </button>
+            <button type="button" class="act" id="stop" aria-label="Stop" title="Stop" hidden><svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true"><rect width="10" height="10" rx="2" fill="currentColor"/></svg></button>
             <button type="submit" class="act primary" id="send">Send</button>
           </span>
         </div>

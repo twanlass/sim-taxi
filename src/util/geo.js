@@ -738,10 +738,11 @@ export const GLOSS_UNIFORMS = {
   uGlossCeiling: { value: 1 },
   uGlossTop: { value: new THREE.Color(PALETTE.skyTop).convertSRGBToLinear() },
   uGlossHorizon: { value: new THREE.Color(PALETTE.skyBottom).convertSRGBToLinear() },
-  uFinishA: { value: [0, 1, 2, 3, 4].map(() => new THREE.Vector4()) },
-  uFinishB: { value: [0, 1, 2, 3, 4].map(() => new THREE.Vector4()) },
-  uFinishC: { value: [0, 1, 2, 3, 4].map(() => new THREE.Vector4()) },
-  uFinishD: { value: [0, 1, 2, 3, 4].map(() => new THREE.Vector4()) },
+  // One slot per finish (`FINISH`, below): six, and the same six in the GLSL arrays and `gK`'s clamp.
+  uFinishA: { value: [0, 1, 2, 3, 4, 5].map(() => new THREE.Vector4()) },
+  uFinishB: { value: [0, 1, 2, 3, 4, 5].map(() => new THREE.Vector4()) },
+  uFinishC: { value: [0, 1, 2, 3, 4, 5].map(() => new THREE.Vector4()) },
+  uFinishD: { value: [0, 1, 2, 3, 4, 5].map(() => new THREE.Vector4()) },
   // x: flake cells per unit, y: façade darkness, z: false-colour finish view (0/1).
   uGlossGlobal: { value: new THREE.Vector4() },
   // The rim look's backlight (`setRim`): rgb in linear, a = strength.
@@ -875,8 +876,14 @@ export function setGlossCity(field, ceiling) {
 // a ship's containers, the gulls on the barge — on the same mesh as its paint. Every number zero
 // and a diffuse of 1, so it draws exactly as a plain prop would. TYRE is no answer to "not
 // shiny": its diffuse of 0.64 took the barge's green wheelhouse to black once already.
-export const FINISH = { TYRE: 0, PAINT: 1, GLASS: 2, METAL: 3, MATTE: 4 };
-export const FINISH_NAMES = ['tyre', 'paint', 'glass', 'metal', 'matte'];
+//
+// PATINA is the one that is not a vehicle part either: oxidised copper, which is metal that has
+// stopped being a mirror — a broad satin sheen in its own green, a faint clear shine and a fine
+// mottled sparkle, with no flop. The bank's dome wears it (city/bank.js), because METAL (a
+// darkened mirror, shared with every bumper and rim) was far too hard and PAINT (shared with every
+// car) cannot be retuned for one dome without retuning every car.
+export const FINISH = { TYRE: 0, PAINT: 1, GLASS: 2, METAL: 3, MATTE: 4, PATINA: 5 };
+export const FINISH_NAMES = ['tyre', 'paint', 'glass', 'metal', 'matte', 'patina'];
 
 // `?carbody=smooth`: the cars' bodies with rounded edges and soft normals, so a reflection has a
 // curve to slide across instead of one flat colour per panel (2026-10-17, an experiment beside the
@@ -1033,6 +1040,15 @@ export const FINISH_DEFAULTS = {
     glint: 0, glintSharp: 1, glintBend: 0, sheen: 0, sheenSharp: 1, flake: 0,
     reflect: 0, reflectEdge: 0, reflectBend: 0, diffuse: 1,
     flakeTilt: 0, flakeSharp: 1, coat: 0, tint: 0, flop: 0,
+  },
+  // Untuned first guess (no shell to look at it from when it was written): a soft glint over a
+  // broad sheen that takes the verdigris's own hue (`tint` high, so it is green light and not the
+  // white that makes plastic), a little fine flake for the mottling and a light clear coat, with
+  // the bend kept low so the shine slides across a sphere rather than pooling in one spot.
+  patina: {
+    glint: 0.35, glintSharp: 90, glintBend: 0.5, sheen: 0.55, sheenSharp: 8, flake: 0.25,
+    reflect: 0.1, reflectEdge: 0.2, reflectBend: 0.5, diffuse: 1,
+    flakeTilt: 0.3, flakeSharp: 120, coat: 0.2, tint: 0.9, flop: 0.1,
   },
 };
 
@@ -1235,14 +1251,15 @@ if (GLOSS_COLOR_VERTEX === THREE.ShaderChunk.color_vertex) throw new Error('glos
 // arrive as 1.9999 — the triangle never mixes finishes, but interpolation does not know that.
 const GLOSS_COLOR = /* glsl */ `
 	{
-		int gK = clamp(int(vGlossFinish + 0.5), 0, 4);
+		int gK = clamp(int(vGlossFinish + 0.5), 0, 5);
 		gFinA = uFinishA[gK];
 		gFinB = uFinishB[gK];
 		gFinC = uFinishC[gK];
 		gFinD = uFinishD[gK];
 		gIsPaint = gK == 1 ? 1.0 : 0.0;
 		gFinishColor = gK == 0 ? vec3(0.15) : gK == 1 ? vec3(0.9, 0.2, 0.15)
-			: gK == 2 ? vec3(0.1, 0.7, 0.9) : gK == 3 ? vec3(0.95, 0.8, 0.2) : vec3(0.6, 0.45, 0.85);
+			: gK == 2 ? vec3(0.1, 0.7, 0.9) : gK == 3 ? vec3(0.95, 0.8, 0.2)
+			: gK == 4 ? vec3(0.6, 0.45, 0.85) : vec3(0.2, 0.8, 0.6);
 		diffuseColor.rgb *= gFinC.y;
 	}
 `;
@@ -1657,10 +1674,10 @@ uniform vec4 uGlossCityBox;
 uniform float uGlossCeiling;
 uniform vec3 uGlossTop;
 uniform vec3 uGlossHorizon;
-uniform vec4 uFinishA[5];
-uniform vec4 uFinishB[5];
-uniform vec4 uFinishC[5];
-uniform vec4 uFinishD[5];
+uniform vec4 uFinishA[6];
+uniform vec4 uFinishB[6];
+uniform vec4 uFinishC[6];
+uniform vec4 uFinishD[6];
 uniform vec4 uGlossGlobal;
 uniform float uGloss;
 uniform float uGlossMirror;
@@ -1832,7 +1849,8 @@ export function propMaterial({ ao = true, gloss = null, cutout = null, smooth = 
   if (smooth && !paint) material.flatShading = false;
   // A smooth body's normals are the point of it (see SMOOTH_BODY); everything else a vehicle
   // carries comes out of `bakeColor` with flat ones and so draws as it did.
-  if (paint && SMOOTH_BODY) material.flatShading = false;
+  // `smooth` counts here too, for a glossy dome that wants the same (the bank's, city/bank.js).
+  if (paint && (SMOOTH_BODY || smooth)) material.flatShading = false;
   patchProp(material, { ao, gloss: paint });
   return material;
 }

@@ -17,6 +17,7 @@
  *   GET  /runs/:id?from=n   the run's events from index `n`, as NDJSON, held open until it ends.
  *   POST /runs/:id/stop     kill it.
  *   POST /runs/:id/undo     put every file the run edited back the way it was before the run.
+ *   GET  /runs/:id/background  the checks and docs pass that follow a run (`background`).
  *
  * **A run outlives the request that started it.** An edit to something the viewer's whole import
  * graph hangs off (the palette, the scene) or to the page itself reloads the tab, and the tab is
@@ -28,19 +29,44 @@
  * hand that to the whole Wi-Fi network.
  */
 
-import { spawn, execFileSync } from 'node:child_process';
+import { spawn, execFile, execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, readdirSync, unlinkSync, writeFileSync } from 'node:fs';
 import { isAbsolute, join, relative, resolve } from 'node:path';
 
 /**
  * What the agent may do without asking. Headless, there is nobody to ask, so anything not on this
- * list is simply refused: edits (via `acceptEdits`), reads, searches, the check suite, and looking
- * at its own diff. No git writes, no network, no servers.
+ * list is simply refused: edits (via `acceptEdits`), reads, searches, a syntax check, and looking at
+ * its own diff. No git writes, no network, no servers.
+ *
+ * **Not the check suite, and not the docs.** Both used to be part of every turn, and between them
+ * they were most of a turn's wait: `npm run check` is 45 s on a quiet machine and has taken nine
+ * minutes on a busy one, and the docs pass is a second round of reading. Both now run *after* the
+ * reply, in `background` below, while the person is already looking at the edit.
  */
 const ALLOWED_TOOLS = [
   'Read', 'Edit', 'Write', 'Glob', 'Grep',
-  'Bash(npm run check)', 'Bash(node tools/*)', 'Bash(git diff*)', 'Bash(git status*)',
+  'Bash(node --check *)', 'Bash(git diff*)', 'Bash(git status*)',
 ].join(',');
+
+/**
+ * The faster model, for the Speed picker's Fast and for what Auto judges simple (`isSimple`), and
+ * the one the background docs pass runs on. Overridable without an edit, since model names move.
+ */
+const FAST_MODEL = process.env.WORKSHOP_FAST_MODEL || 'sonnet';
+const DOCS_MODEL = process.env.WORKSHOP_DOCS_MODEL || FAST_MODEL;
+
+/**
+ * Auto's guess at "a simple change": short, one thing, and nothing pasted in to study. Most bench
+ * requests are this ("make the dome smooth", "darker yellow") and go to the fast model; anything
+ * longer, listed, or with a reference picture goes to the default one. A wrong guess costs little
+ * now that the checks run after every turn: a fast edit that breaks something comes back with a
+ * Fix button, and Fix always goes to the default model.
+ */
+function isSimple(body) {
+  const text = String(body.message ?? '').split('\n\n[They pinned this')[0];
+  const attachments = Array.isArray(body.attachments) ? body.attachments.length : 0;
+  return !attachments && text.length <= 200 && !/\n\s*[-*\d]/.test(text);
+}
 
 const EDITING_TOOLS = new Set(['Edit', 'Write', 'MultiEdit', 'NotebookEdit']);
 
@@ -66,6 +92,7 @@ export function workshopPrompt(model, { image = null, view = 'orbit', attachment
   lines.push(
     'Follow CLAUDE.md: colours live in src/palette.js, geometry constants in src/city/grid.js, trees go through treeParts, water through the shared shader, and comments carry the why.',
     'Keep the change scoped to this model unless asked otherwise. Do not commit, push, install packages, or start servers.',
+    'Do not run npm run check or any other test suite, and do not edit anything under docs/ unless they ask you to: as soon as you finish, the workshop runs the full checks and a docs pass in the background and shows the results under your reply. Spend this turn on the edit itself. If a probe in tools/ asserts something your change deliberately alters, update that probe, since the background checks will otherwise fail on it.',
     'If they ask for a change to the workshop itself (its panels, controls, layout, this chat) rather than to the model, that is fair game too: the page is workshop/index.html, the bench is src/workshop/viewer.js, this chat panel is src/workshop/chat.js, the catalog is src/workshop/catalog.js, and the endpoint running you is tools/workshop-agent.mjs; docs/workshop.md explains each. Edits to viewer.js hot-swap; edits to index.html or chat.js reload their page, which the chat survives.',
     'Saving tools/workshop-agent.mjs or vite.config.js restarts the dev server under you. This turn keeps running and the panel reconnects, but your change only applies from the next message, and a syntax error there takes the dev server down entirely: make that edit last, and run node --check on the file straight after.',
     'Finish with one short line, under about ten words, saying what changed (e.g. "Gap between the cargo box and cab halved."). No file paths, numbers, side effects or test results unless they ask, or unless something went wrong or needs their decision. No headings, no lists.',
@@ -105,7 +132,11 @@ function translate(line, run, emit) {
   }
 }
 
-const git = (root, args) => execFileSync('git', args, { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
+const gitAsync = (root, args) => new Promise((done, fail) => {
+  execFile('git', args, { cwd: root, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 }, (error, out) => {
+    if (error) fail(error); else done(out);
+  });
+});
 
 /**
  * The working tree as it stood before a run, for undo. `git stash create` writes the tree with
@@ -114,10 +145,16 @@ const git = (root, args) => execFileSync('git', args, { cwd: root, encoding: 'ut
  * cannot hold an untracked file, so those are listed: a file the agent created is deleted on undo,
  * and one that was already lying around untracked is left alone, since there is no copy of it.
  */
-function snapshot(root) {
+/**
+ * Asynchronous, and that is the point: this used to be `execFileSync` and ran at the top of `start`,
+ * so the dev server sat on three git calls before it answered the chat request or started the CLI.
+ * Now the CLI is spawned straight away (its startup is the long pole) and only its stdin, the
+ * message, waits on this: the agent cannot edit anything before the snapshot is taken.
+ */
+async function snapshot(root) {
   try {
-    const ref = git(root, ['stash', 'create']).trim() || git(root, ['rev-parse', 'HEAD']).trim();
-    const untracked = new Set(git(root, ['ls-files', '--others', '--exclude-standard', '-z']).split('\0').filter(Boolean));
+    const ref = (await gitAsync(root, ['stash', 'create'])).trim() || (await gitAsync(root, ['rev-parse', 'HEAD'])).trim();
+    const untracked = new Set((await gitAsync(root, ['ls-files', '--others', '--exclude-standard', '-z'])).split('\0').filter(Boolean));
     return { ref, untracked };
   } catch {
     return null;    // not a git checkout: no undo, everything else still works
@@ -151,6 +188,32 @@ function undo(root, run) {
   return { restored, kept };
 }
 
+/** A background process and everything it started (it was spawned detached, as a group leader). */
+function killTree(child) {
+  try { process.kill(-child.pid, 'SIGTERM'); } catch { child.kill('SIGTERM'); }
+}
+
+/** The lines of `npm run check` worth showing: every FAIL, top-level and detail alike. */
+function failures(output) {
+  const lines = output.split('\n').filter((line) => /^\s*FAIL\b/.test(line)).map((line) => line.trim());
+  return (lines.length ? lines : output.trim().split('\n').slice(-12)).slice(0, 20).join('\n');
+}
+
+/** The prompt for the background docs pass over one turn's edits. */
+function docsPrompt(run, request, edited) {
+  return [
+    'You are the documentation pass of the Rocket Rides model workshop. Another agent has just made a change to the game in response to this request:',
+    '',
+    request,
+    '',
+    `It edited: ${edited.join(', ')}.`,
+    `See exactly what changed with: git diff ${run.before.ref} -- ${edited.join(' ')}` + ' (a file it created is untracked and will not show there: Read it instead).',
+    '',
+    'Update the docs under docs/ so they describe the code as it now is, following CLAUDE.md ("Docs describe the game as it is now", "Comments carry the why"): find the doc that covers these files (docs/README.md is the index) and change only what the edit made untrue or left out. Keep the house style. A new URL parameter needs a row in docs/params.md.',
+    'Edit nothing outside docs/. If no doc needs to change, which is common for a small visual tweak, change nothing. Do not run tests. Finish with one short line saying what you updated, or "No doc changes needed."',
+  ].join('\n');
+}
+
 export function workshopAgent({ bin = process.env.CLAUDE_BIN || 'claude' } = {}) {
   // **On `globalThis`, not in this closure,** because the agent is allowed to edit this file — and
   // this file is a dependency of vite.config.js, so saving it restarts the dev server, which
@@ -163,9 +226,102 @@ export function workshopAgent({ bin = process.env.CLAUDE_BIN || 'claude' } = {})
   const shared = (globalThis.__workshopAgent ??= { runs: new Map(), nextId: 1, busy: null });
   const runs = shared.runs;
 
+  /**
+   * After a turn that edited something: `npm run check` and a docs pass, side by side, while the
+   * person is already looking at the edit. The panel polls `GET /runs/:id/background` for
+   * `run.bg`. The docs pass is its own headless agent on DOCS_MODEL, allowed to edit docs/ and
+   * nothing else; what it edits joins the turn's `touched`, so the turn's Undo takes the doc edits
+   * back along with the code. If it did edit, the doc-link check is re-run after both are done,
+   * because the suite may have read the docs halfway through being written.
+   *
+   * A newer turn supersedes a check still running (`start`), since it would be testing a tree the
+   * next agent is busy changing; that turn's own check covers both. The docs pass is left to finish.
+   */
+  function background(root, run, request) {
+    const rel = (file) => relative(root, resolve(root, file)).split('\\').join('/');
+    const code = [...run.touched].map(rel).filter((f) => !f.startsWith('docs/') && !f.startsWith('.workshop/'));
+    const bg = {
+      check: 'running', docs: code.length && run.before ? 'running' : 'skipped',
+      failures: '', docsNote: '', docsFiles: [], children: new Set(), checkChild: null,
+    };
+    run.bg = bg;
+    const proc = (cmd, args, input = null, onChild = null) => new Promise((done) => {
+      let out = '';
+      let child;
+      try {
+        // Detached, so each is its own process group and `killTree` can take its children with it:
+        // `npm run check` is npm, then node, then the node scripts that one spawns.
+        child = spawn(cmd, args, { cwd: root, env: process.env, detached: true, stdio: [input == null ? 'ignore' : 'pipe', 'pipe', 'pipe'] });
+      } catch (error) {
+        done({ code: -1, signal: null, out: error.message });
+        return;
+      }
+      bg.children.add(child);
+      onChild?.(child);
+      child.stdout.setEncoding('utf8');
+      child.stderr.setEncoding('utf8');
+      child.stdout.on('data', (chunk) => { out += chunk; });
+      child.stderr.on('data', (chunk) => { out += chunk; });
+      child.on('error', (error) => { bg.children.delete(child); done({ code: -1, signal: null, out: `${out}\n${error.message}` }); });
+      child.on('close', (exit, signal) => { bg.children.delete(child); done({ code: exit, signal, out }); });
+      if (input != null) {
+        child.stdin.on('error', () => {});
+        child.stdin.end(input);
+      }
+    });
+
+    const checking = proc('npm', ['run', 'check'], null, (child) => { bg.checkChild = child; }).then(({ code: exit, out }) => {
+      bg.checkChild = null;
+      if (bg.check !== 'running') return;     // superseded or cancelled while it ran
+      bg.check = exit === 0 ? 'pass' : 'fail';
+      if (exit !== 0) bg.failures = failures(out);
+    });
+    const documenting = bg.docs === 'skipped' ? Promise.resolve() : proc(bin, [
+      '-p', '--output-format', 'stream-json', '--verbose',
+      '--permission-mode', 'default',
+      '--allowedTools', 'Read,Glob,Grep,Edit(docs/**),Write(docs/**),Bash(git diff*)',
+      '--model', DOCS_MODEL,
+    ], docsPrompt(run, request, code)).then(({ code: exit, out }) => {
+      const scratch = { touched: new Set(), streamed: false };
+      let note = '';
+      for (const line of out.split('\n')) {
+        if (line.trim()) translate(line.trim(), scratch, (event) => { if (event.type === 'text') note += event.text; });
+      }
+      // Kept even when it was cancelled part way: whatever it wrote is on disk, and Undo should know.
+      for (const file of scratch.touched) run.touched.add(file);
+      bg.docsFiles = [...scratch.touched].map(rel);
+      if (bg.docs !== 'running') return;
+      bg.docs = exit === 0 ? 'done' : 'fail';
+      bg.docsNote = note.trim().split('\n').at(-1) ?? '';
+    });
+    Promise.all([checking, documenting]).then(async () => {
+      if (bg.check !== 'pass' || !bg.docsFiles.length) return;
+      bg.check = 'running';
+      const { code: exit, out } = await proc('node', ['tools/docs.mjs']);
+      if (bg.check !== 'running') return;
+      bg.check = exit === 0 ? 'pass' : 'fail';
+      if (exit !== 0) bg.failures = failures(out);
+    });
+  }
+
+  /** Stop a run's background work: on Undo, which is about to take its edits back. */
+  function cancelBackground(run) {
+    const bg = run.bg;
+    if (!bg) return;
+    if (bg.check === 'running') bg.check = 'cancelled';
+    if (bg.docs === 'running') bg.docs = 'cancelled';
+    for (const child of bg.children) killTree(child);
+  }
+
   function start(root, body) {
+    // A check still running for an earlier turn is testing a tree this turn is about to change.
+    for (const earlier of runs.values()) {
+      if (earlier.bg?.check !== 'running') continue;
+      earlier.bg.check = 'superseded';
+      if (earlier.bg.checkChild) killTree(earlier.bg.checkChild);
+    }
     const id = String(shared.nextId++);
-    const run = { id, events: [], listeners: new Set(), done: false, child: null, streamed: false, result: null, touched: new Set(), before: snapshot(root) };
+    const run = { id, events: [], listeners: new Set(), done: false, child: null, streamed: false, result: null, touched: new Set(), before: null };
     runs.set(id, run);
     // Keep the last few runs to reattach to; older ones are history nobody will ask for.
     for (const old of runs.keys()) if (runs.size > 8 && old !== id) runs.delete(old);
@@ -179,7 +335,10 @@ export function workshopAgent({ bin = process.env.CLAUDE_BIN || 'claude' } = {})
       run.done = true;
       shared.busy = null;
       const edited = [...run.touched].map((file) => relative(root, resolve(root, file)));
-      emit({ type: 'done', ...event, edited, undoable: Boolean(run.before) && edited.length > 0 });
+      // Checks and docs only after a turn that finished and changed something.
+      const after = Boolean(event.ok) && edited.length > 0;
+      emit({ type: 'done', ...event, edited, undoable: Boolean(run.before) && edited.length > 0, background: after });
+      if (after) background(root, run, String(body.message ?? ''));
     };
 
     const PNG = 'data:image/png;base64,';
@@ -202,24 +361,43 @@ export function workshopAgent({ bin = process.env.CLAUDE_BIN || 'claude' } = {})
         return path;
       });
 
+    // The message goes in on stdin, not as an argument: passed as `-p <message>`, a message that
+    // opened with a bulleted list ("- make this window smaller") was parsed by the CLI as an
+    // unknown option and the turn failed before it started. `-p` with no prompt reads stdin.
     const args = [
-      '-p', String(body.message ?? ''),
+      '-p',
       '--output-format', 'stream-json', '--verbose', '--include-partial-messages',
       '--permission-mode', 'acceptEdits',
       '--allowedTools', ALLOWED_TOOLS,
       '--append-system-prompt', workshopPrompt(body.model ?? { label: 'model', source: 'src/' }, { image, view: body.view, attachments }),
     ];
     if (typeof body.sessionId === 'string' && /^[\w-]+$/.test(body.sessionId)) args.push('--resume', body.sessionId);
+    // The Speed picker: Fast and Smart say which outright, Auto asks `isSimple`. Smart is the CLI's
+    // own default model, so it passes nothing.
+    const speed = body.speed === 'fast' || body.speed === 'smart' ? body.speed : 'auto';
+    const fast = speed === 'fast' || (speed === 'auto' && isSimple(body));
+    if (fast) args.push('--model', FAST_MODEL);
+    emit({ type: 'model', fast, name: fast ? FAST_MODEL : 'default' });
 
     let child;
     try {
-      child = spawn(bin, args, { cwd: root, env: process.env, stdio: ['ignore', 'pipe', 'pipe'] });
+      child = spawn(bin, args, { cwd: root, env: process.env, stdio: ['pipe', 'pipe', 'pipe'] });
+      // An EPIPE here would otherwise be an uncaught error on the dev server; a child that dies
+      // before reading reports itself through its exit code below.
+      child.stdin.on('error', () => {});
     } catch (error) {
       finish({ ok: false, error: error.message });
       return run;
     }
     run.child = child;
     shared.busy = run;
+    // The message goes in once the undo snapshot is taken, not before: `claude -p` reads its prompt
+    // from stdin and does nothing until it has it, so this is what holds the agent off the files
+    // while the CLI's own startup (the slow part) runs alongside the three git calls.
+    snapshot(root).then((before) => {
+      run.before = before;
+      try { child.stdin.end(String(body.message ?? '')); } catch { /* the child is already gone */ }
+    });
 
     let buffer = '';
     let stderr = '';
@@ -286,7 +464,7 @@ export function workshopAgent({ bin = process.env.CLAUDE_BIN || 'claude' } = {})
       server.middlewares.use('/__workshop', (req, res) => {
         if (!LOOPBACK.has(req.socket.remoteAddress)) return json(res, 403, { error: 'loopback only' });
         const url = new URL(req.url, 'http://localhost');
-        const runMatch = url.pathname.match(/^\/runs\/(\d+)(\/stop|\/undo)?$/);
+        const runMatch = url.pathname.match(/^\/runs\/(\d+)(\/stop|\/undo|\/background)?$/);
 
         if (req.method === 'POST' && url.pathname === '/chat') {
           if (shared.busy) return json(res, 409, { error: 'Still working on the last message.', runId: shared.busy.id });
@@ -310,11 +488,23 @@ export function workshopAgent({ bin = process.env.CLAUDE_BIN || 'claude' } = {})
           }
           if (runMatch[2] === '/undo' && req.method === 'POST') {
             if (!run.done || shared.busy) return json(res, 409, { error: 'Wait for the reply to finish first.' });
+            // Its checks would be testing edits about to be taken back, and its docs pass writing
+            // about them; whatever the docs pass already wrote is in `touched` and goes back too.
+            cancelBackground(run);
             try {
               return json(res, 200, undo(root, run));
             } catch (error) {
               return json(res, 500, { error: error.message });
             }
+          }
+          if (runMatch[2] === '/background') {
+            const bg = run.bg;
+            if (!bg) return json(res, 200, { check: 'none', docs: 'none' });
+            return json(res, 200, {
+              check: bg.check, docs: bg.docs, failures: bg.failures, docsNote: bg.docsNote,
+              docsFiles: bg.docsFiles,
+              edited: [...run.touched].map((file) => relative(root, resolve(root, file))),
+            });
           }
           return stream(run, Number(url.searchParams.get('from')) || 0, res);
         }

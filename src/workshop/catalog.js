@@ -9,8 +9,9 @@
 //
 // An entry is `{ id, label, kind, source, build(rng) }`. `source` is the file and function to
 // edit, and is what the chat panel hands the agent so it starts in the right place. `build`
-// returns `{ object, update?(dt, t) }`; the object is recentred on the bench by the viewer, so a
-// landmark built in world coordinates on its block comes out at the origin like a car does.
+// returns `{ object, update?(dt, t), glow? }`; the object is recentred on the bench by the viewer,
+// so a landmark built in world coordinates on its block comes out at the origin like a car does.
+// `glow` is `[mesh, kind]` pairs for the bloom, the same meshes at the same kinds main.js marks.
 //
 // Adding an entry is the whole job of putting a new model in the workshop. The headless check
 // (tools/workshop.mjs) builds every one of them, so a builder that throws fails `npm run check`.
@@ -39,9 +40,7 @@ import { createTrainMesh } from '../game/ltrain.js';
 import { createPerson } from '../geometry/person.js';
 import { createParcel } from '../geometry/parcel.js';
 import { createFoodOrder } from '../geometry/food.js';
-import { createGarage } from '../city/garage.js';
-import { createBurgerJoint } from '../city/burgerjoint.js';
-import { buildBank } from '../city/bank.js';
+import { buildBank, bankDomeMesh } from '../city/bank.js';
 import { INSET } from '../city/buildings.js';
 
 const shadowed = (mesh) => {
@@ -110,12 +109,44 @@ function landmark(block, built) {
   return group;
 }
 
+/**
+ * The landmarks, found rather than listed: any module in src/city that exports
+ * `LANDMARK = { id, label, create }`, where `create(block, rng)` returns `{ group, update? }` the
+ * way the depot, the burger joint, the graveyard and the roadside businesses all do. A new
+ * landmark lands in the bench's model list by exporting one, with nothing to add here. The list
+ * was hand-kept before, and the graveyard, car wash and gas station all shipped without a row.
+ *
+ * Under Vite that is `import.meta.glob`, which only exists as a compile-time rewrite; the headless
+ * check (tools/workshop.mjs) imports this file under plain Node, which has no `import.meta.env`
+ * and reads the directory instead. The specifier is a variable so Vite does not try to bundle
+ * `node:fs` for the browser.
+ */
+async function cityModules() {
+  if (import.meta.env) return import.meta.glob('../city/*.js', { eager: true });
+  const fsName = 'node:fs';
+  const { readdirSync } = await import(/* @vite-ignore */ fsName);
+  const dir = new URL('../city/', import.meta.url);
+  const files = readdirSync(dir).filter((f) => f.endsWith('.js')).sort();
+  return Object.fromEntries(await Promise.all(
+    files.map(async (f) => [`../city/${f}`, await import(new URL(f, dir).href)]),
+  ));
+}
+
+const LANDMARKS = Object.entries(await cityModules())
+  .filter(([, mod]) => mod.LANDMARK)
+  .map(([path, mod]) => ({ ...mod.LANDMARK, file: path.split('/').pop() }))
+  .sort((a, b) => a.label.localeCompare(b.label));
+
 export const CATALOG = [
   // --- Vehicles ---------------------------------------------------------------------------------
   {
     id: 'taxi', label: 'Taxi', kind: 'Vehicles',
     source: 'src/geometry/taxi.js · createTaxiMesh',
-    build: () => ({ object: createTaxiMesh().group }),
+    // Its lamp pods bloom as the fleet hands them to main.js (`emissiveMeshes`, sim/traffic.js).
+    build: () => {
+      const taxi = createTaxiMesh();
+      return { object: taxi.group, glow: taxi.lights.map((pod) => [pod, 'pod']) };
+    },
   },
   {
     id: 'car', label: 'Ambient car', kind: 'Vehicles',
@@ -138,7 +169,7 @@ export const CATALOG = [
       const cruiser = createPolice(new THREE.Group(), { lamps: false });
       // The shell is hidden until the cruiser is wearing a traffic car; on the bench it always is.
       cruiser.group.children.forEach((child) => { child.visible = true; });
-      return { object: cruiser.group };
+      return { object: cruiser.group, glow: cruiser.emissiveMeshes.map((mesh) => [mesh, 'siren']) };
     },
   },
   {
@@ -197,24 +228,21 @@ export const CATALOG = [
   },
 
   // --- Landmarks --------------------------------------------------------------------------------
-  {
-    id: 'depot', label: 'Taxi depot', kind: 'Landmarks',
-    source: 'src/city/garage.js · createGarage',
+  // Every whole-block landmark module found under src/city (`LANDMARKS`, below), then the bank,
+  // which is not a module of its own but a lot `createBuildings` merges into the skyline.
+  ...LANDMARKS.map(({ id, label, create, glow, file }) => ({
+    id, label, kind: 'Landmarks',
+    source: `src/city/${file} · ${create.name}`,
     build: (rng) => {
       const block = benchBlock();
-      const garage = createGarage(block, rng);
-      return { object: landmark(block, garage.group), update: (dt) => garage.update?.(dt) };
+      const built = create(block, rng);
+      return {
+        object: landmark(block, built.group),
+        update: (dt) => built.update?.(dt),
+        glow: glow?.(built) ?? [],
+      };
     },
-  },
-  {
-    id: 'burger', label: 'Burger joint', kind: 'Landmarks',
-    source: 'src/city/burgerjoint.js · createBurgerJoint',
-    build: (rng) => {
-      const block = benchBlock();
-      const joint = createBurgerJoint(block, rng);
-      return { object: landmark(block, joint.group), update: (dt) => joint.update?.(dt) };
-    },
-  },
+  })),
   {
     id: 'bank', label: 'Bank', kind: 'Landmarks',
     source: 'src/city/bank.js · buildBank',
@@ -228,10 +256,13 @@ export const CATALOG = [
       };
       Object.assign(b, { w: b.x1 - b.x0, d: b.z1 - b.z0, cx: (b.x0 + b.x1) / 2, cz: (b.z0 + b.z1) / 2 });
       const parts = [];
-      buildBank(b, lot, block.bounds, parts);
-      const mesh = plain(mergeGeometries(parts, false));
+      const built = buildBank(b, lot, block.bounds, parts);
+      const mesh = plain(mergeGeometries(parts, false), { smooth: true });
       parts.forEach((p) => p.dispose());
-      return { object: landmark(block, mesh) };
+      // The dome is its own glossy mesh in the city too, so the bench draws it the same way.
+      const group = new THREE.Group();
+      group.add(mesh, bankDomeMesh(built.domeGeometry));
+      return { object: landmark(block, group) };
     },
   },
 

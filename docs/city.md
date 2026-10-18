@@ -828,7 +828,7 @@ darkness as the helicopter's searchlight.
 ## The bank
 
 `src/city/bank.js`. One per city: a low, wide stone building with a colonnade under a pediment and a
-patinated dome behind it. It is the third building the tower generator does not draw, and the first
+patinated-copper dome behind it. It is the third building the tower generator does not draw, and the first
 of the three that is **a lot rather than a whole block** — the depot needs a forecourt to pull out of
 and the burger joint needs a drive-through lane, both of which are ground `splitLot` would divide out
 from under them. A bank is a building with a door on the street.
@@ -852,7 +852,7 @@ than "a distinctive building" and is the whole of why it is shaped the way it is
 | **Low and wide** | Roofline a flat 6.95, dome to 9.59 on average (9.39–9.73 over 40 seeds), against neighbours that run 5 to 16. The bank is a gap in the skyline before it is anything else — and the roofline is [derived rather than drawn](#the-roofline-is-derived-not-drawn). |
 | **A colonnade** | The one vertical rhythm in a city of plain boxes. `bankColumn` is a paler stone than `bankStone` for this: at play zoom a column is about three pixels, and what reads is the column against the wall rather than the shadow between them. |
 | **A pediment** | The one triangle at street level. Pitched roofs exist (`pitchedRoof`) but they sit on low-rise and never at the front. |
-| **A dome** | The one curved mass in the city, in the one colour nothing else wears. |
+| **A dome** | The one curved mass in the city, in the one colour nothing else wears: verdigris (`bankDome`) on `FINISH.PATINA` (a broad green satin sheen, a faint clear shine, fine mottled sparkle) with soft normals. Each pane (a gore of a ring) gets a hash-jittered lightness and hue, darker the lower it runs and lighter on the top ring, so it streaks like weathered copper; coloured per triangle in `bank.js`. It is **not in `parts`**: `buildBank` hands it back as `site.domeGeometry` and `createBuildings` returns it as `domeMesh` (`bankDomeMesh`: a glossy `propMaterial` of its own, stamped with the lot's entry anchor so it rises with the building), which `main.js` adds, marks an occluder and puts in the entrance wave. The workshop bench draws it the same way. |
 
 The envelope stays **inside** the muted building family, unlike the depot's and the joint's. A bank
 is a bank among offices rather than a shed or a roadside box, and painting it to shout would have
