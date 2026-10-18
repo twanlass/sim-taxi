@@ -278,8 +278,11 @@ export function pieWedgeOf(face) {
  * vertex's position on the face before the turn — the shader cuts and colours by its angle. The
  * slices touch, so their radial walls are hidden inside the disc until the one beside them has
  * been eaten. A wall's `fillXY` is its own slice's middle rather than its position: the wall lies
- * exactly on the cut, where the angle alone cannot say which side it belongs to. `pieWall` marks
- * the walls so the shader can drop an eaten slice's, which would otherwise draw spokes in the glass.
+ * exactly on the cut, where the angle alone cannot say which side it belongs to. `pieWall` is the
+ * middle angle of the slice on the wall's *other* side (-1 on everything that is not a wall), so the
+ * shader draws a wall only where it is the cut: its own slice left, its neighbour eaten. An eaten
+ * slice's wall would stand in the glass as a spoke, and one between two remaining slices drew its
+ * front edge through the face as a hairline seam (Tyler: "they look like rendering artifacts").
  *
  * Every wall comes **before** every cap. The disc is one mesh drawn in buffer order with depth
  * written, and the wall a drained pie is meant to show sits behind the eaten slice's glass face —
@@ -303,7 +306,12 @@ function pieGeometry() {
     push(at(0, 0, z), at(a1, PIE_R, -z), at(a1, PIE_R, z));
     push(at(0, 0, z), at(0, 0, -z), at(a1, PIE_R, -z));
     const mid = at((a0 + a1) / 2, PIE_R / 2, 0);
-    for (let k = 0; k < PIE_WALL_FACES * 3; k++) { xy.push(mid[0], mid[1]); wall.push(1); }
+    const middle = (n) => ((((n + PIE_SLICES) % PIE_SLICES) + 0.5) / PIE_SLICES) * 2 * Math.PI;
+    for (let k = 0; k < PIE_WALL_FACES * 3; k++) {
+      xy.push(mid[0], mid[1]);
+      // The first two triangles are the a0 wall, across from the slice before; the rest the a1 wall.
+      wall.push(middle(k < 6 ? w - 1 : w + 1));
+    }
   }
   for (let w = 0; w < PIE_SLICES; w++) {
     const [a0, a1] = span(w);
@@ -322,7 +330,7 @@ function pieGeometry() {
   while (xy.length / 2 < pos.length / 3) {
     const v = xy.length / 2;
     xy.push(pos[v * 3], pos[v * 3 + 1]);
-    wall.push(0);
+    wall.push(-1);
   }
   const geo = new THREE.BufferGeometry();
   geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
@@ -712,7 +720,7 @@ function patchFill(material, flipped = false) {
     Object.assign(shader.uniforms, uniforms);
     shader.vertexShader = shader.vertexShader
       .replace('#include <common>', `#include <common>\nvarying float vFillY;\nvarying vec2 vFillXY;\nvarying float vPieWall;${PLUMBOB_CLASSIC ? '' : PIE ? '\nattribute vec2 fillXY;\nattribute float pieWall;' : '\nattribute float fillY;'}`)
-      .replace('#include <begin_vertex>', `#include <begin_vertex>\n\tvFillY = ${PLUMBOB_CLASSIC ? 'position.y' : PIE ? 'fillXY.y' : 'fillY'};\n\tvFillXY = ${PIE ? 'fillXY' : 'position.xy'};\n\tvPieWall = ${PIE ? 'pieWall' : '0.0'};`);
+      .replace('#include <begin_vertex>', `#include <begin_vertex>\n\tvFillY = ${PLUMBOB_CLASSIC ? 'position.y' : PIE ? 'fillXY.y' : 'fillY'};\n\tvFillXY = ${PIE ? 'fillXY' : 'position.xy'};\n\tvPieWall = ${PIE ? 'pieWall' : '-1.0'};`);
     shader.fragmentShader = shader.fragmentShader
       .replace('#include <common>', `#include <common>
 varying float vFillY;
@@ -728,8 +736,8 @@ uniform vec3 uSurface;`)
       .replace('#include <color_fragment>', `#include <color_fragment>
 \tfloat plate = ${plate};
 ${split}
-\t// An eaten slice's walls would stand in the glass as spokes.
-\tif (vPieWall > 0.5 && below < 0.5) discard;
+\t// A wall draws only on the cut: its own slice left, the one across from it eaten.
+\tif (vPieWall >= 0.0 && (below < 0.5 || step(uFill, vPieWall) > 0.5)) discard;
 \tdiffuseColor.rgb = mix(uGlass, diffuseColor.rgb, below);
 \t// The liquid and its surface are solid; only the empty glass thins out.
 \tdiffuseColor.a = mix(${glsl(GLASS_ALPHA)}, 1.0, max(below, meniscus));`)
