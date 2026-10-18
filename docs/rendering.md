@@ -1894,7 +1894,9 @@ not because they want to be loud.
 4. **Composite additively as one more object in the main scene**, at `renderOrder` 0 — the same
    trick [the crayon page](#the-page--one-tile-baked-in-code) uses, hoisted out of a render target
    and into the transparent queue. **This is the whole reason the frame keeps its MSAA and the
-   ghost outlines keep their stencil.**
+   ghost outlines keep their stencil.** Additive on colour only (`blendSrcAlpha` zero): the
+   composite's alpha is 1 across the quad, so plain `AdditiveBlending` made every pixel opaque and
+   blacked out a canvas with a see-through background (the workshop's new-chat taxi).
 
 The intensities are per *kind* of lamp because spill is a total rather than a peak: a brake pod is
 four pixels and a menu board forty times that, so equal intensities put a wash over the

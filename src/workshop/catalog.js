@@ -23,6 +23,7 @@ import { PALETTE } from '../palette.js';
 import { blockBounds } from '../city/grid.js';
 import { KERB_H } from '../city/ground.js';
 import { createTaxiMesh } from '../geometry/taxi.js';
+import { createTaxiHeadlights, switchedLights } from '../game/citylights.js';
 import { wheelAnchors, wheelGeometry, SILL_Y } from '../geometry/wheels.js';
 import {
   carGeometry, truckCabGeometry, truckBoxGeometry, CAR_LEN, CAR_W, TRUCK_LEN, TRUCK_W,
@@ -145,7 +146,15 @@ export const CATALOG = [
     // Its lamp pods bloom as the fleet hands them to main.js (`emissiveMeshes`, sim/traffic.js).
     build: () => {
       const taxi = createTaxiMesh();
-      return { object: taxi.group, glow: taxi.lights.map((pod) => [pod, 'pod']) };
+      // The headlights main.js hangs on the taxi under weather, and the tail lights' running floor
+      // (`TAIL_FLOOR` in sim/traffic.js), both thrown by the bench's Weather picker.
+      const headlights = createTaxiHeadlights();
+      taxi.group.add(headlights.group);
+      return {
+        object: taxi.group,
+        glow: [...taxi.lights.map((pod) => [pod, 'pod']), [headlights.pods, 'pod']],
+        lamps: (level) => { headlights.setLevel(level); taxi.setLights(level * 0.6, 0, 0); },
+      };
     },
   },
   {
@@ -236,6 +245,9 @@ export const CATALOG = [
     build: (rng) => {
       const block = benchBlock();
       const built = create(block, rng);
+      // Panes a landmark leaves for main.js to switch with the city's lights (the depot's office).
+      const panes = built.litWindows ? switchedLights(built.litWindows, 'litWindows') : null;
+      if (panes) built.group.add(panes);
       return {
         object: landmark(block, built.group),
         update: (dt) => built.update?.(dt),

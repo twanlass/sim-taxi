@@ -10,6 +10,8 @@
 // hot-swap — because it lives in sessionStorage, and the run it was streaming lives on the server:
 // a reloaded page reattaches and replays what it missed.
 
+import { installConsoleCapture, signature } from './consolelog.js';
+
 const STORE = 'workshop-chat';
 const log = document.getElementById('log');
 const input = document.getElementById('input');
@@ -244,6 +246,9 @@ function element(message, latestUndo) {
     el.className = `msg ${message.role}`;
     el.innerHTML = inline(message.text ?? '');
     if (message.reaction) {
+      // A short one-liner is narrower than the badge's reach in from the right edge, so the badge
+      // would sit on its last letters: `short` gives it right padding to clear the pill (index.html).
+      if (!/\n/.test(message.text ?? '') && (message.text ?? '').length <= 24) el.classList.add('short');
       const badge = document.createElement('span');
       badge.className = 'reaction';
       badge.textContent = message.reaction;
@@ -296,16 +301,25 @@ function toolGroup(tools, key, active) {
   return details;
 }
 
+let emptyHost = null;
+let renderedCount = 0;
 function render() {
+  // Read before the rebuild: emptying the log shrinks it and the browser clamps scrollTop to match,
+  // which is what used to drag a reader back to the bottom on every streamed word. Follow the reply
+  // only while already at the bottom (or when they have just sent something); scrolled up reading,
+  // stay put and let them scroll down when they get there.
+  const wasTop = log.scrollTop;
+  const atBottom = log.scrollHeight - log.scrollTop - log.clientHeight < 48;
+  const justSent = chat.messages.length > renderedCount && chat.messages.at(-1)?.role === 'user';
+  renderedCount = chat.messages.length;
   log.replaceChildren();
   if (!chat.messages.length) {
-    const empty = document.createElement('div');
-    empty.className = 'empty';
-    empty.innerHTML = 'Ask for a change to the model on the bench. Claude edits the game\'s own '
-      + 'source and the model reloads here as soon as the file is saved, so whatever you end up '
-      + 'with is already in the game.<br><br>Try: <i>make the roof sign twice as tall</i>, '
-      + '<i>paint the cab a deeper yellow</i>, <i>round off the bonnet</i>.';
-    log.append(empty);
+    // No copy: the taxi doing its Loco Mode weave on the spot. Loaded lazily, never imported, so
+    // this module still imports nothing from the game (see the top of the file); emptytaxi.js is
+    // its own hot-reload boundary. One host kept across renders so the canvas is not rebuilt.
+    emptyHost ??= Object.assign(document.createElement('div'), { className: 'empty' });
+    log.append(emptyHost);
+    import('./emptytaxi.js').then((m) => m.mount(emptyHost)).catch((error) => console.error('new-chat taxi failed to draw:', error));
   }
   const latestUndo = chat.messages.findLast((m) => m.role === 'undo');
   const messages = chat.messages;
@@ -346,7 +360,7 @@ function render() {
     el.append(cancel);
     log.append(el);
   }
-  log.scrollTop = log.scrollHeight;
+  log.scrollTop = atBottom || justSent ? log.scrollHeight : wasTop;
   // Not `busy`: a local of that name shadows the module's `busy()` for the whole function, so the
   // Thinking check above hit it before it was declared and threw on every render, page load included.
   const running = Boolean(chat.runId);
@@ -437,6 +451,9 @@ function apply(event) {
       watchBackground(bg);
     }
     if (event.undoable) chat.messages.push({ role: 'undo', runId: chat.runId, files: event.edited, state: 'ready' });
+    // An edit's console errors land a moment after the reply (hot-reload, then the first frame), so
+    // the auto-fix below listens from here.
+    if (event.edited?.length) chat.editedAt = Date.now();
     chat.runId = null;
     // The bench takes down the pin this run was answering (viewer.js). An event, not a call, for
     // the same reason `__workshopChat` is a global: the two modules never import each other.
@@ -446,6 +463,34 @@ function apply(event) {
 }
 
 const sleep = (ms) => new Promise((done) => setTimeout(done, ms));
+
+// --- The browser console, handed to the agent ---------------------------------
+//
+// consolelog.js forwards every console error to `.workshop/console.log`, which the agent Reads when
+// something is not showing. This is the other half: an error that appears within AUTOFIX_WINDOW of a
+// reply that edited files is, nearly always, that edit's — so the agent is sent it as a message
+// instead of waiting for someone to notice a blank panel and paste a screenshot.
+//
+// Bounded, because an agent fixing its own console is one bad fix from a loop: one attempt per
+// error signature (kept in the conversation, so the reload the edit causes cannot re-fire it), and
+// at most AUTOFIX_CHAIN in a row without a message from the person.
+const AUTOFIX_WINDOW = 30_000;
+const AUTOFIX_CHAIN = 2;
+
+function autoFix(entry) {
+  const sig = signature(entry.message);
+  chat.autoFixed ??= [];
+  if (!chat.editedAt || Date.now() - chat.editedAt > AUTOFIX_WINDOW) return;
+  if (chat.autoFixed.includes(sig) || (chat.autoChain ?? 0) >= AUTOFIX_CHAIN) return;
+  chat.autoFixed.push(sig);
+  chat.autoChain = (chat.autoChain ?? 0) + 1;
+  chat.editedAt = null;
+  save();
+  const text = `The browser console reported an error right after your last edit:\n\n${entry.message.slice(0, 1200)}\n\nFix what the edit broke. The full console is in .workshop/console.log.`;
+  // Smart, for the reason Fix is: a failure is what Auto's fast guess is not for.
+  if (busy()) enqueue(text, null, null, [], 'smart'); else send(text, null, null, null, [], 'smart');
+}
+installConsoleCapture(autoFix);
 
 // --- What follows a reply: the checks and the docs pass ---------------------
 //
@@ -653,6 +698,8 @@ async function send(text, pin = null, image = null, at = null, attachments = [],
     try { image = bench?.capture?.() ?? null; } catch { /* send it blind */ }
   }
   const { model, view } = at ?? benchNow();
+  // The model this conversation is about, for the new-chat suggestion: the first message's.
+  if (!chat.benchId && model?.id) chat.benchId = model.id;
   const body = {
     message: chat.pendingNote ? `${chat.pendingNote}\n\n${message}` : message,
     sessionId: chat.sessionId,
@@ -844,6 +891,7 @@ form.addEventListener('submit', (event) => {
   const text = input.value.trim();
   if (!text && !attached.length) return;
   const images = attached;
+  chat.autoChain = 0;           // a person is steering again: the auto-fix budget starts over
   input.value = '';
   clearDraft();
   attached = [];
@@ -859,15 +907,60 @@ input.addEventListener('keydown', (event) => {
 stopButton.addEventListener('click', () => {
   if (chat.runId) fetch(`/__workshop/runs/${chat.runId}/stop`, { method: 'POST' }).catch(() => {});
 });
-newButton.addEventListener('click', () => {
+function newChat() {
   if (chat.runId) return;
   for (const item of chat.queue) unqueue(item);
   chat = { sessionId: null, messages: [], runId: null, seen: 0, queue: [] };
   openGroups.clear();
   save();
   render();
+  refreshSuggest();
   input.focus();
+}
+newButton.addEventListener('click', newChat);
+
+// --- Suggesting a fresh chat --------------------------------------------------
+//
+// Two signals, both cheap and local (no model call to judge a topic): the bench is showing a
+// different model from the one this chat began on, or the chat has run long. Either way the old
+// history is dead weight for what comes next — and the first is the common case, since the
+// conversation is about a model and the bench is where you change which one. A chip above the
+// composer rather than a prompt in the way: it offers, and × waives it for that reason (a model
+// switch is dismissed per model, so going to a third one asks again).
+const LONG_CHAT_TURNS = 14;
+const suggestEl = document.getElementById('suggest');
+const suggestNew = document.getElementById('suggest-new');
+const suggestX = document.getElementById('suggest-x');
+
+function suggestion() {
+  const turns = chat.messages.filter((m) => m.role === 'user').length;
+  if (!turns || busy() || chat.queue.length) return null;
+  const now = benchNow().model;
+  if (chat.benchId && now && now.id !== chat.benchId && chat.dismissed !== `model:${now.id}`) {
+    return { key: `model:${now.id}`, text: `New chat for the ${now.label}?` };
+  }
+  if (turns >= LONG_CHAT_TURNS && chat.dismissed !== 'long') {
+    return { key: 'long', text: `Long chat (${turns} messages): start fresh?` };
+  }
+  return null;
+}
+
+let suggestShown = null;
+function refreshSuggest() {
+  const s = suggestion();
+  suggestShown = s;
+  suggestEl.hidden = !s;
+  if (s) suggestNew.textContent = s.text;
+}
+suggestNew.addEventListener('click', newChat);
+suggestX.addEventListener('click', () => {
+  if (suggestShown) chat.dismissed = suggestShown.key;
+  save();
+  refreshSuggest();
 });
+// The bench's model picker lives in another module that re-runs under this one, so poll rather than
+// listen: once a second is nothing, and it also catches a run finishing or the queue emptying.
+setInterval(refreshSuggest, 1000);
 
 // How the bench's pins post here. A global rather than an import, for the reason in the header:
 // this module imports nothing the viewer does, and the viewer re-runs under it.

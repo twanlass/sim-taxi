@@ -66,9 +66,9 @@ for (const entry of CATALOG) {
   }
 }
 
-// The page's two browser modules touch the DOM on import, so nothing headless can load them — but
-// it can parse them, which is the slip that would otherwise only show up as a blank page.
-for (const file of ['src/workshop/viewer.js', 'src/workshop/chat.js']) {
+// The page's browser modules touch the DOM (or WebGL) once running, so nothing headless can load
+// them — but it can parse them, which is the slip that would otherwise only show up as a blank page.
+for (const file of ['src/workshop/viewer.js', 'src/workshop/chat.js', 'src/workshop/emptytaxi.js', 'src/workshop/consolelog.js']) {
   const run = spawnSync(process.execPath, ['--check', file], { encoding: 'utf8' });
   check(`${file} parses`, run.status === 0, run.stderr.split('\n').find(Boolean) ?? '');
 }
