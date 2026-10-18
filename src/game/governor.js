@@ -1,6 +1,8 @@
 /**
  * The resolution governor: steps the pixel ratio down when frames start slipping, and back up
- * once there is room again. On by default; `?governor=off` holds the ratio where the budget put it.
+ * once there is room again. **Off by default** since 2026-10-18; `?governor=classic` turns it on.
+ * On a warm iPhone it took Ultra's 3x all the way to 1.5x, softer than Regular's 2x, and Tyler
+ * would rather a hot phone drop frames and leave the choice of resolution to the Quality setting.
  *
  * Why it exists is a measurement, not a hunch. `?bench` on an iPhone (2026-10-10): the cool
  * baseline held 59.4 fps with 1.3% of frames late on 3.1 ms of CPU; the same baseline four minutes

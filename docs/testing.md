@@ -412,7 +412,7 @@ Reading it:
 
 `?bench` measures fifteen seconds a row, and its own second baseline is the reason that isn't
 enough: the phone throttles a few minutes in. `?soak` (or `?soak=N` minutes, 20 by default) runs
-whatever flags are on its URL for the whole time, with the governor on unless `&governor=off`, and
+whatever flags are on its URL for the whole time, with the governor off unless `&governor=classic`, and
 reports one row per minute plus a start-against-end summary (`src/game/soak.js`). Compare budgets
 as separate runs from a cool, unplugged phone (`?soak` against `?soak&dpr=1.5`), and note the
 battery level at each end by hand: Safari has no battery API. A wreck reloads into a fresh run with
