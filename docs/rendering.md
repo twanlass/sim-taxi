@@ -2046,10 +2046,15 @@ The first iPhone `?bench` (2026-10-10, [testing.md](testing.md#what-a-frame-cost
 held 59.4 fps on 3.1 ms of CPU from cool, and the same baseline four minutes later read **52 fps
 with 16.6% of frames late** on an unchanged scene. The phone had throttled. What answers it:
 
-- **The resolution holds; a hot phone drops frames.** The pixel ratio stays where the Quality
-  setting put it for the whole run, and if a warm phone can't keep up, the player can pick Regular
-  in Settings (Tyler, 2026-10-18). The governor that used to step the ratio down is off by default
-  and comes back with `?governor=classic`; see
+- **The governor** steps the pixel ratio down a notch (×0.875 of the cap each step) when a
+  two-second window has 8% or more of its frames late, and back up after thirty seconds clean. A
+  step up that slips straight back doubles that wait, up to four minutes. **It never goes below
+  2x**, Regular's resolution, so Ultra walks 3 → 2.625 → 2.25 → 2 and Regular holds and drops
+  frames instead; a screen or budget already below 2 is its own floor. Ratio is the only lever
+  that moves on a live renderer; every target behind the drawing buffer already follows it, the
+  same path recovery uses. Paused and finished runs don't count toward it, and neither does a gap
+  over two seconds (the page was away). `?governor=off` holds the ratio, and `?bench` turns it off
+  so its rows stay one setting each. Its moves show up in `?diag`. Why the floor is 2:
   [rendering-history.md](rendering-history.md#heat--gamegovernorjs-and-the-paused-still).
 - **The pause draws one still**, not sixty a second. A canvas that is not drawn keeps showing its
   last frame, so the only thing that has to redraw under the veil is a resize.

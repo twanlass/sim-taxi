@@ -170,15 +170,15 @@ try {
   }
 
   // The resolution governor (game/governor.js), fed synthetic frame times: a clean 60 holds, a
-  // throttled phone steps down within a few windows and stops at a ratio of 1, a stall is not load,
+  // throttled phone steps down within a few windows and stops at a ratio of 2, a stall is not load,
   // and half a minute clean climbs one step back.
   {
     const { createGovernor } = await import('../src/game/governor.js');
     const hadDpr = globalThis.devicePixelRatio;
     globalThis.devicePixelRatio = 3;
-    let ratio = 2;
+    let ratio = 3;
     const renderer = { getPixelRatio: () => ratio, setPixelRatio: (r) => { ratio = r; } };
-    const gov = createGovernor({ renderer, budget: { pixelRatioCap: 2 } });
+    const gov = createGovernor({ renderer, budget: { pixelRatioCap: 3 } });
     let t = 0;
     const run = (seconds, lateEvery = 0, stepMs = 1000 / 60) => {
       for (let i = 0, n = Math.round((seconds * 1000) / stepMs); i < n; i++) {
@@ -187,15 +187,21 @@ try {
       }
     };
     run(20);
-    if (ratio !== 2) throw new Error(`governor: stepped down on clean frames (dpr ${ratio})`);
+    if (ratio !== 3) throw new Error(`governor: stepped down on clean frames (dpr ${ratio})`);
     run(9, 0, 3000);
-    if (ratio !== 2) throw new Error('governor: counted the page being away as load');
+    if (ratio !== 3) throw new Error('governor: counted the page being away as load');
     run(6, 4);
-    if (!(ratio < 2)) throw new Error('governor: did not step down at 25% late');
+    if (!(ratio < 3)) throw new Error('governor: did not step down at 25% late');
     run(40, 4);
-    if (ratio !== 1) throw new Error(`governor: did not bottom out at dpr 1 (${ratio})`);
+    // Never softer than Regular's 2x (Tyler, 2026-10-18).
+    if (ratio !== 2) throw new Error(`governor: did not bottom out at dpr 2 (${ratio})`);
     run(32);
-    if (ratio !== 1.25) throw new Error(`governor: did not climb one step after 30s clean (${ratio})`);
+    if (ratio !== 2.25) throw new Error(`governor: did not climb one step after 30s clean (${ratio})`);
+    // Regular's cap is already the floor: nowhere to step, so it holds.
+    ratio = 2;
+    const regular = createGovernor({ renderer, budget: { pixelRatioCap: 2 } });
+    for (let i = 0; i < 3600; i++) { t += i % 4 === 0 ? 34 : 1000 / 60; regular.frame(t); }
+    if (ratio !== 2) throw new Error(`governor: stepped Regular below 2x (dpr ${ratio})`);
     globalThis.devicePixelRatio = hadDpr;
   }
 
