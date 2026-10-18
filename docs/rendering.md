@@ -3740,21 +3740,25 @@ and a car wrecked on this frame must not wear a ghost over its own fireball.
 
 ### The pie — `geometry/diamond.js`
 
-The marker a waiting rider floats: a **pie**, a thick disc outlined in black, bouncing, and painted
-by [urgency](gameplay.md#urgency-is-one-scale), cut into one slice per urgency level. The clock
-eats it clockwise from twelve o'clock, so each slice that goes is one quarter of the clock gone —
-the same moment the hue steps — and the slice being eaten shows where inside that quarter the fare
-is. Eaten wedges stay as the same see-through glass the other vessels empty into.
+The marker a waiting rider floats: a **pie**, a thick disc outlined in black and bouncing, cut into
+eight slices, two per urgency level, each painted the [urgency](gameplay.md#urgency-is-one-scale)
+colour it stands for. The clock eats it clockwise from twelve o'clock: the two green slices go
+first, then yellow, orange and red, so what is left is always mostly the colour the fare is at now,
+and each pair that goes is a quarter of the clock, the same moment the disc under the rider steps.
+Eaten slices stay as the same see-through glass the other vessels empty into. Every other slice is
+a shade darker (`PIE_ALTERNATE`), which is what tells eight apart: there are no lines between them.
 
-**The geometry** is four wedges (`pieGeometry`), 3.1 across and 0.75 thick, each pushed 0.1 out
-along its own bisector so the cuts are 0.2 wide. It is built face-on in its own XY plane and then
-turned (`PIE_TURN`) to face the camera, leaned back 10° and turned 25° off it about the vertical:
-face-on exactly, the thickness showed only as a sliver on the top edge and the first build read as
-a flat badge. The fill shader cuts by the angle of the untilted `fillXY` attribute, with a narrow
-bright line along the sweep while the clock runs. The radial walls are flagged `pieWall` and drawn
-black, so a cut looked down into reads as a cut rather than as a stripe of green. The outline hull
-is one solid 32-sided drum a rim's weight bigger than the wedges all round; its back faces showing
-through the gaps are what draw the cuts on the face.
+**The geometry** is eight touching wedges (`pieGeometry`), 2.4 across (~18px at play zoom) and
+0.55 thick, built face-on in their own XY plane and turned (`PIE_TURN`) toward the camera and
+tilted back to a 60° normal, 27° past face-on, so the face reads as a disc with depth and the near
+edge shows its thickness. The fill shader picks both the cut and each slice's colour from the
+angle of the untilted `fillXY` attribute, and lights each slice by its own colour rather than the
+material's one hue. The outline hull is one solid 32-sided drum at a lighter `PIE_RIM` of 0.14: at
+the shared 0.22 the drum, thickened by the tilted edge, was the loudest thing on the marker.
+
+History of this round: the first pie was four slices of the one current hue, 3.1 across, cut apart
+by black gaps. Tyler: "More slices (8). Map to existing urgency colors. Smaller over all. Tilt
+back to give it some depth. No black internal lines."
 
 `?plumbob=hourglass` brings back the hourglass below and `?plumbob=classic` the [plumbob before
 it](rendering-history.md#the-plumbob--geometrydiamondjs).

@@ -142,7 +142,7 @@ import { setCityOccluders, sightlineClear, groundLineClear } from '../src/game/s
 import {
   createDiamond,
   bounceOffset, KICK_SCALE, KICK_HOP, RIM_SCALE, RIM_OFFSET, EMISSIVE, HIGHLIGHT_EMISSIVE,
-  DIAMOND_HALF_H, BOUNCE_HEIGHT, PLUMBOB_CLASSIC, HOURGLASS_TILT, insideHourglass, MARKER_SHAPE, PIE_TURN, PIE_FACES_PER_WEDGE,
+  DIAMOND_HALF_H, BOUNCE_HEIGHT, PLUMBOB_CLASSIC, HOURGLASS_TILT, insideHourglass, MARKER_SHAPE, PIE_TURN, PIE_FACES_PER_WEDGE, PIE_SLICES, PIE_RIM,
 } from '../src/geometry/diamond.js';
 import { CRYSTAL_TOP, createFareMarker } from '../src/game/faremarker.js';
 import { QUESTION_GEO } from '../src/geometry/questionmark.js';
@@ -4613,7 +4613,7 @@ const PRESSURE_END = difficulty.getTuning().pressureEnd;
     // 0.220 to 0.415 — the 0.415 is a plate corner, 3.2px at play zoom against 1.7.
     //
     // The pie's hull is one solid drum around four separate wedges, so there is no vertex to pair
-    // with: measured back in the disc's own frame instead, the drum's facets have to clear the
+    // with: measured back in the disc's own frame instead, at its own lighter PIE_RIM, the drum's facets have to clear the
     // furthest wedge by the weight all round, and its two faces clear the disc's by the same.
     if (MARKER_SHAPE === 'pie') {
       const untip = PIE_TURN.clone().invert();
@@ -4634,8 +4634,8 @@ const PRESSURE_END = difficulty.getTuning().pressureEnd;
       const side = drum.r * Math.cos(Math.PI / 32) - body.r;
       const face = drum.z - body.z;
       check('and it stands its own weight off every edge of the pie',
-        side >= RIM_OFFSET - 1e-4 && side <= RIM_OFFSET * 1.1 && Math.abs(face - RIM_OFFSET) < 1e-4,
-        `${side.toFixed(3)} round the side, ${face.toFixed(3)} off the faces, against ${RIM_OFFSET}`);
+        side >= PIE_RIM - 1e-4 && side <= PIE_RIM * 1.1 && Math.abs(face - PIE_RIM) < 1e-4,
+        `${side.toFixed(3)} round the side, ${face.toFixed(3)} off the faces, against ${PIE_RIM}`);
     } else if (!PLUMBOB_CLASSIC) {
       const body = diamond.mesh.geometry.attributes.position;
       const hullPos = hull.geometry.attributes.position;
@@ -4722,7 +4722,7 @@ const PRESSURE_END = difficulty.getTuning().pressureEnd;
         }
       }
       check('every facet of the crystal faces outwards',
-        faces === { plumbob: 8, hourglass: 132, pie: 4 * PIE_FACES_PER_WEDGE }[MARKER_SHAPE] && inward === 0, `${faces} faces, ${inward} wound inside out`);
+        faces === { plumbob: 8, hourglass: 132, pie: PIE_SLICES * PIE_FACES_PER_WEDGE }[MARKER_SHAPE] && inward === 0, `${faces} faces, ${inward} wound inside out`);
     }
 
     // --- The VIP's question mark (geometry/questionmark.js).
