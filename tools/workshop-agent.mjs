@@ -18,6 +18,8 @@
  *   POST /runs/:id/stop     kill it.
  *   POST /runs/:id/undo     put every file the run edited back the way it was before the run.
  *   GET  /runs/:id/background  the checks and docs pass that follow a run (`background`).
+ *   POST /console           { entries: [{ level, message, t }] } — the page's console errors, kept in
+ *                           `.workshop/console.log` for the agent (`appendConsole`).
  *
  * **A run outlives the request that started it.** An edit to something the viewer's whole import
  * graph hangs off (the palette, the scene) or to the page itself reloads the tab, and the tab is
@@ -30,7 +32,7 @@
  */
 
 import { spawn, execFile, execFileSync } from 'node:child_process';
-import { existsSync, mkdirSync, readdirSync, unlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, readdirSync, unlinkSync, writeFileSync } from 'node:fs';
 import { isAbsolute, join, relative, resolve } from 'node:path';
 
 /**
@@ -91,6 +93,7 @@ export function workshopPrompt(model, { image = null, view = 'orbit', attachment
   }
   lines.push(
     'Follow CLAUDE.md: colours live in src/palette.js, geometry constants in src/city/grid.js, trees go through treeParts, water through the shared shader, and comments carry the why.',
+    'The page forwards its browser console errors and warnings to .workshop/console.log (newest last, each line stamped with the time). When they say something is missing, blank or broken, or paste an error, Read it first: it usually names the file and line.',
     'Keep the change scoped to this model unless asked otherwise. Do not commit, push, install packages, or start servers.',
     'Do not run npm run check or any other test suite, and do not edit anything under docs/ unless they ask you to: as soon as you finish, the workshop runs the full checks and a docs pass in the background and shows the results under your reply. Spend this turn on the edit itself. If a probe in tools/ asserts something your change deliberately alters, update that probe, since the background checks will otherwise fail on it.',
     'If they ask for a change to the workshop itself (its panels, controls, layout, this chat) rather than to the model, that is fair game too: the page is workshop/index.html, the bench is src/workshop/viewer.js, this chat panel is src/workshop/chat.js, the catalog is src/workshop/catalog.js, and the endpoint running you is tools/workshop-agent.mjs; docs/workshop.md explains each. Edits to viewer.js hot-swap; edits to index.html or chat.js reload their page, which the chat survives.',
@@ -98,6 +101,30 @@ export function workshopPrompt(model, { image = null, view = 'orbit', attachment
     'Finish with one short line, under about ten words, saying what changed (e.g. "Gap between the cargo box and cab halved."). No file paths, numbers, side effects or test results unless they ask, or unless something went wrong or needs their decision. No headings, no lists.',
   );
   return lines.join('\n');
+}
+
+/**
+ * The page's console, kept for the agent: `.workshop/console.log`, the newest CONSOLE_KEEP entries,
+ * one block each (a stamp, the level, then the message trimmed to its first lines — a stack's top
+ * frames name the file and the rest is Vite's own plumbing). A repeat of the entry before it is
+ * dropped: a failing frame logs the same line sixty times a second.
+ */
+const CONSOLE_KEEP = 40;
+function appendConsole(root, entries) {
+  if (!Array.isArray(entries)) return;
+  const dir = join(root, '.workshop');
+  const file = join(dir, 'console.log');
+  mkdirSync(dir, { recursive: true });
+  const blocks = existsSync(file) ? readFileSync(file, 'utf8').split('\n\n').filter(Boolean) : [];
+  for (const entry of entries.slice(0, 50)) {
+    if (typeof entry?.message !== 'string') continue;
+    const stamp = new Date(Number(entry.t) || Date.now()).toLocaleTimeString('en-GB');
+    const body = entry.message.split('\n').slice(0, 8).join('\n');
+    const block = `[${stamp}] ${entry.level === 'warn' ? 'warn' : 'error'}: ${body}`;
+    if (blocks.at(-1)?.slice(11) === block.slice(11)) continue;
+    blocks.push(block);
+  }
+  writeFileSync(file, `${blocks.slice(-CONSOLE_KEEP).join('\n\n')}\n`);
 }
 
 /** Boil the CLI's stream-json down to the four things the panel draws. */
@@ -507,6 +534,16 @@ export function workshopAgent({ bin = process.env.CLAUDE_BIN || 'claude' } = {})
             });
           }
           return stream(run, Number(url.searchParams.get('from')) || 0, res);
+        }
+        if (req.method === 'POST' && url.pathname === '/console') {
+          let raw = '';
+          req.setEncoding('utf8');
+          req.on('data', (chunk) => { if (raw.length < 200_000) raw += chunk; });
+          req.on('end', () => {
+            try { appendConsole(root, JSON.parse(raw).entries); } catch { /* a bad report is not worth a 500 */ }
+            json(res, 200, { ok: true });
+          });
+          return undefined;
         }
         if (url.pathname === '/status') return json(res, 200, { busy: shared.busy?.id ?? null });
         return json(res, 404, { error: 'not found' });

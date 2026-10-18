@@ -19,6 +19,9 @@ import { bakeColor, propMaterial, setClassicPaint, setPaintLook } from '../util/
 import { markOccluder, unmarkOccluder } from '../game/ssao.js';
 import { markEmissive, unmarkEmissive } from '../game/bloom.js';
 import { renderBudget, decideLooks, createRenderPath } from '../game/renderpath.js';
+import { createRain } from '../game/rain.js';
+import { setCityLights } from '../game/citylights.js';
+import { setRunningLights } from '../sim/traffic.js';
 import { makeRng } from '../util/rng.js';
 import { PALETTE } from '../palette.js';
 import { CATALOG, byId } from './catalog.js';
@@ -43,7 +46,14 @@ const params = new URLSearchParams(window.location.search);
 const PAINTS = ['real', 'rim', 'toon', 'layered', 'chameleon', 'satin', 'classic'];
 const DEFAULT_PAINT = PAINTS[0];
 
+// Weather, for previewing lamps: the game's own switches (`setCityLights`, `setRunningLights`, a
+// model's `lamps`) thrown by hand. Squall is the shower storm's grade and falling rain with the
+// lights on; night is the day clock parked in the dark with the lights on.
+const WEATHERS = ['day', 'squall', 'night'];
+const NIGHT_HOUR = 22;
+
 const state = {
+  weather: WEATHERS.includes(params.get('weather')) ? params.get('weather') : 'day',
   model: byId(params.get('model') ?? kept.model ?? 'taxi').id,
   paint: PAINTS.includes(params.get('paint')) ? params.get('paint') : DEFAULT_PAINT,
   view: params.get('view') === 'game' ? 'game' : 'orbit',
@@ -59,6 +69,7 @@ const els = {
   paint: document.getElementById('paint'),
   source: document.getElementById('source'),
   views: document.getElementById('views'),
+  weather: document.getElementById('weather'),
   hour: document.getElementById('hour'),
   hourV: document.getElementById('hour-v'),
   spin: document.getElementById('spin'),
@@ -361,7 +372,8 @@ function load(id, { keepFraming = false } = {}) {
   // And into the bloom's draw list, the lit meshes the entry names at the kinds main.js gives them.
   for (const [mesh, kind] of built.glow ?? []) markEmissive(mesh, kind);
 
-  current = { holder, update: built.update ?? null, box: box.clone() };
+  current = { holder, update: built.update ?? null, lamps: built.lamps ?? null, box: box.clone() };
+  current.lamps?.(state.weather === 'day' ? 0 : 1);
   // "Diameter" as the footprint's diagonal rather than its longer side, so a long car's pad
   // clears its corners by as much as its nose.
   const span = Math.hypot(box.max.x - box.min.x, box.max.z - box.min.z);
@@ -424,9 +436,40 @@ function buildPicker() {
   }));
 }
 
+// The hour the day was at before night took the clock, so Day and Squall hand it back.
+let dayHour = state.weather === 'night' ? 16.4 : state.hour;
+// Built the first time Squall is chosen: it is a mirror target and a few thousand streaks, and the
+// shower mood is the game's default squall look.
+let rain = null;
+
+function applyWeather() {
+  const level = state.weather === 'day' ? 0 : 1;
+  if (state.weather === 'squall' && !rain) {
+    rain = createRain(renderer, { enabled: true, mood: 'shower' });
+    rain.addTo(scene);
+    daylight.setGrade(rain.grade);
+  }
+  // Wet stays 0: the bench's ground is not the game's patched one, so a mirror pass would only
+  // draw the model a second time for nothing. Lens 0 for the same reason, the drops are the taxi's.
+  rain?.setWeather({ dark: state.weather === 'squall' ? 1 : 0, rain: state.weather === 'squall' ? 1 : 0, wet: 0, lens: 0 });
+  setCityLights(level);
+  setRunningLights(level);
+  current?.lamps?.(level);
+  if (state.weather === 'night') {
+    if (state.hour !== NIGHT_HOUR) dayHour = state.hour;
+    state.hour = NIGHT_HOUR;
+  } else {
+    state.hour = dayHour;
+  }
+  daylight.state.hour = state.hour;
+  daylight.apply();
+  if (rain) rain.setSunDir(sun.position);
+}
+
 function syncPanel() {
   for (const b of els.views.querySelectorAll('button')) b.classList.toggle('on', b.dataset.view === state.view);
   els.paint.value = state.paint;
+  els.weather.value = state.weather;
   els.hour.value = String(state.hour);
   els.hourV.textContent = formatHour(state.hour);
   els.spin.checked = state.spin;
@@ -452,6 +495,7 @@ function syncUrl() {
   if (state.paint !== DEFAULT_PAINT) q.set('paint', state.paint); else q.delete('paint');
   if (state.view === 'game') q.set('view', 'game'); else q.delete('view');
   q.set('hour', state.hour.toFixed(1));
+  if (state.weather !== 'day') q.set('weather', state.weather); else q.delete('weather');
   if (state.spin) q.set('spin', '1'); else q.delete('spin');
   if (state.wire) q.set('wire', '1'); else q.delete('wire');
   if (state.inset) q.delete('inset'); else q.set('inset', '0');
@@ -471,8 +515,15 @@ on(els.views, 'click', (event) => {
   syncPanel();
   syncUrl();
 });
+on(els.weather, 'change', () => {
+  state.weather = els.weather.value;
+  applyWeather();
+  syncPanel();
+  syncUrl();
+});
 on(els.hour, 'input', () => {
   state.hour = Number(els.hour.value);
+  if (state.weather !== 'night') dayHour = state.hour;
   daylight.state.hour = state.hour;
   daylight.apply();
   syncPanel();
@@ -801,6 +852,8 @@ function tick() {
     showError(error);
     current.update = null;
   }
+  // The streaks fall on the rain's own clock, which `render` only reads (it passes 0).
+  rain?.update(dt, activeCamera());
   draw();
   placePin();
 }
@@ -848,7 +901,7 @@ function draw() {
     const y = h - INSET.h - INSET.margin;
     renderer.setScissorTest(true);
     renderer.setScissor(x, y, INSET.w, INSET.h);
-    renderPath.render(scene, wideInset(x, y, w, h));
+    renderPath.render(scene, wideInset(x, y, w, h), { rain });
     renderer.setScissorTest(false);
     const src = renderer.domElement;
     const ratio = src.width / w;
@@ -861,7 +914,7 @@ function draw() {
     // Canvas coordinates run from the top-left, the scissor's from the bottom-left.
     insetCtx.drawImage(src, x * ratio, (h - y - INSET.h) * ratio, pw, ph, 0, 0, pw, ph);
   }
-  renderPath.render(scene, activeCamera());
+  renderPath.render(scene, activeCamera(), { rain });
 }
 
 /** The inset's place on the stage, in CSS pixels from the top-left, for `capture`. */
@@ -966,6 +1019,7 @@ on(window, 'pagehide', stashSnapshot);
 
 buildPicker();
 applyPaint();
+applyWeather();
 syncPanel();
 resize();
 load(state.model, { keepFraming: Boolean(kept.orbit) });

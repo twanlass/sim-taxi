@@ -54,7 +54,6 @@
         padding: 12px 14px; border-radius: var(--radius);
         background: var(--panel); color: var(--ink);
         backdrop-filter: blur(6px);
-        box-shadow: 0 6px 22px rgba(12, 24, 34, 0.28);
         user-select: none; -webkit-user-select: none;
       }
       #bench h1 {
@@ -112,7 +111,6 @@
       #inset-box {
         position: absolute; top: 14px; right: 14px; width: 200px; height: 140px; z-index: 4;
         border-radius: var(--radius); overflow: hidden; pointer-events: none;
-        box-shadow: 0 6px 22px rgba(12, 24, 34, 0.28);
       }
       #inset-canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
       /* The one part of the frame that takes the pointer. Minimized, the frame shrinks to a tab
@@ -140,7 +138,6 @@
         display: flex; align-items: center; gap: 10px;
         padding: 10px 26px 10px 20px; border: 0; border-radius: 999px; cursor: pointer;
         background: var(--accent); color: var(--on-accent); font: inherit; font-size: 17px; font-weight: 700;
-        box-shadow: 0 6px 22px rgba(12, 24, 34, 0.32);
       }
       #play .glyph { font-size: 15px; line-height: 1; }
       body.playing #play { background: var(--panel); color: var(--ink); font-size: 14px; padding: 7px 18px 7px 14px; }
@@ -164,7 +161,6 @@
         position: absolute; left: 0; top: 0; z-index: 5; width: 280px;
         display: grid; gap: 6px; padding: 10px; border-radius: 10px;
         background: var(--panel); color: var(--ink); backdrop-filter: blur(6px);
-        box-shadow: 0 6px 22px rgba(12, 24, 34, 0.32);
       }
       #pin-note textarea {
         width: 100%; resize: none; padding: 7px 9px 36px; border: 0; border-radius: 8px; outline: none;
@@ -185,7 +181,6 @@
         background: var(--panel); color: var(--ink);
         backdrop-filter: blur(6px);
         border-radius: var(--radius);
-        box-shadow: 0 6px 22px rgba(12, 24, 34, 0.28);
       }
       /* Over the log rather than above it, with no background of its own: the conversation scrolls
          underneath and fades out toward the top (the mask on #log), so the title and New chat sit
@@ -210,6 +205,9 @@
          in after a delay the script sets on it (`reaction-pop`). Lighter than the panel so it stands
          off the black bubble it overlaps. */
       .msg.user:has(.reaction) { position: relative; margin-bottom: 8px; }
+      /* A short message ends before the pill does: 8px inset + ~34px of pill is 42px in from the right edge,
+         so the text gets that much room (11px of it is the bubble's own padding already). */
+      .msg.user.short:has(.reaction) { padding-right: 46px; }
       .reaction {
         position: absolute; right: 8px; bottom: -11px; padding: 3px 8px; border-radius: 999px;
         font-size: 12px; line-height: 1.3; background: rgb(62 74 86); color: var(--ink);
@@ -263,7 +261,9 @@
       .undo .changes:hover { opacity: 1; }
       .undo ul { flex-basis: 100%; margin: 0; padding-left: 18px; font: 11px/1.5 ui-monospace, Menlo, monospace; opacity: 0.75; }
       .undo ul[hidden] { display: none; }
-      .empty { opacity: 0.5; font-size: 12px; line-height: 1.55; }
+      /* The new-chat taxi (emptytaxi.js): fills the empty log, the canvas sized to it. */
+      .empty { flex: 1; min-height: 160px; position: relative; }
+      .empty canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
       .msg.note { align-self: flex-start; padding: 0 4px; font-size: 11px; opacity: 0.5; }
       /* The checks and docs pass that run after a reply (chat.js, `backgroundElement`). */
       .bg { align-self: stretch; font-size: 12px; opacity: 0.8; display: grid; gap: 6px; justify-items: start; }
@@ -290,6 +290,12 @@
       }
       #speed option { color: #16120a; }
       @keyframes blink { 50% { opacity: 0; } }
+      /* "Start a new chat?" (chat.js, `refreshSuggest`): a chip above the composer, only when the
+         bench has moved to another model or the chat has run long. */
+      #suggest { display: flex; gap: 6px; padding: 0 10px; }
+      #suggest[hidden] { display: none; }
+      #suggest-new { flex: 1; font-size: 12px; text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      #suggest-x { font-size: 12px; }
       #compose { padding: 10px; display: grid; gap: 6px; }
       #input {
         /* Grows with its text (chat.js, `autosize`) up to ten rows, then scrolls. The bottom padding
@@ -385,6 +391,11 @@
           <button type="button" data-view="game">Game view</button>
         </div>
         <label class="pick">Paint <select id="paint" aria-label="Paint look"></select></label>
+        <label class="pick">Weather <select id="weather" aria-label="Weather">
+          <option value="day">Day</option>
+          <option value="squall">Squall</option>
+          <option value="night">Night</option>
+        </select></label>
         <label class="slider">Hour<input id="hour" type="range" min="0" max="24" step="0.1" /><span class="value" id="hour-v"></span></label>
         <div class="row">
           <label class="check"><input id="spin" type="checkbox" /> Turntable</label>
@@ -413,6 +424,10 @@
         <button type="button" class="act" id="new-chat">New chat</button>
       </header>
       <div id="log"></div>
+      <div id="suggest" hidden>
+        <button type="button" class="act" id="suggest-new"></button>
+        <button type="button" class="act" id="suggest-x" title="Not now" aria-label="Dismiss">×</button>
+      </div>
       <form id="compose">
         <div id="attachments" hidden></div>
         <div class="field">

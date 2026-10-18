@@ -17,6 +17,8 @@ It runs under the dev server only. It is not a build input, so `npm run build` l
 | `src/workshop/catalog.js` | what can go on the bench, and which file builds each one |
 | `src/workshop/viewer.js` | the bench: renderer, cameras, the hot reload |
 | `src/workshop/chat.js` | the chat panel (browser side) |
+| `src/workshop/emptytaxi.js` | the new-chat screen: no copy, the game's taxi side on, doing its Loco Mode weave and bob on the spot, burning the Loco plume out of its tailpipe over a disc of road that fades to nothing round it (an `alphaMap`, so the panel behind stays the page, not black) whose centre dashes stream past; drawn through the game's render path so it wears the rim line and AO |
+| `src/workshop/consolelog.js` | forwards the page's console errors and warnings to the endpoint, and hands errors to `chat.js` for the auto-fix |
 | `tools/workshop-agent.mjs` | the chat's dev-server endpoint, which runs `claude -p` in the repo |
 | `tools/workshop.mjs` | the headless checks, in `npm run check` |
 
@@ -60,11 +62,35 @@ it. Set `CLAUDE_BIN` if `claude` is not on the dev server's `PATH`. The message 
 because, passed as an argument, one that opened with a bulleted list ("- make this smaller") was
 parsed as an unknown option.
 
+**Suggesting a new chat.** A chip above the composer (`#suggest`, `refreshSuggest` in `chat.js`) offers
+**New chat** when the old history has become dead weight, on two local signals and no model call to judge
+a topic: the bench is showing a different model from the one the chat began on (`chat.benchId`, the model
+of its first message), or the chat has run `LONG_CHAT_TURNS` (14) user messages. It offers rather than
+interrupts, and never while a run is going or messages are queued; × waives it (`chat.dismissed`), per
+model for the first signal so a third model asks again. It polls once a second, because the bench's model
+picker lives in another module that re-runs under this one and cannot be listened to.
+
 **What it may do.** Headless, there is nobody to answer a permission prompt, so anything not on the
 list is refused outright: edits (via `acceptEdits`), Read, Glob, Grep, `node --check`, `git diff`
 and `git status`. No commits, pushes, installs or servers, and no test suite (below). The endpoint
 also answers loopback only, since `vite --host` would otherwise hand a file-editing agent to the
 whole Wi-Fi.
+
+**The browser console reaches the agent.** The agent cannot open devtools, so an error only the browser
+sees (a mount that throws, a shader that fails to link) used to arrive as a pasted screenshot.
+`consolelog.js` wraps `console.error` and `console.warn` and listens for uncaught errors and unhandled
+rejections, batches them (a failing frame logs hundreds a second) and posts them to `/__workshop/console`;
+the endpoint (`appendConsole`) keeps the last 40 in `.workshop/console.log`, each trimmed to its first
+eight lines and a repeat of the previous entry dropped, and the prompt tells the agent to Read it first
+when something is missing or blank. Installing is idempotent (`window.__workshopConsoleCapture`), since an
+edit to the file re-runs it. Nothing in it logs through `console`, or a failed report would report itself.
+
+**An error right after an edit is sent back to the agent.** An error that appears within 30 s of a reply
+that edited files (`chat.editedAt`) is nearly always that edit's, so `autoFix` in `chat.js` sends it as
+a message on **Smart**, as Fix does, rather than waiting for someone to notice. Bounded, because an
+agent fixing its own console is one bad fix from a loop: one attempt per error signature (the first line
+with its numbers removed, kept in the conversation so the reload the edit causes cannot re-fire it), and
+at most two in a row (`AUTOFIX_CHAIN`) until the person sends a message.
 
 **The wait before the first tool call is mostly the CLI starting, and the log is never empty during it.**
 Between Send and the first tool call or word of the reply there is real work: the undo snapshot
@@ -108,7 +134,9 @@ Each message the user sends wears an emoji reaction hanging off its bottom edge,
 text they typed contains a `?`, 👍 otherwise. It is deterministic on purpose, not the agent's reply
 (no model call), and it reads the typed text rather than the bubble, so a pin's label can't turn a
 statement into a question. It is stored on the message (`reaction`, with `sentAt`), so it survives
-the reload with the rest of the conversation. The badge pops in 1200ms after the send; until
+the reload with the rest of the conversation. A one-line message of 24 characters or fewer is
+narrower than the pill's reach in from the edge (~42px), so it gets a `short` class and 46px of
+right padding to keep the badge off its last letters. The badge pops in 1200ms after the send; until
 then a "…" (three bouncing dots in the same pill, `.reaction.typing`) stands in for the agent
 thinking, fading in just after the message lands and out as the badge takes its place. The log is
 rebuilt on every streamed event, which would restart a plain CSS animation each time, so the
@@ -116,6 +144,12 @@ animation's delay is whatever is left of the 1200ms (negative once it is under w
 right frame; the dots' single `typing-life` animation spans the whole wait the same way), and a
 badge older than the delay plus the 250ms pop gets no animation at all, nor dots once the delay has passed. Its
 background is a shade lighter than the panel so it stands off the black user bubble it overlaps.
+
+**The log only follows a reply while the reader is at the bottom.** Because it is rebuilt on every
+streamed event, emptying it shrinks it and the browser clamps `scrollTop`, which used to drag a
+reader back down on every word. `render()` reads the position before the rebuild: within 48px of the
+bottom, or just after sending a message, it pins to the bottom; scrolled up, it puts `scrollTop` back
+where it was and leaves the reader to scroll down when they get there.
 
 The half-typed message in the composer survives the same reload: it is written to `sessionStorage`
 (`workshop-chat-draft`) on every keystroke, put back on load and cleared on send. A textarea keeps
@@ -153,6 +187,7 @@ doc). What happens next depends on the file it saves:
 | Edit to | What happens |
 |---|---|
 | `src/workshop/viewer.js`, `catalog.js` | hot-swaps, like a model edit |
+| `src/workshop/emptytaxi.js` | hot-swaps on its own: `chat.js` loads it with a dynamic `import()` (it must import nothing from the game, or an edit would re-run it and wipe the conversation), and it accepts itself and picks its host back up from `hot.data` |
 | `workshop/index.html`, `src/workshop/chat.js` | the page reloads; the chat reattaches (above). For the HTML that takes the plugin's `hotUpdate`: the page's inline `<style>` is a module of its own to Vite, so without it the save hot-updates that and never reloads |
 | `tools/workshop-agent.mjs`, `vite.config.js` | **the dev server restarts**; the turn keeps running and the page reconnects |
 
@@ -237,8 +272,15 @@ plinth so they stand at their city height, then recentred. The ambient fleet's v
 assembled from the same geometries `createTraffic` instances (body, front wheels, cargo box), on
 one material per paint, the way `wreckShell` copies a car out of the fleet.
 
-URL: `?model=<id>&view=game&hour=<0-24>&spin=1&wire=1&inset=0&paint=<look>`. The page keeps it current, so a reload or a shared
+URL: `?model=<id>&view=game&hour=<0-24>&spin=1&wire=1&inset=0&paint=<look>&weather=<squall|night>`. The page keeps it current, so a reload or a shared
 link comes back to the same bench.
+
+**Weather** previews lamps: Day, Squall or Night. It throws the game's own switches by hand
+(`setCityLights`, `setRunningLights`, and a catalog entry's optional `lamps(level)`, which the taxi uses for its
+headlights and tail lights and a landmark uses for its `litWindows` panes). Squall is the shower storm's grade with
+falling rain (`game/rain.js`, built the first time it is chosen) and the lights on; Night parks the day clock at 22:00
+with the lights on, and Day or Squall hand the hour back. Wet and lens are left at 0: the bench ground is not the game's
+patched one, so a mirror pass would only draw the model twice. `weather` is omitted from the URL while it is Day.
 
 **Paint** picks one of the game's `?paint=` looks. The look is compiled into the shader, so picking
 one rebuilds the model. **Play** opens the real game in a frame over the bench, carrying the paint
