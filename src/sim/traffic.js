@@ -2800,7 +2800,7 @@ export const TRUCK_CHASSIS_TOP = TRUCK_BASE_Y + 0.4;
  * as the same kind of part rather than as more of the chassis livery. The cargo box is a further,
  * separate mesh: see truckBoxGeometry().
  */
-function truckCabGeometry({ bumpers = true } = {}) {
+export function truckCabGeometry({ bumpers = true } = {}) {
   const parts = [];
   const white = new THREE.Color(1, 1, 1);
   const cabDark = color('carGlass');
@@ -2833,7 +2833,7 @@ function truckCabGeometry({ bumpers = true } = {}) {
  * One InstancedMesh only ever draws one tint per instance, so a cab that varies with PALETTE.carBody
  * and a box that never does are two meshes by construction, not by choice.
  */
-function truckBoxGeometry() {
+export function truckBoxGeometry() {
   const box = new THREE.BoxGeometry(TRUCK_BOX_LEN, 2.0, TRUCK_W);
   box.translate(TRUCK_BOX_X, TRUCK_BASE_Y + 0.4 + 1.0, 0);
   return setFinish(bakeColor(box, color('truckBox')), FINISH.PAINT);

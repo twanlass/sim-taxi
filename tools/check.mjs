@@ -76,6 +76,9 @@ const TOOLS = [
   // The passing lab at /lab/. Nothing else imports `src/lab/`, so without this the one page in
   // the project whose entire job is to be looked at could stop working silently.
   { name: 'lab',     args: ['tools/lab.mjs'],          pick: /(\d+\/\d+) checks passed/ },
+  // The model workshop at /workshop/, for the same reason: every model on its bench is built, so a
+  // builder whose signature moved fails here rather than on the one model someone opened it for.
+  { name: 'workshop', args: ['tools/workshop.mjs'],    pick: /(\d+\/\d+) checks passed/ },
   // The docs against the code: every URL parameter in src/ has a row in docs/params.md (and every
   // row is still read), and every relative link between the docs lands on a heading that exists.
   { name: 'docs',    args: ['tools/docs.mjs'],         pick: /(\d+\/\d+) checks passed/ },

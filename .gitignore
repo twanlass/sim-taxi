@@ -12,3 +12,6 @@ ios/**/xcuserdata/
 ios/**/*.xcuserstate
 ios/DerivedData/
 ios/build/
+
+# The model workshop's scratch: the screenshot each chat turn hands the agent (docs/workshop.md).
+.workshop/
