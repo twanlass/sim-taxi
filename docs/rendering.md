@@ -1481,7 +1481,7 @@ blue, so the asphalt reads as painted rather than flat grey. `?painterly=classic
 
 - **The strokes** are a 256² tile painted in code at boot (`paintRoad`), every dab drawn at its
   eight wrapped neighbours so the tile is seamless, all on one heading. The ground's fragment
-  shader (`uBrushKind` 2, set by `brush(mesh, 2)` in `main.js`) reads it in world space every 12
+  shader (`PAINT_KIND` 2, set by `brush(mesh, 2)` in `main.js`) reads it in world space every 12
   units and only on dark, non-green pixels, so kerbs, paint and lawns are left alone.
 - **Direction.** The tile is read as (x, z) on an east–west street and (z, x) on a north–south one.
   At a junction one road runs straight through and the other's strokes fade out over 3 units at its
@@ -1492,10 +1492,17 @@ blue, so the asphalt reads as painted rather than flat grey. `?painterly=classic
 - **Patches.** Two octaves of value noise at a ~16-unit cell fade the strokes in and out, so some
   stretches are brushed and some are bare, and the 12-unit repeat never lines up down a whole
   street. The ground brush tile read at a big scale was tried first and came out as streaks.
-- **What was tried and is dialled to 0** (still in the shader, behind uniforms): a reddened,
+- **What was tried and is dialled to 0** (still in the source, behind uniforms): a reddened,
   saturated shadow terminator and cool shadow core after Valve's TF2 paper (read as a glowing
   outline), a darker wall foot, and strokes on walls, roofs and lawns (read as dirty). Baked colour
   blotches cost 1.2M extra vertices and were dropped outright.
+- **Compiled per brush, not branched on.** The brush kind is a `#define` (`paintPlan` in
+  `util/geo.js`), and the terminator and wall foot only compile while their uniforms are above 0,
+  read when three compiles the material. As a uniform `if`, every prop in the city carried the road
+  path's two noises and three tile reads; `tools/gpucost.mjs` put that at a third of a SwiftShader
+  frame, and pulling it out took the frame down 16% with every pixel unchanged. Inside the road path
+  the tile reads are skipped wherever the fade mask, the lawn hold or the lane-paint hold is 0. So
+  a tuning panel that turns the terminator or the foot back on has to rebuild the materials.
 
 ## Rain Mode — `game/rain.js`
 
@@ -2153,7 +2160,11 @@ there under the fog, and what `?city=big` shows, since the fog is island-only.
   (`FOG_HALF_X/Z`, `FOG_RADIUS`), ramped from 1 unit inside the kerb to opaque 7 outside it, with
   value noise pushing the edge **outward only**, up to 8 units. Outward only is a gameplay rule: the
   first cut billowed both ways, and on the near (south and east) side a hollow rolled the bank right
-  across the ring road. `tools/check.mjs` holds `FOG_START` short of the outer lane.
+  across the ring road. `tools/check.mjs` holds `FOG_START` short of the outer lane. The same rule
+  makes an early-out exact: a fragment whose distance is inside `FOG_START` is fog-free whatever the
+  noise says, so its five noise reads are skipped. That is most of the screen at play zoom (a real
+  GPU skips a branch a whole region fails; SwiftShader does not, so `tools/gpucost.mjs` cannot see
+  this one).
 - **The motion.** Two noise layers drift on headings about 100° apart at different speeds
   (`FOG_DRIFT`, `FOG_DRIFT_FINE`), and both are read through a slowly drifting warp field
   (`FOG_WARP`, up to 16 units of bend). The first cut slid one layer along one heading, which reads as
