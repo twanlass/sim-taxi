@@ -353,14 +353,12 @@ rain.hideInMirror(crayon.overlay, bloom.overlay, scene.getObjectByName('sky'));
 // split between them is where it is. Attached after the sun exists, since step one shrinks its
 // shadow map.
 attachContextRecovery({ renderer, sun, budget, onNotice: (text) => diag.note(text) });
-// Off by default: the resolution holds where Quality put it, and a hot phone drops frames instead
-// (Tyler, 2026-10-18 — "If it gets bad, the user can change to regular in settings"). On Ultra it
-// had been stepping 3 → 1.5, softer than Regular. `?governor=classic` brings the stepping back.
-// See game/governor.js.
+// Steps the pixel ratio down when a warm phone starts dropping frames, never below 2x, and back up
+// once it can keep up again. `?governor=off` holds it where the budget put it. See game/governor.js.
 const governor = createGovernor({
   renderer,
   budget,
-  enabled: !shot && new URLSearchParams(window.location.search).get('governor') === 'classic',
+  enabled: !shot && new URLSearchParams(window.location.search).get('governor') !== 'off',
   onChange: (text) => diag.note(text),
   targetMs: () => 1000 / Math.min(60, frameRateCap()),
 });

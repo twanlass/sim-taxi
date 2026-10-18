@@ -785,5 +785,6 @@ frames late, and back up after thirty seconds clean; a step up that slipped stra
 that wait, up to four minutes. On a warm iPhone under Ultra that walked 3 → 2.625 → 2.25 → 1.875 →
 1.5 and rarely climbed back, so Ultra ended up softer than Regular's 2 — reported as "while on
 ultra, sometimes it renders at regular". A floor that kept Ultra at 2.25 was tried first; Tyler
-preferred no resolution changes at all, with the Quality setting as the player's lever.
-`?governor=classic` restores it.
+preferred no resolution changes at all, with the Quality setting as the player's lever, and the
+governor went off by default (#570). Without it a hot phone was "pretty choppy and pretty bad", so
+it came back the same day with its floor raised from 1 to 2.

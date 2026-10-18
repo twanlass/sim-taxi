@@ -8,9 +8,9 @@
  * setting for a long time and reports it a minute at a time.
  *
  * Whatever flags are on the URL are what it measures, so comparing two budgets is two runs from a
- * cool phone: `?soak` and, say, `?soak&dpr=1.5`. The resolution governor (game/governor.js) is off
- * by default, as in play; `&governor=classic` turns it on, and the canvas size on each row is then
- * how far it had to step down.
+ * cool phone: `?soak` and, say, `?soak&dpr=1.5`. The resolution governor (game/governor.js) is on
+ * unless `&governor=off` says otherwise, because what a player gets is with it on — and the canvas
+ * size on each row is how far it had to step down.
  *
  * Safari has no battery API, so the start card asks for the battery level to be noted by hand at
  * each end. The same pinned city, situation and self-driving taxi as `?bench` (BENCH_BASE).

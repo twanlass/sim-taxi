@@ -1,8 +1,13 @@
 /**
  * The resolution governor: steps the pixel ratio down when frames start slipping, and back up
- * once there is room again. **Off by default** since 2026-10-18; `?governor=classic` turns it on.
- * On a warm iPhone it took Ultra's 3x all the way to 1.5x, softer than Regular's 2x, and Tyler
- * would rather a hot phone drop frames and leave the choice of resolution to the Quality setting.
+ * once there is room again. On by default; `?governor=off` holds the ratio where the budget put it.
+ *
+ * **It never goes below 2x** (`MIN_RATIO`). Its floor was 1, and on a warm iPhone it walked Ultra's
+ * 3x down to 1.5x, softer than Regular's 2x ("while on ultra, sometimes it renders at regular").
+ * Turning it off for good was tried next (2026-10-18) and was choppy and bad on a hot phone, so it
+ * is back with the floor at Regular's resolution: Ultra steps 3 → 2.625 → 2.25 → 2, and Regular,
+ * whose cap already is 2, holds and drops frames instead. A screen or budget below 2 (`?safe`, a
+ * context loss, a `?dpr=` pin) is its own floor.
  *
  * Why it exists is a measurement, not a hunch. `?bench` on an iPhone (2026-10-10): the cool
  * baseline held 59.4 fps with 1.3% of frames late on 3.1 ms of CPU; the same baseline four minutes
@@ -28,9 +33,9 @@
  * guess, and the cap is the look the game was designed at.
  */
 
-/** Multipliers on the budget's cap, cheapest last. Never below a ratio of 1. */
+/** Multipliers on the budget's cap, cheapest last. Never below `MIN_RATIO`, or the cap if that is lower. */
 const STEPS = [1, 0.875, 0.75, 0.625, 0.5];
-const MIN_RATIO = 1;
+const MIN_RATIO = 2;
 /** Seconds per judgement window. */
 const WINDOW = 2;
 /** A frame this many vsyncs long is late. */
