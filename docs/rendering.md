@@ -3744,8 +3744,9 @@ The marker a waiting rider floats: a **pie**, a thick disc, bouncing, with no bl
 eight slices, two per urgency level, the whole pie in the one [urgency](gameplay.md#urgency-is-one-scale)
 colour of the level the fare is at. The clock eats it clockwise from twelve o'clock, so each pair
 of slices that goes is a quarter of the clock, and the colour steps (with the kick) at that moment.
-What is left is solid and one even shade; eaten slices stay as the fainter see-through glass the
-other vessels empty into. The clock takes a **whole slice at a time**, so the cut always lands on a
+What is left is solid and one even shade; eaten slices stay as a flat black tint at 15%
+(`PIE_EATEN_ALPHA`), not the pale glass of the hue the other vessels empty into: with no outline,
+pale glass vanished into the road at play zoom and a half-eaten pie read as a semicircle. The clock takes a **whole slice at a time**, so the cut always lands on a
 slice's own radial wall, and a drained pie shows that wall as a solid edge of thickness where the
 missing slices were. Every wall is drawn before every cap (`pieWedgeOf` maps faces back to slices
 for the probe): the wall sits behind an eaten slice's glass face, and drawn after it the wall

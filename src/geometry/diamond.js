@@ -569,6 +569,11 @@ const SAND_BOTTOM = [-GLASS_H - MENISCUS, -MENISCUS];
 // the whole intent: a fare's level should read as *how much of the diamond is solid colour*, the
 // crudest and fastest comparison a shape this size can offer.
 const GLASS_ALPHA = 0.15;
+// The pie's eaten slices: black at this alpha rather than pale glass of the hue (Tyler, 2026-10-18:
+// "give the bg a black tint (15% opacity) instead of the main color to help with contrast"). The
+// pale glass disappeared into the road at play zoom, so a half-eaten pie read as a semicircle; a
+// dark tint keeps the whole disc's shape and makes the hue that is left stand off it.
+const PIE_EATEN_ALPHA = 0.15;
 
 // Emptied glass, as a transform of the fare's own hue rather than a colour of its own: much less of
 // it, and — now — mostly drained of its hue as well.
@@ -737,7 +742,10 @@ ${flipped ? '\tnormal = -normal;\n' : ''}\tfloat sheen = (1.0 - below) * pow(1.0
 \ttotalEmissiveRadiance *= mix(${glsl(GLASS_EMISSIVE)}, 1.0, max(below, meniscus));
 \tdiffuseColor.rgb = mix(diffuseColor.rgb, uFrame, plate);
 \ttotalEmissiveRadiance = mix(totalEmissiveRadiance, uFrame * ${glsl(FRAME_EMISSIVE)}, plate);
-`);
+${PIE ? `\t// The pie's eaten slices are a flat black tint, not glass of the hue: no sheen, no glow.
+\tdiffuseColor = mix(vec4(0.0, 0.0, 0.0, ${glsl(PIE_EATEN_ALPHA)}), diffuseColor, below);
+\ttotalEmissiveRadiance *= below;
+` : ''}`);
   };
 
   return uniforms;
