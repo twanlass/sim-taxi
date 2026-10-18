@@ -561,7 +561,7 @@ try {
     if (w.flash.scale.x !== 0) fail.push('flash still up at 0.5s');
     // The pane left in the taxi: off until the screen breaks, back off on a reset, and its hole
     // faces out of the front of the cab (normal from the winding, not from computeVertexNormals).
-    const { createTaxiMesh } = await import('../src/geometry/taxi.js');
+    const { createTaxiMesh, SCREEN_RAKE, SCREEN_FOOT } = await import('../src/geometry/taxi.js');
     const taxi = createTaxiMesh();
     const screen = taxi.damage.screen;
     if (screen.scale.x !== 0) fail.push('the taxi starts with its screen broken');
@@ -576,8 +576,11 @@ try {
       for (let t = 0; t < pos.count; t += 3) {
         a.fromBufferAttribute(pos, t); b.fromBufferAttribute(pos, t + 1); c.fromBufferAttribute(pos, t + 2);
         const n = b.clone().sub(a).cross(c.clone().sub(a));
-        // The hole's fan: the only triangles lying in an x = const plane that far forward of the box plates.
-        if (Math.abs(n.y) < 1e-9 && Math.abs(n.z) < 1e-9 && a.x > 0.668 && b.x > 0.668) facing += Math.sign(n.x);
+        // The hole's fan: the only triangles lying in the raked screen's plane that far forward of the
+        // plates. The screen leans back SCREEN_RAKE per unit up, so "forward" is x measured back to its foot.
+        const fwd = (v) => v.x + SCREEN_RAKE * (v.y - SCREEN_FOOT);
+        const inPlane = Math.abs(n.z) < 1e-3 * Math.abs(n.x) && Math.abs(n.y - SCREEN_RAKE * n.x) < 1e-3 * Math.abs(n.x);
+        if (inPlane && Math.abs(n.x) > 1e-9 && fwd(a) > 0.668 && fwd(b) > 0.668) facing += Math.sign(n.x);
       }
       if (facing < 9) fail.push(`broken screen's hole has ${facing} triangles facing forward`);
     }

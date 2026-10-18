@@ -2753,24 +2753,25 @@ export function carGeometry({ bumpers = true } = {}) {
 }
 
 /**
- * The top half of the police two-tone: a white shell over the cabin, car-local.
+ * The top half of the police two-tone: a white roof cap over the cabin, car-local.
  *
  * A cop car is an ordinary car underneath, and an ordinary car is one instanced mesh tinted by one
  * `instanceColor` — which can paint a body white but has no way to make its cabin a different
  * colour from it, since the glass is the same buffer multiplied by the same tint. So the cab is a
  * second shape laid over the first, drawn only on police (see `policeCabMesh` in createTraffic).
  *
- * `CAB_SKIN` proud of the cabin on its top, sides and ends, so it wholly encloses the glass and no
- * face of one lies on a face of the other. Its bottom stays level with the cabin's, which is already
- * sunk 0.03 into the body — so the one open seam is inside the car. The siren bar stands on
- * `CABIN_TOP` and so sits `CAB_SKIN` into this shell's roof, which is a buried bottom face and not a
- * coplanar pair.
+ * Only the roof: it used to enclose the whole cabin, and the workshop bench asked for the sides to
+ * be glass again, so it is now a `CAB_ROOF`-deep cap and the cabin's own glass shows below it. Still
+ * `CAB_SKIN` proud of the cabin on its top, sides and ends, so no face of one lies on a face of the
+ * other; its bottom face is buried inside the glass. The siren bar stands on `CABIN_TOP` and so sits
+ * `CAB_SKIN` into this cap, which is a buried bottom face and not a coplanar pair.
  */
 const CAB_SKIN = 0.02;
+const CAB_ROOF = 0.12;
 export function policeCabGeometry() {
   const cab = bodyBox(
-    CAR_LEN * 0.5 + 2 * CAB_SKIN, CABIN_H + CAB_SKIN, CAR_W * 0.86 + 2 * CAB_SKIN, 0.12 + CAB_SKIN);
-  cab.translate(CABIN_X, CABIN_Y + CAB_SKIN / 2, 0);
+    CAR_LEN * 0.5 + 2 * CAB_SKIN, CAB_ROOF + CAB_SKIN, CAR_W * 0.86 + 2 * CAB_SKIN, 0.12 + CAB_SKIN);
+  cab.translate(CABIN_X, CABIN_Y + CABIN_H / 2 - CAB_ROOF / 2 + CAB_SKIN / 2, 0);
   const shell = bakeColor(cab, color('policeCab'));
   return setFinish(SMOOTH_BODY ? softenNormals(shell) : shell, FINISH.PAINT);
 }
@@ -2784,8 +2785,13 @@ const TRUCK_CAB_X = TRUCK_LEN / 2 - TRUCK_CAB_LEN / 2 - 0.1; // 0.1 nose gap
 const TRUCK_CAB_Y = TRUCK_BASE_Y + 0.4 + 0.55;
 // Exported for game/flatbed.js, which swaps one truck's box for an open deck in exactly this
 // footprint: the deck has to sit on the chassis top the box sat on, or it floats or sinks.
-export const TRUCK_BOX_LEN = TRUCK_LEN * 0.58;
-export const TRUCK_BOX_X = -(TRUCK_LEN / 2) + TRUCK_BOX_LEN / 2 + 0.15; // 0.15 tail gap
+// The box runs from its tail gap up to a set gap behind the cab, so its length follows the cab
+// rather than being a fraction of its own. The gap was 0.42 (box at 0.58 of TRUCK_LEN) and read as
+// two vehicles parked nose to tail; halved at the workshop bench, the box grows forward into it.
+const TRUCK_TAIL_GAP = 0.15;
+const TRUCK_CAB_GAP = 0.21;
+export const TRUCK_BOX_LEN = (TRUCK_CAB_X - TRUCK_CAB_LEN / 2) - (-(TRUCK_LEN / 2) + TRUCK_TAIL_GAP) - TRUCK_CAB_GAP;
+export const TRUCK_BOX_X = -(TRUCK_LEN / 2) + TRUCK_BOX_LEN / 2 + TRUCK_TAIL_GAP;
 export const TRUCK_CHASSIS_TOP = TRUCK_BASE_Y + 0.4;
 
 /**

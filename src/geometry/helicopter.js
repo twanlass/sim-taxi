@@ -108,6 +108,23 @@ const POLICE_STRIPE_H = 0.44;
 const POLICE_STRIPE_Y = -0.29;
 
 /**
+ * The flank bands (both liveries), along the cabin. They stand 0.02 proud of its sides, and they
+ * have to stand proud of its back too: their rear end used to stop at x −0.8, exactly the cabin's
+ * own back face, and two same-facing faces on one plane z-fought there (seen on the workshop bench,
+ * 2026-10-16). The front end stops 0.1 short of the cabin's, where the nose takes over, so only the
+ * back moves.
+ */
+const CABIN_BACK = 0.5 - 2.6 / 2;
+const BAND_BACK = 0.02;
+const BAND_FRONT = 1.7;
+const BAND_LEN = BAND_FRONT - (CABIN_BACK - BAND_BACK);
+const BAND_X = (BAND_FRONT + CABIN_BACK - BAND_BACK) / 2;
+
+// The tail boom's two ends: the tail where it always was, the front buried 0.1 in the cabin.
+const BOOM_TAIL = -3.9;
+const BOOM_FRONT = CABIN_BACK + 0.1;
+
+/**
  * The police machine's tail lamps, one at each tip of the horizontal stabiliser: red on its own
  * left (−Z — right is +Z, see the note at the top of the file), blue on its right, the way a
  * cruiser's bar is split. The stabiliser is 1.5 across, so its tips are at ±0.75; the lamps sit
@@ -128,15 +145,17 @@ function airframe(livery = 'civil') {
   const paint = LIVERIES[livery] ?? LIVERIES.civil;
   const parts = [
     // Cabin, and the nose stepping down and in front of it. Two boxes is the whole fuselage: a
-    // light helicopter is a glasshouse with an engine behind it, and the glass below does the
-    // rest of the work.
+    // light helicopter is a glasshouse with an engine behind it. The nose is glass all through, not
+    // livery with a windscreen let into it (the workshop bench, 2026-10-16): the bubble is the
+    // shape, and painted it read as a second, smaller cabin bolted on the front.
     box(2.6, 1.3, 1.4, 0.5, 0, 0, paint.body),
-    box(0.95, 0.9, 1.15, 2.15, -0.12, 0, paint.body),
+    box(0.95, 0.9, 1.15, 2.15, -0.12, 0, 'carGlass'),
 
     // Glazing, proud of the body it sits in — the same trick the taxi's chequer and the plane's
     // window band use. The windscreen is the front of the nose rather than a panel on top of it:
     // on this machine the pilot sits *in* the bubble, and putting the glass anywhere else turns
-    // the silhouette into a van.
+    // the silhouette into a van. Glass on glass now that the nose is, but it still carries the
+    // bubble's crown above the nose's top.
     box(0.55, 0.85, 1.2, 1.95, 0.06, 0, 'carGlass'),
     box(1.2, 0.52, 1.46, 0.75, 0.22, 0, 'carGlass'),
 
@@ -145,8 +164,10 @@ function airframe(livery = 'civil') {
     // helicopter from a car with a fan on it at this size.
     box(1.5, 0.5, 1.1, -0.3, 0.83, 0, paint.body),
 
-    // Tail boom, fin and stabiliser.
-    box(2.9, 0.4, 0.4, -2.45, 0.3, 0, paint.body),
+    // Tail boom, fin and stabiliser. The boom runs 0.1 into the cabin (CABIN_BACK) so it is joined
+    // on rather than butted up: it used to stop at x −1.0, 0.2 short of the cabin's back at −0.8,
+    // and hung off the machine with a gap you could see through (the workshop bench, 2026-10-16).
+    box(BOOM_FRONT - BOOM_TAIL, 0.4, 0.4, (BOOM_FRONT + BOOM_TAIL) / 2, 0.3, 0, paint.body),
     box(0.62, 1.15, 0.15, -3.72, 0.78, 0, paint.body),
     box(0.45, 0.1, 1.5, -3.25, 0.4, 0, paint.body),
   ];
@@ -157,7 +178,7 @@ function airframe(livery = 'civil') {
     // shares a face with either; inside the stabiliser it is buried, which is fine — nothing sees
     // a face inside a box.
     parts.push(
-      box(2.5, POLICE_STRIPE_H, 1.44, 0.45, POLICE_STRIPE_Y, 0, paint.stripe),
+      box(BAND_LEN, POLICE_STRIPE_H, 1.44, BAND_X, POLICE_STRIPE_Y, 0, paint.stripe),
       box(2.6, 0.2, 0.44, -2.1, 0.3, 0, paint.stripe),
       box(0.62, 0.16, 0.16, -3.72, 1.28, 0, paint.stripe),
     );
@@ -168,8 +189,9 @@ function airframe(livery = 'civil') {
       // rather than the plane's one, occupying the same 0.17 the single band did: on a near-white
       // body the stripe is the only saturated thing on the machine, and a pair of them separated
       // by their own edge is what reads as *paint* at 40 pixels instead of as a stray line.
-      box(2.5, 0.09, 1.44, 0.45, -0.30, 0, paint.bandHi),
-      box(2.5, 0.08, 1.44, 0.45, -0.385, 0, paint.bandLo),
+      // Wrapped 0.02 round the cabin's back as well as its flanks (see BAND_BACK).
+      box(BAND_LEN, 0.09, 1.44, BAND_X, -0.30, 0, paint.bandHi),
+      box(BAND_LEN, 0.08, 1.44, BAND_X, -0.385, 0, paint.bandLo),
       // The fin's tip cap, carrying both bands in the same order, so the tail is painted like the
       // flank. Same 1.20–1.36 the single cap spanned.
       box(0.62, 0.09, 0.16, -3.72, 1.315, 0, paint.bandHi),

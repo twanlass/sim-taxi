@@ -4077,14 +4077,13 @@ const PRESSURE_END = difficulty.getTuning().pressureEnd;
     const moved = dark.map((h, n) => h !== lit[n]);
     const movedTo = lit.filter((_, n) => moved[n]);
     check('the accept flourish lights every body part of the taxi at once',
-      // Shell, roof sign and both steered wheels: four, all to the same value, and all the way back
+      // Shell and both steered wheels: three, all to the same value, and all the way back
       // afterwards. A part left out of setHighlight's list is a car whose body lights while a wheel
       // stays dark, which reads as the paint changing rather than the car reacting. (It was five while
-      // a parcel rode the rear deck — the load is a chip in the HUD now, and there is nothing on the
-      // car to light.) Seven meshes move for those four parts: both chrome bumpers and the bumper
-      // that hangs off once it is knocked loose draw on the shell's own material, so they light
-      // with it rather than needing a place in the list.
-      moved.filter(Boolean).length === 7
+      // a parcel rode the rear deck, and four while the roof sign was on.) Six meshes move for those
+      // three parts: both chrome bumpers and the bumper that hangs off once it is knocked loose draw
+      // on the shell's own material, so they light with it rather than needing a place in the list.
+      moved.filter(Boolean).length === 6
       && new Set(movedTo).size === 1
       && back.every((h, n) => h === dark[n]),
       `${moved.filter(Boolean).length} parts moved to ${new Set(movedTo).size} value(s), all restored ${back.every((h, n) => h === dark[n])}`);
@@ -11630,7 +11629,7 @@ function rideToPickup() {
     if (node.name === 'ghostRim') rims.push(node);
   });
 
-  // Ten parts: shell, roof sign, both steered wheels, and six light pods — brake, left turn signal
+  // Nine parts: shell, both steered wheels, and six light pods — brake, left turn signal
   // and right turn signal, each a *pair*. Every opaque part of the car must be in the mask — a part
   // left out counts as an occluder of the rim behind it, and the wheels being skipped once painted
   // a yellow streak along the rocker panel of a fully visible car. The light pods are opaque parts
@@ -11640,8 +11639,9 @@ function rideToPickup() {
   // (game/cargochip.js) and the car carries nothing, which is one fewer silhouette to mask rather
   // than one that stopped mattering. And it was seven until each lamp became two meshes: a pair
   // merged into one geometry cannot be dimmed by a scale without walking up the car
-  // (geometry/lights.js), so the pair is two pods pivoting on their own anchors.
-  check('taxi wears a ghost outline on every opaque part', rims.length === 10,
+  // (geometry/lights.js), so the pair is two pods pivoting on their own anchors. It was ten while
+  // the roof sign was on.
+  check('taxi wears a ghost outline on every opaque part', rims.length === 9,
     `${rims.length} rims`);
 
   // ...and every part that draws at all is in the mask, rim or not. The damage pieces (boot lid,
@@ -11657,8 +11657,8 @@ function rideToPickup() {
   });
   // Two more for the chrome bumpers (geometry/bumpers.js), masked without a rim for the reason the
   // damage pieces are: a 0.2 bar inside the shell's hull, too thin to carry one of its own.
-  check('every drawn taxi part is in the ghost stencil mask', unmasked.length === 0 && masks.length === 30,
-    `${unmasked.length} unmasked, ${masks.length} masks (10 outlined parts + 14 damage pieces + 4 door pieces + 2 bumpers)`);
+  check('every drawn taxi part is in the ghost stencil mask', unmasked.length === 0 && masks.length === 29,
+    `${unmasked.length} unmasked, ${masks.length} masks (9 outlined parts + 14 damage pieces + 4 door pieces + 2 bumpers)`);
 
   // --- A dimming lamp must dim where it stands ---------------------------------------------------
   //
@@ -12459,9 +12459,9 @@ function rideToPickup() {
   // And the rim clamp, which is what stops one number describing a body from doubling a small part
   // it also lands on.
   check('an outline can never be more than a third of the part it wraps',
-    clampRim(toonTaxi.sign.geometry, TAXI_RIM) < TAXI_RIM
+    clampRim(toonTaxi.lights[0].geometry, TAXI_RIM) < TAXI_RIM
     && clampRim(toonTraffic.mesh.geometry, HERO_RIM) === HERO_RIM,
-    `sign clamped to ${clampRim(toonTaxi.sign.geometry, TAXI_RIM).toFixed(3)}, a car body left at ${HERO_RIM}`);
+    `lamp pod clamped to ${clampRim(toonTaxi.lights[0].geometry, TAXI_RIM).toFixed(3)}, a car body left at ${HERO_RIM}`);
 
   // The two rims are the look, and the ratio between them is what says which car is the player's.
   check('the taxi is inked more heavily than the traffic it drives through',
@@ -19152,21 +19152,6 @@ let chopperOrder; // likewise
   blJoint.meshes.forEach(unmarkOccluder);
   check('unmarking empties what was marked',
     mine.every((m) => !emissiveList().has(m)));
-}
-
-// --- Taxi roof sign -----------------------------------------------------------
-// The sign no longer carries the fare's own colour — it just says occupied or not. Assert the
-// on/off states directly rather than trusting the toggle by eye.
-{
-  const { sign, setOccupied } = createTaxiMesh();
-  const hex = (c) => new THREE.Color(c).getHexString();
-  check('taxi sign starts dark, empty', sign.material.color.getHexString() === hex(PALETTE.taxiTrim));
-  setOccupied(true);
-  check('taxi sign lights up once a rider boards',
-    sign.material.color.getHexString() === hex(PALETTE.taxiSign));
-  setOccupied(false);
-  check('taxi sign goes dark again once the rider is dropped off',
-    sign.material.color.getHexString() === hex(PALETTE.taxiTrim));
 }
 
 // --- The river, its bridges and the span that lifts ------------------------
