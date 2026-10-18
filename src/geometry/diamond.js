@@ -837,6 +837,10 @@ export function createDiamond(colorHex) {
   shadeVessel();
 
   const rim = outlineHull(RIM_GEO, RIM_SCALE);
+  // The pie goes without one (Tyler, 2026-10-18: "try without the black outline"): solid, tilted
+  // and lit, its own edge already separates it from the city. The hull is still built and hidden
+  // rather than dropped, so everything that reads `rim` keeps working and the old look is one flag.
+  rim.visible = !PIE;
   mesh.add(rim);
 
   // The falling stream, from the neck to the top of the pile. A thin column of the hue inside the
