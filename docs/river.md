@@ -35,6 +35,21 @@ The river takes the middle row (`middleRow` in `city/river.js`), so the land eit
 3 and 3 — or 2 and 3 in the classic city, which has two middle rows to pick from. That is the
 point of it: a trip across town has to pick a crossing.
 
+### The channel is wider than a block row (`?river=classic`)
+
+The row is the river, but it is not a block row's width: the gap between the two bank roads is
+`PITCH + RIVER_EXTRA`, 15 units of channel between the kerbs against a block's 12 (Tyler,
+2026-10-18: "Can we widen the river by 25%?"). The extra 3 **grows the map** rather than coming out
+of the lots either side, the same call the wider streets made (`grid.js`): a lane between two
+junctions stays at least `BLOCK` long, which a dozen along-the-lane chains are sized against. Only
+the river crossings get longer, and everything on the water — the decks, the leaf, the boat lanes,
+the L's truss — is measured from `riverBanks()`, so it follows.
+
+The cost is that the z lines are no longer evenly spaced: everything south of the river sits
+`RIVER_EXTRA` further south. `lineZ` knows, and anything turning a z *back* into an index goes
+through `gridZ` / `lineIndexZ` / `rowIndexZ` rather than dividing by `PITCH`. The painted road
+strokes do the same in their shader (`uRiverZ`). `?city=big` keeps the 12-unit channel.
+
 ### Two things the network could not work out for itself
 
 `roadNetFromGrid` tags the faces over the channel `type: 'water'`. The graph has no idea water is
