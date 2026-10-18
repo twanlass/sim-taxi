@@ -139,7 +139,8 @@ const slider = (min, max, step, value) => el('input', { type: 'range', min, max,
  * @param {Object<string, {held: () => boolean, set: (on: boolean) => (string|null)}>} [opts.holds]
  *   By sound: freeze the moving thing that plays it, sound looping (the ⏸ buttons).
  * @param {(key: string) => ({d: number, pan: number}|null)} [opts.placeOf]  Where a placed sound
- *   is heard from right now (its pin, measured from the 👂), or null — what ▶ plays it from.
+ *   is heard from right now (its pin, measured from the 👂), or null — what ▶ plays it from,
+ *   asked again every frame while it plays.
  * @returns {{ open: () => void, close: () => void }}  Called as the ⚙️ panel opens and closes.
  */
 export function buildAudioSections(host, sfx, { triggers = {}, holds = {}, placeOf = () => null } = {}) {
@@ -474,9 +475,10 @@ export function buildAudioSections(host, sfx, { triggers = {}, holds = {}, place
     box.addEventListener('focusin', () => focus(key, box));
     // ▶ plays a placed sound from its pin, heard from the 👂, so what it sounds like is what the
     // player would hear from here (Tyler, October 2026: a ▶ at full level on a court the 👂 was
-    // well outside read as the falloff being broken). Shift-▶ is the raw file.
+    // well outside read as the falloff being broken). Live: it follows the rings and the 👂 as
+    // they move. Shift-▶ is the raw file.
     play.addEventListener('click', (event) => {
-      const file = sfx.audition(key, event.shiftKey ? null : placeOf(key));
+      const file = sfx.audition(key, event.shiftKey ? null : () => placeOf(key));
       if (!file) { paintStatus(); return; }
       const r = sfx.replaced(key);
       if (r) fileLabel.textContent = `${fileText} · played ${r.names[r.ids.indexOf(file)] ?? 'local file'}`;
