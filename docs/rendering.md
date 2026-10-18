@@ -114,10 +114,12 @@ Every vehicle body and every wheel — the fleet, truck cabs and boxes, the cop 
 the taxi, and [every other vehicle](#every-other-vehicle) — is `MeshPhongMaterial` rather than the
 Lambert everything else wears, with one more patch on top of `patchProp`. Wrecks stay plain Lambert.
 
-**Five finishes, one program.** `setFinish()` bakes an `aFinish` attribute per part —
+**Six finishes, one program.** `setFinish()` bakes an `aFinish` attribute per part —
 `FINISH.TYRE`, `PAINT`, `GLASS`, `METAL` (the hubcaps, `geometry/wheels.js`, and the chrome
-bumpers, `geometry/bumpers.js`) and `MATTE`, for what a vehicle carries rather than what it is
-made of (below) — and the shader
+bumpers, `geometry/bumpers.js`), `MATTE`, for what a vehicle carries rather than what it is
+made of (below), and `PATINA`, oxidised copper (the bank's dome, [city.md](city.md#the-bank)):
+a satin sheen in its own green with no flop, since `METAL` is too hard a mirror and `PAINT` is
+shared with every car — and the shader
 indexes three shared `vec4` uniform arrays with it, so each finish has its own full set of numbers
 (`FINISH_DEFAULTS`: glint, glint sharpness, glint bend, sheen, sheen sharpness, flake, reflect,
 reflect edge, reflect bend, base colour) while every glossy material still compiles to the same
@@ -973,6 +975,18 @@ to obscure the edge. Wanna create the illusion that the world goes on forever."
   helicopters transit at 22 and nothing keeps them out of the north.
 
 History: [the bare edge](rendering-history.md#past-the-edge-of-the-map).
+
+## The render path — `game/renderpath.js`
+
+The frame's shape, in one module so two pages can draw it: the game and the model workshop's
+bench ([workshop.md](workshop.md#the-bench)). `renderBudget()` reads the URL's rendering flags,
+`decideLooks()` takes every decision `propMaterial()` compiles in (AO, Crayon, Cartoon, painterly,
+the paint look, the rim, cloud shadows), and must run before any mesh exists. `createRenderPath()`
+builds the passes below and settles `?hdr` against `?bloom`. Its `render(scene, cam)` runs one
+frame in order: crayon sizing, empty-pool culling, the rain's mirror, the AO prepass, the rim's
+depth, the bloom, the river's fog sync, then the frame (or the HDR composer) and the rain on the
+lens. The game's weather and `?diag` ride in as optional extras. A change to how a frame is drawn
+goes here, never into `main.js`'s `renderFrame`, or the bench stops showing what the game shows.
 
 ## Ambient occlusion — `game/ssao.js`
 

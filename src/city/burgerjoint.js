@@ -714,6 +714,12 @@ export function burgerGeometry() {
  * lifts them as a single building, and the third is grown beside them by `createCityEntry`'s
  * `objects` list — see `burgerGeometry` for why it cannot ride in the shader with them.
  */
+/** What the model workshop finds this landmark by (src/workshop/catalog.js, `LANDMARKS`). */
+// `glow`: what blooms, at which kind (game/bloom.js) — read by main.js and the bench alike.
+export const LANDMARK = {
+  id: 'burger', label: 'Burger joint', create: createBurgerJoint, glow: (b) => [[b.glow, 'window']],
+};
+
 export function createBurgerJoint(block, rng) {
   const site = burgerSite(block);
   const { wall, apron, laneX, kerbZ, kerbX, turnZ, exitZ, orderZ, pickupZ } = site;

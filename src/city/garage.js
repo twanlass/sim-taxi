@@ -648,6 +648,17 @@ function cutoutGeometry() {
  * its own building rather than leaving it hanging in the air. The light is unlit and outside the
  * wave, and the sign is outside it for a different reason — see `wrenchGeometry`.
  */
+/** What the model workshop finds this landmark by (src/workshop/catalog.js, `LANDMARKS`). */
+// `glow` is what blooms and at which `BLOOM_INTENSITY` kind (game/bloom.js), read by main.js and the
+// bench alike so the two cannot disagree. The office panes are not here: main.js builds them
+// through `switchedLights` from `litWindows`, and the bench has no evening to switch them on in.
+export const LANDMARK = {
+  id: 'depot',
+  label: 'Taxi depot',
+  create: createGarage,
+  glow: (g) => [[g.light, 'bay'], [g.neon, 'window'], [g.roofNeon, 'window']].filter(([m]) => m),
+};
+
 export function createGarage(block, rng, { sign: style = 'cutout', trim: withTrim = true } = {}) {
   const site = garageSite(block);
   const { x0, z0, z1 } = block.bounds;

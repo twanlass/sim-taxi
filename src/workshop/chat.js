@@ -18,6 +18,13 @@ const sendButton = document.getElementById('send');
 const stopButton = document.getElementById('stop');
 const newButton = document.getElementById('new-chat');
 const attachmentsEl = document.getElementById('attachments');
+// Which model a message goes to: Auto lets the endpoint judge (`isSimple`), Fast and Smart say.
+// Kept in localStorage rather than the conversation, since it is a preference, not a turn.
+const speedSelect = document.getElementById('speed');
+if (speedSelect) {
+  speedSelect.value = localStorage.getItem('workshop-speed') ?? 'auto';
+  speedSelect.addEventListener('change', () => localStorage.setItem('workshop-speed', speedSelect.value));
+}
 
 /**
  * { sessionId, messages: [{ role, text } | { role: 'tool', name, detail }], runId, seen, queue }
@@ -106,6 +113,7 @@ async function addImages(files) {
 }
 
 function drawAttachments() {
+  syncSend();
   attachmentsEl.hidden = !attached.length;
   attachmentsEl.replaceChildren(...attached.map((src, i) => {
     const thumb = document.createElement('div');
@@ -177,24 +185,56 @@ const inline = (s) => escape(s)
 /** A path relative to the repo, which is all anyone wants to read in a tool line. */
 const short = (path) => path.replace(/^.*?\/(src|tools|docs|assets|workshop)\//, '$1/');
 
+// When a reaction appears after its message is sent (the "…" shows from just after the message lands
+// until then, about a second), and how long it takes to pop in (ms).
+const REACTION_DELAY = 1200;
+const REACTION_POP = 250;
+
+// Which undo rows have their file list open, by run, for the same reason as `openGroups` below.
+const openChanges = new Set();
+
 function element(message, latestUndo) {
+  if (message.role === 'bg') return backgroundElement(message);
   const el = document.createElement('div');
   if (message.role === 'undo') {
     // Only the latest turn's edits can be undone: an older turn's snapshot predates everything
     // after it, so putting its files back would quietly take the later turns with them.
     el.className = 'undo';
-    const names = message.files.map((f) => f.split('/').pop()).join(', ');
     if (message.state === 'done') {
-      el.textContent = `Undone: ${names}`;
+      const done = document.createElement('span');
+      done.className = 'undone';
+      done.textContent = 'Undone';
+      el.append(done);
     } else {
       const button = document.createElement('button');
       button.type = 'button';
       button.className = 'act';
-      button.textContent = `Undo (${names})`;
+      button.textContent = 'Undo';
       button.disabled = message !== latestUndo || Boolean(chat.runId);
       button.addEventListener('click', () => undo(message));
       el.append(button);
     }
+    // The files beside the button, folded away: a turn can touch half a dozen, and strung into the
+    // button's label they ran on into one unreadable line. A toggle and a list as siblings rather
+    // than a <details>, so the toggle sits on the button's line and the list wraps below both.
+    const open = openChanges.has(message.runId);
+    const toggle = document.createElement('button');
+    toggle.type = 'button';
+    toggle.className = 'changes';
+    toggle.textContent = `Changes ${open ? '▾' : '▸'}`;
+    toggle.setAttribute('aria-expanded', String(open));
+    toggle.addEventListener('click', () => {
+      if (openChanges.has(message.runId)) openChanges.delete(message.runId); else openChanges.add(message.runId);
+      render();
+    });
+    const list = document.createElement('ul');
+    list.hidden = !open;
+    for (const file of message.files) {
+      const item = document.createElement('li');
+      item.textContent = short(file);
+      list.append(item);
+    }
+    el.append(toggle, list);
     return el;
   }
   if (message.role === 'tool') {
@@ -203,6 +243,30 @@ function element(message, latestUndo) {
   } else {
     el.className = `msg ${message.role}`;
     el.innerHTML = inline(message.text ?? '');
+    if (message.reaction) {
+      const badge = document.createElement('span');
+      badge.className = 'reaction';
+      badge.textContent = message.reaction;
+      // Pops in half a second after the message is sent. The log is rebuilt on every streamed event,
+      // which would restart a plain animation each time, so the delay is what is left of the 500ms
+      // (negative once it is under way, which resumes the animation at the right frame instead of
+      // replaying it). Past the end of it, no animation at all: the badge just sits there.
+      const age = Date.now() - (message.sentAt ?? 0);
+      if (age < REACTION_DELAY + REACTION_POP) {
+        badge.style.animation = `reaction-pop ${REACTION_POP}ms cubic-bezier(0.2, 1.6, 0.4, 1) ${REACTION_DELAY - age}ms backwards`;
+      }
+      // Before it, a "…" that stands in for the agent thinking: it fades in just after the message
+      // lands, bounces for about a second, and is gone when the reaction takes its place. One
+      // animation across the whole wait (`typing-life`), resumed by the same negative delay.
+      if (age < REACTION_DELAY) {
+        const typing = document.createElement('span');
+        typing.className = 'reaction typing';
+        typing.style.animation = `typing-life ${REACTION_DELAY}ms linear ${-age}ms both`;
+        typing.innerHTML = '<i></i><i></i><i></i>';
+        el.append(typing);
+      }
+      el.append(badge);
+    }
   }
   return el;
 }
@@ -260,6 +324,16 @@ function render() {
     if (messages[i] === live) el.classList.add('working');
     log.append(el);
   }
+  // From the moment a message is sent until the first thing comes back (a tool call or a word of the
+  // reply): a "Thinking" row, so the gap is never an empty log. That gap is real work, not lag the
+  // page can remove: the screenshot, the snapshot for Undo, starting the CLI, and the model's first
+  // token. `busy()` is already true while the request is in flight, so it shows at once.
+  if (busy() && messages.at(-1)?.role === 'user') {
+    const thinking = document.createElement('div');
+    thinking.className = 'thinking';
+    thinking.innerHTML = '<i class="pulse"></i>Thinking';
+    log.append(thinking);
+  }
   for (const item of chat.queue) {
     const el = document.createElement('div');
     el.className = 'msg user queued';
@@ -273,9 +347,11 @@ function render() {
     log.append(el);
   }
   log.scrollTop = log.scrollHeight;
-  const busy = Boolean(chat.runId);
-  sendButton.textContent = busy ? 'Queue' : 'Send';
-  stopButton.hidden = !busy;
+  // Not `busy`: a local of that name shadows the module's `busy()` for the whole function, so the
+  // Thinking check above hit it before it was declared and threw on every render, page load included.
+  const running = Boolean(chat.runId);
+  sendButton.textContent = running ? 'Queue' : 'Send';
+  stopButton.hidden = !running;
 }
 
 // The images themselves stay out of the log (sessionStorage again), so a bubble just counts them.
@@ -295,14 +371,14 @@ function benchNow() {
 }
 
 /** Hold a message until the run ahead of it is done, with the bench as it is now. */
-function enqueue(text, pin = null, image = null, attachments = []) {
+function enqueue(text, pin = null, image = null, attachments = [], speed = null) {
   const id = `q-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
   if (!image) {
     try { image = window.__workshop?.capture?.() ?? null; } catch { /* sent with a fresh one */ }
   }
   if (image) keepImage(id, image);
   if (attachments.length) keepImage(`${id}:att`, attachments);
-  chat.queue.push({ id, text, pin, bench: benchNow(), images: attachments.length });
+  chat.queue.push({ id, text, pin, bench: benchNow(), images: attachments.length, speed });
   save();
   render();
 }
@@ -329,7 +405,7 @@ async function drain() {
   starting = false;
   const lost = (item.images ?? 0) - attachments.length;
   const text = lost > 0 ? `${item.text}\n\n(${lost} image(s) they attached were lost before this was sent.)` : item.text;
-  send(text, item.pin, image, item.bench, attachments);
+  send(text, item.pin, image, item.bench, attachments, item.speed);
 }
 
 // --- Talking to the dev server ---------------------------------------------
@@ -348,9 +424,18 @@ function apply(event) {
   } else if (event.type === 'tool') {
     live = null;
     chat.messages.push({ role: 'tool', name: event.name, detail: event.detail });
+  } else if (event.type === 'model') {
+    // Which model took the turn is not shown: the endpoint still reports it, but a line under every
+    // quick reply was noise. The Speed picker says what was asked for.
   } else if (event.type === 'done') {
     live = null;
     if (!event.ok && event.error) chat.messages.push({ role: 'error', text: event.error });
+    // The test and docs status first, then Undo under it, so Undo is the last thing on the reply.
+    if (event.background) {
+      const bg = { role: 'bg', runId: chat.runId, check: 'running', docs: 'running', failures: '', docsFiles: [] };
+      chat.messages.push(bg);
+      watchBackground(bg);
+    }
     if (event.undoable) chat.messages.push({ role: 'undo', runId: chat.runId, files: event.edited, state: 'ready' });
     chat.runId = null;
     // The bench takes down the pin this run was answering (viewer.js). An event, not a call, for
@@ -361,6 +446,93 @@ function apply(event) {
 }
 
 const sleep = (ms) => new Promise((done) => setTimeout(done, ms));
+
+// --- What follows a reply: the checks and the docs pass ---------------------
+//
+// The agent no longer runs `npm run check` or touches docs/ inside its turn; the endpoint does both
+// once the reply is done (`background` in tools/workshop-agent.mjs), and this polls for the result
+// and draws it under the reply. Polled rather than streamed because it outlives the run's stream,
+// and a reload in between must find it again: `watchBackground` is re-armed from the log on boot.
+
+const settled = (state) => state !== 'running';
+const watching = new Set();
+
+async function watchBackground(bg) {
+  if (watching.has(bg.runId)) return;
+  watching.add(bg.runId);
+  try {
+    while (!leaving && !(settled(bg.check) && settled(bg.docs))) {
+      await sleep(2000);
+      let reply;
+      try {
+        const res = await fetch(`/__workshop/runs/${bg.runId}/background`);
+        if (res.status === 404) { Object.assign(bg, { check: 'lost', docs: 'lost' }); break; }
+        reply = await res.json();
+      } catch { continue; }      // the dev server restarting: try again
+      Object.assign(bg, {
+        check: reply.check, docs: reply.docs, failures: reply.failures ?? '',
+        docsFiles: reply.docsFiles ?? [], docsNote: reply.docsNote ?? '',
+      });
+      // The docs pass's files join the turn's, so its Changes list (and Undo) covers them.
+      const undoRow = chat.messages.find((m) => m.role === 'undo' && m.runId === bg.runId);
+      if (undoRow && reply.edited) undoRow.files = reply.edited;
+      save();
+      render();
+    }
+  } finally {
+    watching.delete(bg.runId);
+  }
+  save();
+  render();
+}
+
+function backgroundElement(bg) {
+  const el = document.createElement('div');
+  el.className = 'bg';
+  const check = {
+    running: 'Running tests', pass: '✓ Tests pass', fail: '✗ Tests failed',
+    superseded: 'Tests: folded into the next edit\'s', cancelled: 'Tests cancelled', lost: 'Tests: lost track (dev server restarted)',
+  }[bg.check];
+  const docs = {
+    running: 'Updating docs',
+    done: bg.docsFiles?.length ? `✓ Docs updated (${bg.docsFiles.length})` : '✓ No doc changes needed',
+    fail: '✗ Docs pass failed', cancelled: 'Docs pass cancelled', lost: '',
+  }[bg.docs];
+  // A pulsing dot in front of whatever is still running, in place of a spinner glyph.
+  const part = (text, running) => {
+    const span = document.createElement('span');
+    if (running) {
+      const dot = document.createElement('i');
+      dot.className = 'pulse';
+      span.append(dot);
+    }
+    span.append(text);
+    return span;
+  };
+  const line = document.createElement('div');
+  line.className = 'bg-line';
+  const parts = [[check, bg.check === 'running'], [docs, bg.docs === 'running']].filter(([text]) => text);
+  parts.forEach(([text, running]) => line.append(part(text, running)));
+  el.append(line);
+  if (bg.check === 'fail') {
+    if (bg.failures) {
+      const pre = document.createElement('pre');
+      pre.textContent = bg.failures;
+      el.append(pre);
+    }
+    const fix = document.createElement('button');
+    fix.type = 'button';
+    fix.className = 'act';
+    fix.textContent = 'Fix';
+    // Always on the default model: a failure is exactly what Auto's fast guess is not for.
+    fix.addEventListener('click', () => {
+      const text = `The background checks (npm run check) failed after your last edit:\n\n${bg.failures}\n\nFix what the edit broke, or update the probe if the change was deliberate.`;
+      if (busy()) enqueue(text, null, null, [], 'smart'); else send(text, null, null, null, [], 'smart');
+    });
+    el.append(fix);
+  }
+  return el;
+}
 
 /**
  * Read a run's events from `chat.seen` on, until it ends. Safe to call again after a reload.
@@ -461,14 +633,16 @@ async function undo(message) {
  * `image` and `at` (the model and view) come with a queued message, taken when it was queued; a
  * message sent straight away reads them off the bench now.
  */
-async function send(text, pin = null, image = null, at = null, attachments = []) {
+async function send(text, pin = null, image = null, at = null, attachments = [], speed = null) {
   const bench = window.__workshop;
   starting = true;
-  chat.messages.push({ role: 'user', text: bubbleText(text, pin, attachments.length) });
+  // Deterministic reaction, off what they typed (not the pin's label): a question gets 👀, anything
+  // else 👍.
+  chat.messages.push({ role: 'user', text: bubbleText(text, pin, attachments.length), reaction: text.includes('?') ? '👀' : '👍', sentAt: Date.now() });
   // The endpoint refuses an empty message, and an image on its own is a fair thing to send.
   const said = text || 'See the attached image.';
   const message = pin
-    ? `${said}\n\n[They pinned this to a spot they clicked on the model, marked with a yellow ring in the screenshot:\n${pin.context}]`
+    ? `${said}\n\n[They pinned this to a spot they clicked on the model, marked with a white ring in the screenshot:\n${pin.context}]`
     : said;
   live = null;
   render();
@@ -486,6 +660,8 @@ async function send(text, pin = null, image = null, at = null, attachments = [])
     view,
     image,
     attachments,
+    // The Speed picker (Auto / Fast / Smart), unless this message came with its own: Fix does.
+    speed: speed ?? speedSelect?.value ?? 'auto',
   };
 
   try {
@@ -499,7 +675,7 @@ async function send(text, pin = null, image = null, at = null, attachments = [])
     if (res.status === 409 && reply.runId === chat.lastRunId) {
       // Our own run, still going: we lost track of it somehow. Pick it back up instead of failing.
       chat.messages.pop();
-      if (!pin) input.value = text;
+      if (!pin) { input.value = text; autosize(); }
       chat.runId = reply.runId;
       save();
       render();
@@ -529,12 +705,147 @@ async function send(text, pin = null, image = null, at = null, attachments = [])
   }
 }
 
+// The half-written message survives a reload. An edit to the page, or to anything Vite cannot swap
+// in place, reloads this tab, and a textarea does not outlive that on its own: whatever was being
+// typed was gone. Kept in sessionStorage as it is typed and put back on load, cleared on send.
+// Text only; pasted images are too big to keep here (see `queuedImages`).
+const DRAFT = 'workshop-chat-draft';
+
+/** Send (or Queue) is only live with something to send: some text, or a pasted image. */
+function syncSend() {
+  sendButton.disabled = !input.value.trim() && !attached.length;
+}
+
+/**
+ * Size the box to its text. Collapsed first so it can shrink as well as grow, then set to the
+ * content's height plus the border (`scrollHeight` leaves it out and the box is border-box). The
+ * CSS `min-height` and `max-height` (ten rows) are what bound it; past the cap it scrolls.
+ */
+function autosize() {
+  syncSend();
+  input.style.height = 'auto';
+  input.style.height = `${input.scrollHeight + 2}px`;
+  // Kept at the end while it grows, so the line being typed is not the one scrolled away.
+  if (input.scrollHeight > input.clientHeight) input.scrollTop = input.scrollHeight;
+}
+
+try { input.value = sessionStorage.getItem(DRAFT) ?? ''; } catch { /* a private window */ }
+autosize();
+input.addEventListener('input', () => {
+  autosize();
+  try { sessionStorage.setItem(DRAFT, input.value); } catch { /* best effort */ }
+});
+const clearDraft = () => {
+  try { sessionStorage.removeItem(DRAFT); } catch { /* best effort */ }
+  autosize();
+};
+
+// ...and so does the focus, with the caret where it was. A reload dropped it, so you could not keep
+// typing while an edit was landing: noted as the page goes away (while it still knows what has
+// focus) and given back on load.
+const FOCUS = 'workshop-chat-focus';
+const noteFocus = () => {
+  try {
+    if (document.activeElement === input) {
+      sessionStorage.setItem(FOCUS, JSON.stringify([input.selectionStart, input.selectionEnd]));
+    } else {
+      sessionStorage.removeItem(FOCUS);
+    }
+  } catch { /* best effort */ }
+};
+addEventListener('beforeunload', noteFocus);
+addEventListener('pagehide', noteFocus);
+try {
+  const saved = JSON.parse(sessionStorage.getItem(FOCUS));
+  sessionStorage.removeItem(FOCUS);
+  if (Array.isArray(saved)) {
+    input.focus({ preventScroll: true });
+    input.setSelectionRange(saved[0] ?? input.value.length, saved[1] ?? input.value.length);
+  }
+} catch { /* nothing noted */ }
+
+// --- Voice mode ---------------------------------------------------------------
+//
+// The browser's own speech recognition (the Web Speech API: `SpeechRecognition`, prefixed in Chrome
+// and Safari), so nothing is uploaded by this page and nothing is installed. The mic sits beside the
+// Speed picker; pressed, it starts listening and the transcript streams into the composer as it is
+// recognised, interim words included, appended after whatever was already typed. While it listens
+// the picker and Send are hidden and the mic is a stop button (CSS, `#compose.listening`). Not
+// every browser has it (Firefox does not), and the button stays hidden there.
+//
+// In Chrome the audio is sent to Google's recognition service, which is the browser's doing and not
+// ours, and the page needs microphone permission: a refusal is said in the chat rather than lost.
+const micButton = document.getElementById('mic');
+const Recognition = window.SpeechRecognition ?? window.webkitSpeechRecognition;
+let recognizer = null;
+
+if (micButton && Recognition) {
+  micButton.hidden = false;
+
+  const stopListening = () => recognizer?.stop();
+
+  micButton.addEventListener('click', () => {
+    if (recognizer) { stopListening(); return; }
+
+    const r = new Recognition();
+    r.continuous = true;          // keep going through pauses until stopped
+    r.interimResults = true;      // words appear as they are heard, then settle
+    r.lang = navigator.language || 'en-US';
+    // What was in the box when listening began, so the transcript goes after it, with a space
+    // between if the box did not already end in one.
+    const base = input.value && !/\s$/.test(input.value) ? `${input.value} ` : input.value;
+    r.onresult = (event) => {
+      let heard = '';
+      // `results` is everything since `start()`, finished and in-progress alike, so the box is
+      // rebuilt from base + all of it each time rather than appended to.
+      for (let i = 0; i < event.results.length; i++) heard += event.results[i][0].transcript;
+      input.value = base + heard.trimStart();
+      input.scrollTop = input.scrollHeight;
+      // The same event a keystroke fires, so the draft is kept for a reload.
+      input.dispatchEvent(new Event('input'));
+    };
+    r.onerror = (event) => {
+      // `no-speech` and `aborted` are just a quiet room or our own stop: not worth a message.
+      if (event.error === 'no-speech' || event.error === 'aborted') return;
+      chat.messages.push({
+        role: 'error',
+        text: event.error === 'not-allowed' || event.error === 'service-not-allowed'
+          ? 'Microphone access was blocked. Allow it for this page in the browser, then try again.'
+          : `Voice input stopped: ${event.error}.`,
+      });
+      save();
+      render();
+    };
+    r.onend = () => {
+      recognizer = null;
+      form.classList.remove('listening');
+      micButton.setAttribute('aria-label', 'Dictate');
+      micButton.title = 'Dictate';
+      input.focus();
+    };
+    try {
+      r.start();
+    } catch {
+      return;                     // already running: a double press
+    }
+    recognizer = r;
+    form.classList.add('listening');
+    micButton.setAttribute('aria-label', 'Stop dictating');
+    micButton.title = 'Stop dictating';
+  });
+
+  // The page going away mid-dictation would leave a recognizer talking to nothing.
+  addEventListener('pagehide', () => recognizer?.abort());
+}
+
 form.addEventListener('submit', (event) => {
   event.preventDefault();
+  recognizer?.stop();           // a submit while dictating (Enter) ends it first
   const text = input.value.trim();
   if (!text && !attached.length) return;
   const images = attached;
   input.value = '';
+  clearDraft();
   attached = [];
   drawAttachments();
   if (busy()) enqueue(text, null, null, images); else send(text, null, null, null, images);
@@ -568,6 +879,10 @@ window.__workshopChat = {
 };
 
 render();
+// Checks and docs passes still going when the page reloaded.
+for (const m of chat.messages) {
+  if (m.role === 'bg' && !(settled(m.check) && settled(m.docs))) watchBackground(m);
+}
 if (!chat.runId && chat.lastRunId) {
   // Belt and braces for a page that lost its run anyway: if the server is still busy with the run
   // this conversation started, carry on reading it rather than refusing the next message.

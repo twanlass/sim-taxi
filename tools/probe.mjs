@@ -1187,7 +1187,9 @@ const onGrass = (city, i, j) => {
   let strays = 0;
   let soft = 0;
   let crowned = 0;
-  const scan = (mesh, crowns) => {
+  // `exempt`: spheres that are smooth on purpose without being crowns — the bank's dome
+  // (city/bank.js), which is let off its strays and kept out of the crowns' own tally.
+  const scan = (mesh, crowns, exempt = []) => {
     const pos = mesh.geometry.attributes.position;
     const nrm = mesh.geometry.attributes.normal;
     for (let i = 0; i < pos.count; i += 3) {
@@ -1200,6 +1202,7 @@ const onGrass = (city, i, j) => {
       let bent = false;
       for (let k = 0; k < 3; k++) if (vn.fromBufferAttribute(nrm, i + k).dot(face) < 0.999) bent = true;
       const inCrown = crowns.some((l) => Math.hypot(a.x - l.x, a.y - l.y, a.z - l.z) < l.r * 1.3);
+      if (exempt.some((d) => Math.hypot(a.x - d.x, a.y - d.y, a.z - d.z) < d.r * 1.01)) continue;
       if (bent && !inCrown) strays += 1;
       if (inCrown) crowned += 1;
       if (bent && inCrown) soft += 1;
@@ -1213,7 +1216,7 @@ const onGrass = (city, i, j) => {
     // Generous on purpose: a trunk or a bench under a crown falls inside its 1.3 r and is let off.
     // What this is for is a wall, a roof or a plinth going soft, which nothing near a tree is.
     scan(builtProps.mesh, builtProps.crowns);
-    scan(builtCity.mesh, builtCity.court?.crowns ?? []);
+    scan(builtCity.mesh, builtCity.court?.crowns ?? [], builtCity.bank ? [builtCity.bank.dome] : []);
   }
   createLayout(makeRng(seed));   // `createLayout` installs its network — put the probe's city back
   check('only the tree crowns are smooth-shaded; every other face keeps its facet', strays === 0,
@@ -12305,11 +12308,15 @@ function rideToPickup() {
 
   // Every render path has to size the page, for the same reason every one has to run the AO pass:
   // shot mode and __taxi.redraw() both reach a render without ever reaching the frame loop.
+  // The frame itself lives in game/renderpath.js, shared with the workshop's bench, so this is two
+  // halves: main.js renders through it, and it sizes the page before it draws.
   const crayonMainSource = fs.readFileSync(new URL('../src/main.js', import.meta.url), 'utf8');
+  const renderPathSource = fs.readFileSync(new URL('../src/game/renderpath.js', import.meta.url), 'utf8');
   check('every render goes through the crayon prepare',
-    /function renderFrame\([^)]*\)[\s\S]*?crayon\.prepare\(\)[\s\S]*?renderer\.render/
-      .test(crayonMainSource),
-    'main.js sizes the page inside renderFrame()');
+    /function renderFrame\([^)]*\)\s*\{[^}]*renderPath\.render\(/.test(crayonMainSource)
+      && /render\(scene, cam[^)]*\)\s*\{[\s\S]*?crayon\.prepare\(\)[\s\S]*?renderer\.render/
+        .test(renderPathSource),
+    'main.js renders through renderPath.render(), which sizes the page first');
 }
 
 // --- Cartoon Mode --------------------------------------------------------------

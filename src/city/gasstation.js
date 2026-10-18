@@ -66,6 +66,12 @@ export function gasStationSite(block) {
   };
 }
 
+/** What the model workshop finds this landmark by (src/workshop/catalog.js, `LANDMARKS`). */
+// `glow`: what blooms, at which kind (game/bloom.js) — read by main.js and the bench alike.
+export const LANDMARK = {
+  id: 'gas', label: 'Gas station', create: createGasStation, glow: (g) => [[g.glow, 'window']],
+};
+
 export function createGasStation(block, rng) {
   const site = gasStationSite(block);
   const { store: s, canopy: c } = site;

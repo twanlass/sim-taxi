@@ -24,7 +24,7 @@ import { createSouthShore } from './city/southshore.js';
 import { createParkShore } from './city/parkshore.js';
 import { createWestEdge } from './city/westedge.js';
 import { createHorizon } from './city/horizon.js';
-import { tickRiverWater, syncRiverWater, bindRiverDrawbridge, setWaterStyle } from './city/riverwater.js';
+import { tickRiverWater, bindRiverDrawbridge, setWaterStyle } from './city/riverwater.js';
 import { createDrawbridge } from './game/drawbridge.js';
 import { createBoats } from './game/boats.js';
 import { createHarborShips } from './game/harborships.js';
@@ -34,9 +34,9 @@ import { createProps, parkPlots, setAutumn } from './city/props.js';
 import { createLeaves } from './game/leaves.js';
 import { createGrass } from './city/grass.js';
 import { createCanopyFuzz } from './city/canopyfuzz.js';
-import { createGarage } from './city/garage.js';
-import { createBurgerJoint, SIGN_SPIN } from './city/burgerjoint.js';
-import { createGraveyard } from './city/graveyard.js';
+import { createGarage, LANDMARK as GARAGE_LANDMARK } from './city/garage.js';
+import { createBurgerJoint, SIGN_SPIN, LANDMARK as BURGER_LANDMARK } from './city/burgerjoint.js';
+import { createGraveyard, LANDMARK as GRAVEYARD_LANDMARK } from './city/graveyard.js';
 import { plantedCrowns } from './city/props.js';
 import {
   createTraffic, placeCar, TRUCK_CHANCE, CLASSIC_CHANCE, TRUCK_LEN, TRUCK_W, laysPassRubber, copLaysRubber, SPEED,
@@ -70,7 +70,6 @@ import { createSkidMarks, createTyreTrail } from './game/skidmarks.js';
 import { createDust, DUST_ROAD_Y } from './game/dust.js';
 import { createSpray } from './game/spray.js';
 import { createCityEntry } from './game/cityentry.js';
-import { createBrushTiles } from './game/brushtiles.js';
 import { createBlast, WRECK_STYLES } from './game/blast.js';
 import { createFlames } from './game/flames.js';
 import { createSparks } from './game/sparks.js';
@@ -93,8 +92,8 @@ import { createDucks } from './game/ducks.js';
 import { createHoopers } from './game/hoopers.js';
 import { createBoombox } from './game/boombox.js';
 import { createTubeMan } from './game/tubeman.js';
-import { createCarWash } from './city/carwash.js';
-import { createGasStation } from './city/gasstation.js';
+import { createCarWash, LANDMARK as CARWASH_LANDMARK } from './city/carwash.js';
+import { createGasStation, LANDMARK as GAS_LANDMARK } from './city/gasstation.js';
 import { roadsideKind } from './city/roadside.js';
 import { createLTrain, planLTrain, LTRAIN_DIMENSIONS } from './game/ltrain.js';
 import { courtRect } from './city/blacktop.js';
@@ -127,14 +126,11 @@ import { createFarePointers } from './game/farepointers.js';
 import { createSirenGlow } from './game/sirenglow.js';
 import { createRobberyGlow } from './game/robberyglow.js';
 import { createRouteLine, routePath, pointAlongPath } from './game/routeline.js';
-import { createAmbientOcclusion, markOccluder } from './game/ssao.js';
-import { cullEmptyPools } from './util/emptypools.js';
-import { createBloom, markEmissive } from './game/bloom.js';
-import { createHdr } from './game/hdr.js';
-import { createCrayon } from './game/crayon.js';
-import { createCartoon } from './game/cartoon.js';
+import { markOccluder } from './game/ssao.js';
+import { markEmissive } from './game/bloom.js';
+import { renderBudget, decideLooks, createRenderPath } from './game/renderpath.js';
 import {
-  setAmbientOcclusion, setPainterly, setPaintBrushes, setCrayon, setCartoon, setCloudShadows, setClassicPaint, setPaintLook, setRim, setFlip, setRimDepth, rimPaintOn, setVehiclePaint, propMaterial, setGlossCity, setGlossGlobal,
+  propMaterial, setGlossCity, setGlossGlobal,
 } from './util/geo.js';
 import * as difficulty from './game/difficulty.js';
 import { createHomeScreenTip } from './game/homescreen.js';
@@ -148,9 +144,9 @@ import {
 } from './game/route.js';
 import { streetAt, routeDrives, STREET_TAP_MAX_DETOUR } from './game/streettap.js';
 import { createPathDrag } from './game/pathdrag.js';
-import { getActiveShot, getSeed, getRunSeed, getCarCount, getDifficultyPin, getDifficultyMode, getAmbientOcclusion,
-  getSafeMode, safeModeSource, getMsaa, getShadowMapSize, getPixelRatioCap,
-  getDiagnostics, getParcelsPin, getCrayon, getCartoon, getBloom, getHdr, getRain, getStorm, getSquall, getSquallRampClassic, getWetTyres, getWreckStyle, getFall, getFoliageClassic, getPaintClassic, getPaintLook, getRimColor, getFlip, getVehiclePaintClassic, getWater, getUturnStyle } from './util/shot.js';
+import { getActiveShot, getSeed, getRunSeed, getCarCount, getDifficultyPin, getDifficultyMode,
+  getSafeMode, safeModeSource, getPixelRatioCap,
+  getDiagnostics, getParcelsPin, getRain, getStorm, getSquall, getSquallRampClassic, getWetTyres, getWreckStyle, getFall, getFoliageClassic, getWater, getUturnStyle } from './util/shot.js';
 import { createParcelSystem, TAP_MAX_DETOUR } from './game/parcels.js';
 import { createRobbery } from './game/robbery.js';
 import { createRadio, LOST_CALL, ROBBERY_CALL } from './game/radio.js';
@@ -258,16 +254,9 @@ const budget = {
   // 'url' | 'android' | null — see `safeModeSource`. The panel reports it, because a budget the
   // player asked for and one the platform default imposed are different things to be looking at.
   safeSource: safeModeSource(),
-  msaa: getMsaa(),
-  shadowMapSize: getShadowMapSize(),
   pixelRatioCap: getPixelRatioCap(getSafeMode() ? 1 : shot ? 2 : qualityOf(settings.get()).resolution),
-  ao: getAmbientOcclusion(),
-  crayon: getCrayon(),
-  cartoon: getCartoon(),
-  // The two bloom routes, and they are alternatives rather than layers — see `game/hdr.js`. `?hdr`
-  // wins where it can run at all; both are settled below, once it has had its say.
-  hdr: getHdr(),
-  bloom: getBloom(),
+  // msaa, shadowMapSize, ao, crayon, cartoon, hdr, bloom: the shared render path's (game/renderpath.js).
+  ...renderBudget(),
 };
 
 const renderer = new THREE.WebGLRenderer({
@@ -290,77 +279,31 @@ renderer.shadowMap.enabled = budget.shadowMapSize > 0;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 document.body.appendChild(renderer.domElement);
 
-// Ambient occlusion is decided here, before a single mesh exists, because `propMaterial()` bakes
-// the decision into the shader it builds — see `util/geo.js`. `?ao=off` turns it off for a
-// like-for-like cost comparison on a real device.
+// AO, Crayon, Cartoon, painterly, the paint look, the rim and cloud shadows: all baked into the
+// shader `propMaterial()` builds, so all decided here, before a single mesh exists. In
+// game/renderpath.js because the model workshop's bench takes the same decisions.
+decideLooks(budget);
 const aoEnabled = budget.ao;
-setAmbientOcclusion(aoEnabled);
-// Crayon Mode is the same kind of decision and has to be taken in the same breath: `propMaterial()`
-// bakes both into the shader it builds, so neither can move once a mesh exists. `?crayon`, and see
-// `game/crayon.js` for what the three layers of it are.
 const crayonEnabled = budget.crayon;
-setCrayon(crayonEnabled);
-// Prototype painterly look (PAINT_* in util/geo.js, game/brushtiles.js): painted strokes on the
-// streets only, fading out in block-sized patches. The shadow edge, wall fade and wall/roof/lawn strokes are still in, dialled to 0. `?painterly=classic` is the old look.
-const painterly = new URLSearchParams(location.search).get('painterly') !== 'classic';
-setPainterly(painterly);
-if (painterly) {
-  const tiles = createBrushTiles();
-  setPaintBrushes(tiles.wall, tiles.ground, tiles.road);
-}
+const cartoonEnabled = budget.cartoon;
 // Which brush a static mesh wears (see PAINT_FRAGMENT): 1 buildings, 2 ground (lawns only).
 const brush = (mesh, kind) => {
   mesh.material.userData.brush = kind;
   return mesh;
 };
-setClassicPaint(getPaintClassic());
-setPaintLook(getPaintLook());
-setRim(getRimColor());
-setFlip(getFlip());
-setVehiclePaint(!getVehiclePaintClassic());
-// Cloud shadows are compiled into every lit material, so they are decided here with the look modes,
-// before anything is meshed. See CLOUD_UNIFORMS in util/geo.js.
-setCloudShadows(Boolean(getRain() ?? getStorm() ?? getSquall()));
-// The other look on offer, and independent of it — see `game/cartoon.js`. Its cel bands compile
-// into the same materials, so it is decided in the same breath and for the same reason.
-const cartoonEnabled = budget.cartoon;
-setCartoon(cartoonEnabled);
 // Notices raised while the passes below are being built, replayed into `game/diag.js` once it
 // exists. See `onNotice` on `createHdr`.
 const declined = [];
 
-// The comparison route first, because whether it can run at all is what decides the other one.
-// `?hdr` takes the whole frame through a composer with tone mapping on — see game/hdr.js — and
-// declines itself outright when a look mode is on or the GPU has no renderable float target.
-const hdr = createHdr(renderer, {
-  enabled: budget.hdr,
-  incompatible: [crayonEnabled && 'crayon', cartoonEnabled && 'cartoon'].filter(Boolean),
-  // Queued rather than passed straight to `diag`, which does not exist yet: this module declines
-  // the flag *during construction*, and reaching a `const` declared thirty lines further down is a
+// HDR, AO, bloom, Crayon and Cartoon, and the order a frame runs them in — game/renderpath.js,
+// shared with the workshop's bench. It settles `budget.hdr` and `budget.bloom` as it goes.
+const renderPath = createRenderPath(renderer, budget, {
+  // Queued rather than passed straight to `diag`, which does not exist yet: hdr declines the flag
+  // *during construction*, and reaching a `const` declared thirty lines further down is a
   // temporal-dead-zone throw that takes the whole page with it.
   onNotice: (text) => { declined.push(text); },
 });
-// Written back, not just read: the diagnostics panel reports the budget the page actually got, and
-// `?hdr&crayon` is a request that was refused rather than one that was honoured.
-budget.hdr = hdr.state.enabled;
-// **A declined `?hdr` stands the ordinary bloom back up.** The two are alternatives, so asking for
-// the composer takes this one's place — but only if the composer is actually running, or the flag
-// would leave a page with neither and no way to tell from the picture which of them was missing.
-budget.bloom = budget.bloom && !budget.hdr;
-
-// `edges` and `depth` are why the AO pass takes three flags: the crayon line is traced out of its
-// depth buffer and the bloom rejects its lamps against it, and Android's `?safe` default would
-// otherwise have turned the pass off on the platform most likely to be asked for a drawn look.
-const ao = createAmbientOcclusion(renderer, {
-  enabled: aoEnabled, edges: crayonEnabled || cartoonEnabled, depth: budget.bloom || rimPaintOn(),
-});
-// Spill around every self-lit thing in the game — see game/bloom.js. Not a bright-pass over the
-// frame: an explicit draw list of lamps, rendered into a small half-float target of its own, so
-// the main render keeps its MSAA and the ghost outlines keep their stencil.
-const bloom = createBloom(renderer, {
-  enabled: budget.bloom, depth: ao.depth, depthSize: ao.depthSize,
-});
-const crayon = createCrayon(renderer, { enabled: crayonEnabled });
+const { ao, bloom, crayon, cartoon, hdr } = renderPath;
 // The weather. `?storm` runs a storm across the afternoon and back on a loop (game/storm.js);
 // `?rain` is the same storm pinned at its peak. Either way the whole wet city is built up front —
 // see game/rain.js — and `applyWeather` below turns each part of it up and down with the clock.
@@ -389,7 +332,6 @@ if (squall) {
     ? (x, z) => THREE.MathUtils.smoothstep(squall.rainAt(x, z), 0.15, 0.5)
     : (x, z) => THREE.MathUtils.smoothstep(squall.lightAt(x, z), 0.3, 0.6));
 }
-const cartoon = createCartoon({ enabled: cartoonEnabled });
 
 // `?diag`. A no-op without the flag; with it, the one readout that can tell a lost context from a
 // scene that submitted nothing from a scene that drew and came out black. See `game/diag.js`.
@@ -398,13 +340,8 @@ declined.forEach((text) => diag.note(text));
 
 const { scene, sun, hemi, sky, fog } = createScene({ shadowMapSize: budget.shadowMapSize });
 
-// The page, over the city and under every read-out — an ordinary object in the main scene at
-// `renderOrder` 1, not a post pass. See `game/crayon.js`; null when the flag is off.
-if (crayon.overlay) scene.add(crayon.overlay);
-
-// The bloom composite, on the same terms and under it — an ordinary object in the main scene, not
-// a post pass. See `game/bloom.js`; null under `?bloom=off` and under `?hdr`.
-if (bloom.overlay) scene.add(bloom.overlay);
+// The crayon page and the bloom composite, over the city and under every read-out.
+renderPath.addOverlays(scene);
 
 // The falling rain, and the two overlays that must stay out of its mirror pass.
 rain.addTo(scene);
@@ -452,33 +389,9 @@ settings.onChange((v) => {
  * bloom, the haze — and not a lesser render of its own.
  */
 function renderFrame(cam = camera) {
-  // Sized here rather than in the frame loop for the same reason the AO prepass is called here:
-  // shot mode and `__taxi.redraw()` both reach a render without ever reaching the loop.
-  crayon.prepare();
-  // `?diag` counts the whole frame's draws, every pass below included — a no-op without the flag.
-  diag.frameStart();
-  // Before every pass below, so an effect pool with nothing in it skips the shadow, AO and main
-  // draws alike — see util/emptypools.js.
-  cullEmptyPools();
-  // The wet road's mirror, before anything reads it. A no-op without `?rain`.
-  rainLightsOn?.();
-  rain.update(0, cam);
-  rain.renderReflection(scene, cam);
-  ao.render(scene, cam);
-  // The rim paint reads the depth the prepass just drew (util/geo.js, `gRimEdge`).
-  setRimDepth(ao.depth(), ao.depthSize(), cam);
-  // After the AO prepass, which is what fills the depth buffer the lamps are rejected against.
-  bloom.render(scene, cam);
-  // Here rather than in the loop for the AO prepass's reason: shot mode renders without the loop.
-  syncRiverWater(scene.fog?.color);
-  // `?hdr` takes the whole frame through a composer instead; a no-op without the flag, and it
-  // returns false so the ordinary path below still runs.
-  if (!hdr.render(scene, cam)) renderer.render(scene, cam);
-  // Drops on the glass, over the finished frame.
-  rain.renderLens();
-  // After everything has drawn, so its counters and centre pixel are the frame on screen, and here
-  // rather than in the loop so a paused or replaying frame still counts toward the fps.
-  diag.update();
+  // The pass order lives in game/renderpath.js, shared with the workshop's bench; the weather and
+  // the diagnostics are the game's own and ride in with it.
+  renderPath.render(scene, cam, { rain, rainLightsOn, diag });
 }
 
 // Weather, ringing the island — see game/clouds.js. Scenery on the same terms as the aeroplane and
@@ -713,6 +626,8 @@ const fall = getFall();
 setAutumn(fall, { classicColours: getFoliageClassic() });
 const city = createBuildings(makeRng(seed + 22), layout);
 scene.add(markOccluder(city.mesh));
+// The bank's patinated dome is a glossy mesh of its own, not part of the merged one (city/bank.js).
+if (city.domeMesh) scene.add(markOccluder(city.domeMesh));
 // The high rises past the west ring road, the streets carrying on to them and the barricades shutting
 // them off (city/westedge.js). Built before the panes are collected, so Rain Mode lights their windows
 // too. Its own stream. Null under `?westedge=classic`.
@@ -895,8 +810,8 @@ const tubeMan = createTubeMan(scene, makeRng(runSeed + 331), roadside?.site.tube
 // the trees, and the depot. Nothing transient does — a construction zone is 3 units of barrier and
 // comes and goes, and the boards would have to be re-asked every time one moved.
 const occluders = setCityOccluders(
-  city.mesh, propsMesh, ...(garage?.meshes ?? []), ...(burger?.meshes ?? []),
-  ...(graveyard?.meshes ?? []), ...(roadside?.meshes ?? []),
+  city.mesh, ...(city.domeMesh ? [city.domeMesh] : []), propsMesh, ...(garage?.meshes ?? []),
+  ...(burger?.meshes ?? []), ...(graveyard?.meshes ?? []), ...(roadside?.meshes ?? []),
 );
 // The same field is what the cars' paint reflects (`propMaterial({ gloss })`, util/geo.js).
 setGlossCity(occluders, SKYLINE_CEILING);
@@ -1451,15 +1366,16 @@ if (taxiHeadlights) {
 if (lamps) markEmissive(lamps.heads, 'bay');
 for (const mesh of cruisers.flatMap((c) => c.emissiveMeshes)) markEmissive(mesh, 'siren');
 if (ltrain?.lamps) markEmissive(ltrain.lamps, 'pod');
-// One mesh, three lit things: the pickup window, the menu board and the neon round the roofline
-// are merged into `burger.glow` (see city/burgerjoint.js), so the neon arrived in the bloom with
-// nothing to wire.
-if (burger) markEmissive(burger.glow, 'window');
-if (graveyard) markEmissive(graveyard.glow, 'window');
-if (roadside) markEmissive(roadside.glow, 'window');
-if (garage) markEmissive(garage.light, 'bay');
-if (garage?.neon) markEmissive(garage.neon, 'window');
-if (garage?.roofNeon) markEmissive(garage.roofNeon, 'window');
+// The landmarks name their own lit meshes (`LANDMARK.glow` in each module), the same list the
+// workshop's bench blooms, so a landmark cannot glow on one and not the other. One mesh can be
+// three lit things: the burger joint's pickup window, menu board and roofline neon are all merged
+// into its `glow`, so the neon arrived in the bloom with nothing to wire.
+for (const [built, landmark] of [
+  [burger, BURGER_LANDMARK], [graveyard, GRAVEYARD_LANDMARK], [garage, GARAGE_LANDMARK],
+  [roadside, roadsideKind(seed) === 'gas' ? GAS_LANDMARK : CARWASH_LANDMARK],
+]) {
+  if (built) for (const [mesh, kind] of landmark.glow(built)) markEmissive(mesh, kind);
+}
 if (depotPanes) markEmissive(depotPanes, 'window');
 // The riders. They receive AO through `propMaterial()` either way, so leaving them out of the
 // prepass would paint the kerb's own contact line across whoever is standing in front of it.
@@ -1614,7 +1530,7 @@ const spray = createSpray(scene, makeRng(seed + 78));
 const cityEntry = createCityEntry({
   // The garage rises with everything else, shell and shutter alike — both are stamped with the one
   // anchor, so it comes up as a building rather than as a building and a door.
-  meshes: [city.mesh, ...(westEdge ? [westEdge.towers] : []), propsMesh, grass.mesh, canopyFuzz.mesh, ...(garage?.meshes ?? []),
+  meshes: [city.mesh, ...(city.domeMesh ? [city.domeMesh] : []), ...(westEdge ? [westEdge.towers] : []), propsMesh, grass.mesh, canopyFuzz.mesh, ...(garage?.meshes ?? []),
     ...(burger?.meshes ?? []), ...(graveyard?.meshes ?? []), ...(roadside?.meshes ?? []),
     ...(lamps ? [lamps.posts, lamps.heads] : []),
     ...(props.courtMesh ? [props.courtMesh] : []), ...(props.skateMesh ? [props.skateMesh] : []),

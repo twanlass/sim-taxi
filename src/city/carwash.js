@@ -88,6 +88,12 @@ function brushGeometry(r, h) {
   return geo;
 }
 
+/** What the model workshop finds this landmark by (src/workshop/catalog.js, `LANDMARKS`). */
+// `glow`: what blooms, at which kind (game/bloom.js) — read by main.js and the bench alike.
+export const LANDMARK = {
+  id: 'carwash', label: 'Car wash', create: createCarWash, glow: (c) => [[c.glow, 'window']],
+};
+
 export function createCarWash(block, rng) {
   const site = carWashSite(block);
   const { tunnel: t, zc } = site;

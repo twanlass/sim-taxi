@@ -16,21 +16,36 @@ import { createScene } from '../game/scene.js';
 import { createDaylight, DAY_SECONDS } from '../game/daylight.js';
 import { createCityCamera, aimAtHeight, PLAY_ZOOM } from '../game/camera.js';
 import { bakeColor, propMaterial, setClassicPaint, setPaintLook } from '../util/geo.js';
+import { markOccluder, unmarkOccluder } from '../game/ssao.js';
+import { markEmissive, unmarkEmissive } from '../game/bloom.js';
+import { renderBudget, decideLooks, createRenderPath } from '../game/renderpath.js';
 import { makeRng } from '../util/rng.js';
 import { PALETTE } from '../palette.js';
 import { CATALOG, byId } from './catalog.js';
 
 const hot = import.meta.hot;
-const kept = hot?.data ?? {};
+// What a hot re-run hands to the next one (`hot.data`), or, after the full reload a shared-state edit
+// forces (see the `vite:beforeUpdate` hook at the bottom), the same things from sessionStorage.
+const STASH = 'workshop-viewer-stash';
+const kept = hot?.data?.orbit ? hot.data : (() => {
+  try {
+    const saved = JSON.parse(sessionStorage.getItem(STASH));
+    sessionStorage.removeItem(STASH);
+    return saved ?? {};
+  } catch { return {}; }
+})();
 const params = new URLSearchParams(window.location.search);
 
-// The game's `?paint=` looks (util/geo.js, PAINT_LOOK_NUMBERS and PAINT_CLASSIC), toon first because
-// it is the default. Same param name as the game, so a bench URL pastes straight into a game URL.
-const PAINTS = ['toon', 'layered', 'chameleon', 'satin', 'classic'];
+// The game's `?paint=` looks (util/geo.js, PAINT_LOOK_NUMBERS and PAINT_CLASSIC), real first because
+// it is the game's default (PAINT_LOOK_DEFAULT) — the bench opened on toon after the game had moved
+// on, so a model looked different here than in play. Same param name as the game, so a bench URL
+// pastes straight into a game URL.
+const PAINTS = ['real', 'rim', 'toon', 'layered', 'chameleon', 'satin', 'classic'];
+const DEFAULT_PAINT = PAINTS[0];
 
 const state = {
   model: byId(params.get('model') ?? kept.model ?? 'taxi').id,
-  paint: PAINTS.includes(params.get('paint')) ? params.get('paint') : 'toon',
+  paint: PAINTS.includes(params.get('paint')) ? params.get('paint') : DEFAULT_PAINT,
   view: params.get('view') === 'game' ? 'game' : 'orbit',
   hour: Number.isFinite(Number(params.get('hour'))) && params.has('hour') ? Number(params.get('hour')) : 16.4,
   spin: params.get('spin') === '1',
@@ -61,13 +76,30 @@ const on = (target, type, fn) => target.addEventListener(type, fn, { signal: lis
 
 // --- Renderer and world -----------------------------------------------------
 
-const renderer = new THREE.WebGLRenderer({ antialias: true, stencil: true });
+// **The game's rendering path, not a copy of it** (game/renderpath.js): the same budget off the
+// same URL flags, the same look decisions baked into every material, and the same passes run in
+// the same order — AO prepass, rim depth, bloom, then the frame. The bench's own copy drifted:
+// it stayed on toon paint after the game moved to real, and drew no rim and no AO because both
+// read a depth prepass the bench had never been given. Every game flag works here too
+// (`?ao=off`, `?crayon`, `?bloom=off`, ...), since it is the same code reading them. Decided
+// before any mesh exists, as main.js does, because `propMaterial` bakes all of it into the shader.
+//
+// What the bench keeps of its own: a 2048 shadow map whatever the budget says (pulled in to one
+// block, below), a pixel-ratio cap of 2 rather than the player's Quality setting, and the paint
+// dropdown, applied over `decideLooks` by `applyPaint`.
+const budget = renderBudget();
+decideLooks(budget);
+const renderer = new THREE.WebGLRenderer({ antialias: budget.msaa, stencil: true });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 stage.prepend(renderer.domElement);
+const renderPath = createRenderPath(renderer, budget, {
+  onNotice: (text) => console.info(`[workshop] ${text}`),
+});
 
 const { scene, sun, hemi, sky, fog } = createScene({ shadowMapSize: 2048 });
+renderPath.addOverlays(scene);
 // The scene's shadow camera covers the whole city (±MAX_SPAN · 1.05), which is 0.12 units a texel.
 // A car is 3.4 long, so on the bench that is a shadow with about thirty texels in it; the bench is
 // never more than a block, so the frustum is pulled in to one and the texels come out ~6× finer.
@@ -179,7 +211,29 @@ scene.add(grid);
 const size = () => ({ w: Math.max(1, stage.clientWidth), h: Math.max(1, stage.clientHeight) });
 const aspect = () => size().w / size().h;
 
-const orbitCamera = new THREE.PerspectiveCamera(35, aspect(), 0.1, 2000);
+// Orthographic, like the game's: the AO and the rim both read the prepass's depth as linear world
+// units (`far - near` times the packed value), which only holds without a perspective divide, and
+// the paint's highlights are shaped for a view direction that is the same across the whole car.
+// The orbit's dolly arrives as `camera.zoom`; `foldZoom` moves it into the frustum, because the
+// AO's sample rings are sized off `right - left` alone, as the city camera has it.
+//
+// The standoff and far plane are the game camera's (400, 1400), not whatever clears the model: the
+// sky dome is a 900-unit sphere, and a far plane at twice a smaller standoff cut it off, leaving the
+// bench on black. The haze is also placed around the 400-unit standoff (`hazeRange`, game/scene.js).
+const ORBIT_STANDOFF = 400;
+let orbitHalf = kept.orbitHalf ?? 6;   // the frustum's half-height, world units
+const orbitCamera = new THREE.OrthographicCamera(-1, 1, 1, -1, 1, 1400);
+function orbitFrustum() {
+  Object.assign(orbitCamera, { left: -orbitHalf * aspect(), right: orbitHalf * aspect(), top: orbitHalf, bottom: -orbitHalf });
+  orbitCamera.updateProjectionMatrix();
+}
+function foldZoom() {
+  if (orbitCamera.zoom === 1) return;
+  orbitHalf /= orbitCamera.zoom;
+  orbitCamera.zoom = 1;
+  orbitFrustum();
+}
+orbitFrustum();
 const orbit = new OrbitControls(orbitCamera, renderer.domElement);
 orbit.enableDamping = true;
 orbit.autoRotateSpeed = 1.6;
@@ -197,7 +251,11 @@ const activeCamera = () => (state.view === 'game' ? game.camera : orbitCamera);
 // Same renderer, same scene, a scissored second pass — a second WebGL context would need a second
 // copy of every geometry and shader, rebuilt on every hot reload.
 const PLAY_PX_PER_UNIT = 7.7;
-const INSET = { w: 300, h: 210, margin: 14 };
+// 200 × 140 CSS px (index.html's #inset-box): a tighter crop than the 300 × 210 it opened at, at the
+// same density, so a car fills more of it while a block-sized landmark still fits.
+const INSET = { w: 200, h: 140, margin: 14 };
+const insetCanvas = document.getElementById('inset-canvas');
+const insetCtx = insetCanvas.getContext('2d');
 const inset = createCityCamera(INSET.w / INSET.h, { zoom: INSET.h / (2 * PLAY_PX_PER_UNIT) });
 // Checked, not assumed: the 7.7 is PLAY_ZOOM's own density at an 800 px window, and the two
 // should drift apart only if one of them moves.
@@ -265,6 +323,8 @@ function showError(error) {
 function load(id, { keepFraming = false } = {}) {
   if (current) {
     scene.remove(current.holder);
+    unmarkOccluder(current.holder);
+    unmarkEmissive(current.holder);
     disposeObject(current.holder);
     current = null;
   }
@@ -295,7 +355,11 @@ function load(id, { keepFraming = false } = {}) {
   built.object.position.y -= Math.min(0, box.min.y);
   holder.updateMatrixWorld(true);
   fitDrawn(built.object);
-  scene.add(holder);
+  // Into the prepass, as main.js puts each vehicle and landmark in; `markOccluder` itself skips
+  // what has no business there (tap targets, transparent glass).
+  scene.add(markOccluder(holder));
+  // And into the bloom's draw list, the lit meshes the entry names at the kinds main.js gives them.
+  for (const [mesh, kind] of built.glow ?? []) markEmissive(mesh, kind);
 
   current = { holder, update: built.update ?? null, box: box.clone() };
   // "Diameter" as the footprint's diagonal rather than its longer side, so a long car's pad
@@ -317,9 +381,11 @@ function frame() {
   // The game camera looks down VIEW_DIR from +x, +y, +z; the orbit starts from the same side so
   // the first thing you see is the face the player sees.
   const dir = new THREE.Vector3(1, 0.9, 1).normalize();
-  const dist = r / Math.sin(THREE.MathUtils.degToRad(orbitCamera.fov / 2)) * 1.15;
   orbit.target.copy(sphere.center);
-  orbitCamera.position.copy(sphere.center).addScaledVector(dir, dist);
+  orbitCamera.position.copy(sphere.center).addScaledVector(dir, ORBIT_STANDOFF);
+  orbitCamera.zoom = 1;
+  orbitHalf = (r * 1.15) / Math.min(1, aspect());
+  orbitFrustum();
   orbit.update();
   gameZoom = Math.max(4, r * 1.4);
   applyGame();
@@ -383,7 +449,7 @@ function formatHour(h) {
 function syncUrl() {
   const q = new URLSearchParams(window.location.search);
   q.set('model', state.model);
-  if (state.paint !== 'toon') q.set('paint', state.paint); else q.delete('paint');
+  if (state.paint !== DEFAULT_PAINT) q.set('paint', state.paint); else q.delete('paint');
   if (state.view === 'game') q.set('view', 'game'); else q.delete('view');
   q.set('hour', state.hour.toFixed(1));
   if (state.spin) q.set('spin', '1'); else q.delete('spin');
@@ -449,7 +515,7 @@ function setPlaying(on) {
     frame.id = 'game-frame';
     frame.title = 'Rocket Rides';
     frame.allow = 'autoplay; fullscreen';
-    frame.src = state.paint === 'toon' ? '/' : `/?paint=${state.paint}`;
+    frame.src = state.paint === DEFAULT_PAINT ? '/' : `/?paint=${state.paint}`;
     // Focused once it has loaded, so the game's keys work without a click into it first.
     frame.addEventListener('load', () => frame.focus(), { once: true });
     stage.append(frame);
@@ -672,6 +738,19 @@ on(window, 'keydown', (event) => {
   // size, so the observer never fires: re-measure by hand.
   resize();
 });
+// The inset's minimize button shows only while the pointer is over the window (see index.html).
+on(window, 'pointermove', (event) => {
+  const r = els.insetBox.getBoundingClientRect();
+  const over = event.clientX >= r.left && event.clientX <= r.right
+    && event.clientY >= r.top && event.clientY <= r.bottom;
+  els.insetBox.classList.toggle('hover', over);
+});
+// `R` reframes, like the Frame button. Not while typing, and not with a modifier (Cmd-R is reload).
+on(window, 'keydown', (event) => {
+  if (event.key.toLowerCase() !== 'r' || event.metaKey || event.ctrlKey || event.altKey || event.repeat) return;
+  if (event.target.closest?.('input, textarea, select, [contenteditable]')) return;
+  frame();
+});
 // The game view zooms on the wheel like the game does; the orbit has its own dolly.
 on(renderer.domElement, 'wheel', (event) => {
   if (state.view !== 'game') return;
@@ -695,7 +774,7 @@ function resize() {
   const { w, h } = size();
   covered = measureCovered(w);
   renderer.setSize(w, h);
-  orbitCamera.aspect = w / h;
+  orbitFrustum();
   orbitCamera.setViewOffset(w, h, covered / 2, 0, w, h);
   game.camera.setViewOffset(w, h, covered / 2, 0, w, h);
   game.resize(w / h);
@@ -712,7 +791,10 @@ function tick() {
   if (playing()) return;
   const dt = Math.min(clock.getDelta(), 0.05);
   elapsed += dt;
-  if (state.view === 'orbit') orbit.update();
+  if (state.view === 'orbit') {
+    orbit.update();
+    foldZoom();
+  }
   try {
     current?.update?.(dt, elapsed);
   } catch (error) {
@@ -723,23 +805,69 @@ function tick() {
   placePin();
 }
 
-/** The main view, then the inset over its top-right corner. */
+// The inset's camera, stretched to the whole canvas. The AO, the rim's depth and the bloom are all
+// full-canvas textures looked up by `gl_FragCoord`, so a view squeezed into a corner viewport would
+// read whatever the canvas held at that spot. Instead the inset is drawn with a camera whose frustum runs on past
+// the inset's edges by exactly the canvas around it, at the inset's own density, and scissored to
+// the corner: inside the scissor it is the inset camera to the pixel, and its prepass lines up.
+const insetWide = new THREE.OrthographicCamera();
+function wideInset(x, y, w, h) {
+  const c = inset.camera;
+  insetWide.copy(c);
+  const left = c.left / c.zoom;
+  const right = c.right / c.zoom;
+  const top = c.top / c.zoom;
+  const bottom = c.bottom / c.zoom;
+  const k = (right - left) / INSET.w;
+  Object.assign(insetWide, {
+    zoom: 1,
+    left: left - x * k,
+    right: right + (w - x - INSET.w) * k,
+    bottom: bottom - y * k,
+    top: top + (h - y - INSET.h) * k,
+  });
+  insetWide.clearViewOffset();
+  insetWide.updateProjectionMatrix();
+  return insetWide;
+}
+
+/**
+ * The inset first, then the main view over the whole canvas. The inset is rendered into its corner
+ * of the main canvas and copied straight out into #inset-canvas, whose box rounds the corners; the
+ * main view then paints over the spot it was drawn in. The copy has to happen in the same task as
+ * the render, before the drawing buffer is presented and cleared.
+ */
 function draw() {
   const { w, h } = size();
   renderer.setViewport(0, 0, w, h);
-  renderer.render(scene, activeCamera());
-  // The inset is drawn into the canvas, not the DOM, so bare mode has to skip it here as well.
-  if (!state.inset || document.body.classList.contains('bare')) return;
-  // Viewport and scissor are in CSS pixels from the bottom-left; the clear inside `render` is
-  // scissored too, so only the inset's rectangle is repainted.
-  const x = w - covered - INSET.w - INSET.margin;
-  const y = h - INSET.h - INSET.margin;
-  renderer.setScissorTest(true);
-  renderer.setScissor(x, y, INSET.w, INSET.h);
-  renderer.setViewport(x, y, INSET.w, INSET.h);
-  renderer.render(scene, inset.camera);
-  renderer.setScissorTest(false);
-  renderer.setViewport(0, 0, w, h);
+  if (state.inset && !document.body.classList.contains('bare')) {
+    // Scissor in CSS pixels from the bottom-left; the clear inside `render` is scissored too. The
+    // passes render to their own targets, which carry their own (off) scissor, so only the frame
+    // itself is clipped.
+    const x = w - covered - INSET.w - INSET.margin;
+    const y = h - INSET.h - INSET.margin;
+    renderer.setScissorTest(true);
+    renderer.setScissor(x, y, INSET.w, INSET.h);
+    renderPath.render(scene, wideInset(x, y, w, h));
+    renderer.setScissorTest(false);
+    const src = renderer.domElement;
+    const ratio = src.width / w;
+    const pw = Math.round(INSET.w * ratio);
+    const ph = Math.round(INSET.h * ratio);
+    if (insetCanvas.width !== pw || insetCanvas.height !== ph) {
+      insetCanvas.width = pw;
+      insetCanvas.height = ph;
+    }
+    // Canvas coordinates run from the top-left, the scissor's from the bottom-left.
+    insetCtx.drawImage(src, x * ratio, (h - y - INSET.h) * ratio, pw, ph, 0, 0, pw, ph);
+  }
+  renderPath.render(scene, activeCamera());
+}
+
+/** The inset's place on the stage, in CSS pixels from the top-left, for `capture`. */
+function insetRect() {
+  const { w } = size();
+  return { x: w - covered - INSET.w - INSET.margin, y: INSET.margin, w: INSET.w, h: INSET.h };
 }
 
 /**
@@ -768,13 +896,24 @@ function capture(mark) {
   out.height = Math.round(src.height * scale);
   const g = out.getContext('2d');
   g.drawImage(src, 0, 0, out.width, out.height);
+  // The inset lives in its own canvas now, so it is drawn back over its corner, rounded as on screen.
+  if (state.inset && !document.body.classList.contains('bare')) {
+    const k = out.width / size().w;
+    const r = insetRect();
+    g.save();
+    g.beginPath();
+    g.roundRect(r.x * k, r.y * k, r.w * k, r.h * k, 12 * k);
+    g.clip();
+    g.drawImage(insetCanvas, r.x * k, r.y * k, r.w * k, r.h * k);
+    g.restore();
+  }
   // The pin, drawn in: the DOM one is not part of the canvas. A ring rather than a dot so the
   // spot itself is still visible inside it.
   const s = pinScreen(mark);
   if (s) {
     const k = out.width / size().w;
     g.lineWidth = 3;
-    for (const [colour, r] of [['rgba(0, 0, 0, 0.6)', 13], ['#F5C130', 11]]) {
+    for (const [colour, r] of [['rgba(0, 0, 0, 0.6)', 13], ['#eef3f7', 11]]) {
       g.strokeStyle = colour;
       g.beginPath();
       g.arc(s.x * k, s.y * k, r, 0, Math.PI * 2);
@@ -784,6 +923,45 @@ function capture(mark) {
   return out.toDataURL('image/png');
 }
 
+// --- The last frame, across a reload ------------------------------------------
+//
+// A reload (an edit Vite cannot swap in place, or the page itself) blanks the tab until the module
+// has loaded and the shaders have compiled, and that gap was a flash. So as the page goes away the
+// bench's last frame is kept (`stashSnapshot`), index.html's head script puts it back over the stage
+// in the very first paint, and this run fades it out once its own first frame is on screen
+// (`releaseSnapshot`). Hot swaps never reach it: they keep the old canvas up themselves.
+
+const SNAPSHOT = 'workshop-snapshot';
+
+function stashSnapshot() {
+  try {
+    if (playing()) return;
+    draw();                       // fresh, and in this task: the drawing buffer is cleared after it
+    const src = renderer.domElement;
+    const scale = Math.min(1, 1280 / src.width);
+    const out = document.createElement('canvas');
+    out.width = Math.round(src.width * scale);
+    out.height = Math.round(src.height * scale);
+    out.getContext('2d').drawImage(src, 0, 0, out.width, out.height);
+    sessionStorage.setItem(SNAPSHOT, out.toDataURL('image/jpeg', 0.75));
+  } catch { /* no snapshot: the reload just flashes as it used to */ }
+}
+
+function releaseSnapshot() {
+  const root = document.documentElement;
+  if (!root.classList.contains('has-snapshot')) return;
+  // Two frames on, so the new run's first frame has been presented before the old one fades.
+  requestAnimationFrame(() => requestAnimationFrame(() => {
+    root.classList.add('snapshot-done');
+    setTimeout(() => {
+      root.classList.remove('has-snapshot', 'snapshot-done');
+      root.style.removeProperty('--snapshot');
+    }, 400);
+    try { sessionStorage.removeItem(SNAPSHOT); } catch { /* nothing to clear */ }
+  }));
+}
+on(window, 'pagehide', stashSnapshot);
+
 // --- Boot, and coming back from an edit -------------------------------------
 
 buildPicker();
@@ -792,8 +970,11 @@ syncPanel();
 resize();
 load(state.model, { keepFraming: Boolean(kept.orbit) });
 if (kept.orbit) {
-  orbitCamera.position.fromArray(kept.orbit.position);
   orbit.target.fromArray(kept.orbit.target);
+  // Only the direction is kept: under an orthographic camera the distance is just clearance, and
+  // pinned to the standoff it can never end up inside a big landmark.
+  const dir = new THREE.Vector3().fromArray(kept.orbit.position).sub(orbit.target).normalize();
+  orbitCamera.position.copy(orbit.target).addScaledVector(dir, ORBIT_STANDOFF);
   orbit.update();
   applyGame();
   els.reloaded.classList.add('show');
@@ -804,6 +985,7 @@ else closePin();
 for (const el of stage.querySelectorAll('.pin.sent')) el.remove();
 for (const [id, point] of kept.sent ?? []) addSent(id, new THREE.Vector3().fromArray(point));
 tick();
+releaseSnapshot();
 // The run this replaced, now that this one has drawn a frame of its own. `forceContextLoss` gives
 // the GL context back: a browser holds about sixteen, and an afternoon of edits is more than that.
 if (kept.old) {
@@ -817,6 +999,30 @@ if (hot) {
   // scanning its source for this exact expression, and through an alias it never sees one — every
   // edit then dead-ends at this module and reloads the page.
   import.meta.hot.accept();
+  // **Some edits cannot be hot-swapped, and the symptom is a bench that draws only the sky.** After
+  // an edit to the palette the model, the road pad and every lit surface went missing (the grid and
+  // the sky, which are not `propMaterial`s, still drew) until the tab was reloaded by hand. Nearly
+  // every module imports the palette, so its edit re-evaluates the whole graph under this one at
+  // once, against module-level state (the paint uniforms, the AO and bloom draw lists, three's
+  // cached programs) that the previous run has just torn down; the cause was never pinned further
+  // than that. Reloading is what fixed it, so these edits now do it themselves, carrying the
+  // framing across in sessionStorage so the model stays where it was.
+  const RELOAD_ON = /\/src\/(palette|util\/geo|game\/(renderpath|ssao|bloom|scene))\.js$/;
+  hot.on('vite:beforeUpdate', (payload) => {
+    if (!payload.updates.some((u) => RELOAD_ON.test(u.path))) return;
+    try {
+      sessionStorage.setItem(STASH, JSON.stringify({
+        model: state.model,
+        gameZoom,
+        orbitHalf,
+        orbit: { position: orbitCamera.position.toArray(), target: orbit.target.toArray() },
+      }));
+    } catch { /* the framing is lost, the reload still happens */ }
+    window.location.reload();
+  });
+  // Vite's own full reloads (an edit nothing can hot-swap, the page itself) say so first; `pagehide`
+  // would catch them too, but this is earlier and the canvas is still drawn.
+  hot.on('vite:beforeFullReload', stashSnapshot);
   hot.dispose((data) => {
     data.model = state.model;
     data.gameZoom = gameZoom;
@@ -829,6 +1035,13 @@ if (hot) {
     listening.abort();
     resizer.disconnect();
     orbit.dispose();
+    data.orbitHalf = orbitHalf;
+    // The prepass's and the bloom's draw lists live in game/ssao.js and game/bloom.js, which
+    // outlive this run: anything left in them would be drawn into the next run's passes, a freed
+    // geometry included.
+    unmarkOccluder(scene);
+    unmarkEmissive(scene);
+    renderPath.dispose();
     if (current) disposeObject(current.holder);
     // The old canvas stays up until the new run has drawn into its own, so an edit doesn't flash
     // the page blue for the frame in between.
