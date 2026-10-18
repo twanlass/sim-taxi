@@ -1258,11 +1258,11 @@ default city; `CITY=big npm run check` is the big one's suite.
 ### Manhole covers
 
 Four or five cast-iron covers per city (`city/manholes.js`, `?manholes=classic` for none), placed
-off the city seed: in a lane, half way along a block's worth of road, never on the ring road or a
-bridge, and at least 1.6 blocks from each other. The middle of a gap is the one stretch clear of
-everything else painted on the road — `ALONG_MARGIN` (4.5) from either junction box is past the
-crosswalk and the stop setback plus the cover's own radius — and the lane rather than the
-centreline because the centreline has the dashes, or on an arterial the median. Flat, at the paint's
+off the city seed in **junctions**: one per chosen junction, set off the box's centre on both axes,
+at least 1.6 blocks apart (so never in neighbouring or diagonal junctions), inner junctions only and
+only ones with three or more open roads. The junction box is the one piece of road with no paint in
+it — crosswalks start just past its edge — and `BOX_CLEAR` keeps the disc half a unit inside it.
+(The first cut put them mid-block in a lane; Tyler asked for intersections.) Flat, at the paint's
 height, with no collision and no say in the traffic.
 
 They are drawn bigger than life (`COVER_R` 0.72, so ~11 px across at play zoom on a phone) because at

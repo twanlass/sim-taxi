@@ -1,10 +1,7 @@
 import * as THREE from 'three';
 import { propMaterial } from '../util/geo.js';
 import { color } from '../palette.js';
-import {
-  GRID_I, GRID_J, lineX, lineZ, halfRoadX, halfRoadZ, laneOffX, laneOffZ,
-  isSegmentClosed, isRiverGap,
-} from './grid.js';
+import { GRID_I, GRID_J, lineX, lineZ, halfRoadX, halfRoadZ, isSegmentClosed } from './grid.js';
 import { MARK_Y } from './ground.js';
 
 // Manhole covers: a handful of cast-iron lids set into the streets, flat, with no say in anything
@@ -12,59 +9,49 @@ import { MARK_Y } from './ground.js';
 // grey from kerb to kerb, and a few dark discs with a bright ring are what tells the eye it is
 // looking at a *street* and not a painted slab.
 //
-// **Where.** In a lane, half way along a block's worth of road. The middle of a gap is the one stretch
-// guaranteed clear of everything else painted on the road: crosswalks reach 1.65 past the junction
-// box and the stop line sits `STOP_SETBACK` (3.4) back from it, and a gap is a whole block (12) long,
-// so `ALONG_MARGIN` from either end still leaves a three-unit window that touches neither. In the lane
-// rather than on the centreline because the centreline carries the dashes, and on an arterial the
-// planted median. Not on the ring road (half of it is under the edge fog) and never on a bridge: a
-// river gap is a deck, not asphalt.
+// **Where.** In a junction (Tyler, on the first cut's mid-block covers: "Maybe put them in
+// intersections?"), set off the box's centre by a random amount on each axis. The box is the one
+// piece of road with no paint in it at all — crosswalks start 0.15 past its edge and the stop line
+// further back — and the off-centre spot is where a real one sits, out of the middle where every
+// turning arc crosses. `BOX_CLEAR` keeps the disc that far inside the box on both axes, so it never
+// reaches the crosswalk or the kerb corners. Inner junctions only: the ring road's are half under
+// the edge fog. And only a junction with at least three open arms, which rules out one swallowed
+// by a park (the big map's central park) while keeping the riverside T-junctions.
 //
-// **How many.** Four or five (Tyler: "4-5 max"), spread so no two land within `MIN_SEP` of each
-// other. On the 5x5 island the open gaps number ~40, so five at 1.6 blocks apart always fit; the
-// greedy pass below just stops early on a city that cannot take the fifth.
+// **How many.** Four or five (Tyler: "4-5 max"), spread so no two land within `MIN_SEP_PITCHES`
+// blocks of each other — 1.6 rules out neighbours and diagonal neighbours, so they spread across
+// the map. The island has 20 inner junctions, which always fits five; the greedy pass below just
+// stops early on a city that cannot take the fifth.
 
 export const COVER_R = 0.72;        // world units: a lane is 2.25 wide, a car 3.4 long
-export const COVER_Y = MARK_Y;      // the paint's level — nothing else is painted where a cover lands
+export const COVER_Y = MARK_Y;      // the paint's level — nothing else is painted in a junction box
 export const COVER_COUNT = [4, 5];
-const ALONG_MARGIN = 4.5;           // from each end of the gap: STOP_SETBACK (3.4) + COVER_R, and a hair
+export const BOX_CLEAR = 0.5;       // disc edge to box edge, at the least
+const OFF_MIN = 0.8;                // off the box centre on each axis, at the least
 const MIN_SEP_PITCHES = 1.6;
 const SEGMENTS = 24;
 
 /**
  * Pick the covers' spots. Pure apart from reading the grid, so the probe can sweep seeds with it.
- * Returns `[{ x, z, axis, line, k }]`, where `axis` is the road's direction ('x' or 'z').
+ * Returns `[{ x, z, i, j }]`: the cover's centre and the junction it sits in.
  */
 export function planManholes(rng) {
   const candidates = [];
-  // Roads running along Z, at x = lineX(i), gaps indexed by j. Inner lines only: 0 and GRID_I are
-  // the ring road.
   for (let i = 1; i < GRID_I; i++) {
-    for (let k = 0; k < GRID_J; k++) {
-      if (isRiverGap(k) || isSegmentClosed(i, k, 1)) continue;
-      const from = lineZ(k) + halfRoadX(k);
-      const to = lineZ(k + 1) - halfRoadX(k + 1);
-      if (to - from < ALONG_MARGIN * 2) continue;
-      const side = rng.chance(0.5) ? 1 : -1;
+    for (let j = 1; j < GRID_J; j++) {
+      let open = 0;
+      for (let d = 0; d < 4; d++) if (!isSegmentClosed(i, j, d)) open += 1;
+      if (open < 3) continue;
+      // The box is the crossing roads' widths: x is bounded by the road along Z (line i), z by
+      // the road along X (line j).
+      const reachX = halfRoadZ(i) - COVER_R - BOX_CLEAR;
+      const reachZ = halfRoadX(j) - COVER_R - BOX_CLEAR;
+      const sx = rng.chance(0.5) ? 1 : -1;
+      const sz = rng.chance(0.5) ? 1 : -1;
       candidates.push({
-        x: lineX(i) + side * laneOffZ(i),
-        z: from + ALONG_MARGIN + rng.next() * (to - from - ALONG_MARGIN * 2),
-        axis: 'z', line: i, k,
-      });
-    }
-  }
-  // Roads running along X, at z = lineZ(j), gaps indexed by i.
-  for (let j = 1; j < GRID_J; j++) {
-    for (let k = 0; k < GRID_I; k++) {
-      if (isSegmentClosed(k, j, 0)) continue;
-      const from = lineX(k) + halfRoadZ(k);
-      const to = lineX(k + 1) - halfRoadZ(k + 1);
-      if (to - from < ALONG_MARGIN * 2) continue;
-      const side = rng.chance(0.5) ? 1 : -1;
-      candidates.push({
-        x: from + ALONG_MARGIN + rng.next() * (to - from - ALONG_MARGIN * 2),
-        z: lineZ(j) + side * laneOffX(j),
-        axis: 'x', line: j, k,
+        x: lineX(i) + sx * (OFF_MIN + rng.next() * (reachX - OFF_MIN)),
+        z: lineZ(j) + sz * (OFF_MIN + rng.next() * (reachZ - OFF_MIN)),
+        i, j,
       });
     }
   }

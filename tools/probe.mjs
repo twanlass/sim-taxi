@@ -41,7 +41,7 @@ import {
 } from '../src/city/blacktop.js';
 import { createBoombox, BPM as BOOMBOX_BPM } from '../src/game/boombox.js';
 import { createTubeMan } from '../src/game/tubeman.js';
-import { createManholes, planManholes, manholeGeometry, COVER_R, COVER_COUNT } from '../src/city/manholes.js';
+import { createManholes, planManholes, manholeGeometry, COVER_R, COVER_COUNT, BOX_CLEAR } from '../src/city/manholes.js';
 import { createCarWash } from '../src/city/carwash.js';
 import { createGasStation } from '../src/city/gasstation.js';
 import { collectPanes } from '../src/game/citylights.js';
@@ -1593,29 +1593,22 @@ const onGrass = (city, i, j) => {
   check('no roadside business (?roadside=classic) builds no tube man', createTubeMan(new THREE.Scene(), makeRng(9), null).at === null);
 
 // --- Manhole covers (city/manholes.js) ---------------------------------------------------------
-// Set dressing, so what can go wrong is where they land: off the asphalt, over the river, on a
-// crosswalk or a stop line, bunched together, or wound face down (an unlit-looking disc is still a
-// Lambert one, but a reversed triangle on a flat quad is the roadworks ramp all over again).
+// Set dressing, so what can go wrong is where they land: out of the junction box (onto a crosswalk
+// or a kerb corner), in a junction a park swallowed, bunched together, or wound face down.
 {
-  let wrongCount = 0, offLane = 0, offRoad = 0, nearJunction = 0, bunched = 0, overRiver = 0;
+  let wrongCount = 0, outOfBox = 0, deadJunction = 0, bunched = 0;
   const minSep = 1.6 * PITCH - 1e-6;
   for (let s = 0; s < 40; s++) {
     createLayout(makeRng(s));
     const spots = planManholes(makeRng(s + 193));
     if (spots.length < COVER_COUNT[0] || spots.length > COVER_COUNT[1]) wrongCount += 1;
     for (const c of spots) {
-      const across = c.axis === 'z' ? c.x - lineX(c.line) : c.z - lineZ(c.line);
-      const laneOff = c.axis === 'z' ? laneOffZ(c.line) : laneOffX(c.line);
-      const half = c.axis === 'z' ? halfRoadZ(c.line) : halfRoadX(c.line);
-      if (Math.abs(Math.abs(across) - laneOff) > 1e-6) offLane += 1;
-      if (Math.abs(across) + COVER_R > half) offRoad += 1;
-      if (c.axis === 'z' && riverRow() !== null && c.k === riverRow()) overRiver += 1;
-      // Clear of both junctions' boxes by more than a crosswalk (1.65) plus the stop setback.
-      const along = c.axis === 'z' ? c.z : c.x;
-      const ends = c.axis === 'z'
-        ? [lineZ(c.k) + halfRoadX(c.k), lineZ(c.k + 1) - halfRoadX(c.k + 1)]
-        : [lineX(c.k) + halfRoadZ(c.k), lineX(c.k + 1) - halfRoadZ(c.k + 1)];
-      if (Math.min(along - ends[0], ends[1] - along) < STOP_SETBACK + COVER_R) nearJunction += 1;
+      const dx = Math.abs(c.x - lineX(c.i));
+      const dz = Math.abs(c.z - lineZ(c.j));
+      if (dx + COVER_R + BOX_CLEAR > halfRoadZ(c.i) + 1e-9 || dz + COVER_R + BOX_CLEAR > halfRoadX(c.j) + 1e-9) outOfBox += 1;
+      let open = 0;
+      for (let d = 0; d < 4; d++) if (!isSegmentClosed(c.i, c.j, d)) open += 1;
+      if (open < 3 || c.i <= 0 || c.i >= GRID_I || c.j <= 0 || c.j >= GRID_J) deadJunction += 1;
     }
     for (let a = 0; a < spots.length; a++) {
       for (let b = a + 1; b < spots.length; b++) {
@@ -1625,9 +1618,8 @@ const onGrass = (city, i, j) => {
   }
   createLayout(makeRng(seed));
   check('manholes: four or five per city', wrongCount === 0, `${wrongCount}/40 cities outside ${COVER_COUNT.join('-')}`);
-  check('manholes: each sits in a lane, inside the kerbs, never over the river',
-    offLane === 0 && offRoad === 0 && overRiver === 0, `off lane ${offLane}, past kerb ${offRoad}, over river ${overRiver}`);
-  check('manholes: clear of the crosswalks and stop lines at both ends', nearJunction === 0, `${nearJunction} too close`);
+  check('manholes: each sits inside a junction box, clear of its crosswalks and kerbs', outOfBox === 0, `${outOfBox} reach out of the box`);
+  check('manholes: only in inner junctions with three or more open roads', deadJunction === 0, `${deadJunction} misplaced`);
   check('manholes: spread at least 1.6 blocks apart', bunched === 0, `${bunched} pairs too close`);
 
   const geo = manholeGeometry(planManholes(makeRng(seed + 193)));
