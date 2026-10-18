@@ -45,9 +45,20 @@ import { PALETTE } from '../palette.js';
 // and piles up in the bottom one. Everything else — the hue, the kick, the pulse, the black rim,
 // the glass treatment and the meniscus — is shared, and so is every name exported here, which is
 // why they still say "diamond". See "the hourglass" below.
-export const PLUMBOB_CLASSIC = typeof location !== 'undefined'
-  ? new URLSearchParams(location.search).get('plumbob') === 'classic'
-  : globalThis.process?.env?.PLUMBOB === 'classic';
+//
+// **And by default now it is a pie** (Tyler, 2026-10-18: "a circle with some 3d thickness and pie
+// slices for segments of urgency"): a thick disc standing face-on to the camera, cut into one
+// slice per urgency level. The clock eats it clockwise from twelve o'clock, so each slice that goes
+// is one quarter gone — the same moment the hue steps — and the slice being eaten shows where
+// inside that quarter the fare is. The hourglass is `?plumbob=hourglass`. See "the pie" below.
+const SHAPE_PARAM = typeof location !== 'undefined'
+  ? new URLSearchParams(location.search).get('plumbob')
+  : globalThis.process?.env?.PLUMBOB;
+/** Which vessel the marker is: 'pie' (default), 'hourglass' or 'plumbob' (`=classic`). */
+export const MARKER_SHAPE = SHAPE_PARAM === 'classic' ? 'plumbob' : SHAPE_PARAM === 'hourglass' ? 'hourglass' : 'pie';
+export const PLUMBOB_CLASSIC = MARKER_SHAPE === 'plumbob';
+const HOURGLASS = MARKER_SHAPE === 'hourglass';
+const PIE = MARKER_SHAPE === 'pie';
 
 // Half-width at the equator, and the two pyramid heights that meet there. The equator sits two
 // thirds of the way up, which is what makes the silhouette a plumbob rather than a stretched
@@ -208,6 +219,99 @@ export function insideHourglass(x, y, z) {
   return true;
 }
 
+// --- The pie --------------------------------------------------------------------------------------
+//
+// A disc 3.1 across and 0.6 thick, cut into URGENCY_SEGMENTS wedges with a gap between each. Built
+// in its own frame — the face in XY looking down +Z, twelve o'clock at +Y — and then turned to
+// stand facing the camera (`PIE_TURN`), leaned back 15° so the top edge shows its thickness. Face-on
+// exactly it would be a flat 2D circle; leaned too far it becomes an ellipse and the slices squash.
+//
+// 3.1 across is ~24px at play zoom, a hair wider than the plumbob's 22px: a circle has less area
+// than its width suggests next to a shape with corners, and the slices have to read inside it.
+const PIE_R = 1.55;
+const PIE_T = 0.75;
+const PIE_SLICES = 4;
+// How far each wedge is pushed out along its own bisector, so the gaps are twice this: 0.2 units,
+// ~1.5px at play zoom. The black hull behind shows through them, which is what draws the cuts.
+const PIE_GAP = 0.1;
+const PIE_ARC_STEPS = 8;
+//
+// Face-on to the camera the thickness only shows as a sliver along the top edge: the first build
+// leaned back 15° and read as a flat badge with a black ring. So it is also **turned 25° off the
+// camera** about the vertical, which brings one side edge round into view the way a coin on its
+// edge shows its milling.
+export const PIE_TURN = new THREE.Quaternion()
+  .setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.PI / 4 - THREE.MathUtils.degToRad(25))
+  // About the screen's right, (1, 0, -1): a negative angle swings the face's normal upward.
+  .premultiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, -1).normalize(), THREE.MathUtils.degToRad(-10)));
+
+/** Faces per wedge, for the probe's winding check: two caps, the arc wall and two radial walls. */
+export const PIE_FACES_PER_WEDGE = PIE_ARC_STEPS * 4 + 4;
+
+/**
+ * The wedges, as non-indexed triangles wound outward, with a `fillXY` attribute carrying each
+ * vertex's position on the face before the turn — the shader cuts the eaten part by its angle.
+ */
+function pieGeometry() {
+  const pos = [];
+  const walls = [];
+  const push = (...v) => { for (const p of v) pos.push(p[0], p[1], p[2]); };
+  const z = PIE_T / 2;
+  for (let w = 0; w < PIE_SLICES; w++) {
+    // Clockwise from twelve: angle measured from +Y toward +X.
+    const a0 = (w / PIE_SLICES) * 2 * Math.PI;
+    const a1 = ((w + 1) / PIE_SLICES) * 2 * Math.PI;
+    const mid = (a0 + a1) / 2;
+    const ox = Math.sin(mid) * PIE_GAP;
+    const oy = Math.cos(mid) * PIE_GAP;
+    const at = (a, r, zz) => [ox + Math.sin(a) * r, oy + Math.cos(a) * r, zz];
+    for (let k = 0; k < PIE_ARC_STEPS; k++) {
+      const p = a0 + ((a1 - a0) * k) / PIE_ARC_STEPS;
+      const q = a0 + ((a1 - a0) * (k + 1)) / PIE_ARC_STEPS;
+      // Front (+Z): the arc runs clockwise seen from the front, so q before p turns it outward.
+      push(at(0, 0, z), at(q, PIE_R, z), at(p, PIE_R, z));
+      push(at(0, 0, -z), at(p, PIE_R, -z), at(q, PIE_R, -z));
+      // The arc wall.
+      push(at(p, PIE_R, z), at(q, PIE_R, z), at(q, PIE_R, -z));
+      push(at(p, PIE_R, z), at(q, PIE_R, -z), at(p, PIE_R, -z));
+    }
+    // The two radial walls, at a0 and a1 — flagged in `pieWall`, since they are the cuts.
+    walls.push(pos.length / 3);
+    push(at(0, 0, z), at(a0, PIE_R, z), at(a0, PIE_R, -z));
+    push(at(0, 0, z), at(a0, PIE_R, -z), at(0, 0, -z));
+    push(at(0, 0, z), at(a1, PIE_R, -z), at(a1, PIE_R, z));
+    push(at(0, 0, z), at(0, 0, -z), at(a1, PIE_R, -z));
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  const xy = [];
+  for (let i = 0; i < pos.length; i += 3) xy.push(pos[i], pos[i + 1]);
+  geo.setAttribute('fillXY', new THREE.Float32BufferAttribute(xy, 2));
+  // Each wedge's 4 radial-wall triangles start where `walls` recorded them.
+  const wall = new Float32Array(pos.length / 3);
+  for (const start of walls) wall.fill(1, start, start + 12);
+  geo.setAttribute('pieWall', new THREE.BufferAttribute(wall, 1));
+  geo.applyQuaternion(PIE_TURN);
+  geo.computeVertexNormals();
+  return geo;
+}
+
+/**
+ * The pie's outline hull: one solid drum a rim's weight bigger all round, gaps and all filled in.
+ * Its back faces showing through the gaps is what draws the cuts between the slices.
+ */
+function pieHullGeometry(offset) {
+  const sides = 32;
+  const geo = new THREE.CylinderGeometry(
+    (PIE_R + PIE_GAP + offset) / Math.cos(Math.PI / sides),
+    (PIE_R + PIE_GAP + offset) / Math.cos(Math.PI / sides),
+    PIE_T + 2 * offset, sides,
+  );
+  geo.rotateX(Math.PI / 2);
+  geo.applyQuaternion(PIE_TURN);
+  return geo;
+}
+
 /**
  * Half the vessel's height, and so how far its bottom hangs below the marker's origin.
  *
@@ -217,9 +321,9 @@ export function insideHourglass(x, y, z) {
  */
 export const DIAMOND_HALF_H = PLUMBOB_CLASSIC ? PLUMB_HALF_H : tippedHalfHeight();
 
-/** How far the tipped hourglass reaches above and below its origin. */
+/** How far the turned pie or the tipped hourglass reaches above and below its origin. */
 function tippedHalfHeight() {
-  const geo = latheGeometry(hourglassProfile());
+  const geo = PIE ? pieGeometry() : latheGeometry(hourglassProfile());
   geo.computeBoundingBox();
   return geo.boundingBox.max.y;
 }
@@ -273,9 +377,9 @@ const STREAM_FROM = 0.01;
 
 // One geometry for every crystal on the board — the shape never varies, only its colour and where
 // it floats. The outline hulls share it too; they differ from the surface they wrap only by scale.
-const GEO = PLUMBOB_CLASSIC
-  ? plumbobGeometry(PLUMB_W, TOP_Y, EQUATOR_Y, BOT_Y)
-  : latheGeometry(hourglassProfile());
+const GEO = PLUMBOB_CLASSIC ? plumbobGeometry(PLUMB_W, TOP_Y, EQUATOR_Y, BOT_Y)
+  : PIE ? pieGeometry()
+    : latheGeometry(hourglassProfile());
 
 // The outline's thickness, in **world units** rather than as a scale factor: at play zoom (1 world
 // unit ≈ 7.7px) 0.22 is about 1.7px of rim, which is the weight the marker pins carried back when
@@ -306,7 +410,9 @@ export const RIM_SCALE = PLUMBOB_CLASSIC
   ? new THREE.Vector3(1 + RIM_OFFSET / PLUMB_W, 1 + RIM_OFFSET / PLUMB_HALF_H, 1 + RIM_OFFSET / PLUMB_W)
   : new THREE.Vector3(1, 1, 1);
 
-const RIM_GEO = PLUMBOB_CLASSIC ? GEO : latheGeometry(offsetProfile(hourglassProfile(), RIM_OFFSET));
+const RIM_GEO = PLUMBOB_CLASSIC ? GEO
+  : PIE ? pieHullGeometry(RIM_OFFSET)
+    : latheGeometry(offsetProfile(hourglassProfile(), RIM_OFFSET));
 
 const BLACK = 0x000000;
 
@@ -403,6 +509,11 @@ const FILL_TOP = TOP_Y + MENISCUS;
 // The bottom pile stops a band short of the neck rather than running up to it: at zero the top is
 // empty and the bottom is full to the waist, and a meniscus parked on the neck would light the
 // pinch as a bright bead in the one place the silhouette is thinnest.
+// The pie's sweep line, half-width in local units: narrower than the hourglass's surface band
+// because it runs across a face 3 units wide rather than along a rim, and at 0.2 it read as a
+// spoke of its own rather than as the edge of what is left.
+const PIE_SWEEP = 0.12;
+
 const SAND_TOP = [-MENISCUS, GLASS_H + MENISCUS];
 const SAND_BOTTOM = [-GLASS_H - MENISCUS, -MENISCUS];
 
@@ -531,23 +642,38 @@ function patchFill(material, flipped = false) {
   // Lambert material collides with every unpatched one that happens to share those parameters, and
   // `acquireProgram` hands back whichever compiled first. This city is full of flat-shaded Lambert,
   // so the diamond drew with a building's program and the fill went missing with nothing logged.
-  material.customProgramCacheKey = () => `${PLUMBOB_CLASSIC ? 'diamond' : 'hourglass'}-fill${flipped ? '-back' : ''}`;
+  material.customProgramCacheKey = () => `${MARKER_SHAPE}-fill${flipped ? '-back' : ''}`;
   uniforms.uFillLow = { value: SAND_BOTTOM[0] };
   uniforms.uFrame = { value: new THREE.Color(PALETTE.hourglassFrame) };
 
   // The plumbob has one level. The hourglass has one per bulb, and its plates are frame rather
   // than vessel: opaque, walnut, and lit by a little of their own colour instead of the hue's.
   const level = PLUMBOB_CLASSIC ? 'uFill' : `(vFillY > 0.0 ? uFill : uFillLow)`;
-  const plate = PLUMBOB_CLASSIC ? '0.0' : `step(${glsl(GLASS_H - 1e-3)}, abs(vFillY))`;
+  const plate = HOURGLASS ? `step(${glsl(GLASS_H - 1e-3)}, abs(vFillY))` : '0.0';
+  const split = PIE
+    // The pie cuts by angle rather than height: `uFill` is how far round from twelve o'clock the
+    // clock has eaten, and `uFillLow` is borrowed as the switch for the sweep line, which only
+    // exists while the clock is running. The line is measured *across* the sweep ray rather than
+    // in angle, so it is the same width at the rim as near the middle.
+    ? `\tfloat pieAngle = atan(vFillXY.x, vFillXY.y);
+\tif (pieAngle < 0.0) pieAngle += ${glsl(2 * Math.PI)};
+\tfloat below = step(uFill, pieAngle);
+\tvec2 sweep = vec2(sin(uFill), cos(uFill));
+\tfloat meniscus = uFillLow * step(0.0, dot(vFillXY, sweep))
+\t\t* (1.0 - smoothstep(${glsl(PIE_SWEEP * MENISCUS_CORE)}, ${glsl(PIE_SWEEP)}, abs(vFillXY.x * sweep.y - vFillXY.y * sweep.x)));`
+    : `\tfloat below = max(step(vFillY, ${level}), plate);
+\tfloat meniscus = (1.0 - plate) * (1.0 - smoothstep(${glsl(MENISCUS * MENISCUS_CORE)}, ${glsl(MENISCUS)}, abs(vFillY - ${level})));`;
 
   material.onBeforeCompile = (shader) => {
     Object.assign(shader.uniforms, uniforms);
     shader.vertexShader = shader.vertexShader
-      .replace('#include <common>', `#include <common>\nvarying float vFillY;${PLUMBOB_CLASSIC ? '' : '\nattribute float fillY;'}`)
-      .replace('#include <begin_vertex>', `#include <begin_vertex>\n\tvFillY = ${PLUMBOB_CLASSIC ? 'position.y' : 'fillY'};`);
+      .replace('#include <common>', `#include <common>\nvarying float vFillY;\nvarying vec2 vFillXY;\nvarying float vPieWall;${PLUMBOB_CLASSIC ? '' : PIE ? '\nattribute vec2 fillXY;\nattribute float pieWall;' : '\nattribute float fillY;'}`)
+      .replace('#include <begin_vertex>', `#include <begin_vertex>\n\tvFillY = ${PLUMBOB_CLASSIC ? 'position.y' : PIE ? 'fillXY.y' : 'fillY'};\n\tvFillXY = ${PIE ? 'fillXY' : 'position.xy'};\n\tvPieWall = ${PIE ? 'pieWall' : '0.0'};`);
     shader.fragmentShader = shader.fragmentShader
       .replace('#include <common>', `#include <common>
 varying float vFillY;
+varying vec2 vFillXY;
+varying float vPieWall;
 uniform float uFill;
 uniform float uFillLow;
 uniform vec3 uFrame;
@@ -557,8 +683,7 @@ uniform vec3 uSurface;`)
       // still shade — this paints the vessel, it does not bypass the model.
       .replace('#include <color_fragment>', `#include <color_fragment>
 \tfloat plate = ${plate};
-\tfloat below = max(step(vFillY, ${level}), plate);
-\tfloat meniscus = (1.0 - plate) * (1.0 - smoothstep(${glsl(MENISCUS * MENISCUS_CORE)}, ${glsl(MENISCUS)}, abs(vFillY - ${level})));
+${split}
 \tdiffuseColor.rgb = mix(uGlass, diffuseColor.rgb, below);
 \t// The liquid and its surface are solid; only the empty glass thins out.
 \tdiffuseColor.a = mix(${glsl(GLASS_ALPHA)}, 1.0, max(below, meniscus));`)
@@ -573,7 +698,12 @@ ${flipped ? '\tnormal = -normal;\n' : ''}\tfloat sheen = (1.0 - below) * pow(1.0
 \tdiffuseColor.rgb = mix(diffuseColor.rgb, uSurface, meniscus);
 \ttotalEmissiveRadiance *= mix(${glsl(GLASS_EMISSIVE)}, 1.0, max(below, meniscus));
 \tdiffuseColor.rgb = mix(diffuseColor.rgb, uFrame, plate);
-\ttotalEmissiveRadiance = mix(totalEmissiveRadiance, uFrame * ${glsl(FRAME_EMISSIVE)}, plate);`);
+\ttotalEmissiveRadiance = mix(totalEmissiveRadiance, uFrame * ${glsl(FRAME_EMISSIVE)}, plate);
+\t// The pie's cut faces are ink, the same black as the rim: seen down into a gap they would
+\t// otherwise light up in the hue and the cut reads as a stripe of paint rather than a cut.
+\tdiffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.0), vPieWall);
+\tdiffuseColor.a = max(diffuseColor.a, vPieWall);
+\ttotalEmissiveRadiance *= 1.0 - vPieWall;`);
   };
 
   return uniforms;
@@ -679,7 +809,7 @@ export function createDiamond(colorHex) {
   // glass: the glass blends over it at GLASS_ALPHA, so it reads as sand seen through the vessel.
   // Hidden whenever there is nothing to pour (a full or an empty top bulb), which is also the
   // VIP's resting state — their clock never drains, so their hourglass never runs.
-  const stream = PLUMBOB_CLASSIC ? null : new THREE.Mesh(STREAM_GEO, new THREE.MeshLambertMaterial({
+  const stream = !HOURGLASS ? null : new THREE.Mesh(STREAM_GEO, new THREE.MeshLambertMaterial({
     color: color.clone(),
     emissive: color.clone(),
     emissiveIntensity: EMISSIVE,
@@ -725,6 +855,12 @@ export function createDiamond(colorHex) {
       fill = THREE.MathUtils.clamp(fraction, 0, 1);
       if (PLUMBOB_CLASSIC) {
         fillUniforms.uFill.value = THREE.MathUtils.lerp(FILL_BOTTOM, FILL_TOP, fill);
+        return;
+      }
+      if (PIE) {
+        // Eaten clockwise from twelve: a full clock has eaten nothing.
+        fillUniforms.uFill.value = (1 - fill) * 2 * Math.PI;
+        fillUniforms.uFillLow.value = fill > STREAM_FROM && fill < 1 - STREAM_FROM ? 1 : 0;
         return;
       }
       fillUniforms.uFill.value = THREE.MathUtils.lerp(SAND_TOP[0], SAND_TOP[1], fill);

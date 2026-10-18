@@ -142,7 +142,7 @@ import { setCityOccluders, sightlineClear, groundLineClear } from '../src/game/s
 import {
   createDiamond,
   bounceOffset, KICK_SCALE, KICK_HOP, RIM_SCALE, RIM_OFFSET, EMISSIVE, HIGHLIGHT_EMISSIVE,
-  DIAMOND_HALF_H, BOUNCE_HEIGHT, PLUMBOB_CLASSIC, HOURGLASS_TILT, insideHourglass,
+  DIAMOND_HALF_H, BOUNCE_HEIGHT, PLUMBOB_CLASSIC, HOURGLASS_TILT, insideHourglass, MARKER_SHAPE, PIE_TURN, PIE_FACES_PER_WEDGE,
 } from '../src/geometry/diamond.js';
 import { CRYSTAL_TOP, createFareMarker } from '../src/game/faremarker.js';
 import { QUESTION_GEO } from '../src/geometry/questionmark.js';
@@ -4611,7 +4611,32 @@ const PRESSURE_END = difficulty.getTuning().pressureEnd;
     // offset reaches further at a corner than along a facet: the plates' square edges are where it
     // is widest, and a corner of the ring is a further 1/cos(30°) out than its facets. Measured
     // 0.220 to 0.415 — the 0.415 is a plate corner, 3.2px at play zoom against 1.7.
-    if (!PLUMBOB_CLASSIC) {
+    //
+    // The pie's hull is one solid drum around four separate wedges, so there is no vertex to pair
+    // with: measured back in the disc's own frame instead, the drum's facets have to clear the
+    // furthest wedge by the weight all round, and its two faces clear the disc's by the same.
+    if (MARKER_SHAPE === 'pie') {
+      const untip = PIE_TURN.clone().invert();
+      const extent = (attr) => {
+        const v = new THREE.Vector3();
+        let r = 0;
+        let z = 0;
+        for (let i = 0; i < attr.count; i++) {
+          v.fromBufferAttribute(attr, i).applyQuaternion(untip);
+          r = Math.max(r, Math.hypot(v.x, v.y));
+          z = Math.max(z, Math.abs(v.z));
+        }
+        return { r, z };
+      };
+      const body = extent(diamond.mesh.geometry.attributes.position);
+      const drum = extent(hull.geometry.attributes.position);
+      // The drum is a 32-gon, so its thinnest point is the apothem.
+      const side = drum.r * Math.cos(Math.PI / 32) - body.r;
+      const face = drum.z - body.z;
+      check('and it stands its own weight off every edge of the pie',
+        side >= RIM_OFFSET - 1e-4 && side <= RIM_OFFSET * 1.1 && Math.abs(face - RIM_OFFSET) < 1e-4,
+        `${side.toFixed(3)} round the side, ${face.toFixed(3)} off the faces, against ${RIM_OFFSET}`);
+    } else if (!PLUMBOB_CLASSIC) {
       const body = diamond.mesh.geometry.attributes.position;
       const hullPos = hull.geometry.attributes.position;
       const a = new THREE.Vector3();
@@ -4665,14 +4690,24 @@ const PRESSURE_END = difficulty.getTuning().pressureEnd;
       const centre = new THREE.Vector3();
       let inward = 0;
       let faces = 0;
+      // The pie is four separate convex wedges: each face is tested against the middle of its own.
+      const wedgeCentre = new THREE.Vector3();
+      const perWedge = PIE_FACES_PER_WEDGE * 3;
       for (let i = 0; i < pos.count; i += 3) {
+        if (MARKER_SHAPE === 'pie' && i % perWedge === 0) {
+          wedgeCentre.set(0, 0, 0);
+          for (let j = i; j < i + perWedge; j++) wedgeCentre.add(a.fromBufferAttribute(pos, j));
+          wedgeCentre.divideScalar(perWedge);
+        }
         a.fromBufferAttribute(pos, i);
         b.fromBufferAttribute(pos, i + 1);
         c.fromBufferAttribute(pos, i + 2);
         n.copy(b).sub(a).cross(edge.copy(c).sub(a)).normalize();
         centre.copy(a).add(b).add(c).divideScalar(3);
         faces += 1;
-        if (PLUMBOB_CLASSIC) {
+        if (MARKER_SHAPE === 'pie') {
+          if (n.dot(centre.clone().sub(wedgeCentre)) <= 0) inward += 1;
+        } else if (PLUMBOB_CLASSIC) {
           // The origin is inside the crystal, so an outward normal has a positive dot with any point
           // on its own face. A reversed triangle fails this by exactly the sign.
           if (n.dot(centre) <= 0) inward += 1;
@@ -4687,7 +4722,7 @@ const PRESSURE_END = difficulty.getTuning().pressureEnd;
         }
       }
       check('every facet of the crystal faces outwards',
-        faces === (PLUMBOB_CLASSIC ? 8 : 132) && inward === 0, `${faces} faces, ${inward} wound inside out`);
+        faces === { plumbob: 8, hourglass: 132, pie: 4 * PIE_FACES_PER_WEDGE }[MARKER_SHAPE] && inward === 0, `${faces} faces, ${inward} wound inside out`);
     }
 
     // --- The VIP's question mark (geometry/questionmark.js).

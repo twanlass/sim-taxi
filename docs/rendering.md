@@ -1113,7 +1113,7 @@ that *disposes* an occluder has to hand it back with `unmarkOccluder()`. The roa
 
 The lookup itself rides in `propMaterial()` (`util/geo.js`) as an `onBeforeCompile` patch on
 three's `<aomap_fragment>` hook, keyed in screen space off `gl_FragCoord`. It carries a
-`customProgramCacheKey`, for [the reason the hourglass's fill does](#the-hourglass--geometrydiamondjs)
+`customProgramCacheKey`, for [the reason the pie's fill does](#the-pie--geometrydiamondjs)
 — this city is nothing but flat-shaded Lambert, and a patched material with no key gets handed
 whichever program compiled first. Whether the patch is installed at all is decided by
 `setAmbientOcclusion()` *before any geometry is meshed*, which is why `?ao=` is a URL flag and not a
@@ -1279,7 +1279,7 @@ takes `edges` as well as `enabled`, and runs the pass for either; with occlusion
 uniform is pinned to 0 and the occlusion multiply is never compiled into a material. All four
 combinations key to different programs, which `probe.mjs` checks — this city is nothing but
 flat-shaded Lambert, and a second independent flag makes the
-[cache-key trap](#the-hourglass--geometrydiamondjs) twice as easy to fall into.
+[cache-key trap](#the-pie--geometrydiamondjs) twice as easy to fall into.
 
 ### What it is not doing yet
 
@@ -3738,15 +3738,34 @@ exactly in step with the car being traced. It is called last in the frame, after
 for two reasons: a frame's lag is 0.31 units ≈ 2.4px of rim sliding off its own car at boost speed,
 and a car wrecked on this frame must not wear a ghost over its own fireball.
 
-### The hourglass — `geometry/diamond.js`
+### The pie — `geometry/diamond.js`
 
-The marker a waiting rider floats: an **hourglass**, outlined in black, bouncing, and painted by
-[urgency](gameplay.md#urgency-is-one-scale). The hue is the sand: a fresh rider's top bulb is full
+The marker a waiting rider floats: a **pie**, a thick disc outlined in black, bouncing, and painted
+by [urgency](gameplay.md#urgency-is-one-scale), cut into one slice per urgency level. The clock
+eats it clockwise from twelve o'clock, so each slice that goes is one quarter of the clock gone —
+the same moment the hue steps — and the slice being eaten shows where inside that quarter the fare
+is. Eaten wedges stay as the same see-through glass the other vessels empty into.
+
+**The geometry** is four wedges (`pieGeometry`), 3.1 across and 0.75 thick, each pushed 0.1 out
+along its own bisector so the cuts are 0.2 wide. It is built face-on in its own XY plane and then
+turned (`PIE_TURN`) to face the camera, leaned back 10° and turned 25° off it about the vertical:
+face-on exactly, the thickness showed only as a sliver on the top edge and the first build read as
+a flat badge. The fill shader cuts by the angle of the untilted `fillXY` attribute, with a narrow
+bright line along the sweep while the clock runs. The radial walls are flagged `pieWall` and drawn
+black, so a cut looked down into reads as a cut rather than as a stripe of green. The outline hull
+is one solid 32-sided drum a rim's weight bigger than the wedges all round; its back faces showing
+through the gaps are what draw the cuts on the face.
+
+`?plumbob=hourglass` brings back the hourglass below and `?plumbob=classic` the [plumbob before
+it](rendering-history.md#the-plumbob--geometrydiamondjs).
+
+#### The hourglass — `?plumbob=hourglass`
+
+An **hourglass**, outlined in black. The hue is the sand: a fresh rider's top bulb is full
 of it, it drains through the neck as their clock runs, and it piles up in the bottom bulb, with a
 thin stream of it falling between the two while the clock is running. It is the rider's shape alone; it is its own module because the shape, the outline and the bounce are a vocabulary the next marker should
 inherit rather than re-derive. (The file is still `diamond.js`: it is the crystal over a fare
 whatever silhouette it wears, and the rename would have cost a hundred references to buy nothing.)
-`?plumbob=classic` brings back the [plumbob it replaced](rendering-history.md#the-plumbob--geometrydiamondjs).
 
 **The geometry** is a six-sided lathe: a profile (`GLASS_PROFILE`) from a 0.16 neck out to a bulb
 of radius 1.2 and back in to 1.0 under each plate, then a walnut plate (`PALETTE.hourglassFrame`)
@@ -4504,7 +4523,7 @@ dark ones on a pale one to read at the same weight.
 The outline is an enlarged copy of the same silhouette rather than an inverted hull: a hull is a
 *volume* trick, and on a flat shape the enlarged copy's back faces point away from the camera and
 draw nothing at all. Its offset is in world units per axis, for the reason [the plumbob's
-rim](#the-hourglass--geometrydiamondjs) gives — the bubble is nearly twice as wide as it is tall, so
+rim](#the-pie--geometrydiamondjs) gives — the bubble is nearly twice as wide as it is tall, so
 one scale factor would draw a border half as thick at the top as at the sides.
 
 **The tail is a rim point, not a triangle stuck on the bottom.** The silhouette is one closed

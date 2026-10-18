@@ -1412,9 +1412,10 @@ staged dispatch is not a finger.
 ## The fare's clock travels
 
 `src/game/faremarker.js`. The countdown is a **physical object that belongs to the fare** — not a
-HUD number, not a property of a marker, and not something that changes hands. An **hourglass** floats
-over the rider's head on the kerb — its sand draining from the top bulb to the bottom as their clock
-runs (`?plumbob=classic` for the plumbob it replaced) — painted by how much of their clock is left:
+HUD number, not a property of a marker, and not something that changes hands. A **pie** floats
+over the rider's head on the kerb — a thick disc of four slices, eaten clockwise one quarter at a
+time as their clock runs (`?plumbob=hourglass` and `?plumbob=classic` for the two shapes before
+it) — painted by how much of their clock is left:
 green → yellow → orange → red, [by level](#urgency-is-one-scale) — and [draining like a
 glass](#the-crystal-is-a-glass-of-time) between those steps. The instant they get in it **flies to the taxi**
 (`TRANSFER_TIME = 0.65s`, eased, with a small arc) and keeps draining above the roof, because from
@@ -1555,12 +1556,11 @@ stripe across it. Which is why the **core** was widened instead (`0.4 → 0.65`)
 band held flat with a third left to feather arrives as an edge with a shoulder rather than as a
 gradient with a bright middle, and unlike the width it costs nothing at the ends.
 
-**What is still unspent.** The level is [linear in height](#the-crystal-is-a-glass-of-time), and
-each bulb of the hourglass is narrow at the neck and widest a third of the way up it — so the *area*
-of sand is not proportional to the fraction, and the top bulb's last few seconds drain through the
-narrow part. That is
-a deliberate trade (equal time has to be equal travel, and volume-true is much worse), but it is the
-remaining reason a half-spent fare looks emptier than it is, and no amount of contrast addresses it.
+**Spent, on the pie.** The plumbob and the hourglass cut their level linear in height, and their
+*area* was never proportional to the fraction, so a half-spent fare looked emptier than it was. The
+pie cuts by angle, and a wedge's area is linear in its angle, so what is left on screen is exactly
+the fraction left. On the two older shapes (`?plumbob=`) it was a deliberate trade (equal time has
+to be equal travel, and volume-true is much worse) that no amount of contrast could address.
 
 ### The far wall, and why it isn't there
 
@@ -1739,9 +1739,9 @@ VIP" is never confused with how much time they have left, and every other surfac
 through follows it: the ring on the road at the far end of their trip, the route band driving at it,
 and the off-screen arrow.
 
-**They do not wear a crystal.** Where every other rider has an hourglass, a VIP has a chunky purple
+**They do not wear a crystal.** Where every other rider has a pie, a VIP has a chunky purple
 **question mark** (`geometry/questionmark.js`) in the same slot, rocking slowly so its extrusion
-shows. An hourglass that never drains is a timer-shaped thing refusing to tell the time; the question
+shows. A pie that never empties is a timer-shaped thing refusing to tell the time; the question
 mark says what is actually true — you do not know how long this one gives you — and says it with the
 silhouette, which carries further than a hue. It copies the hidden crystal's pose every frame, so
 the bounce, kick, pulse, pop and refusal shake all land on it unchanged.
@@ -2737,7 +2737,7 @@ How the two are drawn, and why the order had to be built into the box's envelope
 ### A package has no clock, and so has no diamond
 
 The board's vocabulary is [shape says what a thing is, hue says whose clock is paying for
-it](#the-drop-off-is-a-ring-and-it-wears-the-riders-clock). An hourglass **means** a countdown. A
+it](#the-drop-off-is-a-ring-and-it-wears-the-riders-clock). A pie **means** a countdown. A
 package having no deadline is precisely why it must not have one — and it keeps the courier layer
 from adding a second thing to read to a board that can already carry four fares. The cyan says
 "courier job", full stop, which for a package is the only honest thing a colour can say.

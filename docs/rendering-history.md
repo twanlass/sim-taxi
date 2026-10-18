@@ -617,7 +617,7 @@ unchanged. (rendering.md said 16 for a while; the code has been 18.)
 
 ### The plumbob — `geometry/diamond.js`
 
-[Current](rendering.md#the-hourglass--geometrydiamondjs).
+[Current](rendering.md#the-pie--geometrydiamondjs).
 
 - **It was a plumbob until 2026-10-18** (Tyler: "what if we made the plumbob an hour glass?"), and
   `?plumbob=classic` still draws it. A square bipyramid built by hand: an equator of half-width 1.4
