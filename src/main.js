@@ -830,6 +830,8 @@ const depotFlag = new URLSearchParams(window.location.search).get('depot');
 const garage = layout.garageBlock
   ? createGarage(layout.garageBlock, makeRng(seed + 99), {
     sign: depotFlag === 'classic' || depotFlag === 'model' ? depotFlag : 'cutout',
+    // `?depotneon=classic`: no blue tube round the roofline.
+    trim: new URLSearchParams(window.location.search).get('depotneon') !== 'classic',
   })
   : null;
 if (garage) {
@@ -1447,6 +1449,7 @@ if (graveyard) markEmissive(graveyard.glow, 'window');
 if (roadside) markEmissive(roadside.glow, 'window');
 if (garage) markEmissive(garage.light, 'bay');
 if (garage?.neon) markEmissive(garage.neon, 'window');
+if (garage?.roofNeon) markEmissive(garage.roofNeon, 'window');
 // The riders. They receive AO through `propMaterial()` either way, so leaving them out of the
 // prepass would paint the kerb's own contact line across whoever is standing in front of it.
 // Only the figure is taken — `markOccluder` filters out the translucent target disc under them.

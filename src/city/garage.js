@@ -95,6 +95,21 @@ const CHECK_DROP = 0.40;
 // at 0.44 × 0.46 on screen.
 const CHECK_SQ = 0.62;
 
+// --- The roofline neon ------------------------------------------------------
+// A blue tube tracing the parapet on the two elevations the camera sees, the way the burger joint
+// across town traces its own (`neonParts` in city/burgerjoint.js) — same placement argument, same
+// mitre, the sign's `depotNeon` blue. `?depotneon=classic` leaves it off.
+//
+// It hangs under the coping, in the reveal `CHECK_DROP` leaves above the chequer, and that reveal
+// is what it is replacing as the separator: a blue line between a dark lid and a dark-and-white
+// course does that job better than a sliver of wall did. Standing `TRIM_OUT` proud keeps it inside
+// the coping's 0.18 overhang with 0.04 to spare, so its outer face is never coplanar with the
+// coping's — and the lip over it hides only `0.04 × VIEW_RISE` = 0.04 of height, which is spent in
+// `TRIM_DROP` before the tube starts.
+const TRIM_H = 0.2;              // a pixel and a half at play zoom, as the burger's
+const TRIM_DROP = 0.06;          // under the coping's underside
+const TRIM_OUT = 0.14;           // proud of the wall
+
 // --- The sign on the roof ---------------------------------------------------
 // The depot is where the player brings the taxi back for repairs and upgrades, and from play zoom
 // the building has to *say* that before anybody has learned it. So the roof carries a sign the way
@@ -622,7 +637,7 @@ function cutoutGeometry() {
  * its own building rather than leaving it hanging in the air. The light is unlit and outside the
  * wave, and the sign is outside it for a different reason — see `wrenchGeometry`.
  */
-export function createGarage(block, rng, { sign: style = 'cutout' } = {}) {
+export function createGarage(block, rng, { sign: style = 'cutout', trim: withTrim = true } = {}) {
   const site = garageSite(block);
   const { x0, z0, z1 } = block.bounds;
   const { frontX, curtainX, doorZ, kerbX } = site;
@@ -807,6 +822,26 @@ export function createGarage(block, rng, { sign: style = 'cutout' } = {}) {
   const light = new THREE.Mesh(lightGeo, unlitMaterial({ vertexColors: true }));
   light.name = 'garage-light';
 
+  // --- The roofline neon ----------------------------------------------------
+  // Two arms mitred the burger joint's way: the +X arm carries the corner, running on past the +Z
+  // arm, and the +Z arm stops on its inner face, so no front-facing pair is ever coincident. Their
+  // far ends stop on the wall corners, where the caps face away and are culled. Stamped and in
+  // `meshes`, unlike the bay light: it is on the outside of the building, so it has to rise with it.
+  let roofNeon = null;
+  if (withTrim) {
+    const neonBlue = color('depotNeon');
+    const y1 = top - TRIM_DROP;
+    const y0 = y1 - TRIM_H;
+    const trimParts = [
+      span(frontX, frontX + TRIM_OUT, y0, y1, bz0, bz1 + TRIM_OUT, neonBlue),
+      span(bx0, frontX, y0, y1, bz1, bz1 + TRIM_OUT, neonBlue),
+    ];
+    trimParts.forEach(stampAll);
+    roofNeon = new THREE.Mesh(mergeGeometries(trimParts, false), unlitMaterial({ vertexColors: true }));
+    trimParts.forEach((p) => p.dispose());
+    roofNeon.name = 'garage-roof-neon';
+  }
+
   // --- The sign: the taxi, or under `?depot=classic` the wrench -------------
   // Built at the top of this function, because the pole is placed off its bounds. Its own mesh and
   // its own pivot, for the reason the burger over the drive-through is one: it turns, and the
@@ -907,6 +942,7 @@ export function createGarage(block, rng, { sign: style = 'cutout' } = {}) {
 
   const group = new THREE.Group();
   group.add(shell, curtain, light, signPivot);
+  if (roofNeon) group.add(roofNeon);
 
   /**
    * Wind the curtain up. `open` is 0 (shut) to 1 (gone).
@@ -953,6 +989,8 @@ export function createGarage(block, rng, { sign: style = 'cutout' } = {}) {
     /** The cutout's yellow board and its neon tube; null on the other two signs. */
     board,
     neon,
+    /** The roofline neon; null under `?depotneon=classic`. */
+    roofNeon,
     /** The sign's centre, in world y — where the pole stops. */
     hub,
     update,
@@ -961,7 +999,7 @@ export function createGarage(block, rng, { sign: style = 'cutout' } = {}) {
      * which is neither: the wave's vertex shader cannot reach a turning object, and a mesh whose
      * matrix changes every frame has no business writing into a screen-space occlusion buffer.
      */
-    meshes: [shell, curtain],
+    meshes: roofNeon ? [shell, curtain, roofNeon] : [shell, curtain],
     setDoor,
     /** ...so the sign grows on the CPU instead, on the shell's own delay. */
     entryObject: { object: signPivot, x: anchorX, z: anchorZ, rand },

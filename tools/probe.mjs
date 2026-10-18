@@ -15765,6 +15765,33 @@ let chopperOrder; // likewise
       copingReach > paintReach + 1e-6,
       `coping to x ${copingReach.toFixed(2)}, paint to ${paintReach.toFixed(2)}`);
 
+    // The roofline neon: under the coping, inside its drip edge on both faces (an outer face level
+    // with the coping's is a z-fight on the corner the camera is aimed at), clear of the chequer
+    // under it, and the whole length of both faces.
+    {
+      const t = garage.roofNeon?.geometry.attributes.position;
+      const n = { y0: Infinity, y1: -Infinity, x0: Infinity, x1: -Infinity, z0: Infinity, z1: -Infinity };
+      for (let i = 0; t && i < t.count; i++) {
+        n.y0 = Math.min(n.y0, t.getY(i)); n.y1 = Math.max(n.y1, t.getY(i));
+        n.x0 = Math.min(n.x0, t.getX(i)); n.x1 = Math.max(n.x1, t.getX(i));
+        n.z0 = Math.min(n.z0, t.getZ(i)); n.z1 = Math.max(n.z1, t.getZ(i));
+      }
+      let copingZ = -Infinity;
+      for (let i = 0; i < pos.count; i++) {
+        if (at(i) === TRIM && pos.getY(i) > chequerHi) copingZ = Math.max(copingZ, pos.getZ(i));
+      }
+      const bounds = layout.garageBlock.bounds;
+      check('the depot wears blue neon under its coping, inside the drip edge',
+        Boolean(t) && n.y1 < copingLo - 0.005 && n.y0 > chequerHi + 0.005
+        && copingReach - n.x1 > 0.005 && copingZ - n.z1 > 0.005,
+        t ? `${n.y0.toFixed(2)}\u2192${n.y1.toFixed(2)} between chequer ${chequerHi.toFixed(2)} `
+          + `and coping ${copingLo.toFixed(2)}, ${(copingReach - n.x1).toFixed(3)}/`
+          + `${(copingZ - n.z1).toFixed(3)} inside the drip edge` : 'no trim');
+      check('...and it runs the whole of both faces the camera can see',
+        n.z1 - n.z0 > bounds.z1 - bounds.z0 - 2 && n.x1 - n.x0 > site.frontX - bounds.x0 - 2,
+        `${(n.x1 - n.x0).toFixed(2)} \u00d7 ${(n.z1 - n.z0).toFixed(2)}`);
+    }
+
     // The forecourt's guide lines, against the asphalt they are laid on. Same rule, laid flat: two
     // horizontal surfaces at one height is the shimmer `city/burgerjoint.js` names its apron levels
     // to avoid, and the depot has the same three levels to keep apart.
