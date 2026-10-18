@@ -4,9 +4,9 @@
 spans, `src/game/drawbridge.js` for the one that lifts, and `src/geometry/boat.js` +
 `src/game/boats.js` for the traffic on it.
 
-A river runs east–west through the middle of the city, crossed by four bridges: three across the
-other lines, plus one fixed under the L's deck beside the drawbridge (`planRiver`). Without the L
-(`?ltrain=classic`) the 5 × 5 has three. All but one of them arch. That one is flat, and it opens.
+A river runs east–west through the middle of the city. On the 5 × 5 island it is crossed by three
+bridges: a fixed one a line in from each coast and the drawbridge between them (`planRiver`). The
+ring roads stop at the water. The fixed spans arch; the drawbridge is flat, and it opens.
 
 ## The city grew a row rather than losing one
 
@@ -60,6 +60,28 @@ And a river face is *not* what `blockBounds` says: a row of river blocks comes b
 merged faces. `tools/roadnet.mjs` compares land against land.
 
 ## Which crossings bridge
+
+### The island: a block in from each coast (`?bridges=classic` for the old four)
+
+On the 5 × 5 island the two fixed bridges stand on **lines 1 and 4**, one line in from each coast,
+and the drawbridge stays on whichever middle line the L is not on. Three crossings: fixed, leaf,
+fixed, with one or two lines between neighbours. (Tyler, 2026-10-18: "kill one of the fixed
+bridges. Pull the outer ones in a block".)
+
+- **The L's fixed span is the one that went.** It stood right beside the drawbridge, so it was the
+  crossing doing the least, and the train needs no road under it: its through truss
+  (`game/ltrain.js`) carries it over open water on its own.
+- **The ring roads end at the water.** Each one comes down to the bank and bends onto the bank
+  street. That node has two arms at a right angle, like a ring corner, so the road network finds no
+  conflicting movement and leaves it uncontrolled (`bakeSignals`); nothing yields and nothing
+  stops. The ring is now two loops, one per bank.
+- **Trips run a little longer.** Over the soak's nine runs the median estimated work per fare went
+  33s → 34s and the longest 101s → 125s, with the same median delivered. A full tank of Loco Mode
+  shakes a patrol a little less often: 90 of 112 chases against 97 over seven cities.
+
+`?bridges=classic` keeps the layout described below. `?city=big` is unaffected.
+
+### The rule it replaced, and the big map
 
 `planRiver` decides, and two of the six are always the same:
 
