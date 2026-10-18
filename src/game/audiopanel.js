@@ -204,7 +204,8 @@ export function buildAudioSections(host, sfx, { triggers = {}, holds = {} } = {}
     const mute = el('button', { type: 'button', className: 'aud-ms', textContent: 'M',
       title: 'Mute while listening. Not saved in the mix.' });
     const solo = el('button', { type: 'button', className: 'aud-ms aud-solo', textContent: 'S',
-      title: 'Solo: hear only what is soloed (and what is under it). Not saved in the mix.' });
+      title: 'Solo: hear only this (and what is under it), in place of whatever was soloed before. '
+        + 'Shift-click to add it to the solos instead. Not saved in the mix.' });
     into.append(mute, solo);
     monitors.push(() => {
       const m = sfx.monitor();
@@ -216,8 +217,12 @@ export function buildAudioSections(host, sfx, { triggers = {}, holds = {} } = {}
       sfx.setMonitor(key, { mute: !sfx.monitor().mute.includes(key) });
       repaintMonitors();
     });
-    solo.addEventListener('click', () => {
-      sfx.setMonitor(key, { solo: !sfx.monitor().solo.includes(key) });
+    // Exclusive by default (Tyler, October 2026): pressing S on something is "let me hear this",
+    // so the solo it replaces goes. Shift keeps the DAW's additive solo for comparing two things.
+    solo.addEventListener('click', (event) => {
+      const on = sfx.monitor().solo.includes(key);
+      if (!on && !event.shiftKey) for (const k of sfx.monitor().solo) sfx.setMonitor(k, { solo: false });
+      sfx.setMonitor(key, { solo: !on });
       repaintMonitors();
     });
   }

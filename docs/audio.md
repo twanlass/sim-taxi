@@ -395,7 +395,9 @@ name to jump to it).
   fader's bottom stop is **-∞**, not a quiet level (`FLOOR` in `audiopanel.js`, -60 dB and under
   is a gain of 0).
 - **M** and **S** sit on every bus, group, sound and track, for listening only: never stashed or
-  exported, gone on a reload (**Clear mutes and solos** resets them). The rule is a DAW's
+  exported, gone on a reload (**Clear mutes and solos** resets them). **S** is exclusive: it solos
+  that one thing in place of whatever was soloed before, and shift-click adds to the solos
+  instead. The rule is a DAW's
   (`monitorPass` in `sfx.js`): a mute silences that node and what runs through it; while anything
   is soloed, only what is soloed, what is under it, and the path down to it can be heard. Whatever
   is silenced is dimmed. A sound's M/S is a gain node per sound between its voices and its group;
