@@ -1564,6 +1564,10 @@ export function createSfx({ rng, menuMusic = false, classicSongs = false, radioF
       rotor.gain.gain.setTargetAtTime(g, t, over ? 0.4 : 0.3);
     }
 
+    // A placed ▶ from the panel follows its pin, its rings and its Level as it plays. A short glide:
+    // this is a knob being turned, not a car rounding a corner. Gone off the map reads as silent.
+    for (const v of auditions) if (v.where) aim(v, v.key, v.where() ?? { level: 0 }, 0.03);
+
     // The city's beds. Half a second's glide: a bed swelling as the taxi rounds the corner onto
     // the court reads as arriving, and a frame's worth of distance is never a step.
     for (const key of AMBIENT) {
@@ -1644,15 +1648,23 @@ export function createSfx({ rng, menuMusic = false, classicSongs = false, radioF
    * Play a sound once at its mixed gain and rate, loops included and past `minGap` — the panel's
    * ▶. A sound with variants draws the next take the way `play` does. Returns the file it played,
    * or null when nothing could (no tap yet, the file missing, muted or held).
+   *
+   * With `where` (a function answering `{ d, pan }` off `placeAt`, or null), it is heard from
+   * there, and re-aimed every frame in `update` like a bed — so dragging a ring, the Level slider
+   * or panning the 👂 moves it while it plays (Tyler, October 2026). Without, it is the raw file —
+   * what Shift-▶ asks for, and every sound with no place.
    */
-  function audition(key) {
+  function audition(key, where = null) {
     if (!state.ready || state.muted || state.held || !SOUNDS[key]) return null;
     const file = pickTake(key);
     if (!file) return null;
     const src = ctx.createBufferSource();
     src.buffer = buffers[file];
     src.playbackRate.value = mix.sounds[key].rate;
-    const voice = chain(src, mix.sounds[key].gain, key);
+    const at = where?.();
+    const voice = chain(src, mix.sounds[key].gain * (at ? falloff(key, at.d) : 1), key);
+    if (at && voice.pan) voice.pan.pan.value = Math.max(-1, Math.min(1, at.pan ?? 0)) * PAN_WIDTH;
+    if (where) Object.assign(voice, { key, where });
     auditions.add(voice);
     src.onended = () => auditions.delete(voice);
     src.start();

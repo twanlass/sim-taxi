@@ -52,6 +52,7 @@ import {
   BOARD_SECONDS, MAX_STRIKES, RATING_FLOOR, ratingFor,
 } from './game/fares.js';
 import { createDebugPanel } from './game/debugpanel.js';
+import { createPhoneFrame } from './game/phoneframe.js';
 import { createDriveThru } from './game/drivethru.js';
 import { createBurgerRun } from './game/burgerrun.js';
 import { createDepotRun } from './game/depotrun.js';
@@ -4769,7 +4770,8 @@ function placeAt(x, z, y = 0) {
   const ear = controller.state.target;
   const d = Math.hypot(x - ear.x, z - ear.z);
   placeProbe.set(x, y, z).project(camera);
-  return { d, pan: placeProbe.x };
+  // Framed as a phone (the ⚙️ panel's 📱), the screen's edges are the frame's, not the window's.
+  return { d, pan: placeProbe.x * (phoneFrame?.panScale() ?? 1) };
 }
 
 // The street works: one zone a run, heard from the middle of its closed block while it stands.
@@ -4974,18 +4976,21 @@ const soundTriggers = {
     drawbridge.request();
     return null;
   },
-  // The walk-off has no event of its own to stage short of failing a fare, so this is the sound
-  // from the taxi — where the riding passenger who gives up gets out (`'missed'` in the fare
-  // handler below). Heard from the 👂, the camera's target, like every placed sound — which is
-  // why this button once did nothing (Nicolás, October 2026): with the map panned off the taxi, or
-  // before the camera had found it, the taxi was past `far`, a placed one-shot that far off is not
-  // played at all, and the label blamed the min gap. Out of earshot, it plays at the 👂 instead.
+  // The walk-off, staged: a rider on one fixed kerb corner storms off with the purple curse bubble
+  // (`fares.demoBail`), the camera peeks at them, and the sound plays from that corner — so what
+  // is heard can be seen (Tyler, October 2026). Placed sounds are heard from the 👂, the camera's
+  // target, and the peek is what brings the 👂 to that corner — so the sound is played as heard
+  // from where the camera is going (full level, centred) rather than from where it starts. Placed
+  // from the start of the pan, it could be past `far`, and a placed one-shot that far off is not
+  // played at all: that is how this button once did nothing while the label blamed the min gap.
   angry: () => {
     if (!sfx?.state.ready) return 'no audio yet (tap the game)';
-    const at = placeAt(traffic.taxi.x, traffic.taxi.z);
-    const away = at.d >= sfx.tuning().place.angry.far;
-    if (!sfx.play('angry', { at: away ? { d: 0, pan: 0 } : at })) return 'inside its min gap';
-    return away ? 'taxi out of earshot, played at the 👂' : null;
+    const kerb = fares.demoBail();
+    if (!kerb) return 'every rider slot is busy';
+    releaseCameraToPlayer();
+    controller.peekAt(kerb.x, kerb.z, () => traffic.taxi, () => { cameraTakenOver = false; });
+    if (!sfx.play('angry', { at: { d: 0, pan: 0 } })) return 'inside its min gap';
+    return null;
   },
 };
 soundTriggers.birdsDown = soundTriggers.birdsUp;
@@ -5095,6 +5100,17 @@ function groundUnder(clientX, clientY) {
   return groundRay.ray.intersectPlane(groundPlane, groundHit) ? { x: groundHit.x, z: groundHit.z } : null;
 }
 const screenRight = new THREE.Vector3();
+// Where the panel's ▶ plays a sound from: its pin nearest the 👂 (the birds have one per flock),
+// measured the way the game measures it. Null for a sound with no pin on the map right now.
+function soundPlace(key) {
+  const ear = controller.state.target;
+  let best = null;
+  for (const s of soundSources()) {
+    if (s.key !== key) continue;
+    if (!best || Math.hypot(s.x - ear.x, s.z - ear.z) < Math.hypot(best.x - ear.x, best.z - ear.z)) best = s;
+  }
+  return best ? placeAt(best.x, best.z, best.y ?? 0) : null;
+}
 function soundSources() {
   const out = [];
   const works = roadworkSpot();
@@ -6384,6 +6400,9 @@ const debugParams = new URLSearchParams(window.location.search);
 // `?audio` was the sound designer's own panel; it is the Audio sections of this one now, and the
 // flag still opens it.
 const wantsDebugPanel = debugMode;
+// The panel's 🖥 / 📱 switch (game/phoneframe.js): built with the panel, and read by `placeAt` for
+// the pan a phone would hear.
+const phoneFrame = !shot && wantsDebugPanel ? createPhoneFrame() : null;
 // Freeze-and-zoom for tuning things that are a few pixels across at play zoom — see
 // game/inspect.js. `I` toggles it; the debug panel has the buttons.
 const inspect = !shot && wantsDebugPanel ? createInspect({
@@ -7023,6 +7042,7 @@ if (shot) {
 
 if (!shot && wantsDebugPanel) {
   debugPanel = createDebugPanel({
+    phoneFrame,
     sun,
     hemi,
     sky,
@@ -7053,6 +7073,7 @@ if (!shot && wantsDebugPanel) {
     sfx,
     soundTriggers,
     soundHolds,
+    soundPlace,
     wreck: { styles: Object.keys(WRECK_STYLES), current: getWreckStyle(), set: blast.setStyle },
   });
 }

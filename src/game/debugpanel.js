@@ -125,8 +125,12 @@ export function createDebugPanel({
   // ...and freeze the moving ones (plane, chopper, birds) with their sound looping — the ⏸ buttons.
   // See `holds` in main.js.
   soundHolds = {},
+  // Where a placed sound is heard from right now, for its ▶ — `soundPlace` in main.js.
+  soundPlace = () => null,
   // The wreck fireball's cut — `{ styles, current, set }` over game/blast.js's WRECK_STYLES.
   wreck = null,
+  // The 🖥 / 📱 switch beside the search (game/phoneframe.js), or null for no switch.
+  phoneFrame = null,
 }) {
   const toggle = document.createElement('button');
   toggle.id = 'dbg-toggle';
@@ -1193,7 +1197,7 @@ export function createDebugPanel({
   // is already the new state.
   let audio = null;
   if (sfx) {
-    audio = buildAudioSections(panel, sfx, { triggers: soundTriggers, holds: soundHolds });
+    audio = buildAudioSections(panel, sfx, { triggers: soundTriggers, holds: soundHolds, placeOf: soundPlace });
     toggle.addEventListener('click', () => (panel.hidden ? audio.close() : audio.open()));
   }
 
@@ -1294,7 +1298,7 @@ export function createDebugPanel({
   fareTime.dispatchEvent(new Event('input'));
   refresh();
 
-  const sections = organise(panel);
+  const sections = organise(panel, phoneFrame);
 
   /**
    * Open the panel on one sound's controls — the 🔊 pins on the map (game/soundpins.js). Opens the
@@ -1366,7 +1370,7 @@ function itemText(el) {
   return buttons.length ? [...buttons].map((b) => b.textContent).join(' ') : '';
 }
 
-function organise(panel) {
+function organise(panel, phoneFrame = null) {
   const open = loadOpen();
 
   const search = document.createElement('input');
@@ -1379,7 +1383,8 @@ function organise(panel) {
 
   const header = document.createElement('div');
   header.className = 'dbg-head';
-  header.append(search);
+  header.append(phoneFrame ? Object.assign(document.createElement('div'), { className: 'dbg-head-row' }) : search);
+  if (phoneFrame) header.firstChild.append(search, phoneFrame.buildSwitch());
 
   let tab = loadTab();
   const tabBar = document.createElement('div');

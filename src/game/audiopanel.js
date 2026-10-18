@@ -30,7 +30,7 @@ const TRIGGER_TIPS = {
   birdsUp: 'Scatter the flock nearest the taxi. The landing sound follows when it settles.',
   birdsDown: 'Scatter the flock nearest the taxi; this plays when it settles again.',
   bridge: 'Raise the drawbridge now. Its cycle is about 26s.',
-  angry: 'A rider swearing at the taxi — in the game, the one who gives up waiting or bails out.',
+  angry: 'A rider on the same kerb corner every time storms off swearing, bubble and all. The camera goes to look.',
 };
 
 // v2 with Block 1: a v1 stash holds levels trimmed for the test files, keyed partly by takes that
@@ -138,9 +138,12 @@ const slider = (min, max, step, value) => el('input', { type: 'range', min, max,
  *   plays it happen in the game (the ⚡ buttons). Answers null, or why it could not.
  * @param {Object<string, {held: () => boolean, set: (on: boolean) => (string|null)}>} [opts.holds]
  *   By sound: freeze the moving thing that plays it, sound looping (the ⏸ buttons).
+ * @param {(key: string) => ({d: number, pan: number}|null)} [opts.placeOf]  Where a placed sound
+ *   is heard from right now (its pin, measured from the 👂), or null — what ▶ plays it from,
+ *   asked again every frame while it plays.
  * @returns {{ open: () => void, close: () => void }}  Called as the ⚙️ panel opens and closes.
  */
-export function buildAudioSections(host, sfx, { triggers = {}, holds = {} } = {}) {
+export function buildAudioSections(host, sfx, { triggers = {}, holds = {}, placeOf = () => null } = {}) {
   const stashed = loadStash();
   if (stashed) sfx.tune(stashed);
 
@@ -174,11 +177,15 @@ export function buildAudioSections(host, sfx, { triggers = {}, holds = {} } = {}
     focusedBox = box;
     box.classList.add('is-focused');
   }
-  // A press anywhere but a sound's own box, a 🔊 pin or a ring handle (game/soundpins.js) lets the
-  // selection go, and its rings with it. On `window` in the capture phase, because a pin stops its
-  // own press from bubbling and the canvas's handlers are not this module's to wait for.
-  window.addEventListener('pointerdown', (event) => {
-    if (!focusedBox || event.target.closest?.('.aud-sound, .sound-pin, .sound-handle')) return;
+  // The selection holds until another sound is picked or Escape lets it go (Tyler, October 2026:
+  // so the map can be dragged around with the rings still on it — a press on the map used to clear
+  // them, which made panning to the 👂's edge of a ring impossible). Escape here is spent: it does
+  // not also pause the game (game/pause.js listens on `window` too), hence capture and
+  // stopImmediatePropagation. With nothing selected, Escape is the pause key as ever.
+  window.addEventListener('keydown', (event) => {
+    if (event.key !== 'Escape' || !focusedBox || event.target instanceof HTMLInputElement) return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
     focusedBox.classList.remove('is-focused');
     focusedKey = null;
     focusedBox = null;
@@ -204,7 +211,8 @@ export function buildAudioSections(host, sfx, { triggers = {}, holds = {} } = {}
     const mute = el('button', { type: 'button', className: 'aud-ms', textContent: 'M',
       title: 'Mute while listening. Not saved in the mix.' });
     const solo = el('button', { type: 'button', className: 'aud-ms aud-solo', textContent: 'S',
-      title: 'Solo: hear only what is soloed (and what is under it). Not saved in the mix.' });
+      title: 'Solo: hear only this (and what is under it), in place of whatever was soloed before. '
+        + 'Shift-click to add it to the solos instead. Not saved in the mix.' });
     into.append(mute, solo);
     monitors.push(() => {
       const m = sfx.monitor();
@@ -216,8 +224,12 @@ export function buildAudioSections(host, sfx, { triggers = {}, holds = {} } = {}
       sfx.setMonitor(key, { mute: !sfx.monitor().mute.includes(key) });
       repaintMonitors();
     });
-    solo.addEventListener('click', () => {
-      sfx.setMonitor(key, { solo: !sfx.monitor().solo.includes(key) });
+    // Exclusive by default (Tyler, October 2026): pressing S on something is "let me hear this",
+    // so the solo it replaces goes. Shift keeps the DAW's additive solo for comparing two things.
+    solo.addEventListener('click', (event) => {
+      const on = sfx.monitor().solo.includes(key);
+      if (!on && !event.shiftKey) for (const k of sfx.monitor().solo) sfx.setMonitor(k, { solo: false });
+      sfx.setMonitor(key, { solo: !on });
       repaintMonitors();
     });
   }
@@ -372,7 +384,8 @@ export function buildAudioSections(host, sfx, { triggers = {}, holds = {} } = {}
     // lands here and not only on the summary in `file`.
     box.dataset.search = `${key} ${SHIPPED_MIX.sounds[key].file} ${SOUNDS[key].join(' ')}`;
     const play = el('button', { type: 'button', className: 'aud-play', textContent: '▶',
-      title: `Play ${key} once at its current level and pitch` });
+      title: `Play ${key} once at its current level and pitch. A sound with a pin plays from it, heard from the 👂; `
+        + 'Shift-click for the raw file.' });
     // A PICK's files are alternatives under audition, not takes: one plays, chosen below.
     const takes = PICKED.has(key) ? 1 : SOUNDS[key].length;
     const fileText = `${SHIPPED_MIX.sounds[key].file}${LOOPS.has(key) ? ' · loop' : ''}`
@@ -464,8 +477,12 @@ export function buildAudioSections(host, sfx, { triggers = {}, holds = {} } = {}
     boxes.set(key, box);
     box.addEventListener('pointerdown', () => focus(key, box));
     box.addEventListener('focusin', () => focus(key, box));
-    play.addEventListener('click', () => {
-      const file = sfx.audition(key);
+    // ▶ plays a placed sound from its pin, heard from the 👂, so what it sounds like is what the
+    // player would hear from here (Tyler, October 2026: a ▶ at full level on a court the 👂 was
+    // well outside read as the falloff being broken). Live: it follows the rings and the 👂 as
+    // they move. Shift-▶ is the raw file.
+    play.addEventListener('click', (event) => {
+      const file = sfx.audition(key, event.shiftKey ? null : () => placeOf(key));
       if (!file) { paintStatus(); return; }
       const r = sfx.replaced(key);
       if (r) fileLabel.textContent = `${fileText} · played ${r.names[r.ids.indexOf(file)] ?? 'local file'}`;

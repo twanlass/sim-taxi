@@ -2237,6 +2237,35 @@ export function createFareSystem(rng, scene, {
     },
     crash,
     /**
+     * The ⚙️ panel's ⚡ on `angry`: a rider stands on the kerb and storms off swearing, purple
+     * bubble and all, exactly as a lost rider does (`beginBail`) — with no fare behind it, so
+     * nothing is struck, charged or broken. Always the same corner for a given city, so the sound
+     * can be tuned against one spot: the nearest usable one to the middle of the map, by the same
+     * rules a spawn obeys (not in the river, not mid-parkway, not behind a building). Answers the
+     * kerb's world position, or null when every slot is busy.
+     */
+    demoBail() {
+      const slot = slots.find((s) => !state.fares.some((f) => f.slot === s)
+        && !exits.some((e) => e.slot === s));
+      if (!slot) return null;
+      let spot = null;
+      let best = Infinity;
+      for (let i = 0; i <= GRID_I; i++) {
+        for (let j = 0; j <= GRID_J; j++) {
+          if (onWaterBlock({ i, j }) || isParkwayMid(i, j) || !cornerSeen(i, j)) continue;
+          const d = Math.hypot(i - GRID_I / 2, j - GRID_J / 2);
+          if (d < best - 1e-9) { best = d; spot = { i, j }; }
+        }
+      }
+      if (!spot) return null;
+      place(slot.passenger, spot.i, spot.j);
+      slot.passenger.standing?.rest?.();
+      slot.passenger.standing?.setRobber?.(false);
+      slot.destination.group.visible = false;
+      beginBail({ slot, stage: 'waiting', pickup: spot, stand: null }, null);
+      return kerbFor({ stand: null, target: spot });
+    },
+    /**
      * Put every marker's arrival animation straight into its landed state.
      *
      * **Shot mode only**, and it exists because of a real regression: a disc now grows out of its own

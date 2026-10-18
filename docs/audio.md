@@ -171,7 +171,8 @@ loop so it repeats half as often. Rain still comes both ways, to try in the mix.
   out, and a white dot and 👂 at the listener. Drag the orange or blue handle on the ring's edge
   to resize it directly. In debug mode the map drags on a desktop too, so the listener can be put
   anywhere, and each placed sound (plus the drive-through) has a 🔊 pin whose chip opens the panel
-  on it; a press anywhere else lets the selection go.
+  on it. The selection, and its rings, stay put while the map is dragged around; picking another
+  sound moves it, and **Esc** lets it go (that Esc does not also pause the game).
 - **Stereo** is a switch on every sound: live on rain, the one delivered both ways; on and greyed
   where there is only a stereo cut, off and greyed where there is only a mono one.
 - **Replace…** on any sound plays local files in its place for the session (nothing is saved).
@@ -379,7 +380,9 @@ name to jump to it).
 
 - **▶** on each sound plays it once at its current level and pitch, loops included. A sound with
   variants plays a different take each press, the way the game does, and the label says which
-  letter it played. **■ Stop previews** cuts them (the Loco activate is 12 s). The engine beds are
+  letter it played. A sound with a pin on the map (the court, the gate, the gulls…) plays **from
+  its pin, heard from the 👂**, with the falloff and pan the game would give it, updated live as the
+  rings are dragged or the 👂 pans, so a ▶ outside its rings is silent. **Shift-▶** plays the raw file. **■ Stop previews** cuts them (the Loco activate is 12 s). The engine beds are
   heard by driving.
 - The mix is a tree of buses, Nicolás's layout (October 2026; `BUSES` and `GROUPS` in `sfx.js`):
 
@@ -395,7 +398,9 @@ name to jump to it).
   fader's bottom stop is **-∞**, not a quiet level (`FLOOR` in `audiopanel.js`, -60 dB and under
   is a gain of 0).
 - **M** and **S** sit on every bus, group, sound and track, for listening only: never stashed or
-  exported, gone on a reload (**Clear mutes and solos** resets them). The rule is a DAW's
+  exported, gone on a reload (**Clear mutes and solos** resets them). **S** is exclusive: it solos
+  that one thing in place of whatever was soloed before, and shift-click adds to the solos
+  instead. The rule is a DAW's
   (`monitorPass` in `sfx.js`): a mute silences that node and what runs through it; while anything
   is soloed, only what is soloed, what is under it, and the path down to it can be heard. Whatever
   is silenced is dimmed. A sound's M/S is a gain node per sound between its voices and its group;
@@ -410,8 +415,9 @@ name to jump to it).
   in play rather than dry: `plane` sends the flyover across, `heli` brings the rooftop chopper in,
   `birdsUp`/`birdsDown` scatter the flock nearest the taxi (the landing follows), `bridge` raises
   the drawbridge, `spawn` replays the city entrance, and `angry` (the passenger walking off, files
-  `24_NPC_angry_A`–`F`) plays at the taxi — or at the 👂 when the taxi is past its `far`, which is
-  the case that used to leave the button silent. They are
+  `24_NPC_angry_A`–`F`) stands a rider on one fixed kerb corner (the usable one nearest the middle
+  of the map, `demoBail` in `game/fares.js`) who storms off with the purple curse bubble while the
+  camera peeks at them, the sound played as heard from there. They are
   `soundTriggers` in main.js, the same `launch`/`visit`/`takeOff`/`request` shot mode stages with.
   A placed sound still falls off with distance, so drive near the plane path or the helipad to
   hear it (the 🔊 pins show where).
@@ -430,6 +436,12 @@ name to jump to it).
   An import replaces the mix outright, and anything unknown or out of range in it is dropped or
   clamped by `sfx.tune`.
 
+- **🖥 | 📱** beside the panel's search frames the window to a phone in portrait (393 × 852,
+  `game/phoneframe.js`), remembered per browser. It is a mask rather than a smaller canvas, and
+  exact: the camera's zoom is a frustum half-height in world units on every device, so a phone sees
+  the same height of city and less of it across, centred on the same 👂. Placed sounds are panned
+  against the frame's edges instead of the window's (`panScale`), and the HUD moves inside it (the
+  root's `--safe-left`/`--safe-right` become the frame's margins).
 - In debug mode every placed sound on the map wears a **🔊 pin** (`game/soundpins.js`): tap one and
   the panel opens on that sound's controls, with its falloff rings on the ground. Sounds sharing a
   spot share a pin, with a chip each. Hovering a control in the panel or a pin shows its tooltip at

@@ -1874,6 +1874,31 @@
       }
       /* Bottom right, in the control row's own corner inset: the top-right corner is the pause
          button's, and the two sat on top of each other. The panel opens upward from it. */
+      /* The panel's 🖥 / 📱 switch and the phone frame it draws (src/game/phoneframe.js). Framed,
+         the root's side insets are the frame's margins, which pulls every pinned HUD element in
+         to where a phone lays it out; the panel and its ⚙️ opt back out, being the tool. The mask
+         sits over the canvas and the 🔊 pins (12) and under the HUD (18 and up). */
+      :root.phone-frame {
+        --frame-w: min(100vw, calc(100vh * 393 / 852));
+        --safe-left: calc((100vw - var(--frame-w)) / 2);
+        --safe-right: calc((100vw - var(--frame-w)) / 2);
+      }
+      :root.phone-frame #dbg-toggle, :root.phone-frame #dbg-panel { right: var(--ctl-inset); }
+      #phone-frame { display: none; position: fixed; inset: 0; z-index: 13; pointer-events: none; overflow: hidden; }
+      :root.phone-frame #phone-frame { display: block; }
+      #phone-frame > div {
+        position: absolute; top: 0; bottom: 0; left: 50%; width: var(--frame-w); transform: translateX(-50%);
+        box-shadow: 0 0 0 100vmax rgba(10, 10, 14, 0.82); outline: 1px solid rgba(255, 255, 255, 0.35);
+      }
+      .dbg-head-row { display: flex; gap: 6px; align-items: center; }
+      .dbg-head-row .dbg-search { flex: 1; min-width: 0; }
+      .dbg-device { display: flex; flex: none; border: 1px solid var(--dbg-line); border-radius: 8px; overflow: hidden; }
+      .dbg-device button {
+        width: 32px; height: 28px; border: 0; background: var(--dbg-fill); color: var(--dbg-text);
+        cursor: pointer; font-size: 14px; line-height: 1; opacity: 0.55;
+      }
+      .dbg-device button + button { border-left: 1px solid var(--dbg-line); }
+      .dbg-device button.is-active { background: var(--dbg-accent); opacity: 1; }
       #dbg-toggle {
         position: fixed; bottom: var(--ctl-bottom); right: var(--ctl-right); z-index: 20;
         width: 38px; height: 38px; border: 1px solid var(--dbg-line); border-radius: 10px; cursor: pointer;
