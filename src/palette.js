@@ -77,6 +77,11 @@ export const PALETTE = {
   // catches the sky, so on the darkened wet asphalt the trail reads as a pale sheen.
   wetSheen: '#A9BFCC',
   laneMark: '#D6D2C4',
+  // Manhole covers (city/manholes.js). The lid is cast iron, darker than the asphalt round it so the
+  // disc reads at play zoom; the frame is the worn steel ring tyres polish, lighter than the road,
+  // which is what still says "metal" once the light has gone (the shader's glint goes with the sun).
+  manholeLid: '#3B3F45',
+  manholeFrame: '#8C9097',
   crosswalk: '#DAD7CB',
   sidewalk: '#9E9C94',
   kerb: '#8A887F',

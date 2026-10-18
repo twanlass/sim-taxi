@@ -16,6 +16,7 @@ import {
 } from './game/camera.js';
 import { createLayout } from './city/layout.js';
 import { createGround, KERB_H } from './city/ground.js';
+import { createManholes } from './city/manholes.js';
 import { createRiver, bridgeLines, bridgeSpan, deckHeightAt } from './city/river.js';
 import { createHarbor } from './city/harbor.js';
 import { createNorthPark } from './city/northpark.js';
@@ -635,6 +636,12 @@ applyWeather();
 // anything lit by `propMaterial()` has to be in there: a mesh that receives AO without casting it
 // samples the occlusion of whatever stands behind it. See `game/ssao.js`.
 scene.add(markOccluder(rain.wetGround(brush(createGround(makeRng(seed + 11), layout), 2))));
+// A few manhole covers in the streets (city/manholes.js). City seed, its own stream. Wet in the rain
+// like the asphalt they sit in; not brushed, because iron under a road stroke reads as road.
+// `?manholes=classic` is the street without them.
+const manholes = createManholes(makeRng(seed + 193),
+  { enabled: new URLSearchParams(location.search).get('manholes') !== 'classic' });
+if (manholes) scene.add(markOccluder(rain.wetGround(manholes)));
 // The ground past the coast, for the fog of war to swallow — game/edgefog.js.
 if (EDGE_FOG) scene.add(createEdgeFogFloor());
 
@@ -6634,6 +6641,14 @@ if (shot) {
   // taken flat off the ground the way every other `at*` shot here takes it.
   if (shot.atGraveyard && graveyard) {
     controller.state.target.set(graveyard.site.focus.x, 0, graveyard.site.focus.z);
+    controller.update(aspect());
+  }
+
+  // A manhole cover, the first one planned: close, does it read as iron; at play zoom, is it a
+  // detail you notice or noise on the road.
+  if (shot.atManhole && manholes) {
+    const at = manholes.userData.spots[0];
+    controller.state.target.set(at.x, 0, at.z);
     controller.update(aspect());
   }
 

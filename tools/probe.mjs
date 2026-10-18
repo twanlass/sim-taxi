@@ -41,6 +41,7 @@ import {
 } from '../src/city/blacktop.js';
 import { createBoombox, BPM as BOOMBOX_BPM } from '../src/game/boombox.js';
 import { createTubeMan } from '../src/game/tubeman.js';
+import { createManholes, planManholes, manholeGeometry, COVER_R, COVER_COUNT, BOX_CLEAR } from '../src/city/manholes.js';
 import { createCarWash } from '../src/city/carwash.js';
 import { createGasStation } from '../src/city/gasstation.js';
 import { collectPanes } from '../src/game/citylights.js';
@@ -1590,6 +1591,49 @@ const onGrass = (city, i, j) => {
     check('cities roll both roadside businesses', kinds.size === 2, [...kinds].join(', '));
   }
   check('no roadside business (?roadside=classic) builds no tube man', createTubeMan(new THREE.Scene(), makeRng(9), null).at === null);
+
+// --- Manhole covers (city/manholes.js) ---------------------------------------------------------
+// Set dressing, so what can go wrong is where they land: out of the junction box (onto a crosswalk
+// or a kerb corner), in a junction a park swallowed, bunched together, or wound face down.
+{
+  let wrongCount = 0, outOfBox = 0, deadJunction = 0, bunched = 0;
+  const minSep = 1.6 * PITCH - 1e-6;
+  for (let s = 0; s < 40; s++) {
+    createLayout(makeRng(s));
+    const spots = planManholes(makeRng(s + 193));
+    if (spots.length < COVER_COUNT[0] || spots.length > COVER_COUNT[1]) wrongCount += 1;
+    for (const c of spots) {
+      const dx = Math.abs(c.x - lineX(c.i));
+      const dz = Math.abs(c.z - lineZ(c.j));
+      if (dx + COVER_R + BOX_CLEAR > halfRoadZ(c.i) + 1e-9 || dz + COVER_R + BOX_CLEAR > halfRoadX(c.j) + 1e-9) outOfBox += 1;
+      let open = 0;
+      for (let d = 0; d < 4; d++) if (!isSegmentClosed(c.i, c.j, d)) open += 1;
+      if (open < 3 || c.i <= 0 || c.i >= GRID_I || c.j <= 0 || c.j >= GRID_J) deadJunction += 1;
+    }
+    for (let a = 0; a < spots.length; a++) {
+      for (let b = a + 1; b < spots.length; b++) {
+        if (Math.hypot(spots[a].x - spots[b].x, spots[a].z - spots[b].z) < minSep) bunched += 1;
+      }
+    }
+  }
+  createLayout(makeRng(seed));
+  check('manholes: four or five per city', wrongCount === 0, `${wrongCount}/40 cities outside ${COVER_COUNT.join('-')}`);
+  check('manholes: each sits inside a junction box, clear of its crosswalks and kerbs', outOfBox === 0, `${outOfBox} reach out of the box`);
+  check('manholes: only in inner junctions with three or more open roads', deadJunction === 0, `${deadJunction} misplaced`);
+  check('manholes: spread at least 1.6 blocks apart', bunched === 0, `${bunched} pairs too close`);
+
+  const geo = manholeGeometry(planManholes(makeRng(seed + 193)));
+  const pos = geo.attributes.position;
+  let down = 0;
+  const pa = new THREE.Vector3(), pb = new THREE.Vector3(), pc = new THREE.Vector3();
+  for (let t = 0; t < pos.count; t += 3) {
+    pa.fromBufferAttribute(pos, t); pb.fromBufferAttribute(pos, t + 1); pc.fromBufferAttribute(pos, t + 2);
+    if (pb.sub(pa).cross(pc.sub(pa)).y <= 0) down += 1;
+  }
+  check('manholes: every triangle wound to face up', down === 0, `${down}/${pos.count / 3} face down`);
+  geo.dispose();
+  check('manholes: ?manholes=classic builds none', createManholes(makeRng(1), { enabled: false }) === null);
+}
 
   // The gas station on the same block. Its pumps stand under a canopy, and a canopy is exactly the
   // thing that hides what is under it from this camera: a line from the top of each pump's screen
