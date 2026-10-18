@@ -487,6 +487,11 @@ under the coping's underside, which is more than the 0.04 the lip hides. It is n
 between the dark coping and the course, a job the sliver of yellow wall used to do. Unlit and in
 the bloom (kind `window`), like the sign. `?depotneon=classic` leaves it off.
 
+**The two office windows light up after dark**, on the same switch as the city's lit windows
+(`switchedLights` in game/citylights.js): night or a squall's shade passes each pane's threshold and
+it fades on. Their thresholds sit at 0.1–0.22, early, with the shops. Only a city with weather has
+the switch, so they exist only when `rain.enabled`. `?depotwindows=classic` leaves them dark.
+
 The forecourt gets **two guide lines** out of the bay — the last thing still wearing `garageSign`,
 which is `taxiBody`'s own hex, because two lines on the ground where the car is about to be are the
 one place reading the taxi's yellow is the point. They are a third level on the block: `PAVEMENT_Y`

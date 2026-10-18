@@ -110,6 +110,17 @@ const TRIM_H = 0.2;              // a pixel and a half at play zoom, as the burg
 const TRIM_DROP = 0.06;          // under the coping's underside
 const TRIM_OUT = 0.14;           // proud of the wall
 
+// --- The office windows after dark ----------------------------------------------------------------
+// The two windows on the +Z elevation light up with the rest of the city when night or a squall
+// comes over (`switchedLights` in game/citylights.js — main.js builds the mesh, since only a city
+// with weather has the switch). Early in the darkening, with the shops rather than the flats: the
+// depot is where the night shift is. Each pane sits `LIT_PROUD` off the glass and inset a little,
+// so it reads as a lit room in a dark frame rather than as the frame changing colour.
+// `?depotwindows=classic` leaves them dark.
+const LIT_PROUD = 0.015;
+const LIT_INSET = 0.08;
+const LIT_AT = [0.1, 0.22];
+
 // --- The sign on the roof ---------------------------------------------------
 // The depot is where the player brings the taxi back for repairs and upgrades, and from play zoom
 // the building has to *say* that before anybody has learned it. So the roof carries a sign the way
@@ -699,6 +710,12 @@ export function createGarage(block, rng, { sign: style = 'cutout', trim: withTri
   const trim = color('garageTrim');
   const bay = color('garageBay');
 
+  // The office windows, shared by the glass below and the light behind it.
+  const officeWindows = [[bx0 + 3.0, bx0 + 4.6], [bx0 + 5.2, bx0 + 6.8]];
+  const winY0 = base + 1.6;
+  const winY1 = base + 2.9;
+  const glassZ = bz1 + 0.05;
+
   const parts = [
     // The mass, hollowed for the bay: a back slab, a wing either side of the opening, and a header
     // over it. Built as four solids rather than as one box with a hole because the faces lining
@@ -744,8 +761,7 @@ export function createGarage(block, rng, { sign: style = 'cutout', trim: withTri
     // they are also the only thing on the building giving its height a human scale.
     span(bx0 + 1.0, bx0 + 1.9, base, base + 2.1, bz1, bz1 + 0.06, color('door')),
     span(bx0 + 0.82, bx0 + 2.08, base, base + 2.28, bz1, bz1 + 0.03, trim),
-    span(bx0 + 3.0, bx0 + 4.6, base + 1.6, base + 2.9, bz1, bz1 + 0.05, color('shopfront')),
-    span(bx0 + 5.2, bx0 + 6.8, base + 1.6, base + 2.9, bz1, bz1 + 0.05, color('shopfront')),
+    ...officeWindows.map(([wx0, wx1]) => span(wx0, wx1, winY0, winY1, bz1, glassZ, color('shopfront'))),
 
     // Rooftop plant, on top of the coping rather than under it. Same argument as the elevation
     // above: a flat lid reads as an unfinished box, and the city's own towers all carry some.
@@ -978,11 +994,22 @@ export function createGarage(block, rng, { sign: style = 'cutout', trim: withTri
     signPivot.rotation.y += spin * dt;
   }
 
+  // Geometry only: `switchedLights` turns these into the mesh, in main.js.
+  const litWindows = officeWindows.map(([wx0, wx1], k) => ({
+    geo: span(wx0 + LIT_INSET, wx1 - LIT_INSET, winY0 + LIT_INSET, winY1 - LIT_INSET,
+      glassZ, glassZ + LIT_PROUD, color(k ? 'litPale' : 'litWarm')),
+    at: THREE.MathUtils.lerp(LIT_AT[0], LIT_AT[1], hash01(wx0, rand)),
+    x: (wx0 + wx1) / 2,
+    z: glassZ,
+  }));
+
   return {
     site,
     group,
     shell,
     curtain,
+    /** The office's lit panes, as `{ geo, at, x, z }` for `switchedLights`. */
+    litWindows,
     light,
     sign,
     signPivot,

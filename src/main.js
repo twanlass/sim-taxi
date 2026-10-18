@@ -9,7 +9,7 @@ import { createComboMeter, comboScope, formatMult } from './game/combometer.js';
 import { createSquall, RAMP, RAMP_CLASSIC, CELL_EDGE } from './game/squall.js';
 import { pedalZones as growPedalZones, pedalAfterMove } from './game/pedalzones.js';
 import {
-  collectPanes, litWindows, streetLamps, createTaxiHeadlights, setCityLights,
+  collectPanes, litWindows, streetLamps, switchedLights, createTaxiHeadlights, setCityLights,
 } from './game/citylights.js';
 import {
   createCityCamera, attachDragPan, VIEW_DIR, PLAY_ZOOM, LOCO_PUNCH_HOLD,
@@ -841,6 +841,16 @@ if (garage) {
   // repaired, by the opening vignette played backwards and forwards again. See game/depotrun.js.
   garage.group.userData.pickable = 'depot';
 }
+// The depot's office windows, lit with the rest of the city when night or a squall comes over — so
+// only in a city with weather, like `litPanes`, and dark until the entrance wave is done the same
+// way. `?depotwindows=classic` leaves them dark.
+const depotPanes = garage && rain.enabled
+  && new URLSearchParams(window.location.search).get('depotwindows') !== 'classic'
+  ? switchedLights(garage.litWindows, 'depotWindows') : null;
+if (depotPanes) {
+  scene.add(depotPanes);
+  depotPanes.visible = false;
+}
 
 // The burger joint — the second block `createLayout` took out of the tower generator's hands, and
 // the one building in the city with something on it that moves. `null` on a city with nowhere to
@@ -1450,6 +1460,7 @@ if (roadside) markEmissive(roadside.glow, 'window');
 if (garage) markEmissive(garage.light, 'bay');
 if (garage?.neon) markEmissive(garage.neon, 'window');
 if (garage?.roofNeon) markEmissive(garage.roofNeon, 'window');
+if (depotPanes) markEmissive(depotPanes, 'window');
 // The riders. They receive AO through `propMaterial()` either way, so leaving them out of the
 // prepass would paint the kerb's own contact line across whoever is standing in front of it.
 // Only the figure is taken — `markOccluder` filters out the translucent target disc under them.
@@ -1627,10 +1638,10 @@ const cityEntry = createCityEntry({
 // is still being laid after the last building has landed.
 const replayLTrainIntro = (from) => ltrain?.intro?.start(from, cityEntry.tuning());
 replayLTrainIntro(traffic.taxi);
-if (litPanes || lamps) {
+if (litPanes || lamps || depotPanes) {
   rainLightsOn = () => {
     if (cityEntry.running()) return;
-    for (const mesh of [litPanes, lamps?.pools]) if (mesh) mesh.visible = true;
+    for (const mesh of [litPanes, lamps?.pools, depotPanes]) if (mesh) mesh.visible = true;
     rainLightsOn = null;
   };
 }

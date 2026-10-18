@@ -15792,6 +15792,20 @@ let chopperOrder; // likewise
         `${(n.x1 - n.x0).toFixed(2)} \u00d7 ${(n.z1 - n.z0).toFixed(2)}`);
     }
 
+    // The office's night panes stand off the glass rather than on it (two front faces on one plane
+    // is the coplanar shimmer), and stay inside the windows they light.
+    {
+      const shop = color('shopfront').getHexString();
+      let glassZ = -Infinity;
+      for (let i = 0; i < pos.count; i++) if (at(i) === shop) glassZ = Math.max(glassZ, pos.getZ(i));
+      const lit = garage.litWindows.map(({ geo }) => { geo.computeBoundingBox(); return geo.boundingBox; });
+      check('the depot office lights two panes, proud of their glass',
+        lit.length === 2 && lit.every((b) => b.min.z >= glassZ - 1e-6 && b.max.z > glassZ + 0.005
+          && b.max.z < glassZ + 0.05),
+        `${lit.length} panes, glass at z ${glassZ.toFixed(3)}, panes to `
+        + lit.map((b) => b.max.z.toFixed(3)).join('/'));
+    }
+
     // The forecourt's guide lines, against the asphalt they are laid on. Same rule, laid flat: two
     // horizontal surfaces at one height is the shimmer `city/burgerjoint.js` names its apron levels
     // to avoid, and the depot has the same three levels to keep apart.
