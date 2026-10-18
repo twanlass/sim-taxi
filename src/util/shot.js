@@ -267,6 +267,15 @@ export const SHOTS = [
   // strip of park in front of them, close and then at play zoom.
   { name: 'south-shore', description: 'the south shore: rocks, lawn, walkway and trees', target: [-10, 84], zoom: 20, warmup: 12 },
   { name: 'south-shore-far', description: 'the south shore at play zoom, beside the city', target: [10, 72], zoom: 52, warmup: 12 },
+  // The car wash (city/carwash.js) and the tube man on its corner (game/tubeman.js): do the tunnel,
+  // the brushes and the sign read as a car wash, and does it survive play zoom — then the tube man
+  // close enough to see his face. Appended, for the index reason.
+  { name: 'carwash', description: 'the car wash and its tube man', target: [0, 0], zoom: 18, warmup: 12, atCarWash: true },
+  { name: 'carwash-far', description: 'the car wash at play zoom', target: [0, 0], zoom: 52, warmup: 12, atCarWash: true },
+  { name: 'tubeman', description: 'the tube man, close', target: [0, 0], zoom: 7, warmup: 12, atTubeMan: true },
+  // A manhole cover (city/manholes.js), on the usual pair. Appended, for the index reason.
+  { name: 'manhole', description: 'a manhole cover, close', target: [0, 0], zoom: 3, warmup: 12, atManhole: true },
+  { name: 'manhole-far', description: 'a manhole cover at play zoom', target: [0, 0], zoom: 52, warmup: 12, atManhole: true },
 ];
 
 export function getActiveShot() {
@@ -598,9 +607,19 @@ export function getVehiclePaintClassic() {
   return new URLSearchParams(window.location.search).get('vehiclepaint') === 'classic';
 }
 
-/** `?paint=layered|chameleon|satin|toon` — null means the default, toon (util/geo.js, PAINT_LOOKS). */
+/** `?paint=layered|chameleon|satin|toon|rim|real` — null means the default, real (util/geo.js, PAINT_LOOKS). */
 export function getPaintLook() {
   return new URLSearchParams(window.location.search).get('paint');
+}
+
+/** `?rim=off|magenta|cyan|gold|white` — the paint's rim line; null is each car's own hue (util/geo.js). */
+export function getRimColor() {
+  return new URLSearchParams(window.location.search).get('rim');
+}
+
+/** `?flip=<amount>|off` — the paint's flip colour; null keeps the look's own (util/geo.js). */
+export function getFlip() {
+  return new URLSearchParams(window.location.search).get('flip');
 }
 
 /**

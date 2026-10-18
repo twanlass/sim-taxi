@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import { bakeColor, propMaterial, setFinish, FINISH } from '../util/geo.js';
+import { bakeColor, propMaterial, setFinish, FINISH, SMOOTH_BODY, bodyBox, softenNormals } from '../util/geo.js';
 import { color } from '../palette.js';
 import {
   wheelGeometries, wheelGeometry, wheelAnchors, archedBodyGeometries, archOutlines, extrudeOutlines,
@@ -50,10 +50,18 @@ export const SCREEN_RAKE = 0.75;
 export const SCREEN_FOOT = 1.15 + CHASSIS_LIFT;
 
 /** Lean the vertices of `geo` at or ahead of `fromX` back by SCREEN_RAKE per unit over the foot. */
-function rakeBack(geo, fromX = -Infinity) {
+function rakeBack(geo, fromX = -Infinity, round = 0) {
+  // `round` is the box's edge radius under `?carbody=smooth` (bodyBox). A rounded box has vertices
+  // in the band behind its front face too, and shearing the face alone would push it back through
+  // them, so the shear ramps in across that band. A plain box has nothing in the band, so the
+  // ramp changes nothing there.
   const pos = geo.attributes.position;
   for (let k = 0; k < pos.count; k++) {
-    if (pos.getX(k) >= fromX - 1e-6) pos.setX(k, pos.getX(k) - SCREEN_RAKE * (pos.getY(k) - SCREEN_FOOT));
+    const x = pos.getX(k);
+    const w = round > 0
+      ? THREE.MathUtils.clamp((x - (fromX - round)) / round, 0, 1)
+      : (x >= fromX - 1e-6 ? 1 : 0);
+    if (w > 0) pos.setX(k, x - w * SCREEN_RAKE * (pos.getY(k) - SCREEN_FOOT));
   }
   // A box keeps its own vertices per face, so recomputing gives the leaning face its true normal.
   geo.computeVertexNormals();
@@ -129,15 +137,16 @@ function shellParts() {
     // on a busy frame. The cabin keeps its old top (1.75), so the roof sign and the broken
     // windscreen's plates still sit where they did; the roof overhangs the glass a hair each way
     // so it reads as a lid rather than a stripe.
-    const glass = new THREE.BoxGeometry(CAR_LEN * 0.5, ROOF_BASE - 1.15, CAR_W * 0.86);
+    const soft = (g) => (SMOOTH_BODY ? softenNormals(g) : g);
+    const glass = bodyBox(CAR_LEN * 0.5, ROOF_BASE - 1.15, CAR_W * 0.86, 0.1);
     glass.translate(-0.2, (1.15 + ROOF_BASE) / 2 + CHASSIS_LIFT, 0);
-    rakeBack(glass, -0.2 + CAR_LEN * 0.25);
-    parts.push(setFinish(bakeColor(glass, color('carGlass')), FINISH.GLASS));
+    rakeBack(glass, -0.2 + CAR_LEN * 0.25, 0.1);
+    parts.push(setFinish(soft(bakeColor(glass, color('carGlass'))), FINISH.GLASS));
     // The roof's front edge carries the same lean on, so glass and lid read as one sloped face.
-    const roof = new THREE.BoxGeometry(CAR_LEN * 0.5 + 0.06, 1.75 - ROOF_BASE, CAR_W * 0.86 + 0.06);
+    const roof = bodyBox(CAR_LEN * 0.5 + 0.06, 1.75 - ROOF_BASE, CAR_W * 0.86 + 0.06, 0.06);
     roof.translate(-0.2, (ROOF_BASE + 1.75) / 2 + CHASSIS_LIFT, 0);
-    rakeBack(roof, -0.2 + CAR_LEN * 0.25 + 0.03);
-    parts.push(setFinish(bakeColor(roof, color('taxiBody')), FINISH.PAINT));
+    rakeBack(roof, -0.2 + CAR_LEN * 0.25 + 0.03, 0.06);
+    parts.push(setFinish(soft(bakeColor(roof, color('taxiBody'))), FINISH.PAINT));
   }
 
 

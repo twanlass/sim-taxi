@@ -45,13 +45,43 @@ export const LTRAIN_WEST = BIG_CITY && LTRAIN_NS && (typeof location !== 'undefi
 // a block row taller than it is wide so that the water costs it neither a street nor a buildable
 // block: 36 of the 42 blocks are land, a 6×6 city's worth (25 of 30, a 5×5's, under `?city=classic`).
 export const GRID_J = BIG_CITY ? 7 : 6;  // block rows, one of them water
-export const PITCH = 20;             // distance between road centrelines
-export const ROAD_W = 8;             // full road width (two lanes)
-export const BLOCK = PITCH - ROAD_W; // buildable footprint between two ordinary streets
-export const LANE = 2;               // lane centre offset from the road centreline
+// How wide an ordinary street is (Tyler, 2026-10-17: "making the streets a little bit wider ... I
+// want to see if it helps gameplay feel less cramped"). `touch` takes a street from 8 to 9;
+// `?streets=classic` keeps the 8-unit one. A 10-unit `half` was tried beside it and Tyler called it
+// too wide (2026-10-17: "Let's ship the default 9 units ... 10 is too wide"). The lanes widen with the road (`LANE` is a quarter of it), so the extra room lands on
+// both sides of every car rather than as a stripe down the middle: the weave, the overtake and the
+// turn radii all grow with it. Read at module load for the same reason as `BIG_CITY`; headless
+// tools take `STREETS=`.
+const STREETS = (typeof location !== 'undefined'
+  ? new URLSearchParams(location.search).get('streets')
+  : globalThis.process?.env?.STREETS) || 'touch';
+export const STREET_WIDTHS = { classic: 8, touch: 9 };
+/** Which of those this load is on — an unknown value falls back to the default. */
+export const STREETS_KEY = STREET_WIDTHS[STREETS] ? STREETS : 'touch';
+export const ROAD_W = STREET_WIDTHS[STREETS_KEY];  // full road width (two lanes)
+// **The block holds its size and the pitch grows instead**, so the map is 5 units wider a
+// side rather than every lot giving up what its roads gained. Taking it out of the blocks was tried
+// first and broke 28 probe checks, nearly all for one reason: the lane between two junctions is
+// `BLOCK` long, and a dozen along-the-lane chains were sized against 12 of it — the roadworks
+// launch (BARRIER_S + HOP_LEN + STOP_SETBACK = 11.0 left no lane on 10-unit streets it could land
+// on), the L train's spans, the follow-gap staging — along with the pond, the helipad's height and
+// the bank's sightline band, all sized off the block. Holding the block keeps every one of those.
+export const BLOCK = 12;             // buildable footprint between two ordinary streets
+export const PITCH = BLOCK + ROAD_W; // distance between road centrelines: 20 at classic
+export const LANE = ROAD_W / 4;      // lane centre offset from the road centreline (2 at classic)
 export const HALF_ROAD = ROAD_W / 2;
 export const SPAN_X = GRID_I * PITCH;
-export const SPAN_Z = GRID_J * PITCH;
+// The river row is wider than a block row (Tyler, 2026-10-18: "Can we widen the river by 25%?"):
+// 25% of the 12-unit channel, so 15 between the kerbs. Like the streets in #559 it **grows the map**
+// rather than coming out of the lots either side, and for the same reason — the lane between two
+// junctions stays at least `BLOCK` long, which the roadworks launch, the L train's spans and the
+// bank's sightline band are all sized against. Only the lanes that cross the river get longer.
+// `?river=classic` keeps the 12-unit channel; `?city=big` keeps it too (left as it was).
+const RIVER = typeof location !== 'undefined'
+  ? new URLSearchParams(location.search).get('river')
+  : globalThis.process?.env?.RIVER;
+export const RIVER_EXTRA = BIG_CITY || RIVER === 'classic' ? 0 : BLOCK * 0.25;
+export const SPAN_Z = GRID_J * PITCH + RIVER_EXTRA;
 export const HALF_SPAN_X = SPAN_X / 2;
 export const HALF_SPAN_Z = SPAN_Z / 2;
 /**
@@ -68,11 +98,32 @@ export const MAX_SPAN = Math.max(SPAN_X, SPAN_Z);
  * the wrong one. `lineX` takes an `i`, `lineZ` takes a `j`.
  */
 export const lineX = (i) => i * PITCH - HALF_SPAN_X;
-export const lineZ = (j) => j * PITCH - HALF_SPAN_Z;
+export const lineZ = (j) => j * PITCH - HALF_SPAN_Z + riverShift(j);
+
+// Every line south of the river sits `RIVER_EXTRA` further south than a uniform grid would put
+// it, so the z lines are **not** evenly spaced and `(z + HALF_SPAN_Z) / PITCH` does not invert
+// `lineZ`. `gridZ` undoes the shift (it maps a world z back onto the evenly spaced grid), and
+// anything that rounds or floors a z into an index goes through it. A city with no river yet (a
+// headless tool that never built a layout) is a uniform grid centred in the span.
+let riverRowIndex = null;
+const riverShift = (j) => (riverRowIndex === null ? RIVER_EXTRA / 2 : j > riverRowIndex ? RIVER_EXTRA : 0);
+/** The river's centreline in z, or null — where `gridZ` switches from one side's shift to the other. */
+export const riverMidZ = () => (riverRowIndex === null ? null
+  : (riverRowIndex + 0.5) * PITCH - HALF_SPAN_Z + RIVER_EXTRA / 2);
+export const gridZ = (z) => {
+  const mid = riverMidZ();
+  if (mid === null) return z - RIVER_EXTRA / 2;
+  return z > mid ? z - RIVER_EXTRA : z;
+};
+/** The z line index nearest a world z, unclamped — the inverse of `lineZ`. */
+export const lineIndexZ = (z) => Math.round((gridZ(z) + HALF_SPAN_Z) / PITCH);
+/** The block row a world z falls in, unclamped (a point exactly on a line goes to the row south). */
+export const rowIndexZ = (z) => Math.floor((gridZ(z) + HALF_SPAN_Z) / PITCH);
 
 // --- Divided arterials ------------------------------------------------------
 //
-// An arterial is a **third wider** than an ordinary street, and every bit of the extra width goes
+// An arterial is a **third wider** than an ordinary 8-unit street (8/3 wider on any width, see
+// `ARTERIAL_EXTRA`), and every bit of the extra width goes
 // into the middle. That is the whole trick: the two carriageways stay exactly where they would be
 // on an 8-unit street relative to their own kerb, and what opens up between them is a 2.67-unit
 // centre strip with nothing driving on it — a median, planted mid-block (`medianRuns` below).
@@ -87,9 +138,12 @@ export const lineZ = (j) => j * PITCH - HALF_SPAN_Z;
 //
 // It also gives the map a hierarchy you can read at a glance from a fixed camera, which is what
 // the arterials were always for and which a 64% green share alone could never show.
-export const ARTERIAL_SCALE = 4 / 3;
-export const ARTERIAL_ROAD_W = ROAD_W * ARTERIAL_SCALE;     // 10.667
-export const HALF_ARTERIAL = ARTERIAL_ROAD_W / 2;           // 5.333
+// The strip is a fixed 8/3 rather than a third of whatever `ROAD_W` is, so wider streets
+// (`?streets=`) widen the arterial's two carriageways and leave its median alone: the planted bed
+// is `MEDIAN_W` either way, and a gap that grew with the road would only take more off the blocks.
+export const ARTERIAL_EXTRA = 8 / 3;
+export const ARTERIAL_ROAD_W = ROAD_W + ARTERIAL_EXTRA;     // 10.667 at classic
+export const HALF_ARTERIAL = ARTERIAL_ROAD_W / 2;           // 5.333 at classic
 /** Lane centre to its own kerb. Held constant across both road widths — see above. */
 export const LANE_TO_KERB = HALF_ROAD - LANE;               // 2
 
@@ -227,7 +281,7 @@ export function turnControl(dIn, dOut, i, j) {
  */
 export function nearestJunction(x, z) {
   const near = (v, half, top) => Math.min(top, Math.max(0, Math.round((v + half) / PITCH)));
-  return { i: near(x, HALF_SPAN_X, GRID_I), j: near(z, HALF_SPAN_Z, GRID_J) };
+  return { i: near(x, HALF_SPAN_X, GRID_I), j: Math.min(GRID_J, Math.max(0, lineIndexZ(z))) };
 }
 
 /** Intersection reached by leaving (i, j) along d, or null if it would leave the grid. */
@@ -389,8 +443,6 @@ export const isParkBlock = (bi, bj) => parkBlocks.has(`${bi},${bj}`);
 //
 // `null` until a layout has been built, so a headless tool that never called `createLayout`
 // measures a city with no river in it — the same contract `isSegmentClosed` and `isParkBlock` keep.
-
-let riverRowIndex = null;
 
 export function setRiverRow(row) {
   riverRowIndex = row ?? null;

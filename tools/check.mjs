@@ -16,7 +16,7 @@ const BOOT = ['../src/game/scene.js', '../src/game/debugpanel.js', '../src/geome
   '../src/game/pathdrag.js', '../src/game/sfx.js', '../src/game/audiopanel.js', '../src/game/soundrings.js',
   '../src/game/soundpins.js', '../src/game/quicktips.js', '../src/game/quicktips.js',
   '../src/game/dust.js', '../src/game/spray.js', '../src/game/blast.js', '../src/game/flyover.js', '../src/game/birds.js', '../src/game/ducks.js',
-  '../src/city/blacktop.js', '../src/game/hoopers.js', '../src/city/skatepark.js', '../src/city/northpark.js', '../src/city/southshore.js', '../src/city/parkshore.js', '../src/game/harborships.js', '../src/game/skaters.js', '../src/game/skatersclassic.js',
+  '../src/city/blacktop.js', '../src/game/hoopers.js', '../src/game/tubeman.js', '../src/city/carwash.js', '../src/city/gasstation.js', '../src/city/skatepark.js', '../src/city/northpark.js', '../src/city/southshore.js', '../src/city/parkshore.js', '../src/game/harborships.js', '../src/game/skaters.js', '../src/game/skatersclassic.js',
   '../src/game/clouds.js', '../src/geometry/cloud.js', '../src/game/rain.js', '../src/game/citylights.js', '../src/game/storm.js', '../src/game/squall.js',
   '../src/game/cityentry.js', '../src/city/garage.js', '../src/game/opening.js',
   '../src/city/burgerjoint.js', '../src/game/drivethru.js',
@@ -28,14 +28,14 @@ const BOOT = ['../src/game/scene.js', '../src/game/debugpanel.js', '../src/geome
   '../src/game/chopper.js', '../src/game/policeheli.js',
   '../src/game/flames.js', '../src/game/locoflame.js', '../src/game/sparks.js',
   '../src/game/repairfx.js',
-  '../src/game/daylight.js', '../src/game/riderfinder.js',
+  '../src/game/daylight.js', '../src/game/edgefog.js', '../src/game/riderfinder.js',
   '../src/game/taxifinder.js',
   '../src/game/farepointers.js', '../src/game/sirenglow.js', '../src/game/robberyglow.js',
   '../src/game/vanish.js', '../src/game/wreckage.js', '../src/game/ejection.js', '../src/game/windshield.js', '../src/game/replay.js', '../src/game/runend.js',
   '../src/game/impact.js', '../src/game/taxidamage.js', '../src/game/taxidoor.js',
   '../src/util/viewport.js',
   '../src/game/energybits.js', '../src/game/carghosts.js', '../src/game/homescreen.js',
-  '../src/game/ssao.js', '../src/game/crayon.js', '../src/game/cartoon.js',
+  '../src/game/ssao.js', '../src/game/crayon.js', '../src/game/cartoon.js', '../src/game/brushtiles.js',
   '../src/game/bloom.js', '../src/game/hdr.js',
   '../src/game/diag.js', '../src/game/bench.js', '../src/game/soak.js', '../src/game/governor.js', '../src/game/recovery.js', '../src/game/pause.js', '../src/game/menupage.js', '../src/game/inspect.js',
   '../src/geometry/roadworks.js', '../src/game/roadwork.js',
@@ -79,12 +79,12 @@ const TOOLS = [
   // The docs against the code: every URL parameter in src/ has a row in docs/params.md (and every
   // row is still read), and every relative link between the docs lands on a heading that exists.
   { name: 'docs',    args: ['tools/docs.mjs'],         pick: /(\d+\/\d+) checks passed/ },
-  // The New Move card's U-turn is a recording of the sim (game/uturnreel.js); this films it again
+  // The New Move card's U-turn is a recording of the sim (game/uturnreel-<width>.js); this films it again
   // and fails if the game's U-turn has moved on without it.
   { name: 'uturn',   args: ['tools/uturnreel.mjs'],    pick: /(\d+\/\d+) checks passed/ },
-  // ...and the drift's card the same (game/driftreel.js).
+  // ...and the drift's card the same (game/driftreel-<width>.js).
   { name: 'drift',   args: ['tools/driftreel.mjs'],    pick: /(\d+\/\d+) checks passed/ },
-  // ...and the overtake's (game/overtakereel.js).
+  // ...and the overtake's (game/overtakereel-<width>.js).
   { name: 'overtake', args: ['tools/overtakereel.mjs'], pick: /(\d+\/\d+) checks passed/ },
 ];
 
@@ -107,6 +107,24 @@ try {
   sunk.customDepthMaterial.onBeforeCompile(stub);
   if (!stub.vertexShader.includes(`mvPosition.z -= ${SHADOW_SINK.toFixed(4)}`)) {
     throw new Error('sinkShadowCaster: the depth patch did not land in the shader');
+  }
+
+  // The fog of war (game/edgefog.js). Its term rides three's own fog chunks, so what is checked is
+  // that the chunks carry it and that built-in shaders share the one uniform object by reference —
+  // a copy would freeze the fog's colour and drift at whatever they were on the first frame. Then
+  // the rule that keeps it off the game: it never reaches the ring road's outer lane.
+  {
+    const THREE = await import('three');
+    const fog = await import('../src/game/edgefog.js');
+    const { LANE_TO_KERB } = await import('../src/city/grid.js');
+    if (fog.EDGE_FOG) {
+      if (!THREE.ShaderChunk.fog_fragment.includes('edgeFog')) throw new Error('edgefog: the fog chunk was not patched');
+      if (THREE.ShaderLib.standard.uniforms.edgeFog?.value !== fog.edgeFogUniform
+        || THREE.UniformsUtils.clone(THREE.ShaderLib.lambert.uniforms).edgeFog.value !== fog.edgeFogUniform) {
+        throw new Error('edgefog: a built-in shader does not share the one fog uniform');
+      }
+      if (fog.FOG_START <= -LANE_TO_KERB) throw new Error(`edgefog: FOG_START ${fog.FOG_START} reaches the outer lane`);
+    }
   }
 
   // The city past the edge of the map (city/horizon.js): its haze patch run against three's own
@@ -183,7 +201,7 @@ try {
   // finds a long enough street (side or ring) in the shipped cities.
   {
     const { reelAt, clipKeys, pickOvertakeStreet, CLIP_LOOP } = await import('../src/game/overtakeclip.js');
-    const { REEL } = await import('../src/game/overtakereel.js');
+    const { REEL } = await import('../src/game/overtakeclip.js');
     const leadAt = (t) => REEL.lead[Math.min(REEL.lead.length - 1, Math.round(t / REEL.step))];
     const start = reelAt(0);
     const end = reelAt(CLIP_LOOP);
