@@ -1250,9 +1250,25 @@ default city; `CITY=big npm run check` is the big one's suite.
 
 | File | Produces | Notes |
 |---|---|---|
-| `ground.js` | asphalt slab, road surface, kerbs (`KERB_H = 0.35`), block tops — a park's is a walk around a lawn, [above](#a-park-has-a-frontage) — crosswalks | One merged mesh, plus the edge fade as a child — alpha can't ride in the merge's 3-component colour. Crosswalks are omitted at unsignalised junctions — a crosswalk implies a signal. |
+| `ground.js` | asphalt slab, road surface, kerbs (`KERB_H = 0.35`), block tops — a park's is a walk around a lawn, [above](#a-park-has-a-frontage) — crosswalks | One merged mesh, plus the edge fade as a child — alpha can't ride in the merge's 3-component colour. Crosswalks only at a third of the junctions, [below](#crosswalks-a-third-of-the-junctions). |
 | `buildings.js` | towers, courtyard blocks, façades, roof furniture | One merged mesh. Height ceiling is deliberately low; tall towers hid the taxi. See [what a building is made of](#what-a-building-is-made-of). |
 | `props.js` | trees, park benches, the statue | Merged per material via `bakeColor`, so hundreds of props cost one draw call. Placement is [above](#benches-and-one-statue). |
+
+### Crosswalks: a third of the junctions
+
+Crosswalks go where people would cross, not everywhere a crossing could be painted. A junction can
+take one only where something stops traffic for the person crossing: none on the ring, which is
+yield-controlled, and none across an arterial. Of the junctions left (about 19 on the island), a
+third get painted. `crosswalkJunctions` in `ground.js` scores each by the busiest block on its four
+corners (`centrality`), plus a bonus where a corner is the graveyard, the depot, the burger joint
+or the roadside lot, and a smaller one for a park. A junction with a single paintable arm counts at
+half, because one lone stripe set reads as a stray mark. What comes out is a cluster through
+downtown with a spur to a landmark or two. It is the same for a seed every time and draws from no
+rng stream.
+
+The main streets are deliberately not scored. With them in, every seed came out the same plus-sign
+down the two arterials. `?crosswalks=classic` paints every junction that can take one, which was
+the look before 2026-10-18 (19 of 20 interior junctions).
 
 ### What a building is made of
 
