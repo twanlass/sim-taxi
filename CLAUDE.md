@@ -33,6 +33,7 @@ about to change.
 | [docs/params.md](docs/params.md) | Every URL parameter, including the `?<feature>=classic` toggles |
 | [docs/testing.md](docs/testing.md) | `npm run check`, the headless tools, screenshots |
 | [docs/lab.md](docs/lab.md) | The passing lab at `/lab/` — a straight road with no lights, for watching Loco Mode |
+| [docs/talk.md](docs/talk.md) | The talk at `/talk/` — slides that turn into the live game |
 | [docs/workshop.md](docs/workshop.md) | The model workshop at `/workshop/` — a vehicle or landmark on a bench, with a chat that edits its source live |
 | [docs/ios.md](docs/ios.md) | The App Store build: the WKWebView shell, the custom URL scheme, `window.__native` |
 
