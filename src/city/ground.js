@@ -411,6 +411,95 @@ function asphaltFade(shape, x0, x1, d, radius) {
  * edge fade is the one exception, and only because alpha cannot ride in the merged mesh's
  * 3-component colour attribute; it hangs off this mesh as a child.)
  */
+/**
+ * Which sides of junction (i, j) a crosswalk could be painted on. None at all where there is no
+ * signal to stop traffic for the person crossing — the ring junctions are yield-controlled — and
+ * none across an arterial, because a main road doesn't get halted for a pedestrian.
+ */
+function crossingArms(i, j) {
+  if (isUnsignalised(i, j)) return { west: false, east: false, south: false, north: false, count: 0 };
+  // A crossing laid west or east of the junction is walked *across* the road running along X;
+  // one laid north or south is walked across the road running along Z.
+  const acrossX = !isArterialX(j);
+  const acrossZ = !isArterialZ(i);
+
+  // No crossing onto a road that no longer exists — and none laid out over the river. A
+  // crossing is painted `halfRoad + 0.9` clear of the junction centre, which on a riverside
+  // street is 0.9 units past the kerb: over the parapet and out above the water. (The bar is
+  // laid across the *crossing* road, so what rules it out is the gap it sits in, not the road
+  // it belongs to.)
+  const west = acrossX && i > 0 && !isSegmentClosed(i, j, 2);
+  const east = acrossX && i < GRID_I && !isSegmentClosed(i, j, 0);
+  const south = acrossZ && j > 0 && !isSegmentClosed(i, j, 3) && !isRiverGap(j - 1);
+  const north = acrossZ && j < GRID_J && !isSegmentClosed(i, j, 1) && !isRiverGap(j);
+  return { west, east, south, north, count: west + east + south + north };
+}
+
+/**
+ * `?crosswalks=classic` paints every junction that can take one, the look before 2026-10-18.
+ * `CROSSWALKS=` for the headless tools.
+ */
+export const CROSSWALK_MODE = (() => {
+  const raw = typeof location !== 'undefined'
+    ? new URLSearchParams(location.search).get('crosswalks')
+    : globalThis.process?.env?.CROSSWALKS;
+  return raw === 'classic' ? 'classic' : 'thin';
+})();
+
+/** Share of the junctions that could take a crosswalk that actually get one. */
+const CROSSWALK_SHARE = 1 / 3;
+
+/**
+ * The junctions that get crosswalks, as a set of `"i,j"`.
+ *
+ * Painted at every signalised junction they were a texture rather than a sign — 19 of the island's
+ * 20 interior junctions, so nothing about any one of them said "people cross here". Thinned to a
+ * third, and the third is chosen the way a city would choose it rather than rolled: each junction
+ * scores the busiest block on its four corners (`centrality`, so downtown wins), plus a frontage
+ * bonus where a corner is somewhere people walk *to* — the graveyard, the depot, the burger joint,
+ * the roadside lot, and a little for a park. A first cut also scored the main streets, and every
+ * seed came out the same plus-sign down the two arterials; without it the result is a cluster
+ * through the core with a spur out to a landmark or two, different city to city. The same for a
+ * seed every time, and drawn from no rng stream, so nothing else in the city moves.
+ *
+ * A junction with a single paintable arm (a riverside T, mostly) only counts at half its score: a
+ * lone stripe set reads as a stray mark rather than as a crossing.
+ */
+export function crosswalkJunctions(blocks) {
+  const keep = new Set();
+  const candidates = [];
+  for (let i = 0; i <= GRID_I; i++) {
+    for (let j = 0; j <= GRID_J; j++) {
+      const { count } = crossingArms(i, j);
+      if (count) candidates.push({ i, j, count });
+    }
+  }
+  if (CROSSWALK_MODE === 'classic') {
+    for (const { i, j } of candidates) keep.add(`${i},${j}`);
+    return keep;
+  }
+
+  const landmarks = [blocks.garageBlock, blocks.burgerBlock, blocks.roadsideBlock,
+    ...(blocks.graveyardBlock?.blocks ?? [blocks.graveyardBlock])].filter(Boolean);
+  const isLandmark = (b) => b.type === 'graveyard' || landmarks.some((l) => l.bi === b.bi && l.bj === b.bj);
+  const blockAt = new Map(blocks.map((b) => [`${b.bi},${b.bj}`, b]));
+
+  for (const c of candidates) {
+    // The four blocks on this junction's corners: (i-1|i, j-1|j). Water is nobody's corner.
+    const corners = [[c.i - 1, c.j - 1], [c.i, c.j - 1], [c.i - 1, c.j], [c.i, c.j]]
+      .map(([bi, bj]) => blockAt.get(`${bi},${bj}`))
+      .filter((b) => b && b.type !== 'river');
+    const core = Math.max(0, ...corners.map((b) => b.centrality));
+    const frontage = (corners.some(isLandmark) ? 0.4 : 0) + (corners.some((b) => b.type === 'park') ? 0.15 : 0);
+    c.score = (core + frontage) * (c.count > 1 ? 1 : 0.5);
+  }
+  // Ties (a symmetric grid makes a few) fall to grid order, which is as stable as anything else.
+  candidates.sort((a, b) => b.score - a.score || a.i - b.i || a.j - b.j);
+  const n = Math.round(candidates.length * CROSSWALK_SHARE);
+  for (const { i, j } of candidates.slice(0, n)) keep.add(`${i},${j}`);
+  return keep;
+}
+
 export function createGround(rng, blocks) {
   const parts = [];
 
@@ -580,18 +669,19 @@ export function createGround(rng, blocks) {
 
   // --- Crosswalks.
   //
-  // Only where there is a signal to stop traffic for the person crossing. That rules out the ring
-  // junctions, which are yield-controlled and carry no lights, and it rules out crossing an
-  // arterial — a main road doesn't get halted for a pedestrian. Painting them everywhere implied
-  // a right of way the simulation never grants.
+  // Only where there is a signal to stop traffic for the person crossing (`crossingArms`), and
+  // then only at the third of those junctions where people would actually be crossing
+  // (`crosswalkJunctions`).
   const BARS = 4;
   const BAR_W = 0.72;
   const BAR_LEN = 1.5;
   const crossColor = color('crosswalk');
 
+  const keep = crosswalkJunctions(blocks);
   for (let i = 0; i <= GRID_I; i++) {
     for (let j = 0; j <= GRID_J; j++) {
-      if (isUnsignalised(i, j)) continue;
+      if (!keep.has(`${i},${j}`)) continue;
+      const { west, east, south, north } = crossingArms(i, j);
 
       const cx = lineX(i);
       const cz = lineZ(j);
@@ -600,21 +690,6 @@ export function createGround(rng, blocks) {
       // than being painted inside the box.
       const offX = halfRoadZ(i) + BAR_LEN / 2 + 0.15;
       const offZ = halfRoadX(j) + BAR_LEN / 2 + 0.15;
-
-      // A crossing laid west or east of the junction is walked *across* the road running along X;
-      // one laid north or south is walked across the road running along Z.
-      const acrossX = !isArterialX(j);
-      const acrossZ = !isArterialZ(i);
-
-      // No crossing onto a road that no longer exists — and none laid out over the river. A
-      // crossing is painted `halfRoad + 0.9` clear of the junction centre, which on a riverside
-      // street is 0.9 units past the kerb: over the parapet and out above the water. (The bar is
-      // laid across the *crossing* road, so what rules it out is the gap it sits in, not the road
-      // it belongs to.)
-      const west = acrossX && i > 0 && !isSegmentClosed(i, j, 2);
-      const east = acrossX && i < GRID_I && !isSegmentClosed(i, j, 0);
-      const south = acrossZ && j > 0 && !isSegmentClosed(i, j, 3) && !isRiverGap(j - 1);
-      const north = acrossZ && j < GRID_J && !isSegmentClosed(i, j, 1) && !isRiverGap(j);
 
       for (let b = 0; b < BARS; b++) {
         // Spread the bars across the width of the road being *crossed*, centred on its centreline.
