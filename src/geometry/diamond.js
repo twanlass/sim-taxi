@@ -572,8 +572,9 @@ const GLASS_ALPHA = 0.15;
 // The pie's eaten slices: black at this alpha rather than pale glass of the hue (Tyler, 2026-10-18:
 // "give the bg a black tint (15% opacity) instead of the main color to help with contrast"). The
 // pale glass disappeared into the road at play zoom, so a half-eaten pie read as a semicircle; a
-// dark tint keeps the whole disc's shape and makes the hue that is left stand off it.
-const PIE_EATEN_ALPHA = 0.15;
+// dark tint keeps the whole disc's shape and makes the hue that is left stand off it. 15% was
+// still faint on light pavement; 45% and up read as a hole. Tyler picked 30 from a 15/30/45/60 sweep.
+const PIE_EATEN_ALPHA = 0.3;
 
 // Emptied glass, as a transform of the fare's own hue rather than a colour of its own: much less of
 // it, and — now — mostly drained of its hue as well.
