@@ -4974,18 +4974,21 @@ const soundTriggers = {
     drawbridge.request();
     return null;
   },
-  // The walk-off has no event of its own to stage short of failing a fare, so this is the sound
-  // from the taxi — where the riding passenger who gives up gets out (`'missed'` in the fare
-  // handler below). Heard from the 👂, the camera's target, like every placed sound — which is
-  // why this button once did nothing (Nicolás, October 2026): with the map panned off the taxi, or
-  // before the camera had found it, the taxi was past `far`, a placed one-shot that far off is not
-  // played at all, and the label blamed the min gap. Out of earshot, it plays at the 👂 instead.
+  // The walk-off, staged: a rider on one fixed kerb corner storms off with the purple curse bubble
+  // (`fares.demoBail`), the camera peeks at them, and the sound plays from that corner — so what
+  // is heard can be seen (Tyler, October 2026). Placed sounds are heard from the 👂, the camera's
+  // target, and the peek is what brings the 👂 to that corner — so the sound is played as heard
+  // from where the camera is going (full level, centred) rather than from where it starts. Placed
+  // from the start of the pan, it could be past `far`, and a placed one-shot that far off is not
+  // played at all: that is how this button once did nothing while the label blamed the min gap.
   angry: () => {
     if (!sfx?.state.ready) return 'no audio yet (tap the game)';
-    const at = placeAt(traffic.taxi.x, traffic.taxi.z);
-    const away = at.d >= sfx.tuning().place.angry.far;
-    if (!sfx.play('angry', { at: away ? { d: 0, pan: 0 } : at })) return 'inside its min gap';
-    return away ? 'taxi out of earshot, played at the 👂' : null;
+    const kerb = fares.demoBail();
+    if (!kerb) return 'every rider slot is busy';
+    releaseCameraToPlayer();
+    controller.peekAt(kerb.x, kerb.z, () => traffic.taxi, () => { cameraTakenOver = false; });
+    if (!sfx.play('angry', { at: { d: 0, pan: 0 } })) return 'inside its min gap';
+    return null;
   },
 };
 soundTriggers.birdsDown = soundTriggers.birdsUp;

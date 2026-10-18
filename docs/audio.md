@@ -410,8 +410,9 @@ name to jump to it).
   in play rather than dry: `plane` sends the flyover across, `heli` brings the rooftop chopper in,
   `birdsUp`/`birdsDown` scatter the flock nearest the taxi (the landing follows), `bridge` raises
   the drawbridge, `spawn` replays the city entrance, and `angry` (the passenger walking off, files
-  `24_NPC_angry_A`–`F`) plays at the taxi — or at the 👂 when the taxi is past its `far`, which is
-  the case that used to leave the button silent. They are
+  `24_NPC_angry_A`–`F`) stands a rider on one fixed kerb corner (the usable one nearest the middle
+  of the map, `demoBail` in `game/fares.js`) who storms off with the purple curse bubble while the
+  camera peeks at them, the sound played as heard from there. They are
   `soundTriggers` in main.js, the same `launch`/`visit`/`takeOff`/`request` shot mode stages with.
   A placed sound still falls off with distance, so drive near the plane path or the helipad to
   hear it (the 🔊 pins show where).

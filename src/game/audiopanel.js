@@ -30,7 +30,7 @@ const TRIGGER_TIPS = {
   birdsUp: 'Scatter the flock nearest the taxi. The landing sound follows when it settles.',
   birdsDown: 'Scatter the flock nearest the taxi; this plays when it settles again.',
   bridge: 'Raise the drawbridge now. Its cycle is about 26s.',
-  angry: 'A rider swearing at the taxi — in the game, the one who gives up waiting or bails out.',
+  angry: 'A rider on the same kerb corner every time storms off swearing, bubble and all. The camera goes to look.',
 };
 
 // v2 with Block 1: a v1 stash holds levels trimmed for the test files, keyed partly by takes that
