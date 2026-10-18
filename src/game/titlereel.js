@@ -38,6 +38,12 @@ export const DIP_IN = 0.34;
  * reel to the run does not change scale much either.
  */
 export const REEL_ZOOM = (PLAY_ZOOM + PLAY_ZOOM * LOCO_PUNCH) / 2;
+/**
+ * ...and on a phone, tighter (Tyler, 2026-10-18). A portrait frame at REEL_ZOOM takes in most of
+ * the island, so every landmark near the coast came with a band of fog; 30 is two-thirds of that,
+ * a block or two round the subject, and still twice the width of the first cut's close-ups.
+ */
+export const PHONE_ZOOM = 30;
 /** World units the camera drifts across a shot, along screen-right. Slow: ~2 units a second. */
 const DRIFT = 10;
 /** How much wider the shot opens than it ends: a small push-in under the drift. */
@@ -49,8 +55,8 @@ const PUSH = 0.08;
  * the height (37–62% down on a 390×844), so the subject goes just above or below it (a
  * third of the half-height off the middle, 34% or 66% down) — whichever side keeps the camera
  * nearer the middle of the map (`menuSide`). Not further: at REEL_ZOOM every tenth of the
- * half-height is 8.4 units of ground, so half the half-height (the first try) swung the camera 42
- * units off its subject and put a coast in frame whichever side it went.
+ * half-height is 8.4 units of ground (5.5 at PHONE_ZOOM), so half the half-height (the first
+ * try) swung the camera 42 units off its subject and put a coast in frame whichever side it went.
  */
 const MENU_SHIFT = 0.32;
 const OFF_MENU = 0.32;
@@ -112,7 +118,7 @@ export function createTitleReel({ shots, dip = null, still = () => false }) {
     // `menuSide * reach` along UP, so compare the two squared distances.
     const at = current.at();
     if (at) {
-      const reach = (REEL_ZOOM * OFF_MENU) / VIEW_DIR.y;
+      const reach = (PHONE_ZOOM * OFF_MENU) / VIEW_DIR.y;
       const d = (sgn) => (at.x + UP.x * reach * sgn) ** 2 + (at.z + UP.z * reach * sgn) ** 2;
       menuSide = d(1) <= d(-1) ? 1 : -1;
     }
@@ -162,7 +168,7 @@ export function createTitleReel({ shots, dip = null, still = () => false }) {
 
       const k = Math.min(1, clock / SHOT);
       const tall = aspect < 1;
-      const zoom = REEL_ZOOM * (1 + PUSH * (1 - k));
+      const zoom = (tall ? PHONE_ZOOM : REEL_ZOOM) * (1 + PUSH * (1 - k));
       const aim = aimAtHeight(seen.x, seen.y ?? 0, seen.z);
       // A live subject carries its own motion; drifting under it as well reads as the camera
       // losing it. The landmarks drift.
