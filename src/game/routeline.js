@@ -68,6 +68,8 @@ const FADE_TAIL = 10;
 // Above the road paint (MARK_Y = 0.02) and below the cars (ROAD_Y = 0.04). Unlike the fare rings
 // this is depth-tested, so traffic drives *over* the band instead of the band painting across
 // every car it passes under — at 2px that didn't matter, at lane width it does.
+// It is also exactly the rain mirror's clip (CLIP_Y in game/rain.js), which is why main.js keeps the
+// band out of that pass: left in, it flickered in and out of every wet street's reflection.
 const Y = 0.03;
 // Exported because the drop-off's filled circle matches it: the band and the disc are the same
 // statement ("this is the job") in two places, and they have to sit at the same weight over the

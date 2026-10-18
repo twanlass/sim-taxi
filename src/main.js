@@ -2452,6 +2452,11 @@ const wetTracks = createSkidMarks(scene, {
 // Lane-width, so it is sized in world units and needs no pixel factor: it is paint on the road
 // rather than an overlay drawn at a constant screen weight.
 const routeLine = createRouteLine(scene);
+// Out of the rain's mirror, like the lamp pools: it is paint on the road, and it sits at exactly the
+// mirror's clip height (both 0.03), so whether it made the reflection came down to rounding. Measured
+// headless: 3,128 mirror pixels at its own height, none 0.5mm lower. On a phone that tie flipped as
+// the camera moved and the band flashed in every wet street and puddle it crossed.
+rain.hideInMirror(routeLine.mesh);
 
 // `?blend=additive` picks how the band combines with the road. A URL parameter as well as the
 // ⚙️ dropdown because a screenshot has to be able to pin it: the panel doesn't exist in shot mode.
