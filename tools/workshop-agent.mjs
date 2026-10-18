@@ -9,9 +9,11 @@
  *
  * Three endpoints under `/__workshop/`:
  *
- *   POST /chat              { message, sessionId?, model: { id, label, source }, view, image? }
+ *   POST /chat              { message, sessionId?, model: { id, label, source }, view, image?,
+ *                             attachments? }
  *                           → { runId }. `image` is a PNG data URL of the canvas, written to
- *                           `.workshop/view.png` for the agent to Read.
+ *                           `.workshop/view.png` for the agent to Read; `attachments` are PNG data
+ *                           URLs they pasted in, written to `.workshop/attachment-<n>.png`.
  *   GET  /runs/:id?from=n   the run's events from index `n`, as NDJSON, held open until it ends.
  *   POST /runs/:id/stop     kill it.
  *   POST /runs/:id/undo     put every file the run edited back the way it was before the run.
@@ -27,7 +29,7 @@
  */
 
 import { spawn, execFileSync } from 'node:child_process';
-import { existsSync, mkdirSync, unlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, unlinkSync, writeFileSync } from 'node:fs';
 import { isAbsolute, join, relative, resolve } from 'node:path';
 
 /**
@@ -45,7 +47,7 @@ const EDITING_TOOLS = new Set(['Edit', 'Write', 'MultiEdit', 'NotebookEdit']);
 const LOOPBACK = new Set(['127.0.0.1', '::1', '::ffff:127.0.0.1']);
 
 /** The system-prompt addendum for one turn: what is on the bench and where its code lives. */
-export function workshopPrompt(model, { image = null, view = 'orbit' } = {}) {
+export function workshopPrompt(model, { image = null, view = 'orbit', attachments = [] } = {}) {
   const lines = [
     'You are running inside the Rocket Rides model workshop (/workshop/ on the Vite dev server).',
     `The person chatting is looking at the "${model.label}" on the bench. It is built by ${model.source}.`,
@@ -58,10 +60,15 @@ export function workshopPrompt(model, { image = null, view = 'orbit' } = {}) {
   if (image) {
     lines.push(`A screenshot of exactly what they see is at ${image}. Read it before any visual change, and refer to parts by what is visible in it.`);
   }
+  if (attachments.length) {
+    lines.push(`They also pasted ${attachments.length === 1 ? 'an image' : `${attachments.length} images`} of their own into the message (a reference, a sketch, or a screenshot from elsewhere), at ${attachments.join(', ')}. Read ${attachments.length === 1 ? 'it' : 'them'} before acting: the message is probably about ${attachments.length === 1 ? 'it' : 'them'}.`);
+  }
   lines.push(
     'Follow CLAUDE.md: colours live in src/palette.js, geometry constants in src/city/grid.js, trees go through treeParts, water through the shared shader, and comments carry the why.',
     'Keep the change scoped to this model unless asked otherwise. Do not commit, push, install packages, or start servers.',
-    'Finish with one or two plain sentences saying what you changed and where (file:line). No headings, no lists unless asked.',
+    'If they ask for a change to the workshop itself (its panels, controls, layout, this chat) rather than to the model, that is fair game too: the page is workshop/index.html, the bench is src/workshop/viewer.js, this chat panel is src/workshop/chat.js, the catalog is src/workshop/catalog.js, and the endpoint running you is tools/workshop-agent.mjs; docs/workshop.md explains each. Edits to viewer.js hot-swap; edits to index.html or chat.js reload their page, which the chat survives.',
+    'Saving tools/workshop-agent.mjs or vite.config.js restarts the dev server under you. This turn keeps running and the panel reconnects, but your change only applies from the next message, and a syntax error there takes the dev server down entirely: make that edit last, and run node --check on the file straight after.',
+    'Finish with one short line, under about ten words, saying what changed (e.g. "Gap between the cargo box and cab halved."). No file paths, numbers, side effects or test results unless they ask, or unless something went wrong or needs their decision. No headings, no lists.',
   );
   return lines.join('\n');
 }
@@ -145,12 +152,19 @@ function undo(root, run) {
 }
 
 export function workshopAgent({ bin = process.env.CLAUDE_BIN || 'claude' } = {}) {
-  const runs = new Map();
-  let nextId = 1;
-  let busy = null;
+  // **On `globalThis`, not in this closure,** because the agent is allowed to edit this file — and
+  // this file is a dependency of vite.config.js, so saving it restarts the dev server, which
+  // re-evaluates the config and builds a fresh plugin. In the same Node process, though: the
+  // child keeps running and keeps writing into the run object its old closure holds. With the
+  // table here, the new plugin finds that run, the page reattaches to it after the restart, and
+  // the turn that edited the server finishes in the panel it was asked from. Kept in a closure,
+  // the table died with the old plugin, the page was told "no such run", and `busy` was free while
+  // the old child was still editing — so the next message started a second agent beside it.
+  const shared = (globalThis.__workshopAgent ??= { runs: new Map(), nextId: 1, busy: null });
+  const runs = shared.runs;
 
   function start(root, body) {
-    const id = String(nextId++);
+    const id = String(shared.nextId++);
     const run = { id, events: [], listeners: new Set(), done: false, child: null, streamed: false, result: null, touched: new Set(), before: snapshot(root) };
     runs.set(id, run);
     // Keep the last few runs to reattach to; older ones are history nobody will ask for.
@@ -163,25 +177,37 @@ export function workshopAgent({ bin = process.env.CLAUDE_BIN || 'claude' } = {})
     const finish = (event) => {
       if (run.done) return;
       run.done = true;
-      busy = null;
+      shared.busy = null;
       const edited = [...run.touched].map((file) => relative(root, resolve(root, file)));
       emit({ type: 'done', ...event, edited, undoable: Boolean(run.before) && edited.length > 0 });
     };
 
+    const PNG = 'data:image/png;base64,';
+    const dir = join(root, '.workshop');
+    mkdirSync(dir, { recursive: true });
     let image = null;
-    if (typeof body.image === 'string' && body.image.startsWith('data:image/png;base64,')) {
-      const dir = join(root, '.workshop');
-      mkdirSync(dir, { recursive: true });
+    if (typeof body.image === 'string' && body.image.startsWith(PNG)) {
       image = join(dir, 'view.png');
-      writeFileSync(image, Buffer.from(body.image.slice('data:image/png;base64,'.length), 'base64'));
+      writeFileSync(image, Buffer.from(body.image.slice(PNG.length), 'base64'));
     }
+    // Images they pasted into the message (chat.js re-encodes every one to PNG). The last turn's
+    // are cleared first, so a turn without any can never be handed an old one by a stale name.
+    for (const name of readdirSync(dir)) if (/^attachment-\d+\.png$/.test(name)) unlinkSync(join(dir, name));
+    const attachments = (Array.isArray(body.attachments) ? body.attachments : [])
+      .filter((a) => typeof a === 'string' && a.startsWith(PNG))
+      .slice(0, 6)
+      .map((a, i) => {
+        const path = join(dir, `attachment-${i + 1}.png`);
+        writeFileSync(path, Buffer.from(a.slice(PNG.length), 'base64'));
+        return path;
+      });
 
     const args = [
       '-p', String(body.message ?? ''),
       '--output-format', 'stream-json', '--verbose', '--include-partial-messages',
       '--permission-mode', 'acceptEdits',
       '--allowedTools', ALLOWED_TOOLS,
-      '--append-system-prompt', workshopPrompt(body.model ?? { label: 'model', source: 'src/' }, { image, view: body.view }),
+      '--append-system-prompt', workshopPrompt(body.model ?? { label: 'model', source: 'src/' }, { image, view: body.view, attachments }),
     ];
     if (typeof body.sessionId === 'string' && /^[\w-]+$/.test(body.sessionId)) args.push('--resume', body.sessionId);
 
@@ -193,7 +219,7 @@ export function workshopAgent({ bin = process.env.CLAUDE_BIN || 'claude' } = {})
       return run;
     }
     run.child = child;
-    busy = run;
+    shared.busy = run;
 
     let buffer = '';
     let stderr = '';
@@ -246,6 +272,15 @@ export function workshopAgent({ bin = process.env.CLAUDE_BIN || 'claude' } = {})
   return {
     name: 'workshop-agent',
     apply: 'serve',
+    // An edit to workshop/index.html has to reload the page, and out of the box it does nothing.
+    // Vite only sends an .html file's `full-reload` when no module in the graph belongs to that
+    // file, and the page's inline <style> is one: Vite serves it as an `html-proxy&inline-css`
+    // module keyed to index.html. So the save "hot-updated" a CSS proxy the page never imports,
+    // and the new markup and styles sat on disk until a manual refresh (the inset's minimize
+    // button did exactly that). Handing back no modules sends Vite down its own reload path.
+    hotUpdate({ file }) {
+      if (this.environment.name === 'client' && file.endsWith('/workshop/index.html')) return [];
+    },
     configureServer(server) {
       const root = server.config.root;
       server.middlewares.use('/__workshop', (req, res) => {
@@ -254,7 +289,7 @@ export function workshopAgent({ bin = process.env.CLAUDE_BIN || 'claude' } = {})
         const runMatch = url.pathname.match(/^\/runs\/(\d+)(\/stop|\/undo)?$/);
 
         if (req.method === 'POST' && url.pathname === '/chat') {
-          if (busy) return json(res, 409, { error: 'Still working on the last message.', runId: busy.id });
+          if (shared.busy) return json(res, 409, { error: 'Still working on the last message.', runId: shared.busy.id });
           let raw = '';
           req.setEncoding('utf8');
           req.on('data', (chunk) => { raw += chunk; });
@@ -274,7 +309,7 @@ export function workshopAgent({ bin = process.env.CLAUDE_BIN || 'claude' } = {})
             return json(res, 200, { ok: true });
           }
           if (runMatch[2] === '/undo' && req.method === 'POST') {
-            if (!run.done || busy) return json(res, 409, { error: 'Wait for the reply to finish first.' });
+            if (!run.done || shared.busy) return json(res, 409, { error: 'Wait for the reply to finish first.' });
             try {
               return json(res, 200, undo(root, run));
             } catch (error) {
@@ -283,7 +318,7 @@ export function workshopAgent({ bin = process.env.CLAUDE_BIN || 'claude' } = {})
           }
           return stream(run, Number(url.searchParams.get('from')) || 0, res);
         }
-        if (url.pathname === '/status') return json(res, 200, { busy: busy?.id ?? null });
+        if (url.pathname === '/status') return json(res, 200, { busy: shared.busy?.id ?? null });
         return json(res, 404, { error: 'not found' });
       });
     },

@@ -33,7 +33,9 @@ import { createPolice } from '../sim/police.js';
 import { createFireTruckMesh } from '../geometry/firetruck.js';
 import { createHelicopterMesh } from '../geometry/helicopter.js';
 import { createPlaneMesh } from '../geometry/plane.js';
+import { PROP_SPIN } from '../game/flyover.js';
 import { createBargeMesh, createTugMesh } from '../geometry/boat.js';
+import { createTrainMesh } from '../game/ltrain.js';
 import { createPerson } from '../geometry/person.js';
 import { createParcel } from '../geometry/parcel.js';
 import { createFoodOrder } from '../geometry/food.js';
@@ -172,7 +174,16 @@ export const CATALOG = [
   {
     id: 'plane', label: 'Plane', kind: 'Vehicles',
     source: 'src/geometry/plane.js · createPlaneMesh',
-    build: () => ({ object: createPlaneMesh().group }),
+    // Turning at the flyover's own rate, so the bench shows what the sky does (and any strobing).
+    build: () => {
+      const plane = createPlaneMesh();
+      return { object: plane.group, update: (dt) => { plane.blade.rotation.x += dt * PROP_SPIN; } };
+    },
+  },
+  {
+    id: 'ltrain', label: 'L train', kind: 'Vehicles',
+    source: 'src/game/ltrain.js · buildCar (bench: createTrainMesh)',
+    build: () => ({ object: createTrainMesh() }),
   },
   {
     id: 'tug', label: 'Tugboat', kind: 'Vehicles',
@@ -242,13 +253,15 @@ export const CATALOG = [
   },
 ];
 
-/** Rotors turning, so a helicopter on the bench looks like one in the sky. */
+/** Rotors turning about the axes the flight code turns them about, so the bench matches the sky. */
 function spinning(heli) {
   return {
     object: heli.group,
     update: (dt) => {
       if (heli.mainHub) heli.mainHub.rotation.y += dt * 18;
-      if (heli.tailHub) heli.tailHub.rotation.x += dt * 24;
+      // About z, the lateral axis, as game/chopper.js turns it: the bar sweeps the fin's plane.
+      // This once spun it about x, which swung the blade out across the boom on the bench only.
+      if (heli.tailHub) heli.tailHub.rotation.z += dt * 24;
     },
   };
 }
