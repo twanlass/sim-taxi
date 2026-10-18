@@ -3744,9 +3744,14 @@ The marker a waiting rider floats: a **pie**, a thick disc outlined in black and
 eight slices, two per urgency level, the whole pie in the one [urgency](gameplay.md#urgency-is-one-scale)
 colour of the level the fare is at. The clock eats it clockwise from twelve o'clock, so each pair
 of slices that goes is a quarter of the clock, and the colour steps (with the kick) at that moment.
-What is left is translucent (`PIE_ALPHA` 0.7) and one even shade; eaten slices stay as the
-fainter see-through glass the other vessels empty into. There are no walls between slices: with the
-pie translucent they showed through the face as spokes.
+What is left is solid and one even shade; eaten slices stay as the fainter see-through glass the
+other vessels empty into. The clock takes a **whole slice at a time**, so the cut always lands on a
+slice's own radial wall, and a drained pie shows that wall as a solid edge of thickness where the
+missing slices were. Every wall is drawn before every cap (`pieWedgeOf` maps faces back to slices
+for the probe): the wall sits behind an eaten slice's glass face, and drawn after it the wall
+failed the depth test and the cut came out flat. An eaten slice's walls are discarded rather than
+drawn as glass, or they would stand in it as spokes. The walls on the vertical cut (twelve and six)
+are edge-on under this tilt, so it is the horizontal cuts that show the most depth.
 The marker sits `MARKER_CLEARANCE` (0.8) higher than the taller shapes, for air over the head.
 
 **The geometry** is eight touching wedges (`pieGeometry`), 2.4 across (~18px at play zoom) and
@@ -3760,7 +3765,9 @@ History of this round: the first pie was four slices of the one current hue, 3.1
 by black gaps. Tyler: "More slices (8). Map to existing urgency colors. Smaller over all. Tilt
 back to give it some depth. No black internal lines." The next build painted each slice its own
 level's colour, so a fresh rider showed all four at once; Tyler: "Keep it a single color until it
-reaches the next tier then change."
+reaches the next tier then change." A translucent build (0.7 alpha, walls removed because they
+showed through as spokes) followed "let's try with less opacity", and was turned back: "Let's try
+solid, no opacity. Bring back the internal walls so it looks 3d in its drained states."
 
 `?plumbob=hourglass` brings back the hourglass below and `?plumbob=classic` the [plumbob before
 it](rendering-history.md#the-plumbob--geometrydiamondjs).

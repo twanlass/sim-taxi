@@ -142,7 +142,7 @@ import { setCityOccluders, sightlineClear, groundLineClear } from '../src/game/s
 import {
   createDiamond,
   bounceOffset, KICK_SCALE, KICK_HOP, RIM_SCALE, RIM_OFFSET, EMISSIVE, HIGHLIGHT_EMISSIVE,
-  DIAMOND_HALF_H, BOUNCE_HEIGHT, PLUMBOB_CLASSIC, HOURGLASS_TILT, insideHourglass, MARKER_SHAPE, PIE_TURN, PIE_FACES_PER_WEDGE, PIE_SLICES, PIE_RIM,
+  DIAMOND_HALF_H, BOUNCE_HEIGHT, PLUMBOB_CLASSIC, HOURGLASS_TILT, insideHourglass, MARKER_SHAPE, PIE_TURN, PIE_FACES_PER_WEDGE, pieWedgeOf, PIE_SLICES, PIE_RIM,
 } from '../src/geometry/diamond.js';
 import { CRYSTAL_TOP, createFareMarker } from '../src/game/faremarker.js';
 import { QUESTION_GEO } from '../src/geometry/questionmark.js';
@@ -4690,14 +4690,21 @@ const PRESSURE_END = difficulty.getTuning().pressureEnd;
       const centre = new THREE.Vector3();
       let inward = 0;
       let faces = 0;
-      // The pie is four separate convex wedges: each face is tested against the middle of its own.
+      // The pie is separate convex wedges: each face is tested against the middle of its own. A
+      // wedge's faces are not contiguous (every wall is drawn before every cap), so gather by slice.
+      const wedgeCentres = Array.from({ length: PIE_SLICES }, () => ({ sum: new THREE.Vector3(), n: 0 }));
+      if (MARKER_SHAPE === 'pie') {
+        for (let i = 0; i < pos.count; i++) {
+          const w = wedgeCentres[pieWedgeOf(Math.floor(i / 3))];
+          w.sum.add(a.fromBufferAttribute(pos, i));
+          w.n += 1;
+        }
+      }
       const wedgeCentre = new THREE.Vector3();
-      const perWedge = PIE_FACES_PER_WEDGE * 3;
       for (let i = 0; i < pos.count; i += 3) {
-        if (MARKER_SHAPE === 'pie' && i % perWedge === 0) {
-          wedgeCentre.set(0, 0, 0);
-          for (let j = i; j < i + perWedge; j++) wedgeCentre.add(a.fromBufferAttribute(pos, j));
-          wedgeCentre.divideScalar(perWedge);
+        if (MARKER_SHAPE === 'pie') {
+          const w = wedgeCentres[pieWedgeOf(i / 3)];
+          wedgeCentre.copy(w.sum).divideScalar(w.n);
         }
         a.fromBufferAttribute(pos, i);
         b.fromBufferAttribute(pos, i + 1);

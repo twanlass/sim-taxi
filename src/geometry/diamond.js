@@ -226,8 +226,11 @@ export function insideHourglass(x, y, z) {
 // with the kick, like every other shape here. (A build that painted each slice its own level's
 // colour showed all four colours on a fresh rider, and was turned down: Tyler, 2026-10-18, "keep it
 // a single color until it reaches the next tier".) Every slice is the same shade ("keep slices the
-// same color shade family") and the pie is translucent, so the eight are a step of the clock rather
-// than something drawn: two to a tier, which is where the colour steps.
+// same color shade family") and solid, so the eight are a step of the clock rather than something
+// drawn: two to a tier, which is where the colour steps. The clock takes a whole slice at a time,
+// so the cut always lands on a slice's own wall and a drained pie shows a solid face where the
+// missing slices were (Tyler, 2026-10-18: "solid, no opacity. Bring back the internal walls so it
+// looks 3d in its drained states").
 //
 // Built in its own frame — the face in XY looking down +Z, twelve o'clock at +Y — and then turned
 // (`PIE_TURN`) to face the camera and **tilted back** past face-on, so the face reads as a disc in
@@ -258,24 +261,52 @@ export const PIE_TURN = new THREE.Quaternion()
   // About the screen's right, (1, 0, -1): a negative angle swings the face's normal upward.
   .premultiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, -1).normalize(), THREE.MathUtils.degToRad(-60)));
 
-/** Faces per slice, for the probe's winding check: the two faces and the arc wall. */
-export const PIE_FACES_PER_WEDGE = PIE_ARC_STEPS * 4;
+/** Faces per slice, for the probe's winding check: two caps, the arc wall and two radial walls. */
+export const PIE_FACES_PER_WEDGE = PIE_ARC_STEPS * 4 + 4;
+const PIE_WALL_FACES = 4;
+
+/** Which slice a face of the pie belongs to: every slice's walls first, then every slice's caps. */
+export function pieWedgeOf(face) {
+  const walls = PIE_SLICES * PIE_WALL_FACES;
+  return face < walls
+    ? Math.floor(face / PIE_WALL_FACES)
+    : Math.floor((face - walls) / (PIE_FACES_PER_WEDGE - PIE_WALL_FACES));
+}
 
 /**
  * The slices, as non-indexed triangles wound outward, with a `fillXY` attribute carrying each
  * vertex's position on the face before the turn — the shader cuts and colours by its angle. The
  * slices touch, so their radial walls are hidden inside the disc until the one beside them has
- * been eaten.
+ * been eaten. A wall's `fillXY` is its own slice's middle rather than its position: the wall lies
+ * exactly on the cut, where the angle alone cannot say which side it belongs to. `pieWall` marks
+ * the walls so the shader can drop an eaten slice's, which would otherwise draw spokes in the glass.
+ *
+ * Every wall comes **before** every cap. The disc is one mesh drawn in buffer order with depth
+ * written, and the wall a drained pie is meant to show sits behind the eaten slice's glass face —
+ * drawn after it, the wall failed the depth test against glass at 0.15 alpha and the cut drew flat.
+ * Drawn first, the glass blends over it.
  */
 function pieGeometry() {
   const pos = [];
   const push = (...v) => { for (const p of v) pos.push(p[0], p[1], p[2]); };
+  const xy = [];
+  const wall = [];
   const z = PIE_T / 2;
+  // Clockwise from twelve: angle measured from +Y toward +X.
+  const at = (a, r, zz) => [Math.sin(a) * r, Math.cos(a) * r, zz];
+  const span = (w) => [(w / PIE_SLICES) * 2 * Math.PI, ((w + 1) / PIE_SLICES) * 2 * Math.PI];
   for (let w = 0; w < PIE_SLICES; w++) {
-    // Clockwise from twelve: angle measured from +Y toward +X.
-    const a0 = (w / PIE_SLICES) * 2 * Math.PI;
-    const a1 = ((w + 1) / PIE_SLICES) * 2 * Math.PI;
-    const at = (a, r, zz) => [Math.sin(a) * r, Math.cos(a) * r, zz];
+    const [a0, a1] = span(w);
+    // The two radial walls, at a0 and a1, carrying the slice's middle as their fillXY.
+    push(at(0, 0, z), at(a0, PIE_R, z), at(a0, PIE_R, -z));
+    push(at(0, 0, z), at(a0, PIE_R, -z), at(0, 0, -z));
+    push(at(0, 0, z), at(a1, PIE_R, -z), at(a1, PIE_R, z));
+    push(at(0, 0, z), at(0, 0, -z), at(a1, PIE_R, -z));
+    const mid = at((a0 + a1) / 2, PIE_R / 2, 0);
+    for (let k = 0; k < PIE_WALL_FACES * 3; k++) { xy.push(mid[0], mid[1]); wall.push(1); }
+  }
+  for (let w = 0; w < PIE_SLICES; w++) {
+    const [a0, a1] = span(w);
     for (let k = 0; k < PIE_ARC_STEPS; k++) {
       const p = a0 + ((a1 - a0) * k) / PIE_ARC_STEPS;
       const q = a0 + ((a1 - a0) * (k + 1)) / PIE_ARC_STEPS;
@@ -286,15 +317,17 @@ function pieGeometry() {
       push(at(p, PIE_R, z), at(q, PIE_R, z), at(q, PIE_R, -z));
       push(at(p, PIE_R, z), at(q, PIE_R, -z), at(p, PIE_R, -z));
     }
-    // No radial walls. With the remaining slices translucent (PIE_ALPHA) the walls between them
-    // showed straight through the face as a pale spoke pattern, so the disc is one hollow drum
-    // and the cut is drawn by the face and the rim alone.
+  }
+  // The caps and the arc wall carry their own position.
+  while (xy.length / 2 < pos.length / 3) {
+    const v = xy.length / 2;
+    xy.push(pos[v * 3], pos[v * 3 + 1]);
+    wall.push(0);
   }
   const geo = new THREE.BufferGeometry();
   geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-  const xy = [];
-  for (let i = 0; i < pos.length; i += 3) xy.push(pos[i], pos[i + 1]);
   geo.setAttribute('fillXY', new THREE.Float32BufferAttribute(xy, 2));
+  geo.setAttribute('pieWall', new THREE.Float32BufferAttribute(wall, 1));
   geo.applyQuaternion(PIE_TURN);
   geo.computeVertexNormals();
   return geo;
@@ -514,10 +547,6 @@ const FILL_TOP = TOP_Y + MENISCUS;
 // because it runs across a face 3 units wide rather than along a rim, and at 0.2 it read as a
 // spoke of its own rather than as the edge of what is left.
 const PIE_SWEEP = 0.12;
-// How solid the pie's remaining slices are. Translucent rather than opaque (Tyler, 2026-10-18: "let's
-// try with less opacity"), but well above the eaten glass's GLASS_ALPHA, so what is left still
-// reads against what is gone.
-const PIE_ALPHA = 0.7;
 
 const SAND_TOP = [-MENISCUS, GLASS_H + MENISCUS];
 const SAND_BOTTOM = [-GLASS_H - MENISCUS, -MENISCUS];
@@ -674,12 +703,13 @@ function patchFill(material, flipped = false) {
   material.onBeforeCompile = (shader) => {
     Object.assign(shader.uniforms, uniforms);
     shader.vertexShader = shader.vertexShader
-      .replace('#include <common>', `#include <common>\nvarying float vFillY;\nvarying vec2 vFillXY;${PLUMBOB_CLASSIC ? '' : PIE ? '\nattribute vec2 fillXY;' : '\nattribute float fillY;'}`)
-      .replace('#include <begin_vertex>', `#include <begin_vertex>\n\tvFillY = ${PLUMBOB_CLASSIC ? 'position.y' : PIE ? 'fillXY.y' : 'fillY'};\n\tvFillXY = ${PIE ? 'fillXY' : 'position.xy'};`);
+      .replace('#include <common>', `#include <common>\nvarying float vFillY;\nvarying vec2 vFillXY;\nvarying float vPieWall;${PLUMBOB_CLASSIC ? '' : PIE ? '\nattribute vec2 fillXY;\nattribute float pieWall;' : '\nattribute float fillY;'}`)
+      .replace('#include <begin_vertex>', `#include <begin_vertex>\n\tvFillY = ${PLUMBOB_CLASSIC ? 'position.y' : PIE ? 'fillXY.y' : 'fillY'};\n\tvFillXY = ${PIE ? 'fillXY' : 'position.xy'};\n\tvPieWall = ${PIE ? 'pieWall' : '0.0'};`);
     shader.fragmentShader = shader.fragmentShader
       .replace('#include <common>', `#include <common>
 varying float vFillY;
 varying vec2 vFillXY;
+varying float vPieWall;
 uniform float uFill;
 uniform float uFillLow;
 uniform vec3 uFrame;
@@ -690,9 +720,11 @@ uniform vec3 uSurface;`)
       .replace('#include <color_fragment>', `#include <color_fragment>
 \tfloat plate = ${plate};
 ${split}
+\t// An eaten slice's walls would stand in the glass as spokes.
+\tif (vPieWall > 0.5 && below < 0.5) discard;
 \tdiffuseColor.rgb = mix(uGlass, diffuseColor.rgb, below);
 \t// The liquid and its surface are solid; only the empty glass thins out.
-\tdiffuseColor.a = mix(${glsl(GLASS_ALPHA)}, ${glsl(PIE ? PIE_ALPHA : 1)}, max(below, meniscus));`)
+\tdiffuseColor.a = mix(${glsl(GLASS_ALPHA)}, 1.0, max(below, meniscus));`)
       // After `normal_fragment_begin`, which is where `normal` comes from — and still before
       // `lights_lambert_fragment` hands `diffuseColor` to the lighting.
       .replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
@@ -860,8 +892,11 @@ export function createDiamond(colorHex) {
         return;
       }
       if (PIE) {
-        // Eaten clockwise from twelve: a full clock has eaten nothing.
-        fillUniforms.uFill.value = (1 - fill) * 2 * Math.PI;
+        // Eaten clockwise from twelve, a whole slice at a time: a full clock has eaten nothing, and
+        // a slice goes the moment its share of the clock has started to run. A cut through the
+        // middle of a slice would open it with no wall to show for it.
+        const left = Math.ceil(fill * PIE_SLICES - 1e-6) / PIE_SLICES;
+        fillUniforms.uFill.value = (1 - left) * 2 * Math.PI;
         // No sweep line on the eight-slice pie: the cut edge and the wall of the next slice already
         // draw it, and a bright line on top ran down the disc's edge and read as a stick.
         fillUniforms.uFillLow.value = 0;
