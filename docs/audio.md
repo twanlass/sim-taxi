@@ -431,6 +431,12 @@ name to jump to it).
   An import replaces the mix outright, and anything unknown or out of range in it is dropped or
   clamped by `sfx.tune`.
 
+- **🖥 | 📱** beside the panel's search frames the window to a phone in portrait (393 × 852,
+  `game/phoneframe.js`), remembered per browser. It is a mask rather than a smaller canvas, and
+  exact: the camera's zoom is a frustum half-height in world units on every device, so a phone sees
+  the same height of city and less of it across, centred on the same 👂. Placed sounds are panned
+  against the frame's edges instead of the window's (`panScale`), and the HUD moves inside it (the
+  root's `--safe-left`/`--safe-right` become the frame's margins).
 - In debug mode every placed sound on the map wears a **🔊 pin** (`game/soundpins.js`): tap one and
   the panel opens on that sound's controls, with its falloff rings on the ground. Sounds sharing a
   spot share a pin, with a chip each. Hovering a control in the panel or a pin shows its tooltip at

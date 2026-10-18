@@ -52,6 +52,7 @@ import {
   BOARD_SECONDS, MAX_STRIKES, RATING_FLOOR, ratingFor,
 } from './game/fares.js';
 import { createDebugPanel } from './game/debugpanel.js';
+import { createPhoneFrame } from './game/phoneframe.js';
 import { createDriveThru } from './game/drivethru.js';
 import { createBurgerRun } from './game/burgerrun.js';
 import { createDepotRun } from './game/depotrun.js';
@@ -4769,7 +4770,8 @@ function placeAt(x, z, y = 0) {
   const ear = controller.state.target;
   const d = Math.hypot(x - ear.x, z - ear.z);
   placeProbe.set(x, y, z).project(camera);
-  return { d, pan: placeProbe.x };
+  // Framed as a phone (the ⚙️ panel's 📱), the screen's edges are the frame's, not the window's.
+  return { d, pan: placeProbe.x * (phoneFrame?.panScale() ?? 1) };
 }
 
 // The street works: one zone a run, heard from the middle of its closed block while it stands.
@@ -6387,6 +6389,9 @@ const debugParams = new URLSearchParams(window.location.search);
 // `?audio` was the sound designer's own panel; it is the Audio sections of this one now, and the
 // flag still opens it.
 const wantsDebugPanel = debugMode;
+// The panel's 🖥 / 📱 switch (game/phoneframe.js): built with the panel, and read by `placeAt` for
+// the pan a phone would hear.
+const phoneFrame = !shot && wantsDebugPanel ? createPhoneFrame() : null;
 // Freeze-and-zoom for tuning things that are a few pixels across at play zoom — see
 // game/inspect.js. `I` toggles it; the debug panel has the buttons.
 const inspect = !shot && wantsDebugPanel ? createInspect({
@@ -7026,6 +7031,7 @@ if (shot) {
 
 if (!shot && wantsDebugPanel) {
   debugPanel = createDebugPanel({
+    phoneFrame,
     sun,
     hemi,
     sky,
