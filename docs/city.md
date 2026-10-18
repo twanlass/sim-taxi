@@ -479,6 +479,19 @@ ever see. Four shapes of the same trap here, each worth knowing before moving an
   the corner. The probe walks the squares and demands the colour flips at every step, because a
   course that stopped alternating is still a course of squares from far enough away.
 
+**A blue neon tube runs round the roofline** in that reveal, under the coping, on the same two
+elevations: the burger joint's roofline neon in the sign's `depotNeon` blue, mitred the same way
+(the +X arm carries the corner, the +Z arm stops on its inner face). It stands 0.14 proud of the
+wall, inside the coping's 0.18 overhang so their outer faces are never coplanar, and hangs 0.06
+under the coping's underside, which is more than the 0.04 the lip hides. It is now the separator
+between the dark coping and the course, a job the sliver of yellow wall used to do. Unlit and in
+the bloom (kind `window`), like the sign. `?depotneon=classic` leaves it off.
+
+**The two office windows light up after dark**, on the same switch as the city's lit windows
+(`switchedLights` in game/citylights.js): night or a squall's shade passes each pane's threshold and
+it fades on. Their thresholds sit at 0.1–0.22, early, with the shops. Only a city with weather has
+the switch, so they exist only when `rain.enabled`. `?depotwindows=classic` leaves them dark.
+
 The forecourt gets **two guide lines** out of the bay — the last thing still wearing `garageSign`,
 which is `taxiBody`'s own hex, because two lines on the ground where the car is about to be are the
 one place reading the taxi's yellow is the point. They are a third level on the block: `PAVEMENT_Y`

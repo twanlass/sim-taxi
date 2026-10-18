@@ -141,6 +141,21 @@ function stampLitAt(geo, at, x, z) {
   return geo;
 }
 
+/**
+ * One switched mesh from hand-placed lights: each `{ geo, at, x, z }` comes on when the level at
+ * (x, z) passes `at`, on the same switch as every pane and lamp above. For a building that draws
+ * its own windows rather than going through the generator's pane sink — the depot's office.
+ */
+export function switchedLights(lights, name) {
+  if (!lights.length) return null;
+  const geos = lights.map(({ geo, at, x, z }) => stampLitAt(geo, at, x, z));
+  const mesh = new THREE.Mesh(mergeGeometries(geos, false),
+    litSwitch(unlitMaterial({ vertexColors: true })));
+  geos.forEach((g) => g.dispose());
+  mesh.name = name;
+  return mesh;
+}
+
 /** When a pane of each kind may come on: shops first, homes and offices through the storm. */
 const LIT_AT = { punched: [0.2, 0.92], ribbon: [0.25, 0.95], shop: [0.08, 0.5] };
 

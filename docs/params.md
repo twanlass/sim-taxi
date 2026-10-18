@@ -42,6 +42,8 @@ doc; what the classic version was, and why it changed, is in that doc's history 
 | `?trainlights=classic` | The L's deck without its lamps | #489 | [city.md](city.md) |
 | `?trainintro=classic` | The L without its own intro | #494 | [city.md](city.md) |
 | `?depot=classic` / `=model` | The depot's wrench sign / a 3D taxi on its roof (default is the neon cutout) | #479 | [city.md](city.md) |
+| `?depotneon=classic` | No blue neon tube round the depot's roofline (default traces the two visible faces under the coping, like the burger joint's) | | [city.md](city.md#the-livery) |
+| `?depotwindows=classic` | The depot's two office windows stay dark at night and under a squall (default: they light with the city's windows) | | [city.md](city.md#the-livery) |
 | `?skater=classic` / `=stiff` | The first pair of skaters / the single skater before it got a waist joint | #461, #463 | [city.md](city.md) |
 | `?roadside=carwash` / `=gas` | Pin the roadside lot to the car wash or the gas station; by default each city seed rolls one. Headless tools take `ROADSIDE=` | | [city.md](city.md#the-roadside-lot-and-its-tube-man) |
 | `?roadside=classic` | No roadside lot: its block goes back to the towers, and the tube man goes with it | | [city.md](city.md#the-roadside-lot-and-its-tube-man) |
