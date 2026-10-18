@@ -792,7 +792,7 @@ export function setPassTurnGate(name) {
 /** Fastest a blocker may be moving, in u/s, and still be dodged: about half of `SPEED`. */
 const DODGE_CREEP = 4;
 /** Daylight the swing line keeps off a blocker's collision circles, on top of `ENVELOPE`. */
-const DODGE_MARGIN = 0.05;
+export const DODGE_MARGIN = 0.05;
 /** How far ahead a blocker is looked for — the combo's own reach (`OVERTAKE_ARM_RANGE`). */
 const DODGE_SCAN = 30;
 /**
@@ -5219,6 +5219,12 @@ export function createTraffic(
         // same SWERVE_FADE, which the pull-out's DODGE_LEAD is longer than.
         const delta = (taxi.boost && taxi.dodgeLateral == null ? 1 : 0) - taxi.swerve;
         taxi.swerve += Math.sign(delta) * Math.min(Math.abs(delta), ds / loco.fade);
+      } else if (taxi.dodgeLateral != null && taxi.swerve > 0) {
+        // ...and on through the junction, where a dodge is always straight on. The state flips to
+        // `turn` at the hold line, and on wider streets (`?streets=`) the hold line comes early
+        // enough that the fade was frozen part done: the weave's last 0.17 put the kerb jink
+        // inside a stopped car's envelope (2.28 against 2.31) and it bumped the car it was dodging.
+        taxi.swerve = Math.max(0, taxi.swerve - (taxi.v * dt) / loco.fade);
       }
 
       const wave = locoWeave(taxi.swervePhase);

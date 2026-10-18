@@ -16,7 +16,7 @@ const BOOT = ['../src/game/scene.js', '../src/game/debugpanel.js', '../src/geome
   '../src/game/pathdrag.js', '../src/game/sfx.js', '../src/game/audiopanel.js', '../src/game/soundrings.js',
   '../src/game/soundpins.js', '../src/game/quicktips.js', '../src/game/quicktips.js',
   '../src/game/dust.js', '../src/game/spray.js', '../src/game/blast.js', '../src/game/flyover.js', '../src/game/birds.js', '../src/game/ducks.js',
-  '../src/city/blacktop.js', '../src/game/hoopers.js', '../src/city/skatepark.js', '../src/city/northpark.js', '../src/city/southshore.js', '../src/city/parkshore.js', '../src/game/harborships.js', '../src/game/skaters.js', '../src/game/skatersclassic.js',
+  '../src/city/blacktop.js', '../src/game/hoopers.js', '../src/game/tubeman.js', '../src/city/carwash.js', '../src/city/gasstation.js', '../src/city/skatepark.js', '../src/city/northpark.js', '../src/city/southshore.js', '../src/city/parkshore.js', '../src/game/harborships.js', '../src/game/skaters.js', '../src/game/skatersclassic.js',
   '../src/game/clouds.js', '../src/geometry/cloud.js', '../src/game/rain.js', '../src/game/citylights.js', '../src/game/storm.js', '../src/game/squall.js',
   '../src/game/cityentry.js', '../src/city/garage.js', '../src/game/opening.js',
   '../src/city/burgerjoint.js', '../src/game/drivethru.js',
@@ -35,7 +35,7 @@ const BOOT = ['../src/game/scene.js', '../src/game/debugpanel.js', '../src/geome
   '../src/game/impact.js', '../src/game/taxidamage.js', '../src/game/taxidoor.js',
   '../src/util/viewport.js',
   '../src/game/energybits.js', '../src/game/carghosts.js', '../src/game/homescreen.js',
-  '../src/game/ssao.js', '../src/game/crayon.js', '../src/game/cartoon.js',
+  '../src/game/ssao.js', '../src/game/crayon.js', '../src/game/cartoon.js', '../src/game/brushtiles.js',
   '../src/game/bloom.js', '../src/game/hdr.js',
   '../src/game/diag.js', '../src/game/bench.js', '../src/game/soak.js', '../src/game/governor.js', '../src/game/recovery.js', '../src/game/pause.js', '../src/game/menupage.js', '../src/game/inspect.js',
   '../src/geometry/roadworks.js', '../src/game/roadwork.js',
@@ -79,12 +79,12 @@ const TOOLS = [
   // The docs against the code: every URL parameter in src/ has a row in docs/params.md (and every
   // row is still read), and every relative link between the docs lands on a heading that exists.
   { name: 'docs',    args: ['tools/docs.mjs'],         pick: /(\d+\/\d+) checks passed/ },
-  // The New Move card's U-turn is a recording of the sim (game/uturnreel.js); this films it again
+  // The New Move card's U-turn is a recording of the sim (game/uturnreel-<width>.js); this films it again
   // and fails if the game's U-turn has moved on without it.
   { name: 'uturn',   args: ['tools/uturnreel.mjs'],    pick: /(\d+\/\d+) checks passed/ },
-  // ...and the drift's card the same (game/driftreel.js).
+  // ...and the drift's card the same (game/driftreel-<width>.js).
   { name: 'drift',   args: ['tools/driftreel.mjs'],    pick: /(\d+\/\d+) checks passed/ },
-  // ...and the overtake's (game/overtakereel.js).
+  // ...and the overtake's (game/overtakereel-<width>.js).
   { name: 'overtake', args: ['tools/overtakereel.mjs'], pick: /(\d+\/\d+) checks passed/ },
 ];
 
@@ -201,7 +201,7 @@ try {
   // finds a long enough street (side or ring) in the shipped cities.
   {
     const { reelAt, clipKeys, pickOvertakeStreet, CLIP_LOOP } = await import('../src/game/overtakeclip.js');
-    const { REEL } = await import('../src/game/overtakereel.js');
+    const { REEL } = await import('../src/game/overtakeclip.js');
     const leadAt = (t) => REEL.lead[Math.min(REEL.lead.length - 1, Math.round(t / REEL.step))];
     const start = reelAt(0);
     const end = reelAt(CLIP_LOOP);

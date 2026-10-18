@@ -17,6 +17,7 @@ doc; what the classic version was, and why it changed, is in that doc's history 
 
 | Param | Brings back | PR | Doc |
 |---|---|---|---|
+| `?streets=classic` | 8-unit streets, the width they were before 2026-10-17. The default is 9. Blocks keep their size, so the map shrinks with the streets. Headless tools take `STREETS=` | | [city.md](city.md#street-width-streets) |
 | `?city=big` | The 6 × 7 city (36 land blocks) with the central park, harbor, north park, shores, west edge high rises, horizon filler and the L's turn west. The default is the 5 × 5 island with feathered edges. Headless tools take `CITY=big` | #483 | [city.md](city.md) |
 | `?harbor=classic` | The old river mouth, with no harbor, cranes or ships | #488, #497 | [river.md](river.md) |
 | `?northpark=classic` | No park past the north ring road | #483 | [city.md](city.md) |
@@ -40,6 +41,8 @@ doc; what the classic version was, and why it changed, is in that doc's history 
 | `?trainintro=classic` | The L without its own intro | #494 | [city.md](city.md) |
 | `?depot=classic` / `=model` | The depot's wrench sign / a 3D taxi on its roof (default is the neon cutout) | #479 | [city.md](city.md) |
 | `?skater=classic` / `=stiff` | The first pair of skaters / the single skater before it got a waist joint | #461, #463 | [city.md](city.md) |
+| `?roadside=carwash` / `=gas` | Pin the roadside lot to the car wash or the gas station; by default each city seed rolls one. Headless tools take `ROADSIDE=` | | [city.md](city.md#the-roadside-lot-and-its-tube-man) |
+| `?roadside=classic` | No roadside lot: its block goes back to the towers, and the tube man goes with it | | [city.md](city.md#the-roadside-lot-and-its-tube-man) |
 | `?roofs=classic` | Solid flat roof caps, with no lip and no sunk deck | #511 | [city.md](city.md) |
 | `?foliage=classic` | The first, louder autumn palette | #486 | [rendering.md](rendering.md) |
 | `?water=classic` | The faceted first river surface | | [river.md](river.md) |
@@ -65,12 +68,15 @@ doc; what the classic version was, and why it changed, is in that doc's history 
 | `?titlecam=classic` | The title screen's backdrop is one slow ellipse over the middle of the city, and Play eases down onto the depot, instead of jump cuts between landmarks and a cut to the depot | | [gameplay.md](gameplay.md#the-title-screen) |
 | `?splashsound=classic` | The startup screen plays silent, as it first shipped, rather than with the landing, bounce and Loco sounds | | [gameplay.md](gameplay.md#the-startup-screen) |
 | `?splash=classic` | No startup screen: the game loads behind black and opens on the title menu, with no taxi drop first | | [gameplay.md](gameplay.md#the-startup-screen) |
+| `?radiofade=classic` | The station cuts hard between every track, instead of the DJ talking over the start and end of the songs | | [audio.md](audio.md#talking-over-the-music) |
+| `?radiointro=classic` | The radio is full-range from Play, instead of playing through the taxi's dash speakers until the car rolls out of its garage | | [audio.md](audio.md#the-dash-radio) |
 | `?menumusic=classic` | The radio's intro plays under the title menu on the first tap, rather than a song until Play | #519 | [audio.md](audio.md#the-radio) |
 | `?copchat=classic` | The cops' "pull over" and "lost the suspect" bubbles | #492 | [gameplay.md](gameplay.md) |
 | `?robbery=classic` | The robbery with no opening cut (straight to the drive-past). Also implies `?bankfare=classic` | #475, #478 | [gameplay.md](gameplay.md) |
 | `?bankfare=classic` | The drive-past robbery instead of the bank rider fare | #499 | [gameplay.md](gameplay.md) |
 | `?robberyskip=classic` | A tap (or Space/Enter) skips the bank job's cut, as it used to | | [gameplay.md](gameplay.md#the-bank-job) |
 | `?robberycam=classic` | The bank job's cut framed the first way, averaged on the cab in the ground plane, a held Loco push-in left on, and the L's deck left solid over the shove | | [gameplay.md](gameplay.md#the-cuts-framing) |
+| `?bankpickup=classic` | The bank rider is collected anywhere within `ARRIVE_RADIUS` of the bank's junction, from any side, instead of level with the steps on the bank's own street | | [gameplay.md](gameplay.md#the-bank-robbery) |
 | `?robberyodds=classic` | The bank rider's coin stays a fair 50/50 instead of loading toward a robbery with each bank ride | #522 | [gameplay.md](gameplay.md#the-bank-job) |
 | `?uturn=classic` | The first U-turn, a spin on the spot, instead of the handbrake turn | #458 | [gameplay.md](gameplay.md) |
 | `?barrelroll=classic` | Big Air flown level, no barrel roll | #485 | [river.md](river.md) |
@@ -122,6 +128,7 @@ doc; what the classic version was, and why it changed, is in that doc's history 
 
 | Param | Does |
 |---|---|
+| `?painterly=classic` | Without the painterly prototype: painted brush strokes running along the streets, each a little lighter or darker and a little red or blue, fading in and out in block-sized patches |
 | `?crayon` | Crayon Mode. Off by default |
 | `?cartoon` | Cartoon Mode. Off by default |
 | `?hdr` | The full HDR bloom route instead of the emissive bloom, as a comparison. Not with Crayon or Cartoon |

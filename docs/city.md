@@ -13,17 +13,38 @@ happening to agree on the same magic number.
 ```js
 GRID_I = 5    // block columns → i runs 0..5   (6 under ?city=big)
 GRID_J = 6    // block rows    → j runs 0..6, and 6 × 7 = 42 intersections   (7 big)
-PITCH = 20    // distance between road centrelines
-ROAD_W = 8    // full road width (two lanes)
-BLOCK = 12    // PITCH - ROAD_W, the buildable footprint between two ordinary streets
-LANE  = 2     // lane centre offset from the centreline
-SPAN_X = 100  // GRID_I * PITCH   (120 big)
-SPAN_Z = 120  // GRID_J * PITCH   (140 big)
+ROAD_W = 9    // full road width (two lanes): 8 under ?streets=classic
+BLOCK = 12    // the buildable footprint between two ordinary streets, on every width
+PITCH = 21    // BLOCK + ROAD_W, the distance between road centrelines (20 classic)
+LANE  = 2.25  // ROAD_W / 4, lane centre offset from the centreline
+SPAN_X = 105  // GRID_I * PITCH   (126 big)
+SPAN_Z = 126  // GRID_J * PITCH   (147 big)
 
-ARTERIAL_ROAD_W = 10.667   // ROAD_W × 4/3 — a main street is divided, see below
-LANE_TO_KERB    = 2        // lane centre to its own kerb, the same on every road
+ARTERIAL_ROAD_W = 11.667   // ROAD_W + 8/3 — a main street is divided, see below
+LANE_TO_KERB    = 2.25     // ROAD_W / 8, lane centre to its own kerb, the same on every road
 MEDIAN_W        = 2.4      // the planted island between an arterial's carriageways
 ```
+
+### Street width (`?streets=`)
+
+Streets are 9 units across, a unit wider than the 8 they were for most of the game's life (Tyler,
+2026-10-17: "I want to see if it helps gameplay feel less cramped"). `?streets=classic` puts them back to
+8; headless tools take `STREETS=`. A 10-unit option, half a lane wider, was tried alongside and
+judged too wide.
+Two choices travel with the number:
+
+- **The lanes widen with the road.** `LANE` is a quarter of `ROAD_W`, so the extra width lands on
+  both sides of every car rather than as a stripe down the middle. The overtake, the weave room, the
+  swerve's kerb jink and every turn radius grow with it.
+- **The blocks keep their size and the map grows.** `BLOCK` is fixed at 12 and `PITCH` is `BLOCK +
+  ROAD_W`, so the island is 5 units wider a side than on `classic`. Taking the width out
+  of the blocks instead was tried first and broke 28 probe checks, nearly all for one reason: a
+  lane between two junctions is `BLOCK` long, and the roadworks launch, the L train's spans, the
+  pond, the helipad and the bank's sightline band were all sized against 12 of it.
+
+The arterial's median gap stays a fixed 8/3 (`ARTERIAL_EXTRA`), so a main street is `ROAD_W + 8/3`
+rather than a third wider than whatever a side street is. The New Move cards play a recording per
+width (`game/*reel-<width>.js`); `STREETS=classic node tools/uturnreel.mjs --write` films one.
 
 Intersections are indexed `(i, j)` from `0..GRID_I` and `0..GRID_J`, and `lineX(i)` / `lineZ(j)`
 convert an index to a world coordinate. The city is centred on the origin **on both axes**, which is
@@ -856,6 +877,53 @@ So the mass ducks **under** 7.64 with margin rather than clearing 10.86: a talle
 corner honestly and cost the board a junction, and a low wide bank is what the silhouette wanted
 anyway. Everything at the front is then sized down to stay under the roof behind it, because a
 pediment poking above its own roofline is a gable rather than a portico.
+
+## The roadside lot, and its tube man
+
+The fourth block taken from the tower generator (`city/roadside.js`, `?roadside=classic` to give it
+back) is a roadside business with an inflatable tube man on its corner: a car wash or a gas
+station, a coin flip off the city seed (`roadsideKind`, on a stream of its own so the flip moves
+nothing else). Both stand on the same block. `?roadside=carwash` or `?roadside=gas` pins one. Tyler
+had the two built side by side to compare and then picked both (2026-10-17).
+
+**The car wash** (`city/carwash.js`) is a wash tunnel against the block's −Z edge, with its long +Z side open on posts so the brushes
+turning inside it show, a blue fascia covered in soap bubbles, a concrete lot out front with two
+vacuum bays and a pay kiosk, and a pylon sign spelling WASH in a pixel face. It is scenery only for
+now: no car goes through, and nothing routes into it. Chosen last in `createLayout`, after the
+graveyard, so adding it moves nothing above; it avoids touching the other landmarks and prefers
+quiet, inner blocks, as the burger joint does.
+
+**Taking the block moves no other building.** The towers on it are still split, drawn and built,
+into a scratch array that is thrown away (`ghost` in `city/buildings.js`), because skipping them the
+way the depot's and the joint's blocks are skipped shifts every draw after them and rebuilds the
+skyline. That is what turned the probe's corner sweep red the first time: a reshuffled tower three
+blocks away halving a kerb mark. A courtyard, the bank or the helipad drawn onto the roadside block
+moves to another lot, picked by hash so nothing else moves with it; the probe holds every other
+vertex in place.
+
+**The roof is as tall as it is so the brushes show.** A sightline into the open side climbs 0.92
+per unit of z on its way out under the eaves, and the top brush sits 2 up and 1.7 in, so the eaves
+have to clear 3.56. At 3.0 the roof hid it.
+
+**The gas station** (`city/gasstation.js`) is a convenience store with lit windows and a MART band
+on the block's −X half, and a green canopy over two pump islands on its +X half, pulled back from
+the +Z kerb so the tube man's corner stays open, plus a pylon with GAS over a price board. The
+canopy's depth and height are a sightline too: the pumps sit 1.8 in from its +Z edge, so a line
+from a pump's top climbs 1.66 on its way out and clears the 3.7 underside. Deeper or lower and the
+pumps vanish under their own roof; the probe fires a ray from each pump to check.
+
+**The tube man** (`game/tubeman.js`) flails on the lot's +X+Z corner, the one the camera faces: a
+red tube on a blower box, yellow streamers for hair and cuffs, a cartoon face. He is a chain of
+capsules jointed end to end, bent by two travelling waves so the S runs up the tube, and every few
+seconds he folds over and whips back up with an overshoot. The sway is across the screen, since a
+bend toward or away from a camera that never rotates barely shows; the fold goes back over the lot,
+because the two other ways out of that corner are roads. He is not tappable: a tall thin hit target
+steals taps from markers up-screen of it.
+
+**Which block is a sightline.** `chooseRoadsideBlock` only takes a block where the tube man's corner
+and the middle of the block can both be seen over every block up-camera of them, using
+the burger joint's height predictions. He stood on the burger joint's apron first, beside its
+drive-through lane; Tyler wanted him on a business of his own (2026-10-17).
 
 ## Park districts close roads
 

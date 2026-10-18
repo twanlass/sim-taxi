@@ -69,6 +69,7 @@ import { createSkidMarks, createTyreTrail } from './game/skidmarks.js';
 import { createDust, DUST_ROAD_Y } from './game/dust.js';
 import { createSpray } from './game/spray.js';
 import { createCityEntry } from './game/cityentry.js';
+import { createBrushTiles } from './game/brushtiles.js';
 import { createBlast, WRECK_STYLES } from './game/blast.js';
 import { createFlames } from './game/flames.js';
 import { createSparks } from './game/sparks.js';
@@ -90,6 +91,10 @@ import { createBirds, chooseRoosts } from './game/birds.js';
 import { createDucks } from './game/ducks.js';
 import { createHoopers } from './game/hoopers.js';
 import { createBoombox } from './game/boombox.js';
+import { createTubeMan } from './game/tubeman.js';
+import { createCarWash } from './city/carwash.js';
+import { createGasStation } from './city/gasstation.js';
+import { roadsideKind } from './city/roadside.js';
 import { createLTrain, planLTrain, LTRAIN_DIMENSIONS } from './game/ltrain.js';
 import { courtRect } from './city/blacktop.js';
 import { createSkaters } from './game/skaters.js';
@@ -128,7 +133,7 @@ import { createHdr } from './game/hdr.js';
 import { createCrayon } from './game/crayon.js';
 import { createCartoon } from './game/cartoon.js';
 import {
-  setAmbientOcclusion, setCrayon, setCartoon, setCloudShadows, setClassicPaint, setPaintLook, setRim, setFlip, setRimDepth, rimPaintOn, setVehiclePaint, propMaterial, setGlossCity, setGlossGlobal,
+  setAmbientOcclusion, setPainterly, setPaintBrushes, setCrayon, setCartoon, setCloudShadows, setClassicPaint, setPaintLook, setRim, setFlip, setRimDepth, rimPaintOn, setVehiclePaint, propMaterial, setGlossCity, setGlossGlobal,
 } from './util/geo.js';
 import * as difficulty from './game/difficulty.js';
 import { createHomeScreenTip } from './game/homescreen.js';
@@ -174,7 +179,7 @@ import { createGovernor } from './game/governor.js';
 import { createViewport } from './util/viewport.js';
 import { isNative } from './util/platform.js';
 import { tap as haptic, setHapticPrefs } from './util/haptics.js';
-import { createSfx } from './game/sfx.js';
+import { createSfx, DASH } from './game/sfx.js';
 import { attachContextRecovery } from './game/recovery.js';
 import { isCityConnected, GRID_I, GRID_J, MAX_SPAN, lineX, lineZ } from './city/grid.js';
 import { cityNetwork } from './city/roadnet.js';
@@ -295,6 +300,19 @@ setAmbientOcclusion(aoEnabled);
 // `game/crayon.js` for what the three layers of it are.
 const crayonEnabled = budget.crayon;
 setCrayon(crayonEnabled);
+// Prototype painterly look (PAINT_* in util/geo.js, game/brushtiles.js): painted strokes on the
+// streets only, fading out in block-sized patches. The shadow edge, wall fade and wall/roof/lawn strokes are still in, dialled to 0. `?painterly=classic` is the old look.
+const painterly = new URLSearchParams(location.search).get('painterly') !== 'classic';
+setPainterly(painterly);
+if (painterly) {
+  const tiles = createBrushTiles();
+  setPaintBrushes(tiles.wall, tiles.ground, tiles.road);
+}
+// Which brush a static mesh wears (see PAINT_FRAGMENT): 1 buildings, 2 ground (lawns only).
+const brush = (mesh, kind) => {
+  mesh.material.userData.brush = kind;
+  return mesh;
+};
 setClassicPaint(getPaintClassic());
 setPaintLook(getPaintLook());
 setRim(getRimColor());
@@ -617,7 +635,7 @@ applyWeather();
 // `markOccluder` is what puts a mesh into the AO depth prepass. The rule it enforces is that
 // anything lit by `propMaterial()` has to be in there: a mesh that receives AO without casting it
 // samples the occlusion of whatever stands behind it. See `game/ssao.js`.
-scene.add(markOccluder(rain.wetGround(createGround(makeRng(seed + 11), layout))));
+scene.add(markOccluder(rain.wetGround(brush(createGround(makeRng(seed + 11), layout), 2))));
 // The ground past the coast, for the fog of war to swallow — game/edgefog.js.
 if (EDGE_FOG) scene.add(createEdgeFogFloor());
 
@@ -662,7 +680,7 @@ if (harbor) scene.add(markOccluder(harbor.mesh));
 // Null under `?northpark=classic`.
 const northPark = createNorthPark(makeRng(seed + 53));
 if (northPark) {
-  scene.add(markOccluder(northPark.mesh));
+  scene.add(markOccluder(brush(northPark.mesh, 2)));
   scene.add(northPark.water);
   scene.add(northPark.fade);
 }
@@ -693,7 +711,7 @@ scene.add(markOccluder(city.mesh));
 // them off (city/westedge.js). Built before the panes are collected, so Rain Mode lights their windows
 // too. Its own stream. Null under `?westedge=classic`.
 const westEdge = createWestEdge(makeRng(seed + 59));
-if (westEdge) scene.add(markOccluder(westEdge.ground), markOccluder(westEdge.towers));
+if (westEdge) scene.add(markOccluder(brush(westEdge.ground, 2)), markOccluder(westEdge.towers));
 // The northwest corner's asphalt skirt (`?westcorner=classic` drops the corner). Transparent, so not
 // an occluder.
 if (westEdge?.fade) scene.add(westEdge.fade);
@@ -838,6 +856,19 @@ if (burger) {
   // mass is the one version that can never cover a marker the player can see past it.
   burger.group.userData.pickable = 'burger';
 }
+// The roadside business — the fourth block `createLayout` took from the towers, a car wash or a gas
+// station as the city seed rolls it (`?roadside=carwash` / `=gas` pins one) — and the inflatable tube man flailing on its corner, which is what
+// it is there for. Scenery only: not tappable, nothing routes into it. `null` on
+// `?roadside=classic` or a city with no room. See city/roadside.js. The tube man is
+// not tappable either: 4.5 units of tall thin target is exactly the shape that steals taps from a
+// marker up-screen of it (CLAUDE.md). Where he stands is the map's; how he flails is the run's.
+const roadside = !layout.roadsideBlock ? null
+  : (roadsideKind(seed) === 'gas' ? createGasStation : createCarWash)(layout.roadsideBlock, makeRng(seed + 141));
+if (roadside) {
+  scene.add(roadside.group);
+  roadside.meshes.forEach(markOccluder);
+}
+const tubeMan = createTubeMan(scene, makeRng(runSeed + 331), roadside?.site.tubeMan ?? null, roadside?.entry ?? null);
 
 // Which kerb corners this camera can see, settled once now that everything permanent is standing.
 // The board consults it when it places a marker — a rider, a drop-off ring or a courier pad on a
@@ -847,7 +878,7 @@ if (burger) {
 // comes and goes, and the boards would have to be re-asked every time one moved.
 const occluders = setCityOccluders(
   city.mesh, propsMesh, ...(garage?.meshes ?? []), ...(burger?.meshes ?? []),
-  ...(graveyard?.meshes ?? []),
+  ...(graveyard?.meshes ?? []), ...(roadside?.meshes ?? []),
 );
 // The same field is what the cars' paint reflects (`propMaterial({ gloss })`, util/geo.js).
 setGlossCity(occluders, SKYLINE_CEILING);
@@ -1184,7 +1215,16 @@ const sfx = shot ? null : createSfx({
   rng: makeRng(runSeed + 811),
   menuMusic: new URLSearchParams(window.location.search).get('menumusic') !== 'classic',
   classicSongs: new URLSearchParams(window.location.search).get('songs') === 'classic',
+  // The DJ talks over the edges of the songs; `?radiofade=classic` cuts hard between tracks.
+  radioFade: new URLSearchParams(window.location.search).get('radiofade') !== 'classic',
 });
+// The dash radio (`DASH` in game/sfx.js): Play puts the station in the taxi's own speakers, and it
+// opens out into the full mix when the car rolls out of its garage. `?radiointro=classic` keeps the
+// station full-range from Play.
+const dashRadio = new URLSearchParams(window.location.search).get('radiointro') !== 'classic';
+// The vignette beats the car is still in its garage for, so the radio stays in the dash. Anything
+// else — `roll` onward, a skip, `?vignette=off`, a city with no depot — opens it.
+const DASH_PHASES = new Set(['wait', 'approach', 'settle', 'door', 'reveal']);
 // The ⚙️ panel's handle once it exists (`createDebugPanel` at the bottom of the file), so the frame
 // can ask whether it is open — the sound rings below show only then.
 let debugPanel = null;
@@ -1398,6 +1438,7 @@ if (ltrain?.lamps) markEmissive(ltrain.lamps, 'pod');
 // nothing to wire.
 if (burger) markEmissive(burger.glow, 'window');
 if (graveyard) markEmissive(graveyard.glow, 'window');
+if (roadside) markEmissive(roadside.glow, 'window');
 if (garage) markEmissive(garage.light, 'bay');
 if (garage?.neon) markEmissive(garage.neon, 'window');
 // The riders. They receive AO through `propMaterial()` either way, so leaving them out of the
@@ -1554,7 +1595,7 @@ const cityEntry = createCityEntry({
   // The garage rises with everything else, shell and shutter alike — both are stamped with the one
   // anchor, so it comes up as a building rather than as a building and a door.
   meshes: [city.mesh, ...(westEdge ? [westEdge.towers] : []), propsMesh, grass.mesh, canopyFuzz.mesh, ...(garage?.meshes ?? []),
-    ...(burger?.meshes ?? []), ...(graveyard?.meshes ?? []),
+    ...(burger?.meshes ?? []), ...(graveyard?.meshes ?? []), ...(roadside?.meshes ?? []),
     ...(lamps ? [lamps.posts, lamps.heads] : []),
     ...(props.courtMesh ? [props.courtMesh] : []), ...(props.skateMesh ? [props.skateMesh] : []),
     ...(props.pondMesh ? [props.pondMesh] : [])],
@@ -1564,9 +1605,10 @@ const cityEntry = createCityEntry({
   objects: [...(garage ? [garage.entryObject] : []), ...(burger ? [burger.entryObject] : []),
     ...(graveyard ? [graveyard.entryObject] : []),
     ...hoopers.entryObjects, ...boombox.entryObjects, ...skaters.entryObjects,
-    ...(ltrain?.entryObjects ?? [])],
+    ...tubeMan.entryObjects, ...(roadside?.entryObjects ?? []), ...(ltrain?.entryObjects ?? [])],
   sites: [...city.entrySites, ...(garage ? [garage.entrySite] : []),
-    ...(burger ? [burger.entrySite] : []), ...(graveyard ? [graveyard.entrySite] : [])],
+    ...(burger ? [burger.entrySite] : []), ...(graveyard ? [graveyard.entrySite] : []),
+    ...(roadside ? [roadside.entrySite] : [])],
   dust,
   // The spawn point for now — the wave is re-aimed at the taxi's *post-warmup* position at the
   // bottom of this file, which is where the player actually first sees the car.
@@ -1628,6 +1670,9 @@ if (bankJob && bankFare) {
     z: bankJob.home.z,
     away: bankJob.along,
     swapReady: () => robbery.swapReady(),
+    // Collected level with the steps, routed down the bank's own street (BANK_REACH_ALONG in
+    // game/fares.js). `?bankpickup=classic`: the junction's ARRIVE_RADIUS, from any side.
+    tight: new URLSearchParams(window.location.search).get('bankpickup') !== 'classic',
   });
 }
 // The other half of the tailpipe: `flames` is the bark on the press, this is the plume that burns
@@ -2488,9 +2533,11 @@ function onwardFrom(target) {
  * finger that slipped and a tap cannot slip (see `TAP_MAX_DETOUR` in game/parcels.js).
  *
  * `onto` names the *direction* the taxi has to be travelling when it gets there, which turns the
- * destination from a junction into a lane. Only the burger run asks for one — the drive-through's
- * mouth opens off one kerbside lane and a route that arrives from any other side drives past it —
- * and `findRouteOnto` carries why the obvious `via` version does not work.
+ * destination from a junction into a lane. The burger run and the depot run ask for one — the
+ * drive-through's mouth opens off one kerbside lane and a route that arrives from any other side
+ * drives past it — and `findRouteOnto` carries why the obvious `via` version does not work. A target
+ * can also carry its own: the bank rider's does (`bankApproach` in game/fares.js), so every re-plan
+ * of that trip — a tap, a drag, a reset — keeps coming down the bank's street without being told.
  *
  * `along` is a tapped street, `{ a, b }`, which the route has to drive down rather than merely touch
  * — see game/streettap.js. It takes `maxDetour` the way `via` does, and never comes with `onto`:
@@ -2500,7 +2547,7 @@ function onwardFrom(target) {
  * keeps the same destination must pass the same object rather than an equal one — otherwise every
  * frame of a drag replays the sweep and the band never finishes drawing itself.
  */
-function routeTo(target, { via = null, along = null, maxDetour, onto = null } = {}) {
+function routeTo(target, { via = null, along = null, maxDetour, onto = target?.onto ?? null } = {}) {
   const car = traffic.taxi;
   const plan = (from) => (along
     ? findRouteAlong(from, along, target, { maxDetour })
@@ -2632,6 +2679,8 @@ function divertToParcel(parcel) {
 function tapStreet(ray) {
   if (!ray || !pathDrag || !canBendRoute()) return;
   if (burgerRun?.active() || depotRun?.active()) return;
+  // Same for the bank rider, whose target carries its lane (see `routeTo`): `along` has no `onto`.
+  if (traffic.taxi.pendingTarget?.onto != null) return;
   const point = ray.intersectPlane(GROUND_PLANE, tapPoint);
   if (!point) return;
   // A finger on a roof is a finger on the roof. The ray reaches the ground a long way up-screen of
@@ -5178,7 +5227,7 @@ function parked() {
 let runBegun = false;
 function beginRun() {
   runBegun = true;
-  sfx?.goOnAir();
+  sfx?.goOnAir({ dash: dashRadio });
   if (!settings.get().tips) dropTutorial();
 }
 function dropTutorial() {
@@ -5642,6 +5691,9 @@ function tick() {
   // The burger turning on its pole. Scenery in the same sense the flock and the flyover are, and
   // paused with them: `frame()` has already returned by here on a paused frame.
   burger?.update(dt, SIGN_SPIN);
+  // The car wash's brushes and curtain, and the tube man on its corner.
+  roadside?.update(dt);
+  tubeMan.update(dt);
   // And the sign on the depot's roof, on the same terms — see DEPOT_SPIN in city/garage.js.
   garage?.update(dt);
   // The graveyard's ground mist, thicker after dark — the same night measure as the searchlight's.
@@ -5659,6 +5711,7 @@ function tick() {
   // the car's position, heading and speed by hand, and the render pass inside `traffic.update`
   // reads them on the same frame. See game/opening.js for the staging split.
   opening?.update(dt);
+  if (sfx?.state.dashRadio && !(opening?.running() && DASH_PHASES.has(opening.phase()))) sfx.openDash();
   // The pedals arrive the moment the taxi is the player's to drive — on the lane, with the
   // vignette's pull-back still running — rather than with the rest of the HUD. They used to wait
   // for `hud-ready`, which is the *tutorial's* second beat being answered: the pull-back, a
@@ -6599,6 +6652,15 @@ if (shot) {
     controller.state.target.set(burger.site.focus.x, 0, burger.site.focus.z);
     controller.update(aspect());
   }
+  // The roadside business, framed on its lot; and its tube man, close enough to see his face.
+  if (shot.atCarWash && roadside) {
+    controller.state.target.set(roadside.site.focus.x, 0, roadside.site.focus.z);
+    controller.update(aspect());
+  }
+  if (shot.atTubeMan && tubeMan.at) {
+    controller.state.target.set(tubeMan.at.x, 0, tubeMan.at.z);
+    controller.update(aspect());
+  }
 
   // And the depot, on the same two framings. `site.focus` is the middle of the door opening, which
   // is a couple of units below the middle of the building — but an orthographic camera aimed at a
@@ -6879,6 +6941,9 @@ if (shot) {
       onDrop: () => dust.burst(traffic.taxi.x, traffic.taxi.z, traffic.taxi.yaw, 7, 0.5),
       // What a repair visit shows while the door is down to its gap. See game/repairfx.js.
       workshop: repairFx,
+      // The car stays in its doorway until the dash radio's first song has played crushed for a
+      // few seconds (`DASH.music` in game/sfx.js), so the open lands on music, not the announcer.
+      holdReveal: () => Boolean(sfx?.state.dashRadio) && sfx.dashMusicSeconds() < DASH.music,
     });
     // `?vignette=off`, the same escape hatch `?tutorial=off` is: the opening is seven seconds
     // long and nobody iterating on the fare loop wants it on every reload. The module is
@@ -7140,6 +7205,10 @@ window.__taxi = {
   hoopers,
   /** The boom box beside the court — `boombox.emitter` is where its music will play from. */
   boombox,
+  /** The tube man on the roadside lot's corner — `tubeMan.at` is where he stands, null with none. */
+  tubeMan,
+  /** The car wash or gas station (`?roadside=`), or null. */
+  roadside,
   /** The riders on the skatepark, and `skaters.park` the park — absent if the city has none. */
   skaters,
   /** The elevated train, or null under `?ltrain=classic` — see game/ltrain.js. */

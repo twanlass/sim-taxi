@@ -2,9 +2,9 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { bakeColor, bakeColors, hash01, propMaterial, stampEntry } from '../util/geo.js';
 import { BUILDING_COLORS, color, jitterColor } from '../palette.js';
-import { valueNoise2D } from '../util/rng.js';
+import { makeRng, valueNoise2D } from '../util/rng.js';
 import { KERB_H } from './ground.js';
-import { treeParts, treeShape } from './props.js';
+import { plantedCrowns, treeParts, treeShape } from './props.js';
 import { buildBank, chooseBankLot } from './bank.js';
 
 const FLOOR_H = 2.6;
@@ -1091,11 +1091,18 @@ export function createBuildings(rng, blocks) {
   // cannot be decided lot by lot. Rolled per lot instead it came out at two or three a city with
   // the tail running to five, and a distinctive massing repeated five times across a 5×5 grid
   // stops being distinctive — it just becomes the shape a block is.
+  //
+  // **The car wash's block is still built, and thrown away.** It was the fourth block taken out of
+  // this generator's hands, and taking it the way the others were — skipping it here — shifts every
+  // draw after it and rebuilds the whole skyline. That is not cosmetic: the probe's corner sweep
+  // went red on a tower that had nothing to do with the car wash, halving a kerb mark three blocks
+  // away. So its lots are split, chosen among and built exactly as before, into a scratch array
+  // that is disposed of — `ghost` — and every other tower comes out as it would with no car wash.
   const lots = [];
   for (const block of blocks) {
-    if (block.type !== 'built') continue;
+    if (block.type !== 'built' && block.type !== 'roadside') continue;
     const { x0, z0, x1, z1 } = block.bounds;
-    for (const lot of splitLot(x0, z0, x1, z1, 2, rng)) lots.push({ lot, block });
+    for (const lot of splitLot(x0, z0, x1, z1, 2, rng)) lots.push({ lot, block, ghost: block.type === 'roadside' });
   }
 
   // Only an *undivided* block is wide enough to hollow out and still leave wings with rooms in
@@ -1118,6 +1125,20 @@ export function createBuildings(rng, blocks) {
   // from under them; a bank is a building with a door on the street and needs no ground of its own.
   // See city/bank.js.
   const bankLot = chooseBankLot(rng, lots, buildableOf, yard);
+  // A courtyard or a bank drawn onto a ghost lot moves to a real one, picked by hash rather than by
+  // a draw so nothing downstream moves. The lot it lands on still runs its tower into the scratch
+  // array first, to spend the draws it always spent.
+  const rehome = (pool) => (pool.length
+    ? pool[Math.floor(hash01(pool.length * 1.7, lots.length * 0.3) * pool.length) % pool.length]
+    : null);
+  const yardAt = yard?.ghost ? rehome(roomy.filter((e) => !e.ghost && e !== bankLot)) : yard;
+  const bankAt = bankLot?.ghost
+    ? rehome(lots.filter((e) => !e.ghost && e !== yardAt && e.block.type === 'built'
+      && chooseBankLot({ pick: (o) => o[0] }, [e], buildableOf) === e))
+    : bankLot;
+  const scratch = [];
+  /** Where a landmark landed after being moved off the car wash: the probe excuses these lots. */
+  const rehomed = [yardAt !== yard && yardAt, bankAt !== bankLot && bankAt].filter(Boolean).map((e) => e.lot);
 
   // Every part a lot builds is stamped with that lot's ground anchor, which is what lets the
   // entrance animation (game/cityentry.js) grow whole buildings out of the one merged mesh. The
@@ -1129,23 +1150,58 @@ export function createBuildings(rng, blocks) {
   let bank = null;
   for (const entry of lots) {
     const from = parts.length;
-    if (entry === yard) court = buildCourtyard(entry.lot, entry.block, rng, parts);
-    else if (entry === bankLot) {
-      bank = buildBank(buildableOf(entry.lot), entry.lot, entry.block.bounds, parts);
+    // What this lot spent from the stream before the car wash existed, built where it now belongs:
+    // into the city, or into `scratch` with its decks, counts and tree crowns taken back out.
+    const decks = stats.decks.length;
+    const pitched = stats.pitched;
+    const crowns = plantedCrowns().length;
+    const out = entry.ghost ? scratch : parts;
+    const moved = (entry === yardAt && yardAt !== yard) || (entry === bankAt && bankAt !== bankLot);
+    // Nor does a thrown-away building report its windows: Rain Mode's lit panes (`paneSink`) were
+    // left hanging over the roadside lot at night where its towers would have stood.
+    const sink = paneSink;
+    if (entry.ghost || moved) paneSink = null;
+    if (entry === yard) {
+      const built = buildCourtyard(entry.lot, entry.block, rng, out);
+      if (!entry.ghost) court = built;
     }
-    else buildTower(entry.lot, entry.block, rng, parts, stats);
+    else if (entry === bankLot) {
+      const built = buildBank(buildableOf(entry.lot), entry.lot, entry.block.bounds, out);
+      if (!entry.ghost) bank = built;
+    }
+    else buildTower(entry.lot, entry.block, rng, moved ? scratch : out, stats);
+    paneSink = sink;
+    if (entry.ghost || moved) {
+      // Its decks stay in the list, flagged, so the helipad's draw below sees the list it always
+      // saw; a pad that lands on one is moved after the draw.
+      for (let i = decks; i < stats.decks.length; i++) stats.decks[i].ghost = true;
+      stats.pitched = pitched;
+      plantedCrowns().length = crowns;
+    }
+    if (moved && entry === yardAt) {
+      court = buildCourtyard(entry.lot, entry.block, makeRng(Math.floor(hash01(entry.lot.x0, entry.lot.z0) * 1e6)), parts);
+    }
+    if (moved && entry === bankAt) bank = buildBank(buildableOf(entry.lot), entry.lot, entry.block.bounds, parts);
     if (parts.length === from) continue;      // a lot too narrow to build stamps nothing
     const b = buildableOf(entry.lot);
     const rand = hash01(b.cx, b.cz);
     for (let i = from; i < parts.length; i++) stampEntry(parts[i], b.cx, b.cz, rand);
     entrySites.push({ x: b.cx, z: b.cz, r: Math.max(b.w, b.d) / 2, rand });
   }
-  const courtyards = yard ? 1 : 0;
+  scratch.forEach((p) => p.dispose());
+  const courtyards = court ? 1 : 0;
 
   // The landing circle, on the deck the whole city was built to choose from. Its furniture is
   // spliced back out first — see the note in `roofKit`. Nothing else has touched `parts` since
   // that range was recorded except appends past the end of it, so the indices still hold.
-  const site = choosePad(stats.decks, rng);
+  let site = choosePad(stats.decks, rng);
+  if (site?.ghost) {
+    const real = stats.decks.filter((d) => !d.ghost);
+    site = choosePad(real, makeRng(Math.floor(hash01(site.cx, site.cz) * 1e6)));
+    if (site) {
+      rehomed.push({ x0: site.cx - site.cw / 2, x1: site.cx + site.cw / 2, z0: site.cz - site.cd / 2, z1: site.cz + site.cd / 2 });
+    }
+  }
   let pad = null;
   if (site) {
     for (let i = site.from; i < site.to; i++) parts[i].dispose();
@@ -1189,7 +1245,7 @@ export function createBuildings(rng, blocks) {
   mesh.receiveShadow = true;
   mesh.name = 'buildings';
   return {
-    mesh, count: parts.length, courtyards, court, pad, entrySites,
+    mesh, count: parts.length, courtyards, court, pad, entrySites, rehomed,
     // Where the bank stands, or null if this city has nowhere for one. See city/bank.js — the door
     // point on it is what `game/robbery.js` measures the trigger range from, and what the robber
     // comes running out of.
@@ -1197,7 +1253,7 @@ export function createBuildings(rng, blocks) {
     // Every flat roof that is still a roof — the helipad's deck is spoken for — with the footprint
     // of what stands on it. The flocks pick their rooftop roosts from these; see `chooseRoosts` in
     // game/birds.js.
-    decks: stats.decks.filter((d) => d !== site),
+    decks: stats.decks.filter((d) => d !== site && !d.ghost),
     pitched: stats.pitched, helipads: stats.helipads,
   };
 }

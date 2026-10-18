@@ -895,6 +895,44 @@ export const PALETTE = {
   boomboxTape: '#D9A441',
   musicNoteA: '#FF8F2E',
   musicNoteB: '#FFB45E',
+  // The car wash (city/carwash.js): a white shed with a bright blue fascia and soap bubbles on it,
+  // a pale concrete lot so it reads as a different paved thing from the road, and brushes in the
+  // two colours every wash in the world uses.
+  carWashBlue: '#2F7FD8',
+  carWashWall: '#E8E6E0',
+  carWashTrim: '#4F5259',
+  carWashBubble: '#F4FAFF',
+  carWashLot: '#B9B6AE',
+  carWashFloor: '#6D6E70',
+  carWashRail: '#F2C230',
+  carWashVacuum: '#C9413A',
+  carWashBrushA: '#3FA3F0',
+  carWashBrushB: '#F065B4',
+  carWashBrushCore: '#2A2D33',
+  carWashGlow: '#E9F6FF',
+  // The gas station (city/gasstation.js), the roadside block's other business: a green canopy
+  // with a yellow stripe — green rather than red so the red tube man in front of it still reads —
+  // a cream brick store, white pumps, and the bright underside every forecourt canopy has at night.
+  gasGreen: '#1E9467',
+  gasStripe: '#F5C531',
+  gasWhite: '#F1F0EA',
+  gasStoreWall: '#D8C7A6',
+  gasTrim: '#3E4248',
+  gasLot: '#9C9A94',
+  gasIsland: '#C9C6BE',
+  gasPumpScreen: '#22262C',
+  gasBollard: '#F2C230',
+  gasIce: '#5BB4E8',
+  gasGlow: '#FFF3D2',
+  // The tube man at the car wash (game/tubeman.js), off the photo Tyler sent: a fire-engine
+  // red tube, a shock of yellow streamers for hair and the same yellow on the cuffs, a white
+  // cartoon face, and a dark blower box under him.
+  tubeManBody: '#E3342B',
+  tubeManHair: '#FFD43B',
+  tubeManFace: '#FFFFFF',
+  tubeManPupil: '#1B1B1F',
+  tubeManBlower: '#3B3F47',
+  tubeManGrille: '#8E939B',
 
   // The skatepark — see city/skatepark.js. Poured concrete rather than blacktop, so it reads as a
   // *different* paved thing from the court across the park: pale (luma ~170) where the court is
