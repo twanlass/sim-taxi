@@ -171,8 +171,9 @@ function refLightPhase(layout, i, j, t) {
     const blocks = (layout.arterials.dirX.get(j) ?? 1) > 0 ? i : GRID_I - i;
     offset = -blocks * step;
   } else {
-    const blocks = (layout.arterials.dirZ.get(i) ?? 1) > 0 ? j : GRID_J - j;
-    offset = greenX + yellow - blocks * step;
+    // Measured in distance rather than blocks: the river row is wider than the rest (grid.js).
+    const travelled = (layout.arterials.dirZ.get(i) ?? 1) > 0 ? lineZ(j) - lineZ(0) : lineZ(GRID_J) - lineZ(j);
+    offset = greenX + yellow - travelled / cruise;
   }
 
   const local = (((t + offset) % cycle) + cycle) % cycle;
@@ -383,8 +384,8 @@ for (let s = 0; s < SEEDS; s++) {
     // now that the two axes carry different numbers of blocks. Which street is the coordinated one
     // is the same test `refLightPhase` makes above.
     const fullSpanAt = (i, j) => (
-      (layout.arterials.x.has(j) || !layout.arterials.z.has(i)) ? GRID_I : GRID_J
-    ) * PITCH;
+      (layout.arterials.x.has(j) || !layout.arterials.z.has(i)) ? GRID_I * PITCH : lineZ(GRID_J) - lineZ(0)
+    );
     let unexplained = 0;
     let example = '';
     let drifted = 0;
@@ -500,7 +501,8 @@ for (let s = 0; s < SEEDS; s++) {
           if (!lane || parkLane(lane)) continue;
           const back = isXAxis(d) ? { i: i - dirSign(d), j } : { i, j: j - dirSign(d) };
           if (parkEnd(i, j) || parkEnd(back.i, back.j)) continue;
-          const want = PITCH - junctionReach(d, i, j) - junctionReach(d, back.i, back.j);
+          const pitch = isXAxis(d) ? PITCH : Math.abs(lineZ(j) - lineZ(back.j));
+          const want = pitch - junctionReach(d, i, j) - junctionReach(d, back.i, back.j);
           spans.push([near(lane.length, want), `(${i},${j}) d${d}`]);
         }
       }

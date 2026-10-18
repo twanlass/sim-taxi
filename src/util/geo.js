@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { PALETTE } from '../palette.js';
-import { PITCH, HALF_SPAN_X, HALF_SPAN_Z, HALF_ROAD, HALF_ARTERIAL, GRID_I, GRID_J, isArterialX, isArterialZ } from '../city/grid.js';
+import { PITCH, HALF_SPAN_X, HALF_SPAN_Z, HALF_ROAD, HALF_ARTERIAL, GRID_I, GRID_J, isArterialX, isArterialZ, RIVER_EXTRA, riverMidZ } from '../city/grid.js';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 
 /**
@@ -294,6 +294,9 @@ export const PAINT_UNIFORMS = {
   tBrushGround: { value: null },
   tBrushRoad: { value: null },
   uRoadGrid: { value: new THREE.Vector3(HALF_SPAN_X, HALF_SPAN_Z, PITCH) }, // where the street centrelines are
+  // The z lines are not evenly spaced: everything south of the river's centreline (x) sits a
+  // further y south (`gridZ` in grid.js), so the shader takes that back off before it snaps.
+  uRiverZ: { value: new THREE.Vector2(-1e9, RIVER_EXTRA / 2) },
   uRoadArt: { value: new THREE.Vector4(0, 0, HALF_ROAD, HALF_ARTERIAL) }, // arterial lines as bitmasks (j, i), then the two half-widths
   uRoadTile: { value: 12 },     // a bigger repeat on the road: it is the largest flat surface on screen
   uRoadAmt: { value: 0.5 },     // value-and-hue swing of a road stroke
@@ -316,6 +319,8 @@ export function setPaintBrushes(wall, ground, road) {
   for (let i = 0; i <= GRID_I; i++) if (isArterialZ(i)) z += 2 ** i;
   PAINT_UNIFORMS.uRoadArt.value.x = x;
   PAINT_UNIFORMS.uRoadArt.value.y = z;
+  const mid = riverMidZ();
+  PAINT_UNIFORMS.uRiverZ.value.set(mid ?? -1e9, mid === null ? RIVER_EXTRA / 2 : RIVER_EXTRA);
 }
 
 const PAINT_COMMON = /* glsl */ `
@@ -328,6 +333,7 @@ uniform sampler2D tBrushWall;
 uniform sampler2D tBrushGround;
 uniform sampler2D tBrushRoad;
 uniform vec3 uRoadGrid;
+uniform vec2 uRiverZ;
 uniform vec4 uRoadArt;
 uniform float uRoadTile;
 uniform float uRoadAmt;
@@ -395,8 +401,9 @@ const PAINT_FRAGMENT = /* glsl */ `
 					// east-west road does. (The first cut split each box along its diagonals, which
 					// drew a pinwheel in every junction.) The seam is cross-faded over 3 units
 					// straddling the kerb line; 0.6 read as a hard edge.
-					vec2 gl = floor((vPaintWorld.xz + uRoadGrid.xy) / uRoadGrid.z + 0.5);
-					vec2 gd = abs(vPaintWorld.xz + uRoadGrid.xy - gl * uRoadGrid.z);
+					vec2 pw = vPaintWorld.xz - vec2(0.0, vPaintWorld.z > uRiverZ.x ? uRiverZ.y : 0.0);
+					vec2 gl = floor((pw + uRoadGrid.xy) / uRoadGrid.z + 0.5);
+					vec2 gd = abs(pw + uRoadGrid.xy - gl * uRoadGrid.z);
 					float artX = mod(floor(uRoadArt.x / exp2(gl.y)), 2.0);  // the road along x at line j
 					float artZ = mod(floor(uRoadArt.y / exp2(gl.x)), 2.0);  // the road along z at line i
 					float onX = 1.0 - smoothstep(-1.5, 1.5, gd.y - mix(uRoadArt.z, uRoadArt.w, artX));

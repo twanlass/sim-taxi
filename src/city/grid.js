@@ -71,7 +71,17 @@ export const PITCH = BLOCK + ROAD_W; // distance between road centrelines: 20 at
 export const LANE = ROAD_W / 4;      // lane centre offset from the road centreline (2 at classic)
 export const HALF_ROAD = ROAD_W / 2;
 export const SPAN_X = GRID_I * PITCH;
-export const SPAN_Z = GRID_J * PITCH;
+// The river row is wider than a block row (Tyler, 2026-10-18: "Can we widen the river by 25%?"):
+// 25% of the 12-unit channel, so 15 between the kerbs. Like the streets in #559 it **grows the map**
+// rather than coming out of the lots either side, and for the same reason — the lane between two
+// junctions stays at least `BLOCK` long, which the roadworks launch, the L train's spans and the
+// bank's sightline band are all sized against. Only the lanes that cross the river get longer.
+// `?river=classic` keeps the 12-unit channel; `?city=big` keeps it too (left as it was).
+const RIVER = typeof location !== 'undefined'
+  ? new URLSearchParams(location.search).get('river')
+  : globalThis.process?.env?.RIVER;
+export const RIVER_EXTRA = BIG_CITY || RIVER === 'classic' ? 0 : BLOCK * 0.25;
+export const SPAN_Z = GRID_J * PITCH + RIVER_EXTRA;
 export const HALF_SPAN_X = SPAN_X / 2;
 export const HALF_SPAN_Z = SPAN_Z / 2;
 /**
@@ -88,7 +98,27 @@ export const MAX_SPAN = Math.max(SPAN_X, SPAN_Z);
  * the wrong one. `lineX` takes an `i`, `lineZ` takes a `j`.
  */
 export const lineX = (i) => i * PITCH - HALF_SPAN_X;
-export const lineZ = (j) => j * PITCH - HALF_SPAN_Z;
+export const lineZ = (j) => j * PITCH - HALF_SPAN_Z + riverShift(j);
+
+// Every line south of the river sits `RIVER_EXTRA` further south than a uniform grid would put
+// it, so the z lines are **not** evenly spaced and `(z + HALF_SPAN_Z) / PITCH` does not invert
+// `lineZ`. `gridZ` undoes the shift (it maps a world z back onto the evenly spaced grid), and
+// anything that rounds or floors a z into an index goes through it. A city with no river yet (a
+// headless tool that never built a layout) is a uniform grid centred in the span.
+let riverRowIndex = null;
+const riverShift = (j) => (riverRowIndex === null ? RIVER_EXTRA / 2 : j > riverRowIndex ? RIVER_EXTRA : 0);
+/** The river's centreline in z, or null — where `gridZ` switches from one side's shift to the other. */
+export const riverMidZ = () => (riverRowIndex === null ? null
+  : (riverRowIndex + 0.5) * PITCH - HALF_SPAN_Z + RIVER_EXTRA / 2);
+export const gridZ = (z) => {
+  const mid = riverMidZ();
+  if (mid === null) return z - RIVER_EXTRA / 2;
+  return z > mid ? z - RIVER_EXTRA : z;
+};
+/** The z line index nearest a world z, unclamped — the inverse of `lineZ`. */
+export const lineIndexZ = (z) => Math.round((gridZ(z) + HALF_SPAN_Z) / PITCH);
+/** The block row a world z falls in, unclamped (a point exactly on a line goes to the row south). */
+export const rowIndexZ = (z) => Math.floor((gridZ(z) + HALF_SPAN_Z) / PITCH);
 
 // --- Divided arterials ------------------------------------------------------
 //
@@ -251,7 +281,7 @@ export function turnControl(dIn, dOut, i, j) {
  */
 export function nearestJunction(x, z) {
   const near = (v, half, top) => Math.min(top, Math.max(0, Math.round((v + half) / PITCH)));
-  return { i: near(x, HALF_SPAN_X, GRID_I), j: near(z, HALF_SPAN_Z, GRID_J) };
+  return { i: near(x, HALF_SPAN_X, GRID_I), j: Math.min(GRID_J, Math.max(0, lineIndexZ(z))) };
 }
 
 /** Intersection reached by leaving (i, j) along d, or null if it would leave the grid. */
@@ -413,8 +443,6 @@ export const isParkBlock = (bi, bj) => parkBlocks.has(`${bi},${bj}`);
 //
 // `null` until a layout has been built, so a headless tool that never called `createLayout`
 // measures a city with no river in it — the same contract `isSegmentClosed` and `isParkBlock` keep.
-
-let riverRowIndex = null;
 
 export function setRiverRow(row) {
   riverRowIndex = row ?? null;
