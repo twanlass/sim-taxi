@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { unlitMaterial } from '../util/geo.js';
+import { PALETTE } from '../palette.js';
 
 // The crystal a fare's clock is drawn as, over the rider and then over the taxi that collects
 // them. game/faremarker.js is what gives it a life; this is just the model.
@@ -36,6 +37,17 @@ import { unlitMaterial } from '../util/geo.js';
 // than anything maintained per frame.
 //
 // It is a *vessel*: the clock is the liquid in it, and the level drains. See "the fill" below.
+//
+// **By default it is an hourglass** (Tyler, 2026-10-18: "what if we made the plumbob an hour
+// glass?"), and the plumbob above is `?plumbob=classic` (`PLUMBOB=classic` headless). The plumbob
+// was already a draining vessel, so the hourglass is the same clock in the one shape everybody
+// already reads as a clock: the hue fills the top bulb on spawn, drains out of it through the neck
+// and piles up in the bottom one. Everything else — the hue, the kick, the pulse, the black rim,
+// the glass treatment and the meniscus — is shared, and so is every name exported here, which is
+// why they still say "diamond". See "the hourglass" below.
+export const PLUMBOB_CLASSIC = typeof location !== 'undefined'
+  ? new URLSearchParams(location.search).get('plumbob') === 'classic'
+  : globalThis.process?.env?.PLUMBOB === 'classic';
 
 // Half-width at the equator, and the two pyramid heights that meet there. The equator sits two
 // thirds of the way up, which is what makes the silhouette a plumbob rather than a stretched
@@ -48,17 +60,172 @@ const PLUMB_W = 1.4;
 const PLUMB_TOP = 1.5;
 const PLUMB_BOT = 3.0;
 
-/**
- * Half the crystal's height, and so how far its bottom point hangs below the marker's origin.
- *
- * The origin is the *middle* of the shape rather than its equator, which matters twice: the outline
- * hull is a scale about the origin and would otherwise grow a spike on whichever end is longer, and
- * `LIFT` in game/faremarker.js measures a rider's headroom from this number.
- */
-export const DIAMOND_HALF_H = (PLUMB_TOP + PLUMB_BOT) / 2;
+// The origin is the *middle* of the plumbob rather than its equator — see DIAMOND_HALF_H.
+const PLUMB_HALF_H = (PLUMB_TOP + PLUMB_BOT) / 2;
 
-const TOP_Y = DIAMOND_HALF_H;
-const BOT_Y = -DIAMOND_HALF_H;
+// --- The hourglass ------------------------------------------------------------------------------
+//
+// A lathe of six sides with a corner turned down the camera's diagonal, for the plumbob's reason:
+// a ridge down the middle of the silhouette and two flanks the sun lights differently. Six rather
+// than the plumbob's four because a square hourglass reads as two plumbob tips kissing, and round
+// is what says "glass".
+//
+// The profile, as [radius, y] from the neck up; the bottom half is its mirror. The bulb is widest a
+// third of the way up rather than at the plates, so each half reads as a bulb and not a funnel, and
+// the neck is narrow enough to pinch but wide enough (2 × 0.16 ≈ 2.5px at play zoom) that the rim
+// doesn't close over it. The plates overhang the glass by a quarter of a unit, which is the part
+// of the silhouette that turns "two cones" into "an hourglass" at 22px.
+//
+// 2.6 units across the plates and 4.3 tall: about the plumbob's 2.8 × 4.5, so it costs the board
+// the same room.
+//
+// The plates are only a little wider than the bulbs because the camera looks *down* on them. The
+// first build had 1.45-unit plates, and at 33° the top plate's lid projected as a brown hexagon
+// covering most of the top bulb — which is where a fresh fare's sand is.
+const NECK_R = 0.16;
+const GLASS_H = 1.9;               // neck to plate, each half
+const PLATE_R = 1.32;
+const PLATE_T = 0.26;
+const GLASS_PROFILE = [[NECK_R, 0], [0.82, 0.62], [1.2, 1.3], [1.0, GLASS_H]];
+const HOURGLASS_HALF_H = GLASS_H + PLATE_T;
+const HOURGLASS_SIDES = 6;
+
+// **Tipped 20° toward the camera**, about the horizontal axis across the view. Stood upright, the
+// 33° view looks down into it: the lid is the biggest face on screen and the top bulb's sand hides
+// under it. Tipped, the glass is seen nearly side-on, like the icon it is, while a sliver of the
+// lid still shows that it is a solid thing. Baked into the geometry so the marker's own transform
+// stays what game/faremarker.js animates; the fill reads the *untipped* height (the `fillY`
+// attribute), so the sand still divides the bulbs where the profile says.
+export const HOURGLASS_TILT = new THREE.Quaternion().setFromAxisAngle(
+  // The sign is easy to get backwards and was, once: (−1, 0, 1) is the axis that swings +Y toward
+  // the camera at +X+Z. The other one tips the lid *up* to the camera and doubles the problem.
+  new THREE.Vector3(-1, 0, 1).normalize(), THREE.MathUtils.degToRad(20),
+);
+
+/** Every ring of the lathe, bottom to top, as [radius, y]; a radius of 0 closes the end. */
+function hourglassProfile() {
+  const top = [...GLASS_PROFILE, [PLATE_R, GLASS_H], [PLATE_R, HOURGLASS_HALF_H], [0, HOURGLASS_HALF_H]];
+  const bottom = top.slice(1).reverse().map(([r, y]) => [r, -y]);
+  return [...bottom, ...top];
+}
+
+
+/**
+ * The profile pushed out by `offset` along its own outward normal, for the outline hull.
+ *
+ * Not a scale. The plumbob's hull is the body scaled per axis, which works because that shape is
+ * convex; an hourglass is not, and a scale about the origin moves the neck out by its own tiny
+ * radius times the factor — about a hundredth of a unit, so the rim pinched to nothing exactly at
+ * the waist. Offsetting the profile puts the same weight everywhere. The radial half is divided
+ * by cos(30°) because a ring's radius is to its corners and the facets sit at the apothem.
+ */
+function offsetProfile(profile, offset) {
+  const apothem = Math.cos(Math.PI / HOURGLASS_SIDES);
+  const edgeNormal = (a, b) => {
+    // Outward for a profile that runs bottom to top on the right of the axis: (dy, -dr).
+    const dr = b[0] - a[0];
+    const dy = b[1] - a[1];
+    const len = Math.hypot(dr, dy);
+    return [dy / len, -dr / len];
+  };
+  return profile.map(([r, y], i) => {
+    if (r === 0) return [0, y + Math.sign(y) * offset];
+    // The glass's corner tucked under a plate is concave, and a mitre there drops the hull's
+    // underside a rim's width *into the bulb* — where, seen from above through the glass, it drew
+    // as a black line across a full top bulb. Pushed straight out instead, it stays hidden under the
+    // plate it belongs to.
+    if (Math.abs(y) === GLASS_H && r < PLATE_R) return [r + offset / apothem, y];
+    const n0 = edgeNormal(profile[i - 1], profile[i]);
+    const n1 = edgeNormal(profile[i], profile[i + 1]);
+    // Mitred: the bisector, lengthened so both neighbouring edges move by exactly `offset`.
+    const bx = n0[0] + n1[0];
+    const by = n0[1] + n1[1];
+    const len = Math.hypot(bx, by);
+    const miter = offset / ((bx / len) * n0[0] + (by / len) * n0[1]);
+    return [r + ((bx / len) * miter) / apothem, y + (by / len) * miter];
+  });
+}
+
+/**
+ * Revolve a profile into a flat-shaded solid of `HOURGLASS_SIDES` facets.
+ *
+ * Non-indexed, wound counter-clockwise from outside, and asserted from the winding in
+ * tools/probe.mjs for the plumbob's reasons (see `plumbobGeometry`).
+ */
+function latheGeometry(profile) {
+  // A corner at 45°, down the camera's diagonal.
+  const ring = Array.from({ length: HOURGLASS_SIDES }, (_, i) => {
+    const a = Math.PI / 4 + (i * 2 * Math.PI) / HOURGLASS_SIDES;
+    return [Math.cos(a), Math.sin(a)];
+  });
+  const pos = [];
+  const vertex = (r, y, [cx, cz]) => pos.push(r * cx, y, r * cz);
+  for (let k = 0; k + 1 < profile.length; k++) {
+    const [r0, y0] = profile[k];
+    const [r1, y1] = profile[k + 1];
+    for (let i = 0; i < ring.length; i++) {
+      const a = ring[i];
+      const b = ring[(i + 1) % ring.length];
+      // Ring order runs clockwise seen from above, so b before a turns the face outwards.
+      if (r0 > 0) { vertex(r0, y0, b); vertex(r0, y0, a); vertex(r1, y1, a); }
+      if (r1 > 0) { vertex(r0, y0, b); vertex(r1, y1, a); vertex(r1, y1, b); }
+    }
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  geo.setAttribute('fillY', new THREE.Float32BufferAttribute(pos.filter((_, i) => i % 3 === 1), 1));
+  geo.applyQuaternion(HOURGLASS_TILT);
+  geo.computeVertexNormals();
+  return geo;
+}
+
+/**
+ * Whether a point in the *untipped* frame is inside the hourglass — for the probe, which checks every facet's winding
+ * by stepping off it both ways. The plumbob's test (a normal points away from the origin) needs a
+ * convex shape, and the waist is not.
+ */
+export function insideHourglass(x, y, z) {
+  const profile = hourglassProfile();
+  const ay = Math.abs(y);
+  if (ay > HOURGLASS_HALF_H) return false;
+  // The radius of the ring through this height, to its corners.
+  const top = profile.slice(Math.floor(profile.length / 2));
+  let radius = PLATE_R;
+  for (let k = 0; k + 1 < top.length; k++) {
+    const [r0, y0] = top[k];
+    const [r1, y1] = top[k + 1];
+    if (y1 > y0 && ay >= y0 && ay <= y1) {
+      radius = THREE.MathUtils.lerp(r0, r1, (ay - y0) / (y1 - y0));
+      break;
+    }
+  }
+  // Inside a regular polygon with that circumradius: within the apothem along every facet normal.
+  const apothem = radius * Math.cos(Math.PI / HOURGLASS_SIDES);
+  for (let i = 0; i < HOURGLASS_SIDES; i++) {
+    const a = Math.PI / 4 + ((i + 0.5) * 2 * Math.PI) / HOURGLASS_SIDES;
+    if (x * Math.cos(a) + z * Math.sin(a) > apothem) return false;
+  }
+  return true;
+}
+
+/**
+ * Half the vessel's height, and so how far its bottom hangs below the marker's origin.
+ *
+ * The origin is the *middle* of the shape, which matters twice: the plumbob's outline hull is a
+ * scale about the origin and would otherwise grow a spike on whichever end is longer, and `LIFT` in
+ * game/faremarker.js measures a rider's headroom from this number.
+ */
+export const DIAMOND_HALF_H = PLUMBOB_CLASSIC ? PLUMB_HALF_H : tippedHalfHeight();
+
+/** How far the tipped hourglass reaches above and below its origin. */
+function tippedHalfHeight() {
+  const geo = latheGeometry(hourglassProfile());
+  geo.computeBoundingBox();
+  return geo.boundingBox.max.y;
+}
+
+const TOP_Y = PLUMB_HALF_H;
+const BOT_Y = -PLUMB_HALF_H;
 const EQUATOR_Y = TOP_Y - PLUMB_TOP;
 
 /**
@@ -94,9 +261,21 @@ function plumbobGeometry(w, topY, equatorY, botY) {
   return geo;
 }
 
+// The stream's column: a unit-tall square prism hanging from y = 0, so its scale.y is its length.
+// 0.2 across is ~1.5px at play zoom, which is the thinnest thing that survives the glass over it.
+// A box rather than a lathe of its own, turned 45° so a corner faces the camera like everything
+// else here.
+const STREAM_W = 0.2;
+const STREAM_GEO = new THREE.BoxGeometry(STREAM_W, 1, STREAM_W).translate(0, -0.5, 0).rotateY(Math.PI / 4);
+// How close to either end of the clock the stream switches off: the pour is a running clock's, and
+// a full top bulb on spawn has not started yet.
+const STREAM_FROM = 0.01;
+
 // One geometry for every crystal on the board — the shape never varies, only its colour and where
 // it floats. The outline hulls share it too; they differ from the surface they wrap only by scale.
-const GEO = plumbobGeometry(PLUMB_W, TOP_Y, EQUATOR_Y, BOT_Y);
+const GEO = PLUMBOB_CLASSIC
+  ? plumbobGeometry(PLUMB_W, TOP_Y, EQUATOR_Y, BOT_Y)
+  : latheGeometry(hourglassProfile());
 
 // The outline's thickness, in **world units** rather than as a scale factor: at play zoom (1 world
 // unit ≈ 7.7px) 0.22 is about 1.7px of rim, which is the weight the marker pins carried back when
@@ -120,11 +299,14 @@ export const RIM_OFFSET = 0.22;
 // Equal offsets at the tips and at the flanks — see RIM_OFFSET. The mid-facet rim comes out
 // slightly thinner than at the corners, which is true of any inverted hull and was true of the
 // octahedron's too.
-export const RIM_SCALE = new THREE.Vector3(
-  1 + RIM_OFFSET / PLUMB_W,
-  1 + RIM_OFFSET / DIAMOND_HALF_H,
-  1 + RIM_OFFSET / PLUMB_W,
-);
+//
+// The hourglass takes none of this: its hull is its own geometry, the profile pushed out by
+// RIM_OFFSET (see `offsetProfile`), at a scale of 1.
+export const RIM_SCALE = PLUMBOB_CLASSIC
+  ? new THREE.Vector3(1 + RIM_OFFSET / PLUMB_W, 1 + RIM_OFFSET / PLUMB_HALF_H, 1 + RIM_OFFSET / PLUMB_W)
+  : new THREE.Vector3(1, 1, 1);
+
+const RIM_GEO = PLUMBOB_CLASSIC ? GEO : latheGeometry(offsetProfile(hourglassProfile(), RIM_OFFSET));
 
 const BLACK = 0x000000;
 
@@ -211,6 +393,18 @@ const MENISCUS_CORE = 0.65;
 // costs about 8% of the range at each end, which no clock is read at.
 const FILL_BOTTOM = BOT_Y - MENISCUS;
 const FILL_TOP = TOP_Y + MENISCUS;
+
+// The hourglass splits the same idea in two. The top bulb's sand sits on the neck and its surface
+// falls from the plate to the neck as the clock runs; the bottom bulb's rises from its plate to the
+// neck over the same span. Both linear in height, for the plumbob's reason above, and both
+// overshooting by a band at either end so a fresh fare has a full top and a spotless bottom. The
+// fragment picks whichever of the two levels belongs to the half it is in.
+//
+// The bottom pile stops a band short of the neck rather than running up to it: at zero the top is
+// empty and the bottom is full to the waist, and a meniscus parked on the neck would light the
+// pinch as a bright bead in the one place the silhouette is thinnest.
+const SAND_TOP = [-MENISCUS, GLASS_H + MENISCUS];
+const SAND_BOTTOM = [-GLASS_H - MENISCUS, -MENISCUS];
 
 // How much of the empty half survives the blend. This is what makes it read as *empty* rather than
 // as a second colour: at under a third, more than two thirds of every pixel up there is the city
@@ -303,6 +497,11 @@ function surfaceOf(target, source) {
   return target.setHSL(hsl.h, hsl.s * SURFACE_SAT, THREE.MathUtils.lerp(hsl.l, 1, SURFACE_WHITE));
 }
 
+// The plates' own glow, as a fraction of their colour: enough that the frame is still there after
+// dark, when the hue's emissive is most of what the marker is, and nowhere near enough to compete
+// with it.
+const FRAME_EMISSIVE = 0.3;
+
 // Constants are inlined into the shader source rather than passed as uniforms — they never change
 // at runtime, and a literal lets the compiler fold them. `toFixed` is not cosmetic: a constant that
 // happens to be integral would emit `1`, and GLSL will not take an int where a float belongs.
@@ -332,24 +531,34 @@ function patchFill(material, flipped = false) {
   // Lambert material collides with every unpatched one that happens to share those parameters, and
   // `acquireProgram` hands back whichever compiled first. This city is full of flat-shaded Lambert,
   // so the diamond drew with a building's program and the fill went missing with nothing logged.
-  material.customProgramCacheKey = () => (flipped ? 'diamond-fill-back' : 'diamond-fill');
+  material.customProgramCacheKey = () => `${PLUMBOB_CLASSIC ? 'diamond' : 'hourglass'}-fill${flipped ? '-back' : ''}`;
+  uniforms.uFillLow = { value: SAND_BOTTOM[0] };
+  uniforms.uFrame = { value: new THREE.Color(PALETTE.hourglassFrame) };
+
+  // The plumbob has one level. The hourglass has one per bulb, and its plates are frame rather
+  // than vessel: opaque, walnut, and lit by a little of their own colour instead of the hue's.
+  const level = PLUMBOB_CLASSIC ? 'uFill' : `(vFillY > 0.0 ? uFill : uFillLow)`;
+  const plate = PLUMBOB_CLASSIC ? '0.0' : `step(${glsl(GLASS_H - 1e-3)}, abs(vFillY))`;
 
   material.onBeforeCompile = (shader) => {
     Object.assign(shader.uniforms, uniforms);
     shader.vertexShader = shader.vertexShader
-      .replace('#include <common>', '#include <common>\nvarying float vFillY;')
-      .replace('#include <begin_vertex>', '#include <begin_vertex>\n\tvFillY = position.y;');
+      .replace('#include <common>', `#include <common>\nvarying float vFillY;${PLUMBOB_CLASSIC ? '' : '\nattribute float fillY;'}`)
+      .replace('#include <begin_vertex>', `#include <begin_vertex>\n\tvFillY = ${PLUMBOB_CLASSIC ? 'position.y' : 'fillY'};`);
     shader.fragmentShader = shader.fragmentShader
       .replace('#include <common>', `#include <common>
 varying float vFillY;
 uniform float uFill;
+uniform float uFillLow;
+uniform vec3 uFrame;
 uniform vec3 uGlass;
 uniform vec3 uSurface;`)
       // Before the lighting reads `diffuseColor`, so both halves still take the sun and the facets
       // still shade — this paints the vessel, it does not bypass the model.
       .replace('#include <color_fragment>', `#include <color_fragment>
-\tfloat below = step(vFillY, uFill);
-\tfloat meniscus = 1.0 - smoothstep(${glsl(MENISCUS * MENISCUS_CORE)}, ${glsl(MENISCUS)}, abs(vFillY - uFill));
+\tfloat plate = ${plate};
+\tfloat below = max(step(vFillY, ${level}), plate);
+\tfloat meniscus = (1.0 - plate) * (1.0 - smoothstep(${glsl(MENISCUS * MENISCUS_CORE)}, ${glsl(MENISCUS)}, abs(vFillY - ${level})));
 \tdiffuseColor.rgb = mix(uGlass, diffuseColor.rgb, below);
 \t// The liquid and its surface are solid; only the empty glass thins out.
 \tdiffuseColor.a = mix(${glsl(GLASS_ALPHA)}, 1.0, max(below, meniscus));`)
@@ -362,7 +571,9 @@ ${flipped ? '\tnormal = -normal;\n' : ''}\tfloat sheen = (1.0 - below) * pow(1.0
 \t// surface where it lands. Without this the sheen dissolves into whatever is behind the marker.
 \tdiffuseColor.a = max(diffuseColor.a, sheen);
 \tdiffuseColor.rgb = mix(diffuseColor.rgb, uSurface, meniscus);
-\ttotalEmissiveRadiance *= mix(${glsl(GLASS_EMISSIVE)}, 1.0, max(below, meniscus));`);
+\ttotalEmissiveRadiance *= mix(${glsl(GLASS_EMISSIVE)}, 1.0, max(below, meniscus));
+\tdiffuseColor.rgb = mix(diffuseColor.rgb, uFrame, plate);
+\ttotalEmissiveRadiance = mix(totalEmissiveRadiance, uFrame * ${glsl(FRAME_EMISSIVE)}, plate);`);
   };
 
   return uniforms;
@@ -461,8 +672,25 @@ export function createDiamond(colorHex) {
   };
   shadeVessel();
 
-  const rim = outlineHull(GEO, RIM_SCALE);
+  const rim = outlineHull(RIM_GEO, RIM_SCALE);
   mesh.add(rim);
+
+  // The falling stream, from the neck to the top of the pile. A thin column of the hue inside the
+  // glass: the glass blends over it at GLASS_ALPHA, so it reads as sand seen through the vessel.
+  // Hidden whenever there is nothing to pour (a full or an empty top bulb), which is also the
+  // VIP's resting state — their clock never drains, so their hourglass never runs.
+  const stream = PLUMBOB_CLASSIC ? null : new THREE.Mesh(STREAM_GEO, new THREE.MeshLambertMaterial({
+    color: color.clone(),
+    emissive: color.clone(),
+    emissiveIntensity: EMISSIVE,
+    flatShading: true,
+    fog: false,
+  }));
+  if (stream) {
+    stream.visible = false;
+    stream.quaternion.copy(HOURGLASS_TILT);
+    mesh.add(stream);
+  }
 
   return {
     mesh,
@@ -471,6 +699,8 @@ export function createDiamond(colorHex) {
     setColor(value) {
       mesh.material.color.set(value);
       mesh.material.emissive.set(value);
+      stream?.material.color.set(value);
+      stream?.material.emissive.set(value);
       // The glass and the surface are the same hue restated, so they follow it to the next level.
       shadeVessel();
     },
@@ -493,7 +723,17 @@ export function createDiamond(colorHex) {
      */
     setFill(fraction) {
       fill = THREE.MathUtils.clamp(fraction, 0, 1);
-      fillUniforms.uFill.value = THREE.MathUtils.lerp(FILL_BOTTOM, FILL_TOP, fill);
+      if (PLUMBOB_CLASSIC) {
+        fillUniforms.uFill.value = THREE.MathUtils.lerp(FILL_BOTTOM, FILL_TOP, fill);
+        return;
+      }
+      fillUniforms.uFill.value = THREE.MathUtils.lerp(SAND_TOP[0], SAND_TOP[1], fill);
+      fillUniforms.uFillLow.value = THREE.MathUtils.lerp(SAND_BOTTOM[1], SAND_BOTTOM[0], fill);
+      // The column runs from the neck down to the pile; with the pile's surface at y, its height is
+      // -y and it hangs from the neck.
+      const pile = Math.min(0, fillUniforms.uFillLow.value);
+      stream.visible = fill > STREAM_FROM && fill < 1 - STREAM_FROM;
+      stream.scale.y = Math.max(1e-3, -pile);
     },
     /** What the vessel is currently showing — for the headless tools, which have no GL to read. */
     getFill: () => fill,

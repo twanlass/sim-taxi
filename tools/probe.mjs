@@ -142,7 +142,7 @@ import { setCityOccluders, sightlineClear, groundLineClear } from '../src/game/s
 import {
   createDiamond,
   bounceOffset, KICK_SCALE, KICK_HOP, RIM_SCALE, RIM_OFFSET, EMISSIVE, HIGHLIGHT_EMISSIVE,
-  DIAMOND_HALF_H, BOUNCE_HEIGHT,
+  DIAMOND_HALF_H, BOUNCE_HEIGHT, PLUMBOB_CLASSIC, HOURGLASS_TILT, insideHourglass,
 } from '../src/geometry/diamond.js';
 import { CRYSTAL_TOP, createFareMarker } from '../src/game/faremarker.js';
 import { QUESTION_GEO } from '../src/geometry/questionmark.js';
@@ -4605,7 +4605,28 @@ const PRESSURE_END = difficulty.getTuning().pressureEnd;
     // and cannot be: those four corners take the horizontal offset in full and then ride up a
     // little on the vertical scale as well, which lands them at 0.232 against 0.220. That is 0.09px
     // at play zoom. The tips, where a scale factor does real damage, are exact.
-    {
+    //
+    // The hourglass's hull is its own geometry — the profile offset, not the body scaled — so there
+    // it is measured vertex against vertex instead. The ceiling is looser there, because a mitred
+    // offset reaches further at a corner than along a facet: the plates' square edges are where it
+    // is widest, and a corner of the ring is a further 1/cos(30°) out than its facets. Measured
+    // 0.220 to 0.415 — the 0.415 is a plate corner, 3.2px at play zoom against 1.7.
+    if (!PLUMBOB_CLASSIC) {
+      const body = diamond.mesh.geometry.attributes.position;
+      const hullPos = hull.geometry.attributes.position;
+      const a = new THREE.Vector3();
+      const b = new THREE.Vector3();
+      let thinnest = Infinity;
+      let thickest = 0;
+      for (let i = 0; i < body.count; i++) {
+        const d = a.fromBufferAttribute(body, i).distanceTo(b.fromBufferAttribute(hullPos, i));
+        thinnest = Math.min(thinnest, d);
+        thickest = Math.max(thickest, d);
+      }
+      check('and it stands its own weight off every corner of the hourglass',
+        hullPos.count === body.count && thinnest >= RIM_OFFSET - 1e-6 && thickest <= RIM_OFFSET * 2,
+        `${thinnest.toFixed(3)} to ${thickest.toFixed(3)} against ${RIM_OFFSET}`);
+    } else {
       const body = diamond.mesh.geometry.attributes.position;
       const corner = new THREE.Vector3();
       let thinnest = Infinity;
@@ -4651,12 +4672,22 @@ const PRESSURE_END = difficulty.getTuning().pressureEnd;
         n.copy(b).sub(a).cross(edge.copy(c).sub(a)).normalize();
         centre.copy(a).add(b).add(c).divideScalar(3);
         faces += 1;
-        // The origin is inside the crystal, so an outward normal has a positive dot with any point
-        // on its own face. A reversed triangle fails this by exactly the sign.
-        if (n.dot(centre) <= 0) inward += 1;
+        if (PLUMBOB_CLASSIC) {
+          // The origin is inside the crystal, so an outward normal has a positive dot with any point
+          // on its own face. A reversed triangle fails this by exactly the sign.
+          if (n.dot(centre) <= 0) inward += 1;
+        } else {
+          // The hourglass is not convex — the waist — so the origin test does not hold. Step off
+          // each face both ways instead, back in the untipped frame the profile is written in: a
+          // little along the normal must be outside, a little against it inside.
+          const untip = HOURGLASS_TILT.clone().invert();
+          const out = centre.clone().addScaledVector(n, 0.01).applyQuaternion(untip);
+          const into = centre.clone().addScaledVector(n, -0.01).applyQuaternion(untip);
+          if (insideHourglass(out.x, out.y, out.z) || !insideHourglass(into.x, into.y, into.z)) inward += 1;
+        }
       }
       check('every facet of the crystal faces outwards',
-        faces === 8 && inward === 0, `${faces} faces, ${inward} wound inside out`);
+        faces === (PLUMBOB_CLASSIC ? 8 : 132) && inward === 0, `${faces} faces, ${inward} wound inside out`);
     }
 
     // --- The VIP's question mark (geometry/questionmark.js).

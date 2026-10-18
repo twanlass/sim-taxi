@@ -624,6 +624,12 @@ export const PALETTE = {
   // glance rather than in a read.
   urgency: ['#E8433A', '#E8433A', '#E8922E', '#E0D233', '#3ECF5A'],
 
+  // The hourglass's two end plates (geometry/diamond.js). Walnut rather than the honey wood an
+  // hourglass usually wears, because honey sits right on top of the urgency orange and the frame
+  // would melt into the sand for a quarter of every clock. Dark enough to frame the hue, light
+  // enough to stay off the black rim around it.
+  hourglassFrame: '#7A5233',
+
   // **There is no drop-off colour any more.** A `destination` teal (#5FE0D9) lived here, worn by
   // the ring on the tarmac and by the off-screen pointer that stands in for it, on the argument
   // that the marker had no clock of its own and so had to sit outside the urgency scale entirely.

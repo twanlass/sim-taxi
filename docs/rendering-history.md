@@ -617,7 +617,17 @@ unchanged. (rendering.md said 16 for a while; the code has been 18.)
 
 ### The plumbob — `geometry/diamond.js`
 
-[Current](rendering.md#the-plumbob--geometrydiamondjs).
+[Current](rendering.md#the-hourglass--geometrydiamondjs).
+
+- **It was a plumbob until 2026-10-18** (Tyler: "what if we made the plumbob an hour glass?"), and
+  `?plumbob=classic` still draws it. A square bipyramid built by hand: an equator of half-width 1.4
+  sitting two thirds of the way up, a 1.5-unit cap above it and a 3.0-unit point below, 2.8 × 4.5
+  world units (about 22 × 29px at play zoom), the equator turned 45° so a corner faced the camera.
+  Its case was that a plumb bob's job is to *indicate a spot on the ground*: a long lower point has a
+  direction, and it pointed at the rider. It was already a draining vessel, though, and the
+  hourglass keeps that while wearing the one shape everybody already reads as a clock. Its outline
+  hull was the body scaled per axis — fine on a convex shape, and why the hourglass needed an
+  offset profile instead.
 
 - **It was an octahedron**, 3.8 across, reading 29 × 24px; its axis-aligned vertices put an *edge*
   toward the camera and the silhouette came out a flat hexagon. The plumbob is the same amount of
