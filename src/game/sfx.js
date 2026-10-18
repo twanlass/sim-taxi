@@ -1644,15 +1644,20 @@ export function createSfx({ rng, menuMusic = false, classicSongs = false, radioF
    * Play a sound once at its mixed gain and rate, loops included and past `minGap` — the panel's
    * ▶. A sound with variants draws the next take the way `play` does. Returns the file it played,
    * or null when nothing could (no tap yet, the file missing, muted or held).
+   *
+   * With `at` (`{ d, pan }` off `placeAt`), it is heard from there: the falloff and the pan the
+   * game would give it, fixed at the press. Without, it is the raw file — what Shift-▶ asks for,
+   * and every sound with no place.
    */
-  function audition(key) {
+  function audition(key, at = null) {
     if (!state.ready || state.muted || state.held || !SOUNDS[key]) return null;
     const file = pickTake(key);
     if (!file) return null;
     const src = ctx.createBufferSource();
     src.buffer = buffers[file];
     src.playbackRate.value = mix.sounds[key].rate;
-    const voice = chain(src, mix.sounds[key].gain, key);
+    const voice = chain(src, mix.sounds[key].gain * (at ? falloff(key, at.d) : 1), key);
+    if (at && voice.pan) voice.pan.pan.value = Math.max(-1, Math.min(1, at.pan ?? 0)) * PAN_WIDTH;
     auditions.add(voice);
     src.onended = () => auditions.delete(voice);
     src.start();

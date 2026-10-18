@@ -138,9 +138,11 @@ const slider = (min, max, step, value) => el('input', { type: 'range', min, max,
  *   plays it happen in the game (the ⚡ buttons). Answers null, or why it could not.
  * @param {Object<string, {held: () => boolean, set: (on: boolean) => (string|null)}>} [opts.holds]
  *   By sound: freeze the moving thing that plays it, sound looping (the ⏸ buttons).
+ * @param {(key: string) => ({d: number, pan: number}|null)} [opts.placeOf]  Where a placed sound
+ *   is heard from right now (its pin, measured from the 👂), or null — what ▶ plays it from.
  * @returns {{ open: () => void, close: () => void }}  Called as the ⚙️ panel opens and closes.
  */
-export function buildAudioSections(host, sfx, { triggers = {}, holds = {} } = {}) {
+export function buildAudioSections(host, sfx, { triggers = {}, holds = {}, placeOf = () => null } = {}) {
   const stashed = loadStash();
   if (stashed) sfx.tune(stashed);
 
@@ -377,7 +379,8 @@ export function buildAudioSections(host, sfx, { triggers = {}, holds = {} } = {}
     // lands here and not only on the summary in `file`.
     box.dataset.search = `${key} ${SHIPPED_MIX.sounds[key].file} ${SOUNDS[key].join(' ')}`;
     const play = el('button', { type: 'button', className: 'aud-play', textContent: '▶',
-      title: `Play ${key} once at its current level and pitch` });
+      title: `Play ${key} once at its current level and pitch. A sound with a pin plays from it, heard from the 👂; `
+        + 'Shift-click for the raw file.' });
     // A PICK's files are alternatives under audition, not takes: one plays, chosen below.
     const takes = PICKED.has(key) ? 1 : SOUNDS[key].length;
     const fileText = `${SHIPPED_MIX.sounds[key].file}${LOOPS.has(key) ? ' · loop' : ''}`
@@ -469,8 +472,11 @@ export function buildAudioSections(host, sfx, { triggers = {}, holds = {} } = {}
     boxes.set(key, box);
     box.addEventListener('pointerdown', () => focus(key, box));
     box.addEventListener('focusin', () => focus(key, box));
-    play.addEventListener('click', () => {
-      const file = sfx.audition(key);
+    // ▶ plays a placed sound from its pin, heard from the 👂, so what it sounds like is what the
+    // player would hear from here (Tyler, October 2026: a ▶ at full level on a court the 👂 was
+    // well outside read as the falloff being broken). Shift-▶ is the raw file.
+    play.addEventListener('click', (event) => {
+      const file = sfx.audition(key, event.shiftKey ? null : placeOf(key));
       if (!file) { paintStatus(); return; }
       const r = sfx.replaced(key);
       if (r) fileLabel.textContent = `${fileText} · played ${r.names[r.ids.indexOf(file)] ?? 'local file'}`;

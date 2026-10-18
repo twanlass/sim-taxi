@@ -125,6 +125,8 @@ export function createDebugPanel({
   // ...and freeze the moving ones (plane, chopper, birds) with their sound looping — the ⏸ buttons.
   // See `holds` in main.js.
   soundHolds = {},
+  // Where a placed sound is heard from right now, for its ▶ — `soundPlace` in main.js.
+  soundPlace = () => null,
   // The wreck fireball's cut — `{ styles, current, set }` over game/blast.js's WRECK_STYLES.
   wreck = null,
   // The 🖥 / 📱 switch beside the search (game/phoneframe.js), or null for no switch.
@@ -1195,7 +1197,7 @@ export function createDebugPanel({
   // is already the new state.
   let audio = null;
   if (sfx) {
-    audio = buildAudioSections(panel, sfx, { triggers: soundTriggers, holds: soundHolds });
+    audio = buildAudioSections(panel, sfx, { triggers: soundTriggers, holds: soundHolds, placeOf: soundPlace });
     toggle.addEventListener('click', () => (panel.hidden ? audio.close() : audio.open()));
   }
 

@@ -5100,6 +5100,17 @@ function groundUnder(clientX, clientY) {
   return groundRay.ray.intersectPlane(groundPlane, groundHit) ? { x: groundHit.x, z: groundHit.z } : null;
 }
 const screenRight = new THREE.Vector3();
+// Where the panel's ▶ plays a sound from: its pin nearest the 👂 (the birds have one per flock),
+// measured the way the game measures it. Null for a sound with no pin on the map right now.
+function soundPlace(key) {
+  const ear = controller.state.target;
+  let best = null;
+  for (const s of soundSources()) {
+    if (s.key !== key) continue;
+    if (!best || Math.hypot(s.x - ear.x, s.z - ear.z) < Math.hypot(best.x - ear.x, best.z - ear.z)) best = s;
+  }
+  return best ? placeAt(best.x, best.z, best.y ?? 0) : null;
+}
 function soundSources() {
   const out = [];
   const works = roadworkSpot();
@@ -7062,6 +7073,7 @@ if (!shot && wantsDebugPanel) {
     sfx,
     soundTriggers,
     soundHolds,
+    soundPlace,
     wreck: { styles: Object.keys(WRECK_STYLES), current: getWreckStyle(), set: blast.setStyle },
   });
 }

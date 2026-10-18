@@ -379,7 +379,9 @@ name to jump to it).
 
 - **▶** on each sound plays it once at its current level and pitch, loops included. A sound with
   variants plays a different take each press, the way the game does, and the label says which
-  letter it played. **■ Stop previews** cuts them (the Loco activate is 12 s). The engine beds are
+  letter it played. A sound with a pin on the map (the court, the gate, the gulls…) plays **from
+  its pin, heard from the 👂**, with the falloff and pan the game would give it at that moment, so
+  a ▶ outside its rings is silent. **Shift-▶** plays the raw file. **■ Stop previews** cuts them (the Loco activate is 12 s). The engine beds are
   heard by driving.
 - The mix is a tree of buses, Nicolás's layout (October 2026; `BUSES` and `GROUPS` in `sfx.js`):
 
