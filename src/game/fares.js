@@ -208,6 +208,23 @@ const BANK_ROBBER_ODDS = 0.5;     // the coin's first toss of a run (and every t
 const BANK_ROBBER_STEP = 0.15;    // added per bank rider who rode
 const BANK_ROBBER_MAX = 0.95;     // never a certainty
 
+// Where the taxi has to be to collect the bank rider: on the bank's own street, level with the
+// steps (Tyler, 2026-10-17; `?bankpickup=classic` for the junction's ARRIVE_RADIUS). Measured from
+// where the rider stands, in the frontage's frame — `u` along the façade, `v` out across the road.
+//
+// The junction radius was the trouble. The bank's door is mid-block, so the junction it belongs to
+// is ~10 units along the street from it (nearestJunction in game/robbery.js breaks the tie), and a
+// 9.6 circle round *that* fires with the taxi on the cross street, round the corner — a block and
+// a half from a robber the cut then has to frame from there.
+//
+// BANK_REACH_ALONG keeps the whole window on the frontage: the junction centre is 11.7 along from
+// the stand, so its box starts at ~7.7 and the cross street's near lane at ~9.7. 12 units of window
+// is still 38 frames at a boosting 19 u/s. BANK_REACH_ACROSS takes both lanes of the street,
+// measured over twelve cities: 2.2 for the near lane, 6.2 for the far one, 8.87 on a divided
+// arterial — and stops short of the street behind the bank, 12.47 out the other side.
+const BANK_REACH_ALONG = 6;
+const BANK_REACH_ACROSS = 10.5;
+
 // The clock is a fraction of the run's own pace rather than a flat number, so a VIP tightens
 // along the same ramp as everything else — just harder. Never below VIP_MIN_PACE, which is about
 // as fast as a taxi holding Loco Mode at every chance actually gets round the map
@@ -1046,6 +1063,30 @@ export function createFareSystem(rng, scene, {
   // the tools and `?bankfare=classic` — and then no bank rider ever spawns.
   let bankStop = null;
   let lastBankAt = -Infinity;
+  /**
+   * The heading the taxi has to arrive at the bank's junction on so that it drives past the steps:
+   * along the frontage, from the stand toward the junction. Either lane of the street will do — both
+   * are inside BANK_REACH_ACROSS — and this one is the one that *ends* at the fare's junction, which
+   * `findRouteOnto` needs.
+   */
+  function bankApproach() {
+    const c = intersectionCentre(bankStop.junction.i, bankStop.junction.j);
+    const { away } = bankStop;
+    const sign = Math.sign((c.x - bankStop.x) * away.x + (c.z - bankStop.z) * away.z) || 1;
+    const hx = away.x * sign;
+    const hz = away.z * sign;
+    // +X, +Z, -X, -Z — docs/city.md#direction-encoding.
+    return Math.abs(hx) > Math.abs(hz) ? (hx > 0 ? 0 : 2) : (hz > 0 ? 1 : 3);
+  }
+  /** Is the taxi level with the bank's steps, on the bank's street? See BANK_REACH_ALONG. */
+  function atBankSteps(taxiCar) {
+    const dx = taxiCar.x - bankStop.x;
+    const dz = taxiCar.z - bankStop.z;
+    const { away } = bankStop;
+    const u = dx * away.x + dz * away.z;
+    const v = dx * away.z - dz * away.x;
+    return Math.abs(u) <= BANK_REACH_ALONG && Math.abs(v) <= BANK_REACH_ACROSS;
+  }
   /** The chance the next bank rider's coin comes up tails. See BANK_ROBBER_STEP. */
   const robberOdds = () => Math.min(BANK_ROBBER_MAX, BANK_ROBBER_ODDS + BANK_ROBBER_STEP * state.bankRides);
   /** Is the next spawn the bank rider? See BANK_CHANCE. */
@@ -1159,8 +1200,10 @@ export function createFareSystem(rng, scene, {
     // That is the one spawn this cap applies to; every later empty-board refill is an ordinary one
     // and gets the ramp's own radius.
     const isFirstEver = state.lastSpawnAt === -Infinity;
+    // `onto` (see `bankApproach`) makes the route a lane rather than a corner — main.js's `routeTo`
+    // reads it off the target — so the taxi comes down the bank's street past the steps.
     const spot = bank
-      ? { i: bankStop.junction.i, j: bankStop.junction.j }
+      ? { i: bankStop.junction.i, j: bankStop.junction.j, ...(bankStop.tight ? { onto: bankApproach() } : {}) }
       : pickIntersection(taxiCar, near, isFirstEver ? FIRST_FARE_MAX_BLOCKS : null);
     const fare = {
       slot,
@@ -1971,7 +2014,11 @@ export function createFareSystem(rng, scene, {
 
       // Proximity resolves the arrival, but only for a taxi the player actually sent here. No
       // extra confirmation tap is needed on arrival — the tap that set the route is the intent.
-      if (!fare.directed || distanceToTarget(fare, taxiCar) >= ARRIVE_RADIUS) continue;
+      if (!fare.directed) continue;
+      // The bank rider is collected from the steps rather than the corner — see BANK_REACH_ALONG.
+      if (fare.stage === 'waiting' && fare.stand && bankStop?.tight) {
+        if (!atBankSteps(taxiCar)) continue;
+      } else if (distanceToTarget(fare, taxiCar) >= ARRIVE_RADIUS) continue;
 
       if (fare.stage === 'waiting') {
         // The bank rider's coin, read now: the robbery takes their seat if it came up tails and the

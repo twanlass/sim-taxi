@@ -180,7 +180,7 @@ loop so it repeats half as often. Rain still comes both ways, to try in the mix.
 
 | Sound | File(s) | Plays | Hook |
 |---|---|---|---|
-| `spawn` | 16 A–C | Once, the city building itself (the entrance wave) | first frame `cityEntry.running()` with the audio up |
+| `spawn` | 16 A–C | Once per entrance, the city building itself (the wave) | first frame of `cityEntry.running()` with a context and a decoded take; re-armed by a replay. **Not heard under the title screen**, which settles the entrance before anything can be tapped |
 | `gate` | 17 | The depot's roller door at the start of a run | `opening.phase()` going `settle` → `door` |
 | `bridge` | 18 | The whole drawbridge cycle, from the barriers starting down | `drawbridge.state.phase` → `closing`; steered for 26 s |
 | `city` | 19 A then B | Bed, everywhere, always; the two loops play end to end | — |
@@ -188,7 +188,7 @@ loop so it repeats half as often. Rain still comes both ways, to try in the mix.
 | `birdsUp` / `birdsDown` | 21 strong A–C / soft A–C | A pigeon flock scattering / the last of it landing | `flock.state.flights` / `.landings` |
 | `plane` | 22 | The light aircraft, started 1.4 s into its run to centre on the pass, steered | `flyover.state.flights` |
 | `heli` | 23 | The rooftop chopper's visit, steered, faded when it is gone | `chopper.state.visits` |
-| `angry` | 24 A–F | A rider storming off (the swearing bubble) | fare `missed` / `vip-missed` / `robber-missed` |
+| `angry` | 24 A–F | A rider storming off (the swearing bubble); the bystander the robber shoves | fare `missed` / `vip-missed` / `robber-missed`; `game/bankjob.js` |
 | `siren` | 25 | The existing siren bed, now on Block 2's recording (our old stand-in, 16, is gone) | — |
 | `seagulls` | 29 MONO | Bed at the nearest barge carrying gulls | `boats.boats` |
 | `rain` | 30 ST / MONO | Bed, the rain at the taxi (`squall.rainNear`, or the storm's `rain`) | — |
@@ -277,10 +277,60 @@ They are encoded by `tools/audio.mjs` like every other sound. afconvert on macOS
 reproduce the Block 1 files byte for byte (17 of 41 differ, mostly at the same size), so commit
 only the .m4a files whose masters changed.
 
+### Talking over the music
+
+The station talks over the edges of the songs the way a DJ does (`RADIO_FADE` in `sfx.js`;
+`?radiofade=classic` cuts hard between every track):
+
+- **Into a song**: after the intro, the sting out of an ad break or the station ID, the next song
+  starts 1 s into the voice, 6 dB down, and rises to full over the voice's last second.
+- **Over a song's end**: the tee-up into an ad break and the station ID start 2 s before the song
+  ends, and the song dips 6 dB under them over 0.4 s and plays its last bars out there. The songs all
+  have clean endings, so the voice lands on them rather than on a cut.
+
+The ads keep their hard edges either side, being produced pieces of their own. A track that decoded
+too late to overlap simply follows.
+
+**Each game opens on a different song.** The songs that opened the last session (the title menu's
+first song and the first song after the intro) are remembered in `localStorage`
+(`simTaxi.openingSongs`), and this session's first picks avoid them while there is another to play.
+
+### The dash radio
+
+From **Play** the station sounds as if it is coming from a cheap AM set in the taxi, and it **opens
+out into the full mix as the car rolls out of its garage** in the
+[opening vignette](gameplay.md#the-opening-vignette): the film move from music playing in the scene
+to music playing over it. The menu's song is full-range, so Play is also the moment you get in the
+car. The in-car end is crushed hard on purpose, because the reveal is only as big as the distance
+between the two ends (`DASH` in `sfx.js`):
+
+- **Band**: high-pass at 700 Hz, an 8 dB bump at 1.4 kHz, low-pass at 2 kHz, both pass filters
+  ringing a little. Narrower than a car speaker, closer to AM.
+- **Mono**, so the stereo opening out is part of the reveal.
+- **Crushed**: driven into a tanh clip quantised to 32 levels a side (about 6 bits), then brought
+  down so a song in the car sits about 4 LU under the same song open, and the open swells as well
+  as brightens.
+- **Static**: six seconds of generated hiss with crackles and the odd pop, looped into the same
+  speaker, about 12 dB under the music.
+
+The announcer talks **over** the first song ([talking over the music](#talking-over-the-music)), so
+the song is in the dash from a second after Play. Played one after the other, the 6.3 s intro filled
+the whole in-car stretch and the crush was only ever heard on a voice. The vignette holds its shot of the car in the open
+doorway (the `reveal` beat) until that song has played through the dash for 4 s (`DASH.music`,
+`holdReveal` in `opening.js`, at most 8 s), so the car rolls out and the sound opens up as the
+announcer signs off.
+On the `roll` beat (`DASH_PHASES` in `main.js`) `openDash` runs the reveal over 3 s: the
+filters sweep to transparent (exponentially on the frequencies, so the octaves open at an even pace;
+open is 10 Hz, Nyquist and 0 dB), the crushed mono path crossfades into the clean stereo one, and the
+static is gone in the first 1.5 s. A skip, `?vignette=off` or a city with no depot opens it
+on the next frame. Only the station goes through it: the ⚙️ panel's track previews play past it.
+`?radiointro=classic` keeps the station full-range from Play.
+
 ## Gestures, pauses and the phone
 
-- **Nothing can play before a tap.** Every browser keeps an `AudioContext` suspended until the page
-  has been touched. The context is created inside the first `pointerdown`/`touchend`/`keydown`
+- **Nothing can play before a tap**, the startup screen's sting in the iOS app aside: it runs on a
+  context of its own (`game/splashsound.js`, see [gameplay.md](gameplay.md#the-startup-screen)).
+  Every browser keeps an `AudioContext` suspended until the page has been touched. The context is created inside the first `pointerdown`/`touchend`/`keydown`
   (Safari only starts one from inside a gesture), and the files are decoded then. The fetches start
   at boot, so the bytes have usually arrived by the time of that first tap.
 - **The world stopping stops the sound.** The pause and the robber's line both call
@@ -313,6 +363,7 @@ Every number a sound designer would want to move is in **`assets/audio/mix.json`
 | `master` | The whole game's level, under the mute |
 | `sounds.<name>.gain` / `.rate` | Per sound, covering all its takes: linear gain, and playback rate (pitch and tempo together). `file` is the designer's name, for reading only |
 | `minGap.<name>` | Per one-shot: seconds before it may fire again. 0 is no limit |
+| `groups.<group>.gain` | Per mix group (`GROUPS` in `sfx.js`): a gain node every sound in the group passes through on its way to `master` |
 | `music.master` / `music.tracks.<track>.gain` | The radio's level as a whole, and a trim per track on top of its measured `RADIO.gain` (so 1 is the shipped -24 LUFS). The **Music** section edits them, with ▶ to preview a track and Replace… to try a local file in its place |
 | `engine.*` | The beds: idle and Loco pitch at each end of their speed range, how far the idle ducks under Loco, when and how fast the Loco loop comes in, pitch glide and release time constants, and how long the taxi must stand before pulling away plays `accel`. Each is described at `SHIPPED_MIX` in `sfx.js` |
 
@@ -328,6 +379,25 @@ name to jump to it).
   variants plays a different take each press, the way the game does, and the label says which
   letter it played. **■ Stop previews** cuts them (the Loco activate is 12 s). The engine beds are
   heard by driving.
+- The sounds are listed in **mix groups** — Engine & Loco, Taxi, Impacts, Police, People, City
+  events, Ambience (`GROUPS` in `sfx.js`, every sound in exactly one; `police` also carries the
+  synthesised rotor). Each group is a real bus: its **Level** is a gain node between its voices
+  and the master, and ships in mix.json. **M** and **S** mute and solo a group for listening
+  only: never stashed or exported, gone on a reload (**Clear mutes and solos** resets them). A
+  group folds to its header; all start folded, and a search shows matches inside folded groups.
+- **⚡** on a rare sound makes the thing happen in the game, so it is heard placed and steered as
+  in play rather than dry: `plane` sends the flyover across, `heli` brings the rooftop chopper in,
+  `birdsUp`/`birdsDown` scatter the flock nearest the taxi (the landing follows), `bridge` raises
+  the drawbridge, `spawn` replays the city entrance, and `angry` plays at the taxi. They are
+  `soundTriggers` in main.js, the same `launch`/`visit`/`takeOff`/`request` shot mode stages with.
+  A placed sound still falls off with distance, so drive near the plane path or the helipad to
+  hear it (the 🔊 pins show where).
+- **⏸** on `plane`, `heli` and the birds freezes that one source where it is (its own update
+  skipped, so the taxi and the city carry on) with its sound **looping** and steered off it, so a
+  falloff can be tuned by driving to and from something that stays put. Holding one that is not in
+  the air sends it up first: the plane to the middle of its run, the chopper onto its pad, the
+  nearest flock a second into its climb. Pressed again, the plane and chopper play the loop out
+  and carry on. `holds` in main.js.
 - Double-click a slider to put that one knob back. A yellow edge marks a sound that differs from
   the shipped mix.
 - Edits are kept in `localStorage` (`simtaxi.audio.v2`; v1 held the test files' mix) across reloads, since a crash and Retry is

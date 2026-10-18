@@ -4,8 +4,9 @@
 spans, `src/game/drawbridge.js` for the one that lifts, and `src/geometry/boat.js` +
 `src/game/boats.js` for the traffic on it.
 
-A river runs east–west through the middle of the city, crossed by four bridges in the 6 × 7 city
-(three under `?city=classic`). All but one of them arch. That one is flat, and it opens.
+A river runs east–west through the middle of the city. On the 5 × 5 island it is crossed by three
+bridges: a fixed one a line in from each coast and the drawbridge between them (`planRiver`). The
+ring roads stop at the water. The fixed spans arch; the drawbridge is flat, and it opens.
 
 ## The city grew a row rather than losing one
 
@@ -13,8 +14,8 @@ The obvious way to put water on this map is to flood a block row. It costs a who
 blocks, and with them whichever one-per-city landmark happened to be standing there — the depot, the
 burger joint, the courtyard, the helipad.
 
-So the Z axis has **one more** block row than X has columns — seven against six (six against five
-under `?city=classic`) — and one of them is the channel. Land stays a square (36 blocks, or 25),
+So the Z axis has **one more** block row than X has columns — six against five (seven against six
+under `?city=big`) — and one of them is the channel. Land stays a square (25 blocks, or 36),
 every street survives, and the map gains an east–west street it did not have. That is what made
 `GRID` come apart into `GRID_I` and `GRID_J` ([city.md](city.md#coordinates)), and it is the whole
 of the cost.
@@ -34,6 +35,21 @@ The river takes the middle row (`middleRow` in `city/river.js`), so the land eit
 3 and 3 — or 2 and 3 in the classic city, which has two middle rows to pick from. That is the
 point of it: a trip across town has to pick a crossing.
 
+### The channel is wider than a block row (`?river=classic`)
+
+The row is the river, but it is not a block row's width: the gap between the two bank roads is
+`PITCH + RIVER_EXTRA`, 15 units of channel between the kerbs against a block's 12 (Tyler,
+2026-10-18: "Can we widen the river by 25%?"). The extra 3 **grows the map** rather than coming out
+of the lots either side, the same call the wider streets made (`grid.js`): a lane between two
+junctions stays at least `BLOCK` long, which a dozen along-the-lane chains are sized against. Only
+the river crossings get longer, and everything on the water — the decks, the leaf, the boat lanes,
+the L's truss — is measured from `riverBanks()`, so it follows.
+
+The cost is that the z lines are no longer evenly spaced: everything south of the river sits
+`RIVER_EXTRA` further south. `lineZ` knows, and anything turning a z *back* into an index goes
+through `gridZ` / `lineIndexZ` / `rowIndexZ` rather than dividing by `PITCH`. The painted road
+strokes do the same in their shader (`uRiverZ`). `?city=big` keeps the 12-unit channel.
+
 ### Two things the network could not work out for itself
 
 `roadNetFromGrid` tags the faces over the channel `type: 'water'`. The graph has no idea water is
@@ -44,6 +60,28 @@ And a river face is *not* what `blockBounds` says: a row of river blocks comes b
 merged faces. `tools/roadnet.mjs` compares land against land.
 
 ## Which crossings bridge
+
+### The island: a block in from each coast (`?bridges=classic` for the old four)
+
+On the 5 × 5 island the two fixed bridges stand on **lines 1 and 4**, one line in from each coast,
+and the drawbridge stays on whichever middle line the L is not on. Three crossings: fixed, leaf,
+fixed, with one or two lines between neighbours. (Tyler, 2026-10-18: "kill one of the fixed
+bridges. Pull the outer ones in a block".)
+
+- **The L's fixed span is the one that went.** It stood right beside the drawbridge, so it was the
+  crossing doing the least, and the train needs no road under it: its through truss
+  (`game/ltrain.js`) carries it over open water on its own.
+- **The ring roads end at the water.** Each one comes down to the bank and bends onto the bank
+  street. That node has two arms at a right angle, like a ring corner, so the road network finds no
+  conflicting movement and leaves it uncontrolled (`bakeSignals`); nothing yields and nothing
+  stops. The ring is now two loops, one per bank.
+- **Trips run a little longer.** Over the soak's nine runs the median estimated work per fare went
+  33s → 34s and the longest 101s → 125s, with the same median delivered. A full tank of Loco Mode
+  shakes a patrol a little less often: 90 of 112 chases against 97 over seven cities.
+
+`?bridges=classic` keeps the layout described below. `?city=big` is unaffected.
+
+### The rule it replaced, and the big map
 
 `planRiver` decides, and two of the six are always the same:
 

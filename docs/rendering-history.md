@@ -28,6 +28,14 @@ glint and the reflection now read two *extra* bent normals and the diffuse keeps
 
 ## Car paint — the layered finish
 
+**Rim was the default from 2026-10-16 to 2026-10-17** (`?paint=rim`): toon's hard glint and sheen in
+the paint's full hue with the rim line, until the realistic look with painted streaks replaced it.
+
+**Toon was the default from 2026-10-13 to 2026-10-16** (`?paint=toon`): the same hard glint and
+sheen as the rim look, with the sheen half white (`tint` 0.5) and a band of sky mixed over the
+body past 0.6 graze where the rim look adds its coloured backlight. The half-white sheen is what
+made the taxi read silver from above.
+
 [Current](rendering.md#car-paint--the-layered-finish).
 
 **`?paint=classic`** keeps the paint from before the layered finish — its own GLSL, not the new
@@ -165,6 +173,14 @@ Until 2026-10-14 the island simply stopped: past the west towers' last street, a
 park, the asphalt and the lawn ran out over the slab's fade skirt and dissolved into the sky dome.
 With the 22–33 unit west skyline standing right at that line, the fade read as a dark smear with the
 sky behind it — reported as "the world just ends". `?horizon=classic` brings it back.
+
+### The island edge
+
+[Current](rendering.md#the-island-edge--gameedgefogjs-citygroundjs).
+
+Until 2026-10-17 the island's edge was the feathered skirt alone: the asphalt apron past the ring
+road faded to nothing over 16 units and the sky dome showed through, so the island read as a slab
+floating in the sky with its outline on show. `?edgefog=classic` brings it back.
 
 ## Crayon Mode — `game/crayon.js`
 

@@ -18,6 +18,7 @@ import { createFlames } from './flames.js';
 import { createLocoFlame } from './locoflame.js';
 import { createBlast } from './blast.js';
 import { createSkidMarks } from './skidmarks.js';
+import { createSplashSound } from './splashsound.js';
 
 /**
  * The startup screen: black, a patch of asphalt fading out into it, and the taxi dropping out of
@@ -427,6 +428,8 @@ export function createSplash(root) {
   const plume = createLocoFlame(scene);
   const blast = createBlast(scene, makeRng(14));
   const skids = createSkidMarks(scene);
+  // Started now so the files are fetched and decoded behind the black, while the game loads.
+  const sound = createSplashSound();
 
   // Every program linked now, while the screen is black and before main.js throws the switches
   // that would change what these materials compile to (see the module note).
@@ -478,10 +481,12 @@ export function createSplash(root) {
       blast.shock(pose.x, pose.z, { tint: PALETTE.landRing, yaw: pose.yaw });
       for (const w of wheelPoints(pose)) sparks.burst(w.x, 0, w.z, pose.yaw + rng.jitter(Math.PI), 12, 14);
       shake = 0.55;
+      sound.play('land');
     } else {
       dust.burst(pose.x, pose.z, pose.yaw, n === 1 ? 8 : 4, n === 1 ? 0.3 : 0.2, { linger: 0.6 });
       if (n === 1) for (const w of wheelPoints(pose)) sparks.burst(w.x, 0, w.z, pose.yaw, 3, 6);
       shake = Math.max(shake, n === 1 ? 0.18 : 0.06);
+      sound.play('bump', n === 1 ? 0.6 : 0.3);
     }
   }
 
@@ -530,7 +535,12 @@ export function createSplash(root) {
         p.yaw,
       );
       shake = Math.max(shake, 0.2);
+      // The Loco press, as the game plays it, and the back tyres spinning up under it.
+      sound.play('locoLaunch');
+      sound.play('locoActivate');
+      sound.play('skid', 0.7);
     }
+    if (ignited && t >= exitTime(aspect())) sound.fadeLoco(0.5);
     // The burnout: rubber laid and dust kicked off the back tyres for the first few metres, while
     // they are still on the patch and spinning up rather than gripping. Not past it: the marks are
     // not faded with the patch, and side-on, rubber laid out to 9 drew two lines across the black.
@@ -568,6 +578,7 @@ export function createSplash(root) {
     // The city stays held through the fade: what it reveals is the frame the city drew while warming
     // up behind the black, still on its canvas. Letting it draw again here was tried, and its first
     // frame back is the expensive one — on a slow device the fade stood still while it ran.
+    if (length === SKIP_FADE) sound.fadeAll(length);
     root.style.transition = `opacity ${length}s ease-in`;
     root.style.opacity = '0';
   }
@@ -577,6 +588,7 @@ export function createSplash(root) {
     done = true;
     covering = false;
     cancelAnimationFrame(raf);
+    sound.close();
     renderer.dispose();
     renderer.forceContextLoss();
     root.remove();

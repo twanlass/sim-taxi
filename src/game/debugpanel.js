@@ -5,7 +5,7 @@ import { SPEED, MPH_PER_UNIT, CAR_W } from '../sim/traffic.js';
 import { PITCH, LANE } from '../city/grid.js';
 import { PLAY_ZOOM } from './camera.js';
 import {
-  setShadowTint, shadowTint, FINISH_NAMES, glossTuning, setGlossFinish, setGlossGlobal,
+  setShadowTint, shadowTint, FINISH_NAMES, glossTuning, setGlossFinish, setGlossGlobal, rimTuning, setRimTuning,
   resetGlossTuning,
 } from '../util/geo.js';
 import { MIN_ELEVATION } from './daylight.js';
@@ -119,6 +119,12 @@ export function createDebugPanel({
   // The sound effects (game/sfx.js), for the Audio sections — null in the boot pass and in shot
   // mode, which have no audio, and then the sections are left out.
   sfx = null,
+  // By sound: make the rare thing that plays it happen now — the Audio sections' ⚡ buttons. See
+  // `soundTriggers` in main.js.
+  soundTriggers = {},
+  // ...and freeze the moving ones (plane, chopper, birds) with their sound looping — the ⏸ buttons.
+  // See `holds` in main.js.
+  soundHolds = {},
   // The wreck fireball's cut — `{ styles, current, set }` over game/blast.js's WRECK_STYLES.
   wreck = null,
 }) {
@@ -587,6 +593,30 @@ export function createDebugPanel({
   };
   syncFinish();
   syncFinishGlobals();
+
+  // The rim line (util/geo.js, `gRimEdge`). Live on every look but classic; `?rim=off` compiles it
+  // out, and then these move nothing.
+  const RIM_FIELDS = [
+    ['width', 'Rim width', 1, 12, 0.5, 1],
+    ['strength', 'Rim strength', 0, 8, 0.05, 2],
+    ['sky', 'Rim sky', 0, 2, 0.05, 2],
+    ['carColour', 'Rim car colour', 0, 1, 0.05, 2],
+    ['gap', 'Rim depth gap', 0.05, 2, 0.05, 2],
+    // Toon and rim looks only. Higher is a smaller highlight; past 1 it is gone.
+    ['glintCut', 'Toon glint cut', 0.97, 1.001, 0.001, 3],
+    ['sheenCut', 'Toon sheen cut', 0.8, 1.01, 0.005, 3],
+    ['flip', 'Flip colour', 0, 1, 0.05, 2],
+    ['flipPower', 'Flip falloff', 0.5, 4, 0.1, 1],
+    ['streaks', 'Reflection streaks', 0, 2, 0.05, 2],
+  ];
+  const rimStart = rimTuning();
+  for (const [key, label, min, max, step, digits] of RIM_FIELDS) {
+    const input = slider(min, max, step, rimStart[key]);
+    const value = row(panel, label, input);
+    const show = () => { value.textContent = Number(input.value).toFixed(digits); };
+    input.addEventListener('input', () => { setRimTuning(key, Number(input.value)); show(); });
+    show();
+  }
 
   const resetFinish = document.createElement('button');
   resetFinish.type = 'button';
@@ -1163,7 +1193,7 @@ export function createDebugPanel({
   // is already the new state.
   let audio = null;
   if (sfx) {
-    audio = buildAudioSections(panel, sfx);
+    audio = buildAudioSections(panel, sfx, { triggers: soundTriggers, holds: soundHolds });
     toggle.addEventListener('click', () => (panel.hidden ? audio.close() : audio.open()));
   }
 

@@ -2,10 +2,11 @@ import * as THREE from 'three';
 import { ALARM_DEPTH, ALARM_H, ALARM_W, bankFrontage } from '../city/bank.js';
 import { KERB_H } from '../city/ground.js';
 import { createPerson } from '../geometry/person.js';
-import { TAXI_TAILPIPE_HEIGHT, taxiDoorPoint, taxiSideToward } from '../geometry/taxi.js';
+import { TAXI_TAILPIPE_BACK, TAXI_TAILPIPE_HEIGHT, taxiDoorPoint, taxiSideToward } from '../geometry/taxi.js';
 import { PALETTE } from '../palette.js';
 import { unlitMaterial } from '../util/geo.js';
 import { markEmissive, setEmissiveScale } from './bloom.js';
+import { RIGHT, UP, VIEW_UP } from './camera.js';
 
 // The bank job: the robbery's opening, by default (`?robbery=classic` for the old drive-past). The robbery as it first shipped is a drive-past — the empty taxi goes
 // by the bank, a 20px figure runs 0.9s from the steps into a moving cab, and the world stops for
@@ -36,9 +37,32 @@ import { markEmissive, setEmissiveScale } from './bloom.js';
 // and goes with the robbery. `?bankfare=classic` keeps the first version: a bystander who is always
 // there as scenery, an alarm always on the building, and the drive-past trigger.
 
-/** The camera's half-height during the cut, in world units, at its tightest and loosest. */
+/**
+ * The camera's half-height during the cut, in world units, at its tightest and loosest.
+ *
+ * The loosest was 26 while the framing was sized off the world distance from the steps to the cab
+ * (`?robberycam=classic`). It is sized off the screen now (`frameCut`), and a phone held upright is
+ * under half as wide as it is tall, so a cab across the junction from the bank — 14 screen units
+ * sideways from the steps — needs more than 26 to keep both in frame. 34 is still well inside
+ * PLAY_ZOOM (52), so the cut always reads as a push-in.
+ */
 const CUT_ZOOM_MIN = 15;
-const CUT_ZOOM_MAX = 26;
+const CUT_ZOOM_MAX = 34;
+const CLASSIC_ZOOM_MAX = 26;
+/** Room left round everything in the cut, in world units of screen. */
+const CUT_MARGIN = 1.5;
+/**
+ * The shares of the screen's height the HUD keeps over the frozen city during the cut: the cash,
+ * combo and pause row at the top, the pedals at the bottom (measured off an iPhone in portrait:
+ * the cash's baseline at 15%, the top of the A button's ring at 82%). The framing stays between the
+ * two rather than putting the shove under a button.
+ */
+const HUD_TOP = 0.15;
+const HUD_BOTTOM = 0.2;
+/** How tall a figure is drawn, for the framing: a running robber's head, a rider's. */
+const FIGURE_H = 1.8;
+/** Where the robber's bubble hangs over the cab once they are in: robberline.js's `TIP_Y`. */
+const CAB_TIP = 2.8;
 /** How fast the camera settles on the cut, per second of wall time. */
 const CUT_SMOOTHING = 5;
 /** The alarm and the push-in get this long before the robber comes out of the door. */
@@ -190,6 +214,47 @@ export function aroundBlock(block, from, to) {
 }
 
 /**
+ * The camera for the cut: the target and half-height that hold every point in `points` (world
+ * `{x, y, z}`) on screen, clear of the HUD, at this aspect ratio.
+ *
+ * It was the steps, the bystander and the cab door averaged in the ground plane, with the door
+ * counted twice, and a zoom off the world distance between them. That holds while the cab pulls up
+ * out front. Picked up across the street — or across the junction, round the corner of the block —
+ * the cab is up to 14 screen units sideways from the steps on an upright phone 24 units wide at the
+ * old 26 cap, so the two sat out towards opposite edges with the empty road between, and with no
+ * thought for the HUD over the top and bottom fifth. So the framing is done where the problem is,
+ * on the screen: project everything onto the camera's own axes, fit the box, centre it in the strip
+ * between the HUD rows. (Measured over 453 trigger points in five cities, the old framing did keep
+ * every point on screen *at its own zoom* — what pushed them off was the frozen push-in, below.)
+ */
+export function frameCut(points, aspect) {
+  let x0 = Infinity;
+  let x1 = -Infinity;
+  let y0 = Infinity;
+  let y1 = -Infinity;
+  for (const p of points) {
+    const sx = p.x * RIGHT.x + p.z * RIGHT.z;
+    const sy = p.x * VIEW_UP.x + (p.y ?? 0) * VIEW_UP.y + p.z * VIEW_UP.z;
+    x0 = Math.min(x0, sx);
+    x1 = Math.max(x1, sx);
+    y0 = Math.min(y0, sy);
+    y1 = Math.max(y1, sy);
+  }
+  const usable = 1 - HUD_TOP - HUD_BOTTOM;
+  const halfW = (x1 - x0) / 2 + CUT_MARGIN;
+  const halfH = (y1 - y0) / 2 + CUT_MARGIN;
+  const zoom = Math.max(CUT_ZOOM_MIN, Math.min(CUT_ZOOM_MAX, Math.max(halfH / usable, halfW / aspect)));
+  // The strip between the HUD rows sits `zoom * (HUD_BOTTOM - HUD_TOP)` above the screen's middle,
+  // so the camera aims that far below the box's centre.
+  const cx = (x0 + x1) / 2;
+  const cy = (y0 + y1) / 2 - zoom * (HUD_BOTTOM - HUD_TOP);
+  // Back onto the ground: the target is on y = 0, where screen-up is `UP` foreshortened by
+  // UP · VIEW_UP (RIGHT has no screen-up in it).
+  const b = cy / UP.dot(VIEW_UP);
+  return { x: RIGHT.x * cx + UP.x * b, z: RIGHT.z * cx + UP.z * b, zoom };
+}
+
+/**
  * The robber's run, planned off where the taxi is: out of the door, down the steps, past the
  * bystander at arm's length, then to the cab's door — round the block if it has to be. Pure, so
  * tools/probe.mjs can sweep it against every lane the trigger can fire from.
@@ -215,6 +280,40 @@ export function planRun(site, taxi) {
   return { home, toBy: { x: toBy.x / l, z: toBy.z / l }, side, run, inside, contact, legs };
 }
 
+/** Which way the shove sends the bystander: away from the robber and a little out toward the road. */
+const shovePush = (f, toBy) => ({ x: toBy.x + f.out.x * 0.5, z: toBy.z + f.out.z * 0.5 });
+
+/**
+ * Where the shove lands the bystander, and every point the cut's camera has to hold (`frameCut`):
+ * the doorway at a figure's height, the steps, the bystander at the top of their flight and where
+ * they come down, every corner of the run, and the cab's nose, tail and the point the robber's
+ * bubble hangs from once they are in. Pure, for tools/probe.mjs, beside `planRun`.
+ */
+export function cutShot(site, taxi, plan = planRun(site, taxi)) {
+  const f = bankFrontage(site);
+  const { home, legs } = plan;
+  const push = shovePush(f, plan.toBy);
+  // ...but never into the cab: the landing is pulled short of the taxi's body (half its drawn
+  // length plus a body width) wherever the shove would have put them on top of it.
+  const pl = Math.hypot(push.x, push.z);
+  let slide = FALL_SLIDE;
+  while (slide > 0.4 && Math.hypot(home.x + (push.x / pl) * slide - taxi.x,
+    home.z + (push.z / pl) * slide - taxi.z) < TAXI_CLEAR) slide -= 0.1;
+  const landing = { x: home.x + (push.x / pl) * slide, z: home.z + (push.z / pl) * slide };
+  const fwd = { x: Math.cos(taxi.yaw), z: -Math.sin(taxi.yaw) };
+  const frame = [
+    { x: f.doorway.x, y: f.doorway.y + FIGURE_H, z: f.doorway.z },
+    { x: f.steps.x, y: 0, z: f.steps.z },
+    { x: home.x, y: PAVEMENT + FIGURE_H + FALL_HEIGHT, z: home.z },
+    { x: landing.x, y: 0, z: landing.z },
+    ...legs.flatMap(([, b]) => [{ x: b.x, y: 0, z: b.z }, { x: b.x, y: FIGURE_H, z: b.z }]),
+    { x: taxi.x + fwd.x * TAXI_TAILPIPE_BACK, y: 0, z: taxi.z + fwd.z * TAXI_TAILPIPE_BACK },
+    { x: taxi.x - fwd.x * TAXI_TAILPIPE_BACK, y: 0, z: taxi.z - fwd.z * TAXI_TAILPIPE_BACK },
+    { x: taxi.x, y: CAB_TIP, z: taxi.z },
+  ];
+  return { slide, landing, frame };
+}
+
 /**
  * @param scene      the scene the bystander and the alarm light go into
  * @param site       the bank (`city.bank`, from `buildBank`)
@@ -228,6 +327,7 @@ export function planRun(site, taxi) {
  */
 export function createBankJob({
   scene, site, cashTrail, controller, setDoor, play = () => {}, scenery = false, skippable = false,
+  classicFraming = false,
 }) {
   const f = bankFrontage(site);
 
@@ -439,10 +539,9 @@ export function createBankJob({
    */
   function begin(fare, taxi) {
     const passenger = fare.slot.passenger;
-    const { toBy, side, run, inside, contact, legs } = planRun(site, taxi);
-    // Pushed away from the robber and a little out toward the road, which is where a shove off a
-    // pavement sends you.
-    const push = { x: toBy.x + f.out.x * 0.5, z: toBy.z + f.out.z * 0.5 };
+    const plan = planRun(site, taxi);
+    const { toBy, side, run, inside, contact, legs } = plan;
+    const push = shovePush(f, toBy);
     const length = legs.reduce((sum, [a, b]) => sum + dist(a, b), 0);
     const speed = Math.max(RUN_SPEED, length / RUN_MAX);
     cut = {
@@ -467,21 +566,18 @@ export function createBankJob({
       sack: { x: f.doorway.x, z: f.doorway.z, yaw: 0, v: speed, crashed: false },
     };
     by.yaw = Math.atan2(push.x, push.z);
-    // ...but never into the cab: the landing is pulled short of the taxi's body (half its drawn
-    // length plus a body width) wherever the shove would have put them on top of it.
-    const pl = Math.hypot(push.x, push.z);
-    by.slide = FALL_SLIDE;
-    while (by.slide > 0.4 && Math.hypot(home.x + (push.x / pl) * by.slide - taxi.x,
-      home.z + (push.z / pl) * by.slide - taxi.z) < TAXI_CLEAR) by.slide -= 0.1;
+    // Where they land (pulled short of the cab), and everything the camera has to hold.
+    const shot = cutShot(site, taxi, plan);
+    by.slide = shot.slide;
+    cut.landing = shot.landing;
+    cut.frame = shot.frame;
     door = { side, angle: 0, closing: -1 };
-    // Framed on the steps, the bystander and the cab together, tight enough that the robber is a
-    // figure rather than a speck.
     const span = Math.max(dist(f.steps, run), dist(home, run));
-    cut.focus = {
+    cut.focus = classicFraming ? {
       x: (f.steps.x + home.x + run.x * 2) / 4,
       z: (f.steps.z + home.z + run.z * 2) / 4,
-      zoom: Math.max(CUT_ZOOM_MIN, Math.min(CUT_ZOOM_MAX, 10 + span * 0.9)),
-    };
+      zoom: Math.max(CUT_ZOOM_MIN, Math.min(CLASSIC_ZOOM_MAX, 10 + span * 0.9)),
+    } : null;
     saved = { x: controller.state.target.x, z: controller.state.target.z, zoom: controller.state.zoom };
     returning = 0;
     // The bank rider's own spot, so they are standing there when the robber comes out.
@@ -539,7 +635,15 @@ export function createBankJob({
    */
   function update(wallDt, aspectRatio) {
     if (!cut || cut.done) return false;
-    controller.focusOn(cut.focus.x, cut.focus.z, cut.focus.zoom, wallDt, aspectRatio, CUT_SMOOTHING);
+    // Fitted to the screen every frame, so a rotation mid-cut refits rather than cropping.
+    const focus = cut.focus ?? frameCut(cut.frame, aspectRatio);
+    // ...and with Loco Mode's push-in let go. The punch is eased by the frame loop the cut stops,
+    // so a player still holding the pill as they pulled up for the bank rider — which is how most
+    // pickups are driven — froze it at LOCO_PUNCH for the cut and the line after it: every framing
+    // 24% tighter than it was sized, the bank and the cab pushed to opposite edges of the phone.
+    // That is the screenshot this was reported from, the robber's bubble pinned to the left edge.
+    if (!cut.focus) controller.punchZoom(false, wallDt, aspectRatio);
+    controller.focusOn(focus.x, focus.z, focus.zoom, wallDt, aspectRatio, CUT_SMOOTHING);
     const dt = wallDt * impactScale(cut.t - LEAD_IN - cut.contactAt);
     cut.t += dt;
     const time = cut.t - LEAD_IN;
@@ -670,6 +774,16 @@ export function createBankJob({
      */
     home,
     along: f.along,
+    /**
+     * What the L's deck should thin over while the cut and the robber's line are up (`setFadePoints`
+     * in game/ltrain.js): the steps, the bystander and where they land, the robber where they are now,
+     * and the cab. Its own feed is the taxi and the fare pins, and the frame loop that refreshes it
+     * stands still for the cut — so a deck over the bank's street hid the whole shove.
+     */
+    fadePoints() {
+      if (!cut) return [];
+      return [f.steps, home, cut.landing, cut.sack, cut.taxi];
+    },
     /** For the tools. */
     state: () => ({ cut: cut && { t: cut.t, done: cut.done, runFor: cut.runFor }, bystander: by.phase }),
     bystander,
