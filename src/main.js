@@ -4976,9 +4976,17 @@ const soundTriggers = {
   },
   // The walk-off has no event of its own to stage short of failing a fare, so this is the sound
   // from the taxi — where the riding passenger who gives up gets out (`'missed'` in the fare
-  // handler below).
-  angry: () => (sfx?.play('angry', { at: placeAt(traffic.taxi.x, traffic.taxi.z) }) ? null
-    : 'no audio yet (tap the game) or inside its min gap'),
+  // handler below). Heard from the 👂, the camera's target, like every placed sound — which is
+  // why this button once did nothing (Nicolás, October 2026): with the map panned off the taxi, or
+  // before the camera had found it, the taxi was past `far`, a placed one-shot that far off is not
+  // played at all, and the label blamed the min gap. Out of earshot, it plays at the 👂 instead.
+  angry: () => {
+    if (!sfx?.state.ready) return 'no audio yet (tap the game)';
+    const at = placeAt(traffic.taxi.x, traffic.taxi.z);
+    const away = at.d >= sfx.tuning().place.angry.far;
+    if (!sfx.play('angry', { at: away ? { d: 0, pan: 0 } : at })) return 'inside its min gap';
+    return away ? 'taxi out of earshot, played at the 👂' : null;
+  },
 };
 soundTriggers.birdsDown = soundTriggers.birdsUp;
 
@@ -7282,6 +7290,9 @@ window.__taxi = {
   sfx: sfx ? {
     state: sfx.state, play: (name) => sfx.play(name),
     tuning: sfx.tuning, tune: sfx.tune, reset: sfx.reset,
+    // The mixer's mute and solo, and the peak meter on Master — see BUSES in game/sfx.js.
+    monitor: sfx.monitor, setMonitor: sfx.setMonitor, clearMonitor: sfx.clearMonitor,
+    audible: sfx.audible, meter: sfx.meter,
     // The ⚙️ panel's Replace… — which local file, if any, stands in for a sound this session.
     replaced: sfx.replaced,
     // The long city sounds that are steered while they play, and their gain right now — for

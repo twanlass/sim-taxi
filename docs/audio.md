@@ -360,16 +360,18 @@ Every number a sound designer would want to move is in **`assets/audio/mix.json`
 
 | Key | What it is |
 |---|---|
-| `master` | The whole game's level, under the mute |
+| `buses.master.gain` | **Master**: everything, music and effects, after the two buses below. The peak meter reads after it |
+| `master` | The **SFX** bus: every effect, under the player's SFX slider and the mute. Named before there was a Master over it |
+| `buses.player.gain` / `buses.world.gain` | The two buses inside SFX: **Player** (Engine & Loco, Taxi, Impacts) and **World** (City events, Ambience, People, Police) |
 | `sounds.<name>.gain` / `.rate` | Per sound, covering all its takes: linear gain, and playback rate (pitch and tempo together). `file` is the designer's name, for reading only |
 | `minGap.<name>` | Per one-shot: seconds before it may fire again. 0 is no limit |
-| `groups.<group>.gain` | Per mix group (`GROUPS` in `sfx.js`): a gain node every sound in the group passes through on its way to `master` |
+| `groups.<group>.gain` | Per mix group (`GROUPS` in `sfx.js`): a gain node every sound in the group passes through on its way to its bus |
 | `music.master` / `music.tracks.<track>.gain` | The radio's level as a whole, and a trim per track on top of its measured `RADIO.gain` (so 1 is the shipped -24 LUFS). The **Music** section edits them, with ▶ to preview a track and Replace… to try a local file in its place |
 | `engine.*` | The beds: idle and Loco pitch at each end of their speed range, how far the idle ducks under Loco, when and how fast the Loco loop comes in, pitch glide and release time constants, and how long the taxi must stand before pulling away plays `accel`. Each is described at `SHIPPED_MIX` in `sfx.js` |
 
 Open the game with **`?audio`** (or `?debug`, the same panel; or `?dev`, which also skips the title
 and the opening straight into a run; the ⚙️ button is bottom right) and
-the ⚙️ panel's **Audio** (SFX and Music levels), **Engine sound**, **Sounds**, **Music** and
+the ⚙️ panel's **Audio** (the mixer's buses and the peak meter), **Engine sound**, **Sounds**, **Music** and
 **Audio export** sections have every one of those as a live slider,
 levels in dB and pitch in semitones. It used to be a separate 🔊 panel so the designer was not
 scrolling past the sun; collapsed sections and the panel's search do that job now (type a sound's
@@ -379,16 +381,37 @@ name to jump to it).
   variants plays a different take each press, the way the game does, and the label says which
   letter it played. **■ Stop previews** cuts them (the Loco activate is 12 s). The engine beds are
   heard by driving.
-- The sounds are listed in **mix groups** — Engine & Loco, Taxi, Impacts, Police, People, City
-  events, Ambience (`GROUPS` in `sfx.js`, every sound in exactly one; `police` also carries the
-  synthesised rotor). Each group is a real bus: its **Level** is a gain node between its voices
-  and the master, and ships in mix.json. **M** and **S** mute and solo a group for listening
-  only: never stashed or exported, gone on a reload (**Clear mutes and solos** resets them). A
-  group folds to its header; all start folded, and a search shows matches inside folded groups.
+- The mix is a tree of buses, Nicolás's layout (October 2026; `BUSES` and `GROUPS` in `sfx.js`):
+
+  ```
+  Master ─┬─ Music ── the radio's tracks
+          └─ SFX ──┬─ Player ── Engine & Loco, Taxi, Impacts
+                   └─ World ─── City events, Ambience, People, Police
+  ```
+
+  Every bus and group is a real gain node, and its **Level** ships in mix.json. The **Audio**
+  section has the five buses, indented by depth; the groups head the **Sounds** section, each
+  folding to its header (all start folded, and a search shows matches inside folded ones). Every
+  fader's bottom stop is **-∞**, not a quiet level (`FLOOR` in `audiopanel.js`, -60 dB and under
+  is a gain of 0).
+- **M** and **S** sit on every bus, group, sound and track, for listening only: never stashed or
+  exported, gone on a reload (**Clear mutes and solos** resets them). The rule is a DAW's
+  (`monitorPass` in `sfx.js`): a mute silences that node and what runs through it; while anything
+  is soloed, only what is soloed, what is under it, and the path down to it can be heard. Whatever
+  is silenced is dimmed. A sound's M/S is a gain node per sound between its voices and its group;
+  a track's rides its own gain (`police` also carries the synthesised rotor, as an unlisted node
+  `rotor`).
+- The **peak meter** on Master reads the sample peak per channel in dBFS (`meter()` in `sfx.js`:
+  two analysers behind a splitter, made the first time the panel reads them, and a tap off the
+  side of the chain, so nothing heard changes). The bars fall back at 24 dB/s, the white tick holds
+  each channel's highest peak for 1.5 s, and the readout keeps the highest peak since the meter was
+  last clicked, with **CLIP** at -0.1 dBFS and over. True peak and loudness are not measured.
 - **⚡** on a rare sound makes the thing happen in the game, so it is heard placed and steered as
   in play rather than dry: `plane` sends the flyover across, `heli` brings the rooftop chopper in,
   `birdsUp`/`birdsDown` scatter the flock nearest the taxi (the landing follows), `bridge` raises
-  the drawbridge, `spawn` replays the city entrance, and `angry` plays at the taxi. They are
+  the drawbridge, `spawn` replays the city entrance, and `angry` (the passenger walking off, files
+  `24_NPC_angry_A`–`F`) plays at the taxi — or at the 👂 when the taxi is past its `far`, which is
+  the case that used to leave the button silent. They are
   `soundTriggers` in main.js, the same `launch`/`visit`/`takeOff`/`request` shot mode stages with.
   A placed sound still falls off with distance, so drive near the plane path or the helipad to
   hear it (the 🔊 pins show where).

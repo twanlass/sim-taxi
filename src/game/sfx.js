@@ -215,8 +215,8 @@ export const LOOPS = new Set(['idle', 'locoLoop', 'signal', 'siren', 'city', 'co
 export const AMBIENT = ['city', 'construction', 'seagulls', 'rain', 'court'];
 
 /**
- * The mix groups: every sound in exactly one, each group a gain node between its voices and the
- * master. Nicolás asked for them once Block 2 doubled the count (October 2026): with this many
+ * The mix groups: every sound in exactly one, each group a gain node between its voices and its
+ * bus (BUSES). Nicolás asked for them once Block 2 doubled the count (October 2026): with this many
  * elements a mix is set group against group first and sound against sound second, and the ⚙️ panel
  * lists the sounds under these headings with a fader, a mute and a solo each. The fader is in
  * mix.json (`groups.<key>.gain`) and ships; mute and solo are for listening only and never leave
@@ -224,18 +224,52 @@ export const AMBIENT = ['city', 'construction', 'seagulls', 'rain', 'court'];
  * which has no key of its own (`makeRotor`).
  */
 export const GROUPS = [
-  { key: 'engine', label: 'Engine & Loco',
+  { key: 'engine', label: 'Engine & Loco', bus: 'player',
     sounds: ['idle', 'accel', 'brake', 'locoActivate', 'locoLoop', 'locoLaunch', 'locoBrake', 'skid'] },
-  { key: 'taxi', label: 'Taxi', sounds: ['doorOpen', 'doorClose', 'signal', 'horn'] },
-  { key: 'impacts', label: 'Impacts', sounds: ['bump', 'crash', 'takeoff', 'land'] },
-  { key: 'police', label: 'Police', sounds: ['siren', 'copSkid', 'chirp'] },
-  { key: 'people', label: 'People', sounds: ['angry'] },
-  { key: 'events', label: 'City events',
+  { key: 'taxi', label: 'Taxi', bus: 'player', sounds: ['doorOpen', 'doorClose', 'signal', 'horn'] },
+  { key: 'impacts', label: 'Impacts', bus: 'player', sounds: ['bump', 'crash', 'takeoff', 'land'] },
+  { key: 'events', label: 'City events', bus: 'world',
     sounds: ['spawn', 'gate', 'bridge', 'birdsUp', 'birdsDown', 'plane', 'heli', 'driveThru'] },
-  { key: 'ambience', label: 'Ambience', sounds: AMBIENT },
+  { key: 'ambience', label: 'Ambience', bus: 'world', sounds: AMBIENT },
+  { key: 'people', label: 'People', bus: 'world', sounds: ['angry'] },
+  { key: 'police', label: 'Police', bus: 'world', sounds: ['siren', 'copSkid', 'chirp'] },
 ];
 /** Which group a sound is in, by sound. */
 export const GROUP_OF = Object.fromEntries(GROUPS.flatMap((g) => g.sounds.map((s) => [s, g.key])));
+
+/**
+ * The buses above the groups — Nicolás's second level (October 2026), so a mix can be set Player
+ * against World and music against effects before any group is touched:
+ *
+ *     Master ─┬─ Music ── the radio's tracks
+ *             └─ SFX ──┬─ Player ── Engine & Loco, Taxi, Impacts
+ *                      └─ World ─── City events, Ambience, People, Police
+ *
+ * Each is a gain node. Their faders are mix.json's: `buses.<key>.gain` for Master, Player and
+ * World, and the two that were there first keep their old keys — SFX is `master` (it was the
+ * whole effects level before there was a Master above it) and Music is `music.master`.
+ */
+export const BUSES = [
+  { key: 'master', label: 'Master', parent: null },
+  { key: 'music', label: 'Music', parent: 'master' },
+  { key: 'sfx', label: 'SFX', parent: 'master' },
+  { key: 'player', label: 'Player', parent: 'sfx' },
+  { key: 'world', label: 'World', parent: 'sfx' },
+];
+/** The buses with a `buses.<key>` fader of their own in mix.json. */
+const OWN_FADER = ['master', 'player', 'world'];
+
+/**
+ * Every node of the mix tree by its parent: buses, groups, sounds, the radio's tracks, and the
+ * rotor (under Police, unlisted). This is what mute and solo walk — any of them can be muted or
+ * soloed, and the keys share one namespace, which the probe checks.
+ */
+export const MIX_PARENT = {
+  ...Object.fromEntries(BUSES.map((b) => [b.key, b.parent])),
+  ...Object.fromEntries(GROUPS.map((g) => [g.key, g.bus])),
+  ...GROUP_OF,
+  rotor: 'police',
+};
 
 // The loops' true lengths, by file, from the masters (afinfo). A decoder that does not trim AAC's
 // 2112 frames of encoder priming hands back a buffer that long *plus* the pad, and looping the whole
@@ -411,6 +445,22 @@ export const RADIO = {
 /** Every file the radio can play, in the order the ⚙️ panel lists them. */
 RADIO.all = [RADIO.intro, ...RADIO.songs, ...RADIO.classicSongs, ...RADIO.ads, RADIO.breakIn,
   RADIO.breakOut, RADIO.stationId];
+for (const key of RADIO.all) MIX_PARENT[key] = 'music';
+
+/**
+ * How much of a node passes for listening (0 or 1), given the panel's mute and solo sets — the
+ * DAW rule. A muted node is silent. While anything is soloed, a node passes only if it is soloed,
+ * sits under something soloed, or sits *above* something soloed (the path down to it has to stay
+ * open); everything else is silent. Applied at every node, so a mute or a solo anywhere carries
+ * down through the gain chain on its own. Pure, so the probe can hold the rule.
+ */
+export function monitorPass(key, { mute, solo }) {
+  if (mute.has(key)) return 0;
+  if (!solo.size) return 1;
+  for (let k = key; k != null; k = MIX_PARENT[k]) if (solo.has(k)) return 1;
+  for (const s of solo) for (let k = MIX_PARENT[s]; k != null; k = MIX_PARENT[k]) if (k === key) return 1;
+  return 0;
+}
 
 /**
  * What the station puts between the `n`th song (counting from 1) and the next: `'ad'` for an ad
@@ -484,6 +534,7 @@ function cleanMix(raw, base) {
   const shape = base ?? src;
   const out = {
     master: clamp(num(src.master) ?? shape.master ?? 1, LIMITS.master),
+    buses: {},
     groups: {},
     sounds: {},
     minGap: {},
@@ -491,6 +542,9 @@ function cleanMix(raw, base) {
     engine: {},
     music: { master: 1, tracks: {} },
   };
+  for (const key of OWN_FADER) {
+    out.buses[key] = { gain: clamp(num(src.buses?.[key]?.gain) ?? shape.buses?.[key]?.gain ?? 1, LIMITS.master) };
+  }
   for (const { key } of GROUPS) {
     out.groups[key] = { gain: clamp(num(src.groups?.[key]?.gain) ?? shape.groups?.[key]?.gain ?? 1, LIMITS.gain) };
   }
@@ -603,21 +657,20 @@ export function createSfx({ rng, menuMusic = false, classicSongs = false, radioF
   // Live, and read every frame, so the panel can move any number while the car is driving.
   const mix = copyMix(SHIPPED_MIX);
   const tuning = () => copyMix(mix);
-  // The panel's mute and solo per group (GROUPS) — for listening, so not part of the mix: never
-  // stashed, never exported, gone on a reload. Any solo silences every group not soloed.
+  // The panel's mute and solo, on any node of the mix tree (MIX_PARENT) — for listening, so not
+  // part of the mix: never stashed, never exported, gone on a reload. See `monitorPass`.
   const monitorSets = { mute: new Set(), solo: new Set() };
   const monitor = () => ({ mute: [...monitorSets.mute], solo: [...monitorSets.solo] });
-  const groupLevel = (key) => mix.groups[key].gain
-    * (monitorSets.mute.has(key) || (monitorSets.solo.size && !monitorSets.solo.has(key)) ? 0 : 1);
+  const pass = (key) => monitorPass(key, monitorSets);
   /** Merge a partial mix in. Anything unknown or non-numeric is dropped (see `cleanMix`). */
   function tuneMix(partial) {
     const merged = copyMix(mix);
     const src = partial && typeof partial === 'object' ? partial : {};
     if ('master' in src) merged.master = src.master;
-    for (const part of ['groups', 'sounds', 'minGap', 'place', 'engine']) {
+    for (const part of ['buses', 'groups', 'sounds', 'minGap', 'place', 'engine']) {
       for (const [key, value] of Object.entries(src[part] ?? {})) {
         if (!(key in merged[part])) continue;
-        merged[part][key] = part === 'groups' || part === 'sounds' || part === 'place'
+        merged[part][key] = part === 'buses' || part === 'groups' || part === 'sounds' || part === 'place'
           ? { ...merged[part][key], ...value } : value;
       }
     }
@@ -629,9 +682,9 @@ export function createSfx({ rng, menuMusic = false, classicSongs = false, radioF
     }
     Object.assign(mix, cleanMix(merged, SHIPPED_MIX));
   }
-  /** Mute or solo a group (either may be omitted). An unknown group is ignored. */
+  /** Mute or solo a node of the mix tree (either may be omitted). An unknown key is ignored. */
   function setMonitorSets(key, mute, solo) {
-    if (!(key in mix.groups)) return;
+    if (!(key in MIX_PARENT)) return;
     if (mute !== undefined) monitorSets.mute[mute ? 'add' : 'delete'](key);
     if (solo !== undefined) monitorSets.solo[solo ? 'add' : 'delete'](key);
   }
@@ -646,6 +699,8 @@ export function createSfx({ rng, menuMusic = false, classicSongs = false, radioF
       goOnAir: (opts) => { state.dashRadio = Boolean(opts?.dash); },
       openDash: () => { state.dashRadio = false; }, dashMusicSeconds: () => Infinity, tuning, tune: tuneMix, reset: () => tuneMix(SHIPPED_MIX),
       monitor, setMonitor: (key, { mute, solo } = {}) => setMonitorSets(key, mute, solo),
+      clearMonitor: () => { monitorSets.mute.clear(); monitorSets.solo.clear(); },
+      audible: pass, meter: () => null,
       audition: () => null, stopAuditions: noop, files: FILES, radioFiles: RADIO_FILES,
       replace: async () => ({ ok: false, failed: [] }), revert: noop, replaced: () => null,
       pickReplacement: noop,
@@ -698,7 +753,18 @@ export function createSfx({ rng, menuMusic = false, classicSongs = false, radioF
   // The radio's own fader inside the music bus, so a track previewed from the panel can play alone:
   // it goes to 0 while a preview runs and back up when the last one ends (`auditionTrack`).
   let radioBus = null;
-  /** What the master gain should read: the mix's master, under the player's slider and the mute. */
+  // The tree above the groups (BUSES): `out` is Master and the one node that reaches the speakers;
+  // `master` is the SFX bus (named before there was a Master over it) and `musicBus` the Music
+  // bus, each with a monitor node after it — they have their own automation (the player's
+  // sliders, the duck, the fade at a run's end) that mute and solo must not fight. Player and
+  // World are `busNode`.
+  let out = null;
+  const busNode = {};
+  const monitorNode = {};
+  // The ⚙️ panel's peak meter on `out`, made the first time it is read (`readMeter`): a tap off the
+  // side of the chain, so it changes nothing that is heard, and absent from a normal session.
+  let meterTap = null;
+  /** What the SFX bus gain should read: the mix's level, under the player's slider and the mute. */
   const masterLevel = () => (state.muted ? 0 : mix.master * state.effects ** 2);
   const musicLevel = () => (state.muted || state.musicOut ? 0
     : mix.music.master * state.music ** 2 * (state.ducked ? MUSIC_DUCK : 1));
@@ -798,15 +864,50 @@ export function createSfx({ rng, menuMusic = false, classicSongs = false, radioF
     g.gain.value = gain;
     const pan = ctx.createStereoPanner ? ctx.createStereoPanner() : null;
     src.connect(g);
-    (pan ? g.connect(pan) : g).connect(groupBus[GROUP_OF[key]] ?? master);
+    (pan ? g.connect(pan) : g).connect(soundBus[key] ?? groupBus[GROUP_OF[key]] ?? master);
     return { src, gain: g, pan, file: null };
   }
 
-  // One gain node per group, between its voices and the master — see GROUPS. Built with the context.
+  // One gain node per group, between its voices and its bus — see GROUPS — and one per sound
+  // between its voices and its group, which only carries that sound's mute and solo: its level is
+  // per voice, because a bed re-aims its own gain every frame. Built with the context.
   const groupBus = {};
-  function setGroupLevels(tau = 0.02) {
+  const soundBus = {};
+  /** Every fader and monitor node in the tree, moved to what the mix and the panel say. */
+  function setLevels(tau = 0.02) {
     if (!ctx) return;
-    for (const { key } of GROUPS) groupBus[key].gain.setTargetAtTime(groupLevel(key), ctx.currentTime, tau);
+    const t = ctx.currentTime;
+    out.gain.setTargetAtTime(mix.buses.master.gain * pass('master'), t, tau);
+    monitorNode.sfx.gain.setTargetAtTime(pass('sfx'), t, tau);
+    monitorNode.music.gain.setTargetAtTime(pass('music'), t, tau);
+    for (const key of ['player', 'world']) busNode[key].gain.setTargetAtTime(mix.buses[key].gain * pass(key), t, tau);
+    for (const { key } of GROUPS) groupBus[key].gain.setTargetAtTime(mix.groups[key].gain * pass(key), t, tau);
+    for (const key of Object.keys(soundBus)) soundBus[key].gain.setTargetAtTime(pass(key), t, tau);
+    for (const v of radioVoices) v.gain.gain.setTargetAtTime(trackLevel(v.key), t, tau);
+    for (const v of auditions) if (v.track) v.gain.gain.setTargetAtTime(trackLevel(v.track), t, tau);
+  }
+
+  /**
+   * The peak on Master since the last read, per channel, as linear sample values — the ⚙️ panel's
+   * meter polls it every frame. Two analysers behind a splitter, since an AnalyserNode mixes its
+   * input down to mono first and a hard-panned peak would read 6 dB low. Each read takes the last
+   * 2048 samples (43 ms at 48 kHz), longer than a frame, so nothing between two reads is missed.
+   */
+  function readMeter() {
+    if (!ctx) return null;
+    if (!meterTap) {
+      const split = ctx.createChannelSplitter(2);
+      const sides = [ctx.createAnalyser(), ctx.createAnalyser()];
+      out.connect(split);
+      sides.forEach((a, i) => { a.fftSize = 2048; split.connect(a, i); });
+      meterTap = { sides, data: new Float32Array(2048) };
+    }
+    return meterTap.sides.map((a) => {
+      a.getFloatTimeDomainData(meterTap.data);
+      let peak = 0;
+      for (const x of meterTap.data) { const m = Math.abs(x); if (m > peak) peak = m; }
+      return peak;
+    });
   }
 
   function makeLoop(key, gain = 0) {
@@ -901,7 +1002,7 @@ export function createSfx({ rng, menuMusic = false, classicSongs = false, radioF
     g.gain.value = 0;
     noise.connect(lowpass).connect(chop);
     thump.connect(thumpGain).connect(chop);
-    chop.connect(g).connect(groupBus.police);
+    chop.connect(g).connect(soundBus.rotor);
     noise.start();
     thump.start();
     lfo.start();
@@ -911,17 +1012,19 @@ export function createSfx({ rng, menuMusic = false, classicSongs = false, radioF
   async function start() {
     const Ctor = window.AudioContext || window.webkitAudioContext;
     ctx = new Ctor({ latencyHint: 'interactive' });
-    master = ctx.createGain();
+    const gainNode = (to) => { const g = ctx.createGain(); g.connect(to); return g; };
+    out = gainNode(ctx.destination);
+    monitorNode.sfx = gainNode(out);
+    master = gainNode(monitorNode.sfx);
     master.gain.value = masterLevel();
-    master.connect(ctx.destination);
-    for (const { key } of GROUPS) {
-      groupBus[key] = ctx.createGain();
-      groupBus[key].gain.value = groupLevel(key);
-      groupBus[key].connect(master);
-    }
-    musicBus = ctx.createGain();
+    for (const key of ['player', 'world']) busNode[key] = gainNode(master);
+    for (const { key, bus } of GROUPS) groupBus[key] = gainNode(busNode[bus]);
+    for (const [key, parent] of Object.entries(GROUP_OF)) soundBus[key] = gainNode(groupBus[parent]);
+    soundBus.rotor = gainNode(groupBus.police);
+    monitorNode.music = gainNode(out);
+    musicBus = gainNode(monitorNode.music);
     musicBus.gain.value = musicLevel();
-    musicBus.connect(ctx.destination);
+    setLevels(0.001);
     radioBus = ctx.createGain();
     buildDash();
     setDash(state.dashRadio, ctx.currentTime);
@@ -1050,7 +1153,9 @@ export function createSfx({ rng, menuMusic = false, classicSongs = false, radioF
   const trackBuffer = (key) => radioReplaced[key]?.buffer ?? radioBuffers[key];
   // What a track is played for: the master's true length, or a local file's own.
   const trackSeconds = (key) => (radioReplaced[key] ? radioReplaced[key].buffer.duration : RADIO.seconds[key]);
-  const trackLevel = (key) => RADIO.gain[key] * mix.music.tracks[key].gain;
+  // The track's mute and solo ride its own gain, as its level does: a preview plays into the music
+  // bus past `radioBus`, so there is no one node every play of a track goes through.
+  const trackLevel = (key) => RADIO.gain[key] * mix.music.tracks[key].gain * pass(key);
   // Tracks on the clock right now, so a level moved on the panel reaches the song that is playing.
   const radioVoices = new Set();
   // One decode per file however many callers ask: the menu and the cut to the intro can both want
@@ -1529,10 +1634,8 @@ export function createSfx({ rng, menuMusic = false, classicSongs = false, radioF
     if (!ctx) return;
     const t = ctx.currentTime;
     master.gain.setTargetAtTime(masterLevel(), t, 0.02);
-    setGroupLevels();
     if (!state.musicOut) musicBus.gain.setTargetAtTime(musicLevel(), t, 0.02);
-    for (const v of radioVoices) v.gain.gain.setTargetAtTime(trackLevel(v.key), t, 0.02);
-    for (const v of auditions) if (v.track) v.gain.gain.setTargetAtTime(trackLevel(v.track), t, 0.02);
+    setLevels();
   }
 
   // The panel's audition voices, tracked so an 11-second activate can be stopped.
@@ -1669,10 +1772,18 @@ export function createSfx({ rng, menuMusic = false, classicSongs = false, radioF
     tuning,
     tune,
     reset: () => tune(SHIPPED_MIX),
-    /** The groups muted and soloed on the panel, `{ mute: [...], solo: [...] }`. */
+    /** What is muted and soloed on the panel, `{ mute: [...], solo: [...] }`, by node of MIX_PARENT. */
     monitor,
-    /** Mute or solo a group for listening — `setMonitor('ambience', { solo: true })`. */
-    setMonitor(key, { mute, solo } = {}) { setMonitorSets(key, mute, solo); setGroupLevels(); },
+    /**
+     * Mute or solo any bus, group, sound or track for listening — `setMonitor('ambience',
+     * { solo: true })`, `setMonitor('angry', { mute: true })`.
+     */
+    setMonitor(key, { mute, solo } = {}) { setMonitorSets(key, mute, solo); setLevels(); },
+    clearMonitor() { monitorSets.mute.clear(); monitorSets.solo.clear(); setLevels(); },
+    /** 1 if `key` passes for listening under the current mutes and solos, else 0. */
+    audible: pass,
+    /** The peak on Master since the last read, `[left, right]` linear, or null before a tap. */
+    meter: readMeter,
     audition,
     stopAuditions,
     files: FILES,
