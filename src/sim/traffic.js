@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import {
-  bakeColor, propMaterial, setFinish, FINISH, BODY_EULER_ORDER, SMOOTH_BODY, bodyBox, softenNormals,
+  bakeColor, propMaterial, cloneProp, setFinish, FINISH, BODY_EULER_ORDER, SMOOTH_BODY, bodyBox, softenNormals,
 } from '../util/geo.js';
 import { PALETTE, color } from '../palette.js';
 import { KERB_H, roundedRectShape } from '../city/ground.js';
@@ -4683,14 +4683,18 @@ export function createTraffic(
     const wheelInst = car.isTruck ? truckWheelMesh : wheelMesh;
     const front = car.isTruck ? TRUCK_FRONT : FRONT;
 
-    // One material across body and wheels, so the fade takes the whole copy down together.
-    // Baked vertex colours multiply by material.color exactly as they did by instanceColor, so
-    // the copy comes out the same car in the same paint.
-    const material = propMaterial();
+    // Copies of the fleet's own materials (`cloneProp`), so the wreck keeps the paint it was
+    // driving in; a fresh `propMaterial()` here was the matte, unglossed variant and the car
+    // visibly changed finish on the frame it was hit. Baked vertex colours multiply by
+    // material.color exactly as they did by instanceColor, so the copy comes out the same car in
+    // the same paint — the wheels take the tint too, as their instances did.
+    const material = cloneProp(bodyInst.material);
+    const wheelMaterial = cloneProp(wheelInst.material);
     // `bodyColor`, not `carBody` directly: a wrecked cop car is still a cop car, and a shell
     // painted from its `colorIndex` turned it back into whatever ordinary car it was drawn as.
     // `tintOf` for the one car whose paint is not its instance colour: the Westfalia's is baked.
     material.color.set(tintOf(car));
+    wheelMaterial.color.copy(material.color);
 
     const shell = new THREE.Group();
     // A skinned car's instance is collapsed — the patrol cruiser draws it — so its pose comes off
@@ -4708,7 +4712,7 @@ export function createTraffic(
     // The front wheels hang off the body matrix as separate instances — see writeAmbient. Copied
     // here at the lock the impact caught them at, since a wreck isn't steering any more.
     for (const anchor of front) {
-      const wheel = new THREE.Mesh(wheelInst.geometry, material);
+      const wheel = new THREE.Mesh(wheelInst.geometry, wheelMaterial);
       wheel.position.set(anchor.x, anchor.y, anchor.z);
       wheel.rotation.y = car.wheelAngle;
       wheel.castShadow = true;
@@ -4719,7 +4723,7 @@ export function createTraffic(
     // The bumpers, which are instances of their own now (see `bumperMesh`): both back at their
     // ends, unpainted, on a material of their own so the chrome is not tinted the car's colour.
     const bumperInst = car.isTruck ? truckBumperMesh : bumperMesh;
-    const chrome = propMaterial();
+    const chrome = cloneProp(bumperInst.material);
     for (const end of BUMPER_ENDS) {
       const bar = new THREE.Mesh(bumperInst.geometry, chrome);
       bumperAt(car.isTruck ? TRUCK_LEN : CAR_LEN, end, bar.position);
@@ -4733,8 +4737,7 @@ export function createTraffic(
     // so a second material here scorches in step with the cab's without extra wiring.
     // Not for the flatbed: its box was never drawn, and its load belongs to game/flatbed.js.
     if (car.isTruck && !car.flatbed) {
-      const boxMaterial = propMaterial();
-      boxMaterial.color.set(PALETTE.truckBox);
+      const boxMaterial = cloneProp(truckBoxMesh.material);
       const box = new THREE.Mesh(truckBoxMesh.geometry, boxMaterial);
       box.castShadow = true;
       box.receiveShadow = true;
@@ -4746,7 +4749,7 @@ export function createTraffic(
     // The convertible's interior goes with it, driver still in their seat: a material of its own,
     // so the shell's paint does not tint it, and it is collected and scorched with the rest (game/wreckage.js).
     if (bodyInst === classicMeshes.convertible) {
-      const driver = new THREE.Mesh(interiorMesh.geometry, propMaterial());
+      const driver = new THREE.Mesh(interiorMesh.geometry, cloneProp(interiorMesh.material));
       driver.castShadow = true;
       driver.receiveShadow = true;
       shell.add(driver);
@@ -4754,14 +4757,14 @@ export function createTraffic(
       interiorMesh.instanceMatrix.needsUpdate = true;
     }
     if (car.police && !car.isTruck) {
-      const cab = new THREE.Mesh(policeCabMesh.geometry, propMaterial());
+      const cab = new THREE.Mesh(policeCabMesh.geometry, cloneProp(policeCabMesh.material));
       cab.castShadow = true;
       cab.receiveShadow = true;
       shell.add(cab);
       // ...and its siren bar, dark: the housing and its two painted lenses. The lit pods go (below)
       // because a bar still strobing on a wreck says the police are still coming, but the bar itself
       // is bolted to the roof and goes where the roof goes. Left out, it vanished on impact.
-      const bar = new THREE.Mesh(sirenHousingMesh.geometry, propMaterial());
+      const bar = new THREE.Mesh(sirenHousingMesh.geometry, cloneProp(sirenHousingMesh.material));
       bar.position.copy(SIREN_HOUSING_AT);
       bar.castShadow = true;
       bar.receiveShadow = true;
