@@ -3746,7 +3746,7 @@ colour of the level the fare is at. The clock eats it clockwise from twelve o'cl
 of slices that goes is a quarter of the clock, and the colour steps (with the kick) at that moment.
 What is left is solid and one even shade; eaten slices stay as a flat black tint at 30%
 (`PIE_EATEN_ALPHA`), not the pale glass of the hue the other vessels empty into: with no outline,
-pale glass vanished into the road at play zoom and a half-eaten pie read as a semicircle. The clock takes a **whole slice at a time**, so the cut always lands on a
+pale glass vanished into the road at play zoom and a half-eaten pie read as a semicircle. A fresh pie already has a sixteenth missing at twelve o'clock (`PIE_STARTER_SLIVER`), so it reads as a timer before anything has drained. After that the clock takes a **whole slice at a time**, so the cut always lands on a
 slice's own radial wall, and a drained pie shows that wall as a solid edge of thickness where the
 missing slices were. Every wall is drawn before every cap (`pieWedgeOf` maps faces back to slices
 for the probe): the wall sits behind an eaten slice's glass face, and drawn after it the wall

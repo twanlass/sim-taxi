@@ -575,6 +575,8 @@ const GLASS_ALPHA = 0.15;
 // dark tint keeps the whole disc's shape and makes the hue that is left stand off it. 15% was
 // still faint on light pavement; 45% and up read as a hole. Tyler picked 30 from a 15/30/45/60 sweep.
 const PIE_EATEN_ALPHA = 0.3;
+// How much of a fresh pie is already missing: a sixteenth, half of the first slice.
+const PIE_STARTER_SLIVER = 1 / 16;
 
 // Emptied glass, as a transform of the fare's own hue rather than a colour of its own: much less of
 // it, and — now — mostly drained of its hue as well.
@@ -908,7 +910,11 @@ export function createDiamond(colorHex) {
         // Eaten clockwise from twelve, a whole slice at a time: a full clock has eaten nothing, and
         // a slice goes the moment its share of the clock has started to run. A cut through the
         // middle of a slice would open it with no wall to show for it.
-        const left = Math.ceil(fill * PIE_SLICES - 1e-6) / PIE_SLICES;
+        // Until the first slice goes, half of it is already gone: a whole disc reads as a badge, and
+        // a sliver out of twelve o'clock says "timer" before anything has drained (Tyler,
+        // 2026-10-18: "a 16th of a sliver removed to visually telegraph it's a timer"). That cut
+        // has no wall, but it is the vertical one, which this tilt shows edge-on anyway.
+        const left = Math.min(Math.ceil(fill * PIE_SLICES - 1e-6) / PIE_SLICES, 1 - PIE_STARTER_SLIVER);
         fillUniforms.uFill.value = (1 - left) * 2 * Math.PI;
         // No sweep line on the eight-slice pie: the cut edge and the wall of the next slice already
         // draw it, and a bright line on top ran down the disc's edge and read as a stick.
