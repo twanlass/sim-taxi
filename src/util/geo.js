@@ -1838,6 +1838,20 @@ export function propMaterial({ ao = true, gloss = null, cutout = null, smooth = 
 }
 
 /**
+ * A copy of a `propMaterial()` that still draws like it. `Material.clone()` copies parameters only,
+ * and the patch lives on the instance (`onBeforeCompile`, `customProgramCacheKey`), so a plain
+ * clone is stock three Phong/Lambert — no paint, no shadow tint, no AO. That is what a wreck copied
+ * off a live vehicle is made of, and the plain clone made the fire engine turn into a different,
+ * matte truck on the frame the taxi hit it.
+ */
+export function cloneProp(material) {
+  const copy = material.clone();
+  copy.onBeforeCompile = material.onBeforeCompile;
+  copy.customProgramCacheKey = material.customProgramCacheKey;
+  return copy;
+}
+
+/**
  * Vehicle finishes for `propMaterial({ gloss })`. What is paint, glass, metal or tyre comes from
  * the geometry's `aFinish` (`setFinish`) and how each behaves from `FINISH_DEFAULTS`; this only
  * says where the bent normals' curve is centred.
