@@ -34,6 +34,10 @@ middle of the city (`panAt` in game/titlescreen.js — a lap every two minutes a
 of each half-span), and Play eased it from wherever the drift was down onto the garage door. Tyler
 asked for it to cut round the landmarks instead. `?titlecam=classic` keeps the drift and the ease.
 
+The reel's first cut (2026-10-17) dipped to black between shots — 0.22 s out, 0.08 s held,
+0.34 s in — and framed each landmark close, at zoom 11 to 17. Tyler found it too tight (45.8, then
+30 on phones) and asked for a slower crossfade instead of the dip (2026-10-18).
+
 ## The opening vignette
 
 Pacing numbers the vignette shipped with and later changed. Now: [The opening vignette](gameplay.md#the-opening-vignette).

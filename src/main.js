@@ -5192,7 +5192,7 @@ const title = wantsTitle ? createTitleScreen(document.getElementById('title-scre
 // the players' chests, the skaters', the train's roof rail, and halfway up the burger joint's pole.
 const titleReel = title && new URLSearchParams(window.location.search).get('titlecam') !== 'classic'
   ? createTitleReel({
-    dip: title.dip,
+    cover: title.cover,
     still: () => window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false,
     shots: [
       hoopers.court && { name: 'court', at: () => ({ x: hoopers.court.x, y: 1.5, z: hoopers.court.z }) },
@@ -6380,6 +6380,9 @@ function tick() {
   if (tape && (!fares.state.gameOver || replay.armed())) tape.record(simClock, tapeImpact);
   tapeImpact = false;
   renderFrame();
+  // The title reel's crossfade takes its still of the outgoing shot here, straight after the draw
+  // and in the same task — the only moment the canvas can be read (game/titlereel.js).
+  if (title?.holding() && titleReel?.snapDue()) titleReel.snapshot(renderer.domElement);
 }
 
 // The gear button sits top-right at small widths and started overlapping the streak counter

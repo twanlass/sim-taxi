@@ -1675,10 +1675,11 @@
       /* The dim behind Settings and Credits: a page of text to read wants the city quieter. The
          menu leaves it off, but keeps a soft shade down the left edge the words stand on, because
          the city is pale and white type on a sunlit block is not reliably legible on its own. */
-      /* The reel's dip to black between shots (src/game/titlereel.js sets its opacity each frame).
-         First in the overlay, so the menu's words and its left-edge shade both sit over it. */
-      #title-screen .title-dip {
-        position: absolute; inset: 0; background: #000; opacity: 0; pointer-events: none;
+      /* The reel's crossfade: the outgoing shot, copied onto this canvas at each cut and faded off
+         the incoming one (src/game/titlereel.js sets its opacity each frame). First in the overlay,
+         so the menu's words and its left-edge shade both sit over it. */
+      #title-screen .title-cover {
+        position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; pointer-events: none;
       }
       #title-screen .title-scrim {
         position: absolute; inset: 0;

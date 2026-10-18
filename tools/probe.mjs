@@ -236,7 +236,7 @@ import * as fuelArc from '../src/game/fuelarc.js';
 import { createComboMeter, comboScope, COMBO_MAX } from '../src/game/combometer.js';
 import { createSfx, SHIPPED_MIX, SFX_EVENTS, SOUNDS, LOOPS, RADIO, radioBetween, DRIVE_THRU_SECONDS, DRIVE_THRU_TAIL, GROUPS } from '../src/game/sfx.js';
 import MIX_FILE from '../assets/audio/mix.json' with { type: 'json' };
-import { createTitleReel, SHOT as REEL_SHOT, DIP_OUT as REEL_OUT, DIP_HOLD as REEL_HOLD } from '../src/game/titlereel.js';
+import { createTitleReel, SHOT as REEL_SHOT } from '../src/game/titlereel.js';
 
 const seed = Number(process.argv[2] ?? 71624);
 const CARS_DEFAULT = 7;    // low-density baseline for the fare-loop checks — keeps timing thresholds stable regardless of runtime default
@@ -21248,15 +21248,17 @@ let chopperOrder; // likewise
   }
 
   // The title reel itself, against stub subjects: every landmark gets played, the camera only ever
-  // jumps on a frame the dip has gone fully black, the train is slotted in only when it has
+  // jumps on the frame straight after the outgoing shot was copied onto the crossfade cover (and
+  // with the cover at full strength), the train is slotted in only when it has
   // enough island left, and a train that runs off the coast mid-shot is cut away from.
   {
     let trainOn = false;
     let trainLeft = 0;
     let tx = 0;
-    const dipEl = { style: { opacity: '0' } };
+    let copies = 0;
+    const coverEl = { style: { opacity: '0' }, width: 0, height: 0, getContext: () => ({ drawImage: () => { copies += 1; } }) };
     const reel = createTitleReel({
-      dip: dipEl,
+      cover: coverEl,
       shots: [
         { name: 'court', at: () => ({ x: -30, y: 1.5, z: 10 }) },
         { name: 'skatepark', at: () => ({ x: 20, y: 1, z: -25 }) },
@@ -21267,6 +21269,7 @@ let chopperOrder; // likewise
     const dt = 1 / 60;
     let prev = reel.frame(dt, 0.46);
     let blindJumps = 0;
+    let snappedLast = false;
     let trainFramesOff = 0;
     for (let n = 0; n < 60 * 90; n++) {
       // The train turns up a minute in with 2 s of island (too short), then at 68 s with 8 s — a
@@ -21277,20 +21280,24 @@ let chopperOrder; // likewise
       tx = trainOn ? (t - 68) * 12 : 0;
       const p = reel.frame(dt, 0.46);
       const jump = Math.hypot(p.x - prev.x, p.z - prev.z) > 3 || Math.abs(p.zoom - prev.zoom) > 1;
-      if (jump && prev.black < 0.999 && p.black < 0.999) blindJumps += 1;
+      if (jump && !(snappedLast && p.covered > 0.99)) blindJumps += 1;
+      // What main.js does after its draw.
+      snappedLast = reel.snapDue();
+      if (snappedLast) reel.snapshot({ width: 390, height: 844 });
       if (reel.current() === 'train' && !trainOn) trainFramesOff += 1;
       prev = p;
     }
     const names = new Set(reel.played);
     const trains = reel.played.filter((x) => x === 'train').length;
-    check('title reel: plays every landmark, cutting only under black',
-      ['court', 'skatepark', 'burger'].every((x) => names.has(x)) && blindJumps === 0,
-      `${reel.played.length} shots (${reel.played.join(' ')}), ${blindJumps} jumps in view`);
+    check('title reel: plays every landmark, cutting only under the crossfade\'s full cover',
+      ['court', 'skatepark', 'burger'].every((x) => names.has(x)) && blindJumps === 0
+        && copies === reel.played.length - 1,
+      `${reel.played.length} shots (${reel.played.join(' ')}), ${copies} stills, ${blindJumps} jumps in view`);
     check('title reel: the train only when it has the island left, and cut away from as it leaves',
-      trains === 1 && trainFramesOff <= Math.ceil((REEL_OUT + REEL_HOLD) / dt) + 1,
+      trains === 1 && trainFramesOff <= 2,
       `${trains} train shots, ${trainFramesOff} frames on a train that had gone`);
-    check('title reel: a shot is SHOT seconds plus its dip',
-      reel.played.length >= Math.floor(90 / (REEL_SHOT + REEL_HOLD)) - 2, `${reel.played.length} shots in 90 s`);
+    check('title reel: a shot is SHOT seconds',
+      reel.played.length >= Math.floor(90 / REEL_SHOT) - 2, `${reel.played.length} shots in 90 s`);
   }
 
   // Wheel sparks: a few showers a crossing, off the rail, only while running over the island.

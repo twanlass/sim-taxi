@@ -1,8 +1,8 @@
 /**
  * The title screen's backdrop as a reel of short shots: the camera jump cuts round the city's
  * landmarks — the basketball court, the skatepark, the L, the burger joint — and sits on each for
- * a few seconds with a slow drift, with a quick dip to black between them. `?titlecam=classic` is
- * the slow ellipse it replaced (`panAt` in game/titlescreen.js).
+ * a few seconds with a slow drift, crossfading from one to the next. `?titlecam=classic` is the
+ * slow ellipse it replaced (`panAt` in game/titlescreen.js).
  *
  * Like the drift, it does not move the camera itself. `frame(dt, aspect)` says where the camera is
  * this frame and main.js cuts it there, so the priority list stays the one place framing is decided.
@@ -10,9 +10,16 @@
  * shape it wants (a linear drift and a small push-in), and an ease towards a moving point would lag
  * it and smear every jump cut into a swoop.
  *
- * The dip is driven off the same clock as the shots, by setting the element's opacity each frame,
- * rather than as a WAAPI animation beside it: two clocks can disagree about when the screen is
- * black, and the one thing the dip is for is that the camera moves on a frame nobody sees.
+ * **The crossfade is a still of the outgoing shot dissolving off the incoming one.** A true blend
+ * of two live shots would draw the whole city twice a frame for the length of the fade, which a
+ * phone that is already at its frame budget cannot pay; a still costs one `drawImage` per cut.
+ * The handshake is two frames long: on the frame a shot ends, the reel holds the camera where it is
+ * and raises `snapDue()`; main.js draws that frame and then hands the WebGL canvas to `snapshot`
+ * *in the same task* (with `preserveDrawingBuffer` off, the buffer is only readable until it is
+ * presented), which copies it onto the overlay at full opacity. The next frame cuts the camera
+ * under that cover and the overlay fades out over `XFADE`. It is driven off the reel's own clock,
+ * by setting the overlay's opacity each frame, so the camera can only ever move under a full cover.
+ * (Tyler, 2026-10-18: the first cut dipped to black in 0.6 s, and he asked for a slower crossfade.)
  *
  * A shot is `{ name, at }`, with `at()` the subject's `{ x, y, z }` (y is how high above the
  * ground the subject's middle stands — see `aimAtHeight`) or null when it has nothing to show. A
@@ -26,11 +33,8 @@ import { aimAtHeight, RIGHT, UP, VIEW_DIR, PLAY_ZOOM, LOCO_PUNCH } from './camer
 /** Seconds on each shot, counted from the cut — "a couple of seconds", per the brief, and enough
  *  for a jump shot or a run at the ramp to play out inside it. */
 export const SHOT = 5;
-// The dip: out fast, a beat of black, in slower — the same shape as game/wipe.js's skip, quicker,
-// because this one recurs every few seconds and should read as a cut, not as a scene change.
-export const DIP_OUT = 0.22;
-export const DIP_HOLD = 0.08;
-export const DIP_IN = 0.34;
+/** Seconds the outgoing shot takes to dissolve off the incoming one. */
+export const XFADE = 1.4;
 /**
  * Every shot's framing: halfway between the game's own camera and the Loco Mode push-in (Tyler,
  * 2026-10-17 — the first cut framed each landmark at 11 to 17 and read as far too tight). 45.8, so
@@ -73,10 +77,11 @@ const smooth = (k) => k * k * (3 - 2 * k);
  *   live?: boolean, minLeft?: () => number }>} opts.shots
  *        In playing order. A shot with `live` is an *event* (the train) and is slotted in whenever it
  *        is available and was not the last thing shown; the rest rotate.
- * @param {HTMLElement | null} [opts.dip]  A black full-screen element under the menu. Null → hard cuts.
+ * @param {HTMLCanvasElement | null} [opts.cover]  A full-screen 2D canvas under the menu that the
+ *        outgoing shot is copied onto. Null → hard cuts.
  * @param {() => boolean} [opts.still]  Reduced motion: hard cuts, no drift.
  */
-export function createTitleReel({ shots, dip = null, still = () => false }) {
+export function createTitleReel({ shots, cover = null, still = () => false }) {
   const rotation = shots.filter((s) => !s.live && s.at());
   const events = shots.filter((s) => s.live);
   if (!rotation.length) return null;
@@ -84,9 +89,10 @@ export function createTitleReel({ shots, dip = null, still = () => false }) {
   let next = 0;            // index into `rotation`
   let current = null;
   let clock = 0;
-  let first = true;
-  let leaving = false;     // the dip out has started; the cut lands when it is black
-  let leaveAt = SHOT;      // when the dip out starts, in shot seconds
+  let leaveAt = SHOT;      // when the shot ends, in shot seconds
+  let snapDue = false;     // the shot has ended; waiting for main.js to hand over this frame
+  let snapped = false;     // ...and it has: the outgoing frame is on the cover, cut next frame
+  let fadeClock = XFADE;   // seconds into the current crossfade; XFADE when none is running
   let side = 1;            // drift direction, alternated per shot
   // On a phone, whether the subject goes above the menu (-1) or below it (+1). At REEL_ZOOM a frame
   // is most of the island across, so a landmark near the far coast put under the menu lifts the
@@ -111,7 +117,6 @@ export function createTitleReel({ shots, dip = null, still = () => false }) {
     last = current;
     played.push(current.name);
     clock = 0;
-    leaving = false;
     leaveAt = SHOT;
     side = -side;
     // The side whose target lands nearer the middle of the map: the target is the subject moved
@@ -128,9 +133,9 @@ export function createTitleReel({ shots, dip = null, still = () => false }) {
   // than jumping to the middle of the map when `at()` goes null under them.
   let seen = current.at();
 
-  function setDip(v) {
-    if (!dip) return;
-    dip.style.opacity = v <= 0 ? '0' : v.toFixed(3);
+  function setCover(v) {
+    if (!cover) return;
+    cover.style.opacity = v <= 0 ? '0' : v.toFixed(3);
   }
 
   return {
@@ -138,33 +143,41 @@ export function createTitleReel({ shots, dip = null, still = () => false }) {
     played,
     current: () => current.name,
     /**
-     * Advance the reel and say where the camera is: `{ x, z, zoom }`, a ground target, and how
-     * dark the dip is (`black`, 0..1) — also written to the dip element.
+     * Advance the reel and say where the camera is: `{ x, z, zoom }`, a ground target.
      */
     frame(dt, aspect) {
+      // The outgoing frame went onto the cover last frame: cut under it and start the fade.
+      if (snapped) {
+        snapped = false;
+        cut();
+        seen = current.at() ?? seen;
+        fadeClock = 0;
+      } else if (snapDue) {
+        // Nobody took the snapshot (no canvas to read): cut bare rather than hang on this shot.
+        snapDue = false;
+        cut();
+        seen = current.at() ?? seen;
+      }
       clock += dt;
       const subject = current.at();
       if (subject) seen = subject;
       // A live shot that has lost its subject, or is about to, leaves now (but not inside MIN_HOLD).
-      if (!leaving && current.live && clock >= MIN_HOLD
-        && (!subject || (current.minLeft?.() ?? Infinity) < DIP_OUT + DIP_HOLD)) {
+      if (current.live && clock >= MIN_HOLD && clock < leaveAt
+        && (!subject || (current.minLeft?.() ?? Infinity) < 0.1)) {
         leaveAt = clock;
       }
-      if (!leaving && clock >= leaveAt) leaving = true;
-      let black = 0;
-      if (leaving) {
-        const out = (clock - leaveAt) / DIP_OUT;
-        black = smooth(Math.min(1, out));
-        if (clock - leaveAt >= DIP_OUT + DIP_HOLD || still()) {
+      if (clock >= leaveAt) {
+        // Hold this frame's framing (clock is not advanced past the shot) and ask for the snapshot.
+        if (cover && !still()) snapDue = true;
+        else {
           cut();
-          first = false;
           seen = current.at() ?? seen;
-          black = still() ? 0 : 1;
+          clock = 0;
         }
-      } else if (!first && clock < DIP_IN && !still()) {
-        black = 1 - smooth(clock / DIP_IN);
       }
-      setDip(black);
+      fadeClock = Math.min(XFADE, fadeClock + (fadeClock < XFADE ? dt : 0));
+      const covered = fadeClock < XFADE ? 1 - smooth(fadeClock / XFADE) : 0;
+      setCover(covered);
 
       const k = Math.min(1, clock / SHOT);
       const tall = aspect < 1;
@@ -182,7 +195,8 @@ export function createTitleReel({ shots, dip = null, still = () => false }) {
         x: aim.x + RIGHT.x * across + UP.x * up,
         z: aim.z + RIGHT.z * across + UP.z * up,
         zoom,
-        black,
+        // How much of the screen the outgoing shot still covers, 0..1 — also written to the cover.
+        covered,
       };
     },
     /**
@@ -203,7 +217,24 @@ export function createTitleReel({ shots, dip = null, still = () => false }) {
       }
       return pts;
     },
-    /** Lift the dip at once — Play hands the screen to the wipe. */
-    clear() { setDip(0); },
+    /** The shot has ended: draw this frame, then hand the canvas to `snapshot`. */
+    snapDue: () => snapDue,
+    /**
+     * Copy the frame just drawn onto the cover at full opacity; the next `frame` cuts under it.
+     * Must run in the same task as the render (see the header).
+     */
+    snapshot(source) {
+      if (!snapDue) return;
+      snapDue = false;
+      if (cover) {
+        if (cover.width !== source.width) cover.width = source.width;
+        if (cover.height !== source.height) cover.height = source.height;
+        cover.getContext('2d')?.drawImage(source, 0, 0);
+        setCover(1);
+      }
+      snapped = true;
+    },
+    /** Drop the cover at once — Play hands the screen to the wipe. */
+    clear() { setCover(0); fadeClock = XFADE; },
   };
 }

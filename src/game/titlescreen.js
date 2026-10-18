@@ -69,9 +69,10 @@ export function createTitleScreen(root, { sound, settings, onPlay }) {
   let clock = 0;
 
   const scrim = el('div', 'title-scrim');
-  // The reel's dip to black between shots (game/titlereel.js). Under the menu, so the words stay
-  // up through every cut, and never takes a tap — a Play pressed mid-dip has to land.
-  const dip = el('div', 'title-dip');
+  // The reel's crossfade cover (game/titlereel.js): the outgoing shot, copied here at each cut and
+  // faded off the incoming one. Under the menu, so the words stay up through every cut, and never
+  // takes a tap — a Play pressed mid-fade has to land.
+  const cover = el('canvas', 'title-cover');
 
   // --- the menu ---------------------------------------------------------------------------------
   const menu = el('nav', 'title-view title-menu');
@@ -96,7 +97,7 @@ export function createTitleScreen(root, { sound, settings, onPlay }) {
   }
   creditsPage.body.append(list);
 
-  root.append(dip, scrim, menu, settingsPage.section, creditsPage.section);
+  root.append(cover, scrim, menu, settingsPage.section, creditsPage.section);
   root.setAttribute('role', 'dialog');
   root.setAttribute('aria-label', 'Rocket Rides');
 
@@ -151,7 +152,7 @@ export function createTitleScreen(root, { sound, settings, onPlay }) {
   return {
     holding: () => holding,
     view: () => view,
-    dip,
+    cover,
     show,
     play,
     /** Advance the drift's clock and say where the camera wants to be. */
