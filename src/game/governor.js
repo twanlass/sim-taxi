@@ -24,9 +24,16 @@
  * interval at 30% GPU load as at 95%: the governor reacts to throttling, it does not anticipate
  * it. That is also why it never climbs *above* the budget's cap — "there is room" is only ever a
  * guess, and the cap is the look the game was designed at.
+ *
+ * **Nor below what the player chose.** `floor` is the lowest ratio it may reach, and the Quality
+ * setting supplies it (game/settings.js). It used to be 1 for everyone, so on a warm iPhone Ultra
+ * stepped 3 → 2.625 → 2.25 → 1.875 → **1.5** and stayed there: a softer picture than Regular's 2,
+ * at Ultra's cost. Tyler noticed (2026-10-18, "while on ultra, sometimes it renders at regular").
+ * Ultra now stops at 2.25, the last step still sharper than Regular; past that a hot phone sheds
+ * frames instead, which is the trade the player made by picking it.
  */
 
-/** Multipliers on the budget's cap, cheapest last. Never below a ratio of 1. */
+/** Multipliers on the budget's cap, cheapest last. Never below `floor`, which defaults to 1. */
 const STEPS = [1, 0.875, 0.75, 0.625, 0.5];
 const MIN_RATIO = 1;
 /** Seconds per judgement window. */
@@ -57,6 +64,8 @@ export function createGovernor({
   // The interval a frame is meant to take: one vsync, or two under the 30 fps cap. A capped frame
   // judged against 60 would read as late every time.
   targetMs = () => VSYNC_MS,
+  // The lowest ratio it may step to, read live so a Quality change moves it. See the note above.
+  floor = () => MIN_RATIO,
 }) {
   let level = 0;
   let frames = 0;
@@ -69,7 +78,7 @@ export function createGovernor({
   let steppedUpAt = -Infinity;
 
   const cap = () => Math.min(globalThis.devicePixelRatio ?? 1, budget.pixelRatioCap);
-  const ratioAt = (l) => Math.max(Math.min(MIN_RATIO, cap()), cap() * STEPS[l]);
+  const ratioAt = (l) => Math.max(Math.min(floor(), cap()), cap() * STEPS[l]);
   // The cheapest step that still lowers the ratio: on a cap of 1 there is nowhere to go at all.
   const floorLevel = () => {
     let l = 0;

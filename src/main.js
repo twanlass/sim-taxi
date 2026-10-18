@@ -423,6 +423,9 @@ const governor = createGovernor({
   enabled: !shot && new URLSearchParams(window.location.search).get('governor') !== 'off',
   onChange: (text) => diag.note(text),
   targetMs: () => 1000 / Math.min(60, frameRateCap()),
+  // The chosen Quality's floor, so Ultra never steps below Regular's sharpness. A `?dpr=` pin is
+  // not the setting's to bound.
+  floor: () => (resolutionPinned ? 1 : qualityOf(settings.get()).floor),
 });
 // The Quality setting's resolution, live: the cap moves and the governor re-derives its ratio from
 // it. Not while `?dpr=` pins it, nor under `?safe`, whose whole point is the cheapest budget. The

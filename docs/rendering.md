@@ -2030,8 +2030,8 @@ The first iPhone `?bench` (2026-10-10, [testing.md](testing.md#what-a-frame-cost
 held 59.4 fps on 3.1 ms of CPU from cool, and the same baseline four minutes later read **52 fps
 with 16.6% of frames late** on an unchanged scene. The phone had throttled. Two things answer it:
 
-- **The governor** steps the pixel ratio down a notch (2 → 1.75 → 1.5 → 1.25 → 1, never below the
-  device's own 1) when a two-second window has 8% or more of its frames late, and back up after
+- **The governor** steps the pixel ratio down a notch (2 → 1.75 → 1.5 → 1.25 → 1 on Regular, never
+  below the device's own 1; 3 → 2.625 → 2.25 on Ultra, whose floor stays sharper than Regular) when a two-second window has 8% or more of its frames late, and back up after
   thirty seconds clean. A step up that slips straight back doubles that wait, up to four minutes.
   Ratio is the only lever that moves on a live renderer; every target behind the drawing buffer
   already follows it, the same path recovery uses. Paused and finished runs don't count toward it,

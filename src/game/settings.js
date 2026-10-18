@@ -50,11 +50,13 @@ export const DEFAULT_SETTINGS = Object.freeze({
  *   - Resolution is the small one. 2x to 1x took only 11% off. 3 is an iPhone's native density
  *     (2.25x the pixels of 2); a screen below 3 is capped at its own ratio, and the governor
  *     (game/governor.js) steps down from either cap when frames slip.
+ *   - `floor` is as far as the governor may take it. Ultra's sits above Regular's resolution, so a
+ *     hot phone on Ultra never draws softer than Regular would (it was reaching 1.5).
  * `?dpr=` and `?fps=` on the URL still beat whichever is chosen.
  */
 export const QUALITIES = Object.freeze({
-  ultra: Object.freeze({ label: 'Ultra', resolution: 3, frameRate: 60 }),
-  regular: Object.freeze({ label: 'Regular', resolution: 2, frameRate: 30 }),
+  ultra: Object.freeze({ label: 'Ultra', resolution: 3, frameRate: 60, floor: 2.25 }),
+  regular: Object.freeze({ label: 'Regular', resolution: 2, frameRate: 30, floor: 1 }),
 });
 
 /** The resolution and frame rate a settings object asks for. */
