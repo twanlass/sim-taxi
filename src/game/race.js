@@ -3,36 +3,41 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { GRID_I, GRID_J, lineX, lineZ, riverBanks } from '../city/grid.js';
 import { cityNetwork } from '../city/roadnet.js';
 import {
-  carGeometry, setClosedLanes, isLaneClosed, stopDistance, hardBrake, STOP_SETBACK, CAR_LEN, CAR_W, MIN_GAP,
+  carGeometry, setClosedLanes, isLaneClosed, stopDistance, hardBrake, STOP_SETBACK, CAR_LEN, CAR_W,
   CABIN_X, CABIN_TOP, SPAWN_CLEARANCE, ROAD_Y,
 } from '../sim/traffic.js';
 import { findRoute, findRouteOnto, planOrigin, estimateSeconds } from './route.js';
 import { sightlineClear } from './sightline.js';
 import { ARRIVE_RADIUS, blockDistance } from './fares.js';
-import { BILLBOARD, VIEW_UP } from './camera.js';
-import { propMaterial, cloneProp, bakeColor, setFinish, FINISH, BODY_EULER_ORDER } from '../util/geo.js';
+import { propMaterial, unlitMaterial, cloneProp, bakeColor, setFinish, FINISH, BODY_EULER_ORDER } from '../util/geo.js';
 import { color } from '../palette.js';
-import { wheelAnchors, wheelGeometry, SILL_Y } from '../geometry/wheels.js';
+import { wheelAnchors, wheelGeometry, SILL_Y, CHASSIS_LIFT } from '../geometry/wheels.js';
 import { createTargetRing, RING_Y } from '../geometry/targetring.js';
 import { createRaceFlag } from '../geometry/raceflag.js';
 import { BOOST_START_FRACTION } from './boost.js';
 import { markOccluder } from './ssao.js';
 
-// The street race. A violet car with a wing on it pulls over a couple of blocks from the taxi and
-// waits with a chequered flag over its roof. Tap it and drive up behind it, and a corner a few blocks
-// away is marked as the finish; three, two, one, and both cars go. Get there first and it pays; get
-// there second and it costs.
+// The street race. With the cab empty and nowhere to be, a violet street racer with a wing on it
+// and a chequered flag over its roof comes looking for the taxi: the taxi pulls up, the racer comes
+// round and stops level with it, the camera goes to look at the finish a few blocks away and comes
+// back, and it is three, two, one. Get there first and it pays; get there second and it costs.
 //
-// **It is taken on, never imposed.** The robbery's rule is that an imposed event cannot cost the run,
-// and a race costs cash when it is lost — so it has to be a choice, and the cheapest way to make it one
-// is the way every other choice in this game is made: a tap. Declining is not tapping. Nothing is
-// asked, there is no button to say no with, and an offer nobody takes drives off on its own
-// (`OFFER_TIME`). The stakes are on the rival's speech bubble before anything is committed.
+// **It comes to you, and any tap says no.** It started out as an offer the player had to find and
+// tap, and in play nobody could make it happen (Tyler: "I can't seem to reliably trigger the
+// events"): the racer was on screen without its flag for the twenty seconds it spent driving to the
+// kerb, and an offer was dropped on the first frame anything else held the run, so a tap usually
+// landed on a car that was not offering anything. So now it simply starts. But a race costs cash
+// when it is lost, and the robbery's rule is that an imposed event cannot cost the run — so the
+// player can always back out, and backing out is the thing they were going to do anyway: tap a
+// rider, a street, the depot. Anything that gives the taxi a route before the flag drops calls the
+// race off and nothing changes hands (`'declined'`). The stakes are on the racer's bubble from the
+// moment it turns up.
 //
-// **One seat.** It is taken with an empty cab only (`canAccept`, main.js), and while it runs the rest
-// of the board steps aside exactly as it does for a getaway — riders hidden, their clocks held, nobody
-// new spawning, the courier's pads off the map (`holdsBoard`, read through `setHold` in
-// game/fares.js). Otherwise accepting would cost a fare's clock on top of the bet, and nobody would.
+// **One seat, and only when idle.** It starts only with an empty cab that has no target (`canStart`,
+// main.js) — between a drop-off and the next tap, which is exactly the moment the player is not
+// using the taxi for anything. Once the flag drops the rest of the board steps aside as it does for
+// a getaway (`holdsBoard`, read through `setHold` in game/fares.js); before then the riders stay up,
+// because a tap on one is how the race is declined.
 //
 // **The rival is a car in traffic** (`enterGuest` in sim/traffic.js), the fire engine's arrangement:
 // it is routed to the finish by the same router the taxi is, queues, and can be bumped. What makes it
@@ -42,8 +47,8 @@ import { markOccluder } from './ssao.js';
 // you got ahead, would take the win away from the player along with the loss — so it drives one way
 // all race, and what the player has over it is Loco Mode and a route of their own choosing.
 //
-// **The start is window to window.** Say yes and the taxi pulls up where it is (`parked`), and the
-// rival comes to it: routed onto the lane that runs the other way past the taxi, and stopped level
+// **The start is window to window.** The taxi pulls up where it is (`parked`), and the rival comes
+// to it: routed onto the lane that runs the other way past the taxi, and stopped level
 // with it. Then the camera goes and looks at the finish (main.js, `countIn`), comes back, and it is
 // three, two, one. Facing opposite ways is the point rather than the price: the streets have one
 // lane each way, so "beside you, in the other lane" is the oncoming lane, and a rival sat in it
@@ -56,23 +61,20 @@ import { markOccluder } from './ssao.js';
 // (Tyler: "pulling around behind them is strange"), handed the rival a car length's lead, and needed
 // three separate fixes to stop the queue deadlocking on the cross traffic.
 
-// When an offer turns up. Off the run's own clock and only while nothing upstages it (`blocked`),
+// When a racer turns up. Off the run's own clock and only while nothing upstages it (`blocked`),
 // like the fire and the roadworks: it is something to take or leave, not pressure.
 const FIRST_WAIT = [45, 75];
 const REPEAT_WAIT = [100, 160];
 const SOON_WAIT = 4;            // ?race=soon
 const RETRY_WAIT = 4;           // nothing qualified this time
 
-const ARRIVE_MAX = 40;          // the rival has this long to get to its spot, or the offer is dropped
-export const OFFER_TIME = 30;   // how long it waits at the kerb for a taker
-const STOP_MAX = 20;            // the taxi has this long to find somewhere to pull up once it said yes
+const STOP_MAX = 20;            // the taxi has this long to find somewhere to pull up
 const PULLUP_MAX = 35;          // ...and the rival this long to get round to it
 // The camera's look at the finish is main.js's (`countIn`); this is how long the start waits for it
 // before counting anyway — a swipe mid-pan drops the peek's callback, and the tools have no camera.
 const REVEAL_MAX = 6;
 export const COUNTDOWN = 3;     // seconds of three, two, one
 const RACE_MAX = 75;            // nobody home by now — the race is called off and nothing changes hands
-const LINE_SHORT = 1;           // how far short of the hold line the rival waits — see `spots`
 // Where on its lane the taxi may pull up: the middle of the block. Short of its own hold line, so it
 // has not committed to the junction ahead (CLAUDE.md: `state` flips to `turn` there); and far enough
 // in that the rival, level with it on the other lane, is short of *its* hold line too — the two lanes
@@ -112,17 +114,17 @@ export const TANK_FLOOR = BOOST_START_FRACTION;
  * 32 races it ran against Loco Mode whatever this was set to.
  *
  * Measured with `tools/race.mjs` over 24 races, a player holding Loco Mode from the green until
- * the tank is dry: 1/4 tank wins 63%, the 1/3 floor 67%, a full tank 71%, and never touching the
- * pill wins none (the boosting taxi is home in a median 4.9s). At 1.3 the floor won 83%, at 1.8
- * 75%. It was 1.3 when the start was a queue with the rival a car length ahead; window to window,
+ * the tank is dry: 1/4 tank wins 50%, the 1/3 floor 58%, a full tank 58%, and never touching the
+ * pill wins none. With the rival turning up mid-block rather than at a hold line it was 63/67/71;
+ * at 1.3 the floor won 83%, at 1.8 75%. It was 1.3 when the start was a queue with the rival a car length ahead; window to window,
  * with the two routes evened out, the taxi lost that lead and the kick off the line is all its own.
  * That bot never misses a turn or brushes a car, so a person wins less often than it does — about
  * even is the aim, which the lopsided stakes then pay for.
  */
 export const RIVAL_CHASE = 2.0;
-const ARRIVING_CHASE = 0.3;     // on its way to the kerb: a car in a hurry, not a race
 
-// Where the rival may park, off the taxi: far enough to be a drive, near enough to be on screen.
+// Where the racer turns up, off the taxi: far enough to be seen coming, near enough to get round to
+// it quickly.
 const SPOT_NEAR = 16;
 const SPOT_FAR = 46;
 const SPOT_IDEAL = 30;
@@ -143,16 +145,37 @@ const FLAG_LIFT = 0.6;
 // big again as the roof flag so it reads from the far side of a phone screen.
 const FINISH_FLAG_Y = 4.5;
 const FINISH_FLAG_SCALE = 1.5;
-// The tap target: a quad in the screen plane over the car and its flag (see BILLBOARD in
-// game/camera.js and the tap-target trap in CLAUDE.md). 9 across is well inside the 14.1 that two
-// neighbouring junctions are apart on screen.
-const HIT_W = 9;
-const HIT_H = 9;
+const ACTIVE = new Set(['stopping', 'pulling-up', 'reveal', 'countdown', 'racing']);
 
-const BUSY = new Set(['stopping', 'pulling-up', 'reveal', 'countdown', 'racing']);
-
-const smoothstep = (t) => t * t * (3 - 2 * t);
 const clamp01 = (v) => Math.max(0, Math.min(1, v));
+
+// The ordinary car's body, which the racer's dress is measured off: a deck 0.8 tall centred on
+// `0.78 + CHASSIS_LIFT` (`carGeometry`), and a cabin `CAR_LEN / 2` long set back by CABIN_X.
+const DECK_TOP = 0.78 + CHASSIS_LIFT + 0.4;
+const CABIN_FRONT = CABIN_X + CAR_LEN / 4;
+const CABIN_BACK = CABIN_X - CAR_LEN / 4;
+// The bodywork's edges are rounded (`BODY_ROUND`), so dress laid flat on a deck stops this far
+// short of its ends, where the deck has already started to fall away.
+const EDGE_IN = 0.14;
+
+// The spoiler. Standing *proud* of the roofline: tucked under it, as it first was, the blade sat
+// against the back of the cabin from this camera and read as part of it — Tyler asked for "a little
+// spoiler" on a car that already had one. End plates make it a wing rather than a shelf.
+const WING_X = -CAR_LEN / 2 + 0.28;
+const WING_Y = CABIN_TOP + 0.12;
+const WING_SPAN = CAR_W * 1.04;
+
+// The racing stripe, nose to tail over the deck and the roof.
+const STRIPE_W = 0.42;
+const STRIPE_T = 0.03;          // half of it buried, so its underside never shares a plane with paint
+
+// The underglow: a pad of light on the road under the car, solid under the body and fading to
+// nothing GLOW_REACH outside it. Sized at play zoom (1 unit ≈ 7.7px): the body hides the middle,
+// so what reads is the fringe, and 0.8 of it is ~6px all round — a halo, not a puddle.
+const GLOW_REACH = 0.8;
+const GLOW_INSET = 0.15;
+const GLOW_Y = 0.05;
+const GLOW_ALPHA = 0.9;
 
 /** The rival's body: an ordinary car's, in its own paint, with a wing on the boot. */
 function rivalBodyGeometry() {
@@ -161,19 +184,77 @@ function rivalBodyGeometry() {
     g.translate(x, y, z);
     return setFinish(bakeColor(g, color('racerWing')), FINISH.PAINT);
   };
-  const tail = -CAR_LEN / 2 + 0.3;
-  const top = CABIN_TOP - 0.05;
+  const strutH = WING_Y - DECK_TOP;
   const parts = [
     carGeometry(),
-    // The blade, a little under the roofline so it reads as a wing and not a second roof.
-    wing(0.42, 0.08, CAR_W * 0.95, tail, top, 0),
-    // Its two struts down onto the boot.
-    wing(0.1, top - 1.35, 0.1, tail, (top + 1.35) / 2, CAR_W * 0.3),
-    wing(0.1, top - 1.35, 0.1, tail, (top + 1.35) / 2, -CAR_W * 0.3),
+    // The blade, raked a touch by being deeper than it is thick.
+    wing(0.5, 0.08, WING_SPAN, WING_X, WING_Y, 0),
+    // End plates at the tips.
+    ...[1, -1].map((side) => wing(0.6, 0.34, 0.06, WING_X, WING_Y - 0.08, side * (WING_SPAN / 2 - 0.03))),
+    // Two struts down onto the boot, their feet buried in it.
+    ...[1, -1].map((side) => wing(0.1, strutH + 0.05, 0.1, WING_X, DECK_TOP + strutH / 2 - 0.025, side * CAR_W * 0.28)),
   ];
   const merged = mergeGeometries(parts, false);
   parts.forEach((p) => p.dispose());
   return merged;
+}
+
+/**
+ * The white stripe down the middle: bonnet, roof and boot. Its own geometry because the body's paint
+ * is a multiply over white (`carGeometry`) — merged into the body, the stripe would come out violet.
+ */
+function stripeGeometry() {
+  const strip = (x0, x1, y) => {
+    const g = new THREE.BoxGeometry(x1 - x0, STRIPE_T, STRIPE_W);
+    g.translate((x0 + x1) / 2, y, 0);
+    return setFinish(bakeColor(g, color('racerStripe')), FINISH.PAINT);
+  };
+  const parts = [
+    strip(CABIN_FRONT, CAR_LEN / 2 - EDGE_IN, DECK_TOP),
+    strip(CABIN_BACK + EDGE_IN, CABIN_FRONT - EDGE_IN, CABIN_TOP),
+    strip(-CAR_LEN / 2 + EDGE_IN, CABIN_BACK, DECK_TOP),
+  ];
+  const merged = mergeGeometries(parts, false);
+  parts.forEach((p) => p.dispose());
+  return merged;
+}
+
+/**
+ * The underglow's pad: a rectangle under the body at full strength, and a ring around it whose outer
+ * edge is transparent, so the light falls off across GLOW_REACH. Alpha rides a four-component colour
+ * attribute; every triangle is wound to face up, and `tools/probe.mjs` checks it does (see the
+ * winding traps in CLAUDE.md — on an unlit material a reversed triangle does not draw at all).
+ */
+export function underglowGeometry() {
+  const hx = CAR_LEN / 2 - GLOW_INSET;
+  const hz = CAR_W / 2 - GLOW_INSET;
+  const inner = [[hx, hz], [-hx, hz], [-hx, -hz], [hx, -hz]];
+  const outer = inner.map(([x, z]) => [x + Math.sign(x) * GLOW_REACH, z + Math.sign(z) * GLOW_REACH]);
+  const pos = [];
+  const col = [];
+  const tri = (a, b, c) => {
+    // Face up (+Y): a triangle is up-facing when (b − a) × (c − a) has a positive y, which for
+    // points in the ground plane is (bz − az)(cx − ax) − (bx − ax)(cz − az).
+    const y = (b[1] - a[1]) * (c[0] - a[0]) - (b[0] - a[0]) * (c[1] - a[1]);
+    const [p, q, r] = y > 0 ? [a, b, c] : [a, c, b];
+    for (const v of [p, q, r]) {
+      pos.push(v[0], GLOW_Y, v[1]);
+      col.push(1, 1, 1, v[2]);
+    }
+  };
+  const I = inner.map(([x, z]) => [x, z, 1]);
+  const O = outer.map(([x, z]) => [x, z, 0]);
+  tri(I[0], I[1], I[2]);
+  tri(I[0], I[2], I[3]);
+  for (let k = 0; k < 4; k++) {
+    const n = (k + 1) % 4;
+    tri(I[k], O[k], O[n]);
+    tri(I[k], O[n], I[n]);
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute('color', new THREE.Float32BufferAttribute(col, 4));
+  return g;
 }
 
 /**
@@ -198,6 +279,24 @@ function createRivalMesh() {
   body.receiveShadow = true;
   shell.add(body);
 
+  const stripeGeo = stripeGeometry();
+  const stripe = new THREE.Mesh(stripeGeo, propMaterial({ gloss: { geometry: stripeGeo, floor: SILL_Y } }));
+  stripe.receiveShadow = true;
+  shell.add(stripe);
+
+  // Additive, so it brightens whatever road it lands on rather than painting over it, and it reads
+  // at night as light and by day as a tint. Never writes depth and is never in a depth pass.
+  const glow = new THREE.Mesh(underglowGeometry(), unlitMaterial({
+    color: color('racerGlow'),
+    vertexColors: true,
+    transparent: true,
+    opacity: 0,
+    depthWrite: false,
+    blending: THREE.AdditiveBlending,
+  }));
+  glow.renderOrder = 1;
+  shell.add(glow);
+
   const wheelGeo = wheelGeometry();
   const wheelMat = propMaterial({ gloss: { geometry: wheelGeo } });
   const wheels = wheelAnchors(CAR_LEN, CAR_W)
@@ -211,10 +310,10 @@ function createRivalMesh() {
     });
 
   // Dissolved in and out rather than blended — the cruiser's and the engine's `alphaHash`.
-  const faders = [body.material, wheelMat];
+  const faders = [body.material, stripe.material, wheelMat];
   for (const material of faders) material.alphaHash = true;
   shell.visible = false;
-  return { group, shell, body, wheels, faders, occluders: [body, ...wheels] };
+  return { group, shell, body, wheels, glow, faders, occluders: [body, stripe, ...wheels] };
 }
 
 /**
@@ -223,13 +322,15 @@ function createRivalMesh() {
  * @param traffic  the sim — `enterGuest`, `retireGuest`, `taxi`
  * @param routeTo  main.js's router, `(target) => boolean` — the one that keeps `pendingTarget` and the
  *                 route band honest (see `createBurgerRun` for why it is injected)
- * @param blocked  `() => boolean` — true while no new offer may turn up; the countdown holds
+ * @param blocked  `() => boolean` — true while no racer may turn up; one that is on is called off
+ * @param canStart `() => boolean` — is the taxi free: an empty cab with nowhere it is going
  * @param onEvent  `(type, detail) => void` — everything the player sees off the car: the bubble, the
  *                 count, the money. This module knows a race happened, not what a run's cash is.
  * @param soon     `?race=soon`
  */
 export function createRace({
-  rng, scene, traffic, routeTo, blocked = () => false, onEvent = () => {}, soon = false,
+  rng, scene, traffic, routeTo, blocked = () => false, canStart = () => true, onEvent = () => {},
+  soon = false,
 }) {
   const taxi = traffic.taxi;
   let rivalChase = RIVAL_CHASE;
@@ -238,21 +339,14 @@ export function createRace({
   scene.add(rival.group);
   markOccluder(rival.group);
 
-  // The flag over the rival's roof, and the tap target with it. On a group that follows the car
-  // rather than on the car's own group, so it can stand upright while the body pitches and rolls.
+  // The flag over the rival's roof, from the moment it turns up until the flag drops. On a group
+  // that follows the car rather than on the car's own group, so it can stand upright while the body
+  // pitches and rolls.
   const offer = new THREE.Group();
   offer.name = 'race-offer';
   const roofFlag = createRaceFlag({ pole: 1.8 });
   roofFlag.group.position.y = CABIN_TOP + FLAG_LIFT - 1.8 * 0.35;
   offer.add(roofFlag.group);
-  const hit = new THREE.Mesh(
-    new THREE.PlaneGeometry(HIT_W, HIT_H),
-    new THREE.MeshBasicMaterial({ visible: false, side: THREE.DoubleSide }),
-  );
-  hit.quaternion.copy(BILLBOARD);
-  hit.position.copy(VIEW_UP).multiplyScalar(HIT_H / 2 - 1);
-  offer.add(hit);
-  offer.userData.pickable = 'racer';
   offer.visible = false;
   scene.add(offer);
 
@@ -271,16 +365,15 @@ export function createRace({
   scene.add(finishFlag.group);
 
   const state = {
-    // 'waiting' — nothing on; 'arriving' — the rival is driving to its spot; 'offer' — parked, flag
-    // up, waiting for a tap; 'stopping' — the taxi said yes and is pulling up; 'pulling-up' — the
-    // rival is on its way round to it; 'reveal' — side by side, the camera off looking at the
+    // 'waiting' — nothing on; 'stopping' — a racer has turned up and the taxi is pulling up;
+    // 'pulling-up' — the rival is on its way round to it; 'reveal' — side by side, the camera off looking at the
     // finish; 'countdown'; 'racing'; 'leaving' — it is over and the rival is driving off.
     phase: 'waiting',
     phaseT: 0,
     t: 0,
     cooldown: soon ? SOON_WAIT : rng.range(FIRST_WAIT[0], FIRST_WAIT[1]),
     car: null,
-    /** Where the rival is headed and stops: the offer's kerb, then the taxi's side. */
+    /** Where the rival stops: level with the taxi, in the other lane. */
     spot: null,
     /** The lane the taxi pulled up on. */
     taxiLane: null,
@@ -318,7 +411,7 @@ export function createRace({
     return Boolean(banks) && z > banks.z0 - 2 && z < banks.z1 + 2;
   }
 
-  /** Every lane the rival could park on this frame, with where on it. */
+  /** Every lane the racer could turn up on this frame, with where on it. */
   function spots() {
     const net = cityNetwork();
     const out = [];
@@ -330,16 +423,10 @@ export function createRace({
       // Not the ring road: its corners are curves and its outer kerb is the edge of the island.
       const ring = (n) => n.gi === 0 || n.gi === GRID_I || n.gj === 0 || n.gj === GRID_J;
       if (ring(a) && ring(b)) continue;
-      // At the hold line, like a car waiting on a light, which leaves the rest of the lane for the
-      // queue behind it rather than parking it across the junction behind. Standing at the line
-      // costs the cross streets nothing past one `STOP_PATIENCE`.
-      //
-      // **Short of it, not on it.** A car's state flips to `turn` at the hold line (CLAUDE.md), and
-      // a rival that reached it committed to the corner and then stood there under its roadblock —
-      // stranded in the junction box as far as everyone else could tell, which held the whole
-      // junction for the length of the offer.
-      const s = lane.length - STOP_SETBACK - LINE_SHORT;
-      if (s - MIN_GAP < CAR_LEN / 2 + 0.5) continue;
+      // Mid-block: clear of both junctions, so the car that dissolves in is not born in a box or
+      // past a hold line (CLAUDE.md, on cars handed to the traffic model inside their stop line).
+      const s = lane.length / 2;
+      if (s < STOP_SETBACK + CAR_LEN / 2) continue;
       const p = lane.path.at(s);
       if (overWater(p.z)) continue;
       const d = Math.hypot(p.x - taxi.x, p.z - taxi.z);
@@ -411,28 +498,39 @@ export function createRace({
     return Boolean(back) && !isLaneClosed(back.id);
   }
 
-  /** Bring the rival on, and point it at its spot. Answers whether it arrived. */
+  /**
+   * Bring the racer on, a couple of blocks off, and pull the taxi up for it. Answers whether one
+   * came. Not while the taxi is wanted for anything (`canStart`).
+   */
   function summon() {
+    if (!canStart() || taxi.route.length || taxi.parked) return false;
     const all = spots();
     if (!all.length) return false;
     const pool = all.sort((a, b) => Math.abs(a.d - SPOT_IDEAL) - Math.abs(b.d - SPOT_IDEAL)).slice(0, 5);
-    const spot = rng.pick(pool);
-    const car = traffic.enterGuest({ x: spot.x, z: spot.z }, { isTruck: false });
+    const at = rng.pick(pool);
+    const car = traffic.enterGuest({ x: at.x, z: at.z }, { isTruck: false });
     if (!car) return false;
     car.skin = skin;
     car.guestWreck = wreck;
     car.route = [];
-    car.chase = ARRIVING_CHASE;
+    // At race pace from the off, with the racer's licence at the stops: the player is sat waiting,
+    // and every second it spends on the way round is a second of nothing.
+    car.chase = rivalChase;
+    car.racer = true;
     state.car = car;
-    state.spot = spot;
+    state.spot = null;
     state.finish = null;
     state.taxiLane = null;
     rival.group.position.set(car.x, 0, car.z);
     rival.shell.visible = true;
+    offer.visible = true;
     state.fade = 0;
     state.fading = 1;
     state.offers += 1;
-    setPhase('arriving');
+    taxi.pendingTarget = null;
+    taxi.parked = false;
+    setPhase('stopping');
+    onEvent('challenge', { car, win: WIN_PAY, lose: LOSE_COST });
     return true;
   }
 
@@ -467,21 +565,6 @@ export function createRace({
   }
 
   // --- The race ---------------------------------------------------------------
-
-  /**
-   * The tap on the rival. Answers whether the race is on: the taxi drops whatever it was heading for
-   * (an empty cab's only errand is a rider, and the board is about to be held) and pulls up at the
-   * first stretch of road that has room (`tryPullUp`).
-   */
-  function accept() {
-    if (state.phase !== 'offer') return false;
-    taxi.route = [];
-    taxi.pendingTarget = null;
-    taxi.parked = false;
-    setPhase('stopping');
-    onEvent('accepted', { car: state.car });
-    return true;
-  }
 
   /** Put the taxi's brake on if it would come to rest inside the stretch `pullable` allows. */
   function tryPullUp() {
@@ -518,11 +601,6 @@ export function createRace({
     car.holdsLine = false;
     car.braking = false;
     car.route = [];
-    // Coming round at race pace, with the racer's licence at the stops: the player is sat waiting,
-    // and every second it spends on the way is a second of nothing. See PULLUP_* for the times.
-    car.chase = rivalChase;
-    car.racer = true;
-    offer.visible = false;
     setPhase('pulling-up');
   }
 
@@ -560,6 +638,7 @@ export function createRace({
     car.chase = rivalChase;
     car.racer = true;
     car.route = [];
+    offer.visible = false;
     steerToFinish(car);
     routeTo(state.finish);
     onEvent('go', { car });
@@ -679,38 +758,17 @@ export function createRace({
           if (state.cooldown <= 0 && !summon()) state.cooldown = RETRY_WAIT;
         }
         break;
-      case 'arriving':
-        if (!car || state.phaseT > ARRIVE_MAX || blocked()) { leave(); break; }
-        if (car.roadblock > 0) {
-          if (car.v < 0.05) {
-            // Parked: shut the lane behind it to newcomers, the way the engine does, so the queue
-            // does not grow back through the junction for the half-minute it waits.
-            setClosedLanes([state.spot.lane.id], 'race');
-            offer.visible = true;
-            setPhase('offer');
-            onEvent('offer', { car, win: WIN_PAY, lose: LOSE_COST });
-          }
-        } else if (!tryPark(car)) {
-          steerToSpot(car);
-        }
-        break;
-      case 'offer':
-        if (!car) { leave(); break; }
-        if (state.phaseT > OFFER_TIME || blocked()) {
-          onEvent('expired', { car });
-          leave();
-        }
-        break;
       case 'stopping':
       case 'pulling-up':
       case 'reveal': {
         if (!car) { finish('void'); break; }
-        // Something else took the wheel — a tap on the map, the depot, a package: a route on a
-        // parked taxi un-parks it (sim/traffic.js). Called off, and nothing changes hands.
-        const redirected = taxi.route.length > 0;
+        // The player said no: a tap on a rider, a street, the depot, a package gives the taxi a
+        // route, and a route on a parked taxi un-parks it (sim/traffic.js). Called off, and nothing
+        // changes hands — see the note at the top on why this has to exist.
+        if (taxi.route.length > 0) { finish('declined'); break; }
         const late = state.phase === 'stopping' ? state.phaseT > STOP_MAX
           : state.phase === 'pulling-up' ? state.phaseT > PULLUP_MAX : false;
-        if (redirected || late || blocked()) { finish('void'); break; }
+        if (late || blocked()) { finish('void'); break; }
         if (state.phase === 'stopping') {
           // `parked` with an empty route eases the taxi to a halt and outranks Loco Mode, so a thumb
           // already on the pill cannot drive off while it waits. Until it finds room it drives on
@@ -739,6 +797,7 @@ export function createRace({
       }
       case 'countdown': {
         if (!car) { finish('void'); break; }
+        if (taxi.route.length > 0) { finish('declined'); break; }
         const left = Math.ceil(COUNTDOWN - state.phaseT);
         if (left < state.count && left > 0) {
           state.count = left;
@@ -789,6 +848,7 @@ export function createRace({
       if (state.fade === 1 && state.fading > 0) state.fading = 0;
     }
     for (const material of rival.faders) material.opacity = state.fade;
+    rival.glow.material.opacity = state.fade * GLOW_ALPHA;
 
     // The flag rides the roof and flies.
     if (offer.visible && state.car) {
@@ -807,18 +867,17 @@ export function createRace({
   return {
     state,
     update,
-    accept,
-    /** Start one now, if anywhere qualifies — for `?race=soon` and the tools. */
+    /** Start one now, if the taxi is free and anywhere qualifies — for the tools. */
     summon,
-    /** The rival's flag and its tap target, for the picker. Empty unless an offer stands. */
-    pickables: () => (offer.visible && state.phase === 'offer' ? [offer] : []),
     /**
-     * Is the board held? From the yes to the line — a rider's clock running down while the taxi
-     * stood waiting for the rival would be the race costing a fare before it had started.
+     * Is the board held? From the flag dropping to the line. Not before: until then the riders
+     * have to stay up, because a tap on one is how the race is declined.
      */
-    holdsBoard: () => BUSY.has(state.phase),
-    /** Is the taxi committed to a race — waiting at the start, or in one? */
-    busy: () => BUSY.has(state.phase),
+    holdsBoard: () => state.phase === 'racing',
+    /** Is the taxi in a race, flag down? The depot and the drive-through refuse it. */
+    busy: () => state.phase === 'racing',
+    /** Is anything of a race on — the racer turned up, waiting at the start, or racing? */
+    active: () => ACTIVE.has(state.phase),
     /** Side by side and the finish shown: count down now (main.js, once the camera is back). */
     countIn,
     /** Is the start waiting on the camera's look at the finish? */
@@ -828,8 +887,6 @@ export function createRace({
      * so a press of the real one still works alongside it.
      */
     braking: () => state.braking,
-    /** Is a challenge up and waiting for a tap? */
-    offering: () => state.phase === 'offer',
     rival,
     /** Every solid part of the rival, for the AO prepass. */
     occluders: rival.occluders,

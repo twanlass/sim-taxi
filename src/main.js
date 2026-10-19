@@ -1224,7 +1224,7 @@ let race = null;
  * held tip is *deferred*, not dropped — see the depot's card (`newMoveCalm`) and `quiet` in
  * game/tutorial.js.
  */
-const hushTips = () => getaway() || patrol.busy() || Boolean(race?.busy());
+const hushTips = () => getaway() || patrol.busy() || Boolean(race?.active());
 // How the police end a run (game/patrol.js, "The capture model"): a hit on a cop is a hit on a car,
 // and "Busted!" is being pinned — stopped with a chasing cop's bumper on you — by the patrol or by a
 // getaway's fleet alike. `?capture=classic` keeps the three rules it replaced: any patrol touch is
@@ -2016,19 +2016,21 @@ const fire = createFire({
 // The engine's bar blooms at the cruiser's strength; the flames bloom on their own (`flame`).
 for (const mesh of fire.emissiveMeshes) markEmissive(mesh, 'siren');
 
-// The street race: a violet car with a flag over it waits at the kerb, and a tap on it is a race
-// across the island for cash (game/race.js). Taken with an empty cab only, never imposed; while it
-// runs the board steps aside the way it does for a getaway (`setHold`). `?race=classic` has no
-// racers in the city; `?race=soon` brings the first one a few seconds in.
+// The street race: with the cab empty and idle, a violet racer with a flag over it comes and pulls
+// up beside the taxi for a race across the island for cash (game/race.js). Any tap before the flag
+// drops says no; once it has, the board steps aside the way it does for a getaway (`setHold`).
+// `?race=classic` has no racers in the city; `?race=soon` brings the first one a few seconds in.
 const raceParam = new URLSearchParams(window.location.search).get('race');
 race = shot || raceParam === 'classic' ? null : createRace({
   rng: makeRng(runSeed + 743), scene, traffic, routeTo,
   soon: raceParam === 'soon',
   // Nothing turns up over anything that owns the run, or over a trip the taxi is already on to the
-  // depot or the drive-through. A rider aboard does not stop an offer, only taking it.
+  // depot or the drive-through.
   blocked: () => traffic.taxi.staged || getaway() || patrol.busy() || fares.state.gameOver
     || fareLoopHeld() || tutorialTalking || Boolean(tutorial?.holdsCamera())
     || Boolean(burgerRun?.active() || depotRun?.active()),
+  // Only for a taxi nobody is using: no rider aboard, nobody it is on its way to.
+  canStart: () => !fares.carrying() && !traffic.taxi.pendingTarget && !traffic.taxi.route.length,
   onEvent: onRaceEvent,
 });
 fares.setHold(() => Boolean(race?.holdsBoard()));
@@ -2046,13 +2048,11 @@ const raceTalkAt = () => {
  * race happened; what a run's cash and a tank are for is this file's.
  */
 function onRaceEvent(type, detail) {
-  if (type === 'offer') {
-    raceTalk?.show('Street racer', `Race me! Win $${WIN_PAY}, lose $${LOSE_COST}.`, raceTalkAt);
+  if (type === 'challenge') {
+    raceTalk?.show('Street racer', `Race you! Win $${WIN_PAY}, lose $${LOSE_COST}.`, raceTalkAt);
     sfx?.play('horn', { at: placeAt(detail.car.x, detail.car.z) });
-  } else if (type === 'accepted') {
-    raceTalk?.show('Street racer', "Stay there. I'll come to you.", raceTalkAt);
-  } else if (type === 'expired') {
-    raceTalk?.hide();
+  } else if (type === 'declined') {
+    raceTalk?.show('Street racer', 'Next time, then.', raceTalkAt);
   } else if (type === 'lined-up') {
     raceTalk?.show('Street racer', 'First one to the flag.', raceTalkAt);
     // Go and look at the finish, and come back to the taxi; the count starts when the camera is
@@ -2085,23 +2085,6 @@ function onRaceEvent(type, detail) {
     if (paid > 0) popEarning(-paid);
   } else if (type === 'void') {
     popLabel('Race off');
-  }
-}
-
-/**
- * A tap on the rival. Refused with an empty cab only — one seat, and the race is not a fare — and
- * said so on its bubble rather than with nothing, which is the same thing a tap on a second rider
- * teaches.
- */
-function acceptRace() {
-  if (!race || fares.state.gameOver) return;
-  if (fares.carrying()) {
-    raceTalk?.show('Street racer', 'Drop your fare off first.', raceTalkAt);
-    return;
-  }
-  if (race.accept()) {
-    fares.undirect();
-    haptic('pick');
   }
 }
 
@@ -2817,8 +2800,7 @@ createPicker(
   camera,
   renderer.domElement,
   () => [traffic.taxiGroup, ...fares.pickables(), ...(parcels?.pickables() ?? []),
-    ...(burger ? [burger.group] : []), ...(garage ? [garage.group] : []),
-    ...(race?.pickables() ?? [])],
+    ...(burger ? [burger.group] : []), ...(garage ? [garage.group] : [])],
   (kind, hit, ray) => {
     if (fares.state.gameOver) return;
 
@@ -2851,10 +2833,6 @@ createPicker(
 
     if (kind === 'burger') {
       sendForBurger();
-      return;
-    }
-    if (kind === 'racer') {
-      acceptRace();
       return;
     }
     if (kind === 'depot') {
@@ -5952,7 +5930,8 @@ function tick() {
   if (fares.state.gameOver) race?.abandon();
   race?.update(dt);
   raceTalk?.update(dt);
-  if (!race?.offering() && !race?.busy() && raceTalk?.isOpen()) raceTalk.hide();
+  // Up for as long as the racer is on the road — its parting word included, said as it drives off.
+  if (!race?.active() && race?.state.phase !== 'leaving' && raceTalk?.isOpen()) raceTalk.hide();
 
   tutorial?.update(dt);
 
@@ -7241,7 +7220,7 @@ window.__taxi = {
   burgerRun,
   /**
    * The street race, or null under `?race=classic` and in shot mode — `state.phase`, `summon()` to
-   * bring a rival now, `accept()` for the tap on it. See game/race.js.
+   * bring a racer now if the taxi is free. See game/race.js.
    */
   race,
   /** The trip back to the depot for repairs — `depotRun.send()` is the tap on the garage. */

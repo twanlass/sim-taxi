@@ -2503,36 +2503,44 @@ intensity.
 `src/game/race.js`, `src/geometry/raceflag.js`, `sim/traffic.js` (`car.racer`), `tools/race.mjs`.
 `?race=classic` turns it off; `?race=soon` brings the first racer a few seconds in.
 
-**A violet car with a wing on it pulls over a couple of blocks from the taxi** and waits at the
-hold line with a chequered flag flying over its roof. Its speech bubble says the stakes: "Race me!
-Win $40, lose $25." Tap it and the taxi pulls up mid-block on its own brake ("Stay there. I'll come
-to you."), and the rival comes round and stops level with it in the other lane, window to window.
-A finish is marked across the island (a white waypoint ring with a chequered flag flying over it, 4-8 blocks away and
-never on the ring road, which is in the fog), the camera goes to look at it and comes back, the
-count goes three, two, one, and the two cars set off in opposite directions. First within
-`ARRIVE_RADIUS` of the corner wins. The rival then drives off and dissolves, and the board comes
-back.
+**When the cab is empty and idle, a violet street racer comes to you.** It turns up a couple of
+blocks off with a chequered flag over its roof, white stripe down its spine, a proud wing on the
+boot and cyan light pooling under it, and its bubble calls it: "Race you! Win $40, lose $25." The
+taxi pulls up mid-block on its own brake, the rival comes round and stops level with it in the
+other lane, window to window. A finish is marked across the island (a white waypoint ring with a
+chequered flag flying over it, 4-8 blocks away and never on the ring road, which is in the fog),
+the camera goes to look at it and comes back, the count goes three, two, one, and the two cars set
+off in opposite directions. First within `ARRIVE_RADIUS` of the corner wins. The rival then drives
+off and dissolves.
 
-**It is taken on, never imposed.** Losing costs cash, and the robbery's rule is that an imposed
-event cannot cost the run ([it is imposed](#it-is-imposed-so-it-cannot-cost-the-run)), so the race
-is a tap like every other choice in the game. Declining is not tapping: an offer nobody takes
-drives off after `OFFER_TIME` (30s). There is no button to say no with.
+**It comes to you, and any tap says no.** Losing costs cash, and the robbery's rule is that an
+imposed event cannot cost the run ([it is imposed](#it-is-imposed-so-it-cannot-cost-the-run)). So
+the race starts itself, but only when nothing else wants the taxi, and every gesture that gives the
+taxi somewhere to go turns it down: a tap on a rider, a street or a package before the flag drops
+routes the taxi, the bubble says "Next time, then.", and nothing changes hands. Doing nothing is the
+yes.
 
-- **Empty cab only.** A tap with a rider aboard is refused on the rival's bubble ("Drop your fare
-  off first."). An offer can still turn up while carrying; it is only the taking that needs the seat.
-- **The board steps aside from the tap to the line**, exactly as for a getaway: riders hidden,
-  their clocks held, no spawns, the courier's pads off the map (`setHold` in game/fares.js, read by
-  `concealed`). Otherwise the wait for the rival would cost a rider's clock on top of the bet.
-- **Driving off calls it off.** A tap on the map while the taxi waits gives it a route, which
-  un-parks it; the race is void and nothing changes hands.
+- **Empty and idle only** (`canStart` in main.js): no rider aboard, no route, nothing pending. A
+  racer that has not appeared yet waits (`RETRY_WAIT`) rather than interrupt.
+- **The board keeps running until the flag drops.** Riders' clocks tick through the pull-up and the
+  count, which is the price of saying yes; only the race itself holds the board, exactly as for a
+  getaway: riders hidden, their clocks held, no spawns, the courier's pads off the map (`setHold`
+  in game/fares.js, read by `concealed`).
 - **The tank is topped up to a third at the green** (`TANK_FLOOR`, the run's own starting tank) and
-  never down. The race is decided by Loco Mode, and a player who accepted on an empty pill would
-  lose before the flag dropped.
+  never down. The race is decided by Loco Mode, and a player challenged on an empty pill would lose
+  before the flag dropped.
 - **Stakes are lopsided on purpose** (`WIN_PAY` $40, `LOSE_COST` $25, against a $20 median fare).
   Declining is free, so an even bet is one a sensible player never takes. A loss goes through
   `charge`, so an empty till pays what it has.
-- The depot and the drive-through refuse the taxi from the tap to the line, and tips wait.
-  The patrol is untouched: boost past the cruiser mid-race and it comes after you as it always does.
+- The depot and the drive-through refuse the taxi through the race, and tips wait. The patrol is
+  untouched: boost past the cruiser mid-race and it comes after you as it always does.
+
+**The dress is three meshes over the ordinary car body** (`createRivalMesh`): a wing on struts with
+end plates, standing proud of the boot so its silhouette reads at play zoom; a white stripe laid on
+the bonnet, roof and boot as its own mesh, since the paint is a multiply over a white-baked body;
+and an additive underglow, an unlit quad ring whose vertex alpha runs from 1 under the sills to 0
+`GLOW_REACH` (0.8) out. Its triangles are wound to face the sky and the probe asserts it, because an
+unlit triangle wound the other way does not draw at all.
 
 ### The rival is a car in traffic
 
@@ -2549,8 +2557,7 @@ behind takes the win away along with the loss. It drives one way all race; what 
 it is Loco Mode and a route of their own (the street tap bends the race route like any other).
 
 Measured with `node tools/race.mjs 24`, a bot holding Loco Mode from the green until the tank is
-dry: 1/4 tank wins 63%, the 1/3 floor 67%, a full tank 71%, and never touching the pill wins none.
-The boosting taxi is home in a median 4.9s. The bot never misses a turn or brushes a car, so a
+dry: 1/4 tank wins 50%, the 1/3 floor 58%, a full tank 58%, and never touching the pill wins none. The bot never misses a turn or brushes a car, so a
 person wins less often; about even is the aim, and the lopsided stakes pay for it.
 
 ### The start is window to window
@@ -2568,8 +2575,8 @@ them two routes to one corner.
   count and outranks Loco Mode, so a thumb on the pill cannot jump the start. (`parked` on its own
   stops a moving car dead in one frame, which is why the pedal does the stopping.)
 - **The rival comes round at race pace**, with the racer's licence at the stops, routed onto the
-  lane that runs past the taxi the other way. Measured: a median of 6.6s from the taxi stopping to
-  the two side by side, the slowest 10s. Both lanes are shut to newcomers while they stand
+  lane that runs past the taxi the other way. Measured: a median of 5.1s from the taxi stopping to
+  the two side by side, the slowest 12.6s. Both lanes are shut to newcomers while they stand
   (`setClosedLanes(…, 'race')`) — the rival's only once it is on it, since its own route onto a shut
   lane would be refused — and both carry `holdsLine`, so an oncoming left does not wait on a car
   that is not coming (`leftYieldBlocked`).

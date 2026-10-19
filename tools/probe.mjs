@@ -113,6 +113,7 @@ import {
   createTargetRing, ringGrowScale, ringShrinkScale, RING_R, RING_Y,
 } from '../src/geometry/targetring.js';
 import { createParcelPad, PAD_R } from '../src/geometry/parcelpad.js';
+import { underglowGeometry } from '../src/game/race.js';
 import { TAXI_DECK_Y, TAXI_TAILPIPE_BACK, TAXI_TAILPIPE_HEIGHT } from '../src/geometry/taxi.js';
 import { createLocoFlame } from '../src/game/locoflame.js';
 import { createParcel, PARCEL_CENTRE_Y } from '../src/geometry/parcel.js';
@@ -927,6 +928,30 @@ const onGrass = (city, i, j) => {
   check('every face of the pond points at the sky', !!pondPlan && faces > 0 && downward === 0,
     `${faces - downward}/${faces} facing up`);
   check('and the water lies level', offLevel === 0, `${offLevel} sloping triangles`);
+}
+
+// The street racer's underglow: a hand-wound pad of light on the road, under an unlit material —
+// where a reversed triangle does not draw wrong, it does not draw (CLAUDE.md, on the boats' wake).
+{
+  const pad = underglowGeometry();
+  const pos = pad.attributes.position;
+  const a = new THREE.Vector3();
+  const b = new THREE.Vector3();
+  const c = new THREE.Vector3();
+  const n = new THREE.Vector3();
+  let faces = 0;
+  let up = 0;
+  for (let i = 0; i < pos.count; i += 3) {
+    a.fromBufferAttribute(pos, i);
+    b.fromBufferAttribute(pos, i + 1);
+    c.fromBufferAttribute(pos, i + 2);
+    n.copy(b).sub(a).cross(c.sub(a));
+    if (n.lengthSq() < 1e-12) continue;
+    faces += 1;
+    if (n.normalize().y > 0.999) up += 1;
+  }
+  check('every face of the racer\'s underglow points at the sky', faces > 0 && up === faces,
+    `${up}/${faces} facing up`);
 }
 
 // --- The parks' grass ---------------------------------------------------------

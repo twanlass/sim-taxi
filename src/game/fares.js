@@ -2322,12 +2322,6 @@ export function createFareSystem(rng, scene, {
     concealed,
     /** Hold the board the way a getaway does, while `fn()` says so — the street race's. */
     setHold: (fn) => { held = fn ?? (() => false); },
-    /**
-     * Nobody is being driven at any more: the taxi has been sent somewhere that is not a job (a
-     * street race's start). A rider left `directed` would still be picked up by a taxi that drove
-     * past their corner on the way, since arrival is only tested for the directed one.
-     */
-    undirect: () => { for (const f of state.fares) f.directed = false; },
     occupiedSpots,
     focus,
     slots,

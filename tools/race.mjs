@@ -3,7 +3,7 @@
  *
  *   node tools/race.mjs [races] [chase]
  *
- * For each race: a fresh city and situation, the rival summoned and accepted on the spot, the taxi
+ * For each race: a fresh city and situation, the racer summoned on the spot, the taxi
  * pulled up and the rival brought round beside it exactly as in the game, and then each player drives the same
  * race from the same frame — one who never touches Loco Mode, one holding it from the green on
  * the tank the race guarantees (`TANK_FLOOR`), and one holding it on a full tank. Each holds the
@@ -56,6 +56,9 @@ function race(seed, player) {
     },
   });
   if (CHASE !== null) race.setRivalChase(CHASE);
+  // An idle taxi, as the game only starts one for.
+  taxi.route = [];
+  taxi.pendingTarget = null;
   if (!race.summon()) return { result: 'no-spot' };
 
   const boost = createBoost(undefined, player.tank);
@@ -66,7 +69,6 @@ function race(seed, player) {
 
   let t = 0;
   while (t < 240 && !wrecked) {
-    if (race.state.phase === 'offer') race.accept();
     if (went && player.tank > 0 && boost.fraction() > 0 && !boost.state.held) boost.press();
     if (went && boost.fraction() <= 0 && boost.state.held) boost.release();
     boost.update(STEP);

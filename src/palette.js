@@ -463,6 +463,10 @@ export const PALETTE = {
   // engine is red — and it is the drift flame's colour, the game's word for showing off.
   racerBody: '#7B3CFF',
   racerWing: '#1B1726',
+  racerStripe: '#F6F4EE',
+  // The underglow: an electric cyan, the colour opposite the violet paint, so the pad reads as a
+  // light under the car rather than as the car's own reflection on the road.
+  racerGlow: '#2FE6FF',
   raceFlagPole: '#D9D9DE',
   raceFlagDark: '#17171C',
   raceFlagLight: '#F6F4EE',

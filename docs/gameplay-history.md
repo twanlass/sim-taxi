@@ -1187,3 +1187,14 @@ Reported from play (Tyler, 2026-10-14): "hitting a cop is insta fail. That sucks
 vignette where you wanna smash through roadblocks." The getaway fills the tank and throws roadblocks
 across your route; the third rule made the second the one thing it asked of you that ended the run.
 Replaced by [getting caught](gameplay.md#getting-caught).
+
+## The street race, before it came to you
+
+The first builds had the racer pull over a couple of blocks off and wait for a tap: "Race me!",
+an `OFFER_TIME` of 30s, and the taxi drove over only once the player tapped the car itself. The
+board was held from the tap to the line. It went because the tap was unreliable in play (Tyler:
+"after I drop off the very first passenger, if I tap on the purple racer, nothing happens"): the
+offer was dropped whenever anything blocked a race (the first drop-off's tutorial tip among them),
+and the car could not be tapped while it was still driving to its spot or leaving. The race now
+starts itself when the cab is idle and any tap that routes the taxi declines it, which keeps the
+rule that an imposed event cannot cost the run.
