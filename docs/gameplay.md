@@ -4,15 +4,31 @@
 
 `src/game/splash.js`, entered from `src/boot.js`. A cold start is black from its first frame — the
 iOS launch screen, the web view and the page (`html.booting`) are all `PALETTE.splashVoid` — and
-stays black while the game loads. Then a patch of asphalt fades up in the middle of the black, seen
-from a low side-on camera (15° up), the taxi falls out of the sky onto it with the **Big Air landing** (the dust ring, the pale shockwave,
-sparks off all four wheels, a hard shake), bounces twice, sits for a beat, lights **Loco Mode** and
-leaves on its back wheels, laying rubber, off the right edge of the frame. Once it is fully gone,
-flame and all (`exitTime`), the empty patch holds for a second (`HOLD`) — skid marks, dust settling
-— and then fades to the title screen. About 3.8 s from the first frame of asphalt on a phone; a tap
-anywhere skips to a quick fade, and a player with reduced motion gets the fade alone.
+stays black while the game loads. Then **ROCKET RIDES** pops up out of the black a letter at a time
+in big white extruded letters set in the game's own Space Grotesk Bold (`game/splashlogo.js`), seen from a low side-on camera (15° up)
+and turned a little so the grey sides of the extrusion show. Once the word has stood for half a
+second the taxi falls out of the sky straight down through it: the scene drops into slow motion for
+a tenth of a second on the frame the car hits the top line (sparks, a crash), the letters it struck
+are driven down and out, and the **Big Air landing** on the asphalt that has faded up beneath (the
+dust ring, the pale shockwave, sparks off all four wheels, a hard shake) blasts away the rest. The
+pieces rain down and lie flat. The taxi bounces twice, sits for a beat, lights **Loco Mode** and
+leaves on its back wheels, laying rubber and bowling the wreckage in its path ahead of it, off the
+right edge of the frame. Once it is fully gone, flame and all (`exitTime`), the patch holds for a
+second (`HOLD`) and then fades to the title screen. About 4.8 s on a phone; a tap anywhere skips to
+a quick fade, and a player with reduced motion gets the fade alone.
 
-**It has sound where sound is allowed** (`game/splashsound.js`): the Big Air landing on the slam, a
+**The letters are the font's own outlines, cut into the pieces they break into.**
+`tools/logo-glyphs.py` bakes the shipped woff2 at weight 700 into `game/logoglyphs.js` (data, not a
+font loader, with each curve flattened to three facets). Each glyph is then cut by two straight lines
+at angles of its own and every connected run of each cell is extruded as a slab — 49 pieces in 11
+letters — so the whole word and the wreckage are the same meshes, and a letter breaks along a clean
+line. The debris is a pure simulation the probe
+walks through the real timeline: the car meets the word before it lands, every piece comes loose,
+none goes through the floor, all lie still by the fade. The letters are lit by a neutral light of
+their own rather than the scene's warm afternoon sun, under which pure white came out tan.
+`?splashlogo=classic` is the drop without the logo.
+
+**It has sound where sound is allowed** (`game/splashsound.js`): a crash through the logo, the Big Air landing on the slam, a
 bump on each bounce, and the Loco press (launch, the activate's roar, a skid for the burnout) as it
 leaves, the roar fading as the car clears the frame. The game's own recordings at the shipped mix,
 under the player's mute and effects slider. It has to play before anyone has tapped, which a

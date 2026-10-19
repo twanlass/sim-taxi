@@ -21833,6 +21833,83 @@ for (const viewName of ['side', 'quarter']) {
   splash.setSplashView('side');
 }
 
+// The logo the taxi comes down through (game/splashlogo.js): whole and inside the frame at every
+// aspect before the drop, and the debris walked through the shipped timeline — struck by the car
+// before it lands, every piece knocked loose, none through the floor, all lying still by the fade.
+{
+  const splash = await import('../src/game/splash.js');
+  const { buildLogo, createDebris } = await import('../src/game/splashlogo.js');
+  splash.setSplashView('side');
+  const { right, up } = splash.splashView();
+  const logo = buildLogo();
+  const at = new THREE.Vector3();
+  const clipped = [];
+  for (const aspect of [390 / 844, 1, 1280 / 800]) {
+    const zoom = splash.splashZoom(aspect);
+    const out = logo.pieces.some((piece) => piece.hull.some((h) => {
+      at.copy(h).applyQuaternion(piece.homeQuat).add(piece.home);
+      return Math.abs(at.dot(right)) > zoom * aspect * 0.95 || Math.abs(at.dot(up)) > zoom * 0.95;
+    }));
+    if (out) clipped.push(aspect.toFixed(2));
+  }
+  check('splash logo: the whole word is inside the frame at every aspect', clipped.length === 0,
+    clipped.length ? `clipped at ${clipped.join(', ')}` : `${logo.pieces.length} pieces in ${logo.letters.length} letters`);
+
+  // The slabs are wound by hand (`extrudeTriangles`), so the winding is checked from the triangles
+  // themselves: a closed slab wound outward has a positive signed volume equal to its area times its
+  // depth, and every front face points at +z.
+  const { DEPTH, CAP } = await import('../src/game/splashlogo.js');
+  const a = new THREE.Vector3();
+  const b = new THREE.Vector3();
+  const c = new THREE.Vector3();
+  const n = new THREE.Vector3();
+  let badSlabs = 0;
+  let worst = 0;
+  for (const piece of logo.pieces) {
+    const pos = piece.geometry.attributes.position;
+    let volume = 0;
+    for (let k = 0; k < pos.count; k += 3) {
+      a.fromBufferAttribute(pos, k);
+      b.fromBufferAttribute(pos, k + 1);
+      c.fromBufferAttribute(pos, k + 2);
+      volume += a.dot(n.crossVectors(b, c)) / 6;
+    }
+    const expect = piece.area * DEPTH;
+    const off = Math.abs(volume / expect - 1);
+    worst = Math.max(worst, off);
+    if (off > 1e-3) badSlabs++;
+  }
+  check('splash logo: every slab is closed and wound outward (signed volume = area x depth)', badSlabs === 0,
+    `${badSlabs} of ${logo.pieces.length} off, worst ${(worst * 100).toFixed(3)}%, cap ${CAP}`);
+
+  const phone = 390 / 844;
+  const debris = createDebris(logo);
+  const dt = 1 / 60;
+  let contactAt = null;
+  let deepest = 0;
+  let looseAtLand = 0;
+  for (let t = splash.STAGE_IN; t < splash.fadeAt(phone); t += dt) {
+    const p = splash.splashPose(t, phone);
+    const landed = t >= splash.LAND;
+    const ev = debris.update(dt, { x: p.x, y: p.y, z: p.z, landed, speed: t >= splash.IGNITE ? splash.LAUNCH_ACCEL * (t - splash.IGNITE) : 0 });
+    if (ev.contact && contactAt === null) contactAt = t;
+    if (landed && !looseAtLand) looseAtLand = debris.state.filter((s) => s.loose).length;
+    debris.state.forEach((_, i) => { deepest = Math.min(deepest, debris.lowest(i)); });
+  }
+  check('splash logo: the car meets the word on its way down, before it lands',
+    contactAt !== null && contactAt < splash.LAND, `contact ${contactAt?.toFixed(3)}s, land ${splash.LAND.toFixed(3)}s`);
+  check('splash logo: every piece is knocked loose by the landing', looseAtLand === logo.pieces.length,
+    `${looseAtLand} of ${logo.pieces.length}`);
+  check('splash logo: no piece goes through the floor', deepest > -0.02, `deepest ${deepest.toFixed(3)}`);
+  // Pieces the car bowls off the side of the frame are still sliding somewhere nobody can see; only
+  // the ones on screen have to have stopped.
+  const halfW = splash.splashZoom(phone) * phone;
+  const onScreen = debris.state.filter((s) => Math.abs(s.pos.dot(right)) < halfW);
+  const moving = onScreen.filter((s) => !(s.grounded && s.vel.length() < 0.5)).length;
+  check('splash logo: the debris left in frame has come to rest by the fade', moving === 0,
+    `${moving} of ${onScreen.length} in frame still moving`);
+}
+
 // Average speed per car over the whole run — a stable throughput number, unlike a snapshot of
 // how many cars happen to be moving at the instant the sim stops.
 const throughput = stats.distance / stats.time / traffic.cars.length;

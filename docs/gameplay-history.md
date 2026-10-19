@@ -10,8 +10,8 @@ Dates and PR numbers are given where the text or the commit log records them.
 
 ## The startup screen
 
-[Now](gameplay.md#the-startup-screen): black, then the taxi drops onto a patch of asphalt and
-boosts off it, then the title menu.
+[Now](gameplay.md#the-startup-screen): black, ROCKET RIDES in white block letters, the taxi smashing
+down through them onto a patch of asphalt and boosting off it, then the title menu.
 
 Before it (to 2026-10-16) a cold start showed the sky's `#DCEDF7` — the iOS launch screen, the web
 view behind the page and the page itself were all that colour, chosen so the frame before WebGL's
@@ -24,6 +24,12 @@ top right). Tyler asked to try it side-on; the low side camera became the defaul
 `?splashcam=classic` keeps the three-quarter view.
 
 It first shipped silent; `?splashsound=classic` keeps that.
+
+Until 2026-10-18 there was no logo: the asphalt faded up first (0.3 s) and the taxi dropped straight
+onto it, about 3.8 s in all. Tyler asked for the name in big white chunky 3D letters for the taxi
+to smash through; `?splashlogo=classic` keeps the plain drop. The first cut of the logo was a hand-drawn
+block face built from the strokes it broke into (an R as stem, bowl and leg); Tyler asked for Space
+Grotesk instead, the same day.
 
 ## The opening vignette
 
