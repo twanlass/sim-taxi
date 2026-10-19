@@ -1027,7 +1027,7 @@ export function createFareSystem(rng, scene, {
    * costing the kerb — see docs/gameplay.md.
    */
   //
-  // The street race (game/race.js) asks for the same, from the countdown to the line, through
+  // The street race (game/race.js) asks for the same, from the tap on the racer to the line, through
   // `setHold`: it is taken with an empty cab, and a board left running would cost a rider's clock on
   // top of the bet.
   let held = () => false;
@@ -2322,6 +2322,8 @@ export function createFareSystem(rng, scene, {
     concealed,
     /** Hold the board the way a getaway does, while `fn()` says so — the street race's. */
     setHold: (fn) => { held = fn ?? (() => false); },
+    /** Nobody is the taxi's errand any more — the street race taking it, on the tap. */
+    undirect: () => { for (const f of state.fares) f.directed = false; },
     occupiedSpots,
     focus,
     slots,

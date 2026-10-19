@@ -2016,10 +2016,11 @@ const fire = createFire({
 // The engine's bar blooms at the cruiser's strength; the flames bloom on their own (`flame`).
 for (const mesh of fire.emissiveMeshes) markEmissive(mesh, 'siren');
 
-// The street race: with the cab empty and idle, a violet racer with a flag over it comes and pulls
-// up beside the taxi for a race across the island for cash (game/race.js). Any tap before the flag
-// drops says no; once it has, the board steps aside the way it does for a getaway (`setHold`).
-// `?race=classic` has no racers in the city; `?race=soon` brings the first one a few seconds in.
+// The street race: with the cab empty, a violet racer with a flag over it turns up and tails the
+// taxi, calling out the stakes (game/race.js). Tap it and the screen cuts to the two of them side by
+// side, the camera looks at the finish and comes back, and it is three, two, one; from the tap the
+// board steps aside the way it does for a getaway (`setHold`). `?race=classic` has no racers in the
+// city; `?race=soon` brings the first one a few seconds in.
 const raceParam = new URLSearchParams(window.location.search).get('race');
 race = shot || raceParam === 'classic' ? null : createRace({
   rng: makeRng(runSeed + 743), scene, traffic, routeTo,
@@ -2029,8 +2030,12 @@ race = shot || raceParam === 'classic' ? null : createRace({
   blocked: () => traffic.taxi.staged || getaway() || patrol.busy() || fares.state.gameOver
     || fareLoopHeld() || tutorialTalking || Boolean(tutorial?.holdsCamera())
     || Boolean(burgerRun?.active() || depotRun?.active()),
-  // Only for a taxi nobody is using: no rider aboard, nobody it is on its way to.
-  canStart: () => !fares.carrying() && !traffic.taxi.pendingTarget && !traffic.taxi.route.length,
+  // ...but once one is on screen only something that owns the run outright takes it away. The tap
+  // it waits for has to keep working through a tutorial tip or a trip to the burger joint, or the
+  // racer is a car that ignores the player (Tyler: "if I tap on the purple racer, nothing happens").
+  interrupted: () => traffic.taxi.staged || getaway() || patrol.busy() || fares.state.gameOver,
+  // An empty cab: the tap is refused with a rider aboard.
+  canStart: () => !fares.carrying(),
   onEvent: onRaceEvent,
 });
 fares.setHold(() => Boolean(race?.holdsBoard()));
@@ -2049,15 +2054,34 @@ const raceTalkAt = () => {
  */
 function onRaceEvent(type, detail) {
   if (type === 'challenge') {
-    raceTalk?.show('Street racer', `Race you! Win $${WIN_PAY}, lose $${LOSE_COST}.`, raceTalkAt);
+    raceTalk?.show('Street racer', `Race me! Win $${WIN_PAY}, lose $${LOSE_COST}.`, raceTalkAt);
+    sfx?.play('horn', { at: placeAt(detail.car.x, detail.car.z) });
+  } else if (type === 'lapsed') {
+    raceTalk?.hide();
+  } else if (type === 'accepted') {
+    fares.undirect();
+    haptic('pick');
+    raceTalk?.hide();
+    // The cut to the start: both cars are put side by side under the black (game/race.js, `stage`).
+    if (wipe) wipe.cut(() => race?.stage(), RACE_CUT_HOLD); else race?.stage();
+  } else if (type === 'staged') {
+    // Open on the two of them, close up — the faceoff — and hold it until the look at the finish.
+    raceShot = { x: detail.x, z: detail.z };
+    raceZoomHome ??= controller.state.zoom;
+    controller.cutTo(detail.x, detail.z, RACE_SHOT_ZOOM, controller.state.yaw, aspect());
+    raceTalk?.show('Street racer', 'First one to the flag.', raceTalkAt);
     sfx?.play('horn', { at: placeAt(detail.car.x, detail.car.z) });
   } else if (type === 'declined') {
+    raceShot = null;
     raceTalk?.show('Street racer', 'Next time, then.', raceTalkAt);
   } else if (type === 'lined-up') {
-    raceTalk?.show('Street racer', 'First one to the flag.', raceTalkAt);
+    raceShot = null;
+    // The bubble is pinned to the rival, which the camera is about to leave behind.
+    raceTalk?.hide();
     // Go and look at the finish, and come back to the taxi; the count starts when the camera is
-    // home. The rider-finder chip's move (`panToRider`). A swipe mid-pan drops the callback and
-    // the race counts in on its own clock (REVEAL_MAX in game/race.js).
+    // home. The rider-finder chip's move (`panToRider`), with the faceoff's zoom easing back out
+    // beside it. A swipe mid-pan drops the callback and the race counts in on its own clock
+    // (REVEAL_MAX in game/race.js).
     releaseCameraToPlayer();
     controller.peekAt(detail.x, detail.z, () => traffic.taxi, () => {
       cameraTakenOver = false;
@@ -2084,8 +2108,29 @@ function onRaceEvent(type, detail) {
     popLabel('Beaten!');
     if (paid > 0) popEarning(-paid);
   } else if (type === 'void') {
+    raceShot = null;
     popLabel('Race off');
   }
+}
+
+// The cut to the start: a beat of black longer than a skip's, so it reads as a scene change rather
+// than a stutter (game/wipe.js), and the close-up it opens on — tighter than the wreck's 26, since
+// the two cars are side by side in the middle of it. At 30 the first browser pass read as barely
+// closer than play.
+const RACE_CUT_HOLD = 250;
+const RACE_SHOT_ZOOM = 22;
+// The faceoff's framing, while it holds the camera; and the zoom to walk back to after it.
+let raceShot = null;
+let raceZoomHome = null;
+
+/** The tap on the racer. */
+function acceptRace() {
+  if (!race || fares.state.gameOver) return;
+  if (fares.carrying()) {
+    raceTalk?.show('Street racer', 'Drop your fare off first.', raceTalkAt);
+    return;
+  }
+  race.accept();
 }
 
 // Occluded-only outlines on the traffic nearest the taxi, faded in with Loco Mode — the one mode
@@ -2800,7 +2845,8 @@ createPicker(
   camera,
   renderer.domElement,
   () => [traffic.taxiGroup, ...fares.pickables(), ...(parcels?.pickables() ?? []),
-    ...(burger ? [burger.group] : []), ...(garage ? [garage.group] : [])],
+    ...(burger ? [burger.group] : []), ...(garage ? [garage.group] : []),
+    ...(race?.pickables() ?? [])],
   (kind, hit, ray) => {
     if (fares.state.gameOver) return;
 
@@ -2833,6 +2879,10 @@ createPicker(
 
     if (kind === 'burger') {
       sendForBurger();
+      return;
+    }
+    if (kind === 'racer') {
+      acceptRace();
       return;
     }
     if (kind === 'depot') {
@@ -5642,8 +5692,7 @@ function tick() {
     const bootlegBrake = bootleg.update(dt, { brakeHeld: brakeHeld && !fares.state.gameOver });
     overtake.update(dt, { held: boost.isActive() && !traffic.taxi.staged, brakeHeld });
     const drifting = driftHolds(traffic.taxi) && traffic.taxi.drift.phase !== 'carry';
-    // ...or the street race pulling the taxi up for its start (game/race.js).
-    traffic.taxi.braking = (bootlegBrake && !drifting) || Boolean(race?.braking());
+    traffic.taxi.braking = bootlegBrake && !drifting;
   }
   updateBoostButton(dt);
   skids.update(dt);
@@ -5931,7 +5980,13 @@ function tick() {
   race?.update(dt);
   raceTalk?.update(dt);
   // Up for as long as the racer is on the road — its parting word included, said as it drives off.
-  if (!race?.active() && race?.state.phase !== 'leaving' && raceTalk?.isOpen()) raceTalk.hide();
+  if (race?.state.phase === 'waiting' && raceTalk?.isOpen()) raceTalk.hide();
+  // The faceoff's close-up walked back out to the zoom the player had, beside whichever claim owns
+  // the target — the bank job's arrangement (`easeZoom`).
+  if (raceZoomHome != null && !raceShot && !endSpot) {
+    controller.easeZoom(raceZoomHome, dt, aspect());
+    if (Math.abs(controller.state.zoom - raceZoomHome) < 0.05) raceZoomHome = null;
+  }
 
   tutorial?.update(dt);
 
@@ -5983,6 +6038,11 @@ function tick() {
     opening.frameCamera(dt);
   } else if (endSpot) {
     controller.focusOn(endSpot.x, endSpot.z, endZoom, dt, aspect());
+  } else if (raceShot) {
+    // The street race's faceoff: the two cars side by side, close up, from the cut until the
+    // camera leaves to look at the finish (`onRaceEvent`). The taxi is parked, so nothing below
+    // has anywhere better to be.
+    controller.focusOn(raceShot.x, raceShot.z, RACE_SHOT_ZOOM, dt, aspect());
   } else if (boosting && !fares.state.gameOver && locoFollows) {
     controller.followXZ(traffic.taxi.x, traffic.taxi.z, dt, BOOST_FOLLOW_SMOOTHING, aspect(),
       followAim(traffic.taxi));

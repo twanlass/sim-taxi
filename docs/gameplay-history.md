@@ -1188,13 +1188,14 @@ vignette where you wanna smash through roadblocks." The getaway fills the tank a
 across your route; the third rule made the second the one thing it asked of you that ended the run.
 Replaced by [getting caught](gameplay.md#getting-caught).
 
-## The street race, before it came to you
+## The street race, before the tap came back
 
-The first builds had the racer pull over a couple of blocks off and wait for a tap: "Race me!",
-an `OFFER_TIME` of 30s, and the taxi drove over only once the player tapped the car itself. The
-board was held from the tap to the line. It went because the tap was unreliable in play (Tyler:
-"after I drop off the very first passenger, if I tap on the purple racer, nothing happens"): the
-offer was dropped whenever anything blocked a race (the first drop-off's tutorial tip among them),
-and the car could not be tapped while it was still driving to its spot or leaving. The race now
-starts itself when the cab is idle and any tap that routes the taxi declines it, which keeps the
-rule that an imposed event cannot cost the run.
+The first builds had the racer pull over a couple of blocks off and wait at the kerb for a tap, and
+dropped the offer the moment anything held the run. In play the tap was unreliable (Tyler: "after I
+drop off the very first passenger, if I tap on the purple racer, nothing happens"): the offer was
+withdrawn under the first drop-off's tutorial tip, and the car could not be tapped while it was
+still driving to its kerb or leaving. For one build the race then started itself whenever the cab
+was idle, declined by any tap that routed the taxi. Tyler asked for the tap back, with a cut to the
+start ("Tap racer to start, cut scene, side by side start"): the racer now tails the taxi with its
+tap target up from the frame it appears, and only a getaway, a chase or the end of the run takes it
+away.
