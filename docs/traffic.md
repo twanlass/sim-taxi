@@ -1668,6 +1668,48 @@ the taxi's right, and a cop slewed the way the robbery leaves one:
 | roadblock cop on the centreline | jinks to the kerb, −1.15, no contact |
 | roadblock cop 0.58 toward the taxi's side | swerves wide, no contact |
 
+#### A truck pulls over for it
+
+Reported as "the most annoying state in the game": stuck right behind a slow truck with no way to
+throw the overtake. The pass borrows the oncoming lane and always spans a junction, so it is only
+offered where the road carries straight on — and a truck cruises at 0.65 of a car and takes a right
+at 2.3 u/s, so every T at the coast or the river, and the corner after it, was seconds of Loco Mode
+at walking pace with the combo armed and doing nothing.
+
+So the combo thrown at a truck with no oncoming lane to pass it in makes the truck **pull over**.
+It is the brake check's own pull-over (`PULLOVER_*`): the truck dives 1.5 for the kerb, rides up on
+it and sheds half its speed, and the taxi jinks out `SQUEEZE_LATERAL` (1.15) toward the centreline
+over `SQUEEZE_FADE` (4 units of road, a 23° crab at the midpoint). Between them that is
+`ENVELOPE + BODY_MARGIN` and a little over, the clearance the taxi's body brake for trucks asks for,
+with the taxi's outer edge still inside its own lane. Nothing leaves the lane, so nothing about the
+road ahead is asked: no straight on, a one-way street, oncoming traffic, none of it matters. The
+oncoming pass still comes first wherever it is offered.
+
+- **It can start in a straight crossing,** which a pass cannot (a pass is only decided on a lane).
+  The squeeze asks nothing of the road, and a straight crossing composes with an offset exactly as a
+  lane does.
+- **The truck waits at its line until the taxi is by.** A right turn swings the truck's tail across
+  the lane the taxi is using, and a real turn has to let the pull-over go. Before the hold, 25 of 34
+  squeezes touched the truck, nearly all level with it as it turned in the box.
+- **It noses at the kerb no harder than `SQUEEZE_SLOPE` (~17°).** The pull-over's slope is the
+  sideways step over the road covered, and a crawling truck covers almost none, so it swung its
+  nose 70° and more at the kerb and its tail out into the taxi. With the hold and the cap, 2 of 32
+  squeezes touch it.
+- It counts as an overtake for the combo meter and the haptic. `taxi.squeezes` tallies them.
+- `?truckyield=classic` turns it off.
+
+Measured with a bot holding Loco and throwing the combo every 2s while behind a truck, routed,
+24 cities × 90s at 35% trucks (stuck: a truck within 12 ahead, or the body brake holding the taxi,
+and not passing):
+
+| | stuck time | spells over 2s | over 4s | longest | bumps |
+|---|---|---|---|---|---|
+| before | 335s | 54 | 25 | 10.7s | 476 |
+| after | 215s | 35 | 13 | 6.7s | 500 |
+
+What is left is almost all the taxi itself in a junction behind a truck taking the same corner,
+which nothing here can go round.
+
 ### Seeing what you're about to hit
 
 Because a contact only costs anything while boosting, the one moment a car hidden behind a
@@ -1736,6 +1778,14 @@ taxi for the rest of the run in 2 of 24 cities: once shoved level with a truck i
 so the truck held for the taxi as its leader), and once with both merging onto one exit. Hence the
 taxi's centre has to be behind the truck's tail, and on a shared exit the truck has to be further
 round its turn than the taxi.
+
+That still left one way round. A car mid-turn is listed on its exit lane at a stand-in position
+behind the lane's start, so a taxi that has just crossed straight on — or one further round a left
+onto the same lane than the truck is round its right — reads as *in front* of the truck, and the
+truck queued behind it while the taxi braked for the truck's body. 3 runs in 40 (24 cities × 90s at
+35% trucks) ended with the taxi parked behind a truck stopped mid-corner for the rest of the run,
+72-80s. Now a truck never holds for the taxi while the taxi is braking for that truck's body
+(`truckHoldsForPhantom`): the body is what can be hit, so the body wins.
 
 Measured over 24 cities, 90s each, button held, routed, against the same runs before:
 

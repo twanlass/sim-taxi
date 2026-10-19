@@ -64,7 +64,7 @@ import { createBurgerRun } from '../src/game/burgerrun.js';
 import { createOvertakeCombo, OVERTAKE_BLIP_MS, OVERTAKE_GRACE } from '../src/game/overtake.js';
 import { createOpening, exitPath, entryPath, REPAIR_GAP } from '../src/game/opening.js';
 import { createDepotRun } from '../src/game/depotrun.js';
-import { spinTaxi, driftTaxi, kickDrift, DRIFT_KICK_WINDOW, DRIFT_MIN_V, DRIFT_ANGLE, DRIFT_EXIT, DRIFT_CHAIN, createTraffic, lightPhase, displayPhase, setPriorityJunction, isUnsignalised, ringAxisAt, placeCar, approachRoom, setClosedLanes, isLaneClosed, ROAD_Y, HOP_LEN, DRIFT_LAUNCH_LEN, DRIFT_LAUNCH_HEIGHT, onDriftLaunch, setBarrelRoll, setHopStyle, setDodge, HOP_MIN_V, STOP_SETBACK, SIGNAL_LEAD, SIGNAL_LINGER, wheelAnchors, WHEEL_R, STEER_MAX, SPEED, CAR_LEN, CAR_W, landingBounce, landingRoll, BOUNCE_DUR, TRUCK_W, SPAWN_CLEARANCE, POLICE_FLEET,
+import { spinTaxi, driftTaxi, kickDrift, DRIFT_KICK_WINDOW, DRIFT_MIN_V, DRIFT_ANGLE, DRIFT_EXIT, DRIFT_CHAIN, createTraffic, lightPhase, displayPhase, setPriorityJunction, isUnsignalised, ringAxisAt, placeCar, approachRoom, setClosedLanes, isLaneClosed, ROAD_Y, HOP_LEN, DRIFT_LAUNCH_LEN, DRIFT_LAUNCH_HEIGHT, onDriftLaunch, setBarrelRoll, setHopStyle, setDodge, setTruckYield, HOP_MIN_V, STOP_SETBACK, SIGNAL_LEAD, SIGNAL_LINGER, wheelAnchors, WHEEL_R, STEER_MAX, SPEED, CAR_LEN, CAR_W, landingBounce, landingRoll, BOUNCE_DUR, TRUCK_W, SPAWN_CLEARANCE, POLICE_FLEET,
   LOCO_DEFAULTS, locoTuning, setLocoTuning, resetLocoTuning, locoRamp, boostCruise, overdriveTop, MPH_PER_UNIT, locoWeave, locoWeaveFade, MIN_GAP, ENVELOPE, CIRCLE_OFFSET, DODGE_MARGIN, carGeometry, CABIN_TOP, copLaysRubber, uturnWindow } from '../src/sim/traffic.js';
 import { loadLocoTuning, saveLocoTuning, clearLocoTuning } from '../src/game/locostash.js';
 import { createRoadwork, BARRIER_S, CONE_ROW } from '../src/game/roadwork.js';
@@ -5639,6 +5639,74 @@ const PRESSURE_END = difficulty.getTuning().pressureEnd;
   const crossing = dodgeStage({ creep: SPEED });
   check('a car crossing the junction at cruise is not a swerve',
     crossing.dodges === 0 && crossing.arms === 0, sweep(crossing));
+
+  // 1f. The squeeze (SQUEEZE_* in traffic.js): behind a truck on a lane with no straight on, there
+  // is no oncoming lane to pass in, so the combo has the truck pull over and the taxi goes by inside
+  // its own lane. Staged at the first approach long enough to throw it on whose junction has no
+  // straight through — a T at the coast or the river — with both vehicles taking the same exit.
+  let sq = null;
+  for (let i = 0; i <= GRID_I && !sq; i++) {
+    for (let j = 0; j <= GRID_J && !sq; j++) {
+      for (const d of [0, 1, 2, 3]) {
+        if (ringAxisAt(i, j) || approachRoom(d, i, j) < 30) continue;
+        // Off the network rather than `legalExits`: the grid knows nothing of the ring road, which
+        // carries straight on round the coast where the grid says the street ends.
+        const qNet = cityNetwork();
+        const turns = qNet.laneByGrid(d, i, j).exits.map((id) => qNet.turnById.get(id));
+        if (!turns.length || turns.some((tn) => tn.hand === 'straight')) continue;
+        sq = { i, j, d, out: qNet.dirOfLane(qNet.laneById.get(turns[0].outLane)) };
+        break;
+      }
+    }
+  }
+  const squeezeStage = (style = '') => {
+    setTruckYield(style);
+    // Every spawn a truck; the taxi is never one (createTraffic forces it).
+    const qTraffic = createTraffic(makeRng(seed + 127), new THREE.Scene(), 2, 2, 1);
+    const [qTaxi, qTruck] = qTraffic.cars;
+    // Both on the last lane before the T: a lane further back carries straight on, and a blip
+    // there is an ordinary pass. The lane is short, so the truck is held to a crawl until the
+    // combo is thrown — a truck sitting in front of the taxi, which is the state being fixed.
+    placeCar(qTruck, sq.d, sq.i, sq.j, 6);
+    placeCar(qTaxi, sq.d, sq.i, sq.j, 6 + 7);
+    qTruck.route = [sq.out]; qTruck.parked = false;
+    qTaxi.route = [sq.out]; qTaxi.parked = false;
+    qTaxi.hp = TAXI_HP;
+    const combo = createOvertakeCombo({ taxi: qTaxi });
+    const qCollisions = createCollisions(qTraffic.cars, qTaxi);
+    let hits = 0;
+    let first = false;
+    let pulled = 0;
+    let widest = 0;
+    qCollisions.onBump(() => { hits += 1; });
+    let blipAt = null;
+    const blipFrames = Math.floor((OVERTAKE_BLIP_MS / 1000) * 60 * 0.6);
+    for (let f = 0; f < 60 * 3; f++) {
+      if (blipAt === null && f >= 10 && qTaxi.lane === qTruck.lane) blipAt = f;
+      if (blipAt === null || f < blipAt + blipFrames) qTruck.v = Math.min(qTruck.v, 0.5);
+      const off = blipAt !== null && f >= blipAt && f < blipAt + blipFrames;
+      qTaxi.boost = true;
+      qTaxi.boostEasing = off;
+      combo.update(1 / 60, { held: !off });
+      qTraffic.update(1 / 60);
+      qCollisions.update(1 / 60);
+      if (qTaxi.state === 'turn' && qTruck.state === 'drive') first = true;
+      pulled = Math.max(pulled, qTruck.pullover);
+      widest = Math.max(widest, qTaxi.passOffset);
+    }
+    setTruckYield('');
+    return { hits, first, pulled, widest, squeezes: qTaxi.squeezes, arms: combo.state.arms };
+  };
+  const squeezed = squeezeStage();
+  const squeezeSweep = (r) => `${r.arms} arms, ${r.squeezes} squeezes, ${r.hits} bumps, truck pulled`
+    + ` over ${r.pulled.toFixed(2)}, taxi out ${r.widest.toFixed(2)}, taxi to the junction first: ${r.first}`
+    + ` (${sq.i},${sq.j} d${sq.d})`;
+  check('a blip behind a truck with no straight on has it pull over, and the taxi squeezes by in its lane',
+    squeezed.squeezes === 1 && squeezed.hits === 0 && squeezed.first && squeezed.pulled > 0.95
+    && squeezed.widest < LANE_TO_KERB, squeezeSweep(squeezed));
+  const unsqueezed = squeezeStage('classic');
+  check('?truckyield=classic: the same blip leaves the taxi behind the truck',
+    unsqueezed.squeezes === 0 && !unsqueezed.first && unsqueezed.pulled === 0, squeezeSweep(unsqueezed));
 
   // 2. A boosting taxi turning left used to stop dead under a green: the oncoming lane shares its
   // axis, so it kept its green, and the left-turn yield then refused to let the taxi go — waiting
