@@ -20680,7 +20680,10 @@ let chopperOrder; // likewise
       gate.dispose();
     }
 
-    check('the span spends most of the run open', shutFrames / (60 * 300) < 0.3,
+    // Lifts every ~45 s (`TUG_WAIT` in game/boats.js) at 24 s shut each, so about half the run shut.
+    // The bound is the line past which the middle crossing stops being a hazard and is just gone.
+    check('the span lifts about every 45s and is still open most of the rest',
+      shutFrames / (60 * 300) < 0.6 && boats.state.tugs >= 5,
       `shut ${((100 * shutFrames) / (60 * 300)).toFixed(0)}% of five minutes,`
       + ` ${boats.state.tugs} tugs and ${boats.state.barges} barges`);
     bridge.dispose();
