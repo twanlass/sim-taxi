@@ -3620,10 +3620,52 @@ function popEarning(amount) {
 }
 
 /**
- * A word rising off the taxi and fading where it is — the getaway's "Checkpoint 1/2". The first
- * half of `popEarning`'s flight with no counter to land on, since nothing is being paid.
+ * A word rising off the taxi and fading where it is — the getaway's "Checkpoint 1/2", a combo's
+ * "Big Air 3x". The first half of `popEarning`'s flight with no counter to land on, since nothing
+ * is being paid.
+ *
+ * Labels take turns (Tyler, 2026-10-19: Big Air landing on a roadworks barricade drew "Big Air" and
+ * "Stuntman" on top of each other, since both start at the taxi on the same frame). One that
+ * arrives while another is up waits until that one has been readable for LABEL_HOLD_MS, then
+ * clears it with a quick fade and takes its place, so a pile-up reads in order without the last
+ * word turning up seconds after the move. A lone label still plays its whole 1.4s.
  */
+const LABEL_RISE_MS = 1400;
+const LABEL_HOLD_MS = 700;   // past the rise's peak (0.3 of 1400ms), long enough to read two words
+const LABEL_CLEAR_MS = 140;
+const labelQueue = [];
+let labelUp = null;          // { el, rise, at } — the one on screen
+let labelTimer = 0;
+
 function popLabel(text, cls = '') {
+  labelQueue.push({ text, cls });
+  pumpLabels();
+}
+
+function pumpLabels() {
+  if (!labelQueue.length) return;
+  if (labelUp) {
+    const wait = LABEL_HOLD_MS - (performance.now() - labelUp.at);
+    if (wait > 0) {
+      clearTimeout(labelTimer);
+      labelTimer = setTimeout(pumpLabels, wait);
+      return;
+    }
+    clearLabel(labelUp);
+  }
+  showLabel(labelQueue.shift());
+  if (labelQueue.length) labelTimer = setTimeout(pumpLabels, LABEL_HOLD_MS);
+}
+
+function clearLabel(up) {
+  const { el, rise } = up;
+  rise.pause();
+  el.animate([{ opacity: getComputedStyle(el).opacity }, { opacity: 0 }],
+    { duration: LABEL_CLEAR_MS, fill: 'forwards' }).onfinish = () => el.remove();
+  if (labelUp === up) labelUp = null;
+}
+
+function showLabel({ text, cls }) {
   const start = taxiScreenPos();
   const el = document.createElement('div');
   el.className = `earning is-label ${cls}`;
@@ -3636,8 +3678,13 @@ function popLabel(text, cls = '') {
     { opacity: 1, transform: 'translate(-50%, -50%) translateY(-26px) scale(1.06)', offset: 0.3 },
     { opacity: 1, transform: 'translate(-50%, -50%) translateY(-34px) scale(1)', offset: 0.75 },
     { opacity: 0, transform: 'translate(-50%, -50%) translateY(-44px) scale(1)' },
-  ], { duration: 1400, easing: 'cubic-bezier(0.22, 1, 0.36, 1)', fill: 'forwards' });
-  rise.onfinish = () => el.remove();
+  ], { duration: LABEL_RISE_MS, easing: 'cubic-bezier(0.22, 1, 0.36, 1)', fill: 'forwards' });
+  const up = { el, rise, at: performance.now() };
+  labelUp = up;
+  rise.onfinish = () => {
+    el.remove();
+    if (labelUp === up) labelUp = null;
+  };
 }
 
 /**
