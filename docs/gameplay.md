@@ -5,7 +5,7 @@
 `src/game/splash.js`, entered from `src/boot.js`. A cold start is black from its first frame — the
 iOS launch screen, the web view and the page (`html.booting`) are all `PALETTE.splashVoid` — and
 stays black while the game loads. Then **ROCKET RIDES** pops up out of the black a letter at a time
-in big white extruded block letters (`game/splashlogo.js`), seen from a low side-on camera (15° up)
+in big white extruded letters set in the game's own Space Grotesk Bold (`game/splashlogo.js`), seen from a low side-on camera (15° up)
 and turned a little so the grey sides of the extrusion show. Once the word has stood for half a
 second the taxi falls out of the sky straight down through it: the scene drops into slow motion for
 a tenth of a second on the frame the car hits the top line (sparks, a crash), the letters it struck
@@ -17,9 +17,12 @@ right edge of the frame. Once it is fully gone, flame and all (`exitTime`), the 
 second (`HOLD`) and then fades to the title screen. About 4.8 s on a phone; a tap anywhere skips to
 a quick fade, and a player with reduced motion gets the fade alone.
 
-**Every letter is built from the strokes it breaks into.** An R is a stem, a bowl and a leg, an E a
-stem and three bars — 29 pieces in 11 letters, each its own extruded slab abutting its neighbours,
-so the whole word and the wreckage are the same meshes. The debris is a pure simulation the probe
+**The letters are the font's own outlines, cut into the pieces they break into.**
+`tools/logo-glyphs.py` bakes the shipped woff2 at weight 700 into `game/logoglyphs.js` (data, not a
+font loader, with each curve flattened to three facets). Each glyph is then cut by two straight lines
+at angles of its own and every connected run of each cell is extruded as a slab — 49 pieces in 11
+letters — so the whole word and the wreckage are the same meshes, and a letter breaks along a clean
+line. The debris is a pure simulation the probe
 walks through the real timeline: the car meets the word before it lands, every piece comes loose,
 none goes through the floor, all lie still by the fade. The letters are lit by a neutral light of
 their own rather than the scene's warm afternoon sun, under which pure white came out tan.

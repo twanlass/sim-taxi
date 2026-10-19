@@ -27,7 +27,9 @@ It first shipped silent; `?splashsound=classic` keeps that.
 
 Until 2026-10-18 there was no logo: the asphalt faded up first (0.3 s) and the taxi dropped straight
 onto it, about 3.8 s in all. Tyler asked for the name in big white chunky 3D letters for the taxi
-to smash through; `?splashlogo=classic` keeps the plain drop.
+to smash through; `?splashlogo=classic` keeps the plain drop. The first cut of the logo was a hand-drawn
+block face built from the strokes it broke into (an R as stem, bowl and leg); Tyler asked for Space
+Grotesk instead, the same day.
 
 ## The opening vignette
 

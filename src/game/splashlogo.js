@@ -1,17 +1,24 @@
 import * as THREE from 'three';
 import { makeRng } from '../util/rng.js';
+import { LOGO_GLYPHS } from './logoglyphs.js';
 
 /**
- * The startup screen's logo (game/splash.js): ROCKET RIDES in chunky extruded block letters,
- * standing in the black until the taxi comes down through it, and the debris it leaves.
+ * The startup screen's logo (game/splash.js): ROCKET RIDES in the game's own Space Grotesk Bold,
+ * extruded into white slabs, standing in the black until the taxi comes down through it, and the
+ * debris it leaves.
  *
- * **Every letter is built from the strokes it breaks into.** An R is a stem, a bowl and a leg; an E
- * is a stem and three bars. Each stroke is its own extruded slab, abutting its neighbours along a
- * shared edge, so the intact word and the wreckage are the same meshes: nothing is swapped out on
- * the frame of the hit, and a piece flying off is visibly the piece that was there. The bevel is
- * pulled in by its own size (`bevelOffset`) so the outlines still abut instead of overlapping, which
- * leaves a fine chamfered groove at every joint — the logo reads as built from blocks before it
- * comes apart, and the break lines are where they look like they should be.
+ * **The letters are the font's own outlines**, baked out of the shipped woff2 by
+ * tools/logo-glyphs.py into src/game/logoglyphs.js — data, not a loader, like every other mesh here.
+ * The curves are flattened to a few facets each, which is what makes them read as this city's.
+ *
+ * **Every letter is cut into the pieces it breaks into before it is ever drawn.** Two straight cuts
+ * through each glyph, at angles of its own, split it into cells (`clipPolygon`), and each connected
+ * run of a cell is one slab. So the intact word and the wreckage are the same meshes: nothing is
+ * swapped out on the frame of the hit, and a piece flying off is visibly the piece that was there,
+ * broken along a clean line. The slabs are extruded by hand (`extrudeTriangles`) rather than by
+ * `ExtrudeGeometry` because a piece is a set of triangles from the glyph's own triangulation, not a
+ * shape with an outline — and its break faces are walls like any other edge, hidden behind the front
+ * faces until the pieces part.
  *
  * **The debris is a pure simulation** (`createDebris`), stepped by the splash and walked headless by
  * tools/probe.mjs: no piece goes through the floor, every piece is knocked loose, and the lot has
@@ -21,79 +28,140 @@ import { makeRng } from '../util/rng.js';
  */
 
 // --- The letterforms ---------------------------------------------------------------------------
-// In units of cap height: verticals are heavier than horizontals, as in any display face — at one
-// weight, an E's three bars and two gaps had 0.05 of gap left in a unit of height.
-const V = 0.32;
-const H = 0.22;
-
-const rect = (x0, y0, x1, y1) => [[x0, y0], [x1, y0], [x1, y1], [x0, y1]];
-/** Turned a half turn inside a box `w` wide: the S's lower hook is its upper one. */
-const turned = (points, w) => points.map(([x, y]) => [w - x, 1 - y]);
-/** Mirrored across a box `w` wide: the O's right half is its left. */
-const mirrored = (points, w) => points.map(([x, y]) => [w - x, y]).reverse();
-/** Mirrored top to bottom: the C's lower half is its upper. */
-const flipped = (points) => points.map(([x, y]) => [x, 1 - y]).reverse();
-
-const O_LEFT = [[0.46, 0], [0.46, H], [0.40, H], [V, 0.32], [V, 0.68], [0.40, 1 - H], [0.46, 1 - H],
-  [0.46, 1], [0.22, 1], [0, 0.78], [0, 0.22], [0.22, 0]];
-const C_TOP = [[0.84, 1], [0.22, 1], [0, 0.78], [0, 0.5], [V, 0.5], [V, 0.68], [0.40, 1 - H], [0.84, 1 - H]];
-const S_TOP = [[0.84, 1], [0.20, 1], [0, 0.80], [0, 0.58], [0.18, 0.39], [0.42, 0.39], [0.42, 0.61],
-  [V, 0.61], [V, 1 - H], [0.84, 1 - H]];
-
-/** Each glyph: its advance width and the strokes it is built from, as outlines in cap height. */
-export const GLYPHS = {
-  R: {
-    w: 0.9,
-    pieces: [
-      rect(0, 0, V, 1),
-      [[V, 1], [0.66, 1], [0.86, 0.82], [0.86, 0.62], [0.66, 0.44], [V, 0.44], [V, 0.64], [0.54, 0.64],
-        [0.54, 0.8], [V, 0.8]],
-      [[0.40, 0.44], [0.70, 0.44], [0.90, 0], [0.58, 0]],
-    ],
-  },
-  O: { w: 0.92, pieces: [O_LEFT, mirrored(O_LEFT, 0.92)] },
-  C: { w: 0.84, pieces: [C_TOP, flipped(C_TOP)] },
-  K: {
-    w: 0.94,
-    pieces: [
-      rect(0, 0, V, 1),
-      [[V, 0.36], [0.92, 1], [0.54, 1], [V, 0.70]],
-      [[0.38, 0.40], [0.56, 0], [0.94, 0], [0.60, 0.60]],
-    ],
-  },
-  E: {
-    w: 0.78,
-    pieces: [rect(0, 0, V, 1), rect(V, 1 - H, 0.78, 1), rect(V, 0.39, 0.68, 0.61), rect(V, 0, 0.78, H)],
-  },
-  T: { w: 0.86, pieces: [rect(0, 1 - H, 0.86, 1), rect(0.27, 0, 0.59, 1 - H)] },
-  I: { w: V, pieces: [rect(0, 0.5, V, 1), rect(0, 0, V, 0.5)] },
-  D: {
-    w: 0.9,
-    pieces: [
-      rect(0, 0, V, 1),
-      [[V, 1], [0.62, 1], [0.90, 0.72], [0.90, 0.28], [0.62, 0], [V, 0], [V, H], [0.50, H], [0.58, 0.34],
-        [0.58, 0.66], [0.50, 1 - H], [V, 1 - H]],
-    ],
-  },
-  S: { w: 0.84, pieces: [S_TOP, turned(S_TOP, 0.84)] },
-};
-
 export const LOGO_LINES = ['ROCKET', 'RIDES'];
 /** Cap height in world units, and the space between letters and between the lines, in cap heights. */
-export const CAP = 1.3;
-const TRACKING = 0.12;
-const LEADING = 0.24;
-/** Slab depth, in world units: half a cap, so it reads as a block and not as a sign. */
-export const DEPTH = 0.65;
-const BEVEL = 0.07;
+export const CAP = 1.45;
+const TRACKING = 0.16;
+const LEADING = 0.22;
+/** Slab depth, in world units: about half a cap, so it reads as a block and not as a sign. */
+export const DEPTH = 0.7;
 /**
  * Where it stands: the bottom line's baseline this far off the floor, so the car has the whole word
  * to come down through before it reaches the road. Turned a little on its vertical so the left-hand
- * faces of the extrusion show; the sun is off to the right, so they come out in the fill's shade
- * against the white faces, which is the extruded-logo look.
+ * faces of the extrusion show, in the logo light's shade against the white faces — the extruded-logo
+ * look.
  */
 export const LOGO_BASE = 0.9;
-export const LOGO_YAW = 0.2;
+export const LOGO_YAW = 0.15;
+
+/** Smallest piece kept, in square world units. */
+const MIN_PIECE = 0.004;
+
+const area2 = (pts) => {
+  let a = 0;
+  for (let i = 0; i < pts.length; i++) {
+    const p = pts[i];
+    const q = pts[(i + 1) % pts.length];
+    a += p.x * q.y - q.x * p.y;
+  }
+  return a / 2;
+};
+
+function inside(pt, poly) {
+  let hit = false;
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    const a = poly[i];
+    const b = poly[j];
+    if ((a.y > pt.y) !== (b.y > pt.y) && pt.x < ((b.x - a.x) * (pt.y - a.y)) / (b.y - a.y) + a.x) hit = !hit;
+  }
+  return hit;
+}
+
+/** A glyph's outlines as triangles, every one wound counter-clockwise. */
+function glyphTriangles(glyph) {
+  const contours = glyph.contours.map((c) => c.map(([x, y]) => new THREE.Vector2(x, y)));
+  // TrueType winds outer contours clockwise and holes the other way.
+  const outers = contours.filter((c) => area2(c) < 0).map((c) => ({ outline: c.slice().reverse(), holes: [] }));
+  for (const c of contours) {
+    if (area2(c) < 0) continue;
+    const home = outers.find((o) => inside(c[0], o.outline)) ?? outers[0];
+    home.holes.push(c.slice().reverse());
+  }
+  const tris = [];
+  for (const { outline, holes } of outers) {
+    const all = [outline, ...holes].flat();
+    for (const [a, b, c] of THREE.ShapeUtils.triangulateShape(outline, holes)) {
+      const t = [all[a], all[b], all[c]];
+      tris.push(area2(t) < 0 ? [t[0], t[2], t[1]] : t);
+    }
+  }
+  return tris;
+}
+
+/** Sutherland–Hodgman against one half-plane: keeps the side where `n·p >= c`. */
+function clipPolygon(poly, n, c) {
+  const out = [];
+  for (let i = 0; i < poly.length; i++) {
+    const p = poly[i];
+    const q = poly[(i + 1) % poly.length];
+    const dp = n.dot(p) - c;
+    const dq = n.dot(q) - c;
+    if (dp >= 0) out.push(p);
+    if ((dp >= 0) !== (dq >= 0)) out.push(p.clone().lerp(q, dp / (dp - dq)));
+  }
+  return out;
+}
+
+const key = (p) => `${Math.round(p.x * 1e4)},${Math.round(p.y * 1e4)}`;
+const edgeKey = (p, q) => {
+  const a = key(p);
+  const b = key(q);
+  return a < b ? `${a}|${b}` : `${b}|${a}`;
+};
+
+/** Splits a cell's triangles into the runs of it that touch, each one a piece of its own. */
+function components(tris) {
+  const parent = tris.map((_, i) => i);
+  const find = (i) => (parent[i] === i ? i : (parent[i] = find(parent[i])));
+  const seen = new Map();
+  tris.forEach((t, i) => {
+    for (let k = 0; k < 3; k++) {
+      const e = edgeKey(t[k], t[(k + 1) % 3]);
+      if (seen.has(e)) parent[find(i)] = find(seen.get(e));
+      else seen.set(e, i);
+    }
+  });
+  const groups = new Map();
+  tris.forEach((t, i) => {
+    const r = find(i);
+    if (!groups.has(r)) groups.set(r, []);
+    groups.get(r).push(t);
+  });
+  return [...groups.values()];
+}
+
+/**
+ * A slab from counter-clockwise triangles: their front at +depth/2, their back at -depth/2, and a
+ * wall on every edge no other triangle in the set shares. For a counter-clockwise edge p to q the
+ * outside is on the right, so the wall is wound (p front, p back, q back) to face it.
+ */
+function extrudeTriangles(tris, depth) {
+  const z = depth / 2;
+  const pos = [];
+  const push = (...vs) => { for (const [x, y, w] of vs) pos.push(x, y, w); };
+  const count = new Map();
+  for (const t of tris) {
+    for (let k = 0; k < 3; k++) {
+      const e = edgeKey(t[k], t[(k + 1) % 3]);
+      count.set(e, (count.get(e) ?? 0) + 1);
+    }
+  }
+  const rim = [];
+  for (const [a, b, c] of tris) {
+    push([a.x, a.y, z], [b.x, b.y, z], [c.x, c.y, z]);
+    push([a.x, a.y, -z], [c.x, c.y, -z], [b.x, b.y, -z]);
+    for (const [p, q] of [[a, b], [b, c], [c, a]]) {
+      if (count.get(edgeKey(p, q)) !== 1) continue;
+      push([p.x, p.y, z], [p.x, p.y, -z], [q.x, q.y, -z]);
+      push([p.x, p.y, z], [q.x, q.y, -z], [q.x, q.y, z]);
+      rim.push(p);
+    }
+  }
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  geometry.computeVertexNormals();
+  return { geometry, rim };
+}
 
 /**
  * Builds the pieces in world space: each one's geometry centred on its own middle, where it sits
@@ -102,39 +170,74 @@ export const LOGO_YAW = 0.2;
  */
 export function buildLogo() {
   const turn = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), LOGO_YAW);
+  const rng = makeRng(0x1060);
   const pieces = [];
   const letters = [];
-  const lineW = (word) => [...word].reduce((w, ch) => w + GLYPHS[ch].w, 0) + TRACKING * (word.length - 1);
+  const lineW = (word) => [...word].reduce((w, ch) => w + LOGO_GLYPHS[ch].w, 0) + TRACKING * (word.length - 1);
   LOGO_LINES.forEach((word, row) => {
     const baseline = (LOGO_LINES.length - 1 - row) * (1 + LEADING);
     let pen = -lineW(word) / 2;
     for (const ch of word) {
-      const glyph = GLYPHS[ch];
+      const glyph = LOGO_GLYPHS[ch];
       const letter = { index: letters.length, char: ch, centre: new THREE.Vector3(), pieces: [] };
       letter.centre.set((pen + glyph.w / 2) * CAP, (baseline + 0.5) * CAP, 0).applyQuaternion(turn);
       letter.centre.y += LOGO_BASE;
       letters.push(letter);
-      for (const outline of glyph.pieces) {
-        const pts = outline.map(([x, y]) => new THREE.Vector2((pen + x) * CAP, (baseline + y) * CAP));
-        const middle = pts.reduce((m, p) => m.add(p), new THREE.Vector2()).divideScalar(pts.length);
-        const local = pts.map((p) => p.clone().sub(middle));
-        const geometry = new THREE.ExtrudeGeometry(new THREE.Shape(local), {
-          depth: DEPTH - 2 * BEVEL,
-          bevelEnabled: true,
-          bevelThickness: BEVEL,
-          bevelSize: BEVEL,
-          bevelOffset: -BEVEL,
-          bevelSegments: 1,
-          curveSegments: 1,
-        });
-        geometry.translate(0, 0, -(DEPTH - 2 * BEVEL) / 2);
-        const hull = [];
-        for (const p of local) for (const z of [-DEPTH / 2, DEPTH / 2]) hull.push(new THREE.Vector3(p.x, p.y, z));
-        const home = new THREE.Vector3(middle.x, middle.y, 0).applyQuaternion(turn);
-        home.y += LOGO_BASE;
-        const piece = { letter: letter.index, geometry, hull, home, homeQuat: turn.clone() };
-        letter.pieces.push(pieces.length);
-        pieces.push(piece);
+
+      // Two cuts through the middle of the glyph, roughly a cross but never square to the strokes,
+      // so a stem breaks on a slant. A narrow I gets the one, across it.
+      const mid = new THREE.Vector2(glyph.w / 2, 0.5 + rng.jitter(0.12));
+      const a1 = rng.range(0.25, 0.6) * (rng.chance(0.5) ? 1 : -1);
+      const cuts = [new THREE.Vector2(Math.sin(a1), Math.cos(a1))];
+      if (glyph.w > 0.4) {
+        const a2 = a1 + Math.PI / 2 + rng.jitter(0.35);
+        cuts.push(new THREE.Vector2(Math.sin(a2), Math.cos(a2)));
+      }
+      let cells = [glyphTriangles(glyph).map((t) => t)];
+      for (const n of cuts) {
+        const c = n.dot(mid);
+        const next = [];
+        for (const cell of cells) {
+          for (const side of [1, -1]) {
+            const ns = n.clone().multiplyScalar(side);
+            const out = [];
+            for (const tri of cell) {
+              const poly = clipPolygon(tri, ns, c * side);
+              for (let k = 1; k + 1 < poly.length; k++) {
+                const t = [poly[0], poly[k], poly[k + 1]];
+                if (Math.abs(area2(t)) > 1e-7) out.push(t);
+              }
+            }
+            if (out.length) next.push(out);
+          }
+        }
+        cells = next;
+      }
+
+      for (const cell of cells) {
+        for (const tris of components(cell)) {
+          // A sliver where a cut grazes a corner — a few hundredths of a unit across — is not worth
+          // a piece: it would fly as a speck. Under `MIN_PIECE` it is left out.
+          if (tris.reduce((a, t) => a + area2(t), 0) * CAP * CAP < MIN_PIECE) continue;
+          // Into world units, about the piece's own area-weighted middle.
+          let total = 0;
+          const middle = new THREE.Vector2();
+          for (const t of tris) {
+            const a = area2(t);
+            total += a;
+            middle.addScaledVector(t[0].clone().add(t[1]).add(t[2]), a / 3);
+          }
+          middle.divideScalar(total);
+          const local = tris.map((t) => t.map((p) => new THREE.Vector2(
+            (p.x - middle.x) * CAP, (p.y - middle.y) * CAP)));
+          const { geometry, rim } = extrudeTriangles(local, DEPTH);
+          const hull = [];
+          for (const p of rim) for (const zz of [-DEPTH / 2, DEPTH / 2]) hull.push(new THREE.Vector3(p.x, p.y, zz));
+          const home = new THREE.Vector3((pen + middle.x) * CAP, (baseline + middle.y) * CAP, 0).applyQuaternion(turn);
+          home.y += LOGO_BASE;
+          letter.pieces.push(pieces.length);
+          pieces.push({ letter: letter.index, geometry, hull, home, homeQuat: turn.clone(), area: total * CAP * CAP });
+        }
       }
       pen += glyph.w + TRACKING;
     }
