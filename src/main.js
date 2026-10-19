@@ -42,7 +42,7 @@ import {
   createTraffic, placeCar, TRUCK_CHANCE, CLASSIC_CHANCE, TRUCK_LEN, TRUCK_W, laysPassRubber, copLaysRubber, SPEED,
   ROAD_Y, CAR_LEN, CAR_W, wheelAnchors,
   boostCruise, locoTuning, setLocoTuning, resetLocoTuning, locoRamp, LOCO_DEFAULTS, driftTaxi, kickDrift, driftHolds, DRIFT_CHAIN,
-  onDriftLaunch, hopProgress, setSpinStyle, setBarrelRoll, setPassTurnGate, setPassPace, setHopStyle, setDodge,
+  onDriftLaunch, hopProgress, setSpinStyle, setBarrelRoll, setPassTurnGate, setPassPace, setHopStyle, setDodge, setOvertakeStyle,
   configureSignals, setGrip, setRunningLights, setRunningLightsAt, runningLightsAt, isLaneClosed,
 } from './sim/traffic.js';
 import { createCollisions, TAXI_HP } from './sim/collisions.js';
@@ -1290,6 +1290,9 @@ setBarrelRoll(new URLSearchParams(window.location.search).get('barrelroll'));
 // The taxi waits for a car already turning left before pulling out round it; `?passturn=classic`
 // pulls out anyway and grinds along its flank, as before.
 setPassTurnGate(new URLSearchParams(window.location.search).get('passturn'));
+// The overtake combo throws the taxi into the oncoming lane the moment it is thrown, with no
+// judgement about what is there; `?overtake=classic` puts the judgement back.
+setOvertakeStyle(new URLSearchParams(window.location.search).get('overtake'));
 // A swinging-out taxi keeps its pace instead of matching the car it is going round, and a truck it
 // is passing stops holding it back through junctions; `?passpace=classic` puts both back.
 setPassPace(new URLSearchParams(window.location.search).get('passpace'));

@@ -810,6 +810,26 @@ export function setDodge(name) {
   dodgeOn = name !== 'classic';
 }
 /**
+ * The overtake combo is dumb on purpose: thrown, it puts the taxi in the oncoming lane, and that is
+ * all it does. No waiting for the car in front to be close enough, no refusing a car turning left
+ * across the lane (`turningAcross`), no picking a line round something in the junction by its own
+ * kerb or the far one, no sparing a car crossing at cruise — the taxi goes where the player sent
+ * it and hits whatever is there (Tyler, 2026-10-19: "don't do anything smart. That's how the player
+ * will learn, but that's how they will also feel a real reaction to their actions").
+ *
+ * What it still asks is the road: an oncoming lane to borrow and a road on the far side of the
+ * junction (`room`), because without those there is no lane to be in. And the leader brake still
+ * holds while the taxi swings out (`boostGap`), which is the taxi not driving *through* the car it
+ * is leaving rather than a judgement about whether it should go.
+ *
+ * `?overtake=classic` puts the judgement back: the pull-out waits for PASS_TRIGGER, the #520 gate
+ * refuses a left-turner, and the junction dodge only goes for a slow blocker it has a clean line round.
+ */
+let overtakeDumb = true;
+export function setOvertakeStyle(name) {
+  overtakeDumb = name !== 'classic';
+}
+/**
  * The car to dodge in the junction ahead of `taxi`, the road to it, and how far across the
  * swing has to go — or null when there is nothing in the way, or no line round it.
  *
@@ -864,7 +884,11 @@ function findDodge(cars, taxi, passLateral) {
     blocker = other;
     gap = ahead;
   }
-  if (!blocker || (blocker.v ?? 0) > DODGE_CREEP) return null;
+  if (!blocker) return null;
+  // Dumb, anything in the way arms the combo and the taxi goes the ordinary way round — through it
+  // if that is where it is (`setOvertakeStyle`).
+  if (overtakeDumb) return { car: blocker, gap, lateral: passLateral };
+  if ((blocker.v ?? 0) > DODGE_CREEP) return null;
   const clearAt = (lateral) => lats.every((lat) => Math.abs(lat - (laneLat + toFar * lateral)) >= clearBy);
   const lateral = [passLateral, dodgeKerb, dodgeWide].find(clearAt);
   return lateral === undefined ? null : { car: blocker, gap, lateral };
@@ -5816,22 +5840,35 @@ export function createTraffic(
         && (room || asking)
         && (taxi.passArmed !== false || taxi.passing || asking);
 
-      if (taxi.state === 'drive') {
+      // ...except a thrown combo (`setOvertakeStyle`), which may pull out half way across a
+      // straight-through crossing as well as on a lane. Behind a truck the taxi spends a good
+      // share of its time in the box — 8 units of crossing to a 12-unit lane — and a combo that
+      // landed there armed and then waited for the far side read as the combo not working (Tyler,
+      // 2026-10-19: "the combo can't be activated" behind a truck). A straight crossing has no arc
+      // for the offset to peel the car off (see `crossingStraight` below), so nothing stops it.
+      const thrownInBox = overtakeDumb && taxi.passArmed === true && !taxi.passing
+        && taxi.state === 'turn' && taxi.turn?.hand === 'straight';
+      if (taxi.state === 'drive' || thrownInBox) {
         const was = taxi.passing;
         // Pulling out wants the overtake combo (game/overtake.js) where main.js runs one — a blip
         // off the pill and back on behind the car. `passArmed` undefined is the old rule, holding
         // is enough, which the passing lab and the probe still drive. Staying out does not ask.
-        const passes = room && near && taxi.passArmed !== false && !turningAcross(leader);
+        // Thrown dumb (`setOvertakeStyle`), the combo pulls out the frame it arms, whatever is
+        // ahead and however far, and stays out on the same terms as any pass.
+        const thrown = overtakeDumb && taxi.passArmed === true;
+        const passes = thrown
+          ? room && (!was || near)
+          : room && near && taxi.passArmed !== false && !turningAcross(leader);
         // A dodge wants the combo itself, never the lab's holding-is-enough rule, and pulls out
         // DODGE_LEAD short of the change's own length from the blocker — see `findDodge`.
-        const dodges = !passes && room && dodge !== null && taxi.passArmed === true
+        const dodges = !thrown && !passes && room && dodge !== null && taxi.passArmed === true
           && dodge.gap < PASS_FADE * (Math.abs(dodge.lateral) / PASS_LATERAL) + DODGE_LEAD;
         taxi.passing = locoHeld && ((taxi.passing && alongside()) || passes || dodges);
         // Latched on the frame the taxi pulls out and held for the whole manoeuvre, rather than
         // re-read per frame: half way through a pass the taxi is *ahead* of this car in lane
         // coordinates, so `leaderOf` has already moved on to whatever is in front of them both.
         if (taxi.passing && !was) {
-          taxi.passTarget = (dodges ? dodge.car : leader) ?? null;
+          taxi.passTarget = (dodges ? dodge.car : leader ?? dodge?.car) ?? null;
           if (dodges) {
             taxi.dodgeLateral = dodge.lateral;
             taxi.dodges += 1;

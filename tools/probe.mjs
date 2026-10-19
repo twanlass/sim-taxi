@@ -64,7 +64,7 @@ import { createBurgerRun } from '../src/game/burgerrun.js';
 import { createOvertakeCombo, OVERTAKE_BLIP_MS, OVERTAKE_GRACE } from '../src/game/overtake.js';
 import { createOpening, exitPath, entryPath, REPAIR_GAP } from '../src/game/opening.js';
 import { createDepotRun } from '../src/game/depotrun.js';
-import { spinTaxi, driftTaxi, kickDrift, DRIFT_KICK_WINDOW, DRIFT_MIN_V, DRIFT_ANGLE, DRIFT_EXIT, DRIFT_CHAIN, createTraffic, lightPhase, displayPhase, setPriorityJunction, isUnsignalised, ringAxisAt, placeCar, approachRoom, setClosedLanes, isLaneClosed, ROAD_Y, HOP_LEN, DRIFT_LAUNCH_LEN, DRIFT_LAUNCH_HEIGHT, onDriftLaunch, setBarrelRoll, setHopStyle, setDodge, HOP_MIN_V, STOP_SETBACK, SIGNAL_LEAD, SIGNAL_LINGER, wheelAnchors, WHEEL_R, STEER_MAX, SPEED, CAR_LEN, CAR_W, landingBounce, landingRoll, BOUNCE_DUR, TRUCK_W, SPAWN_CLEARANCE, POLICE_FLEET,
+import { spinTaxi, driftTaxi, kickDrift, DRIFT_KICK_WINDOW, DRIFT_MIN_V, DRIFT_ANGLE, DRIFT_EXIT, DRIFT_CHAIN, createTraffic, lightPhase, displayPhase, setPriorityJunction, isUnsignalised, ringAxisAt, placeCar, approachRoom, setClosedLanes, isLaneClosed, ROAD_Y, HOP_LEN, DRIFT_LAUNCH_LEN, DRIFT_LAUNCH_HEIGHT, onDriftLaunch, setBarrelRoll, setHopStyle, setDodge, setOvertakeStyle, HOP_MIN_V, STOP_SETBACK, SIGNAL_LEAD, SIGNAL_LINGER, wheelAnchors, WHEEL_R, STEER_MAX, SPEED, CAR_LEN, CAR_W, landingBounce, landingRoll, BOUNCE_DUR, TRUCK_W, SPAWN_CLEARANCE, POLICE_FLEET,
   LOCO_DEFAULTS, locoTuning, setLocoTuning, resetLocoTuning, locoRamp, boostCruise, overdriveTop, MPH_PER_UNIT, locoWeave, locoWeaveFade, MIN_GAP, ENVELOPE, CIRCLE_OFFSET, DODGE_MARGIN, carGeometry, CABIN_TOP, copLaysRubber, uturnWindow } from '../src/sim/traffic.js';
 import { loadLocoTuning, saveLocoTuning, clearLocoTuning } from '../src/game/locostash.js';
 import { createRoadwork, BARRIER_S, CONE_ROW } from '../src/game/roadwork.js';
@@ -5526,8 +5526,11 @@ const PRESSURE_END = difficulty.getTuning().pressureEnd;
       }
     }
   }
-  const dodgeStage = ({ gesture = 'blip', depth = 0, creep = 0, style = '', cop = false } = {}) => {
+  // The line-picking below is `?overtake=classic`; the default throws the taxi into the oncoming lane
+  // whatever is there, checked at the end of this section (`overtake` below).
+  const dodgeStage = ({ gesture = 'blip', depth = 0, creep = 0, style = '', cop = false, overtake = 'classic' } = {}) => {
     setDodge(style);
+    setOvertakeStyle(overtake);
     const sTraffic = createTraffic(makeRng(seed + 113), new THREE.Scene(), 2);
     const [sTaxi, sBlock] = sTraffic.cars;
     // The blocker first, on its own: driven in until its centre is `depth` past the edge of the
@@ -5579,6 +5582,7 @@ const PRESSURE_END = difficulty.getTuning().pressureEnd;
       kerbward = Math.min(kerbward, sTaxi.passOffset);
     }
     setDodge('');
+    setOvertakeStyle('');
     return { hits, peak, widest, kerbward, arms: combo.state.arms, dodges: sTaxi.dodges, blipAt };
   };
   const sweep = (r) => `${r.arms} arms, ${r.dodges} swerves, ${r.hits} bumps, pass peaked at`
@@ -5639,6 +5643,104 @@ const PRESSURE_END = difficulty.getTuning().pressureEnd;
   const crossing = dodgeStage({ creep: SPEED });
   check('a car crossing the junction at cruise is not a swerve',
     crossing.dodges === 0 && crossing.arms === 0, sweep(crossing));
+
+  // 1f. The default combo is dumb (`setOvertakeStyle`; Tyler, 2026-10-19: "don't do anything smart").
+  // Whatever stands in the junction, it goes into the oncoming lane at the ordinary pass width and
+  // takes what comes: the roadblock cop that classic jinks round by the kerb.
+  const dumbBlock = dodgeStage({ depth: middle, cop: true, overtake: '' });
+  check('the default combo takes a roadblock cop the ordinary way, into the oncoming lane',
+    dumbBlock.arms === 1 && dumbBlock.dodges === 0 && dumbBlock.peak > 0.95 && dumbBlock.kerbward === 0
+      && dumbBlock.widest > 2 * LANE - 0.5 && dumbBlock.widest < 2 * LANE + 0.5, sweep(dumbBlock));
+
+  // A car already partway round a left turn ahead: the #520 gate refuses to pull out round it, and
+  // under `?overtake=classic` the combo does nothing there. The default pulls out regardless —
+  // whether it touches the turner is the player's timing. Blipped the moment the turner crosses its
+  // hold line (`state` flips to `turn` there), so this is the case the gate refuses and not an
+  // ordinary pass decided before it set off. Staged at the first junction with a straight on and a
+  // left off it.
+  let lt = null;
+  for (let i = 1; i < GRID_I && !lt; i++) {
+    for (let j = 1; j < GRID_J && !lt; j++) {
+      for (const d of [0, 1, 2, 3]) {
+        if (ringAxisAt(i, j) || approachRoom(d, i, j) < 40) continue;
+        const exits = legalExits(d, i, j);
+        if (!exits.includes(d) || !exits.includes(leftOf(d)) || !legalExits(opposite(d), i, j).length) continue;
+        lt = { i, j, d };
+        break;
+      }
+    }
+  }
+  const turnerStage = (overtake = '') => {
+    setOvertakeStyle(overtake);
+    const tTraffic = createTraffic(makeRng(seed + 127), new THREE.Scene(), 2);
+    const [tTaxi, tLead] = tTraffic.cars;
+    placeCar(tTaxi, lt.d, lt.i, lt.j, 36);
+    tTaxi.route = [lt.d, lt.d, lt.d]; tTaxi.parked = false;
+    tTaxi.hp = TAXI_HP;
+    placeCar(tLead, lt.d, lt.i, lt.j, 4);
+    tLead.route = [leftOf(lt.d)]; tLead.parked = false;
+    const combo = createOvertakeCombo({ taxi: tTaxi });
+    let peak = 0;
+    let blipAt = null;
+    let turning = false;
+    const blipFrames = Math.floor((OVERTAKE_BLIP_MS / 1000) * 60 * 0.6);
+    for (let f = 0; f < 60 * 3; f++) {
+      if (blipAt === null && tLead.state === 'turn' && tTaxi.passGap < 30) {
+        blipAt = f;
+        turning = tLead.turn?.hand === 'left';
+      }
+      const off = blipAt !== null && f >= blipAt && f < blipAt + blipFrames;
+      tTaxi.boost = true;
+      tTaxi.boostEasing = off;
+      combo.update(1 / 60, { held: !off });
+      tTraffic.update(1 / 60);
+      peak = Math.max(peak, tTaxi.pass);
+    }
+    setOvertakeStyle('');
+    return { peak, blipAt, turning, arms: combo.state.arms };
+  };
+  const turnSweep = (r) => `blip at frame ${r.blipAt} with the car ${r.turning ? '' : 'not '}turning left,`
+    + ` ${r.arms} arms, pass peaked at ${r.peak.toFixed(2)}`;
+  const turner = turnerStage();
+  check('the default combo pulls out round a car already turning left',
+    turner.turning && turner.arms === 1 && turner.peak > 0.95, turnSweep(turner));
+  const classicTurner = turnerStage('classic');
+  check('?overtake=classic: the combo does not pull out round a car already turning left',
+    classicTurner.turning && classicTurner.peak === 0, turnSweep(classicTurner));
+
+  // Behind a truck the taxi spends much of its time in the junction box, and a combo thrown there
+  // pulls out there rather than waiting for the far side (`thrownInBox` in traffic.js). Classic
+  // decides only on a lane: staged like this it never pulled out at all in 3 seconds.
+  const boxStage = (overtake = '') => {
+    setOvertakeStyle(overtake);
+    const bTraffic = createTraffic(makeRng(seed + 131), new THREE.Scene(), 2);
+    const [bTaxi, bTruck] = bTraffic.cars;
+    placeCar(bTaxi, sw.d, sw.i, sw.j, 14);
+    bTaxi.route = [sw.d, sw.d, sw.d]; bTaxi.parked = false;
+    placeCar(bTruck, sw.d, sw.i, sw.j, 6);
+    bTruck.route = [sw.d, sw.d, sw.d]; bTruck.parked = false; bTruck.isTruck = true;
+    const combo = createOvertakeCombo({ taxi: bTaxi });
+    const blipFrames = Math.floor((OVERTAKE_BLIP_MS / 1000) * 60 * 0.6);
+    let blipAt = null;
+    let pulledIn = null;
+    let peak = 0;
+    for (let f = 0; f < 60 * 3; f++) {
+      if (blipAt === null && bTaxi.state === 'turn') blipAt = f;
+      const off = blipAt !== null && f >= blipAt && f < blipAt + blipFrames;
+      bTaxi.boost = true;
+      bTaxi.boostEasing = off;
+      combo.update(1 / 60, { held: !off });
+      bTraffic.update(1 / 60);
+      if (bTaxi.passing && pulledIn === null) pulledIn = bTaxi.state;
+      peak = Math.max(peak, bTaxi.pass);
+    }
+    setOvertakeStyle('');
+    return { pulledIn, peak, arms: combo.state.arms };
+  };
+  const boxed = boxStage();
+  check('a combo thrown in the junction box behind a truck pulls out there',
+    boxed.arms === 1 && boxed.pulledIn === 'turn' && boxed.peak > 0.95,
+    `${boxed.arms} arms, pulled out in state ${boxed.pulledIn}, pass peaked at ${boxed.peak.toFixed(2)}`);
 
   // 2. A boosting taxi turning left used to stop dead under a green: the oncoming lane shares its
   // axis, so it kept its green, and the left-turn yield then refused to let the taxi go — waiting
