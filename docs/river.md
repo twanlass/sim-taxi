@@ -668,10 +668,21 @@ not. And the circle is flown at `FLY_LOW`, 3.8–4.9 off the water, but each bir
 at bridge height the whole time and the birds hung so far up-screen they read as gulls over the far
 bank. The probe soaks five minutes and counts bird-frames inside a deck: zero.
 
-A barge every 16–34s, a tug every 90–150s and never two at once. Both are slow on purpose — 2.6 and
-3.4 units per second against a car's 8.5 — because what sells a boat is being the slowest thing in
-the frame. The tug's wait went 55–95 → 90–150 with the cycle: a lift is a ten-second event now, and
-one arriving every minute stops being an event.
+A barge every 16–34s and a tug every 30–50s, so **a lift about every 45 seconds** (median 45, first
+one ~38s into a run) and the span shut about half the time. Both are slow on purpose — 2.6 and 3.4
+units per second against a car's 8.5 — because what sells a boat is being the slowest thing in the
+frame.
+
+The river is single file and **every boat keeps `FOLLOW_GAP` behind the one ahead**: a tug that
+catches a barge slows to it, and a barge reaching a tug held short of the leaf waits behind it. The
+schedule only spaces launches (`LAUNCH_GAP`), and a tug that comes due goes before any barge. The
+lift is held while *any* tug still wants it, re-asked every frame, so two tugs close together go
+through on one lift and a tug left waiting by `HOLD_SECONDS` gets another.
+
+It was a tug every 90–150s that could only set off onto an empty river, with no barge allowed out
+while one was due or out. That made the wait the floor rather than the spacing: the tug also waited
+out every barge and its own trip across the map, and the lift came round every **179s** (median of
+30 seeds, 141–225), first 2:16 in. Tyler, 2026-10-19: "I rarely see it."
 
 The tug asks for the lift **`ASK_AHEAD` units out**, which is a distance rather than a clock for the
 reason the roadworks hop is paced by distance: the answer has to be the same whatever else is
