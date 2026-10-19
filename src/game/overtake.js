@@ -1,7 +1,6 @@
 // The overtake combo: Loco Mode behind a car, a quick blip off the pill and back on, and the taxi
 // pulls out and goes round. Without it, holding Loco behind a car rams it. The same blip short of a
-// car stopped or creeping in the junction ahead swerves round that instead, and behind a truck with
-// no oncoming lane to pass it in, has the truck pull over (SQUEEZE_* in sim/traffic.js).
+// car stopped or creeping in the junction ahead swerves round that instead.
 //
 // The pass itself is the traffic model's (the pass block in sim/traffic.js). This only decides
 // whether it is *allowed* to start, through `taxi.passArmed`: undefined is the old rule (holding

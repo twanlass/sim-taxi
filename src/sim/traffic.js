@@ -1459,7 +1459,7 @@ const closingFloor = (car, leader) => Math.max(0, (leader.v ?? 0) * Math.cos(lea
  * reach a position the detector calls a crash — the constraint *is* the detector's own geometry.
  */
 const boostGap = (car, leader) => (car.passOffset > 0
-  ? Math.min(BOOST_GAP + truckExtra(leader), envelopeGap(car.passOffset + kerbward(leader), leader))
+  ? Math.min(BOOST_GAP + truckExtra(leader), envelopeGap(car.passOffset, leader))
   : BOOST_GAP + truckExtra(leader) + (car.passArmed !== undefined && !car.passing ? COMBO_TAILGATE : 0));
 /**
  * How fast the taxi may go while it swings out round `leader`, `ahead` units behind it — the cap
@@ -1488,8 +1488,8 @@ const boostGap = (car, leader) => (car.passOffset > 0
  */
 function swingCap(car, leader, ahead) {
   if (!passPaced || !car.passing || car.pass >= 1 || leader !== car.passTarget) return 0;
-  const lateral = car.dodgeLateral ?? passLateralOn(car);
-  const fade = passFadeFor(car, lateral);
+  const lateral = passLateralOn(car);
+  const fade = PASS_FADE * (lateral / PASS_LATERAL);
   const lv = Math.max(0, leader.v ?? 0);
   const STEPS = 10;
   let cap = Infinity;
@@ -1497,7 +1497,7 @@ function swingCap(car, leader, ahead) {
     const t = car.pass + ((1 - car.pass) * k) / STEPS;
     const x = (t - car.pass) * fade;
     const lat = passEase(t) * lateral;
-    const need = Math.min(BOOST_GAP + truckExtra(leader), envelopeGap(lat + kerbward(leader), leader));
+    const need = Math.min(BOOST_GAP + truckExtra(leader), envelopeGap(lat, leader));
     if (need === 0) break;
     const slack = ahead - need;
     if (slack >= x) continue;
@@ -1523,48 +1523,6 @@ export function setPassPace(name) {
  * and well inside PASS_TRIGGER, so the pass starts the frame the combo arms.
  */
 const COMBO_TAILGATE = 1.5;
-
-// --- The squeeze: the overtake combo, thrown at a truck there is no way round.
-//
-// The pass borrows the oncoming lane and always spans a junction (32 units of manoeuvre against a
-// 12-unit lane), so it is only offered where the road carries straight on. Behind a car that is a
-// fair rule: cars are quick, and whatever stops the pass is gone in a second. Behind a truck it is
-// the most annoying state in the game (Tyler, 2026-10-18). A truck cruises at 0.65 of a car and
-// turns right at 2.3 u/s, so a lane with no straight on — every T at the coast and the river —
-// and the corner after it is several seconds of Loco Mode at walking pace with the combo armed and
-// doing nothing. Measured with a bot throwing the combo every 2s behind 35% trucks, 24 cities ×
-// 90s: 28 stuck spells over 2s, 13 over 4s, armed for most of them.
-//
-// So a truck that has the combo thrown at it and no oncoming lane to be passed in **pulls over**:
-// the brake check's own pull-over (`PULLOVER_*`) — onto the kerb, outer wheels up, shedding half
-// its speed — and the taxi jinks out just far enough to clear it *inside its own lane*. Nothing
-// about the junction ahead matters any more, because nothing leaves the lane: the truck's 1.5
-// toward the kerb and the taxi's SQUEEZE_LATERAL toward the centreline put ENVELOPE + BODY_MARGIN
-// between them, which is the clearance the taxi's body brake for trucks (`truckRoom`) asks for, and
-// the taxi's outer edge stays a few tenths short of the centreline. The oncoming pass still comes
-// first wherever it is offered; this is what the combo does where it used to do nothing.
-// `?truckyield=classic` turns it off.
-const SQUEEZE_MARGIN = 0.05;
-const SQUEEZE_LATERAL = ENVELOPE + BODY_MARGIN + SQUEEZE_MARGIN - PULLOVER_LATERAL;   // 1.15
-/**
- * Units of road for the squeeze's jink. Scaled off PASS_FADE like any other swing it would be 2,
- * a 41° crab at the midpoint — the dodge's kerb jink, which is a swerve and wants to look like
- * one. Passing a truck that has pulled over for you is not an emergency: 4 puts the peak at 23°.
- */
-const SQUEEZE_FADE = 4;
-/** Steepest a truck pulling over for a squeeze angles its nose at the kerb: tan of ~17°. */
-const SQUEEZE_SLOPE = 0.3;
-let squeezeOn = true;
-/** `?truckyield=classic`: no squeeze; behind a truck with no oncoming lane, the combo waits. */
-export function setTruckYield(name) {
-  squeezeOn = name !== 'classic';
-}
-/** How far this car has pulled over toward its kerb right now (a brake check, or a squeeze). */
-const kerbward = (car) => PULLOVER_LATERAL * (car?.pullover ?? 0);
-/** Units of road this car's lane change takes, for a swing of `lateral` — see PASS_FADE. */
-const passFadeFor = (car, lateral) => (car.squeezing
-  ? SQUEEZE_FADE
-  : PASS_FADE * (Math.abs(lateral) / PASS_LATERAL));
 /**
  * Is `leader` the taxi, and the taxi already braking for this truck's body? Then the truck must not
  * hold for it in turn, whatever the lane bookkeeping says about who is in front.
@@ -3204,8 +3162,6 @@ function spawnCars(rng, count, into = [], accept = null, truckChance = 0, classi
       overtakes: 0,
       // ...of which dodges round something stood in a junction (`findDodge`), for the tools.
       dodges: 0,
-      // ...and squeezes past a truck that pulled over for it (`SQUEEZE_*`).
-      squeezes: 0,
       // 0..1 brightness for the brake and turn-signal light pods. brakeLevel is eased (see
       // BRAKE_LIGHT_RISE/FALL) — off frame one along with prevV/v agreeing there is no accel yet.
       // The turn-signal levels are not eased; they jump straight to their blink target.
@@ -3249,8 +3205,6 @@ function spawnCars(rng, count, into = [], accept = null, truckChance = 0, classi
       passLeader: null,   // and who it is
       dodgeGap: Infinity, // road to a blocker the combo could dodge (`findDodge`)
       dodgeLateral: null, // the swing a dodge latched, while its offset is out
-      squeezing: false,   // that swing is a squeeze past a pulled-over truck, while it is out
-      squeezedBy: null,   // on a truck: the taxi it is pulled over for
       // What `pass` is turned into: the smoothstepped offset the body is drawn at, the slope of
       // that offset (which *is* the tangent of the steering angle, since it is per unit of road),
       // and the roll that comes off its curvature. Derived every frame from `pass`; kept on the car
@@ -3449,8 +3403,6 @@ export function stageCar(car, x, z, yaw) {
   car.passing = false;
   car.passTarget = null;
   car.dodgeLateral = null;
-  car.squeezing = false;
-  car.squeezedBy = null;
   car.passOffset = 0;
   car.passSlope = 0;
   car.passBank = 0;
@@ -5779,7 +5731,7 @@ export function createTraffic(
       // A dodge (`findDodge`) latches its own swing for as long as the offset is out, because it
       // may have to go wider than the lane centre, or the other way, to clear what it is going
       // round — see `passLateral` below the decision.
-      if (!taxi.passing && !(taxi.pass > 0)) { taxi.dodgeLateral = null; taxi.squeezing = false; }
+      if (!taxi.passing && !(taxi.pass > 0)) taxi.dodgeLateral = null;
       // Something stood in the junction ahead that the combo could dodge. Published, like
       // `passGap`, for game/overtake.js, which arms on either. Looked for only in Loco Mode
       // and the taxi in its lane — a pass under way is already out there. `boost` rather than
@@ -5890,11 +5842,7 @@ export function createTraffic(
         // DODGE_LEAD short of the change's own length from the blocker — see `findDodge`.
         const dodges = !passes && room && dodge !== null && taxi.passArmed === true
           && dodge.gap < PASS_FADE * (Math.abs(dodge.lateral) / PASS_LATERAL) + DODGE_LEAD;
-        // And where neither is on, a truck in front pulls over for it — see SQUEEZE_*. Nothing
-        // about the road ahead is asked: the squeeze never leaves the lane.
-        const squeezes = squeezeOn && !passes && !dodges && near && taxi.passArmed === true
-          && leader?.isTruck === true && leader.state === 'drive';
-        taxi.passing = locoHeld && ((taxi.passing && alongside()) || passes || dodges || squeezes);
+        taxi.passing = locoHeld && ((taxi.passing && alongside()) || passes || dodges);
         // Latched on the frame the taxi pulls out and held for the whole manoeuvre, rather than
         // re-read per frame: half way through a pass the taxi is *ahead* of this car in lane
         // coordinates, so `leaderOf` has already moved on to whatever is in front of them both.
@@ -5903,35 +5851,10 @@ export function createTraffic(
           if (dodges) {
             taxi.dodgeLateral = dodge.lateral;
             taxi.dodges += 1;
-          } else if (squeezes && !passes) {
-            taxi.dodgeLateral = SQUEEZE_LATERAL;
-            taxi.squeezing = true;
-            leader.squeezedBy = taxi;
-            taxi.squeezes += 1;
           }
           taxi.overtakes += 1;
         }
-        if (!taxi.passing) {
-          if (taxi.passTarget?.squeezedBy === taxi) taxi.passTarget.squeezedBy = null;
-          taxi.passTarget = null;
-        }
-      } else if (squeezeOn && locoHeld && !taxi.passing && taxi.passArmed === true
-        && taxi.turn?.hand === 'straight' && leader?.isTruck === true
-        && (leader.state === 'drive' || leader.turn?.hand === 'straight')
-        && gap !== undefined && gap < PASS_TRIGGER) {
-        // A squeeze may also start in a straight crossing, which a pass may not (it is only
-        // decided on a lane, for the reasons above). The squeeze asks nothing of the road, and a
-        // straight crossing composes with an offset exactly as a lane does — see `crossingStraight`
-        // below. Without it, a combo thrown behind a truck as both crossed a junction waited out
-        // the whole box at truck speed: 23% of the time the taxi still spent stuck behind one.
-        // Once out, the next lane holds it for as long as the taxi is alongside, like any pass.
-        taxi.passing = true;
-        taxi.passTarget = leader;
-        taxi.dodgeLateral = SQUEEZE_LATERAL;
-        taxi.squeezing = true;
-        leader.squeezedBy = taxi;
-        taxi.squeezes += 1;
-        taxi.overtakes += 1;
+        if (!taxi.passing) taxi.passTarget = null;
       }
 
       // Paced by distance, because a time-paced offset slides a stopped car sideways.
@@ -5989,7 +5912,7 @@ export function createTraffic(
       // straight-on gate below already give it. Read after the decision, so a dodge's first frame
       // swings by its own latched lateral rather than the lane's.
       const passLateral = taxi.dodgeLateral ?? passLateralOn(taxi);
-      const passFade = passFadeFor(taxi, passLateral);
+      const passFade = PASS_FADE * (Math.abs(passLateral) / PASS_LATERAL);
       const step = Math.sign(delta) * Math.min(Math.abs(delta), ds / passFade);
       taxi.pass += step;
 
@@ -6310,27 +6233,13 @@ export function createTraffic(
       // into the manoeuvre. Taken over the step the car actually drove, so the angle is the one it
       // is really describing; a car shuffling over from a standstill has no slope and keeps its
       // wheels straight, which is exactly what a stopped car does.
-      // A truck pulled over for the taxi's squeeze (SQUEEZE_*) uses the very same manoeuvre, and
-      // lets go on a real turn for the reason `blockPulloverFor` does.
-      // Let go the moment that taxi is no longer squeezing past it, however the squeeze ended —
-      // a wreck or a new run resets the taxi without passing back through the pass block, and a
-      // truck left holding at its line for nobody would never move again.
-      if (car.squeezedBy && !(car.squeezedBy.squeezing && car.squeezedBy.passTarget === car)) {
-        car.squeezedBy = null;
-      }
-      const squeezedFor = car.squeezedBy && !(car.state === 'turn' && car.dOut !== car.d) ? 1 : 0;
-      const pulloverTarget = Math.max(blockPulloverFor(car), squeezedFor);
+      const pulloverTarget = blockPulloverFor(car);
       const before = car.pullover;
       car.pullover += (pulloverTarget - car.pullover)
         * Math.min(1, dt * (pulloverTarget > car.pullover ? PULLOVER_RISE : PULLOVER_FALL));
       const pulloverStep = (car.pullover - before) * -PULLOVER_LATERAL;
       const pulloverDs = car.state === 'drive' ? car.v * dt : 0;
       car.pulloverSlope = pulloverDs > 0.0001 ? pulloverStep / pulloverDs : 0;
-      // A truck pulling over for a squeeze is usually crawling, and at a crawl that slope is
-      // nearly the whole sideways step over almost no road — 70° and more, which swings a
-      // 5.6-unit box's tail out into the lane the taxi is about to use. Measured on the probe's
-      // staging, it was the one bump the squeeze still had. A truck's steering does not go that far.
-      if (squeezedFor) car.pulloverSlope = Math.max(-SQUEEZE_SLOPE, Math.min(SQUEEZE_SLOPE, car.pulloverSlope));
 
       // `car.boost` alone drives every boost-only *rule* (weave, tailgate gap, priority junction,
       // red-light running) all the way through the cooldown tail — that's what keeps the risk
@@ -6410,16 +6319,6 @@ export function createTraffic(
         // that before it asks the network.
         const sig = approachSignal(car, t);
         if (!sig.open && !taxiClearsYellow(car, sig, distToLine)) {
-          allowed = Math.min(allowed, Math.max(0, distToLine));
-          stopRoom = Math.min(stopRoom, Math.max(0, distToLine));
-        }
-        // A truck pulled over for the taxi's squeeze waits at its line until the taxi is by.
-        // Turning out from under it was the squeeze's one way of going wrong: a right turn swings
-        // the truck's tail across the very lane the taxi is using, and letting the pull-over go on
-        // a real turn (as it must, or the arc is bent) swings the body back out with it. Measured
-        // over 24 cities × 90s, 25 of 34 squeezes touched the truck before this — mostly level
-        // with it, as it turned in the box.
-        if (car.squeezedBy) {
           allowed = Math.min(allowed, Math.max(0, distToLine));
           stopRoom = Math.min(stopRoom, Math.max(0, distToLine));
         }
@@ -6774,9 +6673,6 @@ export function createTraffic(
             // left is: oncoming traffic, cross traffic at a junction being run, and a car turning
             // out of the oncoming lane — all of which are in front of the player and avoidable.
             if (car === taxi.passTarget && chosen?.hand === 'left') { chosen = null; vetoed = true; }
-            // A truck pulled over for a squeeze waits at its line, whichever way it is going — see
-            // the hold in the approach above, which this backs up for a truck already at the line.
-            if (car.squeezedBy) { chosen = null; vetoed = true; }
 
             // The same two tests the approach above already asked, now on the turn actually
             // chosen — a dice roll can land on an exit the "every exit blocked" form let through.

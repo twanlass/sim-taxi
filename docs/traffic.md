@@ -1668,48 +1668,6 @@ the taxi's right, and a cop slewed the way the robbery leaves one:
 | roadblock cop on the centreline | jinks to the kerb, −1.15, no contact |
 | roadblock cop 0.58 toward the taxi's side | swerves wide, no contact |
 
-#### A truck pulls over for it
-
-Reported as "the most annoying state in the game": stuck right behind a slow truck with no way to
-throw the overtake. The pass borrows the oncoming lane and always spans a junction, so it is only
-offered where the road carries straight on — and a truck cruises at 0.65 of a car and takes a right
-at 2.3 u/s, so every T at the coast or the river, and the corner after it, was seconds of Loco Mode
-at walking pace with the combo armed and doing nothing.
-
-So the combo thrown at a truck with no oncoming lane to pass it in makes the truck **pull over**.
-It is the brake check's own pull-over (`PULLOVER_*`): the truck dives 1.5 for the kerb, rides up on
-it and sheds half its speed, and the taxi jinks out `SQUEEZE_LATERAL` (1.15) toward the centreline
-over `SQUEEZE_FADE` (4 units of road, a 23° crab at the midpoint). Between them that is
-`ENVELOPE + BODY_MARGIN` and a little over, the clearance the taxi's body brake for trucks asks for,
-with the taxi's outer edge still inside its own lane. Nothing leaves the lane, so nothing about the
-road ahead is asked: no straight on, a one-way street, oncoming traffic, none of it matters. The
-oncoming pass still comes first wherever it is offered.
-
-- **It can start in a straight crossing,** which a pass cannot (a pass is only decided on a lane).
-  The squeeze asks nothing of the road, and a straight crossing composes with an offset exactly as a
-  lane does.
-- **The truck waits at its line until the taxi is by.** A right turn swings the truck's tail across
-  the lane the taxi is using, and a real turn has to let the pull-over go. Before the hold, 25 of 34
-  squeezes touched the truck, nearly all level with it as it turned in the box.
-- **It noses at the kerb no harder than `SQUEEZE_SLOPE` (~17°).** The pull-over's slope is the
-  sideways step over the road covered, and a crawling truck covers almost none, so it swung its
-  nose 70° and more at the kerb and its tail out into the taxi. With the hold and the cap, 2 of 32
-  squeezes touch it.
-- It counts as an overtake for the combo meter and the haptic. `taxi.squeezes` tallies them.
-- `?truckyield=classic` turns it off.
-
-Measured with a bot holding Loco and throwing the combo every 2s while behind a truck, routed,
-24 cities × 90s at 35% trucks (stuck: a truck within 12 ahead, or the body brake holding the taxi,
-and not passing):
-
-| | stuck time | spells over 2s | over 4s | longest | bumps |
-|---|---|---|---|---|---|
-| before | 335s | 54 | 25 | 10.7s | 476 |
-| after | 215s | 35 | 13 | 6.7s | 500 |
-
-What is left is almost all the taxi itself in a junction behind a truck taking the same corner,
-which nothing here can go round.
-
 ### Seeing what you're about to hit
 
 Because a contact only costs anything while boosting, the one moment a car hidden behind a
