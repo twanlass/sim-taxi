@@ -19580,7 +19580,7 @@ let chopperOrder; // likewise
   // the same crossing with a turn there is the ordinary hop.
   {
     const lLine = bridgeLines().find((i) => riverCrossing(i) === 'fixed');
-    const fly = (exitDir) => {
+    const fly = (exitDir, { release = false, carry = 3 } = {}) => {
       const lScene = new THREE.Scene();
       const lTraffic = createTraffic(makeRng(seed + 96), lScene, 1);
       const lTaxi = lTraffic.taxi;
@@ -19591,7 +19591,7 @@ let chopperOrder; // likewise
       lTaxi.boost = true;
       lTaxi.v = 31;
       // A kick in hand, held long enough to see the whole flight out.
-      lTaxi.drift = { phase: 'carry', lane: lTaxi.lane.id, v: 31, t: 0, carry: 3, kicked: true };
+      lTaxi.drift = { phase: 'carry', lane: lTaxi.lane.id, v: 31, t: 0, carry, kicked: true };
       lTaxi.driftTier = 1;
       lTaxi.driftHp = lTaxi.hp ?? 0;
       let big = false;
@@ -19604,10 +19604,15 @@ let chopperOrder; // likewise
       // The barrel roll: the lowest the body's own up vector gets, and where it is on touchdown.
       let minUp = 1;
       let landUp = null;
+      // The slowest the taxi goes between takeoff and touchdown.
+      let airV = Infinity;
       const up = new THREE.Vector3();
       lTraffic.onTaxiLand((event) => { landing = landing ?? event; });
       for (let f = 0; f < 60 * 3 && !landing; f++) {
+        // `release` lets go of the pill the frame after takeoff, the way main.js hands it over once
+        // the thumb comes up: still `boost` through the cooldown tail, but easing.
         lTaxi.boost = true;
+        lTaxi.boostEasing = release && big;
         // Standing on the brake the whole way: the flight must not care.
         lTaxi.braking = big;
         const before = lTaxi.hopFrom;
@@ -19616,7 +19621,10 @@ let chopperOrder; // likewise
           big = onDriftLaunch(lTaxi);
           launchTravelled = lTaxi.hopFrom;
         }
-        if (lTaxi.hopFrom != null) peak = Math.max(peak, lTraffic.taxiGroup.position.y - ROAD_Y);
+        if (lTaxi.hopFrom != null) {
+          peak = Math.max(peak, lTraffic.taxiGroup.position.y - ROAD_Y);
+          airV = Math.min(airV, lTaxi.v);
+        }
         up.set(0, 1, 0).applyQuaternion(lTraffic.taxiGroup.quaternion);
         minUp = Math.min(minUp, up.y);
         if (landing) {
@@ -19627,13 +19635,21 @@ let chopperOrder; // likewise
         }
       }
       lTraffic.dispose?.();
-      return { big, peak, landing, landLane, landS, air, minUp, landUp };
+      return { big, peak, landing, landLane, landS, air, minUp, landUp, airV };
     };
     const straight = fly(DIR.PZ);
     const turning = fly(DIR.PX);
     setBarrelRoll('classic');
     const level = fly(DIR.PZ);
     setBarrelRoll();
+    // The carry runs out over the water, which is the ordinary case: a tier-1 kick's is 0.6s.
+    const held = fly(DIR.PZ, { carry: 0.1 });
+    const letGo = fly(DIR.PZ, { carry: 0.1, release: true });
+    check('letting go of Loco mid-flight does not slow Big Air down',
+      held.big && letGo.big && letGo.landing
+      && letGo.airV >= held.airV - 0.01 && letGo.landing.v >= held.landing.v - 0.01,
+      `slowest in the air ${letGo.airV.toFixed(1)} u/s let go against ${held.airV.toFixed(1)} held, `
+      + `${letGo.landing?.v.toFixed(1)} against ${held.landing?.v.toFixed(1)} at touchdown`);
     check('the drift launch barrel-rolls the taxi upside down and lands it on its wheels',
       straight.minUp < -0.95 && straight.landUp > 0.95,
       `lowest up ${straight.minUp.toFixed(2)}, ${straight.landUp?.toFixed(2)} at touchdown`);

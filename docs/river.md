@@ -254,12 +254,14 @@ tier-1 kick out of the corner one block back otherwise ran out ~5.5 units short 
 and flew the ordinary hop at the kick's speed. A free-driving taxi (no route) with a kick in hand
 has its far-bank exit set to straight on, rather than losing the jackpot to an unseen dice roll.
 
-While it is up there the taxi keeps the boosting taxi's priority junction whatever the pill says,
-ignores the brake (a distance-paced arc on a stopping car is a taxi parked ten units up), and
+While it is up there the taxi keeps the boosting taxi's priority junction and its full boost power
+whatever the pill says (letting go mid-flight used to coast it from 31 u/s down to 16 before
+touchdown), ignores the brake (a distance-paced arc on a stopping car is a taxi parked ten units up), and
 `sim/collisions.js` skips it above `DRIFT_LAUNCH_CLEAR`. main.js slows the sim toward the apex
 (`launchTimeScale`, down to 0.4) so 0.65s of flight hangs for about a second, and the landing is
 the slam: the squat and the pitch kick scaled by `DRIFT_SLAM`, a 1.6 shake, a body thud and a ring of
-dust. `tools/probe.mjs` asserts the chain, the brake, the turning exit and the collision skip.
+dust. `tools/probe.mjs` asserts the chain, the brake, the let-go pill, the turning exit and the collision
+skip.
 
 Mid-flight the taxi **barrel-rolls**: one full turn about its own long axis (`barrelRollAt` in
 `sim/traffic.js`), eased in from 12% of the arc and level again by 78%, so the takeoff still reads
