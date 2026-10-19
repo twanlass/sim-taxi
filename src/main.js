@@ -2060,10 +2060,21 @@ function onRaceEvent(type, detail) {
     raceTalk?.hide();
   } else if (type === 'accepted') {
     fares.undirect();
+    // Answered on the frame of the tap, before the cut: the horn and the racer's own word. The
+    // first build only hid the bubble and started the wipe, so the first thing the player could
+    // see was the next bubble half a second later (Tyler: "I tap it and then a little while later
+    // I see a little chat bubble... What's the delay for?") — and on a phone browser the haptic,
+    // the one thing that did land on the tap, does not exist.
     haptic('pick');
-    raceTalk?.hide();
-    // The cut to the start: both cars are put side by side under the black (game/race.js, `stage`).
-    if (wipe) wipe.cut(() => race?.stage(), RACE_CUT_HOLD); else race?.stage();
+    sfx?.play('horn', { at: placeAt(detail.car.x, detail.car.z) });
+    raceTalk?.show('Street racer', "You're on!", raceTalkAt);
+    // ...and then the cut to the start, once that has been heard: both cars are put side by side
+    // under the black (game/race.js, `stage`). The bubble sits under the wipe, so cutting at once
+    // would black it out before it had finished growing.
+    setTimeout(() => {
+      if (race?.state.phase !== 'cut') return;
+      if (wipe) wipe.cut(() => race?.stage(), RACE_CUT_HOLD); else race.stage();
+    }, RACE_CUT_DELAY);
   } else if (type === 'staged') {
     // Open on the two of them, close up — the faceoff — and hold it until the look at the finish.
     raceShot = { x: detail.x, z: detail.z };
@@ -2113,11 +2124,14 @@ function onRaceEvent(type, detail) {
   }
 }
 
-// The cut to the start: a beat of black longer than a skip's, so it reads as a scene change rather
-// than a stutter (game/wipe.js), and the close-up it opens on — tighter than the wreck's 26, since
+// The cut to the start: the skip's own beat of black (game/wipe.js). It was 250ms, to read as a
+// scene change, and that read as lag instead: 160 + 250 + the fade back before anything answered
+// the tap. The close-up it opens on — tighter than the wreck's 26, since
 // the two cars are side by side in the middle of it. At 30 the first browser pass read as barely
 // closer than play.
-const RACE_CUT_HOLD = 250;
+const RACE_CUT_HOLD = 90;
+// How long "You're on!" gets before the screen goes: its ten letters type in 0.26s (speech.js).
+const RACE_CUT_DELAY = 500;
 const RACE_SHOT_ZOOM = 22;
 // The faceoff's framing, while it holds the camera; and the zoom to walk back to after it.
 let raceShot = null;

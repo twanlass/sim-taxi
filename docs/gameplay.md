@@ -2505,8 +2505,8 @@ intensity.
 
 **With the cab empty, a violet street racer turns up and tails it.** It has a chequered flag over
 its roof, a white stripe down its spine, a proud wing on the boot and cyan light pooling under it,
-and its bubble calls the stakes: "Race me! Win $40, lose $25." Tap it and the screen cuts to black
-and opens close up on the two cars side by side, window to window ("First one to the flag."). A
+and its bubble calls the stakes: "Race me! Win $40, lose $25." Tap it and it answers on the spot (a
+horn and "You're on!"), then the screen cuts to black and opens close up on the two cars side by side, window to window ("First one to the flag."). A
 finish is marked across the island (a white waypoint ring with a chequered flag flying over it, 4-8
 blocks away and never on the ring road, which is in the fog), the camera goes to look at it and
 comes back, the count goes three, two, one, and the two cars set off in opposite directions. First
@@ -2567,8 +2567,8 @@ person wins less often; about even is the aim, and the lopsided stakes pay for i
 
 ### The start is a cut
 
-The tap runs main.js's wipe (game/wipe.js, the vignette skip's cut to black, held a beat longer),
-and under the black `stage` puts both cars on the nearest stretch of street with room for them:
+Half a second after the tap (`RACE_CUT_DELAY`, long enough for "You're on!" to be read) main.js
+runs the wipe (game/wipe.js, the vignette skip's cut to black), and under the black `stage` puts both cars on the nearest stretch of street with room for them:
 mid-block, short of both hold lines, not over the river, not behind a building, never on the ring
 road, a side street where there is one (the L train's deck stands over the north-south arterial),
 and nothing else within `START_CLEAR` of either car. Both go through `stageCar`/`releaseCar`, the
