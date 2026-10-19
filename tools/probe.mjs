@@ -17582,7 +17582,9 @@ let chopperOrder; // likewise
       const bankRig = (k, { stop = true, tight = false } = {}) => {
         const s8 = new THREE.Scene();
         const t8 = createTraffic(makeRng(seed + 44), s8, 10, 18);
-        const f8 = createFareSystem(makeRng(seed + 900 + k), s8);
+        // `alwaysRob: false` so the coin and its ramp are still exercised while BANK_ROBBER_ALWAYS
+        // has every bank rider rob for testing.
+        const f8 = createFareSystem(makeRng(seed + 900 + k), s8, { alwaysRob: false });
         t8.warmup(1);
         f8.state.delivered = 5;
         const got = [];
@@ -17658,8 +17660,10 @@ let chopperOrder; // likewise
         check('...and loads the coin for the next one: 65, 80, 95, then held at 95',
           [0.65, 0.8, 0.95, 0.95, 0.95].every((v, k) => Math.abs(steps[k] - v) < 1e-9),
           steps.map((v) => v.toFixed(2)).join(' '));
-        const flat = createFareSystem(makeRng(seed + 900), new THREE.Scene(), { risingOdds: false });
+        const flat = createFareSystem(makeRng(seed + 900), new THREE.Scene(), { risingOdds: false, alwaysRob: false });
         check('...but not under ?robberyodds=classic', flat.robberOdds() === 0.5 && flat.state.bankRides === 0);
+        const always = createFareSystem(makeRng(seed + 901), new THREE.Scene(), { alwaysRob: true });
+        check('...and under BANK_ROBBER_ALWAYS every bank rider is the robbery', always.robberOdds() === 1);
       }
       // BANK_REACH_ALONG: by default the bank rider is collected level with the steps, on the bank's
       // own street, and routed down it. The junction's ARRIVE_RADIUS fired from round the corner —

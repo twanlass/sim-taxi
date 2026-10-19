@@ -207,6 +207,11 @@ const BANK_CHANCE = 0.3;          // chance a qualifying spawn is the bank rider
 const BANK_ROBBER_ODDS = 0.5;     // the coin's first toss of a run (and every toss under classic)
 const BANK_ROBBER_STEP = 0.15;    // added per bank rider who rode
 const BANK_ROBBER_MAX = 0.95;     // never a certainty
+// For testing (Tyler, 2026-10-19): every bank rider is the robbery — the coin always comes up tails
+// and the ramp above is bypassed. Set false to restore 50/65/80/95. The robbery's own fairness gates
+// (`swapReady` in game/robbery.js) still apply, so a VIP on the board, a rider running out, or a
+// patrol car already chasing will still let the bank rider simply get in.
+const BANK_ROBBER_ALWAYS = true;
 
 // Where the taxi has to be to collect the bank rider: on the bank's own street, level with the
 // steps (Tyler, 2026-10-17; `?bankpickup=classic` for the junction's ARRIVE_RADIUS). Measured from
@@ -728,7 +733,7 @@ export const waitingTargets = (slot) => [slot.passenger.group, slot.marker.group
  *                  Read per call, since the set moves every time a package is collected.
  */
 export function createFareSystem(rng, scene, {
-  reserved = () => [], judgeRun = () => ({ runs: [], mult: 1 }), rating = true, risingOdds = true,
+  reserved = () => [], judgeRun = () => ({ runs: [], mult: 1 }), rating = true, risingOdds = true, alwaysRob = BANK_ROBBER_ALWAYS,
 } = {}) {
   const state = {
     // Active fares, newest last. At most MAX_FARES, and up to MAX_FARES - 1 of them can be
@@ -1087,8 +1092,8 @@ export function createFareSystem(rng, scene, {
     const v = dx * away.z - dz * away.x;
     return Math.abs(u) <= BANK_REACH_ALONG && Math.abs(v) <= BANK_REACH_ACROSS;
   }
-  /** The chance the next bank rider's coin comes up tails. See BANK_ROBBER_STEP. */
-  const robberOdds = () => Math.min(BANK_ROBBER_MAX, BANK_ROBBER_ODDS + BANK_ROBBER_STEP * state.bankRides);
+  /** The chance the next bank rider's coin comes up tails. See BANK_ROBBER_STEP and BANK_ROBBER_ALWAYS. */
+  const robberOdds = () => alwaysRob ? 1 : Math.min(BANK_ROBBER_MAX, BANK_ROBBER_ODDS + BANK_ROBBER_STEP * state.bankRides);
   /** Is the next spawn the bank rider? See BANK_CHANCE. */
   function wantsBank(taxiCar, near) {
     if (!bankStop || state.delivered < BANK_MIN_DELIVERED) return false;
