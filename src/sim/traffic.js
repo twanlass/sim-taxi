@@ -5063,7 +5063,10 @@ export function createTraffic(
     // Any police car rolls it, standing down included: a cop leaving the scene has a backstop to
     // clear the map by (`STAND_DOWN_TIMEOUT`), and a full stop at every junction on the way out
     // left 3 or 4 of the fleet still in shot after it on four seeds out of five.
-    const dwell = car.police ? 0 : STOP_DWELL;
+    // ...and so does the street race's rival (game/race.js), which is the whole of what makes it
+    // a racer at an all-way stop rather than a fast car that stops at every corner: with the dwell,
+    // an unboosted taxi beat it on 8 races in 16.
+    const dwell = car.police || car.racer ? 0 : STOP_DWELL;
     if (t - car.stopAt.t < dwell) return false;
 
     const street = car.lane.phase;
@@ -5203,6 +5206,19 @@ export function createTraffic(
       if (cop.lane.length - cop.s > SIREN_HOLD_REACH) continue;
       if (priorityJunction && priorityJunction.i === cop.i && priorityJunction.j === cop.j) continue;
       sirenHold = { i: cop.i, j: cop.j, axis: isXAxis(cop.d) ? 'x' : 'z' };
+    }
+    // ...and the street race's rival gets the same, when no patrol wants it (game/race.js). It is
+    // racing a taxi that gets the boost hold every time Loco Mode is down, and without one of its own
+    // it stopped dead at every all-way stop on the way: a boosting taxi beat it on 32 races in 32,
+    // home in 6.4s against its 10-13. Same reach, same rule about the box at the arrival.
+    if (!sirenHold) {
+      for (const car of cars) {
+        if (!car.racer || car.crashed || car.state !== 'drive' || !car.lane) continue;
+        if (car.lane.length - car.s > SIREN_HOLD_REACH) continue;
+        if (priorityJunction && priorityJunction.i === car.i && priorityJunction.j === car.j) continue;
+        sirenHold = { i: car.i, j: car.j, axis: isXAxis(car.d) ? 'x' : 'z' };
+        break;
+      }
     }
 
     if (taxiActive && taxi.boost && !taxi.wasBoosting) {
@@ -5484,6 +5500,10 @@ export function createTraffic(
       const facing = net.laneByGrid(opposite(car.d), car.i, car.j);
       const oncoming = (facing && approaching.get(facing.id)) ?? [];
       return oncoming.some((other) => {
+        // A car parked at its own line on purpose is not coming: the street race's rival waiting
+        // for a taker (`holdsLine`, game/race.js). Yielding to it deadlocked every left across it
+        // for the whole half-minute offer — the taxi sent to line up behind it included.
+        if (other.holdsLine && other.v < 0.05) return false;
         const otherDist = other.lane.length - other.s;
         return otherDist >= 0 && otherDist < YIELD_RANGE;
       });
@@ -6477,7 +6497,7 @@ export function createTraffic(
             // past it, and nothing but the taxi is collision-tested — see `sirenHold`. Not a car
             // ahead on its own approach, which is its leader and already followed: counting that
             // one stopped the cop at every junction it chased the taxi through.
-            if (green && car.patrol && car.siren && sirenHold
+            if (green && ((car.patrol && car.siren) || car.racer) && sirenHold
                 && sirenHold.i === car.i && sirenHold.j === car.j
                 && cars.some((other) => other !== car && !other.crashed && other.state === 'turn'
                   && other.i === car.i && other.j === car.j && other.d !== car.d)) {

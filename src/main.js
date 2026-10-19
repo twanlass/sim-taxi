@@ -105,6 +105,8 @@ import { createClouds } from './game/clouds.js';
 import { createCarGhosts } from './game/carghosts.js';
 import { createRoadwork } from './game/roadwork.js';
 import { createFire } from './game/fire.js';
+import { createRace, WIN_PAY, LOSE_COST, TANK_FLOOR } from './game/race.js';
+import { createSpeech } from './game/speech.js';
 import { createFlatbed } from './game/flatbed.js';
 import { createBoxSpill } from './game/boxspill.js';
 import { showRunEnd } from './game/runend.js';
@@ -1213,13 +1215,16 @@ const copShout = shot || !copChat ? null : createCopShout({ project: projectToSc
  * burger mid-chase is a pause button with cops waiting outside it.
  */
 const getaway = () => Boolean(robbery?.state.active);
+// The street race (game/race.js), built further down beside the fire; declared here because the
+// gates below read it.
+let race = null;
 /**
  * ...and the wider version the tips are held behind: a getaway, or the chase its drop-off hands to
  * the patrol (`handOff`). Tyler got "Head to the shop for repairs" over the road mid-getaway. A
  * held tip is *deferred*, not dropped — see the depot's card (`newMoveCalm`) and `quiet` in
  * game/tutorial.js.
  */
-const hushTips = () => getaway() || patrol.busy();
+const hushTips = () => getaway() || patrol.busy() || Boolean(race?.busy());
 // How the police end a run (game/patrol.js, "The capture model"): a hit on a cop is a hit on a car,
 // and "Busted!" is being pinned — stopped with a chasing cop's bumper on you — by the patrol or by a
 // getaway's fleet alike. `?capture=classic` keeps the three rules it replaced: any patrol touch is
@@ -2011,6 +2016,86 @@ const fire = createFire({
 // The engine's bar blooms at the cruiser's strength; the flames bloom on their own (`flame`).
 for (const mesh of fire.emissiveMeshes) markEmissive(mesh, 'siren');
 
+// The street race: a violet car with a flag over it waits at the kerb, and a tap on it is a race
+// across the island for cash (game/race.js). Taken with an empty cab only, never imposed; while it
+// runs the board steps aside the way it does for a getaway (`setHold`). `?race=classic` has no
+// racers in the city; `?race=soon` brings the first one a few seconds in.
+const raceParam = new URLSearchParams(window.location.search).get('race');
+race = shot || raceParam === 'classic' ? null : createRace({
+  rng: makeRng(runSeed + 743), scene, traffic, routeTo,
+  soon: raceParam === 'soon',
+  // Nothing turns up over anything that owns the run, or over a trip the taxi is already on to the
+  // depot or the drive-through. A rider aboard does not stop an offer, only taking it.
+  blocked: () => traffic.taxi.staged || getaway() || patrol.busy() || fares.state.gameOver
+    || fareLoopHeld() || tutorialTalking || Boolean(tutorial?.holdsCamera())
+    || Boolean(burgerRun?.active() || depotRun?.active()),
+  onEvent: onRaceEvent,
+});
+fares.setHold(() => Boolean(race?.holdsBoard()));
+// The rival's speech bubble — the challenge, with the stakes on it, pinned to its roof.
+const raceTalk = race && document.getElementById('race-talk')
+  ? createSpeech(document.getElementById('race-talk'), { viewport })
+  : null;
+const raceTalkAt = () => {
+  const at = race?.rivalAt();
+  return at ? projectToScreen(at.x, 3.6, at.z) : null;
+};
+
+/**
+ * Everything the player sees off the race: the bubble, the count, the money. game/race.js knows a
+ * race happened; what a run's cash and a tank are for is this file's.
+ */
+function onRaceEvent(type, detail) {
+  if (type === 'offer') {
+    raceTalk?.show('Street racer', `Race me! Win $${WIN_PAY}, lose $${LOSE_COST}.`, raceTalkAt);
+    sfx?.play('horn', { at: placeAt(detail.car.x, detail.car.z) });
+  } else if (type === 'accepted') {
+    raceTalk?.show('Street racer', 'Pull up behind me.', raceTalkAt);
+  } else if (type === 'expired') {
+    raceTalk?.hide();
+  } else if (type === 'lined-up') {
+    raceTalk?.hide();
+  } else if (type === 'count') {
+    popLabel(String(detail.n), 'is-count');
+    haptic('snap');
+  } else if (type === 'go') {
+    popLabel('Go!', 'is-count');
+    haptic('loco');
+    // Enough in the tank to race on — see TANK_FLOOR. Poured straight in rather than flown: the
+    // player's thumb is already on the pill.
+    if (boost.fraction() < TANK_FLOOR) boost.topUp(TANK_FLOOR - boost.fraction());
+  } else if (type === 'won') {
+    fares.credit(WIN_PAY);
+    popLabel('You win!');
+    popEarning(WIN_PAY);
+    haptic('pick');
+  } else if (type === 'lost') {
+    // Through `charge`, so an empty till pays what it has (see BURGER_PRICE's note in fares.js).
+    const paid = fares.charge(LOSE_COST);
+    popLabel('Beaten!');
+    if (paid > 0) popEarning(-paid);
+  } else if (type === 'void') {
+    popLabel('Race off');
+  }
+}
+
+/**
+ * A tap on the rival. Refused with an empty cab only — one seat, and the race is not a fare — and
+ * said so on its bubble rather than with nothing, which is the same thing a tap on a second rider
+ * teaches.
+ */
+function acceptRace() {
+  if (!race || fares.state.gameOver) return;
+  if (fares.carrying()) {
+    raceTalk?.show('Street racer', 'Drop your fare off first.', raceTalkAt);
+    return;
+  }
+  if (race.accept()) {
+    fares.undirect();
+    haptic('pick');
+  }
+}
+
 // Occluded-only outlines on the traffic nearest the taxi, faded in with Loco Mode — the one mode
 // where a car hidden behind a tower is a crash rather than a surprise. See game/carghosts.js.
 const carGhosts = createCarGhosts(scene, traffic);
@@ -2659,7 +2744,7 @@ const tapPoint = new THREE.Vector3();
  * player, on whatever clock is already running. See game/burgerrun.js.
  */
 function sendForBurger() {
-  if (!burgerRun || getaway()) return;
+  if (!burgerRun || getaway() || race?.busy()) return;
   // Same rule as the fare and package taps: the buzz reports that the taxi is now going somewhere
   // else, so it is gated on the route actually being taken.
   if (burgerRun.send()) haptic('pick');
@@ -2679,8 +2764,8 @@ function sendForRepairs() {
 /** Whether a tap on the depot would be taken right now — `sendForRepairs`'s refusals, and the picker's. */
 function canRepair() {
   if (!depotRun || !opening || opening.running() || opening.visiting()) return false;
-  // Shut for a getaway — see `getaway`.
-  if (getaway()) return false;
+  // Shut for a getaway — see `getaway` — and for a race the taxi is lined up for or running.
+  if (getaway() || race?.busy()) return false;
   // Nor while anything else is driving the car — the drive-through, mostly. A route planned under a
   // staged taxi would be overwritten by the job that trip hands back on the way out.
   if (traffic.taxi.staged || traffic.taxi.hp >= TAXI_HP) return false;
@@ -2723,7 +2808,8 @@ createPicker(
   camera,
   renderer.domElement,
   () => [traffic.taxiGroup, ...fares.pickables(), ...(parcels?.pickables() ?? []),
-    ...(burger ? [burger.group] : []), ...(garage ? [garage.group] : [])],
+    ...(burger ? [burger.group] : []), ...(garage ? [garage.group] : []),
+    ...(race?.pickables() ?? [])],
   (kind, hit, ray) => {
     if (fares.state.gameOver) return;
 
@@ -2756,6 +2842,10 @@ createPicker(
 
     if (kind === 'burger') {
       sendForBurger();
+      return;
+    }
+    if (kind === 'racer') {
+      acceptRace();
       return;
     }
     if (kind === 'depot') {
@@ -5849,6 +5939,10 @@ function tick() {
   // After the traffic step too: the engine's pose is written by it, and the ladder and the jet are
   // aimed off that pose.
   fire.update(dt);
+  if (fares.state.gameOver) race?.abandon();
+  race?.update(dt);
+  raceTalk?.update(dt);
+  if (!race?.offering() && !race?.busy() && raceTalk?.isOpen()) raceTalk.hide();
 
   tutorial?.update(dt);
 
@@ -7135,6 +7229,11 @@ window.__taxi = {
    * without having to land a synthesised click on a building.
    */
   burgerRun,
+  /**
+   * The street race, or null under `?race=classic` and in shot mode — `state.phase`, `summon()` to
+   * bring a rival now, `accept()` for the tap on it. See game/race.js.
+   */
+  race,
   /** The trip back to the depot for repairs — `depotRun.send()` is the tap on the garage. */
   depotRun,
   /** The depot's tip card — `newMove.open('repair')` opens it. See game/repairclip.js. */
