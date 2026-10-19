@@ -1210,6 +1210,16 @@ road on the far side of the junction (`room`). The leader brake still holds whil
 out, so it does not drive through the car it is leaving. `?overtake=classic` restores all of the
 judgement described below.
 
+**The one exception is a car signalling left**, and it is keyed on the blinker because the player
+can see it (`peeking`; Tyler, 2026-10-19: "less of an overtake and more of a slight peek around on
+the right"). The combo then goes the other way: 1.5 off the lane centre toward its own kerb
+(`PULLOVER_LATERAL`), riding up on it with the same mount and lean as a car pulled over for a brake
+check. That is not far enough to get past a car still in the lane (1.5 apart against a 2.31
+envelope), so the taxi sits beside its tail with its nose out, and the leader brake reads the real
+sideways gap (`sideGap`) so it slips by as the turner swings away. The turner is allowed its left
+while being peeked (the courtesy veto below is for a taxi on its *left*). The body stays mounted
+through the junction box, where there is no kerb: 0.21 units, about 1.6px at play zoom.
+
 It also pulls out half way across a straight-through crossing (`thrownInBox`), where classic waits
 for the far side; behind a slow truck the taxi spends much of its time in the box. Over 8 cities ×
 40s, a bot throwing the combo 0.35s after catching a car (`tools/overtakebot.mjs`) passed 23 of 36

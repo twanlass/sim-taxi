@@ -5652,12 +5652,12 @@ const PRESSURE_END = difficulty.getTuning().pressureEnd;
     dumbBlock.arms === 1 && dumbBlock.dodges === 0 && dumbBlock.peak > 0.95 && dumbBlock.kerbward === 0
       && dumbBlock.widest > 2 * LANE - 0.5 && dumbBlock.widest < 2 * LANE + 0.5, sweep(dumbBlock));
 
-  // A car already partway round a left turn ahead: the #520 gate refuses to pull out round it, and
-  // under `?overtake=classic` the combo does nothing there. The default pulls out regardless —
-  // whether it touches the turner is the player's timing. Blipped the moment the turner crosses its
-  // hold line (`state` flips to `turn` there), so this is the case the gate refuses and not an
-  // ordinary pass decided before it set off. Staged at the first junction with a straight on and a
-  // left off it.
+  // A car turning left ahead: the #520 gate refuses to pull out round it, and under
+  // `?overtake=classic` the combo does nothing there. The default peeks round its right, up on the
+  // kerb (`peeking` in traffic.js), because its blinker says it is about to swing across the
+  // oncoming lane. Blipped once on the approach with the blinker lit (`early`) and once the moment
+  // the turner crosses its hold line (`state` flips to `turn` there), which is the case the gate
+  // refuses. Staged at the first junction with a straight on and a left off it.
   let lt = null;
   for (let i = 1; i < GRID_I && !lt; i++) {
     for (let j = 1; j < GRID_J && !lt; j++) {
@@ -5670,7 +5670,7 @@ const PRESSURE_END = difficulty.getTuning().pressureEnd;
       }
     }
   }
-  const turnerStage = (overtake = '') => {
+  const turnerStage = (overtake = '', early = false) => {
     setOvertakeStyle(overtake);
     const tTraffic = createTraffic(makeRng(seed + 127), new THREE.Scene(), 2);
     const [tTaxi, tLead] = tTraffic.cars;
@@ -5680,30 +5680,43 @@ const PRESSURE_END = difficulty.getTuning().pressureEnd;
     placeCar(tLead, lt.d, lt.i, lt.j, 4);
     tLead.route = [leftOf(lt.d)]; tLead.parked = false;
     const combo = createOvertakeCombo({ taxi: tTaxi });
+    const tCollisions = createCollisions(tTraffic.cars, tTaxi);
+    let hits = 0;
+    tCollisions.onBump(() => { hits += 1; });
     let peak = 0;
+    let kerbward = 0;
+    let wide = 0;
     let blipAt = null;
     let turning = false;
     const blipFrames = Math.floor((OVERTAKE_BLIP_MS / 1000) * 60 * 0.6);
     for (let f = 0; f < 60 * 3; f++) {
-      if (blipAt === null && tLead.state === 'turn' && tTaxi.passGap < 30) {
+      const ready = early ? tLead.signalHand === 'left' && tLead.state === 'drive' : tLead.state === 'turn';
+      if (blipAt === null && ready && tTaxi.passGap < 30) {
         blipAt = f;
-        turning = tLead.turn?.hand === 'left';
+        turning = tLead.signalHand === 'left';
       }
       const off = blipAt !== null && f >= blipAt && f < blipAt + blipFrames;
       tTaxi.boost = true;
       tTaxi.boostEasing = off;
       combo.update(1 / 60, { held: !off });
       tTraffic.update(1 / 60);
+      tCollisions.update(1 / 60);
       peak = Math.max(peak, tTaxi.pass);
+      kerbward = Math.min(kerbward, tTaxi.passOffset);
+      wide = Math.max(wide, tTaxi.passOffset);
     }
     setOvertakeStyle('');
-    return { peak, blipAt, turning, arms: combo.state.arms };
+    return { peak, blipAt, turning, arms: combo.state.arms, peeks: tTaxi.peeks, hits, kerbward, wide };
   };
-  const turnSweep = (r) => `blip at frame ${r.blipAt} with the car ${r.turning ? '' : 'not '}turning left,`
-    + ` ${r.arms} arms, pass peaked at ${r.peak.toFixed(2)}`;
-  const turner = turnerStage();
-  check('the default combo pulls out round a car already turning left',
-    turner.turning && turner.arms === 1 && turner.peak > 0.95, turnSweep(turner));
+  const turnSweep = (r) => `blip at frame ${r.blipAt} with the car ${r.turning ? '' : 'not '}signalling left,`
+    + ` ${r.arms} arms, ${r.peeks} peeks, ${r.hits} bumps, pass peaked at ${r.peak.toFixed(2)},`
+    + ` ${(r.kerbward < 0 ? r.kerbward : r.wide).toFixed(2)} across`;
+  for (const early of [true, false]) {
+    const turner = turnerStage('', early);
+    check(`the default combo peeks round the right of a car ${early ? 'signalling' : 'already turning'} left, up on the kerb`,
+      turner.turning && turner.peeks === 1 && turner.peak > 0.95 && turner.hits === 0
+        && turner.kerbward < -1.4 && turner.wide === 0, turnSweep(turner));
+  }
   const classicTurner = turnerStage('classic');
   check('?overtake=classic: the combo does not pull out round a car already turning left',
     classicTurner.turning && classicTurner.peak === 0, turnSweep(classicTurner));
