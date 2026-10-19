@@ -84,7 +84,6 @@ export const FILES = {
   '16_SCN_spawn_C': new URL('../../assets/audio/16_SCN_spawn_C.m4a', import.meta.url).href,
   '17_SCN_gate': new URL('../../assets/audio/17_SCN_gate.m4a', import.meta.url).href,
   '18_SCN_bridge': new URL('../../assets/audio/18_SCN_bridge.m4a', import.meta.url).href,
-  '19_AMB_city_loop_A_ST': new URL('../../assets/audio/19_AMB_city_loop_A_ST.m4a', import.meta.url).href,
   '19_AMB_city_loop_B_ST': new URL('../../assets/audio/19_AMB_city_loop_B_ST.m4a', import.meta.url).href,
   '20_AMB_construction_loop_MONO': new URL('../../assets/audio/20_AMB_construction_loop_MONO.m4a', import.meta.url).href,
   '21_SCN_birds_soft_A': new URL('../../assets/audio/21_SCN_birds_soft_A.m4a', import.meta.url).href,
@@ -116,8 +115,7 @@ export const FILES = {
  * What the game calls each sound, and the takes it draws from. The designer delivers most one-shots
  * as lettered variants (`_A`, `_B`, `_C`…) mixed level with each other and meant to be picked **one
  * per trigger**, so a door or a skid heard twice in a row is not the same recording twice — see
- * `pickTake`. A bed has one file, since a loop cannot change take mid-cycle — or, CHAINED, plays its
- * files end to end as one.
+ * `pickTake`. A bed has one file, since a loop cannot change take mid-cycle.
  */
 export const SOUNDS = {
   idle: ['01_ENG_idle_loop'],
@@ -151,8 +149,9 @@ export const SOUNDS = {
   spawn: ['16_SCN_spawn_A', '16_SCN_spawn_B', '16_SCN_spawn_C'],
   gate: ['17_SCN_gate'],
   bridge: ['18_SCN_bridge'],
-  // Two loops that follow one another rather than takes: see CHAINED.
-  city: ['19_AMB_city_loop_A_ST', '19_AMB_city_loop_B_ST'],
+  // B alone. It shipped as A then B joined into one 42s loop until the designer's October 19 mix
+  // note: "B works much better right now", and A was dropped.
+  city: ['19_AMB_city_loop_B_ST'],
   // Mono only in the final delivery: the designer tried both in the game and kept mono for every
   // bed heard from a point on the map.
   construction: ['20_AMB_construction_loop_MONO'],
@@ -180,13 +179,6 @@ export const SOUNDS = {
  * list and the delivery, and the key comes out of here.
  */
 export const PICKED = new Set(['rain']);
-
-/**
- * Beds delivered as several loops meant to follow one another — the city's A and B. A bed can only
- * play one buffer, so the takes are joined end to end into one (`chainBuffer`), each trimmed to its
- * master's true length first, and that loops: the city repeats every 42s rather than every 21.
- */
-export const CHAINED = new Set(['city']);
 
 /**
  * Sounds heard **from somewhere**: `mix.place[key]` is the falloff — full inside `near` world units
@@ -277,7 +269,7 @@ export const MIX_PARENT = {
 // seconds. See `loopWindow`. By file rather than by sound since a PICK bed changes file.
 const LOOP_SECONDS = {
   '01_ENG_idle_loop': 4, '06_LOCO_engine_loop': 8, '15_SIGNAL_turn': 4.53125,
-  '25_NPC_siren_loop': 8.6875, '19_AMB_city_loop_A_ST': 21, '19_AMB_city_loop_B_ST': 21,
+  '25_NPC_siren_loop': 8.6875, '19_AMB_city_loop_B_ST': 21,
   '20_AMB_construction_loop_MONO': 21, '29_AMB_seagulls_loop_MONO': 21,
   '30_AMB_rain_loop_MONO': 21, '30_AMB_rain_loop_ST': 21, '31_AMB_basketball_loop_MONO': 21,
 };
@@ -817,42 +809,9 @@ export function createSfx({ rng, menuMusic = false, classicSongs = false, radioF
   let stoppedFor = 0;
   let wasAir = false;
 
-  /** The file a bed plays: its one file, for a PICK the one chosen, for a CHAINED bed the join. */
+  /** The file a bed plays: its one file, or for a PICK the one chosen. */
   const bedFile = (key) => (replacements[key] ? replacements[key].ids[replacements[key].pick] : null)
-    ?? (CHAINED.has(key) ? chainBuffer(key) : null)
     ?? SOUNDS[key][PICKED.has(key) ? mix.sounds[key].pick : 0];
-
-  /**
-   * A CHAINED bed's takes joined into one buffer, under an id of its own in `buffers`, built once
-   * every take has decoded. Each is cut to its master's true length (`loopWindow`) before the
-   * join, so neither AAC's priming nor its end padding lands as a gap in the middle. Until then,
-   * or if a take failed, null — and the bed plays its first file alone.
-   */
-  const chained = {};
-  function chainBuffer(key) {
-    if (chained[key]) return chained[key];
-    const parts = SOUNDS[key].map((f) => buffers[f]);
-    if (!ctx || parts.some((b) => !b)) return null;
-    const spans = parts.map((b, i) => {
-      const w = loopWindow(b, LOOP_SECONDS[SOUNDS[key][i]] ?? b.duration);
-      return { b, from: Math.round(w.start * b.sampleRate), to: Math.round(w.end * b.sampleRate) };
-    });
-    const length = spans.reduce((n, s) => n + s.to - s.from, 0);
-    const channels = Math.max(...parts.map((b) => b.numberOfChannels));
-    const out = ctx.createBuffer(channels, length, parts[0].sampleRate);
-    for (let c = 0; c < channels; c++) {
-      const into = out.getChannelData(c);
-      let at = 0;
-      for (const s of spans) {
-        into.set(s.b.getChannelData(Math.min(c, s.b.numberOfChannels - 1)).subarray(s.from, s.to), at);
-        at += s.to - s.from;
-      }
-    }
-    const id = SOUNDS[key].join('+');
-    buffers[id] = out;
-    chained[key] = id;
-    return id;
-  }
 
   /**
    * A gain, then a stereo panner where the browser has one (every target since Safari 14.1), into
