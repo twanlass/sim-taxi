@@ -141,6 +141,17 @@ export function settingsRows(body, { sound, settings }) {
     Object.entries(QUALITIES).map(([value, q]) => ({ value, text: q.label })),
     () => settings.get().quality, (value) => settings.set({ quality: value }));
   body.append(qualityRow.row);
+  // MSAA is fixed when the WebGL context is made, so a change waits for the next launch, and the
+  // row says so rather than looking like a switch that did nothing.
+  const antialiasRow = toggleRow('Antialiasing', () => settings.get().antialias,
+    (on) => { settings.set({ antialias: on }); paintAntialias(); });
+  const antialiasLabel = antialiasRow.row.querySelector('.title-label');
+  const paintAntialias = () => {
+    const pending = settings.get().antialias !== settings.atLaunch().antialias;
+    antialiasLabel.textContent = pending ? 'Antialiasing (next launch)' : 'Antialiasing';
+  };
+  paintAntialias();
+  body.append(antialiasRow.row);
   // Takes effect from the next rider to spawn, so it can be flipped from the pause screen mid-run.
   const difficultyRow = choiceRow('Difficulty',
     Object.entries(MODES).map(([value, m]) => ({ value, text: m.label })),
@@ -149,6 +160,8 @@ export function settingsRows(body, { sound, settings }) {
   return {
     refresh() {
       qualityRow.paint();
+      antialiasRow.paint();
+      paintAntialias();
       difficultyRow.paint();
       soundRow.paint();
       musicRow.paint();
