@@ -2504,10 +2504,12 @@ intensity.
 `?race=classic` turns it off; `?race=soon` brings the first racer a few seconds in.
 
 **A violet car with a wing on it pulls over a couple of blocks from the taxi** and waits at the
-hold line (a unit short of it) with a chequered flag flying over its roof. Its speech bubble says the stakes:
-"Race me! Win $40, lose $25." Tap it and the taxi is routed onto its lane and queues behind it;
-once the two are lined up, a finish is marked across the island (a white waypoint ring and a
-planted flag, 4-8 blocks away and never on the ring road, which is in the fog), the count goes three, two, one, and both cars go. First within
+hold line with a chequered flag flying over its roof. Its speech bubble says the stakes: "Race me!
+Win $40, lose $25." Tap it and the taxi pulls up mid-block on its own brake ("Stay there. I'll come
+to you."), and the rival comes round and stops level with it in the other lane, window to window.
+A finish is marked across the island (a white waypoint ring with a chequered flag flying over it, 4-8 blocks away and
+never on the ring road, which is in the fog), the camera goes to look at it and comes back, the
+count goes three, two, one, and the two cars set off in opposite directions. First within
 `ARRIVE_RADIUS` of the corner wins. The rival then drives off and dissolves, and the board comes
 back.
 
@@ -2518,57 +2520,70 @@ drives off after `OFFER_TIME` (30s). There is no button to say no with.
 
 - **Empty cab only.** A tap with a rider aboard is refused on the rival's bubble ("Drop your fare
   off first."). An offer can still turn up while carrying; it is only the taking that needs the seat.
-- **The board steps aside from the countdown to the line**, exactly as for a getaway: riders hidden,
+- **The board steps aside from the tap to the line**, exactly as for a getaway: riders hidden,
   their clocks held, no spawns, the courier's pads off the map (`setHold` in game/fares.js, read by
-  `concealed`). Otherwise accepting would cost a rider's clock on top of the bet.
+  `concealed`). Otherwise the wait for the rival would cost a rider's clock on top of the bet.
+- **Driving off calls it off.** A tap on the map while the taxi waits gives it a route, which
+  un-parks it; the race is void and nothing changes hands.
 - **The tank is topped up to a third at the green** (`TANK_FLOOR`, the run's own starting tank) and
   never down. The race is decided by Loco Mode, and a player who accepted on an empty pill would
   lose before the flag dropped.
 - **Stakes are lopsided on purpose** (`WIN_PAY` $40, `LOSE_COST` $25, against a $20 median fare).
   Declining is free, so an even bet is one a sensible player never takes. A loss goes through
   `charge`, so an empty till pays what it has.
-- The depot and the drive-through refuse the taxi while it is lined up or racing, and tips wait.
+- The depot and the drive-through refuse the taxi from the tap to the line, and tips wait.
   The patrol is untouched: boost past the cruiser mid-race and it comes after you as it always does.
 
 ### The rival is a car in traffic
 
 A guest (`enterGuest`), the fire engine's arrangement: routed to the finish by the same router as
-the taxi, queueing, bumpable. What makes it a racer is `car.chase = RIVAL_CHASE` (1.3, over a cop's
-1: a cruise ceiling of 25.6 against a boosting taxi's 22) and `car.racer`, which lets it roll an
-all-way stop and hold the junction it is driving into, the way the boosting taxi's priority hold
-and a chasing patrol's siren hold do. Without the last two it stopped dead at every junction and
-lost all 32 races measured against Loco Mode, whatever its speed.
+the taxi, queueing, bumpable. What makes it a racer is `car.chase = RIVAL_CHASE` (2.0, twice a
+cop's: a cruise ceiling of ~35 against a boosting taxi's 22, which it reaches only on the longest
+straights) and `car.racer`, which lets it roll an all-way stop and hold the junction it is driving
+into, the way the boosting taxi's priority hold and a chasing patrol's siren hold do. Without the
+last two it stopped dead at every junction and lost all 32 races measured against Loco Mode,
+whatever its speed.
 
 **No rubber band.** A rival that visibly eased off when ahead or found speed from nowhere when
 behind takes the win away along with the loss. It drives one way all race; what the player has over
 it is Loco Mode and a route of their own (the street tap bends the race route like any other).
 
 Measured with `node tools/race.mjs 24`, a bot holding Loco Mode from the green until the tank is
-dry: 1/4 tank wins 58%, the 1/3 floor 67%, a full tank 75%, and never touching the pill wins 1 in 24.
-The boosting taxi is home in a median 4.7s. The bot never misses a turn or brushes a car, so a
+dry: 1/4 tank wins 63%, the 1/3 floor 67%, a full tank 71%, and never touching the pill wins none.
+The boosting taxi is home in a median 4.9s. The bot never misses a turn or brushes a car, so a
 person wins less often; about even is the aim, and the lopsided stakes pay for it.
 
-### The start is a queue
+### The start is window to window
 
-The rival parks **a unit short of the hold line** (`roadblock = Infinity`, the fire engine's stop)
-and the lane behind it is shut to newcomers (`setClosedLanes(…, 'race')`). Three deadlocks shaped
-that, all found headless:
+The streets have one lane each way, so "beside you, in the other lane" is the oncoming lane. A rival
+sat there facing the taxi's way would be driving into traffic the moment the flag dropped, so it
+faces its own way: an ordinary car, stopped in its own lane (`roadblock = Infinity`, the fire
+engine's stop), level with the taxi. The two set off in opposite directions, which is what gives
+them two routes to one corner.
 
-- **Mid-block** left no room behind it on a lane only ~10.7 long, and the taxi waited at the
-  junction before it for the whole offer (5 races in 6).
-- **On the line** it flipped to `turn` there (see CLAUDE.md) and stood in the junction box under its
-  roadblock, which held the junction for everyone.
-- **Short of the line**, every left turn across it yielded to it as oncoming traffic, forever.
-  `car.holdsLine` tells `leftYieldBlocked` it is not coming.
+- **The taxi pulls up on its own brake pedal** (`braking`, ORed into main.js's), at the first
+  stretch of road where it can stop mid-block: short of its hold line, and far enough in that the
+  rival, level with it, is short of *its* hold line (the same street seen from the far end). Not
+  over the river, not behind a building, never on the ring road. `parked` then holds it through the
+  count and outranks Loco Mode, so a thumb on the pill cannot jump the start. (`parked` on its own
+  stops a moving car dead in one frame, which is why the pedal does the stopping.)
+- **The rival comes round at race pace**, with the racer's licence at the stops, routed onto the
+  lane that runs past the taxi the other way. Measured: a median of 6.6s from the taxi stopping to
+  the two side by side, the slowest 10s. Both lanes are shut to newcomers while they stand
+  (`setClosedLanes(…, 'race')`) — the rival's only once it is on it, since its own route onto a shut
+  lane would be refused — and both carry `holdsLine`, so an oncoming left does not wait on a car
+  that is not coming (`leftYieldBlocked`).
+- **The finish is picked once they are side by side**, from where each is pointing: on a grid one of
+  the two is always a block nearer, so of the furthest corners that qualify it takes the evenest by
+  the router's own estimate of the drive (`estimateSeconds`), which can see the river's bridges and
+  blocks cannot.
+- **The camera shows the finish before the count** — the rider-finder chip's peek (`peekAt`), out to
+  the flag and home to the taxi — and the count starts when it lands (`countIn`). A swipe mid-pan
+  drops the peek, so the race counts in on its own after `REVEAL_MAX` (6s).
 
-The taxi usually lines up at the junction *behind* the rival, since the rival leaves no landing room
-in its own lane. The countdown starts once the taxi is within 11 of it on its lane, or stopped within
-32 on the lane that feeds it with its next turn into the rival's lane (one ambient car may be between
-them). Distance alone is not enough: a taxi waiting at an all-way stop on a cross street read as lined
-up.
-`parked` holds the taxi through the count and outranks Loco Mode, so a thumb on the pill cannot
-jump the start. The rival starts a car length ahead: that is the challenger's privilege, and the
-overtake is the answer to it.
+The first build sent the taxi to queue *behind* the parked rival, which read as strange (Tyler:
+"pulling around behind them is strange"), gave the rival a car length's start, and took three
+deadlock fixes to keep the queue moving past the cross traffic.
 
 ## The package courier
 

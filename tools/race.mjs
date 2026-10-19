@@ -4,7 +4,7 @@
  *   node tools/race.mjs [races] [chase]
  *
  * For each race: a fresh city and situation, the rival summoned and accepted on the spot, the taxi
- * routed to the start and lined up exactly as main.js does it, and then three players drive the same
+ * pulled up and the rival brought round beside it exactly as in the game, and then each player drives the same
  * race from the same frame — one who never touches Loco Mode, one holding it from the green on
  * the tank the race guarantees (`TANK_FLOOR`), and one holding it on a full tank. Each holds the
  * pedal until the tank runs dry and does nothing to avoid a hit, so its wreck rate is the
@@ -49,7 +49,11 @@ function race(seed, player) {
   let went = false;
   const race = createRace({
     rng: makeRng(seed + 911), scene: new THREE.Scene(), traffic, routeTo,
-    onEvent: (type) => { if (type === 'go') went = true; },
+    onEvent: (type) => {
+      if (type === 'go') went = true;
+      // No camera here to go and look at the finish: count straight in.
+      if (type === 'lined-up') race.countIn();
+    },
   });
   if (CHASE !== null) race.setRivalChase(CHASE);
   if (!race.summon()) return { result: 'no-spot' };
@@ -67,6 +71,8 @@ function race(seed, player) {
     if (went && boost.fraction() <= 0 && boost.state.held) boost.release();
     boost.update(STEP);
     taxi.boost = went && boost.isEngaged();
+    // main.js's pedal: the race's pull-up ORed in (`braking`).
+    taxi.braking = race.braking();
     traffic.update(STEP);
     collisions.update(STEP);
     race.update(STEP);
@@ -76,7 +82,7 @@ function race(seed, player) {
   const s = race.state;
   if (wrecked) return { result: 'wreck' };
   if (!s.races) return { result: `stuck in ${s.phase}` };
-  return { result: s.lastResult, taxi: s.taxiTime, rival: s.rivalTime };
+  return { result: s.lastResult, taxi: s.taxiTime, rival: s.rivalTime, pullUp: s.pullUpTime };
 }
 
 const median = (xs) => {
@@ -90,15 +96,18 @@ for (const player of PLAYERS) {
   const tally = {};
   const won = [];
   const lost = [];
+  const pullUps = [];
   for (let k = 0; k < RACES; k++) {
     const r = race(7 + k * 13, player);
     tally[r.result] = (tally[r.result] ?? 0) + 1;
     if (process.env.RACE_DEBUG && !['won', 'lost'].includes(r.result)) console.log(`    seed ${7 + k * 13}: ${r.result}`);
+    if (r.pullUp != null) pullUps.push(r.pullUp);
     if (r.result === 'won') won.push(r.taxi);
     if (r.result === 'lost') lost.push(r.rival);
   }
   const rate = ((tally.won ?? 0) / RACES * 100).toFixed(0);
   console.log(`  ${player.name.padEnd(28)} win ${rate}%  `
     + `${Object.entries(tally).map(([k, v]) => `${k} ${v}`).join(' · ')}  `
-    + `· taxi home in ${median(won).toFixed(1)}s when it wins · rival in ${median(lost).toFixed(1)}s when it does`);
+    + `· taxi home in ${median(won).toFixed(1)}s when it wins · rival in ${median(lost).toFixed(1)}s when it does`
+    + ` · rival pulls up in ${median(pullUps).toFixed(1)}s (max ${Math.max(...pullUps).toFixed(1)})`);
 }

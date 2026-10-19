@@ -2050,12 +2050,21 @@ function onRaceEvent(type, detail) {
     raceTalk?.show('Street racer', `Race me! Win $${WIN_PAY}, lose $${LOSE_COST}.`, raceTalkAt);
     sfx?.play('horn', { at: placeAt(detail.car.x, detail.car.z) });
   } else if (type === 'accepted') {
-    raceTalk?.show('Street racer', 'Pull up behind me.', raceTalkAt);
+    raceTalk?.show('Street racer', "Stay there. I'll come to you.", raceTalkAt);
   } else if (type === 'expired') {
     raceTalk?.hide();
   } else if (type === 'lined-up') {
-    raceTalk?.hide();
+    raceTalk?.show('Street racer', 'First one to the flag.', raceTalkAt);
+    // Go and look at the finish, and come back to the taxi; the count starts when the camera is
+    // home. The rider-finder chip's move (`panToRider`). A swipe mid-pan drops the callback and
+    // the race counts in on its own clock (REVEAL_MAX in game/race.js).
+    releaseCameraToPlayer();
+    controller.peekAt(detail.x, detail.z, () => traffic.taxi, () => {
+      cameraTakenOver = false;
+      race?.countIn();
+    });
   } else if (type === 'count') {
+    raceTalk?.hide();
     popLabel(String(detail.n), 'is-count');
     haptic('snap');
   } else if (type === 'go') {
@@ -5655,7 +5664,8 @@ function tick() {
     const bootlegBrake = bootleg.update(dt, { brakeHeld: brakeHeld && !fares.state.gameOver });
     overtake.update(dt, { held: boost.isActive() && !traffic.taxi.staged, brakeHeld });
     const drifting = driftHolds(traffic.taxi) && traffic.taxi.drift.phase !== 'carry';
-    traffic.taxi.braking = bootlegBrake && !drifting;
+    // ...or the street race pulling the taxi up for its start (game/race.js).
+    traffic.taxi.braking = (bootlegBrake && !drifting) || Boolean(race?.braking());
   }
   updateBoostButton(dt);
   skids.update(dt);

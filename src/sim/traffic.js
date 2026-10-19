@@ -5500,9 +5500,9 @@ export function createTraffic(
       const facing = net.laneByGrid(opposite(car.d), car.i, car.j);
       const oncoming = (facing && approaching.get(facing.id)) ?? [];
       return oncoming.some((other) => {
-        // A car parked at its own line on purpose is not coming: the street race's rival waiting
-        // for a taker (`holdsLine`, game/race.js). Yielding to it deadlocked every left across it
-        // for the whole half-minute offer — the taxi sent to line up behind it included.
+        // A car parked in its lane on purpose is not coming: the street race's rival waiting for a
+        // taker, and the two cars stood side by side at its start (`holdsLine`, game/race.js).
+        // Yielding to the rival deadlocked every left across it for the whole half-minute offer.
         if (other.holdsLine && other.v < 0.05) return false;
         const otherDist = other.lane.length - other.s;
         return otherDist >= 0 && otherDist < YIELD_RANGE;
