@@ -561,6 +561,47 @@ and because the taxi has one seat, all but one of those are riders waiting on th
    multiplier, see [Economy](#economy)), and the board refills.
 5. A rider's clock running out, on the kerb or **aboard**, is a [strike](difficulty.md#strikes):
    they get out and storm off, the taxi is freed, and the third strike ends the run.
+6. The run itself is a [shift](#the-shift): five minutes, and the score is what the taxi earns in it.
+
+## The shift
+
+A run is a **five-minute shift** (`SHIFT_SECONDS` in `game/fares.js`, Tyler's idea, 2026-10-19), and
+the score is the cash earned in it. Every run on the table is then the same size, so the cash on it
+compares like for like. The clock sits under the rating (`#shift-clock`), turns red for the last 30
+seconds and knocks on each of the last ten.
+
+**The stars still end a shift early.** A clock with no fail state makes every rider free to drop:
+the best play would be to grab whoever is nearest and let the rest time out. The rating is what
+keeps a rider's own clock worth reading, so the two stack: the shift is how long the run can last,
+and three lost riders end it sooner as "Fired!". Wrecks and busts end it as they always did.
+
+**The buzzer honours the ride aboard.** At 0:00 everyone on the kerb leaves without a strike (the
+shift ended on them; they did not give up on the driver) and nobody new appears, but a rider in the
+cab keeps their seat and their own clock ("Last ride!"). The shift ends when the seat empties, by
+the drop-off or by that rider running out. A shift that ended on the buzzer would make every pickup
+in its last half-minute worthless, and a player who could read the clock would stop playing before
+the game did. With the ride honoured, any pickup before 0:00 pays.
+
+**Five minutes is set by where runs already end.** The sweep's perfect players are done around the
+ninth to twelfth fare ([difficulty.md](difficulty.md#what-the-sweep-found)) at ~35s a delivery, so an
+unshifted run lasts five to seven minutes. Longer than that and the shift changes nothing for most
+players; at five, a player who keeps their rating finishes on the clock. The difficulty ramp still
+runs on deliveries, so a strong player reaches Rush Hour inside the shift and a weak one does not.
+(The other way to hang it, off the shift clock so everyone gets a Rush Hour finale, is untried.)
+
+The clock counts the same seconds a fare's does: held while the tutorial talks and while main.js
+holds the fare loop (the vignette, the garage, the wipe), and stopped by the ⏸ with everything else.
+It ends on "Shift Over!" with a short hold on the taxi while the last payout lands
+(`SHIFT_BANNER_DELAY`), and the card's stats are **Cash** and **Rides**, since Time is the same on
+every shift.
+
+Shifts rank on **their own table** (`SHIFT_TABLE` in `game/highscores.js`): an endless run's cash grows
+with its length, so on one table every old run would sit above every shift. `?shift=classic` plays
+the endless run against the old table; `?shift=N` pins the length in seconds and is unranked.
+
+Not to be confused with the [difficulty bands](difficulty.md#shifts) (Early Shift, Busy, Rush Hour,
+Gridlock), which are named shifts too and are what `difficulty.shiftFor` and a score entry's `shift`
+field mean.
 
 ## The drop-off dispatches itself
 
@@ -3665,12 +3706,13 @@ Escape and P toggle it from a keyboard.
 
 ## The run-end screen
 
-`src/game/runend.js`, styled in `index.html` under `#run-end`. The run ends three ways — a fare's
-clock hitting zero (aboard, or the third [strike](difficulty.md#strikes) on the kerb), a collision,
-a police bust — and all three land on the same screen: a title, the
-reason, the run's two stats (**Cash**, then **Time**), the [high-score table](#high-scores), and **Play again**. The title is
-set by the caller, so a timeout reads **Too Slow!**, a collision reads **Wrecked!**, and a police
-bust reads **Busted!**.
+`src/game/runend.js`, styled in `index.html` under `#run-end`. The run ends four ways — [the
+shift](#the-shift) running out, a fare's clock hitting zero (aboard, or the third
+[strike](difficulty.md#strikes) on the kerb), a collision, a police bust — and all of them land on
+the same screen: a title, the reason, the run's two stats (**Cash**, then **Rides** on a shift or
+**Time** on the endless run), the [high-score table](#high-scores), and **Play again**. The title is
+set by the caller, so the shift reads **Shift Over!**, a timeout **Fired!**, a collision
+**Wrecked!**, and a police bust **Busted!**.
 
 All three also **hold the screen back for a beat** while the camera pulls into whatever ended the run
 — the wreck, the cruiser, or the corner a fare's clock ran out on. See
@@ -3799,6 +3841,7 @@ chance to put a name on the run.
 |---|---|---|
 | Cash | `fares.state.money` | |
 | Time | `fares.state.elapsed` | seconds, shown as `m:ss` + trailing `s` (e.g. `1:03s`) |
+| Rides | `fares.state.delivered` | on a shift, in Time's place |
 
 ## High scores
 

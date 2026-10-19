@@ -2840,6 +2840,72 @@ check('no two cars occupy the same space', pairsTooClose < pairSamples / 8,
   }
 }
 
+// --- The shift --------------------------------------------------------------------
+// The run is a fixed-length shift (SHIFT_SECONDS). Two endings to get right: a buzzer with an empty
+// seat ends the shift on the spot, and one with a rider aboard lets that ride finish and pays it —
+// with nobody new turning up in between, and nobody on the kerb charged a star for the clock
+// running out on *them*.
+{
+  // An empty seat at the buzzer: the waiting rider leaves, no strike, the shift is over that frame.
+  {
+    const sScene = new THREE.Scene();
+    const sTraffic = createTraffic(makeRng(seed + 44), sScene, 24);
+    const fares = createFareSystem(makeRng(seed + 55), sScene, { shift: 4 });
+    sTraffic.warmup(5);
+    let overAt = null;
+    let pausedHeld = false;
+    for (let f = 0; f < 600 && !fares.state.gameOver; f++) {
+      // A second of tutorial in the middle: the shift is the fare clock and holds with it.
+      fares.setPaused(f >= 60 && f < 120);
+      const before = fares.state.shiftLeft;
+      sTraffic.update(1 / 60);
+      const events = fares.update(1 / 60, sTraffic.taxi);
+      if (f === 90) pausedHeld = fares.state.shiftLeft === before;
+      if (events.some((e) => e.type === 'shift-over')) overAt = f;
+    }
+    check('a shift with nobody aboard ends on the buzzer',
+      fares.state.gameOver && fares.state.failTitle === 'Shift Over!' && overAt !== null
+        && Math.abs((overAt + 1) / 60 - 5) < 0.05, `ended frame ${overAt}`);
+    check('and the rider left on the kerb costs no star', fares.state.strikes === 0
+      && fares.state.fares.length === 0);
+    check('the shift clock holds while the fare clocks do', pausedHeld);
+  }
+  // A rider aboard at the buzzer: driven out and paid, with the board shut behind them.
+  {
+    const sScene = new THREE.Scene();
+    const sTraffic = createTraffic(makeRng(seed + 44), sScene, 24);
+    const fares = createFareSystem(makeRng(seed + 55), sScene, { shift: 600 });
+    sTraffic.warmup(5);
+    const send = (fare) => {
+      const r = findRoute(planOrigin(sTraffic.taxi), fare.target);
+      if (r) { sTraffic.taxi.route = r; sTraffic.taxi.routeConsumed = false; fares.markDirected(fare); }
+    };
+    let buzzed = null;
+    let spawnedAfter = 0;
+    let paid = null;
+    let overWithDelivery = false;
+    for (let f = 0; f < 60 * 240 && !fares.state.gameOver; f++) {
+      sTraffic.update(1 / 60);
+      const events = fares.update(1 / 60, sTraffic.taxi);
+      for (const { type, fare } of events) {
+        if (type === 'spawned' && !fares.carrying() && !buzzed) send(fare);
+        if (type === 'spawned' && buzzed) spawnedAfter += 1;
+        if (type === 'pickup') { send(fare); fares.state.shiftLeft = 0.001; }
+        if (type === 'shift-buzzer') buzzed = fare;
+        if (type === 'delivered') paid = fare.value;
+        if (type === 'shift-over') overWithDelivery = paid !== null;
+      }
+    }
+    check('a rider aboard at the buzzer gets the last ride',
+      buzzed !== null && overWithDelivery && fares.state.money === paid && fares.state.delivered === 1,
+      `buzzer ${buzzed ? 'with' : 'without'} a rider, paid ${paid}, cash ${fares.state.money}`);
+    check('and nobody new turns up after the buzzer', spawnedAfter === 0, `${spawnedAfter} spawned`);
+  }
+  // The endless run is still the fare loop's default, for every tool that plays long runs.
+  check('a fare loop with no shift has no shift clock',
+    createFareSystem(makeRng(seed + 55), new THREE.Scene()).state.shiftLeft === null);
+}
+
 // --- The drop-off ring drains with the rider in the car -----------------------
 // The disc at the far end of a trip is painted in the clock of whoever is aboard, and that is only
 // worth anything if it walks the scale as the clock does. The played run above asserts the ring and

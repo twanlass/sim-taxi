@@ -101,6 +101,7 @@ doc; what the classic version was, and why it changed, is in that doc's history 
 | `?chips=on` | The HUD rider chips instead of the edge arrows | [gameplay.md](gameplay.md) |
 | `?combo=run` | The combo meter carries across fares instead of cashing per ride | [gameplay.md](gameplay.md) |
 | `?rating=off` | Three strike rings instead of the star rating | [difficulty.md](difficulty.md) |
+| `?shift=classic` / `?shift=90` | The endless run instead of a five-minute shift, or a shift of that many seconds (unranked) | [gameplay.md](gameplay.md#the-shift) |
 | `?grace=1.6` | How long a newly caught car is tailgated before holding Loco rams it (default `OVERTAKE_GRACE`); `0` is the old rule | [gameplay.md](gameplay.md) |
 | `?pressgrace=classic` | No grace on a fresh Loco press behind a car: the combo's first tap from a taxi already sitting behind one can ram it | [traffic.md](traffic.md) |
 | `?hitcue=chip` / `edge` / `both` | A cue for how much a hit cost: a bar over the roof, a red edge, or both. Off by default | [gameplay.md](gameplay.md) |
