@@ -33,6 +33,12 @@ export const DEFAULT_SETTINGS = Object.freeze({
   haptics: true,
   // One of `QUALITIES`. Regular by default: it is the one that keeps a phone cool.
   quality: 'regular',
+  // MSAA, the back buffer's own antialiasing. On by default: it is what the game has always drawn
+  // with. Off is the cheaper frame — `tools/gpucost.mjs` put it at 23% of a headless frame at 2x —
+  // and at Ultra's 3x the stair steps it leaves on thin diagonals (the L's truss, the depot's neon)
+  // are hard to see at phone size; at 2x they show, and they crawl in motion (perf pass,
+  // 2026-10-18). A context attribute, so it takes effect at the next launch, not live.
+  antialias: true,
   // One of `MODES` in game/difficulty.js. Easy by default: it is the curve the game shipped with
   // before the row existed, so nobody's game changes until they pick another.
   difficulty: 'easy',
@@ -71,6 +77,7 @@ export function cleanSettings(raw) {
     effects: unit(src.effects, DEFAULT_SETTINGS.effects),
     tips: typeof src.tips === 'boolean' ? src.tips : DEFAULT_SETTINGS.tips,
     haptics: typeof src.haptics === 'boolean' ? src.haptics : DEFAULT_SETTINGS.haptics,
+    antialias: typeof src.antialias === 'boolean' ? src.antialias : DEFAULT_SETTINGS.antialias,
     // A stored `resolution`/`frameRate` from before the toggle is dropped: the toggle starts fresh.
     quality: Object.hasOwn(QUALITIES, src.quality) ? src.quality : DEFAULT_SETTINGS.quality,
     difficulty: Object.hasOwn(MODES, src.difficulty) ? src.difficulty : DEFAULT_SETTINGS.difficulty,
@@ -96,9 +103,13 @@ export function createSettings({ storage } = {}) {
   }
 
   const listeners = new Set();
+  // What the page booted with, for the settings that only apply at launch (`antialias`).
+  const atLaunch = Object.freeze({ ...values });
 
   return {
     get: () => ({ ...values }),
+    /** The settings as they stood when the page loaded. */
+    atLaunch: () => ({ ...atLaunch }),
     /** Merge `partial`, clean it, persist it, and tell whoever is listening. */
     set(partial) {
       values = cleanSettings({ ...values, ...partial });

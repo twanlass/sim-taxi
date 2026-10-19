@@ -17582,7 +17582,9 @@ let chopperOrder; // likewise
       const bankRig = (k, { stop = true, tight = false } = {}) => {
         const s8 = new THREE.Scene();
         const t8 = createTraffic(makeRng(seed + 44), s8, 10, 18);
-        const f8 = createFareSystem(makeRng(seed + 900 + k), s8);
+        // `alwaysRob: false` so the coin and its ramp are still exercised while BANK_ROBBER_ALWAYS
+        // has every bank rider rob for testing.
+        const f8 = createFareSystem(makeRng(seed + 900 + k), s8, { alwaysRob: false });
         t8.warmup(1);
         f8.state.delivered = 5;
         const got = [];
@@ -17658,8 +17660,10 @@ let chopperOrder; // likewise
         check('...and loads the coin for the next one: 65, 80, 95, then held at 95',
           [0.65, 0.8, 0.95, 0.95, 0.95].every((v, k) => Math.abs(steps[k] - v) < 1e-9),
           steps.map((v) => v.toFixed(2)).join(' '));
-        const flat = createFareSystem(makeRng(seed + 900), new THREE.Scene(), { risingOdds: false });
+        const flat = createFareSystem(makeRng(seed + 900), new THREE.Scene(), { risingOdds: false, alwaysRob: false });
         check('...but not under ?robberyodds=classic', flat.robberOdds() === 0.5 && flat.state.bankRides === 0);
+        const always = createFareSystem(makeRng(seed + 901), new THREE.Scene(), { alwaysRob: true });
+        check('...and under BANK_ROBBER_ALWAYS every bank rider is the robbery', always.robberOdds() === 1);
       }
       // BANK_REACH_ALONG: by default the bank rider is collected level with the steps, on the bank's
       // own street, and routed down it. The junction's ARRIVE_RADIUS fired from round the corner —
@@ -19576,7 +19580,7 @@ let chopperOrder; // likewise
   // the same crossing with a turn there is the ordinary hop.
   {
     const lLine = bridgeLines().find((i) => riverCrossing(i) === 'fixed');
-    const fly = (exitDir) => {
+    const fly = (exitDir, { release = false, carry = 3 } = {}) => {
       const lScene = new THREE.Scene();
       const lTraffic = createTraffic(makeRng(seed + 96), lScene, 1);
       const lTaxi = lTraffic.taxi;
@@ -19587,7 +19591,7 @@ let chopperOrder; // likewise
       lTaxi.boost = true;
       lTaxi.v = 31;
       // A kick in hand, held long enough to see the whole flight out.
-      lTaxi.drift = { phase: 'carry', lane: lTaxi.lane.id, v: 31, t: 0, carry: 3, kicked: true };
+      lTaxi.drift = { phase: 'carry', lane: lTaxi.lane.id, v: 31, t: 0, carry, kicked: true };
       lTaxi.driftTier = 1;
       lTaxi.driftHp = lTaxi.hp ?? 0;
       let big = false;
@@ -19600,10 +19604,15 @@ let chopperOrder; // likewise
       // The barrel roll: the lowest the body's own up vector gets, and where it is on touchdown.
       let minUp = 1;
       let landUp = null;
+      // The slowest the taxi goes between takeoff and touchdown.
+      let airV = Infinity;
       const up = new THREE.Vector3();
       lTraffic.onTaxiLand((event) => { landing = landing ?? event; });
       for (let f = 0; f < 60 * 3 && !landing; f++) {
+        // `release` lets go of the pill the frame after takeoff, the way main.js hands it over once
+        // the thumb comes up: still `boost` through the cooldown tail, but easing.
         lTaxi.boost = true;
+        lTaxi.boostEasing = release && big;
         // Standing on the brake the whole way: the flight must not care.
         lTaxi.braking = big;
         const before = lTaxi.hopFrom;
@@ -19612,7 +19621,10 @@ let chopperOrder; // likewise
           big = onDriftLaunch(lTaxi);
           launchTravelled = lTaxi.hopFrom;
         }
-        if (lTaxi.hopFrom != null) peak = Math.max(peak, lTraffic.taxiGroup.position.y - ROAD_Y);
+        if (lTaxi.hopFrom != null) {
+          peak = Math.max(peak, lTraffic.taxiGroup.position.y - ROAD_Y);
+          airV = Math.min(airV, lTaxi.v);
+        }
         up.set(0, 1, 0).applyQuaternion(lTraffic.taxiGroup.quaternion);
         minUp = Math.min(minUp, up.y);
         if (landing) {
@@ -19623,13 +19635,21 @@ let chopperOrder; // likewise
         }
       }
       lTraffic.dispose?.();
-      return { big, peak, landing, landLane, landS, air, minUp, landUp };
+      return { big, peak, landing, landLane, landS, air, minUp, landUp, airV };
     };
     const straight = fly(DIR.PZ);
     const turning = fly(DIR.PX);
     setBarrelRoll('classic');
     const level = fly(DIR.PZ);
     setBarrelRoll();
+    // The carry runs out over the water, which is the ordinary case: a tier-1 kick's is 0.6s.
+    const held = fly(DIR.PZ, { carry: 0.1 });
+    const letGo = fly(DIR.PZ, { carry: 0.1, release: true });
+    check('letting go of Loco mid-flight does not slow Big Air down',
+      held.big && letGo.big && letGo.landing
+      && letGo.airV >= held.airV - 0.01 && letGo.landing.v >= held.landing.v - 0.01,
+      `slowest in the air ${letGo.airV.toFixed(1)} u/s let go against ${held.airV.toFixed(1)} held, `
+      + `${letGo.landing?.v.toFixed(1)} against ${held.landing?.v.toFixed(1)} at touchdown`);
     check('the drift launch barrel-rolls the taxi upside down and lands it on its wheels',
       straight.minUp < -0.95 && straight.landUp > 0.95,
       `lowest up ${straight.minUp.toFixed(2)}, ${straight.landUp?.toFixed(2)} at touchdown`);
@@ -20680,7 +20700,10 @@ let chopperOrder; // likewise
       gate.dispose();
     }
 
-    check('the span spends most of the run open', shutFrames / (60 * 300) < 0.3,
+    // Lifts every ~45 s (`TUG_WAIT` in game/boats.js) at 24 s shut each, so about half the run shut.
+    // The bound is the line past which the middle crossing stops being a hazard and is just gone.
+    check('the span lifts about every 45s and is still open most of the rest',
+      shutFrames / (60 * 300) < 0.6 && boats.state.tugs >= 5,
       `shut ${((100 * shutFrames) / (60 * 300)).toFixed(0)}% of five minutes,`
       + ` ${boats.state.tugs} tugs and ${boats.state.barges} barges`);
     bridge.dispose();

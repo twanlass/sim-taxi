@@ -259,6 +259,11 @@ const budget = {
   // msaa, shadowMapSize, ao, crayon, cartoon, hdr, bloom: the shared render path's (game/renderpath.js).
   ...renderBudget(),
 };
+// The Antialiasing setting, as it stood at launch (MSAA is a context attribute). `?msaa=` beats it,
+// as `?dpr=` beats Quality, and shot mode keeps MSAA so screenshots don't depend on a saved setting.
+if (!shot && !new URLSearchParams(window.location.search).has('msaa')) {
+  budget.msaa = budget.msaa && settings.atLaunch().antialias;
+}
 
 const renderer = new THREE.WebGLRenderer({
   antialias: budget.msaa,
