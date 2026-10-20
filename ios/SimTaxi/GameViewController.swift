@@ -143,14 +143,15 @@ final class GameViewController: UIViewController {
     override var prefersHomeIndicatorAutoHidden: Bool { true }
     override var preferredScreenEdgesDeferringSystemGestures: UIRectEdge { .bottom }
 
-    /// The camera is orthographic and fits the whole city to whatever viewport it is given, and
-    /// `isNarrow()` in `src/main.js` already switches the HUD over on narrow ones — so every
-    /// orientation is genuinely playable and there is no reason to lock one. Info.plist carries the
-    /// same list; this is here so the answer does not depend on which one UIKit consults.
+    /// Portrait only. The camera would fit the city to a landscape viewport, but the HUD, the pause
+    /// menu and the pedal row are laid out for a phone held upright, and turning it mid-run slid
+    /// them off where the thumbs are. Upside-down is left out too, as iOS does for Face ID phones.
+    /// Info.plist carries the same list; this is here so the answer does not depend on which one
+    /// UIKit consults.
     ///
     /// iPhone only (`TARGETED_DEVICE_FAMILY = 1`), so there is no iPad branch: on an iPad the app
     /// runs in iPhone compatibility mode, where the idiom reads `.phone` anyway.
     override var supportedInterfaceOrientations: UIInterfaceOrientationMask {
-        [.portrait, .landscape]
+        .portrait
     }
 }
