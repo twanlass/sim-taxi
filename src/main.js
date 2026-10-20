@@ -2105,7 +2105,7 @@ function onRaceEvent(type, detail) {
   } else if (type === 'asked') {
     haptic('snap');
     raceTalkRoot?.classList.remove('is-ellipsis');
-    raceTalk?.show('Street racer', 'Wanna race?', raceTalkAt);
+    raceTalk?.show('Street racer', 'Wanna {race}?', raceTalkAt);
   } else if (type === 'unavailable') {
     // Out of reach, a rider aboard, or something owning the run: gone until that changes.
     raceTalk?.hide();

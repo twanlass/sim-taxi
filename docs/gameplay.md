@@ -305,8 +305,13 @@ Everything that talks on screen — these tips, [the robber](#the-bank-robbery),
 and (under `?copchat=classic`) the cop's shout — is one bubble, `game/speech.js`: the Figma file's "bubble-ui" card (a caps title
 saying who is talking over a bold line), at the HUD's ×0.652.
 
-**Docked, with a tag on the talker.** The card is see-through black (62%, the city blurred behind it)
-with white type, and so is the tag (`?bubblestyle=card` is the white Figma card). Every line types
+**Docked, with a tag on the talker.** The card is white (90%, the city blurred a little behind it)
+with black type, a heavier shadow and a hairline ring so it keeps an edge over a bright street, and
+the tag matches. The thing a line is about — the garage, the rider, the race — is written `{garage}`
+in its source and called out on a yellow highlighter swipe, bolder, with one wiggle as its last
+letter lands (yellow *type* on white was unreadable). `?bubblestyle=classic` is the see-through
+black card with white type it replaced, where the callout is yellow type instead;
+`?bubblestyle=card` is the white Figma card. Every line types
 itself out behind a caret, dispatch and the racer included, and the card grows with the line rather
 than standing at its finished width; its left edge is pinned where the finished card's will be, so
 the text never shifts and the line ends centred. Picked from a round of eight looks (radio ticker,

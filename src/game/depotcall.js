@@ -15,7 +15,7 @@ import { createSpeech } from './speech.js';
 // because the tap the player is about to make belongs to the road, or to the depot itself.
 
 export const DEPOT_CALL_TITLE = 'Taxi Garage';
-export const DEPOT_CALL_LINE = 'Tap the garage for repairs';
+export const DEPOT_CALL_LINE = 'Tap the {garage} for repairs';
 
 /**
  * How long it stays up, in seconds of game time: the ~0.7s it takes to type, then long enough to

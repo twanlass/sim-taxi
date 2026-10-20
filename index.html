@@ -1496,14 +1496,14 @@
       .speech-docked .speech-rest { display: none; }
       /* The caret while a docked line types: a zero-width box with a 2px right border, so it takes no
          room in the line, and a caret with width would make the card a step wider than its text. */
-      .speech-docked.is-typing .speech-typed::after {
+      .speech-docked.is-typing .speech-run.is-caret .speech-typed::after {
         content: ''; display: inline-block; width: 0; height: 0.95em; margin-right: -2px;
         border-right: 2px solid currentColor; vertical-align: -0.12em;
         animation: speech-caret 0.5s step-end infinite alternate;
       }
       @keyframes speech-caret { from { opacity: 1; } to { opacity: 0.25; } }
-      /* Black, the default look (Tyler's pick, 2026-10-20): white type, the speaker in grey caps, and
-         the tag in the same black. `?bubblestyle=card` keeps the white Figma card. */
+      /* Black, `?bubblestyle=classic` (the default for an afternoon, 2026-10-20): white type, the
+         speaker in grey caps, and the tag in the same black. */
       /* See-through, with the city blurred behind it (Tyler, 2026-10-20) — the card and the tag both.
          The fade has to be on the card and the tag themselves rather than on the body that holds
          them: an ancestor with opacity under 1 is a backdrop root, so for the whole of a fade-in
@@ -1513,15 +1513,15 @@
         -webkit-backdrop-filter: blur(12px) saturate(1.2); backdrop-filter: blur(12px) saturate(1.2);
         box-shadow: 0 4px 14px rgba(0, 0, 0, 0.22); padding: 13px 16px; border-radius: 14px;
       }
-      .speech-style-black.speech-docked > .speech > .speech-body,
-      .speech-style-black.speech-docked > .speech-tag-pin > .speech-tag-body { opacity: 1; }
-      .speech-style-black .speech-card, .speech-style-black .speech-tag, .speech-style-black .speech-tag-pin .speech-pointer {
+      .speech-glass.speech-docked > .speech > .speech-body,
+      .speech-glass.speech-docked > .speech-tag-pin > .speech-tag-body { opacity: 1; }
+      .speech-glass .speech-card, .speech-glass .speech-tag, .speech-glass .speech-tag-pin .speech-pointer {
         opacity: 0; transition: opacity 0.18s ease;
       }
-      .speech-style-black.is-open .speech-card, .speech-style-black.is-open .speech-tag,
-      .speech-style-black.is-open .speech-tag-pin .speech-pointer { opacity: 1; }
-      .speech-style-black.is-closing .speech-card, .speech-style-black.is-closing .speech-tag,
-      .speech-style-black.is-closing .speech-tag-pin .speech-pointer { opacity: 0; transition: opacity 0.2s ease; }
+      .speech-glass.is-open .speech-card, .speech-glass.is-open .speech-tag,
+      .speech-glass.is-open .speech-tag-pin .speech-pointer { opacity: 1; }
+      .speech-glass.is-closing .speech-card, .speech-glass.is-closing .speech-tag,
+      .speech-glass.is-closing .speech-tag-pin .speech-pointer { opacity: 0; transition: opacity 0.2s ease; }
       .speech-style-black .speech-tag {
         background: rgba(13, 14, 18, 0.62);
         -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px); box-shadow: none;
@@ -1531,14 +1531,54 @@
          part is clipped off — in the pointer's own unturned frame, so the cut is always its base —
          leaving the tip from the disc's edge out. A 24px disc only curves 0.4px away over the 6.4px
          of pointer left at that line, which is under a pixel. The same clip shapes its blur. */
-      .speech-style-black .speech-tag-pin .speech-pointer {
-        color: rgba(13, 14, 18, 0.62);
+      .speech-glass .speech-tag-pin .speech-pointer {
         clip-path: polygon(50% 0, 78.1% 56.5%, 21.9% 56.5%);
         -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px);
       }
+      .speech-style-black .speech-tag-pin .speech-pointer { color: rgba(13, 14, 18, 0.62); }
       .speech-style-black .speech-title { color: rgba(255, 255, 255, 0.55); }
       .speech-style-black .speech-text { color: #fff; }
       .speech-style-black .speech-tag i { background: #fff; }
+      /* White, the default look (Tyler, 2026-10-20: white type on the black was hard to read):
+         black type on a nearly opaque white, still blurring the city a little behind it. On a
+         bright daytime street white on white has no edge of its own, so the shadow is a little
+         heavier than the black card's and a hairline ring draws the edge where the street is
+         pale. The tag matches. */
+      .speech-style-white .speech-card {
+        background: rgba(255, 255, 255, 0.9);
+        -webkit-backdrop-filter: blur(12px) saturate(1.2); backdrop-filter: blur(12px) saturate(1.2);
+        box-shadow: 0 0 0 1px rgba(16, 18, 26, 0.08), 0 4px 16px rgba(16, 18, 26, 0.3);
+        padding: 13px 16px; border-radius: 14px;
+      }
+      .speech-style-white .speech-tag {
+        background: rgba(255, 255, 255, 0.9);
+        -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px);
+        box-shadow: 0 0 0 1px rgba(16, 18, 26, 0.08), 0 2px 6px rgba(16, 18, 26, 0.3);
+      }
+      .speech-style-white .speech-tag-pin .speech-pointer { color: rgba(255, 255, 255, 0.9); }
+      .speech-style-white .speech-title { color: rgba(16, 18, 26, 0.5); }
+      .speech-style-white .speech-text { color: #121318; }
+      .speech-style-white .speech-tag i { background: #121318; }
+      /* The thing a line is about — "{garage}" in the line's source, game/speech.js `parseLine`.
+         Yellow *type* on the white card is under 1.5:1 and unreadable, so on the light looks it is
+         a yellow highlighter swipe behind black type; on the black card the type itself goes
+         yellow. Space Grotesk stops at 700, which the line already is, so the extra weight is a
+         hairline stroke. It wiggles once, when its last letter has typed. */
+      .speech-hl { display: inline-block; -webkit-text-stroke: 0.5px currentColor; }
+      .speech-hl .speech-typed {
+        background: #FFC93C; border-radius: 4px; padding: 0 3px; margin: 0 -2px;
+        -webkit-box-decoration-break: clone; box-decoration-break: clone;
+      }
+      .speech-hl .speech-typed:empty { padding: 0; margin: 0; }
+      .speech-style-black .speech-hl .speech-typed { background: none; padding: 0; margin: 0; color: #FFC93C; }
+      .speech-hl.is-said { animation: speech-hl-wiggle 0.5s cubic-bezier(0.34, 1.56, 0.64, 1); }
+      @keyframes speech-hl-wiggle {
+        0% { transform: none; }
+        25% { transform: rotate(-5deg) scale(1.12); }
+        50% { transform: rotate(4deg) scale(1.08); }
+        75% { transform: rotate(-2deg) scale(1.03); }
+        100% { transform: none; }
+      }
       /* The tag: who is talking, pinned where the card used to stand. A white disc with three dots
          in it — the "someone is typing" mark — and the card's pointer, so it reads as the docked
          card's other end. Small enough (24px) that following a car costs nothing to look at. */
@@ -1560,7 +1600,7 @@
       @keyframes speech-tag-dot { 0%, 60%, 100% { transform: none; } 30% { transform: translateY(-2.5px); } }
       .speech-tag-pin .speech-pointer { color: #fff; }
       @media (prefers-reduced-motion: reduce) {
-        .speech-tag i { animation: none; }
+        .speech-tag i, .speech-hl.is-said { animation: none; }
         .speech-docked > .speech > .speech-body, .speech-docked.is-open > .speech > .speech-body,
         .speech-docked.is-closing > .speech > .speech-body, .speech-tag-body { transform: none; }
       }
