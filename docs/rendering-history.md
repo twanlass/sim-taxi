@@ -415,6 +415,16 @@ pink hexagons hanging over the road.
 **`?wreck=classic`** is the original full fireball: it hid the two cars the run ended on for most of a
 second, which is why `flat` became the default (Tyler's pick).
 
+**`?wreck=flat`** was the default from 2026-10-05 to 2026-10-20: the same skirt of fire, drawn **unlit
+in flat colour**, with a white shockwave ring under it and the pale [smoke
+collar](rendering.md#the-smoke-collar) round it. Unlit was a deliberate choice — the sun is behind
+the camera, so a Lambert sphere showed no facets, and unlit kept a night wreck as bright as a day
+one. It stopped working when the rest of the frame moved on: against realistic car paint and a
+painted, sunlit street, twelve one-colour hexagons and a white ellipse read as stickers ("flat and
+cartoony", Tyler), and once the fire went out after a second nothing on screen was still burning.
+`burn` lit the puffs by facet instead of by the sun, put firelight on the road, and kept the wrecks
+alight for the hold.
+
 #### The wrecks that stay
 
 [Current](rendering.md#the-wrecks-that-stay).

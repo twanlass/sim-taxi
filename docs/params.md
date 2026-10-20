@@ -60,7 +60,7 @@ doc; what the classic version was, and why it changed, is in that doc's history 
 | `?vehiclepaint=classic` | The plane, helicopters, boats, container ships and L train back on the plain flat material instead of the cars' paint | | [rendering.md](rendering.md#every-other-vehicle) |
 | `?classics=classic` / `=0.3` | No convertibles or camper vans / that chance per car, capped at 0.5 (default 1 in 40) | #495 | [traffic.md](traffic.md) |
 | `?damage=classic` | The taxi's damage ladder before the first-hit flash, grime and steam | #456 | [gameplay.md](gameplay.md) |
-| `?wreck=classic` / `=quick` | The old fireball, or the quick cut (default is `flat`) | #398 | [traffic.md](traffic.md) |
+| `?wreck=flat` / `=classic` / `=quick` | The unlit ring of fire that was the default until 2026-10-20, the original fireball, or the quick cut. The default is `burn`: shaded fire, firelight on the road, the wrecks left burning | #398 | [rendering.md](rendering.md#wreck--gameblastjs-gamewreckagejs) |
 | `?capture=classic` | The old police rules: any patrol touch is "Busted!", a boosted hit on any cop is a full wreck, a getaway's cops never arrest. Default: hitting a cop costs HP like any car, and "Busted!" is being pinned by a chasing cop | #527 | [gameplay.md](gameplay.md#getting-caught) |
 | `?standdown=classic` | A patrol cop that loses you goes dark and drives off the map, instead of going back on patrol with its bar swinging | | [traffic.md](traffic.md#the-life-of-a-patrol) |
 | `?cop=classic` | With `?capture=classic`: boosting into a cop is a bump rather than a full wreck | #466 | [gameplay.md](gameplay.md) |
@@ -184,5 +184,6 @@ See [rendering.md](rendering.md) and [testing.md](testing.md).
 | `?shot=N` | Shot mode: a fixed framing from `SHOTS` in `src/util/shot.js`, with the city and run seeds pinned and the HUD hidden |
 | `?view=x,z,zoom` | Re-frames any shot without adding one |
 | `?introAt=1.9` | With an L train shot, freezes the L's intro that many seconds in |
+| `?wreckAt=0.4` | With a wreck shot (12, 17, 37), freezes the crash that many seconds in instead of the shot's own beat. `tools/wreckreel.mjs` films from `0` |
 
 See [testing.md](testing.md).
