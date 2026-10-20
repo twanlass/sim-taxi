@@ -513,9 +513,12 @@ one's module-level state. At the game's real speeds the run is three blocks long
 also needs the street to carry straight on, open, through the junctions at each end. The pedal row
 (the HUD's own pedal art, all three at one size with a "+" between) is pressed off the **clip's
 clock**, so each key goes down on the frame the car does the thing it does: a size small until
-pressed, full size from then to the end of the loop. The keys keep the HUD's colours throughout and
-drop the drawn glint; greying an unlit key, as `?movecard=classic` still does, turned the orange A
-brown on the run-end blackout. History:
+pressed, full size from then to the end of the loop. The keys are drawn **flat** — a disc in the
+HUD button's colour and a white letter, none of its surround, crescent, dish or glint — and stay
+that colour throughout; greying an unlit key, as `?movecard=classic` still does with the HUD's own
+drawing, turned the orange A brown on the run-end blackout. The classic keys carry their own copy
+of the HUD's gradients (`nm-` ids): the HUD pedals are `display: none` behind the run-end screen,
+and a gradient referenced from an undisplayed SVG does not paint. History:
 [New Move cards](gameplay-history.md#new-move-unlocked-the-overtake-u-turn-and-drift-cards).
 
 - **When:** a beat (0.9s) after the drop-off that brings a run to two fares — robbery.js's

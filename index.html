@@ -1549,8 +1549,8 @@
       /* The "+" between keys: the title's ink, so it reads as part of the card's type. */
       .nm-plus { font: 700 18px/1 var(--game-font); color: #44497d; }
       .nm-key svg { display: block; overflow: visible; width: 44px; height: 44px; }
-      body.pedals-classic .nm-boost .pedal-face { filter: url(#gas-up); }
-      body.pedals-classic .nm-brake .pedal-face { filter: url(#brake-up); }
+      body.pedals-classic .nm-boost .pedal-face { filter: url(#nm-gas-up); }
+      body.pedals-classic .nm-brake .pedal-face { filter: url(#nm-brake-up); }
 
       /* Dim until pressed, lit from the press to the end of the loop; the face drops into its base
          while held, the HUD pedals' own 5 units. */
@@ -1558,18 +1558,19 @@
       .nm-key.is-lit { filter: none; opacity: 1; }
       .nm-key :is(.pedal-face, .pedal-icon) { transition: transform 0.06s ease-out; }
       .nm-key.is-down :is(.pedal-face, .pedal-icon) { transform: translateY(5px); }
-      body:not(.pedals-classic) .nm-key.is-down .pedal-face { filter: url(#nes-down); transform: translateY(4px); }
+      body:not(.pedals-classic) .nm-key.is-down .pedal-face { filter: url(#nm-nes-down); transform: translateY(4px); }
       /* The keys in the HUD's own colours (the default, Tyler 2026-10-20): greying an unlit key on
          the run-end blackout turned the orange A brown and the red B maroon, so the card's buttons
          did not look like the ones the player presses. An unlit key now waits a size smaller at full
-         colour, and the press grows it in. And no glint: the drawn highlight read as fake gloss at
-         this size. `?movecard=classic` is the dimmed keys with their glint. */
+         colour, and the press grows it in. And the keys are drawn flat (newmove.js `flatKey`): one
+         disc in the button's colour and a white letter, no surround, crescent, dish or glint —
+         the HUD's modelling read as fake gloss at this size (Tyler, 2026-10-20).
+         `?movecard=classic` is the HUD's own drawing, dimmed until pressed. */
       body:not(.move-card-classic) .nm-key,
       body.new-move-after-run:not(.move-card-classic) #new-move .nm-key:not(.is-lit) {
         filter: none; opacity: 1; transform: scale(0.84); transition: transform 0.12s ease-out;
       }
       body:not(.move-card-classic) .nm-key.is-lit { transform: none; }
-      body:not(.move-card-classic) .nm-key .pedal-glint { display: none; }
 
       /* --- the HUD's entrance ------------------------------------------------
          Everything the player will need but cannot use yet starts off its own screen edge, and
@@ -2441,10 +2442,10 @@
         <circle cx="75" cy="76" r="64" fill="#7A4100" />
         <g class="pedal-face">
           <circle cx="75" cy="71" r="62" fill="url(#nes-gas-face)" />
-          <path class="pedal-glint" d="M25.15 47.76A55 55 0 0 1 56.19 19.32" stroke="#fff" stroke-opacity="0.6" stroke-width="5" stroke-linecap="round" fill="none" />
-          <circle class="pedal-glint" cx="67.35" cy="16.54" r="2.4" fill="#fff" fill-opacity="0.6" />
+          <path d="M25.15 47.76A55 55 0 0 1 56.19 19.32" stroke="#fff" stroke-opacity="0.6" stroke-width="5" stroke-linecap="round" fill="none" />
+          <circle cx="67.35" cy="16.54" r="2.4" fill="#fff" fill-opacity="0.6" />
           <circle cx="75" cy="71" r="44" fill="url(#nes-gas-dish)" stroke="#000" stroke-opacity="0.22" stroke-width="1.5" />
-          <path class="pedal-glint" d="M113.11 93A44 44 0 0 1 36.89 93" stroke="#fff" stroke-opacity="0.4" stroke-width="1.5" fill="none" />
+          <path d="M113.11 93A44 44 0 0 1 36.89 93" stroke="#fff" stroke-opacity="0.4" stroke-width="1.5" fill="none" />
           <!-- Debossed, not printed (Tyler, 2026-10-15): the letter is the dish's own plastic, a
                tenth lighter, and reads by its walls alone — the top wall in shadow, the bottom
                one catching the light, the way a cut into the dish would. -->
@@ -2529,10 +2530,10 @@
         <circle cx="75" cy="76" r="64" fill="#6E1214" />
         <g class="pedal-face">
           <circle cx="75" cy="71" r="62" fill="url(#nes-brake-face)" />
-          <path class="pedal-glint" d="M25.15 47.76A55 55 0 0 1 56.19 19.32" stroke="#fff" stroke-opacity="0.6" stroke-width="5" stroke-linecap="round" fill="none" />
-          <circle class="pedal-glint" cx="67.35" cy="16.54" r="2.4" fill="#fff" fill-opacity="0.6" />
+          <path d="M25.15 47.76A55 55 0 0 1 56.19 19.32" stroke="#fff" stroke-opacity="0.6" stroke-width="5" stroke-linecap="round" fill="none" />
+          <circle cx="67.35" cy="16.54" r="2.4" fill="#fff" fill-opacity="0.6" />
           <circle cx="75" cy="71" r="44" fill="url(#nes-brake-dish)" stroke="#000" stroke-opacity="0.22" stroke-width="1.5" />
-          <path class="pedal-glint" d="M113.11 93A44 44 0 0 1 36.89 93" stroke="#fff" stroke-opacity="0.4" stroke-width="1.5" fill="none" />
+          <path d="M113.11 93A44 44 0 0 1 36.89 93" stroke="#fff" stroke-opacity="0.4" stroke-width="1.5" fill="none" />
           <!-- Debossed, not printed (Tyler, 2026-10-15): the letter is the dish's own plastic, a
                tenth lighter, and reads by its walls alone — the top wall in shadow, the bottom
                one catching the light, the way a cut into the dish would. -->
