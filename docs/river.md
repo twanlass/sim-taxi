@@ -641,11 +641,13 @@ else, so the hold is gone.
 `geometry/boat.js` builds them, `game/boats.js` runs them. **Run seed, not city seed**: which span
 lifts is a fact about the map and has to stay learnable, but when it lifts is the situation.
 
-**What they look like, and how big.** Sized against the cars (3.4 × 1.7) and the water (9.2 across,
-7.87 on the narrow build). The barge is an 11 × 4.2 **trash barge**, half the channel: a rusty scow
+**What they look like, and how big.** Sized against the cars (3.4 × 1.7) and the water (12.2 across,
+10.87 on the narrow build). The barge is a 13.75 × 5.25 **trash barge**, about half the channel: a rusty scow
 square at the stern and rounded at the bow, with tyre fenders down its sides, a heap of bin bags,
 cardboard, tyres and drums drawn per hull, and a steel wheelhouse at the stern with a funnel up its
-back wall. It replaced a 16 × 6 container barge that read as big and as a slab. The wheelhouse is
+back wall. It replaced a 16 × 6 container barge that read as big and as a slab. It was 11 × 4.2 until the
+river widened (#563) and left it at 39% of the water; it grew a quarter **in plan only**
+(`BARGE_SCALE`), because every height on it is pinned under the flat soffit. The wheelhouse is
 hunter green, matte and weathered (rust streaks under the windows, a grime line at its foot), on a
 mesh of its own so its windows can wear the cars' glass (`propMaterial({ gloss })`). Everything stays under `BARGE_AIR` (1.63, against the flat span's 1.65), and that is
 the only thing bounding how tall the wheelhouse can be — its roof sits on it exactly: the heap stops lower, at
@@ -705,8 +707,8 @@ would pass through a closed span.
 ### Single file
 
 **Everything runs down the middle** (`BOAT_LANE` is 0, `LANE_WANDER` 0.2). It started when the
-barge filled three quarters of the water, and it survived the barge shrinking to half: two 4.2-wide
-hulls need 8.4 of a 7.87 channel on the narrow build. Boats used to keep a lane each way, port to port,
+barge filled three quarters of the water, and it survived the barge shrinking to half: two 5.25-wide
+hulls need 10.5 of a 10.87 channel on the narrow build, which is touching. Boats used to keep a lane each way, port to port,
 and the two bounds on that lane — a floor so passing hulls do not touch, a ceiling so the tug's mast
 clears the arch off-centre — are what kept the hulls under half the channel wide. The centreline is
 also where the arch is highest: `deckHeightAt` is a function of `z` alone and crests there, so the

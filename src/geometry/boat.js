@@ -22,11 +22,20 @@ import { BARGE_AIR, TUG_AIR } from '../city/river.js';
 // sized off the **water**, which is the thing they are seen against: the water is 9.2 across on an
 // ordinary channel and 7.87 where one bank is an arterial, and a working barge fills most of it.
 
-/** Barge: half the water across — 4.2 against 9.2, or 7.87 where one bank is an arterial — and
- *  eleven long, a little over three cars. It was 16 × 6 for a while, three quarters of the channel,
+// **The river got wider and the barge followed it, in plan only.** #563 took the water from 7.87
+// to 10.87 on the narrow build (an arterial bank), which left the 4.2 beam at 39% of the channel
+// rather than 53%. A quarter bigger puts it back at 48%; 15% was tried and barely showed at play
+// zoom. It grows in length and beam by `BARGE_SCALE` and **not in height**: every height on this
+// boat is pinned under the flat span's soffit (`BARGE_AIR`, 0.02 of headroom), so a uniform scale would have it ask for the lift like a
+// sailboat. The wheelhouse, funnel and fenders keep their size, which is right — they are sized to
+// a person, not to the hull.
+const BARGE_SCALE = 1.25;
+
+/** Barge: about half the water across — 5.25 against 12.2, or 10.87 where one bank is an
+ *  arterial — and 13.75 long, four cars. It was 16 × 6 for a while, three quarters of the channel,
  *  which read as big and also as a slab; a trash barge wants to be a *heap* with a boat under it. */
-export const BARGE_LEN = 11;
-export const BARGE_BEAM = 4.2;
+export const BARGE_LEN = 11 * BARGE_SCALE;
+export const BARGE_BEAM = 4.2 * BARGE_SCALE;
 /** Sailboat: a thirty-footer at car scale. Not much longer than the old tug — what grew is the mast. */
 export const TUG_LEN = 6.0;
 export const TUG_BEAM = 2.4;
@@ -116,7 +125,7 @@ const BARGE_DRAFT = 0.3;
 // quarter-ellipse over `BOW_ROUND` of the length rather than one raked step. It stops at a 0.38
 // beam fraction instead of a point — a barge that came to a point would be a ship.
 const BARGE_STATIONS = 21;
-const BOW_ROUND = 2.4;
+const BOW_ROUND = 2.4 * BARGE_SCALE;
 const BARGE_PLAN = [];
 const BARGE_RAKE = [];
 for (let k = 0; k < BARGE_STATIONS; k++) {
@@ -242,7 +251,8 @@ export function createBargeMesh(rng) {
     { w: 0.5, col: PALETTE.trashWhite, shape: 'box' },
   ];
   // Dense enough that the mound under them only shows in the gaps: a heap, not a deck with litter.
-  const pieces = 85;
+  // Scaled with the deck's area, so a bigger barge is a bigger heap and not a sparser one.
+  const pieces = Math.round(85 * BARGE_SCALE * BARGE_SCALE);
   // Pieces that hit the ceiling each stop a step lower than the last. Clamped flat to `ceil` they
   // all shared one plane — 18 to 25 of the 85 per barge, measured over five seeds — and their
   // overlapping tops z-fought across the crown of the heap. A counter rather than an rng draw, so
