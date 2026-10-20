@@ -779,6 +779,20 @@ since a mote never moves along the channel, one sample at spawn is exact for the
 
 ## The mouth
 
+**Under the fog of war (the default island), the river just runs on into the clouds.** The water
+stays flat at `WATER_Y` and in its own colour, opaque, and the channel's walls, walk and railing run
+`EDGE_FADE` past the west coast (`channelWest`), out to where the fog
+([rendering.md](rendering.md#the-fog-of-war--gameedgefogjs)) has gone solid whatever its billows are doing. The
+fog is what dissolves the mouth, so there is no rim fade for the channel to cross and nothing for a
+shoal to close. Left on, the shoal drew the very thing it existed to hide, wherever a billow thinned
+enough to show it: the river turning to asphalt and ramping up out of its own cutting into the
+clouds (Tyler, 2026-10-20: "Don't have the water slope up - just continue flat off into the
+clouds"). Checked at play zoom with the fog's noise pinned at its thinnest: the walls' ends stay
+inside solid fog. `shoalMix` returns 0 and `waterHeightAt` is `WATER_Y` everywhere.
+
+What follows is the mouth **without** the fog — `?edgefog=classic` and `?city=big`, where the island
+still feathers into the sky.
+
 Two different kinds of edge have to agree here and they are not the same kind of thing. The island
 **dissolves**: a horizontal alpha ramp at `y = 0` that takes the ground to sky over `EDGE_FADE`. The
 river is a **cutting**: two units down, with vertical walls. A flat skirt laid across the mouth

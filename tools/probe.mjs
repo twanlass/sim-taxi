@@ -202,6 +202,7 @@ import { createDaylight } from '../src/game/daylight.js';
 import { URGENCY_SEGMENTS, urgencyLevel, urgencyColor, fareColor } from '../src/game/urgency.js';
 import { planOrigin, crossingOrigin } from '../src/game/route.js';
 import { HALF_SPAN_X, HALF_SPAN_Z, ROAD_W, LANE, PITCH, BLOCK, HALF_ROAD, HALF_ARTERIAL, lineX, lineZ, GRID_I, GRID_J, isXAxis, leftOf, rightOf, opposite, dirSign, legalExits, riverBanks, riverRow, junctionReach } from '../src/city/grid.js';
+import { EDGE_FOG, FOG_HALF_X, FOG_END, FOG_BILLOW } from '../src/game/edgefog.js';
 import {
   waterEdges, bridgeSpan, bridgeLines, riverCrossing, drawbridgeLine, archAt, deckHeightAt, createRiver, waterHeightAt,
   WATER_Y, FLAT_SOFFIT, ARCH_SOFFIT, BARGE_AIR, TUG_AIR, ARCH_RISE, DECK_THICK,
@@ -19962,8 +19963,15 @@ let chopperOrder; // likewise
       harborBasin() ? 0 : Math.abs(waterHeightAt(rBanks ? coastEast() : 0)));
     check('the channel is at full depth down the length of the city',
       Math.abs(mid - WATER_Y) < 1e-9, `${mid.toFixed(2)} against ${WATER_Y}`);
-    check('and has risen to meet the ground by the coast',
-      Math.abs(coast) < 1e-9, `${coast.toFixed(3)} at the coast`);
+    if (EDGE_FOG) {
+      // Under the fog of war the river runs on flat into the clouds: no shoal, so the water is at
+      // full depth at the coast too (Tyler, 2026-10-20: "Don't have the water slope up").
+      check('under the fog the water stays flat out through the coast',
+        Math.abs(coast - Math.abs(WATER_Y)) < 1e-9, `${coast.toFixed(3)} deep at the coast`);
+    } else {
+      check('and has risen to meet the ground by the coast',
+        Math.abs(coast) < 1e-9, `${coast.toFixed(3)} at the coast`);
+    }
     // Monotonic, or the shoal has a dip in it that would pond.
     let climbs = true;
     for (let x = 0; x < SLAB_X / 2; x += 0.5) {
@@ -19987,6 +19995,21 @@ let chopperOrder; // likewise
       `reaches ${reach.toFixed(1)} against a band ending at ${(SLAB_X / 2 + EDGE_FADE).toFixed(1)}`);
     check('and never climbs above the ground it is fading into', above === 0,
       `${above} vertices over y = 0`);
+    if (EDGE_FOG && rBanks) {
+      // The walls have to run on past the coast into solid fog, or their ends stand in the fog's
+      // thinnest billows and the channel reads as stopping. Solid fog: FOG_END + FOG_BILLOW past
+      // the ring road's outer kerb, along x.
+      const sp = rGeo.shell.geometry.attributes.position;
+      let west = 0;
+      for (let k = 0; k < sp.count; k++) west = Math.min(west, sp.getX(k));
+      const solid = FOG_HALF_X + FOG_END + FOG_BILLOW;
+      check('under the fog the channel walls run on into solid fog', -west >= solid,
+        `walls reach x = ${west.toFixed(1)}, fog solid past ${(-solid).toFixed(1)}`);
+      const wa = rGeo.water.geometry.attributes.color;
+      let clear = 0;
+      for (let k = 0; k < wa.count; k++) if (wa.getW(k) < 1) clear += 1;
+      check('and the water stays opaque for the fog to take', clear === 0, `${clear} vertices see-through`);
+    }
 
     // The surface patch (city/riverwater.js), run against three's *real* Lambert source rather than
     // a stub, because every one of its five replaces is the silent kind: a chunk that moved leaves
