@@ -6249,7 +6249,13 @@ export function createTraffic(
       // top end is only ever held while the button is. That coast-down is also where the nose-dip
       // comes from — the pitch spring downstream reads the resulting deceleration off car.v
       // directly, and from the overdrive top it is a longer, deeper one.
-      const fullPower = car.boost && !car.boostEasing;
+      //
+      // ...except on the drift launch, which flies at full power however the pill is held. Big Air
+      // is a combo the player has already landed, and letting go once it had fired coasted the taxi
+      // down to cruise in mid-air — measured over the far bank, 31 u/s at takeoff to 16 at touchdown
+      // against 34 held (Tyler, 2026-10-19: "if the combo gets triggered, just follow all the way
+      // through, even if loco gets let go"). The landing hands it back to the pill.
+      const fullPower = (car.boost && !car.boostEasing) || onDriftLaunch(car);
       // Nothing to brake against in the air — see DRIFT_LAUNCH_LEN. main.js rewrites the pedal
       // every frame, so this lasts exactly as long as the flight.
       if (hopFloorOn ? car.hopFrom != null : onDriftLaunch(car)) car.braking = false;

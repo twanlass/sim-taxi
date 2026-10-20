@@ -63,13 +63,19 @@ const fadeAt = (x) => {
 const BARGE_SPEED = 2.6;
 const TUG_SPEED = 3.4;
 
-// Seconds between tugs.
+// Seconds between tugs, which is seconds between lifts.
 //
-// **Stretched with the lift.** The cycle went from about twelve seconds to about twenty-four, and
-// left at the old spacing that put a route shut for 27% of the run — which stops being an event and
-// starts being the map. At 90-150 the span is open four fifths of the time and a three-minute
-// session still sees one or two lifts, which is what this is for.
-const TUG_WAIT = [90, 150];
+// **About one every 45 seconds** (Tyler, 2026-10-19: "I rarely see it ... I kind of expect it once
+// every 30 seconds or once every 45"). It was 90-150, and that was the *wait*, not the spacing: a tug
+// could only set off onto an empty river, so it also waited out every barge and its own trip across
+// the map, and the lift came round once every **179 s** (median over 30 seeds, 141-225), the first
+// one 2:16 into a run. Ten minutes of play saw three. Now tugs and barges share the river in single
+// file (`FOLLOW_GAP`), so this is what the player gets: 45 s apart, give or take.
+//
+// The cost is the road. A lift keeps the span shut for 24 s, so at this spacing the middle crossing
+// is shut about half the time rather than an eighth — it is a hazard you plan round, not an event
+// you are lucky to catch.
+const TUG_WAIT = [30, 50];
 // ...and between barges, which cost nothing and are just weather on the water.
 const BARGE_WAIT = [16, 34];
 
@@ -88,6 +94,18 @@ const ASK_SLACK = 4;
 const ASK_AHEAD = (OPEN_SECONDS + ASK_SLACK) * TUG_SPEED;
 // ...and how far past it before the tug lets go. Its stern has to be clear of the leaf's swing.
 const RELEASE_PAST = TUG_LEN + 4;
+
+// The least water between one boat's stern and the next one's bow.
+//
+// **The river is single file and every boat keeps station on the one ahead.** It used to be kept
+// apart by the launch schedule alone — a tug only onto an empty river, no barge while a tug was out
+// — because a tug is the faster hull and the only one that stops. That held two boats apart and cost
+// the drawbridge two thirds of its lifts: a tug due behind a barge waited ~70 s for it to leave the
+// map. With a following rule the schedule only has to space launches; a tug that catches a barge
+// slows to it, and a barge arriving at a tug held short of the leaf waits behind it.
+const FOLLOW_GAP = 5;
+// ...and how far the last boat out must be from the spawn before another follows it.
+const LAUNCH_GAP = 30;
 
 // How far off the middle of the channel a boat runs, and how much of that is left to chance.
 //
@@ -178,23 +196,26 @@ export function createBoats(scene, rng, drawbridge) {
     tugIn: rng.range(TUG_WAIT[0], TUG_WAIT[1]) * 0.5,
     tugs: 0,
     barges: 0,
+    wanting: false,
   };
 
   /**
-   * Single file means the schedule is what keeps hulls apart, so it has three rules:
+   * Single file, so two rules keep hulls apart:
    *
    * - **Everything on the river goes the same way.** A new boat takes the direction of whatever is
-   *   already out there; only an empty river gets a fresh draw. Two barges at the same speed one
-   *   behind the other never close up, and nothing ever meets head-on.
-   * - **A sailboat only sets off on an empty river.** It is faster than a barge (3.4 against 2.6)
-   *   and would run one down from behind, and it is the only boat that stops — so…
-   * - **No barge sets off while a sailboat is out**, or is due. A barge does not stop for anything
-   *   and would sail into the back of one holding station at a shut leaf. Holding barges back while
-   *   one is due is what lets the river drain so the sailboat can go at all; at 2.6 u/s a barge is
-   *   off the far end in about 70 seconds.
+   *   already out there; only an empty river gets a fresh draw. Nothing ever meets head-on.
+   * - **Every boat keeps `FOLLOW_GAP` behind the one ahead** (`update`), so a tug (3.4) cannot run
+   *   down a barge (2.6), and a barge cannot sail into a tug holding station at a shut leaf.
+   *
+   * The schedule only spaces launches (`LAUNCH_GAP`), and a tug that comes due is never held back
+   * for a barge: it is the lift.
    */
   const riverDir = () => (boats.length ? boats[0].dir : null);
-  const tugOut = () => boats.some((b) => b.kind === 'tug');
+  /** Room at the spawn for another boat: the last one out is `LAUNCH_GAP` clear of it. */
+  const roomToLaunch = () => boats.every((b) => {
+    const fromSpawn = (b.x - (b.dir > 0 ? -OFF_MAP(-1) : OFF_MAP(1))) * b.dir;
+    return fromSpawn - b.len / 2 >= LAUNCH_GAP;
+  });
 
   function launch(kind) {
     const geo = kind === 'tug' ? createTugMesh(rng) : createBargeMesh(rng);
@@ -252,38 +273,33 @@ export function createBoats(scene, rng, drawbridge) {
   function update(dt) {
     state.bargeIn -= dt;
     state.tugIn -= dt;
-    // One tug at a time, and only onto an empty river — see `riverDir` for why.
-    if (state.tugIn <= 0 && boats.length === 0) {
+    // A boat that comes due with no room at the spawn is not dropped, it waits for the room. A tug
+    // goes first, and a barge waits while one is due, or barges arriving every 16-34 s would keep
+    // the spawn busy and push the lifts back.
+    if (state.tugIn <= 0 && roomToLaunch()) {
       launch('tug');
       state.tugIn = rng.range(TUG_WAIT[0], TUG_WAIT[1]);
     }
-    // A barge that comes due while one is out or due is not dropped, it waits for the next gap.
-    if (state.bargeIn <= 0 && state.tugIn > 0 && !tugOut()) {
+    if (state.bargeIn <= 0 && state.tugIn > 0 && roomToLaunch()) {
       launch('barge');
       state.bargeIn = rng.range(BARGE_WAIT[0], BARGE_WAIT[1]);
     }
 
     const gate = spanX();
-    for (let k = boats.length - 1; k >= 0; k--) {
-      const boat = boats[k];
-      const before = boat.x;
+    // Moved front to back, so each boat is clamped against where the one ahead has *got to* this
+    // frame. Sorted rather than taken in launch order, because a staged shot (`settle`) puts a tug
+    // ahead of a barge launched before it.
+    const order = boats.slice().sort((a, b) => (b.x - a.x) * b.dir);
+    for (let k = 0; k < order.length; k++) {
+      const boat = order[k];
+      boat.before = boat.x;
       boat.x += boat.dir * boat.speed * dt;
-      boat.mesh.position.x = boat.x;
-      // Ride the surface, which is not flat any more: the channel shoals up to meet the ground
-      // through each mouth (`waterHeightAt`), and a hull pinned to `WATER_Y` would sail into the
-      // shallows with the river closing over it.
-      boat.mesh.position.y = waterHeightAt(boat.x);
-
       if (boat.kind === 'tug' && gate !== null && drawbridge) {
-        // Measured along the direction of travel, so both ends of the river behave the same.
         const toGate = (gate - boat.x) * boat.dir;
-        if (!boat.asked && toGate <= ASK_AHEAD && toGate > 0) {
-          boat.asked = true;
-          drawbridge.request();
-        }
+        if (!boat.asked && toGate <= ASK_AHEAD && toGate > 0) boat.asked = true;
         // Hold station short of a span that is not open yet. Clamped rather than decelerated: at
         // 3.4 u/s a boat is barely moving on screen anyway, and a stopping curve would be a second
-        // motion model for something the player sees twice a session.
+        // motion model for something the player sees every 45 seconds.
         //
         // **`toGate > 0` is load-bearing.** Without it the clamp goes on applying after the tug is
         // through — `toGate` is negative by then, still under `HOLD_OFF` — so the moment the leaf
@@ -291,11 +307,37 @@ export function createBoats(scene, rng, drawbridge) {
         // there. One tug in 260 seconds instead of three, and the one was going round in circles.
         if (boat.asked && toGate > 0 && toGate <= HOLD_OFF && drawbridge.state.lift < 0.98) {
           boat.x = gate - boat.dir * HOLD_OFF;
-          boat.mesh.position.x = boat.x;
         }
-        // Through, and far enough past that the leaf can come down behind it.
-        if (boat.asked && toGate < -RELEASE_PAST) drawbridge.release();
       }
+      const ahead = order[k - 1];
+      if (ahead) {
+        const limit = ahead.x - boat.dir * (ahead.len / 2 + FOLLOW_GAP + boat.len / 2);
+        if ((boat.x - limit) * boat.dir > 0) boat.x = limit;
+      }
+    }
+
+    // **The lift is held while any tug still wants it**, not toggled by each one. Two tugs can be
+    // on the river at once now, and with one flag per bridge the first one's `release` cancelled
+    // the second's `request` — which left the second asked, holding at `HOLD_OFF`, under a leaf that
+    // came down and never went back up. Asked every frame rather than once, for the same reason the
+    // other way: `HOLD_SECONDS` drops the leaf on a tug that is still waiting, and it has to be able
+    // to ask again.
+    if (gate !== null && drawbridge) {
+      const wanting = boats.some((b) => b.kind === 'tug' && b.asked
+        && (gate - b.x) * b.dir >= -RELEASE_PAST && Math.abs(b.x) <= OFF_MAP(b.x));
+      if (wanting) drawbridge.request();
+      else if (state.wanting) drawbridge.release();
+      state.wanting = wanting;
+    }
+
+    for (let k = boats.length - 1; k >= 0; k--) {
+      const boat = boats[k];
+      const before = boat.before ?? boat.x;
+      boat.mesh.position.x = boat.x;
+      // Ride the surface, which is not flat any more: the channel shoals up to meet the ground
+      // through each mouth (`waterHeightAt`), and a hull pinned to `WATER_Y` would sail into the
+      // shallows with the river closing over it.
+      boat.mesh.position.y = waterHeightAt(boat.x);
 
       // Fade with the ground under it. The foam behind it fades on the same band, but per mote and
       // at the x it was *laid* at rather than at the boat's — it does not travel with the hull, so
@@ -311,9 +353,7 @@ export function createBoats(scene, rng, drawbridge) {
       wake.follow(boat, Math.abs(boat.x - before));
 
       if (Math.abs(boat.x) > OFF_MAP(boat.x)) {
-        // A tug retired without ever getting through — it can only happen if the bridge never
-        // cleared — still has to let go, or the span stays shut for the rest of the run.
-        if (boat.kind === 'tug' && boat.asked && drawbridge) drawbridge.release();
+        // A tug retired without ever getting through lets go by leaving `wanting` above.
         group.remove(boat.mesh);
         boat.mesh.geometry.dispose();
         if (boat.house) {

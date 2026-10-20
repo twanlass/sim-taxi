@@ -448,6 +448,9 @@ function groundFloor(parts, cx, cz, w, d, streetSides, rng) {
   const u = (bay + 0.5 - bays / 2) * pitch;
   const doorW = Math.min(1.15, pitch * 0.7);
   const doorH = GROUND_H - 0.45;
+  // Reported to the same sink as the panes, so Rain Mode's street lamps can keep off the doorway
+  // (`entrances` in game/citylights.js). `litWindows` skips it: a door is not a window.
+  paneSink?.({ rects: [{ u, y: base + doorH / 2, w: doorW, h: doorH }], side, cx, cz, hw: w / 2, hd: d / 2, kind: 'door' });
 
   // Stood off in two layers, so neither the door nor its surround is coplanar with the glazing
   // beside it. The surround is not decoration: `door` and `shopfront` sit within four points of

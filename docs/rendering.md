@@ -1709,7 +1709,10 @@ reflected into grey asphalt read as a filter. So the rain switches the city on:
   city is identical with it installed or not.
 - **Street lamps.** Two per block on random edges: a post on the pavement, an arm out over the
   kerb, a glowing head (bloom `bay`), and an additive pool on the road. Posts and heads are stamped
-  for the entrance wave and rise with their block.
+  for the entrance wave and rise with their block. A post keeps 1.2 units clear of every doorway
+  along the kerb, and off the bank's whole flight of steps (`entrances`: the building generator
+  reports its doors through the pane sink as `kind: 'door'`); an edge with no clear spot in six
+  tries gets no lamp. Placed blind, one landed on the bank's steps.
 - **Headlights and tail lights.** `setRunningLights(1)` puts two white pods inboard of each
   vehicle's front indicators, which own the corners. The front indicator is narrower than the rear
   one (`turnSignalShapes`) so the headlight beside it still reads while it blinks; at full width the
@@ -2063,6 +2066,11 @@ with 16.6% of frames late** on an unchanged scene. The phone had throttled. What
   over two seconds (the page was away). `?governor=off` holds the ratio, and `?bench` turns it off
   so its rows stay one setting each. Its moves show up in `?diag`. Why the floor is 2:
   [rendering-history.md](rendering-history.md#heat--gamegovernorjs-and-the-paused-still).
+- **Antialiasing is a Settings switch** (`antialias`, game/settings.js), on by default. Off drops
+  MSAA, which `tools/gpucost.mjs` put at 23% of a headless frame at 2x; at Ultra's 3x the stair
+  steps it leaves on thin diagonals are hard to see at phone size. MSAA is a context attribute, so
+  the switch applies at the next launch and its row says "(next launch)" until then. `?msaa=` beats
+  it, and shot mode ignores it.
 - **The pause draws one still**, not sixty a second. A canvas that is not drawn keeps showing its
   last frame, so the only thing that has to redraw under the veil is a resize.
 
