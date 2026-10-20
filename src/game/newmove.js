@@ -184,6 +184,7 @@ export function createNewMove({ viewport = null, onClose = () => {} } = {}) {
   // The default card's keys are flat (Tyler, 2026-10-20): the HUD's colour as one disc, mid-way down
   // its face gradient, and the letter in white. Not under `?pedals=classic`, whose buttons carry
   // icons rather than letters, nor under `?movecard=classic`.
+  // The HUD's flat buttons are the same two colours (index.html, `.pedal-flat`); change both.
   const FLAT = { boost: ['#F8A21D', 'A'], brake: ['#E33E3E', 'B'] };
   const flatKey = (id) => {
     const [fill, letter] = FLAT[id];

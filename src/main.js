@@ -60,7 +60,7 @@ import {
   createBoost, BOOST_FARE_REWARD, BOOST_PARCEL_REWARD, BOOST_BURGER_REWARD,
 } from './game/boost.js';
 import { createBoostMeter } from './game/boostmeter.js';
-import { bandPath as fuelBandPath, frontAt as fuelFrontAt, glintAt as fuelGlintAt, RIM as FUEL_RIM, useClassicArc as useClassicFuelArc } from './game/fuelarc.js';
+import { bandPath as fuelBandPath, frontAt as fuelFrontAt, glintAt as fuelGlintAt, RIM as FUEL_RIM, useClassicArc as useClassicFuelArc, useClassicGap as useClassicFuelGap } from './game/fuelarc.js';
 import { createImpact } from './game/impact.js';
 import { createTaxiDamage, SMOKE_FRACTION, BOOT_FRACTION } from './game/taxidamage.js';
 import { createHitCue, hitCueMode } from './game/hitcue.js';
@@ -3078,6 +3078,15 @@ if (new URLSearchParams(window.location.search).get('pedals') === 'classic') {
   useClassicFuelArc();
   const siren = document.getElementById('chase-siren');
   if (siren) document.getElementById('hud')?.appendChild(siren);
+}
+// Flat buttons (Tyler, 2026-10-20): B and A as one plain disc each in the button's colour with a
+// white letter, no surround, crescent, dish or glint, and the fuel arc 8 units further off Loco
+// Mode. `?buttons=classic` puts back the NES drawing and the arc's old gap. `?pedals=classic`
+// predates both, so it takes the old gap too.
+if (new URLSearchParams(window.location.search).get('buttons') === 'classic'
+  || document.body.classList.contains('pedals-classic')) {
+  document.body.classList.add('buttons-classic');
+  useClassicFuelGap();
 }
 // The 🚨 over Loco Mode while the police are after the taxi; `?chasesiren=classic` goes without.
 const chaseSiren = new URLSearchParams(window.location.search).get('chasesiren') !== 'classic'

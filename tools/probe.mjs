@@ -11792,6 +11792,14 @@ function rideToPickup() {
   check('fuel gauge: one even width end to end', fuelArc.widthAt(1) === fuelArc.widthAt(0) && BASE_R > outline,
     `${fuelArc.widthAt(0)} -> ${fuelArc.widthAt(1)}`);
   check('fuel gauge: an empty tank draws no fuel', fuelArc.bandPath(0, 0) === '', 'bandPath(0, 0)');
+  // The 🚨 stands on the gauge's outer edge, which index.html can only know as a number.
+  const html = fs.readFileSync(new URL('../index.html', import.meta.url), 'utf8');
+  const out = BASE_R + fuelArc.widthAt(0.5) + RIM;
+  const classicOut = out - GAP + fuelArc.CLASSIC_GAP;
+  const cssOut = Number(html.match(/#boost-meter #chase-siren \{\s*--arc-out: (\d+)/)?.[1]);
+  const cssClassic = Number(html.match(/body\.buttons-classic #boost-meter #chase-siren \{ --arc-out: (\d+)/)?.[1]);
+  check('fuel gauge: the siren sits on the gauge\'s outer edge, both gaps',
+    cssOut === out && cssClassic === classicOut, `css ${cssOut}/${cssClassic}, arc ${out}/${classicOut}`);
 }
 
 // --- The Punch It pill's fill animation -------------------------------------

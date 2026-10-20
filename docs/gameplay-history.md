@@ -1193,3 +1193,13 @@ Reported from play (Tyler, 2026-10-14): "hitting a cop is insta fail. That sucks
 vignette where you wanna smash through roadblocks." The getaway fills the tank and throws roadblocks
 across your route; the third rule made the second the one thing it asked of you that ended the run.
 Replaced by [getting caught](gameplay.md#getting-caught).
+
+## The NES pedals
+
+From 2026-10-15 to 2026-10-20 B and A were drawn as an NES pad's buttons: a black plastic
+surround, a thin crescent of side, a hard white glint on the upper left, and a dished centre with
+the letter debossed in it (a shadowed top wall and a lit bottom one). The press sank the face 4
+units into the crescent under a hard inner shadow. Tyler asked for them "simpler, no fake
+highlights" off a phone screenshot: the glint and the dish's lighting read as gloss on a flat HUD,
+and the New Move card had already gone flat for the same reason that morning. The fuel arc stood 8
+units off the surround then. `?buttons=classic` brings back both.

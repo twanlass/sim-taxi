@@ -14,10 +14,13 @@
 
 export const CAP = { x: 75, y: 75, r: 69 };
 const OUTLINE_OUT = CAP.r + 4;         // the face's black outline, outer edge
-export const GAP = 8;                  // clear air between that outline and the gauge's rim: 4
-                                       // until Tyler asked for twice the distance (2026-10-16)
+export let GAP = 16;                   // clear air between that outline and the gauge's rim: 4
+                                       // until Tyler asked for twice the distance (2026-10-16),
+                                       // then 8 more with the flat buttons (2026-10-20);
+                                       // `?buttons=classic` puts back the 8 (useClassicGap)
+export const CLASSIC_GAP = 8;
 export const RIM = 2;                  // the dark track shows this much either side of the fuel
-export const BASE_R = OUTLINE_OUT + GAP + RIM; // where the fuel's inner edge runs
+export let BASE_R = OUTLINE_OUT + GAP + RIM; // where the fuel's inner edge runs
 // Fuel width at the empty end and the full end — the same, now: the taper (12 → 20, and 8 → 14
 // round the old pedal) was dropped for an even band at its midpoint.
 export const W_EMPTY = 16;
@@ -29,7 +32,9 @@ export const W_FULL = 16;
 export const SWEEP_DEG = 140;
 const CLASSIC_END_Y = CAP.y + 12;
 // Both ends stop at this height.
-export let END_Y = CAP.y - BASE_R * Math.sin(((180 - SWEEP_DEG) / 2) * Math.PI / 180);
+const sweepEndY = () => CAP.y - BASE_R * Math.sin(((180 - SWEEP_DEG) / 2) * Math.PI / 180);
+export let END_Y = sweepEndY();
+let classicArc = false;
 
 /**
  * The base curve as a dense polyline, left end to right end, each point carrying its outward unit
@@ -60,7 +65,16 @@ let CURVE = baseCurve();
 
 /** `?pedals=classic`: the first cut's wider sweep. Call before the first `bandPath`. */
 export function useClassicArc() {
+  classicArc = true;
   END_Y = CLASSIC_END_Y;
+  CURVE = CURVE_POINTS = baseCurve();
+}
+
+/** `?buttons=classic`: the gauge back at the NES buttons' 8 units off the outline. Call before the first `bandPath`. */
+export function useClassicGap() {
+  GAP = CLASSIC_GAP;
+  BASE_R = OUTLINE_OUT + GAP + RIM;
+  if (!classicArc) END_Y = sweepEndY();
   CURVE = CURVE_POINTS = baseCurve();
 }
 
