@@ -1468,16 +1468,20 @@ export function createSfx({ rng, menuMusic = false, menuSongs = false, radioFade
    * @param {number} opts.top     The Loco top (`boostCruise()`).
    * @param {boolean} opts.holding  The pill is held (not the cooldown tail).
    * @param {boolean} opts.over   The run has ended.
+   * @param {boolean} [opts.menu]  The title menu is up and Play has not been pressed. The taxi is
+   *   not the player's yet, so it makes no sound at all — the city's beds and one-shots carry on
+   *   (Tyler, October 2026: the menu is effects only, and the idle under it read as the run having
+   *   started). Unlike `over` it leaves the siren and the rotor alone, which are the city's.
    * @param {number} [opts.siren]  0..1, how loud the nearest running siren is from where the taxi
    *   is — main.js works it out from distance (see `sirenLevel` there). 0 is no siren on the map.
    */
   function update(dt, taxi, {
-    cruise, top, holding, over, siren: sirenAt = 0, rotor: rotorAt = 0, ambient: places = {},
+    cruise, top, holding, over, menu = false, siren: sirenAt = 0, rotor: rotorAt = 0, ambient: places = {},
   }) {
     if (!state.ready) return;
     const t = ctx.currentTime;
     const v = Math.max(0, taxi.v);
-    const alive = !over && !taxi.crashed;
+    const alive = !over && !menu && !taxi.crashed;
 
     if (!holding && locoSince >= 0) locoOff();
 
