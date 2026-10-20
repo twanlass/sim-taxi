@@ -356,6 +356,11 @@ const DASH_OPEN_LOW = 10;
  *
  * An ad is produced on its own and keeps its hard edges either side.
  */
+// How long a context may sit stopped through the player's taps before it is replaced (`revive`),
+// in seconds, and the fraction of that wall time its clock must have covered to count as moving.
+// Not measured on a device yet: 1.5s is a guess at comfortably longer than a healthy `resume()`
+// takes, and 0.5 leaves room for a stutter without mistaking a clock that has stopped.
+const REVIVE = { after: 1.5, pace: 0.5 };
 const RADIO_FADE = { under: 1, over: 2, duck: 0.5, rise: 1, dip: 0.4 };
 // Where the opening songs of the last session are remembered, so the next one opens on another
 // (Tyler: "always play a different initial music track on game start").
@@ -643,6 +648,8 @@ export function createSfx({ rng, menuMusic = false, menuSongs = false, radioFade
     // The radio's last few tracks as scheduled, `{ track, at }` in context seconds — for checking
     // the rotation from the console (`__taxi.sfx.state.radio`).
     radio: [],
+    // Contexts thrown away for a new one (`revive`) — for checking from the console on a phone.
+    revived: 0,
   };
   const random = rng ? () => rng.next() : Math.random;
   // Live, and read every frame, so the panel can move any number while the car is driving.
@@ -992,7 +999,8 @@ export function createSfx({ rng, menuMusic = false, menuSongs = false, radioFade
     return { gain: g };
   }
 
-  async function start() {
+  /** A context and the whole mix tree in it, up to the dash radio — everything but the voices. */
+  function buildGraph() {
     const Ctor = window.AudioContext || window.webkitAudioContext;
     ctx = new Ctor({ latencyHint: 'interactive' });
     const gainNode = (to) => { const g = ctx.createGain(); g.connect(to); return g; };
@@ -1011,6 +1019,19 @@ export function createSfx({ rng, menuMusic = false, menuSongs = false, radioFade
     radioBus = ctx.createGain();
     buildDash();
     setDash(state.dashRadio, ctx.currentTime);
+  }
+
+  /** The beds that run all session, out of buffers already decoded. */
+  function buildBeds() {
+    idle = tryLoop('idle');
+    siren = tryLoop('siren');
+    loco = tryLoop('locoLoop');
+    for (const key of AMBIENT) ambient[key] = tryLoop(key);
+    rotor = makeRotor();
+  }
+
+  async function start() {
+    buildGraph();
     startRadio();
     // The spawn's takes first: they are the one sound with a deadline (see `play`).
     const order = [...SOUNDS.spawn, ...Object.keys(FILES).filter((f) => !SOUNDS.spawn.includes(f))];
@@ -1024,11 +1045,7 @@ export function createSfx({ rng, menuMusic = false, menuSongs = false, radioFade
         console.warn(`sfx: ${key} did not load`, err);
       }
     }));
-    idle = tryLoop('idle');
-    siren = tryLoop('siren');
-    loco = tryLoop('locoLoop');
-    for (const key of AMBIENT) ambient[key] = tryLoop(key);
-    rotor = makeRotor();
+    buildBeds();
     state.ready = true;
     if (state.held) suspendCtx();
   }
@@ -1376,21 +1393,81 @@ export function createSfx({ rng, menuMusic = false, menuSongs = false, radioFade
     }
   }
 
+  /**
+   * A new context in place of one iOS will not give back, built inside the gesture that found it
+   * dead so it starts running. Everything sounding in the old one is dropped with it: the beds are
+   * rebuilt off the decoded buffers (an `AudioBuffer` belongs to no context), the radio carries on
+   * with its next track rather than replaying the intro, and a one-shot that was mid-air is lost.
+   */
+  function revive() {
+    const old = ctx;
+    for (const v of radioVoices) v.src.onended = null;
+    radioVoices.clear();
+    for (const v of auditions) v.src.onended = null;
+    auditions.clear();
+    state.previewTrack = null;
+    Promise.resolve(old.close?.()).catch(() => {});
+    meterTap = null;
+    bassTap = null;
+    signal = null;
+    signalHand = null;
+    activate = null;
+    locoSince = -1;
+    buildGraph();
+    setLevels(0.001);
+    if (state.ready) buildBeds();
+    // The old clock's schedule means nothing on the new one.
+    generation++;
+    ahead = 0;
+    queuedEnd = 0;
+    prev = null;
+    state.dashSongAt = null;
+    if (onAir || menuSongs) topUp();
+    state.revived++;
+  }
+
   // The unlock. Created *inside* the gesture, because Safari only lets a context start running
   // from one; `resume()` again on every later gesture until it is actually running, because iOS
   // will also suspend it behind the app's back (a phone call, the app backgrounded).
+  //
+  // **And sometimes never gives it back.** Coming back from another app, WKWebView can leave the
+  // context `suspended` or `interrupted` with a `resume()` that never settles, or report `running`
+  // with a clock that does not move — the game came back silent and stayed that way however much
+  // it was tapped (Tyler, October 2026; WebKit bugs 240646 and 291892 are the same shape). So each
+  // gesture also checks the clock against the wall since the last one, and a context that has had
+  // a gesture to resume in and still is not keeping time is thrown away (`revive`). Only while
+  // nothing is holding it: a pause stops the clock on purpose.
+  let probe = null;       // { wall, clock } at the last gesture that found the context free to run
+  let revivedAt = -Infinity;
   const unlock = () => {
-    if (!ctx) start();
-    else if (ctx.state !== 'running' && !state.held) resumeCtx();
+    if (!ctx) { start(); return; }
+    if (state.held || document.hidden) { probe = null; return; }
+    const wall = performance.now() / 1000;
+    const span = probe ? wall - probe.wall : 0;
+    const moving = probe && ctx.state === 'running' && ctx.currentTime - probe.clock >= span * REVIVE.pace;
+    // Only a clock seen moving moves the baseline, so a stall is measured from the first gesture
+    // that had the chance to fix it — however often the player taps in between.
+    if (!probe || moving) probe = { wall, clock: ctx.currentTime };
+    else if (span >= REVIVE.after && wall - revivedAt >= REVIVE.after) {
+      revivedAt = wall;
+      revive();
+      probe = null;
+      return;
+    }
+    if (ctx.state !== 'running') resumeCtx();
   };
   for (const type of ['pointerdown', 'touchend', 'keydown']) {
     window.addEventListener(type, unlock, { capture: true, passive: true });
   }
-  document.addEventListener('visibilitychange', () => {
+  const wake = () => {
     if (!ctx) return;
+    probe = null;
     if (document.hidden) suspendCtx();
     else if (!state.held) resumeCtx();
-  });
+  };
+  document.addEventListener('visibilitychange', wake);
+  // A page restored from the back-forward cache fires this and not `visibilitychange`.
+  window.addEventListener('pageshow', wake);
 
   /**
    * Fire a one-shot. `delay` is seconds from now on the audio clock, which stops with a hold, so a
@@ -1575,6 +1652,7 @@ export function createSfx({ rng, menuMusic = false, menuSongs = false, radioFade
   function hold(on) {
     if (on === state.held) return;
     state.held = on;
+    probe = null;
     if (!ctx) return;
     if (on) suspendCtx();
     else if (!document.hidden) resumeCtx();

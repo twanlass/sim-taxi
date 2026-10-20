@@ -342,6 +342,15 @@ on the next frame. Only the station goes through it: the ⚙️ panel's track pr
 - **The world stopping stops the sound.** The pause and the robber's line both call
   `sfx.hold(true)`, which suspends the context. A door scheduled to close is on the audio clock, so
   it waits with everything else. A hidden tab suspends it too.
+- **Coming back from another app.** Showing the page again resumes the context, and every tap
+  resumes it again while it is not running. That was not enough in the iOS app: WKWebView can hand
+  back a context that never resumes, or one that says `running` with a clock that has stopped, and
+  the game stayed silent however much it was tapped. So each tap also compares the audio clock
+  with the wall clock since the last tap that saw it moving, and a context that has gone
+  `REVIVE.after` (1.5 s) of taps without keeping time is closed and rebuilt inside the tap
+  (`revive` in `game/sfx.js`). The beds come back off the decoded buffers and the radio carries on
+  with its next track; anything mid-play is lost. A held context (the pause) is never judged.
+  `__taxi.sfx.state.revived` counts the rebuilds.
 - **iOS**: `navigator.audioSession.type = 'playback'` (Safari 16.4+), so the game plays through
   the silent switch — it carries its own music, not just effects. It stops the player's music
   rather than mixing with it; `'ambient'` did the opposite and left a phone on silent hearing
