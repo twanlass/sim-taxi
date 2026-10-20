@@ -9,7 +9,7 @@
 //
 //   - **The tape** (`createTape`). Nothing in the sim can run backwards, so the replay is a
 //     *recording*, not a re-simulation: every dynamic InstancedMesh in the scene and every node
-//     under the taxi's group, sampled at TAPE_HZ of sim time into a ring. That one rule covers far
+//     under the taxi's group and every skinned car's (`drawnRoots` in sim/traffic.js), sampled at TAPE_HZ of sim time into a ring. That one rule covers far
 //     more than the two cars — the traffic, its lamp pods, and every particle pool the wreck draws
 //     with (blast.js, dust.js, sparks.js, flames.js are all instanced, `aAlpha` included), so the
 //     fireball in the replay *is* the fireball the player saw rather than a second one fired to
@@ -54,7 +54,9 @@ function isZeroScale(m, o) {
  * @param scene    traversed for dynamic InstancedMeshes (and re-traversed now and then, since some
  *                 pools are built lazily)
  * @param roots    Object3Ds whose whole subtree is recorded node by node — the taxi's group, which
- *                 is a tree of ordinary meshes rather than an instance
+ *                 is a tree of ordinary meshes rather than an instance, and every skinned car's.
+ *                 Any iterable, read on every sample: main.js hands it traffic's live
+ *                 `drawnRoots` Set, so a vehicle dressed mid-run is taped without asking
  * @param exclude  `(mesh) => bool` for instanced meshes that must stay frozen with the world
  *                 around them — a boat's wake animating behind a boat that is standing still
  */

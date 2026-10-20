@@ -659,7 +659,7 @@ export function createRace({
     const at = rng.pick(pool);
     const car = traffic.enterGuest({ x: at.x, z: at.z }, { isTruck: false });
     if (!car) return false;
-    car.skin = skin;
+    traffic.wearSkin(car, skin, rival.group);
     car.guestWreck = wreck;
     car.route = [];
     car.chase = 0;

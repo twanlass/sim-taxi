@@ -1025,7 +1025,14 @@ const radio = !shot ? createRadio({ project: projectToScreen, viewport }) : null
 // Move-style card with the clip that it replaced. See game/depotcall.js.
 const repairTipClassic = new URLSearchParams(window.location.search).get('repairtip') === 'classic';
 const depotCall = !shot && garage && !repairTipClassic
-  ? createDepotCall({ project: projectToScreen, viewport, site: garage.site }) : null;
+  ? createDepotCall({
+    project: projectToScreen, viewport, site: garage.site,
+    // Its tag at the screen edge rides the camera to the garage, which is then there to tap.
+    onEdgeTap: () => lookAtTalker(garage.site.focus, () => Boolean(depotCall?.state.open), () => {
+      depotCall.extend();
+    }),
+    edgeTappable: () => isNarrow(),
+  }) : null;
 // Seconds of game time until dispatch breaks in, once the robber's line has been cleared; 0 when
 // nothing is pending. A beat after the police come on rather than with them, so the tap that
 // clears the robber's bubble does not also land a second bubble on the same frame.
@@ -1688,9 +1695,11 @@ const struckGlass = createWindshield(scene, { rng: makeRng(runSeed + 921), roadY
 // is frozen for the replay, and a wake playing back behind a boat standing still is a wake coming
 // off nothing.
 const tape = shot ? null : createTape(scene, {
-  // ...and the patrol cruiser, which is a group of its own rather than an instance: left off, a
-  // patrol the taxi rammed was missing from every cut of its own crash.
-  roots: [traffic.taxiGroup, ...cruisers.map((c) => c.group)],
+  // The taxi's group and every group a car has worn in place of its instance — the cruisers, the
+  // racer, the fire engine — kept by traffic as they are dressed (`wearSkin`). Live, so a skin
+  // added later is taped from its first frame; a hand-kept list here is how the racer came to pop
+  // in with its own fireball.
+  roots: traffic.drawnRoots,
   exclude: (mesh) => mesh.name === 'boat-wake',
 });
 const replayOverlay = document.getElementById('replay');
@@ -2075,9 +2084,22 @@ race = shot || raceParam === 'classic' ? null : createRace({
 fares.setHold(() => Boolean(race?.holdsBoard()));
 // The rival's speech bubble — the challenge, with the stakes on it, pinned to its roof.
 const raceTalkRoot = document.getElementById('race-talk');
-const raceTalk = race && raceTalkRoot ? createSpeech(raceTalkRoot, { viewport }) : null;
+const raceTalk = race && raceTalkRoot ? createSpeech(raceTalkRoot, {
+  viewport,
+  // At the screen edge the tag rides the camera onto the car and asks — the same first tap it
+  // always was, plus the pan — so the second tap, on the racer itself, takes it on.
+  onEdgeTap: () => {
+    if (!race?.offering() || fares.state.gameOver) return false;
+    let last = race.rivalAt();
+    const rival = () => { last = race?.rivalAt() ?? last; return last; };
+    return lookAtTalker(rival, () => Boolean(race?.offering()), () => { if (!race.state.asked) race.ask(); });
+  },
+  edgeTappable: () => isNarrow(),
+}) : null;
 // The tag answers a tap too, and the card under it: the racer can be off screen when it offers,
-// and then the tag at the edge is the only thing there is to tap.
+// and then the tag at the edge is the only thing there is to tap. On a narrow screen an edge tag's
+// press is taken by `onEdgeTap` above and never reaches this; on a wide one, where there is no pan
+// to hand over, the edge tag still asks from where it is.
 raceTalkRoot?.addEventListener('pointerup', (e) => {
   if (e.target.closest('.speech-tag-pin, .speech-card')) acceptRace();
 });
@@ -3294,7 +3316,7 @@ let cameraIdle = 0;
 let fingersOnMap = 0;
 if (!shot && cameraReturns) {
   const el = renderer.domElement;
-  el.addEventListener('pointerdown', () => { fingersOnMap++; cameraIdle = 0; });
+  el.addEventListener('pointerdown', () => { fingersOnMap++; cameraIdle = 0; tipLook = null; });
   const lift = () => { fingersOnMap = Math.max(0, fingersOnMap - 1); cameraIdle = 0; };
   el.addEventListener('pointerup', lift);
   el.addEventListener('pointercancel', lift);
@@ -3302,7 +3324,11 @@ if (!shot && cameraReturns) {
   el.addEventListener('wheel', () => { cameraIdle = 0; }, { passive: true });
 }
 function updateCameraReturn(dt) {
-  const waiting = cameraReturns && cameraTakenOver && isNarrow() && fingersOnMap === 0
+  if (tipLook) {
+    tipLook.left -= dt;
+    if (tipLook.left <= 0 || !tipLook.stillUp()) tipLook = null;
+  }
+  const waiting = cameraReturns && cameraTakenOver && isNarrow() && fingersOnMap === 0 && !tipLook
     && !fares.state.gameOver && !controller.isGliding() && !endSpot
     && !title?.holding() && !opening?.holdsCamera() && !tutorial?.holdsCamera();
   if (!waiting) { cameraIdle = 0; return; }
@@ -3334,6 +3360,31 @@ function lookAtMark(x, z) {
   releaseCameraToPlayer();
   controller.glideTo(x, z);
   arrowLookOut = true;
+}
+
+// A tap on a talker's "…" tag while it waits at the screen edge (game/speech.js, `onEdgeTap`) — the
+// garage's repair tip, the street racer's offer: the same ride as an arrow's (Tyler: "tapping the
+// little dot, dot, dot pinned to the edge of the screen should work just like a rider off-screen
+// indicator"), onto the talker, so the thing it is about is on screen to be tapped. `at` is a point
+// or a getter for one that moves (the racer), and `then` runs on the tap — the depot's line holds
+// itself up for the trip, the racer asks.
+//
+// It holds the camera there while the tip is still up (`stillUp`), up to TIP_LOOK_MAX. The idle ride
+// home (CAMERA_RETURN_IDLE) would otherwise take it back 1.5s after landing, and a player who has
+// just asked to look at the garage is reading the screen with their thumb off it, about to tap —
+// which is the very case the idle return cannot tell from a player who has forgotten the camera.
+// A touch on the map ends the hold at once (see the listeners below `CAMERA_RETURN_IDLE`), and so
+// does the tip going: tapped, timed out, or the racer gone.
+const TIP_LOOK_MAX = 8;
+let tipLook = null;
+function lookAtTalker(at, stillUp, then = () => {}) {
+  if (!isNarrow() || fares.state.gameOver) return false;
+  releaseCameraToPlayer();
+  if (typeof at === 'function') controller.chaseTo(at, null);
+  else controller.glideTo(at.x, at.z);
+  tipLook = { stillUp, left: TIP_LOOK_MAX };
+  then();
+  return true;
 }
 
 // The second half of an arrow's look: a rider was just dispatched to, so take the camera home.

@@ -28,12 +28,12 @@ export const DEPOT_CALL_SECONDS = 4.5;
  * @param viewport  util/viewport.js — the frame the card is kept inside
  * @param site      the garage's site (city/garage.js); the tag points at the top of its door
  */
-export function createDepotCall({ project, viewport = null, site }) {
+export function createDepotCall({ project, viewport = null, site, onEdgeTap = null, edgeTappable }) {
   const root = document.getElementById('depot-call');
-  const idle = { state: { open: false }, show: () => {}, hide: () => {}, update: () => {} };
+  const idle = { state: { open: false }, show: () => {}, hide: () => {}, update: () => {}, extend: () => {} };
   if (!root || !site) return idle;
 
-  const bubble = createSpeech(root, { viewport });
+  const bubble = createSpeech(root, { viewport, onEdgeTap, edgeTappable });
   const state = { open: false, left: 0 };
   // The lintel over the middle of the door: the tag sits on the building, not on the road in front.
   const at = () => project(site.curtainX, site.focus.y + site.doorH / 2, site.doorZ);
@@ -53,6 +53,15 @@ export function createDepotCall({ project, viewport = null, site }) {
     },
     /** Taken down early — the player did what it said. */
     hide,
+    /**
+     * Back to its full DEPOT_CALL_SECONDS: the player tapped its tag at the screen edge and the
+     * camera is on its way to the garage (main.js, `lookAtTalker`). The line was most of the way
+     * through its clock by the time anyone found the tag, and timing out under the camera as it
+     * landed would take the tip down on the frame the garage it is about came into view.
+     */
+    extend() {
+      if (state.open) state.left = Math.max(state.left, DEPOT_CALL_SECONDS);
+    },
     /** Game time; a run that ends takes it down at once. */
     update(dt, { over = false } = {}) {
       bubble.update(dt);

@@ -500,7 +500,7 @@ export function createFire({
     // Nothing upstream would take it — fall back to anywhere near, and let the router lap it round.
     truck ??= traffic.enterGuest(near);
     if (!truck) return false;
-    truck.skin = skin;
+    traffic.wearSkin(truck, skin, engine.group);
     truck.guestWreck = wreck;
     truck.route = [];
     truck.chase = RESPONSE_CHASE;

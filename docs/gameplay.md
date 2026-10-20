@@ -325,6 +325,15 @@ talking from, the taxi the robber is in) or to the thing being pointed out (the 
 pedal). Off screen the tag waits at the edge pointing at it, the same way the card used to. The card is
 wider than it was (300px against 178), so most lines fit on one line and it stays a short strip.
 
+**A tag at the edge is a button**, on a narrow screen, the way a rider's off-screen arrow is: a tap rides
+the camera onto the talker (`lookAtTalker` in `main.js`) so the thing the tip is about is on screen to
+tap (Tyler, 2026-10-20). The garage's repair line restarts its 4.5s clock on that tap, and the racer
+asks "Wanna race?" with the pan, so the next tap on the car takes it on — the same two taps as before.
+The camera holds there while the tip is still up (up to `TIP_LOOK_MAX`, 8s) instead of riding home
+after the usual 1.5s idle; a touch on the map ends the hold. On screen the tag is not a button: a press
+there belongs to the talker under it. `?tipfocus=classic` leaves the edge tag inert (the racer's still
+asks from where it is, as before).
+
 Why: a card pinned to a car was the biggest moving thing on the screen, stood on the road the player was
 steering through, and slid around the glass after anything that drove out of frame (Tyler, 2026-10-20:
 "they get in the way and move a lot"). The tag keeps the one job pinning did well, saying *which* one is

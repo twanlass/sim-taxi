@@ -38,6 +38,12 @@
 // `?bubbles=classic` is the pinned card. A caller that places its own card (the New Move card,
 // centred) passes `pinned: true` and keeps the old placement.
 //
+// **A tag waiting at the edge answers a tap like a rider's arrow does** (`onEdgeTap`): it rides the
+// camera to the talker, and the player then taps the thing itself — the garage, the racer. Only
+// while it is at the edge: on screen the tag sits on its talker, and a press there belongs to the
+// talker (the garage's pick under it, the racer's own listener in main.js). `?tipfocus=classic`
+// leaves the edge tag inert, as it was.
+//
 // Named `speech` rather than anything with `bubble`-adjacent ad words (`popup`, `alert`, `banner`) in
 // it — see CLAUDE.md on ad-blocker filter lists.
 
@@ -90,6 +96,16 @@ function readArcTop(vh) {
 const DOCK_GAP = 8;
 // The tag: a disc this wide, with the pointer hanging off it.
 const TAG = 24;
+// How far a finger may smear and still be a tap on an edge tag, in px — the fare arrows' TAP_SLOP,
+// for the same reason: a touch pointer is captured to the tag it landed on, so sliding off it still
+// delivers the release here, and that slide is the player saying "no".
+const TAP_SLOP = 8;
+
+/** `?tipfocus=classic`: a tag at the edge takes no tap. Browser-only. */
+function edgeTapsOff() {
+  if (typeof window === 'undefined') return true;
+  return new URLSearchParams(window.location.search).get('tipfocus') === 'classic';
+}
 
 /** 'tag' (the default), 'dock' or 'classic' — `?bubbles=`. Browser-only. */
 function speechMode() {
@@ -281,8 +297,13 @@ export function placeSpeech(target, w, h, vw, vh, insets = safe) {
  *                  is not `window.inner*`
  * @param typing    type each line out, and answer `tap()`
  * @param onDismiss () => void — a tap on a finished line; typing bubbles only
+ * @param onEdgeTap () => boolean — a tap on the tag while it waits at the screen edge; answers
+ *                  whether it took the tap. Omit it and an edge tag is a decoration.
+ * @param edgeTappable () => boolean — whether an edge tag takes a press *right now*, read per frame
+ *                  (main.js passes `isNarrow`: above it nothing is ever off the frame to pan to)
  */
-export function createSpeech(root, { viewport = null, typing = false, onDismiss = () => {}, pinned = false } = {}) {
+export function createSpeech(root, { viewport = null, typing = false, onDismiss = () => {}, pinned = false,
+  onEdgeTap = null, edgeTappable = () => true } = {}) {
   watchSafeInsets();
   const mode = speechMode();
   const docked = !pinned && mode !== 'classic';
@@ -313,6 +334,36 @@ export function createSpeech(root, { viewport = null, typing = false, onDismiss 
   const tagPin = root.querySelector('.speech-tag-pin');
   const tagBody = root.querySelector('.speech-tag-body');
   const tagPointer = tagPin?.querySelector('.speech-pointer');
+  // Whether the tag is waiting at the edge this frame, and whether that edge tag takes a press —
+  // the one flag the stylesheet reads (`can-edge-tap`) and the handler checks.
+  let atEdge = false;
+  let edgeLive = false;
+  const edgeTaps = Boolean(tagPin && onEdgeTap) && !edgeTapsOff();
+  if (edgeTaps) {
+    // A pointerdown/pointerup pair with a slop test, as on the fare arrows (game/farepointers.js
+    // says why at length): the pair is what a press is on a bare div on an iPhone, and the slop
+    // keeps a finger that slid off the tag from riding the camera anyway.
+    let press = null;
+    const hold = (on) => tagPin.classList.toggle('is-held', on);
+    const travelled = (event) => press
+      && Math.hypot(event.clientX - press.x, event.clientY - press.y) > TAP_SLOP;
+    tagPin.addEventListener('pointerdown', (event) => {
+      press = event.isPrimary ? { x: event.clientX, y: event.clientY } : null;
+      hold(Boolean(press && edgeLive));
+    });
+    tagPin.addEventListener('pointermove', (event) => { if (travelled(event)) hold(false); });
+    tagPin.addEventListener('pointerup', (event) => {
+      const from = press;
+      const slid = travelled(event);
+      press = null;
+      hold(false);
+      if (!from || !event.isPrimary || slid || !edgeLive || !open) return;
+      // Taken here, and kept from the layer's own listener (the racer's, in main.js), which would
+      // otherwise answer the same press as a tap on the car.
+      if (onEdgeTap()) event.stopPropagation();
+    });
+    tagPin.addEventListener('pointercancel', () => { press = null; hold(false); });
+  }
   // This card's place in `dockStack`, while it is up.
   const slot = { h: 0 };
   let text = '';
@@ -380,6 +431,12 @@ export function createSpeech(root, { viewport = null, typing = false, onDismiss 
   function placeTag(at, w, h) {
     if (!tagPin || !at) return;
     const p = placeSpeech(at, TAG, TAG, w, h);
+    atEdge = !p.onScreen;
+    const taps = edgeTaps && atEdge && edgeTappable();
+    if (taps !== edgeLive) {
+      edgeLive = taps;
+      tagPin.classList.toggle('can-edge-tap', taps);
+    }
     tagPin.style.transform = `translate(${p.left.toFixed(1)}px, ${p.top.toFixed(1)}px)`;
     tagPointer.style.left = `${p.px.toFixed(1)}px`;
     tagPointer.style.top = `${p.py.toFixed(1)}px`;
@@ -442,6 +499,8 @@ export function createSpeech(root, { viewport = null, typing = false, onDismiss 
   return {
     isOpen: () => open,
     isTyping,
+    /** Is the tag up and waiting at the screen edge, its talker off the frame? */
+    atEdge: () => open && atEdge,
     /**
      * @param title   who is talking — "TIP", "POLICE DISPATCH"; set in caps by the stylesheet
      * @param line    what they say
