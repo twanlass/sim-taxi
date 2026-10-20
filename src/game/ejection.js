@@ -4,9 +4,15 @@
 // impact frame: up and over whatever it hit, windmilling, a bounce or two down the road, and a
 // short slide to a sprawl. It is the comic half of the crash. Nothing about the taxi's interior is
 // modelled (there is no driver to be seen through the glass at play zoom), so the figure only
-// exists from the moment it leaves — and fades in over its first FADE_IN of flight, because a
-// figure appearing whole on the impact frame read as a pop rather than as someone coming out of the
-// glass.
+// exists from the moment it leaves — and it leaves *from inside*: it starts curled up small in the
+// driver's seat (TAXI_DRIVER_SEAT), hidden by the shell, and over its first EMERGE of flight slides
+// out through the hole in the windscreen onto its arc while growing to full size. The crash
+// slow-mo stretches that to most of a second of wall time, which is what sells it as someone
+// squeezing out of the glass. Two earlier answers both still popped: appearing whole above the
+// bonnet on the impact frame, and then the same thing faded in over 0.25s — a see-through
+// figure, already full size and already in the air, that snapped solid a second later (and whose
+// switch to a transparent program linked a shader on the impact frame). The fade is kept behind
+// `?eject=classic`.
 //
 // Same rules as game/wreckage.js, and for the same reasons: it is a **closed form** of its own
 // age. `fire()` precomputes the whole flight as a short table of ballistic arcs plus one drag
@@ -34,14 +40,13 @@
 import * as THREE from 'three';
 import { createPerson } from '../geometry/person.js';
 import { PALETTE } from '../palette.js';
-import { TAXI_SCALE } from '../geometry/taxi.js';
+import { TAXI_SCALE, TAXI_DRIVER_SEAT } from '../geometry/taxi.js';
 import { CAR_LEN } from '../sim/traffic.js';
 import {
   GRID_I, GRID_J, HALF_SPAN_X, HALF_SPAN_Z, HALF_ARTERIAL, PITCH, DIR, blockBounds, lineX,
   riverBanks, riverRow, isSegmentClosed,
 } from '../city/grid.js';
 import { markOccluder, AO_LAYER } from './ssao.js';
-import { stampGhostMask } from '../geometry/ghostoutline.js';
 
 // u/s of closing speed at the wreck. The bands sim/collisions.js prices bumps in: rear-ending a
 // car at boost cruise closes at ~10.5, T-boning cross traffic at ~21, a head-on at ~27, anything in
@@ -102,6 +107,15 @@ const SETTLE = 0.3;
 // frame. Short enough to be over before the first bounce (the shortest arc is ~0.6s) and to sit
 // inside the windscreen's own burst (game/windshield.js), so it reads as coming out of the glass.
 export const FADE_IN = 0.25;
+// The way out, in sim seconds: from the seat to the arc, and from EMERGE_SCALE of full size to all
+// of it. By 0.15 the arc is 1.5-2.7 units ahead of the windscreen, clear of the shell at any
+// throw, and under the crash slow-mo (main.js's SLOW_MO_MIN 0.18) it lasts ~0.8s of wall time.
+// 0.3 of full size is ~0.8 tall, which the cabin box (0.6 tall, on a body below it) swallows.
+export const EMERGE = 0.15;
+const EMERGE_SCALE = 0.3;
+// The old entrance: full size in the air above the bonnet, faded in over FADE_IN.
+const CLASSIC = typeof window !== 'undefined'
+  && new URLSearchParams(window.location.search).get('eject') === 'classic';
 const HALF_PI = Math.PI / 2;
 
 /**
@@ -125,14 +139,10 @@ export function createEjection(scene, { roadY = 0, onLand = null } = {}) {
   root.visible = false;
   scene.add(root);
   markOccluder(root);
-  // Thrown up and over the bonnet, the figure is in front of the taxi for most of its first arc and
-  // lands a few units off its nose — and a ghost rim's rule is "draw where something in the depth
-  // buffer sits in front of me", which a person standing between the camera and the car satisfies
-  // as well as a tower does. Unstamped, the taxi's yellow rim (and any traced traffic's) drew the
-  // cabbie's silhouette wherever they overlapped the car. The same stamp the flyers take
-  // (geometry/ghostoutline.js): the figure's own visible pixels join the mask, so the rim leaves a
-  // gap under it instead. Stencil state, not shader source, so it links nothing.
-  for (const mesh of person.meshes) stampGhostMask(mesh.material);
+  // Thrown up and over the bonnet, the figure is in front of the taxi for most of its first arc, and
+  // climbs out through the windscreen right over the cab — so the taxi's ghost rim would trace it.
+  // createPerson stamps the ghost mask on every figure, which leaves a gap in the rim under it
+  // instead (geometry/person.js, stampGhostMask).
 
   // The fade rides on age like everything else here, so the replay scrubs it for free. While it is
   // see-through it is also out of the AO prepass, which would otherwise stamp the contact shading
@@ -170,6 +180,14 @@ export function createEjection(scene, { roadY = 0, onLand = null } = {}) {
     const x0 = x + fx * START_FWD;
     const z0 = z + fz * START_FWD;
     const lateral = -side * SIDE / fwd;    // sideways units per unit travelled forward
+    // The seat, as an offset from the launch point: back along the heading, down, and across to
+    // the driver's side (the hole is on the left, and r is the right).
+    const seatBack = START_FWD - TAXI_DRIVER_SEAT.fwd;
+    const seat = {
+      x: -fx * seatBack + rx * TAXI_DRIVER_SEAT.side,
+      y: TAXI_DRIVER_SEAT.y - START_Y,
+      z: -fz * seatBack + rz * TAXI_DRIVER_SEAT.side,
+    };
 
     // The flight at full strength, then again at whatever share of it the street has room for.
     // Every horizontal distance in it is linear in `fwd`, so one rescale moves the whole thing.
@@ -189,6 +207,7 @@ export function createEjection(scene, { roadY = 0, onLand = null } = {}) {
       air: t,
       slide: { s0: s, vh, theta0: theta, rest },
       scale,
+      seat,
     };
     age = 0;
     landed = 0;
@@ -276,15 +295,20 @@ export function createEjection(scene, { roadY = 0, onLand = null } = {}) {
       limp = ease;
     }
     const side = s * f.lateral;
+    // Coming out of the seat: the offset back to it and the shrink both run out together, on an
+    // ease-out so the figure leaves the glass fast and settles into its arc.
+    const out = CLASSIC ? 1 : 1 - (1 - Math.min(1, Math.max(0, at / EMERGE))) ** 3;
+    const back = 1 - out;
     root.position.set(
-      f.x + f.fx * s + f.rx * side,
-      roadY + y,
-      f.z + f.fz * s + f.rz * side,
+      f.x + f.fx * s + f.rx * side + f.seat.x * back,
+      roadY + y + f.seat.y * back,
+      f.z + f.fz * s + f.rz * side + f.seat.z * back,
     );
+    root.scale.setScalar(SCALE * (EMERGE_SCALE + (1 - EMERGE_SCALE) * out));
     root.rotation.set(0, f.face + f.twist * Math.min(at, f.air), 0);
     pivot.rotation.set(theta, 0, 0);
     person.tumble(at, limp);
-    fade(Math.min(1, Math.max(0, at / FADE_IN)));
+    if (CLASSIC) fade(Math.min(1, Math.max(0, at / FADE_IN)));
   }
 
   function update(dt) {

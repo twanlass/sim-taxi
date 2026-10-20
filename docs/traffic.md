@@ -2010,11 +2010,18 @@ unit, which reads as a wreck being panned across rather than as one car hitting 
 **A hard enough wreck throws the driver out through the windscreen.** `game/ejection.js`. At a
 closing speed of `EJECT_CLOSING` (18 u/s) or more — a T-bone or a head-on at boost cruise, a
 full-boost rear-end into a stopped queue, anything in overdrive, but not rear-ending traffic going
-the same way — a cabbie in a blue shirt and a dark cap (the riders' rig at 0.8 scale) leaves the
-front of the cabin, tumbles head over heels with arms windmilling and legs pedalling, bounces once
+the same way — a cabbie in a blue shirt and a dark cap (the riders' rig at 0.8 scale) squeezes out
+through the hole in the windscreen, tumbles head over heels with arms windmilling and legs pedalling, bounces once
 or twice with a puff and a thud, and slides to a sprawl ~16 units down the road. Thrown slightly
 away from the struck car's side so they do not land in its fireball. The end-of-beat camera frames
 the point halfway between the wreck and the landing, so both stay in a portrait phone's shot.
+
+**They come out of the cab, not out of thin air.** The figure starts in the driver's seat
+(`TAXI_DRIVER_SEAT`, geometry/taxi.js) at 0.3 of full size, hidden by the shell, and over its first
+`EMERGE` (0.15s of sim time, ~0.8s under the crash slow-mo) slides out to its arc while growing to
+full size on an ease-out. It is solid throughout. Before this it appeared full size in the air
+above the bonnet on the impact frame, and a 0.25s opacity fade on top of that still read as a pop:
+a see-through figure already in mid-air that snapped solid. `?eject=classic` brings the fade back.
 
 **It never lands in a building.** The throw follows the taxi's heading, so `fire()` walks the
 ground track first and, if it meets a block, unbridged river or the edge of the map, scales every

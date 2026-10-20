@@ -3667,6 +3667,10 @@ post pass, but three things it cannot live without, all asserted headlessly in `
   sits in front of the hull", and a taxi part missing from the mask *is* something in front of
   the hull. The steered front wheels are separate meshes, outside the merged shell, and have to be
   added by hand ([the streak when they weren't](rendering-history.md#taxi-ghost-outline--geometryghostoutlinejs)).
+- **Anything that is not a tower but stands in front of the car stamps the mask too**
+  (`stampGhostMask`). The birds, the aeroplane, the helicopter and every person (`createPerson`:
+  riders at the door, the cabbie thrown through the windscreen) write the mask ref where they
+  draw, so the rim leaves a gap under them rather than tracing their silhouette in yellow.
 
 Both passes are flagged `transparent` purely to land in the transparent queue, which draws after
 every opaque object — the depth buffer has to be complete before the mask stamps. `addGhostOutline`
