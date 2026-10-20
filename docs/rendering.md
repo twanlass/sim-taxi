@@ -3777,12 +3777,12 @@ and a car wrecked on this frame must not wear a ghost over its own fireball.
 
 ### The pie — `geometry/diamond.js`
 
-The marker a waiting rider floats: a **pie**, a thick disc, bouncing, with no black outline, cut into
+The marker a waiting rider floats: a **pie**, a thick disc, bouncing, in a thin black outline, cut into
 eight slices, two per urgency level, the whole pie in the one [urgency](gameplay.md#urgency-is-one-scale)
 colour of the level the fare is at. The clock eats it clockwise from twelve o'clock, so each pair
 of slices that goes is a quarter of the clock, and the colour steps (with the kick) at that moment.
 What is left is solid and one even shade; eaten slices stay as a flat black tint at 30%
-(`PIE_EATEN_ALPHA`), not the pale glass of the hue the other vessels empty into: with no outline,
+(`PIE_EATEN_ALPHA`), not the pale glass of the hue the other vessels empty into: without an outline,
 pale glass vanished into the road at play zoom and a half-eaten pie read as a semicircle. A fresh pie already has a sixteenth missing at twelve o'clock (`PIE_STARTER_SLIVER`), so it reads as a timer before anything has drained. After that the clock takes a **whole slice at a time**, so the cut always lands on a
 slice's own radial wall, and a drained pie shows that wall as a solid edge of thickness where the
 missing slices were. Every wall is drawn before every cap (`pieWedgeOf` maps faces back to slices
@@ -3796,10 +3796,17 @@ The marker sits `MARKER_CLEARANCE` (0.8) higher than the taller shapes, for air 
 0.55 thick, built face-on in their own XY plane and turned (`PIE_TURN`) toward the camera and
 tilted back to a 60° normal, 27° past face-on, so the face reads as a disc with depth and the near
 edge shows its thickness. The fill shader picks the cut and the alternate shading from the angle
-of the untilted `fillXY` attribute. The outline hull is still built (one solid 32-sided drum at a lighter `PIE_RIM` of
-0.14, since at the shared 0.22 it was the loudest thing on the marker) but hidden: the solid, lit,
-tilted disc separates from the city by its own edge, and Tyler asked to "try without the black
-outline".
+of the untilted `fillXY` attribute.
+
+**The outline** is one solid 32-sided drum around the whole disc (`pieHullGeometry`), drawn as the
+usual inverted hull, so it traces the silhouette of the full pie, eaten slices included. Its weight
+is the [off-screen arrow's](#off-screen-fare-pointers), by construction: `MARKER_OUTLINE_PX` in
+`game/camera.js` (3.3) is the one number for both. The arrow draws it as a `non-scaling-stroke`
+in CSS px; the pie converts it to world units at `PHONE_PX_PER_UNIT` (844px over `2 * PLAY_ZOOM`,
+8.1px a unit), giving `PIE_RIM` 0.41. So the two match at phone play zoom, and a pinch grows the
+pie's line with the pie, as it does everything in the world. The pie went without an outline for
+a round (Tyler, 2026-10-18: "try without the black outline") and has it back at the arrow's weight
+(2026-10-20); `?pieoutline=classic` hides it again.
 
 History of this round: the first pie was four slices of the one current hue, 3.1 across, cut apart
 by black gaps. Tyler: "More slices (8). Map to existing urgency colors. Smaller over all. Tilt
@@ -4297,6 +4304,10 @@ viewport edge and rotate to point at a mark that has slipped off the frame. Each
 the fare it stands in for, which is that rider's clock: the colour is written from JS onto the
 wrapper's `color` and the polygon fills with `currentColor`, so a level change is one style write.
 The value in the stylesheet is only what one opens on before its first write.
+The black outline is `MARKER_OUTLINE_PX` (3.3, `game/camera.js`), written onto the host as
+`--marker-outline` and drawn as a `non-scaling-stroke`, so it is the same screen width on the
+drop-off's bigger arrow and through the press dip, and the same number [the pie](#the-pie--geometrydiamondjs)
+is outlined by.
 
 **Two kinds, one arrow, and they are exclusive.** With the seat free, *every rider still on a kerb*
 gets one — which replaced the [rider-finder chips](gameplay.md#finding-the-next-rider). With a rider

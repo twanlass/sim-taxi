@@ -1210,12 +1210,15 @@
       @media (prefers-reduced-motion: reduce) {
         .fare-pointer > span { transition: none; }
       }
-      /* Outlined to the same weight as the markers in the world, so an arrow reads as the same
-         graphic vocabulary. `currentColor` is what lets one style write on the wrapper repaint it
-         as the fare's clock drains. */
+      /* Outlined to the same weight as the pie over the rider: `--marker-outline` is written from
+         MARKER_OUTLINE_PX (src/game/camera.js), the one number both read. `non-scaling-stroke` makes
+         it screen px rather than viewBox units, so the drop-off's bigger arrow wears the same line.
+         `currentColor` is what lets one style write on the wrapper repaint it as the fare's clock
+         drains. */
       .fare-pointer polygon {
         fill: currentColor;
-        stroke: #0a1615; stroke-width: 3; stroke-linejoin: round;
+        stroke: #0a1615; stroke-width: var(--marker-outline, 3.3px); stroke-linejoin: round;
+        vector-effect: non-scaling-stroke;
       }
       body.shot-mode .fare-pointer, body.game-over .fare-pointer { display: none; }
 

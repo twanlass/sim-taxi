@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { unlitMaterial } from '../util/geo.js';
 import { PALETTE } from '../palette.js';
+import { MARKER_OUTLINE_PX, PHONE_PX_PER_UNIT } from '../game/camera.js';
 
 // The crystal a fare's clock is drawn as, over the rider and then over the taxi that collects
 // them. game/faremarker.js is what gives it a life; this is just the model.
@@ -59,6 +60,12 @@ export const MARKER_SHAPE = SHAPE_PARAM === 'classic' ? 'plumbob' : SHAPE_PARAM 
 export const PLUMBOB_CLASSIC = MARKER_SHAPE === 'plumbob';
 const HOURGLASS = MARKER_SHAPE === 'hourglass';
 const PIE = MARKER_SHAPE === 'pie';
+// `?pieoutline=classic` is the pie with no black outline, the way it shipped in #562.
+const PIE_OUTLINE_PARAM = typeof location !== 'undefined'
+  ? new URLSearchParams(location.search).get('pieoutline')
+  : globalThis.process?.env?.PIEOUTLINE;
+/** Whether the pie wears its black outline — on unless `?pieoutline=classic`. */
+export const PIE_OUTLINED = PIE_OUTLINE_PARAM !== 'classic';
 
 // Half-width at the equator, and the two pyramid heights that meet there. The equator sits two
 // thirds of the way up, which is what makes the silhouette a plumbob rather than a stretched
@@ -242,10 +249,13 @@ const PIE_R = 1.2;
 const PIE_T = 0.55;
 export const PIE_SLICES = 8;
 const PIE_ARC_STEPS = 4;
-// The pie's outline is lighter than the other shapes' RIM_OFFSET: 0.14 (~1.1px at play zoom). At
-// the full 0.22 the hull's drum, thickened by the disc's own tilted edge, came out as a black ring
-// a fifth of the marker's width and was the loudest thing on it.
-export const PIE_RIM = 0.14;
+// The pie's outline is the off-screen arrow's, by construction: `MARKER_OUTLINE_PX` (game/camera.js)
+// converted to world units at play zoom on a phone — 0.41, ~3.3px. It is not the other shapes'
+// RIM_OFFSET and does not want to be: the arrow is what the player sees standing in for this pie
+// when it slips off the frame, and the two should read as the same mark. (Its first weight, 0.14,
+// was set against an earlier complaint that 0.22 made a ring "a fifth of the marker's width"; that
+// hull was never shown, and Tyler asked for the outline back at the arrow's weight, 2026-10-20.)
+export const PIE_RIM = MARKER_OUTLINE_PX / PHONE_PX_PER_UNIT;
 
 /**
  * Extra air between a rider's head and the bottom of the marker, on top of game/faremarker.js's
@@ -856,10 +866,11 @@ export function createDiamond(colorHex) {
   shadeVessel();
 
   const rim = outlineHull(RIM_GEO, RIM_SCALE);
-  // The pie goes without one (Tyler, 2026-10-18: "try without the black outline"): solid, tilted
-  // and lit, its own edge already separates it from the city. The hull is still built and hidden
-  // rather than dropped, so everything that reads `rim` keeps working and the old look is one flag.
-  rim.visible = !PIE;
+  // The pie went without one for a while (Tyler, 2026-10-18: "try without the black outline") and
+  // has it back at the off-screen arrow's weight (2026-10-20: "a little black silhouette outline
+  // ... the same thickness as the rider off screen marker"). `?pieoutline=classic` hides it again;
+  // hidden rather than dropped, so everything that reads `rim` keeps working.
+  rim.visible = !PIE || PIE_OUTLINED;
   mesh.add(rim);
 
   // The falling stream, from the neck to the top of the pile. A thin column of the hue inside the
