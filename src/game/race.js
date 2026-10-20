@@ -48,8 +48,9 @@ import { markOccluder } from './ssao.js';
 //
 // **The rival is a car in traffic** (`enterGuest` in sim/traffic.js), the fire engine's arrangement:
 // it is routed to the finish by the same router the taxi is, queues, and can be bumped. What makes it
-// a racer is a share of a chasing cop's kit (`car.chase`): a lifted cruise ceiling, the car in front
-// pulling out of its way, and the licence to cross a red on a provably empty junction. There is no
+// a racer is a share of a chasing cop's kit (`car.chase`): a lifted cruise ceiling, the cop's
+// overtake (`racePass`) where a cop would have the car in front pull over, and the licence to cross a
+// red on a provably empty junction. There is no
 // rubber band. A rival that visibly slowed down to let you catch it, or found speed from nowhere when
 // you got ahead, would take the win away from the player along with the loss — so it drives one way
 // all race, and what the player has over it is Loco Mode and a route of their own choosing.
@@ -888,6 +889,7 @@ export function createRace({
     taxi.pendingTarget = null;
     car.route = [];
     car.dragStart = false;
+    car.racePass = false;
     car.pass = 0;
     car.passing = false;
     if (taxiWon) {

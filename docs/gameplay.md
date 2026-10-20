@@ -2559,6 +2559,12 @@ to miss on a phone; the racer's own leg is on its ghost route. First home wins. 
 over a waypoint or a farther flag: it doubles the drive on the same markers (a one-way race was
 over in ~5s on Loco Mode, there and back is ~12-15s), and the two lines cross on the way.
 
+**The racer overtakes** (`racePass` in sim/traffic.js): catching anything under 70% of its pace
+within `RACER_PASS_TRIGGER` (20), it pulls out into the oncoming lane and goes round, on the cop
+pass's swing and gate (a straight junction ahead, the light open, the oncoming lane clear, never past
+a car signalling left). Ordinary traffic does not pull over for it as it does for a cop, so it goes
+round instead. It is rare: a racer is seldom held up, and it passed 15 times in 96 headless races.
+
 **The racer runs on Loco Mode too:** flames out of its tailpipe (the taxi's plume,
 game/locoflame.js, on a second instance) whenever it is over `RACER_FLAME_SPEED` (1.5× cruise), so
 they go out as it brakes for a corner and relight down the straight.

@@ -100,6 +100,7 @@ function race(seed, player) {
     if (went && !race.holdsBoard()) break;
   }
   const s = race.state;
+  passes += traffic.stats.racePasses ?? 0;
   if (wrecked) return { result: 'wreck', closest };
   if (!s.races) return { result: `stuck in ${s.phase}` };
   return { result: s.lastResult, taxi: s.taxiTime, rival: s.rivalTime, closest, rejoined };
@@ -111,6 +112,7 @@ const median = (xs) => {
   return sorted[Math.floor(sorted.length / 2)];
 };
 
+let passes = 0;
 console.log(`${RACES} races${CHASE !== null ? `, rival chase ${CHASE}` : ''} (countdown ${COUNTDOWN}s)`);
 for (const player of PLAYERS) {
   const tally = {};
@@ -134,4 +136,6 @@ for (const player of PLAYERS) {
     + `· taxi home in ${median(won).toFixed(1)}s when it wins · rival in ${median(lost).toFixed(1)}s when it does`);
   console.log(`  ${''.padEnd(28)} drag: racer cut in ahead ${ahead} · behind ${behind} · `
     + `closest ${Math.min(...closest).toFixed(2)} (median ${median(closest).toFixed(2)})`);
+  console.log(`  ${''.padEnd(28)} racer overtakes ${passes}`);
+  passes = 0;
 }
