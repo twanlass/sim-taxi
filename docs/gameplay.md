@@ -3322,24 +3322,33 @@ spilling out from under it while the shop works — and then the opening itself 
 a clean car in a lit doorway, out, down the kerb and back into traffic.
 `game/depotrun.js` is the trip there; `enter()` in `game/opening.js` is everything from the lane on.
 
-### The depot's card
+### The depot's tip
 
 Nothing would otherwise say a repair is a tap on the depot. The car wears its damage, but a smoking
 car is a warning without an instruction, and the garage is a building like any other until you know
-what it is for. So a beat (`SHOW_DELAY`, 0.9s) after the taxi first starts smoking —
-`SMOKE_FRACTION`, 34% HP, the third of the four [damage tiers](../src/game/taxidamage.js) — the
-[New Move card](#new-move-unlocked-the-overtake-u-turn-and-drift-cards) goes up with **"TAXI DEPOT / Tap for
-Repairs"** (`REPAIR` in game/newmove.js). Earlier and it would be nagging about a swinging lamp; at
-the 20% plume it is one hit from too late.
+what it is for. So a beat (`SHOW_DELAY`, 0.9s) after the taxi starts smoking —
+`SMOKE_FRACTION`, 34% HP, the third of the four [damage tiers](../src/game/taxidamage.js) — the depot
+says so in the docked speech card: **"TAXI GARAGE / Tap the garage for repairs"**, typed out over the
+fuel arc, with the card's "…" tag on the garage door (`game/depotcall.js`). Earlier and it would be
+nagging about a swinging lamp; at the 20% plume it is one hit from too late. It is not answered and
+does not stop the world: it times out after `DEPOT_CALL_SECONDS` (4.5s of game time) and comes down
+at once when the player taps the depot.
 
-The card (Tyler, 2026-10-06) is **once ever** (`simTaxi.seen.repair`), stops the world like the
-move cards, and answers to the same gates: the tips setting, debug mode, the opening tutorial being
-done, and a calm beat (`newMoveCalm`) — a getaway, a patrol chase or a taxi already on its way in
-defers it, and it is tried again every half second for as long as the car is still smoking. No
-pedal row: the instruction is a tap, so the line says it, and the clip is just the visit. History:
-[the depot's card](gameplay-history.md#the-depots-card).
+It is said **once per run, until the player has sent the taxi in once** (`simTaxi.used.repair`):
+a line costs nothing like the card it replaced did, so it can afford to come back, but someone who
+has used the depot knows the way. It answers to the card's gates: the tips setting, debug mode, the
+opening tutorial being done, and a calm beat (`newMoveCalm`) — a getaway, a patrol chase or a taxi
+already on its way in defers it, and it is tried again every half second while the car still smokes.
+`__taxi.depotCall.show()` says it.
 
-**The clip** (`game/repairclip.js`, ~9s) is filmed on the player's own depot: a smoking stand-in
+**`?repairtip=classic`** puts back the card it replaced (Tyler, 2026-10-06 to 2026-10-20): the
+[New Move card](#new-move-unlocked-the-overtake-u-turn-and-drift-cards) with **"TAXI GARAGE / Tap for
+Repairs"** (`REPAIR` in game/newmove.js) and a clip of the visit, once ever
+(`simTaxi.seen.repair`), stopping the world like the move cards, with the same gates. Tyler swapped
+it for the line once the speech card had docked out of the way: the card stopped play for a lesson
+that is one sentence long. History: [the depot's card](gameplay-history.md#the-depots-card).
+
+**The classic card's clip** (`game/repairclip.js`, ~9s) is filmed on the player's own depot: a smoking stand-in
 (the real damage rig, three knocks in: bonnet, boot, dragging bumper) comes up the lane and turns in, the door comes down to `REPAIR_GAP` and the shop welds, and the
 door goes up on a clean car that drives back out onto the street. It is not a recording like the
 move clips: the visit is a script, not physics, so `scriptVisit` runs the same script again off the
