@@ -1737,6 +1737,14 @@ so the truck held for the taxi as its leader), and once with both merging onto o
 taxi's centre has to be behind the truck's tail, and on a shared exit the truck has to be further
 round its turn than the taxi.
 
+That still left one way round. A car mid-turn is listed on its exit lane at a stand-in position
+behind the lane's start, so a taxi that has just crossed straight on — or one further round a left
+onto the same lane than the truck is round its right — reads as *in front* of the truck, and the
+truck queued behind it while the taxi braked for the truck's body. 3 runs in 40 (24 cities × 90s at
+35% trucks) ended with the taxi parked behind a truck stopped mid-corner for the rest of the run,
+72-80s. Now a truck never holds for the taxi while the taxi is braking for that truck's body
+(`truckHoldsForPhantom`): the body is what can be hit, so the body wins.
+
 Measured over 24 cities, 90s each, button held, routed, against the same runs before:
 
 | | rear-ends on a truck in front | same truck again within 6s | ground speed |
