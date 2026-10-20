@@ -86,6 +86,11 @@ words stand on. Settings holds four things, all remembered across visits:
 | Music volume, SFX volume | `simTaxi.settings` (game/settings.js), applied through `sfx.setVolumes`. Music is the radio ([audio.md](audio.md#the-radio)) |
 | Tutorial tips | `simTaxi.settings`, on both the title and pause screens. Read on Play (`beginRun` in main.js): off drops the tutorial and lets the HUD in. Off mid-run (pause screen) does the same (`dropTutorial`); the New Move cards read it live |
 
+**Credits** sets a pixel Claude beside its name, and it is a button: tap it and a pixel taxi pulls
+up, Claude hops in, and it Loco-boosts off the right of the screen with the startup screen's Loco
+sounds, then he pops back (game/creditegg.js). It is DOM and Web Animations over the title screen,
+nothing in the 3D scene, and it does nothing under Reduce Motion.
+
 **"Play again" skips it.** The retry is a reload, and a player who just pressed Play does not want
 the menu again, so `onRetry` sets a one-shot `sessionStorage` flag the next boot consumes.
 **`?title=off`** skips it too, the same escape hatch `?vignette=off` is; `tools/smoke.mjs` runs every
