@@ -24,6 +24,18 @@
 // arrives whole and times itself out, because the tap the player is about to make belongs to the
 // road.
 //
+// **Docked, with a tag on the talker — the default since the bubbles were reworked.** Pinning the
+// whole card to a car made it the biggest moving thing on the screen, standing on the road the
+// player was steering through, and sliding round the glass after anything that drove out of frame
+// (Tyler: "they get in the way and move a lot"). So the *words* now sit in one fixed slot at the
+// top, under the cash and the stars, where they never move; and the *who* is a small tag pinned to
+// the target the card used to stand on — the same placement, edge-waiting and pointer as before
+// (`placeSpeech` with a tag-sized box), but 24px across instead of a card. The tag earns its keep
+// on the racer: with its roof flag gone, nothing else says which car is asking. Two cards up at once
+// stack down from the slot in the order they opened. `?bubbles=dock` drops the tag;
+// `?bubbles=classic` is the pinned card. A caller that places its own card (the New Move card,
+// centred) passes `pinned: true` and keeps the old placement.
+//
 // Named `speech` rather than anything with `bubble`-adjacent ad words (`popup`, `alert`, `banner`) in
 // it — see CLAUDE.md on ad-blocker filter lists.
 
@@ -55,6 +67,37 @@ const LEAN = (40 * Math.PI) / 180;
 // bubble never sits over the money.
 const EDGE = 10;
 const HUD_TOP = 60;
+
+// The docked slot's top edge, below the safe inset: under the HUD's cash row and the star rating
+// under it (the stars' baseline lands at ~78px on a 390-wide phone), so a card never covers the
+// money or the stars. The combo meter is in the cash row itself, centred, so it stays clear too.
+const DOCK_TOP = 92;
+// Between two docked cards stacked in the slot.
+const DOCK_GAP = 8;
+// The tag: a disc this wide, with the pointer hanging off it.
+const TAG = 24;
+
+/** 'tag' (the default), 'dock' or 'classic' — `?bubbles=`. Browser-only. */
+function speechMode() {
+  if (typeof window === 'undefined') return 'tag';
+  const v = new URLSearchParams(window.location.search).get('bubbles');
+  return v === 'classic' || v === 'dock' ? v : 'tag';
+}
+
+// The docked cards currently up, oldest first, so a second one stacks under the first rather than
+// on top of it. Each entry is that card's measured height, read live.
+const dockStack = [];
+
+/**
+ * Where a docked card goes: centred across the top, under the HUD, `offset` px further down for
+ * the cards above it. Pure, for the probe.
+ */
+export function placeDocked(w, vw, insets = safe, offset = 0) {
+  const minX = insets.left + EDGE;
+  const maxX = vw - insets.right - EDGE;
+  const left = maxX - minX >= w ? clamp(vw / 2 - w / 2, minX, maxX - w) : minX;
+  return { left, top: insets.top + DOCK_TOP + offset };
+}
 
 // The pointer, the file's own path, drawn tip-up; `place` rotates it to face the target. Inline
 // rather than an <img> so it can take `currentColor`: the card is a gradient, and a pointer filled
@@ -196,8 +239,12 @@ export function placeSpeech(target, w, h, vw, vh, insets = safe) {
  * @param typing    type each line out, and answer `tap()`
  * @param onDismiss () => void — a tap on a finished line; typing bubbles only
  */
-export function createSpeech(root, { viewport = null, typing = false, onDismiss = () => {} } = {}) {
+export function createSpeech(root, { viewport = null, typing = false, onDismiss = () => {}, pinned = false } = {}) {
   watchSafeInsets();
+  const mode = speechMode();
+  const docked = !pinned && mode !== 'classic';
+  const tagged = docked && mode === 'tag';
+  root.classList.toggle('speech-docked', docked);
   root.innerHTML = `
     <div class="speech">
       <div class="speech-body">
@@ -208,7 +255,8 @@ export function createSpeech(root, { viewport = null, typing = false, onDismiss 
         </div>
         ${POINTER_SVG}
       </div>
-    </div>`;
+    </div>${tagged ? `
+    <div class="speech-tag-pin"><div class="speech-tag-body"><div class="speech-tag"><i></i><i></i><i></i></div>${POINTER_SVG}</div></div>` : ''}`;
   const el = root.querySelector('.speech');
   const body = root.querySelector('.speech-body');
   const card = root.querySelector('.speech-card');
@@ -218,7 +266,11 @@ export function createSpeech(root, { viewport = null, typing = false, onDismiss 
   const pointer = root.querySelector('.speech-pointer');
   const mediaEl = root.querySelector('.speech-media');
   card.style.background = CARD_FILL;
-
+  const tagPin = root.querySelector('.speech-tag-pin');
+  const tagBody = root.querySelector('.speech-tag-body');
+  const tagPointer = tagPin?.querySelector('.speech-pointer');
+  // This card's place in `dockStack`, while it is up.
+  const slot = { h: 0 };
   let text = '';
   let shown = 0;
   let charT = 0;
@@ -230,7 +282,7 @@ export function createSpeech(root, { viewport = null, typing = false, onDismiss 
   // (hidden) from the start, so nothing about the card's box changes while it types, and a read per frame would force a layout
   // behind every character.
   let size = { w: 0, h: 0 };
-  const measure = () => { size = { w: card.offsetWidth, h: card.offsetHeight }; };
+  const measure = () => { size = { w: card.offsetWidth, h: card.offsetHeight }; slot.h = size.h; };
   window.addEventListener('resize', () => { if (open) measure(); });
 
   const isTyping = () => shown < text.length;
@@ -245,7 +297,30 @@ export function createSpeech(root, { viewport = null, typing = false, onDismiss 
   };
   const finishTyping = () => typeTo(text.length);
 
+  function placeTag(at, w, h) {
+    if (!tagPin || !at) return;
+    const p = placeSpeech(at, TAG, TAG, w, h);
+    tagPin.style.transform = `translate(${p.left.toFixed(1)}px, ${p.top.toFixed(1)}px)`;
+    tagPointer.style.left = `${p.px.toFixed(1)}px`;
+    tagPointer.style.top = `${p.py.toFixed(1)}px`;
+    tagPointer.style.transform = `translate(-50%, -100%) rotate(${(p.angle + Math.PI / 2).toFixed(3)}rad) translateY(${POINTER_SINK}px)`;
+    tagBody.style.transformOrigin = `${p.px.toFixed(0)}px ${p.py.toFixed(0)}px`;
+  }
+
   function place() {
+    if (docked) {
+      const w = viewport ? viewport.width() : window.innerWidth;
+      const h = viewport ? viewport.height() : window.innerHeight;
+      let offset = 0;
+      for (const other of dockStack) {
+        if (other === slot) break;
+        offset += other.h + DOCK_GAP;
+      }
+      const p = placeDocked(size.w, w, safe, offset);
+      el.style.transform = `translate(${p.left.toFixed(1)}px, ${p.top.toFixed(1)}px)`;
+      placeTag(target(), w, h);
+      return;
+    }
     const at = target();
     // Nothing to point at this frame (a hidden control, a car that just left the map): hold where
     // it was rather than jumping to a corner.
@@ -264,9 +339,15 @@ export function createSpeech(root, { viewport = null, typing = false, onDismiss 
     body.style.transformOrigin = `${p.px.toFixed(0)}px ${p.py.toFixed(0)}px`;
   }
 
+  function leaveDock() {
+    const i = dockStack.indexOf(slot);
+    if (i !== -1) dockStack.splice(i, 1);
+  }
+
   function hide() {
     if (!open) return;
     open = false;
+    leaveDock();
     root.classList.remove('is-open');
     root.classList.add('is-closing');
     closing = setTimeout(() => {
@@ -305,6 +386,10 @@ export function createSpeech(root, { viewport = null, typing = false, onDismiss 
       root.hidden = false;
       root.classList.remove('is-closing', 'is-open');
       measure();
+      if (docked) {
+        slot.h = size.h;
+        if (!dockStack.includes(slot)) dockStack.push(slot);
+      }
       place();
       // One frame of the closed state before the open one, or the transition has nothing to run
       // from and the bubble simply appears.
