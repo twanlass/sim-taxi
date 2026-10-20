@@ -1267,3 +1267,11 @@ with only the white shine removed. `?buttons=classic` brings back the shine and 
 The fuse flame first stood up off the fuel's front, 20° off the outward normal, and took the
 plume's colours up a drift chain — violet, blue, teal, with the fuel's gradient following. Tyler
 asked for it turned to lie along the bar's direction of travel, and orange only.
+
+## The street race's way out
+
+Until the tap-elsewhere decline, there was no "no" to the racer's question: the player turned it
+down by tapping a street any time before the green, which gave the parked taxi a route and called
+the race off with "Next time, then." Tyler simplified it: anything but the card says no, and
+accepting is final.
+

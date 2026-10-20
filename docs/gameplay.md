@@ -2607,7 +2607,7 @@ screen and flies away — up into the cash counter for a win, out to the racer's
 and once it has landed the camera eases back out to the zoom the player had. The racer comes in at
 `ARRIVAL_CHASE` (0.4) rather than race pace: at 21.7 it reached the block too fast to stop on it.
 A taxi steered off mid-drive-in, or a loser not in by `DRIVE_IN_MAX` (8s), goes straight to the
-word. The rival then drives off and dissolves, due back 2 to 4 drop-offs later; a race declined or
+word. The rival then drives off and dissolves, due back 2 to 4 drop-offs later; one turned down or
 called off leaves it in town instead, resting `REST_TIME` (20s) before it offers again.
 
 **It is taken on, never imposed.** Losing costs cash, and the robbery's rule is that an imposed
@@ -2622,8 +2622,12 @@ is a tap like every other choice in the game. Ignoring it is free: the racer jus
 - **The board steps aside from the tap to the line**, exactly as for a getaway: riders hidden,
   their clocks held, no spawns, the courier's pads off the map (`setHold` in game/fares.js, read by
   `concealed`).
-- **Driving off calls it off.** A tap on a street before the flag drops gives the taxi a route,
-  which un-parks it; the race is off ("Next time, then.") and nothing changes hands.
+- **No is a tap anywhere else; yes is final.** Once it has asked, a tap on the map anywhere but the
+  racer or its card turns it down ("Next time, then.", `decline`) and then does what it would have
+  done; the racer stays and offers again after `REST_TIME`. From the second tap to the green
+  (`locked`) taps on the map are ignored and the taxi stays on the line: there is no backing out
+  (Tyler: "Dont allow declining after you've tapped on 'wanna race'"). Taps on the pedals are not
+  map taps and decline nothing.
 - **The tank is topped up to a third at the green** (`TANK_FLOOR`, the run's own starting tank) and
   never down. The race is decided by Loco Mode, and a player who accepted on an empty pill would
   lose before the flag dropped.

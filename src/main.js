@@ -2135,7 +2135,10 @@ function onRaceEvent(type, detail) {
     sfx?.play('horn', { at: placeAt(detail.car.x, detail.car.z) });
   } else if (type === 'declined') {
     raceShot = null;
+    raceTalkRoot?.classList.remove('is-ellipsis');
     raceTalk?.show('Street racer', 'Next time, then.', raceTalkAt);
+    // ...and gone once it has been read, unless the offer is back up by then.
+    setTimeout(() => { if (race && !race.offering() && !race.busy()) raceTalk?.hide(); }, RACE_DECLINE_MS);
   } else if (type === 'lined-up') {
     raceShot = null;
     // The bubble is pinned to the rival, which the camera is about to leave behind.
@@ -2218,6 +2221,8 @@ function onRaceEvent(type, detail) {
 const RACE_CUT_HOLD = 90;
 // How long "You're on!" gets before the screen goes: its ten letters type in 0.26s (speech.js).
 const RACE_CUT_DELAY = 500;
+// How long "Next time, then." stays up: its 16 letters type in ~0.4s (speech.js), then a beat to read.
+const RACE_DECLINE_MS = 1800;
 const RACE_SHOT_ZOOM = 22;
 // The faceoff's framing, while it holds the camera; and the zoom to walk back to after it.
 let raceShot = null;
@@ -3046,6 +3051,13 @@ createPicker(
     ...(race?.pickables() ?? [])],
   (kind, hit, ray) => {
     if (fares.state.gameOver) return;
+
+    // The street race: from the second tap to the green the race is on and a tap changes nothing
+    // (game/race.js, `locked`); and once the racer has asked, a tap anywhere but on it (or its
+    // card, which answers on its own pointerup) turns it down — "Next time, then." — and then does
+    // whatever it would have done.
+    if (race?.locked()) return;
+    if (kind !== 'racer') race?.decline();
 
     // **A tap skips a repair visit**, behind the opening's own cut to black — unless it lands on a
     // rider, a drop-off or a package. The board is live through a visit (only its clocks are

@@ -179,6 +179,8 @@ const LEAVE_MAX = 30;
 const FINISH_FLAG_Y = 4.5;
 const FINISH_FLAG_SCALE = 1.5;
 const ACTIVE = new Set(['cut', 'faceoff', 'reveal', 'countdown', 'racing', 'finale']);
+// The stretch nobody can back out of: the cut to the start until the green.
+const LOCKED = new Set(['cut', 'faceoff', 'reveal', 'countdown']);
 
 const clamp01 = (v) => Math.max(0, Math.min(1, v));
 
@@ -703,6 +705,27 @@ export function createRace({
   }
 
   /**
+   * Anything but the "Wanna race?" card tapped once it has asked: "Next time, then." (Tyler: "if you
+   * tap anywhere other than on 'wanna race?' have it say 'Next time, then'"). Nothing changes
+   * hands; the racer stays in town and offers again after REST_TIME.
+   */
+  function decline() {
+    if (state.phase !== 'offer' || !state.asked) return false;
+    state.asked = false;
+    state.available = false;
+    state.rest = REST_TIME;
+    onEvent('declined', { car: state.car });
+    return true;
+  }
+
+  /** Back on the line: a route given to the parked taxi from the second tap to the green is dropped. */
+  function holdTaxi() {
+    taxi.route = [];
+    taxi.pendingTarget = null;
+    taxi.parked = true;
+  }
+
+  /**
    * The second tap on the racer. Answers whether the race is on: the screen is about to cut (main.js runs
    * the wipe and calls `stage` under the black), and the taxi drops whatever it was heading for —
    * an empty cab's only errand is a rider, and the board is about to be held.
@@ -1203,9 +1226,10 @@ export function createRace({
       case 'faceoff':
       case 'reveal': {
         if (!car) { finish('void'); break; }
-        // The player said no after all: a tap on a street gives the taxi a route, and a route on a
-        // parked taxi un-parks it (sim/traffic.js). Called off, and nothing changes hands.
-        if (taxi.route.length > 0) { finish('declined'); break; }
+        // Taken on is taken on (Tyler: "Dont allow declining after you've tapped on 'wanna race'"):
+        // main.js ignores taps from the second tap to the green (`locked`), and anything else that
+        // routes the taxi meanwhile is undone rather than calling the race off.
+        if (taxi.route.length > 0) holdTaxi();
         if (interrupted()) { finish('void'); break; }
         if (state.phase === 'faceoff') {
           if (state.phaseT > FACEOFF) lineUp();
@@ -1216,7 +1240,7 @@ export function createRace({
       }
       case 'countdown': {
         if (!car) { finish('void'); break; }
-        if (taxi.route.length > 0) { finish('declined'); break; }
+        if (taxi.route.length > 0) holdTaxi();
         const left = Math.ceil(COUNTDOWN - state.phaseT);
         if (left < state.count && left > 0) {
           state.count = left;
@@ -1330,6 +1354,10 @@ export function createRace({
     offering: () => state.phase === 'offer' && state.available,
     /** Is the board held? From the tap to the line, as for a getaway. */
     holdsBoard: () => ACTIVE.has(state.phase),
+    /** From the second tap to the green: taps on the map are ignored (no backing out). */
+    locked: () => LOCKED.has(state.phase),
+    /** A tap anywhere but the "Wanna race?" card, once it has asked. */
+    decline,
     /** Is the taxi taken for a race? The depot and the drive-through refuse it. */
     busy: () => ACTIVE.has(state.phase),
     /** Is anything of a race on, from the tap to the line? */
