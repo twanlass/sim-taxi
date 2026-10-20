@@ -4,15 +4,31 @@
 
 `src/game/splash.js`, entered from `src/boot.js`. A cold start is black from its first frame — the
 iOS launch screen, the web view and the page (`html.booting`) are all `PALETTE.splashVoid` — and
-stays black while the game loads. Then a patch of asphalt fades up in the middle of the black, seen
-from a low side-on camera (15° up), the taxi falls out of the sky onto it with the **Big Air landing** (the dust ring, the pale shockwave,
-sparks off all four wheels, a hard shake), bounces twice, sits for a beat, lights **Loco Mode** and
-leaves on its back wheels, laying rubber, off the right edge of the frame. Once it is fully gone,
-flame and all (`exitTime`), the empty patch holds for a second (`HOLD`) — skid marks, dust settling
-— and then fades to the title screen. About 3.8 s from the first frame of asphalt on a phone; a tap
-anywhere skips to a quick fade, and a player with reduced motion gets the fade alone.
+stays black while the game loads. Then **ROCKET RIDES** pops up out of the black a letter at a time
+in big white extruded letters set in the game's own Space Grotesk Bold (`game/splashlogo.js`), seen from a low side-on camera (15° up)
+and turned a little so the grey sides of the extrusion show. Once the word has stood for half a
+second the taxi falls out of the sky straight down through it: the scene drops into slow motion for
+a tenth of a second on the frame the car hits the top line (sparks, a crash), the letters it struck
+are driven down and out, and the **Big Air landing** on the asphalt that has faded up beneath (the
+dust ring, the pale shockwave, sparks off all four wheels, a hard shake) blasts away the rest. The
+pieces rain down and lie flat. The taxi bounces twice, sits for a beat, lights **Loco Mode** and
+leaves on its back wheels, laying rubber and bowling the wreckage in its path ahead of it, off the
+right edge of the frame. Once it is fully gone, flame and all (`exitTime`), the patch holds for a
+second (`HOLD`) and then fades to the title screen. About 4.8 s on a phone; a tap anywhere skips to
+a quick fade, and a player with reduced motion gets the fade alone.
 
-**It has sound where sound is allowed** (`game/splashsound.js`): the Big Air landing on the slam, a
+**The letters are the font's own outlines, cut into the pieces they break into.**
+`tools/logo-glyphs.py` bakes the shipped woff2 at weight 700 into `game/logoglyphs.js` (data, not a
+font loader, with each curve flattened to three facets). Each glyph is then cut by two straight lines
+at angles of its own and every connected run of each cell is extruded as a slab — 49 pieces in 11
+letters — so the whole word and the wreckage are the same meshes, and a letter breaks along a clean
+line. The debris is a pure simulation the probe
+walks through the real timeline: the car meets the word before it lands, every piece comes loose,
+none goes through the floor, all lie still by the fade. The letters are lit by a neutral light of
+their own rather than the scene's warm afternoon sun, under which pure white came out tan.
+`?splashlogo=classic` is the drop without the logo.
+
+**It has sound where sound is allowed** (`game/splashsound.js`): a crash through the logo, the Big Air landing on the slam, a
 bump on each bounce, and the Loco press (launch, the activate's roar, a skid for the burnout) as it
 leaves, the roar fading as the car clears the frame. The game's own recordings at the shipped mix,
 under the player's mute and effects slider. It has to play before anyone has tapped, which a
@@ -278,21 +294,30 @@ shares the picker's `didPan()` guard, so a swipe that dragged the map is not als
 
 Everything that talks on screen — these tips, [the robber](#the-bank-robbery), dispatch
 and (under `?copchat=classic`) the cop's shout — is one bubble, `game/speech.js`: the Figma file's "bubble-ui" card (a caps title
-saying who is talking over a bold line, and a pointer), at the HUD's ×0.652.
+saying who is talking over a bold line), at the HUD's ×0.652.
 
-**Pinned to what it is about.** Each bubble is handed a target, a function returning a screen point
-re-read every frame, and stands above it with its pointer on the bottom edge. The talker where there
-is one (the cop's roof, the taxi the robber is in, the police car dispatch is talking from) and the thing
-being pointed out where there is not (the rider's crystal, the top of the gas pedal). It slides
-sideways to stay on the glass, and drops *below* a target that is up under the HUD.
+**Docked, with a tag on the talker.** The card is see-through black (62%, the city blurred behind it)
+with white type, and so is the tag (`?bubblestyle=card` is the white Figma card). Every line types
+itself out behind a caret, dispatch and the racer included, and the card grows with the line rather
+than standing at its finished width; its left edge is pinned where the finished card's will be, so
+the text never shifts and the line ends centred. Picked from a round of eight looks (radio ticker,
+arcade portrait, subtitle, frosted glass, comic sticker, dash-radio LCD, speaker colour, white card). The words sit in one fixed slot, centred at the bottom with its
+lower edge 24px over the top of the Loco Mode fuel arc, and never move: a card there rises in, holds,
+and sinks away. A second card up at the same time stacks above the first. (The first build docked it
+at the top under the cash and stars; Tyler moved it down, which also puts "Hold to floor it" right
+over the pedal it means.) What the card used to stand on gets a **tag** instead: a 24px white
+disc with three typing dots and a pointer, pinned to the talker (the racer, the police car dispatch is
+talking from, the taxi the robber is in) or to the thing being pointed out (the rider's crystal, the gas
+pedal). Off screen the tag waits at the edge pointing at it, the same way the card used to. The card is
+wider than it was (300px against 178), so most lines fit on one line and it stays a short strip.
 
-**Off screen, it waits at the edge.** A target out of frame clamps the card to the nearest edge along
-the line from the middle of the screen to it — the [off-screen rider arrows'](#finding-the-next-rider)
-rule — with its pointer on the side facing that edge. Pan towards it and the card slides along the
-edge with you until the target is in frame, then drops onto it. The pointer always sits in the
-**middle** of its side and only turns, leaning towards its target but no more than 40° off square
-to the card's edge, so it does not crawl along the edge as the camera pans. `placeSpeech` is the
-pure half of it. History: [speech bubbles](gameplay-history.md#speech-bubbles).
+Why: a card pinned to a car was the biggest moving thing on the screen, stood on the road the player was
+steering through, and slid around the glass after anything that drove out of frame (Tyler, 2026-10-20:
+"they get in the way and move a lot"). The tag keeps the one job pinning did well, saying *which* one is
+talking, which matters most for the racer now that its roof flag is gone. `?bubbles=dock` drops the
+tag; `?bubbles=classic` is the pinned card. The New Move card places itself (centred, `pinned: true`)
+and is unaffected. `placeDocked` and `placeSpeech` are the pure halves. History:
+[speech bubbles](gameplay-history.md#speech-bubbles).
 
 ### The spotlight
 
@@ -471,6 +496,8 @@ The bootleg (boost, then two quick brake taps — `game/bootleg.js`) is the one 
 looking, so it gets a card (`game/newmove.js`, `#new-move` in index.html). It is the tutorial's
 own speech bubble, made wider and centred over a dim with no pointer: "New Move Unlocked" in the
 title slot, "U-Turn" as the line, then a clip of the move and the pedal row under it. No other words.
+The clip is printed on the run-end polaroid's paper ([The polaroid](#the-polaroid); one shared rule),
+canted -2.5° rather than -4° because the print is wide. `?movecard=classic` is the bare clip.
 
 The clip (`game/uturnclip.js` and `game/moveclip.js`) is a scripted 4.6s loop filmed **in the player's own city**, at the
 game's 3/4 view. On open, `pickStreet` chooses a straight two-way side street off the river with no
@@ -494,8 +521,13 @@ because the world is frozen under the card and a second traffic instance would w
 one's module-level state. At the game's real speeds the run is three blocks long, so `pickStreet`
 also needs the street to carry straight on, open, through the junctions at each end. The pedal row
 (the HUD's own pedal art, all three at one size with a "+" between) is pressed off the **clip's
-clock**, so each key goes down on the frame the car does the thing it does: dim until pressed, lit
-from then to the end of the loop. History:
+clock**, so each key goes down on the frame the car does the thing it does: a size small until
+pressed, full size from then to the end of the loop. The keys are drawn **flat** — a disc in the
+HUD button's colour and a white letter, none of its surround, crescent, dish or glint — and stay
+that colour throughout; greying an unlit key, as `?movecard=classic` still does with the HUD's own
+drawing, turned the orange A brown on the run-end blackout. The classic keys carry their own copy
+of the HUD's gradients (`nm-` ids): the HUD pedals are `display: none` behind the run-end screen,
+and a gradient referenced from an undisplayed SVG does not paint. History:
 [New Move cards](gameplay-history.md#new-move-unlocked-the-overtake-u-turn-and-drift-cards).
 
 - **When:** a beat (0.9s) after the drop-off that brings a run to two fares — robbery.js's
@@ -1863,7 +1895,8 @@ delivery, 35s after the last one left the board; #499). They are an ordinary tap
 them and pull up, and a coin tossed when they spawned decides it — **a loaded one**: even odds on
 the first bank rider of a run, then 15 points more robbery for each one who rode (50, 65, 80, 95,
 capped there), back to even once a robbery happens (`BANK_ROBBER_STEP`; #522,
-`?robberyodds=classic` for a fair coin every time). **The taxi collects them from the steps, not the
+`?robberyodds=classic` for a fair coin every time). **For now, for testing, the coin is switched
+off**: `BANK_ROBBER_ALWAYS` makes every bank rider the robbery, gates permitting. **The taxi collects them from the steps, not the
 corner**: the route comes down the bank's own street (the fare's target carries its lane, `onto`),
 and the pickup resolves only level with the door (`BANK_REACH_ALONG`, 6 either way along the
 façade, across both lanes). The junction's `ARRIVE_RADIUS` it used to share with everyone fired
@@ -3812,6 +3845,23 @@ one thing that belongs here is that a timeout's shot is of the **drop-off the ta
 which is the only place in the game where the answer to "what went wrong" is somewhere other than
 where the taxi is standing.
 
+### The polaroid
+
+**Over the title sits a polaroid of the ending** (`game/polaroid.js`; `?gameover=classic` is the card
+without it). A wreck's print is a frame from the [crash replay](rendering.md#the-closing-shot)'s last
+and tightest cut, `PHOTO_AFTER` (0.14 sim seconds) past the impact, with the fireball over both
+cars — or the last frame that cut has, if the live beat recorded less than that past the hit. A
+replay tapped past before its last cut keeps the live beat's last frame instead, pulled in on the
+wreck and taken as the replay cuts in. A bust or a
+timeout has no instant to pick, so its print is the frame the pull-in ended on, drawn again as the
+card comes up. Whichever it is, it is a centred square of the game's own canvas, copied in the same
+task that drew it (the canvas is not `preserveDrawingBuffer`) into a 360px 2D canvas.
+
+The print drops on a beat ahead of the title, tipped 4° in a cream border with the deep bottom lip a
+polaroid has, and then **develops** — washed out and grey to full colour over 1.6s. It is sized off
+the viewport height like the rest of the card (`clamp(96px, 24vh, 190px)`), so a landscape phone gets
+a small print rather than a title pushed below the fold.
+
 It is a **full-screen blackout**, not a modal over the city: a blurred card's edges would be the
 loudest thing on the screen. Blacking the whole viewport out puts the run's numbers on nothing at
 all, which is what makes them the ending rather than an overlay on one.
@@ -3891,8 +3941,9 @@ the retry pill is `disabled` (and so `pointer-events: none`) until then, which b
 invisible button from reloading the run mid-tally and lets a tap aimed at it fall through to the
 skip.
 
-**The review waits for a tap.** Once the stats have landed, the card holds on them with a quiet,
-breathing "Tap to continue" laid over the Play again pill's (still empty) slot, and only a tap moves
+**The review waits for a tap.** Once the stats have landed, the card holds on them with "Tap to
+continue" pinned to the **foot of the screen** in white, pulsing a soft glow (`?gameover=classic`
+puts it back over the Play again pill's empty slot, grey and breathing), and only a tap moves
 on to the prompt or the table, so a run summary is not something you can miss by glancing away. A
 tap *during* the count still lands the numbers, but on
 the review rather than past it, and the tap that leaves is only armed `HOLD_MS` after the last

@@ -337,6 +337,8 @@ const SHOTS = [
 // The furthest past the impact any shot plays, in sim seconds. The tape only holds what the live
 // beat recorded after the hit, which is what sets REPLAY_LEAD's floor in main.js.
 export const REPLAY_POST = Math.max(...SHOTS.map((s) => s.post));
+// How many cuts there are — main.js takes the run-end polaroid off the last one.
+export const REPLAY_SHOTS = SHOTS.length;
 
 // Playback rate, as a fraction of real time: near full speed into the hit, dropping over the last
 // RAMP seconds before it and holding there through the blast. At these numbers a 0.3 + 0.3 shot is

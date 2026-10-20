@@ -2,7 +2,7 @@ import { FILES, SOUNDS, SHIPPED_MIX, readMuted } from './sfx.js';
 import { createSettings } from './settings.js';
 
 /**
- * The startup screen's sound: the Big Air landing on the slam, a bump on each bounce, and the Loco
+ * The startup screen's sound: a crash as the taxi comes down through the logo, the Big Air landing on the slam, a bump on each bounce, and the Loco
  * press — the launch, the activate's roar and a skid for the burnout — as the taxi leaves. The
  * game's own recordings at the game's own mix levels, so it is the same car heard the same way.
  *
@@ -25,6 +25,7 @@ import { createSettings } from './settings.js';
 
 /** One take of each, fixed: the startup screen is the same shot every launch, so it is the same sound. */
 const TAKES = {
+  crash: SOUNDS.crash[0],
   land: SOUNDS.land[0],
   bump: SOUNDS.bump[1],
   locoLaunch: SOUNDS.locoLaunch[0],

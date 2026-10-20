@@ -10,8 +10,8 @@ Dates and PR numbers are given where the text or the commit log records them.
 
 ## The startup screen
 
-[Now](gameplay.md#the-startup-screen): black, then the taxi drops onto a patch of asphalt and
-boosts off it, then the title menu.
+[Now](gameplay.md#the-startup-screen): black, ROCKET RIDES in white block letters, the taxi smashing
+down through them onto a patch of asphalt and boosting off it, then the title menu.
 
 Before it (to 2026-10-16) a cold start showed the sky's `#DCEDF7` — the iOS launch screen, the web
 view behind the page and the page itself were all that colour, chosen so the frame before WebGL's
@@ -24,6 +24,12 @@ top right). Tyler asked to try it side-on; the low side camera became the defaul
 `?splashcam=classic` keeps the three-quarter view.
 
 It first shipped silent; `?splashsound=classic` keeps that.
+
+Until 2026-10-18 there was no logo: the asphalt faded up first (0.3 s) and the taxi dropped straight
+onto it, about 3.8 s in all. Tyler asked for the name in big white chunky 3D letters for the taxi
+to smash through; `?splashlogo=classic` keeps the plain drop. The first cut of the logo was a hand-drawn
+block face built from the strokes it broke into (an R as stem, bowl and leg); Tyler asked for Space
+Grotesk instead, the same day.
 
 ## The opening vignette
 
@@ -62,6 +68,23 @@ that is the one thing that should be under way before the bubble speaks.
 ### Speech bubbles
 
 Now: [Speech bubbles](gameplay.md#speech-bubbles).
+
+**Until 2026-10-20 the whole card was pinned (`?bubbles=classic`).** It was replaced by the docked card
+and tag because it moved with every car it was on and covered the road. What it did:
+
+**Pinned to what it is about.** Each bubble is handed a target, a function returning a screen point
+re-read every frame, and stands above it with its pointer on the bottom edge. The talker where there
+is one (the cop's roof, the taxi the robber is in, the police car dispatch is talking from) and the thing
+being pointed out where there is not (the rider's crystal, the top of the gas pedal). It slides
+sideways to stay on the glass, and drops *below* a target that is up under the HUD.
+
+**Off screen, it waits at the edge.** A target out of frame clamps the card to the nearest edge along
+the line from the middle of the screen to it — the [off-screen rider arrows'](gameplay.md#finding-the-next-rider)
+rule — with its pointer on the side facing that edge. Pan towards it and the card slides along the
+edge with you until the target is in frame, then drops onto it. The pointer always sits in the
+**middle** of its side and only turns, leaning towards its target but no more than 40° off square
+to the card's edge, so it does not crawl along the edge as the camera pans. `placeSpeech` is the
+pure half of it.
 
 The pointer always sits in the
 **middle** of its side and only turns, leaning towards its target but no more than 40° off square

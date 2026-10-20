@@ -59,6 +59,11 @@ export const PALETTE = {
   // screen before it: what a cold start shows while the game loads, so it has to be the same black
   // everywhere or the hand-offs between them flash.
   splashVoid: '#000000',
+  // The startup screen's logo (game/splashlogo.js): white faces, and the cool grey its extrusion's
+  // sides fall to away from the light. Lit by its own neutral light rather than the scene's: the
+  // late-afternoon sun and the warm fill turned even pure white into cardboard tan.
+  splashLogo: '#FFFFFF',
+  splashLogoShade: '#4C5468',
   asphaltEdge: '#6B717A',
   // Tyre rubber on the road. Not black: pure black over a blue-grey asphalt read as a hole cut in
   // the road rather than something lying on it, and a touch of warm brown is what rubber smeared

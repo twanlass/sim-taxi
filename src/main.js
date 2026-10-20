@@ -9,7 +9,7 @@ import { createComboMeter, comboScope, formatMult } from './game/combometer.js';
 import { createSquall, RAMP, RAMP_CLASSIC, CELL_EDGE } from './game/squall.js';
 import { pedalZones as growPedalZones, pedalAfterMove } from './game/pedalzones.js';
 import {
-  collectPanes, litWindows, streetLamps, switchedLights, createTaxiHeadlights, setCityLights,
+  collectPanes, litWindows, streetLamps, entrances, switchedLights, createTaxiHeadlights, setCityLights,
 } from './game/citylights.js';
 import {
   createCityCamera, attachDragPan, VIEW_DIR, PLAY_ZOOM, LOCO_PUNCH_HOLD,
@@ -42,7 +42,7 @@ import {
   createTraffic, placeCar, TRUCK_CHANCE, CLASSIC_CHANCE, TRUCK_LEN, TRUCK_W, laysPassRubber, copLaysRubber, SPEED,
   ROAD_Y, CAR_LEN, CAR_W, wheelAnchors,
   boostCruise, locoTuning, setLocoTuning, resetLocoTuning, locoRamp, LOCO_DEFAULTS, driftTaxi, kickDrift, driftHolds, DRIFT_CHAIN,
-  onDriftLaunch, hopProgress, setSpinStyle, setBarrelRoll, setPassTurnGate, setPassPace, setHopStyle, setDodge,
+  onDriftLaunch, hopProgress, setSpinStyle, setBarrelRoll, setPassTurnGate, setPassPace, setHopStyle, setDodge, setOvertakeStyle,
   configureSignals, setGrip, setRunningLights, setRunningLightsAt, runningLightsAt, isLaneClosed,
 } from './sim/traffic.js';
 import { createCollisions, TAXI_HP } from './sim/collisions.js';
@@ -81,7 +81,7 @@ import {
 import { createWreckage } from './game/wreckage.js';
 import { createEjection, EJECT_CLOSING } from './game/ejection.js';
 import { createWindshield } from './game/windshield.js';
-import { createTape, createCrashReplay } from './game/replay.js';
+import { createTape, createCrashReplay, REPLAY_SHOTS } from './game/replay.js';
 import { CARRY_DRAG, carrySpeed, carryTravel } from './util/carry.js';
 import { createFlyover } from './game/flyover.js';
 import { createSoundRings } from './game/soundrings.js';
@@ -110,6 +110,7 @@ import { createSpeech } from './game/speech.js';
 import { createFlatbed } from './game/flatbed.js';
 import { createBoxSpill } from './game/boxspill.js';
 import { showRunEnd } from './game/runend.js';
+import { createSnapshot, PHOTO } from './game/polaroid.js';
 import { recordRun, lastName, clearScores, loadScores } from './game/highscores.js';
 import { loadLocoTuning, saveLocoTuning, clearLocoTuning } from './game/locostash.js';
 import {
@@ -653,8 +654,11 @@ if (horizon) scene.add(horizon.mesh);
 // Rain Mode's city lights — lit windows over the panes just built, and street lamps. A wet street
 // is a mirror for lamps, and a daytime city has almost none. See game/citylights.js. Their own
 // streams, so switching the rain on cannot move a building.
-const litPanes = stopPanes ? litWindows(makeRng(seed + 391), stopPanes()) : null;
-const lamps = rain.enabled ? streetLamps(makeRng(seed + 392), layout) : null;
+const paneFaces = stopPanes ? stopPanes() : null;
+const litPanes = paneFaces ? litWindows(makeRng(seed + 391), paneFaces) : null;
+const lamps = rain.enabled
+  ? streetLamps(makeRng(seed + 392), layout, entrances(paneFaces ?? [], city.bank))
+  : null;
 if (litPanes) scene.add(litPanes);
 if (lamps) {
   scene.add(markOccluder(lamps.posts), lamps.heads, lamps.pools);
@@ -1295,6 +1299,9 @@ setBarrelRoll(new URLSearchParams(window.location.search).get('barrelroll'));
 // The taxi waits for a car already turning left before pulling out round it; `?passturn=classic`
 // pulls out anyway and grinds along its flank, as before.
 setPassTurnGate(new URLSearchParams(window.location.search).get('passturn'));
+// The overtake combo throws the taxi into the oncoming lane the moment it is thrown, with no
+// judgement about what is there; `?overtake=classic` puts the judgement back.
+setOvertakeStyle(new URLSearchParams(window.location.search).get('overtake'));
 // A swinging-out taxi keeps its pace instead of matching the car it is going round, and a truck it
 // is passing stops holding it back through junctions; `?passpace=classic` puts both back.
 setPassPace(new URLSearchParams(window.location.search).get('passpace'));
@@ -2259,6 +2266,19 @@ let replayAt = null;
 let simClock = 0;
 // Set by the impact handler so the tape takes a sample on the impact frame itself — see `record`.
 let tapeImpact = false;
+
+// The polaroid on the run-end card (game/polaroid.js), and the new card layout it comes with:
+// `?gameover=classic` is the card without a print and with "Tap to continue" over the retry slot.
+const gameOverClassic = new URLSearchParams(window.location.search).get('gameover') === 'classic';
+const snapshot = gameOverClassic ? null : createSnapshot(renderer.domElement);
+// How far past the impact, in sim seconds, the replay's last cut is photographed: far enough for
+// the fireball to have bloomed over both cars, not so far that the smoke has swallowed them. Every
+// frame of that cut from the impact on is taken until one lands past this, because the cut can only
+// run as far past the hit as the live beat recorded — a slow device records less — and the last
+// frame it has is a better print than none. The live beat's last frame, taken as the replay cuts
+// in, is the fallback for a replay tapped past before it gets there.
+const PHOTO_AFTER = 0.14;
+let replayPhotoDone = false;
 
 // What the two shells keep of the taxi's speed as they slide out of the impact — the drift and the
 // slew in game/wreckage.js, both on util/carry.js's drag.
@@ -3578,8 +3598,11 @@ function showRating(count) {
   hud.rating.classList.add('is-drop');
   hud.rating.setAttribute('aria-label', `Rating ${text} stars`);
 }
+// The rating row is off the HUD for now (Tyler, 2026-10-20) — the rating still counts, and still
+// fires you at RATING_FLOOR, it just isn't drawn. `?stars=classic` puts it back under the cash.
+const starsShown = new URLSearchParams(window.location.search).get('stars') === 'classic';
 if (hud.strikes) hud.strikes.hidden = ratingOn;
-if (hud.rating) hud.rating.hidden = !ratingOn;
+if (hud.rating) hud.rating.hidden = !ratingOn || !starsShown;
 
 // The counter lags the payout on purpose: the flying "$X" rises off the taxi, travels to the HUD,
 // and only when it lands does the total tick up — so the payout has a visible path from the world
@@ -3786,10 +3809,52 @@ function popEarning(amount) {
 }
 
 /**
- * A word rising off the taxi and fading where it is — the getaway's "Checkpoint 1/2". The first
- * half of `popEarning`'s flight with no counter to land on, since nothing is being paid.
+ * A word rising off the taxi and fading where it is — the getaway's "Checkpoint 1/2", a combo's
+ * "Big Air 3x". The first half of `popEarning`'s flight with no counter to land on, since nothing
+ * is being paid.
+ *
+ * Labels take turns (Tyler, 2026-10-19: Big Air landing on a roadworks barricade drew "Big Air" and
+ * "Stuntman" on top of each other, since both start at the taxi on the same frame). One that
+ * arrives while another is up waits until that one has been readable for LABEL_HOLD_MS, then
+ * clears it with a quick fade and takes its place, so a pile-up reads in order without the last
+ * word turning up seconds after the move. A lone label still plays its whole 1.4s.
  */
+const LABEL_RISE_MS = 1400;
+const LABEL_HOLD_MS = 700;   // past the rise's peak (0.3 of 1400ms), long enough to read two words
+const LABEL_CLEAR_MS = 140;
+const labelQueue = [];
+let labelUp = null;          // { el, rise, at } — the one on screen
+let labelTimer = 0;
+
 function popLabel(text, cls = '') {
+  labelQueue.push({ text, cls });
+  pumpLabels();
+}
+
+function pumpLabels() {
+  if (!labelQueue.length) return;
+  if (labelUp) {
+    const wait = LABEL_HOLD_MS - (performance.now() - labelUp.at);
+    if (wait > 0) {
+      clearTimeout(labelTimer);
+      labelTimer = setTimeout(pumpLabels, wait);
+      return;
+    }
+    clearLabel(labelUp);
+  }
+  showLabel(labelQueue.shift());
+  if (labelQueue.length) labelTimer = setTimeout(pumpLabels, LABEL_HOLD_MS);
+}
+
+function clearLabel(up) {
+  const { el, rise } = up;
+  rise.pause();
+  el.animate([{ opacity: getComputedStyle(el).opacity }, { opacity: 0 }],
+    { duration: LABEL_CLEAR_MS, fill: 'forwards' }).onfinish = () => el.remove();
+  if (labelUp === up) labelUp = null;
+}
+
+function showLabel({ text, cls }) {
   const start = taxiScreenPos();
   const el = document.createElement('div');
   el.className = `earning is-label ${cls}`;
@@ -3802,8 +3867,13 @@ function popLabel(text, cls = '') {
     { opacity: 1, transform: 'translate(-50%, -50%) translateY(-26px) scale(1.06)', offset: 0.3 },
     { opacity: 1, transform: 'translate(-50%, -50%) translateY(-34px) scale(1)', offset: 0.75 },
     { opacity: 0, transform: 'translate(-50%, -50%) translateY(-44px) scale(1)' },
-  ], { duration: 1400, easing: 'cubic-bezier(0.22, 1, 0.36, 1)', fill: 'forwards' });
-  rise.onfinish = () => el.remove();
+  ], { duration: LABEL_RISE_MS, easing: 'cubic-bezier(0.22, 1, 0.36, 1)', fill: 'forwards' });
+  const up = { el, rise, at: performance.now() };
+  labelUp = up;
+  rise.onfinish = () => {
+    el.remove();
+    if (labelUp === up) labelUp = null;
+  };
 }
 
 /**
@@ -3971,6 +4041,12 @@ function updateHud(dt) {
     // `crashBannerAt` is null only for a run ended from outside the game (the console hook), which
     // has nothing to wait for.
     if (crashBannerAt !== null && performance.now() < crashBannerAt) return;
+    // A bust or a firing has no impact to pick a frame from: its print is the frame its pull-in
+    // ended on, drawn again here so it is in the buffer to be read.
+    if (snapshot && !snapshot.photo()) {
+      renderFrame();
+      snapshot.grab(PHOTO.END);
+    }
     showRunEnd(hud.banner, {
       title: s.failTitle,
       reason: s.failReason,
@@ -3991,6 +4067,8 @@ function updateHud(dt) {
       onRetry: () => { skipTitleNextLoad(); location.reload(); },
       // What the run unlocked, after the table and before the button.
       finale: showUnlockedMoves,
+      photo: snapshot?.photo() ?? null,
+      footHint: !gameOverClassic,
     });
     document.body.classList.add('game-over');
     sfx?.fadeOutMusic();
@@ -5487,6 +5565,11 @@ let repairCardIn = -1;
 // `?newmove=classic` puts the move cards back mid-run, a beat after the drop-off. The depot's card
 // is not a move and stays mid-run either way: it is about the car smoking now.
 const movesAfterRun = new URLSearchParams(window.location.search).get('newmove') !== 'classic';
+// The card's clip on polaroid paper and its keys in the HUD's own colours, without the glint
+// (Tyler, 2026-10-20). `?movecard=classic` is the bare rounded clip and the greyed keys.
+if (new URLSearchParams(window.location.search).get('movecard') === 'classic') {
+  document.body.classList.add('move-card-classic');
+}
 // What a closing card hands over to — the next card of the run's queue (`showUnlockedMoves`).
 let afterNewMove = null;
 const newMove = shot ? null : createNewMove({ viewport, onClose: () => afterNewMove?.() });
@@ -5675,6 +5758,11 @@ function tick() {
     replayAt = null;
     // A tape too short to reach back before the impact (a wreck in the first moments of a run)
     // has nothing to replay, and the card comes up on the old hold instead.
+    // The live beat's last frame, pulled in on the wreck: the polaroid if the replay is tapped past.
+    if (snapshot) {
+      renderFrame();
+      snapshot.grab(PHOTO.LIVE);
+    }
     if (!replay.start()) crashBannerAt = nowMs + CRASH_BANNER_DELAY - REPLAY_LEAD;
   }
   if (replay?.active()) {
@@ -5685,6 +5773,12 @@ function tick() {
       updateHud(0);
     }
     renderFrame();
+    // The polaroid: the last, tightest cut, from the impact up to the first frame past PHOTO_AFTER.
+    const at = replay.progress();
+    if (snapshot && at && !replayPhotoDone && at.shot === REPLAY_SHOTS - 1 && at.u >= 0) {
+      snapshot.grab(PHOTO.REPLAY);
+      replayPhotoDone = at.u >= PHOTO_AFTER;
+    }
     return;
   }
 
@@ -7392,6 +7486,23 @@ window.__taxi = {
    * (`?hitcue=`, game/hitcue.js) play as they would for real. For judging the look on a phone, and
    * for the frames in a PR. Never empties the car: the wreck is collisions.js's to call.
    */
+  /**
+   * Wreck the taxi into the nearest car, as a last-HP hit would — the blast, the replay and the
+   * run-end card with its polaroid. For the frames in a PR; nothing in the game calls it.
+   */
+  wreck: () => {
+    const taxi = traffic.taxi;
+    let near = null;
+    let best = Infinity;
+    for (const car of traffic.cars) {
+      if (car.crashed) continue;
+      const d = Math.hypot(car.x - taxi.x, car.z - taxi.z);
+      if (d < best) { best = d; near = car; }
+    }
+    if (!near) return false;
+    taxi.hp = 1;
+    return collisions.strike(near);
+  },
   hurt: (damage = 24) => {
     const taxi = traffic.taxi;
     damage = Math.min(damage, taxi.hp - 1);
@@ -7457,8 +7568,11 @@ window.__taxi = {
     reason: '',
     stats: [{ label: 'Cash', value: 0, format: (n) => `$${n}` }],
     onRetry: () => {},
+    footHint: !gameOverClassic,
     ...opts,
   }),
+  /** The polaroid's print as it stands, for tools/smoke.mjs: which grab it came from, or -1. */
+  photoRank: () => snapshot?.rank() ?? -1,
   /** Screen-space helpers so the browser smoke test can click real pixels. */
   taxiScreenPosition: taxiScreenPos,
   /**

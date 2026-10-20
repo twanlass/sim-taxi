@@ -152,8 +152,9 @@ What the final delivery settled, against the demo: construction, seagulls and th
 only** ("after testing in the game"); the birds are two intensities of three takes, strong for the
 flock scattering and soft for it landing, where the demo's three files were a PICK; the chirp is
 two short and two long takes, all four drawn at random; spawn has three takes and angry six; and
-the city bed is two 21 s loops (`CHAINED` in sfx.js), joined end to end at decode into one 42 s
-loop so it repeats half as often. Rain still comes both ways, to try in the mix.
+the city bed is the 21 s `19_AMB_city_loop_B_ST` alone. It came as two loops, A and B, and played
+them end to end as one 42 s loop until his October 19 mix, which dropped A ("B works much better
+right now"). Rain still comes both ways, to try in the mix.
 
 - **PICK sounds** (`PICKED` in sfx.js): where he sent alternatives, the files are not random takes.
   `mix.sounds.<key>.pick` names the one that plays, and the ⚙️ panel switches it live (a bed swaps
@@ -184,7 +185,7 @@ loop so it repeats half as often. Rain still comes both ways, to try in the mix.
 | `spawn` | 16 A–C | Once per entrance, the city building itself (the wave) | first frame of `cityEntry.running()` with a context and a decoded take; re-armed by a replay. **Not heard under the title screen**, which settles the entrance before anything can be tapped |
 | `gate` | 17 | The depot's roller door at the start of a run | `opening.phase()` going `settle` → `door` |
 | `bridge` | 18 | The whole drawbridge cycle, from the barriers starting down | `drawbridge.state.phase` → `closing`; steered for 26 s |
-| `city` | 19 A then B | Bed, everywhere, always; the two loops play end to end | — |
+| `city` | 19 B | Bed, everywhere, always | — |
 | `construction` | 20 MONO | Bed at the roadworks' closed block while it stands, faded with it | `roadwork.state` |
 | `birdsUp` / `birdsDown` | 21 strong A–C / soft A–C | A pigeon flock scattering / the last of it landing | `flock.state.flights` / `.landings` |
 | `plane` | 22 | The light aircraft, started 1.4 s into its run to centre on the pass, steered | `flyover.state.flights` |
