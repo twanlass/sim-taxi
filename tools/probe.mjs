@@ -44,7 +44,7 @@ import { createTubeMan } from '../src/game/tubeman.js';
 import { createManholes, planManholes, manholeGeometry, COVER_R, COVER_COUNT, BOX_CLEAR } from '../src/city/manholes.js';
 import { createCarWash } from '../src/city/carwash.js';
 import { createGasStation } from '../src/city/gasstation.js';
-import { collectPanes } from '../src/game/citylights.js';
+import { collectPanes, entrances, streetLamps } from '../src/game/citylights.js';
 import { LOT_Y, ROADSIDE_MODE, roadsideKind } from '../src/city/roadside.js';
 import { onLawn } from '../src/city/ground.js';
 import { createHoopers } from '../src/game/hoopers.js';
@@ -1492,6 +1492,31 @@ const onGrass = (city, i, j) => {
   check('and its music has somewhere to play from', !!box.emitter
     && Math.hypot(box.emitter.x - propsBuild.boombox.x, box.emitter.z - propsBuild.boombox.z) < 1,
     box.emitter ? `at (${box.emitter.x.toFixed(1)}, ${box.emitter.z.toFixed(1)})` : 'no emitter');
+
+  // Through the city's entrance wave and out the other side, no note shows anywhere but over its
+  // box. The wave once owned the notes' visibility too, and its last frame switched the whole pool
+  // on — the never-emitted spares included, unturned at the world origin and half sunk in the road.
+  const waveScene = new THREE.Scene();
+  const waveBox = createBoombox(waveScene, makeRng(5), propsBuild.boombox);
+  const wave = createCityEntry({ meshes: [], objects: waveBox.entryObjects });
+  let stray = 0;
+  let hiddenEarly = true;
+  for (let n = 0; n < 60 * 30 && wave.running(); n++) {
+    wave.update(1 / 60);
+    waveBox.update(1 / 60);
+    if (!waveBox.holder.visible && waveBox.notes.some((note) => note.mesh.visible)) hiddenEarly = false;
+  }
+  for (let n = 0; n < 120; n++) {
+    waveBox.update(1 / 60);
+    for (const note of waveBox.notes) {
+      if (!note.mesh.visible) continue;
+      const p = note.mesh.position;
+      if (Math.hypot(p.x - propsBuild.boombox.x, p.z - propsBuild.boombox.z) > 4) stray += 1;
+    }
+  }
+  check('no note shows before its box arrives, or away from it after',
+    !!propsBuild.boombox && !wave.running() && hiddenEarly && stray === 0,
+    `${stray} note-frames away from the box${hiddenEarly ? '' : '; notes showed before the box'}`);
 }
 
 // The roadside block (city/roadside.js): the car wash (city/carwash.js) or the gas station
@@ -16922,6 +16947,39 @@ let chopperOrder; // likewise
   // `createLayout` installs the network it bakes as *the* city network (see CLAUDE.md), so the
   // sweep above has replaced the city everything below this point measures against. Put it back.
   createLayout(makeRng(seed));
+}
+
+// Rain Mode's street lamps keep off every doorway, and off the bank's steps. Measured as the
+// distance from each post to the doorway's own span on the façade — not through the placement's
+// along/across test — over a sweep of cities, and against the same lamps placed blind, so the check
+// is shown to bite: a post on the bank's steps was the bug.
+{
+  const crowding = (lamps, doors) => lamps.spots.filter(({ px, pz }) => doors.some((d) => {
+    // The nearest point on the door's span along its façade.
+    const t = THREE.MathUtils.clamp((px - d.x) * d.nz - (pz - d.z) * d.nx, -d.half, d.half);
+    const qx = d.x + d.nz * t;
+    const qz = d.z - d.nx * t;
+    // A unit: the placement keeps 1.2 off the door's edge along the kerb, and the post is 0.4 out.
+    return Math.hypot(px - qx, pz - qz) < 1;
+  })).length;
+  let placed = 0;
+  let near = 0;
+  let blind = 0;
+  for (let n = 0; n < 6; n++) {
+    const s = seed + n * 613;
+    const sweepLayout = createLayout(makeRng(s));
+    const stop = collectPanes();
+    const sweepCity = createBuildings(makeRng(s + 22), sweepLayout);
+    const doors = entrances(stop(), sweepCity.bank);
+    const lamps = streetLamps(makeRng(s + 392), sweepLayout, doors);
+    placed += lamps.spots.length;
+    near += crowding(lamps, doors);
+    blind += crowding(streetLamps(makeRng(s + 392), sweepLayout), doors);
+  }
+  createLayout(makeRng(seed));
+  check('no street lamp stands in front of a doorway or the bank’s steps',
+    near === 0 && blind > 0 && placed > 0,
+    `${near} of ${placed} posts on a doorway (${blind} placed blind)`);
 }
 
 // --- The bank, and the robbery that comes out of it ---------------------------
