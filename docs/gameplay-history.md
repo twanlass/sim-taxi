@@ -1211,6 +1211,48 @@ vignette where you wanna smash through roadblocks." The getaway fills the tank a
 across your route; the third rule made the second the one thing it asked of you that ended the run.
 Replaced by [getting caught](gameplay.md#getting-caught).
 
+## The street race's start, opposite ways round
+
+The first cut-to-the-start put the two cars window to window on the street's two lanes, the racer
+facing its own way so it was never driving into traffic, and they set off in opposite directions.
+On a grid that made one of them always a block nearer the finish, which `chooseFinish` evened out by
+picking the corner with the smallest gap in `estimateSeconds`. Tyler asked for them to take off the
+same way; the racer now starts in the oncoming lane and the drag decides the lane (gameplay.md).
+
+## The street race, before the tap came back
+
+The first builds had the racer pull over a couple of blocks off and wait at the kerb for a tap, and
+dropped the offer the moment anything held the run. In play the tap was unreliable (Tyler: "after I
+drop off the very first passenger, if I tap on the purple racer, nothing happens"): the offer was
+withdrawn under the first drop-off's tutorial tip, and the car could not be tapped while it was
+still driving to its kerb or leaving. For one build the race then started itself whenever the cab
+was idle, declined by any tap that routed the taxi. Tyler asked for the tap back, with a cut to the
+start ("Tap racer to start, cut scene, side by side start"): the racer now tails the taxi with its
+tap target up from the frame it appears, and only a getaway, a chase or the end of the run takes it
+away.
+
+## The street race as a visit
+
+Until the racer became a standing offer it was a visit: it turned up only with the cab empty, tailed
+the taxi for `OFFER_TIME` (30s, routed to the taxi's junction by `tail`), then drove off and did
+not come back for 100-160s (`REPEAT_WAIT`), and it left after every race. Whether a race was on
+offer came down to timing. Tyler: "Keep the racer around all the time. If the player is within a
+few blocks show the … bubble off screen. If they get too far away or pickup a ride temp hide it."
+
+## The street race's finish, before it was staged
+
+The first finale left both cars where they were: the word ("You win!" / "Beaten!") landed the
+moment the first one was home, and the camera followed the loser to the line for up to
+`FINALE_MAX` (6s) before the money moved, so a loser still on its way out to the flag was never
+seen arriving. Tyler asked for it as a scene instead: winner pulls up, cut to the loser a block
+out, skid in beside the winner, then the word, then the money.
+
+## The street race on the clock
+
+For one build the racer turned up 15-30s into the run and stayed for the rest of it, offering again
+20s after every race. Tyler moved it onto deliveries: first after a random 2nd to 4th drop-off, and
+again as many drop-offs after each race, so a race is something the fare loop earns.
+
 ## The NES pedals' shine, and the flat buttons
 
 From 2026-10-15 to 2026-10-20 the NES B and A carried a hard white glint on the upper left, a dot
@@ -1225,3 +1267,11 @@ with only the white shine removed. `?buttons=classic` brings back the shine and 
 The fuse flame first stood up off the fuel's front, 20° off the outward normal, and took the
 plume's colours up a drift chain — violet, blue, teal, with the fuel's gradient following. Tyler
 asked for it turned to lie along the bar's direction of travel, and orange only.
+
+## The street race's way out
+
+Until the tap-elsewhere decline, there was no "no" to the racer's question: the player turned it
+down by tapping a street any time before the green, which gave the parked taxi a route and called
+the race off with "Next time, then." Tyler simplified it: anything but the card says no, and
+accepting is final.
+

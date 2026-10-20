@@ -248,6 +248,9 @@ export const BUSES = [
   { key: 'player', label: 'Player', parent: 'sfx' },
   { key: 'world', label: 'World', parent: 'sfx' },
 ];
+// Where "bass" stops for `readBass`: the kick and the bass line, under the snare.
+const BASS_HZ = 150;
+
 /** The buses with a `buses.<key>` fader of their own in mix.json. */
 const OWN_FADER = ['master', 'player', 'world'];
 
@@ -752,6 +755,9 @@ export function createSfx({ rng, menuMusic = false, menuSongs = false, radioFade
   // The ⚙️ panel's peak meter on `out`, made the first time it is read (`readMeter`): a tap off the
   // side of the chain, so it changes nothing that is heard, and absent from a normal session.
   let meterTap = null;
+  // The street racer's underglow pulses to the music (`readBass`): a tap off the Music bus, made the
+  // first time a racer asks, after the bus's own fader — so a muted or ducked song pulses nothing.
+  let bassTap = null;
   /** What the SFX bus gain should read: the mix's level, under the player's slider and the mute. */
   const masterLevel = () => (state.muted ? 0 : mix.master * state.effects ** 2);
   const musicLevel = () => (state.muted || state.musicOut ? 0
@@ -863,6 +869,28 @@ export function createSfx({ rng, menuMusic = false, menuSongs = false, radioFade
       for (const x of meterTap.data) { const m = Math.abs(x); if (m > peak) peak = m; }
       return peak;
     });
+  }
+
+  /**
+   * How much low end is on the Music bus right now, 0..1 — the kick drum, near enough. The bins
+   * under `BASS_HZ`, averaged, on the analyser's own dB scale (minDecibels..maxDecibels mapped to
+   * 0..1), with no smoothing of its own: the caller wants the transient, and smooths it there.
+   */
+  function readBass() {
+    if (!ctx || !musicBus) return 0;
+    if (!bassTap) {
+      const a = ctx.createAnalyser();
+      a.fftSize = 1024;
+      a.smoothingTimeConstant = 0;
+      musicBus.connect(a);
+      const bins = Math.max(1, Math.round(BASS_HZ / (ctx.sampleRate / a.fftSize)));
+      bassTap = { a, bins, data: new Uint8Array(a.frequencyBinCount) };
+    }
+    bassTap.a.getByteFrequencyData(bassTap.data);
+    let sum = 0;
+    // From bin 1: bin 0 is DC.
+    for (let i = 1; i <= bassTap.bins; i++) sum += bassTap.data[i];
+    return sum / bassTap.bins / 255;
   }
 
   function makeLoop(key, gain = 0) {
@@ -1759,6 +1787,8 @@ export function createSfx({ rng, menuMusic = false, menuSongs = false, radioFade
     audible: pass,
     /** The peak on Master since the last read, `[left, right]` linear, or null before a tap. */
     meter: readMeter,
+    /** The low end on the Music bus, 0..1 — what the street racer's underglow pulses to. */
+    bass: readBass,
     audition,
     stopAuditions,
     files: FILES,

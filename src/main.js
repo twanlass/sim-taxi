@@ -106,6 +106,8 @@ import { createClouds } from './game/clouds.js';
 import { createCarGhosts } from './game/carghosts.js';
 import { createRoadwork } from './game/roadwork.js';
 import { createFire } from './game/fire.js';
+import { createRace, WIN_PAY, LOSE_COST, TANK_FLOOR } from './game/race.js';
+import { createSpeech } from './game/speech.js';
 import { createFlatbed } from './game/flatbed.js';
 import { createBoxSpill } from './game/boxspill.js';
 import { showRunEnd } from './game/runend.js';
@@ -114,7 +116,7 @@ import { recordRun, lastName, clearScores, loadScores } from './game/highscores.
 import { loadLocoTuning, saveLocoTuning, clearLocoTuning } from './game/locostash.js';
 import {
   TAXI_TAILPIPE_BACK, TAXI_TAILPIPE_HEIGHT, TAXI_REAR_AXLE_BACK, TAXI_REAR_TRACK,
-  TAXI_FRONT_AXLE_FWD, TAXI_FRONT_TRACK,
+  TAXI_FRONT_AXLE_FWD, TAXI_FRONT_TRACK, TAXI_SCALE,
 } from './geometry/taxi.js';
 import { createDaylight, DAY_SECONDS } from './game/daylight.js';
 import { createPicker } from './game/pick.js';
@@ -1225,13 +1227,16 @@ const copShout = shot || !copChat ? null : createCopShout({ project: projectToSc
  * burger mid-chase is a pause button with cops waiting outside it.
  */
 const getaway = () => Boolean(robbery?.state.active);
+// The street race (game/race.js), built further down beside the fire; declared here because the
+// gates below read it.
+let race = null;
 /**
  * ...and the wider version the tips are held behind: a getaway, or the chase its drop-off hands to
  * the patrol (`handOff`). Tyler got "Head to the shop for repairs" over the road mid-getaway. A
  * held tip is *deferred*, not dropped — see the depot's card (`newMoveCalm`) and `quiet` in
  * game/tutorial.js.
  */
-const hushTips = () => getaway() || patrol.busy();
+const hushTips = () => getaway() || patrol.busy() || Boolean(race?.active());
 // How the police end a run (game/patrol.js, "The capture model"): a hit on a cop is a hit on a car,
 // and "Busted!" is being pinned — stopped with a chasing cop's bumper on you — by the patrol or by a
 // getaway's fleet alike. `?capture=classic` keeps the three rules it replaced: any patrol touch is
@@ -1636,6 +1641,15 @@ if (bankJob && bankFare) {
 // for as long as the button is held. No seed — the flicker is a flipbook on a clock, and a flame
 // that came out differently on two runs of the same seed would take the screenshots with it.
 const locoFlame = createLocoFlame(scene);
+// The street racer's Loco Mode (Tyler: "racer should use loco, show flames out tailpipe"). Its pace is
+// its own (`RIVAL_CHASE`, a lifted cruise ceiling), so what it shows is when it is spending it: lit
+// above RACER_FLAME_SPEED, out as it brakes for a corner, the way the player's thumb goes on and off
+// the pill. Off an ordinary car body, so the pipe is at the back of CAR_LEN rather than the taxi's.
+const racerFlame = createLocoFlame(scene, { back: CAR_LEN / 2 + 0.05 });
+// 1.5× ordinary cruise (8.5): well clear of anything traffic does, and reached a second or so off
+// every corner on the racer's 21.7 ceiling.
+const RACER_FLAME_SPEED = 12.75;
+const NO_CAR = { x: 0, z: 0, yaw: 0, crashed: true };
 // Where the two wrecked cars end up: crumpled, scorched and **left on the road** rather than faded
 // out from under their own fireballs. See game/wreckage.js for why the fade went — the short of it
 // is that a crash has to answer "what did I just hit" for as long as the shot is held, and the
@@ -2030,6 +2044,215 @@ const fire = createFire({
 });
 // The engine's bar blooms at the cruiser's strength; the flames bloom on their own (`flame`).
 for (const mesh of fire.emissiveMeshes) markEmissive(mesh, 'siren');
+
+// The street race: with the cab empty, a violet racer turns up and tails the
+// taxi, calling out the stakes (game/race.js). Tap it and the screen cuts to the two of them side by
+// side, the camera looks at the finish and comes back, and it is three, two, one; from the tap the
+// board steps aside the way it does for a getaway (`setHold`). `?race=classic` has no racers in the
+// city; `?race=soon` brings the first one a few seconds in.
+const raceParam = new URLSearchParams(window.location.search).get('race');
+race = shot || raceParam === 'classic' ? null : createRace({
+  rng: makeRng(runSeed + 743), scene, traffic, routeTo,
+  soon: raceParam === 'soon',
+  // The underglow pulses to whatever the music is doing (game/sfx.js, `bass`).
+  bass: () => sfx?.bass?.() ?? 0,
+  // Nothing turns up over anything that owns the run, or over a trip the taxi is already on to the
+  // depot or the drive-through.
+  blocked: () => traffic.taxi.staged || getaway() || patrol.busy() || fares.state.gameOver
+    || fareLoopHeld() || tutorialTalking || Boolean(tutorial?.holdsCamera())
+    || Boolean(burgerRun?.active() || depotRun?.active()),
+  // ...but once one is on screen only something that owns the run outright takes it away. The tap
+  // it waits for has to keep working through a tutorial tip or a trip to the burger joint, or the
+  // racer is a car that ignores the player (Tyler: "if I tap on the purple racer, nothing happens").
+  interrupted: () => traffic.taxi.staged || getaway() || patrol.busy() || fares.state.gameOver,
+  // An empty cab: the tap is refused with a rider aboard.
+  canStart: () => !fares.carrying(),
+  // Two units inside the frame to come up, two outside to go, so a car on the edge does not flick.
+  seen: (car, keep) => inShot(car.x, car.z, keep ? 2 : -2),
+  delivered: () => fares.state.delivered,
+  onEvent: onRaceEvent,
+});
+fares.setHold(() => Boolean(race?.holdsBoard()));
+// The rival's speech bubble — the challenge, with the stakes on it, pinned to its roof.
+const raceTalkRoot = document.getElementById('race-talk');
+const raceTalk = race && raceTalkRoot ? createSpeech(raceTalkRoot, { viewport }) : null;
+// The tag answers a tap too, and the card under it: the racer can be off screen when it offers,
+// and then the tag at the edge is the only thing there is to tap.
+raceTalkRoot?.addEventListener('pointerup', (e) => {
+  if (e.target.closest('.speech-tag-pin, .speech-card')) acceptRace();
+});
+const raceTalkAt = () => {
+  const at = race?.rivalAt();
+  // Just over the roof: it used to clear the flag the racer flew there, which put it 3.6 up.
+  return at ? projectToScreen(at.x, 2.2, at.z) : null;
+};
+
+/**
+ * Everything the player sees off the race: the bubble, the count, the money. game/race.js knows a
+ * race happened; what a run's cash and a tank are for is this file's.
+ */
+function onRaceEvent(type, detail) {
+  if (type === 'available') {
+    // In reach with an empty cab: just the talker's "…" tag until the player taps it (`race.ask`) —
+    // pointing in from the screen edge when the car is off it — and the horn to say so. Without a
+    // tag (`?bubbles=classic`/`dock`), a card with only the dots on it.
+    if (raceTalk && !raceTalk.showTag(raceTalkAt)) {
+      raceTalkRoot?.classList.add('is-ellipsis');
+      raceTalk.show('', '…', raceTalkAt);
+    }
+    // The horn only for a racer in reach: one the camera merely panned across is not calling out.
+    if (detail.near) sfx?.play('horn', { at: placeAt(detail.car.x, detail.car.z) });
+  } else if (type === 'asked') {
+    haptic('snap');
+    raceTalkRoot?.classList.remove('is-ellipsis');
+    raceTalk?.show('Street racer', 'Wanna race?', raceTalkAt);
+  } else if (type === 'unavailable') {
+    // Out of reach, a rider aboard, or something owning the run: gone until that changes.
+    raceTalk?.hide();
+  } else if (type === 'accepted') {
+    fares.undirect();
+    // Answered on the frame of the tap, before the cut: the horn and the racer's own word. The
+    // first build only hid the bubble and started the wipe, so the first thing the player could
+    // see was the next bubble half a second later (Tyler: "I tap it and then a little while later
+    // I see a little chat bubble... What's the delay for?") — and on a phone browser the haptic,
+    // the one thing that did land on the tap, does not exist.
+    haptic('pick');
+    sfx?.play('horn', { at: placeAt(detail.car.x, detail.car.z) });
+    raceTalk?.show('Street racer', "You're on!", raceTalkAt);
+    // ...and then the cut to the start, once that has been heard: both cars are put side by side
+    // under the black (game/race.js, `stage`). The bubble sits under the wipe, so cutting at once
+    // would black it out before it had finished growing.
+    setTimeout(() => {
+      if (race?.state.phase !== 'cut') return;
+      if (wipe) wipe.cut(() => race?.stage(), RACE_CUT_HOLD); else race.stage();
+    }, RACE_CUT_DELAY);
+  } else if (type === 'staged') {
+    // Open on the two of them, close up — the faceoff — and hold it until the look at the finish.
+    raceShot = { x: detail.x, z: detail.z };
+    raceZoomHome ??= controller.state.zoom;
+    controller.cutTo(detail.x, detail.z, RACE_SHOT_ZOOM, controller.state.yaw, aspect());
+    raceTalk?.show('Street racer', 'Round the flag and back.', raceTalkAt);
+    sfx?.play('horn', { at: placeAt(detail.car.x, detail.car.z) });
+  } else if (type === 'declined') {
+    raceShot = null;
+    raceTalkRoot?.classList.remove('is-ellipsis');
+    raceTalk?.show('Street racer', 'Next time, then.', raceTalkAt);
+    // ...and gone once it has been read, unless the offer is back up by then.
+    setTimeout(() => { if (race && !race.offering() && !race.busy()) raceTalk?.hide(); }, RACE_DECLINE_MS);
+  } else if (type === 'lined-up') {
+    raceShot = null;
+    // The bubble is pinned to the rival, which the camera is about to leave behind.
+    raceTalk?.hide();
+    // Go and look at the finish, and come back to the taxi; the count starts when the camera is
+    // home. The rider-finder chip's move (`panToRider`), with the faceoff's zoom easing back out
+    // beside it. A swipe mid-pan drops the callback and the race counts in on its own clock
+    // (REVEAL_MAX in game/race.js).
+    releaseCameraToPlayer();
+    controller.peekAt(detail.x, detail.z, () => traffic.taxi, () => {
+      cameraTakenOver = false;
+      race?.countIn();
+    });
+  } else if (type === 'count') {
+    raceTalk?.hide();
+    popLabel(String(detail.n), 'is-count');
+    haptic('snap');
+  } else if (type === 'go') {
+    popLabel('Go!', 'is-count');
+    haptic('loco');
+    // Enough in the tank to race on — see TANK_FLOOR. Poured straight in rather than flown: the
+    // player's thumb is already on the pill.
+    if (boost.fraction() < TANK_FLOOR) boost.topUp(TANK_FLOOR - boost.fraction());
+  } else if (type === 'rounded') {
+    // Halfway: the flag has just jumped back to the start line, which is easy to miss on a phone.
+    popLabel('Head back!', 'is-count');
+    haptic('snap');
+  } else if (type === 'home') {
+    // The first one is over the line, and pulls up there (game/race.js, WINNER_HOLD). Nothing on
+    // screen says who yet: that waits for the loser to be in (Tyler's steps 1-5, `updateFinale`).
+    haptic('snap');
+  } else if (type === 'arrival-cut') {
+    // Step 3: cut to the loser, a block out — under the black, like the start.
+    if (wipe) wipe.cut(() => race?.stageArrival(), RACE_CUT_HOLD); else race?.stageArrival();
+  } else if (type === 'arrival') {
+    // ...and open on it, rolling in at RACE_WATCH_ZOOM, followed until it has stopped beside the
+    // winner and the money has moved (`settleRaceWatch`).
+    raceWatch = detail.loser;
+    raceZoomHome ??= controller.state.zoom;
+    cameraTakenOver = false;
+    controller.cutTo(detail.loser.x, detail.loser.z, RACE_WATCH_ZOOM, controller.state.yaw, aspect());
+  } else if (type === 'skid') {
+    // Step 4's skid: the squeal, and rubber off the back wheels while it slides (`raceRubber`).
+    raceSkid = detail.car;
+    sfx?.play('skid', { at: placeAt(detail.car.x, detail.car.z) });
+  } else if (type === 'decided') {
+    // Step 5: pulled up beside the winner — the word. The money is RESULT_HOLD later ('won'/'lost').
+    raceSkid = null;
+    popLabel(detail.winner === 'taxi' ? 'You won!' : 'You lost!');
+    haptic(detail.winner === 'taxi' ? 'pick' : 'snap');
+    raceWatch ??= detail.loser;
+    raceZoomHome ??= controller.state.zoom;
+  } else if (type === 'won') {
+    fares.credit(WIN_PAY);
+    popEarning(WIN_PAY);
+    haptic('pick');
+    settleRaceWatch();
+  } else if (type === 'lost') {
+    // Through `charge`, so an empty till pays what it has (see BURGER_PRICE's note in fares.js).
+    // Flown to the racer rather than up into the counter: it is the racer's money now.
+    const paid = fares.charge(LOSE_COST);
+    if (paid > 0) {
+      const car = detail.car;
+      popEarning(-paid, () => (car ? projectToScreen(car.x, 1, car.z) : null));
+    }
+    settleRaceWatch();
+  } else if (type === 'void') {
+    raceShot = null;
+    raceWatch = null;
+    raceSkid = null;
+    popLabel('Race off');
+  }
+}
+
+// The cut to the start: the skip's own beat of black (game/wipe.js). It was 250ms, to read as a
+// scene change, and that read as lag instead: 160 + 250 + the fade back before anything answered
+// the tap. The close-up it opens on — tighter than the wreck's 26, since
+// the two cars are side by side in the middle of it. At 30 the first browser pass read as barely
+// closer than play.
+const RACE_CUT_HOLD = 90;
+// How long "You're on!" gets before the screen goes: its ten letters type in 0.26s (speech.js).
+const RACE_CUT_DELAY = 500;
+// How long "Next time, then." stays up: its 16 letters type in ~0.4s (speech.js), then a beat to read.
+const RACE_DECLINE_MS = 1800;
+const RACE_SHOT_ZOOM = 22;
+// The faceoff's framing, while it holds the camera; and the zoom to walk back to after it.
+let raceShot = null;
+let raceZoomHome = null;
+// The loser, followed home after the winner is in ('decided'), at RACE_WATCH_ZOOM.
+let raceWatch = null;
+const RACE_WATCH_ZOOM = 30;
+// The finale's loser while it skids in to stop beside the winner — see `raceRubber`.
+let raceSkid = null;
+let raceSkidAt = -Infinity;
+// How long the camera stays on the line once the money is up: popEarning's pop and flight
+// (560 + 380ms), so the zoom back out starts as the money lands.
+const RACE_MONEY_MS = 940;
+let raceWatchTimer = 0;
+function settleRaceWatch() {
+  clearTimeout(raceWatchTimer);
+  raceWatchTimer = setTimeout(() => { raceWatch = null; }, RACE_MONEY_MS);
+}
+
+/** A tap on the racer: the first one asks what it wants, the second takes it on. */
+function acceptRace() {
+  if (!race || fares.state.gameOver || !race.offering()) return;
+  raceTalkRoot?.classList.remove('is-ellipsis');
+  if (fares.carrying()) {
+    raceTalk?.show('Street racer', 'Drop your fare off first.', raceTalkAt);
+    return;
+  }
+  if (!race.state.asked) race.ask();
+  else race.accept();
+}
 
 // Occluded-only outlines on the traffic nearest the taxi, faded in with Loco Mode — the one mode
 // where a car hidden behind a tower is a crash rather than a surprise. See game/carghosts.js.
@@ -2486,6 +2709,17 @@ const routeLine = createRouteLine(scene);
 // headless: 3,128 mirror pixels at its own height, none 0.5mm lower. On a phone that tie flipped as
 // the camera moved and the band flashed in every wet street and puddle it crossed.
 rain.hideInMirror(routeLine.mesh);
+// The street racer's route, from the green to the line (Tyler: "a ghost path for the racer too so
+// we can see their charted path"): the same band, in the racer's violet and fainter than the
+// taxi's, so the two can cross without the player losing which one is theirs.
+// 0.22 against the taxi's ROUTE_OPACITY 0.38: where the two bands overlap, the taxi's still reads on top.
+const RIVAL_LINE_OPACITY = 0.22;
+const rivalLine = race ? createRouteLine(scene) : null;
+if (rivalLine) {
+  rivalLine.setColor(PALETTE.racerBody);
+  rivalLine.setOpacity(RIVAL_LINE_OPACITY);
+  rain.hideInMirror(rivalLine.mesh);
+}
 
 // `?blend=additive` picks how the band combines with the road. A URL parameter as well as the
 // ⚙️ dropdown because a screenshot has to be able to pin it: the panel doesn't exist in shot mode.
@@ -2745,7 +2979,7 @@ const tapPoint = new THREE.Vector3();
  * player, on whatever clock is already running. See game/burgerrun.js.
  */
 function sendForBurger() {
-  if (!burgerRun || getaway()) return;
+  if (!burgerRun || getaway() || race?.busy()) return;
   // Same rule as the fare and package taps: the buzz reports that the taxi is now going somewhere
   // else, so it is gated on the route actually being taken.
   if (burgerRun.send()) haptic('pick');
@@ -2769,8 +3003,8 @@ function sendForRepairs() {
 /** Whether a tap on the depot would be taken right now — `sendForRepairs`'s refusals, and the picker's. */
 function canRepair() {
   if (!depotRun || !opening || opening.running() || opening.visiting()) return false;
-  // Shut for a getaway — see `getaway`.
-  if (getaway()) return false;
+  // Shut for a getaway — see `getaway` — and for a race the taxi is lined up for or running.
+  if (getaway() || race?.busy()) return false;
   // Nor while anything else is driving the car — the drive-through, mostly. A route planned under a
   // staged taxi would be overwritten by the job that trip hands back on the way out.
   if (traffic.taxi.staged || traffic.taxi.hp >= TAXI_HP) return false;
@@ -2813,9 +3047,17 @@ createPicker(
   camera,
   renderer.domElement,
   () => [traffic.taxiGroup, ...fares.pickables(), ...(parcels?.pickables() ?? []),
-    ...(burger ? [burger.group] : []), ...(garage ? [garage.group] : [])],
+    ...(burger ? [burger.group] : []), ...(garage ? [garage.group] : []),
+    ...(race?.pickables() ?? [])],
   (kind, hit, ray) => {
     if (fares.state.gameOver) return;
+
+    // The street race: from the second tap to the green the race is on and a tap changes nothing
+    // (game/race.js, `locked`); and once the racer has asked, a tap anywhere but on it (or its
+    // card, which answers on its own pointerup) turns it down — "Next time, then." — and then does
+    // whatever it would have done.
+    if (race?.locked()) return;
+    if (kind !== 'racer') race?.decline();
 
     // **A tap skips a repair visit**, behind the opening's own cut to black — unless it lands on a
     // rider, a drop-off or a package. The board is live through a visit (only its clocks are
@@ -2846,6 +3088,10 @@ createPicker(
 
     if (kind === 'burger') {
       sendForBurger();
+      return;
+    }
+    if (kind === 'racer') {
+      acceptRace();
       return;
     }
     if (kind === 'depot') {
@@ -3687,8 +3933,11 @@ function rollMoneyTo(target, up = true) {
  * What changes is the sign, the colour (red, `.is-charge`) and nothing else — including the
  * direction, which stays up into the counter. A charge flown out of the counter would read as the
  * player being *given* something.
+ *
+ * `to` sends it somewhere else instead, read at the moment of the flight: a street race lost pays
+ * the racer, so the money flies to the car (Tyler) and the counter only rolls once it has gone.
  */
-function popEarning(amount) {
+function popEarning(amount, to = null) {
   const counter = counterScreenPos();
   const start = payoutScreenPos();
   const el = document.createElement('div');
@@ -3698,12 +3947,6 @@ function popEarning(amount) {
   el.style.top = `${start.y}px`;
   document.body.append(el);
 
-  // The counter's position is resolved *at launch* rather than baked into a CSS keyframe, so a
-  // window resize between deliveries still aims each flight at where the counter actually is now.
-  const target = counter ?? { x: start.x, y: start.y - 74 };
-  const dx = target.x - start.x;
-  const dy = target.y - start.y;
-
   // Phase 1: pop in and hold a beat, long enough to read the amount.
   const rise = el.animate([
     { opacity: 0, transform: 'translate(-50%, -50%) translateY(10px) scale(0.7)' },
@@ -3712,6 +3955,12 @@ function popEarning(amount) {
   ], { duration: 560, easing: 'cubic-bezier(0.22, 1, 0.36, 1)', fill: 'forwards' });
 
   rise.onfinish = () => {
+    // The target is resolved *at launch* rather than baked into a CSS keyframe, so a window resize
+    // between deliveries still aims each flight at where the counter actually is now — and a car
+    // flown to is wherever it has driven to by then.
+    const target = to?.() ?? counter ?? { x: start.x, y: start.y - 74 };
+    const dx = target.x - start.x;
+    const dy = target.y - start.y;
     // Phase 2: fly to the counter and shrink, landing on top of it. Slight scale-down at the
     // end so the flight has a target rather than a vague fade-in-the-middle.
     const fly = el.animate([
@@ -5326,6 +5575,26 @@ function driveThruSpeaker() {
 const COP_REAR = wheelAnchors(CAR_LEN, CAR_W).find((w) => !w.front && w.z > 0);
 const copSkidAt = new WeakMap();
 const copWasSliding = new WeakSet();
+/**
+ * Rubber off the street race's loser as it skids in beside the winner — the cop's stamp (`copRubber`)
+ * off its two back wheels, scaled up for the taxi, whose drawn body is TAXI_SCALE longer.
+ */
+function raceRubber() {
+  const car = raceSkid;
+  if (!car || car.v < 0.5) { raceSkidAt = -Infinity; return; }
+  if (car.travelled - raceSkidAt < 0.42) return;
+  raceSkidAt = car.travelled;
+  const k = car.isTaxi ? TAXI_SCALE : 1;
+  const fx = Math.cos(car.yaw);
+  const fz = -Math.sin(car.yaw);
+  const rx = Math.sin(car.yaw);
+  const rz = Math.cos(car.yaw);
+  for (const side of [-1, 1]) {
+    skids.add(car.x + (fx * COP_REAR.x + rx * side * COP_REAR.z) * k,
+      car.z + (fz * COP_REAR.x + rz * side * COP_REAR.z) * k, car.yaw);
+  }
+}
+
 function copRubber() {
   for (const car of traffic.policeCars) {
     const sliding = copLaysRubber(car);
@@ -5834,7 +6103,9 @@ function tick() {
     const bootlegBrake = bootleg.update(dt, { brakeHeld: brakeHeld && !fares.state.gameOver });
     overtake.update(dt, { held: boost.isActive() && !traffic.taxi.staged, brakeHeld });
     const drifting = driftHolds(traffic.taxi) && traffic.taxi.drift.phase !== 'carry';
-    traffic.taxi.braking = bootlegBrake && !drifting;
+    // Or the street race's, for the finale: the winner pulling up and the loser skidding in. Through
+    // the pedal because `parked` stops a car dead on the frame it is set (game/race.js).
+    traffic.taxi.braking = (bootlegBrake && !drifting) || Boolean(race?.brakesTaxi());
   }
   updateBoostButton(dt);
   skids.update(dt);
@@ -6119,6 +6390,17 @@ function tick() {
   // After the traffic step too: the engine's pose is written by it, and the ladder and the jet are
   // aimed off that pose.
   fire.update(dt);
+  if (fares.state.gameOver) race?.abandon();
+  race?.update(dt);
+  raceTalk?.update(dt);
+  // Up for as long as the racer is on the road — its parting word included, said as it drives off.
+  if (race?.state.phase === 'waiting' && raceTalk?.isOpen()) raceTalk.hide();
+  // The faceoff's close-up walked back out to the zoom the player had, beside whichever claim owns
+  // the target — the bank job's arrangement (`easeZoom`).
+  if (raceZoomHome != null && !raceShot && !raceWatch && !endSpot) {
+    controller.easeZoom(raceZoomHome, dt, aspect());
+    if (Math.abs(controller.state.zoom - raceZoomHome) < 0.05) raceZoomHome = null;
+  }
 
   tutorial?.update(dt);
 
@@ -6170,6 +6452,16 @@ function tick() {
     opening.frameCamera(dt);
   } else if (endSpot) {
     controller.focusOn(endSpot.x, endSpot.z, endZoom, dt, aspect());
+  } else if (raceShot) {
+    // The street race's faceoff: the two cars side by side, close up, from the cut until the
+    // camera leaves to look at the finish (`onRaceEvent`). The taxi is parked, so nothing below
+    // has anywhere better to be.
+    controller.focusOn(raceShot.x, raceShot.z, RACE_SHOT_ZOOM, dt, aspect());
+  } else if (raceWatch && !fares.state.gameOver) {
+    // The street race's finale: following the loser home, then holding on the line while the
+    // money moves (`settleRaceWatch`). Above Loco Mode's follow, because the loser can be the taxi
+    // and the winner is home already.
+    controller.focusOn(raceWatch.x, raceWatch.z, RACE_WATCH_ZOOM, dt, aspect());
   } else if (boosting && !fares.state.gameOver && locoFollows) {
     controller.followXZ(traffic.taxi.x, traffic.taxi.z, dt, BOOST_FOLLOW_SMOOTHING, aspect(),
       followAim(traffic.taxi));
@@ -6524,6 +6816,11 @@ function tick() {
   } else {
     routeLine.hide();
   }
+  // Through the finale too while the racer is the one still coming home.
+  // Not in the finale: what it is driving then is the staged drive-in, not a line to race.
+  const rivalCar = race?.state.phase === 'racing' ? race.state.car : null;
+  if (rivalCar && !fares.state.gameOver) rivalLine.update(rivalCar, rivalCar.route, dt);
+  else rivalLine?.hide();
 
   layRubber(dt);
   wetTyres(dt);
@@ -6536,7 +6833,10 @@ function tick() {
   // bigger the further up a chain it is.
   locoFlame.update(dt, traffic.taxi, boost.isActive(), traffic.taxi.drift?.phase === 'carry',
     DRIFT_CHAIN.flame[Math.max(0, traffic.taxi.driftTier - 1)], Math.max(0, traffic.taxi.driftTier - 1));
+  const racer = race?.state.car;
+  racerFlame.update(dt, racer ?? NO_CAR, Boolean(racer?.racer && racer.v > RACER_FLAME_SPEED));
   copRubber();
+  raceRubber();
   // `sim/` publishes where its cars are and this side owns anything that reaches into the scene
   // — the patrol cruiser's rubber included, since it is one of `traffic.policeCars` now. Off the
   // sim clock the bars strobe on
@@ -7423,6 +7723,11 @@ window.__taxi = {
    * without having to land a synthesised click on a building.
    */
   burgerRun,
+  /**
+   * The street race, or null under `?race=classic` and in shot mode — `state.phase`, `summon()` to
+   * bring a racer now if the taxi is free. See game/race.js.
+   */
+  race,
   /** The trip back to the depot for repairs — `depotRun.send()` is the tap on the garage. */
   depotRun,
   /** The depot's tip card — `newMove.open('repair')` opens it. See game/repairclip.js. */

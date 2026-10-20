@@ -463,6 +463,18 @@ export const PALETTE = {
   // drawn additive, so their colours are what they *add* to the facade behind them, not what they
   // cover it with. Smoke is a warm soot rather than a neutral grey, and turns to `steam` where the
   // water is landing — the one colour change that says the hose is winning.
+  // The street race (game/race.js): the rival's paint and wing, and the chequered flag. Violet
+  // because nothing else on the road is — the fleet's paints are muted, the cops are blue and the
+  // engine is red — and it is the drift flame's colour, the game's word for showing off.
+  racerBody: '#7B3CFF',
+  racerWing: '#1B1726',
+  racerStripe: '#F6F4EE',
+  // The underglow: an electric cyan, the colour opposite the violet paint, so the pad reads as a
+  // light under the car rather than as the car's own reflection on the road.
+  racerGlow: '#2FE6FF',
+  raceFlagPole: '#D9D9DE',
+  raceFlagDark: '#17171C',
+  raceFlagLight: '#F6F4EE',
   fireTruckBody: '#C8261E',
   fireTruckTrim: '#F3EFE6',
   fireTruckLadder: '#C9CFD6',

@@ -605,6 +605,9 @@
         font-size: 20px; white-space: nowrap; text-transform: uppercase; letter-spacing: 0.04em;
         color: #FFFFFF; text-shadow: 0 2px 10px rgba(10, 20, 40, 0.7);
       }
+      /* The street race's three, two, one (game/race.js): bigger than a word, because it is the
+         one thing on screen the player should be watching for those three seconds. */
+      .earning.is-label.is-count { font-size: 34px; }
       /* The combo's words off the roof and its multiplied total at the drop-off. */
       .earning.run-combo { color: #B27CFF; }
 
@@ -1393,17 +1396,19 @@
 
          Not `#tip`/`#intro`/`#banner`/`#popup`: those sit on ad-blocker filter lists, and one
          match takes the module graph down with ERR_BLOCKED_BY_CLIENT (CLAUDE.md). */
-      #coach, #robber-talk, #radio, #cop-shout, #depot-call {
+      #coach, #robber-talk, #radio, #cop-shout, #depot-call, #race-talk {
         position: fixed; inset: 0; z-index: 22;
         pointer-events: none; user-select: none; -webkit-user-select: none;
       }
-      #coach[hidden], #robber-talk[hidden], #radio[hidden], #cop-shout[hidden], #depot-call[hidden] { display: none; }
+      #coach[hidden], #robber-talk[hidden], #radio[hidden], #cop-shout[hidden], #depot-call[hidden],
+      #race-talk[hidden] { display: none; }
       /* Never over a screenshot, and never over the retry screen: the run is the thing then. */
       body.shot-mode #coach, body.game-over #coach,
       body.shot-mode #robber-talk, body.game-over #robber-talk,
       body.shot-mode #radio, body.game-over #radio,
       body.shot-mode #cop-shout, body.game-over #cop-shout,
-      body.shot-mode #depot-call, body.game-over #depot-call { display: none; }
+      body.shot-mode #depot-call, body.game-over #depot-call,
+      body.shot-mode #race-talk, body.game-over #race-talk { display: none; }
 
       .speech { position: absolute; left: 0; top: 0; will-change: transform; }
       /* The entrance and exit. Grows out of the pointer (speech.js sets the origin on it), so the
@@ -1453,6 +1458,16 @@
          grows to fit it: the 178px cap is about where *text* breaks, and a row of buttons does not
          wrap. */
       .speech-card.has-media { max-width: calc(100vw - 20px); }
+      /* The street racer's "…" before it is tapped (main.js), where there is no tag to show it on
+         (`?bubbles=classic`/`dock`): no name, and a card hugging the dots. */
+      #race-talk.is-ellipsis .speech-title { display: none; }
+      #race-talk.is-ellipsis .speech-card { padding: 10px 14px; }
+      /* Just the tag, no card (speech.js `showTag`). */
+      .tag-only > .speech { display: none; }
+      /* The racer's tag and card take a tap (main.js): the car can be off screen when it offers.
+         The tag's 24px disc is small for a thumb, so its hit area reaches 12px past it. */
+      #race-talk .speech-tag-pin, #race-talk .speech-card { pointer-events: auto; cursor: pointer; touch-action: manipulation; }
+      #race-talk .speech-tag-pin::before { content: ''; position: absolute; inset: -12px; }
       .speech-media { margin-top: 8px; }
       .speech-media[hidden] { display: none; }
       /* The line types itself out: the typed part, then the rest of the line laid out but unseen,
@@ -2724,6 +2739,7 @@
     <div id="new-move" role="status" aria-live="polite" hidden></div>
     <div id="cop-shout" role="status" aria-live="polite" hidden></div>
     <div id="radio" role="status" aria-live="polite" hidden></div>
+    <div id="race-talk" role="status" aria-live="polite" hidden></div>
     <div id="depot-call" role="status" aria-live="polite" hidden></div>
     <div id="title-screen" hidden></div>
     <div id="home-tip" hidden></div>

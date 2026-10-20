@@ -113,6 +113,7 @@ import {
   createTargetRing, ringGrowScale, ringShrinkScale, RING_R, RING_Y,
 } from '../src/geometry/targetring.js';
 import { createParcelPad, PAD_R } from '../src/geometry/parcelpad.js';
+import { underglowGeometry, createPulse, pulseStep } from '../src/game/race.js';
 import { TAXI_DECK_Y, TAXI_TAILPIPE_BACK, TAXI_TAILPIPE_HEIGHT } from '../src/geometry/taxi.js';
 import { createLocoFlame } from '../src/game/locoflame.js';
 import { createParcel, PARCEL_CENTRE_Y } from '../src/geometry/parcel.js';
@@ -928,6 +929,49 @@ const onGrass = (city, i, j) => {
   check('every face of the pond points at the sky', !!pondPlan && faces > 0 && downward === 0,
     `${faces - downward}/${faces} facing up`);
   check('and the water lies level', offLevel === 0, `${offLevel} sloping triangles`);
+}
+
+// The street racer's underglow: a hand-wound pad of light on the road, under an unlit material —
+// where a reversed triangle does not draw wrong, it does not draw (CLAUDE.md, on the boats' wake).
+{
+  const pad = underglowGeometry();
+  const pos = pad.attributes.position;
+  const a = new THREE.Vector3();
+  const b = new THREE.Vector3();
+  const c = new THREE.Vector3();
+  const n = new THREE.Vector3();
+  let faces = 0;
+  let up = 0;
+  for (let i = 0; i < pos.count; i += 3) {
+    a.fromBufferAttribute(pos, i);
+    b.fromBufferAttribute(pos, i + 1);
+    c.fromBufferAttribute(pos, i + 2);
+    n.copy(b).sub(a).cross(c.sub(a));
+    if (n.lengthSq() < 1e-12) continue;
+    faces += 1;
+    if (n.normalize().y > 0.999) up += 1;
+  }
+  check('every face of the racer\'s underglow points at the sky', faces > 0 && up === faces,
+    `${up}/${faces} facing up`);
+
+  // ...and it pulses to the music: a kick on a steady bed flares it and lets it fall between beats,
+  // and a flat line — no music, or a muted song — leaves it resting. A 120 BPM four-on-the-floor at
+  // 60 fps: 0.3 of bass with a 50 ms jump to 0.5 on each beat.
+  const beat = createPulse();
+  const dt = 1 / 60;
+  let peak = 0;
+  let trough = 1;
+  for (let f = 0; f < 60 * 6; f++) {
+    const t = f * dt;
+    const v = pulseStep(beat, 0.3 + ((t % 0.5) < 0.05 ? 0.2 : 0), dt);
+    if (t > 3) { peak = Math.max(peak, v); trough = Math.min(trough, v); }
+  }
+  const flat = createPulse();
+  let rest = 0;
+  for (let f = 0; f < 60 * 3; f++) rest = pulseStep(flat, 0.4, dt);
+  check('the racer\'s underglow flares on the kick and falls between', peak > 0.9 && trough < 0.2,
+    `peak ${peak.toFixed(2)}, trough ${trough.toFixed(2)}`);
+  check('and rests on a flat line', rest < 0.05, `${rest.toFixed(3)} after 3s of 0.4`);
 }
 
 // --- The parks' grass ---------------------------------------------------------

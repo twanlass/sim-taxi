@@ -1092,12 +1092,15 @@ const seesLeader = (car) => car.passOffset < Math.max(ENVELOPE, laneOffsetFor(ca
 // front whatever its offset says, and the taxi has to follow it: skipped for the length of the swing
 // back, a cop that slowed for the next junction was caught and cut into by the very taxi it had
 // just passed (0.7 units centre to centre, measured).
-const outOfLane = (car) => car.police && car.passing && !seesLeader(car);
+// The street racer's drag start (`dragStart`, below) is the same shape: it sets off level with the
+// taxi from the oncoming lane, and the taxi must not brake for it.
+// And its overtake mid-race (`racePass`), which is the cop's pass pointed at whatever is in front.
+const outOfLane = (car) => (car.police || car.dragStart || car.racePass) && car.passing && !seesLeader(car);
 // ...and the same goes for the cop's own following. `seesLeader` alone keeps a cop blind to the
 // car in its lane for as long as its offset is out past ENVELOPE, which is right while committed and
 // wrong on the way back in: a pass abandoned 6 units behind the taxi swung back across a junction at
 // 13 u/s against the taxi's 8.5 and was 3.2 off its tail by the time the offset let it see it.
-const followsLeader = (car) => seesLeader(car) || (car.police && !car.passing);
+const followsLeader = (car) => seesLeader(car) || ((car.police || car.racePass) && !car.passing);
 // A boosting taxi with hit points that *cannot* get round the car in front rams it. Everything
 // above about the tailgate gap and the moving-leader cap is how Loco Mode avoided the car in front,
 // which was the right call while any contact was the end of the run. Now a contact is a bump
@@ -1639,6 +1642,13 @@ const COP_PASS_YIELD = 25;
 // following gap behind whatever is ahead, and a body. Without it the cop tucks in on top of the
 // car the taxi was queued behind.
 const COP_PASS_CUT_IN = PASS_CLEAR + 2 * CAR_LEN + 4;
+// The street racer's overtake (`racePass`): the cop's gate, pulling out from further back so it goes
+// round a car it is catching rather than one it has already stopped behind. It is rare all the
+// same, because a racer is seldom held up: over 96 headless races it spent ~0.3s a race within 10
+// of anything under 70% of its pace, and passed 15 times at 20 (9 at 10). The racer does not
+// scatter traffic in front of it the way a chasing cop does — that was clearing exactly the cars
+// it would pass, and dropping it did not move a race time (median 14.8s either way).
+const RACER_PASS_TRIGGER = 20;
 // How long the cop stands on its brakes once it has cut in. Long enough that a taxi following at
 // cruise comes to a full stop behind it (1 unit from 8.5 u/s under an ordinary brake, well inside
 // a second) and the stern-chase cops have a moment to arrive behind; short enough that a player who
@@ -3468,6 +3478,8 @@ export function stageCar(car, x, z, yaw) {
   car.passSlope = 0;
   car.passBank = 0;
   car.passCredit = 0;
+  car.dragStart = false;
+  car.racePass = false;
   car.pullover = 0;
   car.pulloverSlope = 0;
   car.brakeLevel = 0;
@@ -5140,7 +5152,10 @@ export function createTraffic(
     // Any police car rolls it, standing down included: a cop leaving the scene has a backstop to
     // clear the map by (`STAND_DOWN_TIMEOUT`), and a full stop at every junction on the way out
     // left 3 or 4 of the fleet still in shot after it on four seeds out of five.
-    const dwell = car.police ? 0 : STOP_DWELL;
+    // ...and so does the street race's rival (game/race.js), which is the whole of what makes it
+    // a racer at an all-way stop rather than a fast car that stops at every corner: with the dwell,
+    // an unboosted taxi beat it on 8 races in 16.
+    const dwell = car.police || car.racer ? 0 : STOP_DWELL;
     if (t - car.stopAt.t < dwell) return false;
 
     const street = car.lane.phase;
@@ -5280,6 +5295,19 @@ export function createTraffic(
       if (cop.lane.length - cop.s > SIREN_HOLD_REACH) continue;
       if (priorityJunction && priorityJunction.i === cop.i && priorityJunction.j === cop.j) continue;
       sirenHold = { i: cop.i, j: cop.j, axis: isXAxis(cop.d) ? 'x' : 'z' };
+    }
+    // ...and the street race's rival gets the same, when no patrol wants it (game/race.js). It is
+    // racing a taxi that gets the boost hold every time Loco Mode is down, and without one of its own
+    // it stopped dead at every all-way stop on the way: a boosting taxi beat it on 32 races in 32,
+    // home in 6.4s against its 10-13. Same reach, same rule about the box at the arrival.
+    if (!sirenHold) {
+      for (const car of cars) {
+        if (!car.racer || car.crashed || car.state !== 'drive' || !car.lane) continue;
+        if (car.lane.length - car.s > SIREN_HOLD_REACH) continue;
+        if (priorityJunction && priorityJunction.i === car.i && priorityJunction.j === car.j) continue;
+        sirenHold = { i: car.i, j: car.j, axis: isXAxis(car.d) ? 'x' : 'z' };
+        break;
+      }
     }
 
     if (taxiActive && taxi.boost && !taxi.wasBoosting) {
@@ -5490,7 +5518,8 @@ export function createTraffic(
           const gap = front.laneS - behind.laneS;
           // Only measure real lane geometry. A turning car's lane position is a synthetic stand-in
           // used for queueing, so including it here reports overlaps that don't exist on screen.
-          if (behind.car.state === 'drive' && front.car.state === 'drive' && gap < stats.minGap) {
+          if (behind.car.state === 'drive' && front.car.state === 'drive' && !outOfLane(behind.car)
+              && gap < stats.minGap) {
             stats.minGap = gap;
           }
           leaderDist.set(behind.car, gap);
@@ -5561,6 +5590,10 @@ export function createTraffic(
       const facing = net.laneByGrid(opposite(car.d), car.i, car.j);
       const oncoming = (facing && approaching.get(facing.id)) ?? [];
       return oncoming.some((other) => {
+        // A car parked in its lane on purpose is not coming: the street race's rival waiting for a
+        // taker, and the two cars stood side by side at its start (`holdsLine`, game/race.js).
+        // Yielding to the rival deadlocked every left across it for the whole half-minute offer.
+        if (other.holdsLine && other.v < 0.05) return false;
         const otherDist = other.lane.length - other.s;
         return otherDist >= 0 && otherDist < YIELD_RANGE;
       });
@@ -6180,6 +6213,113 @@ export function createTraffic(
       }
     }
 
+    // --- The street racer's drag start (game/race.js).
+    //
+    // Every street is one lane each way, so two cars facing the same way cannot stand side by side
+    // on lanes of their own. The racer stands in the oncoming lane instead, on the taxi's lane at the
+    // taxi's arc length with the cop pass's offset already full, and the drag to the first corner
+    // decides who gets the lane: it cuts in once it is `PASS_CLEAR` ahead, and drops in behind once
+    // the taxi is a body length clear of it. It is the cop's overtake with the trigger taken away —
+    // the same fields, swing and `outOfLane` skip — so the two read the same on screen.
+    //
+    // Only the taxi's own lane counts: a block is 11-12 units of lane, so the drag is settled at the
+    // first junction, and once the two are on different lanes the racer swings in wherever it is.
+    // It keeps swinging through a corner (the cop freezes there), so a left out of the wrong side is
+    // a racer cutting the apex. A *right* would cross the taxi's nose, so game/race.js never plans
+    // one off the start; should one turn up while it is still level, it waits for the taxi.
+    //
+    // The first cut read `rel` off the two cars' headings alone, as the cop does, and braked for any
+    // corner. A block is too short for that: the racer sat at the start line until the taxi drove by,
+    // and a taxi that did not — the player hesitating, a cop pulling it over — left it there for good,
+    // and with the race over it never drove off (Tyler: "racer never left"). Measured headless with an
+    // idle taxi: 20 of 24 races stalled, 0 after.
+    //
+    // **The same swing overtakes mid-race** (`racePass`; Tyler: "can the racer use the overtake
+    // combo?"). A racer closing on something slower pulls out into the oncoming lane and goes round
+    // it, under the cop pass's gate with one straight junction rather than two (a race route turns
+    // so often that two refused most of what it met): the light open, the borrowed lane clear for
+    // COP_PASS_SIGHT, room in front of the car it passes, and never past one signalling a left
+    // across it. It is measured off the passed car's
+    // heading rather than its lane, as the cop's is, because a pass through a straight crossing
+    // is on two lanes at once.
+    for (const car of cars) {
+      if (car.crashed || car.staged) continue;
+      if (!car.dragStart && !car.racePass && car.racer && car.state === 'drive' && !car.uturn
+          && car.pass === 0) {
+        const leader = leaderOf.get(car);
+        // A leader crossing the junction ahead counts if it is going straight on (`state === 'turn'`
+        // covers that too — see CLAUDE.md): refusing those refused most of the cars the racer met.
+        const ahead = leader && (leader.state === 'drive' || leader.turn?.hand === 'straight');
+        if (ahead && !leader.crashed && leader.d === car.d
+            && !leader.passing && leader.passOffset < 0.5
+            && leaderDist.get(car) < RACER_PASS_TRIGGER
+            && leader.v < cruiseCapFor(car) * COP_PASS_SLOWER
+            && leader.signalHand !== 'left' && !(leader.isTaxi && leader.route?.[0] === leftOf(leader.d))
+            && car.route?.length >= 1 && car.route[0] === car.d
+            && approachSignal(car, t).open
+            && Boolean(net.laneByGrid(opposite(car.d), car.i, car.j))
+            && !((leaderDist.get(leader) ?? Infinity) < COP_PASS_CUT_IN)
+            && oncomingClearFor(car, COP_PASS_SIGHT, passLateralOn(car), true)) {
+          car.racePass = true;
+          car.passing = true;
+          car.passTarget = leader;
+          car.passFrom = car.travelled;
+          stats.racePasses = (stats.racePasses ?? 0) + 1;
+        }
+      }
+      if (!car.dragStart && !car.racePass) continue;
+      const lateral = passLateralOn(car);
+      const fade = PASS_FADE * (lateral / PASS_LATERAL);
+      const sign = dirSign(car.d);
+      const target = car.racePass ? car.passTarget : taxi;
+      const rel = car.racePass
+        ? (target && !target.crashed && target.d === car.d
+          ? (isXAxis(car.d) ? (car.x - target.x) : (car.z - target.z)) * sign : -Infinity)
+        : car.state === 'drive' && taxi.state === 'drive' && car.lane === taxi.lane && !taxi.crashed
+          ? (isXAxis(car.d) ? (car.x - taxi.x) : (car.z - taxi.z)) * sign
+          : -Infinity;
+      if (car.racePass && car.passing) {
+        const abandon = !approachSignal(car, t).open || !oncomingClearFor(car, COP_PASS_ABORT, lateral, true);
+        car.passing = rel < PASS_CLEAR && !(abandon && rel < -CAR_LEN);
+      } else if (car.state === 'drive' && car.passing) {
+        const room = car.lane.length - STOP_SETBACK - car.s;
+        // Only while the taxi is *moving*: a right from a standstill crosses the taxi's lane past the
+        // hold line, a body length and more in front of a taxi that is level and stopped, and a racer
+        // that waited on a taxi going nowhere waited for the rest of the race.
+        const short = room < stopDistance(car.v) + CAR_LEN && car.route?.[0] === rightOf(car.d) && car.racer
+          && taxi.v > 1;
+        const abandon = short || !oncomingClearFor(car, COP_PASS_ABORT, lateral, true);
+        car.passing = rel < PASS_CLEAR && !(abandon && rel < -CAR_LEN);
+        if (car.passing && short) car.stun = Math.max(car.stun, 0.2);
+      }
+      const moved = Math.max(0, car.travelled - (car.passFrom ?? car.travelled));
+      car.passFrom = car.travelled;
+      const ds = moved;
+      const delta = (car.passing ? 1 : 0) - car.pass;
+      const step = Math.sign(delta) * Math.min(Math.abs(delta), ds / fade);
+      car.pass += step;
+      const rate = ds > 0.0001 ? step / ds : 0;
+      car.passOffset = passEase(car.pass) * lateral;
+      car.passSlope = passEaseSlope(car.pass) * lateral * rate;
+      const bankTarget = rate === 0 ? 0 : 1 - 2 * car.pass;
+      car.passBank += (bankTarget - car.passBank) * Math.min(1, ds / PASS_BANK_EASE);
+      if (car.passOffset > ENVELOPE) {
+        const facing = opposite(car.d);
+        for (const other of cars) {
+          if (other === car || other.isTaxi || other.crashed || other.staged) continue;
+          if (other.d !== facing && !(other.state === 'turn' && other.dOut === facing)) continue;
+          // Not a car already turning in while the racer stands at the line: held mid-junction, it
+          // blocked the left the racer was waiting to make, and neither ever moved (1 race in 24).
+          if (other.state === 'turn' && car.v < 1) continue;
+          const along = (isXAxis(car.d) ? other.x - car.x : other.z - car.z) * sign;
+          if (along < 0 || along > COP_PASS_YIELD) continue;
+          const side = Math.abs(isXAxis(car.d) ? other.z - car.z : other.x - car.x);
+          if (side <= lateral + CAR_W) other.stun = Math.max(other.stun, 0.3);
+        }
+      }
+      if (!car.passing && car.pass === 0) { car.dragStart = false; car.racePass = false; car.passTarget = null; }
+    }
+
     // --- Who is in the boosting taxi's way?
     //
     // Both the lane it is driving and the lane it is about to land in: a queue sitting on the
@@ -6260,8 +6400,9 @@ export function createTraffic(
     }
     // ...and so does a guest answering a call on `chase` — the fire engine on its way in
     // (game/fire.js). Same reach and the same rule: the siren is on, the car in front gets out of it.
+    // Not the street racer, which has no siren and goes round instead (RACER_PASS_TRIGGER).
     for (const car of cars) {
-      if (car.guest && car.chase > 0 && !car.crashed) clearAhead(car, SCATTER_RANGE / 2);
+      if (car.guest && car.chase > 0 && !car.crashed && !car.racer) clearAhead(car, SCATTER_RANGE / 2);
     }
 
     for (const car of cars) {
@@ -6583,7 +6724,7 @@ export function createTraffic(
             // past it, and nothing but the taxi is collision-tested — see `sirenHold`. Not a car
             // ahead on its own approach, which is its leader and already followed: counting that
             // one stopped the cop at every junction it chased the taxi through.
-            if (green && car.patrol && car.siren && sirenHold
+            if (green && ((car.patrol && car.siren) || car.racer) && sirenHold
                 && sirenHold.i === car.i && sirenHold.j === car.j
                 && cars.some((other) => other !== car && !other.crashed && other.state === 'turn'
                   && other.i === car.i && other.j === car.j && other.d !== car.d)) {

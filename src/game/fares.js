@@ -1031,7 +1031,12 @@ export function createFareSystem(rng, scene, {
    * so it cannot cost the run). It also pays for most of what the checkpoints' longer getaway was
    * costing the kerb — see docs/gameplay.md.
    */
-  const concealed = () => state.fares.some((f) => f.robber && f.stage === 'riding');
+  //
+  // The street race (game/race.js) asks for the same, from the tap on the racer to the line, through
+  // `setHold`: it is taken with an empty cab, and a board left running would cost a rider's clock on
+  // top of the bet.
+  let held = () => false;
+  const concealed = () => state.fares.some((f) => f.robber && f.stage === 'riding') || held();
   // With more than one rider on the kerb the "waiting fare" the game means is the one about to
   // time out — that is who a perfect player takes next.
   //
@@ -2320,6 +2325,10 @@ export function createFareSystem(rng, scene, {
     waitingAll,
     /** A getaway is running and the rest of the board is off the map — see `concealed`. */
     concealed,
+    /** Hold the board the way a getaway does, while `fn()` says so — the street race's. */
+    setHold: (fn) => { held = fn ?? (() => false); },
+    /** Nobody is the taxi's errand any more — the street race taking it, on the tap. */
+    undirect: () => { for (const f of state.fares) f.directed = false; },
     occupiedSpots,
     focus,
     slots,

@@ -88,6 +88,7 @@ doc; what the classic version was, and why it changed, is in that doc's history 
 | `?bubblestyle=card` | The docked speech card as the white Figma card instead of see-through black with white type | | [gameplay.md](gameplay.md#speech-bubbles) |
 | `?bubbles=dock` | The docked card with no tag on the talker | | [gameplay.md](gameplay.md#speech-bubbles) |
 | `?copchat=classic` | The cops' "pull over" and "lost the suspect" bubbles | #492 | [gameplay.md](gameplay.md) |
+| `?race=classic` | No street racers: the city before the race vignette, with no violet car tailing the empty taxi to challenge it | | [gameplay.md](gameplay.md#the-street-race) |
 | `?robbery=classic` | The robbery with no opening cut (straight to the drive-past). Also implies `?bankfare=classic` | #475, #478 | [gameplay.md](gameplay.md) |
 | `?bankfare=classic` | The drive-past robbery instead of the bank rider fare | #499 | [gameplay.md](gameplay.md) |
 | `?robberyskip=classic` | A tap (or Space/Enter) skips the bank job's cut, as it used to | | [gameplay.md](gameplay.md#the-bank-job) |
@@ -126,6 +127,7 @@ doc; what the classic version was, and why it changed, is in that doc's history 
 | `?blend=additive` | How the route band mixes with the road: `normal`, `additive`, `screen`, `multiply` | [gameplay.md](gameplay.md) |
 | `?flatbed=soon` | The flatbed starts shedding crates three seconds in | [traffic.md](traffic.md) |
 | `?fire=soon` | A building catches fire early | [traffic.md](traffic.md) |
+| `?race=soon` | The street racer turns up a few seconds in rather than after the 2nd-4th drop-off, and comes back ~12s after each race | [gameplay.md](gameplay.md#the-street-race) |
 | `?parcels=0` / `=1` | Packages off / forced on (they are off in shot mode by default) | [gameplay.md](gameplay.md) |
 | `?cars=N` | Total vehicles, taxi included. `?cars=1` leaves the taxi alone on the road | [testing.md](testing.md) |
 | `?d=0..1` | Pins the difficulty curve instead of the delivery count | [difficulty.md](difficulty.md) |
