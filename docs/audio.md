@@ -104,7 +104,7 @@ event starts a bed, so no event can leave one stuck on.
 
 | Bed | Driven by |
 |---|---|
-| Engine idle | Always on. Playback rate 0.9 → 1.35 from standstill to cruise, ducked to a quarter under Loco Mode, faded out when the run ends |
+| Engine idle | On from **Play** to the end of the run — silent under the title menu, as are the pull-away, takeoff and blinker (`menu` in `sfx.update`). Playback rate 0.9 → 1.35 from standstill to cruise, ducked to a quarter under Loco Mode, faded out when the run ends |
 | Loco engine loop | Fades in 6 s into a Loco hold, over the activate's tail, and out on release. Rate rises across the overdrive band |
 | Police siren | Always running, silent until a car on the map has `siren` set (a patrol giving chase, a robbery's cops, the arrest crew). Its level comes from the nearest one's distance to the taxi (`sirenLevel` in main.js): full inside 18 units, easing to a floor of 0.35 by 70, so a chase across the map is still heard. Faded out when the run ends |
 | Turn signal | Runs while `taxi.signalHand` is set. A new voice starts for each indicating window so it opens on a tick, just as the lamp opens lit. The master ticks every 0.9 s, which is the sim's 1.1 Hz `TURN_SIGNAL_HZ`, so the sound stays in step with the lamp |
@@ -228,7 +228,7 @@ afconvert's encode.
 ## The radio
 
 The music is a car radio, the station KPRS. The **title menu** has no music at all: the first tap
-unlocks the effects (the menu's taps, the logo) and decodes the station in the background, but the
+unlocks the effects (the menu's taps, the logo, the city's beds; nothing of the taxi's, which waits for Play too) and decodes the station in the background, but the
 radio stays off until **Play**, so the music arrives as the payoff for starting a run (Tyler, October
 2026). `?titlemusic=classic` brings back the menu's songs: the first tap starts one at random, more
 follow back to back (no ads, no ID) for as long as the menu is up, and Play cuts it (60 ms down).

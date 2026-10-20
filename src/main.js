@@ -6295,6 +6295,7 @@ function tick() {
     top: boostCruise(),
     holding: boost.isEngaged() && !boost.isCoolingDown(),
     over: fares.state.gameOver,
+    menu: !runBegun,
     siren: sirenLevel(),
     rotor: policeHeli ? policeHeli.loudness(traffic.taxi.x, traffic.taxi.z) : 0,
     ambient: sfx ? ambientLevels() : undefined,
