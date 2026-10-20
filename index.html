@@ -869,6 +869,34 @@
         animation: run-end-breathe 2.4s ease-in-out 0.8s infinite;
       }
       @keyframes run-end-breathe { 50% { opacity: 0.32; } }
+      /* At the foot of the screen instead (the default; `?gameover=classic` keeps the slot above).
+         Out of the card's flow and pinned to the blackout, so it never moves the stats, and set in
+         white with a soft glow that swells and fades — a pulse rather than the breathe's dim, so it
+         reads as the screen asking for something rather than as a caption going grey. */
+      #run-end .run-end-continue.is-foot {
+        position: fixed; top: auto; bottom: calc(clamp(20px, 5vh, 44px) + var(--safe-bottom));
+        color: #fff; opacity: 0.9; font-weight: 600;
+        animation: run-end-pulse 1.8s ease-in-out 0.8s infinite;
+      }
+      @keyframes run-end-pulse {
+        0%, 100% { opacity: 0.9; text-shadow: 0 0 0 rgba(255, 255, 255, 0); }
+        50% { opacity: 0.5; text-shadow: 0 0 14px rgba(255, 255, 255, 0.6); }
+      }
+
+      /* The polaroid over the title: one frame of the ending (game/polaroid.js). Sized off the
+         viewport's height like the rest of the card, so a landscape phone gets a smaller print
+         rather than a title pushed below the fold. The tilt is the resting state; runend.js drops
+         it in from a steeper one. The New Move card's clip is printed on the same paper (below). */
+      #run-end .run-end-photo { margin-bottom: clamp(14px, 3.4vh, 30px); }
+      #run-end .run-end-print, body:not(.move-card-classic) #new-move .nm-print {
+        background: #f7f4ec; padding: 8px 8px 30px; border-radius: 2px;
+        transform: rotate(var(--print-tilt, -4deg));
+        box-shadow: 0 10px 28px rgba(0, 0, 0, 0.6), 0 2px 6px rgba(0, 0, 0, 0.45);
+      }
+      #run-end .run-end-shot {
+        display: block; width: clamp(96px, 24vh, 190px); height: auto; aspect-ratio: 1;
+        background: #222;
+      }
 
       /* The Loco Mode pill and the ⚙️ tweak toggle are gameplay controls; once the run is over
          they are noise behind the retry pill. */
@@ -1582,7 +1610,7 @@
       #new-move .speech-card { padding: 20px; gap: 8px; border-radius: 20px; }
       #new-move .speech-title { font-size: 12px; }
       #new-move .speech-text { font-size: 22px; }
-      .nm-clip[hidden] { display: none; }
+      .nm-clip[hidden], .nm-print[hidden] { display: none; }
       /* The city as it stood when the card opened, laid over the game's canvas while the card films
          its clip through it (game/uturnclip.js). Under the HUD and the dim. */
       #freeze-frame { position: fixed; left: 0; top: 0; z-index: 1; pointer-events: none; }
@@ -1592,13 +1620,21 @@
         display: block; width: min(300px, calc(100vw - 60px)); aspect-ratio: 16 / 9;
         border-radius: 12px;
       }
+      /* The clip as a polaroid (the default, Tyler 2026-10-20): the run-end print's paper, border
+         and shadow (shared rule by #run-end .run-end-print), canted less than the ending's -4deg
+         because a 16:9 print is wider and the same angle lifts its far corner twice as far. The
+         clip keeps its CSS size inside the paper — moveclip.js sizes the copy off its clientWidth,
+         which would count padding on the canvas itself. `?movecard=classic` is the bare clip. */
+      body:not(.move-card-classic) #new-move .nm-print { --print-tilt: -2.5deg; margin: 6px 0 10px; }
+      body:not(.move-card-classic) #new-move .nm-clip { width: min(284px, calc(100vw - 76px)); border-radius: 0; }
+      body.move-card-classic .nm-print { display: contents; }
       .nm-combo { display: flex; align-items: center; gap: 8px; }
       .nm-combo[hidden] { display: none; }
       /* The "+" between keys: the title's ink, so it reads as part of the card's type. */
       .nm-plus { font: 700 18px/1 var(--game-font); color: #44497d; }
       .nm-key svg { display: block; overflow: visible; width: 44px; height: 44px; }
-      body.pedals-classic .nm-boost .pedal-face { filter: url(#gas-up); }
-      body.pedals-classic .nm-brake .pedal-face { filter: url(#brake-up); }
+      body.pedals-classic .nm-boost .pedal-face { filter: url(#nm-gas-up); }
+      body.pedals-classic .nm-brake .pedal-face { filter: url(#nm-brake-up); }
 
       /* Dim until pressed, lit from the press to the end of the loop; the face drops into its base
          while held, the HUD pedals' own 5 units. */
@@ -1606,7 +1642,19 @@
       .nm-key.is-lit { filter: none; opacity: 1; }
       .nm-key :is(.pedal-face, .pedal-icon) { transition: transform 0.06s ease-out; }
       .nm-key.is-down :is(.pedal-face, .pedal-icon) { transform: translateY(5px); }
-      body:not(.pedals-classic) .nm-key.is-down .pedal-face { filter: url(#nes-down); transform: translateY(4px); }
+      body:not(.pedals-classic) .nm-key.is-down .pedal-face { filter: url(#nm-nes-down); transform: translateY(4px); }
+      /* The keys in the HUD's own colours (the default, Tyler 2026-10-20): greying an unlit key on
+         the run-end blackout turned the orange A brown and the red B maroon, so the card's buttons
+         did not look like the ones the player presses. An unlit key now waits a size smaller at full
+         colour, and the press grows it in. And the keys are drawn flat (newmove.js `flatKey`): one
+         disc in the button's colour and a white letter, no surround, crescent, dish or glint —
+         the HUD's modelling read as fake gloss at this size (Tyler, 2026-10-20).
+         `?movecard=classic` is the HUD's own drawing, dimmed until pressed. */
+      body:not(.move-card-classic) .nm-key,
+      body.new-move-after-run:not(.move-card-classic) #new-move .nm-key:not(.is-lit) {
+        filter: none; opacity: 1; transform: scale(0.84); transition: transform 0.12s ease-out;
+      }
+      body:not(.move-card-classic) .nm-key.is-lit { transform: none; }
 
       /* --- the HUD's entrance ------------------------------------------------
          Everything the player will need but cannot use yet starts off its own screen edge, and

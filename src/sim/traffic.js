@@ -810,6 +810,51 @@ export function setDodge(name) {
   dodgeOn = name !== 'classic';
 }
 /**
+ * The overtake combo is dumb on purpose: thrown, it puts the taxi in the oncoming lane, and that is
+ * all it does. No waiting for the car in front to be close enough, no refusing a car turning left
+ * across the lane (`turningAcross`), no picking a line round something in the junction by its own
+ * kerb or the far one, no sparing a car crossing at cruise — the taxi goes where the player sent
+ * it and hits whatever is there (Tyler, 2026-10-19: "don't do anything smart. That's how the player
+ * will learn, but that's how they will also feel a real reaction to their actions").
+ *
+ * What it still asks is the road: an oncoming lane to borrow and a road on the far side of the
+ * junction (`room`), because without those there is no lane to be in. And the leader brake still
+ * holds while the taxi swings out (`boostGap`), which is the taxi not driving *through* the car it
+ * is leaving rather than a judgement about whether it should go.
+ *
+ * `?overtake=classic` puts the judgement back: the pull-out waits for PASS_TRIGGER, the #520 gate
+ * refuses a left-turner, and the junction dodge only goes for a slow blocker it has a clean line round.
+ */
+let overtakeDumb = true;
+export function setOvertakeStyle(name) {
+  overtakeDumb = name !== 'classic';
+}
+/**
+ * The one exception, and it is keyed on something the player can see: a car in front **signalling
+ * left** is not gone round into the lane it is about to swing across. The combo goes round its
+ * right instead, up on the pavement, at full speed (Tyler, 2026-10-19: "a slight peek around on the
+ * right", then "couldn't we do a peek at full speed though?"). The rule stays dumb: a blinker means
+ * right, anything else means the oncoming lane, and what is on the pavement is the player's problem
+ * — nothing there is collision-tested, so the taxi drives through the street furniture.
+ *
+ * How far is set by the collision envelope, not by the kerb (`peekLateral`). The first cut stopped
+ * on the kerb at the brake-check pull-over's 1.5, which leaves the two bodies' circles 1.5 apart
+ * against a 2.31 envelope: the taxi could not get past a car still in its lane, and the leader brake
+ * (`peeking` in `boostGap`) held it at the turner's own speed beside its tail until the turner swung
+ * away — a crawl with Loco held. Past the envelope the leader brake lets go (`seesLeader`) and the
+ * taxi keeps its speed, 2.61 off the lane centre with the whole body up the kerb.
+ *
+ * PEEK_MARGIN is for the turner's tail, not its centre. A car yawing into a left swings its rear
+ * circle *toward* the taxi, so at the bare envelope (+0.05) a taxi blipped behind a car still
+ * waiting at its line arrived as it set off and clipped its back corner, 3 runs of 3; 0.3 cleared
+ * all three.
+ */
+const PEEK_MARGIN = 0.3;
+const peekLateral = () => ENVELOPE + PEEK_MARGIN;
+const peeking = (car, leader) => car.passing && car.dodgeLateral < 0 && leader && car.passTarget === leader;
+/** How far apart two cars are across `car`'s road. */
+const sideGap = (car, other) => Math.abs(isXAxis(car.d) ? other.z - car.z : other.x - car.x);
+/**
  * The car to dodge in the junction ahead of `taxi`, the road to it, and how far across the
  * swing has to go — or null when there is nothing in the way, or no line round it.
  *
@@ -864,7 +909,11 @@ function findDodge(cars, taxi, passLateral) {
     blocker = other;
     gap = ahead;
   }
-  if (!blocker || (blocker.v ?? 0) > DODGE_CREEP) return null;
+  if (!blocker) return null;
+  // Dumb, anything in the way arms the combo and the taxi goes the ordinary way round — through it
+  // if that is where it is (`setOvertakeStyle`).
+  if (overtakeDumb) return { car: blocker, gap, lateral: passLateral };
+  if ((blocker.v ?? 0) > DODGE_CREEP) return null;
   const clearAt = (lateral) => lats.every((lat) => Math.abs(lat - (laneLat + toFar * lateral)) >= clearBy);
   const lateral = [passLateral, dodgeKerb, dodgeWide].find(clearAt);
   return lateral === undefined ? null : { car: blocker, gap, lateral };
@@ -1027,8 +1076,13 @@ export function copLaysRubber(car) {
  * round with the lane change 0.18 of the way done. See `envelopeGap`, which is what the tailgate
  * becomes while the swing is in progress.
  */
-const seesLeader = (car) => car.passOffset
-  < Math.max(ENVELOPE, laneOffsetFor(car.d, car.i, car.j));
+//
+// Both ways: a peek round the *right* of a left-turner (`peeking`) goes out to the envelope on the
+// kerb side, and past it the leader can no longer be hit either. Asked one way only, the taxi up on
+// the pavement kept braking to stop behind a car it was beside, and lost 24 to 17 u/s on the way
+// past it with Loco held.
+const seesLeader = (car) => car.passOffset < Math.max(ENVELOPE, laneOffsetFor(car.d, car.i, car.j))
+  && car.passOffset > -ENVELOPE;
 // A cop out in the oncoming lane overtaking the taxi. Listed in its own lane at its own arc length
 // like any car mid-pass, but nobody behind it should be following it — see the leader bookkeeping
 // in `update`. Police only, so the taxi's own overtake, which every number on this page was
@@ -1458,8 +1512,13 @@ const closingFloor = (car, leader) => Math.max(0, (leader.v ?? 0) * Math.cos(lea
  * ending level with the car it is passing rather than a body-length behind it, and it can never
  * reach a position the detector calls a crash — the constraint *is* the detector's own geometry.
  */
+// A peek (`peeking`) is sized by how far apart the two actually are across the road, because the
+// turner is the one moving out of the way: the taxi's own offset says 1.5 for the whole manoeuvre,
+// which would hold it a car length behind the turner, at its corner speed, all the way round.
 const boostGap = (car, leader) => (car.passOffset > 0
   ? Math.min(BOOST_GAP + truckExtra(leader), envelopeGap(car.passOffset, leader))
+  : peeking(car, leader)
+    ? Math.min(BOOST_GAP + truckExtra(leader), envelopeGap(sideGap(car, leader), leader))
   : BOOST_GAP + truckExtra(leader) + (car.passArmed !== undefined && !car.passing ? COMBO_TAILGATE : 0));
 /**
  * How fast the taxi may go while it swings out round `leader`, `ahead` units behind it — the cap
@@ -1523,6 +1582,22 @@ export function setPassPace(name) {
  * and well inside PASS_TRIGGER, so the pass starts the frame the combo arms.
  */
 const COMBO_TAILGATE = 1.5;
+/**
+ * Is `leader` the taxi, and the taxi already braking for this truck's body? Then the truck must not
+ * hold for it in turn, whatever the lane bookkeeping says about who is in front.
+ *
+ * The two answer "who is ahead" differently, and around a junction they can disagree both ways
+ * round. A car mid-turn is listed on its exit lane at `-(1 - turnT) · 5`, a stand-in, so a taxi
+ * that has just crossed straight on at `s ≥ 0` reads as *in front* of a truck still swinging onto
+ * the same lane — and so does a taxi further round a left onto it than the truck is round its
+ * right. The truck queues behind the taxi; the taxi brakes for the truck by its body (`truckRoom`),
+ * which really is in front of it. Each waits for the other, forever: measured, 3 runs in 40
+ * (24 cities × 90s at 35% trucks) ended with the taxi parked behind a truck stopped mid-corner for
+ * the rest of the run, 72-80s. The body is what can be hit, so the body wins. Ambient cars never
+ * meet this, because nothing but the taxi brakes for a body.
+ */
+const truckHoldsForPhantom = (car, leader) => car.isTruck && leader?.isTaxi === true
+  && leader.truckAhead === car;
 /**
  * How far clear of the car it just passed the taxi must be before it may cut back in.
  *
@@ -3146,6 +3221,8 @@ function spawnCars(rng, count, into = [], accept = null, truckChance = 0, classi
       overtakes: 0,
       // ...of which dodges round something stood in a junction (`findDodge`), for the tools.
       dodges: 0,
+      // ...and peeks round the right of a car signalling left (`peeking`).
+      peeks: 0,
       // 0..1 brightness for the brake and turn-signal light pods. brakeLevel is eased (see
       // BRAKE_LIGHT_RISE/FALL) — off frame one along with prevV/v agreeing there is no accel yet.
       // The turn-signal levels are not eased; they jump straight to their blink target.
@@ -5816,25 +5893,47 @@ export function createTraffic(
         && (room || asking)
         && (taxi.passArmed !== false || taxi.passing || asking);
 
-      if (taxi.state === 'drive') {
+      // ...except a thrown combo (`setOvertakeStyle`), which may pull out half way across a
+      // straight-through crossing as well as on a lane. Behind a truck the taxi spends a good
+      // share of its time in the box — 8 units of crossing to a 12-unit lane — and a combo that
+      // landed there armed and then waited for the far side read as the combo not working (Tyler,
+      // 2026-10-19: "the combo can't be activated" behind a truck). A straight crossing has no arc
+      // for the offset to peel the car off (see `crossingStraight` below), so nothing stops it.
+      const thrownInBox = overtakeDumb && taxi.passArmed === true && !taxi.passing
+        && taxi.state === 'turn' && taxi.turn?.hand === 'straight';
+      if (taxi.state === 'drive' || thrownInBox) {
         const was = taxi.passing;
         // Pulling out wants the overtake combo (game/overtake.js) where main.js runs one — a blip
         // off the pill and back on behind the car. `passArmed` undefined is the old rule, holding
         // is enough, which the passing lab and the probe still drive. Staying out does not ask.
-        const passes = room && near && taxi.passArmed !== false && !turningAcross(leader);
+        // Thrown dumb (`setOvertakeStyle`), the combo pulls out the frame it arms, whatever is
+        // ahead and however far, and stays out on the same terms as any pass.
+        const thrown = overtakeDumb && taxi.passArmed === true;
+        const passes = thrown
+          ? room && (!was || near)
+          : room && near && taxi.passArmed !== false && !turningAcross(leader);
         // A dodge wants the combo itself, never the lab's holding-is-enough rule, and pulls out
         // DODGE_LEAD short of the change's own length from the blocker — see `findDodge`.
-        const dodges = !passes && room && dodge !== null && taxi.passArmed === true
+        const dodges = !thrown && !passes && room && dodge !== null && taxi.passArmed === true
           && dodge.gap < PASS_FADE * (Math.abs(dodge.lateral) / PASS_LATERAL) + DODGE_LEAD;
         taxi.passing = locoHeld && ((taxi.passing && alongside()) || passes || dodges);
         // Latched on the frame the taxi pulls out and held for the whole manoeuvre, rather than
         // re-read per frame: half way through a pass the taxi is *ahead* of this car in lane
         // coordinates, so `leaderOf` has already moved on to whatever is in front of them both.
         if (taxi.passing && !was) {
-          taxi.passTarget = (dodges ? dodge.car : leader) ?? null;
+          taxi.passTarget = (dodges ? dodge.car : leader ?? dodge?.car) ?? null;
           if (dodges) {
             taxi.dodgeLateral = dodge.lateral;
             taxi.dodges += 1;
+          }
+          // Behind a car signalling left, the peek round its right instead (see `peeking`). Not
+          // behind a cop: a peek waits beside the turner's tail for it to swing away, and a cop
+          // blocking or chasing is not going anywhere it signals — the taxi sat beside one on the
+          // kerb, crawling at the cop's speed with Loco held (Tyler, 2026-10-20, a clip).
+          if (thrown && leader && taxi.passTarget === leader && leader.signalHand === 'left'
+            && !leader.police) {
+            taxi.dodgeLateral = -peekLateral();
+            taxi.peeks += 1;
           }
           taxi.overtakes += 1;
         }
@@ -6339,7 +6438,8 @@ export function createTraffic(
         // so queueing at a red — which everything else here is tuned around — is untouched.
         //
         let leadCap = Infinity;
-        const ahead = followsLeader(car) && !rams(car, leaderOf.get(car)) ? leaderDist.get(car) : undefined;
+        const ahead = followsLeader(car) && !rams(car, leaderOf.get(car))
+          && !truckHoldsForPhantom(car, leaderOf.get(car)) ? leaderDist.get(car) : undefined;
         if (ahead !== undefined) {
           const leader = leaderOf.get(car);
           const gap = car.boost ? boostGap(car, leader) : followGap(car, leader);
@@ -6661,7 +6761,13 @@ export function createTraffic(
             // not a risk the player could read and dodge, it was the default outcome. What is
             // left is: oncoming traffic, cross traffic at a junction being run, and a car turning
             // out of the oncoming lane — all of which are in front of the player and avoidable.
-            if (car === taxi.passTarget && chosen?.hand === 'left') { chosen = null; vetoed = true; }
+            // Not while the taxi is peeking round its *right* (`peeking`), which is waiting on
+            // exactly that left: vetoed, the turner stood at its line for good and the taxi, held
+            // beside its tail, ran into it 2 of 2 times.
+            if (car === taxi.passTarget && chosen?.hand === 'left' && !(taxi.dodgeLateral < 0)) {
+              chosen = null;
+              vetoed = true;
+            }
 
             // The same two tests the approach above already asked, now on the turn actually
             // chosen — a dice roll can land on an exit the "every exit blocked" form let through.
@@ -6829,7 +6935,8 @@ export function createTraffic(
         // hold. That is what keeps `bargesThrough`'s guarantee intact: nothing stops the taxi
         // inside a junction.
         let target = cornerTarget;
-        const lead = followsLeader(car) && !rams(car, leaderOf.get(car)) ? leaderOf.get(car) : undefined;
+        const lead = followsLeader(car) && !rams(car, leaderOf.get(car))
+          && !truckHoldsForPhantom(car, leaderOf.get(car)) ? leaderOf.get(car) : undefined;
         const leadGap = lead === undefined ? undefined : leaderDist.get(car);
         if (leadGap !== undefined) {
           const room = Math.max(0, leadGap - (car.boost ? boostGap(car, lead) : followGap(car, lead)));
@@ -7260,7 +7367,10 @@ export function createTraffic(
       // car is parked against. Only part of KERB_H because only part of the body is up there.
       // Summed with the two above rather than replacing them: they are three different things
       // happening to one suspension, and only the taxi ever has more than one of them at once.
-      const mount = KERB_H * PULLOVER_MOUNT * car.pullover;
+      // The taxi's peek round a left-turner (`peeking`) is all four wheels up on the pavement, so
+      // the whole KERB_H and no lean, risen with the swing.
+      const peek = car.isTaxi && car.dodgeLateral === -peekLateral() ? passEase(car.pass) : 0;
+      const mount = KERB_H * (PULLOVER_MOUNT * car.pullover + peek);
       if (car.pullover > 0.001) roll -= PULLOVER_ROLL * car.pullover;
 
       // Rocking. Pitch is a spring-damper driven by longitudinal acceleration: braking dips the

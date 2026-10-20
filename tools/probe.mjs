@@ -44,7 +44,7 @@ import { createTubeMan } from '../src/game/tubeman.js';
 import { createManholes, planManholes, manholeGeometry, COVER_R, COVER_COUNT, BOX_CLEAR } from '../src/city/manholes.js';
 import { createCarWash } from '../src/city/carwash.js';
 import { createGasStation } from '../src/city/gasstation.js';
-import { collectPanes } from '../src/game/citylights.js';
+import { collectPanes, entrances, streetLamps } from '../src/game/citylights.js';
 import { LOT_Y, ROADSIDE_MODE, roadsideKind } from '../src/city/roadside.js';
 import { onLawn } from '../src/city/ground.js';
 import { createHoopers } from '../src/game/hoopers.js';
@@ -64,7 +64,7 @@ import { createBurgerRun } from '../src/game/burgerrun.js';
 import { createOvertakeCombo, OVERTAKE_BLIP_MS, OVERTAKE_GRACE } from '../src/game/overtake.js';
 import { createOpening, exitPath, entryPath, REPAIR_GAP } from '../src/game/opening.js';
 import { createDepotRun } from '../src/game/depotrun.js';
-import { spinTaxi, driftTaxi, kickDrift, DRIFT_KICK_WINDOW, DRIFT_MIN_V, DRIFT_ANGLE, DRIFT_EXIT, DRIFT_CHAIN, createTraffic, lightPhase, displayPhase, setPriorityJunction, isUnsignalised, ringAxisAt, placeCar, approachRoom, setClosedLanes, isLaneClosed, ROAD_Y, HOP_LEN, DRIFT_LAUNCH_LEN, DRIFT_LAUNCH_HEIGHT, onDriftLaunch, setBarrelRoll, setHopStyle, setDodge, HOP_MIN_V, STOP_SETBACK, SIGNAL_LEAD, SIGNAL_LINGER, wheelAnchors, WHEEL_R, STEER_MAX, SPEED, CAR_LEN, CAR_W, landingBounce, landingRoll, BOUNCE_DUR, TRUCK_W, SPAWN_CLEARANCE, POLICE_FLEET,
+import { spinTaxi, driftTaxi, kickDrift, DRIFT_KICK_WINDOW, DRIFT_MIN_V, DRIFT_ANGLE, DRIFT_EXIT, DRIFT_CHAIN, createTraffic, lightPhase, displayPhase, setPriorityJunction, isUnsignalised, ringAxisAt, placeCar, approachRoom, setClosedLanes, isLaneClosed, ROAD_Y, HOP_LEN, DRIFT_LAUNCH_LEN, DRIFT_LAUNCH_HEIGHT, onDriftLaunch, setBarrelRoll, setHopStyle, setDodge, setOvertakeStyle, HOP_MIN_V, STOP_SETBACK, SIGNAL_LEAD, SIGNAL_LINGER, wheelAnchors, WHEEL_R, STEER_MAX, SPEED, CAR_LEN, CAR_W, landingBounce, landingRoll, BOUNCE_DUR, TRUCK_W, SPAWN_CLEARANCE, POLICE_FLEET,
   LOCO_DEFAULTS, locoTuning, setLocoTuning, resetLocoTuning, locoRamp, boostCruise, overdriveTop, MPH_PER_UNIT, locoWeave, locoWeaveFade, MIN_GAP, ENVELOPE, CIRCLE_OFFSET, DODGE_MARGIN, carGeometry, CABIN_TOP, copLaysRubber, uturnWindow } from '../src/sim/traffic.js';
 import { loadLocoTuning, saveLocoTuning, clearLocoTuning } from '../src/game/locostash.js';
 import { createRoadwork, BARRIER_S, CONE_ROW } from '../src/game/roadwork.js';
@@ -1492,6 +1492,31 @@ const onGrass = (city, i, j) => {
   check('and its music has somewhere to play from', !!box.emitter
     && Math.hypot(box.emitter.x - propsBuild.boombox.x, box.emitter.z - propsBuild.boombox.z) < 1,
     box.emitter ? `at (${box.emitter.x.toFixed(1)}, ${box.emitter.z.toFixed(1)})` : 'no emitter');
+
+  // Through the city's entrance wave and out the other side, no note shows anywhere but over its
+  // box. The wave once owned the notes' visibility too, and its last frame switched the whole pool
+  // on — the never-emitted spares included, unturned at the world origin and half sunk in the road.
+  const waveScene = new THREE.Scene();
+  const waveBox = createBoombox(waveScene, makeRng(5), propsBuild.boombox);
+  const wave = createCityEntry({ meshes: [], objects: waveBox.entryObjects });
+  let stray = 0;
+  let hiddenEarly = true;
+  for (let n = 0; n < 60 * 30 && wave.running(); n++) {
+    wave.update(1 / 60);
+    waveBox.update(1 / 60);
+    if (!waveBox.holder.visible && waveBox.notes.some((note) => note.mesh.visible)) hiddenEarly = false;
+  }
+  for (let n = 0; n < 120; n++) {
+    waveBox.update(1 / 60);
+    for (const note of waveBox.notes) {
+      if (!note.mesh.visible) continue;
+      const p = note.mesh.position;
+      if (Math.hypot(p.x - propsBuild.boombox.x, p.z - propsBuild.boombox.z) > 4) stray += 1;
+    }
+  }
+  check('no note shows before its box arrives, or away from it after',
+    !!propsBuild.boombox && !wave.running() && hiddenEarly && stray === 0,
+    `${stray} note-frames away from the box${hiddenEarly ? '' : '; notes showed before the box'}`);
 }
 
 // The roadside block (city/roadside.js): the car wash (city/carwash.js) or the gas station
@@ -5526,8 +5551,11 @@ const PRESSURE_END = difficulty.getTuning().pressureEnd;
       }
     }
   }
-  const dodgeStage = ({ gesture = 'blip', depth = 0, creep = 0, style = '', cop = false } = {}) => {
+  // The line-picking below is `?overtake=classic`; the default throws the taxi into the oncoming lane
+  // whatever is there, checked at the end of this section (`overtake` below).
+  const dodgeStage = ({ gesture = 'blip', depth = 0, creep = 0, style = '', cop = false, overtake = 'classic' } = {}) => {
     setDodge(style);
+    setOvertakeStyle(overtake);
     const sTraffic = createTraffic(makeRng(seed + 113), new THREE.Scene(), 2);
     const [sTaxi, sBlock] = sTraffic.cars;
     // The blocker first, on its own: driven in until its centre is `depth` past the edge of the
@@ -5579,6 +5607,7 @@ const PRESSURE_END = difficulty.getTuning().pressureEnd;
       kerbward = Math.min(kerbward, sTaxi.passOffset);
     }
     setDodge('');
+    setOvertakeStyle('');
     return { hits, peak, widest, kerbward, arms: combo.state.arms, dodges: sTaxi.dodges, blipAt };
   };
   const sweep = (r) => `${r.arms} arms, ${r.dodges} swerves, ${r.hits} bumps, pass peaked at`
@@ -5639,6 +5668,126 @@ const PRESSURE_END = difficulty.getTuning().pressureEnd;
   const crossing = dodgeStage({ creep: SPEED });
   check('a car crossing the junction at cruise is not a swerve',
     crossing.dodges === 0 && crossing.arms === 0, sweep(crossing));
+
+  // 1f. The default combo is dumb (`setOvertakeStyle`; Tyler, 2026-10-19: "don't do anything smart").
+  // Whatever stands in the junction, it goes into the oncoming lane at the ordinary pass width and
+  // takes what comes: the roadblock cop that classic jinks round by the kerb.
+  const dumbBlock = dodgeStage({ depth: middle, cop: true, overtake: '' });
+  check('the default combo takes a roadblock cop the ordinary way, into the oncoming lane',
+    dumbBlock.arms === 1 && dumbBlock.dodges === 0 && dumbBlock.peak > 0.95 && dumbBlock.kerbward === 0
+      && dumbBlock.widest > 2 * LANE - 0.5 && dumbBlock.widest < 2 * LANE + 0.5, sweep(dumbBlock));
+
+  // A car turning left ahead: the #520 gate refuses to pull out round it, and under
+  // `?overtake=classic` the combo does nothing there. The default peeks round its right, up on the
+  // kerb (`peeking` in traffic.js), because its blinker says it is about to swing across the
+  // oncoming lane. Blipped once on the approach with the blinker lit (`early`) and once the moment
+  // the turner crosses its hold line (`state` flips to `turn` there), which is the case the gate
+  // refuses. Staged at the first junction with a straight on and a left off it.
+  let lt = null;
+  for (let i = 1; i < GRID_I && !lt; i++) {
+    for (let j = 1; j < GRID_J && !lt; j++) {
+      for (const d of [0, 1, 2, 3]) {
+        if (ringAxisAt(i, j) || approachRoom(d, i, j) < 40) continue;
+        const exits = legalExits(d, i, j);
+        if (!exits.includes(d) || !exits.includes(leftOf(d)) || !legalExits(opposite(d), i, j).length) continue;
+        lt = { i, j, d };
+        break;
+      }
+    }
+  }
+  const turnerStage = (overtake = '', early = false, cop = false) => {
+    setOvertakeStyle(overtake);
+    const tTraffic = createTraffic(makeRng(seed + 127), new THREE.Scene(), 2);
+    const [tTaxi, tLead] = tTraffic.cars;
+    placeCar(tTaxi, lt.d, lt.i, lt.j, 36);
+    tTaxi.route = [lt.d, lt.d, lt.d]; tTaxi.parked = false;
+    tTaxi.hp = TAXI_HP;
+    placeCar(tLead, lt.d, lt.i, lt.j, 4);
+    tLead.route = [leftOf(lt.d)]; tLead.parked = false;
+    tLead.police = cop;
+    const combo = createOvertakeCombo({ taxi: tTaxi });
+    const tCollisions = createCollisions(tTraffic.cars, tTaxi);
+    let hits = 0;
+    tCollisions.onBump(() => { hits += 1; });
+    let peak = 0;
+    let kerbward = 0;
+    let wide = 0;
+    let vmin = Infinity;
+    let blipAt = null;
+    let turning = false;
+    const blipFrames = Math.floor((OVERTAKE_BLIP_MS / 1000) * 60 * 0.6);
+    for (let f = 0; f < 60 * 3; f++) {
+      const ready = early ? tLead.signalHand === 'left' && tLead.state === 'drive' : tLead.state === 'turn';
+      if (blipAt === null && ready && tTaxi.passGap < 30) {
+        blipAt = f;
+        turning = tLead.signalHand === 'left';
+      }
+      const off = blipAt !== null && f >= blipAt && f < blipAt + blipFrames;
+      tTaxi.boost = true;
+      tTaxi.boostEasing = off;
+      combo.update(1 / 60, { held: !off });
+      tTraffic.update(1 / 60);
+      tCollisions.update(1 / 60);
+      peak = Math.max(peak, tTaxi.pass);
+      kerbward = Math.min(kerbward, tTaxi.passOffset);
+      wide = Math.max(wide, tTaxi.passOffset);
+      if (tTaxi.passing && tTaxi.pass >= 1) vmin = Math.min(vmin, tTaxi.v);
+    }
+    setOvertakeStyle('');
+    return { peak, blipAt, turning, arms: combo.state.arms, peeks: tTaxi.peeks, hits, kerbward, wide, vmin };
+  };
+  const turnSweep = (r) => `blip at frame ${r.blipAt} with the car ${r.turning ? '' : 'not '}signalling left,`
+    + ` ${r.arms} arms, ${r.peeks} peeks, ${r.hits} bumps, pass peaked at ${r.peak.toFixed(2)},`
+    + ` ${(r.kerbward < 0 ? r.kerbward : r.wide).toFixed(2)} across, slowest ${r.vmin.toFixed(1)} u/s once out`;
+  for (const early of [true, false]) {
+    const turner = turnerStage('', early);
+    check(`the default combo goes round the right of a car ${early ? 'signalling' : 'already turning'} left, on the pavement at speed`,
+      turner.turning && turner.peeks === 1 && turner.peak > 0.95 && turner.hits === 0
+        && turner.kerbward < -2.5 && turner.wide === 0 && turner.vmin > SPEED * 1.5, turnSweep(turner));
+  }
+  // Never round a cop, whose blinker is no promise to get out of the way: the taxi sat beside one
+  // on the kerb at the cop's own speed with Loco held. A cop signalling left gets the ordinary pass.
+  const copTurner = turnerStage('', true, true);
+  check('a cop signalling left is passed the ordinary way, not peeked',
+    copTurner.turning && copTurner.peeks === 0 && copTurner.peak > 0.95 && copTurner.wide > 2 * LANE - 0.5,
+    turnSweep(copTurner));
+  const classicTurner = turnerStage('classic');
+  check('?overtake=classic: the combo does not pull out round a car already turning left',
+    classicTurner.turning && classicTurner.peak === 0, turnSweep(classicTurner));
+
+  // Behind a truck the taxi spends much of its time in the junction box, and a combo thrown there
+  // pulls out there rather than waiting for the far side (`thrownInBox` in traffic.js). Classic
+  // decides only on a lane: staged like this it never pulled out at all in 3 seconds.
+  const boxStage = (overtake = '') => {
+    setOvertakeStyle(overtake);
+    const bTraffic = createTraffic(makeRng(seed + 131), new THREE.Scene(), 2);
+    const [bTaxi, bTruck] = bTraffic.cars;
+    placeCar(bTaxi, sw.d, sw.i, sw.j, 14);
+    bTaxi.route = [sw.d, sw.d, sw.d]; bTaxi.parked = false;
+    placeCar(bTruck, sw.d, sw.i, sw.j, 6);
+    bTruck.route = [sw.d, sw.d, sw.d]; bTruck.parked = false; bTruck.isTruck = true;
+    const combo = createOvertakeCombo({ taxi: bTaxi });
+    const blipFrames = Math.floor((OVERTAKE_BLIP_MS / 1000) * 60 * 0.6);
+    let blipAt = null;
+    let pulledIn = null;
+    let peak = 0;
+    for (let f = 0; f < 60 * 3; f++) {
+      if (blipAt === null && bTaxi.state === 'turn') blipAt = f;
+      const off = blipAt !== null && f >= blipAt && f < blipAt + blipFrames;
+      bTaxi.boost = true;
+      bTaxi.boostEasing = off;
+      combo.update(1 / 60, { held: !off });
+      bTraffic.update(1 / 60);
+      if (bTaxi.passing && pulledIn === null) pulledIn = bTaxi.state;
+      peak = Math.max(peak, bTaxi.pass);
+    }
+    setOvertakeStyle('');
+    return { pulledIn, peak, arms: combo.state.arms };
+  };
+  const boxed = boxStage();
+  check('a combo thrown in the junction box behind a truck pulls out there',
+    boxed.arms === 1 && boxed.pulledIn === 'turn' && boxed.peak > 0.95,
+    `${boxed.arms} arms, pulled out in state ${boxed.pulledIn}, pass peaked at ${boxed.peak.toFixed(2)}`);
 
   // 2. A boosting taxi turning left used to stop dead under a green: the oncoming lane shares its
   // axis, so it kept its green, and the left-turn yield then refused to let the taxi go — waiting
@@ -16922,6 +17071,39 @@ let chopperOrder; // likewise
   // `createLayout` installs the network it bakes as *the* city network (see CLAUDE.md), so the
   // sweep above has replaced the city everything below this point measures against. Put it back.
   createLayout(makeRng(seed));
+}
+
+// Rain Mode's street lamps keep off every doorway, and off the bank's steps. Measured as the
+// distance from each post to the doorway's own span on the façade — not through the placement's
+// along/across test — over a sweep of cities, and against the same lamps placed blind, so the check
+// is shown to bite: a post on the bank's steps was the bug.
+{
+  const crowding = (lamps, doors) => lamps.spots.filter(({ px, pz }) => doors.some((d) => {
+    // The nearest point on the door's span along its façade.
+    const t = THREE.MathUtils.clamp((px - d.x) * d.nz - (pz - d.z) * d.nx, -d.half, d.half);
+    const qx = d.x + d.nz * t;
+    const qz = d.z - d.nx * t;
+    // A unit: the placement keeps 1.2 off the door's edge along the kerb, and the post is 0.4 out.
+    return Math.hypot(px - qx, pz - qz) < 1;
+  })).length;
+  let placed = 0;
+  let near = 0;
+  let blind = 0;
+  for (let n = 0; n < 6; n++) {
+    const s = seed + n * 613;
+    const sweepLayout = createLayout(makeRng(s));
+    const stop = collectPanes();
+    const sweepCity = createBuildings(makeRng(s + 22), sweepLayout);
+    const doors = entrances(stop(), sweepCity.bank);
+    const lamps = streetLamps(makeRng(s + 392), sweepLayout, doors);
+    placed += lamps.spots.length;
+    near += crowding(lamps, doors);
+    blind += crowding(streetLamps(makeRng(s + 392), sweepLayout), doors);
+  }
+  createLayout(makeRng(seed));
+  check('no street lamp stands in front of a doorway or the bank’s steps',
+    near === 0 && blind > 0 && placed > 0,
+    `${near} of ${placed} posts on a doorway (${blind} placed blind)`);
 }
 
 // --- The bank, and the robbery that comes out of it ---------------------------

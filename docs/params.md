@@ -72,6 +72,7 @@ doc; what the classic version was, and why it changed, is in that doc's history 
 | `?songs=classic` | The radio plays the four earlier songs (country, jazz, rock, funk) instead of Nicolás's four | | [audio.md](audio.md#the-radio) |
 | `?splashcam=classic` | The startup screen from the game's 33° three-quarter view (the first cut) instead of the low side-on camera | | [gameplay.md](gameplay.md#the-startup-screen) |
 | `?splashsound=classic` | The startup screen plays silent, as it first shipped, rather than with the landing, bounce and Loco sounds | | [gameplay.md](gameplay.md#the-startup-screen) |
+| `?gameover=classic` | The run-end card without the polaroid of the ending over its title, and with "Tap to continue" grey over the Play again slot instead of pulsing at the foot of the screen | | [gameplay.md](gameplay.md#the-polaroid) |
 | `?splashlogo=classic` | The startup screen's plain taxi drop onto the asphalt, with no ROCKET RIDES logo for it to smash through | | [gameplay.md](gameplay.md#the-startup-screen) |
 | `?splash=classic` | No startup screen: the game loads behind black and opens on the title menu, with no taxi drop first | | [gameplay.md](gameplay.md#the-startup-screen) |
 | `?radiofade=classic` | The station cuts hard between every track, instead of the DJ talking over the start and end of the songs | | [audio.md](audio.md#talking-over-the-music) |
@@ -89,12 +90,14 @@ doc; what the classic version was, and why it changed, is in that doc's history 
 | `?robberyodds=classic` | The bank rider's coin stays a fair 50/50 instead of loading toward a robbery with each bank ride | #522 | [gameplay.md](gameplay.md#the-bank-job) |
 | `?uturn=classic` | The first U-turn, a spin on the spot, instead of the handbrake turn | #458 | [gameplay.md](gameplay.md) |
 | `?barrelroll=classic` | Big Air flown level, no barrel roll | #485 | [river.md](river.md) |
+| `?overtake=classic` | The overtake combo judges the road before pulling out: it waits until the car is close, won't pull out round a car turning left, and only swerves round a slow car in the junction it has a clean line round. The default throws the taxi into the oncoming lane the moment the combo lands, whatever is there, or up on the kerb round the right of a car signalling left | | [traffic.md](traffic.md#overtaking) |
 | `?passturn=classic` | The taxi pulls out to overtake a car already turning left across it, and grinds along its side | #520 | [traffic.md](traffic.md) |
 | `?swerve=classic` | The overtake combo is for a car in front only: a car stopped or creeping in the junction ahead is hit rather than swerved round | | [traffic.md](traffic.md#swerving-round-a-car-stood-in-the-junction) |
 | `?passpace=classic` | The overtaking taxi held back to the passed car's speed while it swings out, and to a truck's through every junction of the pass | #520 | [traffic.md](traffic.md) |
 | `?hop=classic` | A hop can stall in mid-air: braking (or crawling) over the hump hangs the taxi in the air | | [river.md](river.md) |
 | `?route=classic` | The route stops dead at the rider's kerb, with no stub past the pickup | #480 | [gameplay.md](gameplay.md) |
 | `?newmove=classic` | New Move cards mid-run instead of after the run | #493 | [gameplay.md](gameplay.md) |
+| `?movecard=classic` | The New Move card's clip bare with rounded corners (not on polaroid paper), and its pedal keys drawn as the HUD buttons (not flat) and greyed until pressed | | [gameplay.md](gameplay.md#new-move-unlocked-the-overtake-u-turn-and-drift-cards) |
 | `?squallramp=classic` | A squall's edge arriving all at once: shade, rain and city lights over the same few seconds, and the whole sky greying the moment a cell comes on | | [rendering.md](rendering.md#a-squall--the-default-weather-gamesqualljs) |
 
 ## Gameplay switches and tuning
@@ -105,6 +108,7 @@ doc; what the classic version was, and why it changed, is in that doc's history 
 | `?chips=on` | The HUD rider chips instead of the edge arrows | [gameplay.md](gameplay.md) |
 | `?combo=run` | The combo meter carries across fares instead of cashing per ride | [gameplay.md](gameplay.md) |
 | `?rating=off` | Three strike rings instead of the star rating | [difficulty.md](difficulty.md) |
+| `?stars=classic` | Show the star rating under the cash (hidden by default since 2026-10-20; the rating still fires you) | [difficulty.md](difficulty.md) |
 | `?grace=1.6` | How long a newly caught car is tailgated before holding Loco rams it (default `OVERTAKE_GRACE`); `0` is the old rule | [gameplay.md](gameplay.md) |
 | `?pressgrace=classic` | No grace on a fresh Loco press behind a car: the combo's first tap from a taxi already sitting behind one can ram it | [traffic.md](traffic.md) |
 | `?hitcue=chip` / `edge` / `both` | A cue for how much a hit cost: a bar over the roof, a red edge, or both. Off by default | [gameplay.md](gameplay.md) |
