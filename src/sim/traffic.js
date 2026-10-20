@@ -574,6 +574,41 @@ export function barrelRollAt(u) {
   return Math.PI * 2 * k * k * (3 - 2 * k);
 }
 
+// --- The Pancake ------------------------------------------------------------------
+//
+// A car Big Air comes down on (sim/collisions.js, `crush`) is flattened rather than wrecked: a
+// cartoon squash and a boing, not a crash. Render-only like the barrel roll — a scale on the body
+// matrix, about the car's origin at road level so it squashes onto the tarmac rather than towards
+// its middle. The wheels, lamps and bar all compose through that matrix and flatten with it.
+//
+// SLAM to go flat, held flat to PANCAKE_HOLD (the car sits on `stun` for as long), then POP back
+// up through a damped overshoot: 1 − DEPTH·(1 − k)²·cos(3πk) passes 1.31 a third of the way in,
+// dips under 1 and settles, which is the boing. It widens as it flattens, by WIDEN per unit lost,
+// so it reads as squashed rather than shrunk.
+const PANCAKE_SLAM = 0.08;
+export const PANCAKE_HOLD = 2.6;
+const PANCAKE_POP = 0.6;
+const PANCAKE_DEPTH = 0.72;      // flat is 0.28 of the car's height
+const PANCAKE_WIDEN = 0.4;
+export const PANCAKE_END = PANCAKE_HOLD + PANCAKE_POP;
+
+/** The flattened car's height scale `t` seconds after it was landed on, and its spread. */
+export function pancakeSquash(t, out = { y: 1, xz: 1 }) {
+  let y = 1;
+  if (t < PANCAKE_SLAM) {
+    const k = t / PANCAKE_SLAM;
+    y = 1 - PANCAKE_DEPTH * k * k;
+  } else if (t < PANCAKE_HOLD) {
+    y = 1 - PANCAKE_DEPTH;
+  } else if (t < PANCAKE_END) {
+    const k = (t - PANCAKE_HOLD) / PANCAKE_POP;
+    y = 1 - PANCAKE_DEPTH * (1 - k) * (1 - k) * Math.cos(3 * Math.PI * k);
+  }
+  out.y = y;
+  out.xz = Math.max(0.85, 1 + (1 - y) * PANCAKE_WIDEN);
+  return out;
+}
+
 /**
  * Launch `car` off a ramp. Idempotent while already airborne — a second barricade doesn't stack.
  * `big` is the drift launch (see DRIFT_LAUNCH_LEN) rather than the ordinary hop.
@@ -3496,6 +3531,7 @@ export function stageCar(car, x, z, yaw) {
   car.stageSignal = null;
   car.stageLampsOff = false;
   car.knock = null;
+  car.pancake = null;
   if (car.stun || car.roadblock) { car.stun = 0; car.roadblock = 0; car.braking = false; }
 }
 
@@ -4715,6 +4751,8 @@ export function createTraffic(
   const barrelPivot = new THREE.Vector3();
   const pos = new THREE.Vector3();
   const scl = new THREE.Vector3(1, 1, 1);
+  const squash = { y: 1, xz: 1 };
+  const squashScl = new THREE.Vector3();
   const euler = new THREE.Euler();
   const ZERO_SCALE = new THREE.Vector3(0, 0, 0);
   const headColor = new THREE.Color();
@@ -7284,6 +7322,7 @@ export function createTraffic(
       // run through `steerToward` it would slam the front wheels lock to lock.
       // Not on a staged car: its position is not re-derived each frame, so the offset would add up.
       if (car.knock && !car.staged) applyKnock(car, dt);
+      if (car.pancake && (car.pancake.t += dt) >= PANCAKE_END) car.pancake = null;
 
       // A little vertical bob, scaled by how fast the car is actually going, so stopped traffic
       // sits still instead of idling like a boat.
@@ -7481,7 +7520,14 @@ export function createTraffic(
           car.bounceT = 0;
           car.bounceGain = big ? DRIFT_SLAM : 1;
           car.pitchV -= BOUNCE_PITCH * car.bounceGain;
+          // Where Big Air came down, for the Pancake's window past it (sim/collisions.js `crushing`).
+          if (big) car.slamAt = car.travelled;
           if (car.isTaxi) emitLand(car, big);
+          // Came down on a car: off its roof in an ordinary hop (see `crush` in sim/collisions.js).
+          if (car.pancakeBounce) {
+            car.pancakeBounce = false;
+            launchHop(car);
+          }
         } else {
           airY = (big ? DRIFT_LAUNCH_HEIGHT : HOP_HEIGHT) * Math.sin(Math.PI * u);
           // Nose up as it leaves the ramp, level at the apex, nose down into the landing. Positive
@@ -7581,7 +7627,12 @@ export function createTraffic(
       // same at every heading. (The two orders agree exactly at yaw 0, which is why the passing
       // lab — a road running due east — could never have caught this.)
       quat.setFromEuler(euler.set(roll, car.yaw, shownPitch, BODY_EULER_ORDER));
-      matrix.compose(pos, quat, scl);
+      if (car.pancake) {
+        pancakeSquash(car.pancake.t, squash);
+        matrix.compose(pos, quat, squashScl.set(squash.xz, squash.y, squash.xz));
+      } else {
+        matrix.compose(pos, quat, scl);
+      }
       // A car the taxi has dented keeps its body pose for game/cardamage.js, which hangs its lids
       // and lamp housings off it. Before the skin below zeroes `matrix`: the cruiser is drawn by
       // its own group, and its lids still want the pose.

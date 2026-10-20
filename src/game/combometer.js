@@ -44,6 +44,10 @@ export const COMBO_STEPS = {
   // comes at most once or twice a run, the site is up for one stretch of it, and getting a fare's
   // route through it is the work — the smash itself is the payoff for having gone there.
   stuntman: { label: 'Stuntman', step: 1 },
+  // Big Air coming down on a car (sim/collisions.js `crush`). On top of Big Air's +2 rather than
+  // instead of it, and only a step: where the landing falls is mostly luck, so it is the spectacle
+  // that is big rather than the payout.
+  pancake: { label: 'Pancake', step: 1 },
 };
 
 /** The meter's scope: 'run' when `?combo=run` asks for it, 'meter' otherwise. */

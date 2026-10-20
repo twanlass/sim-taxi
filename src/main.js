@@ -45,7 +45,7 @@ import {
   onDriftLaunch, hopProgress, setSpinStyle, setBarrelRoll, setPassTurnGate, setPassPace, setHopStyle, setDodge, setOvertakeStyle,
   configureSignals, setGrip, setRunningLights, setRunningLightsAt, runningLightsAt, isLaneClosed,
 } from './sim/traffic.js';
-import { createCollisions, TAXI_HP } from './sim/collisions.js';
+import { createCollisions, TAXI_HP, setPancake } from './sim/collisions.js';
 import { createPolice } from './sim/police.js';
 import {
   createFareSystem, cornerFor, kerbFor, setFareSeconds, getFareSeconds, isFareClockPinned, BURGER_PRICE, REPAIR_PRICE,
@@ -1919,6 +1919,11 @@ traffic.onTaxiLand(({ x, z, yaw, v, deck, big }) => {
   // helipad's downdraft is, which is what reads as weight arriving rather than exhaust.
   if (big) {
     if (!fares.state.gameOver) landCombo('launch');
+    // Came down on a car on the way: the Pancake is called after the Big Air it was the end of.
+    if (pancakeOwed) {
+      pancakeOwed = false;
+      if (!fares.state.gameOver) landCombo('pancake');
+    }
     controller.kickShake(1.6);
     sfx?.play('land', { gain: 1 });
     sfx?.play('crash', { gain: 0.35, rate: 0.7 });
@@ -2240,6 +2245,26 @@ collisions.onBump(({ x, z, closing, nx, nz, speed, rearEnd, other, taxiStruck, d
   carDamage.hit(other, x, z, { closing });
   // Only when the taxi did the hitting: a truck that runs into the taxi has nothing to throw out.
   if (taxiStruck) boxSpill.hit(other, closing, nx, nz);
+});
+
+// Big Air coming down on a car flattens it (the Pancake — see sim/collisions.js `crush`). No
+// starburst and no HP: this is the taxi winning. A thud under the landing's slam, a ring of dust
+// off the car rather than the road, and sparks off its roof. Landed before the touchdown, the
+// combo waits for it so the labels read "Big Air", then "Pancake".
+setPancake(new URLSearchParams(window.location.search).get('pancake'));
+let pancakeOwed = false;
+collisions.onCrush(({ x, z, speed, other, airborne }) => {
+  if (airborne) pancakeOwed = true;
+  else if (!fares.state.gameOver) landCombo('pancake');
+  controller.kickShake(1.2);
+  sfx?.play('bump', { gain: 1, rate: 0.75 });
+  sfx?.play('crash', { gain: 0.3, rate: 0.6 });
+  const paint = other.police ? PALETTE.policeBody : PALETTE.carBody[other.colorIndex];
+  dust.burst(other.x, other.z, other.yaw, 18, 0.9, { ring: 1.6, linger: 0.9 });
+  blast.shock(other.x, other.z, { tint: paint, yaw: other.yaw, speed: speed * 0.3 });
+  sparks.burst(x, ROAD_Y + 0.4, z, other.yaw + Math.PI / 2, 14, speed * 0.4);
+  sparks.burst(x, ROAD_Y + 0.4, z, other.yaw - Math.PI / 2, 14, speed * 0.4);
+  haptic('perfect');
 });
 
 collisions.onImpact(({ x, z, speed, closing, other }) => {
