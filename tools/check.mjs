@@ -453,7 +453,9 @@ try {
   // junction must every one come to rest on the road.
   {
     const THREE = await import('three');
-    const { createEjection, FADE_IN } = await import('../src/game/ejection.js');
+    const { createEjection, EMERGE } = await import('../src/game/ejection.js');
+    const { TAXI_DRIVER_SEAT, TAXI_SCALE } = await import('../src/geometry/taxi.js');
+    const { CAR_LEN } = await import('../src/sim/traffic.js');
     const { GRID_I, GRID_J, blockBounds, lineX, lineZ } = await import('../src/city/grid.js');
     const scene = new THREE.Scene();
     const lands = [];
@@ -496,15 +498,26 @@ try {
     replayed.fire({ x: lineX(2), z: lineZ(3), yaw: 0, closing: 21, side: 1 });
     for (let n = 0; n < 24; n++) replayed.update(1 / 60);
     if (scrubbed.distanceTo(replayed.group.position) > 1e-6) fail.push('seek(0.4) disagrees with stepping to 0.4');
-    // Fades in rather than popping: see-through at the impact, solid (and back in the AO prepass)
-    // once the fade is done, and the replay's scrub lands the same opacity as stepping did.
+    // Comes out of the cab rather than popping into the air: solid from the first frame, small and
+    // inside the cabin at the impact (behind the windscreen, below the roof, on the driver's side),
+    // and full size on its arc once EMERGE is out. Fired at yaw 0, forward is +x and the driver's
+    // side is −z.
     const torsoMat = () => ej.group.getObjectByProperty('isMesh', true).material;
+    ej.seek(1);
+    const full = ej.group.scale.x;
     ej.seek(0);
-    if (!(torsoMat().opacity < 0.05 && torsoMat().transparent)) fail.push(`opacity ${torsoMat().opacity} at the impact, not faded`);
-    ej.seek(FADE_IN / 2);
-    if (Math.abs(torsoMat().opacity - 0.5) > 1e-6) fail.push(`opacity ${torsoMat().opacity} halfway through the fade`);
-    ej.seek(FADE_IN);
-    if (torsoMat().opacity !== 1 || torsoMat().transparent) fail.push('still see-through after the fade');
+    const at0 = ej.group.position.clone().sub(new THREE.Vector3(lineX(2), 0, lineZ(3)));
+    if (torsoMat().opacity !== 1 || torsoMat().transparent) fail.push(`opacity ${torsoMat().opacity} at the impact, not solid`);
+    if (!(ej.group.scale.x < full * 0.35)) fail.push(`scale ${(ej.group.scale.x / full).toFixed(2)} of full at the impact`);
+    const screenFwd = (-0.2 + CAR_LEN * 0.25) * TAXI_SCALE;
+    if (!(at0.x < screenFwd && at0.z < 0 && Math.abs(at0.y - TAXI_DRIVER_SEAT.y) < 1e-6)) {
+      fail.push(`starts at (${at0.x.toFixed(2)}, ${at0.y.toFixed(2)}, ${at0.z.toFixed(2)}), not in the driver's seat`);
+    }
+    ej.seek(EMERGE / 2);
+    const half = ej.group.scale.x / full;
+    if (!(half > 0.6 && half < 1)) fail.push(`scale ${half.toFixed(2)} of full halfway out`);
+    ej.seek(EMERGE);
+    if (Math.abs(ej.group.scale.x - full) > 1e-9) fail.push('not full size once out of the cab');
     ej.seek(-0.1);
     if (ej.group.visible) fail.push('drew before the impact');
     ej.seek();

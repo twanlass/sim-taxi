@@ -72,6 +72,7 @@ doc; what the classic version was, and why it changed, is in that doc's history 
 | `?songs=classic` | The radio plays the four earlier songs (country, jazz, rock, funk) instead of Nicolás's four | | [audio.md](audio.md#the-radio) |
 | `?splashcam=classic` | The startup screen from the game's 33° three-quarter view (the first cut) instead of the low side-on camera | | [gameplay.md](gameplay.md#the-startup-screen) |
 | `?splashsound=classic` | The startup screen plays silent, as it first shipped, rather than with the landing, bounce and Loco sounds | | [gameplay.md](gameplay.md#the-startup-screen) |
+| `?eject=classic` | The wrecked taxi's driver appearing full size in the air above the bonnet and fading in, instead of squeezing out through the windscreen | | [traffic.md](traffic.md) |
 | `?gameover=classic` | The run-end card without the polaroid of the ending over its title, and with "Tap to continue" grey over the Play again slot instead of pulsing at the foot of the screen | | [gameplay.md](gameplay.md#the-polaroid) |
 | `?splashlogo=classic` | The startup screen's plain taxi drop onto the asphalt, with no ROCKET RIDES logo for it to smash through | | [gameplay.md](gameplay.md#the-startup-screen) |
 | `?splash=classic` | No startup screen: the game loads behind black and opens on the title menu, with no taxi drop first | | [gameplay.md](gameplay.md#the-startup-screen) |
