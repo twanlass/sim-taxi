@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { MARKER_OUTLINE_PX } from './camera.js';
 
 // Off-screen fare pointers.
 //
@@ -110,6 +111,11 @@ function readSafeInsets() {
 // onto and `event.target` is the div the listener is on.
 const ARROW_SVG = '<span><svg viewBox="-16 -16 32 32"><polygon points="13,0 -9,-10 -4,0 -9,10" /></svg></span>';
 
+// The nudge's phase step between pooled slots, in seconds: the period (1.3s, `fare-pointer-nudge` in
+// index.html) times the golden ratio's fraction, so however many arrows are up no two land on the
+// same beat and none sits exactly half a beat off another (which reads as a see-saw, not a glance).
+const NUDGE_PHASE_STEP = 1.3 * 0.618;
+
 // How far a finger may smear and still be a tap, in px. The same 8 as `PAN_SLOP` in game/camera.js
 // — every selection on a phone lands with 2-4px of travel — and it is here for a reason that is
 // specific to a pointer the element *keeps*: see the press handler below.
@@ -126,9 +132,17 @@ export function createFarePointers({ camera, pinLocation, viewport = null, onTap
   tappable = () => false }) {
   const host = document.getElementById('fare-pointers');
   if (!host) return { update: () => {} };
+  // The arrow's outline weight, from the one constant the pie over the rider is outlined by too.
+  // A CSS variable read by a `non-scaling-stroke`, so it is screen px whatever size the arrow is
+  // drawn at — the drop-off's larger arrow and the press dip included.
+  host.style.setProperty('--marker-outline', `${MARKER_OUTLINE_PX}px`);
 
   readSafeInsets();
   window.addEventListener('resize', readSafeInsets);
+  // `?arrowpulse=classic`: the arrows hold still, as they did before the nudge. Read here rather
+  // than at module scope, which the headless suite imports with no `window`.
+  host.classList.toggle('no-nudge',
+    new URLSearchParams(window.location.search).get('arrowpulse') === 'classic');
 
   const projected = new THREE.Vector3();
 
@@ -146,6 +160,8 @@ export function createFarePointers({ camera, pinLocation, viewport = null, onTap
     el.className = 'fare-pointer';
     el.hidden = true;
     el.innerHTML = ARROW_SVG;
+    // A negative delay starts the loop part-way through rather than holding the arrow still first.
+    el.style.setProperty('--nudge-delay', `${(-index * NUDGE_PHASE_STEP).toFixed(3)}s`);
     host.appendChild(el);
     // `atX`/`atZ` rather than the point `pinLocation` handed back: one pooled div answers for a
     // different fare from one frame to the next, so the destination has to be read at press time.

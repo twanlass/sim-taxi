@@ -69,6 +69,23 @@ that is the one thing that should be under way before the bubble speaks.
 
 Now: [Speech bubbles](gameplay.md#speech-bubbles).
 
+**Until 2026-10-20 the whole card was pinned (`?bubbles=classic`).** It was replaced by the docked card
+and tag because it moved with every car it was on and covered the road. What it did:
+
+**Pinned to what it is about.** Each bubble is handed a target, a function returning a screen point
+re-read every frame, and stands above it with its pointer on the bottom edge. The talker where there
+is one (the cop's roof, the taxi the robber is in, the police car dispatch is talking from) and the thing
+being pointed out where there is not (the rider's crystal, the top of the gas pedal). It slides
+sideways to stay on the glass, and drops *below* a target that is up under the HUD.
+
+**Off screen, it waits at the edge.** A target out of frame clamps the card to the nearest edge along
+the line from the middle of the screen to it — the [off-screen rider arrows'](gameplay.md#finding-the-next-rider)
+rule — with its pointer on the side facing that edge. Pan towards it and the card slides along the
+edge with you until the target is in frame, then drops onto it. The pointer always sits in the
+**middle** of its side and only turns, leaning towards its target but no more than 40° off square
+to the card's edge, so it does not crawl along the edge as the camera pans. `placeSpeech` is the
+pure half of it.
+
 The pointer always sits in the
 **middle** of its side and only turns, leaning towards its target but no more than 40° off square
 to the card's edge; it used to sit where the line to the target crossed the card, which made it
