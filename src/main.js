@@ -1155,12 +1155,10 @@ function boardSound() {
 // (`goOnAir` in `beginRun`); with no title screen, `beginRun` runs at boot and the radio opens on
 // the intro as ever. The menu itself is effects only; `?titlemusic=classic` plays songs under it
 // until Play cuts them. `?menumusic=classic` opens on the intro under the menu instead.
-// `?songs=classic` puts the four songs Nicolás's replaced back on the station.
 const sfx = shot ? null : createSfx({
   rng: makeRng(runSeed + 811),
   menuMusic: new URLSearchParams(window.location.search).get('menumusic') !== 'classic',
   menuSongs: new URLSearchParams(window.location.search).get('titlemusic') === 'classic',
-  classicSongs: new URLSearchParams(window.location.search).get('songs') === 'classic',
   // The DJ talks over the edges of the songs; `?radiofade=classic` cuts hard between tracks.
   radioFade: new URLSearchParams(window.location.search).get('radiofade') !== 'classic',
 });
