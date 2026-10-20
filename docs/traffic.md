@@ -1199,6 +1199,36 @@ and the probe still drive — and `canPass` is false until it is thrown. While a
 pull out, or behind a truck, the taxi tailgates `COMBO_TAILGATE` (1.5) further back than
 `BOOST_GAP`, because 0.29 of daylight did not survive a tailgate longer than a fraction of a second.
 
+**Thrown, it goes** (`setOvertakeStyle`; Tyler, 2026-10-19: "don't do anything smart. That's how
+the player will learn, but that's how they will also feel a real reaction to their actions"). The
+frame the combo arms, the taxi swings into the oncoming lane, whatever is there: it does not wait
+for the car to come within `PASS_TRIGGER`, it does not refuse a car turning left across the lane
+(the #520 gate below), and a car in the junction ahead is gone round the ordinary way at any speed
+rather than by a line picked to clear it (the dodge below). If an oncoming car, a turner or cross
+traffic is in that lane, the taxi hits it. Only the road can still say no: no oncoming lane, or no
+road on the far side of the junction (`room`). The leader brake still holds while the taxi swings
+out, so it does not drive through the car it is leaving. `?overtake=classic` restores all of the
+judgement described below.
+
+**The one exception is a car signalling left** (never a cop: a cop blocking or chasing is not going
+where it signals, and the taxi crawled beside one). It is keyed on the blinker because the player can
+see it (`peeking`; Tyler, 2026-10-19: "a slight peek around on the right", then "couldn't we do a
+peek at full speed though?"). The combo then goes round the turner's right, up on the pavement:
+2.61 off the lane centre (`peekLateral`, the collision envelope plus `PEEK_MARGIN`), the whole body
+lifted by `KERB_H`. Past the envelope the leader brake lets go (`seesLeader` asks both ways), so the
+taxi keeps its speed: 16.5 to 23 u/s through the probe's two peeks, where the first cut on the kerb
+at 1.5 crawled at the turner's speed. The margin is for the turner's tail, which swings toward the
+taxi as it yaws into the left: at the bare envelope a taxi arriving as the turner set off clipped
+its back corner 3 times in 3. The turner is allowed its left while being peeked (the courtesy veto
+below is for a taxi on its *left*). Nothing on the pavement is solid, so the taxi drives through
+street furniture, and it stays lifted through the junction box (0.35 units, about 2.7px).
+
+It also pulls out half way across a straight-through crossing (`thrownInBox`), where classic waits
+for the far side; behind a slow truck the taxi spends much of its time in the box. Over 8 cities ×
+40s, a bot throwing the combo 0.35s after catching a car (`tools/overtakebot.mjs`) passed 23 of 36
+against classic's 13 of 32, and the ones it rams are mostly cars it caught too late to blip before
+the ram.
+
 **Making it executable** (Tyler, 2026-10-06: "really hard to execute"). A bot playing the combo —
 Loco held, a 250ms reaction to a car within 20 units, then a release — measured where it failed:
 
@@ -1459,7 +1489,7 @@ boost down to ~10 u/s, side by side, which is how it got reported. The reason th
 does not apply to this half of it: it gates only the pull-out, not `canPass`, so a refusal tailgates
 rather than rams, and the car it refuses for is leaving the road anyway. Over a second set of 48
 cities × 60s, passes with any contact while the taxi was level with its car went from 30 of 143 to
-18 of 130; what is left is oncoming and cross traffic, which the player can see coming. `?passturn=classic` pulls out regardless.
+18 of 130; what is left is oncoming and cross traffic, which the player can see coming. `?passturn=classic` pulls out regardless. Under the default combo this gate no longer applies to a combo pass (see *Thrown, it goes* above); it still governs the lab's hold-to-pass rule and `?overtake=classic`.
 
 **A pass keeps its pace.** Two things held a passing taxi to the speed of the car it was going
 round, both reported as the taxi "hesitating" alongside, worst beside a truck:
@@ -1606,6 +1636,9 @@ approaches passed 130 and wrecked 0 both before and after.
 
 #### Swerving round a car stood in the junction
 
+*This is `?overtake=classic`.* By default the combo does not choose a line: anything in the junction
+ahead, at any speed, arms it, and the taxi takes the ordinary pass into the oncoming lane.
+
 The same combo, thrown short of a car **stopped or creeping in the junction ahead** — nosed in from
 a side street and waiting, or a cop parked across the box — swerves round it (Tyler, 2026-10-15).
 `findDodge` in `traffic.js` finds it (the dodge in the code, since `swerve` already names the
@@ -1736,6 +1769,14 @@ taxi for the rest of the run in 2 of 24 cities: once shoved level with a truck i
 so the truck held for the taxi as its leader), and once with both merging onto one exit. Hence the
 taxi's centre has to be behind the truck's tail, and on a shared exit the truck has to be further
 round its turn than the taxi.
+
+That still left one way round. A car mid-turn is listed on its exit lane at a stand-in position
+behind the lane's start, so a taxi that has just crossed straight on — or one further round a left
+onto the same lane than the truck is round its right — reads as *in front* of the truck, and the
+truck queued behind it while the taxi braked for the truck's body. 3 runs in 40 (24 cities × 90s at
+35% trucks) ended with the taxi parked behind a truck stopped mid-corner for the rest of the run,
+72-80s. Now a truck never holds for the taxi while the taxi is braking for that truck's body
+(`truckHoldsForPhantom`): the body is what can be hit, so the body wins.
 
 Measured over 24 cities, 90s each, button held, routed, against the same runs before:
 
@@ -1969,11 +2010,18 @@ unit, which reads as a wreck being panned across rather than as one car hitting 
 **A hard enough wreck throws the driver out through the windscreen.** `game/ejection.js`. At a
 closing speed of `EJECT_CLOSING` (18 u/s) or more — a T-bone or a head-on at boost cruise, a
 full-boost rear-end into a stopped queue, anything in overdrive, but not rear-ending traffic going
-the same way — a cabbie in a blue shirt and a dark cap (the riders' rig at 0.8 scale) leaves the
-front of the cabin, tumbles head over heels with arms windmilling and legs pedalling, bounces once
+the same way — a cabbie in a blue shirt and a dark cap (the riders' rig at 0.8 scale) squeezes out
+through the hole in the windscreen, tumbles head over heels with arms windmilling and legs pedalling, bounces once
 or twice with a puff and a thud, and slides to a sprawl ~16 units down the road. Thrown slightly
 away from the struck car's side so they do not land in its fireball. The end-of-beat camera frames
 the point halfway between the wreck and the landing, so both stay in a portrait phone's shot.
+
+**They come out of the cab, not out of thin air.** The figure starts in the driver's seat
+(`TAXI_DRIVER_SEAT`, geometry/taxi.js) at 0.3 of full size, hidden by the shell, and over its first
+`EMERGE` (0.15s of sim time, ~0.8s under the crash slow-mo) slides out to its arc while growing to
+full size on an ease-out. It is solid throughout. Before this it appeared full size in the air
+above the bonnet on the impact frame, and a 0.25s opacity fade on top of that still read as a pop:
+a see-through figure already in mid-air that snapped solid. `?eject=classic` brings the fade back.
 
 **It never lands in a building.** The throw follows the taxi's heading, so `fire()` walks the
 ground track first and, if it meets a block, unbridged river or the edge of the map, scales every

@@ -45,9 +45,10 @@ import { markOccluder, setOccluderDepthMaterial } from './ssao.js';
 // paid by the fade below rather than by keeping it low.
 //
 // **Faded where it covers something that matters.** The taxi already has its ghost outline for
-// when a building hides it, but a fare marker does not, and a deck across a rider's kerb is a fare
-// the player cannot see. So the structure and the train dither out over whatever it is hiding — see
-// `FADE_*` below.
+// when a building hides it, and that works through the deck too, so the deck stays solid over the
+// taxi like a building does. A fare marker has no outline, and a deck across a rider's kerb is a
+// fare the player cannot see, so the structure and the train dither out over the pins — see
+// `FADE_*` below. (`?trainfade=classic` in main.js adds the taxi back as a fade point.)
 //
 // The train is four cars, each set on the path by its two trucks, so a car rounds the corner as a
 // chord across the curve rather than as a bent box. It runs off one end of the island, waits, and
@@ -225,8 +226,8 @@ const BOGIE_AT = CAR_LEN / 2 - 0.9;
 // densities reads as a see-through deck rather than as a pattern.
 //
 // Two things fade it. The coast, on the smoothstep the ground and the boats use (its band is
-// `COAST_*` below), so the line dissolves off the island with the asphalt under it. And up to `FADE_SLOTS` points on the ground the player needs to see — the taxi and the fare
-// pins — each projected *up the sightline* to the deck: the part of the deck hiding a point is not
+// `COAST_*` below), so the line dissolves off the island with the asphalt under it. And up to `FADE_SLOTS` points on the ground the player needs to see — the fare pins
+// (and the taxi under `?trainfade=classic`) — each projected *up the sightline* to the deck: the part of the deck hiding a point is not
 // above it, it is `FADE_LIFT * (1, 1)` further toward the camera.
 const FADE_SLOTS = 8;
 const FADE_IN = 2.6;     // fully faded inside this radius of a projected point...

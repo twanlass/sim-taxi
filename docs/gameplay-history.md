@@ -69,6 +69,23 @@ that is the one thing that should be under way before the bubble speaks.
 
 Now: [Speech bubbles](gameplay.md#speech-bubbles).
 
+**Until 2026-10-20 the whole card was pinned (`?bubbles=classic`).** It was replaced by the docked card
+and tag because it moved with every car it was on and covered the road. What it did:
+
+**Pinned to what it is about.** Each bubble is handed a target, a function returning a screen point
+re-read every frame, and stands above it with its pointer on the bottom edge. The talker where there
+is one (the cop's roof, the taxi the robber is in, the police car dispatch is talking from) and the thing
+being pointed out where there is not (the rider's crystal, the top of the gas pedal). It slides
+sideways to stay on the glass, and drops *below* a target that is up under the HUD.
+
+**Off screen, it waits at the edge.** A target out of frame clamps the card to the nearest edge along
+the line from the middle of the screen to it — the [off-screen rider arrows'](gameplay.md#finding-the-next-rider)
+rule — with its pointer on the side facing that edge. Pan towards it and the card slides along the
+edge with you until the target is in frame, then drops onto it. The pointer always sits in the
+**middle** of its side and only turns, leaning towards its target but no more than 40° off square
+to the card's edge, so it does not crawl along the edge as the camera pans. `placeSpeech` is the
+pure half of it.
+
 The pointer always sits in the
 **middle** of its side and only turns, leaning towards its target but no more than 40° off square
 to the card's edge; it used to sit where the line to the target crossed the card, which made it
@@ -1004,7 +1021,7 @@ Now: [Repairs at the depot](gameplay.md#repairs-at-the-depot).
 
 ### The depot's card
 
-Now: [The depot's card](gameplay.md#the-depots-card).
+Now: [The depot's card](gameplay.md#the-depots-tip).
 
 It was a speech bubble over the garage door, once per bout of damage; Tyler swapped it for the card
 (2026-10-06). The card is **once ever** (`simTaxi.seen.repair`), stops the world like the move cards,
@@ -1193,3 +1210,18 @@ Reported from play (Tyler, 2026-10-14): "hitting a cop is insta fail. That sucks
 vignette where you wanna smash through roadblocks." The getaway fills the tank and throws roadblocks
 across your route; the third rule made the second the one thing it asked of you that ended the run.
 Replaced by [getting caught](gameplay.md#getting-caught).
+
+## The NES pedals' shine, and the flat buttons
+
+From 2026-10-15 to 2026-10-20 the NES B and A carried a hard white glint on the upper left, a dot
+beside it, and a lit lower rim on the dish. Tyler asked for them "simpler, no fake highlights"
+off a phone screenshot, and the fuel arc 8 units further out (it stood 8 off the surround). The
+first answer was flat buttons — one disc in the button's colour and a white letter, the New Move
+card's keys, pressed by shrinking to 92% and darkening — and Tyler went back to the NES drawing
+with only the white shine removed. `?buttons=classic` brings back the shine and the old gap.
+
+## The fuse flame's first cut
+
+The fuse flame first stood up off the fuel's front, 20° off the outward normal, and took the
+plume's colours up a drift chain — violet, blue, teal, with the fuel's gradient following. Tyler
+asked for it turned to lie along the bar's direction of travel, and orange only.

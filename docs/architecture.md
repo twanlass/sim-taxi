@@ -90,6 +90,7 @@ src/
     drivethru.js        who pulls into the burger joint, what they do in there, how they leave
     burgerrun.js        the secret: a tap on the joint sends the taxi through it for a splash of boost
     runend.js           the run-end blackout: stats counted out, then initials, then the table
+    polaroid.js         the run-end card's print: one frame of the ending, copied off the canvas
     highscores.js       the local top five — localStorage is the whole backend
     homescreen.js       the iOS-only "add it to your Home Screen" screen; parks the run while up
     titlescreen.js      Play / Settings / Credits over the drifting city; parks the run until Play

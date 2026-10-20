@@ -174,6 +174,18 @@ const POST_H = 4.2;
 const POST_W = 0.16;
 const ARM_REACH = 1.5;       // out over the road, from the post
 const POST_BACK = 0.45;      // in from the kerb edge onto the pavement
+/**
+ * How far past the edge of an entrance a post has to stand, along the kerb. The post is 0.4 in
+ * front of the façade line, and the view ray down the diagonal lands it 0.4 to one side of where it
+ * stands — so 1.2 keeps both the post and the arm's shadow of it off the doorway with room to spare.
+ */
+const ENTRANCE_CLEAR = 1.2;
+/** Fresh spots tried along an edge before giving up on a lamp there. */
+const LAMP_TRIES = 6;
+
+// Mirrors SIDE_OUT/SIDE_TAN in city/buildings.js: a face's outward normal and its tangent.
+const SIDE_OUT = [[1, 0], [0, 1], [-1, 0], [0, -1]];
+const SIDE_TAN = [[0, -1], [1, 0], [0, 1], [-1, 0]];
 const HEAD = new THREE.Vector3(0.7, 0.14, 0.34);  // along the arm, tall, across
 const POOL_R = 3.4;
 const POOL_Y = 0.026;        // on the road, under the rain's mirror clip
@@ -204,6 +216,7 @@ function pickColor(rng) {
 export function litWindows(rng, faces) {
   const parts = [];
   for (const { rects, side, cx, cz, hw, hd, kind } of faces) {
+    if (kind === 'door') continue;
     const byColor = new Map();
     const [lo, hi] = LIT_AT[kind] ?? [0.3, 0.9];
     for (const rect of rects) {
@@ -241,13 +254,55 @@ export function litWindows(rng, faces) {
 }
 
 /**
+ * Every way into a building a street lamp must not stand in front of: each door the building
+ * generator reported through the pane sink (`kind: 'door'`, from `collectPanes`), and the bank's
+ * whole flight of steps. A post on the steps was reported as "light pole in front of bank steps.
+ * No!" — the lamps were placed at random along a block edge with no idea what was behind them.
+ * Each entry is a centre on the façade, its outward normal, and its half-width along the kerb.
+ */
+export function entrances(faces, bank = null) {
+  const out = [];
+  for (const { rects, side, cx, cz, hw, hd, kind } of faces) {
+    if (kind !== 'door') continue;
+    const [nx, nz] = SIDE_OUT[side];
+    const [tx, tz] = SIDE_TAN[side];
+    const reach = side % 2 === 0 ? hw : hd;
+    for (const r of rects) {
+      out.push({ x: cx + nx * reach + tx * r.u, z: cz + nz * reach + tz * r.u, nx, nz, half: r.w / 2 });
+    }
+  }
+  if (bank) {
+    out.push({
+      x: bank.front.x, z: bank.front.z,
+      nx: bank.axis === 'x' ? 1 : 0, nz: bank.axis === 'z' ? 1 : 0,
+      half: bank.width / 2,
+    });
+  }
+  return out;
+}
+
+/** True when a post at (px, pz) on a kerb facing (nx, nz) would stand in front of an entrance. */
+function blocksEntrance(px, pz, nx, nz, keepOut) {
+  for (const e of keepOut) {
+    if (e.nx !== nx || e.nz !== nz) continue;
+    // Across the kerb: the façade is a few units back from the post on its own block, and the
+    // next block's façade across the road is a road width further still.
+    const across = (px - e.x) * nx + (pz - e.z) * nz;
+    if (across < 0 || across > 3) continue;
+    const along = Math.abs((px - e.x) * nz - (pz - e.z) * nx);
+    if (along < e.half + ENTRANCE_CLEAR) return true;
+  }
+  return false;
+}
+
+/**
  * Street lamps on the city's blocks. Returns `{ posts, heads, pools }`: the posts are lit props
  * (so they go in the AO prepass — `markOccluder`), the heads are lamps (the bloom — `markEmissive`),
  * and the pools are additive light on the road. Posts and heads are stamped for the entrance wave
  * and belong in `createCityEntry`'s `meshes`; the pools, like the lit windows, should stay dark
  * until the wave is over — they are the city switching its lights on once it has arrived.
  */
-export function streetLamps(rng, blocks) {
+export function streetLamps(rng, blocks, keepOut = []) {
   const posts = [];
   const heads = [];
   const spots = [];
@@ -268,10 +323,19 @@ export function streetLamps(rng, blocks) {
     while (chosen.size < LAMPS_PER_BLOCK) chosen.add(rng.int(0, 3));
     for (const e of chosen) {
       const edge = edges[e];
-      // Clear of the rounded corners and the crossings beside them.
-      const along = edge.len * rng.range(0.25, 0.75);
-      const px = edge.ax + edge.tx * along - edge.nx * POST_BACK;
-      const pz = edge.az + edge.tz * along - edge.nz * POST_BACK;
+      // Clear of the rounded corners and the crossings beside them, and of every doorway: a few
+      // fresh spots along the edge, and no lamp on it at all if they all land on one (a bank's
+      // steps take most of an edge).
+      let px = 0;
+      let pz = 0;
+      let clear = false;
+      for (let t = 0; t < LAMP_TRIES && !clear; t++) {
+        const along = edge.len * rng.range(0.25, 0.75);
+        px = edge.ax + edge.tx * along - edge.nx * POST_BACK;
+        pz = edge.az + edge.tz * along - edge.nz * POST_BACK;
+        clear = !blocksEntrance(px, pz, edge.nx, edge.nz, keepOut);
+      }
+      if (!clear) continue;
       const yaw = Math.atan2(-edge.nz, edge.nx);   // local +X points out over the road
 
       const post = new THREE.BoxGeometry(POST_W, POST_H, POST_W);

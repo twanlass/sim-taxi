@@ -21,7 +21,7 @@ const BOOT = ['../src/game/scene.js', '../src/game/debugpanel.js', '../src/geome
   '../src/game/cityentry.js', '../src/city/garage.js', '../src/game/opening.js',
   '../src/city/burgerjoint.js', '../src/game/drivethru.js',
   '../src/city/bank.js', '../src/game/robbery.js', '../src/game/radio.js',
-  '../src/game/robberline.js', '../src/game/bankjob.js', '../src/game/copshout.js', '../src/game/patrol.js', '../src/game/bootleg.js', '../src/game/newmove.js', '../src/game/uturnclip.js', '../src/game/driftclip.js', '../src/game/moveclip.js', '../src/game/repairclip.js',
+  '../src/game/robberline.js', '../src/game/bankjob.js', '../src/game/copshout.js', '../src/game/depotcall.js', '../src/game/patrol.js', '../src/game/bootleg.js', '../src/game/newmove.js', '../src/game/uturnclip.js', '../src/game/driftclip.js', '../src/game/moveclip.js', '../src/game/repairclip.js',
   '../src/game/speech.js',
   '../src/game/coplights.js', '../src/game/cashtrail.js',
   '../src/game/wipe.js',
@@ -31,7 +31,7 @@ const BOOT = ['../src/game/scene.js', '../src/game/debugpanel.js', '../src/geome
   '../src/game/daylight.js', '../src/game/edgefog.js', '../src/game/riderfinder.js',
   '../src/game/taxifinder.js',
   '../src/game/farepointers.js', '../src/game/sirenglow.js', '../src/game/robberyglow.js',
-  '../src/game/vanish.js', '../src/game/wreckage.js', '../src/game/ejection.js', '../src/game/windshield.js', '../src/game/replay.js', '../src/game/runend.js',
+  '../src/game/vanish.js', '../src/game/wreckage.js', '../src/game/ejection.js', '../src/game/windshield.js', '../src/game/replay.js', '../src/game/runend.js', '../src/game/polaroid.js',
   '../src/game/impact.js', '../src/game/taxidamage.js', '../src/game/taxidoor.js',
   '../src/util/viewport.js',
   '../src/game/energybits.js', '../src/game/carghosts.js', '../src/game/homescreen.js',
@@ -127,6 +127,33 @@ try {
         throw new Error('edgefog: a built-in shader does not share the one fog uniform');
       }
       if (fog.FOG_START <= -LANE_TO_KERB) throw new Error(`edgefog: FOG_START ${fog.FOG_START} reaches the outer lane`);
+    }
+  }
+
+  // The colour grade (game/colorgrade.js). It rides the fog chunk after the edge fog, so check the
+  // order, that a cloned built-in shares the one LUT texture and uniform (a clone of the texture
+  // never uploads), that it ships neutral, and that a .cube survives the round trip.
+  {
+    const THREE = await import('three');
+    const grade = await import('../src/game/colorgrade.js');
+    grade.installColorGrade();
+    const tail = THREE.ShaderChunk.fog_fragment;
+    if (!tail.includes('<colorgrade_fragment>')) throw new Error('colorgrade: the fog chunk was not patched');
+    if (tail.includes('edgeFog') && tail.indexOf('edgeFog') > tail.indexOf('<colorgrade_fragment>')) {
+      throw new Error('colorgrade: the grade runs before the edge fog, which would leave the fog ungraded');
+    }
+    const cloned = THREE.UniformsUtils.clone(THREE.ShaderLib.lambert.uniforms);
+    if (cloned.colorGradeLut?.value !== grade.GRADE_UNIFORMS.colorGradeLut.value
+      || cloned.colorGrade?.value !== grade.gradeUniform) {
+      throw new Error('colorgrade: a built-in shader does not share the one LUT and uniform');
+    }
+    if (grade.GRADE_DEFAULTS.preset !== 'none' || grade.GRADE_DEFAULTS.saturation !== 1 || grade.gradeUniform.w !== 0) {
+      throw new Error('colorgrade: the game must ship with a neutral grade');
+    }
+    const baked = grade.parseCube(grade.toCube(grade.bakedTable()));
+    for (let k = 0; k < baked.data.length; k += 97) {
+      const want = ((k / 3) % grade.LUT_SIZE) / (grade.LUT_SIZE - 1);
+      if (k % 3 === 0 && Math.abs(baked.data[k] - want) > 1e-5) throw new Error('colorgrade: the neutral bake is not an identity');
     }
   }
 
@@ -453,7 +480,9 @@ try {
   // junction must every one come to rest on the road.
   {
     const THREE = await import('three');
-    const { createEjection, FADE_IN } = await import('../src/game/ejection.js');
+    const { createEjection, EMERGE } = await import('../src/game/ejection.js');
+    const { TAXI_DRIVER_SEAT, TAXI_SCALE } = await import('../src/geometry/taxi.js');
+    const { CAR_LEN } = await import('../src/sim/traffic.js');
     const { GRID_I, GRID_J, blockBounds, lineX, lineZ } = await import('../src/city/grid.js');
     const scene = new THREE.Scene();
     const lands = [];
@@ -496,19 +525,44 @@ try {
     replayed.fire({ x: lineX(2), z: lineZ(3), yaw: 0, closing: 21, side: 1 });
     for (let n = 0; n < 24; n++) replayed.update(1 / 60);
     if (scrubbed.distanceTo(replayed.group.position) > 1e-6) fail.push('seek(0.4) disagrees with stepping to 0.4');
-    // Fades in rather than popping: see-through at the impact, solid (and back in the AO prepass)
-    // once the fade is done, and the replay's scrub lands the same opacity as stepping did.
+    // Comes out of the cab rather than popping into the air: solid from the first frame, small and
+    // inside the cabin at the impact (behind the windscreen, below the roof, on the driver's side),
+    // and full size on its arc once EMERGE is out. Fired at yaw 0, forward is +x and the driver's
+    // side is −z.
     const torsoMat = () => ej.group.getObjectByProperty('isMesh', true).material;
+    ej.seek(1);
+    const full = ej.group.scale.x;
     ej.seek(0);
-    if (!(torsoMat().opacity < 0.05 && torsoMat().transparent)) fail.push(`opacity ${torsoMat().opacity} at the impact, not faded`);
-    ej.seek(FADE_IN / 2);
-    if (Math.abs(torsoMat().opacity - 0.5) > 1e-6) fail.push(`opacity ${torsoMat().opacity} halfway through the fade`);
-    ej.seek(FADE_IN);
-    if (torsoMat().opacity !== 1 || torsoMat().transparent) fail.push('still see-through after the fade');
+    const at0 = ej.group.position.clone().sub(new THREE.Vector3(lineX(2), 0, lineZ(3)));
+    if (torsoMat().opacity !== 1 || torsoMat().transparent) fail.push(`opacity ${torsoMat().opacity} at the impact, not solid`);
+    if (!(ej.group.scale.x < full * 0.35)) fail.push(`scale ${(ej.group.scale.x / full).toFixed(2)} of full at the impact`);
+    const screenFwd = (-0.2 + CAR_LEN * 0.25) * TAXI_SCALE;
+    if (!(at0.x < screenFwd && at0.z < 0 && Math.abs(at0.y - TAXI_DRIVER_SEAT.y) < 1e-6)) {
+      fail.push(`starts at (${at0.x.toFixed(2)}, ${at0.y.toFixed(2)}, ${at0.z.toFixed(2)}), not in the driver's seat`);
+    }
+    ej.seek(EMERGE / 2);
+    const half = ej.group.scale.x / full;
+    if (!(half > 0.6 && half < 1)) fail.push(`scale ${half.toFixed(2)} of full halfway out`);
+    ej.seek(EMERGE);
+    if (Math.abs(ej.group.scale.x - full) > 1e-9) fail.push('not full size once out of the cab');
     ej.seek(-0.1);
     if (ej.group.visible) fail.push('drew before the impact');
     ej.seek();
     if (!ej.group.visible || ej.group.position.distanceTo(end) > 1e-6) fail.push('seek() did not hand it back');
+    // Riders and the thrown driver are never traced by the taxi's ghost rim: every figure stamps
+    // the ghost mask where it draws (geometry/person.js).
+    {
+      const { createPerson } = await import('../src/geometry/person.js');
+      const { GHOST_REF } = await import('../src/geometry/ghostoutline.js');
+      const rider = createPerson();
+      const unstamped = [...rider.meshes, ...ej.group.children.flatMap((c) => {
+        const out = [];
+        c.traverse((o) => { if (o.isMesh) out.push(o); });
+        return out;
+      })].filter((m) => !(m.material.stencilWrite && m.material.stencilRef === GHOST_REF
+        && m.material.stencilZPass === THREE.ReplaceStencilOp));
+      if (unstamped.length) fail.push(`${unstamped.length} figure meshes would be traced by the ghost rim`);
+    }
     if (fail.length) throw new Error(`ejection: ${fail.join('; ')}`);
   }
 

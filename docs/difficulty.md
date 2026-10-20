@@ -110,6 +110,9 @@ read as a bug, because nothing on screen says the rider in the cab is worth all 
 cost of one rule is that grabbing a rider you cannot make is now cheaper (a strike, not the run).
 A VIP or a robber running out costs no strike: a VIP costs the streak, a robber the bonus.
 
+**The rating is hidden from the HUD for now** (Tyler, 2026-10-20): it still counts down and still
+ends the run at the floor, but nothing on screen shows it; `?stars=classic` draws it again, as below.
+
 **The HUD shows strikes as a driver rating** (Tyler, 2026-10-09): one gold star and a number under
 the cash, starting at 5.0 and losing a whole star per strike (`RATING_START`, `ratingFor` in
 fares.js). The run ends at 2.0 (`RATING_FLOOR`) with "Fired!", which is the same three misses

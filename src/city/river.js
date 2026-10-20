@@ -11,6 +11,7 @@ import {
   parkShore, seawallX,
 } from './harborplan.js';
 import { SLAB_X, KERB_H, PAVE_INSET, EDGE_FADE, FADE_RINGS } from './ground.js';
+import { EDGE_FOG } from '../game/edgefog.js';
 import { patchRiverWater, patchHarborWater, getWaterStyle, SEA_RUN_IN } from './riverwater.js';
 
 // A river running east-west through the city, and the four crossings that get over it.
@@ -448,7 +449,10 @@ const BANK_REACH = () => SLAB_X / 2;
  * moved out (`WEST_REACH`, city/westedge.js). The walls and the walk run on through them, so the
  * river reaches the edge of the world between two banks rather than in an open trench.
  */
-const channelWest = () => -coastWest();
+// Under the fog of war (game/edgefog.js) they run on a fade band further, past where the fog has
+// gone solid: stopping at the coast left the walls' ends in the fog's thinnest billows, and the
+// channel read as a cutting that stops rather than a river running on into the clouds.
+const channelWest = () => -coastWest() + (EDGE_FOG ? EDGE_FADE : 0);
 /**
  * How far the island reaches on the side of the map `x` is on. The two used to be the same
  * number (`BANK_REACH`); the harbor moved the east coast out, so anything measuring "how far
@@ -722,6 +726,13 @@ function fadeMix(x) {
 
 /** How far through the shoal a world x is: 0 in the deep channel, 1 at the coast and beyond. */
 function shoalMix(x) {
+  // **Not under the fog of war.** The shoal exists to close the cutting before the rim fade has to
+  // cross it, and with the edge fog (game/edgefog.js) there is no rim fade to cross: the bank
+  // swallows the mouth whole. Left in, it drew exactly what it was built to hide, once the fog
+  // thinned enough to show it — the river turning to asphalt and ramping up out of its own channel
+  // into the clouds (Tyler, 2026-10-20: "Don't have the water slope up - just continue flat off
+  // into the clouds"). So the water stays at `WATER_Y` and in its own colour all the way out.
+  if (EDGE_FOG) return 0;
   // The sea past the harbor is open water out to the rim (`seaMesh`), so nothing on the east side
   // shelves: a boat there sits at sea level until it fades.
   if (x > 0 && harborBasin()) return 0;
@@ -804,7 +815,9 @@ function waterMesh({ deep, open }, edges) {
     // dissolve on one curve. This is only safe *because* of the shoal above it: three earlier
     // attempts to fade the water ran 24 luma ahead of the asphalt the whole way and read as a pale
     // blade, and what fixed that is the strip already being the asphalt's colour out here.
-    a: 1 - fadeMix(x),
+    // Under the fog it stays opaque: the fog is what dissolves it, so the strip has no fade of its
+    // own to run, and see-through water under a thin billow would show the fog floor through it.
+    a: EDGE_FOG ? 1 : 1 - fadeMix(x),
   }));
   // Classic shades the strip dark at the walls and open down the middle. The smooth look turns that
   // round, because its bed shelves (`BED_EDGE`/`BED_MID` in riverwater.js): the centre is the deep

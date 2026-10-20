@@ -184,7 +184,10 @@ export function createBoombox(scene, rng, plan) {
     const grow = Math.min(1, t / 0.18);
     const pop = grow < 1 ? grow * (1 + 0.35 * Math.sin(grow * Math.PI)) : 1;
     const shrink = k > 0.7 ? 1 - (k - 0.7) / 0.3 : 1;
-    note.mesh.scale.setScalar(NOTE_SIZE * pop * shrink);
+    // Grown with the box in the city's entrance wave by riding its scale, not by being in the
+    // wave's list (see `entryObjects` below).
+    note.mesh.scale.setScalar(NOTE_SIZE * pop * shrink * holder.scale.y);
+    note.mesh.visible = holder.visible;
     // Turned to face the camera, and rocking a little in the screen's plane.
     spin.setFromAxisAngle(Z, note.tilt + Math.sin(t * 4 + note.phase) * 0.25);
     note.mesh.quaternion.copy(BILLBOARD).multiply(spin);
@@ -225,9 +228,13 @@ export function createBoombox(scene, rng, plan) {
   settle();
 
   // Grown in the city's entrance wave with the court beside it, on the court's anchor. The notes
-  // ride the same anchor, so none hangs over an empty lawn while the box is still coming up.
+  // are **not** in the list: the wave owns `scale` and `visible` on everything it is handed, and the
+  // notes' pool owns both too. With them in it, the wave's last frame switched every pooled note
+  // on — including the spares that had never been emitted, sitting at the world origin at scale 1,
+  // unturned, half sunk in the road: an orange quaver poking out of the middle junction for the
+  // rest of the run. They follow the box's scale and visibility in `stepNote` instead.
   const anchor = { x: plan.court.x, z: plan.court.z, rand: hash01(plan.court.x, plan.court.z) };
-  const entryObjects = [holder, ...notes.map((n) => n.mesh)].map((object) => ({ object, ...anchor }));
+  const entryObjects = [{ object: holder, ...anchor }];
 
   return { group, holder, notes, entryObjects, emitter, plan, update, settle };
 }

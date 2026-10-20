@@ -44,7 +44,7 @@ import { createTubeMan } from '../src/game/tubeman.js';
 import { createManholes, planManholes, manholeGeometry, COVER_R, COVER_COUNT, BOX_CLEAR } from '../src/city/manholes.js';
 import { createCarWash } from '../src/city/carwash.js';
 import { createGasStation } from '../src/city/gasstation.js';
-import { collectPanes } from '../src/game/citylights.js';
+import { collectPanes, entrances, streetLamps } from '../src/game/citylights.js';
 import { LOT_Y, ROADSIDE_MODE, roadsideKind } from '../src/city/roadside.js';
 import { onLawn } from '../src/city/ground.js';
 import { createHoopers } from '../src/game/hoopers.js';
@@ -64,7 +64,7 @@ import { createBurgerRun } from '../src/game/burgerrun.js';
 import { createOvertakeCombo, OVERTAKE_BLIP_MS, OVERTAKE_GRACE } from '../src/game/overtake.js';
 import { createOpening, exitPath, entryPath, REPAIR_GAP } from '../src/game/opening.js';
 import { createDepotRun } from '../src/game/depotrun.js';
-import { spinTaxi, driftTaxi, kickDrift, DRIFT_KICK_WINDOW, DRIFT_MIN_V, DRIFT_ANGLE, DRIFT_EXIT, DRIFT_CHAIN, createTraffic, lightPhase, displayPhase, setPriorityJunction, isUnsignalised, ringAxisAt, placeCar, approachRoom, setClosedLanes, isLaneClosed, ROAD_Y, HOP_LEN, DRIFT_LAUNCH_LEN, DRIFT_LAUNCH_HEIGHT, onDriftLaunch, setBarrelRoll, setHopStyle, setDodge, HOP_MIN_V, STOP_SETBACK, SIGNAL_LEAD, SIGNAL_LINGER, wheelAnchors, WHEEL_R, STEER_MAX, SPEED, CAR_LEN, CAR_W, landingBounce, landingRoll, BOUNCE_DUR, TRUCK_W, SPAWN_CLEARANCE, POLICE_FLEET,
+import { spinTaxi, driftTaxi, kickDrift, DRIFT_KICK_WINDOW, DRIFT_MIN_V, DRIFT_ANGLE, DRIFT_EXIT, DRIFT_CHAIN, createTraffic, lightPhase, displayPhase, setPriorityJunction, isUnsignalised, ringAxisAt, placeCar, approachRoom, setClosedLanes, isLaneClosed, ROAD_Y, HOP_LEN, DRIFT_LAUNCH_LEN, DRIFT_LAUNCH_HEIGHT, onDriftLaunch, setBarrelRoll, setHopStyle, setDodge, setOvertakeStyle, HOP_MIN_V, STOP_SETBACK, SIGNAL_LEAD, SIGNAL_LINGER, wheelAnchors, WHEEL_R, STEER_MAX, SPEED, CAR_LEN, CAR_W, landingBounce, landingRoll, BOUNCE_DUR, TRUCK_W, SPAWN_CLEARANCE, POLICE_FLEET,
   LOCO_DEFAULTS, locoTuning, setLocoTuning, resetLocoTuning, locoRamp, boostCruise, overdriveTop, MPH_PER_UNIT, locoWeave, locoWeaveFade, MIN_GAP, ENVELOPE, CIRCLE_OFFSET, DODGE_MARGIN, carGeometry, CABIN_TOP, copLaysRubber, uturnWindow } from '../src/sim/traffic.js';
 import { loadLocoTuning, saveLocoTuning, clearLocoTuning } from '../src/game/locostash.js';
 import { createRoadwork, BARRIER_S, CONE_ROW } from '../src/game/roadwork.js';
@@ -85,7 +85,7 @@ import { barricadeParts, spoilParts, RAMP_RUN, RAMP_H, WORKS_Y, TRENCH_Y, SPLINT
 import {
   findRoute as planRoute, setRoadworkLanes, setBlockedLanes, setHazardLanes, laneCost, serviceLaneCost,
 } from '../src/game/route.js';
-import { createCollisions, TAXI_HP, bumpDamage, penetration } from '../src/sim/collisions.js';
+import { createCollisions, TAXI_HP, bumpDamage, penetration, setCrush } from '../src/sim/collisions.js';
 import { createTaxiDamage } from '../src/game/taxidamage.js';
 import { createCarDamage } from '../src/game/cardamage.js';
 import { BUMPER_H as BUMPER_H_PROBE, bumperLength as bumperLengthProbe } from '../src/geometry/bumpers.js';
@@ -143,7 +143,7 @@ import { setCityOccluders, sightlineClear, groundLineClear } from '../src/game/s
 import {
   createDiamond,
   bounceOffset, KICK_SCALE, KICK_HOP, RIM_SCALE, RIM_OFFSET, EMISSIVE, HIGHLIGHT_EMISSIVE,
-  DIAMOND_HALF_H, BOUNCE_HEIGHT, PLUMBOB_CLASSIC, HOURGLASS_TILT, insideHourglass, MARKER_SHAPE, PIE_TURN, PIE_FACES_PER_WEDGE, pieWedgeOf, PIE_SLICES, PIE_RIM,
+  DIAMOND_HALF_H, BOUNCE_HEIGHT, PLUMBOB_CLASSIC, HOURGLASS_TILT, insideHourglass, MARKER_SHAPE, PIE_TURN, PIE_FACES_PER_WEDGE, pieWedgeOf, PIE_SLICES, PIE_RIM, pieShown,
 } from '../src/geometry/diamond.js';
 import { CRYSTAL_TOP, createFareMarker } from '../src/game/faremarker.js';
 import { QUESTION_GEO } from '../src/geometry/questionmark.js';
@@ -202,6 +202,7 @@ import { createDaylight } from '../src/game/daylight.js';
 import { URGENCY_SEGMENTS, urgencyLevel, urgencyColor, fareColor } from '../src/game/urgency.js';
 import { planOrigin, crossingOrigin } from '../src/game/route.js';
 import { HALF_SPAN_X, HALF_SPAN_Z, ROAD_W, LANE, PITCH, BLOCK, HALF_ROAD, HALF_ARTERIAL, lineX, lineZ, GRID_I, GRID_J, isXAxis, leftOf, rightOf, opposite, dirSign, legalExits, riverBanks, riverRow, junctionReach } from '../src/city/grid.js';
+import { EDGE_FOG, FOG_HALF_X, FOG_END, FOG_BILLOW } from '../src/game/edgefog.js';
 import {
   waterEdges, bridgeSpan, bridgeLines, riverCrossing, drawbridgeLine, archAt, deckHeightAt, createRiver, waterHeightAt,
   WATER_Y, FLAT_SOFFIT, ARCH_SOFFIT, BARGE_AIR, TUG_AIR, ARCH_RISE, DECK_THICK,
@@ -1492,6 +1493,31 @@ const onGrass = (city, i, j) => {
   check('and its music has somewhere to play from', !!box.emitter
     && Math.hypot(box.emitter.x - propsBuild.boombox.x, box.emitter.z - propsBuild.boombox.z) < 1,
     box.emitter ? `at (${box.emitter.x.toFixed(1)}, ${box.emitter.z.toFixed(1)})` : 'no emitter');
+
+  // Through the city's entrance wave and out the other side, no note shows anywhere but over its
+  // box. The wave once owned the notes' visibility too, and its last frame switched the whole pool
+  // on — the never-emitted spares included, unturned at the world origin and half sunk in the road.
+  const waveScene = new THREE.Scene();
+  const waveBox = createBoombox(waveScene, makeRng(5), propsBuild.boombox);
+  const wave = createCityEntry({ meshes: [], objects: waveBox.entryObjects });
+  let stray = 0;
+  let hiddenEarly = true;
+  for (let n = 0; n < 60 * 30 && wave.running(); n++) {
+    wave.update(1 / 60);
+    waveBox.update(1 / 60);
+    if (!waveBox.holder.visible && waveBox.notes.some((note) => note.mesh.visible)) hiddenEarly = false;
+  }
+  for (let n = 0; n < 120; n++) {
+    waveBox.update(1 / 60);
+    for (const note of waveBox.notes) {
+      if (!note.mesh.visible) continue;
+      const p = note.mesh.position;
+      if (Math.hypot(p.x - propsBuild.boombox.x, p.z - propsBuild.boombox.z) > 4) stray += 1;
+    }
+  }
+  check('no note shows before its box arrives, or away from it after',
+    !!propsBuild.boombox && !wave.running() && hiddenEarly && stray === 0,
+    `${stray} note-frames away from the box${hiddenEarly ? '' : '; notes showed before the box'}`);
 }
 
 // The roadside block (city/roadside.js): the car wash (city/carwash.js) or the gas station
@@ -4807,6 +4833,17 @@ const PRESSURE_END = difficulty.getTuning().pressureEnd;
         faces === { plumbob: 8, hourglass: 132, pie: PIE_SLICES * PIE_FACES_PER_WEDGE }[MARKER_SHAPE] && inward === 0, `${faces} faces, ${inward} wound inside out`);
     }
 
+    // The pie never shows time the rider does not have: the last slice drains with the clock and
+    // is empty on the frame it expires, rather than standing whole until then (Tyler, 2026-10-20).
+    {
+      const lastSlice = [0.1, 0.05, 0.01, 1e-4].every((f) => Math.abs(pieShown(f) - f) < 1e-9);
+      const empty = pieShown(0) === 0;
+      // ...and nothing earlier moved: above one slice it is still whole slices, rounded up.
+      const whole = pieShown(0.3) === 3 / PIE_SLICES && pieShown(0.126) === 2 / PIE_SLICES;
+      check('the pie\'s last slice drains to empty at expiry', lastSlice && empty && whole,
+        `0.05 -> ${pieShown(0.05)}, 0 -> ${pieShown(0)}, 0.3 -> ${pieShown(0.3)}`);
+    }
+
     // --- The VIP's question mark (geometry/questionmark.js).
     //
     // Extruded rather than hand-wound, but it is concave and `flatShading`, so the winding is
@@ -5526,8 +5563,11 @@ const PRESSURE_END = difficulty.getTuning().pressureEnd;
       }
     }
   }
-  const dodgeStage = ({ gesture = 'blip', depth = 0, creep = 0, style = '', cop = false } = {}) => {
+  // The line-picking below is `?overtake=classic`; the default throws the taxi into the oncoming lane
+  // whatever is there, checked at the end of this section (`overtake` below).
+  const dodgeStage = ({ gesture = 'blip', depth = 0, creep = 0, style = '', cop = false, overtake = 'classic' } = {}) => {
     setDodge(style);
+    setOvertakeStyle(overtake);
     const sTraffic = createTraffic(makeRng(seed + 113), new THREE.Scene(), 2);
     const [sTaxi, sBlock] = sTraffic.cars;
     // The blocker first, on its own: driven in until its centre is `depth` past the edge of the
@@ -5579,6 +5619,7 @@ const PRESSURE_END = difficulty.getTuning().pressureEnd;
       kerbward = Math.min(kerbward, sTaxi.passOffset);
     }
     setDodge('');
+    setOvertakeStyle('');
     return { hits, peak, widest, kerbward, arms: combo.state.arms, dodges: sTaxi.dodges, blipAt };
   };
   const sweep = (r) => `${r.arms} arms, ${r.dodges} swerves, ${r.hits} bumps, pass peaked at`
@@ -5639,6 +5680,126 @@ const PRESSURE_END = difficulty.getTuning().pressureEnd;
   const crossing = dodgeStage({ creep: SPEED });
   check('a car crossing the junction at cruise is not a swerve',
     crossing.dodges === 0 && crossing.arms === 0, sweep(crossing));
+
+  // 1f. The default combo is dumb (`setOvertakeStyle`; Tyler, 2026-10-19: "don't do anything smart").
+  // Whatever stands in the junction, it goes into the oncoming lane at the ordinary pass width and
+  // takes what comes: the roadblock cop that classic jinks round by the kerb.
+  const dumbBlock = dodgeStage({ depth: middle, cop: true, overtake: '' });
+  check('the default combo takes a roadblock cop the ordinary way, into the oncoming lane',
+    dumbBlock.arms === 1 && dumbBlock.dodges === 0 && dumbBlock.peak > 0.95 && dumbBlock.kerbward === 0
+      && dumbBlock.widest > 2 * LANE - 0.5 && dumbBlock.widest < 2 * LANE + 0.5, sweep(dumbBlock));
+
+  // A car turning left ahead: the #520 gate refuses to pull out round it, and under
+  // `?overtake=classic` the combo does nothing there. The default peeks round its right, up on the
+  // kerb (`peeking` in traffic.js), because its blinker says it is about to swing across the
+  // oncoming lane. Blipped once on the approach with the blinker lit (`early`) and once the moment
+  // the turner crosses its hold line (`state` flips to `turn` there), which is the case the gate
+  // refuses. Staged at the first junction with a straight on and a left off it.
+  let lt = null;
+  for (let i = 1; i < GRID_I && !lt; i++) {
+    for (let j = 1; j < GRID_J && !lt; j++) {
+      for (const d of [0, 1, 2, 3]) {
+        if (ringAxisAt(i, j) || approachRoom(d, i, j) < 40) continue;
+        const exits = legalExits(d, i, j);
+        if (!exits.includes(d) || !exits.includes(leftOf(d)) || !legalExits(opposite(d), i, j).length) continue;
+        lt = { i, j, d };
+        break;
+      }
+    }
+  }
+  const turnerStage = (overtake = '', early = false, cop = false) => {
+    setOvertakeStyle(overtake);
+    const tTraffic = createTraffic(makeRng(seed + 127), new THREE.Scene(), 2);
+    const [tTaxi, tLead] = tTraffic.cars;
+    placeCar(tTaxi, lt.d, lt.i, lt.j, 36);
+    tTaxi.route = [lt.d, lt.d, lt.d]; tTaxi.parked = false;
+    tTaxi.hp = TAXI_HP;
+    placeCar(tLead, lt.d, lt.i, lt.j, 4);
+    tLead.route = [leftOf(lt.d)]; tLead.parked = false;
+    tLead.police = cop;
+    const combo = createOvertakeCombo({ taxi: tTaxi });
+    const tCollisions = createCollisions(tTraffic.cars, tTaxi);
+    let hits = 0;
+    tCollisions.onBump(() => { hits += 1; });
+    let peak = 0;
+    let kerbward = 0;
+    let wide = 0;
+    let vmin = Infinity;
+    let blipAt = null;
+    let turning = false;
+    const blipFrames = Math.floor((OVERTAKE_BLIP_MS / 1000) * 60 * 0.6);
+    for (let f = 0; f < 60 * 3; f++) {
+      const ready = early ? tLead.signalHand === 'left' && tLead.state === 'drive' : tLead.state === 'turn';
+      if (blipAt === null && ready && tTaxi.passGap < 30) {
+        blipAt = f;
+        turning = tLead.signalHand === 'left';
+      }
+      const off = blipAt !== null && f >= blipAt && f < blipAt + blipFrames;
+      tTaxi.boost = true;
+      tTaxi.boostEasing = off;
+      combo.update(1 / 60, { held: !off });
+      tTraffic.update(1 / 60);
+      tCollisions.update(1 / 60);
+      peak = Math.max(peak, tTaxi.pass);
+      kerbward = Math.min(kerbward, tTaxi.passOffset);
+      wide = Math.max(wide, tTaxi.passOffset);
+      if (tTaxi.passing && tTaxi.pass >= 1) vmin = Math.min(vmin, tTaxi.v);
+    }
+    setOvertakeStyle('');
+    return { peak, blipAt, turning, arms: combo.state.arms, peeks: tTaxi.peeks, hits, kerbward, wide, vmin };
+  };
+  const turnSweep = (r) => `blip at frame ${r.blipAt} with the car ${r.turning ? '' : 'not '}signalling left,`
+    + ` ${r.arms} arms, ${r.peeks} peeks, ${r.hits} bumps, pass peaked at ${r.peak.toFixed(2)},`
+    + ` ${(r.kerbward < 0 ? r.kerbward : r.wide).toFixed(2)} across, slowest ${r.vmin.toFixed(1)} u/s once out`;
+  for (const early of [true, false]) {
+    const turner = turnerStage('', early);
+    check(`the default combo goes round the right of a car ${early ? 'signalling' : 'already turning'} left, on the pavement at speed`,
+      turner.turning && turner.peeks === 1 && turner.peak > 0.95 && turner.hits === 0
+        && turner.kerbward < -2.5 && turner.wide === 0 && turner.vmin > SPEED * 1.5, turnSweep(turner));
+  }
+  // Never round a cop, whose blinker is no promise to get out of the way: the taxi sat beside one
+  // on the kerb at the cop's own speed with Loco held. A cop signalling left gets the ordinary pass.
+  const copTurner = turnerStage('', true, true);
+  check('a cop signalling left is passed the ordinary way, not peeked',
+    copTurner.turning && copTurner.peeks === 0 && copTurner.peak > 0.95 && copTurner.wide > 2 * LANE - 0.5,
+    turnSweep(copTurner));
+  const classicTurner = turnerStage('classic');
+  check('?overtake=classic: the combo does not pull out round a car already turning left',
+    classicTurner.turning && classicTurner.peak === 0, turnSweep(classicTurner));
+
+  // Behind a truck the taxi spends much of its time in the junction box, and a combo thrown there
+  // pulls out there rather than waiting for the far side (`thrownInBox` in traffic.js). Classic
+  // decides only on a lane: staged like this it never pulled out at all in 3 seconds.
+  const boxStage = (overtake = '') => {
+    setOvertakeStyle(overtake);
+    const bTraffic = createTraffic(makeRng(seed + 131), new THREE.Scene(), 2);
+    const [bTaxi, bTruck] = bTraffic.cars;
+    placeCar(bTaxi, sw.d, sw.i, sw.j, 14);
+    bTaxi.route = [sw.d, sw.d, sw.d]; bTaxi.parked = false;
+    placeCar(bTruck, sw.d, sw.i, sw.j, 6);
+    bTruck.route = [sw.d, sw.d, sw.d]; bTruck.parked = false; bTruck.isTruck = true;
+    const combo = createOvertakeCombo({ taxi: bTaxi });
+    const blipFrames = Math.floor((OVERTAKE_BLIP_MS / 1000) * 60 * 0.6);
+    let blipAt = null;
+    let pulledIn = null;
+    let peak = 0;
+    for (let f = 0; f < 60 * 3; f++) {
+      if (blipAt === null && bTaxi.state === 'turn') blipAt = f;
+      const off = blipAt !== null && f >= blipAt && f < blipAt + blipFrames;
+      bTaxi.boost = true;
+      bTaxi.boostEasing = off;
+      combo.update(1 / 60, { held: !off });
+      bTraffic.update(1 / 60);
+      if (bTaxi.passing && pulledIn === null) pulledIn = bTaxi.state;
+      peak = Math.max(peak, bTaxi.pass);
+    }
+    setOvertakeStyle('');
+    return { pulledIn, peak, arms: combo.state.arms };
+  };
+  const boxed = boxStage();
+  check('a combo thrown in the junction box behind a truck pulls out there',
+    boxed.arms === 1 && boxed.pulledIn === 'turn' && boxed.peak > 0.95,
+    `${boxed.arms} arms, pulled out in state ${boxed.pulledIn}, pass peaked at ${boxed.peak.toFixed(2)}`);
 
   // 2. A boosting taxi turning left used to stop dead under a green: the oncoming lane shares its
   // axis, so it kept its green, and the left-turn yield then refused to let the taxi go — waiting
@@ -8532,12 +8693,23 @@ function rideToPickup() {
 
   check('both cars fit the pools without wrapping',
     fired === 2 * (12 + 7 + 2 + 1), `${fired} instances`);
-  check('a blast puts a ring, a fireball and shards on the road',
-    liveScales(blast.ringMesh).length === 2
+  // The default (`burn`) flashes firelight on the road where the older styles threw a ring.
+  check('a blast puts a flash of firelight, a fireball and shards on the road',
+    liveScales(blast.ringMesh).length === 0
+    && liveScales(blast.glowMesh).length === 2
     && liveScales(blast.puffMesh).length === 24
     && liveScales(blast.shardMesh).length === 14,
-    `${liveScales(blast.ringMesh).length} rings, ${liveScales(blast.puffMesh).length} puffs, `
-    + `${liveScales(blast.shardMesh).length} shards`);
+    `${liveScales(blast.ringMesh).length} rings, ${liveScales(blast.glowMesh).length} glows, `
+    + `${liveScales(blast.puffMesh).length} puffs, ${liveScales(blast.shardMesh).length} shards`);
+  check('the default fire is shaded and the older styles stay flat', (() => {
+    const lit = blast.puffMesh.geometry.attributes.aFire.array[0] === 1;
+    const old = createBlast(new THREE.Scene(), makeRng(seed + 87));
+    old.setStyle('flat');
+    old.fire(0, 0, PALETTE.taxiBody);
+    old.update(1 / 60);
+    return lit && old.puffMesh.geometry.attributes.aFire.array[0] === 0
+      && liveScales(old.ringMesh).length === 1 && liveScales(old.glowMesh).length === 0;
+  })());
 
   // Each car's shards wear that car's paint — a shared pool would have repainted the first car's
   // wreckage when the second one detonated.
@@ -8570,6 +8742,7 @@ function rideToPickup() {
   check('a blast retires completely',
     blast.active() === 0
     && liveScales(blast.ringMesh).length === 0
+    && liveScales(blast.glowMesh).length === 0
     && liveScales(blast.puffMesh).length === 0
     && liveScales(blast.shardMesh).length === 0,
     `${blast.active()} still alive`);
@@ -8608,6 +8781,8 @@ function rideToPickup() {
   const reachOf = (speed) => {
     const scene = new THREE.Scene();
     const b = createBlast(scene, makeRng(seed + 91));
+    // Flat, for its ring: the default has none, and the ring's carry is the low end of the order.
+    b.setStyle('flat');
     b.fire(0, 0, PALETTE.taxiBody, BLAST_HEADING, speed);
     const m = new THREE.Matrix4();
     const p = new THREE.Vector3();
@@ -8678,6 +8853,52 @@ function rideToPickup() {
   }
   check('the flat wreck fire leaves the car in the clear middle', flatNearest > 1.2 && flatTop < 1.4,
     `nearest puff ${flatNearest.toFixed(2)} off centre, top ${flatTop.toFixed(2)}`);
+  // The burn (the default) keeps each wreck alight for the hold, off the shell it is handed. Three
+  // claims: the fire rides the shell as it slides rather than being left on the impact point; what
+  // burns *on* the car is tongues, small enough that the car still reads through them; and it goes
+  // out, every slot, light included.
+  {
+    const scene = new THREE.Scene();
+    const b = createBlast(scene, makeRng(seed + 93));
+    const shell = new THREE.Object3D();
+    scene.add(shell);
+    b.fire(0, 0, PALETTE.taxiBody);
+    b.burn(shell);
+    const m = new THREE.Matrix4();
+    const p = new THREE.Vector3();
+    const sc = new THREE.Vector3();
+    let behind = 0;
+    let widest = 0;
+    let glowOff = 0;
+    for (let step = 0; step < 120; step++) {
+      shell.position.x = step / 60 * 3;      // sliding at 3 u/s
+      b.update(1 / 60);
+      if (step < 70) continue;                // once the fireball has gone, only the burn is left
+      for (let i = 0; i < b.puffMesh.count; i++) {
+        b.puffMesh.getMatrixAt(i, m);
+        m.decompose(p, new THREE.Quaternion(), sc);
+        if (sc.x <= 0) continue;
+        // Low puffs only: those are the tongues, born on the shell. The smoke is let go where it
+        // was made, as smoke is, and starts above 1.4.
+        if (p.y < 1.4 && p.x < shell.position.x - 3.5) behind += 1;
+        if (Math.hypot(p.x - shell.position.x, p.z) < 1.2 && p.y < 2.2) widest = Math.max(widest, sc.x);
+      }
+      for (let i = 0; i < b.glowMesh.count; i++) {
+        b.glowMesh.getMatrixAt(i, m);
+        m.decompose(p, new THREE.Quaternion(), sc);
+        if (sc.x > 0) glowOff = Math.max(glowOff, Math.abs(p.x - shell.position.x));
+      }
+    }
+    check('a burning wreck\'s fire rides the shell', behind === 0 && glowOff < 1e-6,
+      `${behind} puffs left behind, light ${glowOff.toFixed(2)} off the shell`);
+    check('the flames on a burning wreck stay small enough to see the car', widest > 0 && widest < 1.4,
+      `widest puff on the car ${widest.toFixed(2)}`);
+    for (let step = 0; step < 60 * 4; step++) b.update(1 / 60);
+    check('a burning wreck goes out', b.active() === 0
+      && liveScales(b.puffMesh).length === 0 && liveScales(b.glowMesh).length === 0,
+      `${b.active()} still alive`);
+  }
+
   const quickLate = puffsAt('quick', 0.8).live;
   const classicLate = puffsAt('classic', 0.8).live;
   check('the quick wreck fire is out while the classic one still burns', quickLate === 0 && classicLate > 0,
@@ -11643,6 +11864,36 @@ function rideToPickup() {
   check('fuel gauge: one even width end to end', fuelArc.widthAt(1) === fuelArc.widthAt(0) && BASE_R > outline,
     `${fuelArc.widthAt(0)} -> ${fuelArc.widthAt(1)}`);
   check('fuel gauge: an empty tank draws no fuel', fuelArc.bandPath(0, 0) === '', 'bandPath(0, 0)');
+  // The 🚨 stands on the gauge's outer edge, which index.html can only know as a number.
+  const html = fs.readFileSync(new URL('../index.html', import.meta.url), 'utf8');
+  const out = BASE_R + fuelArc.widthAt(0.5) + RIM;
+  const classicOut = out - GAP + fuelArc.CLASSIC_GAP;
+  const cssOut = Number(html.match(/#boost-meter #chase-siren \{\s*--arc-out: (\d+)/)?.[1]);
+  const cssClassic = Number(html.match(/body\.buttons-classic #boost-meter #chase-siren \{ --arc-out: (\d+)/)?.[1]);
+  // The fuse flame is drawn bent along the band from screen angle 0 and turned about the button's
+  // centre onto the front: its base has to land on the front's centre line, and it has to lie
+  // along the band toward the spent (higher-t) end — a flipped sign lays it over the fuel still in
+  // the tank. The base is held to 0.01, not to rounding: `pointAt` interpolates the 128-point
+  // polyline, whose chords sit up to ~0.004 inside the true circle the flame is bent along.
+  {
+    let worstBase = 0, onBand = 0, backward = true;
+    const r = fuelArc.flameRadius();
+    for (const t of [0.1, 0.3, 0.5, 0.7, 0.9]) {
+      const a = fuelArc.flameAngle(t) * Math.PI / 180, p = fuelArc.pointAt(t), w = fuelArc.widthAt(t);
+      const turn = ([x, y]) => [CAP.x + (x - CAP.x) * Math.cos(a) - (y - CAP.y) * Math.sin(a),
+        CAP.y + (x - CAP.x) * Math.sin(a) + (y - CAP.y) * Math.cos(a)];
+      const [bx, by] = turn(fuelArc.bendFlame(0, 0));
+      worstBase = Math.max(worstBase, Math.hypot(bx - (p.x + p.nx * w / 2), by - (p.y + p.ny * w / 2)));
+      const [tx, ty] = turn(fuelArc.bendFlame(10, 0));
+      onBand = Math.max(onBand, Math.abs(Math.hypot(tx - CAP.x, ty - CAP.y) - r));
+      const ahead = fuelArc.pointAt(t + 0.02);
+      if ((ahead.x - p.x) * (tx - bx) + (ahead.y - p.y) * (ty - by) <= 0) backward = false;
+    }
+    check('fuel gauge: the fuse flame starts on the front and lies along the band over the spent fuel',
+      worstBase < 0.01 && onBand < 1e-9 && backward, `base off by ${worstBase}, off the band by ${onBand}, backward ${backward}`);
+  }
+  check('fuel gauge: the siren sits on the gauge\'s outer edge, both gaps',
+    cssOut === out && cssClassic === classicOut, `css ${cssOut}/${cssClassic}, arc ${out}/${classicOut}`);
 }
 
 // --- The Punch It pill's fill animation -------------------------------------
@@ -16924,6 +17175,39 @@ let chopperOrder; // likewise
   createLayout(makeRng(seed));
 }
 
+// Rain Mode's street lamps keep off every doorway, and off the bank's steps. Measured as the
+// distance from each post to the doorway's own span on the façade — not through the placement's
+// along/across test — over a sweep of cities, and against the same lamps placed blind, so the check
+// is shown to bite: a post on the bank's steps was the bug.
+{
+  const crowding = (lamps, doors) => lamps.spots.filter(({ px, pz }) => doors.some((d) => {
+    // The nearest point on the door's span along its façade.
+    const t = THREE.MathUtils.clamp((px - d.x) * d.nz - (pz - d.z) * d.nx, -d.half, d.half);
+    const qx = d.x + d.nz * t;
+    const qz = d.z - d.nx * t;
+    // A unit: the placement keeps 1.2 off the door's edge along the kerb, and the post is 0.4 out.
+    return Math.hypot(px - qx, pz - qz) < 1;
+  })).length;
+  let placed = 0;
+  let near = 0;
+  let blind = 0;
+  for (let n = 0; n < 6; n++) {
+    const s = seed + n * 613;
+    const sweepLayout = createLayout(makeRng(s));
+    const stop = collectPanes();
+    const sweepCity = createBuildings(makeRng(s + 22), sweepLayout);
+    const doors = entrances(stop(), sweepCity.bank);
+    const lamps = streetLamps(makeRng(s + 392), sweepLayout, doors);
+    placed += lamps.spots.length;
+    near += crowding(lamps, doors);
+    blind += crowding(streetLamps(makeRng(s + 392), sweepLayout), doors);
+  }
+  createLayout(makeRng(seed));
+  check('no street lamp stands in front of a doorway or the bank’s steps',
+    near === 0 && blind > 0 && placed > 0,
+    `${near} of ${placed} posts on a doorway (${blind} placed blind)`);
+}
+
 // --- The bank, and the robbery that comes out of it ---------------------------
 //
 // One city block is a bank (city/bank.js) and driving past it with an empty cab starts a robbery
@@ -19736,6 +20020,62 @@ let chopperOrder; // likewise
       `${hits} hits, hp ${cTaxi.hp}`);
   }
 
+  // --- Crushin' It: Big Air coming down on a car wrecks the car and not the taxi.
+  //
+  // The taxi 2 units short of touchdown at the kick's speed, with a car parked under its landing
+  // point (`ahead` units in front of it, along the same lane). Run for two seconds.
+  {
+    const crushRun = ({ ahead = 1.4, truck = false, classic = false } = {}) => {
+      setCrush(classic ? 'classic' : null);
+      const pTraffic = createTraffic(makeRng(seed + 96), new THREE.Scene(), 2);
+      const pTaxi = pTraffic.taxi;
+      const other = pTraffic.cars.find((c) => c !== pTaxi);
+      if (truck) other.isTruck = true;
+      const d = [DIR.PX, DIR.NX, DIR.PZ, DIR.NZ].find((dd) => placeCar(pTaxi, dd, 2, 2, 14));
+      placeCar(other, d, 2, 2, 14 - ahead);
+      other.v = 0;
+      pTaxi.parked = false;
+      pTaxi.boost = true;
+      pTaxi.hp = TAXI_HP;
+      pTaxi.v = 31;
+      pTaxi.hopFrom = pTaxi.travelled - DRIFT_LAUNCH_LEN * 0.9;
+      pTaxi.hopBig = true;
+      const pCollisions = createCollisions(pTraffic.cars, pTaxi);
+      const out = { crush: 0, bumps: 0, wrecks: 0, from: pTaxi.travelled, minV: Infinity };
+      pCollisions.onCrush(() => { out.crush += 1; });
+      pCollisions.onBump(() => { out.bumps += 1; });
+      pCollisions.onImpact(() => { out.wrecks += 1; });
+      for (let f = 0; f < 120; f++) {
+        pTraffic.update(1 / 60);
+        pCollisions.update(1 / 60);
+        out.minV = Math.min(out.minV, pTaxi.v);
+      }
+      out.hp = pTaxi.hp;
+      out.moved = pTaxi.travelled - out.from;
+      out.otherCrashed = other.crashed === true;
+      out.taxiCrashed = pTaxi.crashed === true;
+      pTraffic.dispose?.();
+      setCrush(null);
+      return out;
+    };
+    const p = crushRun();
+    check("Big Air coming down on a car is Crushin' It: one crush, no bump, no wreck, no HP lost",
+      p.crush === 1 && p.bumps === 0 && p.wrecks === 0 && p.hp === TAXI_HP && !p.taxiCrashed,
+      `crush ${p.crush}, bumps ${p.bumps}, wrecks ${p.wrecks}, hp ${p.hp}`);
+    check('...the car underneath is wrecked, and the taxi drives on at speed',
+      p.otherCrashed && p.minV > 25 && p.moved > 50,
+      `car crashed ${p.otherCrashed}, slowest ${p.minV.toFixed(1)} u/s, ${p.moved.toFixed(1)} units in 2s`);
+    const truck = crushRun({ truck: true });
+    check('a truck under the landing is still a hit', truck.crush === 0 && truck.hp < TAXI_HP,
+      `crush ${truck.crush}, hp ${truck.hp}`);
+    const far = crushRun({ ahead: 7 });
+    check('...and a car a few units past the touchdown is not landed on, so is not crushed',
+      far.crush === 0 && !far.otherCrashed, `crush ${far.crush}, hp ${far.hp}`);
+    const classic = crushRun({ classic: true });
+    check('?crush=classic charges the landing as a hit again', classic.crush === 0 && classic.hp < TAXI_HP,
+      `crush ${classic.crush}, hp ${classic.hp}`);
+  }
+
   // --- Nothing paints a stop bar on the bridge.
   //
   // A signal in this game is a bar across the lane, and a junction arm is trimmed to the crossing
@@ -19780,8 +20120,15 @@ let chopperOrder; // likewise
       harborBasin() ? 0 : Math.abs(waterHeightAt(rBanks ? coastEast() : 0)));
     check('the channel is at full depth down the length of the city',
       Math.abs(mid - WATER_Y) < 1e-9, `${mid.toFixed(2)} against ${WATER_Y}`);
-    check('and has risen to meet the ground by the coast',
-      Math.abs(coast) < 1e-9, `${coast.toFixed(3)} at the coast`);
+    if (EDGE_FOG) {
+      // Under the fog of war the river runs on flat into the clouds: no shoal, so the water is at
+      // full depth at the coast too (Tyler, 2026-10-20: "Don't have the water slope up").
+      check('under the fog the water stays flat out through the coast',
+        Math.abs(coast - Math.abs(WATER_Y)) < 1e-9, `${coast.toFixed(3)} deep at the coast`);
+    } else {
+      check('and has risen to meet the ground by the coast',
+        Math.abs(coast) < 1e-9, `${coast.toFixed(3)} at the coast`);
+    }
     // Monotonic, or the shoal has a dip in it that would pond.
     let climbs = true;
     for (let x = 0; x < SLAB_X / 2; x += 0.5) {
@@ -19805,6 +20152,21 @@ let chopperOrder; // likewise
       `reaches ${reach.toFixed(1)} against a band ending at ${(SLAB_X / 2 + EDGE_FADE).toFixed(1)}`);
     check('and never climbs above the ground it is fading into', above === 0,
       `${above} vertices over y = 0`);
+    if (EDGE_FOG && rBanks) {
+      // The walls have to run on past the coast into solid fog, or their ends stand in the fog's
+      // thinnest billows and the channel reads as stopping. Solid fog: FOG_END + FOG_BILLOW past
+      // the ring road's outer kerb, along x.
+      const sp = rGeo.shell.geometry.attributes.position;
+      let west = 0;
+      for (let k = 0; k < sp.count; k++) west = Math.min(west, sp.getX(k));
+      const solid = FOG_HALF_X + FOG_END + FOG_BILLOW;
+      check('under the fog the channel walls run on into solid fog', -west >= solid,
+        `walls reach x = ${west.toFixed(1)}, fog solid past ${(-solid).toFixed(1)}`);
+      const wa = rGeo.water.geometry.attributes.color;
+      let clear = 0;
+      for (let k = 0; k < wa.count; k++) if (wa.getW(k) < 1) clear += 1;
+      check('and the water stays opaque for the fog to take', clear === 0, `${clear} vertices see-through`);
+    }
 
     // The surface patch (city/riverwater.js), run against three's *real* Lambert source rather than
     // a stub, because every one of its five replaces is the silent kind: a chunk that moved leaves

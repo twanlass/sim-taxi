@@ -19,12 +19,13 @@ import { MODES } from './difficulty.js';
 export const SETTINGS_KEY = 'simTaxi.settings';
 
 /**
- * A first visit. Music full, effects at 75%: with the radio playing at full, the effects at full
- * buried it (Tyler, by ear, 2026-10-04). The slider is squared on the way to the gain, so 0.75 is
- * 0.56, about -5 dB under the mix in mix.json. A player with a saved setting keeps theirs.
+ * A first visit. Music and effects both full (Tyler, 2026-10-20), so a first run hears the mix in
+ * mix.json as it was balanced. Effects first shipped at 75% because, against the radio at full, the
+ * effects at full buried it (Tyler, by ear, 2026-10-04); the slider is squared on the way to the
+ * gain, so that was 0.56, about -5 dB. A player with a saved setting keeps theirs.
  */
 export const DEFAULT_SETTINGS = Object.freeze({
-  music: 1, effects: 0.75, tips: true,
+  music: 1, effects: 1, tips: true,
   // The phone's Taptic Engine (util/haptics.js) — a row that only appears inside the iOS app.
   // There used to be a second switch, `comboHaptics`, for A/B-ing the combo patterns against the
   // plain knocks they replaced; Tyler folded it into this one (2026-10-06). A stored

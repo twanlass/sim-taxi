@@ -24,6 +24,20 @@
 // arrives whole and times itself out, because the tap the player is about to make belongs to the
 // road.
 //
+// **Docked, with a tag on the talker — the default since the bubbles were reworked.** Pinning the
+// whole card to a car made it the biggest moving thing on the screen, standing on the road the
+// player was steering through, and sliding round the glass after anything that drove out of frame
+// (Tyler: "they get in the way and move a lot"). So the *words* now sit in one fixed slot at the
+// bottom, just over the Loco Mode fuel arc, where they never move; and the *who* is a small tag pinned to
+// the target the card used to stand on — the same placement, edge-waiting and pointer as before
+// (`placeSpeech` with a tag-sized box), but 24px across instead of a card. The tag earns its keep
+// on the racer: with its roof flag gone, nothing else says which car is asking. Two cards up at once
+// stack up from the slot in the order they opened. It sat at the top, under the cash and the stars,
+// for its first build; Tyler moved it down (2026-10-20), which also lands "Hold to floor it" right
+// over the pedal it is about. `?bubbles=dock` drops the tag;
+// `?bubbles=classic` is the pinned card. A caller that places its own card (the New Move card,
+// centred) passes `pinned: true` and keeps the old placement.
+//
 // Named `speech` rather than anything with `bubble`-adjacent ad words (`popup`, `alert`, `banner`) in
 // it — see CLAUDE.md on ad-blocker filter lists.
 
@@ -55,6 +69,59 @@ const LEAN = (40 * Math.PI) / 180;
 // bubble never sits over the money.
 const EDGE = 10;
 const HUD_TOP = 60;
+
+// How far the docked card's bottom edge stands over the top of the Loco Mode fuel arc, in CSS px
+// (Tyler: "24 units above the boost bar").
+const DOCK_LIFT = 24;
+// Where the arc's top was last measured, in viewport px from the top, or null before the first
+// read. Read off the arc itself (`#boost-meter .boost-track`) on each show and resize rather than
+// worked out from the pedal's custom properties, because the arc is drawn by game/fuelarc.js and
+// its extent past the pedal is that module's business. Kept across reads so a show while the pedals
+// are slid away (`hud-away`, which translates them off the bottom) uses the last good value.
+let arcTop = null;
+function readArcTop(vh) {
+  const track = typeof document !== 'undefined' && document.querySelector('#boost-meter .boost-track');
+  const r = track?.getBoundingClientRect();
+  if (r && r.height > 0 && r.top > 0 && r.top < vh) arcTop = r.top;
+  // No pedals measured yet: about where the arc sits on a 390×844 phone.
+  return arcTop ?? vh - 230;
+}
+// Between two docked cards stacked in the slot.
+const DOCK_GAP = 8;
+// The tag: a disc this wide, with the pointer hanging off it.
+const TAG = 24;
+
+/** 'tag' (the default), 'dock' or 'classic' — `?bubbles=`. Browser-only. */
+function speechMode() {
+  if (typeof window === 'undefined') return 'tag';
+  const v = new URLSearchParams(window.location.search).get('bubbles');
+  return v === 'classic' || v === 'dock' ? v : 'tag';
+}
+
+/**
+ * The docked card's look — black with white type (Tyler's pick from a round of eight, 2026-10-20),
+ * or the white Figma card under `?bubblestyle=card`.
+ */
+function captionStyle() {
+  if (typeof window === 'undefined') return 'black';
+  return new URLSearchParams(window.location.search).get('bubblestyle') === 'card' ? 'card' : 'black';
+}
+
+// The docked cards currently up, oldest first, so a second one stacks under the first rather than
+// on top of it. Each entry is that card's measured height, read live.
+const dockStack = [];
+
+/**
+ * Where a docked card goes: centred across the screen with its bottom edge `DOCK_LIFT` over
+ * `floor` (the fuel arc's top), `offset` px further up for
+ * the cards above it. Pure, for the probe.
+ */
+export function placeDocked(w, h, vw, floor, insets = safe, offset = 0) {
+  const minX = insets.left + EDGE;
+  const maxX = vw - insets.right - EDGE;
+  const left = maxX - minX >= w ? clamp(vw / 2 - w / 2, minX, maxX - w) : minX;
+  return { left, top: floor - DOCK_LIFT - h - offset };
+}
 
 // The pointer, the file's own path, drawn tip-up; `place` rotates it to face the target. Inline
 // rather than an <img> so it can take `currentColor`: the card is a gradient, and a pointer filled
@@ -189,15 +256,21 @@ export function placeSpeech(target, w, h, vw, vh, insets = safe) {
 
 /**
  * @param root      the layer the bubble lives in — an empty, full-screen, `pointer-events: none`
- *                  element in index.html (`#coach`, `#robber-talk`, `#radio`, `#cop-shout`); this
+ *                  element in index.html (`#coach`, `#robber-talk`, `#radio`, `#cop-shout`, `#depot-call`); this
  *                  builds the card inside it
  * @param viewport  util/viewport.js — the frame the renderer draws, which on an installed iOS app
  *                  is not `window.inner*`
  * @param typing    type each line out, and answer `tap()`
  * @param onDismiss () => void — a tap on a finished line; typing bubbles only
  */
-export function createSpeech(root, { viewport = null, typing = false, onDismiss = () => {} } = {}) {
+export function createSpeech(root, { viewport = null, typing = false, onDismiss = () => {}, pinned = false } = {}) {
   watchSafeInsets();
+  const mode = speechMode();
+  const docked = !pinned && mode !== 'classic';
+  const tagged = docked && mode === 'tag';
+  root.classList.toggle('speech-docked', docked);
+  const look = docked ? captionStyle() : 'card';
+  if (look !== 'card') root.classList.add(`speech-style-${look}`);
   root.innerHTML = `
     <div class="speech">
       <div class="speech-body">
@@ -208,7 +281,8 @@ export function createSpeech(root, { viewport = null, typing = false, onDismiss 
         </div>
         ${POINTER_SVG}
       </div>
-    </div>`;
+    </div>${tagged ? `
+    <div class="speech-tag-pin"><div class="speech-tag-body"><div class="speech-tag"><i></i><i></i><i></i></div>${POINTER_SVG}</div></div>` : ''}`;
   const el = root.querySelector('.speech');
   const body = root.querySelector('.speech-body');
   const card = root.querySelector('.speech-card');
@@ -217,8 +291,12 @@ export function createSpeech(root, { viewport = null, typing = false, onDismiss 
   const rest = root.querySelector('.speech-rest');
   const pointer = root.querySelector('.speech-pointer');
   const mediaEl = root.querySelector('.speech-media');
-  card.style.background = CARD_FILL;
-
+  if (look === 'card') card.style.background = CARD_FILL;
+  const tagPin = root.querySelector('.speech-tag-pin');
+  const tagBody = root.querySelector('.speech-tag-body');
+  const tagPointer = tagPin?.querySelector('.speech-pointer');
+  // This card's place in `dockStack`, while it is up.
+  const slot = { h: 0 };
   let text = '';
   let shown = 0;
   let charT = 0;
@@ -230,8 +308,17 @@ export function createSpeech(root, { viewport = null, typing = false, onDismiss 
   // (hidden) from the start, so nothing about the card's box changes while it types, and a read per frame would force a layout
   // behind every character.
   let size = { w: 0, h: 0 };
-  const measure = () => { size = { w: card.offsetWidth, h: card.offsetHeight }; };
-  window.addEventListener('resize', () => { if (open) measure(); });
+  // The fuel arc's top, for the docked slot. Measured with the card rather than per frame: the arc
+  // throbs a percent when a pour lands, and a slot that tracked it would throb too.
+  let floor = 0;
+  // The docked card's box as it is this frame, while it types (`size` is the finished one).
+  let live = { w: 0, h: 0 };
+  const measure = () => {
+    size = { w: card.offsetWidth, h: card.offsetHeight };
+    slot.h = size.h;
+    if (docked) floor = readArcTop(viewport ? viewport.height() : window.innerHeight);
+  };
+  window.addEventListener('resize', () => { if (open && !(docked && isTyping())) measure(); });
 
   const isTyping = () => shown < text.length;
   // The whole line is always in the card: what has been typed, then the rest of it hidden. So every
@@ -242,10 +329,36 @@ export function createSpeech(root, { viewport = null, typing = false, onDismiss 
     shown = n;
     typed.textContent = text.slice(0, n);
     rest.textContent = text.slice(n);
+    root.classList.toggle('is-typing', n < text.length);
   };
   const finishTyping = () => typeTo(text.length);
 
+  function placeTag(at, w, h) {
+    if (!tagPin || !at) return;
+    const p = placeSpeech(at, TAG, TAG, w, h);
+    tagPin.style.transform = `translate(${p.left.toFixed(1)}px, ${p.top.toFixed(1)}px)`;
+    tagPointer.style.left = `${p.px.toFixed(1)}px`;
+    tagPointer.style.top = `${p.py.toFixed(1)}px`;
+    tagPointer.style.transform = `translate(-50%, -100%) rotate(${(p.angle + Math.PI / 2).toFixed(3)}rad) translateY(${POINTER_SINK}px)`;
+    tagBody.style.transformOrigin = `${p.px.toFixed(0)}px ${p.py.toFixed(0)}px`;
+  }
+
   function place() {
+    if (docked) {
+      const w = viewport ? viewport.width() : window.innerWidth;
+      const h = viewport ? viewport.height() : window.innerHeight;
+      let offset = 0;
+      for (const other of dockStack) {
+        if (other === slot) break;
+        offset += other.h + DOCK_GAP;
+      }
+      // The finished card's left edge and the card's height as it stands, so the box grows to the
+      // right from where the line starts and ends centred, its bottom edge never moving.
+      const p = placeDocked(size.w, live.h, w, floor, safe, offset);
+      el.style.transform = `translate(${p.left.toFixed(1)}px, ${p.top.toFixed(1)}px)`;
+      placeTag(target(), w, h);
+      return;
+    }
     const at = target();
     // Nothing to point at this frame (a hidden control, a car that just left the map): hold where
     // it was rather than jumping to a corner.
@@ -264,9 +377,15 @@ export function createSpeech(root, { viewport = null, typing = false, onDismiss 
     body.style.transformOrigin = `${p.px.toFixed(0)}px ${p.py.toFixed(0)}px`;
   }
 
+  function leaveDock() {
+    const i = dockStack.indexOf(slot);
+    if (i !== -1) dockStack.splice(i, 1);
+  }
+
   function hide() {
     if (!open) return;
     open = false;
+    leaveDock();
     root.classList.remove('is-open');
     root.classList.add('is-closing');
     closing = setTimeout(() => {
@@ -294,17 +413,24 @@ export function createSpeech(root, { viewport = null, typing = false, onDismiss 
       card.classList.toggle('has-media', Boolean(media));
       text = line;
       target = at;
-      if (typing && !prefersReducedMotion()) {
-        typeTo(0);
-      } else {
-        finishTyping();
-      }
+      // A docked card always types itself out (Tyler, 2026-10-20), even one that is not answered:
+      // dispatch and the racer type too, they just don't take a tap to finish. A pinned card types
+      // only when it is answered, as before.
       charT = 0;
       hold = 0;
       open = true;
       root.hidden = false;
       root.classList.remove('is-closing', 'is-open');
+      // Measured with the whole line in: a docked card types without its untyped rest laid out, so
+      // the box grows letter by letter, and where it *finishes* is what fixes its left edge.
+      finishTyping();
       measure();
+      if ((typing || docked) && !prefersReducedMotion()) typeTo(0);
+      live = { w: card.offsetWidth, h: card.offsetHeight };
+      if (docked) {
+        slot.h = size.h;
+        if (!dockStack.includes(slot)) dockStack.push(slot);
+      }
       place();
       // One frame of the closed state before the open one, or the transition has nothing to run
       // from and the bubble simply appears.
@@ -335,6 +461,7 @@ export function createSpeech(root, { viewport = null, typing = false, onDismiss 
         if (PAUSE_AFTER.has(text[shown - 1])) { hold = TYPE_PAUSE; break; }
       }
       typeTo(shown);
+      if (docked) live = { w: card.offsetWidth, h: card.offsetHeight };
     },
   };
 }
