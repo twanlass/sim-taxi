@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { MARKER_OUTLINE_PX } from './camera.js';
 
 // Off-screen fare pointers.
 //
@@ -126,6 +127,10 @@ export function createFarePointers({ camera, pinLocation, viewport = null, onTap
   tappable = () => false }) {
   const host = document.getElementById('fare-pointers');
   if (!host) return { update: () => {} };
+  // The arrow's outline weight, from the one constant the pie over the rider is outlined by too.
+  // A CSS variable read by a `non-scaling-stroke`, so it is screen px whatever size the arrow is
+  // drawn at — the drop-off's larger arrow and the press dip included.
+  host.style.setProperty('--marker-outline', `${MARKER_OUTLINE_PX}px`);
 
   readSafeInsets();
   window.addEventListener('resize', readSafeInsets);

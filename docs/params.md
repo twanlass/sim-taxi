@@ -31,6 +31,7 @@ doc; what the classic version was, and why it changed, is in that doc's history 
 | `?parkshore=classic` | The harbor's seawall curling west and stopping at the north park's corner, instead of running on north beside it. Headless tools take `PARKSHORE=classic` | #512 | [river.md](river.md#the-park-shore) |
 | `?southshore=classic` | The old south apron fading into the sky, instead of the rocky shore and park strip. Headless tools take `SOUTHSHORE=classic` | #512 | [river.md](river.md#the-south-shore) |
 | `?plumbob=classic` | The green plumbob crystal over a waiting rider instead of the pie. `?plumbob=hourglass` gives the hourglass that came between. Headless tools take `PLUMBOB=` | | [rendering.md](rendering.md#the-pie--geometrydiamondjs) |
+| `?pieoutline=classic` | The rider's pie with no black outline. Headless tools take `PIEOUTLINE=classic` | | [rendering.md](rendering.md#the-pie--geometrydiamondjs) |
 | `?gravetree=classic` | The graveyard's one big plum-crowned tree in the back corner. Headless tools take `GRAVETREE=classic` | | [city.md](city.md#the-graveyard) |
 | `?gravemist=classic` | The graveyard's ground mist, drifting over the lawn and thicker after dark. Headless tools take `GRAVEMIST=classic` | | [city.md](city.md#the-graveyard) |
 | `?gravegrass=classic` | The graveyard's lawn flat, with no long grass between the stones. Headless tools take `GRAVEGRASS=classic` | | [city.md](city.md#long-grass) |
