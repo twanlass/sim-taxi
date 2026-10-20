@@ -109,6 +109,36 @@ function matchReasonWidth(heading, sub) {
 }
 
 /**
+ * The print over the title: a white-bordered square, tipped a few degrees, that drops onto the card
+ * a beat ahead of the headline and then develops — washed out and flat to full colour, the way a
+ * polaroid comes up. It is the first thing to land because it is the one thing on the card the
+ * player has not just seen; the title only names it.
+ */
+const PHOTO_DROP_MS = 560;
+const PHOTO_DEVELOP_MS = 1600;
+
+function buildPolaroid(photo) {
+  const node = el('div', 'run-end-photo');
+  const print = el('div', 'run-end-print');
+  photo.classList.add('run-end-shot');
+  print.append(photo);
+  node.append(print);
+  return {
+    node,
+    play() {
+      print.animate([
+        { opacity: 0, transform: 'translateY(-26px) rotate(-11deg) scale(1.08)' },
+        { opacity: 1, transform: 'translateY(0) rotate(-4deg) scale(1)' },
+      ], { duration: PHOTO_DROP_MS, easing: RISE, fill: 'backwards' });
+      photo.animate([
+        { filter: 'brightness(1.9) saturate(0) contrast(0.55)' },
+        { filter: 'none' },
+      ], { duration: PHOTO_DEVELOP_MS, delay: PHOTO_DROP_MS * 0.5, easing: 'ease-out', fill: 'backwards' });
+    },
+  };
+}
+
+/**
  * Rise-and-settle: up from below, slightly small, into place. The shared entrance for the title,
  * the reason, each swapped-in screen and the play-again button, so they read as one family of moves.
  */
@@ -490,7 +520,14 @@ function buildBoard(entries, youId) {
  * button appears — the New Move cards a run unlocked go up there (main.js) — and calls `done` when
  * it is finished. Answers false when it has nothing to show, and the button comes straight up.
  */
-export function showRunEnd(root, { title, reason, stats, scores = null, onRetry, finale = null }) {
+/**
+ * `photo`, when given, is a canvas holding one frame of the ending (game/polaroid.js) and goes up
+ * as a polaroid over the title. `footHint` puts "Tap to continue" at the foot of the screen rather
+ * than over the retry pill's slot; `?gameover=classic` turns both off.
+ */
+export function showRunEnd(root, {
+  title, reason, stats, scores = null, onRetry, finale = null, photo = null, footHint = true,
+}) {
   root.innerHTML = '';
   root.hidden = false;
 
@@ -507,6 +544,8 @@ export function showRunEnd(root, { title, reason, stats, scores = null, onRetry,
 
   const statsScreen = buildStats(stats);
   body.append(statsScreen.node);
+  const polaroid = photo ? buildPolaroid(photo) : null;
+  if (polaroid) card.append(polaroid.node);
   card.append(heading, sub, body, retry);
   root.append(card);
   matchReasonWidth(heading, sub);
@@ -648,9 +687,14 @@ export function showRunEnd(root, { title, reason, stats, scores = null, onRetry,
   function awaitReview() {
     if (still || !scores) { afterStats(); return; }
     const hint = el('span', 'run-end-continue', 'Tap to continue');
-    hint.style.top = `${retry.offsetTop}px`;
-    hint.style.height = `${retry.offsetHeight}px`;
-    card.append(hint);
+    if (footHint) {
+      hint.classList.add('is-foot');
+      root.append(hint);
+    } else {
+      hint.style.top = `${retry.offsetTop}px`;
+      hint.style.height = `${retry.offsetHeight}px`;
+      card.append(hint);
+    }
     hint.animate([{ opacity: 0 }, { opacity: 1 }],
       { duration: HINT_MS, delay: HOLD_MS, easing: 'ease-out', fill: 'backwards' });
     const leave = () => {
@@ -677,6 +721,7 @@ export function showRunEnd(root, { title, reason, stats, scores = null, onRetry,
   // chance to sign a high score.
   if (!still) {
     root.animate([{ opacity: 0 }, { opacity: 1 }], { duration: REVEAL_MS, easing: 'ease-out' });
+    polaroid?.play();
     riseIn(heading, TITLE_AT, { from: 18, scale: 0.92 });
     riseIn(sub, REASON_AT);
   }

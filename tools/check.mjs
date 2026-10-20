@@ -31,7 +31,7 @@ const BOOT = ['../src/game/scene.js', '../src/game/debugpanel.js', '../src/geome
   '../src/game/daylight.js', '../src/game/edgefog.js', '../src/game/riderfinder.js',
   '../src/game/taxifinder.js',
   '../src/game/farepointers.js', '../src/game/sirenglow.js', '../src/game/robberyglow.js',
-  '../src/game/vanish.js', '../src/game/wreckage.js', '../src/game/ejection.js', '../src/game/windshield.js', '../src/game/replay.js', '../src/game/runend.js',
+  '../src/game/vanish.js', '../src/game/wreckage.js', '../src/game/ejection.js', '../src/game/windshield.js', '../src/game/replay.js', '../src/game/runend.js', '../src/game/polaroid.js',
   '../src/game/impact.js', '../src/game/taxidamage.js', '../src/game/taxidoor.js',
   '../src/util/viewport.js',
   '../src/game/energybits.js', '../src/game/carghosts.js', '../src/game/homescreen.js',

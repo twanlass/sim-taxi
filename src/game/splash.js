@@ -19,10 +19,12 @@ import { createLocoFlame } from './locoflame.js';
 import { createBlast } from './blast.js';
 import { createSkidMarks } from './skidmarks.js';
 import { createSplashSound } from './splashsound.js';
+import { buildLogo, createDebris } from './splashlogo.js';
 
 /**
- * The startup screen: black, a patch of asphalt fading out into it, and the taxi dropping out of
- * the sky onto it — the Big Air landing's dust ring, shockwave and sparks — bouncing, then lighting
+ * The startup screen: ROCKET RIDES in white block letters on black (game/splashlogo.js), and the
+ * taxi coming down out of the sky through them, smashing the word to pieces, onto a patch of asphalt
+ * that fades up under it — the Big Air landing's dust ring, shockwave and sparks — bouncing, then lighting
  * Loco Mode, lifting its nose and firing off the edge of the frame. Then the title menu.
  *
  * **It exists to cover the load, and it cannot animate *during* the load.** `main.js` builds the
@@ -51,10 +53,36 @@ import { createSplashSound } from './splashsound.js';
  */
 
 // --- Timeline, in seconds from the moment the drop is allowed to start ------------------------
-/** The asphalt fading up out of the black before anything falls. */
-export const STAGE_IN = 0.3;
+/**
+ * The logo (game/splashlogo.js) is on unless `?splashlogo=classic`, which is the plain drop onto the
+ * asphalt as it first shipped. Headless (the probe) it is on.
+ */
+export const LOGO = typeof window === 'undefined'
+  || new URLSearchParams(window.location.search).get('splashlogo') !== 'classic';
+/** The letters popping up out of the black one after another, left to right and down the lines. */
+const LOGO_POP_FROM = 0.12;
+const LOGO_POP_STAGGER = 0.045;
+const LOGO_POP = 0.3;
+/**
+ * When the car starts to fall: once the whole word has stood there long enough to be read — about
+ * half a second after the last letter lands. Without the logo, the asphalt fading up first.
+ */
+export const STAGE_IN = LOGO ? 1.35 : 0.3;
 /** Falling, from above the top of the frame to the road. Fast: it is a slam, not a descent. */
 export const FALL = 0.42;
+/**
+ * The asphalt: with the logo it fades up *during* the fall, so the word stands on pure black and the
+ * road arrives with the car; without, it fades up first and the car falls onto it.
+ */
+const PATCH_FROM = LOGO ? STAGE_IN : 0;
+const PATCH_IN = LOGO ? FALL : STAGE_IN;
+/**
+ * The hit-stop on the frame the car meets the word: the whole scene runs at `HIT_STOP_RATE` for
+ * `HIT_STOP` seconds of real time. The fall covers the word's three and a half units in about four
+ * frames, and at full speed the smash was over before it could be seen to happen.
+ */
+const HIT_STOP = 0.11;
+const HIT_STOP_RATE = 0.12;
 /** When the tyres first touch. */
 export const LAND = STAGE_IN + FALL;
 /**
@@ -70,7 +98,7 @@ export const TOUCHDOWNS = BOUNCES.reduce((at, h) => [...at, at.at(-1) + bounceTi
 /** Loco Mode lights. A beat after the last bounce, so the car is seen *sitting* before it goes. */
 export const IGNITE = TOUCHDOWNS.at(-1) + 0.32;
 /** Launch acceleration, u/s², and the wheelie it lifts into. */
-const LAUNCH_ACCEL = 70;
+export const LAUNCH_ACCEL = 70;
 export const WHEELIE = 0.3;        // rad, ~17°
 const WHEELIE_RATE = 9;            // per second, the nose coming up
 /**
@@ -341,6 +369,41 @@ function asphaltPatch() {
   return mesh;
 }
 
+/**
+ * The logo's material: flat faces lit by a light of its own, neutral and from up, right and in
+ * front, so the face toward the camera is pure white, the top a step down and the left-hand sides of
+ * the extrusion a cool grey. Not the scene's lights: those are the game's late-afternoon sun and its
+ * warm fill, under which a white letter came out the colour of cardboard. World-space normals, so a
+ * tumbling piece's shading turns with it.
+ */
+function logoMaterial() {
+  return new THREE.ShaderMaterial({
+    uniforms: {
+      uFace: { value: color('splashLogo') },
+      uShade: { value: color('splashLogoShade') },
+      uLight: { value: new THREE.Vector3(0.35, 0.55, 0.75).normalize() },
+    },
+    vertexShader: /* glsl */ `
+      varying vec3 vNormal;
+      void main() {
+        vNormal = normalize(mat3(modelMatrix) * normal);
+        gl_Position = projectionMatrix * viewMatrix * modelMatrix * vec4(position, 1.0);
+      }
+    `,
+    fragmentShader: /* glsl */ `
+      uniform vec3 uFace;
+      uniform vec3 uShade;
+      uniform vec3 uLight;
+      varying vec3 vNormal;
+      void main() {
+        float k = clamp(0.15 + 1.15 * max(dot(normalize(vNormal), uLight), 0.0), 0.0, 1.0);
+        gl_FragColor = vec4(mix(uShade, uFace, k), 1.0);
+        #include <colorspace_fragment>
+      }
+    `,
+  });
+}
+
 /** The soft dark spot under a falling car: the one thing that says where it is going to land. */
 function blobShadow() {
   const size = 64;
@@ -411,6 +474,19 @@ export function createSplash(root) {
 
   const patch = asphaltPatch();
   scene.add(patch);
+
+  // The logo: one material for every stroke (see `logoMaterial`).
+  const logo = LOGO ? buildLogo() : null;
+  const debris = logo ? createDebris(logo) : null;
+  const pieceMaterial = logo ? logoMaterial() : null;
+  const pieceMeshes = logo ? logo.pieces.map((piece) => {
+    // Extruded geometry is non-indexed with a normal per face already: flat-shaded as it comes.
+    const mesh = new THREE.Mesh(piece.geometry, pieceMaterial);
+    mesh.position.copy(piece.home);
+    mesh.quaternion.copy(piece.homeQuat);
+    scene.add(mesh);
+    return mesh;
+  }) : [];
   const shadow = blobShadow();
   scene.add(shadow);
 
@@ -436,6 +512,8 @@ export function createSplash(root) {
   taxi.group.position.set(0, 0, 0);
   renderer.compile(scene, camera);
   taxi.group.visible = false;
+  // Hidden until each letter's pop: compiled above, but the first frames of the run are black.
+  for (const mesh of pieceMeshes) mesh.visible = false;
   renderer.render(scene, camera);
 
   const car = { x: 0, z: 0, yaw: view.heading, crashed: false, shownPitch: 0, shownLift: 0, shownBarrel: 0 };
@@ -448,6 +526,7 @@ export function createSplash(root) {
   let shake = 0;
   let raf = 0;
   let last = 0;
+  let hitStop = 0;         // real seconds of slow motion left
   let done = false;
   let ready = false;
   let skipped = false;
@@ -512,15 +591,63 @@ export function createSplash(root) {
     return p;
   }
 
+  /**
+   * The word: popping in letter by letter, standing whole until the car reaches it, then the
+   * debris — the car's own strike, the landing's blast, the wreckage it drives out through.
+   */
+  function stepLogo(t, dtl, p) {
+    if (t < STAGE_IN) {
+      for (const letter of logo.letters) {
+        const k = THREE.MathUtils.clamp((t - LOGO_POP_FROM - letter.index * LOGO_POP_STAGGER) / LOGO_POP, 0, 1);
+        // An ease-out with an overshoot, so each letter lands with a little bounce of its own.
+        const s = k === 0 ? 0 : 1 + 2.70158 * (k - 1) ** 3 + 1.70158 * (k - 1) ** 2;
+        for (const i of letter.pieces) {
+          const mesh = pieceMeshes[i];
+          mesh.visible = k > 0;
+          mesh.position.copy(logo.pieces[i].home).sub(letter.centre).multiplyScalar(s).add(letter.centre);
+          mesh.scale.setScalar(Math.max(1e-3, s));
+        }
+      }
+      return;
+    }
+    const events = debris.update(dtl, {
+      x: p.x, y: p.y, z: p.z, landed: t >= LAND, speed: t >= IGNITE ? LAUNCH_ACCEL * (t - IGNITE) : 0,
+    });
+    if (events.contact) {
+      hitStop = HIT_STOP;
+      shake = Math.max(shake, 0.35);
+      const c = events.contact;
+      sparks.burst(c.x, c.y, c.z, p.yaw + Math.PI / 2, 10, 8, { floor: 0 });
+      sparks.burst(c.x, c.y, c.z, p.yaw - Math.PI / 2, 10, 8, { floor: 0 });
+      sound.play('crash');
+    }
+    for (const thud of events.thuds) {
+      if (rng.chance(0.6)) dust.burst(thud.x, thud.z, rng.range(0, Math.PI * 2), 2, 0.2 + 0.15 * thud.strength, { linger: 0.5 });
+    }
+    debris.state.forEach((s, i) => {
+      const mesh = pieceMeshes[i];
+      mesh.visible = true;
+      mesh.scale.setScalar(1);
+      mesh.position.copy(s.pos);
+      mesh.quaternion.copy(s.quat);
+    });
+  }
+
   function step(now) {
     raf = requestAnimationFrame(step);
     const dt = Math.min(1 / 30, last ? (now - last) / 1000 : 1 / 60);
     last = now;
-    clock += dt;
+    // Everything below runs on timeline time: the hit-stop slows the car, the debris and the effects
+    // together.
+    const rate = hitStop > 0 ? HIT_STOP_RATE : 1;
+    hitStop -= dt;
+    const dtl = dt * rate;
+    clock += dtl;
     const t = clock;
 
-    patch.material.uniforms.uOpacity.value = Math.min(1, t / STAGE_IN);
+    patch.material.uniforms.uOpacity.value = THREE.MathUtils.clamp((t - PATCH_FROM) / PATCH_IN, 0, 1);
     const p = pose(t);
+    if (logo) stepLogo(t, dtl, p);
 
     while (touched < TOUCHDOWNS.length && t >= TOUCHDOWNS[touched]) {
       touchdown(touched, splashPose(TOUCHDOWNS[touched], aspect()));
@@ -552,18 +679,18 @@ export function createSplash(root) {
       }
       if (p.along - lastSkid > 0.35 || lastSkid < 0) lastSkid = p.along;
     }
-    plume.update(dt, car, ignited && t < exitTime(aspect()));
+    plume.update(dtl, car, ignited && t < exitTime(aspect()));
 
-    dust.update(dt);
-    sparks.update(dt);
-    flames.update(dt);
-    blast.update?.(dt);
-    skids.update(dt);
+    dust.update(dtl);
+    sparks.update(dtl);
+    flames.update(dtl);
+    blast.update?.(dtl);
+    skids.update(dtl);
 
     // The pools hide themselves while empty, and the switch is global (util/emptypools.js): main.js
     // throws it every frame for every pool, these included, and it is not drawing frames now.
     cullEmptyPools();
-    shake *= Math.exp(-dt * 9);
+    shake *= Math.exp(-dtl * 9);
     frameCamera(shake, rng);
     renderer.render(scene, camera);
 

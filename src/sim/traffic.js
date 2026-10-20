@@ -1583,6 +1583,22 @@ export function setPassPace(name) {
  */
 const COMBO_TAILGATE = 1.5;
 /**
+ * Is `leader` the taxi, and the taxi already braking for this truck's body? Then the truck must not
+ * hold for it in turn, whatever the lane bookkeeping says about who is in front.
+ *
+ * The two answer "who is ahead" differently, and around a junction they can disagree both ways
+ * round. A car mid-turn is listed on its exit lane at `-(1 - turnT) · 5`, a stand-in, so a taxi
+ * that has just crossed straight on at `s ≥ 0` reads as *in front* of a truck still swinging onto
+ * the same lane — and so does a taxi further round a left onto it than the truck is round its
+ * right. The truck queues behind the taxi; the taxi brakes for the truck by its body (`truckRoom`),
+ * which really is in front of it. Each waits for the other, forever: measured, 3 runs in 40
+ * (24 cities × 90s at 35% trucks) ended with the taxi parked behind a truck stopped mid-corner for
+ * the rest of the run, 72-80s. The body is what can be hit, so the body wins. Ambient cars never
+ * meet this, because nothing but the taxi brakes for a body.
+ */
+const truckHoldsForPhantom = (car, leader) => car.isTruck && leader?.isTaxi === true
+  && leader.truckAhead === car;
+/**
  * How far clear of the car it just passed the taxi must be before it may cut back in.
  *
  * The commitment used to end the moment the taxi's *lane position* went past the leader's, and a
@@ -6422,7 +6438,8 @@ export function createTraffic(
         // so queueing at a red — which everything else here is tuned around — is untouched.
         //
         let leadCap = Infinity;
-        const ahead = followsLeader(car) && !rams(car, leaderOf.get(car)) ? leaderDist.get(car) : undefined;
+        const ahead = followsLeader(car) && !rams(car, leaderOf.get(car))
+          && !truckHoldsForPhantom(car, leaderOf.get(car)) ? leaderDist.get(car) : undefined;
         if (ahead !== undefined) {
           const leader = leaderOf.get(car);
           const gap = car.boost ? boostGap(car, leader) : followGap(car, leader);
@@ -6918,7 +6935,8 @@ export function createTraffic(
         // hold. That is what keeps `bargesThrough`'s guarantee intact: nothing stops the taxi
         // inside a junction.
         let target = cornerTarget;
-        const lead = followsLeader(car) && !rams(car, leaderOf.get(car)) ? leaderOf.get(car) : undefined;
+        const lead = followsLeader(car) && !rams(car, leaderOf.get(car))
+          && !truckHoldsForPhantom(car, leaderOf.get(car)) ? leaderOf.get(car) : undefined;
         const leadGap = lead === undefined ? undefined : leaderDist.get(car);
         if (leadGap !== undefined) {
           const room = Math.max(0, leadGap - (car.boost ? boostGap(car, lead) : followGap(car, lead)));
