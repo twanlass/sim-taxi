@@ -296,9 +296,11 @@ Everything that talks on screen — these tips, [the robber](#the-bank-robbery),
 and (under `?copchat=classic`) the cop's shout — is one bubble, `game/speech.js`: the Figma file's "bubble-ui" card (a caps title
 saying who is talking over a bold line), at the HUD's ×0.652.
 
-**Docked, with a tag on the talker.** The words sit in one fixed slot, centred under the cash and the
-stars, and never move: a card there drops in from above, holds, and lifts away. A second card up at the
-same time stacks under the first. What the card used to stand on gets a **tag** instead: a 24px white
+**Docked, with a tag on the talker.** The words sit in one fixed slot, centred at the bottom with its
+lower edge 24px over the top of the Loco Mode fuel arc, and never move: a card there rises in, holds,
+and sinks away. A second card up at the same time stacks above the first. (The first build docked it
+at the top under the cash and stars; Tyler moved it down, which also puts "Hold to floor it" right
+over the pedal it means.) What the card used to stand on gets a **tag** instead: a 24px white
 disc with three typing dots and a pointer, pinned to the talker (the racer, the police car dispatch is
 talking from, the taxi the robber is in) or to the thing being pointed out (the rider's crystal, the gas
 pedal). Off screen the tag waits at the edge pointing at it, the same way the card used to. The card is

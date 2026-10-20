@@ -28,11 +28,13 @@
 // whole card to a car made it the biggest moving thing on the screen, standing on the road the
 // player was steering through, and sliding round the glass after anything that drove out of frame
 // (Tyler: "they get in the way and move a lot"). So the *words* now sit in one fixed slot at the
-// top, under the cash and the stars, where they never move; and the *who* is a small tag pinned to
+// bottom, just over the Loco Mode fuel arc, where they never move; and the *who* is a small tag pinned to
 // the target the card used to stand on — the same placement, edge-waiting and pointer as before
 // (`placeSpeech` with a tag-sized box), but 24px across instead of a card. The tag earns its keep
 // on the racer: with its roof flag gone, nothing else says which car is asking. Two cards up at once
-// stack down from the slot in the order they opened. `?bubbles=dock` drops the tag;
+// stack up from the slot in the order they opened. It sat at the top, under the cash and the stars,
+// for its first build; Tyler moved it down (2026-10-20), which also lands "Hold to floor it" right
+// over the pedal it is about. `?bubbles=dock` drops the tag;
 // `?bubbles=classic` is the pinned card. A caller that places its own card (the New Move card,
 // centred) passes `pinned: true` and keeps the old placement.
 //
@@ -68,10 +70,22 @@ const LEAN = (40 * Math.PI) / 180;
 const EDGE = 10;
 const HUD_TOP = 60;
 
-// The docked slot's top edge, below the safe inset: under the HUD's cash row and the star rating
-// under it (the stars' baseline lands at ~78px on a 390-wide phone), so a card never covers the
-// money or the stars. The combo meter is in the cash row itself, centred, so it stays clear too.
-const DOCK_TOP = 92;
+// How far the docked card's bottom edge stands over the top of the Loco Mode fuel arc, in CSS px
+// (Tyler: "24 units above the boost bar").
+const DOCK_LIFT = 24;
+// Where the arc's top was last measured, in viewport px from the top, or null before the first
+// read. Read off the arc itself (`#boost-meter .boost-track`) on each show and resize rather than
+// worked out from the pedal's custom properties, because the arc is drawn by game/fuelarc.js and
+// its extent past the pedal is that module's business. Kept across reads so a show while the pedals
+// are slid away (`hud-away`, which translates them off the bottom) uses the last good value.
+let arcTop = null;
+function readArcTop(vh) {
+  const track = typeof document !== 'undefined' && document.querySelector('#boost-meter .boost-track');
+  const r = track?.getBoundingClientRect();
+  if (r && r.height > 0 && r.top > 0 && r.top < vh) arcTop = r.top;
+  // No pedals measured yet: about where the arc sits on a 390×844 phone.
+  return arcTop ?? vh - 230;
+}
 // Between two docked cards stacked in the slot.
 const DOCK_GAP = 8;
 // The tag: a disc this wide, with the pointer hanging off it.
@@ -114,14 +128,15 @@ function speakerOf(title) {
 const dockStack = [];
 
 /**
- * Where a docked card goes: centred across the top, under the HUD, `offset` px further down for
+ * Where a docked card goes: centred across the screen with its bottom edge `DOCK_LIFT` over
+ * `floor` (the fuel arc's top), `offset` px further up for
  * the cards above it. Pure, for the probe.
  */
-export function placeDocked(w, vw, insets = safe, offset = 0) {
+export function placeDocked(w, h, vw, floor, insets = safe, offset = 0) {
   const minX = insets.left + EDGE;
   const maxX = vw - insets.right - EDGE;
   const left = maxX - minX >= w ? clamp(vw / 2 - w / 2, minX, maxX - w) : minX;
-  return { left, top: insets.top + DOCK_TOP + offset };
+  return { left, top: floor - DOCK_LIFT - h - offset };
 }
 
 // The pointer, the file's own path, drawn tip-up; `place` rotates it to face the target. Inline
@@ -311,7 +326,14 @@ export function createSpeech(root, { viewport = null, typing = false, onDismiss 
   // (hidden) from the start, so nothing about the card's box changes while it types, and a read per frame would force a layout
   // behind every character.
   let size = { w: 0, h: 0 };
-  const measure = () => { size = { w: card.offsetWidth, h: card.offsetHeight }; slot.h = size.h; };
+  // The fuel arc's top, for the docked slot. Measured with the card rather than per frame: the arc
+  // throbs a percent when a pour lands, and a slot that tracked it would throb too.
+  let floor = 0;
+  const measure = () => {
+    size = { w: card.offsetWidth, h: card.offsetHeight };
+    slot.h = size.h;
+    if (docked) floor = readArcTop(viewport ? viewport.height() : window.innerHeight);
+  };
   window.addEventListener('resize', () => { if (open) measure(); });
 
   const isTyping = () => shown < text.length;
@@ -345,7 +367,7 @@ export function createSpeech(root, { viewport = null, typing = false, onDismiss 
         if (other === slot) break;
         offset += other.h + DOCK_GAP;
       }
-      const p = placeDocked(size.w, w, safe, offset);
+      const p = placeDocked(size.w, size.h, w, floor, safe, offset);
       el.style.transform = `translate(${p.left.toFixed(1)}px, ${p.top.toFixed(1)}px)`;
       placeTag(target(), w, h);
       return;

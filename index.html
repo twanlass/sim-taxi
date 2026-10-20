@@ -1383,15 +1383,15 @@
         display: block; overflow: visible;
         transform-origin: 50% 100%;
       }
-      /* Docked (the default, game/speech.js): the card sits in one fixed slot at the top under the
-         HUD and never moves, so it has no pointer and drops in from above instead of growing out of
-         one. Wider than a pinned card, since it covers nothing it is about: most lines then fit on
+      /* Docked (the default, game/speech.js): the card sits in one fixed slot at the bottom, just
+         over the Loco Mode fuel arc, and never moves, so it has no pointer and rises in from below
+         instead of growing out of one. Wider than a pinned card, since it covers nothing it is about: most lines then fit on
          one line and the card stays a short strip. */
       .speech-docked .speech-card { max-width: min(300px, calc(100vw - 20px)); }
       .speech-docked > .speech .speech-pointer { display: none; }
-      .speech-docked > .speech > .speech-body { transform: translateY(-14px); transform-origin: 50% 0; }
+      .speech-docked > .speech > .speech-body { transform: translateY(14px); transform-origin: 50% 100%; }
       .speech-docked.is-open > .speech > .speech-body { transform: none; }
-      .speech-docked.is-closing > .speech > .speech-body { transform: translateY(-10px); }
+      .speech-docked.is-closing > .speech > .speech-body { transform: translateY(10px); }
       .speech-docked .speech-card { box-shadow: 0 4px 14px rgba(20, 24, 48, 0.28); }
       /* Caption styles, `?bubblestyle=` (game/speech.js) — a prototype round for picking a look for the
          docked card. Each speaker gets a colour (`data-speaker` on the layer, read off the title). */
