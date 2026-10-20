@@ -249,7 +249,9 @@ export function createNewMove({ viewport = null, onClose = () => {} } = {}) {
     }
   }
 
-  const bubble = createSpeech(root, { viewport, typing: false });
+  // `pinned`: the card places itself, centred, rather than taking the docked slot the talking
+  // bubbles use (game/speech.js).
+  const bubble = createSpeech(root, { viewport, typing: false, pinned: true });
   // Centred on the screen. The speech card stands *above* its target, so the target is the middle
   // of the screen pushed down by half the card's own height (measured live: the clip sizes itself
   // to the viewport's width).
