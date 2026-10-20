@@ -5687,6 +5687,7 @@ const PRESSURE_END = difficulty.getTuning().pressureEnd;
     let peak = 0;
     let kerbward = 0;
     let wide = 0;
+    let vmin = Infinity;
     let blipAt = null;
     let turning = false;
     const blipFrames = Math.floor((OVERTAKE_BLIP_MS / 1000) * 60 * 0.6);
@@ -5705,18 +5706,19 @@ const PRESSURE_END = difficulty.getTuning().pressureEnd;
       peak = Math.max(peak, tTaxi.pass);
       kerbward = Math.min(kerbward, tTaxi.passOffset);
       wide = Math.max(wide, tTaxi.passOffset);
+      if (tTaxi.passing && tTaxi.pass >= 1) vmin = Math.min(vmin, tTaxi.v);
     }
     setOvertakeStyle('');
-    return { peak, blipAt, turning, arms: combo.state.arms, peeks: tTaxi.peeks, hits, kerbward, wide };
+    return { peak, blipAt, turning, arms: combo.state.arms, peeks: tTaxi.peeks, hits, kerbward, wide, vmin };
   };
   const turnSweep = (r) => `blip at frame ${r.blipAt} with the car ${r.turning ? '' : 'not '}signalling left,`
     + ` ${r.arms} arms, ${r.peeks} peeks, ${r.hits} bumps, pass peaked at ${r.peak.toFixed(2)},`
-    + ` ${(r.kerbward < 0 ? r.kerbward : r.wide).toFixed(2)} across`;
+    + ` ${(r.kerbward < 0 ? r.kerbward : r.wide).toFixed(2)} across, slowest ${r.vmin.toFixed(1)} u/s once out`;
   for (const early of [true, false]) {
     const turner = turnerStage('', early);
-    check(`the default combo peeks round the right of a car ${early ? 'signalling' : 'already turning'} left, up on the kerb`,
+    check(`the default combo goes round the right of a car ${early ? 'signalling' : 'already turning'} left, on the pavement at speed`,
       turner.turning && turner.peeks === 1 && turner.peak > 0.95 && turner.hits === 0
-        && turner.kerbward < -1.4 && turner.wide === 0, turnSweep(turner));
+        && turner.kerbward < -2.5 && turner.wide === 0 && turner.vmin > SPEED * 1.5, turnSweep(turner));
   }
   // Never round a cop, whose blinker is no promise to get out of the way: the taxi sat beside one
   // on the kerb at the cop's own speed with Loco held. A cop signalling left gets the ordinary pass.

@@ -1210,16 +1210,18 @@ road on the far side of the junction (`room`). The leader brake still holds whil
 out, so it does not drive through the car it is leaving. `?overtake=classic` restores all of the
 judgement described below.
 
-**The one exception is a car signalling left** (never a cop: a peek waits for the turner to swing
-away, and one parked across the road never does, so the taxi crawled beside it on the kerb), and it
-is keyed on the blinker because the player can see it (`peeking`; Tyler, 2026-10-19: "less of an overtake and more of a slight peek around on
-the right"). The combo then goes the other way: 1.5 off the lane centre toward its own kerb
-(`PULLOVER_LATERAL`), riding up on it with the same mount and lean as a car pulled over for a brake
-check. That is not far enough to get past a car still in the lane (1.5 apart against a 2.31
-envelope), so the taxi sits beside its tail with its nose out, and the leader brake reads the real
-sideways gap (`sideGap`) so it slips by as the turner swings away. The turner is allowed its left
-while being peeked (the courtesy veto below is for a taxi on its *left*). The body stays mounted
-through the junction box, where there is no kerb: 0.21 units, about 1.6px at play zoom.
+**The one exception is a car signalling left** (never a cop: a cop blocking or chasing is not going
+where it signals, and the taxi crawled beside one). It is keyed on the blinker because the player can
+see it (`peeking`; Tyler, 2026-10-19: "a slight peek around on the right", then "couldn't we do a
+peek at full speed though?"). The combo then goes round the turner's right, up on the pavement:
+2.61 off the lane centre (`peekLateral`, the collision envelope plus `PEEK_MARGIN`), the whole body
+lifted by `KERB_H`. Past the envelope the leader brake lets go (`seesLeader` asks both ways), so the
+taxi keeps its speed: 16.5 to 23 u/s through the probe's two peeks, where the first cut on the kerb
+at 1.5 crawled at the turner's speed. The margin is for the turner's tail, which swings toward the
+taxi as it yaws into the left: at the bare envelope a taxi arriving as the turner set off clipped
+its back corner 3 times in 3. The turner is allowed its left while being peeked (the courtesy veto
+below is for a taxi on its *left*). Nothing on the pavement is solid, so the taxi drives through
+street furniture, and it stays lifted through the junction box (0.35 units, about 2.7px).
 
 It also pulls out half way across a straight-through crossing (`thrownInBox`), where classic waits
 for the far side; behind a slow truck the taxi spends much of its time in the box. Over 8 cities ×

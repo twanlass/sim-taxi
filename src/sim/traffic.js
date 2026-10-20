@@ -831,18 +831,26 @@ export function setOvertakeStyle(name) {
 }
 /**
  * The one exception, and it is keyed on something the player can see: a car in front **signalling
- * left** is not gone round into the lane it is about to swing across. The combo peeks round its
- * right instead — up on the kerb (`PULLOVER_LATERAL`, the same line and the same mount a car pulled
- * over for a brake check rides) — and slips by once the turner has swung away (Tyler, 2026-10-19:
- * "less of an overtake and more of a slight peek around on the right"). The rule stays dumb: a
- * blinker means right, anything else means the oncoming lane, and what is on the pavement is the
- * player's problem.
+ * left** is not gone round into the lane it is about to swing across. The combo goes round its
+ * right instead, up on the pavement, at full speed (Tyler, 2026-10-19: "a slight peek around on the
+ * right", then "couldn't we do a peek at full speed though?"). The rule stays dumb: a blinker means
+ * right, anything else means the oncoming lane, and what is on the pavement is the player's problem
+ * — nothing there is collision-tested, so the taxi drives through the street furniture.
  *
- * 1.5 off the lane centre leaves the two bodies' circles 1.5 apart against a 2.31 envelope, so the
- * taxi cannot get *past* a car still in its lane — only alongside its tail, nose out where the
- * player can see round it. The leader brake holds it there (`peeking` in `boostGap`) until the
- * turner's own swing opens the gap.
+ * How far is set by the collision envelope, not by the kerb (`peekLateral`). The first cut stopped
+ * on the kerb at the brake-check pull-over's 1.5, which leaves the two bodies' circles 1.5 apart
+ * against a 2.31 envelope: the taxi could not get past a car still in its lane, and the leader brake
+ * (`peeking` in `boostGap`) held it at the turner's own speed beside its tail until the turner swung
+ * away — a crawl with Loco held. Past the envelope the leader brake lets go (`seesLeader`) and the
+ * taxi keeps its speed, 2.61 off the lane centre with the whole body up the kerb.
+ *
+ * PEEK_MARGIN is for the turner's tail, not its centre. A car yawing into a left swings its rear
+ * circle *toward* the taxi, so at the bare envelope (+0.05) a taxi blipped behind a car still
+ * waiting at its line arrived as it set off and clipped its back corner, 3 runs of 3; 0.3 cleared
+ * all three.
  */
+const PEEK_MARGIN = 0.3;
+const peekLateral = () => ENVELOPE + PEEK_MARGIN;
 const peeking = (car, leader) => car.passing && car.dodgeLateral < 0 && leader && car.passTarget === leader;
 /** How far apart two cars are across `car`'s road. */
 const sideGap = (car, other) => Math.abs(isXAxis(car.d) ? other.z - car.z : other.x - car.x);
@@ -1068,8 +1076,13 @@ export function copLaysRubber(car) {
  * round with the lane change 0.18 of the way done. See `envelopeGap`, which is what the tailgate
  * becomes while the swing is in progress.
  */
-const seesLeader = (car) => car.passOffset
-  < Math.max(ENVELOPE, laneOffsetFor(car.d, car.i, car.j));
+//
+// Both ways: a peek round the *right* of a left-turner (`peeking`) goes out to the envelope on the
+// kerb side, and past it the leader can no longer be hit either. Asked one way only, the taxi up on
+// the pavement kept braking to stop behind a car it was beside, and lost 24 to 17 u/s on the way
+// past it with Loco held.
+const seesLeader = (car) => car.passOffset < Math.max(ENVELOPE, laneOffsetFor(car.d, car.i, car.j))
+  && car.passOffset > -ENVELOPE;
 // A cop out in the oncoming lane overtaking the taxi. Listed in its own lane at its own arc length
 // like any car mid-pass, but nobody behind it should be following it — see the leader bookkeeping
 // in `update`. Police only, so the taxi's own overtake, which every number on this page was
@@ -5903,7 +5916,7 @@ export function createTraffic(
           // kerb, crawling at the cop's speed with Loco held (Tyler, 2026-10-20, a clip).
           if (thrown && leader && taxi.passTarget === leader && leader.signalHand === 'left'
             && !leader.police) {
-            taxi.dodgeLateral = -PULLOVER_LATERAL;
+            taxi.dodgeLateral = -peekLateral();
             taxi.peeks += 1;
           }
           taxi.overtakes += 1;
@@ -7336,10 +7349,11 @@ export function createTraffic(
       // car is parked against. Only part of KERB_H because only part of the body is up there.
       // Summed with the two above rather than replacing them: they are three different things
       // happening to one suspension, and only the taxi ever has more than one of them at once.
-      // The taxi's peek round a left-turner (`peeking`) rides the same kerb, the same way up.
-      const kerbed = car.isTaxi && car.dodgeLateral === -PULLOVER_LATERAL ? passEase(car.pass) : car.pullover;
-      const mount = KERB_H * PULLOVER_MOUNT * kerbed;
-      if (kerbed > 0.001) roll -= PULLOVER_ROLL * kerbed;
+      // The taxi's peek round a left-turner (`peeking`) is all four wheels up on the pavement, so
+      // the whole KERB_H and no lean, risen with the swing.
+      const peek = car.isTaxi && car.dodgeLateral === -peekLateral() ? passEase(car.pass) : 0;
+      const mount = KERB_H * (PULLOVER_MOUNT * car.pullover + peek);
+      if (car.pullover > 0.001) roll -= PULLOVER_ROLL * car.pullover;
 
       // Rocking. Pitch is a spring-damper driven by longitudinal acceleration: braking dips the
       // nose forward, easing off the brake lifts it, and the underdamping (ζ ≈ 0.4) makes both
