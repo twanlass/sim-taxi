@@ -2268,7 +2268,7 @@ collisions.onCrush(({ speed, other, airborne }) => {
   const yaw = traffic.taxi.yaw;
   const paint = other.police ? PALETTE.policeBody : PALETTE.carBody[other.colorIndex];
   blast.fire(other.x, other.z, paint, yaw, speed * STRUCK_SHOVE);
-  dust.wreckSmoke(other.x, other.z, yaw, speed);
+  if (blast.wantsCollar()) dust.wreckSmoke(other.x, other.z, yaw, speed);
   struckGlass.fire({ x: other.x, z: other.z, yaw, scale: 0.6, ahead: 0, drop: 0.15 });
   controller.kickShake(1.8);
   sfx?.play('crash', { gain: 0.8 });
