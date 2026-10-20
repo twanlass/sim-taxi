@@ -231,6 +231,26 @@ export function maxFares(delivered) {
   return at >= 1 ? BOARD_MAX : 1;
 }
 
+/**
+ * The rush (Tyler, 2026-10-20: "on easy I want to see multiple riders after my second drop"). The
+ * pressure dial alone never got there: on Easy the stagger opens at 61s against a 35-44s fare, so a
+ * player driving well emptied the board before a second rider was ever due, and the four-fare board
+ * only ever showed up for one who was running late (docs/difficulty.md#what-the-sweep-found).
+ *
+ * So the board is taught in two steps instead of one. The first two fares are alone, and the
+ * delivery of the second sets off a rush: `RUSH_RIDERS` waiting at once, the camera pulled out over
+ * the lot of them (game/rushcut.js). From then on the kerb is never allowed to run down below
+ * `BOARD_FLOOR` waiting riders, `FLOOR_GAP` seconds after one leaves it, whatever the stagger says.
+ * Every mode, not just Easy: the harder ones already fill faster, and the floor only binds when the
+ * stagger would leave the kerb thinner than this. `?rush=classic` is the board as it was.
+ */
+export const RUSH_AT = 2;
+export const RUSH_RIDERS = 3;
+/** Blocks from the taxi the rush's riders may stand, so its pull-out fits them all on a phone. */
+export const RUSH_REACH = 2;
+export const BOARD_FLOOR = 2;
+export const FLOOR_GAP = 4;
+
 /** Seconds between successive spawns on a non-empty board. */
 export const spawnGap = (delivered) => FARE_CYCLE / pressure(delivered);
 

@@ -121,6 +121,7 @@ import { createCargo, CARGO_KINDS, CARGO_CENTRE_Y } from '../src/geometry/cargo.
 import * as difficulty from '../src/game/difficulty.js';
 import { BOARD_MAX } from '../src/game/difficulty.js';
 import { LOCO_PACE_SELF } from './autoplay.mjs';
+import { frameRush } from '../src/game/rushcut.js';
 import { planRun as planBankRun, cutShot as bankCutShot, frameCut as frameBankCut } from '../src/game/bankjob.js';
 import { bankFrontage } from '../src/city/bank.js';
 import { createRobbery, TRIGGER_RANGE as ROBBERY_TRIGGER_RANGE, LOST_RANGE, STAND_DOWN_TIMEOUT, STAND_DOWN_RANGE } from '../src/game/robbery.js';
@@ -3121,7 +3122,9 @@ const PRESSURE_END = difficulty.getTuning().pressureEnd;
 {
   const mScene = new THREE.Scene();
   const mTraffic = createTraffic(makeRng(seed + 44), mScene, CARS_DEFAULT);
-  const fares = createFareSystem(makeRng(seed + 55), mScene);
+  // `rush: false`: this is the stagger's test, and the rush (RUSH_AT in difficulty.js) spawns its
+  // riders in one burst on purpose. It has its own section below.
+  const fares = createFareSystem(makeRng(seed + 55), mScene, { rush: false });
   mTraffic.warmup(5);
 
   let mostAtOnce = 0;
@@ -3211,6 +3214,86 @@ const PRESSURE_END = difficulty.getTuning().pressureEnd;
   } else {
     check('a waiting rider cannot be taken while carrying', true, 'board not doubled up at exit');
   }
+}
+
+// --- The rush ------------------------------------------------------------------------------------
+//
+// RUSH_AT in game/difficulty.js: the second delivery puts RUSH_RIDERS on the kerb at once, and from
+// then on the kerb is topped back up to BOARD_FLOOR. Played on the shipped Easy curve, the one Tyler
+// asked it for, with the same carry-then-most-urgent policy as the board test above.
+{
+  const rScene = new THREE.Scene();
+  const rTraffic = createTraffic(makeRng(seed + 44), rScene, CARS_DEFAULT);
+  const fares = createFareSystem(makeRng(seed + 55), rScene);
+  rTraffic.warmup(5);
+  const aim = () => {
+    const job = fares.carrying() ?? fares.waiting();
+    if (!job || job.directed) return;
+    const r = findRoute(planOrigin(rTraffic.taxi), job.target);
+    if (r) { rTraffic.taxi.route = r; rTraffic.taxi.routeConsumed = false; fares.markDirected(job); }
+  };
+  const kerb = () => fares.state.fares.filter((f) => f.stage === 'waiting');
+  let rushes = 0;
+  let rushKerb = 0;
+  let rushAtDelivery = null;
+  let earlyExtras = 0;
+  let thinFrames = 0;
+  let thinStreak = 0;
+  let floorFrames = 0;
+  let rushClocksOk = true;
+  for (let t = 0; t < 600 && !fares.state.gameOver && fares.state.delivered < 7; t += 1 / 60) {
+    rTraffic.update(1 / 60);
+    for (const { type, fare } of fares.update(1 / 60, rTraffic.taxi)) {
+      if (type === 'spawned' && !fares.state.rushed && fares.state.fares.length > 1) earlyExtras += 1;
+      if (type !== 'rush') continue;
+      rushes += 1;
+      rushKerb = kerb().length;
+      rushAtDelivery = fares.state.delivered;
+      // Each rush rider's clock waits behind one other rider, so it is never shorter than it would
+      // have been served next.
+      for (const f of kerb()) if (!(f.limit >= f.work * difficulty.pace(fares.state.delivered) - 1e-6)) rushClocksOk = false;
+      if (!fare || fare.stage !== 'waiting') rushClocksOk = false;
+    }
+    aim();
+    if (fares.state.rushed) {
+      floorFrames += 1;
+      // A kerb below the floor is allowed for FLOOR_GAP after a rider leaves it, plus the few frames
+      // a delivered rider's exit can still hold the free slot (EXIT_SECONDS in fares.js), and no longer.
+      const thin = kerb().length < difficulty.BOARD_FLOOR
+        && fares.state.elapsed - fares.state.lastSpawnAt > difficulty.FLOOR_GAP
+        && fares.state.fares.length < MAX_FARES;
+      thinStreak = thin ? thinStreak + 1 : 0;
+      thinFrames = Math.max(thinFrames, thinStreak);
+    }
+  }
+  check('the rush fires once, on the second delivery', rushes === 1 && rushAtDelivery === difficulty.RUSH_AT,
+    `${rushes} rushes at delivery ${rushAtDelivery}, ${fares.state.delivered} delivered`);
+  check('...with RUSH_RIDERS waiting on the kerb', rushKerb === difficulty.RUSH_RIDERS, `${rushKerb} waiting`);
+  check('...and nobody extra before it on Easy', earlyExtras === 0, `${earlyExtras} extras`);
+  check('...on clocks that wait behind one rider', rushClocksOk);
+  check('after the rush the kerb is topped back up to the floor', floorFrames > 0 && thinFrames < 60,
+    `longest thin stretch ${thinFrames} frames, over ${floorFrames}`);
+
+  // `?rush=classic` is the old board: no rush, ever.
+  const cScene = new THREE.Scene();
+  const cFares = createFareSystem(makeRng(seed + 55), cScene, { rush: false });
+  cFares.state.delivered = difficulty.RUSH_AT;
+  const cEvents = cFares.update(1 / 60, rTraffic.taxi);
+  check('...and none under ?rush=classic', !cEvents.some((e) => e.type === 'rush') && cFares.state.fares.length === 1);
+
+  // The pull-out's framing: never tighter than play zoom, and every rider inside the frame.
+  const pts = [{ x: -40, z: -30 }, { x: 35, z: 20 }, { x: 0, z: 40 }];
+  let framed = true;
+  for (const aspect of [0.46, 1, 2.1]) {
+    const f = frameRush(pts, aspect);
+    if (f.zoom < PLAY_ZOOM - 1e-9) framed = false;
+    for (const p of pts) {
+      const sx = (p.x - f.x) * RIGHT.x + (p.z - f.z) * RIGHT.z;
+      const sy = (p.x - f.x) * VIEW_UP.x + (p.z - f.z) * VIEW_UP.z;
+      if (Math.abs(sx) > f.zoom * aspect || Math.abs(sy) > f.zoom) framed = false;
+    }
+  }
+  check('the rush’s pull-out frames every rider, never tighter than play zoom', framed);
 }
 
 // --- Every generator gets its own stream ---------------------------------------------------------
@@ -17766,7 +17849,9 @@ let chopperOrder; // likewise
         const t8 = createTraffic(makeRng(seed + 44), s8, 10, 18);
         // `alwaysRob: false` so the coin and its ramp are still exercised while BANK_ROBBER_ALWAYS
         // has every bank rider rob for testing.
-        const f8 = createFareSystem(makeRng(seed + 900 + k), s8, { alwaysRob: false });
+        // `rush: false` too: at five deliveries a fresh board would otherwise be the rush's, which
+        // is plain riders only.
+        const f8 = createFareSystem(makeRng(seed + 900 + k), s8, { alwaysRob: false, rush: false });
         t8.warmup(1);
         f8.state.delivered = 5;
         const got = [];

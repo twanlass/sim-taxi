@@ -88,6 +88,31 @@ made with more than one rider waiting:
 tight and as busy as the one before it at every delivery, and that switching back to Easy restores
 the shipped tuning exactly.
 
+## The rush
+
+The board is taught in two steps (Tyler, 2026-10-20: "on easy I want to see multiple riders after my
+second drop"). The first two fares are alone. Delivering the second sets off the **rush**:
+`RUSH_RIDERS` (3) riders waiting at once, the world stopped while the camera pulls out over the taxi
+and all of them, each rider's mark popping in turn, then back to where it was (game/rushcut.js, a
+tap skips to the way back). From then on the kerb is never allowed below `BOARD_FLOOR` (2) waiting
+riders for longer than `FLOOR_GAP` (4s), whatever the stagger says. All in difficulty.js, every mode.
+
+Why it is not just more pressure: on Easy the stagger opens at 61s against a 35–44s fare, so a player
+driving well emptied the board before a second rider was ever due, and the four-fare board only showed
+up for a player who was running late. Turning pressure up was measured to produce strikes rather than
+choices (see the sweep below).
+
+The rush's riders and the floor's top-ups are budgeted as if **one** other waiting rider were served
+first (`budgetBehind` in fares.js, the longest trip on the kerb), not the whole queue: that was the
+"pick any rider and have plenty of time" board described next. With three on the kerb that still
+cannot all be made at cruise, so somebody gets let go or the taxi goes Loco. A rider the ordinary
+stagger sends keeps a served-next clock. The plain riders only: the rush spawns no VIP or bank rider,
+and both keep their own clocks when the floor sends one.
+
+The sweep tables below were measured before the rush and have not been re-run.
+
+`?rush=classic` is the board as it was.
+
 ## Every rider is budgeted as if served next
 
 A rider's clock covers the rider aboard (you cannot take a kerbside fare while carrying one, and the
