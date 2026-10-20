@@ -1,7 +1,9 @@
 import { createSpeech } from './speech.js';
 
-// "Tap the depot for repairs" — the depot telling a smoking taxi where to go, in the shared speech
+// "Tap the garage for repairs" — the depot telling a smoking taxi where to go, in the shared speech
 // card (game/speech.js), with its "…" tag on the garage door.
+//
+// On screen it is the **garage**, never the depot (Tyler, 2026-10-20): "depot" is the code's word.
 //
 // It was a bubble once before (Tyler, until 2026-10-06), then a New Move-style card with a clip of
 // the visit (`REPAIR` in game/newmove.js, game/repairclip.js), which stopped the world for a lesson
@@ -12,8 +14,8 @@ import { createSpeech } from './speech.js';
 // Not answered — it times itself out after DEPOT_CALL_SECONDS of game time, so a pause holds it —
 // because the tap the player is about to make belongs to the road, or to the depot itself.
 
-export const DEPOT_CALL_TITLE = 'Taxi Depot';
-export const DEPOT_CALL_LINE = 'Tap the depot for repairs';
+export const DEPOT_CALL_TITLE = 'Taxi Garage';
+export const DEPOT_CALL_LINE = 'Tap the garage for repairs';
 
 /**
  * How long it stays up, in seconds of game time: the ~0.7s it takes to type, then long enough to

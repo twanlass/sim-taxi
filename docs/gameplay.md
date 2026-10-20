@@ -3315,7 +3315,7 @@ Nothing would otherwise say a repair is a tap on the depot. The car wears its da
 car is a warning without an instruction, and the garage is a building like any other until you know
 what it is for. So a beat (`SHOW_DELAY`, 0.9s) after the taxi starts smoking —
 `SMOKE_FRACTION`, 34% HP, the third of the four [damage tiers](../src/game/taxidamage.js) — the depot
-says so in the docked speech card: **"TAXI DEPOT / Tap the depot for repairs"**, typed out over the
+says so in the docked speech card: **"TAXI GARAGE / Tap the garage for repairs"**, typed out over the
 fuel arc, with the card's "…" tag on the garage door (`game/depotcall.js`). Earlier and it would be
 nagging about a swinging lamp; at the 20% plume it is one hit from too late. It is not answered and
 does not stop the world: it times out after `DEPOT_CALL_SECONDS` (4.5s of game time) and comes down
@@ -3329,7 +3329,7 @@ already on its way in defers it, and it is tried again every half second while t
 `__taxi.depotCall.show()` says it.
 
 **`?repairtip=classic`** puts back the card it replaced (Tyler, 2026-10-06 to 2026-10-20): the
-[New Move card](#new-move-unlocked-the-overtake-u-turn-and-drift-cards) with **"TAXI DEPOT / Tap for
+[New Move card](#new-move-unlocked-the-overtake-u-turn-and-drift-cards) with **"TAXI GARAGE / Tap for
 Repairs"** (`REPAIR` in game/newmove.js) and a clip of the visit, once ever
 (`simTaxi.seen.repair`), stopping the world like the move cards, with the same gates. Tyler swapped
 it for the line once the speech card had docked out of the way: the card stopped play for a lesson
