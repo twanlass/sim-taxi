@@ -2280,7 +2280,8 @@ collisions.onImpact(({ x, z, speed, closing, other }) => {
   // the sun, which is exactly the contrast that makes the fire read as the hot middle of something
   // bigger. One call for both cars, at the point between them: two collars would have packed grey
   // into the seam where the two fireballs meet, which is the middle of the blast.
-  dust.wreckSmoke((x + other.x) / 2, (z + other.z) / 2, yaw, speed);
+  // Not under the default `burn` style, whose own smoke column does this job — see `wantsCollar`.
+  if (blast.wantsCollar()) dust.wreckSmoke((x + other.x) / 2, (z + other.z) / 2, yaw, speed);
 
   // And both cars are left lying there. `wreckShell` takes each one off the road for good and hands
   // its bodywork over as a standalone group; game/wreckage.js slides it out of the impact, crumples
@@ -2302,7 +2303,8 @@ collisions.onImpact(({ x, z, speed, closing, other }) => {
   // opens apart — a glance rather than two objects deleted in formation. Cars meeting dead centre
   // give a cross near zero, and `|| 1` picks a side rather than leaving both shells unturned.
   const struckSide = Math.sign(fx * (other.z - traffic.taxi.z) - fz * (other.x - traffic.taxi.x)) || 1;
-  wreckage.take(traffic.wreckShell(traffic.taxi), {
+  const taxiShell = traffic.wreckShell(traffic.taxi);
+  wreckage.take(taxiShell, {
     driftX: fx * carry * SHELL_CARRY * TAXI_KEEP,
     driftZ: fz * carry * SHELL_CARRY * TAXI_KEEP,
     spin: -struckSide * SHELL_SPIN,
@@ -2323,7 +2325,8 @@ collisions.onImpact(({ x, z, speed, closing, other }) => {
   // shoved rather than thrown. Shards that reach a pavement stay there; nothing walks this track
   // the way ejection.js walks the driver's, because a 0.3-unit plate on a kerb reads as glass.
   struckGlass.fire({ x: other.x, z: other.z, yaw, scale: 0.6, ahead: 0, drop: 0.15 });
-  wreckage.take(traffic.wreckShell(other), {
+  const struckShell = traffic.wreckShell(other);
+  wreckage.take(struckShell, {
     // A copy made on this frame: before it, the car was an instance the replay draws instead.
     hideBefore: true,
     driftX: fx * carry * SHELL_CARRY * STRUCK_SHOVE,
@@ -2334,6 +2337,11 @@ collisions.onImpact(({ x, z, speed, closing, other }) => {
     // enough to bury a wheel. See the `lift` in game/wreckage.js.
     ...(other.isTruck ? { len: TRUCK_LEN, width: TRUCK_W } : {}),
   });
+  // And both keep burning through the hold — flames on the shells, a smoke column, the firelight
+  // on the road (`blast.burn`; a no-op under the older `?wreck=` styles). Off the shells rather than
+  // the impact point because the shells slide, and fire left behind on the tarmac reads as a spill.
+  blast.burn(taxiShell);
+  blast.burn(struckShell, { scale: 0.85 });
 
   // Framed on the middle of the whole picture when the driver was thrown: the throw runs ~16 units,
   // past the edge of a portrait phone at wreck zoom if the shot stays on the wreck. Halfway puts
@@ -6556,6 +6564,7 @@ if (shot) {
   // detonates it through the same handler a live run uses — so this framing cannot drift out of
   // step with the crash it exists to review. Only the blast and the shrinking shells are stepped
   // afterwards: traffic must stay still, or the rest of the city drives on under a frozen wreck.
+  let wreckStep = null;
   if (shot.wreckAt) {
     // Offset by a couple of units along the victim's heading rather than parked exactly on it: a
     // real impact leaves the two centres about that far apart, and the pair of detonations spread
@@ -6588,17 +6597,23 @@ if (shot) {
     }
     controller.state.target.set(endSpot?.x ?? victim.x, 0, endSpot?.z ?? victim.z);
     controller.update(aspect());
-    for (let step = 0; step < Math.round(shot.wreckAt * 60); step++) {
-      blast.update(1 / 60);
-      wreckage.update(1 / 60);
-      ejection.update(1 / 60);
-      windshield.update(1 / 60);
-      struckGlass.update(1 / 60);
-      // The smoke collar is part of the wreck now, and it lives in the dust pool rather than in
-      // blast.js — left out of this loop, `?shot=12` would freeze a crash with its smoke still
-      // stacked on the impact point at zero age.
-      dust.update(1 / 60);
-    }
+    // `&wreckAt=` overrides the shot's own beat, and `window.__wreckStep(frames)` steps the same
+    // pools on and redraws — which is how tools/wreckreel.mjs films the whole crash a frame at a
+    // time out of one staging, rather than restaging it once per frame.
+    const wreckAt = Number(new URLSearchParams(window.location.search).get('wreckAt') ?? shot.wreckAt);
+    wreckStep = (frames) => { for (let step = 0; step < frames; step++) stepWreck(); };
+    wreckStep(Math.round(wreckAt * 60));
+  }
+  function stepWreck() {
+    blast.update(1 / 60);
+    wreckage.update(1 / 60);
+    ejection.update(1 / 60);
+    windshield.update(1 / 60);
+    struckGlass.update(1 / 60);
+    // The smoke collar is part of the wreck now, and it lives in the dust pool rather than in
+    // blast.js — left out of this loop, `?shot=12` would freeze a crash with its smoke still
+    // stacked on the impact point at zero age.
+    dust.update(1 / 60);
   }
 
   // Stage a flight and freeze it partway across. The plane is up for about six seconds every
@@ -6948,6 +6963,7 @@ if (shot) {
   // come down behind it.
   garage?.setDoor(0);
   renderFrame();
+  if (wreckStep) window.__wreckStep = (frames = 1) => { wreckStep(frames); renderFrame(); };
   document.body.dataset.shotReady = 'true';
 } else {
   traffic.warmup(10);

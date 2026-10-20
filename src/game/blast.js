@@ -40,10 +40,13 @@ const TYRES_PER_BLAST = 2;
 
 // Two blast sites per crash and a crash ends the run, so these only ever need to hold two of each.
 // Doubled anyway — the pools are ring buffers, and a wrapped slot silently truncates a burst.
-const MAX_PUFFS = 48;
+// The `burn` style's afterburn feeds this pool for the whole run-end hold (see BURN_* below), which
+// is what sizes it: ~24 puffs of fireball plus ~12 flame and ~12 smoke live per burning wreck.
+const MAX_PUFFS = 128;
 const MAX_SHARDS = 28;
 const MAX_RINGS = 4;
 const MAX_TYRES = 8;
+const MAX_GLOWS = 4;
 
 // Fireball. REACH is how far a puff drifts from the origin over its whole life: a two-car wreck
 // spans about 4 units, and at 3.4 the two clusters overlap into one blast rather than reading as
@@ -142,15 +145,54 @@ const LAND_RING_LIFE = 0.38;
 //     it. No core puff — the core is the one that would sit on the cars. The ring is thrown wider
 //     to lead the skirt out.
 //
+//   - **burn** is the default, and it is flat's shape lit like the rest of the city. Flat was
+//     right about *where* the fire goes and wrong about what it is made of: twelve hexagons of one
+//     flat orange each, a white disc under them, and nothing on the road or the cars to say
+//     anything was burning. Once the cars took real paint and the street took a sun (#547, #539)
+//     that read as stickers on a photograph — "flat and cartoony" (Tyler, 2026-10-20). So:
+//       - **shaded puffs** (`shade`): each facet is lit by how squarely it faces the camera, hot
+//         and pale in the middle of a puff and deep at its edge, and the silhouette facets fade
+//         out on the *sine* of that angle (the clouds' rim, geometry/cloud.js). Still faceted —
+//         the city is — but a volume rather than a cutout. Smoke is shaded the other way: sky on
+//         top, firelight underneath.
+//       - **light on the road** (`glow`): an additive pool of orange under the blast, a flash and
+//         then the flicker of the burn. The one thing real fire does that no amount of puff can,
+//         and at night it is most of the picture.
+//       - **the wrecks keep burning** (`burn`, see `burn()`): small flame tongues on each shell and
+//         a dark column of smoke rising off it for the whole run-end hold, so the crash has
+//         weight after the bang instead of a fireball that pops and is gone.
+//       - **no shockwave ring** (`ring: 0`): the white ellipse was the most cartoon thing on
+//         screen, and the glow's flash does its job — gives the bang a size on its first frame.
+//     The fireball is a little taller and less squashed than flat's, because the rim fade means a
+//     puff no longer has to be thin to keep the cars visible through it.
+//
 // Read at `fire` and stored per instance, so switching style mid-wreck cannot reshape a blast that
 // is already in the air.
 export const WRECK_STYLES = {
-  classic: { life: 1, size: 1, reach: 1, rise: 1, lift: 1, squash: 1, hole: 0, core: true, ring: 1 },
-  quick: { life: 0.55, size: 0.8, reach: 0.9, rise: 0.6, lift: 1, squash: 1, hole: 0, core: true, ring: 1 },
-  flat: { life: 0.8, size: 0.85, reach: 1.25, rise: 0.12, lift: 0.3, squash: 0.42, hole: 1.6, core: false, ring: 1.4 },
+  classic: { life: 1, size: 1, reach: 1, rise: 1, lift: 1, squash: 1, hole: 0, core: true, ring: 1, shade: 0, glow: 0, burn: false },
+  quick: { life: 0.55, size: 0.8, reach: 0.9, rise: 0.6, lift: 1, squash: 1, hole: 0, core: true, ring: 1, shade: 0, glow: 0, burn: false },
+  flat: { life: 0.8, size: 0.85, reach: 1.25, rise: 0.12, lift: 0.3, squash: 0.42, hole: 1.6, core: false, ring: 1.4, shade: 0, glow: 0, burn: false },
+  burn: { life: 0.85, size: 0.95, reach: 1.15, rise: 0.4, lift: 0.5, squash: 0.65, hole: 1.4, core: false, ring: 0, shade: 1, glow: 1, burn: true },
 };
-// Tyler picked flat after comparing all three on a phone (2026-10-05). The other two stay switchable.
-export const DEFAULT_WRECK_STYLE = 'flat';
+// Tyler picked flat after comparing the first three on a phone (2026-10-05); burn replaced it as the
+// default (2026-10-20) and `?wreck=flat` brings it back. All four stay switchable.
+export const DEFAULT_WRECK_STYLE = 'burn';
+
+// The light on the road. GLOW_FLASH is the bang's: big, near full strength for a frame and decayed
+// over GLOW_FLASH_LIFE. GLOW_BURN is the wreck's own, smaller and flickering for as long as it burns.
+// Both are diameters in world units; at 1u ≈ 7.7px a 12-unit pool is most of a phone's width at
+// play zoom, which is what a car fire lights at night.
+const GLOW_FLASH = 13;
+const GLOW_FLASH_LIFE = 0.7;
+const GLOW_BURN = 8;
+const GLOW_Y = 0.05;      // under the ring's 0.06, over the paint and the route band
+
+// The afterburn (`burn`). Long enough to cover the run-end hold (2.6s) and the replay's live beat,
+// tapering so it is dying down rather than switched off when the card comes up.
+const BURN_LIFE = 2.8;
+const BURN_FLAME_EVERY = 0.05;  // seconds between flame tongues at full strength
+const BURN_SMOKE_EVERY = 0.13;
+const MAX_BURNS = 4;
 
 /**
  * Per-instance alpha. `instanceColor` is RGB only and a 4-component colour attribute takes a
@@ -170,6 +212,62 @@ function withInstanceAlpha(geometry, material, capacity) {
       .replace('#include <dithering_fragment>', '#include <dithering_fragment>\n\tgl_FragColor.a *= vAlpha;');
   };
   return alphas;
+}
+
+/**
+ * `withInstanceAlpha` plus the `burn` style's shading, for the fireball alone. A second per-instance
+ * attribute, `aFire` = (shade, heat, underglow): `shade` 0 leaves a puff the flat unlit colour every
+ * older style is drawn in, 1 lights it; `heat` blends the lit puff between fire (hot pale centre,
+ * deep edge) and smoke (sky on top); `underglow` is how much firelight a smoke puff catches from
+ * below.
+ *
+ * The facet normal comes off a screen-space derivative of the view position, which is exactly what
+ * `flatShading` does — MeshBasicMaterial carries no normal of its own to interpolate, and a facet
+ * is what this city is made of anyway. Its own function rather than a branch in
+ * `withInstanceAlpha`, because three keys a program off `onBeforeCompile.toString()`: the ring, the
+ * shards and the tyres must not share a cache key with a shader that reads an attribute they lack.
+ */
+function withFireShading(geometry, material, capacity) {
+  const alphas = new Float32Array(capacity);
+  const fire = new Float32Array(capacity * 3);
+  geometry.setAttribute('aAlpha', new THREE.InstancedBufferAttribute(alphas, 1));
+  geometry.setAttribute('aFire', new THREE.InstancedBufferAttribute(fire, 3));
+  material.onBeforeCompile = (shader) => {
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>', `#include <common>
+attribute float aAlpha;
+attribute vec3 aFire;
+varying float vAlpha;
+varying vec3 vFire;
+varying vec3 vFireView;`)
+      .replace('#include <begin_vertex>', '#include <begin_vertex>\n\tvAlpha = aAlpha;\n\tvFire = aFire;')
+      .replace('#include <project_vertex>', '#include <project_vertex>\n\tvFireView = -mvPosition.xyz;');
+    shader.fragmentShader = shader.fragmentShader
+      .replace('#include <common>', `#include <common>
+varying float vAlpha;
+varying vec3 vFire;
+varying vec3 vFireView;`)
+      .replace('#include <dithering_fragment>', /* glsl */ `#include <dithering_fragment>
+	gl_FragColor.a *= vAlpha;
+	if (vFire.x > 0.0) {
+		vec3 facetN = normalize(cross(dFdx(vFireView), dFdy(vFireView)));
+		float facing = clamp(facetN.z, 0.0, 1.0);
+		float up = dot(facetN, normalize((viewMatrix * vec4(0.0, 1.0, 0.0, 0.0)).xyz));
+		vec3 base = gl_FragColor.rgb;
+		// Fire: the facets square to the eye are the hot heart of the puff, the ones turning away
+		// are its deeper skin. The pale lift is gated on heat so a cooling puff stops glowing.
+		vec3 flame = base * mix(0.55, 1.2, facing) + vec3(1.0, 0.86, 0.55) * pow(facing, 5.0) * 0.5 * vFire.y;
+		// Smoke: lit by the sky from above, and by the fire under it from below.
+		vec3 soot = base * (0.7 + 0.6 * max(up, 0.0)) + vec3(1.0, 0.4, 0.1) * max(-up, 0.0) * vFire.z;
+		vec3 lit = mix(soot, flame, smoothstep(0.1, 0.55, vFire.y));
+		gl_FragColor.rgb = mix(base, lit, vFire.x);
+		// The rim, on the sine of the angle off the view axis rather than its cosine, so the fade
+		// spends its ramp across the outer facets instead of in the last sliver of the silhouette.
+		float rim = sqrt(max(0.0, 1.0 - facing * facing));
+		gl_FragColor.a *= mix(1.0, 1.0 - smoothstep(0.5, 0.97, rim), vFire.x);
+	}`);
+  };
+  return { alphas, fire };
 }
 
 /** An InstancedMesh parked at zero scale, so an untouched slot draws nothing. */
@@ -214,6 +312,38 @@ export function createBlast(scene, rng) {
   const ringColor = color('blastRing');
   for (let slot = 0; slot < MAX_RINGS; slot++) ringMesh.setColorAt(slot, ringColor);
 
+  // --- Ground glow ----------------------------------------------------------
+  // The `burn` style's light on the road: a square laid flat with a radial falloff, added onto
+  // whatever is under it. Additive rather than a lit light for the trap in CLAUDE.md — a PointLight
+  // that only exists during a wreck changes every lit material's light count, and the frame it
+  // appeared on would relink the whole city's shaders at the exact moment of the crash. A real light
+  // kept in the scene at zero instead is a cost every frame of every run for one second of one. The
+  // headlight cones make the same trade.
+  const glowGeo = new THREE.PlaneGeometry(1, 1);
+  glowGeo.rotateX(-Math.PI / 2);
+  const glowMat = unlitMaterial({
+    transparent: true,
+    depthWrite: false,
+    blending: THREE.AdditiveBlending,
+  });
+  const glowAlpha = new Float32Array(MAX_GLOWS);
+  glowGeo.setAttribute('aAlpha', new THREE.InstancedBufferAttribute(glowAlpha, 1));
+  glowMat.onBeforeCompile = (shader) => {
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>', '#include <common>\nattribute float aAlpha;\nvarying float vGlow;\nvarying vec2 vGlowUv;')
+      .replace('#include <begin_vertex>', '#include <begin_vertex>\n\tvGlow = aAlpha;\n\tvGlowUv = uv;');
+    shader.fragmentShader = shader.fragmentShader
+      .replace('#include <common>', '#include <common>\nvarying float vGlow;\nvarying vec2 vGlowUv;')
+      .replace('#include <dithering_fragment>', `#include <dithering_fragment>
+	float glowR = min(1.0, length(vGlowUv - 0.5) * 2.0);
+	float glowK = 1.0 - glowR;
+	gl_FragColor.a *= glowK * glowK * vGlow;`);
+  };
+  // Under the ring and the fire, over the rubber.
+  const glowMesh = makePool(scene, glowGeo, glowMat, MAX_GLOWS, 3);
+  const glowColor = color('blastGlow');
+  for (let slot = 0; slot < MAX_GLOWS; slot++) glowMesh.setColorAt(slot, glowColor);
+
   // --- Shards ---------------------------------------------------------------
   // One tetrahedron, squashed per instance into plates and chunks. Four geometries' worth of
   // variety out of one, which is what lets the whole shower be a single draw call.
@@ -248,12 +378,14 @@ export function createBlast(scene, rng) {
 
   // --- Fireball -------------------------------------------------------------
   // Above the shards, so the core of the blast covers the pieces still inside it.
-  const puffGeo = new THREE.IcosahedronGeometry(0.5, 0);
+  // Detail 1, 80 facets, rather than the 20 of the older styles: under shading each facet is a
+  // step of brightness, and twenty steps across a puff read as a d20. Still visibly faceted.
+  const puffGeo = new THREE.IcosahedronGeometry(0.5, 1);
   const puffMat = unlitMaterial({
     transparent: true,
     depthWrite: false,
   });
-  const puffAlpha = withInstanceAlpha(puffGeo, puffMat, MAX_PUFFS);
+  const { alphas: puffAlpha, fire: puffFire } = withFireShading(puffGeo, puffMat, MAX_PUFFS);
   const puffMesh = makePool(scene, puffGeo, puffMat, MAX_PUFFS, 6);
   // The fireball glows — see game/bloom.js. Three things about this one would each have needed
   // handling and none of them does, which is worth knowing because it is the shape most effects in
@@ -312,6 +444,8 @@ export function createBlast(scene, rng) {
     shade: new Float32Array(MAX_PUFFS),
     spin: new Float32Array(MAX_PUFFS),
     tilt: new Float32Array(MAX_PUFFS),
+    lit: new Float32Array(MAX_PUFFS),       // aFire.x — 0 for the older styles' flat fill
+    smoke: new Float32Array(MAX_PUFFS),     // 1 for the burn's smoke column: grows, then thins out
   };
   const shard = {
     life: new Float32Array(MAX_SHARDS),
@@ -354,6 +488,24 @@ export function createBlast(scene, rng) {
     lean: new Float32Array(MAX_TYRES),
   };
 
+  const glow = {
+    life: new Float32Array(MAX_GLOWS),
+    life0: new Float32Array(MAX_GLOWS),
+    ox: new Float32Array(MAX_GLOWS),
+    oz: new Float32Array(MAX_GLOWS),
+    cx: new Float32Array(MAX_GLOWS),
+    cz: new Float32Array(MAX_GLOWS),
+    size: new Float32Array(MAX_GLOWS),
+    seed: new Float32Array(MAX_GLOWS),
+    follow: new Array(MAX_GLOWS).fill(null),
+  };
+  // The burning wrecks — see `burn`. Few enough to be a plain list.
+  const burns = [];
+  const smokeColor = color('burnSmoke');
+  const smokeTop = color('burnSmokeTop');
+  const where = new THREE.Vector3();
+
+  let nextGlow = 0;
   let nextPuff = 0;
   let nextShard = 0;
   let nextRing = 0;
@@ -390,7 +542,8 @@ export function createBlast(scene, rng) {
     const fx = Math.cos(-yaw) * carry;
     const fz = Math.sin(-yaw) * carry;
 
-    addRing(x, 0, z, fx, fz, RING_END * style.ring, RING_LIFE, ringColor);
+    if (style.ring > 0) addRing(x, 0, z, fx, fz, RING_END * style.ring, RING_LIFE, ringColor);
+    if (style.glow > 0) addGlow(x, z, fx * PUFF_CARRY, fz * PUFF_CARRY, GLOW_FLASH, GLOW_FLASH_LIFE, null);
 
     for (let k = 0; k < PUFFS_PER_BLAST; k++) {
       const slot = nextPuff;
@@ -431,6 +584,8 @@ export function createBlast(scene, rng) {
       puff.shade[slot] = (spread - 0.8) * 0.3 + rng.jitter(0.05);
       puff.spin[slot] = rng.range(0, Math.PI * 2);
       puff.tilt[slot] = rng.range(-1.6, 1.6);
+      puff.lit[slot] = style.shade;
+      puff.smoke[slot] = 0;
       puffAlpha[slot] = 1;
     }
 
@@ -504,6 +659,166 @@ export function createBlast(scene, rng) {
     }
   }
 
+  /**
+   * A pool of light on the road. `follow` makes it a burn's — it rides that object and flickers for
+   * its whole life — and null a bang's, which flashes and decays where it went off.
+   */
+  function addGlow(x, z, cx, cz, size, life, follow) {
+    const slot = nextGlow;
+    nextGlow = (nextGlow + 1) % MAX_GLOWS;
+    glow.life[slot] = life;
+    glow.life0[slot] = life;
+    glow.ox[slot] = x;
+    glow.oz[slot] = z;
+    glow.cx[slot] = cx;
+    glow.cz[slot] = cz;
+    glow.size[slot] = size;
+    glow.seed[slot] = rng.range(0, 100);
+    glow.follow[slot] = follow;
+  }
+
+  /**
+   * Keep a wreck burning: flame tongues licking off it and a column of dark smoke rising from it,
+   * for BURN_LIFE seconds, and its own flickering pool of light on the road. `object` is the wreck
+   * shell game/wreckage.js is sliding, and the fire is read off its world position every frame, so
+   * the flames stay on the car rather than being left behind where it was hit. `scale` sizes the
+   * whole fire — the car that was hit burns a little smaller than the taxi.
+   *
+   * A no-op unless the style asks for it, so callers need not know which style is current.
+   */
+  function burn(object, { scale = 1 } = {}) {
+    if (!style.burn || !object) return;
+    if (burns.length >= MAX_BURNS) burns.shift();
+    burns.push({ object, scale, age: 0, flame: 0.22, smoke: 0.12 });
+    object.getWorldPosition(where);
+    addGlow(where.x, where.z, 0, 0, GLOW_BURN * scale, BURN_LIFE, object);
+  }
+
+  /** How hard a burn is going at `age`: full through the bang and the slide, then dying down. */
+  function burnStrength(age) {
+    if (age < 1.1) return 1;
+    return Math.max(0, 1 - (age - 1.1) / (BURN_LIFE - 1.1)) ** 0.8;
+  }
+
+  function spawnFlame(x, z, scale, strength) {
+    const slot = nextPuff;
+    nextPuff = (nextPuff + 1) % MAX_PUFFS;
+    const angle = rng.range(0, Math.PI * 2);
+    puff.life[slot] = rng.range(0.4, 0.65);
+    puff.life0[slot] = puff.life[slot];
+    puff.ox[slot] = x + rng.jitter(0.75) * scale;
+    puff.oy[slot] = 0.75 + rng.range(0, 0.5);
+    puff.oz[slot] = z + rng.jitter(0.75) * scale;
+    puff.dx[slot] = Math.cos(angle);
+    puff.dz[slot] = Math.sin(angle);
+    puff.cx[slot] = 0;
+    puff.cz[slot] = 0;
+    puff.reach[slot] = rng.range(0.15, 0.5);
+    puff.hole[slot] = 0;
+    // Stretched rather than squashed: a tongue of flame is taller than it is wide.
+    puff.squash[slot] = 1.5;
+    puff.rise[slot] = rng.range(1.0, 1.8) * scale;
+    puff.size[slot] = rng.range(0.7, 1.15) * scale * (0.5 + 0.5 * strength);
+    // Born at the hot end of the ramp and walked through it fast — a tongue is all flame.
+    puff.shade[slot] = rng.range(-0.05, 0.1);
+    puff.spin[slot] = rng.range(0, Math.PI * 2);
+    puff.tilt[slot] = rng.range(-0.3, 0.3);
+    puff.lit[slot] = 1;
+    puff.smoke[slot] = 0;
+    puffAlpha[slot] = 1;
+  }
+
+  function spawnSmoke(x, z, scale) {
+    const slot = nextPuff;
+    nextPuff = (nextPuff + 1) % MAX_PUFFS;
+    const angle = rng.range(0, Math.PI * 2);
+    puff.life[slot] = rng.range(1.6, 2.2);
+    puff.life0[slot] = puff.life[slot];
+    puff.ox[slot] = x + rng.jitter(0.5) * scale;
+    puff.oy[slot] = 1.4 + rng.range(0, 0.4);
+    puff.oz[slot] = z + rng.jitter(0.5) * scale;
+    puff.dx[slot] = Math.cos(angle);
+    puff.dz[slot] = Math.sin(angle);
+    puff.cx[slot] = 0;
+    puff.cz[slot] = 0;
+    puff.reach[slot] = rng.range(0.4, 1.4);
+    puff.hole[slot] = 0;
+    puff.squash[slot] = 1;
+    puff.rise[slot] = rng.range(5, 7.5) * scale;
+    puff.size[slot] = rng.range(1.9, 2.7) * scale;
+    puff.shade[slot] = 0;
+    puff.spin[slot] = rng.range(0, Math.PI * 2);
+    puff.tilt[slot] = rng.range(-1.6, 1.6);
+    puff.lit[slot] = 1;
+    puff.smoke[slot] = 1;
+    puffAlpha[slot] = 0;
+  }
+
+  function updateBurns(dt) {
+    for (let k = burns.length - 1; k >= 0; k--) {
+      const b = burns[k];
+      b.age += dt;
+      if (b.age >= BURN_LIFE) { burns.splice(k, 1); continue; }
+      const strength = burnStrength(b.age);
+      b.object.getWorldPosition(where);
+      // Intervals stretched as the fire dies rather than puffs shrunk to nothing: a dying fire is
+      // fewer, smaller tongues, not the same number of invisible ones.
+      // Each loop is bounded by the interval it adds, so a long frame spawns a few puffs at once
+      // rather than spinning: at the 0.05s dt cap that is one tongue and at most one smoke.
+      b.flame -= dt;
+      while (b.flame <= 0) {
+        b.flame += BURN_FLAME_EVERY / Math.max(0.2, strength);
+        spawnFlame(where.x, where.z, b.scale, strength);
+      }
+      b.smoke -= dt;
+      while (b.smoke <= 0) {
+        b.smoke += BURN_SMOKE_EVERY / Math.max(0.35, strength);
+        spawnSmoke(where.x, where.z, b.scale);
+      }
+    }
+  }
+
+  function updateGlows(dt) {
+    let touched = false;
+    for (let slot = 0; slot < MAX_GLOWS; slot++) {
+      if (glow.life[slot] <= 0) continue;
+      touched = true;
+      glow.life[slot] -= dt;
+      const age = glow.life0[slot] - Math.max(0, glow.life[slot]);
+      const t = Math.min(1, age / glow.life0[slot]);
+      const follow = glow.follow[slot];
+      let level;
+      if (follow) {
+        follow.getWorldPosition(where);
+        dummy.position.set(where.x, GLOW_Y, where.z);
+        // Two incommensurate sines, so the flicker never visibly repeats over its three seconds.
+        const seed = glow.seed[slot];
+        const flicker = 0.78 + 0.22 * Math.sin(age * 19 + seed) * Math.sin(age * 7.3 + seed * 1.7);
+        level = 0.55 * Math.min(1, age / 0.35) * burnStrength(age) * flicker;
+      } else {
+        const drift = carryTravel(age);
+        dummy.position.set(glow.ox[slot] + glow.cx[slot] * drift, GLOW_Y, glow.oz[slot] + glow.cz[slot] * drift);
+        level = Math.min(1, age / 0.03) * (1 - t) ** 1.6;
+      }
+      dummy.rotation.set(0, 0, 0);
+      dummy.scale.set(glow.size[slot], 1, glow.size[slot]);
+      dummy.updateMatrix();
+      glowMesh.setMatrixAt(slot, dummy.matrix);
+      glowAlpha[slot] = level;
+      if (glow.life[slot] <= 0) {
+        dummy.scale.setScalar(0);
+        dummy.updateMatrix();
+        glowMesh.setMatrixAt(slot, dummy.matrix);
+        glowAlpha[slot] = 0;
+        glow.follow[slot] = null;
+      }
+    }
+    if (touched) {
+      glowMesh.instanceMatrix.needsUpdate = true;
+      glowGeo.attributes.aAlpha.needsUpdate = true;
+    }
+  }
+
   function addRing(x, y, z, fx, fz, end, life, tint) {
     ring.life[nextRing] = life;
     ring.life0[nextRing] = life;
@@ -558,7 +873,12 @@ export function createBlast(scene, rng) {
 
       // Pop, hold, collapse. A fireball that only faded left a full-size ghost hanging over the
       // road; collapsing it is what makes the blast look like it is being drawn back in.
-      const env = Math.min(1, t / 0.18) * Math.min(1, (1 - t) / 0.42) ** 0.8;
+      // The burn's smoke is the exception: it billows — grows the whole way — and thins out over
+      // the back half instead of collapsing, because smoke that is drawn back in reads as fire.
+      const smoke = puff.smoke[slot];
+      const env = smoke
+        ? 0.3 + 0.7 * Math.sqrt(t)
+        : Math.min(1, t / 0.18) * Math.min(1, (1 - t) / 0.42) ** 0.8;
       // A squashed puff keeps its tilt off: rolled, a flattened icosahedron stands its long axis
       // back up and the skirt grows spikes.
       const squash = puff.squash[slot];
@@ -571,13 +891,24 @@ export function createBlast(scene, rng) {
       // Where on the ramp this puff sits: its own life, offset by its shade bias. The bias is what
       // spreads the cluster *across* the ramp rather than marching it through in lockstep, and a
       // flat unlit fill has no other source of internal structure.
-      puffMesh.setColorAt(slot, rampColor(scratch, Math.min(1, Math.max(0, t + puff.shade[slot]))));
+      const ramp = Math.min(1, Math.max(0, t + puff.shade[slot]));
+      // Soot at the base, thinning to a mid grey as it rises and mixes with air.
+      if (smoke) puffMesh.setColorAt(slot, scratch.lerpColors(smokeColor, smokeTop, Math.min(1, t * 1.4)));
+      else puffMesh.setColorAt(slot, rampColor(scratch, ramp));
+      // Heat follows the ramp: full through the flame stops, gone by the time it reaches smoke.
+      // A smoke puff carries none, and catches firelight underneath for the first half of its life
+      // — the half it spends low enough over the wreck to be lit by it.
+      puffFire[slot * 3] = puff.lit[slot];
+      puffFire[slot * 3 + 1] = smoke ? 0 : 1 - Math.min(1, Math.max(0, (ramp - 0.55) / 0.35));
+      puffFire[slot * 3 + 2] = smoke ? 0.7 * Math.max(0, 1 - t * 1.8) : 0.5;
 
       // Full opacity almost the whole way, so the tail *darkens* rather than thinning out. Fading
       // a still-orange puff over its last quarter turned the end of the blast into translucent
       // pink hexagons hanging over the road; the ramp above has to be allowed to reach smoke
       // before anything is taken off the alpha.
-      puffAlpha[slot] = Math.min(1, (1 - t) / 0.15);
+      puffAlpha[slot] = smoke
+        ? 0.75 * Math.min(1, t / 0.12) * Math.min(1, (1 - t) / 0.6)
+        : Math.min(1, (1 - t) / 0.15);
 
       if (puff.life[slot] <= 0) {
         dummy.scale.setScalar(0);
@@ -590,6 +921,7 @@ export function createBlast(scene, rng) {
       puffMesh.instanceMatrix.needsUpdate = true;
       if (puffMesh.instanceColor) puffMesh.instanceColor.needsUpdate = true;
       puffGeo.attributes.aAlpha.needsUpdate = true;
+      puffGeo.attributes.aFire.needsUpdate = true;
     }
   }
 
@@ -755,6 +1087,8 @@ export function createBlast(scene, rng) {
   }
 
   function update(dt) {
+    updateBurns(dt);
+    updateGlows(dt);
     updatePuffs(dt);
     updateShards(dt);
     updateTyres(dt);
@@ -768,7 +1102,18 @@ export function createBlast(scene, rng) {
     for (let slot = 0; slot < MAX_SHARDS; slot++) if (shard.life[slot] > 0) live += 1;
     for (let slot = 0; slot < MAX_TYRES; slot++) if (tyre.life[slot] > 0) live += 1;
     for (let slot = 0; slot < MAX_RINGS; slot++) if (ring.life[slot] > 0) live += 1;
-    return live;
+    for (let slot = 0; slot < MAX_GLOWS; slot++) if (glow.life[slot] > 0) live += 1;
+    return live + burns.length;
+  }
+
+  /**
+   * Whether the current style wants dust.js's pale smoke collar round the wreck. The older styles
+   * do — their fire is unlit and gone in a second, and the collar is what is left. The burn does
+   * not: its own smoke column and the wreck still alight carry the beat after the bang, and a pale
+   * translucent skirt laid over that read as panes of tinted glass round the cars.
+   */
+  function wantsCollar() {
+    return !style.burn;
   }
 
   /** Which of WRECK_STYLES the *next* `fire` uses. Unknown names fall back to the default. */
@@ -776,5 +1121,5 @@ export function createBlast(scene, rng) {
     style = WRECK_STYLES[name] ?? WRECK_STYLES[DEFAULT_WRECK_STYLE];
   }
 
-  return { fire, shock, update, active, tyreAt, setStyle, puffMesh, shardMesh, ringMesh, tyreMesh };
+  return { fire, shock, burn, wantsCollar, update, active, tyreAt, setStyle, puffMesh, shardMesh, ringMesh, tyreMesh, glowMesh };
 }
