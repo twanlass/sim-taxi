@@ -99,29 +99,12 @@ function speechMode() {
 }
 
 /**
- * The docked card's look — `?bubblestyle=`. 'black' (solid black, white type) is the default, Tyler's
- * pick from the prototype round (2026-10-20); the rest are still here to compare against: 'card' (the
- * Figma card, white with a pale-blue fade), 'ticker' (a dark radio strip with the speaker in a coloured chip),
- * 'portrait' (an arcade-yellow card with a speaker badge), 'subtitle' (no box, outlined text),
- * 'glass' (frosted dark with the speaker's colour down the side),
- * 'sticker' (outlined white card with the speaker on a tab), 'lcd' (the dash radio's amber readout)
- * or 'colour' (filled in the speaker's own colour).
+ * The docked card's look — black with white type (Tyler's pick from a round of eight, 2026-10-20),
+ * or the white Figma card under `?bubblestyle=card`.
  */
 function captionStyle() {
   if (typeof window === 'undefined') return 'black';
-  const v = new URLSearchParams(window.location.search).get('bubblestyle');
-  return ['card', 'ticker', 'portrait', 'subtitle', 'glass', 'sticker', 'lcd', 'colour'].includes(v) ? v : 'black';
-}
-
-// Who is talking, read off the title, for the styles that colour or badge the speaker.
-const SPEAKERS = [
-  [/police/i, 'police', '🚓'],
-  [/racer/i, 'racer', '🏁'],
-  [/robber/i, 'robber', '💰'],
-];
-function speakerOf(title) {
-  for (const [re, key, icon] of SPEAKERS) if (re.test(title)) return { key, icon };
-  return { key: 'tip', icon: '💡' };
+  return new URLSearchParams(window.location.search).get('bubblestyle') === 'card' ? 'card' : 'black';
 }
 
 // The docked cards currently up, oldest first, so a second one stacks under the first rather than
@@ -292,7 +275,6 @@ export function createSpeech(root, { viewport = null, typing = false, onDismiss 
     <div class="speech">
       <div class="speech-body">
         <div class="speech-card">
-          ${look === 'portrait' ? '<div class="speech-avatar" aria-hidden="true"></div>' : ''}
           <div class="speech-title"></div>
           <div class="speech-text"><span class="speech-typed"></span><span class="speech-rest"></span></div>
           <div class="speech-media" hidden></div>
@@ -310,7 +292,6 @@ export function createSpeech(root, { viewport = null, typing = false, onDismiss 
   const pointer = root.querySelector('.speech-pointer');
   const mediaEl = root.querySelector('.speech-media');
   if (look === 'card') card.style.background = CARD_FILL;
-  const avatar = root.querySelector('.speech-avatar');
   const tagPin = root.querySelector('.speech-tag-pin');
   const tagBody = root.querySelector('.speech-tag-body');
   const tagPointer = tagPin?.querySelector('.speech-pointer');
@@ -427,9 +408,6 @@ export function createSpeech(root, { viewport = null, typing = false, onDismiss 
     show(title, line, at, media = null) {
       if (closing) { clearTimeout(closing); closing = null; }
       titleEl.textContent = title;
-      const who = speakerOf(title);
-      root.dataset.speaker = who.key;
-      if (avatar) avatar.textContent = who.icon;
       mediaEl.replaceChildren(...(media ? [media] : []));
       mediaEl.hidden = !media;
       card.classList.toggle('has-media', Boolean(media));
