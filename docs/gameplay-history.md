@@ -69,6 +69,10 @@ that is the one thing that should be under way before the bubble speaks.
 
 Now: [Speech bubbles](gameplay.md#speech-bubbles).
 
+**For an afternoon on 2026-10-20 the docked card was see-through black with white type
+(`?bubblestyle=classic`).** It was picked from a round of eight looks and inverted the same day:
+Tyler found the white type on black hard to read while it typed.
+
 **Until 2026-10-20 the whole card was pinned (`?bubbles=classic`).** It was replaced by the docked card
 and tag because it moved with every car it was on and covered the road. What it did:
 

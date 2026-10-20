@@ -115,12 +115,31 @@ function speechMode() {
 }
 
 /**
- * The docked card's look — black with white type (Tyler's pick from a round of eight, 2026-10-20),
- * or the white Figma card under `?bubblestyle=card`.
+ * The docked card's look — white with black type (Tyler, 2026-10-20: the black card's white type was
+ * hard to read). `?bubblestyle=classic` is the see-through black it replaced, `?bubblestyle=card`
+ * the white Figma card with its blue gradient.
  */
 function captionStyle() {
-  if (typeof window === 'undefined') return 'black';
-  return new URLSearchParams(window.location.search).get('bubblestyle') === 'card' ? 'card' : 'black';
+  if (typeof window === 'undefined') return 'white';
+  const v = new URLSearchParams(window.location.search).get('bubblestyle');
+  return v === 'card' ? 'card' : v === 'classic' ? 'black' : 'white';
+}
+
+/**
+ * A line with the thing it is about called out: `'Tap the {garage} for repairs'` is the text
+ * "Tap the garage for repairs" with "garage" highlighted. Answers the plain text and its runs,
+ * each `{ s, e, hl }` over that text, covering it end to end.
+ */
+export function parseLine(line) {
+  const runs = [];
+  let text = '';
+  for (const [i, part] of String(line).split(/\{([^{}]*)\}/).entries()) {
+    if (!part) continue;
+    runs.push({ s: text.length, e: text.length + part.length, hl: i % 2 === 1 });
+    text += part;
+  }
+  if (!runs.length) runs.push({ s: 0, e: 0, hl: false });
+  return { text, runs };
 }
 
 // The docked cards currently up, oldest first, so a second one stacks under the first rather than
@@ -291,13 +310,13 @@ export function createSpeech(root, { viewport = null, typing = false, onDismiss 
   const tagged = docked && mode === 'tag';
   root.classList.toggle('speech-docked', docked);
   const look = docked ? captionStyle() : 'card';
-  if (look !== 'card') root.classList.add(`speech-style-${look}`);
+  if (look !== 'card') root.classList.add(`speech-style-${look}`, 'speech-glass');
   root.innerHTML = `
     <div class="speech">
       <div class="speech-body">
         <div class="speech-card">
           <div class="speech-title"></div>
-          <div class="speech-text"><span class="speech-typed"></span><span class="speech-rest"></span></div>
+          <div class="speech-text"></div>
           <div class="speech-media" hidden></div>
         </div>
         ${POINTER_SVG}
@@ -308,8 +327,7 @@ export function createSpeech(root, { viewport = null, typing = false, onDismiss 
   const body = root.querySelector('.speech-body');
   const card = root.querySelector('.speech-card');
   const titleEl = root.querySelector('.speech-title');
-  const typed = root.querySelector('.speech-typed');
-  const rest = root.querySelector('.speech-rest');
+  const textEl = root.querySelector('.speech-text');
   const pointer = root.querySelector('.speech-pointer');
   const mediaEl = root.querySelector('.speech-media');
   if (look === 'card') card.style.background = CARD_FILL;
@@ -349,6 +367,8 @@ export function createSpeech(root, { viewport = null, typing = false, onDismiss 
   // This card's place in `dockStack`, while it is up.
   const slot = { h: 0 };
   let text = '';
+  // The line's runs (`parseLine`), each with its own typed part and untyped rest.
+  let runs = [];
   let shown = 0;
   let charT = 0;
   let hold = 0;
@@ -376,10 +396,34 @@ export function createSpeech(root, { viewport = null, typing = false, onDismiss 
   // letter is laid out where it will finish from the first frame — the card does not grow, and a
   // word that is going to wrap is on its second line from the start rather than typing out on the
   // first and jumping down when it runs out of room.
+  //
+  // A highlighted run is its own span, so it can wear the callout and wiggle once it has been typed
+  // in full (`is-said`). The caret rides the run the next letter goes into.
+  const setLine = (line) => {
+    ({ text, runs } = parseLine(line));
+    textEl.replaceChildren(...runs.map((r) => {
+      const el = document.createElement('span');
+      el.className = r.hl ? 'speech-run speech-hl' : 'speech-run';
+      r.typed = document.createElement('span');
+      r.typed.className = 'speech-typed';
+      r.rest = document.createElement('span');
+      r.rest.className = 'speech-rest';
+      el.append(r.typed, r.rest);
+      r.el = el;
+      return el;
+    }));
+  };
   const typeTo = (n) => {
     shown = n;
-    typed.textContent = text.slice(0, n);
-    rest.textContent = text.slice(n);
+    let caret = runs[0];
+    for (const r of runs) {
+      const k = Math.min(Math.max(n - r.s, 0), r.e - r.s);
+      r.typed.textContent = text.slice(r.s, r.s + k);
+      r.rest.textContent = text.slice(r.s + k, r.e);
+      if (r.s < n) caret = r;
+      r.el.classList.toggle('is-said', k === r.e - r.s && r.e > r.s);
+    }
+    for (const r of runs) r.el.classList.toggle('is-caret', r === caret);
     root.classList.toggle('is-typing', n < text.length);
   };
   const finishTyping = () => typeTo(text.length);
@@ -471,7 +515,7 @@ export function createSpeech(root, { viewport = null, typing = false, onDismiss 
       mediaEl.replaceChildren(...(media ? [media] : []));
       mediaEl.hidden = !media;
       card.classList.toggle('has-media', Boolean(media));
-      text = line;
+      setLine(line);
       target = at;
       // A docked card always types itself out (Tyler, 2026-10-20), even one that is not answered:
       // dispatch and the racer type too, they just don't take a tap to finish. A pinned card types
