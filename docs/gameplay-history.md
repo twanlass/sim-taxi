@@ -1210,3 +1210,18 @@ Reported from play (Tyler, 2026-10-14): "hitting a cop is insta fail. That sucks
 vignette where you wanna smash through roadblocks." The getaway fills the tank and throws roadblocks
 across your route; the third rule made the second the one thing it asked of you that ended the run.
 Replaced by [getting caught](gameplay.md#getting-caught).
+
+## The NES pedals' shine, and the flat buttons
+
+From 2026-10-15 to 2026-10-20 the NES B and A carried a hard white glint on the upper left, a dot
+beside it, and a lit lower rim on the dish. Tyler asked for them "simpler, no fake highlights"
+off a phone screenshot, and the fuel arc 8 units further out (it stood 8 off the surround). The
+first answer was flat buttons — one disc in the button's colour and a white letter, the New Move
+card's keys, pressed by shrinking to 92% and darkening — and Tyler went back to the NES drawing
+with only the white shine removed. `?buttons=classic` brings back the shine and the old gap.
+
+## The fuse flame's first cut
+
+The fuse flame first stood up off the fuel's front, 20° off the outward normal, and took the
+plume's colours up a drift chain — violet, blue, teal, with the fuel's gradient following. Tyler
+asked for it turned to lie along the bar's direction of travel, and orange only.

@@ -61,7 +61,7 @@ import {
   createBoost, BOOST_FARE_REWARD, BOOST_PARCEL_REWARD, BOOST_BURGER_REWARD,
 } from './game/boost.js';
 import { createBoostMeter } from './game/boostmeter.js';
-import { bandPath as fuelBandPath, frontAt as fuelFrontAt, glintAt as fuelGlintAt, RIM as FUEL_RIM, useClassicArc as useClassicFuelArc } from './game/fuelarc.js';
+import { bandPath as fuelBandPath, frontAt as fuelFrontAt, glintAt as fuelGlintAt, RIM as FUEL_RIM, CAP as FUEL_CAP, useClassicArc as useClassicFuelArc, useClassicGap as useClassicFuelGap, flameRadius as fuelFlameRadius, bendFlame as fuelBendFlame, flameAngle as fuelFlameAngle } from './game/fuelarc.js';
 import { createImpact } from './game/impact.js';
 import { createTaxiDamage, SMOKE_FRACTION, BOOT_FRACTION } from './game/taxidamage.js';
 import { createHitCue, hitCueMode } from './game/hitcue.js';
@@ -3144,6 +3144,15 @@ if (new URLSearchParams(window.location.search).get('pedals') === 'classic') {
   const siren = document.getElementById('chase-siren');
   if (siren) document.getElementById('hud')?.appendChild(siren);
 }
+// The NES buttons without their white shine (Tyler, 2026-10-20: the glint, its dot and the dish's
+// lit rim; index.html `.nes-shine`), and the fuel arc 8 units further off Loco Mode.
+// `?buttons=classic` puts back the shine and the arc's old gap. `?pedals=classic` predates both,
+// so it takes the old gap too.
+if (new URLSearchParams(window.location.search).get('buttons') === 'classic'
+  || document.body.classList.contains('pedals-classic')) {
+  document.body.classList.add('buttons-classic');
+  useClassicFuelGap();
+}
 // The 🚨 over Loco Mode while the police are after the taxi; `?chasesiren=classic` goes without.
 const chaseSiren = new URLSearchParams(window.location.search).get('chasesiren') !== 'classic'
   ? createChaseSiren() : null;
@@ -4028,6 +4037,68 @@ function drawFuelArc(level) {
   }
 }
 
+// The fuse flame (index.html, "The fuse flame"): the tailpipe's tongue burning off the fuel's front,
+// in Loco orange. Built once — four frames of three nested tongues,
+// cycled by CSS like the combo meter's — and then each frame is one `transform` on the group, and
+// only while it burns: a parked tank writes nothing. `?locobar=classic` goes without.
+const fuseFlame = new URLSearchParams(window.location.search).get('locobar') !== 'classic'
+  ? boostMeterEl?.querySelector('.boost-flame') : null;
+// In the button's viewBox units: the outer tongue 40 long and 1.4x the plume's own width, which puts
+// it ~15 across where the fade lets it show and ~20 at its widest, against the 16-wide band (Tyler,
+// 2026-10-20: "base roughly the width of the bar"; 1.2x read as a sliver once the base faded). The cut before was 56 at 2.1x, 41 across, and sat on the bar
+// like a sticker.
+const FUSE_LEN = 40;
+const FUSE_WIDE = 1.4;
+// The base starts FUSE_SINK units back inside the fuel and comes in over FUSE_FADE, from clear to
+// solid, so the flame rises out of the bar rather than starting at a hard edge on its end.
+const FUSE_SINK = 6;
+const FUSE_FADE = 14;
+if (fuseFlame) {
+  const k = FUSE_LEN / FLAME_LEN;
+  // One gradient per tongue, in the flame's own drawn space: the base sits at screen angle 0, where
+  // `s` runs straight down the page, so the fade is a vertical ramp from the sunk base. The bend
+  // over 14 units of a ~99 radius is under 1 unit, which a fade does not show.
+  const colors = [PALETTE.locoFlameOuter, PALETTE.locoFlameMid, PALETTE.locoFlameCore];
+  const y0 = FUEL_CAP.y - FUSE_SINK, y1 = y0 + FUSE_FADE;
+  const defs = colors.map((c, layer) =>
+    `<linearGradient id="fuse-fade-${layer}" gradientUnits="userSpaceOnUse" x1="0" y1="${y0}" x2="0" y2="${y1}">`
+    + `<stop stop-color="${c}" stop-opacity="0"/><stop offset="1" stop-color="${c}"/></linearGradient>`).join('');
+  fuseFlame.innerHTML = `<defs>${defs}</defs>` + Array.from({ length: FLAME_FRAMES }, (_, f) => {
+    const outline = tongueOutline((f / FLAME_FRAMES) * Math.PI * 2);
+    const paths = FLAME_LAYER_SCALES.map(([len, wide], layer) => {
+      const d = outline.map(([u, y], i) => {
+        const [x, yy] = fuelBendFlame(u * len * FLAME_LEN * k - FUSE_SINK, y * wide * k * FUSE_WIDE);
+        return `${i ? 'L' : 'M'}${x.toFixed(2)} ${yy.toFixed(2)}`;
+      }).join('') + 'Z';
+      return `<path class="t${layer}" fill="url(#fuse-fade-${layer})" d="${d}"/>`;
+    }).join('');
+    return `<g class="f" style="animation-delay:${(f * FLAME_FRAME_TIME).toFixed(4)}s">${paths}</g>`;
+  }).join('');
+  fuseFlame.style.display = 'none';
+}
+let fuseDrawn = '';
+function drawFuseFlame(level) {
+  if (!fuseFlame) return;
+  // Burns with the plume (its attack and release included), and not on an empty tank, where there
+  // is no front for it to stand on.
+  const heat = level > 0.005 ? locoFlame.state.heat : 0;
+  let tf = '';
+  if (heat > 0.01) {
+    // Turned about the button's centre onto the front, and grown out of its own base.
+    const bx = (FUEL_CAP.x + fuelFlameRadius()).toFixed(2), by = FUEL_CAP.y;
+    tf = `rotate(${fuelFlameAngle(level).toFixed(2)} ${FUEL_CAP.x} ${FUEL_CAP.y}) `
+      + `translate(${bx} ${by}) scale(${heat.toFixed(3)}) translate(-${bx} -${by})`;
+  }
+  if (tf !== fuseDrawn) {
+    if (!tf !== !fuseDrawn) {
+      fuseFlame.style.display = tf ? '' : 'none';
+      boostMeterEl.classList.toggle('is-fuse', !!tf);
+    }
+    fuseDrawn = tf;
+    if (tf) fuseFlame.setAttribute('transform', tf);
+  }
+}
+
 function updateBoostButton(dt) {
   if (!boostButton) return;
   const mode = boost.state.mode;
@@ -4050,6 +4121,7 @@ function updateBoostButton(dt) {
     el.style.setProperty('--pulse', boostMeter.state.pulse.toFixed(3));
   }
   drawFuelArc(boostMeter.state.pct);
+  drawFuseFlame(boostMeter.state.pct);
   // The pedal sinks while it is held, however it is held — the Space key never touches the
   // pointer's `is-held`. See "The press" in index.html.
   boostButton.classList.toggle('is-down', boost.state.held);
@@ -7184,6 +7256,7 @@ if (!shot && wantsDebugPanel) {
 
 window.__taxi = {
   traffic,
+  locoFlame,
   // The city camera — `state.punch` is how a browser test stages a cut opening on a held Loco push-in.
   controller,
   // The combo meter — see game/combometer.js — and the drop-off that cashes it in.

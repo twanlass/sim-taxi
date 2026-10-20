@@ -2989,13 +2989,26 @@ unbroken move: with nothing to arrive at on the car, the box has one destination
 The **Loco Mode** button is the gas pedal: the round orange button centred on the bottom edge,
 100px across, with the brake to its left (see [the pedal slide](#the-pedal-slide)). Both are drawn
 as an NES pad's buttons — Loco Mode is **A**, the brake **B** — black plastic surround, a dished
-centre with the letter debossed in it, a hard glint (Tyler, 2026-10-15; `?pedals=classic` brings
-back the round pedals with lightning and stop icons). **Hold to
+centre with the letter debossed in it, and no white shine: the glint, its dot and the dish's lit
+rim are hidden (`.nes-shine`; Tyler, 2026-10-20, "remove the cartoony white shine graphics").
+`?buttons=classic` puts the shine back, and `?pedals=classic` brings back the round pedals with
+lightning and stop icons from before the NES look. **Hold to
 enable, release to pause.** A short tap costs a short slice, a long hold flows until the tank is
 empty. Full tank is 15 seconds of boost. The decision is *how long* to press as well as *when*.
 The fuel level is the arc gauge round the pedal (`#boost-meter`, `game/fuelarc.js`), a 140° crown
-over the top of it (~197° under `?pedals=classic`), off a `--pct`
+over the top of it (~197° under `?pedals=classic`) standing 16 units of the button's 150 off its
+edge (8 under `?buttons=classic`), off a `--pct`
 CSS variable, dropping as you drain and climbing as a drop-off pours fuel in.
+
+**The bar burns like a fuse while Loco is on.** The tailpipe's own flame (`tongueOutline`, its three
+tongues and four frames at the plume's 16fps) burns off the fuel's front, lying along the bar and
+bent to it, trailing back over the fuel already spent the way the plume trails the taxi. It is
+about as wide as the bar and fades in from clear, its base starting a little way back inside the
+fuel, so it rises out of the bar rather than sitting on the end of it. It grows
+and goes out on the plume's own envelope (`locoFlame.state.heat`) and is always Loco orange
+(`drawFuseFlame` in main.js, `bendFlame`/`flameAngle` in game/fuelarc.js). Only the front burns. A
+bar on fire end to end would read the same full as empty, and it sits under both thumbs (Tyler,
+2026-10-20). `?locobar=classic` is the plain bar.
 
 **Every drop of it is earned, except the way back out of empty.** The run opens with **a third of a tank**, each
 successful drop-off pours in **another third**, a [delivered package](#the-rest-of-it) pours in **a
