@@ -73,6 +73,10 @@ lets go of all of it at once, so what follows is exactly the run that used to st
 to the garage door, the door up, the taxi out, the tips. The drift sits at the top of the camera's
 priority list while the title holds, and the vignette's approach eases from wherever it left off.
 
+**The menu has no music.** Its taps and the city's effects play, but the radio stays off until
+Play opens it on the announcer, so the music is part of what starting a run gives you
+([audio.md](audio.md#the-radio); `?titlemusic=classic` plays songs under the menu).
+
 **Settings** and **Credits** dim the city behind a mask; the menu only shades the left edge its
 words stand on. Settings holds four things, all remembered across visits:
 

@@ -79,6 +79,7 @@ doc; what the classic version was, and why it changed, is in that doc's history 
 | `?splash=classic` | No startup screen: the game loads behind black and opens on the title menu, with no taxi drop first | | [gameplay.md](gameplay.md#the-startup-screen) |
 | `?radiofade=classic` | The station cuts hard between every track, instead of the DJ talking over the start and end of the songs | | [audio.md](audio.md#talking-over-the-music) |
 | `?radiointro=classic` | The radio is full-range from Play, instead of playing through the taxi's dash speakers until the car rolls out of its garage | | [audio.md](audio.md#the-dash-radio) |
+| `?titlemusic=classic` | Songs play back to back under the title menu until Play cuts them, instead of the menu being effects only with the music starting on Play | | [audio.md](audio.md#the-radio) |
 | `?menumusic=classic` | The radio's intro plays under the title menu on the first tap, rather than a song until Play | #519 | [audio.md](audio.md#the-radio) |
 | `?bubbles=classic` | Speech bubbles pinned over whatever they are about (cars, riders, the pedal), following it round the screen, instead of a card docked at the top with a small tag on the talker | | [gameplay.md](gameplay.md#speech-bubbles) |
 | `?bubblestyle=card` | The docked speech card as the white Figma card instead of see-through black with white type | | [gameplay.md](gameplay.md#speech-bubbles) |
