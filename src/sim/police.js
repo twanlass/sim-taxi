@@ -243,12 +243,14 @@ export function createPolice(scene, { lamps = true } = {}) {
    * `fade: false` is a car that is already on screen — a robbery's cop handed over to chase the
    * taxi away from the drop-off (game/patrol.js, `pursueNearest`). It is the same livery on the
    * same body, so the swap is invisible as long as nothing dissolves in.
+   *
+   * Through `traffic.wearSkin`, which is what puts the cruiser on the crash replay's tape.
    */
-  function wear(car, { fade = true } = {}) {
+  function wear(car, traffic, { fade = true } = {}) {
     state.loose = null;
     state.cop = car;
     state.active = true;
-    car.skin = skin;
+    traffic.wearSkin(car, skin, group);
     group.position.set(car.x, group.position.y, car.z);
     shell.visible = true;
     if (fade) fadeIn();

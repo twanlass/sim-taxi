@@ -451,7 +451,7 @@ export function createPatrol({
     cop.siren = false;
     cop.chase = 0;
     cop.route = [];
-    police.wear(cop);
+    police.wear(cop, traffic);
     police.setBar('patrol');
     state.cop = cop;
     state.phase = 'patrol';
@@ -898,7 +898,7 @@ export function createPatrol({
         retire();
       }
       best.patrol = true;
-      police.wear(best, { fade: false });
+      police.wear(best, traffic, { fade: false });
       state.cop = best;
       spot(best);
       state.grace = HANDOFF_GRACE;
