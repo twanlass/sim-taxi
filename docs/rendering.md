@@ -588,7 +588,11 @@ a fare may be reading the board with their thumb off the glass. `?camreturn=clas
 camera wherever the player put it, as it was before
 ([history](rendering-history.md#camera)).
 
-`src/game/taxifinder.js` covers the three seconds before that. The taxi can still drive off the
+That return is the whole answer by default. **The taxi-finder chip is off** (Tyler, 2026-10-20:
+"get rid of the taxi button"); `?taxifinder=classic` brings it back, and the rest of this section
+describes it as it behaves under that flag.
+
+`src/game/taxifinder.js` covers the gap before that. The taxi can still drive off the
 frame entirely, which on a phone is one look across town away, and dragging the map until the
 yellow car turns up is a hunt across near-identical blocks on a clock that is draining. So while
 the taxi is **completely** off-frame a chip of it fades in at the opposite end of the bottom row
@@ -2601,22 +2605,43 @@ History: [the first `HALF_W`](rendering-history.md#the-tailpipe-plume--gamelocof
 
 ### Wreck — `game/blast.js`, `game/wreckage.js`
 
-Plus a smoke collar out of `game/dust.js`.
-
 The crash is **one call per car** — `blast.fire(x, z, tint, yaw, speed)` — and everything *it* puts on the road
-lives in one module: a shockwave ring on the tarmac, a fireball, a scatter of shards in that car's
-paint, and two tyres that bounce out and roll away. Four `InstancedMesh`es, about forty-five live
-instances at the peak of a two-car wreck.
-Around the pair of them goes one call to [`dust.wreckSmoke`](#dust--gamedustjs), which is
-[the collar](#the-smoke-collar) below.
+lives in one module: a fireball, a flash of firelight on the tarmac, a scatter of shards in that car's
+paint, and two tyres that bounce out and roll away. Then **one `blast.burn(shell)` per wreck** keeps
+it alight through the run-end hold: flame tongues licking off the shell, a dark column of smoke rising
+from it, and a flickering pool of orange light on the road under it, all read off the shell's
+position every frame so the fire slides with the car. Five `InstancedMesh`es; about seventy live
+instances at the peak.
 
-What makes a crash read at a fixed 3/4 camera is **shape and timing**, not a physics packet, so the
-vocabulary here is graphic rather than physical (history: [the four-effect stack it
-replaced](rendering-history.md#wreck--gameblastjs-gamewreckagejs)):
+This is the `burn` style, the default since 2026-10-20, and it exists because the fire it replaced
+was **unlit flat colour** — twelve one-colour hexagons and a white ring — which read as stickers once
+the cars took real paint and the street a real sun ("flat and cartoony"). What changed, and what did
+not:
 
-- **Unlit flat colour, not Lambert.** A faceted sphere needs a light to show its facets and the sun
-  is behind the camera, so these carry no shading at all and read as silhouettes. It is also what
-  keeps a night-time wreck as bright as a golden-hour one.
+- **Shaded, still faceted.** Each fireball facet is lit by how squarely it faces the camera — the
+  facets square to the eye are the pale hot heart of a puff and the ones turning away its deep
+  skin — and the silhouette facets fade out on the *sine* of that angle, the clouds' rim rule
+  (CLAUDE.md, *A rim fade on `dot(normal, view)`*). The normal comes off a screen-space derivative,
+  as `flatShading`'s does. Smoke is shaded the other way: sky on top, firelight underneath while it
+  is still low over the wreck. A second per-instance attribute, `aFire` (shade, heat, underglow),
+  carries it, and `shade` 0 leaves a puff in the older styles' flat fill.
+- **Light on the road, without a light.** A real `PointLight` that appears only during a wreck
+  changes every lit material's light count and relinks the city's shaders on the crash frame
+  (CLAUDE.md); one kept in the scene at zero is a cost every frame of every run. So the glow is an
+  additive radial quad, the headlight cones' trade. In daylight it barely registers; at night it is
+  most of the picture.
+- **No shockwave ring, and no [smoke collar](#the-smoke-collar).** The glow's flash gives the bang
+  its size on the first frame, and the burning wreck's smoke column carries the beat after it. The
+  pale translucent collar, laid over that, read as panes of tinted glass round the cars
+  (`blast.wantsCollar()` keeps it for the older styles).
+- **The cars stay readable.** The fireball keeps flat's shape — a skirt starting 1.4 units out from
+  each car, no core puff — a little taller (squash 0.65) because the rim fade lets the eye through a
+  puff's edge. The flame tongues are under a unit and a half across.
+
+Everything below is common to all four styles. What makes a crash read at a fixed 3/4 camera is
+**shape and timing**, not a physics packet, so the vocabulary is graphic rather than physical
+(history: [the four-effect stack it replaced, and the unlit fire](rendering-history.md#wreck--gameblastjs-gamewreckagejs)):
+
 - **Colour is the animation.** Every puff walks one ramp — core → gold → flame → ember → smoke —
   keyed on its own life *plus a fixed shade bias*, so the cluster is spread across the ramp rather
   than marching through it together. That internal structure is what a flat fill would otherwise
@@ -2637,12 +2662,13 @@ replaced](rendering-history.md#wreck--gameblastjs-gamewreckagejs)):
 > the colour of the wall behind it. And the ramp has to be allowed to *reach* smoke before any alpha
 > comes off, or a still-orange puff fading out leaves translucent pink hexagons over the road.
 
-The shockwave is the mark that reads first, because a flat ring at this camera projects as an
-ellipse spreading out from under the wreck — the blast has a size before the fireball has grown into
-one. Fourteen segments, so the flat sides show at the wreck zoom.
+Under the older styles a shockwave ring reads first, because a flat ring at this camera projects as
+an ellipse spreading out from under the wreck. Fourteen segments, so the flat sides show at the
+wreck zoom. The big-air landing still fires it on its own (`blast.shock`).
 
-**Three cuts of the fireball** (`WRECK_STYLES`, picked with `?wreck=classic|quick|flat` or the ⚙️
-panel's *Wreck fire*, read at detonation). **flat is the default** (Tyler's pick). `classic` is the
+**Four cuts of the fireball** (`WRECK_STYLES`, picked with `?wreck=classic|quick|flat|burn` or the ⚙️
+panel's *Wreck fire*, read at detonation). **burn is the default**, above; flat was Tyler's pick
+before it. `classic` is the
 original full fireball, which hides the two cars the run ended on for most of a second — see
 [history](rendering-history.md#wreck--gameblastjs-gamewreckagejs). `quick` is
 the same fire smaller and over in ~55% of the time. `flat` squashes each puff to
@@ -3641,6 +3667,10 @@ post pass, but three things it cannot live without, all asserted headlessly in `
   sits in front of the hull", and a taxi part missing from the mask *is* something in front of
   the hull. The steered front wheels are separate meshes, outside the merged shell, and have to be
   added by hand ([the streak when they weren't](rendering-history.md#taxi-ghost-outline--geometryghostoutlinejs)).
+- **Anything that is not a tower but stands in front of the car stamps the mask too**
+  (`stampGhostMask`). The birds, the aeroplane, the helicopter and every person (`createPerson`:
+  riders at the door, the cabbie thrown through the windscreen) write the mask ref where they
+  draw, so the rim leaves a gap under them rather than tracing their silhouette in yellow.
 
 Both passes are flagged `transparent` purely to land in the transparent queue, which draws after
 every opaque object — the depth buffer has to be complete before the mask stamps. `addGhostOutline`
@@ -3777,12 +3807,12 @@ and a car wrecked on this frame must not wear a ghost over its own fireball.
 
 ### The pie — `geometry/diamond.js`
 
-The marker a waiting rider floats: a **pie**, a thick disc, bouncing, with no black outline, cut into
+The marker a waiting rider floats: a **pie**, a thick disc, bouncing, in a thin black outline, cut into
 eight slices, two per urgency level, the whole pie in the one [urgency](gameplay.md#urgency-is-one-scale)
 colour of the level the fare is at. The clock eats it clockwise from twelve o'clock, so each pair
 of slices that goes is a quarter of the clock, and the colour steps (with the kick) at that moment.
 What is left is solid and one even shade; eaten slices stay as a flat black tint at 30%
-(`PIE_EATEN_ALPHA`), not the pale glass of the hue the other vessels empty into: with no outline,
+(`PIE_EATEN_ALPHA`), not the pale glass of the hue the other vessels empty into: without an outline,
 pale glass vanished into the road at play zoom and a half-eaten pie read as a semicircle. A fresh pie already has a sixteenth missing at twelve o'clock (`PIE_STARTER_SLIVER`), so it reads as a timer before anything has drained. After that the clock takes a **whole slice at a time**, so the cut always lands on a
 slice's own radial wall, and a drained pie shows that wall as a solid edge of thickness where the
 missing slices were. Every wall is drawn before every cap (`pieWedgeOf` maps faces back to slices
@@ -3796,10 +3826,18 @@ The marker sits `MARKER_CLEARANCE` (0.8) higher than the taller shapes, for air 
 0.55 thick, built face-on in their own XY plane and turned (`PIE_TURN`) toward the camera and
 tilted back to a 60° normal, 27° past face-on, so the face reads as a disc with depth and the near
 edge shows its thickness. The fill shader picks the cut and the alternate shading from the angle
-of the untilted `fillXY` attribute. The outline hull is still built (one solid 32-sided drum at a lighter `PIE_RIM` of
-0.14, since at the shared 0.22 it was the loudest thing on the marker) but hidden: the solid, lit,
-tilted disc separates from the city by its own edge, and Tyler asked to "try without the black
-outline".
+of the untilted `fillXY` attribute.
+
+**The outline** is one solid 32-sided drum around the whole disc (`pieHullGeometry`), drawn as the
+usual inverted hull, so it traces the silhouette of the full pie, eaten slices included. Its weight
+is the [off-screen arrow's](#off-screen-fare-pointers), by construction: `MARKER_OUTLINE_PX` in
+`game/camera.js` (1.5) is the one number for both. The arrow draws it as a `non-scaling-stroke`
+in CSS px; the pie converts it to world units at `PHONE_PX_PER_UNIT` (844px over `2 * PLAY_ZOOM`,
+8.1px a unit), giving `PIE_RIM` 0.185. It started at 3.3, the arrow's old stroke, and came down
+to 1.5 because at that weight the ring was the loudest thing on an 18px pie. So the two match at phone play zoom, and a pinch grows the
+pie's line with the pie, as it does everything in the world. The pie went without an outline for
+a round (Tyler, 2026-10-18: "try without the black outline") and has it back at the arrow's weight
+(2026-10-20); `?pieoutline=classic` hides it again.
 
 History of this round: the first pie was four slices of the one current hue, 3.1 across, cut apart
 by black gaps. Tyler: "More slices (8). Map to existing urgency colors. Smaller over all. Tilt
@@ -4297,6 +4335,18 @@ viewport edge and rotate to point at a mark that has slipped off the frame. Each
 the fare it stands in for, which is that rider's clock: the colour is written from JS onto the
 wrapper's `color` and the polygon fills with `currentColor`, so a level change is one style write.
 The value in the stylesheet is only what one opens on before its first write.
+The black outline is `MARKER_OUTLINE_PX` (1.5, `game/camera.js`), written onto the host as
+`--marker-outline` and drawn as a `non-scaling-stroke`, so it is the same screen width on the
+drop-off's bigger arrow and through the press dip, and the same number [the pie](#the-pie--geometrydiamondjs)
+is outlined by.
+
+**They nudge.** Each arrow swells 6% and leans 3px toward its mark and back, once every 1.3s, on an
+ease-in-out (`fare-pointer-nudge` in `index.html`) — enough for an arrow at the edge to catch the eye
+in peripheral vision, small enough that it reads as a glance and not an alarm; urgency is the colour's
+job. It lives on the svg, under the press dip and the JS-written clamp and rotation, and because the
+div is rotated the svg's own +x is the pointing direction. Pooled slots are staggered by
+`1.3 × 0.618` s so several arrows never throb in step. Off under `prefers-reduced-motion` and
+`?arrowpulse=classic`.
 
 **Two kinds, one arrow, and they are exclusive.** With the seat free, *every rider still on a kerb*
 gets one — which replaced the [rider-finder chips](gameplay.md#finding-the-next-rider). With a rider

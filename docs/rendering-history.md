@@ -102,6 +102,10 @@ against a whole city already sliding past under the follow-cam. Verified in a re
 - **The invisible skid mark.** An early skid mark that was reported invisible wasn't: it was 0.3
   units wide, and at play zoom 1 unit ≈ 7.7px, so it rendered as 2px. That is where the
   size-it-against-the-camera rule comes from.
+- **The taxi-finder chip** (`?taxifinder=classic`). A dark disc with the taxi on it, above the
+  bottom-right corner, that came up while the car was completely off-frame and rode the camera back
+  on a tap. It predates the 1.5s idle return (#530), which made it redundant for all but that 1.5s,
+  and Tyler cut it on 2026-10-20.
 
 ## Lighting
 
@@ -410,6 +414,16 @@ pink hexagons hanging over the road.
 
 **`?wreck=classic`** is the original full fireball: it hid the two cars the run ended on for most of a
 second, which is why `flat` became the default (Tyler's pick).
+
+**`?wreck=flat`** was the default from 2026-10-05 to 2026-10-20: the same skirt of fire, drawn **unlit
+in flat colour**, with a white shockwave ring under it and the pale [smoke
+collar](rendering.md#the-smoke-collar) round it. Unlit was a deliberate choice — the sun is behind
+the camera, so a Lambert sphere showed no facets, and unlit kept a night wreck as bright as a day
+one. It stopped working when the rest of the frame moved on: against realistic car paint and a
+painted, sunlit street, twelve one-colour hexagons and a white ellipse read as stickers ("flat and
+cartoony", Tyler), and once the fire went out after a second nothing on screen was still burning.
+`burn` lit the puffs by facet instead of by the sun, put firelight on the road, and kept the wrecks
+alight for the hold.
 
 #### The wrecks that stay
 

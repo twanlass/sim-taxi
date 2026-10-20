@@ -184,7 +184,7 @@ right now"). Rain still comes both ways, to try in the mix.
 |---|---|---|---|
 | `spawn` | 16 A–C | Once per entrance, the city building itself (the wave) | first frame of `cityEntry.running()` with a context and a decoded take; re-armed by a replay. **Not heard under the title screen**, which settles the entrance before anything can be tapped |
 | `gate` | 17 | The depot's roller door at the start of a run | `opening.phase()` going `settle` → `door` |
-| `bridge` | 18 | The whole drawbridge cycle, from the barriers starting down | `drawbridge.state.phase` → `closing`; steered for 26 s |
+| `bridge` | 18 | The whole drawbridge cycle, from the barriers starting down | `drawbridge.state.phase` → `closing`; steered for 26 s, faded out (τ 0.15 s) the frame the gates start back up (`raising`) |
 | `city` | 19 B | Bed, everywhere, always | — |
 | `construction` | 20 MONO | Bed at the roadworks' closed block while it stands, faded with it | `roadwork.state` |
 | `birdsUp` / `birdsDown` | 21 strong A–C / soft A–C | A pigeon flock scattering / the last of it landing | `flock.state.flights` / `.landings` |
@@ -227,9 +227,12 @@ afconvert's encode.
 
 ## The radio
 
-The music is a car radio, the station KPRS. On the **title menu** it is not on the air yet: the
-first tap starts one of the songs at random, and more follow back to back (no ads, no ID) for
-as long as the menu is up. **Play** cuts it (60 ms down) to `MUSIC_radio_intro` (6.3 s; it replaced
+The music is a car radio, the station KPRS. The **title menu** has no music at all: the first tap
+unlocks the effects (the menu's taps, the logo) and decodes the station in the background, but the
+radio stays off until **Play**, so the music arrives as the payoff for starting a run (Tyler, October
+2026). `?titlemusic=classic` brings back the menu's songs: the first tap starts one at random, more
+follow back to back (no ads, no ID) for as long as the menu is up, and Play cuts it (60 ms down).
+**Play** opens the station on `MUSIC_radio_intro` (6.3 s; it replaced
 a 15 s one in October 2026), the announcer's "beautiful day in this concrete jungle", then a hard cut to one of four songs at random, and at the end of each a fresh pick, never the
 song that just played. The songs are Nicolás's, written for the station (Block 2, October 2026):
 `26_MUS_rolling` (funk), `27_MUS_upbeat` (funk with vocals), `28_MUS_hiphop` and `33_MUS_indiepop`,
@@ -245,10 +248,11 @@ no way to set. Between songs the station talks:
   due, and the ID follows the break rather than splitting it.
 
 So the hour runs: intro, song, song, *break*, song, *ID*, song, *break*, song, song, *break*, *ID*, …
-The menu's song is never the first song after the intro. Play again reloads past the title screen,
+Under `?titlemusic=classic` the menu's song is never the first song after the intro. Play again reloads past the title screen,
 so that run goes straight to the intro on its first tap, as do `?title=off` and `?dev`. Before
 October 2026 the station went on the air on the first tap anywhere, so the intro played under the
-menu and was usually over by the time the run began; `?menumusic=classic` keeps that.
+menu and was usually over by the time the run began; `?menumusic=classic` keeps that. Between then
+and the silent menu, the menu played songs alone until Play (#519); `?titlemusic=classic` keeps that.
 `__taxi.sfx.state.radio` lists the last few items scheduled.
 
 It lives in `sfx.js` beside the effects (`RADIO`, `RADIO_FILES`, `startRadio`) but outside
@@ -293,8 +297,8 @@ The station talks over the edges of the songs the way a DJ does (`RADIO_FADE` in
 The ads keep their hard edges either side, being produced pieces of their own. A track that decoded
 too late to overlap simply follows.
 
-**Each game opens on a different song.** The songs that opened the last session (the title menu's
-first song and the first song after the intro) are remembered in `localStorage`
+**Each game opens on a different song.** The songs that opened the last session (the first song
+after the intro, and under `?titlemusic=classic` the title menu's first song too) are remembered in `localStorage`
 (`simTaxi.openingSongs`), and this session's first picks avoid them while there is another to play.
 
 ### The dash radio
@@ -302,8 +306,8 @@ first song and the first song after the intro) are remembered in `localStorage`
 From **Play** the station sounds as if it is coming from a cheap AM set in the taxi, and it **opens
 out into the full mix as the car rolls out of its garage** in the
 [opening vignette](gameplay.md#the-opening-vignette): the film move from music playing in the scene
-to music playing over it. The menu's song is full-range, so Play is also the moment you get in the
-car. The in-car end is crushed hard on purpose, because the reveal is only as big as the distance
+to music playing over it. The menu is silent, so Play is also the moment the radio comes on, and
+it comes on in the car. The in-car end is crushed hard on purpose, because the reveal is only as big as the distance
 between the two ends (`DASH` in `sfx.js`):
 
 - **Band**: high-pass at 700 Hz, an 8 dB bump at 1.4 kHz, low-pass at 2 kHz, both pass filters

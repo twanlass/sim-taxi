@@ -45,7 +45,8 @@ import {
   onDriftLaunch, hopProgress, setSpinStyle, setBarrelRoll, setPassTurnGate, setPassPace, setHopStyle, setDodge, setOvertakeStyle,
   configureSignals, setGrip, setRunningLights, setRunningLightsAt, runningLightsAt, isLaneClosed,
 } from './sim/traffic.js';
-import { createCollisions, TAXI_HP } from './sim/collisions.js';
+import { createCollisions, TAXI_HP, setCrush } from './sim/collisions.js';
+import { createVanish } from './game/vanish.js';
 import { createPolice } from './sim/police.js';
 import {
   createFareSystem, cornerFor, kerbFor, setFareSeconds, getFareSeconds, isFareClockPinned, BURGER_PRICE, REPAIR_PRICE,
@@ -60,7 +61,7 @@ import {
   createBoost, BOOST_FARE_REWARD, BOOST_PARCEL_REWARD, BOOST_BURGER_REWARD,
 } from './game/boost.js';
 import { createBoostMeter } from './game/boostmeter.js';
-import { bandPath as fuelBandPath, frontAt as fuelFrontAt, glintAt as fuelGlintAt, RIM as FUEL_RIM, useClassicArc as useClassicFuelArc } from './game/fuelarc.js';
+import { bandPath as fuelBandPath, frontAt as fuelFrontAt, glintAt as fuelGlintAt, RIM as FUEL_RIM, CAP as FUEL_CAP, useClassicArc as useClassicFuelArc, useClassicGap as useClassicFuelGap, flameRadius as fuelFlameRadius, bendFlame as fuelBendFlame, flameAngle as fuelFlameAngle } from './game/fuelarc.js';
 import { createImpact } from './game/impact.js';
 import { createTaxiDamage, SMOKE_FRACTION, BOOT_FRACTION } from './game/taxidamage.js';
 import { createHitCue, hitCueMode } from './game/hitcue.js';
@@ -1150,12 +1151,14 @@ function boardSound() {
 
 // The sound — see game/sfx.js. Silent in shot mode, which renders stills and has nobody listening.
 // Its own stream, which draws the take each one-shot plays (the designer's A/B/C variants).
-// `menuMusic`: the title menu plays songs alone and Play cuts to the announcer (`goOnAir` in
-// `beginRun`); with no title screen, `beginRun` runs at boot and the radio opens on the intro as
-// ever. `?menumusic=classic` opens on the intro under the menu too.
+// `menuMusic`: the radio stays off the air under the title menu and Play opens it on the announcer
+// (`goOnAir` in `beginRun`); with no title screen, `beginRun` runs at boot and the radio opens on
+// the intro as ever. The menu itself is effects only; `?titlemusic=classic` plays songs under it
+// until Play cuts them. `?menumusic=classic` opens on the intro under the menu instead.
 const sfx = shot ? null : createSfx({
   rng: makeRng(runSeed + 811),
   menuMusic: new URLSearchParams(window.location.search).get('menumusic') !== 'classic',
+  menuSongs: new URLSearchParams(window.location.search).get('titlemusic') === 'classic',
   // The DJ talks over the edges of the songs; `?radiofade=classic` cuts hard between tracks.
   radioFade: new URLSearchParams(window.location.search).get('radiofade') !== 'classic',
 });
@@ -1917,6 +1920,11 @@ traffic.onTaxiLand(({ x, z, yaw, v, deck, big }) => {
   // helipad's downdraft is, which is what reads as weight arriving rather than exhaust.
   if (big) {
     if (!fares.state.gameOver) landCombo('launch');
+    // Came down on a car on the way: Crushin' It is called after the Big Air it was the end of.
+    if (crushOwed) {
+      crushOwed = false;
+      if (!fares.state.gameOver) landCombo('crush');
+    }
     controller.kickShake(1.6);
     sfx?.play('land', { gain: 1 });
     sfx?.play('crash', { gain: 0.35, rate: 0.7 });
@@ -2240,6 +2248,51 @@ collisions.onBump(({ x, z, closing, nx, nz, speed, rearEnd, other, taxiStruck, d
   if (taxiStruck) boxSpill.hit(other, closing, nx, nz);
 });
 
+// Crushin' It: Big Air coming down on a car (sim/collisions.js `crush`). The car underneath is
+// wrecked and the taxi is not — no HP, no speed, no knock — so it is the wreck's bang on one car
+// rather than two: the same `blast.fire` and smoke collar `onImpact` throws for the struck car, so
+// a rework of the wreck fire (game/blast.js) reaches this too. Its shell is not left lying in the
+// road the way a run-ending wreck's is (game/wreckage.js): the run goes on, traffic would drive
+// through it, and so does the taxi. It is consumed under its own fireball instead (game/vanish.js,
+// which the passing lab uses for the same reason) and dropped once it has gone.
+//
+// Landed before the touchdown, the combo waits for it so the labels read "Big Air", then
+// "Crushin' It".
+setCrush(new URLSearchParams(window.location.search).get('crush'));
+let crushOwed = false;
+const crushVanish = createVanish();
+const crushShells = [];
+collisions.onCrush(({ speed, other, airborne }) => {
+  if (airborne) crushOwed = true;
+  else if (!fares.state.gameOver) landCombo('crush');
+  const yaw = traffic.taxi.yaw;
+  const paint = other.police ? PALETTE.policeBody : PALETTE.carBody[other.colorIndex];
+  blast.fire(other.x, other.z, paint, yaw, speed * STRUCK_SHOVE);
+  if (blast.wantsCollar()) dust.wreckSmoke(other.x, other.z, yaw, speed);
+  struckGlass.fire({ x: other.x, z: other.z, yaw, scale: 0.6, ahead: 0, drop: 0.15 });
+  controller.kickShake(1.8);
+  sfx?.play('crash', { gain: 0.8 });
+  haptic('perfect');
+  const carry = carrySpeed(speed);
+  const shell = traffic.wreckShell(other);
+  crushShells.push(shell);
+  crushVanish.take(shell, {
+    driftX: Math.cos(yaw) * carry * SHELL_CARRY * STRUCK_SHOVE,
+    driftZ: -Math.sin(yaw) * carry * SHELL_CARRY * STRUCK_SHOVE,
+  });
+});
+function updateCrushShells(dt) {
+  if (!crushShells.length) return;
+  crushVanish.update(dt);
+  for (let k = crushShells.length - 1; k >= 0; k--) {
+    const shell = crushShells[k];
+    if (shell.visible) continue;
+    scene.remove(shell);
+    shell.traverse((node) => node.material?.dispose?.());
+    crushShells.splice(k, 1);
+  }
+}
+
 collisions.onImpact(({ x, z, speed, closing, other }) => {
   // A wrecked box truck throws out whatever was still aboard.
   boxSpill.wreck(other, closing);
@@ -2278,7 +2331,8 @@ collisions.onImpact(({ x, z, speed, closing, other }) => {
   // the sun, which is exactly the contrast that makes the fire read as the hot middle of something
   // bigger. One call for both cars, at the point between them: two collars would have packed grey
   // into the seam where the two fireballs meet, which is the middle of the blast.
-  dust.wreckSmoke((x + other.x) / 2, (z + other.z) / 2, yaw, speed);
+  // Not under the default `burn` style, whose own smoke column does this job — see `wantsCollar`.
+  if (blast.wantsCollar()) dust.wreckSmoke((x + other.x) / 2, (z + other.z) / 2, yaw, speed);
 
   // And both cars are left lying there. `wreckShell` takes each one off the road for good and hands
   // its bodywork over as a standalone group; game/wreckage.js slides it out of the impact, crumples
@@ -2300,7 +2354,8 @@ collisions.onImpact(({ x, z, speed, closing, other }) => {
   // opens apart — a glance rather than two objects deleted in formation. Cars meeting dead centre
   // give a cross near zero, and `|| 1` picks a side rather than leaving both shells unturned.
   const struckSide = Math.sign(fx * (other.z - traffic.taxi.z) - fz * (other.x - traffic.taxi.x)) || 1;
-  wreckage.take(traffic.wreckShell(traffic.taxi), {
+  const taxiShell = traffic.wreckShell(traffic.taxi);
+  wreckage.take(taxiShell, {
     driftX: fx * carry * SHELL_CARRY * TAXI_KEEP,
     driftZ: fz * carry * SHELL_CARRY * TAXI_KEEP,
     spin: -struckSide * SHELL_SPIN,
@@ -2321,7 +2376,8 @@ collisions.onImpact(({ x, z, speed, closing, other }) => {
   // shoved rather than thrown. Shards that reach a pavement stay there; nothing walks this track
   // the way ejection.js walks the driver's, because a 0.3-unit plate on a kerb reads as glass.
   struckGlass.fire({ x: other.x, z: other.z, yaw, scale: 0.6, ahead: 0, drop: 0.15 });
-  wreckage.take(traffic.wreckShell(other), {
+  const struckShell = traffic.wreckShell(other);
+  wreckage.take(struckShell, {
     // A copy made on this frame: before it, the car was an instance the replay draws instead.
     hideBefore: true,
     driftX: fx * carry * SHELL_CARRY * STRUCK_SHOVE,
@@ -2332,6 +2388,11 @@ collisions.onImpact(({ x, z, speed, closing, other }) => {
     // enough to bury a wheel. See the `lift` in game/wreckage.js.
     ...(other.isTruck ? { len: TRUCK_LEN, width: TRUCK_W } : {}),
   });
+  // And both keep burning through the hold — flames on the shells, a smoke column, the firelight
+  // on the road (`blast.burn`; a no-op under the older `?wreck=` styles). Off the shells rather than
+  // the impact point because the shells slide, and fire left behind on the tarmac reads as a spill.
+  blast.burn(taxiShell);
+  blast.burn(struckShell, { scale: 0.85 });
 
   // Framed on the middle of the whole picture when the driver was thrown: the throw runs ~16 units,
   // past the edge of a portrait phone at wreck zoom if the shot stays on the wreck. Halfway puts
@@ -3050,7 +3111,11 @@ const riderFinder = wantsRiderChips
   ? createRiderFinder({ onSelect: selectRider, sun, hemi })
   : { update: () => {} };
 // The chip that answers "where did my car go" — up only while the taxi is completely off-frame.
-const taxiFinder = createTaxiFinder({
+// Off by default since 2026-10-20 (Tyler: "get rid of the taxi button"): the camera already rides
+// home on its own after CAMERA_RETURN_IDLE, so the chip only ever covered that 1.5s gap.
+// `?taxifinder=classic` brings it back; without it there is no chip and no extra WebGL context.
+const wantsTaxiFinder = new URLSearchParams(window.location.search).get('taxifinder') === 'classic';
+const taxiFinder = !wantsTaxiFinder ? null : createTaxiFinder({
   sun,
   hemi,
   project: projectToScreen,
@@ -3076,6 +3141,15 @@ if (new URLSearchParams(window.location.search).get('pedals') === 'classic') {
   useClassicFuelArc();
   const siren = document.getElementById('chase-siren');
   if (siren) document.getElementById('hud')?.appendChild(siren);
+}
+// The NES buttons without their white shine (Tyler, 2026-10-20: the glint, its dot and the dish's
+// lit rim; index.html `.nes-shine`), and the fuel arc 8 units further off Loco Mode.
+// `?buttons=classic` puts back the shine and the arc's old gap. `?pedals=classic` predates both,
+// so it takes the old gap too.
+if (new URLSearchParams(window.location.search).get('buttons') === 'classic'
+  || document.body.classList.contains('pedals-classic')) {
+  document.body.classList.add('buttons-classic');
+  useClassicFuelGap();
 }
 // The 🚨 over Loco Mode while the police are after the taxi; `?chasesiren=classic` goes without.
 const chaseSiren = new URLSearchParams(window.location.search).get('chasesiren') !== 'classic'
@@ -3961,6 +4035,68 @@ function drawFuelArc(level) {
   }
 }
 
+// The fuse flame (index.html, "The fuse flame"): the tailpipe's tongue burning off the fuel's front,
+// in Loco orange. Built once — four frames of three nested tongues,
+// cycled by CSS like the combo meter's — and then each frame is one `transform` on the group, and
+// only while it burns: a parked tank writes nothing. `?locobar=classic` goes without.
+const fuseFlame = new URLSearchParams(window.location.search).get('locobar') !== 'classic'
+  ? boostMeterEl?.querySelector('.boost-flame') : null;
+// In the button's viewBox units: the outer tongue 40 long and 1.4x the plume's own width, which puts
+// it ~15 across where the fade lets it show and ~20 at its widest, against the 16-wide band (Tyler,
+// 2026-10-20: "base roughly the width of the bar"; 1.2x read as a sliver once the base faded). The cut before was 56 at 2.1x, 41 across, and sat on the bar
+// like a sticker.
+const FUSE_LEN = 40;
+const FUSE_WIDE = 1.4;
+// The base starts FUSE_SINK units back inside the fuel and comes in over FUSE_FADE, from clear to
+// solid, so the flame rises out of the bar rather than starting at a hard edge on its end.
+const FUSE_SINK = 6;
+const FUSE_FADE = 14;
+if (fuseFlame) {
+  const k = FUSE_LEN / FLAME_LEN;
+  // One gradient per tongue, in the flame's own drawn space: the base sits at screen angle 0, where
+  // `s` runs straight down the page, so the fade is a vertical ramp from the sunk base. The bend
+  // over 14 units of a ~99 radius is under 1 unit, which a fade does not show.
+  const colors = [PALETTE.locoFlameOuter, PALETTE.locoFlameMid, PALETTE.locoFlameCore];
+  const y0 = FUEL_CAP.y - FUSE_SINK, y1 = y0 + FUSE_FADE;
+  const defs = colors.map((c, layer) =>
+    `<linearGradient id="fuse-fade-${layer}" gradientUnits="userSpaceOnUse" x1="0" y1="${y0}" x2="0" y2="${y1}">`
+    + `<stop stop-color="${c}" stop-opacity="0"/><stop offset="1" stop-color="${c}"/></linearGradient>`).join('');
+  fuseFlame.innerHTML = `<defs>${defs}</defs>` + Array.from({ length: FLAME_FRAMES }, (_, f) => {
+    const outline = tongueOutline((f / FLAME_FRAMES) * Math.PI * 2);
+    const paths = FLAME_LAYER_SCALES.map(([len, wide], layer) => {
+      const d = outline.map(([u, y], i) => {
+        const [x, yy] = fuelBendFlame(u * len * FLAME_LEN * k - FUSE_SINK, y * wide * k * FUSE_WIDE);
+        return `${i ? 'L' : 'M'}${x.toFixed(2)} ${yy.toFixed(2)}`;
+      }).join('') + 'Z';
+      return `<path class="t${layer}" fill="url(#fuse-fade-${layer})" d="${d}"/>`;
+    }).join('');
+    return `<g class="f" style="animation-delay:${(f * FLAME_FRAME_TIME).toFixed(4)}s">${paths}</g>`;
+  }).join('');
+  fuseFlame.style.display = 'none';
+}
+let fuseDrawn = '';
+function drawFuseFlame(level) {
+  if (!fuseFlame) return;
+  // Burns with the plume (its attack and release included), and not on an empty tank, where there
+  // is no front for it to stand on.
+  const heat = level > 0.005 ? locoFlame.state.heat : 0;
+  let tf = '';
+  if (heat > 0.01) {
+    // Turned about the button's centre onto the front, and grown out of its own base.
+    const bx = (FUEL_CAP.x + fuelFlameRadius()).toFixed(2), by = FUEL_CAP.y;
+    tf = `rotate(${fuelFlameAngle(level).toFixed(2)} ${FUEL_CAP.x} ${FUEL_CAP.y}) `
+      + `translate(${bx} ${by}) scale(${heat.toFixed(3)}) translate(-${bx} -${by})`;
+  }
+  if (tf !== fuseDrawn) {
+    if (!tf !== !fuseDrawn) {
+      fuseFlame.style.display = tf ? '' : 'none';
+      boostMeterEl.classList.toggle('is-fuse', !!tf);
+    }
+    fuseDrawn = tf;
+    if (tf) fuseFlame.setAttribute('transform', tf);
+  }
+}
+
 function updateBoostButton(dt) {
   if (!boostButton) return;
   const mode = boost.state.mode;
@@ -3983,6 +4119,7 @@ function updateBoostButton(dt) {
     el.style.setProperty('--pulse', boostMeter.state.pulse.toFixed(3));
   }
   drawFuelArc(boostMeter.state.pct);
+  drawFuseFlame(boostMeter.state.pct);
   // The pedal sinks while it is held, however it is held — the Space key never touches the
   // pointer's `is-held`. See "The press" in index.html.
   boostButton.classList.toggle('is-down', boost.state.held);
@@ -4797,13 +4934,20 @@ function nearestGulls() {
   return best;
 }
 
-// What the L's deck must not hide (game/ltrain.js): the taxi, every rider waiting on a kerb and
-// the drop-off pin of the fare aboard. Reused rather than allocated per frame.
+// What the L's deck must not hide (game/ltrain.js): every rider waiting on a kerb and the drop-off
+// pin of the fare aboard, neither of which has any other way of showing through. **Not the taxi**:
+// it wears the ghost outline (geometry/ghostoutline.js), which traces it through the deck exactly
+// as it does through a tower, so the deck stays solid over it the way a building does (Tyler,
+// 2026-10-20: "why does the train track fade out around the taxi and not just stay solid like
+// buildings"). A hole following the cab round was the one thing in the city that moved with it.
+// `?trainfade=classic` thins the deck over the taxi as well, which is what it did before.
+// Reused rather than allocated per frame.
+const classicTrainFade = new URLSearchParams(window.location.search).get('trainfade') === 'classic';
 const ltrainFade = [];
 function ltrainFadePoints() {
   ltrainFade.length = 0;
   const t = traffic.taxi;
-  ltrainFade.push({ x: t.x, z: t.z });
+  if (classicTrainFade) ltrainFade.push({ x: t.x, z: t.z });
   for (const slot of fares.slots) {
     for (const pin of [slot.passenger.group, slot.destination.group]) {
       if (!pin.visible || !slot.root.visible) continue;
@@ -4860,6 +5004,8 @@ const PLANE_LEAD = 1.4;
 // clears *before* that (game/drawbridge.js), so a held span holds the sound back rather than
 // stretching the middle of it. It is steered for as long as it can be sounding.
 const BRIDGE_SECONDS = 26;
+// The fade when the gates start rising: a time constant, so it is all but silent by ~0.75s.
+const BRIDGE_CUT = 0.15;
 
 function cityOneShots(dt) {
   if (!sfx) return;
@@ -4904,6 +5050,12 @@ function cityOneShots(dt) {
     if (bp === 'closing' && lastBridgePhase !== 'closing') {
       bridgeVoice = sfx.play('bridge', { at, steered: true });
       bridgeSince = 0;
+    }
+    // Cut it as the gates start back up. The file runs the full 26s, and a lift that a boat
+    // releases early has the deck home and the arms rising while the bell is still ringing.
+    if (bp === 'raising' && lastBridgePhase !== 'raising' && bridgeVoice) {
+      sfx.release(bridgeVoice, BRIDGE_CUT);
+      bridgeVoice = null;
     }
     lastBridgePhase = bp;
     if (bridgeVoice) {
@@ -5685,6 +5837,7 @@ function tick() {
   sparks.update(dt);
   repairFx?.update(dt);
   wreckage.update(dt);
+  updateCrushShells(dt);
   ejection.update(dt);
   windshield.update(dt);
   struckGlass.update(dt);
@@ -6365,7 +6518,7 @@ function tick() {
   // Armed only when nothing else already has the framing in hand: a run that has ended has the
   // closing shot, the tutorial is pointing the camera at the city itself, and a pan in flight is
   // already on its way somewhere — including this chip's own, which is what drops it on the tap.
-  taxiFinder.update(dt, traffic.taxi,
+  taxiFinder?.update(dt, traffic.taxi,
     !fares.state.gameOver && !controller.isGliding() && !tutorial?.holdsCamera());
   // A no-op unless a package is aboard — it draws nothing while the chip is down.
   cargoChip?.render();
@@ -6554,6 +6707,7 @@ if (shot) {
   // detonates it through the same handler a live run uses — so this framing cannot drift out of
   // step with the crash it exists to review. Only the blast and the shrinking shells are stepped
   // afterwards: traffic must stay still, or the rest of the city drives on under a frozen wreck.
+  let wreckStep = null;
   if (shot.wreckAt) {
     // Offset by a couple of units along the victim's heading rather than parked exactly on it: a
     // real impact leaves the two centres about that far apart, and the pair of detonations spread
@@ -6586,17 +6740,23 @@ if (shot) {
     }
     controller.state.target.set(endSpot?.x ?? victim.x, 0, endSpot?.z ?? victim.z);
     controller.update(aspect());
-    for (let step = 0; step < Math.round(shot.wreckAt * 60); step++) {
-      blast.update(1 / 60);
-      wreckage.update(1 / 60);
-      ejection.update(1 / 60);
-      windshield.update(1 / 60);
-      struckGlass.update(1 / 60);
-      // The smoke collar is part of the wreck now, and it lives in the dust pool rather than in
-      // blast.js — left out of this loop, `?shot=12` would freeze a crash with its smoke still
-      // stacked on the impact point at zero age.
-      dust.update(1 / 60);
-    }
+    // `&wreckAt=` overrides the shot's own beat, and `window.__wreckStep(frames)` steps the same
+    // pools on and redraws — which is how tools/wreckreel.mjs films the whole crash a frame at a
+    // time out of one staging, rather than restaging it once per frame.
+    const wreckAt = Number(new URLSearchParams(window.location.search).get('wreckAt') ?? shot.wreckAt);
+    wreckStep = (frames) => { for (let step = 0; step < frames; step++) stepWreck(); };
+    wreckStep(Math.round(wreckAt * 60));
+  }
+  function stepWreck() {
+    blast.update(1 / 60);
+    wreckage.update(1 / 60);
+    ejection.update(1 / 60);
+    windshield.update(1 / 60);
+    struckGlass.update(1 / 60);
+    // The smoke collar is part of the wreck now, and it lives in the dust pool rather than in
+    // blast.js — left out of this loop, `?shot=12` would freeze a crash with its smoke still
+    // stacked on the impact point at zero age.
+    dust.update(1 / 60);
   }
 
   // Stage a flight and freeze it partway across. The plane is up for about six seconds every
@@ -6946,6 +7106,7 @@ if (shot) {
   // come down behind it.
   garage?.setDoor(0);
   renderFrame();
+  if (wreckStep) window.__wreckStep = (frames = 1) => { wreckStep(frames); renderFrame(); };
   document.body.dataset.shotReady = 'true';
 } else {
   traffic.warmup(10);
@@ -7093,6 +7254,7 @@ if (!shot && wantsDebugPanel) {
 
 window.__taxi = {
   traffic,
+  locoFlame,
   // The city camera — `state.punch` is how a browser test stages a cut opening on a held Loco push-in.
   controller,
   // The combo meter — see game/combometer.js — and the drop-off that cashes it in.
@@ -7180,7 +7342,7 @@ window.__taxi = {
   /**
    * The "back to the taxi" chip, for `tools/smoke.mjs`: `isUp()` is whether it is currently
    * offering itself. Browser-only in the same way the cargo chip is — a WebGL context in a DOM
-   * node, driven off a projection through the live camera.
+   * node, driven off a projection through the live camera. Null unless `?taxifinder=classic`.
    */
   taxiFinder,
   flyover,

@@ -602,11 +602,14 @@ function loopWindow(buffer, seconds) {
  * @param {object} opts
  * @param {{ next: () => number }} [opts.rng]  Draws each trigger's take (`pickTake`). Math.random without.
  * @param {boolean} [opts.menuMusic]  Hold the station off the air until `goOnAir` — the title menu
- *   plays songs alone until then. False (`?menumusic=classic`, or no title screen) opens on the intro.
+ *   is silent until then (or plays songs alone, `menuSongs`). False (`?menumusic=classic`, or no title
+ *   screen) opens on the intro.
+ * @param {boolean} [opts.menuSongs]  Songs back to back under the title menu while it is off the air
+ *   (`?titlemusic=classic`). False leaves the menu to the effects, so the music arrives with Play.
  * @param {boolean} [opts.radioFade]  The station talks over the edges of the songs (`RADIO_FADE`).
  *   False (`?radiofade=classic`) plays every track after the last with a hard cut.
  */
-export function createSfx({ rng, menuMusic = false, radioFade = true } = {}) {
+export function createSfx({ rng, menuMusic = false, menuSongs = false, radioFade = true } = {}) {
   // Every file the station can schedule, fetched and decoded up front.
   const songs = RADIO.songs;
   const playlist = [RADIO.intro, ...songs, ...RADIO.ads, RADIO.breakIn, RADIO.breakOut, RADIO.stationId];
@@ -1253,10 +1256,18 @@ export function createSfx({ rng, menuMusic = false, radioFade = true } = {}) {
    *
    * Off the air (the title menu, Tyler October 2026): one song picked at random, decoded ahead of
    * everything else so the menu is not silent for long after the first tap, then more songs back to
-   * back with no ads and no ID until Play cuts to the intro (`goOnAir`).
+   * back with no ads and no ID until Play cuts to the intro (`goOnAir`). That is `?titlemusic=classic`
+   * now: by default the menu is effects only (Tyler, October 2026), so the music is something Play
+   * gives you rather than something it changes. The tracks still decode here, intro first, so the
+   * cut to the intro is not waiting on a decode.
    */
   async function startRadio() {
     if (onAir) { openStation(); return; }
+    if (!menuSongs) {
+      await decodeRadio(RADIO.intro);
+      await Promise.all(playlist.map(decodeRadio));
+      return;
+    }
     const fresh = songs.filter((k) => !lastOpeners.includes(k));
     const pool = fresh.length ? fresh : songs;
     const first = pool[Math.floor(random() * pool.length)];

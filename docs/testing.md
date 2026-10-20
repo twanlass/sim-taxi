@@ -293,6 +293,16 @@ own fireballs. 12 and 17 ask whether the crash reads as an *event*; this one ask
 reads as a *pair of cars*, which is only askable once the fire is out. It is appended at the end of
 the list rather than filed beside 17 because inserting an entry renumbers every shot after it.
 
+A still answers only one beat, so the whole crash has a reel: `tools/wreckreel.mjs` opens shot 12 at
+`&wreckAt=0` and steps the wreck's own pools on through `window.__wreckStep(frames)`, capturing a
+frame each time, so the take comes out at an even 30 fps whatever the software renderer manages.
+Phone-sized by default, and `--mp4` writes the H.264 that plays inline on an iPhone:
+
+```bash
+CHROME=/opt/pw-browsers/chromium CHROME_FLAGS=--no-sandbox \
+  node tools/wreckreel.mjs --url 'http://localhost:5173/?rain=night' --out ./reel --mp4 reel.mp4
+```
+
 Shot 38 (`median`) is the arterial's planted island at `zoom: 11`, and it is close for the reason
 `mouth` is close: everything on a median is decided by a sightline measured in fractions of a unit
 — how far a bed sits off the island's spine, whether a

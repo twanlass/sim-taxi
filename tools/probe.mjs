@@ -85,7 +85,7 @@ import { barricadeParts, spoilParts, RAMP_RUN, RAMP_H, WORKS_Y, TRENCH_Y, SPLINT
 import {
   findRoute as planRoute, setRoadworkLanes, setBlockedLanes, setHazardLanes, laneCost, serviceLaneCost,
 } from '../src/game/route.js';
-import { createCollisions, TAXI_HP, bumpDamage, penetration } from '../src/sim/collisions.js';
+import { createCollisions, TAXI_HP, bumpDamage, penetration, setCrush } from '../src/sim/collisions.js';
 import { createTaxiDamage } from '../src/game/taxidamage.js';
 import { createCarDamage } from '../src/game/cardamage.js';
 import { BUMPER_H as BUMPER_H_PROBE, bumperLength as bumperLengthProbe } from '../src/geometry/bumpers.js';
@@ -143,7 +143,7 @@ import { setCityOccluders, sightlineClear, groundLineClear } from '../src/game/s
 import {
   createDiamond,
   bounceOffset, KICK_SCALE, KICK_HOP, RIM_SCALE, RIM_OFFSET, EMISSIVE, HIGHLIGHT_EMISSIVE,
-  DIAMOND_HALF_H, BOUNCE_HEIGHT, PLUMBOB_CLASSIC, HOURGLASS_TILT, insideHourglass, MARKER_SHAPE, PIE_TURN, PIE_FACES_PER_WEDGE, pieWedgeOf, PIE_SLICES, PIE_RIM,
+  DIAMOND_HALF_H, BOUNCE_HEIGHT, PLUMBOB_CLASSIC, HOURGLASS_TILT, insideHourglass, MARKER_SHAPE, PIE_TURN, PIE_FACES_PER_WEDGE, pieWedgeOf, PIE_SLICES, PIE_RIM, pieShown,
 } from '../src/geometry/diamond.js';
 import { CRYSTAL_TOP, createFareMarker } from '../src/game/faremarker.js';
 import { QUESTION_GEO } from '../src/geometry/questionmark.js';
@@ -202,6 +202,7 @@ import { createDaylight } from '../src/game/daylight.js';
 import { URGENCY_SEGMENTS, urgencyLevel, urgencyColor, fareColor } from '../src/game/urgency.js';
 import { planOrigin, crossingOrigin } from '../src/game/route.js';
 import { HALF_SPAN_X, HALF_SPAN_Z, ROAD_W, LANE, PITCH, BLOCK, HALF_ROAD, HALF_ARTERIAL, lineX, lineZ, GRID_I, GRID_J, isXAxis, leftOf, rightOf, opposite, dirSign, legalExits, riverBanks, riverRow, junctionReach } from '../src/city/grid.js';
+import { EDGE_FOG, FOG_HALF_X, FOG_END, FOG_BILLOW } from '../src/game/edgefog.js';
 import {
   waterEdges, bridgeSpan, bridgeLines, riverCrossing, drawbridgeLine, archAt, deckHeightAt, createRiver, waterHeightAt,
   WATER_Y, FLAT_SOFFIT, ARCH_SOFFIT, BARGE_AIR, TUG_AIR, ARCH_RISE, DECK_THICK,
@@ -4832,6 +4833,17 @@ const PRESSURE_END = difficulty.getTuning().pressureEnd;
         faces === { plumbob: 8, hourglass: 132, pie: PIE_SLICES * PIE_FACES_PER_WEDGE }[MARKER_SHAPE] && inward === 0, `${faces} faces, ${inward} wound inside out`);
     }
 
+    // The pie never shows time the rider does not have: the last slice drains with the clock and
+    // is empty on the frame it expires, rather than standing whole until then (Tyler, 2026-10-20).
+    {
+      const lastSlice = [0.1, 0.05, 0.01, 1e-4].every((f) => Math.abs(pieShown(f) - f) < 1e-9);
+      const empty = pieShown(0) === 0;
+      // ...and nothing earlier moved: above one slice it is still whole slices, rounded up.
+      const whole = pieShown(0.3) === 3 / PIE_SLICES && pieShown(0.126) === 2 / PIE_SLICES;
+      check('the pie\'s last slice drains to empty at expiry', lastSlice && empty && whole,
+        `0.05 -> ${pieShown(0.05)}, 0 -> ${pieShown(0)}, 0.3 -> ${pieShown(0.3)}`);
+    }
+
     // --- The VIP's question mark (geometry/questionmark.js).
     //
     // Extruded rather than hand-wound, but it is concave and `flatShading`, so the winding is
@@ -8681,12 +8693,23 @@ function rideToPickup() {
 
   check('both cars fit the pools without wrapping',
     fired === 2 * (12 + 7 + 2 + 1), `${fired} instances`);
-  check('a blast puts a ring, a fireball and shards on the road',
-    liveScales(blast.ringMesh).length === 2
+  // The default (`burn`) flashes firelight on the road where the older styles threw a ring.
+  check('a blast puts a flash of firelight, a fireball and shards on the road',
+    liveScales(blast.ringMesh).length === 0
+    && liveScales(blast.glowMesh).length === 2
     && liveScales(blast.puffMesh).length === 24
     && liveScales(blast.shardMesh).length === 14,
-    `${liveScales(blast.ringMesh).length} rings, ${liveScales(blast.puffMesh).length} puffs, `
-    + `${liveScales(blast.shardMesh).length} shards`);
+    `${liveScales(blast.ringMesh).length} rings, ${liveScales(blast.glowMesh).length} glows, `
+    + `${liveScales(blast.puffMesh).length} puffs, ${liveScales(blast.shardMesh).length} shards`);
+  check('the default fire is shaded and the older styles stay flat', (() => {
+    const lit = blast.puffMesh.geometry.attributes.aFire.array[0] === 1;
+    const old = createBlast(new THREE.Scene(), makeRng(seed + 87));
+    old.setStyle('flat');
+    old.fire(0, 0, PALETTE.taxiBody);
+    old.update(1 / 60);
+    return lit && old.puffMesh.geometry.attributes.aFire.array[0] === 0
+      && liveScales(old.ringMesh).length === 1 && liveScales(old.glowMesh).length === 0;
+  })());
 
   // Each car's shards wear that car's paint — a shared pool would have repainted the first car's
   // wreckage when the second one detonated.
@@ -8719,6 +8742,7 @@ function rideToPickup() {
   check('a blast retires completely',
     blast.active() === 0
     && liveScales(blast.ringMesh).length === 0
+    && liveScales(blast.glowMesh).length === 0
     && liveScales(blast.puffMesh).length === 0
     && liveScales(blast.shardMesh).length === 0,
     `${blast.active()} still alive`);
@@ -8757,6 +8781,8 @@ function rideToPickup() {
   const reachOf = (speed) => {
     const scene = new THREE.Scene();
     const b = createBlast(scene, makeRng(seed + 91));
+    // Flat, for its ring: the default has none, and the ring's carry is the low end of the order.
+    b.setStyle('flat');
     b.fire(0, 0, PALETTE.taxiBody, BLAST_HEADING, speed);
     const m = new THREE.Matrix4();
     const p = new THREE.Vector3();
@@ -8827,6 +8853,52 @@ function rideToPickup() {
   }
   check('the flat wreck fire leaves the car in the clear middle', flatNearest > 1.2 && flatTop < 1.4,
     `nearest puff ${flatNearest.toFixed(2)} off centre, top ${flatTop.toFixed(2)}`);
+  // The burn (the default) keeps each wreck alight for the hold, off the shell it is handed. Three
+  // claims: the fire rides the shell as it slides rather than being left on the impact point; what
+  // burns *on* the car is tongues, small enough that the car still reads through them; and it goes
+  // out, every slot, light included.
+  {
+    const scene = new THREE.Scene();
+    const b = createBlast(scene, makeRng(seed + 93));
+    const shell = new THREE.Object3D();
+    scene.add(shell);
+    b.fire(0, 0, PALETTE.taxiBody);
+    b.burn(shell);
+    const m = new THREE.Matrix4();
+    const p = new THREE.Vector3();
+    const sc = new THREE.Vector3();
+    let behind = 0;
+    let widest = 0;
+    let glowOff = 0;
+    for (let step = 0; step < 120; step++) {
+      shell.position.x = step / 60 * 3;      // sliding at 3 u/s
+      b.update(1 / 60);
+      if (step < 70) continue;                // once the fireball has gone, only the burn is left
+      for (let i = 0; i < b.puffMesh.count; i++) {
+        b.puffMesh.getMatrixAt(i, m);
+        m.decompose(p, new THREE.Quaternion(), sc);
+        if (sc.x <= 0) continue;
+        // Low puffs only: those are the tongues, born on the shell. The smoke is let go where it
+        // was made, as smoke is, and starts above 1.4.
+        if (p.y < 1.4 && p.x < shell.position.x - 3.5) behind += 1;
+        if (Math.hypot(p.x - shell.position.x, p.z) < 1.2 && p.y < 2.2) widest = Math.max(widest, sc.x);
+      }
+      for (let i = 0; i < b.glowMesh.count; i++) {
+        b.glowMesh.getMatrixAt(i, m);
+        m.decompose(p, new THREE.Quaternion(), sc);
+        if (sc.x > 0) glowOff = Math.max(glowOff, Math.abs(p.x - shell.position.x));
+      }
+    }
+    check('a burning wreck\'s fire rides the shell', behind === 0 && glowOff < 1e-6,
+      `${behind} puffs left behind, light ${glowOff.toFixed(2)} off the shell`);
+    check('the flames on a burning wreck stay small enough to see the car', widest > 0 && widest < 1.4,
+      `widest puff on the car ${widest.toFixed(2)}`);
+    for (let step = 0; step < 60 * 4; step++) b.update(1 / 60);
+    check('a burning wreck goes out', b.active() === 0
+      && liveScales(b.puffMesh).length === 0 && liveScales(b.glowMesh).length === 0,
+      `${b.active()} still alive`);
+  }
+
   const quickLate = puffsAt('quick', 0.8).live;
   const classicLate = puffsAt('classic', 0.8).live;
   check('the quick wreck fire is out while the classic one still burns', quickLate === 0 && classicLate > 0,
@@ -11792,6 +11864,36 @@ function rideToPickup() {
   check('fuel gauge: one even width end to end', fuelArc.widthAt(1) === fuelArc.widthAt(0) && BASE_R > outline,
     `${fuelArc.widthAt(0)} -> ${fuelArc.widthAt(1)}`);
   check('fuel gauge: an empty tank draws no fuel', fuelArc.bandPath(0, 0) === '', 'bandPath(0, 0)');
+  // The 🚨 stands on the gauge's outer edge, which index.html can only know as a number.
+  const html = fs.readFileSync(new URL('../index.html', import.meta.url), 'utf8');
+  const out = BASE_R + fuelArc.widthAt(0.5) + RIM;
+  const classicOut = out - GAP + fuelArc.CLASSIC_GAP;
+  const cssOut = Number(html.match(/#boost-meter #chase-siren \{\s*--arc-out: (\d+)/)?.[1]);
+  const cssClassic = Number(html.match(/body\.buttons-classic #boost-meter #chase-siren \{ --arc-out: (\d+)/)?.[1]);
+  // The fuse flame is drawn bent along the band from screen angle 0 and turned about the button's
+  // centre onto the front: its base has to land on the front's centre line, and it has to lie
+  // along the band toward the spent (higher-t) end — a flipped sign lays it over the fuel still in
+  // the tank. The base is held to 0.01, not to rounding: `pointAt` interpolates the 128-point
+  // polyline, whose chords sit up to ~0.004 inside the true circle the flame is bent along.
+  {
+    let worstBase = 0, onBand = 0, backward = true;
+    const r = fuelArc.flameRadius();
+    for (const t of [0.1, 0.3, 0.5, 0.7, 0.9]) {
+      const a = fuelArc.flameAngle(t) * Math.PI / 180, p = fuelArc.pointAt(t), w = fuelArc.widthAt(t);
+      const turn = ([x, y]) => [CAP.x + (x - CAP.x) * Math.cos(a) - (y - CAP.y) * Math.sin(a),
+        CAP.y + (x - CAP.x) * Math.sin(a) + (y - CAP.y) * Math.cos(a)];
+      const [bx, by] = turn(fuelArc.bendFlame(0, 0));
+      worstBase = Math.max(worstBase, Math.hypot(bx - (p.x + p.nx * w / 2), by - (p.y + p.ny * w / 2)));
+      const [tx, ty] = turn(fuelArc.bendFlame(10, 0));
+      onBand = Math.max(onBand, Math.abs(Math.hypot(tx - CAP.x, ty - CAP.y) - r));
+      const ahead = fuelArc.pointAt(t + 0.02);
+      if ((ahead.x - p.x) * (tx - bx) + (ahead.y - p.y) * (ty - by) <= 0) backward = false;
+    }
+    check('fuel gauge: the fuse flame starts on the front and lies along the band over the spent fuel',
+      worstBase < 0.01 && onBand < 1e-9 && backward, `base off by ${worstBase}, off the band by ${onBand}, backward ${backward}`);
+  }
+  check('fuel gauge: the siren sits on the gauge\'s outer edge, both gaps',
+    cssOut === out && cssClassic === classicOut, `css ${cssOut}/${cssClassic}, arc ${out}/${classicOut}`);
 }
 
 // --- The Punch It pill's fill animation -------------------------------------
@@ -19918,6 +20020,62 @@ let chopperOrder; // likewise
       `${hits} hits, hp ${cTaxi.hp}`);
   }
 
+  // --- Crushin' It: Big Air coming down on a car wrecks the car and not the taxi.
+  //
+  // The taxi 2 units short of touchdown at the kick's speed, with a car parked under its landing
+  // point (`ahead` units in front of it, along the same lane). Run for two seconds.
+  {
+    const crushRun = ({ ahead = 1.4, truck = false, classic = false } = {}) => {
+      setCrush(classic ? 'classic' : null);
+      const pTraffic = createTraffic(makeRng(seed + 96), new THREE.Scene(), 2);
+      const pTaxi = pTraffic.taxi;
+      const other = pTraffic.cars.find((c) => c !== pTaxi);
+      if (truck) other.isTruck = true;
+      const d = [DIR.PX, DIR.NX, DIR.PZ, DIR.NZ].find((dd) => placeCar(pTaxi, dd, 2, 2, 14));
+      placeCar(other, d, 2, 2, 14 - ahead);
+      other.v = 0;
+      pTaxi.parked = false;
+      pTaxi.boost = true;
+      pTaxi.hp = TAXI_HP;
+      pTaxi.v = 31;
+      pTaxi.hopFrom = pTaxi.travelled - DRIFT_LAUNCH_LEN * 0.9;
+      pTaxi.hopBig = true;
+      const pCollisions = createCollisions(pTraffic.cars, pTaxi);
+      const out = { crush: 0, bumps: 0, wrecks: 0, from: pTaxi.travelled, minV: Infinity };
+      pCollisions.onCrush(() => { out.crush += 1; });
+      pCollisions.onBump(() => { out.bumps += 1; });
+      pCollisions.onImpact(() => { out.wrecks += 1; });
+      for (let f = 0; f < 120; f++) {
+        pTraffic.update(1 / 60);
+        pCollisions.update(1 / 60);
+        out.minV = Math.min(out.minV, pTaxi.v);
+      }
+      out.hp = pTaxi.hp;
+      out.moved = pTaxi.travelled - out.from;
+      out.otherCrashed = other.crashed === true;
+      out.taxiCrashed = pTaxi.crashed === true;
+      pTraffic.dispose?.();
+      setCrush(null);
+      return out;
+    };
+    const p = crushRun();
+    check("Big Air coming down on a car is Crushin' It: one crush, no bump, no wreck, no HP lost",
+      p.crush === 1 && p.bumps === 0 && p.wrecks === 0 && p.hp === TAXI_HP && !p.taxiCrashed,
+      `crush ${p.crush}, bumps ${p.bumps}, wrecks ${p.wrecks}, hp ${p.hp}`);
+    check('...the car underneath is wrecked, and the taxi drives on at speed',
+      p.otherCrashed && p.minV > 25 && p.moved > 50,
+      `car crashed ${p.otherCrashed}, slowest ${p.minV.toFixed(1)} u/s, ${p.moved.toFixed(1)} units in 2s`);
+    const truck = crushRun({ truck: true });
+    check('a truck under the landing is still a hit', truck.crush === 0 && truck.hp < TAXI_HP,
+      `crush ${truck.crush}, hp ${truck.hp}`);
+    const far = crushRun({ ahead: 7 });
+    check('...and a car a few units past the touchdown is not landed on, so is not crushed',
+      far.crush === 0 && !far.otherCrashed, `crush ${far.crush}, hp ${far.hp}`);
+    const classic = crushRun({ classic: true });
+    check('?crush=classic charges the landing as a hit again', classic.crush === 0 && classic.hp < TAXI_HP,
+      `crush ${classic.crush}, hp ${classic.hp}`);
+  }
+
   // --- Nothing paints a stop bar on the bridge.
   //
   // A signal in this game is a bar across the lane, and a junction arm is trimmed to the crossing
@@ -19962,8 +20120,15 @@ let chopperOrder; // likewise
       harborBasin() ? 0 : Math.abs(waterHeightAt(rBanks ? coastEast() : 0)));
     check('the channel is at full depth down the length of the city',
       Math.abs(mid - WATER_Y) < 1e-9, `${mid.toFixed(2)} against ${WATER_Y}`);
-    check('and has risen to meet the ground by the coast',
-      Math.abs(coast) < 1e-9, `${coast.toFixed(3)} at the coast`);
+    if (EDGE_FOG) {
+      // Under the fog of war the river runs on flat into the clouds: no shoal, so the water is at
+      // full depth at the coast too (Tyler, 2026-10-20: "Don't have the water slope up").
+      check('under the fog the water stays flat out through the coast',
+        Math.abs(coast - Math.abs(WATER_Y)) < 1e-9, `${coast.toFixed(3)} deep at the coast`);
+    } else {
+      check('and has risen to meet the ground by the coast',
+        Math.abs(coast) < 1e-9, `${coast.toFixed(3)} at the coast`);
+    }
     // Monotonic, or the shoal has a dip in it that would pond.
     let climbs = true;
     for (let x = 0; x < SLAB_X / 2; x += 0.5) {
@@ -19987,6 +20152,21 @@ let chopperOrder; // likewise
       `reaches ${reach.toFixed(1)} against a band ending at ${(SLAB_X / 2 + EDGE_FADE).toFixed(1)}`);
     check('and never climbs above the ground it is fading into', above === 0,
       `${above} vertices over y = 0`);
+    if (EDGE_FOG && rBanks) {
+      // The walls have to run on past the coast into solid fog, or their ends stand in the fog's
+      // thinnest billows and the channel reads as stopping. Solid fog: FOG_END + FOG_BILLOW past
+      // the ring road's outer kerb, along x.
+      const sp = rGeo.shell.geometry.attributes.position;
+      let west = 0;
+      for (let k = 0; k < sp.count; k++) west = Math.min(west, sp.getX(k));
+      const solid = FOG_HALF_X + FOG_END + FOG_BILLOW;
+      check('under the fog the channel walls run on into solid fog', -west >= solid,
+        `walls reach x = ${west.toFixed(1)}, fog solid past ${(-solid).toFixed(1)}`);
+      const wa = rGeo.water.geometry.attributes.color;
+      let clear = 0;
+      for (let k = 0; k < wa.count; k++) if (wa.getW(k) < 1) clear += 1;
+      check('and the water stays opaque for the fog to take', clear === 0, `${clear} vertices see-through`);
+    }
 
     // The surface patch (city/riverwater.js), run against three's *real* Lambert source rather than
     // a stub, because every one of its five replaces is the silent kind: a chunk that moved leaves
