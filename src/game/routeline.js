@@ -976,5 +976,7 @@ export function createRouteLine(scene) {
     replaySweep,
     blend: () => blendName,
     hide: () => { mesh.visible = false; },
+    /** How strongly the band is laid down — the street racer's ghost route wears a fainter one. */
+    setOpacity: (v) => { material.uniforms.uOpacity.value = v; },
   };
 }

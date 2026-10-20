@@ -201,16 +201,17 @@ const STRIPE_T = 0.03;          // half of it buried, so its underside never sha
 
 // The underglow: a pad of light on the road under the car, solid under the body and fading to
 // nothing GLOW_REACH outside it. Sized at play zoom (1 unit ≈ 7.7px): the body hides the middle,
-// so what reads is the fringe, and 1.1 of it is ~8px all round. Rounded rather than boxed — a
-// superellipse (`GLOW_ROUND`) traced in GLOW_SEGMENTS, with the falloff stepped through
-// GLOW_RINGS so it eases out instead of ramping straight to nothing. The first cut was a
-// rectangle and a straight ramp, and its corners read as hard diagonals (Tyler: "really angular").
-const GLOW_REACH = 1.1;
+// so what reads is the fringe, and 0.8 of it is ~6px all round — a crisp halo. Rounded rather than
+// boxed: a superellipse (`GLOW_ROUND`) traced in GLOW_SEGMENTS, because the first cut's rectangle
+// read as hard diagonals at the corners (Tyler: "really angular"). The ramp out is a straight one:
+// a 1.1-unit reach eased through four rings on a squared curve was tried and read as blurry
+// (Tyler: "I like the old less blurry lights better").
+const GLOW_REACH = 0.8;
 const GLOW_INSET = 0.15;
 const GLOW_Y = 0.05;
 const GLOW_ROUND = 3;
 const GLOW_SEGMENTS = 40;
-const GLOW_RINGS = 4;
+const GLOW_RINGS = 1;
 
 /** The rival's body: an ordinary car's, in its own paint, with a wing on the boot. */
 function rivalBodyGeometry() {
@@ -255,8 +256,8 @@ function stripeGeometry() {
 }
 
 /**
- * The underglow's pad: a rounded core under the body at full strength, and rings around it fading
- * to transparent across GLOW_REACH on a squared curve. Alpha rides a four-component colour
+ * The underglow's pad: a rounded core under the body at full strength, and a ring around it fading
+ * to transparent across GLOW_REACH. Alpha rides a four-component colour
  * attribute; every triangle is wound to face up, and `tools/probe.mjs` checks it does (see the
  * winding traps in CLAUDE.md — on an unlit material a reversed triangle does not draw at all).
  */
@@ -290,7 +291,7 @@ export function underglowGeometry() {
   const rings = [];
   for (let n = 0; n <= GLOW_RINGS; n++) {
     const t = n / GLOW_RINGS;
-    rings.push(ring(t * GLOW_REACH, (1 - t) ** 2));
+    rings.push(ring(t * GLOW_REACH, 1 - t));
   }
   const centre = [0, 0, 1];
   const core = rings[0];

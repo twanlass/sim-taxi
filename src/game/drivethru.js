@@ -205,7 +205,10 @@ export function createDriveThru({ site, cars, rng }) {
   // used to take one like any other — including mid-chase, strobing, which then sat in the queue
   // for its order while the taxi it was after drove off. A cop pulled into the lot also stops
   // being a lane car, and game/patrol.js and `leavePolice` both expect theirs on a road.
-  const eligible = (car) => !car.isTaxi && !car.police && atTheMouth(car);
+  // Nor a guest (`enterGuest`: the fire engine, the street racer): each is driven by a module of its
+  // own that expects it on the road, and the racer, tailing the taxi past the burger joint, was
+  // pulled into the queue and sat there waiting for a burger mid-offer.
+  const eligible = (car) => !car.isTaxi && !car.police && !car.guest && atTheMouth(car);
 
   /** Has this one just been through? */
   const fedRecently = (car) => clock - (fed.get(car) ?? -Infinity) < FED_COOLDOWN;
@@ -466,8 +469,8 @@ export function createDriveThru({ site, cars, rng }) {
       if (spot.s < enterS || queue.length >= CAPACITY) break;
       // Any car that is on a road and not the player's. Unlike the live path this does not care
       // which road or which way — a still has no continuity to keep.
-      const car = cars.find((c) => !c.isTaxi && !c.isTruck && !c.police && !c.crashed && !c.staged
-        && c.state === 'drive');
+      const car = cars.find((c) => !c.isTaxi && !c.isTruck && !c.police && !c.guest && !c.crashed
+        && !c.staged && c.state === 'drive');
       if (!car) break;
       const pose = poseAt(spot.s);
       stageCar(car, pose.x, pose.z, pose.yaw);

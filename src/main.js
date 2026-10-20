@@ -2539,6 +2539,17 @@ const routeLine = createRouteLine(scene);
 // headless: 3,128 mirror pixels at its own height, none 0.5mm lower. On a phone that tie flipped as
 // the camera moved and the band flashed in every wet street and puddle it crossed.
 rain.hideInMirror(routeLine.mesh);
+// The street racer's route, from the green to the line (Tyler: "a ghost path for the racer too so
+// we can see their charted path"): the same band, in the racer's violet and fainter than the
+// taxi's, so the two can cross without the player losing which one is theirs.
+// 0.22 against the taxi's ROUTE_OPACITY 0.38: where the two bands overlap, the taxi's still reads on top.
+const RIVAL_LINE_OPACITY = 0.22;
+const rivalLine = race ? createRouteLine(scene) : null;
+if (rivalLine) {
+  rivalLine.setColor(PALETTE.racerBody);
+  rivalLine.setOpacity(RIVAL_LINE_OPACITY);
+  rain.hideInMirror(rivalLine.mesh);
+}
 
 // `?blend=additive` picks how the band combines with the road. A URL parameter as well as the
 // ⚙️ dropdown because a screenshot has to be able to pin it: the panel doesn't exist in shot mode.
@@ -6405,6 +6416,9 @@ function tick() {
   } else {
     routeLine.hide();
   }
+  const rivalCar = race?.state.phase === 'racing' ? race.state.car : null;
+  if (rivalCar && !fares.state.gameOver) rivalLine.update(rivalCar, rivalCar.route, dt);
+  else rivalLine?.hide();
 
   layRubber(dt);
   wetTyres(dt);

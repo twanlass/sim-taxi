@@ -2553,8 +2553,12 @@ full, swells the pad by `GLOW_SWELL` (60%) and runs the colour hot by `GLOW_HOT`
 65% to full, was too little to see on a phone. Against its own average, so a quiet song pulses as
 well as a loud one; with no music at all (muted, or between songs) it holds at `GLOW_IDLE`. Tuned
 offline on the four in-game songs to about one flare a beat (see the constants). The pad itself
-is a superellipse with its falloff eased through four rings, not the rectangle and straight ramp
-it started as, whose corners read as hard diagonals.
+is a superellipse with a straight 0.8-unit ramp out: the first rectangle's corners read as hard
+diagonals, and a wider pad eased through four rings read as blurry.
+
+**The racer's route shows while the race runs.** A second route band, in the racer's violet at
+`RIVAL_LINE_OPACITY` (0.22, against the taxi's 0.38), draws the way it is driving to the flag, so the
+player can see which streets it has picked and race a different line.
 
 ### The rival is a car in traffic
 
