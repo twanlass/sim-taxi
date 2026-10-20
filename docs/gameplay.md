@@ -2971,7 +2971,9 @@ CSS variable, dropping as you drain and climbing as a drop-off pours fuel in.
 
 **The bar burns like a fuse while Loco is on.** The tailpipe's own flame (`tongueOutline`, its three
 tongues and four frames at the plume's 16fps) burns off the fuel's front, lying along the bar and
-bent to it, trailing back over the fuel already spent the way the plume trails the taxi. It grows
+bent to it, trailing back over the fuel already spent the way the plume trails the taxi. It is
+about as wide as the bar and fades in from clear, its base starting a little way back inside the
+fuel, so it rises out of the bar rather than sitting on the end of it. It grows
 and goes out on the plume's own envelope (`locoFlame.state.heat`) and is always Loco orange
 (`drawFuseFlame` in main.js, `bendFlame`/`flameAngle` in game/fuelarc.js). Only the front burns. A
 bar on fire end to end would read the same full as empty, and it sits under both thumbs (Tyler,

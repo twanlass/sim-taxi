@@ -197,6 +197,8 @@
         stroke: #fff; stroke-width: 2.5; stroke-linecap: round; opacity: 0.95;
       }
       #boost-meter .boost-glint[hidden] { display: none; }
+      /* Under the fuse flame the white line is a hard edge right where the flame fades in. */
+      #boost-meter.is-fuse .boost-glint { display: none; }
       #boost-meter.is-empty .boost-glint { opacity: 0.5; }
       /* The leading edge of a pour: a soft bright dot riding the fuel's front, faded in and out by
          the same envelope. The softness is a radial gradient rather than a CSS `blur()`, because a
@@ -215,9 +217,8 @@
          the same full as empty, and it sits under the player's thumbs. `?locobar=classic` is the
          plain bar. */
       #boost-meter .boost-flame { pointer-events: none; }
-      #boost-meter .boost-flame .t0 { fill: #FF5D18; }
-      #boost-meter .boost-flame .t1 { fill: #FF9E12; }
-      #boost-meter .boost-flame .t2 { fill: #FFF6D8; }
+      /* The tongues' colours are gradients main.js builds (`fuse-fade-*`), clear at the base and
+         solid a little way along, so the flame grows out of the fuel instead of sitting on it. */
       #boost-meter .boost-flame .f { visibility: hidden; animation: combo-flame-frame 0.25s step-end infinite; }
       @media (prefers-reduced-motion: reduce) {
         #boost-meter .boost-flame .f { animation: none; }

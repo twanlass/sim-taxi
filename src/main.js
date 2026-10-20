@@ -3975,26 +3975,34 @@ function drawFuelArc(level) {
 // only while it burns: a parked tank writes nothing. `?locobar=classic` goes without.
 const fuseFlame = new URLSearchParams(window.location.search).get('locobar') !== 'classic'
   ? boostMeterEl?.querySelector('.boost-flame') : null;
-// In the button's viewBox units: the outer tongue 56 long and 2.1x the plume's own width, so it
-// licks a little past both edges of the 16-wide band. Standing up off the bar it was 38 at 1.7x
-// (and 26 at 1.25x before that, which read on a phone as a red tick); laid along the bar the same
-// size read as a stub, hemmed in by the track. At this size a true-to-plume tongue is a dart, the
-// combo flame's reason for its own stretch. Its
-// base sits on the fuel's front and it lies along the band, bent to it (game/fuelarc.js
-// `bendFlame`); standing up off the crown, as it first did, it cleared the crown by ~32 units, which
-// is what the gauge's SVG box was grown by.
-const FUSE_LEN = 56;
-const FUSE_WIDE = 2.1;
+// In the button's viewBox units: the outer tongue 40 long and 1.4x the plume's own width, which puts
+// it ~15 across where the fade lets it show and ~20 at its widest, against the 16-wide band (Tyler,
+// 2026-10-20: "base roughly the width of the bar"; 1.2x read as a sliver once the base faded). The cut before was 56 at 2.1x, 41 across, and sat on the bar
+// like a sticker.
+const FUSE_LEN = 40;
+const FUSE_WIDE = 1.4;
+// The base starts FUSE_SINK units back inside the fuel and comes in over FUSE_FADE, from clear to
+// solid, so the flame rises out of the bar rather than starting at a hard edge on its end.
+const FUSE_SINK = 6;
+const FUSE_FADE = 14;
 if (fuseFlame) {
   const k = FUSE_LEN / FLAME_LEN;
-  fuseFlame.innerHTML = Array.from({ length: FLAME_FRAMES }, (_, f) => {
+  // One gradient per tongue, in the flame's own drawn space: the base sits at screen angle 0, where
+  // `s` runs straight down the page, so the fade is a vertical ramp from the sunk base. The bend
+  // over 14 units of a ~99 radius is under 1 unit, which a fade does not show.
+  const colors = [PALETTE.locoFlameOuter, PALETTE.locoFlameMid, PALETTE.locoFlameCore];
+  const y0 = FUEL_CAP.y - FUSE_SINK, y1 = y0 + FUSE_FADE;
+  const defs = colors.map((c, layer) =>
+    `<linearGradient id="fuse-fade-${layer}" gradientUnits="userSpaceOnUse" x1="0" y1="${y0}" x2="0" y2="${y1}">`
+    + `<stop stop-color="${c}" stop-opacity="0"/><stop offset="1" stop-color="${c}"/></linearGradient>`).join('');
+  fuseFlame.innerHTML = `<defs>${defs}</defs>` + Array.from({ length: FLAME_FRAMES }, (_, f) => {
     const outline = tongueOutline((f / FLAME_FRAMES) * Math.PI * 2);
     const paths = FLAME_LAYER_SCALES.map(([len, wide], layer) => {
       const d = outline.map(([u, y], i) => {
-        const [x, yy] = fuelBendFlame(u * len * FLAME_LEN * k, y * wide * k * FUSE_WIDE);
+        const [x, yy] = fuelBendFlame(u * len * FLAME_LEN * k - FUSE_SINK, y * wide * k * FUSE_WIDE);
         return `${i ? 'L' : 'M'}${x.toFixed(2)} ${yy.toFixed(2)}`;
       }).join('') + 'Z';
-      return `<path class="t${layer}" d="${d}"/>`;
+      return `<path class="t${layer}" fill="url(#fuse-fade-${layer})" d="${d}"/>`;
     }).join('');
     return `<g class="f" style="animation-delay:${(f * FLAME_FRAME_TIME).toFixed(4)}s">${paths}</g>`;
   }).join('');
@@ -4014,7 +4022,10 @@ function drawFuseFlame(level) {
       + `translate(${bx} ${by}) scale(${heat.toFixed(3)}) translate(-${bx} -${by})`;
   }
   if (tf !== fuseDrawn) {
-    if (!tf !== !fuseDrawn) fuseFlame.style.display = tf ? '' : 'none';
+    if (!tf !== !fuseDrawn) {
+      fuseFlame.style.display = tf ? '' : 'none';
+      boostMeterEl.classList.toggle('is-fuse', !!tf);
+    }
     fuseDrawn = tf;
     if (tf) fuseFlame.setAttribute('transform', tf);
   }
