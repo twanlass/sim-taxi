@@ -47,7 +47,7 @@ export const COMBO_STEPS = {
   // Big Air coming down on a car (sim/collisions.js `crush`). On top of Big Air's +2 rather than
   // instead of it, and only a step: where the landing falls is mostly luck, so it is the spectacle
   // that is big rather than the payout.
-  pancake: { label: 'Pancake', step: 1 },
+  crush: { label: 'Crushin\' It', step: 1 },
 };
 
 /** The meter's scope: 'run' when `?combo=run` asks for it, 'meter' otherwise. */

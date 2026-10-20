@@ -64,7 +64,7 @@ import { createBurgerRun } from '../src/game/burgerrun.js';
 import { createOvertakeCombo, OVERTAKE_BLIP_MS, OVERTAKE_GRACE } from '../src/game/overtake.js';
 import { createOpening, exitPath, entryPath, REPAIR_GAP } from '../src/game/opening.js';
 import { createDepotRun } from '../src/game/depotrun.js';
-import { spinTaxi, driftTaxi, kickDrift, DRIFT_KICK_WINDOW, DRIFT_MIN_V, DRIFT_ANGLE, DRIFT_EXIT, DRIFT_CHAIN, createTraffic, lightPhase, displayPhase, setPriorityJunction, isUnsignalised, ringAxisAt, placeCar, approachRoom, setClosedLanes, isLaneClosed, ROAD_Y, HOP_LEN, DRIFT_LAUNCH_LEN, DRIFT_LAUNCH_HEIGHT, onDriftLaunch, pancakeSquash, PANCAKE_HOLD, PANCAKE_END, setBarrelRoll, setHopStyle, setDodge, setOvertakeStyle, HOP_MIN_V, STOP_SETBACK, SIGNAL_LEAD, SIGNAL_LINGER, wheelAnchors, WHEEL_R, STEER_MAX, SPEED, CAR_LEN, CAR_W, landingBounce, landingRoll, BOUNCE_DUR, TRUCK_W, SPAWN_CLEARANCE, POLICE_FLEET,
+import { spinTaxi, driftTaxi, kickDrift, DRIFT_KICK_WINDOW, DRIFT_MIN_V, DRIFT_ANGLE, DRIFT_EXIT, DRIFT_CHAIN, createTraffic, lightPhase, displayPhase, setPriorityJunction, isUnsignalised, ringAxisAt, placeCar, approachRoom, setClosedLanes, isLaneClosed, ROAD_Y, HOP_LEN, DRIFT_LAUNCH_LEN, DRIFT_LAUNCH_HEIGHT, onDriftLaunch, setBarrelRoll, setHopStyle, setDodge, setOvertakeStyle, HOP_MIN_V, STOP_SETBACK, SIGNAL_LEAD, SIGNAL_LINGER, wheelAnchors, WHEEL_R, STEER_MAX, SPEED, CAR_LEN, CAR_W, landingBounce, landingRoll, BOUNCE_DUR, TRUCK_W, SPAWN_CLEARANCE, POLICE_FLEET,
   LOCO_DEFAULTS, locoTuning, setLocoTuning, resetLocoTuning, locoRamp, boostCruise, overdriveTop, MPH_PER_UNIT, locoWeave, locoWeaveFade, MIN_GAP, ENVELOPE, CIRCLE_OFFSET, DODGE_MARGIN, carGeometry, CABIN_TOP, copLaysRubber, uturnWindow } from '../src/sim/traffic.js';
 import { loadLocoTuning, saveLocoTuning, clearLocoTuning } from '../src/game/locostash.js';
 import { createRoadwork, BARRIER_S, CONE_ROW } from '../src/game/roadwork.js';
@@ -85,7 +85,7 @@ import { barricadeParts, spoilParts, RAMP_RUN, RAMP_H, WORKS_Y, TRENCH_Y, SPLINT
 import {
   findRoute as planRoute, setRoadworkLanes, setBlockedLanes, setHazardLanes, laneCost, serviceLaneCost,
 } from '../src/game/route.js';
-import { createCollisions, TAXI_HP, bumpDamage, penetration, setPancake } from '../src/sim/collisions.js';
+import { createCollisions, TAXI_HP, bumpDamage, penetration, setCrush } from '../src/sim/collisions.js';
 import { createTaxiDamage } from '../src/game/taxidamage.js';
 import { createCarDamage } from '../src/game/cardamage.js';
 import { BUMPER_H as BUMPER_H_PROBE, bumperLength as bumperLengthProbe } from '../src/geometry/bumpers.js';
@@ -19918,13 +19918,13 @@ let chopperOrder; // likewise
       `${hits} hits, hp ${cTaxi.hp}`);
   }
 
-  // --- The Pancake: Big Air coming down on a car flattens it rather than wrecking the taxi.
+  // --- Crushin' It: Big Air coming down on a car wrecks the car and not the taxi.
   //
   // The taxi 2 units short of touchdown at the kick's speed, with a car parked under its landing
-  // point (`ahead` units in front of it, along the same lane). Run until the car should be back up.
+  // point (`ahead` units in front of it, along the same lane). Run for two seconds.
   {
-    const pancakeRun = ({ ahead = 1.4, truck = false, classic = false } = {}) => {
-      setPancake(classic ? 'classic' : null);
+    const crushRun = ({ ahead = 1.4, truck = false, classic = false } = {}) => {
+      setCrush(classic ? 'classic' : null);
       const pTraffic = createTraffic(makeRng(seed + 96), new THREE.Scene(), 2);
       const pTaxi = pTraffic.taxi;
       const other = pTraffic.cars.find((c) => c !== pTaxi);
@@ -19939,45 +19939,38 @@ let chopperOrder; // likewise
       pTaxi.hopFrom = pTaxi.travelled - DRIFT_LAUNCH_LEN * 0.9;
       pTaxi.hopBig = true;
       const pCollisions = createCollisions(pTraffic.cars, pTaxi);
-      const out = { crush: 0, bumps: 0, wrecks: 0, bounced: false, flatAt: null, from: pTaxi.travelled };
+      const out = { crush: 0, bumps: 0, wrecks: 0, from: pTaxi.travelled, minV: Infinity };
       pCollisions.onCrush(() => { out.crush += 1; });
       pCollisions.onBump(() => { out.bumps += 1; });
       pCollisions.onImpact(() => { out.wrecks += 1; });
-      for (let f = 0; f < Math.ceil((PANCAKE_END + 0.4) * 60); f++) {
+      for (let f = 0; f < 120; f++) {
         pTraffic.update(1 / 60);
         pCollisions.update(1 / 60);
-        if (pTaxi.hopFrom != null && pTaxi.hopBig === false) out.bounced = true;
-        if (f === 20 && other.pancake) out.flatAt = other.pancake.t;
-        if (f === 120) out.moved = pTaxi.travelled - out.from;
+        out.minV = Math.min(out.minV, pTaxi.v);
       }
       out.hp = pTaxi.hp;
-      out.cleared = other.pancake;
+      out.moved = pTaxi.travelled - out.from;
+      out.otherCrashed = other.crashed === true;
+      out.taxiCrashed = pTaxi.crashed === true;
       pTraffic.dispose?.();
-      setPancake(null);
+      setCrush(null);
       return out;
     };
-    const p = pancakeRun();
-    check('Big Air coming down on a car is a Pancake: one crush, no bump, no wreck, no HP lost',
-      p.crush === 1 && p.bumps === 0 && p.wrecks === 0 && p.hp === TAXI_HP,
+    const p = crushRun();
+    check("Big Air coming down on a car is Crushin' It: one crush, no bump, no wreck, no HP lost",
+      p.crush === 1 && p.bumps === 0 && p.wrecks === 0 && p.hp === TAXI_HP && !p.taxiCrashed,
       `crush ${p.crush}, bumps ${p.bumps}, wrecks ${p.wrecks}, hp ${p.hp}`);
-    check('...the taxi bounces off its roof and drives on rather than stopping on it',
-      p.bounced && p.moved > 40, `bounced ${p.bounced}, ${p.moved.toFixed(1)} units in 2s`);
-    check('...and the car is still flat a third of a second later, then gone back to normal',
-      p.flatAt != null && p.cleared === null, `flat at ${p.flatAt}, after ${JSON.stringify(p.cleared)}`);
-    const flat = pancakeSquash(1);
-    const popped = pancakeSquash(PANCAKE_END);
-    const peak = Math.max(...Array.from({ length: 30 }, (_, k) => pancakeSquash(PANCAKE_HOLD + k * 0.02).y));
-    check('the squash goes flat, boings past full height on the way back, and ends at exactly 1',
-      flat.y < 0.35 && flat.xz > 1.2 && peak > 1.2 && popped.y === 1 && popped.xz === 1,
-      `flat ${flat.y.toFixed(2)}×${flat.xz.toFixed(2)}, peak ${peak.toFixed(2)}, end ${popped.y}`);
-    const truck = pancakeRun({ truck: true });
+    check('...the car underneath is wrecked, and the taxi drives on at speed',
+      p.otherCrashed && p.minV > 25 && p.moved > 50,
+      `car crashed ${p.otherCrashed}, slowest ${p.minV.toFixed(1)} u/s, ${p.moved.toFixed(1)} units in 2s`);
+    const truck = crushRun({ truck: true });
     check('a truck under the landing is still a hit', truck.crush === 0 && truck.hp < TAXI_HP,
       `crush ${truck.crush}, hp ${truck.hp}`);
-    const far = pancakeRun({ ahead: 7 });
-    check('...and a car a few units past the touchdown is not landed on, so is not a Pancake',
-      far.crush === 0, `crush ${far.crush}, hp ${far.hp}`);
-    const classic = pancakeRun({ classic: true });
-    check('?pancake=classic charges the landing as a hit again', classic.crush === 0 && classic.hp < TAXI_HP,
+    const far = crushRun({ ahead: 7 });
+    check('...and a car a few units past the touchdown is not landed on, so is not crushed',
+      far.crush === 0 && !far.otherCrashed, `crush ${far.crush}, hp ${far.hp}`);
+    const classic = crushRun({ classic: true });
+    check('?crush=classic charges the landing as a hit again', classic.crush === 0 && classic.hp < TAXI_HP,
       `crush ${classic.crush}, hp ${classic.hp}`);
   }
 

@@ -1,6 +1,6 @@
 import {
   CAR_LEN, TRUCK_LEN, CIRCLE_R, circleOffsetOf, knockCar, shoveCar,
-  onDriftLaunch, hopProgress, DRIFT_LAUNCH_HEIGHT, DRIFT_LAUNCH_CLEAR, launchHop, PANCAKE_HOLD,
+  onDriftLaunch, hopProgress, DRIFT_LAUNCH_HEIGHT, DRIFT_LAUNCH_CLEAR,
 } from './traffic.js';
 
 // Collision detection between the taxi and ambient cars. Deliberately narrow: only the taxi is
@@ -188,14 +188,18 @@ export function contact(a, b) {
 // every frame of the shove — and a separation shorter than this is the same contact flickering.
 const REHIT = 0.35;          // s
 
-// --- The Pancake -----------------------------------------------------------------
+// --- Crushin' It -------------------------------------------------------------------
 //
-// Big Air coming down on a car (Tyler, 2026-10-20: "we should treat it like a super special move").
-// It used to be the overdrive band's head-on — the taxi arrives at the kick's ~31 u/s, so closing
-// was 30+ and the landing was 49–55 HP or the wreck. Now it flattens the car instead: the struck
-// car squashes, sits stunned and pops back up (`pancakeSquash` in traffic.js), the taxi takes no
-// damage and bounces off the roof in an ordinary hop, and the combo meter gets a step on top of
-// Big Air's. `?pancake=classic` charges the landing as a hit again.
+// Big Air coming down on a car (Tyler, 2026-10-20: "we should treat it like a super special move",
+// then "make the car you land on explode. Taxi takes no damage and continues"). It used to be the
+// overdrive band's head-on — the taxi arrives at the kick's ~31 u/s, so closing was 30+ and the
+// landing was 49–55 HP or the wreck. Now only the car underneath is wrecked: it is `crashed` here,
+// which takes it out of the sim for good, and main.js blows it up and consumes its shell
+// (game/vanish.js) so the road is clear behind the taxi. The taxi is not touched — no HP, no
+// speed lost, no knock — and the combo meter gets a step on top of Big Air's.
+// `?crush=classic` charges the landing as a hit again.
+//
+// A first cut (the "Pancake") squashed the car flat and let it pop back up; Tyler wanted the bang.
 //
 // "Landing on" is the descent of the drift launch — collisions are only tested at all below
 // DRIFT_LAUNCH_CLEAR, so in practice the last ~5% of the arc — plus CRUSH_AFTER of road past the
@@ -204,24 +208,24 @@ const REHIT = 0.35;          // s
 // met further on is the taxi driving into it, which is still a hit.
 //
 // Not a truck: its box stands 2.7 tall, and the taxi coming down on it is a car flying into a wall.
-// Not anything drawn by somebody else's mesh (the patrol cruiser, the racer, a guest) — the squash
-// is a scale on the ambient instance and their meshes would not wear it — nor a staged car.
+// Not anything drawn by somebody else's mesh (the patrol cruiser, the racer, a guest), whose owners
+// run their own lives and would be left holding a car the sim had dropped — nor a staged car.
 const CRUSH_AFTER = CAR_LEN;
-let pancakeOn = true;
+let crushOn = true;
 
-/** `?pancake=classic` makes a Big Air landing on a car an ordinary hit again. */
-export function setPancake(name) {
-  pancakeOn = name !== 'classic';
+/** `?crush=classic` makes a Big Air landing on a car an ordinary hit again. */
+export function setCrush(name) {
+  crushOn = name !== 'classic';
 }
 
 /** Whether the taxi is coming down on whatever it touches, rather than driving into it. */
 export function crushing(taxi) {
-  if (!pancakeOn) return false;
+  if (!crushOn) return false;
   if (onDriftLaunch(taxi)) return hopProgress(taxi) > 0.5;
   return taxi.slamAt != null && taxi.travelled - taxi.slamAt < CRUSH_AFTER;
 }
 
-/** Whether `car` can be flattened: an ordinary car or cop in the ambient instances. */
+/** Whether `car` can be crushed: an ordinary car or cop in the ambient instances. */
 export const crushable = (car) => !car.isTruck && !car.skin && !car.guest && !car.staged
   && !car.isTaxi && !car.crashed;
 
@@ -267,16 +271,13 @@ export function createCollisions(cars, taxi, { lethalPolice = false } = {}) {
     for (const other of cars) {
       if (other === taxi) continue;
       if (other.crashed) continue;
-      // Flattened, the car is a thing on the road the taxi drives over — including on the bounce
-      // that comes straight off it.
-      if (other.pancake) continue;
       // Cheap broad phase before the circle-vs-circle work — wide enough for a truck.
       const reach = (CAR_LEN + TRUCK_LEN) / 2 + CIRCLE_R;
       if (Math.abs(other.x - taxi.x) > reach || Math.abs(other.z - taxi.z) > reach) continue;
       const pen = penetration(taxi, other);
       if (!pen) continue;
 
-      // Come down on it from Big Air: flatten it, armed or not — the drift launch flies at full
+      // Come down on it from Big Air: wreck it, armed or not — the drift launch flies at full
       // power however the pill is held, so `boost` says nothing about how hard this landed.
       if (crushing(taxi) && crushable(other)) {
         crush(other, pen);
@@ -389,16 +390,9 @@ export function createCollisions(cars, taxi, { lethalPolice = false } = {}) {
 
   function crush(other, pen) {
     const speed = taxi.v;
-    other.pancake = { t: 0 };
+    other.crashed = true;
     other.v = 0;
-    other.stun = Math.max(other.stun ?? 0, PANCAKE_HOLD);
-    other.braking = true;
-    lastTouch.set(other, clock);
-    // Off the roof. Still in the air, the bounce is owed to the touchdown (traffic.js reads
-    // `pancakeBounce` there); already down, it goes now. `launchHop` is a no-op mid-arc either way.
     const airborne = onDriftLaunch(taxi);
-    if (airborne) taxi.pancakeBounce = true;
-    else launchHop(taxi);
     for (const cb of crushListeners) {
       cb({ x: pen.cx, z: pen.cz, speed, taxi, other, airborne });
     }

@@ -45,7 +45,8 @@ import {
   onDriftLaunch, hopProgress, setSpinStyle, setBarrelRoll, setPassTurnGate, setPassPace, setHopStyle, setDodge, setOvertakeStyle,
   configureSignals, setGrip, setRunningLights, setRunningLightsAt, runningLightsAt, isLaneClosed,
 } from './sim/traffic.js';
-import { createCollisions, TAXI_HP, setPancake } from './sim/collisions.js';
+import { createCollisions, TAXI_HP, setCrush } from './sim/collisions.js';
+import { createVanish } from './game/vanish.js';
 import { createPolice } from './sim/police.js';
 import {
   createFareSystem, cornerFor, kerbFor, setFareSeconds, getFareSeconds, isFareClockPinned, BURGER_PRICE, REPAIR_PRICE,
@@ -1919,10 +1920,10 @@ traffic.onTaxiLand(({ x, z, yaw, v, deck, big }) => {
   // helipad's downdraft is, which is what reads as weight arriving rather than exhaust.
   if (big) {
     if (!fares.state.gameOver) landCombo('launch');
-    // Came down on a car on the way: the Pancake is called after the Big Air it was the end of.
-    if (pancakeOwed) {
-      pancakeOwed = false;
-      if (!fares.state.gameOver) landCombo('pancake');
+    // Came down on a car on the way: Crushin' It is called after the Big Air it was the end of.
+    if (crushOwed) {
+      crushOwed = false;
+      if (!fares.state.gameOver) landCombo('crush');
     }
     controller.kickShake(1.6);
     sfx?.play('land', { gain: 1 });
@@ -2247,25 +2248,50 @@ collisions.onBump(({ x, z, closing, nx, nz, speed, rearEnd, other, taxiStruck, d
   if (taxiStruck) boxSpill.hit(other, closing, nx, nz);
 });
 
-// Big Air coming down on a car flattens it (the Pancake — see sim/collisions.js `crush`). No
-// starburst and no HP: this is the taxi winning. A thud under the landing's slam, a ring of dust
-// off the car rather than the road, and sparks off its roof. Landed before the touchdown, the
-// combo waits for it so the labels read "Big Air", then "Pancake".
-setPancake(new URLSearchParams(window.location.search).get('pancake'));
-let pancakeOwed = false;
-collisions.onCrush(({ x, z, speed, other, airborne }) => {
-  if (airborne) pancakeOwed = true;
-  else if (!fares.state.gameOver) landCombo('pancake');
-  controller.kickShake(1.2);
-  sfx?.play('bump', { gain: 1, rate: 0.75 });
-  sfx?.play('crash', { gain: 0.3, rate: 0.6 });
+// Crushin' It: Big Air coming down on a car (sim/collisions.js `crush`). The car underneath is
+// wrecked and the taxi is not — no HP, no speed, no knock — so it is the wreck's bang on one car
+// rather than two: the same `blast.fire` and smoke collar `onImpact` throws for the struck car, so
+// a rework of the wreck fire (game/blast.js) reaches this too. Its shell is not left lying in the
+// road the way a run-ending wreck's is (game/wreckage.js): the run goes on, traffic would drive
+// through it, and so does the taxi. It is consumed under its own fireball instead (game/vanish.js,
+// which the passing lab uses for the same reason) and dropped once it has gone.
+//
+// Landed before the touchdown, the combo waits for it so the labels read "Big Air", then
+// "Crushin' It".
+setCrush(new URLSearchParams(window.location.search).get('crush'));
+let crushOwed = false;
+const crushVanish = createVanish();
+const crushShells = [];
+collisions.onCrush(({ speed, other, airborne }) => {
+  if (airborne) crushOwed = true;
+  else if (!fares.state.gameOver) landCombo('crush');
+  const yaw = traffic.taxi.yaw;
   const paint = other.police ? PALETTE.policeBody : PALETTE.carBody[other.colorIndex];
-  dust.burst(other.x, other.z, other.yaw, 18, 0.9, { ring: 1.6, linger: 0.9 });
-  blast.shock(other.x, other.z, { tint: paint, yaw: other.yaw, speed: speed * 0.3 });
-  sparks.burst(x, ROAD_Y + 0.4, z, other.yaw + Math.PI / 2, 14, speed * 0.4);
-  sparks.burst(x, ROAD_Y + 0.4, z, other.yaw - Math.PI / 2, 14, speed * 0.4);
+  blast.fire(other.x, other.z, paint, yaw, speed * STRUCK_SHOVE);
+  dust.wreckSmoke(other.x, other.z, yaw, speed);
+  struckGlass.fire({ x: other.x, z: other.z, yaw, scale: 0.6, ahead: 0, drop: 0.15 });
+  controller.kickShake(1.8);
+  sfx?.play('crash', { gain: 0.8 });
   haptic('perfect');
+  const carry = carrySpeed(speed);
+  const shell = traffic.wreckShell(other);
+  crushShells.push(shell);
+  crushVanish.take(shell, {
+    driftX: Math.cos(yaw) * carry * SHELL_CARRY * STRUCK_SHOVE,
+    driftZ: -Math.sin(yaw) * carry * SHELL_CARRY * STRUCK_SHOVE,
+  });
 });
+function updateCrushShells(dt) {
+  if (!crushShells.length) return;
+  crushVanish.update(dt);
+  for (let k = crushShells.length - 1; k >= 0; k--) {
+    const shell = crushShells[k];
+    if (shell.visible) continue;
+    scene.remove(shell);
+    shell.traverse((node) => node.material?.dispose?.());
+    crushShells.splice(k, 1);
+  }
+}
 
 collisions.onImpact(({ x, z, speed, closing, other }) => {
   // A wrecked box truck throws out whatever was still aboard.
@@ -5712,6 +5738,7 @@ function tick() {
   sparks.update(dt);
   repairFx?.update(dt);
   wreckage.update(dt);
+  updateCrushShells(dt);
   ejection.update(dt);
   windshield.update(dt);
   struckGlass.update(dt);
