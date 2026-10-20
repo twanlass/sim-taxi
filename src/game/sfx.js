@@ -378,10 +378,6 @@ const AAC_PRIMING = 2112 / 48000;
  */
 const RADIO_FILES = {
   MUSIC_radio_intro: new URL('../../assets/audio/MUSIC_radio_intro.m4a', import.meta.url).href,
-  MUSIC_country: new URL('../../assets/audio/MUSIC_country.m4a', import.meta.url).href,
-  MUSIC_jazz: new URL('../../assets/audio/MUSIC_jazz.m4a', import.meta.url).href,
-  MUSIC_rock: new URL('../../assets/audio/MUSIC_rock.m4a', import.meta.url).href,
-  MUSIC_funk: new URL('../../assets/audio/MUSIC_funk.m4a', import.meta.url).href,
   '26_MUS_rolling': new URL('../../assets/audio/26_MUS_rolling.m4a', import.meta.url).href,
   '27_MUS_upbeat': new URL('../../assets/audio/27_MUS_upbeat.m4a', import.meta.url).href,
   '28_MUS_hiphop': new URL('../../assets/audio/28_MUS_hiphop.m4a', import.meta.url).href,
@@ -408,10 +404,10 @@ const dB = (d) => 10 ** (d / 20);
 export const RADIO = {
   intro: 'MUSIC_radio_intro',
   // Nicolás's four (Block 2 final, October 2026), written for the station: 40-50s each with short
-  // intros and clean endings, all mastered to -18 LUFS. They replaced the four below, which
-  // `?songs=classic` plays instead (`classicSongs` in createSfx).
+  // intros and clean endings, all mastered to -18 LUFS. They replaced four earlier 30s songs
+  // (country, jazz, rock, funk) whose source was never recorded; those were deleted in October
+  // 2026 rather than shipped in the App Store build behind a flag nothing in the app can set.
   songs: ['26_MUS_rolling', '27_MUS_upbeat', '28_MUS_hiphop', '33_MUS_indiepop'],
-  classicSongs: ['MUSIC_country', 'MUSIC_jazz', 'MUSIC_rock', 'MUSIC_funk'],
   ads: ['RADIO_ad_earls', 'RADIO_ad_le_barge', 'RADIO_ad_loco_juice'],
   breakIn: 'RADIO_break_in',
   breakOut: 'RADIO_break_out',
@@ -419,15 +415,14 @@ export const RADIO = {
   adEvery: 2,
   idEvery: 3,
   seconds: {
-    MUSIC_radio_intro: 6.34775, MUSIC_country: 30, MUSIC_jazz: 30, MUSIC_rock: 30, MUSIC_funk: 30,
+    MUSIC_radio_intro: 6.34775,
     '26_MUS_rolling': 45, '27_MUS_upbeat': 49.5714375, '28_MUS_hiphop': 40.6299375,
     '33_MUS_indiepop': 49.133875,
     RADIO_ad_earls: 9.4, RADIO_ad_le_barge: 14.528, RADIO_ad_loco_juice: 13.24,
     RADIO_break_in: 3.474271, RADIO_break_out: 4.284063, RADIO_station_id: 4.362438,
   },
   gain: {
-    MUSIC_radio_intro: dB(-6.1), MUSIC_country: dB(-10.5), MUSIC_jazz: dB(-11.7), MUSIC_rock: dB(-13.2),
-    MUSIC_funk: dB(-11.6),
+    MUSIC_radio_intro: dB(-6.1),
     // ebur128 off the masters: -18.3, -17.8, -18.2 and -18.1 LUFS, true peak -3 to -3.9.
     '26_MUS_rolling': dB(-5.7), '27_MUS_upbeat': dB(-6.2), '28_MUS_hiphop': dB(-5.8),
     '33_MUS_indiepop': dB(-5.9),
@@ -436,7 +431,7 @@ export const RADIO = {
   },
 };
 /** Every file the radio can play, in the order the ⚙️ panel lists them. */
-RADIO.all = [RADIO.intro, ...RADIO.songs, ...RADIO.classicSongs, ...RADIO.ads, RADIO.breakIn,
+RADIO.all = [RADIO.intro, ...RADIO.songs, ...RADIO.ads, RADIO.breakIn,
   RADIO.breakOut, RADIO.stationId];
 for (const key of RADIO.all) MIX_PARENT[key] = 'music';
 
@@ -608,15 +603,12 @@ function loopWindow(buffer, seconds) {
  * @param {{ next: () => number }} [opts.rng]  Draws each trigger's take (`pickTake`). Math.random without.
  * @param {boolean} [opts.menuMusic]  Hold the station off the air until `goOnAir` — the title menu
  *   plays songs alone until then. False (`?menumusic=classic`, or no title screen) opens on the intro.
- * @param {boolean} [opts.classicSongs]  The radio plays the four songs Nicolás's replaced
- *   (`?songs=classic`).
  * @param {boolean} [opts.radioFade]  The station talks over the edges of the songs (`RADIO_FADE`).
  *   False (`?radiofade=classic`) plays every track after the last with a hard cut.
  */
-export function createSfx({ rng, menuMusic = false, classicSongs = false, radioFade = true } = {}) {
-  // The songs this session's station plays, and every file it can schedule. Only these are
-  // fetched and decoded up front: the other set is a few MB of download and ~30 MB of PCM.
-  const songs = classicSongs ? RADIO.classicSongs : RADIO.songs;
+export function createSfx({ rng, menuMusic = false, radioFade = true } = {}) {
+  // Every file the station can schedule, fetched and decoded up front.
+  const songs = RADIO.songs;
   const playlist = [RADIO.intro, ...songs, ...RADIO.ads, RADIO.breakIn, RADIO.breakOut, RADIO.stationId];
   const hasAudio = typeof window !== 'undefined'
     && (window.AudioContext || window.webkitAudioContext);

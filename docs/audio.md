@@ -234,9 +234,9 @@ a 15 s one in October 2026), the announcer's "beautiful day in this concrete jun
 song that just played. The songs are Nicolás's, written for the station (Block 2, October 2026):
 `26_MUS_rolling` (funk), `27_MUS_upbeat` (funk with vocals), `28_MUS_hiphop` and `33_MUS_indiepop`,
 40 to 50 s each with short intros and clean endings. They replaced four 30 s songs
-(`MUSIC_country`, `MUSIC_jazz`, `MUSIC_rock`, `MUSIC_funk`), which `?songs=classic` puts back on
-the air. Only the set on the air is fetched and decoded; the ⚙️ panel's ▶ on one of the other set
-fetches it on asking. Between songs the station talks:
+(`MUSIC_country`, `MUSIC_jazz`, `MUSIC_rock`, `MUSIC_funk`), deleted in October 2026: their source
+was never recorded, and `?songs=classic` kept them in the App Store build behind a flag the app has
+no way to set. Between songs the station talks:
 
 - **An ad break every 2 songs** (`RADIO.adEvery`): `RADIO_break_in` (the tee-up), one of three ads
   (`RADIO_ad_earls`, `RADIO_ad_le_barge`, `RADIO_ad_loco_juice`) at random and never the last one,
