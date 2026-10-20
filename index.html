@@ -1393,6 +1393,53 @@
       .speech-docked.is-open > .speech > .speech-body { transform: none; }
       .speech-docked.is-closing > .speech > .speech-body { transform: translateY(-10px); }
       .speech-docked .speech-card { box-shadow: 0 4px 14px rgba(20, 24, 48, 0.28); }
+      /* Caption styles, `?bubblestyle=` (game/speech.js) — a prototype round for picking a look for the
+         docked card. Each speaker gets a colour (`data-speaker` on the layer, read off the title). */
+      .speech-docked { --who: #ffc21a; --who-ink: #1b1d2b; }
+      .speech-docked[data-speaker="police"] { --who: #3f7bff; --who-ink: #fff; }
+      .speech-docked[data-speaker="racer"] { --who: #a35cff; --who-ink: #fff; }
+      .speech-docked[data-speaker="robber"] { --who: #e24b3c; --who-ink: #fff; }
+      /* Ticker: a dark radio strip, speaker in a coloured chip, the line beside it on one row. */
+      .speech-style-ticker .speech-card {
+        flex-direction: row; align-items: center; gap: 9px;
+        padding: 7px 14px 7px 7px; border-radius: 999px;
+        background: rgba(16, 18, 28, 0.86); box-shadow: 0 4px 14px rgba(0, 0, 0, 0.3);
+        max-width: min(350px, calc(100vw - 20px));
+      }
+      .speech-style-ticker .speech-title {
+        flex: none; padding: 6px 9px; border-radius: 999px; font-size: 10px; font-weight: 700;
+        background: var(--who); color: var(--who-ink); text-box: none; line-height: 1;
+      }
+      .speech-style-ticker .speech-text { color: #fff; font-size: 15px; }
+      /* Portrait: arcade yellow with a heavy ink outline and a hard drop shadow, a badge for the
+         speaker, tipped a degree and a half. */
+      .speech-style-portrait .speech-card {
+        display: grid; grid-template-columns: 42px auto; column-gap: 10px; row-gap: 5px; align-content: center;
+        padding: 9px 14px 9px 9px; border-radius: 14px;
+        background: #ffd21f; border: 3px solid #1b1d2b; box-shadow: 0 4px 0 #1b1d2b;
+        rotate: -1.5deg;
+      }
+      .speech-style-portrait .speech-avatar {
+        grid-row: 1 / span 2; width: 42px; height: 42px; border-radius: 10px;
+        display: flex; align-items: center; justify-content: center; font-size: 24px;
+        background: var(--who); border: 2.5px solid #1b1d2b;
+      }
+      .speech-style-portrait .speech-title { color: #1b1d2b; align-self: end; }
+      .speech-style-portrait .speech-text { color: #1b1d2b; font-size: 16.5px; align-self: start; }
+      .speech-style-portrait .speech-media { grid-column: 1 / -1; }
+      /* Subtitle: no box at all. Outlined white type, the speaker's name in their colour. */
+      .speech-style-subtitle .speech-card {
+        background: none; box-shadow: none; padding: 0; align-items: center; text-align: center;
+        max-width: min(340px, calc(100vw - 20px)); gap: 7px;
+      }
+      .speech-style-subtitle .speech-title, .speech-style-subtitle .speech-text {
+        text-shadow: 2px 0 0 #1b1d2b, -2px 0 0 #1b1d2b, 0 2px 0 #1b1d2b, 0 -2px 0 #1b1d2b,
+          1.5px 1.5px 0 #1b1d2b, -1.5px 1.5px 0 #1b1d2b, 1.5px -1.5px 0 #1b1d2b, -1.5px -1.5px 0 #1b1d2b,
+          0 4px 8px rgba(0, 0, 0, 0.45);
+      }
+      .speech-style-subtitle .speech-title { color: var(--who); font-size: 12px; font-weight: 700; }
+      .speech-style-subtitle[data-speaker="tip"] .speech-title { color: #ffd21f; }
+      .speech-style-subtitle .speech-text { color: #fff; font-size: 21px; }
       /* The tag: who is talking, pinned where the card used to stand. A white disc with three dots
          in it — the "someone is typing" mark — and the card's pointer, so it reads as the docked
          card's other end. Small enough (24px) that following a car costs nothing to look at. */

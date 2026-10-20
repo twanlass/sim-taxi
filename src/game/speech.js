@@ -84,6 +84,28 @@ function speechMode() {
   return v === 'classic' || v === 'dock' ? v : 'tag';
 }
 
+/**
+ * The docked card's look — `?bubblestyle=`, a prototype for Tyler to pick between: 'card' (the
+ * Figma card, the default), 'ticker' (a dark radio strip with the speaker in a coloured chip),
+ * 'portrait' (an arcade-yellow card with a speaker badge) or 'subtitle' (no box, outlined text).
+ */
+function captionStyle() {
+  if (typeof window === 'undefined') return 'card';
+  const v = new URLSearchParams(window.location.search).get('bubblestyle');
+  return ['ticker', 'portrait', 'subtitle'].includes(v) ? v : 'card';
+}
+
+// Who is talking, read off the title, for the styles that colour or badge the speaker.
+const SPEAKERS = [
+  [/police/i, 'police', '🚓'],
+  [/racer/i, 'racer', '🏁'],
+  [/robber/i, 'robber', '💰'],
+];
+function speakerOf(title) {
+  for (const [re, key, icon] of SPEAKERS) if (re.test(title)) return { key, icon };
+  return { key: 'tip', icon: '💡' };
+}
+
 // The docked cards currently up, oldest first, so a second one stacks under the first rather than
 // on top of it. Each entry is that card's measured height, read live.
 const dockStack = [];
@@ -245,10 +267,13 @@ export function createSpeech(root, { viewport = null, typing = false, onDismiss 
   const docked = !pinned && mode !== 'classic';
   const tagged = docked && mode === 'tag';
   root.classList.toggle('speech-docked', docked);
+  const look = docked ? captionStyle() : 'card';
+  if (look !== 'card') root.classList.add(`speech-style-${look}`);
   root.innerHTML = `
     <div class="speech">
       <div class="speech-body">
         <div class="speech-card">
+          ${look === 'portrait' ? '<div class="speech-avatar" aria-hidden="true"></div>' : ''}
           <div class="speech-title"></div>
           <div class="speech-text"><span class="speech-typed"></span><span class="speech-rest"></span></div>
           <div class="speech-media" hidden></div>
@@ -265,7 +290,8 @@ export function createSpeech(root, { viewport = null, typing = false, onDismiss 
   const rest = root.querySelector('.speech-rest');
   const pointer = root.querySelector('.speech-pointer');
   const mediaEl = root.querySelector('.speech-media');
-  card.style.background = CARD_FILL;
+  if (look === 'card') card.style.background = CARD_FILL;
+  const avatar = root.querySelector('.speech-avatar');
   const tagPin = root.querySelector('.speech-tag-pin');
   const tagBody = root.querySelector('.speech-tag-body');
   const tagPointer = tagPin?.querySelector('.speech-pointer');
@@ -370,6 +396,9 @@ export function createSpeech(root, { viewport = null, typing = false, onDismiss 
     show(title, line, at, media = null) {
       if (closing) { clearTimeout(closing); closing = null; }
       titleEl.textContent = title;
+      const who = speakerOf(title);
+      root.dataset.speaker = who.key;
+      if (avatar) avatar.textContent = who.icon;
       mediaEl.replaceChildren(...(media ? [media] : []));
       mediaEl.hidden = !media;
       card.classList.toggle('has-media', Boolean(media));
