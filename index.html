@@ -1453,7 +1453,38 @@
       }
       @keyframes speech-caret { from { opacity: 1; } to { opacity: 0.25; } }
       /* Black: solid black, white type, the speaker in grey caps. The tag goes black to match. */
-      .speech-style-black .speech-card { background: #0d0e12; box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35); padding: 13px 16px; border-radius: 14px; }
+      /* See-through, with the city blurred behind it (Tyler, 2026-10-20) — the card and the tag both.
+         The fade has to be on the card and the tag themselves rather than on the body that holds
+         them: an ancestor with opacity under 1 is a backdrop root, so for the whole of a fade-in
+         the blur would see nothing behind it and then snap on at the end. */
+      .speech-style-black .speech-card {
+        background: rgba(13, 14, 18, 0.62);
+        -webkit-backdrop-filter: blur(12px) saturate(1.2); backdrop-filter: blur(12px) saturate(1.2);
+        box-shadow: 0 4px 14px rgba(0, 0, 0, 0.22); padding: 13px 16px; border-radius: 14px;
+      }
+      .speech-style-black.speech-docked > .speech > .speech-body,
+      .speech-style-black.speech-docked > .speech-tag-pin > .speech-tag-body { opacity: 1; }
+      .speech-style-black .speech-card, .speech-style-black .speech-tag, .speech-style-black .speech-tag-pin .speech-pointer {
+        opacity: 0; transition: opacity 0.18s ease;
+      }
+      .speech-style-black.is-open .speech-card, .speech-style-black.is-open .speech-tag,
+      .speech-style-black.is-open .speech-tag-pin .speech-pointer { opacity: 1; }
+      .speech-style-black.is-closing .speech-card, .speech-style-black.is-closing .speech-tag,
+      .speech-style-black.is-closing .speech-tag-pin .speech-pointer { opacity: 0; transition: opacity 0.2s ease; }
+      .speech-style-black .speech-tag {
+        background: rgba(13, 14, 18, 0.62);
+        -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px); box-shadow: none;
+      }
+      /* The tag's pointer is sunk 4px into the disc (POINTER_SINK in speech.js) to hide its rounded
+         base corners. With a see-through fill that overlap would draw as a darker band, so the sunk
+         part is clipped off — in the pointer's own unturned frame, so the cut is always its base —
+         leaving the tip from the disc's edge out. A 24px disc only curves 0.4px away over the 6.4px
+         of pointer left at that line, which is under a pixel. The same clip shapes its blur. */
+      .speech-style-black .speech-tag-pin .speech-pointer {
+        color: rgba(13, 14, 18, 0.62);
+        clip-path: polygon(50% 0, 78.1% 56.5%, 21.9% 56.5%);
+        -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px);
+      }
       .speech-style-black .speech-title { color: rgba(255, 255, 255, 0.55); }
       .speech-style-black .speech-text { color: #fff; }
       /* Glass: frosted dark over the city, a hairline edge, the speaker's colour as a bar down the left. */
@@ -1496,9 +1527,9 @@
       .speech-style-colour .speech-title { color: var(--who-ink); opacity: 0.75; }
       .speech-style-colour .speech-text { color: var(--who-ink); }
       /* The tag dresses to match the card it belongs to. */
-      .speech-style-black .speech-tag, .speech-style-ticker .speech-tag { background: #0d0e12; }
+      .speech-style-ticker .speech-tag { background: #0d0e12; }
       .speech-style-black .speech-tag i, .speech-style-ticker .speech-tag i { background: #fff; }
-      .speech-style-black .speech-tag-pin .speech-pointer, .speech-style-ticker .speech-tag-pin .speech-pointer { color: #0d0e12; }
+      .speech-style-ticker .speech-tag-pin .speech-pointer { color: #0d0e12; }
       .speech-style-lcd .speech-tag { background: #14110a; border: 1.5px solid #3a2f18; }
       .speech-style-lcd .speech-tag i { background: #ffb52e; }
       .speech-style-lcd .speech-tag-pin .speech-pointer { color: #14110a; }
