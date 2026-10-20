@@ -1410,6 +1410,10 @@
       #race-talk.is-ellipsis .speech-card { padding: 10px 14px; }
       /* Just the tag, no card (speech.js `showTag`). */
       .tag-only > .speech { display: none; }
+      /* The racer's tag and card take a tap (main.js): the car can be off screen when it offers.
+         The tag's 24px disc is small for a thumb, so its hit area reaches 12px past it. */
+      #race-talk .speech-tag-pin, #race-talk .speech-card { pointer-events: auto; cursor: pointer; touch-action: manipulation; }
+      #race-talk .speech-tag-pin::before { content: ''; position: absolute; inset: -12px; }
       .speech-media { margin-top: 8px; }
       .speech-media[hidden] { display: none; }
       /* The line types itself out: the typed part, then the rest of the line laid out but unseen,

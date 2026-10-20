@@ -118,7 +118,7 @@ doc; what the classic version was, and why it changed, is in that doc's history 
 | `?blend=additive` | How the route band mixes with the road: `normal`, `additive`, `screen`, `multiply` | [gameplay.md](gameplay.md) |
 | `?flatbed=soon` | The flatbed starts shedding crates three seconds in | [traffic.md](traffic.md) |
 | `?fire=soon` | A building catches fire early | [traffic.md](traffic.md) |
-| `?race=soon` | The first street racer turns up a few seconds in, and the next soon after | [gameplay.md](gameplay.md#the-street-race) |
+| `?race=soon` | The street racer turns up a few seconds in (and again soon after a crash takes it off the map) | [gameplay.md](gameplay.md#the-street-race) |
 | `?parcels=0` / `=1` | Packages off / forced on (they are off in shot mode by default) | [gameplay.md](gameplay.md) |
 | `?cars=N` | Total vehicles, taxi included. `?cars=1` leaves the taxi alone on the road | [testing.md](testing.md) |
 | `?d=0..1` | Pins the difficulty curve instead of the delivery count | [difficulty.md](difficulty.md) |

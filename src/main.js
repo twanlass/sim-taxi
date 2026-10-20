@@ -2051,6 +2051,11 @@ fares.setHold(() => Boolean(race?.holdsBoard()));
 // The rival's speech bubble — the challenge, with the stakes on it, pinned to its roof.
 const raceTalkRoot = document.getElementById('race-talk');
 const raceTalk = race && raceTalkRoot ? createSpeech(raceTalkRoot, { viewport }) : null;
+// The tag answers a tap too, and the card under it: the racer can be off screen when it offers,
+// and then the tag at the edge is the only thing there is to tap.
+raceTalkRoot?.addEventListener('pointerup', (e) => {
+  if (e.target.closest('.speech-tag-pin, .speech-card')) acceptRace();
+});
 const raceTalkAt = () => {
   const at = race?.rivalAt();
   // Just over the roof: it used to clear the flag the racer flew there, which put it 3.6 up.
@@ -2062,9 +2067,10 @@ const raceTalkAt = () => {
  * race happened; what a run's cash and a tank are for is this file's.
  */
 function onRaceEvent(type, detail) {
-  if (type === 'challenge') {
-    // Just the talker's "…" tag until the player taps it (`race.ask`), and the horn to say something
-    // has turned up. Without a tag (`?bubbles=classic`/`dock`), a card with only the dots on it.
+  if (type === 'available') {
+    // In reach with an empty cab: just the talker's "…" tag until the player taps it (`race.ask`) —
+    // pointing in from the screen edge when the car is off it — and the horn to say so. Without a
+    // tag (`?bubbles=classic`/`dock`), a card with only the dots on it.
     if (raceTalk && !raceTalk.showTag(raceTalkAt)) {
       raceTalkRoot?.classList.add('is-ellipsis');
       raceTalk.show('', '…', raceTalkAt);
@@ -2074,7 +2080,8 @@ function onRaceEvent(type, detail) {
     haptic('snap');
     raceTalkRoot?.classList.remove('is-ellipsis');
     raceTalk?.show('Street racer', 'Wanna race?', raceTalkAt);
-  } else if (type === 'lapsed') {
+  } else if (type === 'unavailable') {
+    // Out of reach, a rider aboard, or something owning the run: gone until that changes.
     raceTalk?.hide();
   } else if (type === 'accepted') {
     fares.undirect();
@@ -2185,7 +2192,7 @@ function settleRaceWatch() {
 
 /** A tap on the racer: the first one asks what it wants, the second takes it on. */
 function acceptRace() {
-  if (!race || fares.state.gameOver) return;
+  if (!race || fares.state.gameOver || !race.offering()) return;
   raceTalkRoot?.classList.remove('is-ellipsis');
   if (fares.carrying()) {
     raceTalk?.show('Street racer', 'Drop your fare off first.', raceTalkAt);

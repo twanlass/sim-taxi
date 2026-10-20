@@ -88,7 +88,9 @@ function race(seed, player) {
       }
     }
     t += STEP;
-    if (race.state.phase === 'leaving' || race.state.phase === 'waiting') break;
+    // Done once it is settled: the racer stays in town afterwards (back to 'offer'), and a taxi left
+    // holding Loco Mode with no route to drive would wreck itself and score the race as a wreck.
+    if (went && !race.holdsBoard()) break;
   }
   const s = race.state;
   if (wrecked) return { result: 'wreck', closest };

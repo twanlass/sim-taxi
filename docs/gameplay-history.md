@@ -1230,3 +1230,12 @@ was idle, declined by any tap that routed the taxi. Tyler asked for the tap back
 start ("Tap racer to start, cut scene, side by side start"): the racer now tails the taxi with its
 tap target up from the frame it appears, and only a getaway, a chase or the end of the run takes it
 away.
+
+## The street race as a visit
+
+Until the racer became a standing offer it was a visit: it turned up only with the cab empty, tailed
+the taxi for `OFFER_TIME` (30s, routed to the taxi's junction by `tail`), then drove off and did
+not come back for 100-160s (`REPEAT_WAIT`), and it left after every race. Whether a race was on
+offer came down to timing. Tyler: "Keep the racer around all the time. If the player is within a
+few blocks show the … bubble off screen. If they get too far away or pickup a ride temp hide it."
+

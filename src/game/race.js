@@ -18,23 +18,24 @@ import { createRaceFlag } from '../geometry/raceflag.js';
 import { BOOST_START_FRACTION } from './boost.js';
 import { markOccluder } from './ssao.js';
 
-// The street race. A violet street racer with a wing on it and light under it turns
-// up near the empty cab and tails it, calling out the stakes. Tap it and the screen cuts to black
+// The street race. A violet street racer with a wing on it and light under it is out in the city
+// for the whole run, a standing offer. Tap it and the screen cuts to black
 // and opens on the two of them side by side, window to window; the camera goes to look at the
 // finish a few blocks away and comes back, and it is three, two, one. Get there first and it pays;
 // get there second and it costs.
 //
 // **Taken on, never imposed.** Losing costs cash, and the robbery's rule is that an imposed event
 // cannot cost the run, so the race is a tap like every other choice in the game, and ignoring the
-// racer is free: it gives up after OFFER_TIME and drives off.
+// racer is free.
 //
-// **Tappable for as long as it is on screen.** The first build parked the racer at a kerb and only
-// answered a tap once it got there, and dropped the offer the moment anything else held the run (the
-// first drop-off's tutorial tip among them) — so in play a tap usually landed on a car that was not
-// offering anything (Tyler: "after I drop off the very first passenger, if I tap on the purple racer,
-// nothing happens"). Now the tap target is up from the frame it appears, it follows
-// the taxi around rather than waiting somewhere it can be lost (`tail`), and only something that owns
-// the run outright (`interrupted`: a getaway, a chase, the run ending) takes it away.
+// **Always around, offered when it can be taken** (Tyler: "keep the racer around all the time...
+// essentially make it a persistent event players can trigger"). Once it has turned up it cruises
+// the city as ordinary traffic and never leaves; between races it rests for REST_TIME. It is
+// `available` — its "…" tag up, pointing from the screen edge when the car is off it, and the tap
+// answered — while the taxi is within NEAR_BLOCKS of it with an empty cab and nothing owning the run
+// (`interrupted`: a getaway, a chase, the run ending). Too far, or a rider aboard, and the tag goes
+// until that changes. It used to turn up for OFFER_TIME (30s), tail the taxi, then drive off and not
+// come back for 100-160s, so whether there was a race to be had was down to timing.
 //
 // **The start is a cut** (`stage`, behind main.js's wipe). The first two builds *drove* to the start
 // — the taxi to a queue behind the parked rival, then the rival round the block to stop beside a
@@ -53,17 +54,19 @@ import { markOccluder } from './ssao.js';
 // you got ahead, would take the win away from the player along with the loss — so it drives one way
 // all race, and what the player has over it is Loco Mode and a route of their own choosing.
 
-// When a racer turns up. Off the run's own clock and only while nothing upstages it (`blocked`),
-// like the fire and the roadworks: it is something to take or leave, not pressure.
-const FIRST_WAIT = [45, 75];
-const REPEAT_WAIT = [100, 160];
+// When the racer first turns up — after that it stays (see REST_TIME). Off the run's own clock and
+// only while nothing upstages it (`blocked`), like the fire and the roadworks.
+const FIRST_WAIT = [15, 30];
 const SOON_WAIT = 4;            // ?race=soon
 const RETRY_WAIT = 4;           // nothing qualified this time
 
-const OFFER_TIME = 30;          // a racer nobody taps gives up and drives off
-// How hard it tails the taxi: a little over traffic, so a cab on its way somewhere does not leave it
-// behind, and well short of race pace, so it reads as following rather than chasing.
-const TAIL_CHASE = 0.5;
+// How near the taxi has to be for the racer to offer, in blocks (`blockDistance`, the junctions
+// each is heading for): "within a few blocks" (Tyler). Three on a 5×6 island is most of a quarter
+// of it, so a racer out of reach is never more than a short drive from being in it.
+const NEAR_BLOCKS = 3;
+// After a race (won, lost or called off) before it offers again: long enough that the next one is
+// not the reflex tap straight after the money lands.
+const REST_TIME = 20;
 // The tap target: a quad in the screen plane over the car (see the hit-box trap in CLAUDE.md) —
 // generous, a car's length or so either side, but no longer reaching up-screen to the top of the
 // roof flag it was first sized for (9 tall), which went when the racer stopped flying one.
@@ -464,6 +467,10 @@ export function createRace({
     offers: 0,
     // Has the player tapped the racer once, and been asked (`ask`)?
     asked: false,
+    // Is the racer offering right now (see NEAR_BLOCKS) — its tag up and the tap answered?
+    available: false,
+    // Seconds before it offers again, after a race.
+    rest: 0,
     races: 0,
     wins: 0,
     losses: 0,
@@ -598,12 +605,10 @@ export function createRace({
   }
 
   /**
-   * Bring a racer on, a couple of blocks off, to tail the taxi. Answers whether one
-   * came. Only for an empty cab (`canStart`) — the tap is refused with a rider aboard, so a racer
-   * then would be an offer nobody could take.
+   * Bring the racer on, a couple of blocks off and on screen, so its first appearance is seen. After
+   * that it stays (`rest`); this runs again only if it is lost (a wreck). Answers whether one came.
    */
   function summon() {
-    if (!canStart()) return false;
     const all = spots();
     if (!all.length) return false;
     const pool = all.sort((a, b) => Math.abs(a.d - SPOT_IDEAL) - Math.abs(b.d - SPOT_IDEAL)).slice(0, 5);
@@ -613,7 +618,7 @@ export function createRace({
     car.skin = skin;
     car.guestWreck = wreck;
     car.route = [];
-    car.chase = TAIL_CHASE;
+    car.chase = 0;
     car.racer = false;
     state.car = car;
     state.finish = null;
@@ -626,22 +631,20 @@ export function createRace({
     state.fading = 1;
     state.offers += 1;
     state.asked = false;
+    state.available = false;
+    state.rest = 0;
     setPhase('offer');
-    onEvent('challenge', { car, win: WIN_PAY, lose: LOSE_COST });
+    onEvent('arrived', { car });
     return true;
   }
 
-  /**
-   * Follow the taxi: routed to the junction it is heading for, re-planned only when that route runs
-   * out — never per frame (CLAUDE.md, on re-planning stalling a car).
-   */
-  function tail(car) {
-    if (car.route?.length) return;
-    const from = planOrigin(car);
-    const to = { i: taxi.i, j: taxi.j };
-    if (from.i === to.i && from.j === to.j) return;
-    const route = findRoute(from, to);
-    if (route?.length) { car.route = route; car.routeConsumed = false; }
+
+  /** Take the offer down: out of reach, a rider aboard, or the car gone. */
+  function offerOff(car) {
+    if (!state.available) return;
+    state.available = false;
+    state.asked = false;
+    onEvent('unavailable', { car });
   }
 
   /**
@@ -651,7 +654,7 @@ export function createRace({
    * Answers whether it asked; the second tap is `accept`.
    */
   function ask() {
-    if (state.phase !== 'offer' || !state.car || state.asked || interrupted()) return false;
+    if (state.phase !== 'offer' || !state.car || state.asked || !state.available) return false;
     state.asked = true;
     onEvent('asked', { car: state.car, win: WIN_PAY, lose: LOSE_COST });
     return true;
@@ -867,7 +870,34 @@ export function createRace({
       taxi.pendingTarget = null;
     }
     taxi.parked = false;
-    leave();
+    // Back to cruising, unless there is no car left to cruise in.
+    if (car && !car.crashed) rest();
+    else leave();
+  }
+
+  /**
+   * The race is over and the racer goes back to being traffic, offering again after REST_TIME. The
+   * finale's money flies to wherever it has got to (main.js), so it does not need to stay put.
+   */
+  function rest() {
+    const car = state.car;
+    setClosedLanes([], 'race');
+    taxi.holdsLine = false;
+    hideFinish();
+    car.roadblock = 0;
+    car.holdsLine = false;
+    car.braking = false;
+    car.chase = 0;
+    car.racer = false;
+    car.route = [];
+    state.finish = null;
+    state.shared = null;
+    state.startLanes = null;
+    state.asked = false;
+    state.available = false;
+    state.rest = REST_TIME;
+    offer.visible = true;
+    setPhase('offer');
   }
 
   /** Drive off — whether the race was run or the offer lapsed — and dissolve once out of the way. */
@@ -901,7 +931,8 @@ export function createRace({
     hideFinish();
     setClosedLanes([], 'race');
     setPhase('waiting');
-    state.cooldown = soon ? SOON_WAIT * 3 : rng.range(REPEAT_WAIT[0], REPEAT_WAIT[1]);
+    // Lost (a wreck, the run ending): another one along shortly.
+    state.cooldown = soon ? SOON_WAIT * 3 : REST_TIME;
   }
 
   function showFinish(at = state.finish) {
@@ -965,13 +996,18 @@ export function createRace({
         }
         break;
       case 'offer': {
-        if (!car) { retire(); break; }
-        if (interrupted() || state.phaseT > OFFER_TIME) {
-          onEvent('lapsed', { car });
-          leave();
-          break;
+        if (!car || car.crashed) { offerOff(car); leave(); break; }
+        state.rest = Math.max(0, state.rest - dt);
+        // A block of give once it is up, so a taxi driving along the edge of the reach does not
+        // flick the tag (and its horn) on and off.
+        const near = blockDistance(taxi, car) <= NEAR_BLOCKS + (state.available ? 1 : 0);
+        const available = state.rest === 0 && near && canStart() && !interrupted();
+        if (available && !state.available) {
+          state.available = true;
+          onEvent('available', { car });
+        } else if (!available) {
+          offerOff(car);
         }
-        tail(car);
         break;
       }
       case 'cut':
@@ -1103,9 +1139,9 @@ export function createRace({
     /** Land the start under the black — see `stage`. */
     stage,
     /** The racer's tap target, while it is offering. */
-    pickables: () => (offer.visible && state.phase === 'offer' ? [offer] : []),
-    /** Is a racer tailing the taxi, waiting on a tap? */
-    offering: () => state.phase === 'offer',
+    pickables: () => (offer.visible && state.phase === 'offer' && state.available ? [offer] : []),
+    /** Is the racer offering, its tag up and waiting on a tap? */
+    offering: () => state.phase === 'offer' && state.available,
     /** Is the board held? From the tap to the line, as for a getaway. */
     holdsBoard: () => ACTIVE.has(state.phase),
     /** Is the taxi taken for a race? The depot and the drive-through refuse it. */

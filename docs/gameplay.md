@@ -2534,12 +2534,17 @@ intensity.
 ## The street race
 
 `src/game/race.js`, `src/geometry/raceflag.js`, `sim/traffic.js` (`car.racer`), `tools/race.mjs`.
-`?race=classic` turns it off; `?race=soon` brings the first racer a few seconds in.
+`?race=classic` turns it off; `?race=soon` brings the racer in a few seconds in.
 
-**With the cab empty, a violet street racer turns up and tails it.** It has a white stripe down
+**A violet street racer turns up 15-30s into the run and stays for the rest of it**, cruising the
+city as ordinary traffic: a standing offer the player triggers when it suits them. It has a white stripe down
 its spine, a proud wing on the boot and cyan light pooling under it that pulses to the music, and
 over it hangs a "…" — the [speech tag](#speech-bubbles) alone, with no card (`showTag`; a card with
-only the dots under `?bubbles=classic`/`dock`). Tap it once and it asks: "Wanna race?" (Tyler wanted the question only for
+only the dots under `?bubbles=classic`/`dock`). The "…" is up only while the race can be taken:
+the taxi within `NEAR_BLOCKS` (3) of the racer with an empty cab, and nothing owning the run. When
+the car is off screen the tag points at it from the edge, and the tag itself is a tap target. Too
+far away, or a rider picked up, and it goes until that changes (one block of slack on the way out,
+so it does not flicker on the boundary). Tap it once and it asks: "Wanna race?" (Tyler wanted the question only for
 someone who tapped, rather than one more line on a busy screen). Tap it again and it answers on the
 spot (a horn and "You're on!"), then the screen cuts to black and opens close up on the two cars side by side, window to window ("Round the flag and back."). A
 corner is marked across the island (a white waypoint ring with a chequered flag flying over it, 4-8
@@ -2558,21 +2563,18 @@ then), but nothing is paid until the other one is home too: the camera goes to t
 `RACE_WATCH_ZOOM` (30) and follows it to the line, for up to `FINALE_MAX` (6s, for a loser that has
 not rounded the flag yet). Then the money pops in the middle of the screen and flies away — up into
 the cash counter for a win, out to the racer's car for a loss — and once it has landed the camera
-eases back out to the zoom the player had. The rival then drives off and dissolves.
+eases back out to the zoom the player had. The rival then rests for `REST_TIME` (20s) and goes
+back to being an offer; only a crash takes it off the map, and another one turns up after the rest.
 
 **It is taken on, never imposed.** Losing costs cash, and the robbery's rule is that an imposed
 event cannot cost the run ([it is imposed](#it-is-imposed-so-it-cannot-cost-the-run)), so the race
-is a tap like every other choice in the game. Ignoring it is free: a racer nobody taps gives up
-after `OFFER_TIME` (30s) and drives off.
+is a tap like every other choice in the game. Ignoring it is free: the racer just keeps driving.
 
-- **Tappable from the frame it appears.** The flag and the tap target (a screen-plane quad over the
-  car, `HIT_W` × `HIT_H`) are up the whole time it is on the road, it follows the taxi round
-  (`tail`, routed to the taxi's junction and re-planned only when that runs out), and only
-  something that owns the run outright takes it away (`interrupted`: a getaway, a chase, the run
-  ending). A tutorial tip or a burger run does not.
-- **Empty cab only.** A racer only turns up with nobody aboard, and a tap with a rider aboard is
-  refused on its bubble ("Drop your fare off first."). A tap while the taxi is on its way to a
-  rider drops that errand.
+- **Tappable whenever the "…" is up**, on the car (a screen-plane quad, `HIT_W` × `HIT_H`) or on
+  the tag. Only something that owns the run outright takes it away (`interrupted`: a getaway, a
+  chase, the run ending); a tutorial tip or a burger run does not.
+- **Empty cab only.** With a rider aboard the offer is down. A tap while the taxi is on its way to
+  a rider drops that errand.
 - **The board steps aside from the tap to the line**, exactly as for a getaway: riders hidden,
   their clocks held, no spawns, the courier's pads off the map (`setHold` in game/fares.js, read by
   `concealed`).
