@@ -143,7 +143,7 @@ import { setCityOccluders, sightlineClear, groundLineClear } from '../src/game/s
 import {
   createDiamond,
   bounceOffset, KICK_SCALE, KICK_HOP, RIM_SCALE, RIM_OFFSET, EMISSIVE, HIGHLIGHT_EMISSIVE,
-  DIAMOND_HALF_H, BOUNCE_HEIGHT, PLUMBOB_CLASSIC, HOURGLASS_TILT, insideHourglass, MARKER_SHAPE, PIE_TURN, PIE_FACES_PER_WEDGE, pieWedgeOf, PIE_SLICES, PIE_RIM,
+  DIAMOND_HALF_H, BOUNCE_HEIGHT, PLUMBOB_CLASSIC, HOURGLASS_TILT, insideHourglass, MARKER_SHAPE, PIE_TURN, PIE_FACES_PER_WEDGE, pieWedgeOf, PIE_SLICES, PIE_RIM, pieShown,
 } from '../src/geometry/diamond.js';
 import { CRYSTAL_TOP, createFareMarker } from '../src/game/faremarker.js';
 import { QUESTION_GEO } from '../src/geometry/questionmark.js';
@@ -4830,6 +4830,17 @@ const PRESSURE_END = difficulty.getTuning().pressureEnd;
       }
       check('every facet of the crystal faces outwards',
         faces === { plumbob: 8, hourglass: 132, pie: PIE_SLICES * PIE_FACES_PER_WEDGE }[MARKER_SHAPE] && inward === 0, `${faces} faces, ${inward} wound inside out`);
+    }
+
+    // The pie never shows time the rider does not have: the last slice drains with the clock and
+    // is empty on the frame it expires, rather than standing whole until then (Tyler, 2026-10-20).
+    {
+      const lastSlice = [0.1, 0.05, 0.01, 1e-4].every((f) => Math.abs(pieShown(f) - f) < 1e-9);
+      const empty = pieShown(0) === 0;
+      // ...and nothing earlier moved: above one slice it is still whole slices, rounded up.
+      const whole = pieShown(0.3) === 3 / PIE_SLICES && pieShown(0.126) === 2 / PIE_SLICES;
+      check('the pie\'s last slice drains to empty at expiry', lastSlice && empty && whole,
+        `0.05 -> ${pieShown(0.05)}, 0 -> ${pieShown(0)}, 0.3 -> ${pieShown(0.3)}`);
     }
 
     // --- The VIP's question mark (geometry/questionmark.js).

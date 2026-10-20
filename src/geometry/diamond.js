@@ -586,6 +586,23 @@ const PIE_EATEN_ALPHA = 0.3;
 // How much of a fresh pie is already missing: a sixteenth, half of the first slice.
 const PIE_STARTER_SLIVER = 1 / 16;
 
+/**
+ * How much of the pie is drawn for a clock `fill` full (0..1): whole slices, rounded up, except the
+ * last one, which drains with the clock and is gone on the frame the rider gives up.
+ *
+ * Every slice used to round up, the last included, so the final eighth of a clock showed a whole
+ * red slice right up to the frame the rider walked off — and an eighth of a 15-240s clock is 2-30s
+ * of a slice that looks like it has all of its time left (Tyler, 2026-10-20: "I just lost a rider
+ * when my rider timer still had a slice of red left!"). Rounding the others down instead would
+ * leave an empty pie with a rider still waiting under it, which is the same lie the other way.
+ * The sweep through the last slice has no wall at its cut, but the eaten side is the dark tint
+ * rather than a hole, so the face reads as a pie with a bite going out of it.
+ */
+export function pieShown(fill) {
+  const whole = Math.ceil(fill * PIE_SLICES - 1e-6) / PIE_SLICES;
+  return Math.min(whole <= 1 / PIE_SLICES ? fill : whole, 1 - PIE_STARTER_SLIVER);
+}
+
 // Emptied glass, as a transform of the fare's own hue rather than a colour of its own: much less of
 // it, and — now — mostly drained of its hue as well.
 //
@@ -922,8 +939,7 @@ export function createDiamond(colorHex) {
         // a sliver out of twelve o'clock says "timer" before anything has drained (Tyler,
         // 2026-10-18: "a 16th of a sliver removed to visually telegraph it's a timer"). That cut
         // has no wall, but it is the vertical one, which this tilt shows edge-on anyway.
-        const left = Math.min(Math.ceil(fill * PIE_SLICES - 1e-6) / PIE_SLICES, 1 - PIE_STARTER_SLIVER);
-        fillUniforms.uFill.value = (1 - left) * 2 * Math.PI;
+        fillUniforms.uFill.value = (1 - pieShown(fill)) * 2 * Math.PI;
         // No sweep line on the eight-slice pie: the cut edge and the wall of the next slice already
         // draw it, and a bright line on top ran down the disc's edge and read as a stick.
         fillUniforms.uFillLow.value = 0;
