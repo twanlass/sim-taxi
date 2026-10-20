@@ -21,6 +21,7 @@
  */
 
 import { HALF_SPAN_X, HALF_SPAN_Z } from '../city/grid.js';
+import { PALETTE } from '../palette.js';
 import { el, menuPage, settingsRows } from './menupage.js';
 
 /** Seconds per lap of the drift. Slow on purpose: ~1 world unit a second is a stroll, not a tour. */
@@ -48,9 +49,41 @@ export function panAt(t) {
 export const CREDITS = [
   ['Game design', 'Tyler, Nia, and Isla Wanlass'],
   ['Art direction', 'Tyler Wanlass'],
-  ['Sound design', 'Nicolas Joaquin'],
-  ['Programming', 'Claude 🦀'],
+  ['Music + sound design', 'Nicolás J. Infantas Jamett'],
+  ['Programming', 'Claude', pixelClaude],
 ];
+
+// Claude's pixel mascot, one character per cell: X body, E eye, . nothing. Read off the sticker
+// rather than traced, at 11 x 8, drawn 22 x 16 so every cell is a whole 2px square.
+const CLAUDE_SPRITE = [
+  '.XXXXXXXXX.',
+  '.XXXXXXXXX.',
+  'XXEXXXXXEXX',
+  'XXXXXXXXXXX',
+  '.XXXXXXXXX.',
+  '.XXXXXXXXX.',
+  '.X.X...X.X.',
+  '.X.X...X.X.',
+];
+
+/** The sprite as an inline SVG, one path per colour, sized to the text it sits beside. */
+function pixelClaude() {
+  const ns = 'http://www.w3.org/2000/svg';
+  const svg = document.createElementNS(ns, 'svg');
+  svg.setAttribute('viewBox', `0 0 ${CLAUDE_SPRITE[0].length} ${CLAUDE_SPRITE.length}`);
+  svg.setAttribute('class', 'title-credit-sprite');
+  svg.setAttribute('shape-rendering', 'crispEdges');
+  svg.setAttribute('aria-hidden', 'true');
+  for (const [cell, fill] of [['X', PALETTE.claudeClay], ['E', PALETTE.claudeEye]]) {
+    let d = '';
+    CLAUDE_SPRITE.forEach((row, y) => [...row].forEach((c, x) => { if (c === cell) d += `M${x} ${y}h1v1h-1z`; }));
+    const path = document.createElementNS(ns, 'path');
+    path.setAttribute('d', d);
+    path.setAttribute('fill', fill);
+    svg.append(path);
+  }
+  return svg;
+}
 
 const stillPlease = () => window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
 
@@ -86,9 +119,11 @@ export function createTitleScreen(root, { sound, settings, onPlay }) {
   // --- Credits ----------------------------------------------------------------------------------
   const creditsPage = menuPage('credits', 'Credits', () => show('menu'));
   const list = el('dl', 'title-credits');
-  for (const [role, name] of CREDITS) {
+  for (const [role, name, mark] of CREDITS) {
     const item = el('div', 'title-credit');
-    item.append(el('dt', null, role), el('dd', null, name));
+    const dd = el('dd', null, name);
+    if (mark) dd.append(mark());
+    item.append(el('dt', null, role), dd);
     list.append(item);
   }
   creditsPage.body.append(list);
