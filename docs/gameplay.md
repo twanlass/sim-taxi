@@ -1594,6 +1594,11 @@ pie cuts by angle, and a wedge's area is linear in its angle, so what is left on
 the fraction left. On the two older shapes (`?plumbob=`) it was a deliberate trade (equal time has
 to be equal travel, and volume-true is much worse) that no amount of contrast could address.
 
+It eats whole slices, rounded up, except the **last**, which drains with the clock and is empty on
+the frame the rider gives up (`pieShown` in geometry/diamond.js). Rounding that one up too left a
+whole red slice standing through the final eighth of the clock, 2 to 30 seconds of it, and riders
+walked off under a pie that still looked like it had time in it.
+
 ### The far wall, and why it isn't there
 
 Only the **near** half of the liquid's surface is drawn, and the near half of a horizontal plane
