@@ -1440,9 +1440,12 @@
       .speech-style-subtitle .speech-title { color: var(--who); font-size: 12px; font-weight: 700; }
       .speech-style-subtitle[data-speaker="tip"] .speech-title { color: #ffd21f; }
       .speech-style-subtitle .speech-text { color: #fff; font-size: 21px; }
+      /* A docked card grows with its line as it types (Tyler, 2026-10-20) rather than standing at its
+         finished size from the first letter, so the untyped rest is not laid out at all. speech.js
+         pins the card's left edge where the finished card's will be, so the text never shifts. */
+      .speech-docked .speech-rest { display: none; }
       /* The caret while a docked line types: a zero-width box with a 2px right border, so it takes no
-         room in the line — the untyped rest is already laid out after it, and a caret with width
-         would push every letter along a step as it went. */
+         room in the line, and a caret with width would make the card a step wider than its text. */
       .speech-docked.is-typing .speech-typed::after {
         content: ''; display: inline-block; width: 0; height: 0.95em; margin-right: -2px;
         border-right: 2px solid currentColor; vertical-align: -0.12em;

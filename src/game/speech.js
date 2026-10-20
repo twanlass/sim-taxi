@@ -330,12 +330,14 @@ export function createSpeech(root, { viewport = null, typing = false, onDismiss 
   // The fuel arc's top, for the docked slot. Measured with the card rather than per frame: the arc
   // throbs a percent when a pour lands, and a slot that tracked it would throb too.
   let floor = 0;
+  // The docked card's box as it is this frame, while it types (`size` is the finished one).
+  let live = { w: 0, h: 0 };
   const measure = () => {
     size = { w: card.offsetWidth, h: card.offsetHeight };
     slot.h = size.h;
     if (docked) floor = readArcTop(viewport ? viewport.height() : window.innerHeight);
   };
-  window.addEventListener('resize', () => { if (open) measure(); });
+  window.addEventListener('resize', () => { if (open && !(docked && isTyping())) measure(); });
 
   const isTyping = () => shown < text.length;
   // The whole line is always in the card: what has been typed, then the rest of it hidden. So every
@@ -369,7 +371,9 @@ export function createSpeech(root, { viewport = null, typing = false, onDismiss 
         if (other === slot) break;
         offset += other.h + DOCK_GAP;
       }
-      const p = placeDocked(size.w, size.h, w, floor, safe, offset);
+      // The finished card's left edge and the card's height as it stands, so the box grows to the
+      // right from where the line starts and ends centred, its bottom edge never moving.
+      const p = placeDocked(size.w, live.h, w, floor, safe, offset);
       el.style.transform = `translate(${p.left.toFixed(1)}px, ${p.top.toFixed(1)}px)`;
       placeTag(target(), w, h);
       return;
@@ -434,17 +438,17 @@ export function createSpeech(root, { viewport = null, typing = false, onDismiss 
       // A docked card always types itself out (Tyler, 2026-10-20), even one that is not answered:
       // dispatch and the racer type too, they just don't take a tap to finish. A pinned card types
       // only when it is answered, as before.
-      if ((typing || docked) && !prefersReducedMotion()) {
-        typeTo(0);
-      } else {
-        finishTyping();
-      }
       charT = 0;
       hold = 0;
       open = true;
       root.hidden = false;
       root.classList.remove('is-closing', 'is-open');
+      // Measured with the whole line in: a docked card types without its untyped rest laid out, so
+      // the box grows letter by letter, and where it *finishes* is what fixes its left edge.
+      finishTyping();
       measure();
+      if ((typing || docked) && !prefersReducedMotion()) typeTo(0);
+      live = { w: card.offsetWidth, h: card.offsetHeight };
       if (docked) {
         slot.h = size.h;
         if (!dockStack.includes(slot)) dockStack.push(slot);
@@ -479,6 +483,7 @@ export function createSpeech(root, { viewport = null, typing = false, onDismiss 
         if (PAUSE_AFTER.has(text[shown - 1])) { hold = TYPE_PAUSE; break; }
       }
       typeTo(shown);
+      if (docked) live = { w: card.offsetWidth, h: card.offsetHeight };
     },
   };
 }
