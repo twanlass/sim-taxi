@@ -588,7 +588,11 @@ a fare may be reading the board with their thumb off the glass. `?camreturn=clas
 camera wherever the player put it, as it was before
 ([history](rendering-history.md#camera)).
 
-`src/game/taxifinder.js` covers the three seconds before that. The taxi can still drive off the
+That return is the whole answer by default. **The taxi-finder chip is off** (Tyler, 2026-10-20:
+"get rid of the taxi button"); `?taxifinder=classic` brings it back, and the rest of this section
+describes it as it behaves under that flag.
+
+`src/game/taxifinder.js` covers the gap before that. The taxi can still drive off the
 frame entirely, which on a phone is one look across town away, and dragging the map until the
 yellow car turns up is a hunt across near-identical blocks on a clock that is draining. So while
 the taxi is **completely** off-frame a chip of it fades in at the opposite end of the bottom row
