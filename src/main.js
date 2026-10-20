@@ -3432,8 +3432,11 @@ function showRating(count) {
   hud.rating.classList.add('is-drop');
   hud.rating.setAttribute('aria-label', `Rating ${text} stars`);
 }
+// The rating row is off the HUD for now (Tyler, 2026-10-20) — the rating still counts, and still
+// fires you at RATING_FLOOR, it just isn't drawn. `?stars=classic` puts it back under the cash.
+const starsShown = new URLSearchParams(window.location.search).get('stars') === 'classic';
 if (hud.strikes) hud.strikes.hidden = ratingOn;
-if (hud.rating) hud.rating.hidden = !ratingOn;
+if (hud.rating) hud.rating.hidden = !ratingOn || !starsShown;
 
 // The counter lags the payout on purpose: the flying "$X" rises off the taxi, travels to the HUD,
 // and only when it lands does the total tick up — so the payout has a visible path from the world
