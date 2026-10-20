@@ -886,11 +886,11 @@
       /* The polaroid over the title: one frame of the ending (game/polaroid.js). Sized off the
          viewport's height like the rest of the card, so a landscape phone gets a smaller print
          rather than a title pushed below the fold. The tilt is the resting state; runend.js drops
-         it in from a steeper one. */
+         it in from a steeper one. The New Move card's clip is printed on the same paper (below). */
       #run-end .run-end-photo { margin-bottom: clamp(14px, 3.4vh, 30px); }
-      #run-end .run-end-print {
+      #run-end .run-end-print, body:not(.move-card-classic) #new-move .nm-print {
         background: #f7f4ec; padding: 8px 8px 30px; border-radius: 2px;
-        transform: rotate(-4deg);
+        transform: rotate(var(--print-tilt, -4deg));
         box-shadow: 0 10px 28px rgba(0, 0, 0, 0.6), 0 2px 6px rgba(0, 0, 0, 0.45);
       }
       #run-end .run-end-shot {
@@ -1526,7 +1526,7 @@
       #new-move .speech-card { padding: 20px; gap: 8px; border-radius: 20px; }
       #new-move .speech-title { font-size: 12px; }
       #new-move .speech-text { font-size: 22px; }
-      .nm-clip[hidden] { display: none; }
+      .nm-clip[hidden], .nm-print[hidden] { display: none; }
       /* The city as it stood when the card opened, laid over the game's canvas while the card films
          its clip through it (game/uturnclip.js). Under the HUD and the dim. */
       #freeze-frame { position: fixed; left: 0; top: 0; z-index: 1; pointer-events: none; }
@@ -1536,6 +1536,14 @@
         display: block; width: min(300px, calc(100vw - 60px)); aspect-ratio: 16 / 9;
         border-radius: 12px;
       }
+      /* The clip as a polaroid (the default, Tyler 2026-10-20): the run-end print's paper, border
+         and shadow (shared rule by #run-end .run-end-print), canted less than the ending's -4deg
+         because a 16:9 print is wider and the same angle lifts its far corner twice as far. The
+         clip keeps its CSS size inside the paper — moveclip.js sizes the copy off its clientWidth,
+         which would count padding on the canvas itself. `?movecard=classic` is the bare clip. */
+      body:not(.move-card-classic) #new-move .nm-print { --print-tilt: -2.5deg; margin: 6px 0 10px; }
+      body:not(.move-card-classic) #new-move .nm-clip { width: min(284px, calc(100vw - 76px)); border-radius: 0; }
+      body.move-card-classic .nm-print { display: contents; }
       .nm-combo { display: flex; align-items: center; gap: 8px; }
       .nm-combo[hidden] { display: none; }
       /* The "+" between keys: the title's ink, so it reads as part of the card's type. */
@@ -1551,6 +1559,17 @@
       .nm-key :is(.pedal-face, .pedal-icon) { transition: transform 0.06s ease-out; }
       .nm-key.is-down :is(.pedal-face, .pedal-icon) { transform: translateY(5px); }
       body:not(.pedals-classic) .nm-key.is-down .pedal-face { filter: url(#nes-down); transform: translateY(4px); }
+      /* The keys in the HUD's own colours (the default, Tyler 2026-10-20): greying an unlit key on
+         the run-end blackout turned the orange A brown and the red B maroon, so the card's buttons
+         did not look like the ones the player presses. An unlit key now waits a size smaller at full
+         colour, and the press grows it in. And no glint: the drawn highlight read as fake gloss at
+         this size. `?movecard=classic` is the dimmed keys with their glint. */
+      body:not(.move-card-classic) .nm-key,
+      body.new-move-after-run:not(.move-card-classic) #new-move .nm-key:not(.is-lit) {
+        filter: none; opacity: 1; transform: scale(0.84); transition: transform 0.12s ease-out;
+      }
+      body:not(.move-card-classic) .nm-key.is-lit { transform: none; }
+      body:not(.move-card-classic) .nm-key .pedal-glint { display: none; }
 
       /* --- the HUD's entrance ------------------------------------------------
          Everything the player will need but cannot use yet starts off its own screen edge, and
@@ -2422,10 +2441,10 @@
         <circle cx="75" cy="76" r="64" fill="#7A4100" />
         <g class="pedal-face">
           <circle cx="75" cy="71" r="62" fill="url(#nes-gas-face)" />
-          <path d="M25.15 47.76A55 55 0 0 1 56.19 19.32" stroke="#fff" stroke-opacity="0.6" stroke-width="5" stroke-linecap="round" fill="none" />
-          <circle cx="67.35" cy="16.54" r="2.4" fill="#fff" fill-opacity="0.6" />
+          <path class="pedal-glint" d="M25.15 47.76A55 55 0 0 1 56.19 19.32" stroke="#fff" stroke-opacity="0.6" stroke-width="5" stroke-linecap="round" fill="none" />
+          <circle class="pedal-glint" cx="67.35" cy="16.54" r="2.4" fill="#fff" fill-opacity="0.6" />
           <circle cx="75" cy="71" r="44" fill="url(#nes-gas-dish)" stroke="#000" stroke-opacity="0.22" stroke-width="1.5" />
-          <path d="M113.11 93A44 44 0 0 1 36.89 93" stroke="#fff" stroke-opacity="0.4" stroke-width="1.5" fill="none" />
+          <path class="pedal-glint" d="M113.11 93A44 44 0 0 1 36.89 93" stroke="#fff" stroke-opacity="0.4" stroke-width="1.5" fill="none" />
           <!-- Debossed, not printed (Tyler, 2026-10-15): the letter is the dish's own plastic, a
                tenth lighter, and reads by its walls alone — the top wall in shadow, the bottom
                one catching the light, the way a cut into the dish would. -->
@@ -2510,10 +2529,10 @@
         <circle cx="75" cy="76" r="64" fill="#6E1214" />
         <g class="pedal-face">
           <circle cx="75" cy="71" r="62" fill="url(#nes-brake-face)" />
-          <path d="M25.15 47.76A55 55 0 0 1 56.19 19.32" stroke="#fff" stroke-opacity="0.6" stroke-width="5" stroke-linecap="round" fill="none" />
-          <circle cx="67.35" cy="16.54" r="2.4" fill="#fff" fill-opacity="0.6" />
+          <path class="pedal-glint" d="M25.15 47.76A55 55 0 0 1 56.19 19.32" stroke="#fff" stroke-opacity="0.6" stroke-width="5" stroke-linecap="round" fill="none" />
+          <circle class="pedal-glint" cx="67.35" cy="16.54" r="2.4" fill="#fff" fill-opacity="0.6" />
           <circle cx="75" cy="71" r="44" fill="url(#nes-brake-dish)" stroke="#000" stroke-opacity="0.22" stroke-width="1.5" />
-          <path d="M113.11 93A44 44 0 0 1 36.89 93" stroke="#fff" stroke-opacity="0.4" stroke-width="1.5" fill="none" />
+          <path class="pedal-glint" d="M113.11 93A44 44 0 0 1 36.89 93" stroke="#fff" stroke-opacity="0.4" stroke-width="1.5" fill="none" />
           <!-- Debossed, not printed (Tyler, 2026-10-15): the letter is the dish's own plastic, a
                tenth lighter, and reads by its walls alone — the top wall in shadow, the bottom
                one catching the light, the way a cut into the dish would. -->

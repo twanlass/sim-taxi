@@ -180,7 +180,12 @@ export function createNewMove({ viewport = null, onClose = () => {} } = {}) {
   const combo = document.createElement('div');
   combo.className = 'nm-combo';
   combo.setAttribute('aria-hidden', 'true');
-  media.append(canvas, combo);
+  // The paper the clip is printed on (index.html, `.nm-print`): a wrapper rather than padding on the
+  // canvas, because moveclip.js sizes the copy off the canvas's clientWidth.
+  const print = document.createElement('div');
+  print.className = 'nm-print';
+  print.append(canvas);
+  media.append(print, combo);
   // All three keys at one size, a "+" between each (Tyler, 2026-10-04): the row is a recipe, and
   // the HUD's big-gas/small-brake sizing read as a hierarchy that is not in the combo. Built per
   // move, on open.
@@ -271,12 +276,12 @@ export function createNewMove({ viewport = null, onClose = () => {} } = {}) {
       openedAt = performance.now();
       idleT = 0;
       buildKeys(move.keys);
-      canvas.hidden = false;
+      canvas.hidden = print.hidden = false;
       // Shown first, so the card's canvas has its size before the clip measures it.
       bubble.show(move.title ?? TITLE, move.line, target, media);
       try { clip = move.makeClip(canvas); } catch (err) { console.warn(`${move.line} clip:`, err); clip = null; }
       // Nowhere to film: the card without a clip, re-measured.
-      if (!clip) { canvas.hidden = true; bubble.show(move.title ?? TITLE, move.line, target, media); }
+      if (!clip) { canvas.hidden = print.hidden = true; bubble.show(move.title ?? TITLE, move.line, target, media); }
       pressKeys();
       document.body.classList.add('new-move-open');
       return true;

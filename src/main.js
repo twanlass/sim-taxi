@@ -5396,6 +5396,11 @@ let repairCardIn = -1;
 // `?newmove=classic` puts the move cards back mid-run, a beat after the drop-off. The depot's card
 // is not a move and stays mid-run either way: it is about the car smoking now.
 const movesAfterRun = new URLSearchParams(window.location.search).get('newmove') !== 'classic';
+// The card's clip on polaroid paper and its keys in the HUD's own colours, without the glint
+// (Tyler, 2026-10-20). `?movecard=classic` is the bare rounded clip and the greyed keys.
+if (new URLSearchParams(window.location.search).get('movecard') === 'classic') {
+  document.body.classList.add('move-card-classic');
+}
 // What a closing card hands over to — the next card of the run's queue (`showUnlockedMoves`).
 let afterNewMove = null;
 const newMove = shot ? null : createNewMove({ viewport, onClose: () => afterNewMove?.() });
