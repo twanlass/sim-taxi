@@ -2056,6 +2056,7 @@ race = shot || raceParam === 'classic' ? null : createRace({
   canStart: () => !fares.carrying(),
   // Two units inside the frame to come up, two outside to go, so a car on the edge does not flick.
   seen: (car, keep) => inShot(car.x, car.z, keep ? 2 : -2),
+  delivered: () => fares.state.delivered,
   onEvent: onRaceEvent,
 });
 fares.setHold(() => Boolean(race?.holdsBoard()));

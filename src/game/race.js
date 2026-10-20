@@ -28,9 +28,11 @@ import { markOccluder } from './ssao.js';
 // cannot cost the run, so the race is a tap like every other choice in the game, and ignoring the
 // racer is free.
 //
-// **Always around, offered when it can be taken** (Tyler: "keep the racer around all the time...
-// essentially make it a persistent event players can trigger"). Once it has turned up it cruises
-// the city as ordinary traffic and never leaves; between races it rests for REST_TIME. It is
+// **Around until it has raced, offered when it can be taken** (Tyler: "keep the racer around all the
+// time... essentially make it a persistent event players can trigger"). It turns up after a 2nd to
+// 4th drop-off (DROPS_BETWEEN), cruises the city as ordinary traffic until a race is run, then drives
+// off and comes back as many drop-offs later. A race declined or called off keeps it in town, resting
+// REST_TIME before it offers again. It is
 // `available` — its "…" tag up, pointing from the screen edge when the car is off it, and the tap
 // answered — while the taxi is within NEAR_BLOCKS of it with an empty cab and nothing owning the run
 // (`interrupted`: a getaway, a chase, the run ending). Too far, or a rider aboard, and the tag goes
@@ -55,9 +57,15 @@ import { markOccluder } from './ssao.js';
 // you got ahead, would take the win away from the player along with the loss — so it drives one way
 // all race, and what the player has over it is Loco Mode and a route of their own choosing.
 
-// When the racer first turns up — after that it stays (see REST_TIME). Off the run's own clock and
-// only while nothing upstages it (`blocked`), like the fire and the roadworks.
-const FIRST_WAIT = [15, 30];
+// When the racer turns up: after a random 2nd to 4th drop-off of the run, and again the same
+// number of drop-offs after each race it runs (Tyler: "intro the racer randomly between 2nd and 4th
+// dropoff... intro them again at the same interval after a race"). Counted in deliveries rather
+// than seconds, so it arrives once the player has the hang of the fare loop, and a player cannot
+// sit and farm it: the next race is earned by driving fares. In between it stays, a standing offer.
+const DROPS_BETWEEN = [2, 4];
+// From the drop-off that brings it to it turning up, once nothing upstages it (`blocked`): the
+// drop-off's own money and pop get the screen first.
+const ARRIVE_WAIT = 4;
 const SOON_WAIT = 4;            // ?race=soon
 const RETRY_WAIT = 4;           // nothing qualified this time
 
@@ -414,6 +422,7 @@ function createRivalMesh() {
  *                 route band honest (see `createBurgerRun` for why it is injected)
  * @param blocked  `() => boolean` — true while no racer may turn up; one that is on is called off
  * @param canStart `() => boolean` — is the taxi free: an empty cab with nowhere it is going
+ * @param delivered `() => number` — the run's drop-offs so far, which time the racer's visits
  * @param seen     `(car, keep) => boolean` — is the racer on screen? `keep` asks with some give, for
  *                 a tag that is already up
  * @param onEvent  `(type, detail) => void` — everything the player sees off the car: the bubble, the
@@ -422,7 +431,7 @@ function createRivalMesh() {
  */
 export function createRace({
   rng, scene, traffic, routeTo, blocked = () => false, interrupted = () => false, canStart = () => true,
-  seen = () => false, onEvent = () => {}, soon = false, bass = () => 0,
+  seen = () => false, delivered = () => 0, onEvent = () => {}, soon = false, bass = () => 0,
 }) {
   const taxi = traffic.taxi;
   let rivalChase = RIVAL_CHASE;
@@ -473,7 +482,9 @@ export function createRace({
     phase: 'waiting',
     phaseT: 0,
     t: 0,
-    cooldown: soon ? SOON_WAIT : rng.range(FIRST_WAIT[0], FIRST_WAIT[1]),
+    cooldown: soon ? SOON_WAIT : ARRIVE_WAIT,
+    // The run's delivery count it turns up at (see DROPS_BETWEEN).
+    dueAt: soon ? 0 : rng.int(DROPS_BETWEEN[0], DROPS_BETWEEN[1]),
     car: null,
     /** The two lanes the start was put on, shut to newcomers until the flag drops. */
     startLanes: null,
@@ -1036,13 +1047,15 @@ export function createRace({
     state.brakeTaxi = false;
     state.step = null;
     state.arrival = null;
-    // Back to cruising, unless there is no car left to cruise in.
-    if (car && !car.crashed) rest();
+    // A race run, it drives off and comes back DROPS_BETWEEN drop-offs on (`retire`). One called
+    // off or declined stays where it is, still offering.
+    if (car && !car.crashed && result !== 'won' && result !== 'lost') rest();
     else leave();
   }
 
   /**
-   * The race is over and the racer goes back to being traffic, offering again after REST_TIME. The
+   * The race came to nothing (declined, called off) and the racer goes back to being traffic,
+   * offering again after REST_TIME. The
    * finale's money flies to wherever it has got to (main.js), so it does not need to stay put.
    */
   function rest() {
@@ -1097,8 +1110,9 @@ export function createRace({
     hideFinish();
     setClosedLanes([], 'race');
     setPhase('waiting');
-    // Lost (a wreck, the run ending): another one along shortly.
-    state.cooldown = soon ? SOON_WAIT * 3 : REST_TIME;
+    // Gone (a race run, or a wreck): back after another DROPS_BETWEEN drop-offs.
+    state.cooldown = soon ? SOON_WAIT * 3 : ARRIVE_WAIT;
+    state.dueAt = soon ? 0 : delivered() + rng.int(DROPS_BETWEEN[0], DROPS_BETWEEN[1]);
   }
 
   function showFinish(at = state.finish) {
@@ -1156,7 +1170,7 @@ export function createRace({
 
     switch (state.phase) {
       case 'waiting':
-        if (!blocked()) {
+        if (!blocked() && delivered() >= state.dueAt) {
           state.cooldown -= dt;
           if (state.cooldown <= 0 && !summon()) state.cooldown = RETRY_WAIT;
         }

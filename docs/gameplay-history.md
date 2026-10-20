@@ -1247,3 +1247,9 @@ moment the first one was home, and the camera followed the loser to the line for
 seen arriving. Tyler asked for it as a scene instead: winner pulls up, cut to the loser a block
 out, skid in beside the winner, then the word, then the money.
 
+## The street race on the clock
+
+For one build the racer turned up 15-30s into the run and stayed for the rest of it, offering again
+20s after every race. Tyler moved it onto deliveries: first after a random 2nd to 4th drop-off, and
+again as many drop-offs after each race, so a race is something the fare loop earns.
+

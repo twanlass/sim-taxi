@@ -2534,10 +2534,13 @@ intensity.
 ## The street race
 
 `src/game/race.js`, `src/geometry/raceflag.js`, `sim/traffic.js` (`car.racer`), `tools/race.mjs`.
-`?race=classic` turns it off; `?race=soon` brings the racer in a few seconds in.
+`?race=classic` turns it off; `?race=soon` brings the racer in a few seconds in, and back soon after.
 
-**A violet street racer turns up 15-30s into the run and stays for the rest of it**, cruising the
-city as ordinary traffic: a standing offer the player triggers when it suits them. It has a white stripe down
+**A violet street racer turns up after a random 2nd to 4th drop-off** (`DROPS_BETWEEN`) and cruises
+the city as ordinary traffic until a race is run: a standing offer the player triggers when it suits
+them. After a race it drives off, and comes back the same 2 to 4 drop-offs later (Tyler: "intro them
+again at the same interval after a race"). Counted in deliveries rather than seconds, the next race
+is earned by driving fares, so it cannot be farmed by sitting next to the racer. It has a white stripe down
 its spine, a proud wing on the boot and cyan light pooling under it that pulses to the music, and
 over it hangs a "…" — the [speech tag](#speech-bubbles) alone, with no card (`showTag`; a card with
 only the dots under `?bubbles=classic`/`dock`). The "…" is up whenever the race can be taken (an
@@ -2582,8 +2585,8 @@ screen and flies away — up into the cash counter for a win, out to the racer's
 and once it has landed the camera eases back out to the zoom the player had. The racer comes in at
 `ARRIVAL_CHASE` (0.4) rather than race pace: at 21.7 it reached the block too fast to stop on it.
 A taxi steered off mid-drive-in, or a loser not in by `DRIVE_IN_MAX` (8s), goes straight to the
-word. The rival then rests for `REST_TIME` (20s) and goes
-back to being an offer; only a crash takes it off the map, and another one turns up after the rest.
+word. The rival then drives off and dissolves, due back 2 to 4 drop-offs later; a race declined or
+called off leaves it in town instead, resting `REST_TIME` (20s) before it offers again.
 
 **It is taken on, never imposed.** Losing costs cash, and the robbery's rule is that an imposed
 event cannot cost the run ([it is imposed](#it-is-imposed-so-it-cannot-cost-the-run)), so the race
