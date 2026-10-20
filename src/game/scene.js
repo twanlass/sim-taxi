@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { PALETTE } from '../palette.js';
 import { MAX_SPAN } from '../city/grid.js';
 import { countInEveryPass } from '../util/geo.js';
+import { GRADE_UNIFORMS } from './colorgrade.js';
 import { DISTANCE, PLAY_ZOOM, DEPTH_PER_SCREEN_UNIT } from './camera.js';
 
 /** The dome's gradient curve. Exported because the haze reads the same gradient — see hazeColor. */
@@ -21,6 +22,7 @@ function createSky() {
       topColor: { value: new THREE.Color(PALETTE.skyTop) },
       bottomColor: { value: new THREE.Color(PALETTE.skyBottom) },
       exponent: { value: SKY_EXPONENT },
+      ...GRADE_UNIFORMS,
     },
     vertexShader: /* glsl */ `
       varying vec3 vWorldPosition;
@@ -34,9 +36,11 @@ function createSky() {
       uniform vec3 bottomColor;
       uniform float exponent;
       varying vec3 vWorldPosition;
+      #include <colorgrade_pars_fragment>
       void main() {
         float h = normalize(vWorldPosition + vec3(0.0, ${SKY_DROP.toFixed(1)}, 0.0)).y;
         gl_FragColor = vec4(mix(bottomColor, topColor, pow(max(h, 0.0), exponent)), 1.0);
+        #include <colorgrade_fragment>
       }
     `,
   });
