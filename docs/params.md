@@ -40,6 +40,7 @@ doc; what the classic version was, and why it changed, is in that doc's history 
 | `?ltrain=classic` | No L train | #482 | [city.md](city.md) |
 | `?lroute=classic` | The L train running east–west instead of north–south over the river | #483 | [city.md](city.md) |
 | `?ltrainwest=classic` | The L train running straight on south over the river truss to the south shore, instead of turning west at the east-west arterial and out through the west edge. Headless tools take `LTRAINWEST=classic` | | [city.md](city.md#the-elevated-train-on-by-default-ltrainclassic-to-compare) |
+| `?trainfade=classic` | The L's deck dithering out over the taxi as well as over the fare pins, instead of staying solid and leaving the taxi to its ghost outline | | [city.md](city.md#the-elevated-train-on-by-default-ltrainclassic-to-compare) |
 | `?trainlights=classic` | The L's deck without its lamps | #489 | [city.md](city.md) |
 | `?trainintro=classic` | The L without its own intro | #494 | [city.md](city.md) |
 | `?depot=classic` / `=model` | The depot's wrench sign / a 3D taxi on its roof (default is the neon cutout) | #479 | [city.md](city.md) |
