@@ -2969,6 +2969,15 @@ over the top of it (~197° under `?pedals=classic`) standing 16 units of the but
 edge (8 under `?buttons=classic`), off a `--pct`
 CSS variable, dropping as you drain and climbing as a drop-off pours fuel in.
 
+**The bar burns like a fuse while Loco is on.** The tailpipe's own flame (`tongueOutline`, its three
+tongues and four frames at the plume's 16fps) stands on the fuel's front, leaning 20° back over the
+fuel already spent, and grows and goes out on the plume's own envelope (`locoFlame.state.heat`).
+It takes the plume's colours, and the fuel follows them: up a [drift chain](#the-drift-loco-tap-the-brake-loco-again) the bar turns
+violet, blue, then teal with the kick, and back to gold after it (`drawFuseFlame` in main.js,
+`flamePose` in game/fuelarc.js). Only the front burns. A bar on fire end to end would read the same
+full as empty, and it sits under both thumbs (Tyler, 2026-10-20). `?locobar=classic` is the plain
+gold bar.
+
 **Every drop of it is earned, except the way back out of empty.** The run opens with **a third of a tank**, each
 successful drop-off pours in **another third**, a [delivered package](#the-rest-of-it) pours in **a
 sixth**, and a [burger run](#the-burger-run) pours in **15%** — that is the whole list of sources,

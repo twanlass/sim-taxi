@@ -176,12 +176,13 @@
          says the same), so the whole gauge *and* its glow sit inside it. The crown hung out over
          the top of a box exactly the button's size, on `overflow: visible`, and a `filter` on an
          element is free to clip to that element's box: when the burn glow came on, the top of the
-         arc was cut off, and it popped back as the glow went. The numbers are 50 units at the
-         button's scale, `--gas-d` per 150. */
+         arc was cut off, and it popped back as the glow went. The numbers are 80 units at the
+         button's scale, `--gas-d` per 150: 50 until the fuse flame, which licks up to ~32 units
+         out past the crown's outer edge. */
       #boost-meter .boost-arc {
         position: absolute; display: block;
-        left: calc(-50 * var(--gas-d) / 150); top: calc(-50 * var(--gas-d) / 150);
-        width: calc(250 * var(--gas-d) / 150); height: calc(250 * var(--gas-d) / 150);
+        left: calc(-80 * var(--gas-d) / 150); top: calc(-80 * var(--gas-d) / 150);
+        width: calc(310 * var(--gas-d) / 150); height: calc(310 * var(--gas-d) / 150);
         /* The button's centre, so the throb swells the arc evenly off it. */
         transform-origin: 50% 50%;
         transition: filter 0.15s ease, transform 0.1s ease;
@@ -202,8 +203,28 @@
          CSS filter on an element *inside* an SVG gets a filter region off that element's own tiny
          box, and WebKit has never been dependable about the functions there at all. */
       #boost-meter .boost-edge { fill: url(#fuel-edge); opacity: var(--fill, 0); }
-      /* Burning. The arc lights up, so the fuel going down reads as fuel being spent. */
-      #boost-meter.is-active .boost-arc { filter: drop-shadow(0 0 6px rgba(255, 200, 0, 0.9)); }
+      /* Burning. The arc lights up, so the fuel going down reads as fuel being spent. The glow's
+         colour follows the tailpipe under the fuse flame (below); gold otherwise. */
+      #boost-meter.is-active .boost-arc { filter: drop-shadow(0 0 6px var(--fuel-glow, rgba(255, 200, 0, 0.9))); }
+      /* The fuse flame (the default, Tyler 2026-10-20: "we have rad flames coming from the taxi
+         tailpipe, can we integrate those"): the tailpipe's own tongue (game/locoflame.js
+         `tongueOutline`), its three layers and four frames at the plume's 16fps, burning off the
+         fuel's front for as long as the plume does, and in the plume's colours — orange, then
+         violet, blue and teal up a drift chain, the fuel itself following
+         (`updateLocoBar` in main.js). Only the front burns: a whole bar on fire reads the same
+         full as empty, and it sits under the player's thumbs. `?locobar=classic` is the plain
+         gold bar. */
+      #boost-meter .fuel-stop-a { stop-color: var(--fuel-a, #FFD500); }
+      #boost-meter .fuel-stop-b { stop-color: var(--fuel-b, #FF9200); }
+      #boost-meter .boost-flame { pointer-events: none; }
+      #boost-meter .boost-flame .t0 { fill: var(--lf-outer, #FF5D18); }
+      #boost-meter .boost-flame .t1 { fill: var(--lf-mid, #FF9E12); }
+      #boost-meter .boost-flame .t2 { fill: var(--lf-core, #FFF6D8); }
+      #boost-meter .boost-flame .f { visibility: hidden; animation: combo-flame-frame 0.25s step-end infinite; }
+      @media (prefers-reduced-motion: reduce) {
+        #boost-meter .boost-flame .f { animation: none; }
+        #boost-meter .boost-flame .f:first-child { visibility: visible; }
+      }
       /* Empty, and the climb back to a quarter tank: the fuel is there to watch but not to spend
          yet, so the gold is muted — the pedal's reasoning (see `#boost.is-empty`). */
       #boost-meter.is-empty .boost-fill { filter: saturate(0.35) brightness(0.8); }
@@ -2343,14 +2364,14 @@
     <!-- Loco Mode's fuel: a gauge arc over the gas button, in the button's own viewBox. A read-out
          only — the pedal is the control. See #boost-meter. -->
     <div id="boost-meter" aria-hidden="true">
-      <svg class="boost-arc" viewBox="-50 -50 250 250">
+      <svg class="boost-arc" viewBox="-80 -80 310 310">
         <defs>
           <radialGradient id="fuel-edge">
             <stop offset="0.35" stop-color="#FFFDF2" /><stop offset="0.6" stop-color="#FFE9A0" stop-opacity="0.9" />
             <stop offset="1" stop-color="#FFD54A" stop-opacity="0" />
           </radialGradient>
           <linearGradient id="fuel-grad" x1="-25" y1="0" x2="175" y2="0" gradientUnits="userSpaceOnUse">
-            <stop stop-color="#FFD500" /><stop offset="1" stop-color="#FF9200" />
+            <stop class="fuel-stop-a" stop-color="#FFD500" /><stop class="fuel-stop-b" offset="1" stop-color="#FF9200" />
           </linearGradient>
         </defs>
         <!-- Both outlines are written by main.js from game/fuelarc.js. -->
@@ -2358,6 +2379,8 @@
         <path class="boost-fill" />
         <circle class="boost-edge" r="0" />
         <line class="boost-glint" hidden />
+        <!-- The fuse flame, built into here by main.js unless `?locobar=classic`. -->
+        <g class="boost-flame"></g>
       </svg>
       <!-- The 🚨 while the police are after the taxi, drawn into by game/chasesiren.js. It stands
            over the crown of the gauge; `?pedals=classic` moves it back into #hud (main.js). -->

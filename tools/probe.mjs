@@ -11798,6 +11798,22 @@ function rideToPickup() {
   const classicOut = out - GAP + fuelArc.CLASSIC_GAP;
   const cssOut = Number(html.match(/#boost-meter #chase-siren \{\s*--arc-out: (\d+)/)?.[1]);
   const cssClassic = Number(html.match(/body\.buttons-classic #boost-meter #chase-siren \{ --arc-out: (\d+)/)?.[1]);
+  // The fuse flame stands on the front's centre line and leans FLAME_LEAN_DEG off straight out,
+  // toward the spent (full-t) end — the sign is the whole point, and a flipped one leans it over the
+  // fuel still in the tank.
+  {
+    let worstLean = 0, worstBase = 0, backward = true;
+    for (const t of [0.1, 0.3, 0.5, 0.7, 0.9]) {
+      const f = fuelArc.flamePose(t), p = fuelArc.pointAt(t), w = fuelArc.widthAt(t);
+      const dx = Math.cos(f.deg * Math.PI / 180), dy = Math.sin(f.deg * Math.PI / 180);
+      worstLean = Math.max(worstLean, Math.abs(Math.acos(dx * p.nx + dy * p.ny) * 180 / Math.PI - fuelArc.FLAME_LEAN_DEG));
+      worstBase = Math.max(worstBase, Math.hypot(f.x - (p.x + p.nx * w / 2), f.y - (p.y + p.ny * w / 2)));
+      const ahead = fuelArc.pointAt(t + 0.02);
+      if ((ahead.x - p.x) * dx + (ahead.y - p.y) * dy <= 0) backward = false;
+    }
+    check('fuel gauge: the fuse flame stands on the front and leans back over the spent fuel',
+      worstLean < 1e-6 && worstBase < 1e-9 && backward, `lean off by ${worstLean.toExponential(1)}°, base ${worstBase}, backward ${backward}`);
+  }
   check('fuel gauge: the siren sits on the gauge\'s outer edge, both gaps',
     cssOut === out && cssClassic === classicOut, `css ${cssOut}/${cssClassic}, arc ${out}/${classicOut}`);
 }

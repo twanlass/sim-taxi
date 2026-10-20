@@ -60,7 +60,7 @@ import {
   createBoost, BOOST_FARE_REWARD, BOOST_PARCEL_REWARD, BOOST_BURGER_REWARD,
 } from './game/boost.js';
 import { createBoostMeter } from './game/boostmeter.js';
-import { bandPath as fuelBandPath, frontAt as fuelFrontAt, glintAt as fuelGlintAt, RIM as FUEL_RIM, useClassicArc as useClassicFuelArc, useClassicGap as useClassicFuelGap } from './game/fuelarc.js';
+import { bandPath as fuelBandPath, frontAt as fuelFrontAt, glintAt as fuelGlintAt, RIM as FUEL_RIM, useClassicArc as useClassicFuelArc, useClassicGap as useClassicFuelGap, flamePose as fuelFlamePose } from './game/fuelarc.js';
 import { createImpact } from './game/impact.js';
 import { createTaxiDamage, SMOKE_FRACTION, BOOT_FRACTION } from './game/taxidamage.js';
 import { createHitCue, hitCueMode } from './game/hitcue.js';
@@ -3969,6 +3969,81 @@ function drawFuelArc(level) {
   }
 }
 
+// The fuse flame (index.html, "The fuse flame"): the tailpipe's tongue burning off the fuel's front,
+// in whatever colours the tailpipe is burning. Built once — four frames of three nested tongues,
+// cycled by CSS like the combo meter's — and then each frame is one `transform` on the group, and
+// only while it burns: a parked tank writes nothing. `?locobar=classic` goes without, and with it
+// the bar keeps its gold.
+const fuseFlame = new URLSearchParams(window.location.search).get('locobar') !== 'classic'
+  ? boostMeterEl?.querySelector('.boost-flame') : null;
+// In the button's viewBox units: the outer tongue 38 long and 1.7x the plume's own width. The first
+// cut, 26 long at 1.25x, read on a phone as a red tick at the end of the bar rather than as fire:
+// at this size a true-to-plume tongue is a dart, the combo flame's reason for its own stretch. Its
+// base sits on the fuel's front and the tip clears the crown by up to ~32 units, which is what the
+// gauge's SVG box was grown by.
+const FUSE_LEN = 38;
+const FUSE_WIDE = 1.7;
+if (fuseFlame) {
+  const k = FUSE_LEN / FLAME_LEN;
+  fuseFlame.innerHTML = Array.from({ length: FLAME_FRAMES }, (_, f) => {
+    const outline = tongueOutline((f / FLAME_FRAMES) * Math.PI * 2);
+    const paths = FLAME_LAYER_SCALES.map(([len, wide], layer) => {
+      const d = outline.map(([u, y], i) =>
+        `${i ? 'L' : 'M'}${(u * len * FLAME_LEN * k).toFixed(2)} ${(y * wide * k * FUSE_WIDE).toFixed(2)}`).join('') + 'Z';
+      return `<path class="t${layer}" d="${d}"/>`;
+    }).join('');
+    return `<g class="f" style="animation-delay:${(f * FLAME_FRAME_TIME).toFixed(4)}s">${paths}</g>`;
+  }).join('');
+  fuseFlame.style.display = 'none';
+}
+// The fuel's two gradient stops, and where they head as the plume splits into the drift kick's —
+// the fuel takes the kick's mid and outer colours, the way its gold matches the plain plume's.
+const FUEL_GOLD = ['#FFD500', '#FF9200'].map((c) => new THREE.Color(c));
+const FUEL_DRIFT = [
+  [PALETTE.locoFlameDriftMid, PALETTE.locoFlameChain2Mid, PALETTE.locoFlameChain3Mid],
+  [PALETTE.locoFlameDriftOuter, PALETTE.locoFlameChain2Outer, PALETTE.locoFlameChain3Outer],
+].map((ramp) => ramp.map((c) => new THREE.Color(c)));
+const fuseTier = new THREE.Color();
+const fuseFuel = new THREE.Color();
+let fuseDrawn = '';
+let fuseTint = '';
+function drawFuseFlame(level) {
+  if (!fuseFlame) return;
+  // Burns with the plume (its attack and release included), and not on an empty tank, where there
+  // is no front for it to stand on.
+  const heat = level > 0.005 ? locoFlame.state.heat : 0;
+  let tf = '';
+  if (heat > 0.01) {
+    const p = fuelFlamePose(level);
+    tf = `translate(${p.x.toFixed(2)} ${p.y.toFixed(2)}) rotate(${p.deg.toFixed(1)}) scale(${heat.toFixed(3)})`;
+  }
+  if (tf !== fuseDrawn) {
+    if (!tf !== !fuseDrawn) fuseFlame.style.display = tf ? '' : 'none';
+    fuseDrawn = tf;
+    if (tf) fuseFlame.setAttribute('transform', tf);
+  }
+  // The colours: the plume's own materials for the tongue, and the fuel eased off gold toward the
+  // drift tier by the same split the plume uses, so the bar changes colour with the car.
+  const { split, tier } = locoFlame.state;
+  const lo = Math.min(Math.floor(tier), 2), hi = Math.min(lo + 1, 2);
+  const stops = FUEL_GOLD.map((gold, i) => {
+    fuseTier.lerpColors(FUEL_DRIFT[i][lo], FUEL_DRIFT[i][hi], tier - lo);
+    return `#${fuseFuel.lerpColors(gold, fuseTier, split).getHexString()}`;
+  });
+  const flame = locoFlame.materials.map((m) => `#${m.color.getHexString()}`);
+  const key = stops.join() + flame.join() + (split > 0.01);
+  if (key === fuseTint) return;
+  fuseTint = key;
+  const st = boostMeterEl.style;
+  st.setProperty('--lf-outer', flame[0]);
+  st.setProperty('--lf-mid', flame[1]);
+  st.setProperty('--lf-core', flame[2]);
+  st.setProperty('--fuel-a', stops[0]);
+  st.setProperty('--fuel-b', stops[1]);
+  if (split > 0.01) st.setProperty('--fuel-glow', flame[0]);
+  else st.removeProperty('--fuel-glow');
+}
+
 function updateBoostButton(dt) {
   if (!boostButton) return;
   const mode = boost.state.mode;
@@ -3991,6 +4066,7 @@ function updateBoostButton(dt) {
     el.style.setProperty('--pulse', boostMeter.state.pulse.toFixed(3));
   }
   drawFuelArc(boostMeter.state.pct);
+  drawFuseFlame(boostMeter.state.pct);
   // The pedal sinks while it is held, however it is held — the Space key never touches the
   // pointer's `is-held`. See "The press" in index.html.
   boostButton.classList.toggle('is-down', boost.state.held);
@@ -7101,6 +7177,7 @@ if (!shot && wantsDebugPanel) {
 
 window.__taxi = {
   traffic,
+  locoFlame,
   // The city camera — `state.punch` is how a browser test stages a cut opening on a held Loco push-in.
   controller,
   // The combo meter — see game/combometer.js — and the drop-off that cashes it in.
