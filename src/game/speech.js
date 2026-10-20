@@ -87,12 +87,15 @@ function speechMode() {
 /**
  * The docked card's look — `?bubblestyle=`, a prototype for Tyler to pick between: 'card' (the
  * Figma card, the default), 'ticker' (a dark radio strip with the speaker in a coloured chip),
- * 'portrait' (an arcade-yellow card with a speaker badge) or 'subtitle' (no box, outlined text).
+ * 'portrait' (an arcade-yellow card with a speaker badge), 'subtitle' (no box, outlined text),
+ * 'black' (solid black, white type), 'glass' (frosted dark with the speaker's colour down the side),
+ * 'sticker' (outlined white card with the speaker on a tab), 'lcd' (the dash radio's amber readout)
+ * or 'colour' (filled in the speaker's own colour).
  */
 function captionStyle() {
   if (typeof window === 'undefined') return 'card';
   const v = new URLSearchParams(window.location.search).get('bubblestyle');
-  return ['ticker', 'portrait', 'subtitle'].includes(v) ? v : 'card';
+  return ['ticker', 'portrait', 'subtitle', 'black', 'glass', 'sticker', 'lcd', 'colour'].includes(v) ? v : 'card';
 }
 
 // Who is talking, read off the title, for the styles that colour or badge the speaker.

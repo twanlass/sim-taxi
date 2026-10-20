@@ -1440,6 +1440,60 @@
       .speech-style-subtitle .speech-title { color: var(--who); font-size: 12px; font-weight: 700; }
       .speech-style-subtitle[data-speaker="tip"] .speech-title { color: #ffd21f; }
       .speech-style-subtitle .speech-text { color: #fff; font-size: 21px; }
+      /* Black: solid black, white type, the speaker in grey caps. The tag goes black to match. */
+      .speech-style-black .speech-card { background: #0d0e12; box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35); padding: 13px 16px; border-radius: 14px; }
+      .speech-style-black .speech-title { color: rgba(255, 255, 255, 0.55); }
+      .speech-style-black .speech-text { color: #fff; }
+      /* Glass: frosted dark over the city, a hairline edge, the speaker's colour as a bar down the left. */
+      .speech-style-glass .speech-card {
+        background: rgba(20, 22, 34, 0.55); -webkit-backdrop-filter: blur(10px) saturate(1.3); backdrop-filter: blur(10px) saturate(1.3);
+        border: 1px solid rgba(255, 255, 255, 0.22); border-left: 4px solid var(--who);
+        border-radius: 12px; padding: 12px 15px 12px 13px; box-shadow: 0 6px 18px rgba(0, 0, 0, 0.25);
+      }
+      .speech-style-glass .speech-title { color: var(--who); }
+      .speech-style-glass[data-speaker="police"] .speech-title { color: #7ea6ff; }
+      .speech-style-glass[data-speaker="racer"] .speech-title { color: #c79bff; }
+      .speech-style-glass[data-speaker="robber"] .speech-title { color: #ff8577; }
+      .speech-style-glass .speech-text { color: #fff; }
+      /* Sticker: a comic panel. White, heavy ink outline, hard shadow, the speaker on a coloured tab
+         stuck over the top-left corner. */
+      .speech-style-sticker .speech-card {
+        position: relative; background: #fff; border: 3px solid #1b1d2b; border-radius: 12px;
+        box-shadow: 4px 4px 0 #1b1d2b; padding: 18px 16px 12px; margin-top: 10px; rotate: 1deg;
+      }
+      .speech-style-sticker .speech-title {
+        position: absolute; left: 10px; top: -12px; padding: 5px 8px; border-radius: 6px;
+        background: var(--who); color: var(--who-ink); border: 2.5px solid #1b1d2b;
+        text-box: none; line-height: 1; font-weight: 700; rotate: -4deg;
+      }
+      .speech-style-sticker .speech-text { color: #1b1d2b; font-size: 16.5px; }
+      /* LCD: the taxi's dash radio. Near-black glass, amber segment-ish type, a faint scanline. */
+      .speech-style-lcd .speech-card {
+        background: #14110a repeating-linear-gradient(0deg, rgba(255, 170, 40, 0.05) 0 1px, transparent 1px 3px);
+        border: 2px solid #3a2f18; border-radius: 8px; padding: 11px 15px;
+        box-shadow: inset 0 0 18px rgba(255, 160, 30, 0.12), 0 4px 12px rgba(0, 0, 0, 0.35);
+      }
+      .speech-style-lcd .speech-title, .speech-style-lcd .speech-text {
+        color: #ffb52e; text-transform: uppercase; letter-spacing: 0.08em;
+        text-shadow: 0 0 6px rgba(255, 170, 40, 0.65);
+      }
+      .speech-style-lcd .speech-title { color: rgba(255, 181, 46, 0.6); font-size: 10px; }
+      .speech-style-lcd .speech-text { font-size: 14.5px; }
+      /* Colour: filled in the speaker's own colour, white type — who is talking before a word is read. */
+      .speech-style-colour .speech-card { background: var(--who); border-radius: 14px; padding: 13px 16px; box-shadow: 0 4px 14px rgba(0, 0, 0, 0.3); }
+      .speech-style-colour .speech-title { color: var(--who-ink); opacity: 0.75; }
+      .speech-style-colour .speech-text { color: var(--who-ink); }
+      /* The tag dresses to match the card it belongs to. */
+      .speech-style-black .speech-tag, .speech-style-ticker .speech-tag { background: #0d0e12; }
+      .speech-style-black .speech-tag i, .speech-style-ticker .speech-tag i { background: #fff; }
+      .speech-style-black .speech-tag-pin .speech-pointer, .speech-style-ticker .speech-tag-pin .speech-pointer { color: #0d0e12; }
+      .speech-style-lcd .speech-tag { background: #14110a; border: 1.5px solid #3a2f18; }
+      .speech-style-lcd .speech-tag i { background: #ffb52e; }
+      .speech-style-lcd .speech-tag-pin .speech-pointer { color: #14110a; }
+      .speech-style-colour .speech-tag, .speech-style-glass .speech-tag { background: var(--who); }
+      .speech-style-colour .speech-tag i, .speech-style-glass .speech-tag i { background: var(--who-ink); }
+      .speech-style-colour .speech-tag-pin .speech-pointer, .speech-style-glass .speech-tag-pin .speech-pointer { color: var(--who); }
+      .speech-style-sticker .speech-tag, .speech-style-portrait .speech-tag { border: 2.5px solid #1b1d2b; }
       /* The tag: who is talking, pinned where the card used to stand. A white disc with three dots
          in it — the "someone is typing" mark — and the card's pointer, so it reads as the docked
          card's other end. Small enough (24px) that following a car costs nothing to look at. */
