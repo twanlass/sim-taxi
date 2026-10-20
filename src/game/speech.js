@@ -256,7 +256,7 @@ export function placeSpeech(target, w, h, vw, vh, insets = safe) {
 
 /**
  * @param root      the layer the bubble lives in — an empty, full-screen, `pointer-events: none`
- *                  element in index.html (`#coach`, `#robber-talk`, `#radio`, `#cop-shout`); this
+ *                  element in index.html (`#coach`, `#robber-talk`, `#radio`, `#cop-shout`, `#depot-call`); this
  *                  builds the card inside it
  * @param viewport  util/viewport.js — the frame the renderer draws, which on an installed iOS app
  *                  is not `window.inner*`

@@ -73,6 +73,10 @@ lets go of all of it at once, so what follows is exactly the run that used to st
 to the garage door, the door up, the taxi out, the tips. The drift sits at the top of the camera's
 priority list while the title holds, and the vignette's approach eases from wherever it left off.
 
+**The menu has no music.** Its taps and the city's effects play, but the radio stays off until
+Play opens it on the announcer, so the music is part of what starting a run gives you
+([audio.md](audio.md#the-radio); `?titlemusic=classic` plays songs under the menu).
+
 **Settings** and **Credits** dim the city behind a mask; the menu only shades the left edge its
 words stand on. Settings holds four things, all remembered across visits:
 
@@ -1594,6 +1598,11 @@ pie cuts by angle, and a wedge's area is linear in its angle, so what is left on
 the fraction left. On the two older shapes (`?plumbob=`) it was a deliberate trade (equal time has
 to be equal travel, and volume-true is much worse) that no amount of contrast could address.
 
+It eats whole slices, rounded up, except the **last**, which drains with the clock and is empty on
+the frame the rider gives up (`pieShown` in geometry/diamond.js). Rounding that one up too left a
+whole red slice standing through the final eighth of the clock, 2 to 30 seconds of it, and riders
+walked off under a pie that still looked like it had time in it.
+
 ### The far wall, and why it isn't there
 
 Only the **near** half of the liquid's surface is drawn, and the near half of a horizontal plane
@@ -1694,7 +1703,20 @@ in `game/fares.js`).
 Every combo the taxi lands on a job steps a multiplier up, and the drop-off pays the fare at it
 (`game/combometer.js`, Tyler's idea after the Duolingo combo streak). It starts each ride at ×1: an
 overtake or a bootleg U-turn +0.5, a drift kick +0.5 per chain tier (so a full chain of three is
-+3), **Stuntman** +1, the bridge launch +2, capped at ×5.
++3), **Stuntman** +1, the bridge launch +2, **Crushin' It** +1, capped at ×5.
+
+**Crushin' It** is Big Air coming down on a car (Tyler, 2026-10-20: "make the car you land on
+explode. Taxi takes no damage and continues"). It used to be a crash: the taxi lands at the kick's
+~31 u/s, which is the overdrive band, so it cost half the HP bar or the run. Now only the car
+underneath is wrecked. It gets the wreck's own fireball and smoke collar (`blast.fire`), and its
+shell is consumed under them (`game/vanish.js`) rather than left in the road, because the run goes
+on. The taxi takes no damage, keeps its speed and drives on, and the meter gets +1 on top of Big
+Air's +2, labelled after it. It's only one step because where Big Air lands is mostly luck. It
+counts on the descent of the arc and for a car length past the touchdown (`crushing` in
+`sim/collisions.js`). Further on, the taxi is driving into the car and it is a hit. Only ordinary
+cars and cops count. A truck is too tall to land on, and the patrol cruiser and the racer belong to
+modules that run their own lives. A crushed car leaves the fleet for the rest of the run.
+`?crush=classic` charges the landing as a hit again.
 
 Stuntman is smashing through a [roadworks](traffic.md#roadworks-a-street-closed-at-both-ends)
 barricade, at any speed (Tyler, 2026-10-14). It also pays a sixth of the Loco tank back on the
@@ -3131,13 +3153,26 @@ unbroken move: with nothing to arrive at on the car, the box has one destination
 The **Loco Mode** button is the gas pedal: the round orange button centred on the bottom edge,
 100px across, with the brake to its left (see [the pedal slide](#the-pedal-slide)). Both are drawn
 as an NES pad's buttons — Loco Mode is **A**, the brake **B** — black plastic surround, a dished
-centre with the letter debossed in it, a hard glint (Tyler, 2026-10-15; `?pedals=classic` brings
-back the round pedals with lightning and stop icons). **Hold to
+centre with the letter debossed in it, and no white shine: the glint, its dot and the dish's lit
+rim are hidden (`.nes-shine`; Tyler, 2026-10-20, "remove the cartoony white shine graphics").
+`?buttons=classic` puts the shine back, and `?pedals=classic` brings back the round pedals with
+lightning and stop icons from before the NES look. **Hold to
 enable, release to pause.** A short tap costs a short slice, a long hold flows until the tank is
 empty. Full tank is 15 seconds of boost. The decision is *how long* to press as well as *when*.
 The fuel level is the arc gauge round the pedal (`#boost-meter`, `game/fuelarc.js`), a 140° crown
-over the top of it (~197° under `?pedals=classic`), off a `--pct`
+over the top of it (~197° under `?pedals=classic`) standing 16 units of the button's 150 off its
+edge (8 under `?buttons=classic`), off a `--pct`
 CSS variable, dropping as you drain and climbing as a drop-off pours fuel in.
+
+**The bar burns like a fuse while Loco is on.** The tailpipe's own flame (`tongueOutline`, its three
+tongues and four frames at the plume's 16fps) burns off the fuel's front, lying along the bar and
+bent to it, trailing back over the fuel already spent the way the plume trails the taxi. It is
+about as wide as the bar and fades in from clear, its base starting a little way back inside the
+fuel, so it rises out of the bar rather than sitting on the end of it. It grows
+and goes out on the plume's own envelope (`locoFlame.state.heat`) and is always Loco orange
+(`drawFuseFlame` in main.js, `bendFlame`/`flameAngle` in game/fuelarc.js). Only the front burns. A
+bar on fire end to end would read the same full as empty, and it sits under both thumbs (Tyler,
+2026-10-20). `?locobar=classic` is the plain bar.
 
 **Every drop of it is earned, except the way back out of empty.** The run opens with **a third of a tank**, each
 successful drop-off pours in **another third**, a [delivered package](#the-rest-of-it) pours in **a
@@ -3451,24 +3486,33 @@ spilling out from under it while the shop works — and then the opening itself 
 a clean car in a lit doorway, out, down the kerb and back into traffic.
 `game/depotrun.js` is the trip there; `enter()` in `game/opening.js` is everything from the lane on.
 
-### The depot's card
+### The depot's tip
 
 Nothing would otherwise say a repair is a tap on the depot. The car wears its damage, but a smoking
 car is a warning without an instruction, and the garage is a building like any other until you know
-what it is for. So a beat (`SHOW_DELAY`, 0.9s) after the taxi first starts smoking —
-`SMOKE_FRACTION`, 34% HP, the third of the four [damage tiers](../src/game/taxidamage.js) — the
-[New Move card](#new-move-unlocked-the-overtake-u-turn-and-drift-cards) goes up with **"TAXI DEPOT / Tap for
-Repairs"** (`REPAIR` in game/newmove.js). Earlier and it would be nagging about a swinging lamp; at
-the 20% plume it is one hit from too late.
+what it is for. So a beat (`SHOW_DELAY`, 0.9s) after the taxi starts smoking —
+`SMOKE_FRACTION`, 34% HP, the third of the four [damage tiers](../src/game/taxidamage.js) — the depot
+says so in the docked speech card: **"TAXI GARAGE / Tap the garage for repairs"**, typed out over the
+fuel arc, with the card's "…" tag on the garage door (`game/depotcall.js`). Earlier and it would be
+nagging about a swinging lamp; at the 20% plume it is one hit from too late. It is not answered and
+does not stop the world: it times out after `DEPOT_CALL_SECONDS` (4.5s of game time) and comes down
+at once when the player taps the depot.
 
-The card (Tyler, 2026-10-06) is **once ever** (`simTaxi.seen.repair`), stops the world like the
-move cards, and answers to the same gates: the tips setting, debug mode, the opening tutorial being
-done, and a calm beat (`newMoveCalm`) — a getaway, a patrol chase or a taxi already on its way in
-defers it, and it is tried again every half second for as long as the car is still smoking. No
-pedal row: the instruction is a tap, so the line says it, and the clip is just the visit. History:
-[the depot's card](gameplay-history.md#the-depots-card).
+It is said **once per run, until the player has sent the taxi in once** (`simTaxi.used.repair`):
+a line costs nothing like the card it replaced did, so it can afford to come back, but someone who
+has used the depot knows the way. It answers to the card's gates: the tips setting, debug mode, the
+opening tutorial being done, and a calm beat (`newMoveCalm`) — a getaway, a patrol chase or a taxi
+already on its way in defers it, and it is tried again every half second while the car still smokes.
+`__taxi.depotCall.show()` says it.
 
-**The clip** (`game/repairclip.js`, ~9s) is filmed on the player's own depot: a smoking stand-in
+**`?repairtip=classic`** puts back the card it replaced (Tyler, 2026-10-06 to 2026-10-20): the
+[New Move card](#new-move-unlocked-the-overtake-u-turn-and-drift-cards) with **"TAXI GARAGE / Tap for
+Repairs"** (`REPAIR` in game/newmove.js) and a clip of the visit, once ever
+(`simTaxi.seen.repair`), stopping the world like the move cards, with the same gates. Tyler swapped
+it for the line once the speech card had docked out of the way: the card stopped play for a lesson
+that is one sentence long. History: [the depot's card](gameplay-history.md#the-depots-card).
+
+**The classic card's clip** (`game/repairclip.js`, ~9s) is filmed on the player's own depot: a smoking stand-in
 (the real damage rig, three knocks in: bonnet, boot, dragging bumper) comes up the lane and turns in, the door comes down to `REPAIR_GAP` and the shop welds, and the
 door goes up on a clean car that drives back out onto the street. It is not a recording like the
 move clips: the visit is a script, not physics, so `scriptVisit` runs the same script again off the

@@ -570,6 +570,15 @@ const SCREEN_ROOF = 0.45;
 const SCREEN_HOLE_R = 0.24;
 const SCREEN_HOLE_Y = (SCREEN_LOW + SCREEN_TOP) / 2 + 0.03;
 const SCREEN_HOLE_Z = -0.28;
+// Where the driver sits, in world units off the taxi's centre: behind the hole, low in the cabin box
+// (x −1.05..0.65, y 1.15..1.75 above CHASSIS_LIFT) — so a figure started here is wholly inside the
+// shell, and game/ejection.js can bring the cabbie out through the glass instead of conjuring them
+// in the air above the bonnet.
+export const TAXI_DRIVER_SEAT = {
+  fwd: -0.35 * TAXI_SCALE,
+  y: (1.45 + CHASSIS_LIFT) * TAXI_SCALE,
+  side: SCREEN_HOLE_Z * TAXI_SCALE,
+};
 // There was a fifth piece: the struck corner of the shell crushed in, down and darkened, a vertex
 // displacement on the merged body. It read at close zoom and looked wrong — a box with one corner
 // sheared off, which at play zoom reads as a modelling fault rather than as a dent — and came out.

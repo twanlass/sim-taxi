@@ -687,6 +687,15 @@ export const PALETTE = {
   // under Lambert and lands a touch below white once lit; the ring is unlit, so it is set there by
   // hand.
   landRing: '#ECEAE4',
+  // The light the burning wreck throws on the road round it (the `burn` style's ground glow,
+  // game/blast.js). Drawn additively, so this is the colour of the light rather than of a thing: a
+  // deep orange, because added to grey asphalt anything paler reads as a spotlight, not as fire.
+  blastGlow: '#FF6A1A',
+  // The burning wreck's smoke column. Nearly black and a little warm: the fireball's own
+  // `blastSmoke` is a lit-looking grey because those puffs are unlit, and these are shaded — sky on
+  // top, fire under — so they can start from the colour soot actually is.
+  burnSmoke: '#2A2624',
+  burnSmokeTop: '#77726D',
 
   // The tailpipe flame Loco Mode burns for as long as it is held — see game/locoflame.js. Three
   // stops read as one nested cutout: the outer tongue, the gold under it, and the near-white at the

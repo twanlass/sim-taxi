@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { unlitMaterial } from '../util/geo.js';
 import { PALETTE } from '../palette.js';
+import { MARKER_OUTLINE_PX, PHONE_PX_PER_UNIT } from '../game/camera.js';
 
 // The crystal a fare's clock is drawn as, over the rider and then over the taxi that collects
 // them. game/faremarker.js is what gives it a life; this is just the model.
@@ -59,6 +60,12 @@ export const MARKER_SHAPE = SHAPE_PARAM === 'classic' ? 'plumbob' : SHAPE_PARAM 
 export const PLUMBOB_CLASSIC = MARKER_SHAPE === 'plumbob';
 const HOURGLASS = MARKER_SHAPE === 'hourglass';
 const PIE = MARKER_SHAPE === 'pie';
+// `?pieoutline=classic` is the pie with no black outline, the way it shipped in #562.
+const PIE_OUTLINE_PARAM = typeof location !== 'undefined'
+  ? new URLSearchParams(location.search).get('pieoutline')
+  : globalThis.process?.env?.PIEOUTLINE;
+/** Whether the pie wears its black outline — on unless `?pieoutline=classic`. */
+export const PIE_OUTLINED = PIE_OUTLINE_PARAM !== 'classic';
 
 // Half-width at the equator, and the two pyramid heights that meet there. The equator sits two
 // thirds of the way up, which is what makes the silhouette a plumbob rather than a stretched
@@ -242,10 +249,13 @@ const PIE_R = 1.2;
 const PIE_T = 0.55;
 export const PIE_SLICES = 8;
 const PIE_ARC_STEPS = 4;
-// The pie's outline is lighter than the other shapes' RIM_OFFSET: 0.14 (~1.1px at play zoom). At
-// the full 0.22 the hull's drum, thickened by the disc's own tilted edge, came out as a black ring
-// a fifth of the marker's width and was the loudest thing on it.
-export const PIE_RIM = 0.14;
+// The pie's outline is the off-screen arrow's, by construction: `MARKER_OUTLINE_PX` (game/camera.js)
+// converted to world units at play zoom on a phone — 0.185, 1.5px. It is not the other shapes'
+// RIM_OFFSET and does not want to be: the arrow is what the player sees standing in for this pie
+// when it slips off the frame, and the two should read as the same mark. (Its first weight, 0.14,
+// was set against an earlier complaint that 0.22 made a ring "a fifth of the marker's width"; that
+// hull was never shown, and Tyler asked for the outline back at the arrow's weight, 2026-10-20.)
+export const PIE_RIM = MARKER_OUTLINE_PX / PHONE_PX_PER_UNIT;
 
 /**
  * Extra air between a rider's head and the bottom of the marker, on top of game/faremarker.js's
@@ -586,6 +596,23 @@ const PIE_EATEN_ALPHA = 0.3;
 // How much of a fresh pie is already missing: a sixteenth, half of the first slice.
 const PIE_STARTER_SLIVER = 1 / 16;
 
+/**
+ * How much of the pie is drawn for a clock `fill` full (0..1): whole slices, rounded up, except the
+ * last one, which drains with the clock and is gone on the frame the rider gives up.
+ *
+ * Every slice used to round up, the last included, so the final eighth of a clock showed a whole
+ * red slice right up to the frame the rider walked off — and an eighth of a 15-240s clock is 2-30s
+ * of a slice that looks like it has all of its time left (Tyler, 2026-10-20: "I just lost a rider
+ * when my rider timer still had a slice of red left!"). Rounding the others down instead would
+ * leave an empty pie with a rider still waiting under it, which is the same lie the other way.
+ * The sweep through the last slice has no wall at its cut, but the eaten side is the dark tint
+ * rather than a hole, so the face reads as a pie with a bite going out of it.
+ */
+export function pieShown(fill) {
+  const whole = Math.ceil(fill * PIE_SLICES - 1e-6) / PIE_SLICES;
+  return Math.min(whole <= 1 / PIE_SLICES ? fill : whole, 1 - PIE_STARTER_SLIVER);
+}
+
 // Emptied glass, as a transform of the fare's own hue rather than a colour of its own: much less of
 // it, and — now — mostly drained of its hue as well.
 //
@@ -856,10 +883,11 @@ export function createDiamond(colorHex) {
   shadeVessel();
 
   const rim = outlineHull(RIM_GEO, RIM_SCALE);
-  // The pie goes without one (Tyler, 2026-10-18: "try without the black outline"): solid, tilted
-  // and lit, its own edge already separates it from the city. The hull is still built and hidden
-  // rather than dropped, so everything that reads `rim` keeps working and the old look is one flag.
-  rim.visible = !PIE;
+  // The pie went without one for a while (Tyler, 2026-10-18: "try without the black outline") and
+  // has it back at the off-screen arrow's weight (2026-10-20: "a little black silhouette outline
+  // ... the same thickness as the rider off screen marker"). `?pieoutline=classic` hides it again;
+  // hidden rather than dropped, so everything that reads `rim` keeps working.
+  rim.visible = !PIE || PIE_OUTLINED;
   mesh.add(rim);
 
   // The falling stream, from the neck to the top of the pile. A thin column of the hue inside the
@@ -922,8 +950,7 @@ export function createDiamond(colorHex) {
         // a sliver out of twelve o'clock says "timer" before anything has drained (Tyler,
         // 2026-10-18: "a 16th of a sliver removed to visually telegraph it's a timer"). That cut
         // has no wall, but it is the vertical one, which this tilt shows edge-on anyway.
-        const left = Math.min(Math.ceil(fill * PIE_SLICES - 1e-6) / PIE_SLICES, 1 - PIE_STARTER_SLIVER);
-        fillUniforms.uFill.value = (1 - left) * 2 * Math.PI;
+        fillUniforms.uFill.value = (1 - pieShown(fill)) * 2 * Math.PI;
         // No sweep line on the eight-slice pie: the cut edge and the wall of the next slice already
         // draw it, and a bright line on top ran down the disc's edge and read as a stick.
         fillUniforms.uFillLow.value = 0;

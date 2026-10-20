@@ -93,7 +93,7 @@ export const MOVES = {
  * which a repair is not. Kept out of MOVES because main.js walks those in order on drop-offs.
  */
 export const REPAIR = {
-  seenKey: 'simTaxi.seen.repair', title: 'Taxi Depot', line: 'Tap for Repairs', keys: [],
+  seenKey: 'simTaxi.seen.repair', title: 'Taxi Garage', line: 'Tap for Repairs', keys: [],
 };
 
 /**

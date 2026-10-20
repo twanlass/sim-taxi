@@ -14,10 +14,13 @@
 
 export const CAP = { x: 75, y: 75, r: 69 };
 const OUTLINE_OUT = CAP.r + 4;         // the face's black outline, outer edge
-export const GAP = 8;                  // clear air between that outline and the gauge's rim: 4
-                                       // until Tyler asked for twice the distance (2026-10-16)
+export let GAP = 16;                   // clear air between that outline and the gauge's rim: 4
+                                       // until Tyler asked for twice the distance (2026-10-16),
+                                       // then 8 more with the flat buttons (2026-10-20);
+                                       // `?buttons=classic` puts back the 8 (useClassicGap)
+export const CLASSIC_GAP = 8;
 export const RIM = 2;                  // the dark track shows this much either side of the fuel
-export const BASE_R = OUTLINE_OUT + GAP + RIM; // where the fuel's inner edge runs
+export let BASE_R = OUTLINE_OUT + GAP + RIM; // where the fuel's inner edge runs
 // Fuel width at the empty end and the full end — the same, now: the taper (12 → 20, and 8 → 14
 // round the old pedal) was dropped for an even band at its midpoint.
 export const W_EMPTY = 16;
@@ -29,7 +32,9 @@ export const W_FULL = 16;
 export const SWEEP_DEG = 140;
 const CLASSIC_END_Y = CAP.y + 12;
 // Both ends stop at this height.
-export let END_Y = CAP.y - BASE_R * Math.sin(((180 - SWEEP_DEG) / 2) * Math.PI / 180);
+const sweepEndY = () => CAP.y - BASE_R * Math.sin(((180 - SWEEP_DEG) / 2) * Math.PI / 180);
+export let END_Y = sweepEndY();
+let classicArc = false;
 
 /**
  * The base curve as a dense polyline, left end to right end, each point carrying its outward unit
@@ -60,7 +65,16 @@ let CURVE = baseCurve();
 
 /** `?pedals=classic`: the first cut's wider sweep. Call before the first `bandPath`. */
 export function useClassicArc() {
+  classicArc = true;
   END_Y = CLASSIC_END_Y;
+  CURVE = CURVE_POINTS = baseCurve();
+}
+
+/** `?buttons=classic`: the gauge back at the NES buttons' 8 units off the outline. Call before the first `bandPath`. */
+export function useClassicGap() {
+  GAP = CLASSIC_GAP;
+  BASE_R = OUTLINE_OUT + GAP + RIM;
+  if (!classicArc) END_Y = sweepEndY();
   CURVE = CURVE_POINTS = baseCurve();
 }
 
@@ -129,6 +143,33 @@ export function glintAt(t) {
     x1: p.x + p.nx * GLINT_INSET, y1: p.y + p.ny * GLINT_INSET,
     x2: p.x + p.nx * (w - GLINT_INSET), y2: p.y + p.ny * (w - GLINT_INSET),
   };
+}
+
+// The fuse flame (`?locobar=`, main.js): Loco's tongue burning off the fuel's front while the tank
+// is being spent. It lies along the bar, bent to the band's own centre line, off the front toward
+// the full end — the side the front has just burned away from — so it trails the way the tailpipe's
+// flame trails the taxi (Tyler, 2026-10-20: "rotate it 90° so it aligns with the direction of
+// travel of the bar"). The first cut stood it 20° off the outward normal, a candle on a dial. A
+// straight tongue laid on the tangent would have lifted its 38-unit tip ~7 units off a band of
+// radius ~99, so it is bent instead: drawn once along the circle from the button's right (screen
+// angle 0), then rotated about the button's centre to wherever the front is.
+
+/** The radius the flame lies along: the band's centre line. */
+export const flameRadius = () => BASE_R + widthAt(0.5) / 2;
+
+/**
+ * A point of the flame's outline, bent onto the band: `s` along it from the base (toward the full
+ * end, which is clockwise on screen), `y` across it. Drawn with the base at screen angle 0.
+ */
+export function bendFlame(s, y) {
+  const r = flameRadius(), a = s / r;
+  return [CAP.x + (r + y) * Math.cos(a), CAP.y + (r + y) * Math.sin(a)];
+}
+
+/** How far to turn the bent flame about the button's centre to stand it on the front at level t, in degrees. */
+export function flameAngle(t) {
+  const p = pointAt(t);
+  return (Math.atan2(p.ny, p.nx) * 180) / Math.PI;
 }
 
 export let CURVE_POINTS = CURVE;

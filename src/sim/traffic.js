@@ -7622,6 +7622,8 @@ export function createTraffic(
           car.bounceT = 0;
           car.bounceGain = big ? DRIFT_SLAM : 1;
           car.pitchV -= BOUNCE_PITCH * car.bounceGain;
+          // Where Big Air came down, for Crushin' It's window past it (sim/collisions.js `crushing`).
+          if (big) car.slamAt = car.travelled;
           if (car.isTaxi) emitLand(car, big);
         } else {
           airY = (big ? DRIFT_LAUNCH_HEIGHT : HOP_HEIGHT) * Math.sin(Math.PI * u);
