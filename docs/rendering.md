@@ -3801,9 +3801,10 @@ of the untilted `fillXY` attribute.
 **The outline** is one solid 32-sided drum around the whole disc (`pieHullGeometry`), drawn as the
 usual inverted hull, so it traces the silhouette of the full pie, eaten slices included. Its weight
 is the [off-screen arrow's](#off-screen-fare-pointers), by construction: `MARKER_OUTLINE_PX` in
-`game/camera.js` (3.3) is the one number for both. The arrow draws it as a `non-scaling-stroke`
+`game/camera.js` (1.5) is the one number for both. The arrow draws it as a `non-scaling-stroke`
 in CSS px; the pie converts it to world units at `PHONE_PX_PER_UNIT` (844px over `2 * PLAY_ZOOM`,
-8.1px a unit), giving `PIE_RIM` 0.41. So the two match at phone play zoom, and a pinch grows the
+8.1px a unit), giving `PIE_RIM` 0.185. It started at 3.3, the arrow's old stroke, and came down
+to 1.5 because at that weight the ring was the loudest thing on an 18px pie. So the two match at phone play zoom, and a pinch grows the
 pie's line with the pie, as it does everything in the world. The pie went without an outline for
 a round (Tyler, 2026-10-18: "try without the black outline") and has it back at the arrow's weight
 (2026-10-20); `?pieoutline=classic` hides it again.
@@ -4304,7 +4305,7 @@ viewport edge and rotate to point at a mark that has slipped off the frame. Each
 the fare it stands in for, which is that rider's clock: the colour is written from JS onto the
 wrapper's `color` and the polygon fills with `currentColor`, so a level change is one style write.
 The value in the stylesheet is only what one opens on before its first write.
-The black outline is `MARKER_OUTLINE_PX` (3.3, `game/camera.js`), written onto the host as
+The black outline is `MARKER_OUTLINE_PX` (1.5, `game/camera.js`), written onto the host as
 `--marker-outline` and drawn as a `non-scaling-stroke`, so it is the same screen width on the
 drop-off's bigger arrow and through the press dip, and the same number [the pie](#the-pie--geometrydiamondjs)
 is outlined by.

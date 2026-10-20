@@ -250,7 +250,7 @@ const PIE_T = 0.55;
 export const PIE_SLICES = 8;
 const PIE_ARC_STEPS = 4;
 // The pie's outline is the off-screen arrow's, by construction: `MARKER_OUTLINE_PX` (game/camera.js)
-// converted to world units at play zoom on a phone — 0.41, ~3.3px. It is not the other shapes'
+// converted to world units at play zoom on a phone — 0.185, 1.5px. It is not the other shapes'
 // RIM_OFFSET and does not want to be: the arrow is what the player sees standing in for this pie
 // when it slips off the frame, and the two should read as the same mark. (Its first weight, 0.14,
 // was set against an earlier complaint that 0.22 made a ring "a fifth of the marker's width"; that
