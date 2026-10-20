@@ -1468,6 +1468,13 @@
          The tag's 24px disc is small for a thumb, so its hit area reaches 12px past it. */
       #race-talk .speech-tag-pin, #race-talk .speech-card { pointer-events: auto; cursor: pointer; touch-action: manipulation; }
       #race-talk .speech-tag-pin::before { content: ''; position: absolute; inset: -12px; }
+      /* Any talker's tag waiting at the screen edge takes a tap on a narrow screen (speech.js,
+         `onEdgeTap`): it rides the camera to the talker, like a rider's arrow. The same reach past
+         the disc as the racer's, and the arrows' press dip, set as a class for the arrows' reason. */
+      .speech-tag-pin.can-edge-tap { pointer-events: auto; cursor: pointer; touch-action: manipulation; }
+      .speech-tag-pin.can-edge-tap::before { content: ''; position: absolute; inset: -12px; }
+      .speech-tag { transition: scale 0.08s ease; }
+      .speech-tag-pin.is-held .speech-tag { scale: 0.86; }
       .speech-media { margin-top: 8px; }
       .speech-media[hidden] { display: none; }
       /* The line types itself out: the typed part, then the rest of the line laid out but unseen,
