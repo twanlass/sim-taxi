@@ -4803,13 +4803,20 @@ function nearestGulls() {
   return best;
 }
 
-// What the L's deck must not hide (game/ltrain.js): the taxi, every rider waiting on a kerb and
-// the drop-off pin of the fare aboard. Reused rather than allocated per frame.
+// What the L's deck must not hide (game/ltrain.js): every rider waiting on a kerb and the drop-off
+// pin of the fare aboard, neither of which has any other way of showing through. **Not the taxi**:
+// it wears the ghost outline (geometry/ghostoutline.js), which traces it through the deck exactly
+// as it does through a tower, so the deck stays solid over it the way a building does (Tyler,
+// 2026-10-20: "why does the train track fade out around the taxi and not just stay solid like
+// buildings"). A hole following the cab round was the one thing in the city that moved with it.
+// `?trainfade=classic` thins the deck over the taxi as well, which is what it did before.
+// Reused rather than allocated per frame.
+const classicTrainFade = new URLSearchParams(window.location.search).get('trainfade') === 'classic';
 const ltrainFade = [];
 function ltrainFadePoints() {
   ltrainFade.length = 0;
   const t = traffic.taxi;
-  ltrainFade.push({ x: t.x, z: t.z });
+  if (classicTrainFade) ltrainFade.push({ x: t.x, z: t.z });
   for (const slot of fares.slots) {
     for (const pin of [slot.passenger.group, slot.destination.group]) {
       if (!pin.visible || !slot.root.visible) continue;
