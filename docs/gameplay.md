@@ -2538,7 +2538,8 @@ intensity.
 
 **With the cab empty, a violet street racer turns up and tails it.** It has a white stripe down
 its spine, a proud wing on the boot and cyan light pooling under it that pulses to the music, and
-over it hangs a "…". Tap it once and it asks: "Wanna race?" (Tyler wanted the question only for
+over it hangs a "…" — the [speech tag](#speech-bubbles) alone, with no card (`showTag`; a card with
+only the dots under `?bubbles=classic`/`dock`). Tap it once and it asks: "Wanna race?" (Tyler wanted the question only for
 someone who tapped, rather than one more line on a busy screen). Tap it again and it answers on the
 spot (a horn and "You're on!"), then the screen cuts to black and opens close up on the two cars side by side, window to window ("Round the flag and back."). A
 corner is marked across the island (a white waypoint ring with a chequered flag flying over it, 4-8

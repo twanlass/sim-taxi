@@ -2063,9 +2063,12 @@ const raceTalkAt = () => {
  */
 function onRaceEvent(type, detail) {
   if (type === 'challenge') {
-    // Just a "…" until the player taps it (`race.ask`): the horn says something has turned up.
-    raceTalkRoot?.classList.add('is-ellipsis');
-    raceTalk?.show('', '…', raceTalkAt);
+    // Just the talker's "…" tag until the player taps it (`race.ask`), and the horn to say something
+    // has turned up. Without a tag (`?bubbles=classic`/`dock`), a card with only the dots on it.
+    if (raceTalk && !raceTalk.showTag(raceTalkAt)) {
+      raceTalkRoot?.classList.add('is-ellipsis');
+      raceTalk.show('', '…', raceTalkAt);
+    }
     sfx?.play('horn', { at: placeAt(detail.car.x, detail.car.z) });
   } else if (type === 'asked') {
     haptic('snap');

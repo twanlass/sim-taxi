@@ -1404,9 +1404,12 @@
          grows to fit it: the 178px cap is about where *text* breaks, and a row of buttons does not
          wrap. */
       .speech-card.has-media { max-width: calc(100vw - 20px); }
-      /* The street racer's "…" before it is tapped (main.js): no name, and a card hugging the dots. */
+      /* The street racer's "…" before it is tapped (main.js), where there is no tag to show it on
+         (`?bubbles=classic`/`dock`): no name, and a card hugging the dots. */
       #race-talk.is-ellipsis .speech-title { display: none; }
       #race-talk.is-ellipsis .speech-card { padding: 10px 14px; }
+      /* Just the tag, no card (speech.js `showTag`). */
+      .tag-only > .speech { display: none; }
       .speech-media { margin-top: 8px; }
       .speech-media[hidden] { display: none; }
       /* The line types itself out: the typed part, then the rest of the line laid out but unseen,

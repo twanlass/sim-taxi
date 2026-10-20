@@ -407,6 +407,7 @@ export function createSpeech(root, { viewport = null, typing = false, onDismiss 
      */
     show(title, line, at, media = null) {
       if (closing) { clearTimeout(closing); closing = null; }
+      root.classList.remove('tag-only');
       titleEl.textContent = title;
       mediaEl.replaceChildren(...(media ? [media] : []));
       mediaEl.hidden = !media;
@@ -438,6 +439,18 @@ export function createSpeech(root, { viewport = null, typing = false, onDismiss 
       root.classList.add('is-open');
     },
     hide,
+    /**
+     * Just the tag on the talker, with no card: someone has something to say and is waiting to be
+     * asked (the street racer, until it is tapped). Answers false where there is no tag
+     * (`?bubbles=classic`/`dock`), so the caller can say it some other way.
+     */
+    showTag(at) {
+      if (!tagged) return false;
+      this.show('', '', at);
+      root.classList.add('tag-only');
+      leaveDock();
+      return true;
+    },
     /**
      * Finish the line, or dismiss a finished one. Returns false if there was nothing up to answer,
      * so the caller can tell a tap that did something from one that fell through to the game.
