@@ -66,6 +66,11 @@ function race(seed, player) {
   let wrecked = false;
   collisions.onImpact(() => { wrecked = true; });
 
+  // The drag start (`dragStart`): how close the two get while the racer is out in the oncoming
+  // lane, and which side of the taxi it comes back in on.
+  const rival = race.state.car;
+  let closest = Infinity;
+  let rejoined = null;
   let t = 0;
   while (t < 240 && !wrecked) {
     if (went && player.tank > 0 && boost.fraction() > 0 && !boost.state.held) boost.press();
@@ -75,13 +80,20 @@ function race(seed, player) {
     traffic.update(STEP);
     collisions.update(STEP);
     race.update(STEP);
+    if (went && rival && !rival.crashed) {
+      closest = Math.min(closest, Math.hypot(rival.x - taxi.x, rival.z - taxi.z));
+      if (!rejoined && !rival.dragStart) {
+        const ahead = (rival.x - taxi.x) * Math.cos(taxi.yaw) - (rival.z - taxi.z) * Math.sin(taxi.yaw);
+        rejoined = { ahead: ahead > 0, at: t };
+      }
+    }
     t += STEP;
     if (race.state.phase === 'leaving' || race.state.phase === 'waiting') break;
   }
   const s = race.state;
-  if (wrecked) return { result: 'wreck' };
+  if (wrecked) return { result: 'wreck', closest };
   if (!s.races) return { result: `stuck in ${s.phase}` };
-  return { result: s.lastResult, taxi: s.taxiTime, rival: s.rivalTime };
+  return { result: s.lastResult, taxi: s.taxiTime, rival: s.rivalTime, closest, rejoined };
 }
 
 const median = (xs) => {
@@ -95,10 +107,15 @@ for (const player of PLAYERS) {
   const tally = {};
   const won = [];
   const lost = [];
+  const closest = [];
+  let ahead = 0;
+  let behind = 0;
   for (let k = 0; k < RACES; k++) {
     const r = race(7 + k * 13, player);
     tally[r.result] = (tally[r.result] ?? 0) + 1;
     if (process.env.RACE_DEBUG && !['won', 'lost'].includes(r.result)) console.log(`    seed ${7 + k * 13}: ${r.result}`);
+    if (Number.isFinite(r.closest)) closest.push(r.closest);
+    if (r.rejoined) { if (r.rejoined.ahead) ahead += 1; else behind += 1; }
     if (r.result === 'won') won.push(r.taxi);
     if (r.result === 'lost') lost.push(r.rival);
   }
@@ -106,4 +123,6 @@ for (const player of PLAYERS) {
   console.log(`  ${player.name.padEnd(28)} win ${rate}%  `
     + `${Object.entries(tally).map(([k, v]) => `${k} ${v}`).join(' · ')}  `
     + `· taxi home in ${median(won).toFixed(1)}s when it wins · rival in ${median(lost).toFixed(1)}s when it does`);
+  console.log(`  ${''.padEnd(28)} drag: racer cut in ahead ${ahead} · behind ${behind} · `
+    + `closest ${Math.min(...closest).toFixed(2)} (median ${median(closest).toFixed(2)})`);
 }

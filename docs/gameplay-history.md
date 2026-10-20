@@ -1188,6 +1188,14 @@ vignette where you wanna smash through roadblocks." The getaway fills the tank a
 across your route; the third rule made the second the one thing it asked of you that ended the run.
 Replaced by [getting caught](gameplay.md#getting-caught).
 
+## The street race's start, opposite ways round
+
+The first cut-to-the-start put the two cars window to window on the street's two lanes, the racer
+facing its own way so it was never driving into traffic, and they set off in opposite directions.
+On a grid that made one of them always a block nearer the finish, which `chooseFinish` evened out by
+picking the corner with the smallest gap in `estimateSeconds`. Tyler asked for them to take off the
+same way; the racer now starts in the oncoming lane and the drag decides the lane (gameplay.md).
+
 ## The street race, before the tap came back
 
 The first builds had the racer pull over a couple of blocks off and wait at the kerb for a tap, and

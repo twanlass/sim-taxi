@@ -6,7 +6,7 @@ import {
   carGeometry, setClosedLanes, isLaneClosed, stageCar, releaseCar, STOP_SETBACK, CAR_LEN, CAR_W,
   CABIN_X, CABIN_TOP, SPAWN_CLEARANCE, ROAD_Y,
 } from '../sim/traffic.js';
-import { findRoute, planOrigin, estimateSeconds } from './route.js';
+import { findRoute, planOrigin, estimateSeconds, laneCost } from './route.js';
 import { BILLBOARD, VIEW_UP } from './camera.js';
 import { sightlineClear } from './sightline.js';
 import { ARRIVE_RADIUS, blockDistance } from './fares.js';
@@ -112,14 +112,16 @@ export const TANK_FLOOR = BOOST_START_FRACTION;
  * 32 races it ran against Loco Mode whatever this was set to.
  *
  * Measured with `tools/race.mjs` over 24 races, a player holding Loco Mode from the green until
- * the tank is dry: 1/4 tank, the 1/3 floor and a full tank each win 58% (the same 14 of 24), and
- * never touching the pill wins none. Off the earlier pulled-up starts it was 50/58/58 and
- * 63/67/71; at 1.3 the floor won 83%, at 1.8 75%. It was 1.3 when the start was a queue with the rival a car length ahead; window to window,
- * with the two routes evened out, the taxi lost that lead and the kick off the line is all its own.
+ * the tank is dry. There and back off the drag start, with the racer routed apart from the taxi
+ * (`apart`): 1/4 tank 42%, the 1/3 floor 58%, a full tank 92%, and never touching the pill wins
+ * none. 1.1 gave 50/63/96, 1.4 25/46/88, 1.6 21/25/75 — the race is twice as long as a one-way
+ * one, so the floor tank runs dry on the way out and the racer's pace matters for the whole return.
+ * One way, 1.6 had the floor at 58%. It was 2.0 for the window-to-window start, opposite ways
+ * round, and 1.3 for the queue before that, with the rival a car length ahead.
  * That bot never misses a turn or brushes a car, so a person wins less often than it does — about
  * even is the aim, which the lopsided stakes then pay for.
  */
-export const RIVAL_CHASE = 2.0;
+export const RIVAL_CHASE = 1.25;
 
 // Where the racer turns up, off the taxi: on screen on a phone, which at play zoom is about 56 units
 // across (7.7px a unit over 430px). Out to 46 it was first seen off the edge of the frame — the
@@ -158,7 +160,8 @@ const clamp01 = (v) => Math.max(0, Math.min(1, v));
 // flare now does three things at once: opacity from GLOW_REST to full, the pad grows by
 // GLOW_SWELL, and the colour runs hot by GLOW_HOT (additive, so over 1 it whitens toward the core).
 const GLOW_REST = 0.2;
-const GLOW_SWELL = 0.6;
+// 0.6 at first; Tyler: "shrink the glow just a touch", so 0.4 with the reach below.
+const GLOW_SWELL = 0.4;
 const GLOW_HOT = 1.5;
 // With no music at all — muted, or between songs — there is no beat to rest between, so it holds
 // at GLOW_IDLE of a flare instead of sitting at the dim rest. Silent is a bass level under SILENT
@@ -168,6 +171,12 @@ const SILENT = 0.05;
 const BEAT_AVG = 0.35;
 const KICK_RISE = 0.15;
 const KICK_FALL = 0.15;
+
+// The racer's line: the router's own costs, with every lane of the taxi's best route SHARE_COST
+// times dearer. Dear rather than shut, so where the city offers only one sensible way (a bridge, a
+// river bank) the two still share it rather than the racer taking a lap to stay apart.
+const SHARE_COST = 2.5;
+const apart = (shared) => (lane) => laneCost(lane) * (shared.has(lane.id) ? SHARE_COST : 1);
 
 export const createPulse = () => ({ avg: 0, pulse: 0 });
 
@@ -201,12 +210,13 @@ const STRIPE_T = 0.03;          // half of it buried, so its underside never sha
 
 // The underglow: a pad of light on the road under the car, solid under the body and fading to
 // nothing GLOW_REACH outside it. Sized at play zoom (1 unit ≈ 7.7px): the body hides the middle,
-// so what reads is the fringe, and 0.8 of it is ~6px all round — a crisp halo. Rounded rather than
+// so what reads is the fringe, and 0.65 of it is ~5px all round — a crisp halo (0.8 was a touch
+// too much, Tyler). Rounded rather than
 // boxed: a superellipse (`GLOW_ROUND`) traced in GLOW_SEGMENTS, because the first cut's rectangle
 // read as hard diagonals at the corners (Tyler: "really angular"). The ramp out is a straight one:
 // a 1.1-unit reach eased through four rings on a squared curve was tried and read as blurry
 // (Tyler: "I like the old less blurry lights better").
-const GLOW_REACH = 0.8;
+const GLOW_REACH = 0.65;
 const GLOW_INSET = 0.15;
 const GLOW_Y = 0.05;
 const GLOW_ROUND = 3;
@@ -455,6 +465,11 @@ export function createRace({
     lastResult: null,
     taxiTime: null,
     rivalTime: null,
+    // There and back: `finish` is the corner to round, `home` the junction at the start line, and
+    // each car's flag says whether it has rounded the corner yet.
+    home: null,
+    taxiBack: false,
+    rivalBack: false,
   };
 
   function setPhase(phase) {
@@ -500,11 +515,12 @@ export function createRace({
    * A corner FINISH_MIN..FINISH_MAX blocks off that both cars can be routed to, from where each
    * stands and the way each is facing (`taxiFrom`, `rivalFrom`, as `planOrigin` reads them).
    *
-   * The two set off in opposite directions, so for any corner one of them is pointing the right way
-   * and the other has a turn or two to make first — on a grid, one of the two junctions they are
-   * heading for is always a block nearer. Picked by the router's own estimate of the drive
-   * (`estimateSeconds`, the fare clocks' arithmetic) so that gap is as small as the city allows,
-   * rather than by blocks, which cannot see the river's three bridges.
+   * The two set off level and the same way (`stage`), so the racer is routed *apart* from the
+   * taxi's best line (`apart`): on one shared route, whoever won the drag off the start won the
+   * race, because the one behind has no way past. Measured on `tools/race.mjs` (24 races): a taxi
+   * on a quarter tank of Loco won 96% that way, against 58% on the old start. The corner is then
+   * the one that keeps the two lines evenest by the router's own estimate of the drive
+   * (`estimateSeconds`, the fare clocks' arithmetic), which can see the river's three bridges.
    */
   function chooseFinish(taxiFrom, rivalFrom) {
     const net = cityNetwork();
@@ -521,7 +537,7 @@ export function createRace({
         if (overWater(z)) continue;
         if (!sightlineClear(x, 0.5, z)) continue;
         const taxiRoute = findRoute(taxiFrom, { i, j });
-        const rivalRoute = findRoute(rivalFrom, { i, j });
+        const rivalRoute = findRoute(rivalFrom, { i, j }, apart(routeLanes(taxiFrom, taxiRoute)));
         if (!taxiRoute?.length || !rivalRoute?.length) continue;
         const gap = Math.abs(estimateSeconds(taxiRoute, taxiFrom.d) - estimateSeconds(rivalRoute, rivalFrom.d));
         options.push({ i, j, d, gap });
@@ -534,6 +550,22 @@ export function createRace({
     const pool = options.filter((o) => o.d >= far - 1).sort((a, b) => a.gap - b.gap).slice(0, 3);
     const { i, j } = rng.pick(pool);
     return { i, j };
+  }
+
+  /** The lanes a route drives, from `from` — what the racer's line keeps off (`apart`). */
+  function routeLanes(from, route) {
+    const net = cityNetwork();
+    const ids = new Set();
+    let { i, j } = from;
+    for (const d of route ?? []) {
+      const lane = net.laneOutByGrid(d, i, j);
+      if (!lane) break;
+      ids.add(lane.id);
+      const to = net.nodeById.get(lane.to);
+      i = to.gi;
+      j = to.gj;
+    }
+    return ids;
   }
 
   /** The lane running the other way along the same street, if there is one to stop in. */
@@ -577,6 +609,7 @@ export function createRace({
     car.racer = false;
     state.car = car;
     state.finish = null;
+    state.shared = null;
     state.startLanes = null;
     rival.group.position.set(car.x, 0, car.z);
     rival.shell.visible = true;
@@ -639,10 +672,15 @@ export function createRace({
       if (!sightlineClear(p.x, 2.2, p.z) || !sightlineClear(q.x, 2.2, q.z)) continue;
       const d = Math.hypot(p.x - taxi.x, p.z - taxi.z);
       if (best && d >= best.d) continue;
+      // And nothing on its way down the oncoming lane, which the racer sets off along the wrong way.
       const crowded = traffic.cars.some((c) => c !== taxi && c !== state.car && !c.crashed
-        && (Math.hypot(c.x - p.x, c.z - p.z) < START_CLEAR || Math.hypot(c.x - q.x, c.z - q.z) < START_CLEAR));
+        && (Math.hypot(c.x - p.x, c.z - p.z) < START_CLEAR || Math.hypot(c.x - q.x, c.z - q.z) < START_CLEAR
+          || (c.lane === back && c.s < sb)));
       if (crowded) continue;
-      best = { lane, s, back, sb, d };
+      // And a finish line to come home to, at one end of this street or the other (`chooseHome`).
+      const home = chooseHome(lane);
+      if (!home) continue;
+      best = { lane, s, back, sb, d, home };
     }
     return best ?? (sideOnly ? chooseStart(false) : null);
   }
@@ -658,14 +696,21 @@ export function createRace({
   }
 
   /**
-   * The cut: both cars put side by side under the black, the finish picked from where each is
-   * pointing, and the faceoff begins. main.js calls it from the wipe; the tools call it straight.
+   * The cut: both cars put side by side under the black, facing the same way, the finish picked,
+   * and the faceoff begins. main.js calls it from the wipe; the tools call it straight.
+   *
+   * Every street is one lane each way, so the racer stands in the *oncoming* lane, level with the
+   * taxi (Tyler: "can they take off facing the same direction?"). To the traffic model it is on
+   * the taxi's own lane at the taxi's own arc length, with the cop overtake's offset already full
+   * (`dragStart` in sim/traffic.js), and the drag off the line decides which of the two gets the
+   * lane. They used to face opposite ways on the street's two lanes, which made every start one car
+   * pointed at the finish and the other with a U-turn's worth of corners to make first.
    */
   function stage() {
     if (state.phase !== 'cut') return false;
     const car = state.car;
     const start = car && !car.crashed ? chooseStart() : null;
-    if (!start || !place(taxi, start.lane, start.s) || !place(car, start.back, start.sb)) {
+    if (!start || !place(taxi, start.lane, start.s) || !place(car, start.lane, start.s)) {
       finish('void');
       return false;
     }
@@ -679,6 +724,12 @@ export function createRace({
     car.chase = 0;
     car.racer = false;
     car.roadblock = Infinity;
+    // Out in the oncoming lane from the first frame: the traffic model swings it from here.
+    car.dragStart = true;
+    car.pass = 1;
+    car.passing = true;
+    car.passTarget = taxi;
+    car.passFrom = car.travelled;
     // Nothing more joins either lane while they stand there, and an oncoming left does not wait on
     // a car that is not coming (`leftYieldBlocked` in sim/traffic.js).
     state.startLanes = [start.lane.id, start.back.id];
@@ -688,14 +739,43 @@ export function createRace({
     const goal = chooseFinish(planOrigin(taxi), planOrigin(car));
     if (!goal) { finish('void'); return false; }
     state.finish = goal;
+    state.home = start.home;
+    state.taxiBack = false;
+    state.rivalBack = false;
+    // Both legs of the taxi's best line, so the racer keeps off it on the way back too.
+    const out = findRoute(planOrigin(taxi), goal) ?? [];
+    const turned = { ...goal, d: out[out.length - 1] ?? planOrigin(taxi).d };
+    state.shared = new Set([...routeLanes(planOrigin(taxi), out),
+      ...routeLanes(turned, findRoute(turned, state.home))]);
     setPhase('faceoff');
-    onEvent('staged', { car, x: (taxi.x + car.x) / 2, z: (taxi.z + car.z) / 2 });
+    // Framed on where the racer is drawn, over on the other lane, not on its arc length.
+    const q = start.back.path.at(start.sb);
+    onEvent('staged', { car, x: (taxi.x + q.x) / 2, z: (taxi.z + q.z) / 2 });
     return true;
   }
 
+  /**
+   * The junction the race comes home to: one end of the start's own street, so the line they cross
+   * at the end is the street they set off from. Whichever end can be seen, the one ahead first.
+   */
+  function chooseHome(lane) {
+    const net = cityNetwork();
+    for (const id of [lane.to, lane.from]) {
+      const n = net.nodeById.get(id);
+      if (!n) continue;
+      const ring = n.gi === 0 || n.gi === GRID_I || n.gj === 0 || n.gj === GRID_J;
+      if (ring || overWater(lineZ(n.gj)) || !sightlineClear(lineX(n.gi), 0.5, lineZ(n.gj))) continue;
+      return { i: n.gi, j: n.gj };
+    }
+    return null;
+  }
+
+  const taxiGoal = () => (state.taxiBack ? state.home : state.finish);
+
   function steerToFinish(car) {
     if (car.route?.length) return;
-    const route = findRoute(planOrigin(car), state.finish);
+    const goal = state.rivalBack ? state.home : state.finish;
+    const route = findRoute(planOrigin(car), goal, state.shared ? apart(state.shared) : laneCost);
     if (route?.length) { car.route = route; car.routeConsumed = false; }
   }
 
@@ -720,7 +800,8 @@ export function createRace({
     state.races += 1;
     state.taxiTime = null;
     state.rivalTime = null;
-    setClosedLanes([], 'race');
+    // The oncoming lane stays shut while the racer is still out in it (see the 'racing' case).
+    setClosedLanes(car.dragStart ? [state.startLanes[1]] : [], 'race');
     taxi.holdsLine = false;
     car.roadblock = 0;
     car.holdsLine = false;
@@ -744,7 +825,7 @@ export function createRace({
     onEvent(result, { car, finish: state.finish });
     // The taxi is nobody's now: no route, no target, the board back on. Only if it is still ours —
     // a race that ended because something else took the wheel leaves that something alone.
-    if (state.finish && taxi.pendingTarget === state.finish) {
+    if (state.finish && (taxi.pendingTarget === state.finish || taxi.pendingTarget === state.home)) {
       taxi.route = [];
       taxi.pendingTarget = null;
     }
@@ -778,6 +859,7 @@ export function createRace({
     state.car = null;
     state.startLanes = null;
     state.finish = null;
+    state.shared = null;
     rival.shell.visible = false;
     offer.visible = false;
     hideFinish();
@@ -786,8 +868,8 @@ export function createRace({
     state.cooldown = soon ? SOON_WAIT * 3 : rng.range(REPEAT_WAIT[0], REPEAT_WAIT[1]);
   }
 
-  function showFinish() {
-    const { i, j } = state.finish;
+  function showFinish(at = state.finish) {
+    const { i, j } = at;
     finishRing.group.position.set(lineX(i), ROAD_Y + RING_Y, lineZ(j));
     finishRing.appear();
     finishFlag.group.position.set(lineX(i), FINISH_FLAG_Y, lineZ(j));
@@ -888,14 +970,28 @@ export function createRace({
       }
       case 'racing': {
         if (!car) { finish('void'); break; }
+        // There and back: round the flag, and the flag moves home to the start line (the taxi's
+        // marker — the racer's own leg is on its ghost route).
+        if (!state.taxiBack && near(taxi, state.finish, ARRIVE_RADIUS)) {
+          state.taxiBack = true;
+          showFinish(state.home);
+          routeTo(state.home);
+          onEvent('rounded', { car, home: state.home });
+        }
+        if (!state.rivalBack && near(car, state.finish, ARRIVE_RADIUS)) {
+          state.rivalBack = true;
+          car.route = [];
+        }
         // The taxi's own route can run out short of the corner (a missed turn, a re-plan the
-        // player dragged into a lap); put it back on the finish rather than let it cruise.
-        if (taxi.pendingTarget === state.finish && !taxi.route.length && !near(taxi, state.finish, ARRIVE_RADIUS)) {
-          routeTo(state.finish);
+        // player dragged into a lap); put it back on its goal rather than let it cruise.
+        const goal = taxiGoal();
+        if (taxi.pendingTarget === goal && !taxi.route.length && !near(taxi, goal, ARRIVE_RADIUS)) {
+          routeTo(goal);
         }
         steerToFinish(car);
-        const taxiHome = near(taxi, state.finish, ARRIVE_RADIUS);
-        const rivalHome = near(car, state.finish, ARRIVE_RADIUS);
+        if (!car.dragStart && isLaneClosed(state.startLanes?.[1])) setClosedLanes([], 'race');
+        const taxiHome = state.taxiBack && near(taxi, state.home, ARRIVE_RADIUS);
+        const rivalHome = state.rivalBack && near(car, state.home, ARRIVE_RADIUS);
         // The taxi wins a dead heat: it is the one the player is watching cross the line.
         if (taxiHome) { state.taxiTime = state.phaseT; finish('won'); break; }
         if (rivalHome) { state.rivalTime = state.phaseT; finish('lost'); break; }

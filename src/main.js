@@ -2083,7 +2083,7 @@ function onRaceEvent(type, detail) {
     raceShot = { x: detail.x, z: detail.z };
     raceZoomHome ??= controller.state.zoom;
     controller.cutTo(detail.x, detail.z, RACE_SHOT_ZOOM, controller.state.yaw, aspect());
-    raceTalk?.show('Street racer', 'First one to the flag.', raceTalkAt);
+    raceTalk?.show('Street racer', 'Round the flag and back.', raceTalkAt);
     sfx?.play('horn', { at: placeAt(detail.car.x, detail.car.z) });
   } else if (type === 'declined') {
     raceShot = null;
@@ -2111,6 +2111,10 @@ function onRaceEvent(type, detail) {
     // Enough in the tank to race on — see TANK_FLOOR. Poured straight in rather than flown: the
     // player's thumb is already on the pill.
     if (boost.fraction() < TANK_FLOOR) boost.topUp(TANK_FLOOR - boost.fraction());
+  } else if (type === 'rounded') {
+    // Halfway: the flag has just jumped back to the start line, which is easy to miss on a phone.
+    popLabel('Head back!', 'is-count');
+    haptic('snap');
   } else if (type === 'won') {
     fares.credit(WIN_PAY);
     popLabel('You win!');

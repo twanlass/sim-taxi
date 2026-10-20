@@ -2506,11 +2506,18 @@ intensity.
 **With the cab empty, a violet street racer turns up and tails it.** It has a white stripe down
 its spine, a proud wing on the boot and cyan light pooling under it that pulses to the music, and
 its bubble asks: "Wanna race?" Tap it and it answers on the spot (a
-horn and "You're on!"), then the screen cuts to black and opens close up on the two cars side by side, window to window ("First one to the flag."). A
-finish is marked across the island (a white waypoint ring with a chequered flag flying over it, 4-8
+horn and "You're on!"), then the screen cuts to black and opens close up on the two cars side by side, window to window ("Round the flag and back."). A
+corner is marked across the island (a white waypoint ring with a chequered flag flying over it, 4-8
 blocks away and never on the ring road, which is in the fog), the camera goes to look at it and
-comes back, the count goes three, two, one, and the two cars set off in opposite directions. First
-within `ARRIVE_RADIUS` of the corner wins. The rival then drives off and dissolves.
+comes back, the count goes three, two, one, and the two cars set off together, drag-race style.
+
+**The race is there and back.** Each car has to come within `ARRIVE_RADIUS` of the flag's corner,
+and then of `home`, one end of the street they started on (`chooseHome`). When the taxi rounds the
+corner the ring and flag jump to the start line and "Head back!" pops, since a flag moving is easy
+to miss on a phone; the racer's own leg is on its ghost route. First home wins. Tyler picked this
+over a waypoint or a farther flag: it doubles the drive on the same markers (a one-way race was
+over in ~5s on Loco Mode, there and back is ~12-15s), and the two lines cross on the way. The
+rival then drives off and dissolves.
 
 **It is taken on, never imposed.** Losing costs cash, and the robbery's rule is that an imposed
 event cannot cost the run ([it is imposed](#it-is-imposed-so-it-cannot-cost-the-run)), so the race
@@ -2543,17 +2550,17 @@ after `OFFER_TIME` (30s) and drives off.
 end plates, standing proud of the boot so its silhouette reads at play zoom; a white stripe laid on
 the bonnet, roof and boot as its own mesh, since the paint is a multiply over a white-baked body;
 and an additive underglow, an unlit quad ring whose vertex alpha runs from 1 under the sills to 0
-`GLOW_REACH` (0.8) out. Its triangles are wound to face the sky and the probe asserts it, because an
+`GLOW_REACH` (0.65) out. Its triangles are wound to face the sky and the probe asserts it, because an
 unlit triangle wound the other way does not draw at all.
 
 **The underglow pulses to the music.** `sfx.bass()` reads the low end (under 150 Hz) off the Music
 bus, after its fader, and `pulseStep` flares the glow when the bass jumps `KICK_RISE` over its own
 running average, falling back over `KICK_FALL`. A flare takes the opacity from `GLOW_REST` (20%) to
-full, swells the pad by `GLOW_SWELL` (60%) and runs the colour hot by `GLOW_HOT`; opacity alone,
+full, swells the pad by `GLOW_SWELL` (40%) and runs the colour hot by `GLOW_HOT`; opacity alone,
 65% to full, was too little to see on a phone. Against its own average, so a quiet song pulses as
 well as a loud one; with no music at all (muted, or between songs) it holds at `GLOW_IDLE`. Tuned
 offline on the four in-game songs to about one flare a beat (see the constants). The pad itself
-is a superellipse with a straight 0.8-unit ramp out: the first rectangle's corners read as hard
+is a superellipse with a straight 0.65-unit ramp out: the first rectangle's corners read as hard
 diagonals, and a wider pad eased through four rings read as blurry.
 
 **The racer's route shows while the race runs.** A second route band, in the racer's violet at
@@ -2563,9 +2570,11 @@ player can see which streets it has picked and race a different line.
 ### The rival is a car in traffic
 
 A guest (`enterGuest`), the fire engine's arrangement: routed to the finish by the same router as
-the taxi, queueing, bumpable. What makes it a racer is `car.chase = RIVAL_CHASE` (2.0, twice a
-cop's: a cruise ceiling of ~35 against a boosting taxi's 22, which it reaches only on the longest
-straights) and `car.racer`, which lets it roll an all-way stop and hold the junction it is driving
+the taxi, queueing, bumpable. Every lane of the taxi's best route costs it `SHARE_COST` (2.5) times
+as much, so it takes its own line where the city has one: on one shared route the drag off the start
+decided every race, because the car behind had no way past (a quarter tank of Loco won 96%). What
+makes it a racer is `car.chase = RIVAL_CHASE` (1.25 of a cop's kit, tuned in `tools/race.mjs` so a
+player on the 1/3 floor tank wins 58%) and `car.racer`, which lets it roll an all-way stop and hold the junction it is driving
 into, the way the boosting taxi's priority hold and a chasing patrol's siren hold do. Without the
 last two it stopped dead at every junction and lost all 32 races measured against Loco Mode,
 whatever its speed.
@@ -2588,11 +2597,16 @@ road, a side street where there is one (the L train's deck stands over the north
 and nothing else within `START_CLEAR` of either car. Both go through `stageCar`/`releaseCar`, the
 opening vignette's handover, so neither carries a weave or a drift across the cut.
 
-The streets have one lane each way, so "beside you, in the other lane" is the oncoming lane. A rival
-sat there facing the taxi's way would be driving into traffic the moment the flag dropped, so it
-faces its own way: an ordinary car, stopped in its own lane (`roadblock = Infinity`, the fire
-engine's stop), level with the taxi. The two set off in opposite directions, which is what gives
-them two routes to one corner.
+**They face the same way, and the racer starts on the wrong side of the road.** The streets have
+one lane each way, so "beside you, facing the same way" is the oncoming lane. To the traffic model
+the racer is on the taxi's own lane at the taxi's own arc length, held (`roadblock = Infinity`, the
+fire engine's stop) with the cop overtake's offset already full (`dragStart` in sim/traffic.js). Off
+the line it is the cop's pass with the trigger taken away: it cuts in once it is `PASS_CLEAR` ahead
+and drops in behind once the taxi is a body length clear, so the drag to the first corner decides
+who gets the lane. It stays out straight through a junction, but never takes a corner out there:
+short of a turn and still level, it brakes and lets the taxi by. The oncoming lane stays shut to
+newcomers until it is back in its own lane, and anything already coming the other way brakes for
+it, as it does for a cop.
 
 - **The black opens on the faceoff**: the camera cut to the pair at `RACE_SHOT_ZOOM` (22, against
   play's 52) for `FACEOFF` (1.6s), then the zoom walks back out while the camera goes to look at
@@ -2600,10 +2614,9 @@ them two routes to one corner.
   pill cannot jump the start. Both lanes are shut to newcomers (`setClosedLanes(…, 'race')`) and
   both cars carry `holdsLine`, so an oncoming left does not wait on a car that is not coming
   (`leftYieldBlocked`).
-- **The finish is picked as they are put down**, from where each is pointing: on a grid one of the
-  two is always a block nearer, so of the furthest corners that qualify it takes the evenest by the
-  router's own estimate of the drive (`estimateSeconds`), which can see the river's bridges and
-  blocks cannot.
+- **The finish is picked as they are put down**: of the furthest corners that qualify, one at
+  random, by the router's own estimate of the drive (`estimateSeconds`), which can see the river's
+  bridges and blocks cannot.
 - **The camera shows the finish before the count** — the rider-finder chip's peek (`peekAt`), out to
   the flag and home to the taxi — and the count starts when it lands (`countIn`). A swipe mid-pan
   drops the peek, so the race counts in on its own after `REVEAL_MAX` (6s).

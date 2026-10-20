@@ -1038,7 +1038,9 @@ const seesLeader = (car) => car.passOffset
 // front whatever its offset says, and the taxi has to follow it: skipped for the length of the swing
 // back, a cop that slowed for the next junction was caught and cut into by the very taxi it had
 // just passed (0.7 units centre to centre, measured).
-const outOfLane = (car) => car.police && car.passing && !seesLeader(car);
+// The street racer's drag start (`dragStart`, below) is the same shape: it sets off level with the
+// taxi from the oncoming lane, and the taxi must not brake for it.
+const outOfLane = (car) => (car.police || car.dragStart) && car.passing && !seesLeader(car);
 // ...and the same goes for the cop's own following. `seesLeader` alone keeps a cop blind to the
 // car in its lane for as long as its offset is out past ENVELOPE, which is right while committed and
 // wrong on the way back in: a pass abandoned 6 units behind the taxi swung back across a junction at
@@ -3391,6 +3393,7 @@ export function stageCar(car, x, z, yaw) {
   car.passSlope = 0;
   car.passBank = 0;
   car.passCredit = 0;
+  car.dragStart = false;
   car.pullover = 0;
   car.pulloverSlope = 0;
   car.brakeLevel = 0;
@@ -5429,7 +5432,8 @@ export function createTraffic(
           const gap = front.laneS - behind.laneS;
           // Only measure real lane geometry. A turning car's lane position is a synthetic stand-in
           // used for queueing, so including it here reports overlaps that don't exist on screen.
-          if (behind.car.state === 'drive' && front.car.state === 'drive' && gap < stats.minGap) {
+          if (behind.car.state === 'drive' && front.car.state === 'drive' && !outOfLane(behind.car)
+              && gap < stats.minGap) {
             stats.minGap = gap;
           }
           leaderDist.set(behind.car, gap);
@@ -6099,6 +6103,61 @@ export function createTraffic(
           if (side <= lateral + CAR_W) other.stun = Math.max(other.stun, 0.3);
         }
       }
+    }
+
+    // --- The street racer's drag start (game/race.js).
+    //
+    // Every street is one lane each way, so two cars facing the same way cannot stand side by side
+    // on lanes of their own. The racer stands in the oncoming lane instead, on the taxi's lane at the
+    // taxi's arc length with the cop pass's offset already full, and the drag to the first corner
+    // decides who gets the lane: it cuts in once it is `PASS_CLEAR` ahead, and drops in behind once
+    // the taxi is a body length clear of it. It is the cop's overtake with the trigger taken away —
+    // the same fields, swing and `outOfLane` skip — so the two read the same on screen.
+    //
+    // Straight on through a junction it stays out, as the cop does: a block here is ~11 units of
+    // lane, and a drag that had to be settled inside one was settled at the start line. It never
+    // takes a *corner* while it is out, because the swing freezes through a turn and would leave it
+    // on the wrong side of the next street: short of the room to stop before a hold line it means to
+    // turn at, still out and not yet clear, it sits on its brakes until the taxi has gone by.
+    for (const car of cars) {
+      if (!car.dragStart || car.crashed || car.staged) continue;
+      const lateral = passLateralOn(car);
+      const fade = PASS_FADE * (lateral / PASS_LATERAL);
+      const sign = dirSign(car.d);
+      const rel = car.d === taxi.d && !taxi.crashed
+        ? (isXAxis(car.d) ? (car.x - taxi.x) : (car.z - taxi.z)) * sign
+        : -Infinity;
+      if (car.state === 'drive' && car.passing) {
+        const room = car.lane.length - STOP_SETBACK - car.s;
+        const short = room < stopDistance(car.v) + CAR_LEN && car.route?.[0] !== car.d;
+        const abandon = short || !oncomingClearFor(car, COP_PASS_ABORT, lateral, true);
+        car.passing = rel < PASS_CLEAR && !(abandon && rel < -CAR_LEN);
+        if (car.passing && short) car.stun = Math.max(car.stun, 0.2);
+      }
+      const straight = car.state === 'drive' || car.turn?.hand === 'straight';
+      const moved = Math.max(0, car.travelled - (car.passFrom ?? car.travelled));
+      car.passFrom = car.travelled;
+      const ds = straight ? moved : 0;
+      const delta = (car.passing ? 1 : 0) - car.pass;
+      const step = Math.sign(delta) * Math.min(Math.abs(delta), ds / fade);
+      car.pass += step;
+      const rate = ds > 0.0001 ? step / ds : 0;
+      car.passOffset = passEase(car.pass) * lateral;
+      car.passSlope = passEaseSlope(car.pass) * lateral * rate;
+      const bankTarget = rate === 0 ? 0 : 1 - 2 * car.pass;
+      car.passBank += (bankTarget - car.passBank) * Math.min(1, ds / PASS_BANK_EASE);
+      if (car.passOffset > ENVELOPE) {
+        const facing = opposite(car.d);
+        for (const other of cars) {
+          if (other === car || other.isTaxi || other.crashed || other.staged) continue;
+          if (other.d !== facing && !(other.state === 'turn' && other.dOut === facing)) continue;
+          const along = (isXAxis(car.d) ? other.x - car.x : other.z - car.z) * sign;
+          if (along < 0 || along > COP_PASS_YIELD) continue;
+          const side = Math.abs(isXAxis(car.d) ? other.z - car.z : other.x - car.x);
+          if (side <= lateral + CAR_W) other.stun = Math.max(other.stun, 0.3);
+        }
+      }
+      if (!car.passing && car.pass === 0) { car.dragStart = false; car.passTarget = null; }
     }
 
     // --- Who is in the boosting taxi's way?
