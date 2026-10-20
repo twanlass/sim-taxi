@@ -522,6 +522,20 @@ try {
     if (ej.group.visible) fail.push('drew before the impact');
     ej.seek();
     if (!ej.group.visible || ej.group.position.distanceTo(end) > 1e-6) fail.push('seek() did not hand it back');
+    // Riders and the thrown driver are never traced by the taxi's ghost rim: every figure stamps
+    // the ghost mask where it draws (geometry/person.js).
+    {
+      const { createPerson } = await import('../src/geometry/person.js');
+      const { GHOST_REF } = await import('../src/geometry/ghostoutline.js');
+      const rider = createPerson();
+      const unstamped = [...rider.meshes, ...ej.group.children.flatMap((c) => {
+        const out = [];
+        c.traverse((o) => { if (o.isMesh) out.push(o); });
+        return out;
+      })].filter((m) => !(m.material.stencilWrite && m.material.stencilRef === GHOST_REF
+        && m.material.stencilZPass === THREE.ReplaceStencilOp));
+      if (unstamped.length) fail.push(`${unstamped.length} figure meshes would be traced by the ghost rim`);
+    }
     if (fail.length) throw new Error(`ejection: ${fail.join('; ')}`);
   }
 
