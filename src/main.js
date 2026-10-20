@@ -81,7 +81,7 @@ import {
 import { createWreckage } from './game/wreckage.js';
 import { createEjection, EJECT_CLOSING } from './game/ejection.js';
 import { createWindshield } from './game/windshield.js';
-import { createTape, createCrashReplay } from './game/replay.js';
+import { createTape, createCrashReplay, REPLAY_SHOTS } from './game/replay.js';
 import { CARRY_DRAG, carrySpeed, carryTravel } from './util/carry.js';
 import { createFlyover } from './game/flyover.js';
 import { createSoundRings } from './game/soundrings.js';
@@ -108,6 +108,7 @@ import { createFire } from './game/fire.js';
 import { createFlatbed } from './game/flatbed.js';
 import { createBoxSpill } from './game/boxspill.js';
 import { showRunEnd } from './game/runend.js';
+import { createSnapshot, PHOTO } from './game/polaroid.js';
 import { recordRun, lastName, clearScores, loadScores } from './game/highscores.js';
 import { loadLocoTuning, saveLocoTuning, clearLocoTuning } from './game/locostash.js';
 import {
@@ -2110,6 +2111,19 @@ let simClock = 0;
 // Set by the impact handler so the tape takes a sample on the impact frame itself — see `record`.
 let tapeImpact = false;
 
+// The polaroid on the run-end card (game/polaroid.js), and the new card layout it comes with:
+// `?gameover=classic` is the card without a print and with "Tap to continue" over the retry slot.
+const gameOverClassic = new URLSearchParams(window.location.search).get('gameover') === 'classic';
+const snapshot = gameOverClassic ? null : createSnapshot(renderer.domElement);
+// How far past the impact, in sim seconds, the replay's last cut is photographed: far enough for
+// the fireball to have bloomed over both cars, not so far that the smoke has swallowed them. Every
+// frame of that cut from the impact on is taken until one lands past this, because the cut can only
+// run as far past the hit as the live beat recorded — a slow device records less — and the last
+// frame it has is a better print than none. The live beat's last frame, taken as the replay cuts
+// in, is the fallback for a replay tapped past before it gets there.
+const PHOTO_AFTER = 0.14;
+let replayPhotoDone = false;
+
 // What the two shells keep of the taxi's speed as they slide out of the impact — the drift and the
 // slew in game/wreckage.js, both on util/carry.js's drag.
 //
@@ -3852,6 +3866,12 @@ function updateHud(dt) {
     // `crashBannerAt` is null only for a run ended from outside the game (the console hook), which
     // has nothing to wait for.
     if (crashBannerAt !== null && performance.now() < crashBannerAt) return;
+    // A bust or a firing has no impact to pick a frame from: its print is the frame its pull-in
+    // ended on, drawn again here so it is in the buffer to be read.
+    if (snapshot && !snapshot.photo()) {
+      renderFrame();
+      snapshot.grab(PHOTO.END);
+    }
     showRunEnd(hud.banner, {
       title: s.failTitle,
       reason: s.failReason,
@@ -3872,6 +3892,8 @@ function updateHud(dt) {
       onRetry: () => { skipTitleNextLoad(); location.reload(); },
       // What the run unlocked, after the table and before the button.
       finale: showUnlockedMoves,
+      photo: snapshot?.photo() ?? null,
+      footHint: !gameOverClassic,
     });
     document.body.classList.add('game-over');
     sfx?.fadeOutMusic();
@@ -5556,6 +5578,11 @@ function tick() {
     replayAt = null;
     // A tape too short to reach back before the impact (a wreck in the first moments of a run)
     // has nothing to replay, and the card comes up on the old hold instead.
+    // The live beat's last frame, pulled in on the wreck: the polaroid if the replay is tapped past.
+    if (snapshot) {
+      renderFrame();
+      snapshot.grab(PHOTO.LIVE);
+    }
     if (!replay.start()) crashBannerAt = nowMs + CRASH_BANNER_DELAY - REPLAY_LEAD;
   }
   if (replay?.active()) {
@@ -5566,6 +5593,12 @@ function tick() {
       updateHud(0);
     }
     renderFrame();
+    // The polaroid: the last, tightest cut, from the impact up to the first frame past PHOTO_AFTER.
+    const at = replay.progress();
+    if (snapshot && at && !replayPhotoDone && at.shot === REPLAY_SHOTS - 1 && at.u >= 0) {
+      snapshot.grab(PHOTO.REPLAY);
+      replayPhotoDone = at.u >= PHOTO_AFTER;
+    }
     return;
   }
 
@@ -7249,6 +7282,23 @@ window.__taxi = {
    * (`?hitcue=`, game/hitcue.js) play as they would for real. For judging the look on a phone, and
    * for the frames in a PR. Never empties the car: the wreck is collisions.js's to call.
    */
+  /**
+   * Wreck the taxi into the nearest car, as a last-HP hit would — the blast, the replay and the
+   * run-end card with its polaroid. For the frames in a PR; nothing in the game calls it.
+   */
+  wreck: () => {
+    const taxi = traffic.taxi;
+    let near = null;
+    let best = Infinity;
+    for (const car of traffic.cars) {
+      if (car.crashed) continue;
+      const d = Math.hypot(car.x - taxi.x, car.z - taxi.z);
+      if (d < best) { best = d; near = car; }
+    }
+    if (!near) return false;
+    taxi.hp = 1;
+    return collisions.strike(near);
+  },
   hurt: (damage = 24) => {
     const taxi = traffic.taxi;
     damage = Math.min(damage, taxi.hp - 1);
@@ -7314,8 +7364,11 @@ window.__taxi = {
     reason: '',
     stats: [{ label: 'Cash', value: 0, format: (n) => `$${n}` }],
     onRetry: () => {},
+    footHint: !gameOverClassic,
     ...opts,
   }),
+  /** The polaroid's print as it stands, for tools/smoke.mjs: which grab it came from, or -1. */
+  photoRank: () => snapshot?.rank() ?? -1,
   /** Screen-space helpers so the browser smoke test can click real pixels. */
   taxiScreenPosition: taxiScreenPos,
   /**
