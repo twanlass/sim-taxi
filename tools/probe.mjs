@@ -202,6 +202,7 @@ import { createDaylight } from '../src/game/daylight.js';
 import { URGENCY_SEGMENTS, urgencyLevel, urgencyColor, fareColor } from '../src/game/urgency.js';
 import { planOrigin, crossingOrigin } from '../src/game/route.js';
 import { HALF_SPAN_X, HALF_SPAN_Z, ROAD_W, LANE, PITCH, BLOCK, HALF_ROAD, HALF_ARTERIAL, lineX, lineZ, GRID_I, GRID_J, isXAxis, leftOf, rightOf, opposite, dirSign, legalExits, riverBanks, riverRow, junctionReach } from '../src/city/grid.js';
+import { EDGE_FOG, FOG_HALF_X, FOG_END, FOG_BILLOW } from '../src/game/edgefog.js';
 import {
   waterEdges, bridgeSpan, bridgeLines, riverCrossing, drawbridgeLine, archAt, deckHeightAt, createRiver, waterHeightAt,
   WATER_Y, FLAT_SOFFIT, ARCH_SOFFIT, BARGE_AIR, TUG_AIR, ARCH_RISE, DECK_THICK,
@@ -8681,12 +8682,23 @@ function rideToPickup() {
 
   check('both cars fit the pools without wrapping',
     fired === 2 * (12 + 7 + 2 + 1), `${fired} instances`);
-  check('a blast puts a ring, a fireball and shards on the road',
-    liveScales(blast.ringMesh).length === 2
+  // The default (`burn`) flashes firelight on the road where the older styles threw a ring.
+  check('a blast puts a flash of firelight, a fireball and shards on the road',
+    liveScales(blast.ringMesh).length === 0
+    && liveScales(blast.glowMesh).length === 2
     && liveScales(blast.puffMesh).length === 24
     && liveScales(blast.shardMesh).length === 14,
-    `${liveScales(blast.ringMesh).length} rings, ${liveScales(blast.puffMesh).length} puffs, `
-    + `${liveScales(blast.shardMesh).length} shards`);
+    `${liveScales(blast.ringMesh).length} rings, ${liveScales(blast.glowMesh).length} glows, `
+    + `${liveScales(blast.puffMesh).length} puffs, ${liveScales(blast.shardMesh).length} shards`);
+  check('the default fire is shaded and the older styles stay flat', (() => {
+    const lit = blast.puffMesh.geometry.attributes.aFire.array[0] === 1;
+    const old = createBlast(new THREE.Scene(), makeRng(seed + 87));
+    old.setStyle('flat');
+    old.fire(0, 0, PALETTE.taxiBody);
+    old.update(1 / 60);
+    return lit && old.puffMesh.geometry.attributes.aFire.array[0] === 0
+      && liveScales(old.ringMesh).length === 1 && liveScales(old.glowMesh).length === 0;
+  })());
 
   // Each car's shards wear that car's paint — a shared pool would have repainted the first car's
   // wreckage when the second one detonated.
@@ -8719,6 +8731,7 @@ function rideToPickup() {
   check('a blast retires completely',
     blast.active() === 0
     && liveScales(blast.ringMesh).length === 0
+    && liveScales(blast.glowMesh).length === 0
     && liveScales(blast.puffMesh).length === 0
     && liveScales(blast.shardMesh).length === 0,
     `${blast.active()} still alive`);
@@ -8757,6 +8770,8 @@ function rideToPickup() {
   const reachOf = (speed) => {
     const scene = new THREE.Scene();
     const b = createBlast(scene, makeRng(seed + 91));
+    // Flat, for its ring: the default has none, and the ring's carry is the low end of the order.
+    b.setStyle('flat');
     b.fire(0, 0, PALETTE.taxiBody, BLAST_HEADING, speed);
     const m = new THREE.Matrix4();
     const p = new THREE.Vector3();
@@ -8827,6 +8842,52 @@ function rideToPickup() {
   }
   check('the flat wreck fire leaves the car in the clear middle', flatNearest > 1.2 && flatTop < 1.4,
     `nearest puff ${flatNearest.toFixed(2)} off centre, top ${flatTop.toFixed(2)}`);
+  // The burn (the default) keeps each wreck alight for the hold, off the shell it is handed. Three
+  // claims: the fire rides the shell as it slides rather than being left on the impact point; what
+  // burns *on* the car is tongues, small enough that the car still reads through them; and it goes
+  // out, every slot, light included.
+  {
+    const scene = new THREE.Scene();
+    const b = createBlast(scene, makeRng(seed + 93));
+    const shell = new THREE.Object3D();
+    scene.add(shell);
+    b.fire(0, 0, PALETTE.taxiBody);
+    b.burn(shell);
+    const m = new THREE.Matrix4();
+    const p = new THREE.Vector3();
+    const sc = new THREE.Vector3();
+    let behind = 0;
+    let widest = 0;
+    let glowOff = 0;
+    for (let step = 0; step < 120; step++) {
+      shell.position.x = step / 60 * 3;      // sliding at 3 u/s
+      b.update(1 / 60);
+      if (step < 70) continue;                // once the fireball has gone, only the burn is left
+      for (let i = 0; i < b.puffMesh.count; i++) {
+        b.puffMesh.getMatrixAt(i, m);
+        m.decompose(p, new THREE.Quaternion(), sc);
+        if (sc.x <= 0) continue;
+        // Low puffs only: those are the tongues, born on the shell. The smoke is let go where it
+        // was made, as smoke is, and starts above 1.4.
+        if (p.y < 1.4 && p.x < shell.position.x - 3.5) behind += 1;
+        if (Math.hypot(p.x - shell.position.x, p.z) < 1.2 && p.y < 2.2) widest = Math.max(widest, sc.x);
+      }
+      for (let i = 0; i < b.glowMesh.count; i++) {
+        b.glowMesh.getMatrixAt(i, m);
+        m.decompose(p, new THREE.Quaternion(), sc);
+        if (sc.x > 0) glowOff = Math.max(glowOff, Math.abs(p.x - shell.position.x));
+      }
+    }
+    check('a burning wreck\'s fire rides the shell', behind === 0 && glowOff < 1e-6,
+      `${behind} puffs left behind, light ${glowOff.toFixed(2)} off the shell`);
+    check('the flames on a burning wreck stay small enough to see the car', widest > 0 && widest < 1.4,
+      `widest puff on the car ${widest.toFixed(2)}`);
+    for (let step = 0; step < 60 * 4; step++) b.update(1 / 60);
+    check('a burning wreck goes out', b.active() === 0
+      && liveScales(b.puffMesh).length === 0 && liveScales(b.glowMesh).length === 0,
+      `${b.active()} still alive`);
+  }
+
   const quickLate = puffsAt('quick', 0.8).live;
   const classicLate = puffsAt('classic', 0.8).live;
   check('the quick wreck fire is out while the classic one still burns', quickLate === 0 && classicLate > 0,
@@ -20018,8 +20079,15 @@ let chopperOrder; // likewise
       harborBasin() ? 0 : Math.abs(waterHeightAt(rBanks ? coastEast() : 0)));
     check('the channel is at full depth down the length of the city',
       Math.abs(mid - WATER_Y) < 1e-9, `${mid.toFixed(2)} against ${WATER_Y}`);
-    check('and has risen to meet the ground by the coast',
-      Math.abs(coast) < 1e-9, `${coast.toFixed(3)} at the coast`);
+    if (EDGE_FOG) {
+      // Under the fog of war the river runs on flat into the clouds: no shoal, so the water is at
+      // full depth at the coast too (Tyler, 2026-10-20: "Don't have the water slope up").
+      check('under the fog the water stays flat out through the coast',
+        Math.abs(coast - Math.abs(WATER_Y)) < 1e-9, `${coast.toFixed(3)} deep at the coast`);
+    } else {
+      check('and has risen to meet the ground by the coast',
+        Math.abs(coast) < 1e-9, `${coast.toFixed(3)} at the coast`);
+    }
     // Monotonic, or the shoal has a dip in it that would pond.
     let climbs = true;
     for (let x = 0; x < SLAB_X / 2; x += 0.5) {
@@ -20043,6 +20111,21 @@ let chopperOrder; // likewise
       `reaches ${reach.toFixed(1)} against a band ending at ${(SLAB_X / 2 + EDGE_FADE).toFixed(1)}`);
     check('and never climbs above the ground it is fading into', above === 0,
       `${above} vertices over y = 0`);
+    if (EDGE_FOG && rBanks) {
+      // The walls have to run on past the coast into solid fog, or their ends stand in the fog's
+      // thinnest billows and the channel reads as stopping. Solid fog: FOG_END + FOG_BILLOW past
+      // the ring road's outer kerb, along x.
+      const sp = rGeo.shell.geometry.attributes.position;
+      let west = 0;
+      for (let k = 0; k < sp.count; k++) west = Math.min(west, sp.getX(k));
+      const solid = FOG_HALF_X + FOG_END + FOG_BILLOW;
+      check('under the fog the channel walls run on into solid fog', -west >= solid,
+        `walls reach x = ${west.toFixed(1)}, fog solid past ${(-solid).toFixed(1)}`);
+      const wa = rGeo.water.geometry.attributes.color;
+      let clear = 0;
+      for (let k = 0; k < wa.count; k++) if (wa.getW(k) < 1) clear += 1;
+      check('and the water stays opaque for the fog to take', clear === 0, `${clear} vertices see-through`);
+    }
 
     // The surface patch (city/riverwater.js), run against three's *real* Lambert source rather than
     // a stub, because every one of its five replaces is the silent kind: a chunk that moved leaves

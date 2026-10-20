@@ -588,7 +588,11 @@ a fare may be reading the board with their thumb off the glass. `?camreturn=clas
 camera wherever the player put it, as it was before
 ([history](rendering-history.md#camera)).
 
-`src/game/taxifinder.js` covers the three seconds before that. The taxi can still drive off the
+That return is the whole answer by default. **The taxi-finder chip is off** (Tyler, 2026-10-20:
+"get rid of the taxi button"); `?taxifinder=classic` brings it back, and the rest of this section
+describes it as it behaves under that flag.
+
+`src/game/taxifinder.js` covers the gap before that. The taxi can still drive off the
 frame entirely, which on a phone is one look across town away, and dragging the map until the
 yellow car turns up is a hunt across near-identical blocks on a clock that is draining. So while
 the taxi is **completely** off-frame a chip of it fades in at the opposite end of the bottom row
@@ -2601,22 +2605,43 @@ History: [the first `HALF_W`](rendering-history.md#the-tailpipe-plume--gamelocof
 
 ### Wreck — `game/blast.js`, `game/wreckage.js`
 
-Plus a smoke collar out of `game/dust.js`.
-
 The crash is **one call per car** — `blast.fire(x, z, tint, yaw, speed)` — and everything *it* puts on the road
-lives in one module: a shockwave ring on the tarmac, a fireball, a scatter of shards in that car's
-paint, and two tyres that bounce out and roll away. Four `InstancedMesh`es, about forty-five live
-instances at the peak of a two-car wreck.
-Around the pair of them goes one call to [`dust.wreckSmoke`](#dust--gamedustjs), which is
-[the collar](#the-smoke-collar) below.
+lives in one module: a fireball, a flash of firelight on the tarmac, a scatter of shards in that car's
+paint, and two tyres that bounce out and roll away. Then **one `blast.burn(shell)` per wreck** keeps
+it alight through the run-end hold: flame tongues licking off the shell, a dark column of smoke rising
+from it, and a flickering pool of orange light on the road under it, all read off the shell's
+position every frame so the fire slides with the car. Five `InstancedMesh`es; about seventy live
+instances at the peak.
 
-What makes a crash read at a fixed 3/4 camera is **shape and timing**, not a physics packet, so the
-vocabulary here is graphic rather than physical (history: [the four-effect stack it
-replaced](rendering-history.md#wreck--gameblastjs-gamewreckagejs)):
+This is the `burn` style, the default since 2026-10-20, and it exists because the fire it replaced
+was **unlit flat colour** — twelve one-colour hexagons and a white ring — which read as stickers once
+the cars took real paint and the street a real sun ("flat and cartoony"). What changed, and what did
+not:
 
-- **Unlit flat colour, not Lambert.** A faceted sphere needs a light to show its facets and the sun
-  is behind the camera, so these carry no shading at all and read as silhouettes. It is also what
-  keeps a night-time wreck as bright as a golden-hour one.
+- **Shaded, still faceted.** Each fireball facet is lit by how squarely it faces the camera — the
+  facets square to the eye are the pale hot heart of a puff and the ones turning away its deep
+  skin — and the silhouette facets fade out on the *sine* of that angle, the clouds' rim rule
+  (CLAUDE.md, *A rim fade on `dot(normal, view)`*). The normal comes off a screen-space derivative,
+  as `flatShading`'s does. Smoke is shaded the other way: sky on top, firelight underneath while it
+  is still low over the wreck. A second per-instance attribute, `aFire` (shade, heat, underglow),
+  carries it, and `shade` 0 leaves a puff in the older styles' flat fill.
+- **Light on the road, without a light.** A real `PointLight` that appears only during a wreck
+  changes every lit material's light count and relinks the city's shaders on the crash frame
+  (CLAUDE.md); one kept in the scene at zero is a cost every frame of every run. So the glow is an
+  additive radial quad, the headlight cones' trade. In daylight it barely registers; at night it is
+  most of the picture.
+- **No shockwave ring, and no [smoke collar](#the-smoke-collar).** The glow's flash gives the bang
+  its size on the first frame, and the burning wreck's smoke column carries the beat after it. The
+  pale translucent collar, laid over that, read as panes of tinted glass round the cars
+  (`blast.wantsCollar()` keeps it for the older styles).
+- **The cars stay readable.** The fireball keeps flat's shape — a skirt starting 1.4 units out from
+  each car, no core puff — a little taller (squash 0.65) because the rim fade lets the eye through a
+  puff's edge. The flame tongues are under a unit and a half across.
+
+Everything below is common to all four styles. What makes a crash read at a fixed 3/4 camera is
+**shape and timing**, not a physics packet, so the vocabulary is graphic rather than physical
+(history: [the four-effect stack it replaced, and the unlit fire](rendering-history.md#wreck--gameblastjs-gamewreckagejs)):
+
 - **Colour is the animation.** Every puff walks one ramp — core → gold → flame → ember → smoke —
   keyed on its own life *plus a fixed shade bias*, so the cluster is spread across the ramp rather
   than marching through it together. That internal structure is what a flat fill would otherwise
@@ -2637,12 +2662,13 @@ replaced](rendering-history.md#wreck--gameblastjs-gamewreckagejs)):
 > the colour of the wall behind it. And the ramp has to be allowed to *reach* smoke before any alpha
 > comes off, or a still-orange puff fading out leaves translucent pink hexagons over the road.
 
-The shockwave is the mark that reads first, because a flat ring at this camera projects as an
-ellipse spreading out from under the wreck — the blast has a size before the fireball has grown into
-one. Fourteen segments, so the flat sides show at the wreck zoom.
+Under the older styles a shockwave ring reads first, because a flat ring at this camera projects as
+an ellipse spreading out from under the wreck. Fourteen segments, so the flat sides show at the
+wreck zoom. The big-air landing still fires it on its own (`blast.shock`).
 
-**Three cuts of the fireball** (`WRECK_STYLES`, picked with `?wreck=classic|quick|flat` or the ⚙️
-panel's *Wreck fire*, read at detonation). **flat is the default** (Tyler's pick). `classic` is the
+**Four cuts of the fireball** (`WRECK_STYLES`, picked with `?wreck=classic|quick|flat|burn` or the ⚙️
+panel's *Wreck fire*, read at detonation). **burn is the default**, above; flat was Tyler's pick
+before it. `classic` is the
 original full fireball, which hides the two cars the run ended on for most of a second — see
 [history](rendering-history.md#wreck--gameblastjs-gamewreckagejs). `quick` is
 the same fire smaller and over in ~55% of the time. `flat` squashes each puff to

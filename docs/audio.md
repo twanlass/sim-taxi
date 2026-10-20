@@ -184,7 +184,7 @@ right now"). Rain still comes both ways, to try in the mix.
 |---|---|---|---|
 | `spawn` | 16 A–C | Once per entrance, the city building itself (the wave) | first frame of `cityEntry.running()` with a context and a decoded take; re-armed by a replay. **Not heard under the title screen**, which settles the entrance before anything can be tapped |
 | `gate` | 17 | The depot's roller door at the start of a run | `opening.phase()` going `settle` → `door` |
-| `bridge` | 18 | The whole drawbridge cycle, from the barriers starting down | `drawbridge.state.phase` → `closing`; steered for 26 s |
+| `bridge` | 18 | The whole drawbridge cycle, from the barriers starting down | `drawbridge.state.phase` → `closing`; steered for 26 s, faded out (τ 0.15 s) the frame the gates start back up (`raising`) |
 | `city` | 19 B | Bed, everywhere, always | — |
 | `construction` | 20 MONO | Bed at the roadworks' closed block while it stands, faded with it | `roadwork.state` |
 | `birdsUp` / `birdsDown` | 21 strong A–C / soft A–C | A pigeon flock scattering / the last of it landing | `flock.state.flights` / `.landings` |

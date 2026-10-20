@@ -2331,7 +2331,8 @@ collisions.onImpact(({ x, z, speed, closing, other }) => {
   // the sun, which is exactly the contrast that makes the fire read as the hot middle of something
   // bigger. One call for both cars, at the point between them: two collars would have packed grey
   // into the seam where the two fireballs meet, which is the middle of the blast.
-  dust.wreckSmoke((x + other.x) / 2, (z + other.z) / 2, yaw, speed);
+  // Not under the default `burn` style, whose own smoke column does this job — see `wantsCollar`.
+  if (blast.wantsCollar()) dust.wreckSmoke((x + other.x) / 2, (z + other.z) / 2, yaw, speed);
 
   // And both cars are left lying there. `wreckShell` takes each one off the road for good and hands
   // its bodywork over as a standalone group; game/wreckage.js slides it out of the impact, crumples
@@ -2353,7 +2354,8 @@ collisions.onImpact(({ x, z, speed, closing, other }) => {
   // opens apart — a glance rather than two objects deleted in formation. Cars meeting dead centre
   // give a cross near zero, and `|| 1` picks a side rather than leaving both shells unturned.
   const struckSide = Math.sign(fx * (other.z - traffic.taxi.z) - fz * (other.x - traffic.taxi.x)) || 1;
-  wreckage.take(traffic.wreckShell(traffic.taxi), {
+  const taxiShell = traffic.wreckShell(traffic.taxi);
+  wreckage.take(taxiShell, {
     driftX: fx * carry * SHELL_CARRY * TAXI_KEEP,
     driftZ: fz * carry * SHELL_CARRY * TAXI_KEEP,
     spin: -struckSide * SHELL_SPIN,
@@ -2374,7 +2376,8 @@ collisions.onImpact(({ x, z, speed, closing, other }) => {
   // shoved rather than thrown. Shards that reach a pavement stay there; nothing walks this track
   // the way ejection.js walks the driver's, because a 0.3-unit plate on a kerb reads as glass.
   struckGlass.fire({ x: other.x, z: other.z, yaw, scale: 0.6, ahead: 0, drop: 0.15 });
-  wreckage.take(traffic.wreckShell(other), {
+  const struckShell = traffic.wreckShell(other);
+  wreckage.take(struckShell, {
     // A copy made on this frame: before it, the car was an instance the replay draws instead.
     hideBefore: true,
     driftX: fx * carry * SHELL_CARRY * STRUCK_SHOVE,
@@ -2385,6 +2388,11 @@ collisions.onImpact(({ x, z, speed, closing, other }) => {
     // enough to bury a wheel. See the `lift` in game/wreckage.js.
     ...(other.isTruck ? { len: TRUCK_LEN, width: TRUCK_W } : {}),
   });
+  // And both keep burning through the hold — flames on the shells, a smoke column, the firelight
+  // on the road (`blast.burn`; a no-op under the older `?wreck=` styles). Off the shells rather than
+  // the impact point because the shells slide, and fire left behind on the tarmac reads as a spill.
+  blast.burn(taxiShell);
+  blast.burn(struckShell, { scale: 0.85 });
 
   // Framed on the middle of the whole picture when the driver was thrown: the throw runs ~16 units,
   // past the edge of a portrait phone at wreck zoom if the shot stays on the wreck. Halfway puts
@@ -3103,7 +3111,11 @@ const riderFinder = wantsRiderChips
   ? createRiderFinder({ onSelect: selectRider, sun, hemi })
   : { update: () => {} };
 // The chip that answers "where did my car go" — up only while the taxi is completely off-frame.
-const taxiFinder = createTaxiFinder({
+// Off by default since 2026-10-20 (Tyler: "get rid of the taxi button"): the camera already rides
+// home on its own after CAMERA_RETURN_IDLE, so the chip only ever covered that 1.5s gap.
+// `?taxifinder=classic` brings it back; without it there is no chip and no extra WebGL context.
+const wantsTaxiFinder = new URLSearchParams(window.location.search).get('taxifinder') === 'classic';
+const taxiFinder = !wantsTaxiFinder ? null : createTaxiFinder({
   sun,
   hemi,
   project: projectToScreen,
@@ -4850,13 +4862,20 @@ function nearestGulls() {
   return best;
 }
 
-// What the L's deck must not hide (game/ltrain.js): the taxi, every rider waiting on a kerb and
-// the drop-off pin of the fare aboard. Reused rather than allocated per frame.
+// What the L's deck must not hide (game/ltrain.js): every rider waiting on a kerb and the drop-off
+// pin of the fare aboard, neither of which has any other way of showing through. **Not the taxi**:
+// it wears the ghost outline (geometry/ghostoutline.js), which traces it through the deck exactly
+// as it does through a tower, so the deck stays solid over it the way a building does (Tyler,
+// 2026-10-20: "why does the train track fade out around the taxi and not just stay solid like
+// buildings"). A hole following the cab round was the one thing in the city that moved with it.
+// `?trainfade=classic` thins the deck over the taxi as well, which is what it did before.
+// Reused rather than allocated per frame.
+const classicTrainFade = new URLSearchParams(window.location.search).get('trainfade') === 'classic';
 const ltrainFade = [];
 function ltrainFadePoints() {
   ltrainFade.length = 0;
   const t = traffic.taxi;
-  ltrainFade.push({ x: t.x, z: t.z });
+  if (classicTrainFade) ltrainFade.push({ x: t.x, z: t.z });
   for (const slot of fares.slots) {
     for (const pin of [slot.passenger.group, slot.destination.group]) {
       if (!pin.visible || !slot.root.visible) continue;
@@ -4913,6 +4932,8 @@ const PLANE_LEAD = 1.4;
 // clears *before* that (game/drawbridge.js), so a held span holds the sound back rather than
 // stretching the middle of it. It is steered for as long as it can be sounding.
 const BRIDGE_SECONDS = 26;
+// The fade when the gates start rising: a time constant, so it is all but silent by ~0.75s.
+const BRIDGE_CUT = 0.15;
 
 function cityOneShots(dt) {
   if (!sfx) return;
@@ -4957,6 +4978,12 @@ function cityOneShots(dt) {
     if (bp === 'closing' && lastBridgePhase !== 'closing') {
       bridgeVoice = sfx.play('bridge', { at, steered: true });
       bridgeSince = 0;
+    }
+    // Cut it as the gates start back up. The file runs the full 26s, and a lift that a boat
+    // releases early has the deck home and the arms rising while the bell is still ringing.
+    if (bp === 'raising' && lastBridgePhase !== 'raising' && bridgeVoice) {
+      sfx.release(bridgeVoice, BRIDGE_CUT);
+      bridgeVoice = null;
     }
     lastBridgePhase = bp;
     if (bridgeVoice) {
@@ -6419,7 +6446,7 @@ function tick() {
   // Armed only when nothing else already has the framing in hand: a run that has ended has the
   // closing shot, the tutorial is pointing the camera at the city itself, and a pan in flight is
   // already on its way somewhere — including this chip's own, which is what drops it on the tap.
-  taxiFinder.update(dt, traffic.taxi,
+  taxiFinder?.update(dt, traffic.taxi,
     !fares.state.gameOver && !controller.isGliding() && !tutorial?.holdsCamera());
   // A no-op unless a package is aboard — it draws nothing while the chip is down.
   cargoChip?.render();
@@ -6608,6 +6635,7 @@ if (shot) {
   // detonates it through the same handler a live run uses — so this framing cannot drift out of
   // step with the crash it exists to review. Only the blast and the shrinking shells are stepped
   // afterwards: traffic must stay still, or the rest of the city drives on under a frozen wreck.
+  let wreckStep = null;
   if (shot.wreckAt) {
     // Offset by a couple of units along the victim's heading rather than parked exactly on it: a
     // real impact leaves the two centres about that far apart, and the pair of detonations spread
@@ -6640,17 +6668,23 @@ if (shot) {
     }
     controller.state.target.set(endSpot?.x ?? victim.x, 0, endSpot?.z ?? victim.z);
     controller.update(aspect());
-    for (let step = 0; step < Math.round(shot.wreckAt * 60); step++) {
-      blast.update(1 / 60);
-      wreckage.update(1 / 60);
-      ejection.update(1 / 60);
-      windshield.update(1 / 60);
-      struckGlass.update(1 / 60);
-      // The smoke collar is part of the wreck now, and it lives in the dust pool rather than in
-      // blast.js — left out of this loop, `?shot=12` would freeze a crash with its smoke still
-      // stacked on the impact point at zero age.
-      dust.update(1 / 60);
-    }
+    // `&wreckAt=` overrides the shot's own beat, and `window.__wreckStep(frames)` steps the same
+    // pools on and redraws — which is how tools/wreckreel.mjs films the whole crash a frame at a
+    // time out of one staging, rather than restaging it once per frame.
+    const wreckAt = Number(new URLSearchParams(window.location.search).get('wreckAt') ?? shot.wreckAt);
+    wreckStep = (frames) => { for (let step = 0; step < frames; step++) stepWreck(); };
+    wreckStep(Math.round(wreckAt * 60));
+  }
+  function stepWreck() {
+    blast.update(1 / 60);
+    wreckage.update(1 / 60);
+    ejection.update(1 / 60);
+    windshield.update(1 / 60);
+    struckGlass.update(1 / 60);
+    // The smoke collar is part of the wreck now, and it lives in the dust pool rather than in
+    // blast.js — left out of this loop, `?shot=12` would freeze a crash with its smoke still
+    // stacked on the impact point at zero age.
+    dust.update(1 / 60);
   }
 
   // Stage a flight and freeze it partway across. The plane is up for about six seconds every
@@ -7000,6 +7034,7 @@ if (shot) {
   // come down behind it.
   garage?.setDoor(0);
   renderFrame();
+  if (wreckStep) window.__wreckStep = (frames = 1) => { wreckStep(frames); renderFrame(); };
   document.body.dataset.shotReady = 'true';
 } else {
   traffic.warmup(10);
@@ -7234,7 +7269,7 @@ window.__taxi = {
   /**
    * The "back to the taxi" chip, for `tools/smoke.mjs`: `isUp()` is whether it is currently
    * offering itself. Browser-only in the same way the cargo chip is — a WebGL context in a DOM
-   * node, driven off a projection through the live camera.
+   * node, driven off a projection through the live camera. Null unless `?taxifinder=classic`.
    */
   taxiFinder,
   flyover,

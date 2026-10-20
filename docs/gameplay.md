@@ -294,21 +294,30 @@ shares the picker's `didPan()` guard, so a swipe that dragged the map is not als
 
 Everything that talks on screen — these tips, [the robber](#the-bank-robbery), dispatch
 and (under `?copchat=classic`) the cop's shout — is one bubble, `game/speech.js`: the Figma file's "bubble-ui" card (a caps title
-saying who is talking over a bold line, and a pointer), at the HUD's ×0.652.
+saying who is talking over a bold line), at the HUD's ×0.652.
 
-**Pinned to what it is about.** Each bubble is handed a target, a function returning a screen point
-re-read every frame, and stands above it with its pointer on the bottom edge. The talker where there
-is one (the cop's roof, the taxi the robber is in, the police car dispatch is talking from) and the thing
-being pointed out where there is not (the rider's crystal, the top of the gas pedal). It slides
-sideways to stay on the glass, and drops *below* a target that is up under the HUD.
+**Docked, with a tag on the talker.** The card is see-through black (62%, the city blurred behind it)
+with white type, and so is the tag (`?bubblestyle=card` is the white Figma card). Every line types
+itself out behind a caret, dispatch and the racer included, and the card grows with the line rather
+than standing at its finished width; its left edge is pinned where the finished card's will be, so
+the text never shifts and the line ends centred. Picked from a round of eight looks (radio ticker,
+arcade portrait, subtitle, frosted glass, comic sticker, dash-radio LCD, speaker colour, white card). The words sit in one fixed slot, centred at the bottom with its
+lower edge 24px over the top of the Loco Mode fuel arc, and never move: a card there rises in, holds,
+and sinks away. A second card up at the same time stacks above the first. (The first build docked it
+at the top under the cash and stars; Tyler moved it down, which also puts "Hold to floor it" right
+over the pedal it means.) What the card used to stand on gets a **tag** instead: a 24px white
+disc with three typing dots and a pointer, pinned to the talker (the racer, the police car dispatch is
+talking from, the taxi the robber is in) or to the thing being pointed out (the rider's crystal, the gas
+pedal). Off screen the tag waits at the edge pointing at it, the same way the card used to. The card is
+wider than it was (300px against 178), so most lines fit on one line and it stays a short strip.
 
-**Off screen, it waits at the edge.** A target out of frame clamps the card to the nearest edge along
-the line from the middle of the screen to it — the [off-screen rider arrows'](#finding-the-next-rider)
-rule — with its pointer on the side facing that edge. Pan towards it and the card slides along the
-edge with you until the target is in frame, then drops onto it. The pointer always sits in the
-**middle** of its side and only turns, leaning towards its target but no more than 40° off square
-to the card's edge, so it does not crawl along the edge as the camera pans. `placeSpeech` is the
-pure half of it. History: [speech bubbles](gameplay-history.md#speech-bubbles).
+Why: a card pinned to a car was the biggest moving thing on the screen, stood on the road the player was
+steering through, and slid around the glass after anything that drove out of frame (Tyler, 2026-10-20:
+"they get in the way and move a lot"). The tag keeps the one job pinning did well, saying *which* one is
+talking, which matters most for the racer now that its roof flag is gone. `?bubbles=dock` drops the
+tag; `?bubbles=classic` is the pinned card. The New Move card places itself (centred, `pinned: true`)
+and is unaffected. `placeDocked` and `placeSpeech` are the pure halves. History:
+[speech bubbles](gameplay-history.md#speech-bubbles).
 
 ### The spotlight
 
