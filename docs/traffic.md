@@ -2083,8 +2083,9 @@ old hold, as does shot mode.
 
 **It is a recording, not a re-run.** Nothing in the sim can be stepped backwards, and re-firing the
 blast for the camera would have been a *different* explosion. So `createTape` samples, at 30Hz of sim
-time, every dynamic `InstancedMesh` in the scene plus every node under the taxi's group. That one
-rule picks up far more than the two cars: the traffic, its lamp pods, and every particle pool the
+time, every dynamic `InstancedMesh` in the scene plus every node under `traffic.drawnRoots` — the
+taxi's group and every group a car has worn in place of its instance (the cruisers, the racer, the
+fire engine). That one rule picks up far more than the two cars: the traffic, its lamp pods, and every particle pool the
 wreck is drawn with — `blast.js`, `dust.js`, `sparks.js`, `flames.js` are all instanced, `aAlpha`
 included — so what the replay shows is what the player saw. A sample is ~150KB and the ring holds
 3.2s of it. Playback interpolates between samples, with one exception: an instance that moved more
@@ -2097,6 +2098,17 @@ pause, and the tape draws the frame. Boats, pedestrians, skid marks and the sky 
 stand where the live beat left them. The wreck shells are scrubbed alongside with `wreckage.seek()`,
 which is free because they were already a closed form of their age; the struck car's shell is
 hidden before the impact (`hideBefore`), because until then that car was an instance on the tape.
+
+**A car drawn by its own group is taped because it was dressed, not because it was listed.** A
+group of ordinary meshes looks like scenery from the outside, so the tape has to be told which
+groups are vehicles. It used to be told by a list in main.js, and every skinned vehicle added after
+the list was written was missing from it: on the impact frame `wreckShell` hides the live group and
+the shell only exists from t0, so the struck car was absent from the approach of every cut and
+popped in with its own fireball — the cruiser first, then the racer and the fire engine. Now the
+only way to put a group in a car's place is `traffic.wearSkin(car, draw, root)`, which adds `root`
+to the live `drawnRoots` Set the tape reads on every sample; a skin assigned by hand is counted
+(`unrootedSkins`), and `tools/wreckreplay.mjs` crashes into every kind of vehicle and fails if any
+of them is missing from a frame across the hit.
 
 **The live beat is also the recording of the aftermath.** The longest shot plays `REPLAY_POST`
 (0.45s of sim) past the hit, and the only frames after the hit are the ones the live beat recorded.
@@ -2564,8 +2576,9 @@ It is a car in `cars` — it follows its lane, queues, signals, takes a route, c
 whatever is behind it queues behind it — but it has **no instance** (`enterGuest` in
 `sim/traffic.js`). It is in neither `ambient` nor `trucks`, so it takes no buffer slot, never touches
 the density ramp's ordering or the police block at the tail of `ambient`, and leaving is a splice out
-of `cars`. The render pass hands its pose to `car.skin` and skips `writeAmbient`; the wreck path asks
-`car.guestWreck` for a shell, because there is no instance to copy one from.
+of `cars`. Its owner dresses it with `traffic.wearSkin` (which puts its group on [the replay's
+tape](#the-replay)); the render pass hands its pose to `car.skin` and skips `writeAmbient`; the
+wreck path asks `car.guestWreck` for a shell, because there is no instance to copy one from.
 
 It is not police on purpose: the robbery and the patrol share the cop fleet and both clear, recycle
 and re-route everything in `policeCars` at the end of an event. A fire engine caught in that would
@@ -3091,8 +3104,9 @@ same hole one layer over — it was tinted from `carBody[colorIndex]` — and go
 now, and carries its cab — and its bar, dark (the lit pods collapse, the housing and lenses ride
 the roof). Without it the bar vanished on impact. The patrol cruiser's wreck reads its pose off
 `car.skinPose`, because a skinned car's instance is collapsed: read off the instance, the whole
-cruiser decomposed to a NaN scale and vanished. `police.group` is a root of the crash replay's tape
-for the same reason the taxi's group is — it is not an instance, and was missing from every cut.
+cruiser decomposed to a NaN scale and vanished. `police.group` is on the crash replay's tape for
+the same reason the taxi's group is — it is not an instance, and was missing from every cut —
+by way of `wearSkin` ([the replay](#the-replay)).
 
 **The two-tone.** A cop is a light-blue body under a white cab, after the 1980s NYPD cruiser, where
 it used to be a solid blue (#2E5FA8) a few steps off the ordinary blue car — one blue car among
@@ -3266,7 +3280,7 @@ reds, yields and can be rammed, and while chasing it overtakes and brake-checks 
 because those are behaviours of any chasing cop rather than of the robbery.
 
 **What makes it *the* patrol car is the mesh.** `car.skin` in `sim/traffic.js` hands the pose the
-render pass composed to a callback and collapses the car's own instance; `police.wear(car)` draws
+render pass composed to a callback and collapses the car's own instance; `police.wear(car, traffic)` draws
 the cruiser there instead — the fleet's own two-tone car and bar, plus two real point lights behind
 the lamps, which an instanced pod cannot carry. `game/coplights.js` skips a skinned car for that
 reason: it brings its own lamps. The unlit bar (housing and painted lenses) stays on the roof when

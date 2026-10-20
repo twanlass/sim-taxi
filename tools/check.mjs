@@ -82,6 +82,10 @@ const TOOLS = [
   // The docs against the code: every URL parameter in src/ has a row in docs/params.md (and every
   // row is still read), and every relative link between the docs lands on a heading that exists.
   { name: 'docs',    args: ['tools/docs.mjs'],         pick: /(\d+\/\d+) checks passed/ },
+  // Every kind of vehicle crashed into and played back through the replay: the struck car has to be
+  // drawn on every frame across the hit. Each skinned car (cruiser, racer, fire engine) popped in
+  // with its own fireball in turn, because the tape had not been told about it.
+  { name: 'wreckreplay', args: ['tools/wreckreplay.mjs'], pick: /(\d+\/\d+) checks passed/ },
   // The New Move card's U-turn is a recording of the sim (game/uturnreel-<width>.js); this films it again
   // and fails if the game's U-turn has moved on without it.
   { name: 'uturn',   args: ['tools/uturnreel.mjs'],    pick: /(\d+\/\d+) checks passed/ },

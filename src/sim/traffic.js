@@ -3390,10 +3390,13 @@ function spawnCars(rng, count, into = [], accept = null, truckChance = 0, classi
       uturnWait: 0,
       uturnGaveUp: null,
       // Someone else's mesh drawn in this car's place: `(pos, quat, car) => void`, handed the pose
-      // the render pass composed, with the instance itself collapsed. Only the patrol cruiser sets
-      // it (sim/police.js), on the cop it becomes when it gives chase — the car is the cruiser, so
-      // the thing on screen stays the cruiser rather than turning into a different model of car.
+      // the render pass composed, with the instance itself collapsed. The patrol cruiser
+      // (sim/police.js), the racer (game/race.js) and the fire engine (game/fire.js) — always set
+      // through `wearSkin`, never by hand, because the group it draws into has to be on the crash
+      // replay's tape (see `drawnRoots`).
       skin: null,
+      // ...the group that skin draws, which is what the tape records.
+      skinRoot: null,
       // ...and the pose it was last handed, because the instance it would otherwise be read back
       // from is collapsed while a skin draws it. `wreckShell` builds the wreck from this.
       skinPose: null,
@@ -4601,12 +4604,39 @@ export function createTraffic(
     return car;
   }
 
+  // --- Skins and the crash replay's tape ------------------------------------------
+  //
+  // Every vehicle on screen is either an instance in one of the fleet's InstancedMeshes, which the
+  // tape (game/replay.js) finds on its own by walking the scene, or a group of ordinary meshes
+  // somebody else draws — the taxi, and every car wearing a `skin`. Those it cannot find: a group
+  // looks like scenery from the outside. So it used to be handed them as a list in main.js, and
+  // every skin added after the list was written was missing from it — the cruiser first (rammed,
+  // it was absent from every cut of its own crash), then the racer and the fire engine, which
+  // shipped with the same hole. On the impact frame `wreckShell` hides the live group and a wreck
+  // copy takes over from t0, so a group the tape never saw is hidden for the whole approach of
+  // every replay cut and pops in with the fireball: reported as "the race car appeared out of
+  // nowhere during the explosion".
+  //
+  // So the list is this Set, and the only way to dress a car is `wearSkin`, which adds to it.
+  // A root once seen stays: a wrecked or retired guest is exactly what the replay is about to show.
+  const drawnRoots = new Set([taxiGroup]);
+  let unrootedSkins = 0;
+
+  /** Draw `car` with `draw(pos, quat, car)` into `root` in place of its instance. */
+  function wearSkin(car, draw, root) {
+    if (!root?.isObject3D) throw new Error('wearSkin: a skin needs the group it draws into');
+    car.skin = draw;
+    car.skinRoot = root;
+    drawnRoots.add(root);
+  }
+
   /** Take a guest off the road. Answers whether it was on it. */
   function retireGuest(car) {
     const at = cars.indexOf(car);
     if (!car?.guest || at === -1) return false;
     cars.splice(at, 1);
     car.skin = null;
+    car.skinRoot = null;
     car.guestWreck = null;
     car.roadblock = 0;
     if (car.route?.length) car.route.length = 0;
@@ -7733,6 +7763,10 @@ export function createTraffic(
       // wheels, pods and bar all compose through `matrix`, so zeroing it hides every part at once.
       // A guest has no instance at all (see `enterGuest`): its owner draws it, and there is no slot
       // in any buffer for `writeAmbient` to write.
+      // A skin set by hand rather than through `wearSkin` draws a group the replay cannot see.
+      // Counted rather than thrown: the probe fails on it, and a player is better off with the
+      // pop-in than with a frame loop that stops.
+      if (car.skin && !drawnRoots.has(car.skinRoot)) unrootedSkins += 1;
       if (car.guest) {
         car.skin?.(pos, quat, car);
         continue;
@@ -7849,6 +7883,11 @@ export function createTraffic(
     /** Called with `{ x, z, yaw, v, deck }` on the frame the taxi's hop touches down. */
     onTaxiLand: (cb) => { landListeners.push(cb); },
     wreckShell, stats,
+    wearSkin,
+    /** Every group drawn in a car's place, the taxi's included — the crash replay tapes these. */
+    drawnRoots,
+    /** For the probe: render passes that drew a skin `wearSkin` never saw. */
+    unrootedSkins: () => unrootedSkins,
     lightPhase, displayPhase,
     // The instanced cars, index-aligned with `mesh`, and how `wheelMesh` is indexed off them
     // (`instanceIndex * wheelsPerCar + w`). Anything reading those matrices back needs both —

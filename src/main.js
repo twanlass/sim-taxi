@@ -1695,9 +1695,11 @@ const struckGlass = createWindshield(scene, { rng: makeRng(runSeed + 921), roadY
 // is frozen for the replay, and a wake playing back behind a boat standing still is a wake coming
 // off nothing.
 const tape = shot ? null : createTape(scene, {
-  // ...and the patrol cruiser, which is a group of its own rather than an instance: left off, a
-  // patrol the taxi rammed was missing from every cut of its own crash.
-  roots: [traffic.taxiGroup, ...cruisers.map((c) => c.group)],
+  // The taxi's group and every group a car has worn in place of its instance — the cruisers, the
+  // racer, the fire engine — kept by traffic as they are dressed (`wearSkin`). Live, so a skin
+  // added later is taped from its first frame; a hand-kept list here is how the racer came to pop
+  // in with its own fireball.
+  roots: traffic.drawnRoots,
   exclude: (mesh) => mesh.name === 'boat-wake',
 });
 const replayOverlay = document.getElementById('replay');
