@@ -306,8 +306,10 @@ north-south line it replaced, and `?lroute=classic` the east-west one before tha
 - **It is high (deck top 6.4) on purpose.** The first cut was low (3.3) and over the median only,
   because anything `h` tall hides about `1.09h` of ground behind it on each axis. At play zoom it
   read as a railway cut through the city at street level. What hides more now is paid for by the
-  fade: the taxi and every visible fare pin are projected up their sightline to the deck and the
-  deck dithers out there (`FADE_*`). Off the island it dithers out the same way, a little ahead of
+  fade: every visible fare pin is projected up its sightline to the deck and the deck dithers out
+  there (`FADE_*`). The taxi is not one of them: it has its ghost outline, which traces it through
+  the deck as it does through a building, so the deck stays solid over it (`?trainfade=classic`
+  thins it over the taxi too, as it used to). Off the island it dithers out the same way, a little ahead of
   the ground's own fade, which reads as gone sooner than its alpha says.
 - **Wheel sparks** every few seconds off one truck, through the shared spark pool with its floor
   set to the road, so they fall through the open deck. Only at speed and only over the island.

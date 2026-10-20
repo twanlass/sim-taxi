@@ -1414,6 +1414,90 @@
         display: block; overflow: visible;
         transform-origin: 50% 100%;
       }
+      /* Docked (the default, game/speech.js): the card sits in one fixed slot at the bottom, just
+         over the Loco Mode fuel arc, and never moves, so it has no pointer and rises in from below
+         instead of growing out of one. Wider than a pinned card, since it covers nothing it is about: most lines then fit on
+         one line and the card stays a short strip. */
+      .speech-docked .speech-card { max-width: min(300px, calc(100vw - 20px)); }
+      .speech-docked > .speech .speech-pointer { display: none; }
+      .speech-docked > .speech > .speech-body { transform: translateY(14px); transform-origin: 50% 100%; }
+      .speech-docked.is-open > .speech > .speech-body { transform: none; }
+      .speech-docked.is-closing > .speech > .speech-body { transform: translateY(10px); }
+      .speech-docked .speech-card { box-shadow: 0 4px 14px rgba(20, 24, 48, 0.28); }
+      /* A docked card grows with its line as it types (Tyler, 2026-10-20) rather than standing at its
+         finished size from the first letter, so the untyped rest is not laid out at all. speech.js
+         pins the card's left edge where the finished card's will be, so the text never shifts. */
+      .speech-docked .speech-rest { display: none; }
+      /* The caret while a docked line types: a zero-width box with a 2px right border, so it takes no
+         room in the line, and a caret with width would make the card a step wider than its text. */
+      .speech-docked.is-typing .speech-typed::after {
+        content: ''; display: inline-block; width: 0; height: 0.95em; margin-right: -2px;
+        border-right: 2px solid currentColor; vertical-align: -0.12em;
+        animation: speech-caret 0.5s step-end infinite alternate;
+      }
+      @keyframes speech-caret { from { opacity: 1; } to { opacity: 0.25; } }
+      /* Black, the default look (Tyler's pick, 2026-10-20): white type, the speaker in grey caps, and
+         the tag in the same black. `?bubblestyle=card` keeps the white Figma card. */
+      /* See-through, with the city blurred behind it (Tyler, 2026-10-20) — the card and the tag both.
+         The fade has to be on the card and the tag themselves rather than on the body that holds
+         them: an ancestor with opacity under 1 is a backdrop root, so for the whole of a fade-in
+         the blur would see nothing behind it and then snap on at the end. */
+      .speech-style-black .speech-card {
+        background: rgba(13, 14, 18, 0.62);
+        -webkit-backdrop-filter: blur(12px) saturate(1.2); backdrop-filter: blur(12px) saturate(1.2);
+        box-shadow: 0 4px 14px rgba(0, 0, 0, 0.22); padding: 13px 16px; border-radius: 14px;
+      }
+      .speech-style-black.speech-docked > .speech > .speech-body,
+      .speech-style-black.speech-docked > .speech-tag-pin > .speech-tag-body { opacity: 1; }
+      .speech-style-black .speech-card, .speech-style-black .speech-tag, .speech-style-black .speech-tag-pin .speech-pointer {
+        opacity: 0; transition: opacity 0.18s ease;
+      }
+      .speech-style-black.is-open .speech-card, .speech-style-black.is-open .speech-tag,
+      .speech-style-black.is-open .speech-tag-pin .speech-pointer { opacity: 1; }
+      .speech-style-black.is-closing .speech-card, .speech-style-black.is-closing .speech-tag,
+      .speech-style-black.is-closing .speech-tag-pin .speech-pointer { opacity: 0; transition: opacity 0.2s ease; }
+      .speech-style-black .speech-tag {
+        background: rgba(13, 14, 18, 0.62);
+        -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px); box-shadow: none;
+      }
+      /* The tag's pointer is sunk 4px into the disc (POINTER_SINK in speech.js) to hide its rounded
+         base corners. With a see-through fill that overlap would draw as a darker band, so the sunk
+         part is clipped off — in the pointer's own unturned frame, so the cut is always its base —
+         leaving the tip from the disc's edge out. A 24px disc only curves 0.4px away over the 6.4px
+         of pointer left at that line, which is under a pixel. The same clip shapes its blur. */
+      .speech-style-black .speech-tag-pin .speech-pointer {
+        color: rgba(13, 14, 18, 0.62);
+        clip-path: polygon(50% 0, 78.1% 56.5%, 21.9% 56.5%);
+        -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px);
+      }
+      .speech-style-black .speech-title { color: rgba(255, 255, 255, 0.55); }
+      .speech-style-black .speech-text { color: #fff; }
+      .speech-style-black .speech-tag i { background: #fff; }
+      /* The tag: who is talking, pinned where the card used to stand. A white disc with three dots
+         in it — the "someone is typing" mark — and the card's pointer, so it reads as the docked
+         card's other end. Small enough (24px) that following a car costs nothing to look at. */
+      .speech-tag-pin { position: absolute; left: 0; top: 0; will-change: transform; }
+      .speech-tag-body {
+        position: relative; opacity: 0; transform: scale(0.5);
+        transition: opacity 0.18s ease, transform 0.26s cubic-bezier(0.34, 1.56, 0.64, 1);
+      }
+      .is-open > .speech-tag-pin > .speech-tag-body { opacity: 1; transform: scale(1); }
+      .is-closing > .speech-tag-pin > .speech-tag-body { opacity: 0; transform: scale(0.6); transition: opacity 0.2s ease, transform 0.2s ease; }
+      .speech-tag {
+        width: 24px; height: 24px; border-radius: 50%; background: #fff;
+        display: flex; align-items: center; justify-content: center; gap: 2.5px;
+        box-shadow: 0 2px 6px rgba(20, 24, 48, 0.3);
+      }
+      .speech-tag i { width: 3.5px; height: 3.5px; border-radius: 50%; background: #2c3052; animation: speech-tag-dot 1.1s ease-in-out infinite; }
+      .speech-tag i:nth-child(2) { animation-delay: 0.15s; }
+      .speech-tag i:nth-child(3) { animation-delay: 0.3s; }
+      @keyframes speech-tag-dot { 0%, 60%, 100% { transform: none; } 30% { transform: translateY(-2.5px); } }
+      .speech-tag-pin .speech-pointer { color: #fff; }
+      @media (prefers-reduced-motion: reduce) {
+        .speech-tag i { animation: none; }
+        .speech-docked > .speech > .speech-body, .speech-docked.is-open > .speech > .speech-body,
+        .speech-docked.is-closing > .speech > .speech-body, .speech-tag-body { transform: none; }
+      }
       @media (prefers-reduced-motion: reduce) {
         .speech-body, .is-open > .speech > .speech-body, .is-closing > .speech > .speech-body {
           transform: none; transition: opacity 0.2s ease;

@@ -112,8 +112,8 @@ const LAUNCH_GAP = 30;
 // **Zero: the river is single file.** Boats used to keep to a lane each side so an up-river and a
 // down-river hull could pass, which capped the beam at under half the water — and a barge that
 // narrow read as a toy next to the cars on the bridges. The barge filled three quarters of the
-// channel for a while; the trash barge that replaced it is back to half (4.2), and two of those
-// still do not fit side by side on the narrow build (8.4 against 7.87) — so the passing problem
+// channel for a while; the trash barge that replaced it is back to half (5.25), and two of those
+// still do not fit side by side on the narrow build (10.5 against 10.87, touching) — so the passing problem
 // stays with the launch schedule (`riverDir` below) rather than going back to lanes. Running down the middle is also the best the arches can offer a
 // mast: they crest on the centreline.
 //
