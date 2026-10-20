@@ -2956,12 +2956,12 @@ unbroken move: with nothing to arrive at on the car, the box has one destination
 ## Crazy-taxi mode
 
 The **Loco Mode** button is the gas pedal: the round orange button centred on the bottom edge,
-100px across, with the brake to its left (see [the pedal slide](#the-pedal-slide)). Loco Mode is
-**A**, the brake **B**, each drawn **flat**: one disc in the button's colour and a white letter, the
-same keys the New Move card shows (Tyler, 2026-10-20: "no fake highlights"). With no light to
-change, the press is the disc shrinking to 92% and darkening. `?buttons=classic` brings back the
-NES pad drawing they replaced (black surround, dish, debossed letter, glint), and
-`?pedals=classic` the round pedals with lightning and stop icons before that. **Hold to
+100px across, with the brake to its left (see [the pedal slide](#the-pedal-slide)). Both are drawn
+as an NES pad's buttons — Loco Mode is **A**, the brake **B** — black plastic surround, a dished
+centre with the letter debossed in it, and no white shine: the glint, its dot and the dish's lit
+rim are hidden (`.nes-shine`; Tyler, 2026-10-20, "remove the cartoony white shine graphics").
+`?buttons=classic` puts the shine back, and `?pedals=classic` brings back the round pedals with
+lightning and stop icons from before the NES look. **Hold to
 enable, release to pause.** A short tap costs a short slice, a long hold flows until the tank is
 empty. Full tank is 15 seconds of boost. The decision is *how long* to press as well as *when*.
 The fuel level is the arc gauge round the pedal (`#boost-meter`, `game/fuelarc.js`), a 140° crown
@@ -2970,13 +2970,12 @@ edge (8 under `?buttons=classic`), off a `--pct`
 CSS variable, dropping as you drain and climbing as a drop-off pours fuel in.
 
 **The bar burns like a fuse while Loco is on.** The tailpipe's own flame (`tongueOutline`, its three
-tongues and four frames at the plume's 16fps) stands on the fuel's front, leaning 20° back over the
-fuel already spent, and grows and goes out on the plume's own envelope (`locoFlame.state.heat`).
-It takes the plume's colours, and the fuel follows them: up a [drift chain](#the-drift-loco-tap-the-brake-loco-again) the bar turns
-violet, blue, then teal with the kick, and back to gold after it (`drawFuseFlame` in main.js,
-`flamePose` in game/fuelarc.js). Only the front burns. A bar on fire end to end would read the same
-full as empty, and it sits under both thumbs (Tyler, 2026-10-20). `?locobar=classic` is the plain
-gold bar.
+tongues and four frames at the plume's 16fps) burns off the fuel's front, lying along the bar and
+bent to it, trailing back over the fuel already spent the way the plume trails the taxi. It grows
+and goes out on the plume's own envelope (`locoFlame.state.heat`) and is always Loco orange
+(`drawFuseFlame` in main.js, `bendFlame`/`flameAngle` in game/fuelarc.js). Only the front burns. A
+bar on fire end to end would read the same full as empty, and it sits under both thumbs (Tyler,
+2026-10-20). `?locobar=classic` is the plain bar.
 
 **Every drop of it is earned, except the way back out of empty.** The run opens with **a third of a tank**, each
 successful drop-off pours in **another third**, a [delivered package](#the-rest-of-it) pours in **a

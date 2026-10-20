@@ -1194,12 +1194,17 @@ vignette where you wanna smash through roadblocks." The getaway fills the tank a
 across your route; the third rule made the second the one thing it asked of you that ended the run.
 Replaced by [getting caught](gameplay.md#getting-caught).
 
-## The NES pedals
+## The NES pedals' shine, and the flat buttons
 
-From 2026-10-15 to 2026-10-20 B and A were drawn as an NES pad's buttons: a black plastic
-surround, a thin crescent of side, a hard white glint on the upper left, and a dished centre with
-the letter debossed in it (a shadowed top wall and a lit bottom one). The press sank the face 4
-units into the crescent under a hard inner shadow. Tyler asked for them "simpler, no fake
-highlights" off a phone screenshot: the glint and the dish's lighting read as gloss on a flat HUD,
-and the New Move card had already gone flat for the same reason that morning. The fuel arc stood 8
-units off the surround then. `?buttons=classic` brings back both.
+From 2026-10-15 to 2026-10-20 the NES B and A carried a hard white glint on the upper left, a dot
+beside it, and a lit lower rim on the dish. Tyler asked for them "simpler, no fake highlights"
+off a phone screenshot, and the fuel arc 8 units further out (it stood 8 off the surround). The
+first answer was flat buttons — one disc in the button's colour and a white letter, the New Move
+card's keys, pressed by shrinking to 92% and darkening — and Tyler went back to the NES drawing
+with only the white shine removed. `?buttons=classic` brings back the shine and the old gap.
+
+## The fuse flame's first cut
+
+The fuse flame first stood up off the fuel's front, 20° off the outward normal, and took the
+plume's colours up a drift chain — violet, blue, teal, with the fuel's gradient following. Tyler
+asked for it turned to lie along the bar's direction of travel, and orange only.

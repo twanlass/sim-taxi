@@ -11798,21 +11798,27 @@ function rideToPickup() {
   const classicOut = out - GAP + fuelArc.CLASSIC_GAP;
   const cssOut = Number(html.match(/#boost-meter #chase-siren \{\s*--arc-out: (\d+)/)?.[1]);
   const cssClassic = Number(html.match(/body\.buttons-classic #boost-meter #chase-siren \{ --arc-out: (\d+)/)?.[1]);
-  // The fuse flame stands on the front's centre line and leans FLAME_LEAN_DEG off straight out,
-  // toward the spent (full-t) end — the sign is the whole point, and a flipped one leans it over the
-  // fuel still in the tank.
+  // The fuse flame is drawn bent along the band from screen angle 0 and turned about the button's
+  // centre onto the front: its base has to land on the front's centre line, and it has to lie
+  // along the band toward the spent (higher-t) end — a flipped sign lays it over the fuel still in
+  // the tank. The base is held to 0.01, not to rounding: `pointAt` interpolates the 128-point
+  // polyline, whose chords sit up to ~0.004 inside the true circle the flame is bent along.
   {
-    let worstLean = 0, worstBase = 0, backward = true;
+    let worstBase = 0, onBand = 0, backward = true;
+    const r = fuelArc.flameRadius();
     for (const t of [0.1, 0.3, 0.5, 0.7, 0.9]) {
-      const f = fuelArc.flamePose(t), p = fuelArc.pointAt(t), w = fuelArc.widthAt(t);
-      const dx = Math.cos(f.deg * Math.PI / 180), dy = Math.sin(f.deg * Math.PI / 180);
-      worstLean = Math.max(worstLean, Math.abs(Math.acos(dx * p.nx + dy * p.ny) * 180 / Math.PI - fuelArc.FLAME_LEAN_DEG));
-      worstBase = Math.max(worstBase, Math.hypot(f.x - (p.x + p.nx * w / 2), f.y - (p.y + p.ny * w / 2)));
+      const a = fuelArc.flameAngle(t) * Math.PI / 180, p = fuelArc.pointAt(t), w = fuelArc.widthAt(t);
+      const turn = ([x, y]) => [CAP.x + (x - CAP.x) * Math.cos(a) - (y - CAP.y) * Math.sin(a),
+        CAP.y + (x - CAP.x) * Math.sin(a) + (y - CAP.y) * Math.cos(a)];
+      const [bx, by] = turn(fuelArc.bendFlame(0, 0));
+      worstBase = Math.max(worstBase, Math.hypot(bx - (p.x + p.nx * w / 2), by - (p.y + p.ny * w / 2)));
+      const [tx, ty] = turn(fuelArc.bendFlame(10, 0));
+      onBand = Math.max(onBand, Math.abs(Math.hypot(tx - CAP.x, ty - CAP.y) - r));
       const ahead = fuelArc.pointAt(t + 0.02);
-      if ((ahead.x - p.x) * dx + (ahead.y - p.y) * dy <= 0) backward = false;
+      if ((ahead.x - p.x) * (tx - bx) + (ahead.y - p.y) * (ty - by) <= 0) backward = false;
     }
-    check('fuel gauge: the fuse flame stands on the front and leans back over the spent fuel',
-      worstLean < 1e-6 && worstBase < 1e-9 && backward, `lean off by ${worstLean.toExponential(1)}°, base ${worstBase}, backward ${backward}`);
+    check('fuel gauge: the fuse flame starts on the front and lies along the band over the spent fuel',
+      worstBase < 0.01 && onBand < 1e-9 && backward, `base off by ${worstBase}, off the band by ${onBand}, backward ${backward}`);
   }
   check('fuel gauge: the siren sits on the gauge\'s outer edge, both gaps',
     cssOut === out && cssClassic === classicOut, `css ${cssOut}/${cssClassic}, arc ${out}/${classicOut}`);

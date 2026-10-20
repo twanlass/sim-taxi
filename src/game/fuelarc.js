@@ -146,23 +146,30 @@ export function glintAt(t) {
 }
 
 // The fuse flame (`?locobar=`, main.js): Loco's tongue burning off the fuel's front while the tank
-// is being spent. It leans this far off the outward normal toward the full end — the side the front
-// has just burned away from — so it trails the way a flame does off something moving, instead of
-// standing straight up like a candle on a dial.
-// 35° on the first cut laid it nearly flat along the bar over the right shoulder of the crown, a
-// comet rather than a flame; 20° keeps it standing.
-export const FLAME_LEAN_DEG = 20;
+// is being spent. It lies along the bar, bent to the band's own centre line, off the front toward
+// the full end — the side the front has just burned away from — so it trails the way the tailpipe's
+// flame trails the taxi (Tyler, 2026-10-20: "rotate it 90° so it aligns with the direction of
+// travel of the bar"). The first cut stood it 20° off the outward normal, a candle on a dial. A
+// straight tongue laid on the tangent would have lifted its 38-unit tip ~7 units off a band of
+// radius ~99, so it is bent instead: drawn once along the circle from the button's right (screen
+// angle 0), then rotated about the button's centre to wherever the front is.
+
+/** The radius the flame lies along: the band's centre line. */
+export const flameRadius = () => BASE_R + widthAt(0.5) / 2;
 
 /**
- * Where the fuse flame stands at level t: the base at the centre of the band's front, and the
- * direction its tongue points, in degrees for an SVG `rotate()` (0 = +x, clockwise on screen).
- * The arc runs clockwise with t, so the way toward the full end is the tangent (-ny, nx).
+ * A point of the flame's outline, bent onto the band: `s` along it from the base (toward the full
+ * end, which is clockwise on screen), `y` across it. Drawn with the base at screen angle 0.
  */
-export function flamePose(t) {
-  const p = pointAt(t), w = widthAt(t), lean = (FLAME_LEAN_DEG * Math.PI) / 180;
-  const dx = p.nx * Math.cos(lean) - p.ny * Math.sin(lean);
-  const dy = p.ny * Math.cos(lean) + p.nx * Math.sin(lean);
-  return { x: p.x + p.nx * w / 2, y: p.y + p.ny * w / 2, deg: (Math.atan2(dy, dx) * 180) / Math.PI };
+export function bendFlame(s, y) {
+  const r = flameRadius(), a = s / r;
+  return [CAP.x + (r + y) * Math.cos(a), CAP.y + (r + y) * Math.sin(a)];
+}
+
+/** How far to turn the bent flame about the button's centre to stand it on the front at level t, in degrees. */
+export function flameAngle(t) {
+  const p = pointAt(t);
+  return (Math.atan2(p.ny, p.nx) * 180) / Math.PI;
 }
 
 export let CURVE_POINTS = CURVE;
