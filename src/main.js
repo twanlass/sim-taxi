@@ -2016,7 +2016,7 @@ const fire = createFire({
 // The engine's bar blooms at the cruiser's strength; the flames bloom on their own (`flame`).
 for (const mesh of fire.emissiveMeshes) markEmissive(mesh, 'siren');
 
-// The street race: with the cab empty, a violet racer with a flag over it turns up and tails the
+// The street race: with the cab empty, a violet racer turns up and tails the
 // taxi, calling out the stakes (game/race.js). Tap it and the screen cuts to the two of them side by
 // side, the camera looks at the finish and comes back, and it is three, two, one; from the tap the
 // board steps aside the way it does for a getaway (`setHold`). `?race=classic` has no racers in the
@@ -2025,6 +2025,8 @@ const raceParam = new URLSearchParams(window.location.search).get('race');
 race = shot || raceParam === 'classic' ? null : createRace({
   rng: makeRng(runSeed + 743), scene, traffic, routeTo,
   soon: raceParam === 'soon',
+  // The underglow pulses to whatever the music is doing (game/sfx.js, `bass`).
+  bass: () => sfx?.bass?.() ?? 0,
   // Nothing turns up over anything that owns the run, or over a trip the taxi is already on to the
   // depot or the drive-through.
   blocked: () => traffic.taxi.staged || getaway() || patrol.busy() || fares.state.gameOver
@@ -2045,7 +2047,8 @@ const raceTalk = race && document.getElementById('race-talk')
   : null;
 const raceTalkAt = () => {
   const at = race?.rivalAt();
-  return at ? projectToScreen(at.x, 3.6, at.z) : null;
+  // Just over the roof: it used to clear the flag the racer flew there, which put it 3.6 up.
+  return at ? projectToScreen(at.x, 2.2, at.z) : null;
 };
 
 /**
@@ -2054,7 +2057,7 @@ const raceTalkAt = () => {
  */
 function onRaceEvent(type, detail) {
   if (type === 'challenge') {
-    raceTalk?.show('Street racer', `Race me! Win $${WIN_PAY}, lose $${LOSE_COST}.`, raceTalkAt);
+    raceTalk?.show('Street racer', 'Wanna race?', raceTalkAt);
     sfx?.play('horn', { at: placeAt(detail.car.x, detail.car.z) });
   } else if (type === 'lapsed') {
     raceTalk?.hide();

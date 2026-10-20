@@ -2503,9 +2503,9 @@ intensity.
 `src/game/race.js`, `src/geometry/raceflag.js`, `sim/traffic.js` (`car.racer`), `tools/race.mjs`.
 `?race=classic` turns it off; `?race=soon` brings the first racer a few seconds in.
 
-**With the cab empty, a violet street racer turns up and tails it.** It has a chequered flag over
-its roof, a white stripe down its spine, a proud wing on the boot and cyan light pooling under it,
-and its bubble calls the stakes: "Race me! Win $40, lose $25." Tap it and it answers on the spot (a
+**With the cab empty, a violet street racer turns up and tails it.** It has a white stripe down
+its spine, a proud wing on the boot and cyan light pooling under it that pulses to the music, and
+its bubble asks: "Wanna race?" Tap it and it answers on the spot (a
 horn and "You're on!"), then the screen cuts to black and opens close up on the two cars side by side, window to window ("First one to the flag."). A
 finish is marked across the island (a white waypoint ring with a chequered flag flying over it, 4-8
 blocks away and never on the ring road, which is in the fog), the camera goes to look at it and
@@ -2545,6 +2545,12 @@ the bonnet, roof and boot as its own mesh, since the paint is a multiply over a 
 and an additive underglow, an unlit quad ring whose vertex alpha runs from 1 under the sills to 0
 `GLOW_REACH` (0.8) out. Its triangles are wound to face the sky and the probe asserts it, because an
 unlit triangle wound the other way does not draw at all.
+
+**The underglow pulses to the music.** `sfx.bass()` reads the low end (under 150 Hz) off the Music
+bus, after its fader, and `pulseStep` flares the glow from `GLOW_REST` (65%) to full when the bass
+jumps `KICK_RISE` over its own running average, falling back over `KICK_FALL`. Against its own
+average, so a quiet song pulses as well as a loud one; after the fader, so muted music leaves it
+resting. Tuned offline on the four in-game songs to about one flare a beat (see the constants).
 
 ### The rival is a car in traffic
 

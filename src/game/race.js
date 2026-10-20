@@ -18,7 +18,7 @@ import { createRaceFlag } from '../geometry/raceflag.js';
 import { BOOST_START_FRACTION } from './boost.js';
 import { markOccluder } from './ssao.js';
 
-// The street race. A violet street racer with a wing on it and a chequered flag over its roof turns
+// The street race. A violet street racer with a wing on it and light under it turns
 // up near the empty cab and tails it, calling out the stakes. Tap it and the screen cuts to black
 // and opens on the two of them side by side, window to window; the camera goes to look at the
 // finish a few blocks away and comes back, and it is three, two, one. Get there first and it pays;
@@ -32,7 +32,7 @@ import { markOccluder } from './ssao.js';
 // answered a tap once it got there, and dropped the offer the moment anything else held the run (the
 // first drop-off's tutorial tip among them) — so in play a tap usually landed on a car that was not
 // offering anything (Tyler: "after I drop off the very first passenger, if I tap on the purple racer,
-// nothing happens"). Now the flag and the tap target are up from the frame it appears, it follows
+// nothing happens"). Now the tap target is up from the frame it appears, it follows
 // the taxi around rather than waiting somewhere it can be lost (`tail`), and only something that owns
 // the run outright (`interrupted`: a getaway, a chase, the run ending) takes it away.
 //
@@ -64,10 +64,11 @@ const OFFER_TIME = 30;          // a racer nobody taps gives up and drives off
 // How hard it tails the taxi: a little over traffic, so a cab on its way somewhere does not leave it
 // behind, and well short of race pace, so it reads as following rather than chasing.
 const TAIL_CHASE = 0.5;
-// The tap target: a quad in the screen plane over the car and its flag (see the hit-box trap in
-// CLAUDE.md) — about the car's length either side, and up to the top of the flag.
-const HIT_W = 9;
-const HIT_H = 9;
+// The tap target: a quad in the screen plane over the car (see the hit-box trap in CLAUDE.md) —
+// generous, a car's length or so either side, but no longer reaching up-screen to the top of the
+// roof flag it was first sized for (9 tall), which went when the racer stopped flying one.
+const HIT_W = 8;
+const HIT_H = 6;
 // From the cut to the look at the finish: the two of them side by side, close up, long enough to
 // take in who is racing whom before the camera leaves.
 export const FACEOFF = 1.6;
@@ -137,15 +138,36 @@ const FADE_TIME = 0.8;          // the fire engine's dissolve
 const EXIT_REACH = 8;
 const LEAVE_MAX = 30;
 
-// The flag over the rival: how high it flies off the roof.
-const FLAG_LIFT = 0.6;
 // ...and the one over the finish: clear of a truck's roof (the cars drive under it), and half as
-// big again as the roof flag so it reads from the far side of a phone screen.
+// big again as the rival's first one did so it reads from the far side of a phone screen.
 const FINISH_FLAG_Y = 4.5;
 const FINISH_FLAG_SCALE = 1.5;
 const ACTIVE = new Set(['cut', 'faceoff', 'reveal', 'countdown', 'racing']);
 
 const clamp01 = (v) => Math.max(0, Math.min(1, v));
+
+// The underglow pulses to the music (Tyler: "animate his under car light to pulse to the music").
+// It rests at GLOW_REST of full and flares to full on each kick: the bass on the Music bus
+// (`sfx.bass`, 0..1 on the analyser's dB scale) against its own running average over `BEAT_AVG`,
+// so a loud song and a quiet one both pulse, and a flat line (no music, or muted) rests. A rise of
+// `KICK_RISE` over the average is a full flare, and it dies away over `KICK_FALL`. Measured offline
+// on the four in-game songs (the same 1024-point FFT and dB scale, decoded with ffmpeg): at 0.15 it
+// flares 2.2-2.9 times a second, about once a beat; the first guess of 0.08 flared 3-4.6 times and
+// sat above 80% for 35-43% of the song, which reads as flicker rather than a pulse.
+const GLOW_REST = 0.65;
+const BEAT_AVG = 0.35;
+const KICK_RISE = 0.15;
+const KICK_FALL = 0.15;
+
+export const createPulse = () => ({ avg: 0, pulse: 0 });
+
+/** One frame of the underglow's beat follower: `level` in, `p.pulse` (0..1) out. Pure, for the probe. */
+export function pulseStep(p, level, dt) {
+  p.avg += (level - p.avg) * (1 - Math.exp(-dt / BEAT_AVG));
+  const kick = clamp01((level - p.avg) / KICK_RISE);
+  p.pulse = Math.max(kick, p.pulse * Math.exp(-dt / KICK_FALL));
+  return p.pulse;
+}
 
 // The ordinary car's body, which the racer's dress is measured off: a deck 0.8 tall centred on
 // `0.78 + CHASSIS_LIFT` (`carGeometry`), and a cabin `CAR_LEN / 2` long set back by CABIN_X.
@@ -316,7 +338,7 @@ function createRivalMesh() {
 
 /**
  * @param rng      its own stream: when, where, and which corner is the finish
- * @param scene    where the rival, its flag and the finish are drawn
+ * @param scene    where the rival and the finish are drawn
  * @param traffic  the sim — `enterGuest`, `retireGuest`, `taxi`
  * @param routeTo  main.js's router, `(target) => boolean` — the one that keeps `pendingTarget` and the
  *                 route band honest (see `createBurgerRun` for why it is injected)
@@ -328,7 +350,7 @@ function createRivalMesh() {
  */
 export function createRace({
   rng, scene, traffic, routeTo, blocked = () => false, interrupted = () => false, canStart = () => true,
-  onEvent = () => {}, soon = false,
+  onEvent = () => {}, soon = false, bass = () => 0,
 }) {
   const taxi = traffic.taxi;
   let rivalChase = RIVAL_CHASE;
@@ -337,20 +359,18 @@ export function createRace({
   scene.add(rival.group);
   markOccluder(rival.group);
 
-  // The flag over the rival's roof, and the tap target with it, from the moment it turns up until
-  // the flag drops. On a group that follows the car rather than on the car's own group, so it can
-  // stand upright while the body pitches and rolls.
+  // The tap target, from the moment the racer turns up until the flag drops. On a group that
+  // follows the car rather than on the car's own group, so it stays square to the screen while the
+  // body pitches and rolls. It used to carry a chequered flag on the roof too; Tyler had it taken
+  // off ("hide the race flag"), and the only flag in a race is now the finish's.
   const offer = new THREE.Group();
   offer.name = 'race-offer';
-  const roofFlag = createRaceFlag({ pole: 1.8 });
-  roofFlag.group.position.y = CABIN_TOP + FLAG_LIFT - 1.8 * 0.35;
-  offer.add(roofFlag.group);
   const hit = new THREE.Mesh(
     new THREE.PlaneGeometry(HIT_W, HIT_H),
     new THREE.MeshBasicMaterial({ visible: false, side: THREE.DoubleSide }),
   );
   hit.quaternion.copy(BILLBOARD);
-  hit.position.copy(VIEW_UP).multiplyScalar(HIT_H / 2 - 1);
+  hit.position.copy(VIEW_UP).multiplyScalar(HIT_H / 2 - 1.5);
   offer.add(hit);
   offer.userData.pickable = 'racer';
   offer.visible = false;
@@ -370,8 +390,10 @@ export function createRace({
   finishFlag.group.visible = false;
   scene.add(finishFlag.group);
 
+  const glowBeat = createPulse();
+
   const state = {
-    // 'waiting' — nothing on; 'offer' — a racer is tailing the taxi, flag up, tappable; 'cut' —
+    // 'waiting' — nothing on; 'offer' — a racer is tailing the taxi, tappable; 'cut' —
     // tapped, the screen going to black (`stage` lands the start under it); 'faceoff' — side by
     // side, close up; 'reveal' — the camera off looking at the finish; 'countdown'; 'racing';
     // 'leaving' — it is over (or nobody took it) and the rival is driving off.
@@ -501,7 +523,7 @@ export function createRace({
   }
 
   /**
-   * Bring a racer on, a couple of blocks off, to tail the taxi with its flag up. Answers whether one
+   * Bring a racer on, a couple of blocks off, to tail the taxi. Answers whether one
    * came. Only for an empty cab (`canStart`) — the tap is refused with a rider aboard, so a racer
    * then would be an offer nobody could take.
    */
@@ -871,15 +893,11 @@ export function createRace({
       if (state.fade === 1 && state.fading > 0) state.fading = 0;
     }
     for (const material of rival.faders) material.opacity = state.fade;
-    rival.glow.material.opacity = state.fade * GLOW_ALPHA;
+    if (rival.shell.visible) pulseStep(glowBeat, bass(), dt);
+    rival.glow.material.opacity = state.fade * GLOW_ALPHA * (GLOW_REST + (1 - GLOW_REST) * glowBeat.pulse);
 
-    // The flag rides the roof and flies.
-    if (offer.visible && state.car) {
-      offer.position.set(state.car.x, 0, state.car.z);
-      roofFlag.cloth.rotation.y = Math.sin(state.t * 5.5) * 0.25;
-      // A slow bob, so a car waiting at the kerb reads as waiting *for* something.
-      roofFlag.group.position.y = CABIN_TOP + FLAG_LIFT - 1.8 * 0.35 + Math.sin(state.t * 2.4) * 0.12;
-    }
+    // The tap target rides with the car.
+    if (offer.visible && state.car) offer.position.set(state.car.x, 0, state.car.z);
     if (finishFlag.group.visible) {
       finishFlag.cloth.rotation.y = Math.sin(state.t * 5.5 + 1) * 0.25;
       finishFlag.group.position.y = FINISH_FLAG_Y + Math.sin(state.t * 2.4) * 0.25;
