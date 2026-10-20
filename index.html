@@ -1560,17 +1560,15 @@
       .speech-style-white .speech-text { color: #121318; }
       .speech-style-white .speech-tag i { background: #121318; }
       /* The thing a line is about — "{garage}" in the line's source, game/speech.js `parseLine`.
-         Yellow *type* on the white card is under 1.5:1 and unreadable, so on the light looks it is
-         a yellow highlighter swipe behind black type; on the black card the type itself goes
-         yellow. Space Grotesk stops at 700, which the line already is, so the extra weight is a
-         hairline stroke. It wiggles once, when its last letter has typed. */
-      .speech-hl { display: inline-block; -webkit-text-stroke: 0.5px currentColor; }
-      .speech-hl .speech-typed {
-        background: #FFC93C; border-radius: 4px; padding: 0 3px; margin: 0 -2px;
-        -webkit-box-decoration-break: clone; box-decoration-break: clone;
+         Yellow type with a black outline (Tyler, 2026-10-20), the outline painted under the fill
+         (`paint-order`) so it thickens the letter outward rather than eating into the yellow: a
+         3.5px stroke shows as ~1.75px of black round each glyph, which is what lets yellow hold up
+         on the white card, where bare yellow type is under 1.5:1. It wiggles once, when its last
+         letter has typed. */
+      .speech-hl {
+        display: inline-block; color: #FFC93C;
+        -webkit-text-stroke: 3.5px #121318; paint-order: stroke fill;
       }
-      .speech-hl .speech-typed:empty { padding: 0; margin: 0; }
-      .speech-style-black .speech-hl .speech-typed { background: none; padding: 0; margin: 0; color: #FFC93C; }
       .speech-hl.is-said { animation: speech-hl-wiggle 0.5s cubic-bezier(0.34, 1.56, 0.64, 1); }
       @keyframes speech-hl-wiggle {
         0% { transform: none; }
