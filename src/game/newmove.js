@@ -161,16 +161,55 @@ export function createNewMove({ viewport = null, onClose = () => {} } = {}) {
   const idle = { isOpen: () => false, open: () => false, close: () => {}, update: () => {} };
   if (!root) return idle;
 
-  // The real buttons, so the card can never drift from what is on the screen under it. `<defs>` are
-  // left behind — the gradients and filters they hold are already in the document under the same
-  // ids, and a second copy would be duplicate ids — so the clones resolve their `url(#…)`s against
-  // the HUD's originals.
+  // The real buttons, so the card can never drift from what is on the screen under it. Their
+  // gradients and filters are copied too, under `nm-` ids, and the clones point at the copies: they
+  // used to resolve against the HUD's originals, which is fine mid-run and wrong after it — the
+  // card goes up over the run-end screen, where `body.game-over` sets the HUD pedals
+  // `display: none`, and a paint server inside an undisplayed SVG does not paint. Every gradient
+  // fell through and each key drew as its dark base disc: a brown A and a maroon B.
+  const NM = 'nm-';
+  let defs = null;
+  const ownDefs = () => {
+    if (defs) return;
+    defs = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    defs.setAttribute('aria-hidden', 'true');
+    defs.style.cssText = 'position:absolute;width:0;height:0;overflow:hidden';
+    for (const src of document.querySelectorAll('#boost defs, #brake defs')) {
+      const copy = src.cloneNode(true);
+      for (const el of copy.querySelectorAll('[id]')) el.id = NM + el.id;
+      defs.append(copy);
+    }
+    document.body.append(defs);
+  };
+  // The default card's keys are flat (Tyler, 2026-10-20): the HUD's colour as one disc, mid-way down
+  // its face gradient, and the letter in white. Not under `?pedals=classic`, whose buttons carry
+  // icons rather than letters, nor under `?movecard=classic`.
+  const FLAT = { boost: ['#F8A21D', 'A'], brake: ['#E33E3E', 'B'] };
+  const flatKey = (id) => {
+    const [fill, letter] = FLAT[id];
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    svg.setAttribute('viewBox', '0 0 150 150');
+    svg.setAttribute('aria-hidden', 'true');
+    svg.innerHTML = `<circle cx="75" cy="75" r="70" fill="${fill}" />`
+      + `<text class="pedal-letter" x="75" y="93" text-anchor="middle" fill="#fff">${letter}</text>`;
+    return svg;
+  };
   const art = (id) => {
+    const flat = !document.body.classList.contains('move-card-classic')
+      && !document.body.classList.contains('pedals-classic');
+    if (flat && FLAT[id]) return flatKey(id);
     const look = document.body.classList.contains('pedals-classic') ? 'pedal-classic' : 'pedal-nes';
     const svg = document.querySelector(`#${id} .pedal-art.${look}`)?.cloneNode(true);
     if (!svg) return null;
+    ownDefs();
     svg.querySelector('defs')?.remove();
     svg.removeAttribute('class');
+    for (const el of svg.querySelectorAll('*')) {
+      for (const attr of ['fill', 'stroke', 'filter']) {
+        const v = el.getAttribute(attr);
+        if (v?.startsWith('url(#')) el.setAttribute(attr, v.replace('url(#', `url(#${NM}`));
+      }
+    }
     return svg;
   };
   const media = document.createElement('div');
@@ -180,7 +219,12 @@ export function createNewMove({ viewport = null, onClose = () => {} } = {}) {
   const combo = document.createElement('div');
   combo.className = 'nm-combo';
   combo.setAttribute('aria-hidden', 'true');
-  media.append(canvas, combo);
+  // The paper the clip is printed on (index.html, `.nm-print`): a wrapper rather than padding on the
+  // canvas, because moveclip.js sizes the copy off the canvas's clientWidth.
+  const print = document.createElement('div');
+  print.className = 'nm-print';
+  print.append(canvas);
+  media.append(print, combo);
   // All three keys at one size, a "+" between each (Tyler, 2026-10-04): the row is a recipe, and
   // the HUD's big-gas/small-brake sizing read as a hierarchy that is not in the combo. Built per
   // move, on open.
@@ -271,12 +315,12 @@ export function createNewMove({ viewport = null, onClose = () => {} } = {}) {
       openedAt = performance.now();
       idleT = 0;
       buildKeys(move.keys);
-      canvas.hidden = false;
+      canvas.hidden = print.hidden = false;
       // Shown first, so the card's canvas has its size before the clip measures it.
       bubble.show(move.title ?? TITLE, move.line, target, media);
       try { clip = move.makeClip(canvas); } catch (err) { console.warn(`${move.line} clip:`, err); clip = null; }
       // Nowhere to film: the card without a clip, re-measured.
-      if (!clip) { canvas.hidden = true; bubble.show(move.title ?? TITLE, move.line, target, media); }
+      if (!clip) { canvas.hidden = print.hidden = true; bubble.show(move.title ?? TITLE, move.line, target, media); }
       pressKeys();
       document.body.classList.add('new-move-open');
       return true;

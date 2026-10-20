@@ -487,6 +487,8 @@ The bootleg (boost, then two quick brake taps — `game/bootleg.js`) is the one 
 looking, so it gets a card (`game/newmove.js`, `#new-move` in index.html). It is the tutorial's
 own speech bubble, made wider and centred over a dim with no pointer: "New Move Unlocked" in the
 title slot, "U-Turn" as the line, then a clip of the move and the pedal row under it. No other words.
+The clip is printed on the run-end polaroid's paper ([The polaroid](#the-polaroid); one shared rule),
+canted -2.5° rather than -4° because the print is wide. `?movecard=classic` is the bare clip.
 
 The clip (`game/uturnclip.js` and `game/moveclip.js`) is a scripted 4.6s loop filmed **in the player's own city**, at the
 game's 3/4 view. On open, `pickStreet` chooses a straight two-way side street off the river with no
@@ -510,8 +512,13 @@ because the world is frozen under the card and a second traffic instance would w
 one's module-level state. At the game's real speeds the run is three blocks long, so `pickStreet`
 also needs the street to carry straight on, open, through the junctions at each end. The pedal row
 (the HUD's own pedal art, all three at one size with a "+" between) is pressed off the **clip's
-clock**, so each key goes down on the frame the car does the thing it does: dim until pressed, lit
-from then to the end of the loop. History:
+clock**, so each key goes down on the frame the car does the thing it does: a size small until
+pressed, full size from then to the end of the loop. The keys are drawn **flat** — a disc in the
+HUD button's colour and a white letter, none of its surround, crescent, dish or glint — and stay
+that colour throughout; greying an unlit key, as `?movecard=classic` still does with the HUD's own
+drawing, turned the orange A brown on the run-end blackout. The classic keys carry their own copy
+of the HUD's gradients (`nm-` ids): the HUD pedals are `display: none` behind the run-end screen,
+and a gradient referenced from an undisplayed SVG does not paint. History:
 [New Move cards](gameplay-history.md#new-move-unlocked-the-overtake-u-turn-and-drift-cards).
 
 - **When:** a beat (0.9s) after the drop-off that brings a run to two fares — robbery.js's
