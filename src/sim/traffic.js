@@ -6114,30 +6114,39 @@ export function createTraffic(
     // the taxi is a body length clear of it. It is the cop's overtake with the trigger taken away —
     // the same fields, swing and `outOfLane` skip — so the two read the same on screen.
     //
-    // Straight on through a junction it stays out, as the cop does: a block here is ~11 units of
-    // lane, and a drag that had to be settled inside one was settled at the start line. It never
-    // takes a *corner* while it is out, because the swing freezes through a turn and would leave it
-    // on the wrong side of the next street: short of the room to stop before a hold line it means to
-    // turn at, still out and not yet clear, it sits on its brakes until the taxi has gone by.
+    // Only the taxi's own lane counts: a block is 11-12 units of lane, so the drag is settled at the
+    // first junction, and once the two are on different lanes the racer swings in wherever it is.
+    // It keeps swinging through a corner (the cop freezes there), so a left out of the wrong side is
+    // a racer cutting the apex. A *right* would cross the taxi's nose, so game/race.js never plans
+    // one off the start; should one turn up while it is still level, it waits for the taxi.
+    //
+    // The first cut read `rel` off the two cars' headings alone, as the cop does, and braked for any
+    // corner. A block is too short for that: the racer sat at the start line until the taxi drove by,
+    // and a taxi that did not — the player hesitating, a cop pulling it over — left it there for good,
+    // and with the race over it never drove off (Tyler: "racer never left"). Measured headless with an
+    // idle taxi: 20 of 24 races stalled, 0 after.
     for (const car of cars) {
       if (!car.dragStart || car.crashed || car.staged) continue;
       const lateral = passLateralOn(car);
       const fade = PASS_FADE * (lateral / PASS_LATERAL);
       const sign = dirSign(car.d);
-      const rel = car.d === taxi.d && !taxi.crashed
+      const rel = car.state === 'drive' && taxi.state === 'drive' && car.lane === taxi.lane && !taxi.crashed
         ? (isXAxis(car.d) ? (car.x - taxi.x) : (car.z - taxi.z)) * sign
         : -Infinity;
       if (car.state === 'drive' && car.passing) {
         const room = car.lane.length - STOP_SETBACK - car.s;
-        const short = room < stopDistance(car.v) + CAR_LEN && car.route?.[0] !== car.d;
+        // Only while the taxi is *moving*: a right from a standstill crosses the taxi's lane past the
+        // hold line, a body length and more in front of a taxi that is level and stopped, and a racer
+        // that waited on a taxi going nowhere waited for the rest of the race.
+        const short = room < stopDistance(car.v) + CAR_LEN && car.route?.[0] === rightOf(car.d) && car.racer
+          && taxi.v > 1;
         const abandon = short || !oncomingClearFor(car, COP_PASS_ABORT, lateral, true);
         car.passing = rel < PASS_CLEAR && !(abandon && rel < -CAR_LEN);
         if (car.passing && short) car.stun = Math.max(car.stun, 0.2);
       }
-      const straight = car.state === 'drive' || car.turn?.hand === 'straight';
       const moved = Math.max(0, car.travelled - (car.passFrom ?? car.travelled));
       car.passFrom = car.travelled;
-      const ds = straight ? moved : 0;
+      const ds = moved;
       const delta = (car.passing ? 1 : 0) - car.pass;
       const step = Math.sign(delta) * Math.min(Math.abs(delta), ds / fade);
       car.pass += step;
@@ -6151,6 +6160,9 @@ export function createTraffic(
         for (const other of cars) {
           if (other === car || other.isTaxi || other.crashed || other.staged) continue;
           if (other.d !== facing && !(other.state === 'turn' && other.dOut === facing)) continue;
+          // Not a car already turning in while the racer stands at the line: held mid-junction, it
+          // blocked the left the racer was waiting to make, and neither ever moved (1 race in 24).
+          if (other.state === 'turn' && car.v < 1) continue;
           const along = (isXAxis(car.d) ? other.x - car.x : other.z - car.z) * sign;
           if (along < 0 || along > COP_PASS_YIELD) continue;
           const side = Math.abs(isXAxis(car.d) ? other.z - car.z : other.x - car.x);

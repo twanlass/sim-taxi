@@ -2505,8 +2505,9 @@ intensity.
 
 **With the cab empty, a violet street racer turns up and tails it.** It has a white stripe down
 its spine, a proud wing on the boot and cyan light pooling under it that pulses to the music, and
-its bubble asks: "Wanna race?" Tap it and it answers on the spot (a
-horn and "You're on!"), then the screen cuts to black and opens close up on the two cars side by side, window to window ("Round the flag and back."). A
+over it hangs a "…". Tap it once and it asks: "Wanna race?" (Tyler wanted the question only for
+someone who tapped, rather than one more line on a busy screen). Tap it again and it answers on the
+spot (a horn and "You're on!"), then the screen cuts to black and opens close up on the two cars side by side, window to window ("Round the flag and back."). A
 corner is marked across the island (a white waypoint ring with a chequered flag flying over it, 4-8
 blocks away and never on the ring road, which is in the fog), the camera goes to look at it and
 comes back, the count goes three, two, one, and the two cars set off together, drag-race style.
@@ -2573,8 +2574,8 @@ A guest (`enterGuest`), the fire engine's arrangement: routed to the finish by t
 the taxi, queueing, bumpable. Every lane of the taxi's best route costs it `SHARE_COST` (2.5) times
 as much, so it takes its own line where the city has one: on one shared route the drag off the start
 decided every race, because the car behind had no way past (a quarter tank of Loco won 96%). What
-makes it a racer is `car.chase = RIVAL_CHASE` (1.25 of a cop's kit, tuned in `tools/race.mjs` so a
-player on the 1/3 floor tank wins 58%) and `car.racer`, which lets it roll an all-way stop and hold the junction it is driving
+makes it a racer is `car.chase = RIVAL_CHASE` (a cop's kit, tuned in `tools/race.mjs` so a player on
+the 1/3 floor tank wins 58%; a full tank won all 24) and `car.racer`, which lets it roll an all-way stop and hold the junction it is driving
 into, the way the boosting taxi's priority hold and a chasing patrol's siren hold do. Without the
 last two it stopped dead at every junction and lost all 32 races measured against Loco Mode,
 whatever its speed.
@@ -2603,10 +2604,14 @@ the racer is on the taxi's own lane at the taxi's own arc length, held (`roadblo
 fire engine's stop) with the cop overtake's offset already full (`dragStart` in sim/traffic.js). Off
 the line it is the cop's pass with the trigger taken away: it cuts in once it is `PASS_CLEAR` ahead
 and drops in behind once the taxi is a body length clear, so the drag to the first corner decides
-who gets the lane. It stays out straight through a junction, but never takes a corner out there:
-short of a turn and still level, it brakes and lets the taxi by. The oncoming lane stays shut to
-newcomers until it is back in its own lane, and anything already coming the other way brakes for
-it, as it does for a cop.
+who gets the lane. Only the taxi's own lane counts: once the two are on different lanes it swings
+in wherever it is, keeping its swing through a corner, so a left out of the wrong side cuts the
+apex. A right would cross the taxi's nose, so it is never planned off the line (`planRacer`); if
+it is the only way, the racer waits for a *moving* taxi to go by, and goes past a stopped one.
+Anything coming the other way brakes for it, as it does for a cop. The first cut braked for every
+corner and read the drag off the two cars' headings, and a block is too short for that: the racer
+sat on the line until the taxi drove by, and when it never did (Tyler: "racer never left") it sat
+there through the end of the race and after.
 
 - **The black opens on the faceoff**: the camera cut to the pair at `RACE_SHOT_ZOOM` (22, against
   play's 52) for `FACEOFF` (1.6s), then the zoom walks back out while the camera goes to look at

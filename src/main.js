@@ -2042,9 +2042,8 @@ race = shot || raceParam === 'classic' ? null : createRace({
 });
 fares.setHold(() => Boolean(race?.holdsBoard()));
 // The rival's speech bubble — the challenge, with the stakes on it, pinned to its roof.
-const raceTalk = race && document.getElementById('race-talk')
-  ? createSpeech(document.getElementById('race-talk'), { viewport })
-  : null;
+const raceTalkRoot = document.getElementById('race-talk');
+const raceTalk = race && raceTalkRoot ? createSpeech(raceTalkRoot, { viewport }) : null;
 const raceTalkAt = () => {
   const at = race?.rivalAt();
   // Just over the roof: it used to clear the flag the racer flew there, which put it 3.6 up.
@@ -2057,8 +2056,14 @@ const raceTalkAt = () => {
  */
 function onRaceEvent(type, detail) {
   if (type === 'challenge') {
-    raceTalk?.show('Street racer', 'Wanna race?', raceTalkAt);
+    // Just a "…" until the player taps it (`race.ask`): the horn says something has turned up.
+    raceTalkRoot?.classList.add('is-ellipsis');
+    raceTalk?.show('', '…', raceTalkAt);
     sfx?.play('horn', { at: placeAt(detail.car.x, detail.car.z) });
+  } else if (type === 'asked') {
+    haptic('snap');
+    raceTalkRoot?.classList.remove('is-ellipsis');
+    raceTalk?.show('Street racer', 'Wanna race?', raceTalkAt);
   } else if (type === 'lapsed') {
     raceTalk?.hide();
   } else if (type === 'accepted') {
@@ -2144,14 +2149,16 @@ const RACE_SHOT_ZOOM = 22;
 let raceShot = null;
 let raceZoomHome = null;
 
-/** The tap on the racer. */
+/** A tap on the racer: the first one asks what it wants, the second takes it on. */
 function acceptRace() {
   if (!race || fares.state.gameOver) return;
+  raceTalkRoot?.classList.remove('is-ellipsis');
   if (fares.carrying()) {
     raceTalk?.show('Street racer', 'Drop your fare off first.', raceTalkAt);
     return;
   }
-  race.accept();
+  if (!race.state.asked) race.ask();
+  else race.accept();
 }
 
 // Occluded-only outlines on the traffic nearest the taxi, faded in with Loco Mode — the one mode

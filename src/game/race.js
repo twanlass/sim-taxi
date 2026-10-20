@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import { GRID_I, GRID_J, lineX, lineZ, riverBanks } from '../city/grid.js';
+import { GRID_I, GRID_J, lineX, lineZ, riverBanks, rightOf } from '../city/grid.js';
 import { cityNetwork } from '../city/roadnet.js';
 import {
   carGeometry, setClosedLanes, isLaneClosed, stageCar, releaseCar, STOP_SETBACK, CAR_LEN, CAR_W,
@@ -113,15 +113,15 @@ export const TANK_FLOOR = BOOST_START_FRACTION;
  *
  * Measured with `tools/race.mjs` over 24 races, a player holding Loco Mode from the green until
  * the tank is dry. There and back off the drag start, with the racer routed apart from the taxi
- * (`apart`): 1/4 tank 42%, the 1/3 floor 58%, a full tank 92%, and never touching the pill wins
- * none. 1.1 gave 50/63/96, 1.4 25/46/88, 1.6 21/25/75 — the race is twice as long as a one-way
- * one, so the floor tank runs dry on the way out and the racer's pace matters for the whole return.
- * One way, 1.6 had the floor at 58%. It was 2.0 for the window-to-window start, opposite ways
+ * (`apart`) and no right off the line (`planRacer`): 1/4 tank 54%, the 1/3 floor 58%, a full tank
+ * 100%, and never touching the pill wins none. 1.1 gave 42/46/100. The race is twice as long as a
+ * one-way one, so the floor tank runs dry on the way out and the racer's pace matters for the whole
+ * return; one way, 1.6 had the floor at 58%. It was 2.0 for the window-to-window start, opposite ways
  * round, and 1.3 for the queue before that, with the rival a car length ahead.
  * That bot never misses a turn or brushes a car, so a person wins less often than it does — about
  * even is the aim, which the lopsided stakes then pay for.
  */
-export const RIVAL_CHASE = 1.25;
+export const RIVAL_CHASE = 1.0;
 
 // Where the racer turns up, off the taxi: on screen on a phone, which at play zoom is about 56 units
 // across (7.7px a unit over 430px). Out to 46 it was first seen off the edge of the frame — the
@@ -458,6 +458,8 @@ export function createRace({
     count: 0,
     // What happened, for the tools.
     offers: 0,
+    // Has the player tapped the racer once, and been asked (`ask`)?
+    asked: false,
     races: 0,
     wins: 0,
     losses: 0,
@@ -617,6 +619,7 @@ export function createRace({
     state.fade = 0;
     state.fading = 1;
     state.offers += 1;
+    state.asked = false;
     setPhase('offer');
     onEvent('challenge', { car, win: WIN_PAY, lose: LOSE_COST });
     return true;
@@ -636,7 +639,20 @@ export function createRace({
   }
 
   /**
-   * The tap on the racer. Answers whether the race is on: the screen is about to cut (main.js runs
+   * The first tap on the racer: it says what it wants. Until then it only shows a "…" — Tyler: "can
+   * we just show a … above the racer then on tap the 'wanna race'?" — so a car tailing the taxi
+   * is not one more line of text on a busy screen, and the question is put to someone who asked.
+   * Answers whether it asked; the second tap is `accept`.
+   */
+  function ask() {
+    if (state.phase !== 'offer' || !state.car || state.asked || interrupted()) return false;
+    state.asked = true;
+    onEvent('asked', { car: state.car, win: WIN_PAY, lose: LOSE_COST });
+    return true;
+  }
+
+  /**
+   * The second tap on the racer. Answers whether the race is on: the screen is about to cut (main.js runs
    * the wipe and calls `stage` under the black), and the taxi drops whatever it was heading for —
    * an empty cab's only errand is a rider, and the board is about to be held.
    */
@@ -772,11 +788,22 @@ export function createRace({
 
   const taxiGoal = () => (state.taxiBack ? state.home : state.finish);
 
+  /**
+   * A route for the racer. While it is still out in the oncoming lane off the start (`dragStart`
+   * in sim/traffic.js), a right at the next junction would cross the taxi's nose, so that exit is
+   * off the table — unless it is the only way there.
+   */
+  function planRacer(car, goal, base = laneCost) {
+    const from = planOrigin(car);
+    const right = car.dragStart ? cityNetwork().laneOutByGrid(rightOf(from.d), from.i, from.j) : null;
+    const route = (right && findRoute(from, goal, (lane) => (lane === right ? Infinity : base(lane))))
+      || findRoute(from, goal, base);
+    if (route?.length) { car.route = route; car.routeConsumed = false; }
+  }
+
   function steerToFinish(car) {
     if (car.route?.length) return;
-    const goal = state.rivalBack ? state.home : state.finish;
-    const route = findRoute(planOrigin(car), goal, state.shared ? apart(state.shared) : laneCost);
-    if (route?.length) { car.route = route; car.routeConsumed = false; }
+    planRacer(car, state.rivalBack ? state.home : state.finish, state.shared ? apart(state.shared) : laneCost);
   }
 
   /** The faceoff is over: show the finish, and wait for the camera's look at it (`countIn`). */
@@ -800,8 +827,11 @@ export function createRace({
     state.races += 1;
     state.taxiTime = null;
     state.rivalTime = null;
-    // The oncoming lane stays shut while the racer is still out in it (see the 'racing' case).
-    setClosedLanes(car.dragStart ? [state.startLanes[1]] : [], 'race');
+    // Both lanes open again at the green, the oncoming one too though the racer is still out in it:
+    // kept shut, a car already turning into it stood in the junction for good, and the racer turning
+    // left across that junction waited on it for good (measured headless, 1 race in 24). What comes
+    // the other way brakes for the racer instead, as it does for a cop (sim/traffic.js).
+    setClosedLanes([], 'race');
     taxi.holdsLine = false;
     car.roadblock = 0;
     car.holdsLine = false;
@@ -850,8 +880,7 @@ export function createRace({
     car.route = [];
     const exit = { i: taxi.i > GRID_I / 2 ? 0 : GRID_I, j: taxi.j > GRID_J / 2 ? 0 : GRID_J };
     state.exit = exit;
-    const route = findRoute(planOrigin(car), exit);
-    if (route?.length) { car.route = route; car.routeConsumed = false; }
+    planRacer(car, exit);
   }
 
   function retire() {
@@ -989,7 +1018,6 @@ export function createRace({
           routeTo(goal);
         }
         steerToFinish(car);
-        if (!car.dragStart && isLaneClosed(state.startLanes?.[1])) setClosedLanes([], 'race');
         const taxiHome = state.taxiBack && near(taxi, state.home, ARRIVE_RADIUS);
         const rivalHome = state.rivalBack && near(car, state.home, ARRIVE_RADIUS);
         // The taxi wins a dead heat: it is the one the player is watching cross the line.
@@ -1047,6 +1075,7 @@ export function createRace({
     /** Start one now, if the taxi is free and anywhere qualifies — for the tools. */
     summon,
     /** The tap on the racer — see `accept`. */
+    ask,
     accept,
     /** Land the start under the black — see `stage`. */
     stage,
