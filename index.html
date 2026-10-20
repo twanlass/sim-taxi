@@ -1210,6 +1210,26 @@
       @media (prefers-reduced-motion: reduce) {
         .fare-pointer > span { transition: none; }
       }
+      /* The nudge: a slow, small swell and a lean of a few px toward whatever the arrow points at,
+         so an arrow at the edge catches the eye without reading as an alarm. On the svg, a layer
+         below the span's press dip and the div's JS-written clamp and rotation, so none of the three
+         has to know about the others; and because the div is rotated, the svg's own +x *is* the
+         pointing direction, so a translateX bobs every arrow toward its mark. 3px and 6% on a 35px
+         arrow (~1/12 and ~2px of swell): at play zoom anything bigger read as urgency, which is
+         colour's job. Phase is staggered per pooled slot (`--nudge-delay`, src/game/farepointers.js)
+         so several arrows on screen don't throb in step. `?arrowpulse=classic` holds them still. */
+      .fare-pointer svg {
+        animation: fare-pointer-nudge 1.3s ease-in-out infinite;
+        animation-delay: var(--nudge-delay, 0s);
+      }
+      @keyframes fare-pointer-nudge {
+        0%, 100% { transform: translateX(0) scale(1); }
+        50% { transform: translateX(3px) scale(1.06); }
+      }
+      #fare-pointers.no-nudge .fare-pointer svg { animation: none; }
+      @media (prefers-reduced-motion: reduce) {
+        .fare-pointer svg { animation: none; }
+      }
       /* Outlined to the same weight as the pie over the rider: `--marker-outline` is written from
          MARKER_OUTLINE_PX (src/game/camera.js), the one number both read. `non-scaling-stroke` makes
          it screen px rather than viewBox units, so the drop-off's bigger arrow wears the same line.

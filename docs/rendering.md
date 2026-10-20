@@ -4336,6 +4336,14 @@ The black outline is `MARKER_OUTLINE_PX` (1.5, `game/camera.js`), written onto t
 drop-off's bigger arrow and through the press dip, and the same number [the pie](#the-pie--geometrydiamondjs)
 is outlined by.
 
+**They nudge.** Each arrow swells 6% and leans 3px toward its mark and back, once every 1.3s, on an
+ease-in-out (`fare-pointer-nudge` in `index.html`) — enough for an arrow at the edge to catch the eye
+in peripheral vision, small enough that it reads as a glance and not an alarm; urgency is the colour's
+job. It lives on the svg, under the press dip and the JS-written clamp and rotation, and because the
+div is rotated the svg's own +x is the pointing direction. Pooled slots are staggered by
+`1.3 × 0.618` s so several arrows never throb in step. Off under `prefers-reduced-motion` and
+`?arrowpulse=classic`.
+
 **Two kinds, one arrow, and they are exclusive.** With the seat free, *every rider still on a kerb*
 gets one — which replaced the [rider-finder chips](gameplay.md#finding-the-next-rider). With a rider
 aboard there is exactly **one** arrow on the whole frame and it is the drop-off's.
