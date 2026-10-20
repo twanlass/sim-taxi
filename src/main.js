@@ -153,6 +153,7 @@ import { getActiveShot, getSeed, getRunSeed, getCarCount, getDifficultyPin, getD
 import { createParcelSystem, TAP_MAX_DETOUR } from './game/parcels.js';
 import { createRobbery } from './game/robbery.js';
 import { createRadio, LOST_CALL, ROBBERY_CALL } from './game/radio.js';
+import { createDepotCall } from './game/depotcall.js';
 import {
   createPatrol, createPin, holdArrest, ramOf, ESCAPE_HOLD, SIGHT_HOLD,
 } from './game/patrol.js';
@@ -1017,6 +1018,12 @@ const depotRun = garage && !shot
 // on the frame it happens. See game/radio.js. Built whether or not the city has a bank, because the
 // patrol cruiser's chase talks on the same channel (game/patrol.js).
 const radio = !shot ? createRadio({ project: projectToScreen, viewport }) : null;
+// The depot's repair tip: a line in the speech card with its tag on the garage door, the first time
+// the taxi smokes in a run, until the player has once sent it in. `?repairtip=classic` is the New
+// Move-style card with the clip that it replaced. See game/depotcall.js.
+const repairTipClassic = new URLSearchParams(window.location.search).get('repairtip') === 'classic';
+const depotCall = !shot && garage && !repairTipClassic
+  ? createDepotCall({ project: projectToScreen, viewport, site: garage.site }) : null;
 // Seconds of game time until dispatch breaks in, once the robber's line has been cleared; 0 when
 // nothing is pending. A beat after the police come on rather than with them, so the tap that
 // clears the robber's bubble does not also land a second bubble on the same frame.
@@ -2754,7 +2761,11 @@ function sendForBurger() {
  * fare that is in the back.
  */
 function sendForRepairs() {
-  if (canRepair() && depotRun.send()) haptic('pick');
+  if (!(canRepair() && depotRun.send())) return;
+  haptic('pick');
+  // The tip has been taken: down now, and not again on later runs.
+  depotCall?.hide();
+  repairUsed.set();
 }
 
 /** Whether a tap on the depot would be taken right now — `sendForRepairs`'s refusals, and the picker's. */
@@ -5476,6 +5487,12 @@ const repairCard = {
 };
 // Seconds of game time until it lands, or negative while the car is not smoking.
 let repairCardIn = -1;
+// The line that replaced the card (game/depotcall.js) asks again every run — a card that stopped the
+// world earned "once ever", one line over the fuel arc does not — but only until the player has
+// sent the taxi in once: after that they know, and it would only be nagging. One per run (a run is
+// a page load), so a car repaired and smoking again is left to know the way.
+const repairUsed = createSeenFlag({ key: 'simTaxi.used.repair' });
+let depotCallSaid = false;
 // `?newmove=classic` puts the move cards back mid-run, a beat after the drop-off. The depot's card
 // is not a move and stays mid-run either way: it is about the car smoking now.
 const movesAfterRun = new URLSearchParams(window.location.search).get('newmove') !== 'classic';
@@ -5543,6 +5560,14 @@ function showUnlockedMoves(done) {
     if (!openNewMove(move)) next();
   };
   next();
+  return true;
+}
+/** The depot's line, if the run will take it now — the card's gates, read the same way. */
+function sayDepotCall() {
+  if (!wantsTutorial || !settings.get().tips || (tutorial && tutorial.state.step !== 'done')) return false;
+  if (!newMoveCalm() || newMove?.isOpen()) return false;
+  depotCall.show();
+  depotCallSaid = true;
   return true;
 }
 function openNewMove(move = newMoveDue ?? moves.uturn) {
@@ -6142,13 +6167,22 @@ function tick() {
   // first. A beat that is not calm — a getaway, a chase, the taxi already on its way in for repairs —
   // defers it rather than spending it: it is tried again every half second for as long as the car
   // is still smoking, and a car repaired in the meantime starts the count again next time.
-  if (garage && newMove && !repairCard.seen.get()) {
+  //
+  // The line (the default) takes the card's trigger and its gates, less `newMoveWanted`'s seen flag:
+  // it has its own rule for when it stops (`repairUsed`).
+  depotCall?.update(dt, { over: fares.state.gameOver });
+  const repairTipDue = depotCall
+    ? !depotCallSaid && !repairUsed.get()
+    : garage && newMove && !repairCard.seen.get();
+  if (repairTipDue) {
     if (traffic.taxi.hp > TAXI_HP * SMOKE_FRACTION) repairCardIn = -1;
     else if (repairCardIn < 0) repairCardIn = SHOW_DELAY;
     else {
       repairCardIn -= dt;
       if (repairCardIn <= 0) {
-        if (!(newMoveWanted(repairCard) && newMoveCalm() && openNewMove(repairCard))) repairCardIn = 0.5;
+        if (!(depotCall ? sayDepotCall() : newMoveWanted(repairCard) && newMoveCalm() && openNewMove(repairCard))) {
+          repairCardIn = 0.5;
+        }
       }
     }
   }
@@ -7322,6 +7356,7 @@ window.__taxi = {
   depotRun,
   /** The depot's tip card — `newMove.open('repair')` opens it. See game/repairclip.js. */
   repairCard,
+  depotCall,
   sendForRepairs,
   /** The opening rise-out-of-the-ground animation. `cityEntry.replay()` reruns it on demand. */
   cityEntry,

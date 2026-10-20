@@ -1021,7 +1021,7 @@ Now: [Repairs at the depot](gameplay.md#repairs-at-the-depot).
 
 ### The depot's card
 
-Now: [The depot's card](gameplay.md#the-depots-card).
+Now: [The depot's card](gameplay.md#the-depots-tip).
 
 It was a speech bubble over the garage door, once per bout of damage; Tyler swapped it for the card
 (2026-10-06). The card is **once ever** (`simTaxi.seen.repair`), stops the world like the move cards,
