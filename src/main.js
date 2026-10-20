@@ -115,7 +115,7 @@ import { recordRun, lastName, clearScores, loadScores } from './game/highscores.
 import { loadLocoTuning, saveLocoTuning, clearLocoTuning } from './game/locostash.js';
 import {
   TAXI_TAILPIPE_BACK, TAXI_TAILPIPE_HEIGHT, TAXI_REAR_AXLE_BACK, TAXI_REAR_TRACK,
-  TAXI_FRONT_AXLE_FWD, TAXI_FRONT_TRACK,
+  TAXI_FRONT_AXLE_FWD, TAXI_FRONT_TRACK, TAXI_SCALE,
 } from './geometry/taxi.js';
 import { createDaylight, DAY_SECONDS } from './game/daylight.js';
 import { createPicker } from './game/pick.js';
@@ -1633,6 +1633,15 @@ if (bankJob && bankFare) {
 // for as long as the button is held. No seed — the flicker is a flipbook on a clock, and a flame
 // that came out differently on two runs of the same seed would take the screenshots with it.
 const locoFlame = createLocoFlame(scene);
+// The street racer's Loco Mode (Tyler: "racer should use loco, show flames out tailpipe"). Its pace is
+// its own (`RIVAL_CHASE`, a lifted cruise ceiling), so what it shows is when it is spending it: lit
+// above RACER_FLAME_SPEED, out as it brakes for a corner, the way the player's thumb goes on and off
+// the pill. Off an ordinary car body, so the pipe is at the back of CAR_LEN rather than the taxi's.
+const racerFlame = createLocoFlame(scene, { back: CAR_LEN / 2 + 0.05 });
+// 1.5× ordinary cruise (8.5): well clear of anything traffic does, and reached a second or so off
+// every corner on the racer's 21.7 ceiling.
+const RACER_FLAME_SPEED = 12.75;
+const NO_CAR = { x: 0, z: 0, yaw: 0, crashed: true };
 // Where the two wrecked cars end up: crumpled, scorched and **left on the road** rather than faded
 // out from under their own fireballs. See game/wreckage.js for why the fade went — the short of it
 // is that a crash has to answer "what did I just hit" for as long as the shot is held, and the
@@ -2045,6 +2054,8 @@ race = shot || raceParam === 'classic' ? null : createRace({
   interrupted: () => traffic.taxi.staged || getaway() || patrol.busy() || fares.state.gameOver,
   // An empty cab: the tap is refused with a rider aboard.
   canStart: () => !fares.carrying(),
+  // Two units inside the frame to come up, two outside to go, so a car on the edge does not flick.
+  seen: (car, keep) => inShot(car.x, car.z, keep ? 2 : -2),
   onEvent: onRaceEvent,
 });
 fares.setHold(() => Boolean(race?.holdsBoard()));
@@ -2075,7 +2086,8 @@ function onRaceEvent(type, detail) {
       raceTalkRoot?.classList.add('is-ellipsis');
       raceTalk.show('', '…', raceTalkAt);
     }
-    sfx?.play('horn', { at: placeAt(detail.car.x, detail.car.z) });
+    // The horn only for a racer in reach: one the camera merely panned across is not calling out.
+    if (detail.near) sfx?.play('horn', { at: placeAt(detail.car.x, detail.car.z) });
   } else if (type === 'asked') {
     haptic('snap');
     raceTalkRoot?.classList.remove('is-ellipsis');
@@ -2137,13 +2149,30 @@ function onRaceEvent(type, detail) {
     // Halfway: the flag has just jumped back to the start line, which is easy to miss on a phone.
     popLabel('Head back!', 'is-count');
     haptic('snap');
-  } else if (type === 'decided') {
-    // The first one is home. The word lands now; the money waits for the other one, and the
-    // camera goes to watch them in (Tyler: "pan the camera to the loser, track them as they arrive
-    // to the finish, show the money screen center and animate away... then zoom back out").
-    popLabel(detail.winner === 'taxi' ? 'You win!' : 'Beaten!');
-    haptic(detail.winner === 'taxi' ? 'pick' : 'snap');
+  } else if (type === 'home') {
+    // The first one is over the line, and pulls up there (game/race.js, WINNER_HOLD). Nothing on
+    // screen says who yet: that waits for the loser to be in (Tyler's steps 1-5, `updateFinale`).
+    haptic('snap');
+  } else if (type === 'arrival-cut') {
+    // Step 3: cut to the loser, a block out — under the black, like the start.
+    if (wipe) wipe.cut(() => race?.stageArrival(), RACE_CUT_HOLD); else race?.stageArrival();
+  } else if (type === 'arrival') {
+    // ...and open on it, rolling in at RACE_WATCH_ZOOM, followed until it has stopped beside the
+    // winner and the money has moved (`settleRaceWatch`).
     raceWatch = detail.loser;
+    raceZoomHome ??= controller.state.zoom;
+    cameraTakenOver = false;
+    controller.cutTo(detail.loser.x, detail.loser.z, RACE_WATCH_ZOOM, controller.state.yaw, aspect());
+  } else if (type === 'skid') {
+    // Step 4's skid: the squeal, and rubber off the back wheels while it slides (`raceRubber`).
+    raceSkid = detail.car;
+    sfx?.play('skid', { at: placeAt(detail.car.x, detail.car.z) });
+  } else if (type === 'decided') {
+    // Step 5: pulled up beside the winner — the word. The money is RESULT_HOLD later ('won'/'lost').
+    raceSkid = null;
+    popLabel(detail.winner === 'taxi' ? 'You won!' : 'You lost!');
+    haptic(detail.winner === 'taxi' ? 'pick' : 'snap');
+    raceWatch ??= detail.loser;
     raceZoomHome ??= controller.state.zoom;
   } else if (type === 'won') {
     fares.credit(WIN_PAY);
@@ -2162,6 +2191,7 @@ function onRaceEvent(type, detail) {
   } else if (type === 'void') {
     raceShot = null;
     raceWatch = null;
+    raceSkid = null;
     popLabel('Race off');
   }
 }
@@ -2181,6 +2211,9 @@ let raceZoomHome = null;
 // The loser, followed home after the winner is in ('decided'), at RACE_WATCH_ZOOM.
 let raceWatch = null;
 const RACE_WATCH_ZOOM = 30;
+// The finale's loser while it skids in to stop beside the winner — see `raceRubber`.
+let raceSkid = null;
+let raceSkidAt = -Infinity;
 // How long the camera stays on the line once the money is up: popEarning's pop and flight
 // (560 + 380ms), so the zoom back out starts as the money lands.
 const RACE_MONEY_MS = 940;
@@ -5368,6 +5401,26 @@ function driveThruSpeaker() {
 const COP_REAR = wheelAnchors(CAR_LEN, CAR_W).find((w) => !w.front && w.z > 0);
 const copSkidAt = new WeakMap();
 const copWasSliding = new WeakSet();
+/**
+ * Rubber off the street race's loser as it skids in beside the winner — the cop's stamp (`copRubber`)
+ * off its two back wheels, scaled up for the taxi, whose drawn body is TAXI_SCALE longer.
+ */
+function raceRubber() {
+  const car = raceSkid;
+  if (!car || car.v < 0.5) { raceSkidAt = -Infinity; return; }
+  if (car.travelled - raceSkidAt < 0.42) return;
+  raceSkidAt = car.travelled;
+  const k = car.isTaxi ? TAXI_SCALE : 1;
+  const fx = Math.cos(car.yaw);
+  const fz = -Math.sin(car.yaw);
+  const rx = Math.sin(car.yaw);
+  const rz = Math.cos(car.yaw);
+  for (const side of [-1, 1]) {
+    skids.add(car.x + (fx * COP_REAR.x + rx * side * COP_REAR.z) * k,
+      car.z + (fz * COP_REAR.x + rz * side * COP_REAR.z) * k, car.yaw);
+  }
+}
+
 function copRubber() {
   for (const car of traffic.policeCars) {
     const sliding = copLaysRubber(car);
@@ -5862,7 +5915,9 @@ function tick() {
     const bootlegBrake = bootleg.update(dt, { brakeHeld: brakeHeld && !fares.state.gameOver });
     overtake.update(dt, { held: boost.isActive() && !traffic.taxi.staged, brakeHeld });
     const drifting = driftHolds(traffic.taxi) && traffic.taxi.drift.phase !== 'carry';
-    traffic.taxi.braking = bootlegBrake && !drifting;
+    // Or the street race's, for the finale: the winner pulling up and the loser skidding in. Through
+    // the pedal because `parked` stops a car dead on the frame it is set (game/race.js).
+    traffic.taxi.braking = (bootlegBrake && !drifting) || Boolean(race?.brakesTaxi());
   }
   updateBoostButton(dt);
   skids.update(dt);
@@ -6564,8 +6619,8 @@ function tick() {
     routeLine.hide();
   }
   // Through the finale too while the racer is the one still coming home.
-  const rivalCar = race?.state.phase === 'racing' || (race?.state.phase === 'finale' && race.state.winner === 'taxi')
-    ? race.state.car : null;
+  // Not in the finale: what it is driving then is the staged drive-in, not a line to race.
+  const rivalCar = race?.state.phase === 'racing' ? race.state.car : null;
   if (rivalCar && !fares.state.gameOver) rivalLine.update(rivalCar, rivalCar.route, dt);
   else rivalLine?.hide();
 
@@ -6580,7 +6635,10 @@ function tick() {
   // bigger the further up a chain it is.
   locoFlame.update(dt, traffic.taxi, boost.isActive(), traffic.taxi.drift?.phase === 'carry',
     DRIFT_CHAIN.flame[Math.max(0, traffic.taxi.driftTier - 1)], Math.max(0, traffic.taxi.driftTier - 1));
+  const racer = race?.state.car;
+  racerFlame.update(dt, racer ?? NO_CAR, Boolean(racer?.racer && racer.v > RACER_FLAME_SPEED));
   copRubber();
+  raceRubber();
   // `sim/` publishes where its cars are and this side owns anything that reaches into the scene
   // — the patrol cruiser's rubber included, since it is one of `traffic.policeCars` now. Off the
   // sim clock the bars strobe on

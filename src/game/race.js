@@ -4,7 +4,7 @@ import { GRID_I, GRID_J, lineX, lineZ, riverBanks, rightOf } from '../city/grid.
 import { cityNetwork } from '../city/roadnet.js';
 import {
   carGeometry, setClosedLanes, isLaneClosed, stageCar, releaseCar, STOP_SETBACK, CAR_LEN, CAR_W,
-  CABIN_X, CABIN_TOP, SPAWN_CLEARANCE, ROAD_Y,
+  CABIN_X, CABIN_TOP, SPAWN_CLEARANCE, ROAD_Y, stopDistance,
 } from '../sim/traffic.js';
 import { findRoute, planOrigin, estimateSeconds, laneCost } from './route.js';
 import { BILLBOARD, VIEW_UP } from './camera.js';
@@ -82,10 +82,28 @@ const START_CLEAR = 9;
 const REVEAL_MAX = 6;
 export const COUNTDOWN = 3;     // seconds of three, two, one
 const RACE_MAX = 75;            // nobody home by now — the race is called off and nothing changes hands
-// After the winner is home, how long the camera follows the loser in before the money moves anyway:
-// a loser that has not rounded the flag yet can be a minute out. Tyler: "pan the camera to the
-// loser, track them as they arrive to the finish, show the money..."
-const FINALE_MAX = 6;
+// The finish, choreographed (Tyler: "1. Winner returns 2. Winner stays in place 3. Cut to loser;
+// place them 1 block away 4. Loser drives to finish, pulls up next to winner (skid to stop) 5. Show
+// 'You won' or 'You lost' text 6. Show money"). Seconds the winner gets to pull up before the cut —
+// enough to see it stop, short of waiting on it.
+const WINNER_HOLD = 1.0;
+// How long the cut may wait on main.js's wipe before landing the arrival itself (the tools have none).
+const ARRIVAL_CUT_MAX = 1.5;
+// The loser's running start, off the far end of the block behind: a car rolling in rather than one
+// pulling away from a standstill a block out, which is a different and slower shot.
+const ARRIVAL_ROLL = 10;
+// Where on that block it is put: a quarter of the way along, so it has room to brake for the corner.
+const ARRIVAL_FROM = 0.25;
+// A loser not stopped by now (wedged at the corner, the player steering off) is called in anyway.
+const DRIVE_IN_MAX = 8;
+// The racer's pace on the drive-in: quick, but short of race pace. At RIVAL_CHASE it came through
+// the corner at 21.7 and needed 6.7 units to stop on a lane that gives it 6 — on the brake the
+// frame it got there and still a car's length past the taxi's window. At 0.4 it comes in at 13.8
+// and stops level (measured over the tools' races: within 0.4 of the taxi's window, as the taxi
+// does coming in on its own pedal).
+const ARRIVAL_CHASE = 0.4;
+// "You won" / "You lost" on screen before the money moves.
+const RESULT_HOLD = 1.1;
 // Where on its lane a car may be put for the start: the middle of the block. Short of its own hold
 // line, so it is handed to the traffic model before it has to see the signal (CLAUDE.md, on cars
 // released inside their stop line); and far enough in that the other car, level with it on the
@@ -395,13 +413,15 @@ function createRivalMesh() {
  *                 route band honest (see `createBurgerRun` for why it is injected)
  * @param blocked  `() => boolean` — true while no racer may turn up; one that is on is called off
  * @param canStart `() => boolean` — is the taxi free: an empty cab with nowhere it is going
+ * @param seen     `(car, keep) => boolean` — is the racer on screen? `keep` asks with some give, for
+ *                 a tag that is already up
  * @param onEvent  `(type, detail) => void` — everything the player sees off the car: the bubble, the
  *                 count, the money. This module knows a race happened, not what a run's cash is.
  * @param soon     `?race=soon`
  */
 export function createRace({
   rng, scene, traffic, routeTo, blocked = () => false, interrupted = () => false, canStart = () => true,
-  onEvent = () => {}, soon = false, bass = () => 0,
+  seen = () => false, onEvent = () => {}, soon = false, bass = () => 0,
 }) {
   const taxi = traffic.taxi;
   let rivalChase = RIVAL_CHASE;
@@ -485,6 +505,16 @@ export function createRace({
     rivalBack: false,
     // 'taxi' or 'rival' once the first one is home ('finale'), until the loser is.
     winner: null,
+    // The finale's steps: 'hold' (the winner pulling up), 'cut' (main.js's wipe), 'drive-in' (the
+    // loser, a block out, coming to stop beside it), 'result' (the word, then the money).
+    step: null,
+    stepT: 0,
+    // Where the drive-in goes: `stopS` on `lane`, level with the winner, and the junction the loser
+    // is routed at (beyond the stop, so the route runs past it).
+    arrival: null,
+    // The taxi on the race's brake (the winner pulling up, the loser skidding in) — main.js ORs this
+    // into the pedal, since `parked` stops a car dead.
+    brakeTaxi: false,
   };
 
   function setPhase(phase) {
@@ -799,6 +829,136 @@ export function createRace({
   const taxiGoal = () => (state.taxiBack ? state.home : state.finish);
 
   /**
+   * Where the finish is staged: a street with the winner parked on one lane, mid-block, and the
+   * oncoming lane clear for the loser to come down from the block behind and stop window to window
+   * with it. The nearest one to where the winner crossed the line, by the same rules as the start.
+   * The loser is put on the lane *into* the far junction, so it has a corner and a block to come
+   * down — the shot Tyler asked for — rather than a third of a block from a standstill.
+   */
+  function chooseArrival(winnerCar, loserCar) {
+    const net = cityNetwork();
+    const ring = (n) => n.gi === 0 || n.gi === GRID_I || n.gj === 0 || n.gj === GRID_J;
+    let best = null;
+    for (const lane of net.lanes) {
+      if (!pullable(lane) || lane.klass === 'arterial') continue;
+      const back = oppositeOf(lane);
+      const x = net.nodeById.get(back.from);
+      const behind = x?.inbound.find((l) => !l.degenerate && net.dirOfLane(l) === net.dirOfLane(back));
+      if (!behind || isLaneClosed(behind.id) || ring(net.nodeById.get(behind.from))) continue;
+      const s = Math.max(PULL_BACK, Math.min(lane.length - PULL_FRONT, lane.length / 2));
+      const p = lane.path.at(s);
+      const sb = Math.max(PULL_FRONT, Math.min(back.length - PULL_BACK, back.length - s));
+      const q = back.path.at(sb);
+      const from = behind.length * ARRIVAL_FROM;
+      const r = behind.path.at(from);
+      if (overWater(p.z) || overWater(q.z) || overWater(r.z)) continue;
+      const d = Math.hypot(p.x - winnerCar.x, p.z - winnerCar.z);
+      if (best && d >= best.d) continue;
+      if (!sightlineClear(p.x, 2.2, p.z) || !sightlineClear(q.x, 2.2, q.z)) continue;
+      const crowded = traffic.cars.some((c) => c !== winnerCar && c !== loserCar && !c.crashed
+        && (c.lane === lane || c.lane === back || c.lane === behind
+          || Math.hypot(c.x - p.x, c.z - p.z) < START_CLEAR || Math.hypot(c.x - r.x, c.z - r.z) < START_CLEAR));
+      if (crowded) continue;
+      const to = net.nodeById.get(back.to);
+      best = { lane, s, back, sb, behind, from, d, goal: { i: to.gi, j: to.gj } };
+    }
+    return best;
+  }
+
+  /**
+   * The cut to the loser (main.js's wipe, or straight from the tools): the winner parked mid-block,
+   * the loser a block out and rolling, routed down the other lane to stop level with it. Answers
+   * whether there was a street for it; without one the result simply follows.
+   */
+  function stageArrival() {
+    if (state.phase !== 'finale' || state.step !== 'cut') return false;
+    const car = state.car;
+    const taxiWon = state.winner === 'taxi';
+    const winnerCar = taxiWon ? taxi : car;
+    const loserCar = taxiWon ? car : taxi;
+    const spot = car && !car.crashed ? chooseArrival(winnerCar, loserCar) : null;
+    if (!spot || !place(winnerCar, spot.lane, spot.s) || !place(loserCar, spot.behind, spot.from)) {
+      result();
+      return false;
+    }
+    hideFinish();
+    // The winner stays put: the taxi on `parked`, which stops it where it stands (it is already
+    // still, under the black), the racer on its chosen stop.
+    taxi.route = [];
+    taxi.pendingTarget = null;
+    car.route = [];
+    car.dragStart = false;
+    car.pass = 0;
+    car.passing = false;
+    if (taxiWon) {
+      taxi.parked = true;
+      car.roadblock = 0;
+      car.braking = false;
+    } else {
+      car.roadblock = Infinity;
+      taxi.parked = false;
+    }
+    state.brakeTaxi = false;
+    winnerCar.v = 0;
+    loserCar.v = ARRIVAL_ROLL;
+    // Nothing more joins the three lanes while it plays out.
+    setClosedLanes([spot.lane.id, spot.back.id, spot.behind.id], 'race');
+    state.arrival = { lane: spot.back, stopS: spot.sb, goal: spot.goal, braking: false };
+    if (taxiWon) { car.chase = ARRIVAL_CHASE; planRacer(car, spot.goal); }
+    else routeTo(spot.goal);
+    state.step = 'drive-in';
+    state.stepT = 0;
+    onEvent('arrival', { car, loser: loserCar, winner: winnerCar });
+    return true;
+  }
+
+  /** Step 5: the word. The money is `finish`, RESULT_HOLD later. */
+  function result() {
+    state.step = 'result';
+    state.stepT = 0;
+    onEvent('decided', { car: state.car, winner: state.winner, loser: state.winner === 'taxi' ? state.car : taxi });
+  }
+
+  /** The finale's frame: the winner pulling up, the cut, the loser's drive-in, the result. */
+  function updateFinale(dt, car) {
+    state.stepT += dt;
+    const taxiWon = state.winner === 'taxi';
+    if (state.step === 'hold') {
+      // The winner pulls up where it crossed: the taxi on the race's brake, the racer on its stop.
+      if (taxiWon) state.brakeTaxi = true;
+      else car.roadblock = Infinity;
+      if (state.stepT >= WINNER_HOLD) {
+        state.step = 'cut';
+        state.stepT = 0;
+        onEvent('arrival-cut', { car, winner: state.winner });
+      }
+    } else if (state.step === 'cut') {
+      if (state.stepT >= ARRIVAL_CUT_MAX) stageArrival();
+    } else if (state.step === 'drive-in') {
+      const loserCar = taxiWon ? car : taxi;
+      const a = state.arrival;
+      // Steered off by the player (a tap on another street) or out of time: straight to the word.
+      const steered = !taxiWon && taxi.pendingTarget !== a.goal;
+      if (steered || state.stepT > DRIVE_IN_MAX) { result(); return; }
+      // Step 4: the skid. On the hard brake from the point that stops it level with the winner —
+      // the fire engine's `tryStop`, with the taxi's pedal for the taxi, and the same distance.
+      if (!a.braking && loserCar.lane === a.lane && loserCar.state === 'drive'
+          && loserCar.s + stopDistance(loserCar.v) >= a.stopS) {
+        a.braking = true;
+        if (taxiWon) car.roadblock = Infinity;
+        else state.brakeTaxi = true;
+        onEvent('skid', { car: loserCar });
+      }
+      if (a.braking && loserCar.v < 0.05) {
+        if (!taxiWon) { state.brakeTaxi = false; taxi.route = []; taxi.pendingTarget = null; taxi.parked = true; }
+        result();
+      }
+    } else if (state.step === 'result' && state.stepT >= RESULT_HOLD) {
+      finish(taxiWon ? 'won' : 'lost');
+    }
+  }
+
+  /**
    * A route for the racer. While it is still out in the oncoming lane off the start (`dragStart`
    * in sim/traffic.js), a right at the next junction would cross the taxi's nose, so that exit is
    * off the table — unless it is the only way there.
@@ -865,11 +1025,15 @@ export function createRace({
     onEvent(result, { car, finish: state.finish });
     // The taxi is nobody's now: no route, no target, the board back on. Only if it is still ours —
     // a race that ended because something else took the wheel leaves that something alone.
-    if (state.finish && (taxi.pendingTarget === state.finish || taxi.pendingTarget === state.home)) {
+    if (state.finish && (taxi.pendingTarget === state.finish || taxi.pendingTarget === state.home
+        || taxi.pendingTarget === state.arrival?.goal)) {
       taxi.route = [];
       taxi.pendingTarget = null;
     }
     taxi.parked = false;
+    state.brakeTaxi = false;
+    state.step = null;
+    state.arrival = null;
     // Back to cruising, unless there is no car left to cruise in.
     if (car && !car.crashed) rest();
     else leave();
@@ -1001,10 +1165,15 @@ export function createRace({
         // A block of give once it is up, so a taxi driving along the edge of the reach does not
         // flick the tag (and its horn) on and off.
         const near = blockDistance(taxi, car) <= NEAR_BLOCKS + (state.available ? 1 : 0);
-        const available = state.rest === 0 && near && canStart() && !interrupted();
+        // Out of reach it still offers where the player can see it: pan across the city onto the
+        // car and its "…" is there (Tyler: "show the … on the car if the user pans around and sees
+        // it. Only show it at edge screen when taxi is 3 blocks near"). So the edge pointer, which
+        // only a tag for an off-screen car draws, only ever happens in reach.
+        const inView = !near && seen(car, state.available);
+        const available = state.rest === 0 && (near || inView) && canStart() && !interrupted();
         if (available && !state.available) {
           state.available = true;
-          onEvent('available', { car });
+          onEvent('available', { car, near });
         } else if (!available) {
           offerOff(car);
         }
@@ -1040,11 +1209,12 @@ export function createRace({
         if (state.phaseT >= COUNTDOWN) go();
         break;
       }
-      case 'racing':
-      case 'finale': {
+      case 'finale':
         if (!car) { finish('void'); break; }
-        const racing = state.phase === 'racing';
-        const loser = state.winner === 'taxi' ? 'rival' : state.winner === 'rival' ? 'taxi' : null;
+        updateFinale(dt, car);
+        break;
+      case 'racing': {
+        if (!car) { finish('void'); break; }
         // There and back: round the flag, and the flag moves home to the start line (the taxi's
         // marker — the racer's own leg is on its ghost route).
         if (!state.taxiBack && near(taxi, state.finish, ARRIVE_RADIUS)) {
@@ -1061,27 +1231,23 @@ export function createRace({
         // player dragged into a lap); put it back on its goal rather than let it cruise. Not once
         // it has won: home and dry, it is the player's again.
         const goal = taxiGoal();
-        if (state.winner !== 'taxi' && taxi.pendingTarget === goal && !taxi.route.length
-            && !near(taxi, goal, ARRIVE_RADIUS)) {
+        if (taxi.pendingTarget === goal && !taxi.route.length && !near(taxi, goal, ARRIVE_RADIUS)) {
           routeTo(goal);
         }
-        if (state.winner !== 'rival') steerToFinish(car);
+        steerToFinish(car);
         const taxiHome = state.taxiBack && near(taxi, state.home, ARRIVE_RADIUS);
         const rivalHome = state.rivalBack && near(car, state.home, ARRIVE_RADIUS);
-        if (racing) {
-          // The first one home has won, but the race is not over until the camera has watched the
-          // other one in (main.js, 'decided') — or FINALE_MAX, for a loser still a long way out.
-          // The taxi wins a dead heat: it is the one the player is watching cross the line.
-          if (taxiHome || rivalHome) {
-            state.winner = taxiHome ? 'taxi' : 'rival';
-            if (taxiHome) state.taxiTime = state.phaseT; else state.rivalTime = state.phaseT;
-            setPhase('finale');
-            onEvent('decided', { car, winner: state.winner, loser: taxiHome ? car : taxi });
-          } else if (state.phaseT > RACE_MAX) {
-            finish('void');
-          }
-        } else if ((loser === 'taxi' ? taxiHome : rivalHome) || state.phaseT > FINALE_MAX) {
-          finish(state.winner === 'taxi' ? 'won' : 'lost');
+        // The first one home has won, and the finale plays out the rest (`updateFinale`). The taxi
+        // wins a dead heat: it is the one the player is watching cross the line.
+        if (taxiHome || rivalHome) {
+          state.winner = taxiHome ? 'taxi' : 'rival';
+          if (taxiHome) state.taxiTime = state.phaseT; else state.rivalTime = state.phaseT;
+          setPhase('finale');
+          state.step = 'hold';
+          state.stepT = 0;
+          onEvent('home', { car, winner: state.winner });
+        } else if (state.phaseT > RACE_MAX) {
+          finish('void');
         }
         break;
       }
@@ -1138,6 +1304,10 @@ export function createRace({
     accept,
     /** Land the start under the black — see `stage`. */
     stage,
+    /** Land the finish's cut to the loser under the black — see `stageArrival`. */
+    stageArrival,
+    /** Is the race holding the taxi's brake (the winner pulling up, the loser skidding in)? */
+    brakesTaxi: () => state.brakeTaxi,
     /** The racer's tap target, while it is offering. */
     pickables: () => (offer.visible && state.phase === 'offer' && state.available ? [offer] : []),
     /** Is the racer offering, its tag up and waiting on a tap? */

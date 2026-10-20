@@ -2540,11 +2540,12 @@ intensity.
 city as ordinary traffic: a standing offer the player triggers when it suits them. It has a white stripe down
 its spine, a proud wing on the boot and cyan light pooling under it that pulses to the music, and
 over it hangs a "…" — the [speech tag](#speech-bubbles) alone, with no card (`showTag`; a card with
-only the dots under `?bubbles=classic`/`dock`). The "…" is up only while the race can be taken:
-the taxi within `NEAR_BLOCKS` (3) of the racer with an empty cab, and nothing owning the run. When
-the car is off screen the tag points at it from the edge, and the tag itself is a tap target. Too
-far away, or a rider picked up, and it goes until that changes (one block of slack on the way out,
-so it does not flicker on the boundary). Tap it once and it asks: "Wanna race?" (Tyler wanted the question only for
+only the dots under `?bubbles=classic`/`dock`). The "…" is up whenever the race can be taken (an
+empty cab, nothing owning the run) and the player can find the car: on the car whenever it is on
+screen, wherever the player has panned to, and pointing in from the screen edge only while the taxi
+is within `NEAR_BLOCKS` (3) of it, with a horn. Out of reach and off screen, or a rider picked up,
+and it goes until that changes (a block of slack on the way out of reach and two units past the
+frame, so it does not flicker on either boundary). The tag itself is a tap target. Tap it once and it asks: "Wanna race?" (Tyler wanted the question only for
 someone who tapped, rather than one more line on a busy screen). Tap it again and it answers on the
 spot (a horn and "You're on!"), then the screen cuts to black and opens close up on the two cars side by side, window to window ("Round the flag and back."). A
 corner is marked across the island (a white waypoint ring with a chequered flag flying over it, 4-8
@@ -2558,12 +2559,24 @@ to miss on a phone; the racer's own leg is on its ghost route. First home wins. 
 over a waypoint or a farther flag: it doubles the drive on the same markers (a one-way race was
 over in ~5s on Loco Mode, there and back is ~12-15s), and the two lines cross on the way.
 
-**The finale watches the loser in.** The first one home has won ('decided': "You win!" or "Beaten!"
-then), but nothing is paid until the other one is home too: the camera goes to the loser at
-`RACE_WATCH_ZOOM` (30) and follows it to the line, for up to `FINALE_MAX` (6s, for a loser that has
-not rounded the flag yet). Then the money pops in the middle of the screen and flies away — up into
-the cash counter for a win, out to the racer's car for a loss — and once it has landed the camera
-eases back out to the zoom the player had. The rival then rests for `REST_TIME` (20s) and goes
+**The racer runs on Loco Mode too:** flames out of its tailpipe (the taxi's plume,
+game/locoflame.js, on a second instance) whenever it is over `RACER_FLAME_SPEED` (1.5× cruise), so
+they go out as it brakes for a corner and relight down the straight.
+
+**The finish is choreographed** (`updateFinale`, Tyler's six steps). The winner crosses the line
+and pulls up there (`WINNER_HOLD`, 1s; the taxi on the race's brake, `brakesTaxi`, since `parked`
+stops a car dead). Then a cut, behind the same wipe as the start: the winner is parked mid-block on a
+side street near where it finished, and the loser is put a block back on the oncoming side, rolling
+at `ARRIVAL_ROLL` (`chooseArrival`, by the start's rules: clear of traffic, off the water, in
+sight). The camera opens on the loser at `RACE_WATCH_ZOOM` (30) and follows it down the block until
+it skids to a stop window to window with the winner: on the hard brake from the point
+`stopDistance` says lands it level, with a squeal and rubber off its back wheels. Only then the word
+("You won!" / "You lost!"), and `RESULT_HOLD` (1.1s) later the money pops in the middle of the
+screen and flies away — up into the cash counter for a win, out to the racer's car for a loss —
+and once it has landed the camera eases back out to the zoom the player had. The racer comes in at
+`ARRIVAL_CHASE` (0.4) rather than race pace: at 21.7 it reached the block too fast to stop on it.
+A taxi steered off mid-drive-in, or a loser not in by `DRIVE_IN_MAX` (8s), goes straight to the
+word. The rival then rests for `REST_TIME` (20s) and goes
 back to being an offer; only a crash takes it off the map, and another one turns up after the rest.
 
 **It is taken on, never imposed.** Losing costs cash, and the robbery's rule is that an imposed

@@ -1239,3 +1239,11 @@ not come back for 100-160s (`REPEAT_WAIT`), and it left after every race. Whethe
 offer came down to timing. Tyler: "Keep the racer around all the time. If the player is within a
 few blocks show the … bubble off screen. If they get too far away or pickup a ride temp hide it."
 
+## The street race's finish, before it was staged
+
+The first finale left both cars where they were: the word ("You win!" / "Beaten!") landed the
+moment the first one was home, and the camera followed the loser to the line for up to
+`FINALE_MAX` (6s) before the money moved, so a loser still on its way out to the flag was never
+seen arriving. Tyler asked for it as a scene instead: winner pulls up, cut to the loser a block
+out, skid in beside the winner, then the word, then the money.
+
