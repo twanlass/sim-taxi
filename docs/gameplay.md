@@ -2551,8 +2551,14 @@ and then of `home`, one end of the street they started on (`chooseHome`). When t
 corner the ring and flag jump to the start line and "Head back!" pops, since a flag moving is easy
 to miss on a phone; the racer's own leg is on its ghost route. First home wins. Tyler picked this
 over a waypoint or a farther flag: it doubles the drive on the same markers (a one-way race was
-over in ~5s on Loco Mode, there and back is ~12-15s), and the two lines cross on the way. The
-rival then drives off and dissolves.
+over in ~5s on Loco Mode, there and back is ~12-15s), and the two lines cross on the way.
+
+**The finale watches the loser in.** The first one home has won ('decided': "You win!" or "Beaten!"
+then), but nothing is paid until the other one is home too: the camera goes to the loser at
+`RACE_WATCH_ZOOM` (30) and follows it to the line, for up to `FINALE_MAX` (6s, for a loser that has
+not rounded the flag yet). Then the money pops in the middle of the screen and flies away — up into
+the cash counter for a win, out to the racer's car for a loss — and once it has landed the camera
+eases back out to the zoom the player had. The rival then drives off and dissolves.
 
 **It is taken on, never imposed.** Losing costs cash, and the robbery's rule is that an imposed
 event cannot cost the run ([it is imposed](#it-is-imposed-so-it-cannot-cost-the-run)), so the race

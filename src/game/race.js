@@ -79,6 +79,10 @@ const START_CLEAR = 9;
 const REVEAL_MAX = 6;
 export const COUNTDOWN = 3;     // seconds of three, two, one
 const RACE_MAX = 75;            // nobody home by now — the race is called off and nothing changes hands
+// After the winner is home, how long the camera follows the loser in before the money moves anyway:
+// a loser that has not rounded the flag yet can be a minute out. Tyler: "pan the camera to the
+// loser, track them as they arrive to the finish, show the money..."
+const FINALE_MAX = 6;
 // Where on its lane a car may be put for the start: the middle of the block. Short of its own hold
 // line, so it is handed to the traffic model before it has to see the signal (CLAUDE.md, on cars
 // released inside their stop line); and far enough in that the other car, level with it on the
@@ -144,7 +148,7 @@ const LEAVE_MAX = 30;
 // big again as the rival's first one did so it reads from the far side of a phone screen.
 const FINISH_FLAG_Y = 4.5;
 const FINISH_FLAG_SCALE = 1.5;
-const ACTIVE = new Set(['cut', 'faceoff', 'reveal', 'countdown', 'racing']);
+const ACTIVE = new Set(['cut', 'faceoff', 'reveal', 'countdown', 'racing', 'finale']);
 
 const clamp01 = (v) => Math.max(0, Math.min(1, v));
 
@@ -472,6 +476,8 @@ export function createRace({
     home: null,
     taxiBack: false,
     rivalBack: false,
+    // 'taxi' or 'rival' once the first one is home ('finale'), until the loser is.
+    winner: null,
   };
 
   function setPhase(phase) {
@@ -758,6 +764,7 @@ export function createRace({
     state.home = start.home;
     state.taxiBack = false;
     state.rivalBack = false;
+    state.winner = null;
     // Both legs of the taxi's best line, so the racer keeps off it on the way back too.
     const out = findRoute(planOrigin(taxi), goal) ?? [];
     const turned = { ...goal, d: out[out.length - 1] ?? planOrigin(taxi).d };
@@ -997,8 +1004,11 @@ export function createRace({
         if (state.phaseT >= COUNTDOWN) go();
         break;
       }
-      case 'racing': {
+      case 'racing':
+      case 'finale': {
         if (!car) { finish('void'); break; }
+        const racing = state.phase === 'racing';
+        const loser = state.winner === 'taxi' ? 'rival' : state.winner === 'rival' ? 'taxi' : null;
         // There and back: round the flag, and the flag moves home to the start line (the taxi's
         // marker — the racer's own leg is on its ghost route).
         if (!state.taxiBack && near(taxi, state.finish, ARRIVE_RADIUS)) {
@@ -1012,18 +1022,31 @@ export function createRace({
           car.route = [];
         }
         // The taxi's own route can run out short of the corner (a missed turn, a re-plan the
-        // player dragged into a lap); put it back on its goal rather than let it cruise.
+        // player dragged into a lap); put it back on its goal rather than let it cruise. Not once
+        // it has won: home and dry, it is the player's again.
         const goal = taxiGoal();
-        if (taxi.pendingTarget === goal && !taxi.route.length && !near(taxi, goal, ARRIVE_RADIUS)) {
+        if (state.winner !== 'taxi' && taxi.pendingTarget === goal && !taxi.route.length
+            && !near(taxi, goal, ARRIVE_RADIUS)) {
           routeTo(goal);
         }
-        steerToFinish(car);
+        if (state.winner !== 'rival') steerToFinish(car);
         const taxiHome = state.taxiBack && near(taxi, state.home, ARRIVE_RADIUS);
         const rivalHome = state.rivalBack && near(car, state.home, ARRIVE_RADIUS);
-        // The taxi wins a dead heat: it is the one the player is watching cross the line.
-        if (taxiHome) { state.taxiTime = state.phaseT; finish('won'); break; }
-        if (rivalHome) { state.rivalTime = state.phaseT; finish('lost'); break; }
-        if (state.phaseT > RACE_MAX) finish('void');
+        if (racing) {
+          // The first one home has won, but the race is not over until the camera has watched the
+          // other one in (main.js, 'decided') — or FINALE_MAX, for a loser still a long way out.
+          // The taxi wins a dead heat: it is the one the player is watching cross the line.
+          if (taxiHome || rivalHome) {
+            state.winner = taxiHome ? 'taxi' : 'rival';
+            if (taxiHome) state.taxiTime = state.phaseT; else state.rivalTime = state.phaseT;
+            setPhase('finale');
+            onEvent('decided', { car, winner: state.winner, loser: taxiHome ? car : taxi });
+          } else if (state.phaseT > RACE_MAX) {
+            finish('void');
+          }
+        } else if ((loser === 'taxi' ? taxiHome : rivalHome) || state.phaseT > FINALE_MAX) {
+          finish(state.winner === 'taxi' ? 'won' : 'lost');
+        }
         break;
       }
       case 'leaving':

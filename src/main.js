@@ -2130,18 +2130,31 @@ function onRaceEvent(type, detail) {
     // Halfway: the flag has just jumped back to the start line, which is easy to miss on a phone.
     popLabel('Head back!', 'is-count');
     haptic('snap');
+  } else if (type === 'decided') {
+    // The first one is home. The word lands now; the money waits for the other one, and the
+    // camera goes to watch them in (Tyler: "pan the camera to the loser, track them as they arrive
+    // to the finish, show the money screen center and animate away... then zoom back out").
+    popLabel(detail.winner === 'taxi' ? 'You win!' : 'Beaten!');
+    haptic(detail.winner === 'taxi' ? 'pick' : 'snap');
+    raceWatch = detail.loser;
+    raceZoomHome ??= controller.state.zoom;
   } else if (type === 'won') {
     fares.credit(WIN_PAY);
-    popLabel('You win!');
     popEarning(WIN_PAY);
     haptic('pick');
+    settleRaceWatch();
   } else if (type === 'lost') {
     // Through `charge`, so an empty till pays what it has (see BURGER_PRICE's note in fares.js).
+    // Flown to the racer rather than up into the counter: it is the racer's money now.
     const paid = fares.charge(LOSE_COST);
-    popLabel('Beaten!');
-    if (paid > 0) popEarning(-paid);
+    if (paid > 0) {
+      const car = detail.car;
+      popEarning(-paid, () => (car ? projectToScreen(car.x, 1, car.z) : null));
+    }
+    settleRaceWatch();
   } else if (type === 'void') {
     raceShot = null;
+    raceWatch = null;
     popLabel('Race off');
   }
 }
@@ -2158,6 +2171,17 @@ const RACE_SHOT_ZOOM = 22;
 // The faceoff's framing, while it holds the camera; and the zoom to walk back to after it.
 let raceShot = null;
 let raceZoomHome = null;
+// The loser, followed home after the winner is in ('decided'), at RACE_WATCH_ZOOM.
+let raceWatch = null;
+const RACE_WATCH_ZOOM = 30;
+// How long the camera stays on the line once the money is up: popEarning's pop and flight
+// (560 + 380ms), so the zoom back out starts as the money lands.
+const RACE_MONEY_MS = 940;
+let raceWatchTimer = 0;
+function settleRaceWatch() {
+  clearTimeout(raceWatchTimer);
+  raceWatchTimer = setTimeout(() => { raceWatch = null; }, RACE_MONEY_MS);
+}
 
 /** A tap on the racer: the first one asks what it wants, the second takes it on. */
 function acceptRace() {
@@ -3773,8 +3797,11 @@ function rollMoneyTo(target, up = true) {
  * What changes is the sign, the colour (red, `.is-charge`) and nothing else — including the
  * direction, which stays up into the counter. A charge flown out of the counter would read as the
  * player being *given* something.
+ *
+ * `to` sends it somewhere else instead, read at the moment of the flight: a street race lost pays
+ * the racer, so the money flies to the car (Tyler) and the counter only rolls once it has gone.
  */
-function popEarning(amount) {
+function popEarning(amount, to = null) {
   const counter = counterScreenPos();
   const start = payoutScreenPos();
   const el = document.createElement('div');
@@ -3784,12 +3811,6 @@ function popEarning(amount) {
   el.style.top = `${start.y}px`;
   document.body.append(el);
 
-  // The counter's position is resolved *at launch* rather than baked into a CSS keyframe, so a
-  // window resize between deliveries still aims each flight at where the counter actually is now.
-  const target = counter ?? { x: start.x, y: start.y - 74 };
-  const dx = target.x - start.x;
-  const dy = target.y - start.y;
-
   // Phase 1: pop in and hold a beat, long enough to read the amount.
   const rise = el.animate([
     { opacity: 0, transform: 'translate(-50%, -50%) translateY(10px) scale(0.7)' },
@@ -3798,6 +3819,12 @@ function popEarning(amount) {
   ], { duration: 560, easing: 'cubic-bezier(0.22, 1, 0.36, 1)', fill: 'forwards' });
 
   rise.onfinish = () => {
+    // The target is resolved *at launch* rather than baked into a CSS keyframe, so a window resize
+    // between deliveries still aims each flight at where the counter actually is now — and a car
+    // flown to is wherever it has driven to by then.
+    const target = to?.() ?? counter ?? { x: start.x, y: start.y - 74 };
+    const dx = target.x - start.x;
+    const dy = target.y - start.y;
     // Phase 2: fly to the counter and shrink, landing on top of it. Slight scale-down at the
     // end so the flight has a target rather than a vague fade-in-the-middle.
     const fly = el.animate([
@@ -6119,7 +6146,7 @@ function tick() {
   if (race?.state.phase === 'waiting' && raceTalk?.isOpen()) raceTalk.hide();
   // The faceoff's close-up walked back out to the zoom the player had, beside whichever claim owns
   // the target — the bank job's arrangement (`easeZoom`).
-  if (raceZoomHome != null && !raceShot && !endSpot) {
+  if (raceZoomHome != null && !raceShot && !raceWatch && !endSpot) {
     controller.easeZoom(raceZoomHome, dt, aspect());
     if (Math.abs(controller.state.zoom - raceZoomHome) < 0.05) raceZoomHome = null;
   }
@@ -6179,6 +6206,11 @@ function tick() {
     // camera leaves to look at the finish (`onRaceEvent`). The taxi is parked, so nothing below
     // has anywhere better to be.
     controller.focusOn(raceShot.x, raceShot.z, RACE_SHOT_ZOOM, dt, aspect());
+  } else if (raceWatch && !fares.state.gameOver) {
+    // The street race's finale: following the loser home, then holding on the line while the
+    // money moves (`settleRaceWatch`). Above Loco Mode's follow, because the loser can be the taxi
+    // and the winner is home already.
+    controller.focusOn(raceWatch.x, raceWatch.z, RACE_WATCH_ZOOM, dt, aspect());
   } else if (boosting && !fares.state.gameOver && locoFollows) {
     controller.followXZ(traffic.taxi.x, traffic.taxi.z, dt, BOOST_FOLLOW_SMOOTHING, aspect(),
       followAim(traffic.taxi));
@@ -6524,7 +6556,9 @@ function tick() {
   } else {
     routeLine.hide();
   }
-  const rivalCar = race?.state.phase === 'racing' ? race.state.car : null;
+  // Through the finale too while the racer is the one still coming home.
+  const rivalCar = race?.state.phase === 'racing' || (race?.state.phase === 'finale' && race.state.winner === 'taxi')
+    ? race.state.car : null;
   if (rivalCar && !fares.state.gameOver) rivalLine.update(rivalCar, rivalCar.route, dt);
   else rivalLine?.hide();
 
