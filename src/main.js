@@ -3052,7 +3052,11 @@ const riderFinder = wantsRiderChips
   ? createRiderFinder({ onSelect: selectRider, sun, hemi })
   : { update: () => {} };
 // The chip that answers "where did my car go" — up only while the taxi is completely off-frame.
-const taxiFinder = createTaxiFinder({
+// Off by default since 2026-10-20 (Tyler: "get rid of the taxi button"): the camera already rides
+// home on its own after CAMERA_RETURN_IDLE, so the chip only ever covered that 1.5s gap.
+// `?taxifinder=classic` brings it back; without it there is no chip and no extra WebGL context.
+const wantsTaxiFinder = new URLSearchParams(window.location.search).get('taxifinder') === 'classic';
+const taxiFinder = !wantsTaxiFinder ? null : createTaxiFinder({
   sun,
   hemi,
   project: projectToScreen,
@@ -6375,7 +6379,7 @@ function tick() {
   // Armed only when nothing else already has the framing in hand: a run that has ended has the
   // closing shot, the tutorial is pointing the camera at the city itself, and a pan in flight is
   // already on its way somewhere — including this chip's own, which is what drops it on the tap.
-  taxiFinder.update(dt, traffic.taxi,
+  taxiFinder?.update(dt, traffic.taxi,
     !fares.state.gameOver && !controller.isGliding() && !tutorial?.holdsCamera());
   // A no-op unless a package is aboard — it draws nothing while the chip is down.
   cargoChip?.render();
@@ -7190,7 +7194,7 @@ window.__taxi = {
   /**
    * The "back to the taxi" chip, for `tools/smoke.mjs`: `isUp()` is whether it is currently
    * offering itself. Browser-only in the same way the cargo chip is — a WebGL context in a DOM
-   * node, driven off a projection through the live camera.
+   * node, driven off a projection through the live camera. Null unless `?taxifinder=classic`.
    */
   taxiFinder,
   flyover,
