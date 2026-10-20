@@ -1790,7 +1790,21 @@
       #title-screen .title-credits { display: flex; flex-direction: column; gap: clamp(12px, 2.6vh, 20px); }
       #title-screen .title-credit dt { font-size: 15px; font-weight: 500; opacity: 0.75; }
       #title-screen .title-credit dd { font-size: 22px; font-weight: 700; margin-top: 2px; }
-      #title-screen .title-credit-sprite { height: 16px; width: 22px; margin-left: 8px; vertical-align: -1px; }
+      #title-screen .title-credit-claude {
+        appearance: none; border: 0; background: none; padding: 6px; margin: -6px -6px -6px 2px;
+        cursor: pointer; vertical-align: -1px; line-height: 0;
+      }
+      #title-screen .title-credit-sprite { display: block; height: 16px; width: 22px; }
+      /* The egg's layer (game/creditegg.js): over the credits, and clipped so the boost leaves. */
+      #title-screen .title-egg { position: absolute; inset: 0; overflow: hidden; pointer-events: none; z-index: 2; }
+      #title-screen .title-egg-taxi { position: absolute; width: 48px; height: 26px; }
+      #title-screen .title-egg-taxi svg { position: absolute; left: 0; top: 0; }
+      #title-screen .title-egg-taxi .title-egg-flame {
+        left: -14px; top: 10px; visibility: hidden; transform-origin: right center;
+        animation: title-egg-flicker 120ms steps(2) infinite;
+      }
+      @keyframes title-egg-flicker { from { transform: scaleX(1); } to { transform: scaleX(1.5); } }
+      #title-screen .title-egg-rider { visibility: hidden; }
 
       /* Bottom-anchored, and the bottom inset clears the home indicator on a notched phone. The
          gutter is a share of the width rather than a fixed pixel count so the block sits the same
