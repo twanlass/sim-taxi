@@ -1699,7 +1699,20 @@ in `game/fares.js`).
 Every combo the taxi lands on a job steps a multiplier up, and the drop-off pays the fare at it
 (`game/combometer.js`, Tyler's idea after the Duolingo combo streak). It starts each ride at ×1: an
 overtake or a bootleg U-turn +0.5, a drift kick +0.5 per chain tier (so a full chain of three is
-+3), **Stuntman** +1, the bridge launch +2, capped at ×5.
++3), **Stuntman** +1, the bridge launch +2, **Crushin' It** +1, capped at ×5.
+
+**Crushin' It** is Big Air coming down on a car (Tyler, 2026-10-20: "make the car you land on
+explode. Taxi takes no damage and continues"). It used to be a crash: the taxi lands at the kick's
+~31 u/s, which is the overdrive band, so it cost half the HP bar or the run. Now only the car
+underneath is wrecked. It gets the wreck's own fireball and smoke collar (`blast.fire`), and its
+shell is consumed under them (`game/vanish.js`) rather than left in the road, because the run goes
+on. The taxi takes no damage, keeps its speed and drives on, and the meter gets +1 on top of Big
+Air's +2, labelled after it. It's only one step because where Big Air lands is mostly luck. It
+counts on the descent of the arc and for a car length past the touchdown (`crushing` in
+`sim/collisions.js`). Further on, the taxi is driving into the car and it is a hit. Only ordinary
+cars and cops count. A truck is too tall to land on, and the patrol cruiser and the racer belong to
+modules that run their own lives. A crushed car leaves the fleet for the rest of the run.
+`?crush=classic` charges the landing as a hit again.
 
 Stuntman is smashing through a [roadworks](traffic.md#roadworks-a-street-closed-at-both-ends)
 barricade, at any speed (Tyler, 2026-10-14). It also pays a sixth of the Loco tank back on the

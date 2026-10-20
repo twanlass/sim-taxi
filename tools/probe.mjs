@@ -85,7 +85,7 @@ import { barricadeParts, spoilParts, RAMP_RUN, RAMP_H, WORKS_Y, TRENCH_Y, SPLINT
 import {
   findRoute as planRoute, setRoadworkLanes, setBlockedLanes, setHazardLanes, laneCost, serviceLaneCost,
 } from '../src/game/route.js';
-import { createCollisions, TAXI_HP, bumpDamage, penetration } from '../src/sim/collisions.js';
+import { createCollisions, TAXI_HP, bumpDamage, penetration, setCrush } from '../src/sim/collisions.js';
 import { createTaxiDamage } from '../src/game/taxidamage.js';
 import { createCarDamage } from '../src/game/cardamage.js';
 import { BUMPER_H as BUMPER_H_PROBE, bumperLength as bumperLengthProbe } from '../src/geometry/bumpers.js';
@@ -19988,6 +19988,62 @@ let chopperOrder; // likewise
     cCollisions.update(1 / 60);
     check('...which the same car on the road is', hits > 0 || cTaxi.hp < TAXI_HP,
       `${hits} hits, hp ${cTaxi.hp}`);
+  }
+
+  // --- Crushin' It: Big Air coming down on a car wrecks the car and not the taxi.
+  //
+  // The taxi 2 units short of touchdown at the kick's speed, with a car parked under its landing
+  // point (`ahead` units in front of it, along the same lane). Run for two seconds.
+  {
+    const crushRun = ({ ahead = 1.4, truck = false, classic = false } = {}) => {
+      setCrush(classic ? 'classic' : null);
+      const pTraffic = createTraffic(makeRng(seed + 96), new THREE.Scene(), 2);
+      const pTaxi = pTraffic.taxi;
+      const other = pTraffic.cars.find((c) => c !== pTaxi);
+      if (truck) other.isTruck = true;
+      const d = [DIR.PX, DIR.NX, DIR.PZ, DIR.NZ].find((dd) => placeCar(pTaxi, dd, 2, 2, 14));
+      placeCar(other, d, 2, 2, 14 - ahead);
+      other.v = 0;
+      pTaxi.parked = false;
+      pTaxi.boost = true;
+      pTaxi.hp = TAXI_HP;
+      pTaxi.v = 31;
+      pTaxi.hopFrom = pTaxi.travelled - DRIFT_LAUNCH_LEN * 0.9;
+      pTaxi.hopBig = true;
+      const pCollisions = createCollisions(pTraffic.cars, pTaxi);
+      const out = { crush: 0, bumps: 0, wrecks: 0, from: pTaxi.travelled, minV: Infinity };
+      pCollisions.onCrush(() => { out.crush += 1; });
+      pCollisions.onBump(() => { out.bumps += 1; });
+      pCollisions.onImpact(() => { out.wrecks += 1; });
+      for (let f = 0; f < 120; f++) {
+        pTraffic.update(1 / 60);
+        pCollisions.update(1 / 60);
+        out.minV = Math.min(out.minV, pTaxi.v);
+      }
+      out.hp = pTaxi.hp;
+      out.moved = pTaxi.travelled - out.from;
+      out.otherCrashed = other.crashed === true;
+      out.taxiCrashed = pTaxi.crashed === true;
+      pTraffic.dispose?.();
+      setCrush(null);
+      return out;
+    };
+    const p = crushRun();
+    check("Big Air coming down on a car is Crushin' It: one crush, no bump, no wreck, no HP lost",
+      p.crush === 1 && p.bumps === 0 && p.wrecks === 0 && p.hp === TAXI_HP && !p.taxiCrashed,
+      `crush ${p.crush}, bumps ${p.bumps}, wrecks ${p.wrecks}, hp ${p.hp}`);
+    check('...the car underneath is wrecked, and the taxi drives on at speed',
+      p.otherCrashed && p.minV > 25 && p.moved > 50,
+      `car crashed ${p.otherCrashed}, slowest ${p.minV.toFixed(1)} u/s, ${p.moved.toFixed(1)} units in 2s`);
+    const truck = crushRun({ truck: true });
+    check('a truck under the landing is still a hit', truck.crush === 0 && truck.hp < TAXI_HP,
+      `crush ${truck.crush}, hp ${truck.hp}`);
+    const far = crushRun({ ahead: 7 });
+    check('...and a car a few units past the touchdown is not landed on, so is not crushed',
+      far.crush === 0 && !far.otherCrashed, `crush ${far.crush}, hp ${far.hp}`);
+    const classic = crushRun({ classic: true });
+    check('?crush=classic charges the landing as a hit again', classic.crush === 0 && classic.hp < TAXI_HP,
+      `crush ${classic.crush}, hp ${classic.hp}`);
   }
 
   // --- Nothing paints a stop bar on the bridge.
