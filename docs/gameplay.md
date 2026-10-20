@@ -2547,10 +2547,14 @@ and an additive underglow, an unlit quad ring whose vertex alpha runs from 1 und
 unlit triangle wound the other way does not draw at all.
 
 **The underglow pulses to the music.** `sfx.bass()` reads the low end (under 150 Hz) off the Music
-bus, after its fader, and `pulseStep` flares the glow from `GLOW_REST` (65%) to full when the bass
-jumps `KICK_RISE` over its own running average, falling back over `KICK_FALL`. Against its own
-average, so a quiet song pulses as well as a loud one; after the fader, so muted music leaves it
-resting. Tuned offline on the four in-game songs to about one flare a beat (see the constants).
+bus, after its fader, and `pulseStep` flares the glow when the bass jumps `KICK_RISE` over its own
+running average, falling back over `KICK_FALL`. A flare takes the opacity from `GLOW_REST` (20%) to
+full, swells the pad by `GLOW_SWELL` (60%) and runs the colour hot by `GLOW_HOT`; opacity alone,
+65% to full, was too little to see on a phone. Against its own average, so a quiet song pulses as
+well as a loud one; with no music at all (muted, or between songs) it holds at `GLOW_IDLE`. Tuned
+offline on the four in-game songs to about one flare a beat (see the constants). The pad itself
+is a superellipse with its falloff eased through four rings, not the rectangle and straight ramp
+it started as, whose corners read as hard diagonals.
 
 ### The rival is a car in traffic
 

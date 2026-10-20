@@ -154,7 +154,17 @@ const clamp01 = (v) => Math.max(0, Math.min(1, v));
 // on the four in-game songs (the same 1024-point FFT and dB scale, decoded with ffmpeg): at 0.15 it
 // flares 2.2-2.9 times a second, about once a beat; the first guess of 0.08 flared 3-4.6 times and
 // sat above 80% for 35-43% of the song, which reads as flicker rather than a pulse.
-const GLOW_REST = 0.65;
+// How far the beat moves it. Opacity alone (0.65 to 1 of 0.9) was "barely tell" on a phone, so a
+// flare now does three things at once: opacity from GLOW_REST to full, the pad grows by
+// GLOW_SWELL, and the colour runs hot by GLOW_HOT (additive, so over 1 it whitens toward the core).
+const GLOW_REST = 0.2;
+const GLOW_SWELL = 0.6;
+const GLOW_HOT = 1.5;
+// With no music at all — muted, or between songs — there is no beat to rest between, so it holds
+// at GLOW_IDLE of a flare instead of sitting at the dim rest. Silent is a bass level under SILENT
+// on the analyser's 0..1 dB scale (music sits around 0.5).
+const GLOW_IDLE = 0.6;
+const SILENT = 0.05;
 const BEAT_AVG = 0.35;
 const KICK_RISE = 0.15;
 const KICK_FALL = 0.15;
@@ -191,11 +201,16 @@ const STRIPE_T = 0.03;          // half of it buried, so its underside never sha
 
 // The underglow: a pad of light on the road under the car, solid under the body and fading to
 // nothing GLOW_REACH outside it. Sized at play zoom (1 unit ≈ 7.7px): the body hides the middle,
-// so what reads is the fringe, and 0.8 of it is ~6px all round — a halo, not a puddle.
-const GLOW_REACH = 0.8;
+// so what reads is the fringe, and 1.1 of it is ~8px all round. Rounded rather than boxed — a
+// superellipse (`GLOW_ROUND`) traced in GLOW_SEGMENTS, with the falloff stepped through
+// GLOW_RINGS so it eases out instead of ramping straight to nothing. The first cut was a
+// rectangle and a straight ramp, and its corners read as hard diagonals (Tyler: "really angular").
+const GLOW_REACH = 1.1;
 const GLOW_INSET = 0.15;
 const GLOW_Y = 0.05;
-const GLOW_ALPHA = 0.9;
+const GLOW_ROUND = 3;
+const GLOW_SEGMENTS = 40;
+const GLOW_RINGS = 4;
 
 /** The rival's body: an ordinary car's, in its own paint, with a wing on the boot. */
 function rivalBodyGeometry() {
@@ -240,16 +255,26 @@ function stripeGeometry() {
 }
 
 /**
- * The underglow's pad: a rectangle under the body at full strength, and a ring around it whose outer
- * edge is transparent, so the light falls off across GLOW_REACH. Alpha rides a four-component colour
+ * The underglow's pad: a rounded core under the body at full strength, and rings around it fading
+ * to transparent across GLOW_REACH on a squared curve. Alpha rides a four-component colour
  * attribute; every triangle is wound to face up, and `tools/probe.mjs` checks it does (see the
  * winding traps in CLAUDE.md — on an unlit material a reversed triangle does not draw at all).
  */
 export function underglowGeometry() {
   const hx = CAR_LEN / 2 - GLOW_INSET;
   const hz = CAR_W / 2 - GLOW_INSET;
-  const inner = [[hx, hz], [-hx, hz], [-hx, -hz], [hx, -hz]];
-  const outer = inner.map(([x, z]) => [x + Math.sign(x) * GLOW_REACH, z + Math.sign(z) * GLOW_REACH]);
+  // A superellipse of exponent GLOW_ROUND through the body's corners' neighbourhood, grown by `r`.
+  const ring = (r, alpha) => Array.from({ length: GLOW_SEGMENTS }, (_, k) => {
+    const a = (k / GLOW_SEGMENTS) * Math.PI * 2;
+    const c = Math.cos(a);
+    const sn = Math.sin(a);
+    const ex = 2 / GLOW_ROUND;
+    return [
+      Math.sign(c) * Math.abs(c) ** ex * (hx + r),
+      Math.sign(sn) * Math.abs(sn) ** ex * (hz + r),
+      alpha,
+    ];
+  });
   const pos = [];
   const col = [];
   const tri = (a, b, c) => {
@@ -262,14 +287,22 @@ export function underglowGeometry() {
       col.push(1, 1, 1, v[2]);
     }
   };
-  const I = inner.map(([x, z]) => [x, z, 1]);
-  const O = outer.map(([x, z]) => [x, z, 0]);
-  tri(I[0], I[1], I[2]);
-  tri(I[0], I[2], I[3]);
-  for (let k = 0; k < 4; k++) {
-    const n = (k + 1) % 4;
-    tri(I[k], O[k], O[n]);
-    tri(I[k], O[n], I[n]);
+  const rings = [];
+  for (let n = 0; n <= GLOW_RINGS; n++) {
+    const t = n / GLOW_RINGS;
+    rings.push(ring(t * GLOW_REACH, (1 - t) ** 2));
+  }
+  const centre = [0, 0, 1];
+  const core = rings[0];
+  for (let k = 0; k < GLOW_SEGMENTS; k++) tri(centre, core[k], core[(k + 1) % GLOW_SEGMENTS]);
+  for (let n = 0; n < GLOW_RINGS; n++) {
+    const A = rings[n];
+    const B = rings[n + 1];
+    for (let k = 0; k < GLOW_SEGMENTS; k++) {
+      const m = (k + 1) % GLOW_SEGMENTS;
+      tri(A[k], B[k], B[m]);
+      tri(A[k], B[m], A[m]);
+    }
   }
   const g = new THREE.BufferGeometry();
   g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
@@ -391,6 +424,7 @@ export function createRace({
   scene.add(finishFlag.group);
 
   const glowBeat = createPulse();
+  const glowColor = new THREE.Color(color('racerGlow'));
 
   const state = {
     // 'waiting' — nothing on; 'offer' — a racer is tailing the taxi, tappable; 'cut' —
@@ -894,7 +928,12 @@ export function createRace({
     }
     for (const material of rival.faders) material.opacity = state.fade;
     if (rival.shell.visible) pulseStep(glowBeat, bass(), dt);
-    rival.glow.material.opacity = state.fade * GLOW_ALPHA * (GLOW_REST + (1 - GLOW_REST) * glowBeat.pulse);
+    {
+      const beat = glowBeat.avg < SILENT ? GLOW_IDLE : glowBeat.pulse;
+      rival.glow.material.opacity = state.fade * (GLOW_REST + (1 - GLOW_REST) * beat);
+      rival.glow.scale.set(1 + GLOW_SWELL * beat, 1, 1 + GLOW_SWELL * beat);
+      rival.glow.material.color.copy(glowColor).multiplyScalar(1 + GLOW_HOT * beat);
+    }
 
     // The tap target rides with the car.
     if (offer.visible && state.car) offer.position.set(state.car.x, 0, state.car.z);
