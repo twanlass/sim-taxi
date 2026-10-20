@@ -5897,8 +5897,12 @@ export function createTraffic(
             taxi.dodgeLateral = dodge.lateral;
             taxi.dodges += 1;
           }
-          // Behind a car signalling left, the peek round its right instead (see `peeking`).
-          if (thrown && leader && taxi.passTarget === leader && leader.signalHand === 'left') {
+          // Behind a car signalling left, the peek round its right instead (see `peeking`). Not
+          // behind a cop: a peek waits beside the turner's tail for it to swing away, and a cop
+          // blocking or chasing is not going anywhere it signals — the taxi sat beside one on the
+          // kerb, crawling at the cop's speed with Loco held (Tyler, 2026-10-20, a clip).
+          if (thrown && leader && taxi.passTarget === leader && leader.signalHand === 'left'
+            && !leader.police) {
             taxi.dodgeLateral = -PULLOVER_LATERAL;
             taxi.peeks += 1;
           }

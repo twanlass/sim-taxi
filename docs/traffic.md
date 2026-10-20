@@ -1210,8 +1210,9 @@ road on the far side of the junction (`room`). The leader brake still holds whil
 out, so it does not drive through the car it is leaving. `?overtake=classic` restores all of the
 judgement described below.
 
-**The one exception is a car signalling left**, and it is keyed on the blinker because the player
-can see it (`peeking`; Tyler, 2026-10-19: "less of an overtake and more of a slight peek around on
+**The one exception is a car signalling left** (never a cop: a peek waits for the turner to swing
+away, and one parked across the road never does, so the taxi crawled beside it on the kerb), and it
+is keyed on the blinker because the player can see it (`peeking`; Tyler, 2026-10-19: "less of an overtake and more of a slight peek around on
 the right"). The combo then goes the other way: 1.5 off the lane centre toward its own kerb
 (`PULLOVER_LATERAL`), riding up on it with the same mount and lean as a car pulled over for a brake
 check. That is not far enough to get past a car still in the lane (1.5 apart against a 2.31

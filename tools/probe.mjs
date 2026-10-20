@@ -5670,7 +5670,7 @@ const PRESSURE_END = difficulty.getTuning().pressureEnd;
       }
     }
   }
-  const turnerStage = (overtake = '', early = false) => {
+  const turnerStage = (overtake = '', early = false, cop = false) => {
     setOvertakeStyle(overtake);
     const tTraffic = createTraffic(makeRng(seed + 127), new THREE.Scene(), 2);
     const [tTaxi, tLead] = tTraffic.cars;
@@ -5679,6 +5679,7 @@ const PRESSURE_END = difficulty.getTuning().pressureEnd;
     tTaxi.hp = TAXI_HP;
     placeCar(tLead, lt.d, lt.i, lt.j, 4);
     tLead.route = [leftOf(lt.d)]; tLead.parked = false;
+    tLead.police = cop;
     const combo = createOvertakeCombo({ taxi: tTaxi });
     const tCollisions = createCollisions(tTraffic.cars, tTaxi);
     let hits = 0;
@@ -5717,6 +5718,12 @@ const PRESSURE_END = difficulty.getTuning().pressureEnd;
       turner.turning && turner.peeks === 1 && turner.peak > 0.95 && turner.hits === 0
         && turner.kerbward < -1.4 && turner.wide === 0, turnSweep(turner));
   }
+  // Never round a cop, whose blinker is no promise to get out of the way: the taxi sat beside one
+  // on the kerb at the cop's own speed with Loco held. A cop signalling left gets the ordinary pass.
+  const copTurner = turnerStage('', true, true);
+  check('a cop signalling left is passed the ordinary way, not peeked',
+    copTurner.turning && copTurner.peeks === 0 && copTurner.peak > 0.95 && copTurner.wide > 2 * LANE - 0.5,
+    turnSweep(copTurner));
   const classicTurner = turnerStage('classic');
   check('?overtake=classic: the combo does not pull out round a car already turning left',
     classicTurner.turning && classicTurner.peak === 0, turnSweep(classicTurner));
