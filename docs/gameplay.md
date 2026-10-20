@@ -3696,6 +3696,23 @@ one thing that belongs here is that a timeout's shot is of the **drop-off the ta
 which is the only place in the game where the answer to "what went wrong" is somewhere other than
 where the taxi is standing.
 
+### The polaroid
+
+**Over the title sits a polaroid of the ending** (`game/polaroid.js`; `?gameover=classic` is the card
+without it). A wreck's print is a frame from the [crash replay](rendering.md#the-closing-shot)'s last
+and tightest cut, `PHOTO_AFTER` (0.14 sim seconds) past the impact, with the fireball over both
+cars — or the last frame that cut has, if the live beat recorded less than that past the hit. A
+replay tapped past before its last cut keeps the live beat's last frame instead, pulled in on the
+wreck and taken as the replay cuts in. A bust or a
+timeout has no instant to pick, so its print is the frame the pull-in ended on, drawn again as the
+card comes up. Whichever it is, it is a centred square of the game's own canvas, copied in the same
+task that drew it (the canvas is not `preserveDrawingBuffer`) into a 360px 2D canvas.
+
+The print drops on a beat ahead of the title, tipped 4° in a cream border with the deep bottom lip a
+polaroid has, and then **develops** — washed out and grey to full colour over 1.6s. It is sized off
+the viewport height like the rest of the card (`clamp(96px, 24vh, 190px)`), so a landscape phone gets
+a small print rather than a title pushed below the fold.
+
 It is a **full-screen blackout**, not a modal over the city: a blurred card's edges would be the
 loudest thing on the screen. Blacking the whole viewport out puts the run's numbers on nothing at
 all, which is what makes them the ending rather than an overlay on one.
@@ -3775,8 +3792,9 @@ the retry pill is `disabled` (and so `pointer-events: none`) until then, which b
 invisible button from reloading the run mid-tally and lets a tap aimed at it fall through to the
 skip.
 
-**The review waits for a tap.** Once the stats have landed, the card holds on them with a quiet,
-breathing "Tap to continue" laid over the Play again pill's (still empty) slot, and only a tap moves
+**The review waits for a tap.** Once the stats have landed, the card holds on them with "Tap to
+continue" pinned to the **foot of the screen** in white, pulsing a soft glow (`?gameover=classic`
+puts it back over the Play again pill's empty slot, grey and breathing), and only a tap moves
 on to the prompt or the table, so a run summary is not something you can miss by glancing away. A
 tap *during* the count still lands the numbers, but on
 the review rather than past it, and the tap that leaves is only armed `HOLD_MS` after the last
