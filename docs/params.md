@@ -78,6 +78,9 @@ doc; what the classic version was, and why it changed, is in that doc's history 
 | `?radiofade=classic` | The station cuts hard between every track, instead of the DJ talking over the start and end of the songs | | [audio.md](audio.md#talking-over-the-music) |
 | `?radiointro=classic` | The radio is full-range from Play, instead of playing through the taxi's dash speakers until the car rolls out of its garage | | [audio.md](audio.md#the-dash-radio) |
 | `?menumusic=classic` | The radio's intro plays under the title menu on the first tap, rather than a song until Play | #519 | [audio.md](audio.md#the-radio) |
+| `?bubbles=classic` | Speech bubbles pinned over whatever they are about (cars, riders, the pedal), following it round the screen, instead of a card docked at the top with a small tag on the talker | | [gameplay.md](gameplay.md#speech-bubbles) |
+| `?bubblestyle=card` | The docked speech card as the white Figma card instead of see-through black with white type | | [gameplay.md](gameplay.md#speech-bubbles) |
+| `?bubbles=dock` | The docked card with no tag on the talker | | [gameplay.md](gameplay.md#speech-bubbles) |
 | `?copchat=classic` | The cops' "pull over" and "lost the suspect" bubbles | #492 | [gameplay.md](gameplay.md) |
 | `?robbery=classic` | The robbery with no opening cut (straight to the drive-past). Also implies `?bankfare=classic` | #475, #478 | [gameplay.md](gameplay.md) |
 | `?bankfare=classic` | The drive-past robbery instead of the bank rider fare | #499 | [gameplay.md](gameplay.md) |

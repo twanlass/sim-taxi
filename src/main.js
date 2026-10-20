@@ -4870,6 +4870,8 @@ const PLANE_LEAD = 1.4;
 // clears *before* that (game/drawbridge.js), so a held span holds the sound back rather than
 // stretching the middle of it. It is steered for as long as it can be sounding.
 const BRIDGE_SECONDS = 26;
+// The fade when the gates start rising: a time constant, so it is all but silent by ~0.75s.
+const BRIDGE_CUT = 0.15;
 
 function cityOneShots(dt) {
   if (!sfx) return;
@@ -4914,6 +4916,12 @@ function cityOneShots(dt) {
     if (bp === 'closing' && lastBridgePhase !== 'closing') {
       bridgeVoice = sfx.play('bridge', { at, steered: true });
       bridgeSince = 0;
+    }
+    // Cut it as the gates start back up. The file runs the full 26s, and a lift that a boat
+    // releases early has the deck home and the arms rising while the bell is still ringing.
+    if (bp === 'raising' && lastBridgePhase !== 'raising' && bridgeVoice) {
+      sfx.release(bridgeVoice, BRIDGE_CUT);
+      bridgeVoice = null;
     }
     lastBridgePhase = bp;
     if (bridgeVoice) {
