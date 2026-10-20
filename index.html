@@ -1440,6 +1440,15 @@
       .speech-style-subtitle .speech-title { color: var(--who); font-size: 12px; font-weight: 700; }
       .speech-style-subtitle[data-speaker="tip"] .speech-title { color: #ffd21f; }
       .speech-style-subtitle .speech-text { color: #fff; font-size: 21px; }
+      /* The caret while a docked line types: a zero-width box with a 2px right border, so it takes no
+         room in the line — the untyped rest is already laid out after it, and a caret with width
+         would push every letter along a step as it went. */
+      .speech-docked.is-typing .speech-typed::after {
+        content: ''; display: inline-block; width: 0; height: 0.95em; margin-right: -2px;
+        border-right: 2px solid currentColor; vertical-align: -0.12em;
+        animation: speech-caret 0.5s step-end infinite alternate;
+      }
+      @keyframes speech-caret { from { opacity: 1; } to { opacity: 0.25; } }
       /* Black: solid black, white type, the speaker in grey caps. The tag goes black to match. */
       .speech-style-black .speech-card { background: #0d0e12; box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35); padding: 13px 16px; border-radius: 14px; }
       .speech-style-black .speech-title { color: rgba(255, 255, 255, 0.55); }
