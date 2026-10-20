@@ -15,6 +15,8 @@
 // game's own in one curve. Resizing the iframe instead would resize the game's canvas on every
 // step of the animation, and a resize both empties the drawing buffer and re-frames the camera.
 
+import '@fontsource-variable/inter';
+
 const REVEAL_MS = 1100;
 // How far the still is pushed in. At 1 a landscape window shows the whole city, which inside a
 // phone-sized cut-out is a postage stamp; 2.4 is about what the game shows on an actual phone.
@@ -137,7 +139,7 @@ function go(toLive) {
   document.body.classList.toggle('live', toLive);
   // Live from the first frame of the reveal: the city starts moving as the phone opens, which is
   // the whole trick. On the way back it freezes where it stands and the phone closes over it.
-  if (toLive) presenter.hold(false);
+  if (toLive) { game.contentWindow.__taxi.pause?.setPaused(false); presenter.hold(false); }
   else { presenter.hold(true); hud(false); game.blur(); takeFraming(); framing.zoom = framingZoom; }
   setClip(toLive ? 1 : 0);
 
@@ -147,6 +149,9 @@ function go(toLive) {
   const step = (now) => {
     const k = Math.min((now - start) / REVEAL_MS, 1);
     t = lerp(from, to, k);
+    // Leaving the game (Esc, the blur) also trips the game's own pause, and a paused game draws one
+    // frame and stops — so the push back in would never be drawn. Undo it for as long as we move.
+    if (!toLive) game.contentWindow.__taxi.pause?.setPaused(false);
     frameCamera(t);
     if (k < 1) { requestAnimationFrame(step); return; }
     animating = false;
@@ -158,9 +163,39 @@ function go(toLive) {
 
 phone.addEventListener('click', () => go(true));
 back.addEventListener('click', () => go(false));
+// The deck. One `.slide` shows at a time; the hash keeps your place across a reload. The phone
+// slide is just one of them — the game iframe only shows while it is up.
+const slides = [...document.querySelectorAll('.slide')];
+let current = 0;
+// The table of contents down the left edge: one tick per slide, named by its `data-name` or its
+// heading, and a click jumps there.
+const toc = document.getElementById('toc');
+const ticks = slides.map((s, k) => {
+  const b = document.createElement('button');
+  b.type = 'button';
+  b.innerHTML = `<i></i><span>${k + 1}. ${s.dataset.name ?? s.querySelector('h1, h2')?.textContent ?? ''}</span>`;
+  b.addEventListener('click', () => show(k));
+  toc.appendChild(b);
+  return b;
+});
+function show(i) {
+  current = Math.max(0, Math.min(slides.length - 1, i));
+  slides.forEach((s, k) => s.classList.toggle('on', k === current));
+  ticks.forEach((b, k) => b.classList.toggle('on', k === current));
+  document.body.classList.toggle('on-phone', slides[current].id === 'slide');
+  history.replaceState(null, '', `#${current + 1}`);
+}
+const fromHash = () => show((Number.parseInt(location.hash.slice(1), 10) || 1) - 1);
+fromHash();
+window.addEventListener('hashchange', fromHash);
+
 window.addEventListener('keydown', (e) => {
-  if (e.key === 'Escape') go(false);
-  else if ((e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowRight') && !live) go(true);
+  if (e.key === 'Escape') { go(false); return; }
+  if (live) return;
+  if (e.key === 'ArrowRight' || e.key === 'PageDown') show(current + 1);
+  else if (e.key === 'ArrowLeft' || e.key === 'PageUp') show(current - 1);
+  else if (e.key === 'r' || e.key === 'R') show(0);
+  else if (e.key === 'Enter' && document.body.classList.contains('on-phone')) go(true);
 });
 // The game has focus once it is live, so Escape has to be heard from inside it too.
 game.addEventListener('load', () => {
