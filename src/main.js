@@ -9,7 +9,7 @@ import { createComboMeter, comboScope, formatMult } from './game/combometer.js';
 import { createSquall, RAMP, RAMP_CLASSIC, CELL_EDGE } from './game/squall.js';
 import { pedalZones as growPedalZones, pedalAfterMove } from './game/pedalzones.js';
 import {
-  collectPanes, litWindows, streetLamps, switchedLights, createTaxiHeadlights, setCityLights,
+  collectPanes, litWindows, streetLamps, entrances, switchedLights, createTaxiHeadlights, setCityLights,
 } from './game/citylights.js';
 import {
   createCityCamera, attachDragPan, VIEW_DIR, PLAY_ZOOM, LOCO_PUNCH_HOLD,
@@ -651,8 +651,11 @@ if (horizon) scene.add(horizon.mesh);
 // Rain Mode's city lights — lit windows over the panes just built, and street lamps. A wet street
 // is a mirror for lamps, and a daytime city has almost none. See game/citylights.js. Their own
 // streams, so switching the rain on cannot move a building.
-const litPanes = stopPanes ? litWindows(makeRng(seed + 391), stopPanes()) : null;
-const lamps = rain.enabled ? streetLamps(makeRng(seed + 392), layout) : null;
+const paneFaces = stopPanes ? stopPanes() : null;
+const litPanes = paneFaces ? litWindows(makeRng(seed + 391), paneFaces) : null;
+const lamps = rain.enabled
+  ? streetLamps(makeRng(seed + 392), layout, entrances(paneFaces ?? [], city.bank))
+  : null;
 if (litPanes) scene.add(litPanes);
 if (lamps) {
   scene.add(markOccluder(lamps.posts), lamps.heads, lamps.pools);

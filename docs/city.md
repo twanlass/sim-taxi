@@ -1116,7 +1116,9 @@ park can have a third of a unit of grass on three sides (3 courts in 40 seeds), 
 sideline's apron** ranks ahead of the near lawn: the box is set down on the blacktop outside the
 lines. On each beat it hops, squashes as it lands, its woofers pump, and an orange quaver or beamed pair floats up over
 it; the notes are opaque and go out by shrinking, because a translucent one blends twice where its
-head, stem and flag overlap. It is silent for now — see [audio.md](audio.md#the-boom-box) for the
+head, stem and flag overlap. Only the box is in the city's entrance wave; the notes follow its scale
+and visibility, because the wave also owns `visible` on what it is handed and once switched the
+pool's never-emitted spares on at the world origin. It is silent for now — see [audio.md](audio.md#the-boom-box) for the
 hook.
 
 ### A skatepark

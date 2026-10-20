@@ -1709,7 +1709,10 @@ reflected into grey asphalt read as a filter. So the rain switches the city on:
   city is identical with it installed or not.
 - **Street lamps.** Two per block on random edges: a post on the pavement, an arm out over the
   kerb, a glowing head (bloom `bay`), and an additive pool on the road. Posts and heads are stamped
-  for the entrance wave and rise with their block.
+  for the entrance wave and rise with their block. A post keeps 1.2 units clear of every doorway
+  along the kerb, and off the bank's whole flight of steps (`entrances`: the building generator
+  reports its doors through the pane sink as `kind: 'door'`); an edge with no clear spot in six
+  tries gets no lamp. Placed blind, one landed on the bank's steps.
 - **Headlights and tail lights.** `setRunningLights(1)` puts two white pods inboard of each
   vehicle's front indicators, which own the corners. The front indicator is narrower than the rear
   one (`turnSignalShapes`) so the headlight beside it still reads while it blinks; at full width the
