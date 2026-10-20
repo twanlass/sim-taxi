@@ -130,6 +130,33 @@ try {
     }
   }
 
+  // The colour grade (game/colorgrade.js). It rides the fog chunk after the edge fog, so check the
+  // order, that a cloned built-in shares the one LUT texture and uniform (a clone of the texture
+  // never uploads), that it ships neutral, and that a .cube survives the round trip.
+  {
+    const THREE = await import('three');
+    const grade = await import('../src/game/colorgrade.js');
+    grade.installColorGrade();
+    const tail = THREE.ShaderChunk.fog_fragment;
+    if (!tail.includes('<colorgrade_fragment>')) throw new Error('colorgrade: the fog chunk was not patched');
+    if (tail.includes('edgeFog') && tail.indexOf('edgeFog') > tail.indexOf('<colorgrade_fragment>')) {
+      throw new Error('colorgrade: the grade runs before the edge fog, which would leave the fog ungraded');
+    }
+    const cloned = THREE.UniformsUtils.clone(THREE.ShaderLib.lambert.uniforms);
+    if (cloned.colorGradeLut?.value !== grade.GRADE_UNIFORMS.colorGradeLut.value
+      || cloned.colorGrade?.value !== grade.gradeUniform) {
+      throw new Error('colorgrade: a built-in shader does not share the one LUT and uniform');
+    }
+    if (grade.GRADE_DEFAULTS.preset !== 'none' || grade.GRADE_DEFAULTS.saturation !== 1 || grade.gradeUniform.w !== 0) {
+      throw new Error('colorgrade: the game must ship with a neutral grade');
+    }
+    const baked = grade.parseCube(grade.toCube(grade.bakedTable()));
+    for (let k = 0; k < baked.data.length; k += 97) {
+      const want = ((k / 3) % grade.LUT_SIZE) / (grade.LUT_SIZE - 1);
+      if (k % 3 === 0 && Math.abs(baked.data[k] - want) > 1e-5) throw new Error('colorgrade: the neutral bake is not an identity');
+    }
+  }
+
   // The city past the edge of the map (city/horizon.js): its haze patch run against three's own
   // Lambert source, for the reason the sink above is — a replace that misses is a city with no fade
   // and nothing logged. And its blocks, which must stand clear of every piece of the island's own

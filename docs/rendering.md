@@ -1749,6 +1749,39 @@ switches its lights on.
 - **Unlit markers on the road** (the route band, the target discs) are clipped out of the mirror
   with the road they sit on, so they do not reflect.
 
+## Colour grade — `game/colorgrade.js`
+
+A 3D lookup table and a saturation knob over the whole game view. **Neutral by default**: the shipped
+frame is untouched until something is picked in the ⚙️ panel's **Colour grade** section (Visuals tab),
+which has a LUT dropdown (six bundled looks built in code, plus whatever `.cube` was loaded with
+**Load .cube file…**), **LUT strength** (0–1), **Saturation** (0–2, 1 unchanged), **Download baked
+.cube** (the LUT with both sliders folded in, for making a grade the shipped look) and **Reset**. The
+choice is remembered in localStorage across reloads; `?grade=` and `?gradesat=` pick one for a
+single load without remembering it, and shot mode draws neutral unless they are given.
+
+### A fragment tail, not a pass
+
+There is no composite pass in this game to fold a grade into — the frame is drawn straight to the
+canvas — and adding one costs what [`?hdr`](#bloom--gamebloomjs-and-the-comparison-in-gamehdrjs)
+costs: a full-size target, MSAA bought back as `samples`, a resolve and a full-screen draw every
+frame. Instead the grade is appended to three's `fog_fragment` chunk, the way the edge fog is, so
+every built-in material looks its own fragment up as its last step: after the haze and the edge fog,
+in display space, which is the space a `.cube` is authored in. Off, it is one uniform branch per
+fragment. It is installed from `decideLooks()` rather than at import so that it lands *after* the
+edge fog's term in that chunk.
+
+What that trades: translucent surfaces are graded before they blend rather than after (identical for
+saturation, which is linear; a LUT bends a little between the two colours mixed), a fragment drawn
+twice is graded twice, and a hand-written `ShaderMaterial` is graded only if it includes
+`colorgrade_fragment` — the sky dome and the route band do; the small additive glows (window lights,
+headlamp cones, rain) and the bloom's spill do not. Under `?hdr` the grade sees linear values,
+because three turns the sRGB encode off when rendering to a target.
+
+Every LUT is resampled to one fixed 33³ half-float texture, because three allocates a 3D texture's
+storage once and a table of a different size would not fit. The texture is a `Data3DTexture` whose
+`clone()` returns itself: built-in materials clone ShaderLib's uniforms, and a cloned texture never
+uploads.
+
 ## Bloom — `game/bloom.js`, and the comparison in `game/hdr.js`
 
 Spill around every self-lit thing in the game: brake pods and indicators on every vehicle, a

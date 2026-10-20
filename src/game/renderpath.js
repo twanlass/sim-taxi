@@ -27,6 +27,7 @@ import { createCrayon } from './crayon.js';
 import { createCartoon } from './cartoon.js';
 import { cullEmptyPools } from '../util/emptypools.js';
 import { syncRiverWater } from '../city/riverwater.js';
+import { installColorGrade } from './colorgrade.js';
 
 /**
  * The URL's say in how the frame is drawn. The game adds what only it decides (the safe mode, the
@@ -52,6 +53,9 @@ export function renderBudget() {
  * before a single mesh exists: none of it can move afterwards.
  */
 export function decideLooks(budget) {
+  // The colour grade (game/colorgrade.js) goes on the end of three's fog chunk, after the edge
+  // fog's own term — which is why here, once every import has run, and not at its own import.
+  installColorGrade();
   // Ambient occlusion. `?ao=off` turns it off for a like-for-like cost comparison on a device.
   setAmbientOcclusion(budget.ao);
   // Crayon Mode, the same kind of decision: see `game/crayon.js` for its three layers.
