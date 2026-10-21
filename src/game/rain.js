@@ -136,7 +136,9 @@ const SHAFT_STRENGTH = 0.34;
  * vertex shader, so a squall with nothing in its wake costs 144 vertex runs and no fill.
  */
 const SUN_RAYS = 24;
-const SUN_RAY_STRENGTH = 1;
+// 1 first, and where two or three rays overlapped they washed a block out to near white (Tyler:
+// "too strong"). Half that keeps them a glow on the wet street.
+const SUN_RAY_STRENGTH = 0.5;
 const SUN_RAY_LEN = 60;
 
 const Y_MIRROR = new THREE.Matrix4().makeScale(1, -1, 1);
