@@ -109,6 +109,7 @@ doc; what the classic version was, and why it changed, is in that doc's history 
 | `?route=classic` | The route stops dead at the rider's kerb, with no stub past the pickup | #480 | [gameplay.md](gameplay.md) |
 | `?newmove=classic` | New Move cards mid-run instead of after the run | #493 | [gameplay.md](gameplay.md) |
 | `?arrowpulse=classic` | The off-screen fare arrows hold still at the frame edge, with no slow swell and lean toward their mark | | [rendering.md](rendering.md#off-screen-fare-pointers) |
+| `?cardcombo=classic` | The New Move card without the combo meter and purple combo word over its clip, and without the ring on the key to press next | | [gameplay.md](gameplay.md#new-move-unlocked-the-overtake-u-turn-and-drift-cards) |
 | `?movecard=classic` | The New Move card's clip bare with rounded corners (not on polaroid paper), and its pedal keys drawn as the HUD buttons (not flat) and greyed until pressed | | [gameplay.md](gameplay.md#new-move-unlocked-the-overtake-u-turn-and-drift-cards) |
 | `?repairtip=classic` | The depot's repair tip as the New Move-style card with a clip of the visit, once ever, stopping the world (not a line in the speech card, once per run until the depot has been used) | | [gameplay.md](gameplay.md#the-depots-tip) |
 | `?sunrays=classic` | No sun rays in a squall's wake: the cell goes over and the sun simply comes back | | [rendering.md](rendering.md#a-squall--the-default-weather-gamesqualljs) |

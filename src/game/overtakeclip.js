@@ -28,6 +28,8 @@ export const REEL = { classic: REEL_CLASSIC, touch: REEL_TOUCH }[STREETS_KEY];
 export const PRE_ROLL = 0.6;
 export const BLIP_OFF = 0.45;
 export const BLIP_ON = 0.6;
+/** When the game counts the pass and lands its combo: the blip back on throws it (sim/traffic.js). */
+export const LANDS_AT = BLIP_ON;
 const KEYS_OFF = 2.6;                 // the row dims for the last beat, then the loop starts again
 
 /** The loop, in seconds: the length of the recording. */
