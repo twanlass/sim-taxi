@@ -787,7 +787,7 @@ export const GLOSS_UNIFORMS = {
 // `?rim=<name>`: one tint for every car's rim. Without one, each car's rim takes its own paint's
 // hue at full strength (Tyler, 2026-10-16: gold on the taxi), times the colour of the light.
 export const RIM_COLORS = { magenta: '#ff3df0', cyan: '#00e5ff', gold: '#ffb347', white: '#ffffff' };
-const RIM_STRENGTH = 0; // was 3; set to 0 from the workshop sliders (Tyler, 2026-10-19)
+const RIM_STRENGTH = 1; // was 3, then 0 from the workshop sliders (Tyler, 2026-10-19); 1 (Tyler, 2026-10-20)
 let rimLine = true;
 
 /**
