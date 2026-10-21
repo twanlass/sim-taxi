@@ -200,6 +200,10 @@ function search(net, from, reached, cost) {
     if (cur !== START && reached(cur)) {
       const out = [];
       for (let lane = cur; lane !== START; lane = prev.get(lane)) out.unshift(net.dirOfLane(lane));
+      // What the route cost, in the weights it was chosen on, for a caller choosing between two
+      // destinations (the depot's two ways in, game/depotrun.js). Rides on the array so every
+      // existing caller is untouched.
+      out.cost = curDist;
       return out;
     }
 

@@ -1306,6 +1306,14 @@ down by tapping a street any time before the green, which gave the parked taxi a
 the race off with "Next time, then." Tyler simplified it: anything but the card says no, and
 accepting is final.
 
+## The depot by the near lane only (until October 2026, `?garageroute=classic`)
+
+The trip in for repairs used to accept one way in: a right turn off the near lane of the road the
+door faces. A taxi coming down the far side of that road could not turn left into the driveway, so
+the router sent it round the block to come back up the near lane — a lap of a whole block with the
+garage in plain view. Tyler: "Taxi never routes into the garage turning left into it. Why?" The
+reason was the staged car: once the turn in starts the taxi is out of the traffic model, and a left
+crosses a lane whose cars cannot see it. The left in now waits for a gap on that lane first.
 
 ## The muted-gold climb out of empty
 

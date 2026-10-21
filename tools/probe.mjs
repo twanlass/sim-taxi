@@ -15917,6 +15917,38 @@ let chopperOrder; // likewise
       `nose ${(last.x - TAXI_TAILPIPE_BACK - site.bayX).toFixed(2)} off the back wall, tail ${tailGap.toFixed(2)} behind the curtain`);
   }
 
+  // The left in from the far lane (`entryPath(site, 'far')`), held to the same agreements: it leaves
+  // the far lane exactly where the traffic model has a car `site.far.back` short of its junction,
+  // tangent to it, with no kink, and comes out square across the near lane onto the driveway.
+  const farPath = entryPath(site, 'far');
+  if (site.far) {
+    const stand = traffic.cars.find((c) => !c.isTaxi);
+    const was = { lane: stand.lane, s: stand.s, state: stand.state, turn: stand.turn };
+    const onLane = placeCar(stand, site.far.d, site.far.i, site.far.j, site.far.back);
+    const at = onLane ? stand.lane.path.at(stand.s) : { x: Infinity, z: Infinity };
+    check('the left in leaves the far lane exactly where the traffic model has the car',
+      onLane && stand.s > 0 && Math.hypot(at.x - farPath.mouth.x, at.z - farPath.mouth.z) < 1e-9,
+      `mouth ${farPath.mouth.x.toFixed(3)},${farPath.mouth.z.toFixed(3)} vs lane ${at.x.toFixed(3)},${at.z.toFixed(3)}`);
+    Object.assign(stand, was);
+    const kinks = [];
+    for (let k = 0.25; k < farPath.total; k += 0.25) {
+      const a = farPath.tangentAt(k - 1e-6);
+      const b = farPath.tangentAt(k + 1e-6);
+      if (Math.hypot(a.x - b.x, a.z - b.z) > 1e-3) kinks.push(k.toFixed(2));
+    }
+    const t0 = farPath.tangentAt(0);
+    const cross = farPath.tangentAt(farPath.fillet.length - 1e-6);
+    const end = farPath.at(farPath.total);
+    check('...turns in off it with no kink, square across the near lane, into the same bay',
+      Math.abs(t0.x) < 1e-9 && Math.abs(t0.z + 1) < 1e-9 && !kinks.length
+      && Math.abs(cross.x + 1) < 1e-9 && Math.hypot(end.x - inPath.at(inPath.total).x, end.z - inPath.at(inPath.total).z) < 1e-9
+      && farPath.signal === 'left',
+      `kinks at ${kinks.join(', ') || 'none'}`);
+  } else {
+    check('the left in is absent exactly where a median stands in the way',
+      farPath === null && gridIsArterialZ(site.merge.i), `far ${farPath}, arterial ${gridIsArterialZ(site.merge.i)}`);
+  }
+
   // And a whole visit, end to end, in a live city: the taxi is sent from a handful of jobs, driven
   // there by the router, caught at the mouth, taken in, repaired behind a shut door, and driven back
   // out — and each of the claims the visit makes has to hold on every trip.
@@ -15960,9 +15992,14 @@ let chopperOrder; // likewise
     let dones = 0;
     let handedBack = 0;
     let visit = null;
+    // Which way each visit came in, and whether a left in was ever taken with the near lane busy.
+    const sides = { near: 0, far: 0 };
+    let crossedIntoTraffic = 0;
+    const nearX = site.kerbX + site.turnR;
     const depot = createDepotRun({
-      site, mouth: inPath.mouth, taxi, routeTo,
-      onArrive: (s0, handBack) => opening.enter(s0, {
+      site, mouth: inPath.mouth, farMouth: farPath?.mouth ?? null, cars: vTraffic.cars, taxi, routeTo,
+      onArrive: (s0, handBack, side) => opening.enter(s0, {
+        side,
         onRepair: () => {
           repairs += 1;
           if (door > REPAIR_GAP + 1e-9) repairedOpen += 1;
@@ -15974,21 +16011,31 @@ let chopperOrder; // likewise
           if (handBack && routeTo(handBack)) handedBack += 1;
         },
         onDone: () => { dones += 1; },
-      }),
+      }) && (() => {
+        sides[side] += 1;
+        if (side === 'far' && vTraffic.cars.some((c) => c !== taxi && !c.crashed && !c.staged
+          && Math.abs(c.x - nearX) < 2.6 && c.z > site.doorZ - 22 && c.z < site.doorZ + 3)) {
+          crossedIntoTraffic += 1;
+        }
+        return true;
+      })(),
     });
 
     const S = 1 / 60;
     const tick = () => {
       if (working) doorWhileWorking = Math.max(doorWhileWorking, door);
       depot.update(S);
+      taxi.braking = depot.holdsTaxi();
       opening.update(S);
       opening.frameCamera(S);
       vTraffic.update(S);
     };
     const merge = exitPath(site).at(exitPath(site).total);
+    // The last job parks the taxi up the road the door faces, past the depot, so the cheaper way
+    // back is down the far side and left in — the trip the classic routing lapped the block for.
     const jobs = [
       { i: 0, j: 0 }, { i: GRID_I, j: GRID_J }, { i: site.merge.i, j: site.merge.j - 1 },
-      { i: 0, j: GRID_J },
+      { i: 0, j: GRID_J }, { i: site.merge.i, j: Math.min(GRID_J, site.merge.j + 1) },
     ];
     let trips = 0;
     let caught = 0;
@@ -16033,6 +16080,9 @@ let chopperOrder; // likewise
     check('a tap on the depot gets the taxi to its driveway and in',
       trips === jobs.length && caught === trips,
       `${caught}/${trips} caught at the mouth, slowest drive ${longestDrive.toFixed(1)}s`);
+    check('...by a left in off the far side when that is the shorter way, never across traffic',
+      (site.far ? sides.far >= 1 : sides.far === 0) && crossedIntoTraffic === 0,
+      `${sides.near} right in, ${sides.far} left in, ${crossedIntoTraffic} with the near lane busy`);
     check('...plays the vignette backwards and then forwards',
       ['enter', 'shut', 'repair', 'door', 'reveal', 'roll', 'release'].every((p) => phasesSeen.has(p)),
       [...phasesSeen].join(' → '));
