@@ -1961,7 +1961,12 @@ export function createFareSystem(rng, scene, {
         // is handed to `beginBail`: out of the cab, a mouthful
         // about it, and gone. Splicing by hand rather than through `clear` because `clear` hides
         // the figure, which is the one thing that has to stay on screen.
-        if (fare.vip) {
+        // The bank rider left waiting on the steps is an offer turned down, not a rider failed: they
+        // wait under the side-quest "!" with no pie to say how long (Tyler, 2026-10-21), so running
+        // out costs no strike — they walk off like a missed VIP. Once aboard they are an ordinary
+        // fare with the crystal on the roof, and an ordinary strike. `?questmark=classic` keeps the
+        // pie, and the strike with it.
+        if (fare.vip || (fare.bank && fare.stage === 'waiting' && questMark())) {
           const missed = state.fares.indexOf(fare);
           if (missed !== -1) state.fares.splice(missed, 1);
           beginBail(fare, taxiCar);

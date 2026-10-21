@@ -2160,7 +2160,9 @@ they are the way into the robbery, an offer more than a fare. The pie is hidden 
 (`showAt`'s `quest` in game/faremarker.js) and the yellow tag stands where it was (`#bank-mark`,
 `updateBankMark` in main.js); the kerb disc stays, and the pie appears at pickup to fly to the roof
 with the trip's clock. Off screen the rider's own arrow points the way, so the "!" does not wait at
-the edge as well. `?questmark=classic` keeps the pie.
+the edge as well. They still have a clock on the kerb, but with nothing showing it, running it out
+is an offer turned down rather than a rider failed: no strike, they walk off like a missed VIP.
+Aboard, they are an ordinary fare again. `?questmark=classic` keeps the pie, and the strike.
 
 **It starts with the bank rider** (`BANK_CHANCE` in game/fares.js: 30% of qualifying spawns, from
 the second delivery, the bank junction within the spawn box, 35s after the last one left the
