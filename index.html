@@ -605,9 +605,10 @@
         font-size: 20px; white-space: nowrap; text-transform: uppercase; letter-spacing: 0.04em;
         color: #FFFFFF; text-shadow: 0 2px 10px rgba(10, 20, 40, 0.7);
       }
-      /* The street race's three, two, one (game/race.js): bigger than a word, because it is the
-         one thing on screen the player should be watching for those three seconds. */
-      .earning.is-label.is-count { font-size: 34px; }
+      /* The street race's three, two, one (game/race.js) and its words: bigger than a word,
+         because it is the one thing on screen the player should be watching. 40px (was 34, Tyler
+         asked for a little bigger); tabular figures so the digits are one width. */
+      .earning.is-label.is-count { font-size: 40px; font-variant-numeric: tabular-nums; }
       /* The combo's words off the roof and its multiplied total at the drop-off. */
       .earning.run-combo { color: #B27CFF; }
 

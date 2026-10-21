@@ -3483,6 +3483,7 @@ export function stageCar(car, x, z, yaw) {
   car.passCredit = 0;
   car.dragStart = false;
   car.racePass = false;
+  car.parkedOut = false;
   car.pullover = 0;
   car.pulloverSlope = 0;
   car.brakeLevel = 0;
@@ -6308,7 +6309,11 @@ export function createTraffic(
         : car.state === 'drive' && taxi.state === 'drive' && car.lane === taxi.lane && !taxi.crashed
           ? (isXAxis(car.d) ? (car.x - taxi.x) : (car.z - taxi.z)) * sign
           : -Infinity;
-      if (car.racePass && car.passing) {
+      // Held out by game/race.js for the finish, side by side with the taxi facing the way they
+      // raced: whatever the gate would say, it stays in the oncoming lane until let go.
+      if (car.racePass && car.parkedOut) {
+        car.passing = true;
+      } else if (car.racePass && car.passing) {
         const abandon = !approachSignal(car, t).open || !oncomingClearFor(car, COP_PASS_ABORT, lateral, true);
         car.passing = rel < PASS_CLEAR && !(abandon && rel < -CAR_LEN);
       } else if (car.state === 'drive' && car.passing) {

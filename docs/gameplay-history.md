@@ -1233,6 +1233,15 @@ vignette where you wanna smash through roadblocks." The getaway fills the tank a
 across your route; the third rule made the second the one thing it asked of you that ended the run.
 Replaced by [getting caught](gameplay.md#getting-caught).
 
+## The street race's finish, head-on
+
+The first choreographed finish parked the winner mid-block and brought the loser down the *oncoming*
+lane from the block beyond, so the two stopped window to window facing opposite ways. Tyler asked
+for both to face the way they raced; the loser now comes up the winner's own street from behind
+(gameplay.md). The same pass slowed the count from 1s a number to 1.25s, pinned it in place (it
+followed the taxi and its digits shifted sideways), and held the race's words and the faceoff longer
+(`FACEOFF` 1.6s to 2.6s, `RESULT_HOLD` 1.1s to 2.2s).
+
 ## The street race's start, opposite ways round
 
 The first cut-to-the-start put the two cars window to window on the street's two lanes, the racer
