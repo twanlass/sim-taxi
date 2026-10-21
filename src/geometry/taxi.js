@@ -11,6 +11,7 @@ import {
   turnSignalMaterial,
 } from './lights.js';
 import { addGhostOutline, addGhostMask } from './ghostoutline.js';
+import { chipPaint } from './taxiscratches.js';
 import { bumperGeometry, bumperLength, BUMPER_D, BUMPER_H } from './bumpers.js';
 import {
   BOOT_HINGE_X, HOOD_HINGE_X, HOOD_LEN, BODY_TOP, BOOT_LEN, LAMP_WIRE, LAMP_SIZE, lampSocket, lampHang,
@@ -735,6 +736,8 @@ function buildDamage(group, lightPods, bumpers, chrome) {
 
   // The body's paint — the shell's own material (bumpers share it) and the two lids — for wear.
   const paint = [chrome, lid.material, hood.material];
+  // The chipped paint (geometry/taxiscratches.js): a patch on the same three materials.
+  const scratches = chipPaint({ shell: chrome, hood: hood.material, boot: lid.material });
   const CLEAN = new THREE.Color(1, 1, 1);
   const GRIME = color('taxiGrime');
   const FLASH = color('taxiHitFlash');
@@ -797,6 +800,15 @@ function buildDamage(group, lightPods, bumpers, chrome) {
     setGrime(t) {
       for (const m of paint) m.color.copy(CLEAN).lerp(GRIME, t);
     },
+    /**
+     * The chipped paint, by corner — a Map of `${end},${side}` → 0..1.
+     * See geometry/taxiscratches.js.
+     */
+    setWear(levels) {
+      scratches.setWear(levels);
+    },
+    /** For the headless check. */
+    scratches,
     /** The hit flash, 0..1 — an emissive `taxiHitFlash` on the same three. */
     setFlash(amount) {
       for (const m of paint) m.emissive.copy(FLASH).multiplyScalar(amount);
@@ -805,6 +817,7 @@ function buildDamage(group, lightPods, bumpers, chrome) {
     reset() {
       this.setGrime(0);
       this.setFlash(0);
+      scratches.setWear(new Map());
       for (const [key] of lamps) this.setLamp(...key.split(',').map(Number), null);
       bootHinge.scale.setScalar(0);
       hole.scale.setScalar(0);

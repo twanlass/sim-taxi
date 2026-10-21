@@ -1857,11 +1857,26 @@ play zoom on its own. Each adds a distinct ingredient rather than turning the la
 ladder above on its own). The tiers all wait for a threshold, so the commonest first hit — a 24-HP
 tailgate from full — showed a lamp a few pixels across and nothing else. So three things start at
 the first hit and grow with every one after it: the body **flashes red** twice as the hit lands
-(`taxiHitFlash`, an emissive, 0.3s); the **paint dulls** toward `taxiGrime`, 40% of the way at the
-first hit and the rest of the way down to empty, eased in over a quarter second; and **white steam**
+(`taxiHitFlash`, an emissive, 0.3s); the **paint chips to the metal** at the corner that was struck
+(below); and **white steam**
 comes off the bonnet from the first hit, faster down to the red line, where the smoke in tier 3 takes
 over — so the smoke grows out of something rather than arriving. The rattle starts at tier 2 rather
 than 3, so a car with its boot up also drives broken.
+
+**The chipped paint** (geometry/taxiscratches.js; `?taxidamage=classic` for the tint it replaced). The
+paint keeps its colour and comes off in voxel chips, drawn by a patch on the paint's own shader
+rather than by geometry. Each fragment finds its 0.09-unit voxel in the car's space and scores it:
+value noise sampled at the voxel's centre (so whole cells go together), plus its distance to the
+nearest corner (so chips open from the corners inward). Under the wear threshold it is bare steel
+(`taxiBareMetal`). Wear is one value per corner, blended across the car: the struck corner reaches
+0.3 at the first hit and 1 at empty, the other three follow on the square of that up to 0.6. Only the
+taxi's yellow chips (the test is the vertex colour), so glass, chrome and the chequer are left
+alone. The shell and both lids share the one wear uniform, so a lid swung up, the wreck and the crash
+replay all wear the same chips. Each chip had a primer ring at first — dark grey, which read as a
+second chequer, then red oxide, which read as noise — and it came out: plain steel is the look.
+The hit that wrecks the car never reaches `hit`, so `scuff` wears its
+corner in full before the wreck takes the shell. A first cut laid the chips on as merged cell boxes;
+it needed a copy on each lid and came out for the shader.
 
 And one piece off the tiers: **rear-ending a car pops the bonnet**, however much HP is left. It is the
 boot's mirror image, hinged at the foot of the windscreen, and it flaps on the same spring for the
