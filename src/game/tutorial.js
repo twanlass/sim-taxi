@@ -40,7 +40,7 @@ const TAXI_BEAT = false;
 // Every line, in the order it is spoken. Kept together so the whole script is one thing to read.
 const LINES = {
   taxi: "Let's pick up some {rides} and earn some {cash}.",
-  rider: 'Tap {rider} to start',
+  rider: 'Pick up {rider} to start',
   boost: 'Hold to floor it',
   // Said instead of the line above once the player has *pressed* the pill without ever holding it —
   // see BOOST_HINT_SHOWS. Repeating "Hold to floor it" at someone who is jabbing the pill is a
