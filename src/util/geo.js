@@ -469,8 +469,8 @@ export const CLOUD_UNIFORMS = {
   // The squall's rain cell (game/squall.js): x, z, core radius, and 1 while it is on. Its own clock,
   // because the footprint has to agree with the CPU copy in `cellMask` that the grip and the
   // headlights read.
-  uCell: { value: new THREE.Vector4(0, 0, 30, 0) },
-  uCellEdge: { value: 14 },
+  uCell: { value: new THREE.Vector4(0, 0, 20, 0) },
+  uCellEdge: { value: 10 },
   uCellTime: { value: 0 },
   // How the front falls off past the core's edge, in edges (`RAMP` in game/squall.js): the
   // drizzle's reach and share, then where the shade starts and ends.

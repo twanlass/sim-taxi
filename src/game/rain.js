@@ -119,6 +119,26 @@ const SHAFT_BOX = 170;
 const SHAFT_LEN = 85;
 const SHAFT_STRENGTH = 0.34;
 
+/**
+ * Sun rays in a squall's wake (`?sunrays=classic` for none): the sun coming back through the ragged
+ * back of the cloud once it has gone over. The storm's shafts above stand over gaps in a field that
+ * covers the sky, and under a squall that field is all but clear (its cover follows the 0.2 grey),
+ * so they never lit; these follow the cell instead. `SUN_RAYS` quads, scattered round the *trailing*
+ * half of the cell across its shade's soft band, each lit only where the shade is partial (sun
+ * getting through) and the wet map says the rain has already been — which is what "after it has
+ * passed" means at a point, with no timer: ahead of the cell the drizzle soaks the ground to a
+ * quarter at most, behind it the downpour left it near 1 and it dries over 45s. Each one breathes
+ * on its own slow cycle so the gaps open and close rather than standing like posts.
+ *
+ * Additive quads rather than a screen-space radial blur on purpose: the sun is behind this camera,
+ * so there is no on-screen light source for a blur to streak away from, and a full-screen pass is
+ * the one cost the colour grade (#609) was built to avoid. A ray that is not lit collapses in the
+ * vertex shader, so a squall with nothing in its wake costs 144 vertex runs and no fill.
+ */
+const SUN_RAYS = 24;
+const SUN_RAY_STRENGTH = 1;
+const SUN_RAY_LEN = 60;
+
 const Y_MIRROR = new THREE.Matrix4().makeScale(1, -1, 1);
 const FLIP_X = new THREE.Matrix4().makeScale(-1, 1, 1);
 
@@ -136,6 +156,7 @@ const inert = {
   renderLens: () => {},
   setWeather: () => {},
   setSunDir: () => {},
+  setSunRays: () => {},
   attachSquall: () => {},
   update: () => {},
   addTo: () => {},
@@ -596,6 +617,93 @@ ${WET_ALBEDO}`, 'ground fragment');
 
   hidden.push(streaks, splashes, shafts);
 
+  // --- the squall's sun rays (SUN_RAYS above) ------------------------------------------------------
+
+  const rayGeo = new THREE.InstancedBufferGeometry();
+  rayGeo.setAttribute('corner', shaftGeo.getAttribute('corner'));
+  rayGeo.setAttribute('position', shaftGeo.getAttribute('position'));
+  const raySeeds = new Float32Array(SUN_RAYS * 4);
+  for (let i = 0; i < raySeeds.length; i++) raySeeds[i] = Math.random();
+  // Spread round the trailing half evenly rather than at random: two dozen random angles bunch, and
+  // a bunch reads as one fat ray.
+  for (let i = 0; i < SUN_RAYS; i++) raySeeds[i * 4] = (i + 0.2 + 0.6 * raySeeds[i * 4]) / SUN_RAYS;
+  rayGeo.setAttribute('seed', new THREE.InstancedBufferAttribute(raySeeds, 4));
+  rayGeo.instanceCount = SUN_RAYS;
+  const rayUniforms = {
+    uLen: { value: SUN_RAY_LEN },
+    uSunDir: shaftUniforms.uSunDir,
+    uColor: shaftUniforms.uColor,
+    uStrength: { value: 0 },
+    uCellDir: { value: new THREE.Vector2(1, 0) },
+    tWetMap: { value: whiteTexel },
+    uWetExtent: { value: WET_EXTENT },
+    uCell: CLOUD_UNIFORMS.uCell,
+    uCellEdge: CLOUD_UNIFORMS.uCellEdge,
+    uCellTime: CLOUD_UNIFORMS.uCellTime,
+    uCellShape: CLOUD_UNIFORMS.uCellShape,
+    uCellLight: CLOUD_UNIFORMS.uCellLight,
+  };
+  const sunRays = new THREE.Mesh(rayGeo, new THREE.ShaderMaterial({
+    uniforms: rayUniforms,
+    transparent: true,
+    depthWrite: false,
+    blending: THREE.AdditiveBlending,
+    vertexShader: /* glsl */ `
+      uniform float uLen;
+      uniform vec3 uSunDir;
+      uniform float uStrength;
+      uniform vec2 uCellDir;
+      uniform sampler2D tWetMap;
+      uniform float uWetExtent;
+      uniform vec4 uCell;
+      uniform float uCellEdge;
+      uniform float uCellTime;
+      uniform vec4 uCellShape;
+      uniform vec4 uCellLight;
+      attribute vec2 corner;
+      attribute vec4 seed;
+      varying vec2 vCorner;
+      varying float vAlpha;
+      ${CLOUD_GLSL}
+      void main() {
+        // Round the back of the cell, 60 degrees either side of straight behind it — the width of
+        // the wet track it leaves — and out across the shade's soft band; each wanders a little
+        // along it so the wake is not a fixed comb.
+        float a = atan(-uCellDir.y, -uCellDir.x) + (seed.x - 0.5) * 2.1
+          + 0.12 * sin(uCellTime * 0.07 + seed.w * 6.283);
+        float d = uCell.z + uCellEdge * mix(0.3, 2.6, seed.y);
+        vec2 xz = uCell.xy + vec2(cos(a), sin(a)) * d;
+        float shade = cellShade(xz, uCell, uCellEdge, uCellTime, uCellShape, uCellLight.w);
+        float wet = texture2D(tWetMap, (xz + 0.5 * uWetExtent) / uWetExtent).r;
+        // Sun getting through: neither under the full cloud nor out in the open.
+        float gap = smoothstep(0.08, 0.3, shade) * (1.0 - smoothstep(0.7, 0.95, shade));
+        float passed = smoothstep(0.4, 0.75, wet);
+        float breathe = smoothstep(0.1, 0.6, 0.5 + 0.5 * sin(uCellTime * (0.22 + 0.2 * seed.w) + seed.w * 40.0));
+        vAlpha = uStrength * gap * passed * breathe * (0.6 + 0.4 * seed.z);
+        vCorner = corner;
+        if (vAlpha < 0.003 || uCell.w < 0.5) {
+          // Off: behind the clip volume, so the quad costs no fill.
+          gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
+          return;
+        }
+        vec4 foot = viewMatrix * vec4(xz.x, 0.0, xz.y, 1.0);
+        vec4 head = viewMatrix * vec4(vec3(xz.x, 0.0, xz.y) + uSunDir * uLen, 1.0);
+        vec3 axis = normalize(head.xyz - foot.xyz);
+        vec3 side = normalize(cross(axis, vec3(0.0, 0.0, 1.0)));
+        float width = mix(3.0, 8.0, seed.z) * (1.0 + 0.8 * corner.y);
+        vec4 v = mix(foot, head, corner.y);
+        v.xyz += side * corner.x * width;
+        gl_Position = projectionMatrix * v;
+      }
+    `,
+    fragmentShader: shafts.material.fragmentShader,
+  }));
+  sunRays.frustumCulled = false;
+  sunRays.renderOrder = 2;
+  sunRays.name = 'rain-sunrays';
+  sunRays.visible = false;
+  hidden.push(sunRays);
+
   // --- the lens ---------------------------------------------------------------------------------
 
   let frameTex = null;
@@ -737,6 +845,7 @@ ${WET_ALBEDO}`, 'ground fragment');
       CLOUD_UNIFORMS.uCellLight.value.w = cell.strength;
       CLOUD_UNIFORMS.uCellTime.value = squall.state.t;
       if (cell.on) rainCentre.set(cell.x, 0, cell.z);
+      rayUniforms.uCellDir.value.set(cell.dirX, cell.dirZ);
     }
   }
 
@@ -750,9 +859,11 @@ ${WET_ALBEDO}`, 'ground fragment');
     renderLens,
     update,
     /** Put the falling rain in a scene. */
-    addTo: (scene) => { scene.add(streaks, splashes, shafts); },
+    addTo: (scene) => { scene.add(streaks, splashes, shafts, sunRays); },
     /** Point the shafts at the sun — `sun.position`, any length. */
     setSunDir: (position) => { shaftUniforms.uSunDir.value.copy(position).normalize(); },
+    /** How much sun the squall's rays have to carry, 0..1 — none at night. */
+    setSunRays: (level) => { rayUniforms.uStrength.value = SUN_RAY_STRENGTH * level; },
     /** This storm's mood — see MOODS. */
     mood,
     /** The point on the ground under the middle of the frame. */
@@ -761,9 +872,14 @@ ${WET_ALBEDO}`, 'ground fragment');
      * Hand the weather to a squall (game/squall.js): the ground reads its wet map, and the rain
      * and splashes close in around its cell, at the density the whole sky had.
      */
-    attachSquall: (s) => {
+    attachSquall: (s, { sunRays: rays = true } = {}) => {
       squall = s;
       groundUniforms.tWetMap.value = s.texture;
+      rayUniforms.tWetMap.value = s.texture;
+      // Only a squall has a wake to light, and `?sunrays=classic` has none — so the mesh is
+      // visible from boot or never, and its program compiles behind the opening rather than on
+      // the frame the first cell goes over.
+      sunRays.visible = rays;
       CLOUD_UNIFORMS.uCellEdge.value = s.edge;
       const { ramp } = s;
       CLOUD_UNIFORMS.uCellShape.value.set(ramp.drizzleReach, ramp.drizzle, ramp.shadeIn, ramp.shadeOut);
@@ -778,6 +894,7 @@ ${WET_ALBEDO}`, 'ground fragment');
     hideInMirror: (...objects) => { hidden.push(...objects.filter(Boolean)); },
     uniforms: {
       ground: groundUniforms, streaks: streakUniforms, lens: lensUniforms, shafts: shaftUniforms,
+      sunRays: rayUniforms,
       clouds: CLOUD_UNIFORMS,
     },
     reflectTarget,

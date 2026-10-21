@@ -151,7 +151,7 @@ import { streetAt, routeDrives, STREET_TAP_MAX_DETOUR } from './game/streettap.j
 import { createPathDrag } from './game/pathdrag.js';
 import { getActiveShot, getSeed, getRunSeed, getCarCount, getDifficultyPin, getDifficultyMode,
   getSafeMode, safeModeSource, getPixelRatioCap,
-  getDiagnostics, getParcelsPin, getRain, getStorm, getSquall, getSquallRampClassic, getWetTyres, getWreckStyle, getFall, getFoliageClassic, getWater, getUturnStyle } from './util/shot.js';
+  getDiagnostics, getParcelsPin, getRain, getStorm, getSquall, getSquallRampClassic, getSunRaysClassic, getWetTyres, getWreckStyle, getFall, getFoliageClassic, getWater, getUturnStyle } from './util/shot.js';
 import { createParcelSystem, TAP_MAX_DETOUR } from './game/parcels.js';
 import { createRobbery } from './game/robbery.js';
 import { createRadio, LOST_CALL, ROBBERY_CALL } from './game/radio.js';
@@ -335,7 +335,8 @@ const squall = squallFlag ? createSquall({
 }) : null;
 const rain = createRain(renderer, { enabled: Boolean(storm || squall), mood: stormFlag?.mood });
 if (squall) {
-  rain.attachSquall(squall);
+  // Sun rays in the cell's wake, as it passes (`SUN_RAYS` in game/rain.js); `?sunrays=classic` none.
+  rain.attachSquall(squall, { sunRays: !getSunRaysClassic() });
   // A car's headlights come on as the cell reaches it — from a third of the way into the soft edge
   // — rather than across the city at once.
   // Headlights with the city's lights, half way through them — under the first front, with the rain.
@@ -515,6 +516,8 @@ function applySquall(dt) {
   setHazeTop(fog, THREE.MathUtils.lerp(HAZE_TOP, rain.mood.haze, SQUALL_GREY * squallPresence));
   daylight.apply();
   rain.setSunDir(sun.position);
+  // Off the sun's own power, as the heli's searchlight reads night: no rays without a sun.
+  rain.setSunRays(THREE.MathUtils.smoothstep(sun.intensity, 0.3, 2.6));
 }
 
 /** How far the whole sky greys while a squall's cell is on the map — the rest of the city is sunny. */
@@ -525,7 +528,7 @@ const SQUALL_GREY = 0.2;
  * drives out, and how far outside the rain's own edge they start. The storm's 12s dry-off left drops
  * on the glass a block into the sunshine; 1.5s and the rain's own footprint (#445) went too far the
  * other way — a cell crosses about once every 100s and covers part of the city, so the drops read
- * as gone. 5s lets them trail the taxi out of the rain, and `LENS_REACH` (a cell 30 ± 5 across its
+ * as gone. 5s lets them trail the taxi out of the rain, and `LENS_REACH` (a cell 20 ± 4 across its
  * core) widens the patch of city that catches them by about a block. A short ease in keeps them
  * from popping on at boost speed.
  */
@@ -6246,7 +6249,9 @@ function tick() {
   // taxi on a live road with nothing to press, which read as the game not having started yet.
   // The counters can wait for the lesson; a control cannot, because it is the thing the lesson is
   // standing in front of. A press during the rider beat ends it, by design (`holdLocoMode`).
-  if (!pedalsShown && pedalsDue()) { pedalsShown = true; revealPedals(); }
+  // The squall's crossings count from here too: its first cell is `FIRST` seconds of driving away,
+  // not of title menu and garage door (game/squall.js).
+  if (!pedalsShown && pedalsDue()) { pedalsShown = true; revealPedals(); squall?.begin(); }
   // ...and the HUD steps off its edges whenever the taxi is in the garage: the opening before the
   // car is out of the door, and a repair visit from the turn-in until it is back on the lane. The
   // same `release` the pedals wait on, so a run's first arrival and every return from the depot
