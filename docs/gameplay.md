@@ -3981,7 +3981,7 @@ Escape and P toggle it from a keyboard.
 `src/game/runend.js`, styled in `index.html` under `#run-end`. The run ends three ways — a fare's
 clock hitting zero (aboard, or the third [strike](difficulty.md#strikes) on the kerb), a collision,
 a police bust — and all three land on the same screen: a title, the
-reason, the run's two stats (**Cash**, then **Time**), the [high-score table](#high-scores), and **Play again**. The title is
+reason, the run's three stats (**Cash**, **Max combo**, then **Time**), the [high-score table](#high-scores), and **Play again**. The title is
 set by the caller, so a timeout reads **Too Slow!**, a collision reads **Wrecked!**, and a police
 bust reads **Busted!**.
 
@@ -4013,10 +4013,14 @@ It is a **full-screen blackout**, not a modal over the city: a blurred card's ed
 loudest thing on the screen. Blacking the whole viewport out puts the run's numbers on nothing at
 all, which is what makes them the ending rather than an overlay on one.
 
-There are two rows, **Cash** then **Time**. Each rider's clock is budgeted off the work the fare
-takes ([difficulty.md](difficulty.md)), so how many fares a run carried and how far up the ramp it
-got both mostly restate how long it lasted, and near-synonyms would bury Cash, the one number the
-table ranks by. Cash comes first for that reason. History:
+There are three rows, **Cash**, **Max combo**, then **Time**. Each rider's clock is budgeted off the
+work the fare takes ([difficulty.md](difficulty.md)), so how many fares a run carried and how far up
+the ramp it got both mostly restate how long it lasted, and near-synonyms would bury Cash, the one
+number the table ranks by. Cash comes first for that reason. **Max combo** is the highest the
+[combo meter](#the-combo-meter) reached in the run (`combo.state.best`), written the way the meter
+writes it ("2.5x"). It is not a synonym of anything: it is the only row about how the run was
+driven rather than how long. A run that never landed a combo shows **1x** rather than dropping the
+row, so the card is the same shape every run. History:
 [the run-end screen](gameplay-history.md#the-run-end-screen).
 
 The stats are **one row each, label and value side by side**, and both are set in the *same* size,
