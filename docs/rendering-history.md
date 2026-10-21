@@ -246,6 +246,12 @@ first read the footprint per vertex, and every window wiped on from one side as 
 it; they read it at their anchor now. The lens drops' reach and linger were raised on 2026-10-08
 (#454).
 
+The cell was first `CELL_R` 30 with a 14-unit edge, so with its shade reaching 3.2 edges out the dark
+patch was ~150 units across over a 105 × 129 island — the city under a cloud rather than a cell
+crossing it. It is 20 and 10. The first cell arrived 12 s after *boot*, so the title menu and the
+garage vignette spent the wait; it now arrives 20 s after the player gets control. A squall had no
+sun rays until 2026-10-21 (`?sunrays=classic`).
+
 **The first front arrived all at once** (`?squallramp=classic`). The shade reached 1.6 edges past
 the core, the lights read that same shade, and the rain filled over the one edge inside it, so at any
 point the sun went, every window came on and the streaks appeared inside the same ~6 s — reported

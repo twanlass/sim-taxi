@@ -30,6 +30,7 @@ import {
   BENCH_LEN, STATUE_PLAZA, treeParts, MEDIAN_TREE_H, MEDIAN_TREE_TRUNK, setAutumn, autumnBase,
 } from '../src/city/props.js';
 import { createLeaves } from '../src/game/leaves.js';
+import { createSquall } from '../src/game/squall.js';
 import { pedalZones, pedalAfterMove, PEDAL_SLOP } from '../src/game/pedalzones.js';
 import { planPond, pondParts, pondRadiusAt, POND_WATER_Y, POND_SET } from '../src/city/pond.js';
 import { createGrass, planGrass, grassGeometry } from '../src/city/grass.js';
@@ -1176,6 +1177,22 @@ const onGrass = (city, i, j) => {
     `${shed} shed, ${lying} lying, ${onLawn} on the lawn, from up to y ${startY.toFixed(2)}, mean x ${meanX0.toFixed(1)} -> ${meanX1.toFixed(1)}`);
   for (let f = 0; f < 60 * 12; f++) leaves.update(1 / 60);
   check('fallen leaves clear away after lying a while', leaves.stats().lying === 0, `${leaves.stats().lying} left`);
+}
+
+// --- The squall waits for the player --------------------------------------------------------------
+//
+// Its first cell is 20s of *driving* away: the crossing clock holds until `begin()` (the frame the
+// pedals arrive), so a minute on the title menu and the garage door spends none of it.
+{
+  const sq = createSquall({ rng: () => 0.5 });
+  for (let f = 0; f < 60 * 60; f++) sq.update(1 / 60);
+  const heldOff = !sq.cell.on;
+  sq.begin();
+  for (let f = 0; f < 60 * 19.5; f++) sq.update(1 / 60);
+  const notYet = !sq.cell.on;
+  for (let f = 0; f < 60; f++) sq.update(1 / 60);
+  check('the first squall arrives 20s after the player gets control, not after boot',
+    heldOff && notYet && sq.cell.on, `held ${heldOff}, at 19.5s ${!notYet}, at 20.5s ${sq.cell.on}`);
 }
 
 // --- Leaf fuzz on the crowns ---------------------------------------------------

@@ -1629,13 +1629,15 @@ placed in world space through whichever camera is drawing.
 The other kind of weather is one rain cell crossing a sunny city, not the whole sky changing. A
 cell comes in over a corner and crosses to the one opposite in `CROSS` 75 s, with a sideways slip so
 crossings take different lines. Then there are 25 s of quiet before the next one, from a different
-corner. `?squall=0.45` pins a cell that far along a crossing. It also fast-forwards the wet map from
+corner. The first one starts `FIRST` 20 s after the taxi is the player's to drive: the crossing clock
+(`state.clock`) is held until `squall.begin()`, called on the frame the pedals arrive, so the title
+menu and the garage vignette do not spend it. `?squall=0.45` pins a cell that far along a crossing. It also fast-forwards the wet map from
 the start of the crossing, so a still frame shows the trail.
 
 Everything that was a level in the storm becomes a position here:
 
-- **The cell's footprint** is a soft, ragged disc: core radius `CELL_R` 30, soft edge `CELL_EDGE`
-  14, and its edge noised over time. It exists twice, as `cellFront`/`cellMask`/`cellShade` on the
+- **The cell's footprint** is a soft, ragged disc: core radius `CELL_R` 20, soft edge `CELL_EDGE`
+  10, and its edge noised over time. It exists twice, as `cellFront`/`cellMask`/`cellShade` on the
   CPU and `cellFront`/`cellRain`/`cellShade` in `CLOUD_GLSL`, built from the same hash, so the grip
   under the taxi agrees with the rain on screen. Keep the two in step.
 - **The front arrives in order** (`RAMP` in game/squall.js, passed to the shaders as `uCellShape`
@@ -1679,6 +1681,16 @@ Everything that was a level in the storm becomes a position here:
   centre stands in only before the taxi exists).
 - **Mirror pass.** It runs while any of the map is wet (`maxWet`) and is skipped when the whole
   island has dried.
+- **Sun rays in its wake** (`SUN_RAYS` in game/rain.js, `?sunrays=classic` for none). 24 additive
+  quads, the storm's shaft shape pointed at the sun, scattered 60° either side of straight behind
+  the cell (the width of its wet track) across its shade's soft band. Each is lit only where the shade is partial and the wet map is over
+  0.4 — the rain has already been there — so they appear behind the cell as it passes with no timer;
+  ahead of it the drizzle wets the ground to a quarter at most. Each breathes on its own slow cycle,
+  and an unlit one is collapsed in the vertex shader, so it costs no fill. They scale with the sun's
+  power, so a squall at night has none. Quads rather than a screen-space radial blur because the sun
+  is behind this camera, with no on-screen source to streak from, and a full-screen pass is the cost
+  the colour grade was built to avoid. The storm's own shafts stand over gaps in the cloud field,
+  whose cover follows the squall's faint 0.2 grey and so never opens them.
 
 History: [the wet map's first drying rate, and windows that wiped on](rendering-history.md#a-squall--the-default-weather-gamesqualljs).
 

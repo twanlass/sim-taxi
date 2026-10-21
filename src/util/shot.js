@@ -572,6 +572,11 @@ export function getSquallRampClassic() {
   return new URLSearchParams(window.location.search).get('squallramp') === 'classic';
 }
 
+/** `?sunrays=classic` — no sun rays in a squall's wake (`SUN_RAYS` in game/rain.js). */
+export function getSunRaysClassic() {
+  return new URLSearchParams(window.location.search).get('sunrays') === 'classic';
+}
+
 /**
  * Autumn — `?fall=off` puts the trees back in summer green and keeps their leaves on in a squall.
  * On by default. The colours are a hash of each trunk's position (`autumnBase` in city/props.js),
