@@ -782,6 +782,8 @@ export const PALETTE = {
   // the first hit, so a yellow car goes mustard and then brown-yellow as its HP runs down. Warm
   // rather than grey because a grey multiply on #F5C130 reads as the car being in shadow.
   taxiGrime: '#7A6450',
+  // The paint chipped to the metal (geometry/taxiscratches.js, the default since 2026-10-21).
+  taxiBareMetal: '#C9CED4',
   // The flash on the body when a hit lands — an emissive, added on top of the paint for a fifth of a
   // second. Red because it is the one moment the car may say "hurt" in a hue: the white lift
   // (`setHighlight`, geometry/taxi.js) already means "accepted".

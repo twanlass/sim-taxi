@@ -808,3 +808,11 @@ ultra, sometimes it renders at regular". A floor that kept Ultra at 2.25 was tri
 preferred no resolution changes at all, with the Quality setting as the player's lever, and the
 governor went off by default (#570). Without it a hot phone was "pretty choppy and pretty bad", so
 it came back the same day with its floor raised from 1 to 2.
+
+## The taxi's damage tint (until 2026-10-21)
+
+From PR #456 the taxi's paint dulled toward `taxiGrime` as it took damage: a multiply on the shell
+and both lids, 40% of the way at the first hit and the rest of the way down to empty, eased in over
+a quarter second. It did not read — a dulled yellow is still a yellow car, and with nothing beside it
+to compare against, the eye takes it for the light — and it was replaced by the chipped paint
+([traffic.md](traffic.md)). `?taxidamage=classic` puts it back.

@@ -176,6 +176,11 @@ const VIP_MIN_DELIVERED = 1;      // never on the tutorial fare — nothing to d
 const VIP_COOLDOWN = 55;          // seconds between opportunities, so a VIP stays a rare event
 const VIP_CHANCE = 0.16;          // chance a qualifying spawn actually becomes one
 const VIP_PAYOUT = 3;
+// Off by default (Tyler, 2026-10-21: "let's not spawn the mystery rider anymore"). Everything
+// below still works — `?vip=classic` (`VIP=classic` headless) brings them back on the old odds.
+const VIP_SPAWNS = typeof location !== 'undefined'
+  ? new URLSearchParams(location.search).get('vip') === 'classic'
+  : globalThis.process?.env?.VIP === 'classic';
 
 // --- The bank rider ---------------------------------------------------------------
 //
@@ -1116,6 +1121,7 @@ export function createFareSystem(rng, scene, {
   }
 
   function wantsVip() {
+    if (!VIP_SPAWNS) return false;
     if (state.delivered < VIP_MIN_DELIVERED) return false;
     if (state.fares.some((f) => f.vip)) return false;
     if (state.elapsed - lastVipAt < VIP_COOLDOWN) return false;

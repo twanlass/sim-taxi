@@ -69,6 +69,7 @@ doc; what the classic version was, and why it changed, is in that doc's history 
 | `?stuntman=classic` | Smashing a roadworks barricade is scenery: no Stuntman combo step, no Loco refund | | [gameplay.md](gameplay.md#the-combo-meter) |
 | `?taxifinder=classic` | The "back to the taxi" chip above the brake corner, which comes up while the taxi is completely off-frame. Off by default since 2026-10-20, since the camera rides home on its own after 1.5s | | [rendering.md](rendering.md#getting-back-to-the-taxi) |
 | `?camreturn=classic` | The camera stays where the player panned it, instead of riding back to the taxi after 1.5s with no touch on the map | #530 | [rendering.md](rendering.md#getting-back-to-the-taxi) |
+| `?taxidamage=classic` | The taxi's paint dulls toward `taxiGrime` as it takes damage, instead of chipping to bare metal at the struck corner | #632 | [traffic.md](traffic.md) |
 | `?taxiroof=classic` | The taxi's cabin is one dark glass box again, instead of a yellow roof over a band of windows | #530 | [rendering.md](rendering.md#the-taxis-roof--geometrytaxijs) |
 | `?locogrey=classic` | The fuel arc's climb out of empty in muted gold rather than grey, with no flash when Loco Mode wakes | — | [gameplay.md](gameplay.md#crazy-taxi-mode) |
 | `?locobar=classic` | The fuel arc with no tailpipe flame burning off its front | — | [gameplay.md](gameplay.md#crazy-taxi-mode) |
@@ -105,6 +106,7 @@ doc; what the classic version was, and why it changed, is in that doc's history 
 | `?robberyodds=classic` | The bank rider's coin stays a fair 50/50 instead of loading toward a robbery with each bank ride | #522 | [gameplay.md](gameplay.md#the-bank-job) |
 | `?uturn=classic` | The first U-turn, a spin on the spot, instead of the handbrake turn | #458 | [gameplay.md](gameplay.md) |
 | `?barrelroll=classic` | Big Air flown level, no barrel roll | #485 | [river.md](river.md) |
+| `?vip=classic` | VIP riders (the purple question mark, triple pay) spawn again; off by default | | [gameplay.md](gameplay.md#vip-pickups) |
 | `?crush=classic` | Big Air coming down on a car is a hit (usually the wreck) instead of Crushin' It | | [gameplay.md](gameplay.md#the-combo-meter) |
 | `?overtake=classic` | The overtake combo judges the road before pulling out: it waits until the car is close, won't pull out round a car turning left, and only swerves round a slow car in the junction it has a clean line round. The default throws the taxi into the oncoming lane the moment the combo lands, whatever is there, or up on the kerb round the right of a car signalling left | | [traffic.md](traffic.md#overtaking) |
 | `?passturn=classic` | The taxi pulls out to overtake a car already turning left across it, and grinds along its side | #520 | [traffic.md](traffic.md) |

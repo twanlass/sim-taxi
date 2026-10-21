@@ -2460,6 +2460,8 @@ const taxiDamage = createTaxiDamage({
   // The ladder before the first hit was made to show (flash, grime and steam): see the top of
   // game/taxidamage.js.
   classic: new URLSearchParams(window.location.search).get('damage') === 'classic',
+  // The paint dulling toward `taxiGrime` instead of chipping to the metal (geometry/taxiscratches.js).
+  tint: new URLSearchParams(window.location.search).get('taxidamage') === 'classic',
 });
 // ...and what the cars it hits wear: the same lids, lamps and bumper, on a pool of rigs. See
 // game/cardamage.js.
@@ -2625,6 +2627,8 @@ collisions.onImpact(({ x, z, speed, closing, other }) => {
   // opens apart — a glance rather than two objects deleted in formation. Cars meeting dead centre
   // give a cross near zero, and `|| 1` picks a side rather than leaving both shells unturned.
   const struckSide = Math.sign(fx * (other.z - traffic.taxi.z) - fz * (other.x - traffic.taxi.x)) || 1;
+  // The last hit's chips, before the wreck takes the shell's colours to scorch from.
+  taxiDamage.scuff(x, z);
   const taxiShell = traffic.wreckShell(traffic.taxi);
   wreckage.take(taxiShell, {
     driftX: fx * carry * SHELL_CARRY * TAXI_KEEP,

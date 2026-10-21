@@ -56,16 +56,27 @@ const smokeDrift = (moving) => 0.15 + 0.85 * moving;
 // grow with every one after it:
 //
 //   flash   the body flashes red twice as the hit lands — the moment itself
-//   grime   the paint dulls, 40% of the way at the first hit and the rest of the way down to
-//           empty, so a glance at the car's colour says roughly how hurt it is
+//   chips   the paint chips to the metal at the struck corner — a few big marks at the first hit,
+//           spreading inward and to the other corners as the HP runs down (see `wear` below)
 //   steam   thin white wisps off the bonnet from the first hit, faster as the HP drops, which hands
 //           over to the grey smoke at red rather than the smoke appearing out of nothing
 //
 // And the rattle starts at amber instead of red, so a car with its boot up also *drives* broken.
 const FLASH_TIME = 0.3;           // s, both pulses
 const FLASH_PEAK = 0.55;          // emissive at the top of a pulse
-const GRIME_FIRST = 0.4;          // grime after any hit at all...
+const GRIME_FIRST = 0.4;          // grime after any hit at all... (`?taxidamage=classic`)
 const GRIME_EASE = 4;             // 1/s — it soaks in over a quarter second rather than snapping
+// **The chipped paint** (the default; `?taxidamage=classic` for the grime). Tyler, 2026-10-21: the
+// paint changing colour was not reading — a dulled yellow is still a yellow car — so the paint keeps
+// its colour and comes off instead, in voxel chips of bare metal ringed with primer
+// (geometry/taxiscratches.js). Wear runs off the HP the way the grime did, so the same glance says
+// the same thing; it is the corner that took the hit that wears it in full, and the other three
+// catch up on a square, so a car hit once at the nose is chipped at the nose, and a car near the end
+// is chipped all over. Instant rather than eased: the chips open under the flash, which is the
+// moment of the hit.
+const WEAR_FIRST = 0.3;           // of the struck corner's marks after any hit at all...
+const WEAR_SPREAD = 0.6;          // ...and the share an unstruck corner reaches at empty, on wear²
+const CORNER_KEYS = ['1,1', '1,-1', '-1,1', '-1,-1'];
 const STEAM_SLOW = 0.26;          // s between wisps just after the first hit
 const STEAM_FAST = 0.14;          // ... and at the red line, where the smoke takes over
 const STEAM_SIZE = 0.8;
@@ -157,7 +168,7 @@ export const looseLamp = (end, side, rng = Math.random) =>
   ({ end, side, angle: 0, v: end * LAMP_HIT_KICK, roadIn: rng() * 0.3 });
 
 export function createTaxiDamage({
-  damage, group, taxi, maxHp, sparks, dust, roadY, rng = Math.random, classic = false,
+  damage, group, taxi, maxHp, sparks, dust, roadY, rng = Math.random, classic = false, tint = false,
 }) {
   const smokeLight = color('damageSmokeLight');
   const smokeDark = color('damageSmokeDark');
@@ -186,6 +197,15 @@ export function createTaxiDamage({
   let steamIn = 0;
 
   const fraction = () => (taxi.hp ?? maxHp) / maxHp;
+  const wearLevels = new Map();
+  let wornAt = 1;
+  /** Push the chipped paint for the hits so far and `hp` (0..1 of maxHp); see WEAR_FIRST. */
+  function wear(f = fraction()) {
+    if (classic || tint) return;
+    const w = hits ? Math.min(1, WEAR_FIRST + (1 - WEAR_FIRST) * (1 - f)) : 0;
+    for (const key of CORNER_KEYS) wearLevels.set(key, corners.has(key) ? w : WEAR_SPREAD * w * w);
+    damage.setWear?.(wearLevels);
+  }
   const tier = () => {
     if (!hits) return 0;
     const f = fraction();
@@ -212,6 +232,7 @@ export function createTaxiDamage({
     }
     side = worst.side;
     hits += 1;
+    wear();
     if (!classic) {
       flashT = 0;
       // A burst of steam off the bonnet, so even the first hit leaves the car visibly hurt.
@@ -253,6 +274,8 @@ export function createTaxiDamage({
     const moving = Math.min(1, v / 8);
     phase += dt * (5 + v * 0.7);
 
+    // HP can move without a hit through here (a repair, the dev panel), so the chips follow it.
+    if (fraction() !== wornAt) { wornAt = fraction(); wear(); }
     const accel = dt > 1e-6 ? (v - lastV) / dt : 0;
     lastV = v;
 
@@ -263,9 +286,11 @@ export function createTaxiDamage({
         const s = Math.sin(Math.PI * 2 * Math.min(1, flashT / FLASH_TIME));
         damage.setFlash?.(flashT < FLASH_TIME ? FLASH_PEAK * s * s : 0);
       }
-      const want = hits ? GRIME_FIRST + (1 - GRIME_FIRST) * (1 - fraction()) : 0;
-      grime += (want - grime) * Math.min(1, dt * GRIME_EASE);
-      damage.setGrime?.(grime);
+      if (tint) {
+        const want = hits ? GRIME_FIRST + (1 - GRIME_FIRST) * (1 - fraction()) : 0;
+        grime += (want - grime) * Math.min(1, dt * GRIME_EASE);
+        damage.setGrime?.(grime);
+      }
       // Steam from the first hit down to the red line, where the smoke below takes over.
       if (t === 1 || t === 2) {
         const worse = Math.min(1, Math.max(0, (1 - fraction()) / (1 - LOW)));
@@ -347,6 +372,23 @@ export function createTaxiDamage({
     }
   }
 
+  /**
+   * The wreck: the hit that ends the run never comes through `hit` (sim/collisions.js turns it into
+   * the crash), so the shell left lying in the road would wear the chips of the hit *before*. This
+   * marks the struck corner and wears the paint as at empty, and nothing else — the lids and lamps
+   * are frozen with the wreck, and a flash or a burst of steam would land on a car already on fire.
+   */
+  function scuff(x, z) {
+    const dx = x - taxi.x;
+    const dz = z - taxi.z;
+    const lx = dx * Math.cos(taxi.yaw) - dz * Math.sin(taxi.yaw);
+    const lz = dx * Math.sin(taxi.yaw) + dz * Math.cos(taxi.yaw);
+    const key = `${lx >= 0 ? 1 : -1},${lz >= 0 ? 1 : -1}`;
+    corners.set(key, (corners.get(key) ?? 0) + 1);
+    hits += 1;
+    wear(0);
+  }
+
   function reset() {
     hits = 0;
     lamps.clear();
@@ -365,7 +407,7 @@ export function createTaxiDamage({
   }
 
   return {
-    hit, update, reset, tier,
+    hit, scuff, update, reset, tier,
     bootAngle: () => boot.angle,
     hoodAngle: () => (hood.open ? hood.angle : null),
     lampAngle: (end, s) => lamps.get(`${end},${s}`)?.angle ?? null,

@@ -1842,6 +1842,10 @@ so the soak suite's expected earnings are roughly where a flat fare put them. Hi
 
 ## VIP pickups
 
+**Off by default** (Tyler, 2026-10-21): `wantsVip` returns false, so no VIP ever spawns. The
+system below is intact and comes back on `?vip=classic` (`VIP=classic` headless); the rest of this
+section describes it as it plays there.
+
 `src/game/fares.js` and `src/game/faremarker.js`. A rare rider layered on top of the ordinary
 board — their diamond opens on a fixed purple, never drawn from the urgency scale, so "this one is a
 VIP" is never confused with how much time they have left, and every other surface that fare speaks
