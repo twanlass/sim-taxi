@@ -17,14 +17,16 @@ export const REEL = { classic: REEL_CLASSIC, touch: REEL_TOUCH }[STREETS_KEY];
 // The timeline, in seconds into the loop. The brake goes down at BRAKE_ON and is held past
 // ARM_HOLD with the car stopped; the pill goes down at LOCO_ON, which is the launch, and is held to
 // the end of the loop.
-export const BRAKE_ON = 0.3;
-export const LOCO_ON = 1.5;
+export const BRAKE_ON = 0.2;
+export const LOCO_ON = 1.1;
 /** When the game lands the combo: the pill going down off the armed brake. */
 export const LANDS_AT = LOCO_ON;
-const KEYS_OFF = 2.9;                 // the row dims for the last beat, then the loop starts again
+const KEYS_OFF = 2.2;                 // the row dims for the last beat, then the loop starts again
 
 /** The loop, in seconds: the length of the recording. */
-export const CLIP_LOOP = 3.3;
+// Short on purpose: off the line the taxi covers ~20 units a second, and a loop that held more of
+// the run drew the car at a quarter of the size.
+export const CLIP_LOOP = 2.5;
 
 const ALONGS = REEL.frames.map((f) => f[0]);
 const ALONG_MID = (Math.min(...ALONGS) + Math.max(...ALONGS)) / 2;
