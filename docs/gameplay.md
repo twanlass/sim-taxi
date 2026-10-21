@@ -127,6 +127,31 @@ the menu again, so `onRetry` sets a one-shot `sessionStorage` flag the next boot
 page but its own title check that way. **`?dev`** skips both, and turns on debug mode (the ⚙️
 panel) with them: the one flag for playtesting. Shot mode never builds it.
 
+## Demo mode
+
+For showing the game to someone: every run plays as a first run. A switch at the bottom of the
+title screen's Settings, which is only there once revealed, by opening the game with **`?demo`**
+or by tapping the Settings heading five times (the App Store build has no URL bar). A player who
+never goes looking never sees it. `?demo` turns it on for that load without saving; `?demo=off`
+forces it off.
+
+While it is on:
+
+- **Every "once ever" flag reads unseen** at the start of each run, and **nothing is written**: the
+  New Move cards, the depot's repair line (which otherwise stops once the taxi has been in for
+  repairs), and anything later built on `createSeenFlag`. A card shown is not shown again the
+  same run, and switching Demo mode off hands back the player's own flags exactly as they were.
+- **Every unlock reads earned** (`createUnlockFlag`), and earning one writes nothing.
+- **A move card at every run's end**, however short the run, taking Overtake, U-Turn and Drift in
+  turn across runs (the card's `after` thresholds are skipped).
+- **The tutorial tips stay on**, whatever the Tutorial tips switch says.
+- **Every bank rider is the robbery**, whatever `BANK_ROBBER_ALWAYS` in game/fares.js says.
+- **The first street racer turns up after the first drop-off** rather than the 2nd to 4th.
+
+High scores are not progress in this sense and are left alone. All of it lives in
+`src/game/progress.js`: any new one-time moment that makes its flag there is covered without
+further wiring, and one that reads `localStorage` itself is not.
+
 ## The opening vignette
 
 `src/game/opening.js`, over the depot in [city/garage.js](city.md#the-depot-block). A run does not
