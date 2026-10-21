@@ -3255,8 +3255,12 @@ button coming alive on the frame it lands. Four things make it a recovery rather
 - **The gas pedal stays dead for the whole five seconds** rather than waking on the first frame with a
   sixtieth of a second in it and going grey again under the player's thumb. A delivery outranks the
   climb: a pour lights the button on the frame it starts.
-- **The climb is shown.** The gas pedal greys out, and the fuel gauge carries the climb: the arc
-  fills back to a quarter in a muted gold (`#boost-meter.is-empty`), riding the pour's envelope —
+- **The climb is shown, in grey.** The gas pedal greys out, and the fuel gauge carries the climb: the
+  arc fills back to a quarter in **grey** (`#fuel-grad-dead`, swapped in under
+  `#boost-meter.is-empty`), so the bar says "not yet" the same way the pedal does (Tyler,
+  2026-10-21). On the frame the pedal wakes, both snap back to colour with a half-second flash of
+  the burn's glow (`.is-woke`, `wakeLoco` in main.js), which is the moment to press.
+  `?locogrey=classic` is the muted gold and no flash. The climb rides the pour's envelope —
   `updateBoostButton` feeds the recharge to `game/boostmeter.js` as a pour, so the climb gets that
   envelope and the spring at the end of it for free — but not its movement or its full glow
   (`#boost-meter.is-charging.is-filling`): a gauge bouncing on a pedal that refuses the press reads

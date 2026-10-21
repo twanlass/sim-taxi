@@ -4420,9 +4420,32 @@ function drawFuseFlame(level) {
   }
 }
 
+// The bar is grey for the climb out of empty and snaps back to gold with a flash on the frame the
+// pedal wakes (index.html, `.is-woke`). `?locogrey=classic` keeps the muted gold and no flash.
+const locoGrey = new URLSearchParams(window.location.search).get('locogrey') !== 'classic';
+if (!locoGrey) document.body.classList.add('locogrey-classic');
+let locoWasEmpty = false;
+let locoWokeTimer = 0;
+function wakeLoco() {
+  for (const el of [boostButton, boostMeterEl]) {
+    if (!el) continue;
+    // Off, a reflow, and on again: a CSS animation only restarts when its class is re-added.
+    el.classList.remove('is-woke');
+    void el.offsetWidth;
+    el.classList.add('is-woke');
+  }
+  clearTimeout(locoWokeTimer);
+  locoWokeTimer = setTimeout(() => {
+    boostButton?.classList.remove('is-woke');
+    boostMeterEl?.classList.remove('is-woke');
+  }, 600);
+}
+
 function updateBoostButton(dt) {
   if (!boostButton) return;
   const mode = boost.state.mode;
+  if (locoWasEmpty && mode !== 'empty' && locoGrey) wakeLoco();
+  locoWasEmpty = mode === 'empty';
   // The recharge out of 'empty' is fed to the meter as a pour, because to the player it is one:
   // fuel is arriving and the bar is moving. That buys the climb the leading edge and the glow for
   // free, and — the part worth the reuse — the spring on the end, which fires on the frame the
