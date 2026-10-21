@@ -1857,11 +1857,23 @@ play zoom on its own. Each adds a distinct ingredient rather than turning the la
 ladder above on its own). The tiers all wait for a threshold, so the commonest first hit — a 24-HP
 tailgate from full — showed a lamp a few pixels across and nothing else. So three things start at
 the first hit and grow with every one after it: the body **flashes red** twice as the hit lands
-(`taxiHitFlash`, an emissive, 0.3s); the **paint dulls** toward `taxiGrime`, 40% of the way at the
-first hit and the rest of the way down to empty, eased in over a quarter second; and **white steam**
+(`taxiHitFlash`, an emissive, 0.3s); the **paint chips to the metal** at the corner that was struck
+(below); and **white steam**
 comes off the bonnet from the first hit, faster down to the red line, where the smoke in tier 3 takes
 over — so the smoke grows out of something rather than arriving. The rattle starts at tier 2 rather
 than 3, so a car with its boot up also drives broken.
+
+**The chipped paint** (geometry/taxiscratches.js; `?taxidamage=classic` for the tint it replaced). The
+paint keeps its colour and comes off in voxel chips: little patches of 0.09-unit cells, a bare-steel
+core (`taxiBareMetal`) in a ring of red-oxide primer (`taxiPrimer`), laid on the bonnet, boot, roof,
+flanks and ends. Every mark belongs to the corner it sits nearest and is ranked from that corner
+inward, so a hit opens the struck corner's marks from its edge: 30% of them at the first hit, all of
+them at empty, while the other three corners follow on the square of that and reach 60%. The primer
+is the part that reads at play zoom — steel is about as light as the yellow round it and alone reads
+as a glint — and it is red oxide rather than a dark grey because a black ring round a silver core is
+the livery's own chequer. The layout is seeded once, so the car wears the same chips every run. Marks
+under a lid have a twin on the lid, shown while it is up. The hit that wrecks the car never reaches
+`hit`, so `scuff` wears its corner in full before the wreck takes the shell.
 
 And one piece off the tiers: **rear-ending a car pops the bonnet**, however much HP is left. It is the
 boot's mirror image, hinged at the foot of the windscreen, and it flaps on the same spring for the
