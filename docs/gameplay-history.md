@@ -1297,3 +1297,13 @@ down by tapping a street any time before the green, which gave the parked taxi a
 the race off with "Next time, then." Tyler simplified it: anything but the card says no, and
 accepting is final.
 
+
+## The muted-gold climb out of empty
+
+Until 2026-10-21 the fuel arc climbed back out of empty in the ordinary gold under
+`filter: saturate(0.35) brightness(0.8)` on the fill path, and lit up again with nothing more than
+the pour's spring. The pedal beside it was already fully grey, so the two disagreed about whether
+Loco Mode was usable, and a CSS filter on an element inside an SVG is the thing WebKit is least
+dependable about, so on a phone the bar may never have muted at all. Tyler asked for it grayscale;
+it is now a separate grey gradient, with a flash back to colour on the frame the pedal wakes.
+`?locogrey=classic` keeps the old look.

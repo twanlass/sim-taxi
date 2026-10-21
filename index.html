@@ -226,7 +226,30 @@
       }
       /* Empty, and the climb back to a quarter tank: the fuel is there to watch but not to spend
          yet, so the gold is muted — the pedal's reasoning (see `#boost.is-empty`). */
-      #boost-meter.is-empty .boost-fill { filter: saturate(0.35) brightness(0.8); }
+      body.locogrey-classic #boost-meter.is-empty .boost-fill { filter: saturate(0.35) brightness(0.8); }
+      /* The default (Tyler, 2026-10-21: "make the loco bar grayscale to further comm you can't use it
+         yet"): the climb is grey, not muted gold, so the bar says what the pedal says. A swap of
+         gradient rather than a `filter` on the path, for the WebKit reason given at `.boost-edge`;
+         the muted gold above was a filter and may never have desaturated on a phone at all. The
+         charging glow goes grey with it. */
+      body:not(.locogrey-classic) #boost-meter.is-empty .boost-fill { fill: url(#fuel-grad-dead); }
+      body:not(.locogrey-classic) #boost-meter.is-empty .boost-edge { fill: url(#fuel-edge-dead); }
+      /* The moment it is usable again: the gold comes back in one frame with a flash of the burn's
+         glow that fades over half a second, on the gauge and the pedal together (`wakeLoco` in
+         main.js). A snap rather than a fade-in, because the flip is the news. */
+      @keyframes loco-wake-arc {
+        from { filter: drop-shadow(0 0 12px rgba(255, 210, 0, 1)) brightness(1.35); }
+        to { filter: drop-shadow(0 0 0 rgba(255, 210, 0, 0)) brightness(1); }
+      }
+      @keyframes loco-wake-pedal {
+        from { filter: brightness(1.45); transform: scale(1.07); }
+        to { filter: brightness(1); transform: scale(1); }
+      }
+      #boost-meter.is-woke .boost-arc { animation: loco-wake-arc 0.5s ease-out; }
+      #boost.is-woke .pedal-art { animation: loco-wake-pedal 0.4s ease-out; }
+      @media (prefers-reduced-motion: reduce) {
+        #boost.is-woke .pedal-art { animation-name: loco-wake-arc; }
+      }
       /* A pour landing: the glow and a small throb, off `--fill` and `--pulse`. No transition —
          every value here is rewritten per frame, and any easing smears the 4Hz throb flat. The
          throb was 3.5% and read as the whole gauge bouncing; 1.2% is a swell under the glow. */
@@ -240,6 +263,9 @@
       #boost-meter.is-charging.is-filling .boost-arc {
         filter: drop-shadow(0 0 calc(3px + 3px * var(--fill, 0)) rgba(205, 180, 106, calc(0.5 * var(--fill, 0))));
         transform: none;
+      }
+      body:not(.locogrey-classic) #boost-meter.is-charging.is-filling .boost-arc {
+        filter: drop-shadow(0 0 calc(3px + 3px * var(--fill, 0)) rgba(200, 200, 200, calc(0.4 * var(--fill, 0))));
       }
       @media (prefers-reduced-motion: reduce) {
         #boost-meter.is-filling .boost-arc { transform: none; }
@@ -2598,6 +2624,14 @@
           <linearGradient id="fuel-grad" x1="-25" y1="0" x2="175" y2="0" gradientUnits="userSpaceOnUse">
             <stop stop-color="#FFD500" /><stop offset="1" stop-color="#FF9200" />
           </linearGradient>
+          <!-- The same two, with the colour taken out, for the climb out of empty. -->
+          <linearGradient id="fuel-grad-dead" x1="-25" y1="0" x2="175" y2="0" gradientUnits="userSpaceOnUse">
+            <stop stop-color="#B4B4B4" /><stop offset="1" stop-color="#8E8E8E" />
+          </linearGradient>
+          <radialGradient id="fuel-edge-dead">
+            <stop offset="0.35" stop-color="#F4F4F4" /><stop offset="0.6" stop-color="#D6D6D6" stop-opacity="0.9" />
+            <stop offset="1" stop-color="#BDBDBD" stop-opacity="0" />
+          </radialGradient>
         </defs>
         <!-- Both outlines are written by main.js from game/fuelarc.js. -->
         <path class="boost-track" />
