@@ -2075,6 +2075,8 @@ const raceParam = new URLSearchParams(window.location.search).get('race');
 race = shot || raceParam === 'classic' ? null : createRace({
   rng: makeRng(runSeed + 743), scene, traffic, routeTo,
   soon: raceParam === 'soon',
+  // The racer's body bounces on hydraulics in the race's scenes (game/hydraulics.js).
+  hydraulics: new URLSearchParams(window.location.search).get('hydraulics') !== 'classic',
   // The underglow pulses to whatever the music is doing (game/sfx.js, `bass`).
   bass: () => sfx?.bass?.() ?? 0,
   // Nothing turns up over anything that owns the run, or over a trip the taxi is already on to the

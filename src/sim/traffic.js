@@ -2811,13 +2811,14 @@ const CABIN_Y = 1.45 + CHASSIS_LIFT;         // its centre
 /** The roof: what a light bar is bolted to. */
 export const CABIN_TOP = CABIN_Y + CABIN_H / 2;
 
-export function carGeometry({ bumpers = true } = {}) {
+export function carGeometry({ bumpers = true, wheels = true } = {}) {
   // Body is left white so the per-instance colour tints it; the glass is dark enough that the
   // same multiply leaves it dark whatever colour the car is.
   //
   // `bumpers: false` for the fleet, which draws them as instances of their own (`bumperMesh` in
   // createTraffic) so that a car the taxi has hit can wear one hanging off a corner — a bar merged
-  // into the body could not be taken away from the end it left.
+  // into the body could not be taken away from the end it left. `wheels: false` for the street
+  // racer, whose body rides on hydraulics over wheels that stay on the road (game/hydraulics.js).
   const parts = [];
 
   // Body sits clear of the wheels so they actually show below the sill, and is arched over each
@@ -2829,7 +2830,7 @@ export function carGeometry({ bumpers = true } = {}) {
   const glass = bakeColor(cabin, color('carGlass'));
   parts.push(setFinish(SMOOTH_BODY ? softenNormals(glass) : glass, FINISH.GLASS));
 
-  parts.push(...wheelGeometries(CAR_LEN, CAR_W));
+  if (wheels) parts.push(...wheelGeometries(CAR_LEN, CAR_W));
   if (bumpers) parts.push(...bumperGeometries(CAR_LEN, CAR_W));
 
   const merged = mergeGeometries(parts, false);

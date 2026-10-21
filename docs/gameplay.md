@@ -2653,6 +2653,19 @@ round instead. It is rare: a racer is seldom held up, and it passed 15 times in 
 game/locoflame.js, on a second instance) whenever it is over `RACER_FLAME_SPEED` (1.5× cruise), so
 they go out as it brakes for a corner and relight down the straight.
 
+**The racer's car is on hydraulics** (game/hydraulics.js; Tyler: "give the racer some hydraulics to
+bounce their car during scenes"). Its body rides on the rams over four wheels that stay on the
+road, and it works them only while it stands still in a scene: at a light while it is offering, on
+the faceoff, through the look at the finish. It pumps on the bass the underglow already follows
+(up, side to side, up, nose, no faster than every `PUMP_GAP`, 0.4s), or on a slow clock with the
+music off. It hops its front wheels off the road at "Wanna race?", pumps on "You're on!" and on each
+number of the count, and squats its tail on the green. Win, and it does `WIN_HOPS` (3) front hops
+beside the taxi; lose, and it sits slammed on its rams with its nose down until it drives off. The
+hop pitches the whole car about the rear axle and drops on a fall rather than easing (0.40 rad up,
+down in 0.7s); the pumps are underdamped springs, so each one bounces two or three times and
+settles. A lowrider's trick on a tuner's body, which a cartoon city can carry.
+`?hydraulics=classic` keeps the body still.
+
 **The finish is choreographed** (`updateFinale`, Tyler's six steps). The winner crosses the line
 and pulls up there (`WINNER_HOLD`, 1s; the taxi on the race's brake, `brakesTaxi`, since `parked`
 stops a car dead). Then a cut, behind the same wipe as the start: the winner is parked near the
