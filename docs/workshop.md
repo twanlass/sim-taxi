@@ -212,6 +212,12 @@ the fix is to undo by hand with `git checkout tools/workshop-agent.mjs` and rest
 page. `dispose` hands the camera to the next run through `import.meta.hot.data`, and the old canvas
 stays up until the new one has drawn, so an edit doesn't flash.
 
+**The model stays where it was set.** `load` recentres a model on the bench, and a part added to one
+end moves the bounding box's centre, so recentring on every edit slid the whole model across the
+viewport under a camera the edit was meant to leave alone. The offset it applied (`placement`) now
+rides `import.meta.hot.data` (and `sessionStorage` across a reload) and an in-place rebuild of the
+same model reuses it; picking another model recentres as before.
+
 **The exception is an edit to shared state, which reloads the page instead.** After a palette edit
 the bench drew only the sky and the grid until the tab was refreshed by hand. So an update touching
 `palette.js`, `util/geo.js` or the render passes (`renderpath`, `ssao`, `bloom`, `scene`) reloads the
@@ -227,6 +233,26 @@ playing. An inline script in `workshop/index.html`'s `<head>` puts it back as `#
 very first paint, and `releaseSnapshot` fades it out two frames after the new run's own first frame.
 A private window that refuses storage just flashes as before.
 
+**The reload is a navigation, so the page crossfades, and what the edit changed lights up.** A
+cross-document view transition (`@view-transition` in `workshop/index.html`) runs on push, replace
+and traverse but never on a reload, so `reloadSmoothly` in `viewer.js` replaces the page with a
+same-URL navigation instead (a hash falls back to `reload()`, as does a navigation that has not
+committed after 4s). Vite's own full reloads are taken over the same way: its `vite:beforeFullReload`
+listener starts the navigation and returns a promise that never settles, which stops Vite's
+`location.reload()` (an `.html` edit naming another page is left to Vite). Both module scripts are
+`blocking="render"`, so the old page holds until the new one's first frame is filled in. Once fonts
+are in and the fade is mostly through, `flashChanged` compares each element's rounded box and a few
+computed styles against what `uiSignatures` saved before the edit (`sessionStorage`, or
+`import.meta.hot.data` for a hot swap) and sweeps a `.ui-changed` overlay (glowing outline, scan
+lines, a bright line down it) over the outermost changed elements, at most ten. The chat log, the
+canvases and the pin are skipped, since they change constantly. It is an overlay, not a class on the
+element, so it cannot fight the element's own `::before`/`::after` or transitions.
+
+The model gets the same cue: `startScan` in `viewer.js` runs on the same reload path, and a
+scan-lined plane with a bright rim, in the panels' cyan, rises through the model from its feet to
+its top over 0.9s (eased out, faded over the last third). It is depth-tested, so it cuts through the
+model instead of floating over it, and additive, so it never hides what it passes.
+
 Two things about this are not obvious:
 
 - **It has to be spelled `import.meta.hot.accept()`.** Vite finds self-accepting modules by
@@ -237,6 +263,13 @@ Two things about this are not obvious:
   an edit invalidates. Were it inside the viewer, every edit would reset the conversation.
 
 ## The bench
+
+**The bench's knobs are a column of panels, top-left: Model (the model drop-down and Paint) and Scene (everything else).** Each
+is a `.panel` with a titled header (the `h1`, and the fold toggle at its far right) over a `.panel-body`; Model's body holds the
+drop-down and Paint. Folding Model leaves just its title. The column is a flex stack, so folding one shut (the – / + button, which
+shows only while the pointer is over the panel, always when folded, and always on a touch screen; the click handler in `viewer.js`
+toggles `.collapsed` and reads the panel's name from `data-name`) lets the panels below slide up with no layout code. A new group of knobs is a new
+`.panel` in `#bench`, not more rows in an old one.
 
 **The bench draws through the game's own rendering path** (`game/renderpath.js`): the same budget
 off the same URL flags, the same look decisions compiled into every material (AO, painterly, the
@@ -287,12 +320,12 @@ falling rain (`game/rain.js`, built the first time it is chosen) and the lights 
 with the lights on, and Day or Squall hand the hour back. Wet and lens are left at 0: the bench ground is not the game's
 patched one, so a mirror pass would only draw the model twice. `weather` is omitted from the URL while it is Day.
 
-**Paint** picks one of the game's `?paint=` looks. The look is compiled into the shader, so picking
-one rebuilds the model. **Rim light** (a collapsed section under Hour) is ten sliders on the paint's rim
+**Paint** (in the Model panel, under the model drop-down) picks one of the game's `?paint=` looks. The look is compiled into the shader, so picking
+one rebuilds the model. **Every slider's number is also a field** (`bindReadout` in `workshop/viewer.js`): click it to type an exact value (the Hour's takes `16:30` as well as `16.5`). A committed number goes through the range itself, so it clamps and snaps to the slider's own min, max and step and the slider's `input` handler stays the one place a change lands; Enter or leaving the field commits, Escape or anything that doesn't parse puts the readout back. **Rim light** (a collapsed section under Paint in the Model panel) is ten sliders on the paint's rim
 (`rimTuning`/`setRimTuning` in `util/geo.js`, the same rows as the game's ⚙️ panel). They are uniforms, so they move the
-paint live with no rebuild; each paint look sets its own rim width, so picking one re-reads the sliders, and Reset returns
+paint live with no rebuild; every paint look wears the rim line except Classic, so the section is hidden there (its sliders would move nothing); each paint look sets its own rim width, so picking one re-reads the sliders, and Reset returns
 them to what they read when the page loaded, before any saved values were applied. They are not in the bench's URL: a 400ms-debounced move writes them to `localStorage` (`workshop.rim`), so a reload keeps the sliders (a stale or hand-edited entry is ignored), and echoes them as a `[rim-tuning] {…}` warning, which the page forwards to `.workshop/console.log`, so the chat can read the numbers back. **Play** opens the real game in a frame over the bench, carrying the paint
-look across and the sliders as `?rimtune=` (`getRimTune` in `util/shot.js`, applied in `decideLooks` after the look and rim colour, which each reset the numbers), so the game opens on what the bench shows; it tears the frame down again on the way back. **`R`** reframes the model (the Reframe button's key, ignored while typing). **`.`** hides every panel and leaves just the
+look across and the sliders as `?rimtune=` (`getRimTune` in `util/shot.js`, applied in `decideLooks` after the look and rim colour, which each reset the numbers), so the game opens on what the bench shows. It also passes `?title=off&vignette=off&tutorial=off`, so Play drops straight into a run with no title menu, opening vignette or tutorial bubbles; it tears the frame down again on the way back. **`R`** reframes the model (the Reframe button's key, ignored while typing). **`.`** hides every panel and leaves just the
 viewport.
 
 ## Voice

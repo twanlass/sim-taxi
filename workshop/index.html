@@ -51,18 +51,73 @@
       }
       html.snapshot-done #stage::after { opacity: 0; }
 
-      /* The bench's knobs, top-left over the canvas. Plain for the reason the lab gives. */
+      /* An edit that reloads the page crossfades into the new one instead of blanking: viewer.js turns
+         Vite's reload into a same-URL navigation (`reloadSmoothly`), which, unlike a reload, can run a
+         view transition. The module scripts below block the first render, so what it fades into is
+         already filled in. */
+      @view-transition { navigation: auto; }
+      ::view-transition-old(root), ::view-transition-new(root) { animation-duration: 0.35s; }
+      /* What the edit changed, lit for a moment once it lands (viewer.js, `flashChanged`): an outline
+         that glows in over faint scan lines while a bright line sweeps down it, like a screen
+         redrawing that one panel. An overlay rather than a class on the element, so it cannot fight
+         the element's own ::before/::after or transitions. */
+      .ui-changed {
+        position: fixed; z-index: 1000; pointer-events: none; overflow: hidden;
+        border: 1.5px solid rgb(255 255 255 / 90%);
+        box-shadow: 0 0 0 1px rgb(130 225 255 / 55%), 0 0 22px rgb(130 225 255 / 55%), inset 0 0 18px rgb(130 225 255 / 30%);
+        background: repeating-linear-gradient(to bottom, rgb(200 240 255 / 9%) 0 1px, transparent 1px 3px);
+        animation: ui-changed-glow 1.5s ease-out forwards;
+      }
+      .ui-changed::after {
+        content: ""; position: absolute; left: 0; right: 0; top: 0; height: 100%;
+        background: linear-gradient(to bottom, transparent 0%, rgb(130 225 255 / 22%) 85%, rgb(255 255 255 / 95%) 99%, transparent 100%);
+        transform: translateY(-100%);
+        animation: ui-changed-sweep 0.75s cubic-bezier(0.35, 0.1, 0.25, 1) 0.08s forwards;
+      }
+      @keyframes ui-changed-glow {
+        0% { opacity: 0; transform: scale(1.025); }
+        12% { opacity: 1; transform: none; }
+        60% { opacity: 1; }
+        100% { opacity: 0; }
+      }
+      @keyframes ui-changed-sweep { to { transform: translateY(100%); } }
+      @media (prefers-reduced-motion: reduce) {
+        .ui-changed { animation-duration: 1s; }
+        .ui-changed::after { display: none; }
+      }
+
+      /* The bench's knobs, top-left over the canvas: a column of panels (Model, then Scene). Plain for
+         the reason the lab gives. The column itself is bare; each panel is a flex item, so one
+         folding shut (`.collapsed`) lets the ones below it slide up with no layout code. */
       #bench {
         position: absolute; top: 14px; left: 14px; z-index: 5;
-        display: grid; gap: 8px; width: 236px;
-        padding: 12px 14px; border-radius: var(--radius);
-        background: var(--panel); color: var(--ink);
-        backdrop-filter: blur(6px);
+        display: flex; flex-direction: column; gap: 8px; width: 236px;
         user-select: none; -webkit-user-select: none;
       }
-      #bench h1 {
+      #bench .panel {
+        display: grid; gap: 8px; padding: 12px 14px; border-radius: var(--radius);
+        background: var(--panel); color: var(--ink);
+        backdrop-filter: blur(6px);
+      }
+      .panel-head { display: flex; align-items: center; justify-content: space-between; min-height: 18px; }
+      .panel h1 {
         font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; opacity: 0.62; font-weight: 700;
       }
+      /* Fold / unfold, shown only while the pointer is over the panel (like the inset's minimize
+         button), and always when it is folded, where it is all that says there is more. A touch
+         screen has no hover, so it stays up there. */
+      .panel-toggle {
+        width: 20px; height: 18px; border: 0; border-radius: 4px; cursor: pointer; padding: 0;
+        background: rgba(255, 255, 255, 0.12); color: inherit; font: inherit; font-weight: 700; line-height: 1;
+        opacity: 0; transition: opacity 0.15s, background-color 0.12s;
+      }
+      .panel-toggle::before { content: "–"; }
+      .panel.collapsed .panel-toggle::before { content: "+"; }
+      .panel:hover .panel-toggle, .panel.collapsed .panel-toggle, .panel-toggle:focus-visible { opacity: 1; }
+      @media (hover: none) { .panel-toggle { opacity: 1; } }
+      @media (hover: hover) { .panel-toggle:hover { background: rgba(255, 255, 255, 0.22); } }
+      .panel-body { display: grid; gap: 8px; }
+      .panel.collapsed .panel-body { display: none; }
       #bench select {
         width: 100%; padding: 5px 8px; border-radius: 8px; border: 0; font: inherit; font-weight: 700;
         background-color: rgba(255, 255, 255, 0.14); color: inherit;
@@ -105,10 +160,13 @@
       #rim-box summary { cursor: pointer; }
       #rim-rows { display: grid; gap: 4px; margin: 6px 0; }
       #rim-rows label.slider { grid-template-columns: 78px 1fr 38px; }
-      label.pick { display: grid; grid-template-columns: 40px 1fr; align-items: center; gap: 8px; }
+      label.pick { display: grid; grid-template-columns: 56px 1fr; align-items: center; gap: 8px; }
       label.check { display: flex; gap: 6px; align-items: center; cursor: pointer; }
       .value { text-align: right; font-variant-numeric: tabular-nums; opacity: 0.8; }
-      .source { font: 11px/1.4 ui-monospace, Menlo, monospace; opacity: 0.6; word-break: break-word; }
+      /* A slider's readout is also a field: click it to type an exact number. */
+      input.value { font: inherit; color: inherit; background: none; border: 0; border-bottom: 1px solid transparent; padding: 0; min-width: 0; cursor: text; }
+      input.value:hover { border-bottom-color: currentColor; }
+      input.value:focus { outline: none; opacity: 1; border-bottom-color: var(--ink); }
       #reloaded { font-size: 11px; opacity: 0; transition: opacity 0.4s; color: var(--ink); }
       #reloaded.show { opacity: 1; transition: none; }
       /* The game-zoom inset. The picture is rendered through the bench's own renderer and copied
@@ -141,13 +199,13 @@
          margin and 12px of gap past --chat-w); on a narrow screen that is the whole stage. */
       #play {
         position: absolute; top: 14px; z-index: 7;
-        left: calc((100% - var(--chat-w) - 24px) / 2); transform: translateX(-50%);
+        left: 50%; transform: translateX(-50%);
         display: flex; align-items: center; gap: 10px;
         padding: 10px 26px 10px 20px; border: 0; border-radius: 999px; cursor: pointer;
         background: var(--accent); color: var(--on-accent); font: inherit; font-size: 17px; font-weight: 700;
       }
       #play .glyph { font-size: 15px; line-height: 1; }
-      body.playing #play { background: var(--panel); color: var(--ink); font-size: 14px; padding: 7px 18px 7px 14px; }
+      body.playing #play { background: var(--panel); color: var(--ink); }
       #game-frame {
         /* Sized outright: an iframe is a replaced element, so left/right insets leave it at 300×150. */
         position: absolute; top: 0; left: 0; z-index: 6;
@@ -194,7 +252,7 @@
         position: absolute; top: 0; left: 0; right: 0; z-index: 1;
         display: flex; align-items: center; gap: 8px; padding: 12px 14px;
       }
-      #chat header h2 { font-size: 13px; font-weight: 700; flex: 1; }
+      #chat header h2 { font-size: 13px; font-weight: 500; flex: 1; }
       #chat header .act { font-size: 12px; }
       /* The top padding is the header's height (~52px) plus 16px of margin, so the first message
          starts clear of it; the mask's fade is pushed down by the same 16px, so what scrolls up
@@ -209,7 +267,7 @@
       .bubble-thumbs { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 12px; }
       .bubble-thumbs.alone { margin-bottom: 0; }
       .bubble-thumbs img { height: 72px; max-width: 100%; border-radius: 6px; display: block; }
-      .msg.user { align-self: flex-end; background: var(--accent); color: var(--on-accent); font-weight: 600; }
+      .msg.user { align-self: flex-end; background: var(--accent); color: var(--on-accent); font-weight: 500; }
       /* The emoji reaction on a user's message (chat.js): hangs off its bottom edge, 8px in from the right, popping
          in after a delay the script sets on it (`reaction-pop`). Lighter than the panel so it stands
          off the black bubble it overlaps. */
@@ -295,7 +353,7 @@
       }
       @keyframes pulse { 0%, 100% { opacity: 0.25; transform: scale(0.75); } 50% { opacity: 1; transform: scale(1); } }
       .composer .speed {
-        padding: 3px 24px 3px 10px; border: 0; border-radius: 999px; font: inherit; font-size: 12px; font-weight: 600;
+        padding: 3px 24px 3px 10px; border: 0; border-radius: 999px; font: inherit; font-size: 12px; font-weight: 500;
         background-color: rgba(255, 255, 255, 0.12); color: inherit; cursor: pointer;
       }
       .composer .speed option { color: #16120a; }
@@ -369,6 +427,9 @@
       .composer.listening .speed, .composer.listening .stop, .composer.listening .send { display: none; }
       .act.primary { background: var(--accent); color: var(--on-accent); font-weight: 700; }
       .act:disabled { opacity: 0.35; cursor: default; }
+      /* One weight through the chat panel and the composers: the buttons (Send and Queue included)
+         match the text beside them. The bench's own buttons keep theirs. */
+      #chat .act, .composer .act { font-weight: 500; }
 
       @media (max-width: 760px) {
         :root { --chat-w: 0px; }
@@ -404,27 +465,37 @@
   <body>
     <div id="stage">
       <div id="bench">
-        <h1>Model workshop</h1>
-        <select id="model" aria-label="Model"></select>
-        <div class="source" id="source"></div>
-        <label class="pick">Paint <select id="paint" aria-label="Paint look"></select></label>
+       <!-- Titled like Scene, so the fold toggle has a header row to sit at the end of. A first version
+            had no title and hung the toggle off the panel's corner instead, which read as detached. -->
+       <section class="panel" data-name="Model">
+        <div class="panel-head"><h1>Model</h1><button type="button" class="panel-toggle" aria-label="Collapse Model" title="Collapse"></button></div>
+        <div class="panel-body">
+          <label class="pick">Model <select id="model" aria-label="Model"></select></label>
+          <label class="pick">Paint <select id="paint" aria-label="Paint look"></select></label>
+          <details id="rim-box">
+            <summary>Rim light</summary>
+            <div id="rim-rows"></div>
+            <button type="button" class="act" id="rim-reset">Reset</button>
+          </details>
+        </div>
+       </section>
+       <section class="panel" data-name="Scene">
+        <div class="panel-head"><h1>Scene</h1><button type="button" class="panel-toggle" aria-label="Collapse Scene" title="Collapse"></button></div>
+        <div class="panel-body">
         <label class="pick">Weather <select id="weather" aria-label="Weather">
           <option value="day">Day</option>
           <option value="squall">Squall</option>
           <option value="night">Night</option>
         </select></label>
-        <label class="slider">Hour<input id="hour" type="range" min="0" max="24" step="0.1" /><span class="value" id="hour-v"></span></label>
-        <details id="rim-box">
-          <summary>Rim light</summary>
-          <div id="rim-rows"></div>
-          <button type="button" class="act" id="rim-reset">Reset</button>
-        </details>
+        <label class="slider">Hour<input id="hour" type="range" min="0" max="24" step="0.1" /><input class="value" id="hour-v" type="text" inputmode="decimal" aria-label="Hour" /></label>
         <div class="row">
           <label class="check"><input id="spin" type="checkbox" /> Turntable</label>
           <label class="check"><input id="wire" type="checkbox" /> Wireframe</label>
           <button type="button" class="act" id="frame" title="Reframe (R)">Reframe</button>
         </div>
         <div id="reloaded">Updated from source</div>
+        </div>
+       </section>
       </div>
       <div id="inset-box"><canvas id="inset-canvas"></canvas><button type="button" id="inset-toggle" aria-label="Minimize game zoom" title="Minimize">–</button></div>
       <div id="pin" hidden></div>
@@ -452,8 +523,10 @@
 
     <!-- Two modules, deliberately. The viewer re-runs on every edit to anything it imports (that is
          how the bench hot-reloads); the chat imports nothing from the game, so an edit never takes
-         the conversation down with it. -->
-    <script type="module" src="/src/workshop/chat.js"></script>
-    <script type="module" src="/src/workshop/viewer.js"></script>
+         the conversation down with it. Both block the first render, so the page never paints its
+         panels empty and then fills them: after an edit's reload the old page holds until this one
+         is ready and then crossfades (see `@view-transition` above). -->
+    <script type="module" blocking="render" src="/src/workshop/chat.js"></script>
+    <script type="module" blocking="render" src="/src/workshop/viewer.js"></script>
   </body>
 </html>

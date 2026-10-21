@@ -1285,6 +1285,9 @@ export const PALETTE = {
   // cars. Not white — the body is the biggest bright thing in its block and pure white blooms.
   ltrainBody: '#C4C9CC',
   ltrainRoof: '#8F969A',
+  // The air-conditioning box on the roof: a step darker than the roof it stands on, so it reads as
+  // its own piece from above.
+  ltrainRoofUnit: '#6B7276',
   ltrainStripe: '#C8463B',
   ltrainGlass: '#2C3742',
   ltrainUnder: '#33373A',
