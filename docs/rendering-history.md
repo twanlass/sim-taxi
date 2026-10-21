@@ -568,10 +568,6 @@ wound facing down, `(0, -15.08, 0)`, on an unlit material (see the CLAUDE.md tra
 
 [Current](rendering.md#the-taxis-chequer--geometrytaxijs).
 
-The chequer was a single row of six cells, 0.22 tall, riding the shoulder. It was one row as a zoom
-decision (about 2px tall at play zoom, so a second row would ask for 1px and get mush) and because
-the body had no flank to hold another; the body was raised by one row's height to make room.
-
 Letting the light cells fall through to the body was tried in the old hand-drawn app icon — three
 dark cells with yellow between them, right at 180px on a static image. On the car it makes a hazard
 stripe.

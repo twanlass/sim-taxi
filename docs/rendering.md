@@ -2532,8 +2532,7 @@ only when `boost.press()` returns true — the ready→active transition — so 
 running boost doesn't re-fire either.
 
 - **Tailpipe flame.** One-shot `InstancedMesh` burst of additive-blended orange motes, emitted
-  from just inside the taxi's boot (`TAXI_TAILPIPE_BACK`, the symmetric half-length, short of the
-  longer tail by `REAR_EXTRA` / `TAXI_TAILPIPE_HEIGHT` exported from
+  from the taxi's rear bumper (`TAXI_TAILPIPE_BACK` / `TAXI_TAILPIPE_HEIGHT` exported from
   `geometry/taxi.js`) shooting backwards along `-yaw`. Short-lived (~0.38s), grows fast, air-brakes
   quickly; alpha snaps to 1 then eases out. Additive blend so it *brightens* the road behind it
   rather than reading as an opaque decal. The crash owns its own module (`game/blast.js`), so this
@@ -3589,21 +3588,10 @@ invisible when the corner *was* the notch, obvious across a ten-step arc.
 The cabin is a band of dark windows under a **yellow roof** (`taxiBody`, painted), not one glass
 box. The camera looks down on the car, so the roof is most of what it sees: as an all-glass cabin
 the empty taxi read from above as dark glass and an unlit sign with yellow trim, and got lost in a
-busy frame. The glass runs from the body's top to `ROOF_BASE` (1.62 + `BODY_RAISE`) and the roof from there
-to the cabin's top (`CABIN_TOP_H`, 1.75 + `BODY_RAISE`). The whole cabin rides up with the body:
-raising only the body's top ate the glass from 0.47 tall to 0.32. The roof overhangs the glass by 0.03 each way so it reads as a lid; the roof sign
+busy frame. The glass runs from the body's top to `ROOF_BASE` (1.62) and the roof from there to the
+cabin's old top (1.75), overhanging the glass by 0.03 each way so it reads as a lid; the roof sign
 and the broken windscreen's plates sit where they always did. The depot's sign is built from the
 same parts, so it wears the roof too. `?taxiroof=classic` puts the glass box back.
-
-The cabin's rear is **curved like a classic 1970s cab's back window**: `curveBack` bows the glass
-and roof boxes' rear half forward as it climbs, zero at the body's top and `BACK_TUCK` (0.45) at the
-roof, along t² so it bows rather than leaning like a straight chamfer (which would only echo the
-windscreen's rake). The roof keeps ~0.8 of length after the windscreen's lean takes its share off
-the front. The cabin also **runs back over the taxi's longer tail**: `CABIN_EXTRA` (0.9, the tail's
-`REAR_EXTRA` growth plus 0.45) lengthens the glass and roof boxes at the rear only, so the front
-stays where it was and the centre moves back by half the growth, leaving a short boot deck behind
-the glass. A box has no vertices between its top and bottom edge to bend, so the cabin pieces are
-built with height segments (`cabinBox`; `?carbody=smooth` brings its own rings).
 
 Still open: in low sun the bonnet and boot come out pale silver, because the paint's sky reflection
 washes the yellow out of every face that points up — which costs the car more of its yellow from
@@ -3611,16 +3599,15 @@ above than the glass ever did.
 
 ### The taxi's chequer — `geometry/taxi.js`
 
-A band down each flank, the full `CAR_LEN` (plus `REAR_EXTRA`) from nose to tail, of **eight cells** in **one row** alternating `taxiTrim`
-near-black and `taxiSign` off-white, each cell two `STRIPE_ROW`s tall. Eight boxes a side rather than
-one (an even count, so it is black at one end and white at the other; ~0.48 a cell, near the old 0.55 pitch that survives at ~4px), merged into the shell with everything else, so the livery costs a draw call of nothing. It was a
-two-row chequerboard; it is one tall band now.
+A band down each flank, `CAR_LEN * 0.82` long and 0.22 tall, split into **six cells** alternating
+`taxiTrim` near-black and `taxiSign` off-white. Six boxes a side rather than one, merged into the
+shell with everything else, so the livery costs a draw call of nothing.
 
-**The body's box is raised to hold the band's height** (`BODY_RAISE`). A single row sat in the
-shoulder under the old roofline, and a band two rows tall on the
-same flank would have been pasted over the glass. Raising the body carries everything
-that stood on the body's top up with it: the glass cabin's base, the windscreen foot (`SCREEN_FOOT`),
-the door belt, the lids and `TAXI_DECK_Y`.
+**One row, not a chequerboard**, and that is a zoom decision. Through `TAXI_SCALE` the band is about
+2px tall at play zoom, so a second row would ask for 1px and get mush; a single row of alternating
+cells is the largest thing that still reads as *chequer* at this size. Six cells puts one at ~4px —
+about the finest pitch that survives. Square cells matching the band's own height would want twelve,
+at ~2px each, which alias into a flicker as the car turns.
 
 **Both colours are painted.** Letting the light cells fall through to the body makes a
 yellow-and-black band, which is a hazard stripe, not a taxi. The white is the roof sign's own off-white rather than a new entry, so the livery keeps the
