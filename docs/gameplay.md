@@ -3649,11 +3649,24 @@ straight through the door as it came down. It now parks 0.25 off the back wall i
 behind the curtain), and `stageLampsOff` in `sim/traffic.js` takes the brake lamps down once it has
 stopped — a loose rear lamp hangs on a 0.6 wire, so distance alone is not enough margin.
 
-**The destination is a lane**, for [the burger run's reasons](#the-burger-run): the driveway opens
-off the near lane of the road the door faces, running +Z, so the route is `findRouteOnto` that lane
-and the band is trimmed at the mouth by `endAt`. The taxi stays in the traffic model right up to the
-mouth and is caught on the frame it reaches it — a taxi that went past, boosting or weaving wide, is
-sent round the block for one more go. The same identity rule as the burger holds too: anything else
+**The destination is a lane — either side of the road**, for [the burger run's
+reasons](#the-burger-run). The driveway can be reached two ways: a right turn off the near lane of
+the road the door faces (running +Z, the one the opening merges onto), or a left turn off the far
+lane, across the near one. The run asks `findRouteOnto` for each and takes the cheaper, with a
+quarter-block handicap on the left for the wait it may cost, and the band is trimmed at whichever
+mouth it chose by `endAt`. The left is a quarter circle the two lane centres wide, coming out square
+across the near lane and then straight over it to the kerb (`entryPath(site, 'far')` in
+`game/opening.js`). A main street has no left in, because the planted median is in the way.
+
+**The left waits for a gap.** Once caught the taxi is out of the traffic model, so nothing on the
+near lane can see it crossing. While it is still on the far lane it is an ordinary car, so the run
+holds it on the brake short of the mouth until the near lane is clear 22 units back and 3 ahead of
+the driveway (about what an oncoming car covers at cruise while the taxi gets across), and cars
+behind queue on it. After 6 seconds without a gap it gives up and drives on.
+
+The taxi stays in the traffic model right up to the mouth and is caught on the frame it reaches it
+— a taxi that went past, boosting or weaving wide, is sent round for one more go, by whichever side
+is cheaper from there. The same identity rule as the burger holds too: anything else
 the player aims the taxi at takes the wheel back — including a rider boarding en route, who is
 dispatched to their drop-off and ends the trip there (the burger run hands the wheel back to the
 joint; the depot doesn't, because a repair is refused with anyone aboard). A taxi already turning

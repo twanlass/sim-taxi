@@ -974,14 +974,20 @@ const burgerRun = driveThru
 // The fare board's clocks are held for the whole visit, from the turn in off the lane to the camera
 // being handed back — the cost of a repair is the drive there, not the cut scene. See
 // `holdFareClocks`.
+// `?garageroute=classic` is the depot reached by its right turn in only — the lap round the block
+// whenever the taxi comes down the far side of the road (see the header of game/depotrun.js).
+const garageRouteClassic = new URLSearchParams(window.location.search).get('garageroute') === 'classic';
 const depotRun = garage && !shot
   ? createDepotRun({
     site: garage.site,
     mouth: entryPath(garage.site).mouth,
+    farMouth: garageRouteClassic ? null : entryPath(garage.site, 'far')?.mouth ?? null,
+    cars: traffic.cars,
     taxi: traffic.taxi,
     routeTo,
-    onArrive: (s0, handBack) => {
+    onArrive: (s0, handBack, side) => {
       if (!opening?.enter(s0, {
+        side,
         // Behind the shut door, so nobody sees the damage go.
         onRepair: () => {
           traffic.taxi.hp = TAXI_HP;
@@ -6209,7 +6215,9 @@ function tick() {
     const drifting = driftHolds(traffic.taxi) && traffic.taxi.drift.phase !== 'carry';
     // Or the street race's, for the finale: the winner pulling up and the loser skidding in. Through
     // the pedal because `parked` stops a car dead on the frame it is set (game/race.js).
-    traffic.taxi.braking = (bootlegBrake && !drifting) || Boolean(race?.brakesTaxi());
+    // And the depot run's, holding a left into the garage short of the driveway for a gap.
+    traffic.taxi.braking = (bootlegBrake && !drifting) || Boolean(race?.brakesTaxi())
+      || Boolean(depotRun?.holdsTaxi());
   }
   updateBoostButton(dt);
   skids.update(dt);
