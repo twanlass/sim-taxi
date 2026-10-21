@@ -127,6 +127,32 @@ the menu again, so `onRetry` sets a one-shot `sessionStorage` flag the next boot
 page but its own title check that way. **`?dev`** skips both, and turns on debug mode (the ⚙️
 panel) with them: the one flag for playtesting. Shot mode never builds it.
 
+## The backstory
+
+`src/game/backstory.js`. The first time a device presses **Play**, the menu goes and dispatch
+radios in before the cut to the garage door: four lines on the docked speech card, over the
+title reel, typed out and tapped through.
+
+> Dispatch to Car 9. You still on the road?
+> Council signed the **robo-taxi** deal. They roll in Monday.
+> They brake for pigeons. Riders love 'em.
+> So go remind this town what a cab is for.
+
+A tap anywhere finishes the line or moves on (Enter and Space too); **Skip** in the top corner, or
+Escape, ends it. The last tap lets the run go exactly as Play used to. The title screen's gate stays
+shut the whole time (`beforePlay` in `titlescreen.js`), so the fare board, the vignette and the
+radio all wait behind it, and the story drives its own typing clock because the frame loop's
+speech updates are parked with everything else.
+
+**Once per device.** It is marked seen in `localStorage` as it *starts*, so a player who quits
+halfway is not told it twice; a browser that refuses storage never hears it, the same soft
+failure the high scores take. "Play again" reloads past the title and so past this too.
+`?intro=classic` never tells it; `?intro=always` tells it on every Play.
+
+**The robo-taxis are flavour** (Tyler, 2026-10-21). Nothing in the run refers back to them yet.
+The idea the lines are built on is that the threat explains the controls: the robots stop at
+yellows and never speed, so the player wins by doing what they won't.
+
 ## The opening vignette
 
 `src/game/opening.js`, over the depot in [city/garage.js](city.md#the-depot-block). A run does not

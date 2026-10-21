@@ -2016,6 +2016,19 @@
       }
       #title-screen[data-view="settings"] .title-scrim,
       #title-screen[data-view="credits"] .title-scrim { opacity: 1; }
+      /* The backstory (game/backstory.js): dispatch's lines on the docked speech card, over the
+         reel with the menu gone. The whole screen takes the tap that moves it on. */
+      #title-screen[data-view="story"]::before { opacity: 0; transition: opacity 0.25s ease; }
+      #title-screen .title-story { position: absolute; inset: 0; cursor: pointer; }
+      #title-screen .title-story-talk { position: absolute; inset: 0; pointer-events: none; }
+      #title-screen .title-story-talk[hidden] { display: none; }
+      /* Dispatch is a voice on the radio, with no one on screen for the tag to sit on. */
+      #title-screen .title-story-talk .speech-tag-pin { display: none; }
+      #title-screen .title-story-skip {
+        position: absolute; top: calc(16px + var(--safe-top)); right: calc(16px + var(--safe-right));
+        padding: 8px 14px; font-size: 15px; font-weight: 700; color: rgba(255, 255, 255, 0.8);
+        background: none; border: 0;
+      }
 
       /* Every view is a left-aligned column, vertically centred, inset off the notch in landscape. */
       :is(#title-screen, #pause-veil) .title-view {

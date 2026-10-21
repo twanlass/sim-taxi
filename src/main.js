@@ -140,6 +140,7 @@ import {
 import * as difficulty from './game/difficulty.js';
 import { createHomeScreenTip } from './game/homescreen.js';
 import { createTitleScreen } from './game/titlescreen.js';
+import { tellBackstory, wantsBackstory } from './game/backstory.js';
 import { createTitleReel } from './game/titlereel.js';
 import { splashCovers } from './game/splash.js';
 import { createSettings, qualityOf } from './game/settings.js';
@@ -5762,6 +5763,13 @@ const wantsTitle = !shot && !devMode && !consumeTitleSkip()
 const title = wantsTitle ? createTitleScreen(document.getElementById('title-screen'), {
   sound: soundSwitch,
   settings,
+  // The first Play on a device hears dispatch out first, over the reel, with the gate still shut —
+  // see game/backstory.js. `?intro=classic` goes straight to the garage as before.
+  beforePlay: (done) => {
+    if (!wantsBackstory()) return false;
+    tellBackstory(document.getElementById('title-screen'), { done });
+    return true;
+  },
   onPlay: () => {
     beginRun();
     // Play jump cuts to the depot under the wipe, rather than easing down onto it from wherever
