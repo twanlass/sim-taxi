@@ -502,7 +502,33 @@ try {
     const reach = Math.hypot(end.x - lineX(2), end.z - lineZ(3));
     if (low < 0.25) fail.push(`dipped to y ${low.toFixed(2)}`);
     if (Math.abs(end.y - 0.3) > 1e-3) fail.push(`rests at y ${end.y.toFixed(3)}, not lying`);
-    if (!(reach > 12 && reach < 20)) fail.push(`landed ${reach.toFixed(1)} units out down an open street`);
+    if (!(reach > 9 && reach < 13)) fail.push(`landed ${reach.toFixed(1)} units out down an open street`);
+    // Graded by the hit: the hardest throw goes higher, spins faster and lands further than one that
+    // only just ejects — the first version saturated at 25.7 and threw every head-on the same.
+    {
+      const { EJECT_CLOSING } = await import('../src/game/ejection.js');
+      const measure = (closing) => {
+        const e = createEjection(new THREE.Scene(), { roadY: 0 });
+        e.fire({ x: lineX(2), z: lineZ(3), yaw: 0, closing, side: 1 });
+        let apex = 0;
+        let turn = 0;
+        for (let n = 0; n < 12; n++) {
+          e.update(1 / 60);
+          apex = Math.max(apex, e.group.position.y);
+        }
+        turn = e.group.children[0].rotation.x;
+        for (let n = 0; n < 168; n++) { e.update(1 / 60); apex = Math.max(apex, e.group.position.y); }
+        const p = e.group.position;
+        return { apex, turn, reach: Math.hypot(p.x - lineX(2), p.z - lineZ(3)), air: e.airTime() };
+      };
+      const soft = measure(EJECT_CLOSING);
+      const hard = measure(34);
+      const harder = measure(40);
+      if (!(hard.apex > soft.apex * 1.8)) fail.push(`apex ${soft.apex.toFixed(2)} → ${hard.apex.toFixed(2)}, not graded`);
+      if (!(hard.turn > soft.turn * 1.8)) fail.push(`spin at 0.2s ${soft.turn.toFixed(2)} → ${hard.turn.toFixed(2)}, not graded`);
+      if (!(hard.reach > soft.reach * 1.8 && hard.reach < 19)) fail.push(`reach ${soft.reach.toFixed(1)} → ${hard.reach.toFixed(1)}`);
+      if (Math.abs(harder.reach - hard.reach) > 1e-6) fail.push('a hit past the top of the band threw differently');
+    }
     const inBlock = (x, z) => {
       for (let bi = 0; bi < GRID_I; bi++) {
         for (let bj = 0; bj < GRID_J; bj++) {
