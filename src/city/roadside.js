@@ -138,6 +138,10 @@ const GLYPHS = {
   M: ['X...X', 'XX.XX', 'X.X.X', 'X...X', 'X...X'],
   R: ['XXX.', 'X..X', 'XXX.', 'X.X.', 'X..X'],
   T: ['XXX', '.X.', '.X.', '.X.', '.X.'],
+  C: ['.XXX', 'X...', 'X...', 'X...', '.XXX'],
+  I: ['XXX', '.X.', '.X.', '.X.', 'XXX'],
+  N: ['X..X', 'XX.X', 'X.XX', 'X..X', 'X..X'],
+  E: ['XXXX', 'X...', 'XXX.', 'X...', 'XXXX'],
 };
 const PIXEL = 0.2;
 

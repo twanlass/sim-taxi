@@ -961,6 +961,19 @@ export const PALETTE = {
   gasBollard: '#F2C230',
   gasIce: '#5BB4E8',
   gasGlow: '#FFF3D2',
+  // The movie theater (city/movietheater.js), workshop-only for now: a deep teal brick fly tower over a
+  // cream lobby, a red marquee and carpet, a bulb-ringed sign, and posters either side of the doors.
+  cinemaWall: '#2F6270',         // deep teal: the complement of the red marquee and carpet
+  cinemaLobby: '#E8D9BC',
+  cinemaTrim: '#2B2630',
+  cinemaRoofUnit: '#6C8A93',   // the plant room on the roof: pale enough to read against the dark coping
+  cinemaMarquee: '#D63A3A',
+  cinemaCarpet: '#B01E2B',
+  cinemaGold: '#F2C14E',
+  cinemaPosterA: '#3FA3F0',
+  cinemaPosterB: '#F08A3F',
+  cinemaPosterC: '#8DD36B',
+  cinemaGlow: '#FFE9B0',
   // The tube man at the car wash (game/tubeman.js), off the photo Tyler sent: a fire-engine
   // red tube, a shock of yellow streamers for hair and the same yellow on the cuffs, a white
   // cartoon face, and a dark blower box under him.
@@ -1306,6 +1319,9 @@ export const PALETTE = {
   // cars. Not white — the body is the biggest bright thing in its block and pure white blooms.
   ltrainBody: '#C4C9CC',
   ltrainRoof: '#8F969A',
+  // The air-conditioning box on the roof: a step darker than the roof it stands on, so it reads as
+  // its own piece from above.
+  ltrainRoofUnit: '#6B7276',
   ltrainStripe: '#C8463B',
   ltrainGlass: '#2C3742',
   ltrainUnder: '#33373A',

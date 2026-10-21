@@ -13,11 +13,11 @@
 
 import {
   setAmbientOcclusion, setCrayon, setCartoon, setPainterly, setPaintBrushes, setClassicPaint,
-  setPaintLook, setRim, setFlip, setVehiclePaint, setCloudShadows, rimPaintOn, setRimDepth,
+  setPaintLook, setRim, rimTuning, setRimTuning, setFlip, setVehiclePaint, setCloudShadows, rimPaintOn, setRimDepth,
 } from '../util/geo.js';
 import {
   getAmbientOcclusion, getMsaa, getShadowMapSize, getCrayon, getCartoon, getHdr, getBloom, getRain,
-  getStorm, getSquall, getPaintClassic, getPaintLook, getRimColor, getFlip, getVehiclePaintClassic,
+  getStorm, getSquall, getPaintClassic, getPaintLook, getRimColor, getRimTune, getFlip, getVehiclePaintClassic,
 } from '../util/shot.js';
 import { createBrushTiles } from './brushtiles.js';
 import { createAmbientOcclusion } from './ssao.js';
@@ -73,6 +73,8 @@ export function decideLooks(budget) {
   setPaintLook(getPaintLook());
   setRim(getRimColor());
   setFlip(getFlip());
+  // After the look and the rim colour, which each reset the numbers a workshop slider moved.
+  for (const [key, value] of getRimTune()) if (key in rimTuning() && Number.isFinite(value)) setRimTuning(key, value);
   setVehiclePaint(!getVehiclePaintClassic());
   // Cloud shadows are compiled into every lit material, so they are decided here with the look
   // modes. See CLOUD_UNIFORMS in util/geo.js; with no weather driving them they cover nothing.

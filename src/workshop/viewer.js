@@ -15,7 +15,7 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { createScene } from '../game/scene.js';
 import { createDaylight, DAY_SECONDS } from '../game/daylight.js';
 import { createCityCamera, aimAtHeight, PLAY_ZOOM } from '../game/camera.js';
-import { bakeColor, propMaterial, setClassicPaint, setPaintLook } from '../util/geo.js';
+import { bakeColor, propMaterial, unlitMaterial, setClassicPaint, setPaintLook, rimTuning, setRimTuning } from '../util/geo.js';
 import { markOccluder, unmarkOccluder } from '../game/ssao.js';
 import { markEmissive, unmarkEmissive } from '../game/bloom.js';
 import { renderBudget, decideLooks, createRenderPath } from '../game/renderpath.js';
@@ -25,6 +25,7 @@ import { setRunningLights } from '../sim/traffic.js';
 import { makeRng } from '../util/rng.js';
 import { PALETTE } from '../palette.js';
 import { CATALOG, byId } from './catalog.js';
+import { createComposer } from './composer.js';
 
 const hot = import.meta.hot;
 // What a hot re-run hands to the next one (`hot.data`), or, after the full reload a shared-state edit
@@ -34,7 +35,9 @@ const kept = hot?.data?.orbit ? hot.data : (() => {
   try {
     const saved = JSON.parse(sessionStorage.getItem(STASH));
     sessionStorage.removeItem(STASH);
-    return saved ?? {};
+    // A bench URL naming another model (`?model=`) is a different subject: its framing is not ours.
+    const wanted = new URLSearchParams(window.location.search).get('model');
+    return saved && (!wanted || wanted === saved.model) ? saved : {};
   } catch { return {}; }
 })();
 const params = new URLSearchParams(window.location.search);
@@ -56,7 +59,6 @@ const state = {
   weather: WEATHERS.includes(params.get('weather')) ? params.get('weather') : 'day',
   model: byId(params.get('model') ?? kept.model ?? 'taxi').id,
   paint: PAINTS.includes(params.get('paint')) ? params.get('paint') : DEFAULT_PAINT,
-  view: params.get('view') === 'game' ? 'game' : 'orbit',
   hour: Number.isFinite(Number(params.get('hour'))) && params.has('hour') ? Number(params.get('hour')) : 16.4,
   spin: params.get('spin') === '1',
   inset: params.get('inset') !== '0',
@@ -67,8 +69,6 @@ const stage = document.getElementById('stage');
 const els = {
   model: document.getElementById('model'),
   paint: document.getElementById('paint'),
-  source: document.getElementById('source'),
-  views: document.getElementById('views'),
   weather: document.getElementById('weather'),
   hour: document.getElementById('hour'),
   hourV: document.getElementById('hour-v'),
@@ -252,7 +252,7 @@ orbit.autoRotateSpeed = 1.6;
 const game = createCityCamera(aspect(), { zoom: 12 });
 let gameZoom = kept.gameZoom ?? null;
 
-const activeCamera = () => (state.view === 'game' ? game.camera : orbitCamera);
+const activeCamera = () => orbitCamera;
 
 // The game-zoom inset: the same camera again, drawn into a corner of the same canvas at the
 // density the game plays at, so a tweak made in close-up can be judged at the size it will be seen.
@@ -324,6 +324,101 @@ function applyWire() {
 function applyPaint() {
   setClassicPaint(state.paint === 'classic');
   setPaintLook(state.paint === 'classic' ? null : state.paint);
+  // The rim line is worn by every look but classic (util/geo.js, `rimPaintOn`), so its sliders
+  // would move nothing there.
+  document.getElementById('rim-box').hidden = state.paint === 'classic';
+  // Each look sets its own rim width, so the sliders follow it.
+  syncRim();
+}
+
+// The rim light's live numbers (util/geo.js `setRimTuning`), the same rows as the game's ⚙️ panel:
+// uniforms, so they move the paint without a rebuild. Reset goes back to what they read when this
+// run started.
+const RIM_FIELDS = [
+  ['width', 'Width', 1, 12, 0.5, 1],
+  ['strength', 'Strength', 0, 8, 0.05, 2],
+  ['sky', 'Sky', 0, 2, 0.05, 2],
+  ['carColour', 'Car colour', 0, 1, 0.05, 2],
+  ['gap', 'Depth gap', 0.05, 2, 0.05, 2],
+  ['glintCut', 'Glint cut', 0.97, 1.001, 0.001, 3],
+  ['sheenCut', 'Sheen cut', 0.8, 1.01, 0.005, 3],
+  ['flip', 'Flip colour', 0, 1, 0.05, 2],
+  ['flipPower', 'Flip falloff', 0.5, 4, 0.1, 1],
+  ['streaks', 'Streaks', 0, 2, 0.05, 2],
+];
+const rimInputs = [];
+function syncRim() {
+  const now = rimTuning();
+  for (const { key, input, value, digits } of rimInputs) {
+    input.value = String(now[key]);
+    value.value = Number(now[key]).toFixed(digits);
+  }
+}
+
+/**
+ * Makes a slider's readout a field you can type into. A committed number goes through the range
+ * itself, so it clamps and snaps to the slider's own min, max and step, and the slider's `input`
+ * handler stays the one place a change lands. Enter or leaving the field commits; Escape, or
+ * anything that doesn't parse, puts the readout back.
+ */
+function bindReadout(range, field, parse = Number) {
+  field.spellcheck = false;
+  let cancel = false;
+  on(field, 'focus', () => field.select());
+  on(field, 'keydown', (event) => {
+    if (event.key === 'Enter') field.blur();
+    else if (event.key === 'Escape') { cancel = true; field.blur(); }
+  });
+  on(field, 'blur', () => {
+    const v = cancel ? NaN : parse(field.value.trim());
+    cancel = false;
+    if (Number.isFinite(v)) range.value = String(v);
+    range.dispatchEvent(new Event('input'));
+  });
+}
+{
+  const rows = document.getElementById('rim-rows');
+  rows.replaceChildren();
+  const start = rimTuning();
+  for (const [key, text, min, max, step, digits] of RIM_FIELDS) {
+    const label = document.createElement('label');
+    label.className = 'slider';
+    const input = document.createElement('input');
+    Object.assign(input, { type: 'range', min, max, step });
+    const value = document.createElement('input');
+    Object.assign(value, { className: 'value', type: 'text', inputMode: 'decimal' });
+    value.setAttribute('aria-label', text);
+    label.append(text, input, value);
+    rows.append(label);
+    rimInputs.push({ key, input, value, digits });
+    on(input, 'input', () => {
+      setRimTuning(key, Number(input.value));
+      value.value = Number(input.value).toFixed(digits);
+      saveRim();
+    });
+    bindReadout(input, value);
+  }
+  // Kept in localStorage so a reload keeps the sliders, and echoed as a warning because the page
+  // forwards warnings to .workshop/console.log, which is how the chat reads the numbers back.
+  let saveTimer = 0;
+  function saveRim() {
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(() => {
+      const json = JSON.stringify(rimTuning());
+      localStorage.setItem('workshop.rim', json);
+      console.warn(`[rim-tuning] ${json}`);
+    }, 400);
+  }
+  try {
+    const saved = JSON.parse(localStorage.getItem('workshop.rim') ?? 'null');
+    for (const [key, v] of Object.entries(saved ?? {})) if (key in start && Number.isFinite(v)) setRimTuning(key, v);
+  } catch { /* a stale or hand-edited entry is not worth a broken bench */ }
+  syncRim();
+  on(document.getElementById('rim-reset'), 'click', () => {
+    for (const [key] of RIM_FIELDS) setRimTuning(key, start[key]);
+    syncRim();
+    saveRim();
+  });
 }
 
 function showError(error) {
@@ -331,6 +426,8 @@ function showError(error) {
   els.error.textContent = error ? `${error.message}\n${(error.stack ?? '').split('\n').slice(1, 4).join('\n')}` : '';
 }
 
+// Where the current model was set on the bench ({ id, x, y, z }), handed to the next run of an edit.
+let placement = kept.placement ?? null;
 function load(id, { keepFraming = false } = {}) {
   if (current) {
     scene.remove(current.holder);
@@ -342,7 +439,6 @@ function load(id, { keepFraming = false } = {}) {
   const entry = byId(id);
   state.model = entry.id;
   els.model.value = entry.id;
-  els.source.textContent = entry.source;
 
   let built;
   try {
@@ -360,10 +456,16 @@ function load(id, { keepFraming = false } = {}) {
   holder.add(built.object);
   holder.updateMatrixWorld(true);
   fitDrawn(built.object);
+  // An edit that rebuilds the model in place reuses the last run's offset rather than recentring:
+  // a part added to one end moves the box's centre, and recentring on it slid the whole model
+  // across the viewport under the camera the edit was meant to leave alone.
+  const reuse = keepFraming && placement?.id === id ? placement : null;
   const centre = box.getCenter(new THREE.Vector3());
-  built.object.position.x -= centre.x;
-  built.object.position.z -= centre.z;
-  built.object.position.y -= Math.min(0, box.min.y);
+  const shift = reuse ?? { id, x: -centre.x, y: -Math.min(0, box.min.y), z: -centre.z };
+  built.object.position.x += shift.x;
+  built.object.position.z += shift.z;
+  built.object.position.y += shift.y;
+  placement = shift;
   holder.updateMatrixWorld(true);
   fitDrawn(built.object);
   // Into the prepass, as main.js puts each vehicle and landmark in; `markOccluder` itself skips
@@ -467,11 +569,10 @@ function applyWeather() {
 }
 
 function syncPanel() {
-  for (const b of els.views.querySelectorAll('button')) b.classList.toggle('on', b.dataset.view === state.view);
   els.paint.value = state.paint;
   els.weather.value = state.weather;
   els.hour.value = String(state.hour);
-  els.hourV.textContent = formatHour(state.hour);
+  els.hourV.value = formatHour(state.hour);
   els.spin.checked = state.spin;
   els.wire.checked = state.wire;
   // Minimized rather than hidden: the frame stays as a tab so the restore button has somewhere to be.
@@ -479,8 +580,7 @@ function syncPanel() {
   els.inset.textContent = state.inset ? '–' : '+';
   els.inset.title = state.inset ? 'Minimize' : 'Restore';
   els.inset.setAttribute('aria-label', state.inset ? 'Minimize game zoom' : 'Restore game zoom');
-  orbit.enabled = state.view === 'orbit';
-  orbit.autoRotate = state.spin && state.view === 'orbit';
+  orbit.autoRotate = state.spin;
 }
 
 function formatHour(h) {
@@ -489,11 +589,17 @@ function formatHour(h) {
   return `${String(hh).padStart(2, '0')}:${String(mm % 60).padStart(2, '0')}`;
 }
 
+// The hour's readout takes what it shows, "16:30", as well as a plain "16.5".
+function parseHour(text) {
+  const m = /^(\d{1,2}):(\d{1,2})$/.exec(text);
+  return m ? Number(m[1]) + Number(m[2]) / 60 : Number(text);
+}
+
 function syncUrl() {
   const q = new URLSearchParams(window.location.search);
   q.set('model', state.model);
   if (state.paint !== DEFAULT_PAINT) q.set('paint', state.paint); else q.delete('paint');
-  if (state.view === 'game') q.set('view', 'game'); else q.delete('view');
+  q.delete('view');
   q.set('hour', state.hour.toFixed(1));
   if (state.weather !== 'day') q.set('weather', state.weather); else q.delete('weather');
   if (state.spin) q.set('spin', '1'); else q.delete('spin');
@@ -507,13 +613,6 @@ on(els.paint, 'change', () => {
   state.paint = els.paint.value;
   applyPaint();
   load(state.model, { keepFraming: true });
-});
-on(els.views, 'click', (event) => {
-  const view = event.target.closest('button')?.dataset.view;
-  if (!view) return;
-  state.view = view;
-  syncPanel();
-  syncUrl();
 });
 on(els.weather, 'change', () => {
   state.weather = els.weather.value;
@@ -529,6 +628,7 @@ on(els.hour, 'input', () => {
   syncPanel();
   syncUrl();
 });
+bindReadout(els.hour, els.hourV, parseHour);
 on(els.spin, 'change', () => {
   state.spin = els.spin.checked;
   syncPanel();
@@ -566,7 +666,15 @@ function setPlaying(on) {
     frame.id = 'game-frame';
     frame.title = 'Rocket Rides';
     frame.allow = 'autoplay; fullscreen';
-    frame.src = state.paint === DEFAULT_PAINT ? '/' : `/?paint=${state.paint}`;
+    // The rim sliders ride along as `?rimtune=`, so the game opens on what the bench shows.
+    const query = new URLSearchParams();
+    // Straight into a run: no startup screen or title menu, no opening vignette, no tutorial bubbles.
+    query.set('title', 'off');
+    query.set('vignette', 'off');
+    query.set('tutorial', 'off');
+    if (state.paint !== DEFAULT_PAINT) query.set('paint', state.paint);
+    query.set('rimtune', Object.entries(rimTuning()).map(([k, v]) => `${k}:${v}`).join(','));
+    frame.src = `/?${query.toString().replace(/%3A/g, ':').replace(/%2C/g, ',')}`;
     // Focused once it has loaded, so the game's keys work without a click into it first.
     frame.addEventListener('load', () => frame.focus(), { once: true });
     stage.append(frame);
@@ -593,8 +701,18 @@ on(els.play, 'click', () => setPlaying(!playing()));
 
 const pinEl = document.getElementById('pin');
 const noteEl = document.getElementById('pin-note');
-const noteInput = document.getElementById('pin-input');
-const noteSend = document.getElementById('pin-send');
+// The note is the chat's own composer (composer.js) — Speed picker, mic and Send included — so a
+// pinned message can be dictated or sent to a particular model like any other. Rebuilt with this
+// module on every hot reload; the text being typed is handed across (`data.pinText`).
+const note = createComposer({
+  placeholder: 'What should change here?',
+  rows: 2,
+  inputId: 'pin-input',
+  onSend: sendPin,
+  signal: listening.signal,
+});
+noteEl.replaceChildren(note.el);
+if (kept.pinText) note.value = kept.pinText;
 let pin = null;           // { point: Vector3 (world), context, label }
 
 const PALETTE_COLORS = Object.entries(PALETTE)
@@ -721,26 +839,30 @@ function placePin() {
 
 function openPin(found) {
   pin = found;
-  noteInput.value = '';
+  note.value = '';
+  // "Queue" while the chat is still on a reply, as the chat's own Send says.
+  note.setQueued(Boolean(window.__workshopChat?.busy?.()));
   placePin();
-  noteInput.focus();
+  note.autosize();          // measured now it is shown: a hidden box has no height to measure
+  note.focus();
 }
 
 function closePin() {
+  note.stopListening();
   pin = null;
   pinEl.hidden = true;
   noteEl.hidden = true;
 }
 
-function sendPin() {
-  const text = noteInput.value.trim();
+function sendPin(text) {
   const chatApi = window.__workshopChat;
   if (!text || !pin || !chatApi) return;
   const id = `pin-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
   // The screenshot is taken now, ring and all, not when the message reaches the front of the
   // queue: by then the camera has moved on, and the ring with it.
   const image = capture(pin.point);
-  chatApi.send(text, { id, label: pin.label, context: pin.context, image });
+  const crop = captureCrop(pin.point);
+  chatApi.send(text, { id, label: pin.label, context: pin.context, image, thumbs: crop ? [crop] : [], speed: note.speedSelect.value });
   // The pin stays up, without its note, so what was asked about is still marked while it waits
   // and while the reply comes in; it comes down when that reply is done.
   addSent(id, pin.point);
@@ -765,14 +887,9 @@ on(renderer.domElement, 'pointerup', (event) => {
   const found = pick(event.clientX, event.clientY);
   if (found) openPin(found); else closePin();
 });
-on(noteSend, 'click', sendPin);
-on(noteInput, 'keydown', (event) => {
-  if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) {
-    event.preventDefault();
-    sendPin();
-  } else if (event.key === 'Escape') {
-    closePin();
-  }
+// Enter and Send are the composer's; Escape is the note's own.
+on(note.input, 'keydown', (event) => {
+  if (event.key === 'Escape') closePin();
 });
 on(window, 'keydown', (event) => {
   if (event.key === 'Escape' && pin && !event.target.closest?.('textarea:not(#pin-input), input, select')) closePin();
@@ -789,6 +906,17 @@ on(window, 'keydown', (event) => {
   // size, so the observer never fires: re-measure by hand.
   resize();
 });
+// Fold and unfold the bench's panels. The state is a class on the panel, so it survives a hot reload
+// of this module; the column is a flex stack (index.html), so the panels below reflow by themselves.
+on(document.getElementById('bench'), 'click', (event) => {
+  const toggle = event.target.closest?.('.panel-toggle');
+  if (!toggle) return;
+  const panel = toggle.closest('.panel');
+  const folded = panel.classList.toggle('collapsed');
+  const name = panel.dataset.name;
+  toggle.setAttribute('aria-label', `${folded ? 'Expand' : 'Collapse'} ${name}`);
+  toggle.title = folded ? 'Expand' : 'Collapse';
+});
 // The inset's minimize button shows only while the pointer is over the window (see index.html).
 on(window, 'pointermove', (event) => {
   const r = els.insetBox.getBoundingClientRect();
@@ -801,13 +929,6 @@ on(window, 'keydown', (event) => {
   if (event.key.toLowerCase() !== 'r' || event.metaKey || event.ctrlKey || event.altKey || event.repeat) return;
   if (event.target.closest?.('input, textarea, select, [contenteditable]')) return;
   frame();
-});
-// The game view zooms on the wheel like the game does; the orbit has its own dolly.
-on(renderer.domElement, 'wheel', (event) => {
-  if (state.view !== 'game') return;
-  event.preventDefault();
-  gameZoom = THREE.MathUtils.clamp((gameZoom ?? 12) * Math.exp(event.deltaY * 0.0012), 2, 80);
-  applyGame();
 });
 
 // --- Frame loop -------------------------------------------------------------
@@ -834,6 +955,64 @@ function resize() {
 const resizer = new ResizeObserver(resize);
 resizer.observe(stage);
 
+// The model's counterpart of the panels' `.ui-changed` sweep: when an edit lands, a scan-lined
+// plane with a bright rim rises through the model from its feet to its top, the same cyan as the
+// panels' line, so you can see the geometry was rebuilt. Depth-tested, so it cuts *through* the
+// model rather than floating over it, and additive so it never hides what it passes.
+const SCAN_SECONDS = 0.9;
+const SCAN_COLOUR = 0x82e1ff;
+let scan = null;
+function startScan() {
+  if (!current) return;
+  stopScan();
+  const b = current.box;
+  const size = b.getSize(new THREE.Vector3());
+  const w = Math.max(size.x, size.z) * 1.25;
+  const stripes = document.createElement('canvas');
+  stripes.width = stripes.height = 8;
+  const g = stripes.getContext('2d');
+  g.fillStyle = '#fff';
+  g.fillRect(0, 0, 8, 2);
+  const tex = new THREE.CanvasTexture(stripes);
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  tex.magFilter = THREE.NearestFilter;
+  tex.repeat.set(w * 2, w * 2);
+  const fill = unlitMaterial({
+    color: SCAN_COLOUR, map: tex, transparent: true, opacity: 0.5, side: THREE.DoubleSide,
+    blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false,
+  });
+  const plane = new THREE.Mesh(new THREE.PlaneGeometry(w, w).rotateX(-Math.PI / 2), fill);
+  const h = w / 2;
+  const rim = new THREE.LineLoop(
+    new THREE.BufferGeometry().setFromPoints([[-h, 0, -h], [h, 0, -h], [h, 0, h], [-h, 0, h]].map((p) => new THREE.Vector3(...p))),
+    new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.95, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false }),
+  );
+  const group = new THREE.Group();
+  group.add(plane, rim);
+  group.position.set((b.min.x + b.max.x) / 2, b.min.y, (b.min.z + b.max.z) / 2);
+  group.renderOrder = 10;
+  scene.add(group);
+  scan = { group, fill, rim, tex, t: 0, y0: b.min.y, y1: b.max.y };
+}
+function stopScan() {
+  if (!scan) return;
+  scene.remove(scan.group);
+  scan.group.traverse((o) => { o.geometry?.dispose(); o.material?.dispose(); });
+  scan.tex.dispose();
+  scan = null;
+}
+function updateScan(dt) {
+  if (!scan) return;
+  scan.t += dt / SCAN_SECONDS;
+  if (scan.t >= 1) return stopScan();
+  // Eased so it leaves the ground quickly and settles at the top, and faded over the last third.
+  const e = 1 - (1 - scan.t) ** 2;
+  scan.group.position.y = scan.y0 + (scan.y1 - scan.y0) * e;
+  const fade = Math.min(1, (1 - scan.t) * 3);
+  scan.fill.opacity = 0.5 * fade;
+  scan.rim.material.opacity = 0.95 * fade;
+}
+
 const clock = new THREE.Clock();
 let raf = 0;
 let elapsed = 0;
@@ -842,10 +1021,9 @@ function tick() {
   if (playing()) return;
   const dt = Math.min(clock.getDelta(), 0.05);
   elapsed += dt;
-  if (state.view === 'orbit') {
-    orbit.update();
-    foldZoom();
-  }
+  updateScan(dt);
+  orbit.update();
+  foldZoom();
   try {
     current?.update?.(dt, elapsed);
   } catch (error) {
@@ -935,9 +1113,37 @@ window.__workshop = {
     const entry = byId(state.model);
     return { id: entry.id, label: entry.label, source: entry.source };
   },
-  view: () => state.view,
+  view: () => 'orbit',
   capture: () => capture(pin?.point),
 };
+
+/**
+ * A square of the bench around `mark`, ring at its centre: the thumbnail that rides on a pinned
+ * message's bubble so the note can be tied back to the spot it was about. Taken from the live
+ * canvas at its own pixel density, so it is sharper than the 1024-wide shot the agent gets.
+ */
+function captureCrop(mark, side = 220, px = 240) {
+  const s = pinScreen(mark);
+  if (!s) return null;
+  draw();
+  const src = renderer.domElement;
+  const k = src.width / size().w;
+  const out = document.createElement('canvas');
+  out.width = px;
+  out.height = px;
+  const g = out.getContext('2d');
+  g.fillStyle = '#10151a';
+  g.fillRect(0, 0, px, px);
+  g.drawImage(src, (s.x - side / 2) * k, (s.y - side / 2) * k, side * k, side * k, 0, 0, px, px);
+  g.lineWidth = 3;
+  for (const [colour, r] of [['rgba(0, 0, 0, 0.6)', 13], ['#eef3f7', 11]]) {
+    g.strokeStyle = colour;
+    g.beginPath();
+    g.arc(px / 2, px / 2, r, 0, Math.PI * 2);
+    g.stroke();
+  }
+  return out.toDataURL('image/jpeg', 0.8);
+}
 
 /** The bench as it stands, with a ring drawn at `mark` (a world point) if there is one. */
 function capture(mark) {
@@ -1014,6 +1220,114 @@ function releaseSnapshot() {
   }));
 }
 on(window, 'pagehide', stashSnapshot);
+// Any way the page goes away (a full reload Vite does itself, a manual refresh, an edit to the page
+// or the chat) hands the framing to the next load. Only the hot-swapping paths used to, so every
+// other reload recentred the model and lost the zoom.
+function stashFraming() {
+  if (!current) return;
+  try {
+    foldZoom();
+    sessionStorage.setItem(STASH, JSON.stringify({
+      model: state.model,
+      gameZoom,
+      orbitHalf,
+      placement,
+      orbit: { position: orbitCamera.position.toArray(), target: orbit.target.toArray() },
+    }));
+  } catch { /* the framing is lost, the reload still happens */ }
+}
+on(window, 'pagehide', stashFraming);
+
+// --- An edit lands as a crossfade, and what it changed lights up -------------
+//
+// An edit to the page or the chat used to blank the tab and pop every panel back in empty, then
+// fill them. Two things replace that. The reload becomes a *navigation* to the same URL
+// (`reloadSmoothly`), because a cross-document view transition (`@view-transition` in index.html)
+// runs on push, replace and traverse but never on a reload; and both module scripts are
+// `blocking="render"`, so the new page's first frame is a filled one and the old page holds still
+// until then, then crossfades into it. After that, the panels whose box or look the edit actually
+// moved get a scan line swept down them (`flashChanged`), so you can see where it landed. The
+// comparison is between the page just before the edit and just after: element by element, its
+// rounded box and a handful of computed styles, so a new panel, a moved one, a recoloured one all
+// count, and the chat's own messages (which change all the time) do not.
+
+const UI_BEFORE = 'workshop-ui-before';
+const UI_PROPS = [
+  'display', 'color', 'background-color', 'background-image', 'border-top-width', 'border-top-color',
+  'border-radius', 'box-shadow', 'font-size', 'font-weight', 'padding', 'gap',
+];
+
+/** Every element outside the chat log and the canvases, keyed by its id or else its nearest id'd
+ *  ancestor plus tag, class and index, so one new element does not shift every key after it. */
+function uiElements() {
+  const out = new Map();
+  const counts = new Map();
+  for (const el of document.body.querySelectorAll('*')) {
+    if (el.closest('#log, #game-frame, .ui-changed, .pin') || el instanceof HTMLCanvasElement) continue;
+    if (el.tagName === 'SCRIPT' || el.tagName === 'OPTION') continue;
+    let key = el.id;
+    if (!key) {
+      const base = `${el.parentElement.closest('[id]')?.id ?? 'body'}>${el.tagName}.${el.className}`;
+      const n = counts.get(base) ?? 0;
+      counts.set(base, n + 1);
+      key = `${base}#${n}`;
+    }
+    out.set(key, el);
+  }
+  return out;
+}
+
+function signature(el) {
+  const r = el.getBoundingClientRect();
+  const cs = getComputedStyle(el);
+  return `${[r.x, r.y, r.width, r.height].map(Math.round)}|${UI_PROPS.map((p) => cs.getPropertyValue(p)).join('|')}`;
+}
+
+function uiSignatures() {
+  return Object.fromEntries([...uiElements()].map(([key, el]) => [key, signature(el)]));
+}
+
+function flashChanged(before) {
+  const changed = [...uiElements()].filter(([key, el]) => before[key] !== signature(el)).map(([, el]) => el);
+  // Only the outermost of each changed run: a panel that grew moves everything inside it, and one
+  // sweep over the panel says that better than twenty over its rows.
+  const set = new Set(changed);
+  const roots = changed.filter((el) => {
+    for (let up = el.parentElement; up; up = up.parentElement) if (set.has(up)) return false;
+    const r = el.getBoundingClientRect();
+    return r.width > 2 && r.height > 2;
+  });
+  for (const el of roots.slice(0, 10)) {
+    const r = el.getBoundingClientRect();
+    const fx = document.createElement('div');
+    fx.className = 'ui-changed';
+    Object.assign(fx.style, {
+      left: `${r.left}px`, top: `${r.top}px`, width: `${r.width}px`, height: `${r.height}px`,
+      borderRadius: getComputedStyle(el).borderRadius,
+    });
+    document.body.append(fx);
+    setTimeout(() => fx.remove(), 1600);
+  }
+}
+
+/** Reload as a same-URL navigation, which can crossfade. The panels' look is kept for the next page. */
+function reloadSmoothly() {
+  try { sessionStorage.setItem(UI_BEFORE, JSON.stringify(uiSignatures())); } catch { /* no flash, still reloads */ }
+  // A hash would make it a same-document jump that reloads nothing.
+  if (window.location.hash) return window.location.reload();
+  if (window.navigation) window.navigation.navigate(window.location.href, { history: 'replace' });
+  else window.location.replace(window.location.href);
+  // If the navigation never commits, fall back to the plain reload rather than sit on stale code.
+  setTimeout(() => window.location.reload(), 4000);
+}
+
+const uiBefore = hot?.data?.ui ?? (() => {
+  try {
+    const saved = JSON.parse(sessionStorage.getItem(UI_BEFORE));
+    sessionStorage.removeItem(UI_BEFORE);
+    return saved;
+  } catch { return null; }
+})();
 
 // --- Boot, and coming back from an edit -------------------------------------
 
@@ -1031,6 +1345,7 @@ if (kept.orbit) {
   orbitCamera.position.copy(orbit.target).addScaledVector(dir, ORBIT_STANDOFF);
   orbit.update();
   applyGame();
+  startScan();
   els.reloaded.classList.add('show');
   setTimeout(() => els.reloaded.classList.remove('show'), 1200);
 }
@@ -1040,6 +1355,9 @@ for (const el of stage.querySelectorAll('.pin.sent')) el.remove();
 for (const [id, point] of kept.sent ?? []) addSent(id, new THREE.Vector3().fromArray(point));
 tick();
 releaseSnapshot();
+// Once the fonts are in and the crossfade is most of the way through, so the sweep reads over the
+// new page rather than under the old one.
+if (uiBefore) document.fonts.ready.then(() => setTimeout(() => flashChanged(uiBefore), 220));
 // The run this replaced, now that this one has drawn a frame of its own. `forceContextLoss` gives
 // the GL context back: a browser holds about sixteen, and an afternoon of edits is more than that.
 if (kept.old) {
@@ -1064,25 +1382,33 @@ if (hot) {
   const RELOAD_ON = /\/src\/(palette|util\/geo|game\/(renderpath|ssao|bloom|scene))\.js$/;
   hot.on('vite:beforeUpdate', (payload) => {
     if (!payload.updates.some((u) => RELOAD_ON.test(u.path))) return;
-    try {
-      sessionStorage.setItem(STASH, JSON.stringify({
-        model: state.model,
-        gameZoom,
-        orbitHalf,
-        orbit: { position: orbitCamera.position.toArray(), target: orbit.target.toArray() },
-      }));
-    } catch { /* the framing is lost, the reload still happens */ }
-    window.location.reload();
+    stashFraming();
+    reloadSmoothly();
   });
   // Vite's own full reloads (an edit nothing can hot-swap, the page itself) say so first; `pagehide`
-  // would catch them too, but this is earlier and the canvas is still drawn.
-  hot.on('vite:beforeFullReload', stashSnapshot);
+  // would catch them too, but this is earlier and the canvas is still drawn. Vite awaits this
+  // listener before its own `location.reload()`, so a promise that never settles takes the reload
+  // over and makes it `reloadSmoothly`'s navigation. Only for a reload Vite would have done here:
+  // it skips an .html edit that names another page (the same test as its client's).
+  hot.on('vite:beforeFullReload', (payload) => {
+    stashSnapshot();
+    stashFraming();
+    const page = decodeURI(window.location.pathname);
+    const path = payload?.path;
+    if (path?.endsWith('.html') && !(path === page || path === '/index.html' || (page.endsWith('/') && `${page}index.html` === path))) return undefined;
+    reloadSmoothly();
+    return new Promise(() => {});
+  });
   hot.dispose((data) => {
+    foldZoom();   // a wheel zoom not yet folded into orbitHalf would otherwise be lost
+    data.ui = uiSignatures();
     data.model = state.model;
     data.gameZoom = gameZoom;
+    data.placement = placement;
     // The pin outlives an edit (the agent's own, often) along with whatever is typed in its note,
-    // which is the DOM's and survives on its own.
+    // which the next run's composer is handed, since it builds a fresh one.
     data.pin = pin && { ...pin, point: pin.point.toArray() };
+    data.pinText = note.value;
     data.sent = [...sent].map(([id, { point }]) => [id, point.toArray()]);
     data.orbit = { position: orbitCamera.position.toArray(), target: orbit.target.toArray() };
     cancelAnimationFrame(raf);

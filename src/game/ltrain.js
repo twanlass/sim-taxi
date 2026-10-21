@@ -972,7 +972,7 @@ function buildCar() {
   // Body, roof and the air-con pod on it.
   parts.push(box(CAR_LEN, BODY_H, CAR_W, 0, 0.3 + BODY_H / 2, 0, PALETTE.ltrainBody));
   parts.push(box(CAR_LEN - 0.3, 0.15, CAR_W - 0.3, 0, 0.3 + BODY_H + 0.075, 0, PALETTE.ltrainRoof));
-  parts.push(box(1.4, 0.16, 1.0, 0, 0.3 + BODY_H + 0.15 + 0.08, 0, PALETTE.ltrainRoof));
+  parts.push(box(1.4, 0.16, 1.0, 0, 0.3 + BODY_H + 0.15 + 0.08, 0, PALETTE.ltrainRoofUnit));
   // The window band down each side and the stripe under it, standing a hair proud of the body.
   // Sides only: the camera never sees the far side's band, but a train is symmetric and costs
   // eight boxes either way.
