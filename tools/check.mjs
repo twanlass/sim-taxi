@@ -47,7 +47,7 @@ const BOOT = ['../src/game/scene.js', '../src/game/debugpanel.js', '../src/geome
   '../src/geometry/parcel.js', '../src/geometry/food.js', '../src/geometry/cargo.js',
   '../src/geometry/parcelpad.js', '../src/game/parcels.js',
   '../src/game/cargochip.js', '../src/game/chasesiren.js',
-  '../src/game/tutorial.js', '../src/game/titlescreen.js', '../src/game/titlereel.js', '../src/game/creditegg.js', '../src/game/splash.js', '../src/game/splashsound.js', '../src/game/settings.js', '../src/game/highscores.js', '../src/game/locostash.js',
+  '../src/game/tutorial.js', '../src/game/titlescreen.js', '../src/game/titlereel.js', '../src/game/creditegg.js', '../src/game/splash.js', '../src/game/splashsound.js', '../src/game/settings.js', '../src/game/highscores.js', '../src/game/locostash.js', '../src/game/burnout.js', '../src/game/burnoutclip.js',
   '../src/util/platform.js', '../src/util/haptics.js',
   '../src/lab/labroad.js'];
 
@@ -93,6 +93,8 @@ const TOOLS = [
   { name: 'drift',   args: ['tools/driftreel.mjs'],    pick: /(\d+\/\d+) checks passed/ },
   // ...and the overtake's (game/overtakereel-<width>.js).
   { name: 'overtake', args: ['tools/overtakereel.mjs'], pick: /(\d+\/\d+) checks passed/ },
+  // ...and the burnout launch's, the move a race win earns (game/burnoutreel-<width>.js).
+  { name: 'burnout', args: ['tools/burnoutreel.mjs'], pick: /(\d+\/\d+) checks passed/ },
 ];
 
 let failed = 0;
@@ -258,6 +260,45 @@ try {
     for (const seed of [1, 2, 3, 4, 5, 6]) {
       createLayout(makeRng(seed));
       if (!pickOvertakeStreet({ network: cityNetwork(), cars: [], camRight })) throw new Error(`overtakeclip: no street in city ${seed}`);
+    }
+  }
+
+  // The burnout launch (game/burnout.js): locked until a race is won, armed only by a brake held at
+  // a standstill for ARM_HOLD, a launch only off an armed brake, and the combo once per lane. Its
+  // clip stops, sits, and leaves the way it came, and its keys are the card's.
+  {
+    const { createBurnout, ARM_HOLD, LAUNCH_TIME } = await import('../src/game/burnout.js');
+    const { MOVES } = await import('../src/game/newmove.js');
+    const { COMBO_STEPS } = await import('../src/game/combometer.js');
+    let won = false;
+    const taxi = { v: 0, lane: { id: 1 }, launchT: 0 };
+    const b = createBurnout({ taxi, unlocked: () => won });
+    for (let n = 0; n < 60; n++) b.update(1 / 60, { brakeHeld: true });
+    if (b.press() !== null) throw new Error('burnout: launches before the race is won');
+    won = true;
+    b.update(ARM_HOLD * 0.5, { brakeHeld: true });
+    if (b.press() !== null) throw new Error('burnout: a jab of the brake arms it');
+    b.update(ARM_HOLD, { brakeHeld: true });
+    if (b.press() !== true || taxi.launchT !== LAUNCH_TIME) throw new Error('burnout: an armed brake does not launch');
+    b.update(ARM_HOLD * 2, { brakeHeld: true });
+    if (b.press() !== false) throw new Error('burnout: a second launch off the same lane pays the combo again');
+    taxi.v = 5;
+    b.update(ARM_HOLD * 2, { brakeHeld: true });
+    if (b.press() !== null) throw new Error('burnout: arms on a moving car');
+    if (!COMBO_STEPS.burnout) throw new Error('burnout: no combo step');
+    const { reelAt, clipKeys, pickBurnoutStreet, CLIP_LOOP, LOCO_ON } = await import('../src/game/burnoutclip.js');
+    const keys = clipKeys(CLIP_LOOP * 0.6);
+    for (const [name] of MOVES.burnout.keys) if (!(name in keys)) throw new Error(`newmove: Burnout has no key ${name}`);
+    if (!(keys.brake.lit && keys.launch.down && !keys.brake.down)) throw new Error('burnoutclip: keys wrong after the launch');
+    if (Math.abs(reelAt(LOCO_ON - 0.05).along - reelAt(LOCO_ON - 0.6).along) > 0.05) throw new Error('burnoutclip: not stopped before the launch');
+    if (!(reelAt(CLIP_LOOP).along - reelAt(LOCO_ON).along > 15)) throw new Error('burnoutclip: does not leave');
+    const { createLayout } = await import('../src/city/layout.js');
+    const { cityNetwork } = await import('../src/city/roadnet.js');
+    const { makeRng } = await import('../src/util/rng.js');
+    const camRight = { x: Math.SQRT1_2, z: -Math.SQRT1_2 };
+    for (const seed of [1, 2, 3, 4, 5, 6]) {
+      createLayout(makeRng(seed));
+      if (!pickBurnoutStreet({ network: cityNetwork(), cars: [], camRight })) throw new Error(`burnoutclip: no street in city ${seed}`);
     }
   }
 

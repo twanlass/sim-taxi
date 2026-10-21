@@ -2383,6 +2383,12 @@ const ACCEL = 6;              // units/s^2 pulling away
 const BOOST_SPEED = 2.6;      // multiplier on top speed — 22.1 u/s, 65mph
 const BOOST_ACCEL = 24;       // reaches full boost speed in well under a block
 const BOOST_KICK = 1.25;      // instant surge on activation, so the press has a feel
+// The burnout launch (game/burnout.js): Loco Mode pressed off a held brake at a standstill. For
+// `taxi.launchT` seconds after it the boost pulls this many times harder — still under every cap
+// the taxi follows by (a leader, a line, a corner), so it is a harder shove and never a teleport,
+// which is the trap BOOST_KICK fell into behind a queue (CLAUDE.md). At 3x the Loco top (18.7) is
+// 1.6 units off the line against 4.9 for an ordinary press from a stop.
+export const LAUNCH_GAIN = 3;
 const BRAKE = 17.5;           // units/s^2 shedding speed; ~2.1 units to stop from cruise
 // The player's brake pedal — `car.braking`, held from the HUD's brake button (main.js). Twice the
 // ordinary rate, which is what makes it read as locking the wheels rather than lifting off: 1.0
@@ -5344,6 +5350,7 @@ export function createTraffic(
       taxi.v = Math.max(taxi.v, SPEED * loco.kick);
     }
     taxi.wasBoosting = taxi.boost;
+    if (taxi.launchT > 0) taxi.launchT = taxi.boost ? Math.max(0, taxi.launchT - dt) : 0;
 
     // Weave inside the lane while boosting — the "he is driving like a maniac" tell, now that the
     // taxi holds its own lane instead of straddling the centreline.
@@ -6681,9 +6688,9 @@ export function createTraffic(
         // would haul the taxi down to 8.5 round the corner. An unkicked one holds nothing.
         const drifting = driftHolds(car);
         const topSpeed = drifting ? car.drift.v : fullPower ? overdriveTop() : cruiseCap;
-        const accel = fullPower || drifting
+        const accel = (fullPower || drifting
           ? boostAccel(car.v)
-          : chaseAccelFor(car);
+          : chaseAccelFor(car)) * (car.isTaxi && car.launchT > 0 && fullPower ? LAUNCH_GAIN : 1);
         // The brake pedal outranks every one of them, including the boost ceiling: holding it means
         // stop, so the target is zero and the car sheds toward it at `hardBrake()` however much road
         // it has been granted. Nothing else needs to know — with a target of 0 the accelerate branch

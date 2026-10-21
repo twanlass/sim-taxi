@@ -37,6 +37,9 @@ export const COMBO_MAX = 5;
 export const COMBO_STEPS = {
   overtake: { label: 'Overtake', step: 0.5 },
   uturn: { label: 'U-Turn', step: 0.5 },
+  // The burnout launch off a standstill (game/burnout.js), a half like the two above — and once
+  // per lane, so an all-way stop on every corner is not a free step each.
+  burnout: { label: 'Burnout', step: 0.5 },
   // By chain tier, 1-based.
   drift: { label: ['Drift', 'Drift ×2', 'Drift ×3'], step: [0.5, 1, 1.5] },
   launch: { label: 'Big Air', step: 2 },
