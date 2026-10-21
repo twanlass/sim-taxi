@@ -2155,6 +2155,13 @@ robbery without `holdAlarm`, so the headless suite still sees the police on the 
 `?robbery=classic` drops the cut and goes straight to the robber's line). The point is that the
 player *sees* the robber get in.
 
+**The bank rider waits under the side-quest "!"** rather than an urgency pie (Tyler, 2026-10-21):
+they are the way into the robbery, an offer more than a fare. The pie is hidden on the kerb
+(`showAt`'s `quest` in game/faremarker.js) and the yellow tag stands where it was (`#bank-mark`,
+`updateBankMark` in main.js); the kerb disc stays, and the pie appears at pickup to fly to the roof
+with the trip's clock. Off screen the rider's own arrow points the way, so the "!" does not wait at
+the edge as well. `?questmark=classic` keeps the pie.
+
 **It starts with the bank rider** (`BANK_CHANCE` in game/fares.js: 30% of qualifying spawns, from
 the second delivery, the bank junction within the spawn box, 35s after the last one left the
 board). A coin is tossed when they spawn, loaded by every bank rider who has ridden since the last
@@ -3587,6 +3594,13 @@ has used the depot knows the way. It answers to the card's gates: the tips setti
 opening tutorial being done, and a calm beat (`newMoveCalm`) — a getaway, a patrol chase or a taxi
 already on its way in defers it, and it is tried again every half second while the car still smokes.
 `__taxi.depotCall.show()` says it.
+
+**The door wears the side-quest "!"** for as long as a tap there would send the smoking taxi in:
+`SMOKE_FRACTION` or worse, and `canRepair` (no rider aboard, no getaway or race, the depot free).
+It is the racer's tag with no card, so the player always has something to tap, every run and not just
+for the 4.5s the line is up (Tyler, 2026-10-21). It does not answer to the tips setting: it is a
+marker, not a lesson. When the line times out its "…" turns straight into the "!"; at the screen
+edge the "!" pans the camera to the garage like the line's tag does. `?questmark=classic` has no "!".
 
 **`?repairtip=classic`** puts back the card it replaced (Tyler, 2026-10-06 to 2026-10-20): the
 [New Move card](#new-move-unlocked-the-overtake-u-turn-and-drift-cards) with **"TAXI GARAGE / Tap for

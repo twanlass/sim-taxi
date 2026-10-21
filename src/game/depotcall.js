@@ -3,6 +3,11 @@ import { createSpeech } from './speech.js';
 // "Tap the garage for repairs" — the depot telling a smoking taxi where to go, in the shared speech
 // card (game/speech.js), with its "…" tag on the garage door.
 //
+// **And a "!" on the door for as long as the garage would take the car** (`update`'s `mark`): the
+// side-quest tag with no card, the racer's, so a smoking taxi always has something to tap and not
+// only for the 4.5 seconds the line is up (Tyler, 2026-10-21). The line hands its tag straight to
+// the mark when it times out; `?questmark=classic` has no mark.
+//
 // On screen it is the **garage**, never the depot (Tyler, 2026-10-20): "depot" is the code's word.
 //
 // It was a bubble once before (Tyler, until 2026-10-06), then a New Move-style card with a clip of
@@ -30,24 +35,30 @@ export const DEPOT_CALL_SECONDS = 4.5;
  */
 export function createDepotCall({ project, viewport = null, site, onEdgeTap = null, edgeTappable }) {
   const root = document.getElementById('depot-call');
-  const idle = { state: { open: false }, show: () => {}, hide: () => {}, update: () => {}, extend: () => {} };
+  const idle = { state: { open: false, marked: false }, show: () => {}, hide: () => {}, update: () => {}, extend: () => {} };
   if (!root || !site) return idle;
 
   const bubble = createSpeech(root, { viewport, onEdgeTap, edgeTappable });
-  const state = { open: false, left: 0 };
+  const state = { open: false, marked: false, left: 0 };
   // The lintel over the middle of the door: the tag sits on the building, not on the road in front.
   const at = () => project(site.curtainX, site.focus.y + site.doorH / 2, site.doorZ);
 
   function hide() {
-    if (!state.open) return;
+    if (!state.open && !state.marked) return;
     state.open = false;
+    state.marked = false;
     bubble.hide();
+  }
+  function mark() {
+    state.marked = bubble.showTag(at, { quest: true });
+    if (!state.marked) bubble.hide();
   }
 
   return {
     state,
     show() {
       state.open = true;
+      state.marked = false;
       state.left = DEPOT_CALL_SECONDS;
       bubble.show(DEPOT_CALL_TITLE, DEPOT_CALL_LINE, at);
     },
@@ -62,13 +73,24 @@ export function createDepotCall({ project, viewport = null, site, onEdgeTap = nu
     extend() {
       if (state.open) state.left = Math.max(state.left, DEPOT_CALL_SECONDS);
     },
-    /** Game time; a run that ends takes it down at once. */
-    update(dt, { over = false } = {}) {
+    /**
+     * Game time; a run that ends takes it down at once. `mark`: the garage would take the car now
+     * (main.js) — the "!" goes up on the door whenever the line is not, and comes down when it stops.
+     */
+    update(dt, { over = false, mark: wanted = false } = {}) {
       bubble.update(dt);
-      if (!state.open) return;
       if (over) { hide(); return; }
-      state.left -= dt;
-      if (state.left <= 0) hide();
+      if (state.open) {
+        state.left -= dt;
+        if (state.left > 0) return;
+        state.open = false;
+        // Straight from the line's "…" to the "!", with no close and reopen in between.
+        if (wanted) mark();
+        else bubble.hide();
+        return;
+      }
+      if (wanted && !state.marked) mark();
+      else if (!wanted && state.marked) hide();
     },
   };
 }
