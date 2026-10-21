@@ -2012,9 +2012,19 @@ closing speed of `EJECT_CLOSING` (18 u/s) or more — a T-bone or a head-on at b
 full-boost rear-end into a stopped queue, anything in overdrive, but not rear-ending traffic going
 the same way — a cabbie in a blue shirt and a dark cap (the riders' rig at 0.8 scale) squeezes out
 through the hole in the windscreen, tumbles head over heels with arms windmilling and legs pedalling, bounces once
-or twice with a puff and a thud, and slides to a sprawl ~16 units down the road. Thrown slightly
+or twice with a puff and a thud, and slides to a sprawl down the road. Thrown slightly
 away from the struck car's side so they do not land in its fireball. The end-of-beat camera frames
 the point halfway between the wreck and the landing, so both stay in a portrait phone's shot.
+
+**How hard the hit was decides how big the throw is.** The closing speed is mapped onto 0..1 from
+`EJECT_CLOSING` (18) to `HARDEST` (34, about the top of what the game produces), and the height,
+spin and distance all climb with it: launch speed up 5.5 → 14 (apex 2.6 → 5.4 units), spin 10 → 20
+rad/s, and the figure comes to rest 9 → 18 units out, with the forward speed worked back from that
+distance so a high throw does not overshoot the shot. Height and spin carry most of the difference
+because they are what is on screen: the live beat and the replay each show only the first ~0.45s
+of the flight, so the landing is never seen. It used to grade distance only — `0.7 × closing`
+clamped to 10..18 u/s at a fixed height and spin — which made the furthest throw 1.4× the shortest
+and every hit from 25.7 up identical. `?ejectthrow=classic` brings that back.
 
 **They come out of the cab, not out of thin air.** The figure starts in the driver's seat
 (`TAXI_DRIVER_SEAT`, geometry/taxi.js) at 0.3 of full size, hidden by the shell, and over its first

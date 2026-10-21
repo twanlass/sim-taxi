@@ -76,6 +76,7 @@ doc; what the classic version was, and why it changed, is in that doc's history 
 | `?helispot=classic` | The police helicopter's first, brighter and harder-edged searchlight | | [gameplay.md](gameplay.md) |
 | `?splashcam=classic` | The startup screen from the game's 33° three-quarter view (the first cut) instead of the low side-on camera | | [gameplay.md](gameplay.md#the-startup-screen) |
 | `?splashsound=classic` | The startup screen plays silent, as it first shipped, rather than with the landing, bounce and Loco sounds | | [gameplay.md](gameplay.md#the-startup-screen) |
+| `?ejectthrow=classic` | The thrown driver's arc graded only by distance (forward speed `0.7 × closing`, clamped 10-18) at one fixed height and spin, instead of height, spin and distance all scaling with how hard the hit was | | [traffic.md](traffic.md) |
 | `?eject=classic` | The wrecked taxi's driver appearing full size in the air above the bonnet and fading in, instead of squeezing out through the windscreen | | [traffic.md](traffic.md) |
 | `?gameover=classic` | The run-end card without the polaroid of the ending over its title, and with "Tap to continue" grey over the Play again slot instead of pulsing at the foot of the screen | | [gameplay.md](gameplay.md#the-polaroid) |
 | `?splashlogo=classic` | The startup screen's plain taxi drop onto the asphalt, with no ROCKET RIDES logo for it to smash through | | [gameplay.md](gameplay.md#the-startup-screen) |

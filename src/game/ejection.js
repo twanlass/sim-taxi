@@ -24,7 +24,8 @@
 //
 // Sized against the wreck camera rather than against physics. The first cut kept the flight to ~8
 // units so it fitted a portrait phone's ~14 either side of the impact; that read as a hop, and the
-// ask was for more drama. It now goes ~16 at a boost-cruise T-bone, and main.js frames the beat on
+// ask was for more drama. It now goes 9-18 units depending on how hard the hit was (see the launch
+// constants below), and main.js frames the beat on
 // the point halfway between the wreck and `landing()` instead of on the wreck, which keeps both
 // within ~8 of the middle of the shot.
 //
@@ -63,10 +64,34 @@ const SCALE = 0.8;
 // and the shoulders (2.25). The tumble pivots here, not at the feet.
 const CENTRE = 1.7;
 
-// Launch. From the windscreen — the front of the cabin, a bit above the roof line — forward at a
-// share of the closing speed, and up.
+// Launch. From the windscreen — the front of the cabin, a bit above the roof line — and graded by
+// how hard the hit was. Everything that ejects is mapped onto 0..1 between EJECT_CLOSING and
+// HARDEST, and the throw's height, spin and distance all climb with it: a hit that only just
+// ejects is a low, quick flop over the bonnet, a head-on in overdrive goes twice as high, spins
+// twice as fast and lands twice as far. 34 is about the top of what the game produces (the boost
+// kick's ~31 into oncoming traffic).
+//
+// Height and spin carry most of it because they are what the player actually *sees*: the live
+// beat runs ~0.49s of sim time and the replay's longest shot 0.45s past the hit (main.js's
+// REPLAY_LEAD, game/replay.js's REPLAY_POST), so the landing itself is never on screen. The
+// first version graded only distance — `0.7 × closing` clamped to 10..18 u/s, at a fixed UP of 9
+// and SPIN of 11 — which made the furthest throw 1.4× the shortest, saturated at 25.7 so every
+// head-on was identical, and put the difference in the part of the flight nobody watches. It is
+// kept behind `?ejectthrow=classic`.
+//
+// Distance is set as where the figure comes to rest (REACH_MIN..REACH_MAX) rather than as a
+// launch speed, and the launch speed is worked back from it in `throwFor`: a higher arc is longer
+// in the air, so a fixed forward speed would make the hard throws fly off the end of the wreck
+// shot. 18 is the old cap, which main.js's halfway framing was sized for.
 export const START_FWD = (CAR_LEN / 2) * TAXI_SCALE * 0.45;
 const START_Y = 2.1;
+const HARDEST = 34;
+const UP_MIN = 5.5;
+const UP_MAX = 14;
+const SPIN_MIN = 10;
+const SPIN_MAX = 20;
+const REACH_MIN = 9;
+const REACH_MAX = 18;
 const FWD_PER_CLOSING = 0.7;
 const FWD_MIN = 10;
 const FWD_MAX = 18;
@@ -90,7 +115,7 @@ const SPIN_KEEP = 0.5;
 const MIN_BOUNCE = 2.5;
 const MAX_BOUNCES = 3;
 
-// Head over heels, rad/s. 11 is a turn and a bit on the first arc.
+// Head over heels, rad/s, under `?ejectthrow=classic`. 11 is a turn and a bit on the first arc.
 const SPIN = 11;
 // And a little yaw, signed with the sideways throw, over the time in the air.
 const TWIST = 1.4;
@@ -108,14 +133,16 @@ const SETTLE = 0.3;
 // inside the windscreen's own burst (game/windshield.js), so it reads as coming out of the glass.
 export const FADE_IN = 0.25;
 // The way out, in sim seconds: from the seat to the arc, and from EMERGE_SCALE of full size to all
-// of it. By 0.15 the arc is 1.5-2.7 units ahead of the windscreen, clear of the shell at any
-// throw, and under the crash slow-mo (main.js's SLOW_MO_MIN 0.18) it lasts ~0.8s of wall time.
+// of it. By 0.15 the arc is 1.7-2.0 units ahead of the windscreen (forward 11.5-13.4 u/s, and the
+// hard throws are higher by then too), clear of the shell at any throw, and under the crash slow-mo (main.js's SLOW_MO_MIN 0.18) it lasts ~0.8s of wall time.
 // 0.3 of full size is ~0.8 tall, which the cabin box (0.6 tall, on a body below it) swallows.
 export const EMERGE = 0.15;
 const EMERGE_SCALE = 0.3;
 // The old entrance: full size in the air above the bonnet, faded in over FADE_IN.
 const CLASSIC = typeof window !== 'undefined'
   && new URLSearchParams(window.location.search).get('eject') === 'classic';
+const CLASSIC_THROW = typeof window !== 'undefined'
+  && new URLSearchParams(window.location.search).get('ejectthrow') === 'classic';
 const HALF_PI = Math.PI / 2;
 
 /**
@@ -176,7 +203,7 @@ export function createEjection(scene, { roadY = 0, onLand = null } = {}) {
     // Right-hand side of the heading, on the ground plane.
     const rx = -fz;
     const rz = fx;
-    const fwd = Math.min(FWD_MAX, Math.max(FWD_MIN, closing * FWD_PER_CLOSING));
+    const { fwd, up, spin, k } = throwFor(closing);
     const x0 = x + fx * START_FWD;
     const z0 = z + fz * START_FWD;
     const lateral = -side * SIDE / fwd;    // sideways units per unit travelled forward
@@ -191,10 +218,10 @@ export function createEjection(scene, { roadY = 0, onLand = null } = {}) {
 
     // The flight at full strength, then again at whatever share of it the street has room for.
     // Every horizontal distance in it is linear in `fwd`, so one rescale moves the whole thing.
-    const full = plan(fwd);
+    const full = plan(fwd, up, spin);
     const room = roomAlong(x0, z0, fx, fz, rx, rz, lateral, full.reach);
     const scale = room < full.reach ? room / full.reach : 1;
-    const { arcs, t, s, vh, theta } = scale < 1 ? plan(fwd * scale) : full;
+    const { arcs, t, s, vh, theta } = scale < 1 ? plan(fwd * scale, up, spin) : full;
     // Lands on its front or its back, whichever the tumble is nearer: π/2 is face down for a
     // figure facing +Z, and every half turn past it alternates.
     const rest = HALF_PI + Math.round((theta - HALF_PI) / Math.PI) * Math.PI;
@@ -202,7 +229,8 @@ export function createEjection(scene, { roadY = 0, onLand = null } = {}) {
       x: x0, z: z0,
       fx, fz, rx, rz, lateral,
       face: Math.atan2(fx, fz),
-      twist: -side * TWIST,
+      // The yaw grows with the hit too, a little: a hard throw comes out twisting as well.
+      twist: -side * TWIST * (1 + k),
       arcs,
       air: t,
       slide: { s0: s, vh, theta0: theta, rest },
@@ -215,15 +243,30 @@ export function createEjection(scene, { roadY = 0, onLand = null } = {}) {
     pose(0);
   }
 
+  /**
+   * The launch for a hit closing at `closing` u/s: forward and up speeds, spin, and `k`, how hard
+   * the hit was on 0..1. The forward speed is whatever lands the figure REACH along the road at
+   * that height — the flight is linear in it, so one unit throw measures the rest.
+   */
+  function throwFor(closing) {
+    if (CLASSIC_THROW) {
+      return { fwd: Math.min(FWD_MAX, Math.max(FWD_MIN, closing * FWD_PER_CLOSING)), up: UP, spin: SPIN, k: 0 };
+    }
+    const k = Math.min(1, Math.max(0, (closing - EJECT_CLOSING) / (HARDEST - EJECT_CLOSING)));
+    const up = UP_MIN + (UP_MAX - UP_MIN) * k;
+    const spin = SPIN_MIN + (SPIN_MAX - SPIN_MIN) * k;
+    const reach = REACH_MIN + (REACH_MAX - REACH_MIN) * k;
+    return { fwd: reach / plan(1, up, spin).reach, up, spin, k };
+  }
+
   /** The ballistic arcs and the slide, for a throw at `fwd` u/s; `reach` is where it comes to rest. */
-  function plan(fwd) {
+  function plan(fwd, up, spin) {
     const arcs = [];
     let t = 0;
     let s = 0;
     let y = START_Y;
-    let vy = UP;
+    let vy = up;
     let vh = fwd;
-    let spin = SPIN;
     let theta = 0;
     for (let n = 0; n <= MAX_BOUNCES; n++) {
       // Time to come down to CONTACT from `y` at `vy`: the later root of y + vy·τ − g/2·τ² = CONTACT.
