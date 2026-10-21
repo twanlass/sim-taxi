@@ -289,6 +289,8 @@ renderer.setPixelRatio(Math.min(window.devicePixelRatio, budget.pixelRatioCap));
 renderer.setSize(viewport.width(), viewport.height());
 renderer.shadowMap.enabled = budget.shadowMapSize > 0;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+// Named for the stylesheet: the title's intro blurs this canvas and no other (game/titlescreen.js).
+renderer.domElement.classList.add('city-canvas');
 document.body.appendChild(renderer.domElement);
 
 // AO, Crayon, Cartoon, painterly, the paint look, the rim and cloud shadows: all baked into the

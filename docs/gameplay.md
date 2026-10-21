@@ -63,6 +63,16 @@ game's own 33° three-quarter view, with the car leaving off the top right.
 `src/game/titlescreen.js`, in `#title-screen`. A load opens on **Play, Settings, Credits**, left
 aligned over the live city. The menu is the only thing on screen: no HUD, no ⏸, no riders.
 
+**It comes in in three beats** (`playIntro`): the city fades up out of black slightly out of focus,
+the menu fades in over it 0.25 s later (0.6 s), and then the city sharpens (from 0.75 s, over
+1.2 s). The startup screen's own fade is the first beat, since the city waits behind it already
+blurred; with no startup screen the title brings a 0.6 s black veil of its own. The blur is a CSS
+`blur(6px)` on the city's canvas, scaled up 5% so the blur's edge falls off-screen, and it is taken
+off the element entirely once the intro is over: a compositor blur costs a pass over the whole
+canvas on every frame it is set, so it is only ever set for those two seconds. Play mid-intro ends
+it at once. Reduced motion skips it. `?titleintro=classic` is the screen as it was, menu and sharp
+city both there when the black lifts.
+
 **Behind it the camera cuts round the landmarks** (`src/game/titlereel.js`): the basketball court
 with its players shooting around, the skatepark, the burger joint, and the L whenever a train
 happens to be running on the island — followed down the line, and cut away from before it reaches

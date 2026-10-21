@@ -56,6 +56,70 @@ export const CREDITS = [
 const stillPlease = () => window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
 
 /**
+ * The way in, in three beats (Tyler, 2026-10-21): the city fades up out of black a little out of
+ * focus, the menu fades in over it, then the city sharpens. `?titleintro=classic` is the screen as
+ * it was, menu and city both there the moment the black lifts.
+ *
+ * **The blur is a CSS filter on the city's canvas, and only for the intro.** It is the cheapest
+ * blur there is to get: no extra render pass and no second copy of the frame, just the compositor
+ * running a Gaussian over the canvas layer — but it runs on *every* frame the city draws while the
+ * filter is set, at full device resolution, so it is set for the ~2 s of the intro and then taken
+ * off the element entirely. Not left at `blur(0px)`: WebKit can keep a filtered layer for a zero
+ * blur. The canvas is scaled up a little under the blur so the blur's edge, which samples in from
+ * outside the canvas, falls off-screen rather than drawing a pale rim, and settles to 1 as it
+ * sharpens.
+ *
+ * The timeline starts when the page's black lifts (`html.booting` coming off — game/splash.js does
+ * that when the startup screen is gone, src/boot.js when there is none). The startup screen's own
+ * fade is the first beat: the city is held behind it, already blurred, so its fade *is* the city
+ * fading up. Without one there is nothing to fade from but the cut off black, so the title brings
+ * its own veil (`title-cold`).
+ */
+export const INTRO = {
+  /** Without the startup screen, the city's fade up out of black. */
+  veil: 0.6,
+  /** A beat on the blurred city before the menu, then the menu's fade. */
+  menuAt: 0.25,
+  menu: 0.6,
+  /** The blur starts clearing once the menu is most of the way in, and takes this long. */
+  focusAt: 0.75,
+  focus: 1.2,
+};
+
+function playIntro(cold) {
+  const html = document.documentElement;
+  const lead = cold ? INTRO.veil : 0;
+  html.style.setProperty('--intro-menu-at', `${lead + INTRO.menuAt}s`);
+  html.style.setProperty('--intro-focus-at', `${lead + INTRO.focusAt}s`);
+  html.style.setProperty('--intro-veil', `${INTRO.veil}s`);
+  html.style.setProperty('--intro-menu', `${INTRO.menu}s`);
+  html.style.setProperty('--intro-focus', `${INTRO.focus}s`);
+  html.classList.add('title-intro');
+  if (cold) html.classList.add('title-cold');
+  let timer = 0;
+  let observer = null;
+  const end = () => {
+    clearTimeout(timer);
+    observer?.disconnect();
+    html.classList.remove('title-intro', 'title-intro-go', 'title-cold');
+  };
+  const go = () => {
+    observer?.disconnect();
+    // A frame on the blurred, menu-less state first, so the transitions have a start to run from.
+    requestAnimationFrame(() => {
+      html.classList.add('title-intro-go');
+      const length = lead + Math.max(INTRO.menuAt + INTRO.menu, INTRO.focusAt + INTRO.focus);
+      timer = setTimeout(end, length * 1000 + 50);
+    });
+  };
+  if (html.classList.contains('booting')) {
+    observer = new MutationObserver(() => { if (!html.classList.contains('booting')) go(); });
+    observer.observe(html, { attributes: true, attributeFilter: ['class'] });
+  } else go();
+  return end;
+}
+
+/**
  * @param {HTMLElement | null} root  `#title-screen`, empty until this fills it. Null → returns null.
  * @param {object} opts
  * @param {{ isOn: () => boolean, set: (on: boolean) => void }} opts.sound  The game's one mute.
@@ -106,7 +170,10 @@ export function createTitleScreen(root, { sound, settings, onPlay }) {
   }
   creditsPage.body.append(list);
 
-  root.append(cover, scrim, menu, settingsPage.section, creditsPage.section);
+  // The intro's black, for a load with no startup screen to fade from (see `playIntro`).
+  const veil = el('div', 'title-veil');
+
+  root.append(cover, scrim, veil, menu, settingsPage.section, creditsPage.section);
   root.setAttribute('role', 'dialog');
   root.setAttribute('aria-label', 'Rocket Rides');
 
@@ -138,6 +205,7 @@ export function createTitleScreen(root, { sound, settings, onPlay }) {
   function play() {
     if (!holding) return;
     holding = false;
+    endIntro?.();
     document.body.classList.remove('title-up');
     root.style.pointerEvents = 'none';
     onPlay?.();
@@ -158,6 +226,8 @@ export function createTitleScreen(root, { sound, settings, onPlay }) {
   document.body.classList.add('title-up');
   root.hidden = false;
   show('menu');
+  const endIntro = !stillPlease() && new URLSearchParams(window.location.search).get('titleintro') !== 'classic'
+    ? playIntro(!document.getElementById('splash')) : null;
 
   return {
     holding: () => holding,

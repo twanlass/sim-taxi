@@ -44,6 +44,10 @@ The reel's first cut (2026-10-17) dipped to black between shots — 0.22 s out, 
 0.34 s in — and framed each landmark close, at zoom 11 to 17. Tyler found it too tight (45.8, then
 30 on phones) and asked for a slower crossfade instead of the dip (2026-10-18).
 
+Until 2026-10-21 the menu and the sharp city were both there the moment the startup screen's fade
+(or the page's black) lifted. Tyler asked for the city to fade in blurred, then the menu, then the
+blur to clear; `?titleintro=classic` keeps the old way in.
+
 ## The opening vignette
 
 Pacing numbers the vignette shipped with and later changed. Now: [The opening vignette](gameplay.md#the-opening-vignette).
