@@ -31,6 +31,24 @@ to smash through; `?splashlogo=classic` keeps the plain drop. The first cut of t
 block face built from the strokes it broke into (an R as stem, bowl and leg); Tyler asked for Space
 Grotesk instead, the same day.
 
+## The title screen
+
+[Now](gameplay.md#the-title-screen): the menu over jump cuts between the city's landmarks.
+
+Until 2026-10-17 the backdrop was one continuous shot: the camera drifting a slow ellipse round the
+middle of the city (`panAt` in game/titlescreen.js — a lap every two minutes at zoom 34, radii 0.3
+of each half-span), and Play eased it from wherever the drift was down onto the garage door. Tyler
+asked for it to cut round the landmarks instead. `?titlecam=classic` keeps the drift and the ease.
+
+The reel's first cut (2026-10-17) dipped to black between shots — 0.22 s out, 0.08 s held,
+0.34 s in — and framed each landmark close, at zoom 11 to 17. Tyler found it too tight (45.8, then
+30 on phones) and asked for a slower crossfade instead of the dip (2026-10-18).
+
+Until 2026-10-21 the menu and the sharp city were both there the moment the startup screen's fade
+(or the page's black) lifted. Tyler asked for the city to fade in blurred, then the menu, then the
+blur to clear; `?titleintro=classic` keeps the old way in. The blur first cleared over 1.2 s;
+Tyler asked for it slower and it became 2.4 s, the same day.
+
 ## The opening vignette
 
 Pacing numbers the vignette shipped with and later changed. Now: [The opening vignette](gameplay.md#the-opening-vignette).

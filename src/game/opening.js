@@ -688,8 +688,18 @@ export function createOpening({
     controller.focusOn(rest.x, rest.z, playZoom, 999, aspect());
   }
 
+  /**
+   * The title screen's Play, under its wipe: put the camera on the door outright, so the opening
+   * starts on the shot it would otherwise spend its approach easing into from wherever the title's
+   * reel had the camera (a jump cut, per the brief, rather than a swoop across the map). The
+   * approach then retires on its first frame (`arrived`) and the door beat plays as normal.
+   */
+  function cutToDoor() {
+    controller.focusOn(doorAim.x, doorAim.z, DOOR_ZOOM, 999, aspect());
+  }
+
   return {
-    update, frameCamera, holdsCamera, settle, skip, enter,
+    update, frameCamera, holdsCamera, settle, skip, enter, cutToDoor,
     /** The run's own opening is still playing. A repair visit is not this — see `visiting`. */
     running: () => mode === 'opening' && phase !== 'done',
     /** A repair visit is in progress, from the turn in off the lane to the camera handed back. */

@@ -240,6 +240,7 @@ import * as fuelArc from '../src/game/fuelarc.js';
 import { createComboMeter, comboScope, COMBO_MAX } from '../src/game/combometer.js';
 import { createSfx, SHIPPED_MIX, SFX_EVENTS, SOUNDS, LOOPS, RADIO, radioBetween, DRIVE_THRU_SECONDS, DRIVE_THRU_TAIL, GROUPS, BUSES, MIX_PARENT, monitorPass } from '../src/game/sfx.js';
 import MIX_FILE from '../assets/audio/mix.json' with { type: 'json' };
+import { createTitleReel, SHOT as REEL_SHOT } from '../src/game/titlereel.js';
 
 const seed = Number(process.argv[2] ?? 71624);
 const CARS_DEFAULT = 7;    // low-density baseline for the fare-loop checks — keeps timing thresholds stable regardless of runtime default
@@ -21943,6 +21944,88 @@ let chopperOrder; // likewise
   check('ltrain: the train shuttles both ways and stays on the line',
     dirsSeen.size === 2 && outside === 0 && lt.state.runs - runs0 >= 3,
     `${lt.state.runs - runs0} runs, directions ${[...dirsSeen].join('/')}, ${outside} frames off the line`);
+
+  // The title reel's train shot (game/titlereel.js) leans on two answers the train gives: where it
+  // is while it is on the island, and how long it has left there. Checked against each other: when
+  // `islandLeft` says t seconds, the subject is still there t - 0.2 s later and gone by t + 0.2 s.
+  {
+    const ltr = createLTrain(new THREE.Scene(), makeRng(9), { intro: false });
+    let asked = 0;
+    let wrong = 0;
+    let seenOn = 0;
+    for (let n = 0; n < 60 * 120; n++) {
+      ltr.update(1 / 60);
+      if (n % 30 || !ltr.subject()) continue;
+      seenOn += 1;
+      const left = ltr.islandLeft();
+      if (left < 1 || left > 30) continue;
+      asked += 1;
+      const before = Math.round((left - 0.2) * 60);
+      const after = Math.round((left + 0.2) * 60);
+      const twin = createLTrain(new THREE.Scene(), makeRng(9), { intro: false });
+      for (let k = 0; k <= n; k++) twin.update(1 / 60);
+      for (let k = 0; k < before; k++) twin.update(1 / 60);
+      const stillOn = Boolean(twin.subject());
+      for (let k = before; k < after; k++) twin.update(1 / 60);
+      if (!stillOn || twin.subject()) wrong += 1;
+      if (asked >= 4) break;
+    }
+    check('ltrain: islandLeft says when the train leaves the island (the title reel cuts on it)',
+      seenOn > 0 && asked >= 2 && wrong === 0, `${asked} predictions, ${wrong} wrong, ${seenOn} samples on the island`);
+  }
+
+  // The title reel itself, against stub subjects: every landmark gets played, the camera only ever
+  // jumps on the frame straight after the outgoing shot was copied onto the crossfade cover (and
+  // with the cover at full strength), the train is slotted in only when it has
+  // enough island left, and a train that runs off the coast mid-shot is cut away from.
+  {
+    let trainOn = false;
+    let trainLeft = 0;
+    let tx = 0;
+    let copies = 0;
+    const coverEl = { style: { opacity: '0' }, width: 0, height: 0, getContext: () => ({ drawImage: () => { copies += 1; } }) };
+    const reel = createTitleReel({
+      cover: coverEl,
+      shots: [
+        { name: 'court', at: () => ({ x: -30, y: 1.5, z: 10 }) },
+        { name: 'skatepark', at: () => ({ x: 20, y: 1, z: -25 }) },
+        { name: 'train', live: true, at: () => (trainOn ? { x: tx, y: 7, z: 0 } : null), minLeft: () => trainLeft },
+        { name: 'burger', at: () => ({ x: 5, y: 3, z: 30 }) },
+      ],
+    });
+    const dt = 1 / 60;
+    let prev = reel.frame(dt, 0.46);
+    let blindJumps = 0;
+    let snappedLast = false;
+    let trainFramesOff = 0;
+    for (let n = 0; n < 60 * 90; n++) {
+      // The train turns up a minute in with 2 s of island (too short), then at 68 s with 8 s — a
+      // window a cut has to land in, and that a shot started late in it runs off the end of.
+      const t = n * dt;
+      trainOn = (t > 60 && t < 62) || (t > 68 && t < 76);
+      trainLeft = trainOn ? (t < 62 ? 62 - t : 76 - t) : 0;
+      tx = trainOn ? (t - 68) * 12 : 0;
+      const p = reel.frame(dt, 0.46);
+      const jump = Math.hypot(p.x - prev.x, p.z - prev.z) > 3 || Math.abs(p.zoom - prev.zoom) > 1;
+      if (jump && !(snappedLast && p.covered > 0.99)) blindJumps += 1;
+      // What main.js does after its draw.
+      snappedLast = reel.snapDue();
+      if (snappedLast) reel.snapshot({ width: 390, height: 844 });
+      if (reel.current() === 'train' && !trainOn) trainFramesOff += 1;
+      prev = p;
+    }
+    const names = new Set(reel.played);
+    const trains = reel.played.filter((x) => x === 'train').length;
+    check('title reel: plays every landmark, cutting only under the crossfade\'s full cover',
+      ['court', 'skatepark', 'burger'].every((x) => names.has(x)) && blindJumps === 0
+        && copies === reel.played.length - 1,
+      `${reel.played.length} shots (${reel.played.join(' ')}), ${copies} stills, ${blindJumps} jumps in view`);
+    check('title reel: the train only when it has the island left, and cut away from as it leaves',
+      trains === 1 && trainFramesOff <= 2,
+      `${trains} train shots, ${trainFramesOff} frames on a train that had gone`);
+    check('title reel: a shot is SHOT seconds',
+      reel.played.length >= Math.floor(90 / REEL_SHOT) - 2, `${reel.played.length} shots in 90 s`);
+  }
 
   // Wheel sparks: a few showers a crossing, off the rail, only while running over the island.
   {
