@@ -46,7 +46,8 @@ The reel's first cut (2026-10-17) dipped to black between shots — 0.22 s out, 
 
 Until 2026-10-21 the menu and the sharp city were both there the moment the startup screen's fade
 (or the page's black) lifted. Tyler asked for the city to fade in blurred, then the menu, then the
-blur to clear; `?titleintro=classic` keeps the old way in.
+blur to clear; `?titleintro=classic` keeps the old way in. The blur first cleared over 1.2 s;
+Tyler asked for it slower and it became 2.4 s, the same day.
 
 ## The opening vignette
 

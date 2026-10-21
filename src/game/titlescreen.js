@@ -63,7 +63,7 @@ const stillPlease = () => window.matchMedia?.('(prefers-reduced-motion: reduce)'
  * **The blur is a CSS filter on the city's canvas, and only for the intro.** It is the cheapest
  * blur there is to get: no extra render pass and no second copy of the frame, just the compositor
  * running a Gaussian over the canvas layer — but it runs on *every* frame the city draws while the
- * filter is set, at full device resolution, so it is set for the ~2 s of the intro and then taken
+ * filter is set, at full device resolution, so it is set for the ~3 s of the intro and then taken
  * off the element entirely. Not left at `blur(0px)`: WebKit can keep a filtered layer for a zero
  * blur. The canvas is scaled up a little under the blur so the blur's edge, which samples in from
  * outside the canvas, falls off-screen rather than drawing a pale rim, and settles to 1 as it
@@ -81,9 +81,10 @@ export const INTRO = {
   /** A beat on the blurred city before the menu, then the menu's fade. */
   menuAt: 0.25,
   menu: 0.6,
-  /** The blur starts clearing once the menu is most of the way in, and takes this long. */
+  /** The blur starts clearing once the menu is most of the way in, and takes this long — slow on
+   *  purpose: at 1.2 s (the first cut) Tyler found it snapped into focus. */
   focusAt: 0.75,
-  focus: 1.2,
+  focus: 2.4,
 };
 
 function playIntro(cold) {
