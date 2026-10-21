@@ -289,7 +289,7 @@ rim line, which every look but classic now wears. Two things make it:
 
 The line takes each car's own hue by default (`?rim=paint`; a yellow taxi gets a gold edge, a white
 cop a white one), `?rim=magenta|cyan|gold|white` tints every car one colour (`RIM_COLORS`), and
-`?rim=off` compiles it out. `RIM_STRENGTH` is 0 now (was 3; workshop sliders, 2026-10-19), so the line draws at zero until `?rimtune=` raises it. The ⚙️ panel has its width (in half-res texels), strength, sky share,
+`?rim=off` compiles it out. `RIM_STRENGTH` is 1 (was 3; 0 for a day from the workshop sliders, 2026-10-19; 1 from 2026-10-20), and `?rimtune=` overrides it. The ⚙️ panel has its width (in half-res texels), strength, sky share,
 car-colour mix and depth gap live, and the two toon cuts (past 1, that highlight is gone). `?paint=toon` is the look before rim; `?paint=layered` the
 realistic layered paint described above, and `?paint=satin&rim=off` any look without the line.
 
