@@ -108,6 +108,7 @@ import { createRoadwork } from './game/roadwork.js';
 import { createFire } from './game/fire.js';
 import { createRace, WIN_PAY, LOSE_COST, TANK_FLOOR, COUNT_STEP } from './game/race.js';
 import { createSpeech } from './game/speech.js';
+import { MARKER_BASE } from './game/faremarker.js';
 import { createFlatbed } from './game/flatbed.js';
 import { createBoxSpill } from './game/boxspill.js';
 import { showRunEnd } from './game/runend.js';
@@ -1040,7 +1041,7 @@ const depotCall = !shot && garage && !repairTipClassic
   ? createDepotCall({
     project: projectToScreen, viewport, site: garage.site,
     // Its tag at the screen edge rides the camera to the garage, which is then there to tap.
-    onEdgeTap: () => lookAtTalker(garage.site.focus, () => Boolean(depotCall?.state.open), () => {
+    onEdgeTap: () => lookAtTalker(garage.site.focus, () => Boolean(depotCall?.state.open || depotCall?.state.marked), () => {
       depotCall.extend();
     }),
     edgeTappable: () => isNarrow(),
@@ -2121,16 +2122,38 @@ const raceTalkAt = () => {
   return at ? projectToScreen(at.x, 2.2, at.z) : null;
 };
 
+// The yellow side-quest "!" (Tyler, 2026-10-21): the racer's offer, the garage door while the taxi
+// smokes (game/depotcall.js), and the bank rider in place of the pie (game/fares.js hides it).
+// `?questmark=classic` keeps the dots and the pie.
+const questMarks = new URLSearchParams(window.location.search).get('questmark') !== 'classic';
+const bankMarkRoot = document.getElementById('bank-mark');
+const bankMark = questMarks && !shot && bankMarkRoot ? createSpeech(bankMarkRoot, { viewport }) : null;
+let bankMarkFare = null;
+/** The "!" over the bank rider while they wait, pointing where the pie's underside would be. */
+function updateBankMark(dt) {
+  if (!bankMark) return;
+  const fare = fares.waitingAll().find((f) => f.bank && f.slot.marker.group.visible) ?? null;
+  if (fare !== bankMarkFare) {
+    bankMarkFare = fare;
+    if (fare) {
+      const at = fare.slot.marker.group.position;
+      bankMark.showTag(() => projectToScreen(at.x, MARKER_BASE, at.z), { quest: true });
+    } else bankMark.hide();
+  }
+  bankMark.update(dt);
+  bankMarkRoot.classList.toggle('at-edge', bankMark.atEdge());
+}
+
 /**
  * Everything the player sees off the race: the bubble, the count, the money. game/race.js knows a
  * race happened; what a run's cash and a tank are for is this file's.
  */
 function onRaceEvent(type, detail) {
   if (type === 'available') {
-    // In reach with an empty cab: just the talker's "…" tag until the player taps it (`race.ask`) —
+    // In reach with an empty cab: just the talker's "!" tag until the player taps it (`race.ask`) —
     // pointing in from the screen edge when the car is off it — and the horn to say so. Without a
     // tag (`?bubbles=classic`/`dock`), a card with only the dots on it.
-    if (raceTalk && !raceTalk.showTag(raceTalkAt)) {
+    if (raceTalk && !raceTalk.showTag(raceTalkAt, { quest: true })) {
       raceTalkRoot?.classList.add('is-ellipsis');
       raceTalk.show('', '…', raceTalkAt);
     }
@@ -6696,7 +6719,13 @@ function tick() {
   //
   // The line (the default) takes the card's trigger and its gates, less `newMoveWanted`'s seen flag:
   // it has its own rule for when it stops (`repairUsed`).
-  depotCall?.update(dt, { over: fares.state.gameOver });
+  // The "!" on the garage door: up whenever a tap there would send a smoking taxi in. Smoking
+  // rather than any scratch, so it says "go and get that seen to" and not "you have been touched".
+  depotCall?.update(dt, {
+    over: fares.state.gameOver,
+    mark: questMarks && traffic.taxi.hp <= TAXI_HP * SMOKE_FRACTION && canRepair(),
+  });
+  updateBankMark(dt);
   const repairTipDue = depotCall
     ? !depotCallSaid && !repairUsed.get()
     : garage && newMove && !repairCard.seen.get();

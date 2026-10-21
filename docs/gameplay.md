@@ -2155,6 +2155,15 @@ robbery without `holdAlarm`, so the headless suite still sees the police on the 
 `?robbery=classic` drops the cut and goes straight to the robber's line). The point is that the
 player *sees* the robber get in.
 
+**The bank rider waits under the side-quest "!"** rather than an urgency pie (Tyler, 2026-10-21):
+they are the way into the robbery, an offer more than a fare. The pie is hidden on the kerb
+(`showAt`'s `quest` in game/faremarker.js) and the yellow tag stands where it was (`#bank-mark`,
+`updateBankMark` in main.js); the kerb disc stays, and the pie appears at pickup to fly to the roof
+with the trip's clock. Off screen the rider's own arrow points the way, so the "!" does not wait at
+the edge as well. They still have a clock on the kerb, but with nothing showing it, running it out
+is an offer turned down rather than a rider failed: no strike, they walk off like a missed VIP.
+Aboard, they are an ordinary fare again. `?questmark=classic` keeps the pie, and the strike.
+
 **It starts with the bank rider** (`BANK_CHANCE` in game/fares.js: 30% of qualifying spawns, from
 the second delivery, the bank junction within the spawn box, 35s after the last one left the
 board). A coin is tossed when they spawn, loaded by every bank rider who has ridden since the last
@@ -2623,8 +2632,13 @@ them. After a race it drives off, and comes back the same 2 to 4 drop-offs later
 again at the same interval after a race"). Counted in deliveries rather than seconds, the next race
 is earned by driving fares, so it cannot be farmed by sitting next to the racer. It has a white stripe down
 its spine, a proud wing on the boot and cyan light pooling under it that pulses to the music, and
-over it hangs a "…" — the [speech tag](#speech-bubbles) alone, with no card (`showTag`; a card with
-only the dots under `?bubbles=classic`/`dock`). The "…" is up whenever the race can be taken (an
+over it hangs a yellow **"!"** — the [speech tag](#speech-bubbles) alone, with no card, marked as an
+offer (`showTag(at, { quest: true })`; a card with only the dots under `?bubbles=classic`/`dock`).
+The "!" is the side-quest mark: the one an RPG hangs over an NPC with a quest to give (World of
+Warcraft's yellow "!", whose "?" means *hand it in*, which is why it isn't a "?"). It stays apart
+from the dots on purpose: "…" is someone talking or a tip, "!" is something the player can take or
+leave, and the tag goes back to the dots the moment the racer speaks. `?questmark=classic` keeps the
+dots. The "!" is up whenever the race can be taken (an
 empty cab, nothing owning the run) and the player can find the car: on the car whenever it is on
 screen, wherever the player has panned to, and pointing in from the screen edge only while the taxi
 is within `NEAR_BLOCKS` (3) of it, with a horn. Out of reach and off screen, or a rider picked up,
@@ -2684,7 +2698,7 @@ called off leaves it in town instead, resting `REST_TIME` (20s) before it offers
 event cannot cost the run ([it is imposed](#it-is-imposed-so-it-cannot-cost-the-run)), so the race
 is a tap like every other choice in the game. Ignoring it is free: the racer just keeps driving.
 
-- **Tappable whenever the "…" is up**, on the car (a screen-plane quad, `HIT_W` × `HIT_H`) or on
+- **Tappable whenever the "!" is up**, on the car (a screen-plane quad, `HIT_W` × `HIT_H`) or on
   the tag. Only something that owns the run outright takes it away (`interrupted`: a getaway, a
   chase, the run ending); a tutorial tip or a burger run does not.
 - **Empty cab only.** With a rider aboard the offer is down. A tap while the taxi is on its way to
@@ -3582,6 +3596,13 @@ has used the depot knows the way. It answers to the card's gates: the tips setti
 opening tutorial being done, and a calm beat (`newMoveCalm`) — a getaway, a patrol chase or a taxi
 already on its way in defers it, and it is tried again every half second while the car still smokes.
 `__taxi.depotCall.show()` says it.
+
+**The door wears the side-quest "!"** for as long as a tap there would send the smoking taxi in:
+`SMOKE_FRACTION` or worse, and `canRepair` (no rider aboard, no getaway or race, the depot free).
+It is the racer's tag with no card, so the player always has something to tap, every run and not just
+for the 4.5s the line is up (Tyler, 2026-10-21). It does not answer to the tips setting: it is a
+marker, not a lesson. When the line times out its "…" turns straight into the "!"; at the screen
+edge the "!" pans the camera to the garage like the line's tag does. `?questmark=classic` has no "!".
 
 **`?repairtip=classic`** puts back the card it replaced (Tyler, 2026-10-06 to 2026-10-20): the
 [New Move card](#new-move-unlocked-the-overtake-u-turn-and-drift-cards) with **"TAXI GARAGE / Tap for

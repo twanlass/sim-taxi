@@ -1423,19 +1423,23 @@
 
          Not `#tip`/`#intro`/`#banner`/`#popup`: those sit on ad-blocker filter lists, and one
          match takes the module graph down with ERR_BLOCKED_BY_CLIENT (CLAUDE.md). */
-      #coach, #robber-talk, #radio, #cop-shout, #depot-call, #race-talk {
+      #coach, #robber-talk, #radio, #cop-shout, #depot-call, #race-talk, #bank-mark {
         position: fixed; inset: 0; z-index: 22;
         pointer-events: none; user-select: none; -webkit-user-select: none;
       }
       #coach[hidden], #robber-talk[hidden], #radio[hidden], #cop-shout[hidden], #depot-call[hidden],
-      #race-talk[hidden] { display: none; }
+      #race-talk[hidden], #bank-mark[hidden] { display: none; }
       /* Never over a screenshot, and never over the retry screen: the run is the thing then. */
       body.shot-mode #coach, body.game-over #coach,
       body.shot-mode #robber-talk, body.game-over #robber-talk,
       body.shot-mode #radio, body.game-over #radio,
       body.shot-mode #cop-shout, body.game-over #cop-shout,
       body.shot-mode #depot-call, body.game-over #depot-call,
-      body.shot-mode #race-talk, body.game-over #race-talk { display: none; }
+      body.shot-mode #race-talk, body.game-over #race-talk,
+      body.shot-mode #bank-mark, body.game-over #bank-mark { display: none; }
+      /* The bank rider's "!" (main.js) leaves the screen edge to the rider's own arrow, which
+         already points there and takes the tap: two marks at one edge for one rider is one too many. */
+      #bank-mark.at-edge { visibility: hidden; }
 
       .speech { position: absolute; left: 0; top: 0; will-change: transform; }
       /* The entrance and exit. Grows out of the pointer (speech.js sets the origin on it), so the
@@ -1631,8 +1635,36 @@
       .speech-tag i:nth-child(3) { animation-delay: 0.3s; }
       @keyframes speech-tag-dot { 0%, 60%, 100% { transform: none; } 30% { transform: translateY(-2.5px); } }
       .speech-tag-pin .speech-pointer { color: #fff; }
+      .speech-tag b { display: none; }
+      /* An offer — a side quest the player can take or leave (speech.js `showTag`, the street
+         racer): a yellow "!" in place of the dots, the mark an RPG hangs over an NPC with a quest
+         to give. The yellow is the highlighted word's (.speech-hl), so the "!" and the "{race}" it
+         turns into on a tap are one colour. Opaque rather than glass: the blur is what lets white
+         sit over a pale street, and yellow carries itself. The dark outline is the rider pie's
+         1.5px one (MARKER_OUTLINE_PX), drawn round disc and pointer together by four hard
+         drop-shadows, so the two read as one shape against the rain-grey street. The "!" hops on
+         the arrows' 1.3s beat instead of the dots' typing ripple. */
+      .tag-quest .speech-tag-pin .speech-tag { background: #FFC93C; box-shadow: none; -webkit-backdrop-filter: none; backdrop-filter: none; }
+      /* Unclipped: the glass clip (above) cuts the pointer off level with where the disc's edge
+         meets it, and the disc curves 0.4px away from that line — a sliver the outline's
+         drop-shadows then filled in dark, which drew as a little shadow across the pointer's root
+         (Tyler, 2026-10-21). Opaque yellow has no overlap to darken, so the whole pointer can sit
+         under the disc. */
+      .tag-quest .speech-tag-pin .speech-pointer {
+        color: #FFC93C; clip-path: none; -webkit-backdrop-filter: none; backdrop-filter: none;
+      }
+      .tag-quest .speech-tag-pin .speech-tag-body {
+        filter: drop-shadow(1.5px 0 0 #121318) drop-shadow(-1.5px 0 0 #121318) drop-shadow(0 1.5px 0 #121318)
+          drop-shadow(0 -1.5px 0 #121318) drop-shadow(0 2px 3px rgba(16, 18, 26, 0.35));
+      }
+      .tag-quest .speech-tag i { display: none; }
+      .tag-quest .speech-tag b {
+        display: block; font: 700 17px/1 'Space Grotesk', system-ui, sans-serif; color: #121318;
+        animation: speech-quest-hop 1.3s ease-in-out infinite;
+      }
+      @keyframes speech-quest-hop { 0%, 55%, 100% { transform: none; } 20% { transform: translateY(-2.5px) rotate(-6deg); } 38% { transform: translateY(0.5px) rotate(3deg); } }
       @media (prefers-reduced-motion: reduce) {
-        .speech-tag i, .speech-hl.is-said { animation: none; }
+        .speech-tag i, .speech-tag b, .speech-hl.is-said { animation: none; }
         .speech-docked > .speech > .speech-body, .speech-docked.is-open > .speech > .speech-body,
         .speech-docked.is-closing > .speech > .speech-body, .speech-tag-body { transform: none; }
       }
@@ -2876,6 +2908,7 @@
     <div id="cop-shout" role="status" aria-live="polite" hidden></div>
     <div id="radio" role="status" aria-live="polite" hidden></div>
     <div id="race-talk" role="status" aria-live="polite" hidden></div>
+    <div id="bank-mark" aria-hidden="true" hidden></div>
     <div id="depot-call" role="status" aria-live="polite" hidden></div>
     <div id="title-screen" hidden></div>
     <div id="home-tip" hidden></div>
