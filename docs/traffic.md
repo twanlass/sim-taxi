@@ -1857,11 +1857,26 @@ play zoom on its own. Each adds a distinct ingredient rather than turning the la
 ladder above on its own). The tiers all wait for a threshold, so the commonest first hit — a 24-HP
 tailgate from full — showed a lamp a few pixels across and nothing else. So three things start at
 the first hit and grow with every one after it: the body **flashes red** twice as the hit lands
-(`taxiHitFlash`, an emissive, 0.3s); the **paint dulls** toward `taxiGrime`, 40% of the way at the
-first hit and the rest of the way down to empty, eased in over a quarter second; and **white steam**
+(`taxiHitFlash`, an emissive, 0.3s); the **paint chips to the metal** at the corner that was struck
+(below); and **white steam**
 comes off the bonnet from the first hit, faster down to the red line, where the smoke in tier 3 takes
 over — so the smoke grows out of something rather than arriving. The rattle starts at tier 2 rather
 than 3, so a car with its boot up also drives broken.
+
+**The chipped paint** (geometry/taxiscratches.js; `?taxidamage=classic` for the tint it replaced). The
+paint keeps its colour and comes off in voxel chips, drawn by a patch on the paint's own shader
+rather than by geometry. Each fragment finds its 0.09-unit voxel in the car's space and scores it:
+value noise sampled at the voxel's centre (so whole cells go together), plus its distance to the
+nearest corner (so chips open from the corners inward). Under the wear threshold it is bare steel
+(`taxiBareMetal`). Wear is one value per corner, blended across the car: the struck corner reaches
+0.3 at the first hit and 1 at empty, the other three follow on the square of that up to 0.6. Only the
+taxi's yellow chips (the test is the vertex colour), so glass, chrome and the chequer are left
+alone. The shell and both lids share the one wear uniform, so a lid swung up, the wreck and the crash
+replay all wear the same chips. Each chip had a primer ring at first — dark grey, which read as a
+second chequer, then red oxide, which read as noise — and it came out: plain steel is the look.
+The hit that wrecks the car never reaches `hit`, so `scuff` wears its
+corner in full before the wreck takes the shell. A first cut laid the chips on as merged cell boxes;
+it needed a copy on each lid and came out for the shader.
 
 And one piece off the tiers: **rear-ending a car pops the bonnet**, however much HP is left. It is the
 boot's mirror image, hinged at the foot of the windscreen, and it flaps on the same spring for the
@@ -2021,7 +2036,7 @@ the point halfway between the wreck and the landing, so both stay in a portrait 
 spin and distance all climb with it: launch speed up 5.5 → 14 (apex 2.6 → 5.4 units), spin 10 → 20
 rad/s, and the figure comes to rest 9 → 18 units out, with the forward speed worked back from that
 distance so a high throw does not overshoot the shot. Height and spin carry most of the difference
-because they are what is on screen: the live beat and the replay each show only the first ~0.45s
+because they are what is on screen: the live beat and the replay's last cut show only the first ~0.7s
 of the flight, so the landing is never seen. It used to grade distance only — `0.7 × closing`
 clamped to 10..18 u/s at a fixed height and spin — which made the furthest throw 1.4× the shortest
 and every hit from 25.7 up identical. `?ejectthrow=classic` brings that back.
@@ -2078,13 +2093,14 @@ replaced, an opacity.
 ### The replay
 
 `game/replay.js`. A wreck no longer goes straight from the live beat to the retry card. After
-`REPLAY_LEAD` (1.2s) of the slow-mo pull-in, the frame cuts to the moment of impact three more
+`REPLAY_LEAD` (1.55s) of the slow-mo pull-in, the frame cuts to the moment of impact three more
 times, about a second each, from three angles picked from all the way round it (below), the last
 the tightest. Cut, crash, cut, crash, cut, crash, card. Each shot opens 0.3s of sim before the
 hit and plays at 0.8× into it and 0.5× through the blast, with a white flash on each cut and the
 crash sound under each one. The last shot eases further, to 0.25× over a longer ramp (`slow` and
-`ramp` in `SHOTS`), so the final hit plays in real slow motion, then holds its final frame for 0.4s
-of wall clock (`hold`), still orbiting, so the last word lands before the card — about 4.7s for all
+`ramp` in `SHOTS`), so the final hit plays in real slow motion and runs 0.7s of sim past it (the first two stop at
+0.3), about a second longer on screen than the others, then holds its final frame for 0.4s
+of wall clock (`hold`) so the last word lands before the card — about 5.7s for all
 three. The card then comes up on that frame: a jump cut, with no hand back to the live wreck in
 between. There is no letterbox or REPLAY tag: the
 first version had both, played the whole approach in slow motion over two longer angles, and ran

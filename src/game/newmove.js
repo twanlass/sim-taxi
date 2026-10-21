@@ -1,4 +1,5 @@
 import { createSpeech } from './speech.js';
+import { createSeenFlag as seenFlag } from './progress.js';
 
 // "New Move Unlocked": the card that teaches a move the player cannot find by looking — the bootleg
 // (game/bootleg.js: hold Loco Mode, then tap the brake twice, and the taxi spins round onto the far
@@ -126,24 +127,10 @@ const TAP_GUARD_MS = 300;
 const IDLE_KEYS_LOOP = 5;   // the U-turn's row dims at 4.2s, the latest of the three
 
 /**
- * @param {object} opts
- * @param {Storage | null} [opts.storage]  Injected for the headless checks; the page's own otherwise.
+ * The card's "seen" flag. It lives in game/progress.js with every other once-ever flag, so Demo
+ * mode can override them all in one place; this keeps the U-turn's key as the default.
  */
-export function createSeenFlag({ storage, key = SEEN_KEY } = {}) {
-  const store = () => {
-    if (storage !== undefined) return storage;
-    try { return typeof window !== 'undefined' ? window.localStorage : null; } catch { return null; }
-  };
-  let seen;
-  try { seen = store()?.getItem(key) === '1'; } catch { seen = false; }
-  return {
-    get: () => seen,
-    set() {
-      seen = true;
-      try { store()?.setItem(key, '1'); } catch { /* soft: this visit only */ }
-    },
-  };
-}
+export const createSeenFlag = ({ storage, key = SEEN_KEY, demo } = {}) => seenFlag({ storage, key, demo });
 
 // The card's words: the tutorial bubble's title slot carries the eyebrow, its line the move's name.
 // Nothing else — the clip and the pedal row are the instruction (Tyler, 2026-10-04: no caption, no "tap to

@@ -147,7 +147,7 @@ import {
   bounceOffset, KICK_SCALE, KICK_HOP, RIM_SCALE, RIM_OFFSET, EMISSIVE, HIGHLIGHT_EMISSIVE,
   DIAMOND_HALF_H, BOUNCE_HEIGHT, PLUMBOB_CLASSIC, HOURGLASS_TILT, insideHourglass, MARKER_SHAPE, PIE_TURN, PIE_FACES_PER_WEDGE, pieWedgeOf, PIE_SLICES, PIE_RIM, pieShown,
 } from '../src/geometry/diamond.js';
-import { CRYSTAL_TOP, createFareMarker } from '../src/game/faremarker.js';
+import { CRYSTAL_TOP, createFareMarker, sliceKnockScale } from '../src/game/faremarker.js';
 import { QUESTION_GEO } from '../src/geometry/questionmark.js';
 import { createPerson, HIGHLIGHT_EMISSIVE as RIDER_HIGHLIGHT } from '../src/geometry/person.js';
 import { POP_SCALE_DIAMOND, POP_SCALE_RIDER, POP_TIME } from '../src/game/selectpop.js';
@@ -5003,6 +5003,42 @@ const PRESSURE_END = difficulty.getTuning().pressureEnd;
       framesKicking > 10 && framesKicking < 40 && !diamond.isKicking(),
       `${framesKicking} frames`);
 
+    // --- Each slice the pie loses knocks it, quietly early and harder on the last three.
+    //
+    // Drive the fill down an eighth at a time, holding the level, and record the peak swell over
+    // each step. Seeded first: the fill a fresh marker is handed must not count as a step. Pie only —
+    // the plumbob and the hourglass have no slices to lose.
+    if (MARKER_SHAPE === 'pie' && process.env.SLICEPULSE !== 'classic') {
+      diamond.showAt(URGENCY_SEGMENTS, 0, 0);
+      diamond.setFill(0.95);
+      diamond.update(t += 1 / 60);
+      const seededQuiet = !diamond.isKnocking();
+      const peaks = [];
+      for (let left = 7; left >= 1; left--) {
+        diamond.setFill((left - 0.5) / PIE_SLICES);
+        let peak = 0;
+        for (let f = 0; f < 40; f++) {
+          diamond.update(t += 1 / 60);
+          peak = Math.max(peak, diamond.mesh.scale.x);
+        }
+        peaks.push(peak);
+        diamond.setFill((left - 0.6) / PIE_SLICES);   // same slice: no second knock
+        diamond.update(t += 1 / 60);
+        if (diamond.isKnocking()) peaks.push(NaN);
+      }
+      const early = peaks.slice(0, 4);
+      const late = peaks.slice(4);
+      const knocked = peaks.length === 7 && peaks.every((p) => p > restScale * 1.05);
+      check('each slice the pie loses knocks it, and only once', seededQuiet && knocked,
+        `seeded quiet ${seededQuiet}, peaks ${peaks.map((p) => p.toFixed(3)).join(' ')}`);
+      check('the knocks grow over the last three slices',
+        Math.max(...early) < late[0] && late[0] < late[1] && late[1] < late[2]
+        && late[2] <= 1 + sliceKnockScale(1) + 1e-6,
+        peaks.map((p) => p.toFixed(3)).join(' '));
+      check('the knock settles back', !diamond.isKnocking()
+        && Math.abs(diamond.mesh.scale.x - restScale) < 1e-6);
+    }
+
     // A marker that pops the moment it appears is announcing a change that hasn't happened.
     diamond.showAt(URGENCY_SEGMENTS, 0, 0);
     diamond.update(t);
@@ -8197,9 +8233,14 @@ function rideToPickup() {
   check('the first hit flashes the body red, and the flash goes',
     flashPeak > 0.3 && body.material.emissive.r === 0 && body.material.emissive.g < flashPeak * 0.5,
     `peak ${flashPeak.toFixed(2)}, now ${body.material.emissive.r.toFixed(2)}`);
-  check('and leaves the paint dulled and the bonnet steaming',
-    dDamage.grime() > 0.25 && body.material.color.b < 0.85 && smokes.length >= 5,
-    `grime ${dDamage.grime().toFixed(2)}, ${smokes.length} wisps`);
+  // The paint keeps its colour (Tyler, 2026-10-21: the tint did not read) and chips instead — at the
+  // struck corner, the front right, more than anywhere else.
+  const chips = dTraffic.taxiDamage.scratches;
+  const wearList = () => [[1, 1], [1, -1], [-1, 1], [-1, -1]].map(([e, sd]) => chips.wearAt(e, sd).toFixed(2)).join(' ');
+  check('and leaves the paint its own colour, chipped at the struck corner, and the bonnet steaming',
+    dDamage.grime() === 0 && body.material.color.getHex() === 0xffffff && smokes.length >= 5
+    && chips.wearAt(1, 1) > 0.3 && [[1, -1], [-1, 1], [-1, -1]].every(([e, sd]) => chips.wearAt(e, sd) < chips.wearAt(1, 1) / 2),
+    `grime ${dDamage.grime().toFixed(2)}, ${smokes.length} wisps, wear ${wearList()}`);
   const frontRight = pods.filter((pod) => homes.get(pod).x > 0 && homes.get(pod).z > 0);
   const others = pods.filter((pod) => !frontRight.includes(pod));
   const hung = frontRight.every((pod) => pod.position.y < homes.get(pod).y - 0.2);
@@ -8325,8 +8366,35 @@ function rideToPickup() {
   check('the smoke comes off the bonnet, clear of the body', ahead > 0.8 && sy > TAXI_DECK_Y,
     `${ahead.toFixed(2)} ahead of centre, ${sy.toFixed(2)} up against a deck at ${TAXI_DECK_Y.toFixed(2)}`);
 
+  // Near empty, the chips have spread to every corner and the struck one is worn nearly through.
+  const scratches = dTraffic.taxiDamage.scratches;
+  check('low on HP, the chips have spread to all four corners',
+    [[1, -1], [-1, 1], [-1, -1]].every(([e, sd]) => scratches.wearAt(e, sd) > 0.2) && scratches.wearAt(1, 1) > 0.8,
+    wearList());
+  // The chips are a patch on the paint's shader (geometry/taxiscratches.js), on the shell and both
+  // lids. Run each material's patch over three's own source for it: a hook that matched nothing
+  // would be a clean car with nothing logged, and every patch here throws on a miss. And the key
+  // has to say so, or the patched program collides with every unpatched one (CLAUDE.md).
+  const patchOk = scratches.materials.every((m) => {
+    const lib = THREE.ShaderLib[m.isMeshPhongMaterial ? 'phong' : 'lambert'];
+    const shader = { vertexShader: lib.vertexShader, fragmentShader: lib.fragmentShader,
+      uniforms: THREE.UniformsUtils.clone(lib.uniforms), defines: {} };
+    try { m.onBeforeCompile(shader, null); } catch (e) { console.log(e.message); return false; }
+    return shader.fragmentShader.includes('cScore < cW') && shader.uniforms.uChipWear
+      && m.customProgramCacheKey().endsWith('-chips');
+  });
+  check('the chips patch the shell\'s and both lids\' shaders, under a key of their own', patchOk);
+
   dDamage.reset();
   dTaxi.hp = TAXI_HP;
+  dDamage.update(1 / 60);
+  check('reset takes the chips off', [[1, 1], [1, -1], [-1, 1], [-1, -1]].every(([e, sd]) => scratches.wearAt(e, sd) === 0));
+  // The wreck's hit never comes through `hit`: `scuff` wears the struck corner in full on its own,
+  // so the shell left in the road wears the hit that ended the run.
+  dDamage.scuff(dTaxi.x - Math.cos(dTaxi.yaw) * 1.5 + Math.sin(dTaxi.yaw) * 0.7,
+    dTaxi.z + Math.sin(dTaxi.yaw) * 1.5 + Math.cos(dTaxi.yaw) * 0.7);
+  check('the wreck\'s hit chips the corner it landed on, in full', scratches.wearAt(-1, 1) === 1, wearList());
+  dDamage.reset();
   dDamage.update(1 / 60);
   check('reset puts every part back', dDamage.tier() === 0 && dDamage.bootAngle() === 0.6
     && dDamage.grime() === 0 && body.material.color.getHex() === 0xffffff
@@ -15881,6 +15949,38 @@ let chopperOrder; // likewise
       `nose ${(last.x - TAXI_TAILPIPE_BACK - site.bayX).toFixed(2)} off the back wall, tail ${tailGap.toFixed(2)} behind the curtain`);
   }
 
+  // The left in from the far lane (`entryPath(site, 'far')`), held to the same agreements: it leaves
+  // the far lane exactly where the traffic model has a car `site.far.back` short of its junction,
+  // tangent to it, with no kink, and comes out square across the near lane onto the driveway.
+  const farPath = entryPath(site, 'far');
+  if (site.far) {
+    const stand = traffic.cars.find((c) => !c.isTaxi);
+    const was = { lane: stand.lane, s: stand.s, state: stand.state, turn: stand.turn };
+    const onLane = placeCar(stand, site.far.d, site.far.i, site.far.j, site.far.back);
+    const at = onLane ? stand.lane.path.at(stand.s) : { x: Infinity, z: Infinity };
+    check('the left in leaves the far lane exactly where the traffic model has the car',
+      onLane && stand.s > 0 && Math.hypot(at.x - farPath.mouth.x, at.z - farPath.mouth.z) < 1e-9,
+      `mouth ${farPath.mouth.x.toFixed(3)},${farPath.mouth.z.toFixed(3)} vs lane ${at.x.toFixed(3)},${at.z.toFixed(3)}`);
+    Object.assign(stand, was);
+    const kinks = [];
+    for (let k = 0.25; k < farPath.total; k += 0.25) {
+      const a = farPath.tangentAt(k - 1e-6);
+      const b = farPath.tangentAt(k + 1e-6);
+      if (Math.hypot(a.x - b.x, a.z - b.z) > 1e-3) kinks.push(k.toFixed(2));
+    }
+    const t0 = farPath.tangentAt(0);
+    const cross = farPath.tangentAt(farPath.fillet.length - 1e-6);
+    const end = farPath.at(farPath.total);
+    check('...turns in off it with no kink, square across the near lane, into the same bay',
+      Math.abs(t0.x) < 1e-9 && Math.abs(t0.z + 1) < 1e-9 && !kinks.length
+      && Math.abs(cross.x + 1) < 1e-9 && Math.hypot(end.x - inPath.at(inPath.total).x, end.z - inPath.at(inPath.total).z) < 1e-9
+      && farPath.signal === 'left',
+      `kinks at ${kinks.join(', ') || 'none'}`);
+  } else {
+    check('the left in is absent exactly where a median stands in the way',
+      farPath === null && gridIsArterialZ(site.merge.i), `far ${farPath}, arterial ${gridIsArterialZ(site.merge.i)}`);
+  }
+
   // And a whole visit, end to end, in a live city: the taxi is sent from a handful of jobs, driven
   // there by the router, caught at the mouth, taken in, repaired behind a shut door, and driven back
   // out — and each of the claims the visit makes has to hold on every trip.
@@ -15924,9 +16024,14 @@ let chopperOrder; // likewise
     let dones = 0;
     let handedBack = 0;
     let visit = null;
+    // Which way each visit came in, and whether a left in was ever taken with the near lane busy.
+    const sides = { near: 0, far: 0 };
+    let crossedIntoTraffic = 0;
+    const nearX = site.kerbX + site.turnR;
     const depot = createDepotRun({
-      site, mouth: inPath.mouth, taxi, routeTo,
-      onArrive: (s0, handBack) => opening.enter(s0, {
+      site, mouth: inPath.mouth, farMouth: farPath?.mouth ?? null, cars: vTraffic.cars, taxi, routeTo,
+      onArrive: (s0, handBack, side) => opening.enter(s0, {
+        side,
         onRepair: () => {
           repairs += 1;
           if (door > REPAIR_GAP + 1e-9) repairedOpen += 1;
@@ -15938,21 +16043,31 @@ let chopperOrder; // likewise
           if (handBack && routeTo(handBack)) handedBack += 1;
         },
         onDone: () => { dones += 1; },
-      }),
+      }) && (() => {
+        sides[side] += 1;
+        if (side === 'far' && vTraffic.cars.some((c) => c !== taxi && !c.crashed && !c.staged
+          && Math.abs(c.x - nearX) < 2.6 && c.z > site.doorZ - 22 && c.z < site.doorZ + 3)) {
+          crossedIntoTraffic += 1;
+        }
+        return true;
+      })(),
     });
 
     const S = 1 / 60;
     const tick = () => {
       if (working) doorWhileWorking = Math.max(doorWhileWorking, door);
       depot.update(S);
+      taxi.braking = depot.holdsTaxi();
       opening.update(S);
       opening.frameCamera(S);
       vTraffic.update(S);
     };
     const merge = exitPath(site).at(exitPath(site).total);
+    // The last job parks the taxi up the road the door faces, past the depot, so the cheaper way
+    // back is down the far side and left in — the trip the classic routing lapped the block for.
     const jobs = [
       { i: 0, j: 0 }, { i: GRID_I, j: GRID_J }, { i: site.merge.i, j: site.merge.j - 1 },
-      { i: 0, j: GRID_J },
+      { i: 0, j: GRID_J }, { i: site.merge.i, j: Math.min(GRID_J, site.merge.j + 1) },
     ];
     let trips = 0;
     let caught = 0;
@@ -15997,6 +16112,9 @@ let chopperOrder; // likewise
     check('a tap on the depot gets the taxi to its driveway and in',
       trips === jobs.length && caught === trips,
       `${caught}/${trips} caught at the mouth, slowest drive ${longestDrive.toFixed(1)}s`);
+    check('...by a left in off the far side when that is the shorter way, never across traffic',
+      (site.far ? sides.far >= 1 : sides.far === 0) && crossedIntoTraffic === 0,
+      `${sides.near} right in, ${sides.far} left in, ${crossedIntoTraffic} with the near lane busy`);
     check('...plays the vignette backwards and then forwards',
       ['enter', 'shut', 'repair', 'door', 'reveal', 'roll', 'release'].every((p) => phasesSeen.has(p)),
       [...phasesSeen].join(' → '));

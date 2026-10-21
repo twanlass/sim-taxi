@@ -226,7 +226,30 @@
       }
       /* Empty, and the climb back to a quarter tank: the fuel is there to watch but not to spend
          yet, so the gold is muted — the pedal's reasoning (see `#boost.is-empty`). */
-      #boost-meter.is-empty .boost-fill { filter: saturate(0.35) brightness(0.8); }
+      body.locogrey-classic #boost-meter.is-empty .boost-fill { filter: saturate(0.35) brightness(0.8); }
+      /* The default (Tyler, 2026-10-21: "make the loco bar grayscale to further comm you can't use it
+         yet"): the climb is grey, not muted gold, so the bar says what the pedal says. A swap of
+         gradient rather than a `filter` on the path, for the WebKit reason given at `.boost-edge`;
+         the muted gold above was a filter and may never have desaturated on a phone at all. The
+         charging glow goes grey with it. */
+      body:not(.locogrey-classic) #boost-meter.is-empty .boost-fill { fill: url(#fuel-grad-dead); }
+      body:not(.locogrey-classic) #boost-meter.is-empty .boost-edge { fill: url(#fuel-edge-dead); }
+      /* The moment it is usable again: the gold comes back in one frame with a flash of the burn's
+         glow that fades over half a second, on the gauge and the pedal together (`wakeLoco` in
+         main.js). A snap rather than a fade-in, because the flip is the news. */
+      @keyframes loco-wake-arc {
+        from { filter: drop-shadow(0 0 12px rgba(255, 210, 0, 1)) brightness(1.35); }
+        to { filter: drop-shadow(0 0 0 rgba(255, 210, 0, 0)) brightness(1); }
+      }
+      @keyframes loco-wake-pedal {
+        from { filter: brightness(1.45); transform: scale(1.07); }
+        to { filter: brightness(1); transform: scale(1); }
+      }
+      #boost-meter.is-woke .boost-arc { animation: loco-wake-arc 0.5s ease-out; }
+      #boost.is-woke .pedal-art { animation: loco-wake-pedal 0.4s ease-out; }
+      @media (prefers-reduced-motion: reduce) {
+        #boost.is-woke .pedal-art { animation-name: loco-wake-arc; }
+      }
       /* A pour landing: the glow and a small throb, off `--fill` and `--pulse`. No transition —
          every value here is rewritten per frame, and any easing smears the 4Hz throb flat. The
          throb was 3.5% and read as the whole gauge bouncing; 1.2% is a swell under the glow. */
@@ -240,6 +263,9 @@
       #boost-meter.is-charging.is-filling .boost-arc {
         filter: drop-shadow(0 0 calc(3px + 3px * var(--fill, 0)) rgba(205, 180, 106, calc(0.5 * var(--fill, 0))));
         transform: none;
+      }
+      body:not(.locogrey-classic) #boost-meter.is-charging.is-filling .boost-arc {
+        filter: drop-shadow(0 0 calc(3px + 3px * var(--fill, 0)) rgba(200, 200, 200, calc(0.4 * var(--fill, 0))));
       }
       @media (prefers-reduced-motion: reduce) {
         #boost-meter.is-filling .boost-arc { transform: none; }
@@ -605,9 +631,10 @@
         font-size: 20px; white-space: nowrap; text-transform: uppercase; letter-spacing: 0.04em;
         color: #FFFFFF; text-shadow: 0 2px 10px rgba(10, 20, 40, 0.7);
       }
-      /* The street race's three, two, one (game/race.js): bigger than a word, because it is the
-         one thing on screen the player should be watching for those three seconds. */
-      .earning.is-label.is-count { font-size: 34px; }
+      /* The street race's three, two, one (game/race.js) and its words: bigger than a word,
+         because it is the one thing on screen the player should be watching. 40px (was 34, Tyler
+         asked for a little bigger); tabular figures so the digits are one width. */
+      .earning.is-label.is-count { font-size: 40px; font-variant-numeric: tabular-nums; }
       /* The combo's words off the roof and its multiplied total at the drop-off. */
       .earning.run-combo { color: #B27CFF; }
 
@@ -1396,19 +1423,23 @@
 
          Not `#tip`/`#intro`/`#banner`/`#popup`: those sit on ad-blocker filter lists, and one
          match takes the module graph down with ERR_BLOCKED_BY_CLIENT (CLAUDE.md). */
-      #coach, #robber-talk, #radio, #cop-shout, #depot-call, #race-talk {
+      #coach, #robber-talk, #radio, #cop-shout, #depot-call, #race-talk, #bank-mark {
         position: fixed; inset: 0; z-index: 22;
         pointer-events: none; user-select: none; -webkit-user-select: none;
       }
       #coach[hidden], #robber-talk[hidden], #radio[hidden], #cop-shout[hidden], #depot-call[hidden],
-      #race-talk[hidden] { display: none; }
+      #race-talk[hidden], #bank-mark[hidden] { display: none; }
       /* Never over a screenshot, and never over the retry screen: the run is the thing then. */
       body.shot-mode #coach, body.game-over #coach,
       body.shot-mode #robber-talk, body.game-over #robber-talk,
       body.shot-mode #radio, body.game-over #radio,
       body.shot-mode #cop-shout, body.game-over #cop-shout,
       body.shot-mode #depot-call, body.game-over #depot-call,
-      body.shot-mode #race-talk, body.game-over #race-talk { display: none; }
+      body.shot-mode #race-talk, body.game-over #race-talk,
+      body.shot-mode #bank-mark, body.game-over #bank-mark { display: none; }
+      /* The bank rider's "!" (main.js) leaves the screen edge to the rider's own arrow, which
+         already points there and takes the tap: two marks at one edge for one rider is one too many. */
+      #bank-mark.at-edge { visibility: hidden; }
 
       .speech { position: absolute; left: 0; top: 0; will-change: transform; }
       /* The entrance and exit. Grows out of the pointer (speech.js sets the origin on it), so the
@@ -1604,8 +1635,36 @@
       .speech-tag i:nth-child(3) { animation-delay: 0.3s; }
       @keyframes speech-tag-dot { 0%, 60%, 100% { transform: none; } 30% { transform: translateY(-2.5px); } }
       .speech-tag-pin .speech-pointer { color: #fff; }
+      .speech-tag b { display: none; }
+      /* An offer — a side quest the player can take or leave (speech.js `showTag`, the street
+         racer): a yellow "!" in place of the dots, the mark an RPG hangs over an NPC with a quest
+         to give. The yellow is the highlighted word's (.speech-hl), so the "!" and the "{race}" it
+         turns into on a tap are one colour. Opaque rather than glass: the blur is what lets white
+         sit over a pale street, and yellow carries itself. The dark outline is the rider pie's
+         1.5px one (MARKER_OUTLINE_PX), drawn round disc and pointer together by four hard
+         drop-shadows, so the two read as one shape against the rain-grey street. The "!" hops on
+         the arrows' 1.3s beat instead of the dots' typing ripple. */
+      .tag-quest .speech-tag-pin .speech-tag { background: #FFC93C; box-shadow: none; -webkit-backdrop-filter: none; backdrop-filter: none; }
+      /* Unclipped: the glass clip (above) cuts the pointer off level with where the disc's edge
+         meets it, and the disc curves 0.4px away from that line — a sliver the outline's
+         drop-shadows then filled in dark, which drew as a little shadow across the pointer's root
+         (Tyler, 2026-10-21). Opaque yellow has no overlap to darken, so the whole pointer can sit
+         under the disc. */
+      .tag-quest .speech-tag-pin .speech-pointer {
+        color: #FFC93C; clip-path: none; -webkit-backdrop-filter: none; backdrop-filter: none;
+      }
+      .tag-quest .speech-tag-pin .speech-tag-body {
+        filter: drop-shadow(1.5px 0 0 #121318) drop-shadow(-1.5px 0 0 #121318) drop-shadow(0 1.5px 0 #121318)
+          drop-shadow(0 -1.5px 0 #121318) drop-shadow(0 2px 3px rgba(16, 18, 26, 0.35));
+      }
+      .tag-quest .speech-tag i { display: none; }
+      .tag-quest .speech-tag b {
+        display: block; font: 700 17px/1 'Space Grotesk', system-ui, sans-serif; color: #121318;
+        animation: speech-quest-hop 1.3s ease-in-out infinite;
+      }
+      @keyframes speech-quest-hop { 0%, 55%, 100% { transform: none; } 20% { transform: translateY(-2.5px) rotate(-6deg); } 38% { transform: translateY(0.5px) rotate(3deg); } }
       @media (prefers-reduced-motion: reduce) {
-        .speech-tag i, .speech-hl.is-said { animation: none; }
+        .speech-tag i, .speech-tag b, .speech-hl.is-said { animation: none; }
         .speech-docked > .speech > .speech-body, .speech-docked.is-open > .speech > .speech-body,
         .speech-docked.is-closing > .speech > .speech-body, .speech-tag-body { transform: none; }
       }
@@ -2042,6 +2101,9 @@
       }
       :is(#title-screen, #pause-veil) .title-row + .title-row { border-top: 1px solid rgba(255, 255, 255, 0.16); }
       :is(#title-screen, #pause-veil) .title-row.is-asleep input { opacity: 0.4; }
+      /* The Demo mode row (game/progress.js): hidden until revealed, asleep while ?demo overrules it. */
+      :is(#title-screen, #pause-veil) .title-row[hidden] { display: none; }
+      :is(#title-screen, #pause-veil) .title-toggle.is-asleep { opacity: 0.4; }
 
       :is(#title-screen, #pause-veil) .title-switch {
         flex: none; position: relative; width: 50px; height: 30px; border-radius: 999px;
@@ -2602,6 +2664,14 @@
           <linearGradient id="fuel-grad" x1="-25" y1="0" x2="175" y2="0" gradientUnits="userSpaceOnUse">
             <stop stop-color="#FFD500" /><stop offset="1" stop-color="#FF9200" />
           </linearGradient>
+          <!-- The same two, with the colour taken out, for the climb out of empty. -->
+          <linearGradient id="fuel-grad-dead" x1="-25" y1="0" x2="175" y2="0" gradientUnits="userSpaceOnUse">
+            <stop stop-color="#B4B4B4" /><stop offset="1" stop-color="#8E8E8E" />
+          </linearGradient>
+          <radialGradient id="fuel-edge-dead">
+            <stop offset="0.35" stop-color="#F4F4F4" /><stop offset="0.6" stop-color="#D6D6D6" stop-opacity="0.9" />
+            <stop offset="1" stop-color="#BDBDBD" stop-opacity="0" />
+          </radialGradient>
         </defs>
         <!-- Both outlines are written by main.js from game/fuelarc.js. -->
         <path class="boost-track" />
@@ -2845,6 +2915,7 @@
     <div id="cop-shout" role="status" aria-live="polite" hidden></div>
     <div id="radio" role="status" aria-live="polite" hidden></div>
     <div id="race-talk" role="status" aria-live="polite" hidden></div>
+    <div id="bank-mark" aria-hidden="true" hidden></div>
     <div id="depot-call" role="status" aria-live="polite" hidden></div>
     <div id="title-screen" hidden></div>
     <div id="home-tip" hidden></div>

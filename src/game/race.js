@@ -82,14 +82,18 @@ const REST_TIME = 20;
 const HIT_W = 8;
 const HIT_H = 6;
 // From the cut to the look at the finish: the two of them side by side, close up, long enough to
-// take in who is racing whom before the camera leaves.
-export const FACEOFF = 1.6;
+// take in who is racing whom before the camera leaves — and to read "Round the flag and back.",
+// which goes when the camera does. 1.6 was over before the line had been read (Tyler: "hold
+// messages longer like the instructions").
+export const FACEOFF = 2.6;
 // Nothing else within this of either car's start, so the cut does not land one inside another car.
 const START_CLEAR = 9;
 // The camera's look at the finish is main.js's (`countIn`); this is how long the start waits for it
 // before counting anyway — a swipe mid-pan drops the peek's callback, and the tools have no camera.
 const REVEAL_MAX = 6;
-export const COUNTDOWN = 3;     // seconds of three, two, one
+export const COUNTDOWN = 3;     // three, two, one
+// Seconds per number: "slow the countdown a touch" (Tyler) from the 1s it was.
+export const COUNT_STEP = 1.25;
 const RACE_MAX = 75;            // nobody home by now — the race is called off and nothing changes hands
 // The finish, choreographed (Tyler: "1. Winner returns 2. Winner stays in place 3. Cut to loser;
 // place them 1 block away 4. Loser drives to finish, pulls up next to winner (skid to stop) 5. Show
@@ -101,6 +105,9 @@ const ARRIVAL_CUT_MAX = 1.5;
 // The loser's running start, off the far end of the block behind: a car rolling in rather than one
 // pulling away from a standstill a block out, which is a different and slower shot.
 const ARRIVAL_ROLL = 10;
+// How far up its lane the winner has to stand for the loser to be let in behind it: past the 6.8
+// units the junction's box check keeps clear of a landing (`exitLaneFull`, sim/traffic.js).
+const ARRIVAL_CLEAR = 7.5;
 // Where on that block it is put: a quarter of the way along, so it has room to brake for the corner.
 const ARRIVAL_FROM = 0.25;
 // A loser not stopped by now (wedged at the corner, the player steering off) is called in anyway.
@@ -111,8 +118,8 @@ const DRIVE_IN_MAX = 8;
 // and stops level (measured over the tools' races: within 0.4 of the taxi's window, as the taxi
 // does coming in on its own pedal).
 const ARRIVAL_CHASE = 0.4;
-// "You won" / "You lost" on screen before the money moves.
-const RESULT_HOLD = 1.1;
+// "You won" / "You lost" on screen before the money moves: held, not flashed (it was 1.1).
+const RESULT_HOLD = 2.2;
 // Where on its lane a car may be put for the start: the middle of the block. Short of its own hold
 // line, so it is handed to the traffic model before it has to see the signal (CLAUDE.md, on cars
 // released inside their stop line); and far enough in that the other car, level with it on the
@@ -430,10 +437,12 @@ function createRivalMesh() {
  * @param onEvent  `(type, detail) => void` — everything the player sees off the car: the bubble, the
  *                 count, the money. This module knows a race happened, not what a run's cash is.
  * @param soon     `?race=soon`
+ * @param firstDue the drop-off the first racer turns up at, overriding DROPS_BETWEEN — Demo mode's 1
  */
 export function createRace({
   rng, scene, traffic, routeTo, blocked = () => false, interrupted = () => false, canStart = () => true,
   seen = () => false, delivered = () => 0, onEvent = () => {}, soon = false, bass = () => 0,
+  firstDue = null,
 }) {
   const taxi = traffic.taxi;
   let rivalChase = RIVAL_CHASE;
@@ -486,7 +495,8 @@ export function createRace({
     t: 0,
     cooldown: soon ? SOON_WAIT : ARRIVE_WAIT,
     // The run's delivery count it turns up at (see DROPS_BETWEEN).
-    dueAt: soon ? 0 : rng.int(DROPS_BETWEEN[0], DROPS_BETWEEN[1]),
+    // The roll is drawn either way, so Demo mode does not reshuffle the rest of the race's stream.
+    dueAt: soon ? 0 : ((roll) => firstDue ?? roll)(rng.int(DROPS_BETWEEN[0], DROPS_BETWEEN[1])),
     car: null,
     /** The two lanes the start was put on, shut to newcomers until the flag drops. */
     startLanes: null,
@@ -870,17 +880,25 @@ export function createRace({
    * The loser is put on the lane *into* the far junction, so it has a corner and a block to come
    * down — the shot Tyler asked for — rather than a third of a block from a standstill.
    */
-  function chooseArrival(winnerCar, loserCar) {
+  function chooseArrival(winnerCar, loserCar, dir = null) {
     const net = cityNetwork();
     const ring = (n) => n.gi === 0 || n.gi === GRID_I || n.gj === 0 || n.gj === GRID_J;
     let best = null;
     for (const lane of net.lanes) {
       if (!pullable(lane) || lane.klass === 'arterial') continue;
+      if (dir != null && net.dirOfLane(lane) !== dir) continue;
       const back = oppositeOf(lane);
-      const x = net.nodeById.get(back.from);
-      const behind = x?.inbound.find((l) => !l.degenerate && net.dirOfLane(l) === net.dirOfLane(back));
+      // The loser comes up the winner's own street from the block behind it, the way they raced.
+      const x = net.nodeById.get(lane.from);
+      const behind = x?.inbound.find((l) => !l.degenerate && net.dirOfLane(l) === net.dirOfLane(lane));
       if (!behind || isLaneClosed(behind.id) || ring(net.nodeById.get(behind.from))) continue;
-      const s = Math.max(PULL_BACK, Math.min(lane.length - PULL_FRONT, lane.length / 2));
+      // Forward on the lane rather than mid-block: the loser has to be let through the junction
+      // behind, and the box check (`exitLaneFull`, sim/traffic.js) refuses a landing within 1.5
+      // following gaps (6.8) of anything on the exit lane. Mid-block on a 12-unit lane is 6, which
+      // held the loser at the far hold line, 18 units short, in every race measured — and so does
+      // the front of a 10.67-unit lane (6.77), hence the floor.
+      const s = Math.max(PULL_BACK, lane.length - PULL_FRONT);
+      if (s < ARRIVAL_CLEAR) continue;
       const p = lane.path.at(s);
       const sb = Math.max(PULL_FRONT, Math.min(back.length - PULL_BACK, back.length - s));
       const q = back.path.at(sb);
@@ -894,10 +912,10 @@ export function createRace({
         && (c.lane === lane || c.lane === back || c.lane === behind
           || Math.hypot(c.x - p.x, c.z - p.z) < START_CLEAR || Math.hypot(c.x - r.x, c.z - r.z) < START_CLEAR));
       if (crowded) continue;
-      const to = net.nodeById.get(back.to);
+      const to = net.nodeById.get(lane.to);
       best = { lane, s, back, sb, behind, from, d, goal: { i: to.gi, j: to.gj } };
     }
-    return best;
+    return best ?? (dir != null ? chooseArrival(winnerCar, loserCar) : null);
   }
 
   /**
@@ -911,7 +929,7 @@ export function createRace({
     const taxiWon = state.winner === 'taxi';
     const winnerCar = taxiWon ? taxi : car;
     const loserCar = taxiWon ? car : taxi;
-    const spot = car && !car.crashed ? chooseArrival(winnerCar, loserCar) : null;
+    const spot = car && !car.crashed ? chooseArrival(winnerCar, loserCar, state.homeDir) : null;
     if (!spot || !place(winnerCar, spot.lane, spot.s) || !place(loserCar, spot.behind, spot.from)) {
       result();
       return false;
@@ -922,10 +940,17 @@ export function createRace({
     taxi.route = [];
     taxi.pendingTarget = null;
     car.route = [];
+    // Both facing the way they raced (Tyler: "make sure both cars face the same direction...
+    // Direction they were racing"), side by side as at the start: the street is one lane each way,
+    // so the racer is the one out in the oncoming lane, on the cop pass's offset (`racePass`), held
+    // out there by `parkedOut` until the result is in. The taxi stays in its own lane either way.
     car.dragStart = false;
-    car.racePass = false;
-    car.pass = 0;
-    car.passing = false;
+    car.racePass = true;
+    car.passing = true;
+    car.pass = 1;
+    car.passTarget = taxi;
+    car.passFrom = car.travelled;
+    car.parkedOut = true;
     if (taxiWon) {
       taxi.parked = true;
       car.roadblock = 0;
@@ -939,7 +964,7 @@ export function createRace({
     loserCar.v = ARRIVAL_ROLL;
     // Nothing more joins the three lanes while it plays out.
     setClosedLanes([spot.lane.id, spot.back.id, spot.behind.id], 'race');
-    state.arrival = { lane: spot.back, stopS: spot.sb, goal: spot.goal, braking: false };
+    state.arrival = { lane: spot.lane, stopS: spot.s, goal: spot.goal, braking: false };
     if (taxiWon) { car.chase = ARRIVAL_CHASE; planRacer(car, spot.goal); }
     else routeTo(spot.goal);
     state.step = 'drive-in';
@@ -1070,6 +1095,8 @@ export function createRace({
     state.brakeTaxi = false;
     state.step = null;
     state.arrival = null;
+    // Let the racer go from beside the taxi: it finishes the pass (`racePass`) as it pulls away.
+    if (car) car.parkedOut = false;
     // A race run, it drives off and comes back DROPS_BETWEEN drop-offs on (`retire`). One called
     // off or declined stays where it is, still offering.
     if (car && !car.crashed && result !== 'won' && result !== 'lost') rest();
@@ -1241,12 +1268,12 @@ export function createRace({
       case 'countdown': {
         if (!car) { finish('void'); break; }
         if (taxi.route.length > 0) holdTaxi();
-        const left = Math.ceil(COUNTDOWN - state.phaseT);
+        const left = Math.ceil(COUNTDOWN - state.phaseT / COUNT_STEP);
         if (left < state.count && left > 0) {
           state.count = left;
           onEvent('count', { n: left });
         }
-        if (state.phaseT >= COUNTDOWN) go();
+        if (state.phaseT >= COUNTDOWN * COUNT_STEP) go();
         break;
       }
       case 'finale':
@@ -1281,6 +1308,9 @@ export function createRace({
         // wins a dead heat: it is the one the player is watching cross the line.
         if (taxiHome || rivalHome) {
           state.winner = taxiHome ? 'taxi' : 'rival';
+          // The way it was racing when it crossed, which the finish faces (`chooseArrival`).
+          const w = taxiHome ? taxi : car;
+          state.homeDir = w.state === 'turn' ? w.dOut : w.d;
           if (taxiHome) state.taxiTime = state.phaseT; else state.rivalTime = state.phaseT;
           setPhase('finale');
           state.step = 'hold';

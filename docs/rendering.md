@@ -4408,6 +4408,12 @@ div is rotated the svg's own +x is the pointing direction. Pooled slots are stag
 `1.3 × 0.618` s so several arrows never throb in step. Off under `prefers-reduced-motion` and
 `?arrowpulse=classic`.
 
+**They knock with the pie.** When the rider's pie loses a slice, its arrow swells by the same
+`sliceKnockScale` on the same 0.36s beat (`followKnocks`). It is a Web Animation on the svg with its
+first and last keyframes left implicit, so for its length it *replaces* the nudge rather than adding
+to it, lifting off and handing back wherever the nudge is. A pooled arrow that has just changed
+fares, or just come back on screen, takes the count without knocking.
+
 **Two kinds, one arrow, and they are exclusive.** With the seat free, *every rider still on a kerb*
 gets one — which replaced the [rider-finder chips](gameplay.md#finding-the-next-rider). With a rider
 aboard there is exactly **one** arrow on the whole frame and it is the drop-off's.
@@ -4619,13 +4625,23 @@ Four animations share the crystal's local transform and simply add:
 | Channel | Driven by |
 |---|---|
 | `position.y` | the resting bounce, plus `KICK_HOP` × the kick envelope |
-| `scale` | `KICK_SCALE` × the kick envelope, plus the panic pulse's `0.15 × (0.5 + 0.5 sin)`, plus `POP_SCALE_DIAMOND` × the [select pop](gameplay.md#the-tap-pops) |
+| `scale` | the larger of `KICK_SCALE` × the kick envelope and the slice knock (below), plus the panic pulse's `0.15 × (0.5 + 0.5 sin)`, plus `POP_SCALE_DIAMOND` × the [select pop](gameplay.md#the-tap-pops) |
 | `emissiveIntensity` | the select pop's light, `EMISSIVE` (0.35) → `HIGHLIGHT_EMISSIVE` (1.05) and back |
 
 Adding rather than switching is deliberate: a level change landing inside the last five seconds
 should read as a knock on top of a beating marker, not replace it — and a tap on that same rider has
 to answer over both. The pop is the one that touches `scale` and *not* `position.y`: the hop is the
 kick's signature, and a pop that left the ground would read as the clock having stepped.
+
+**Each slice the pie loses knocks it.** When the pie steps down an eighth (`pieShown`), the crystal
+swells on the kick's envelope with no hop, at a strength set by how many slices are left
+(`SLICE_KNOCK`): 8% for the first four steps, then 12%, 17% and 24% as it goes to three, two and the
+last slice. Quiet early because the rider rush keeps two or more pies up and seven equal knocks per
+clock would keep the board twitching; loud late because those are the steps a player must act on.
+Every second step is also a level change, and there the knock and the kick take the larger rather
+than adding. The first fill after a spawn only seeds the count. Pie only, off under
+`prefers-reduced-motion`, and `?slicepulse=classic` turns it off. The off-screen arrow standing in for
+the rider knocks with it — see [Off-screen fare pointers](#off-screen-fare-pointers).
 
 **Everything is a function of sim time**, including the flight and the pulse — no accumulated `dt`
 anywhere — because a frozen shot has to render the same frame every time. Both the kick's and the
