@@ -227,7 +227,7 @@ afconvert's encode.
 
 ## The radio
 
-The music is a car radio, the station KPRS. The **title menu** has no music at all: the first tap
+The music is a car radio, the station KPRS. The **title menu** has no music at all: the first tap (at boot, in the iOS app)
 unlocks the effects (the menu's taps, the logo, the city's beds; nothing of the taxi's, which waits for Play too) and decodes the station in the background, but the
 radio stays off until **Play**, so the music arrives as the payoff for starting a run (Tyler, October
 2026). `?titlemusic=classic` brings back the menu's songs: the first tap starts one at random, more
@@ -334,11 +334,24 @@ on the next frame. Only the station goes through it: the ⚙️ panel's track pr
 
 ## Gestures, pauses and the phone
 
-- **Nothing can play before a tap**, the startup screen's sting in the iOS app aside: it runs on a
-  context of its own (`game/splashsound.js`, see [gameplay.md](gameplay.md#the-startup-screen)).
-  Every browser keeps an `AudioContext` suspended until the page has been touched. The context is created inside the first `pointerdown`/`touchend`/`keydown`
-  (Safari only starts one from inside a gesture), and the files are decoded then. The fetches start
-  at boot, so the bytes have usually arrived by the time of that first tap.
+- **In a browser nothing can play before a tap.** Every browser keeps an `AudioContext` suspended
+  until the page has been touched, so the context is created inside the first
+  `pointerdown`/`touchend`/`keydown` (Safari only starts one from inside a gesture), and the files
+  are decoded then. The fetches start at boot, so the bytes have usually arrived by the time of that
+  first tap.
+- **The iOS app starts at boot.** Its shell lifts the gesture rule
+  (`mediaTypesRequiringUserActionForPlayback = []`), which is also what lets the startup screen's
+  sting play on a context of its own (`game/splashsound.js`, see
+  [gameplay.md](gameplay.md#the-startup-screen)). So `createSfx` creates its context and starts
+  decoding straight away, under the logo, and the title menu comes up with the city already
+  sounding. Until October 2026 it waited for a tap like a browser, and the menu sat silent until
+  then plus the time to decode every file. If WebKit holds the context suspended anyway, the first
+  tap resumes it.
+- **The city's beds decode first.** The files decode in waves, each waiting on the last: the spawn's
+  takes (the one sound with a deadline), then the city loop, then the other beds, then everything
+  else, and the radio after that while it is off the air. Each bed starts as soon as its own file
+  is in. It used to be one batch of all 73 files with nothing starting until the slowest had
+  finished, the city loop about 50th in the queue and the station's ~185 s ahead of it.
 - **The world stopping stops the sound.** The pause and the robber's line both call
   `sfx.hold(true)`, which suspends the context. A door scheduled to close is on the audio clock, so
   it waits with everything else. A hidden tab suspends it too.
@@ -471,7 +484,8 @@ and 1.25, a flatbed crate is `crash` at 0.3 and 1.6, and `land` scales with the 
 ## Checking it
 
 `window.__taxi.sfx.state` reports `{ ready, loaded, total, muted, held }`. `loaded` should equal
-`total` (74) after the first tap. `window.__taxi.sfx.play('crash')` fires any one-shot by name, and
+`total` (74) after the first tap (at boot, in the iOS app); `ready` is the last wave landing, and the
+beds do not wait for it. `window.__taxi.sfx.play('crash')` fires any one-shot by name, and
 `tuning()`, `tune(partial)` and `reset()` reach the same mix the Audio sections edit. The
 module is in check.mjs's `BOOT` list, which proves it imports cleanly in node, where it builds a
 no-op.
