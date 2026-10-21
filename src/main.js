@@ -4273,12 +4273,17 @@ function updateHud(dt) {
     showRunEnd(hud.banner, {
       title: s.failTitle,
       reason: s.failReason,
-      // Two numbers: what the run paid, which is what it is ranked on, and how long it lasted.
-      // Fares and Shift were cut (Tyler, 2026-10-06): with every rider's clock budgeted off the
-      // work it takes, both mostly restate Time, and four rows of near-synonyms buried the one
-      // number the table sorts by.
+      // What the run paid, which is what it is ranked on; the highest the combo meter got; and how
+      // long it lasted. Fares and Shift were cut (Tyler, 2026-10-06): with every rider's clock
+      // budgeted off the work it takes, both mostly restate Time, and four rows of near-synonyms
+      // buried the one number the table sorts by. Max combo is not one of those — it is the only
+      // row about *how* the run was driven — so it went back in (Tyler, 2026-10-21). It counts in
+      // tenths because the roll is integer, and floors at 1x so it climbs from where the meter
+      // starts rather than from 0x; a run that never landed a combo says 1x rather than dropping
+      // the row, so the card is the same shape every time.
       stats: [
         { label: 'Cash', value: s.money, format: (n) => `$${n}` },
+        { label: 'Max combo', value: Math.round(combo.state.best * 10), format: (n) => formatMult(Math.max(1, n / 10)) },
         { label: 'Time', value: s.elapsed, format: formatRunTime },
       ],
       // Recorded here rather than the moment the run ended, so the write happens on the frame the
