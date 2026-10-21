@@ -76,8 +76,7 @@ import { deckHeightAt as spillDeckHeight, BRIDGES_INLAND } from '../src/city/riv
 import { createFire } from '../src/game/fire.js';
 import { clearCityOccluders } from '../src/game/sightline.js';
 import { TRUCK_LEN, TRUCK_BOX_LEN } from '../src/sim/traffic.js';
-import { archedBodyGeometries, archOutlines, archCeiling, WHEEL_W, ARCH_R, CHASSIS_LIFT } from '../src/geometry/wheels.js';
-import { BODY_TOP } from '../src/geometry/damage.js';
+import { archedBodyGeometries, archOutlines, archCeiling, WHEEL_W, ARCH_R } from '../src/geometry/wheels.js';
 import { CRATE, CRATE_REST_Y, CRATE_CHIP_REST_Y, DECK_TOP, DECK_REAR } from '../src/geometry/crate.js';
 import { createDust } from '../src/game/dust.js';
 import { createSkidMarks } from '../src/game/skidmarks.js';
@@ -8200,11 +8199,12 @@ function rideToPickup() {
     `peak ${flashPeak.toFixed(2)}, now ${body.material.emissive.r.toFixed(2)}`);
   // The paint keeps its colour (Tyler, 2026-10-21: the tint did not read) and chips instead — at the
   // struck corner, the front right, more than anywhere else.
-  const chips = dTraffic.taxiDamage.scratches.shownByCorner();
+  const chips = dTraffic.taxiDamage.scratches;
+  const wearList = () => [[1, 1], [1, -1], [-1, 1], [-1, -1]].map(([e, sd]) => chips.wearAt(e, sd).toFixed(2)).join(' ');
   check('and leaves the paint its own colour, chipped at the struck corner, and the bonnet steaming',
     dDamage.grime() === 0 && body.material.color.getHex() === 0xffffff && smokes.length >= 5
-    && (chips.get('1,1') ?? 0) >= 3 && ['1,-1', '-1,1', '-1,-1'].every((k) => (chips.get(k) ?? 0) < chips.get('1,1')),
-    `grime ${dDamage.grime().toFixed(2)}, ${smokes.length} wisps, chips ${JSON.stringify([...chips])}`);
+    && chips.wearAt(1, 1) > 0.3 && [[1, -1], [-1, 1], [-1, -1]].every(([e, sd]) => chips.wearAt(e, sd) < chips.wearAt(1, 1) / 2),
+    `grime ${dDamage.grime().toFixed(2)}, ${smokes.length} wisps, wear ${wearList()}`);
   const frontRight = pods.filter((pod) => homes.get(pod).x > 0 && homes.get(pod).z > 0);
   const others = pods.filter((pod) => !frontRight.includes(pod));
   const hung = frontRight.every((pod) => pod.position.y < homes.get(pod).y - 0.2);
@@ -8330,51 +8330,34 @@ function rideToPickup() {
   check('the smoke comes off the bonnet, clear of the body', ahead > 0.8 && sy > TAXI_DECK_Y,
     `${ahead.toFixed(2)} ahead of centre, ${sy.toFixed(2)} up against a deck at ${TAXI_DECK_Y.toFixed(2)}`);
 
-  // Near empty, the chips have spread to every corner and the struck one has opened all the way.
+  // Near empty, the chips have spread to every corner and the struck one is worn nearly through.
   const scratches = dTraffic.taxiDamage.scratches;
-  const late = scratches.shownByCorner();
-  const perCorner = (k) => scratches.marks.filter((m) => m.corner === k).length;
   check('low on HP, the chips have spread to all four corners',
-    ['1,1', '1,-1', '-1,1', '-1,-1'].every((k) => (late.get(k) ?? 0) >= 2) && late.get('1,1') >= perCorner('1,1') * 0.8,
-    JSON.stringify([...late]));
-  // A mark under the boot lid rides the lid while it is up, and is not drawn twice on the deck.
-  const [shellChips, hoodChips, bootChips] = scratches.meshes;
-  const drawnVerts = (mesh) => {
-    const a = mesh.geometry.attributes.position.array;
-    let n = 0;
-    for (let k = 0; k < a.length; k += 9) {
-      const e1 = Math.hypot(a[k + 3] - a[k], a[k + 4] - a[k + 1], a[k + 5] - a[k + 2]);
-      if (e1 > 0) n += 1;
-    }
-    return n;
-  };
-  const onDeck = scratches.shownMarks(0).filter((m) => m.panel.name === 'boot').length;
-  check('with the boot lid up, its chips are on the lid and not on the deck under it',
-    dDamage.tier() >= 2 && drawnVerts(bootChips) > 0 && scratches.shownMarks(2).length > 0 && onDeck === 0,
-    `${drawnVerts(bootChips)} triangles on the lid, ${onDeck} marks left on the deck`);
-  // Every face of a cell box is off the planes the paint and the chequer plates lie in (the body's
-  // top, the roof, and 0.024 over each): a face on the same plane as either would shimmer.
-  const shellPos = shellChips.geometry.attributes.position;
-  const ROOF_TOP = 1.75 + CHASSIS_LIFT;
-  const planes = [BODY_TOP, BODY_TOP + 0.024, ROOF_TOP, ROOF_TOP + 0.024];
-  let onPlane = 0;
-  for (let k = 0; k < shellPos.count; k++) {
-    if (planes.some((y) => Math.abs(shellPos.getY(k) - y) < 0.004)) onPlane += 1;
-  }
-  check('no chip face lies on the paint or the chequer', onPlane === 0, `${onPlane} vertices on a plane`);
+    [[1, -1], [-1, 1], [-1, -1]].every(([e, sd]) => scratches.wearAt(e, sd) > 0.2) && scratches.wearAt(1, 1) > 0.8,
+    wearList());
+  // The chips are a patch on the paint's shader (geometry/taxiscratches.js), on the shell and both
+  // lids. Run each material's patch over three's own source for it: a hook that matched nothing
+  // would be a clean car with nothing logged, and every patch here throws on a miss. And the key
+  // has to say so, or the patched program collides with every unpatched one (CLAUDE.md).
+  const patchOk = scratches.materials.every((m) => {
+    const lib = THREE.ShaderLib[m.isMeshPhongMaterial ? 'phong' : 'lambert'];
+    const shader = { vertexShader: lib.vertexShader, fragmentShader: lib.fragmentShader,
+      uniforms: THREE.UniformsUtils.clone(lib.uniforms), defines: {} };
+    try { m.onBeforeCompile(shader, null); } catch (e) { console.log(e.message); return false; }
+    return shader.fragmentShader.includes('cScore < cW') && shader.uniforms.uChipWear
+      && m.customProgramCacheKey().endsWith('-chips');
+  });
+  check('the chips patch the shell\'s and both lids\' shaders, under a key of their own', patchOk);
 
   dDamage.reset();
   dTaxi.hp = TAXI_HP;
   dDamage.update(1 / 60);
-  check('reset takes the chips off', drawnVerts(shellChips) === 0 && drawnVerts(hoodChips) === 0
-    && drawnVerts(bootChips) === 0);
+  check('reset takes the chips off', [[1, 1], [1, -1], [-1, 1], [-1, -1]].every(([e, sd]) => scratches.wearAt(e, sd) === 0));
   // The wreck's hit never comes through `hit`: `scuff` wears the struck corner in full on its own,
   // so the shell left in the road wears the hit that ended the run.
-  dDamage.scuff(dTaxi.x - Math.cos(dTaxi.yaw) * 1.5, dTaxi.z + Math.sin(dTaxi.yaw) * 1.5);
-  const wreckChips = scratches.shownByCorner();
-  check('the wreck\'s hit chips the tail it landed on, in full',
-    (wreckChips.get('-1,1') ?? 0) + (wreckChips.get('-1,-1') ?? 0) >= perCorner('-1,1') * 0.8,
-    JSON.stringify([...wreckChips]));
+  dDamage.scuff(dTaxi.x - Math.cos(dTaxi.yaw) * 1.5 + Math.sin(dTaxi.yaw) * 0.7,
+    dTaxi.z + Math.sin(dTaxi.yaw) * 1.5 + Math.cos(dTaxi.yaw) * 0.7);
+  check('the wreck\'s hit chips the corner it landed on, in full', scratches.wearAt(-1, 1) === 1, wearList());
   dDamage.reset();
   dDamage.update(1 / 60);
   check('reset puts every part back', dDamage.tier() === 0 && dDamage.bootAngle() === 0.6
@@ -12143,8 +12126,7 @@ function rideToPickup() {
   // bonnet, the openings under them, loose lamps and their wires, the hanging bumper, the broken windscreen) are masked
   // without a rim, and were once not masked at all: a lid swung up inside the shell's hull read as
   // an occluder and wore the shell's yellow rim across it every time it bounced. The two rear doors
-  // and the openings they leave are four more, masked the same way for the same reason. The chipped
-  // paint (geometry/taxiscratches.js) is three more: the shell's and one on each lid.
+  // and the openings they leave are four more, masked the same way for the same reason.
   const unmasked = [];
   group.traverse((node) => {
     if (!node.isMesh || node.name === 'ghostMask' || node.name === 'ghostRim') return;
@@ -12153,8 +12135,8 @@ function rideToPickup() {
   });
   // Two more for the chrome bumpers (geometry/bumpers.js), masked without a rim for the reason the
   // damage pieces are: a 0.2 bar inside the shell's hull, too thin to carry one of its own.
-  check('every drawn taxi part is in the ghost stencil mask', unmasked.length === 0 && masks.length === 32,
-    `${unmasked.length} unmasked, ${masks.length} masks (9 outlined parts + 17 damage pieces + 4 door pieces + 2 bumpers)`);
+  check('every drawn taxi part is in the ghost stencil mask', unmasked.length === 0 && masks.length === 29,
+    `${unmasked.length} unmasked, ${masks.length} masks (9 outlined parts + 14 damage pieces + 4 door pieces + 2 bumpers)`);
 
   // --- A dimming lamp must dim where it stands ---------------------------------------------------
   //

@@ -1864,16 +1864,20 @@ over — so the smoke grows out of something rather than arriving. The rattle st
 than 3, so a car with its boot up also drives broken.
 
 **The chipped paint** (geometry/taxiscratches.js; `?taxidamage=classic` for the tint it replaced). The
-paint keeps its colour and comes off in voxel chips: little patches of 0.09-unit cells, a bare-steel
-core (`taxiBareMetal`) in a ring of red-oxide primer (`taxiPrimer`), laid on the bonnet, boot, roof,
-flanks and ends. Every mark belongs to the corner it sits nearest and is ranked from that corner
-inward, so a hit opens the struck corner's marks from its edge: 30% of them at the first hit, all of
-them at empty, while the other three corners follow on the square of that and reach 60%. The primer
-is the part that reads at play zoom — steel is about as light as the yellow round it and alone reads
-as a glint — and it is red oxide rather than a dark grey because a black ring round a silver core is
-the livery's own chequer. The layout is seeded once, so the car wears the same chips every run. Marks
-under a lid have a twin on the lid, shown while it is up. The hit that wrecks the car never reaches
-`hit`, so `scuff` wears its corner in full before the wreck takes the shell.
+paint keeps its colour and comes off in voxel chips, drawn by a patch on the paint's own shader
+rather than by geometry. Each fragment finds its 0.09-unit voxel in the car's space and scores it:
+value noise sampled at the voxel's centre (so whole cells go together), plus its distance to the
+nearest corner (so chips open from the corners inward). Under the wear threshold it is bare steel
+(`taxiBareMetal`); in a band just above it, red-oxide primer (`taxiPrimer`), which lands round each
+chip's edge. Wear is one value per corner, blended across the car: the struck corner reaches 0.3 at
+the first hit and 1 at empty, the other three follow on the square of that up to 0.6. Only the
+taxi's yellow chips (the test is the vertex colour), so glass, chrome and the chequer are left
+alone. The shell and both lids share the one wear uniform, so a lid swung up, the wreck and the crash
+replay all wear the same chips. The primer is what reads at play zoom — steel alone is about as
+light as the yellow and reads as a glint — and it is red oxide because a dark ring round silver is
+the livery's own chequer. The hit that wrecks the car never reaches `hit`, so `scuff` wears its
+corner in full before the wreck takes the shell. A first cut laid the chips on as merged cell boxes;
+it needed a copy on each lid and came out for the shader.
 
 And one piece off the tiers: **rear-ending a car pops the bonnet**, however much HP is left. It is the
 boot's mirror image, hinged at the foot of the windscreen, and it flaps on the same spring for the

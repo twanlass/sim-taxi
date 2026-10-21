@@ -11,7 +11,7 @@ import {
   turnSignalMaterial,
 } from './lights.js';
 import { addGhostOutline, addGhostMask } from './ghostoutline.js';
-import { buildScratches } from './taxiscratches.js';
+import { chipPaint } from './taxiscratches.js';
 import { bumperGeometry, bumperLength, BUMPER_D, BUMPER_H } from './bumpers.js';
 import {
   BOOT_HINGE_X, HOOD_HINGE_X, HOOD_LEN, BODY_TOP, BOOT_LEN, LAMP_WIRE, LAMP_SIZE, lampSocket, lampHang,
@@ -729,16 +729,15 @@ function buildDamage(group, lightPods, bumpers, chrome) {
   // wheels' rocker-panel streak again (see addGhostOutline(shell)). Mask only, no rim: a thin panel
   // cannot carry a hull (see addGhostMask), and each mask inherits its part's zero scale while the
   // part is put away, so an undamaged car stamps nothing extra.
-  // The chipped paint (geometry/taxiscratches.js): on the shell, and on each lid for the marks
-  // under it.
-  const scratches = buildScratches(group, hoodHinge, bootHinge);
-  for (const part of [lid, hole, hood, bay, bar, brokenScreen, ...scratches.meshes]) addGhostMask(part);
+  for (const part of [lid, hole, hood, bay, bar, brokenScreen]) addGhostMask(part);
   for (const lamp of lamps.values()) { addGhostMask(lamp.housing); addGhostMask(lamp.wire); }
 
   const tipLocal = new THREE.Vector3(0, -BUMPER_H / 2, -BUMPER_LEN);
 
   // The body's paint — the shell's own material (bumpers share it) and the two lids — for wear.
-  const paint = [chrome, lid.material, hood.material, ...scratches.meshes.map((m) => m.material)];
+  const paint = [chrome, lid.material, hood.material];
+  // The chipped paint (geometry/taxiscratches.js): a patch on the same three materials.
+  const scratches = chipPaint({ shell: chrome, hood: hood.material, boot: lid.material });
   const CLEAN = new THREE.Color(1, 1, 1);
   const GRIME = color('taxiGrime');
   const FLASH = color('taxiHitFlash');
@@ -769,7 +768,6 @@ function buildDamage(group, lightPods, bumpers, chrome) {
       const shown = angle != null;
       bootHinge.scale.setScalar(shown ? 1 : 0);
       hole.scale.setScalar(shown ? 1 : 0);
-      scratches.setLid('boot', shown);
       if (shown) bootHinge.rotation.z = -angle;
     },
     /** The bonnet's opening angle in radians (free edge up), or null to put it away. */
@@ -777,7 +775,6 @@ function buildDamage(group, lightPods, bumpers, chrome) {
       const shown = angle != null;
       hoodHinge.scale.setScalar(shown ? 1 : 0);
       bay.scale.setScalar(shown ? 1 : 0);
-      scratches.setLid('hood', shown);
       // +z lifts the free end here, where it runs forward of the hinge; the boot's runs back.
       if (shown) hoodHinge.rotation.z = angle;
     },
@@ -804,7 +801,7 @@ function buildDamage(group, lightPods, bumpers, chrome) {
       for (const m of paint) m.color.copy(CLEAN).lerp(GRIME, t);
     },
     /**
-     * The chipped paint, by corner — a Map of `${end},${side}` → 0..1 of that corner's marks showing.
+     * The chipped paint, by corner — a Map of `${end},${side}` → 0..1.
      * See geometry/taxiscratches.js.
      */
     setWear(levels) {
@@ -821,8 +818,6 @@ function buildDamage(group, lightPods, bumpers, chrome) {
       this.setGrime(0);
       this.setFlash(0);
       scratches.setWear(new Map());
-      scratches.setLid('hood', false);
-      scratches.setLid('boot', false);
       for (const [key] of lamps) this.setLamp(...key.split(',').map(Number), null);
       bootHinge.scale.setScalar(0);
       hole.scale.setScalar(0);
