@@ -488,6 +488,12 @@ export function graveGrassArea(site, { tree, statue, stones }) {
 
 // --- The whole lot ----------------------------------------------------------------
 
+/** What the model workshop finds this landmark by (src/workshop/catalog.js, `LANDMARKS`). */
+// `glow`: what blooms, at which kind (game/bloom.js) — read by main.js and the bench alike.
+export const LANDMARK = {
+  id: 'graveyard', label: 'Graveyard', create: createGraveyard, glow: (g) => [[g.glow, 'window']],
+};
+
 export function createGraveyard(block, rng) {
   const site = graveyardSite(block);
   const { fence, gateX } = site;

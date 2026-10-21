@@ -7,7 +7,7 @@ import {
 } from '../sim/traffic.js';
 import { findRoute, findRouteOnto, planOrigin, setHazardLanes, serviceLaneCost } from './route.js';
 import { heightAt, sightlineClear } from './sightline.js';
-import { unlitMaterial } from '../util/geo.js';
+import { unlitMaterial, cloneProp } from '../util/geo.js';
 import { color } from '../palette.js';
 import { markEmissive } from './bloom.js';
 import { markOccluder } from './ssao.js';
@@ -500,7 +500,7 @@ export function createFire({
     // Nothing upstream would take it — fall back to anywhere near, and let the router lap it round.
     truck ??= traffic.enterGuest(near);
     if (!truck) return false;
-    truck.skin = skin;
+    traffic.wearSkin(truck, skin, engine.group);
     truck.guestWreck = wreck;
     truck.route = [];
     truck.chase = RESPONSE_CHASE;
@@ -597,7 +597,8 @@ export function createFire({
     const shell = engine.shell.clone(true);
     shell.traverse((o) => {
       if (o.isMesh) {
-        o.material = o.material.clone();
+        // `cloneProp`, not `clone()`: a plain clone drops the paint patch (see util/geo.js).
+        o.material = cloneProp(o.material);
         o.material.alphaHash = false;
         o.material.opacity = 1;
       }

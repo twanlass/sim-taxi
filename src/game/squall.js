@@ -17,18 +17,29 @@ import { HALF_SPAN_X, HALF_SPAN_Z } from '../city/grid.js';
  *   is a circle, the wet ground is everywhere it has been.
  */
 
-/** Seconds: a crossing, then the quiet spell after it. The first cell waits `FIRST` to arrive. */
+/**
+ * Seconds: a crossing, then the quiet spell after it. The first cell waits `FIRST` to arrive, and
+ * that wait is counted on the crossing clock (`state.clock`), which only runs once the taxi is the
+ * player's to drive — `begin()`, called by main.js on the frame the pedals arrive. Counted from boot
+ * (12s, as it first was), the title menu and the garage vignette spent it, so a player who read the
+ * menu for a while drove out of the door into a cell already overhead.
+ */
 export const CROSS = 75;
 export const GAP = 25;
-const FIRST = 12;
+const FIRST = 20;
 
-/** The cell's size: radius at its core, and the soft edge outside that. */
-export const CELL_R = 30;
-export const CELL_EDGE = 14;
+/**
+ * The cell's size: radius at its core, and the soft edge outside that. 30 and 14 first, and with
+ * the shade reaching 3.2 edges past the core that was a dark patch ~150 units across over an island
+ * 105 by 129 — less a cell crossing the city than the city under a cloud. 20 and 10 put the shade's
+ * edge 52 units out rather than 75, so the sunny streets either side of it stay in the frame.
+ */
+export const CELL_R = 20;
+export const CELL_EDGE = 10;
 
 /**
  * The front: how the cell's shade, its rain and the city's lights fall off past the ragged edge of
- * its core, in multiples of `CELL_EDGE`. The cell crosses at ~3.6 u/s, so one edge is ~4s at a point.
+ * its core, in multiples of `CELL_EDGE`. The cell crosses at ~3.6 u/s, so one edge is ~3s at a point.
  *
  * The first front (`RAMP_CLASSIC`, `?squallramp=classic`) put all three on the same stretch of
  * ground: the shade over 0–1.6 edges, the lights reading that same shade, and the rain over 0–1. At
@@ -124,7 +135,9 @@ const CORNERS = [[-1, -1], [1, -1], [1, 1], [-1, 1]];
 export function createSquall({ pin = null, rng = Math.random, ramp = RAMP } = {}) {
   const cell = { x: 0, z: 0, r: CELL_R, on: false, dirX: 1, dirZ: 0, strength: 1 };
   const mask = (c, x, z, t) => cellMask(c, x, z, t, ramp);
-  const state = { t: 0, crossing: -1, progress: 0, pinned: pin, maxWet: 0 };
+  // `t` is the weather's own time (the ragged edge's noise), always running; `clock` is the
+  // crossings', held at zero until `begin()`.
+  const state = { t: 0, clock: 0, running: false, crossing: -1, progress: 0, pinned: pin, maxWet: 0 };
 
   // The grid, and the texture the ground reads it from. One channel, linear filtered, so the
   // trail's edge is smooth at ~1.8 units a texel.
@@ -209,7 +222,8 @@ export function createSquall({ pin = null, rng = Math.random, ramp = RAMP } = {}
 
   function update(dt) {
     state.t += dt;
-    place(state.t);
+    if (state.running) state.clock += dt;
+    place(state.clock);
     soak(dt);
     return state;
   }
@@ -224,11 +238,11 @@ export function createSquall({ pin = null, rng = Math.random, ramp = RAMP } = {}
     wet.fill(0);
     for (let p = 0; p <= target; p += 0.5 / CROSS) {
       state.pinned = p;
-      place(state.t);
+      place(state.clock);
       soak(0.5);
     }
     state.pinned = target;
-    place(state.t);
+    place(state.clock);
   }
 
   newCrossing();
@@ -250,7 +264,7 @@ export function createSquall({ pin = null, rng = Math.random, ramp = RAMP } = {}
 
   /**
    * The most it will rain at a point over the next `ahead` seconds of this crossing — the cell's
-   * path swept forward in steps of a few seconds (~11 units at its ~3.2 u/s, well inside its 14-unit
+   * path swept forward in steps of a few seconds (~10 units at its ~3.3 u/s, inside its 10-unit
    * soft edge). Only the crossing already under way: the next one starts outside a corner after a
    * `GAP` of 25s, and is a long way from anything when it does.
    */
@@ -258,7 +272,7 @@ export function createSquall({ pin = null, rng = Math.random, ramp = RAMP } = {}
     let most = mask(cell, x, z, state.t);
     if (!cell.on || state.pinned !== null) return most;
     const probe = { x: 0, z: 0, r: cell.r, on: true, strength: 1 };
-    for (let dt = 3.5; dt <= ahead + 1e-9; dt += 3.5) {
+    for (let dt = 3; dt <= ahead + 1e-9; dt += 3) {
       const p = state.progress + dt / CROSS;
       if (p > 1) break;
       probe.x = from[0] + (to[0] - from[0]) * p;
@@ -288,7 +302,9 @@ export function createSquall({ pin = null, rng = Math.random, ramp = RAMP } = {}
     rainSoon,
     /** Pin the cell part-way along a crossing (0..1), or null to let the clock run. */
     pin: (v) => { state.pinned = v; settle(); },
-    /** Jump the clock — `?squall` takes a while to arrive, and this is for looking at it. */
-    seek: (t) => { state.t = t; },
+    /** Jump the crossing clock — `?squall` takes a while to arrive, and this is for looking at it. */
+    seek: (t) => { state.clock = t; state.running = true; },
+    /** Start the crossing clock: the taxi is on the road. Idempotent. */
+    begin: () => { state.running = true; },
   };
 }

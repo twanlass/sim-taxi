@@ -19,12 +19,13 @@ import { MODES } from './difficulty.js';
 export const SETTINGS_KEY = 'simTaxi.settings';
 
 /**
- * A first visit. Music full, effects at 75%: with the radio playing at full, the effects at full
- * buried it (Tyler, by ear, 2026-10-04). The slider is squared on the way to the gain, so 0.75 is
- * 0.56, about -5 dB under the mix in mix.json. A player with a saved setting keeps theirs.
+ * A first visit. Music and effects both full (Tyler, 2026-10-20), so a first run hears the mix in
+ * mix.json as it was balanced. Effects first shipped at 75% because, against the radio at full, the
+ * effects at full buried it (Tyler, by ear, 2026-10-04); the slider is squared on the way to the
+ * gain, so that was 0.56, about -5 dB. A player with a saved setting keeps theirs.
  */
 export const DEFAULT_SETTINGS = Object.freeze({
-  music: 1, effects: 0.75, tips: true,
+  music: 1, effects: 1, tips: true,
   // The phone's Taptic Engine (util/haptics.js) — a row that only appears inside the iOS app.
   // There used to be a second switch, `comboHaptics`, for A/B-ing the combo patterns against the
   // plain knocks they replaced; Tyler folded it into this one (2026-10-06). A stored
@@ -33,6 +34,12 @@ export const DEFAULT_SETTINGS = Object.freeze({
   haptics: true,
   // One of `QUALITIES`. Regular by default: it is the one that keeps a phone cool.
   quality: 'regular',
+  // MSAA, the back buffer's own antialiasing. On by default: it is what the game has always drawn
+  // with. Off is the cheaper frame — `tools/gpucost.mjs` put it at 23% of a headless frame at 2x —
+  // and at Ultra's 3x the stair steps it leaves on thin diagonals (the L's truss, the depot's neon)
+  // are hard to see at phone size; at 2x they show, and they crawl in motion (perf pass,
+  // 2026-10-18). A context attribute, so it takes effect at the next launch, not live.
+  antialias: true,
   // One of `MODES` in game/difficulty.js. Easy by default: it is the curve the game shipped with
   // before the row existed, so nobody's game changes until they pick another.
   difficulty: 'easy',
@@ -71,6 +78,7 @@ export function cleanSettings(raw) {
     effects: unit(src.effects, DEFAULT_SETTINGS.effects),
     tips: typeof src.tips === 'boolean' ? src.tips : DEFAULT_SETTINGS.tips,
     haptics: typeof src.haptics === 'boolean' ? src.haptics : DEFAULT_SETTINGS.haptics,
+    antialias: typeof src.antialias === 'boolean' ? src.antialias : DEFAULT_SETTINGS.antialias,
     // A stored `resolution`/`frameRate` from before the toggle is dropped: the toggle starts fresh.
     quality: Object.hasOwn(QUALITIES, src.quality) ? src.quality : DEFAULT_SETTINGS.quality,
     difficulty: Object.hasOwn(MODES, src.difficulty) ? src.difficulty : DEFAULT_SETTINGS.difficulty,
@@ -96,9 +104,13 @@ export function createSettings({ storage } = {}) {
   }
 
   const listeners = new Set();
+  // What the page booted with, for the settings that only apply at launch (`antialias`).
+  const atLaunch = Object.freeze({ ...values });
 
   return {
     get: () => ({ ...values }),
+    /** The settings as they stood when the page loaded. */
+    atLaunch: () => ({ ...atLaunch }),
     /** Merge `partial`, clean it, persist it, and tell whoever is listening. */
     set(partial) {
       values = cleanSettings({ ...values, ...partial });

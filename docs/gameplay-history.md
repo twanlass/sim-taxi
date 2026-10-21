@@ -10,8 +10,8 @@ Dates and PR numbers are given where the text or the commit log records them.
 
 ## The startup screen
 
-[Now](gameplay.md#the-startup-screen): black, then the taxi drops onto a patch of asphalt and
-boosts off it, then the title menu.
+[Now](gameplay.md#the-startup-screen): black, ROCKET RIDES in white block letters, the taxi smashing
+down through them onto a patch of asphalt and boosting off it, then the title menu.
 
 Before it (to 2026-10-16) a cold start showed the sky's `#DCEDF7` — the iOS launch screen, the web
 view behind the page and the page itself were all that colour, chosen so the frame before WebGL's
@@ -24,6 +24,12 @@ top right). Tyler asked to try it side-on; the low side camera became the defaul
 `?splashcam=classic` keeps the three-quarter view.
 
 It first shipped silent; `?splashsound=classic` keeps that.
+
+Until 2026-10-18 there was no logo: the asphalt faded up first (0.3 s) and the taxi dropped straight
+onto it, about 3.8 s in all. Tyler asked for the name in big white chunky 3D letters for the taxi
+to smash through; `?splashlogo=classic` keeps the plain drop. The first cut of the logo was a hand-drawn
+block face built from the strokes it broke into (an R as stem, bowl and leg); Tyler asked for Space
+Grotesk instead, the same day.
 
 ## The title screen
 
@@ -75,6 +81,27 @@ that is the one thing that should be under way before the bubble speaks.
 ### Speech bubbles
 
 Now: [Speech bubbles](gameplay.md#speech-bubbles).
+
+**For an afternoon on 2026-10-20 the docked card was see-through black with white type
+(`?bubblestyle=classic`).** It was picked from a round of eight looks and inverted the same day:
+Tyler found the white type on black hard to read while it typed.
+
+**Until 2026-10-20 the whole card was pinned (`?bubbles=classic`).** It was replaced by the docked card
+and tag because it moved with every car it was on and covered the road. What it did:
+
+**Pinned to what it is about.** Each bubble is handed a target, a function returning a screen point
+re-read every frame, and stands above it with its pointer on the bottom edge. The talker where there
+is one (the cop's roof, the taxi the robber is in, the police car dispatch is talking from) and the thing
+being pointed out where there is not (the rider's crystal, the top of the gas pedal). It slides
+sideways to stay on the glass, and drops *below* a target that is up under the HUD.
+
+**Off screen, it waits at the edge.** A target out of frame clamps the card to the nearest edge along
+the line from the middle of the screen to it — the [off-screen rider arrows'](gameplay.md#finding-the-next-rider)
+rule — with its pointer on the side facing that edge. Pan towards it and the card slides along the
+edge with you until the target is in frame, then drops onto it. The pointer always sits in the
+**middle** of its side and only turns, leaning towards its target but no more than 40° off square
+to the card's edge, so it does not crawl along the edge as the camera pans. `placeSpeech` is the
+pure half of it.
 
 The pointer always sits in the
 **middle** of its side and only turns, leaning towards its target but no more than 40° off square
@@ -1011,7 +1038,7 @@ Now: [Repairs at the depot](gameplay.md#repairs-at-the-depot).
 
 ### The depot's card
 
-Now: [The depot's card](gameplay.md#the-depots-card).
+Now: [The depot's card](gameplay.md#the-depots-tip).
 
 It was a speech bubble over the garage door, once per bout of damage; Tyler swapped it for the card
 (2026-10-06). The card is **once ever** (`simTaxi.seen.repair`), stops the world like the move cards,
@@ -1200,3 +1227,68 @@ Reported from play (Tyler, 2026-10-14): "hitting a cop is insta fail. That sucks
 vignette where you wanna smash through roadblocks." The getaway fills the tank and throws roadblocks
 across your route; the third rule made the second the one thing it asked of you that ended the run.
 Replaced by [getting caught](gameplay.md#getting-caught).
+
+## The street race's start, opposite ways round
+
+The first cut-to-the-start put the two cars window to window on the street's two lanes, the racer
+facing its own way so it was never driving into traffic, and they set off in opposite directions.
+On a grid that made one of them always a block nearer the finish, which `chooseFinish` evened out by
+picking the corner with the smallest gap in `estimateSeconds`. Tyler asked for them to take off the
+same way; the racer now starts in the oncoming lane and the drag decides the lane (gameplay.md).
+
+## The street race, before the tap came back
+
+The first builds had the racer pull over a couple of blocks off and wait at the kerb for a tap, and
+dropped the offer the moment anything held the run. In play the tap was unreliable (Tyler: "after I
+drop off the very first passenger, if I tap on the purple racer, nothing happens"): the offer was
+withdrawn under the first drop-off's tutorial tip, and the car could not be tapped while it was
+still driving to its kerb or leaving. For one build the race then started itself whenever the cab
+was idle, declined by any tap that routed the taxi. Tyler asked for the tap back, with a cut to the
+start ("Tap racer to start, cut scene, side by side start"): the racer now tails the taxi with its
+tap target up from the frame it appears, and only a getaway, a chase or the end of the run takes it
+away.
+
+## The street race as a visit
+
+Until the racer became a standing offer it was a visit: it turned up only with the cab empty, tailed
+the taxi for `OFFER_TIME` (30s, routed to the taxi's junction by `tail`), then drove off and did
+not come back for 100-160s (`REPEAT_WAIT`), and it left after every race. Whether a race was on
+offer came down to timing. Tyler: "Keep the racer around all the time. If the player is within a
+few blocks show the … bubble off screen. If they get too far away or pickup a ride temp hide it."
+
+## The street race's finish, before it was staged
+
+The first finale left both cars where they were: the word ("You win!" / "Beaten!") landed the
+moment the first one was home, and the camera followed the loser to the line for up to
+`FINALE_MAX` (6s) before the money moved, so a loser still on its way out to the flag was never
+seen arriving. Tyler asked for it as a scene instead: winner pulls up, cut to the loser a block
+out, skid in beside the winner, then the word, then the money.
+
+## The street race on the clock
+
+For one build the racer turned up 15-30s into the run and stayed for the rest of it, offering again
+20s after every race. Tyler moved it onto deliveries: first after a random 2nd to 4th drop-off, and
+again as many drop-offs after each race, so a race is something the fare loop earns.
+
+## The NES pedals' shine, and the flat buttons
+
+From 2026-10-15 to 2026-10-20 the NES B and A carried a hard white glint on the upper left, a dot
+beside it, and a lit lower rim on the dish. Tyler asked for them "simpler, no fake highlights"
+off a phone screenshot, and the fuel arc 8 units further out (it stood 8 off the surround). The
+first answer was flat buttons — one disc in the button's colour and a white letter, the New Move
+card's keys, pressed by shrinking to 92% and darkening — and Tyler went back to the NES drawing
+with only the white shine removed. `?buttons=classic` brings back the shine and the old gap.
+
+## The fuse flame's first cut
+
+The fuse flame first stood up off the fuel's front, 20° off the outward normal, and took the
+plume's colours up a drift chain — violet, blue, teal, with the fuel's gradient following. Tyler
+asked for it turned to lie along the bar's direction of travel, and orange only.
+
+## The street race's way out
+
+Until the tap-elsewhere decline, there was no "no" to the racer's question: the player turned it
+down by tapping a street any time before the green, which gave the parked taxi a route and called
+the race off with "Next time, then." Tyler simplified it: anything but the card says no, and
+accepting is final.
+

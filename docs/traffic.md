@@ -1199,6 +1199,36 @@ and the probe still drive — and `canPass` is false until it is thrown. While a
 pull out, or behind a truck, the taxi tailgates `COMBO_TAILGATE` (1.5) further back than
 `BOOST_GAP`, because 0.29 of daylight did not survive a tailgate longer than a fraction of a second.
 
+**Thrown, it goes** (`setOvertakeStyle`; Tyler, 2026-10-19: "don't do anything smart. That's how
+the player will learn, but that's how they will also feel a real reaction to their actions"). The
+frame the combo arms, the taxi swings into the oncoming lane, whatever is there: it does not wait
+for the car to come within `PASS_TRIGGER`, it does not refuse a car turning left across the lane
+(the #520 gate below), and a car in the junction ahead is gone round the ordinary way at any speed
+rather than by a line picked to clear it (the dodge below). If an oncoming car, a turner or cross
+traffic is in that lane, the taxi hits it. Only the road can still say no: no oncoming lane, or no
+road on the far side of the junction (`room`). The leader brake still holds while the taxi swings
+out, so it does not drive through the car it is leaving. `?overtake=classic` restores all of the
+judgement described below.
+
+**The one exception is a car signalling left** (never a cop: a cop blocking or chasing is not going
+where it signals, and the taxi crawled beside one). It is keyed on the blinker because the player can
+see it (`peeking`; Tyler, 2026-10-19: "a slight peek around on the right", then "couldn't we do a
+peek at full speed though?"). The combo then goes round the turner's right, up on the pavement:
+2.61 off the lane centre (`peekLateral`, the collision envelope plus `PEEK_MARGIN`), the whole body
+lifted by `KERB_H`. Past the envelope the leader brake lets go (`seesLeader` asks both ways), so the
+taxi keeps its speed: 16.5 to 23 u/s through the probe's two peeks, where the first cut on the kerb
+at 1.5 crawled at the turner's speed. The margin is for the turner's tail, which swings toward the
+taxi as it yaws into the left: at the bare envelope a taxi arriving as the turner set off clipped
+its back corner 3 times in 3. The turner is allowed its left while being peeked (the courtesy veto
+below is for a taxi on its *left*). Nothing on the pavement is solid, so the taxi drives through
+street furniture, and it stays lifted through the junction box (0.35 units, about 2.7px).
+
+It also pulls out half way across a straight-through crossing (`thrownInBox`), where classic waits
+for the far side; behind a slow truck the taxi spends much of its time in the box. Over 8 cities ×
+40s, a bot throwing the combo 0.35s after catching a car (`tools/overtakebot.mjs`) passed 23 of 36
+against classic's 13 of 32, and the ones it rams are mostly cars it caught too late to blip before
+the ram.
+
 **Making it executable** (Tyler, 2026-10-06: "really hard to execute"). A bot playing the combo —
 Loco held, a 250ms reaction to a car within 20 units, then a release — measured where it failed:
 
@@ -1459,7 +1489,7 @@ boost down to ~10 u/s, side by side, which is how it got reported. The reason th
 does not apply to this half of it: it gates only the pull-out, not `canPass`, so a refusal tailgates
 rather than rams, and the car it refuses for is leaving the road anyway. Over a second set of 48
 cities × 60s, passes with any contact while the taxi was level with its car went from 30 of 143 to
-18 of 130; what is left is oncoming and cross traffic, which the player can see coming. `?passturn=classic` pulls out regardless.
+18 of 130; what is left is oncoming and cross traffic, which the player can see coming. `?passturn=classic` pulls out regardless. Under the default combo this gate no longer applies to a combo pass (see *Thrown, it goes* above); it still governs the lab's hold-to-pass rule and `?overtake=classic`.
 
 **A pass keeps its pace.** Two things held a passing taxi to the speed of the car it was going
 round, both reported as the taxi "hesitating" alongside, worst beside a truck:
@@ -1606,6 +1636,9 @@ approaches passed 130 and wrecked 0 both before and after.
 
 #### Swerving round a car stood in the junction
 
+*This is `?overtake=classic`.* By default the combo does not choose a line: anything in the junction
+ahead, at any speed, arms it, and the taxi takes the ordinary pass into the oncoming lane.
+
 The same combo, thrown short of a car **stopped or creeping in the junction ahead** — nosed in from
 a side street and waiting, or a cop parked across the box — swerves round it (Tyler, 2026-10-15).
 `findDodge` in `traffic.js` finds it (the dodge in the code, since `swerve` already names the
@@ -1736,6 +1769,14 @@ taxi for the rest of the run in 2 of 24 cities: once shoved level with a truck i
 so the truck held for the taxi as its leader), and once with both merging onto one exit. Hence the
 taxi's centre has to be behind the truck's tail, and on a shared exit the truck has to be further
 round its turn than the taxi.
+
+That still left one way round. A car mid-turn is listed on its exit lane at a stand-in position
+behind the lane's start, so a taxi that has just crossed straight on — or one further round a left
+onto the same lane than the truck is round its right — reads as *in front* of the truck, and the
+truck queued behind it while the taxi braked for the truck's body. 3 runs in 40 (24 cities × 90s at
+35% trucks) ended with the taxi parked behind a truck stopped mid-corner for the rest of the run,
+72-80s. Now a truck never holds for the taxi while the taxi is braking for that truck's body
+(`truckHoldsForPhantom`): the body is what can be hit, so the body wins.
 
 Measured over 24 cities, 90s each, button held, routed, against the same runs before:
 
@@ -1969,11 +2010,28 @@ unit, which reads as a wreck being panned across rather than as one car hitting 
 **A hard enough wreck throws the driver out through the windscreen.** `game/ejection.js`. At a
 closing speed of `EJECT_CLOSING` (18 u/s) or more — a T-bone or a head-on at boost cruise, a
 full-boost rear-end into a stopped queue, anything in overdrive, but not rear-ending traffic going
-the same way — a cabbie in a blue shirt and a dark cap (the riders' rig at 0.8 scale) leaves the
-front of the cabin, tumbles head over heels with arms windmilling and legs pedalling, bounces once
-or twice with a puff and a thud, and slides to a sprawl ~16 units down the road. Thrown slightly
+the same way — a cabbie in a blue shirt and a dark cap (the riders' rig at 0.8 scale) squeezes out
+through the hole in the windscreen, tumbles head over heels with arms windmilling and legs pedalling, bounces once
+or twice with a puff and a thud, and slides to a sprawl down the road. Thrown slightly
 away from the struck car's side so they do not land in its fireball. The end-of-beat camera frames
 the point halfway between the wreck and the landing, so both stay in a portrait phone's shot.
+
+**How hard the hit was decides how big the throw is.** The closing speed is mapped onto 0..1 from
+`EJECT_CLOSING` (18) to `HARDEST` (34, about the top of what the game produces), and the height,
+spin and distance all climb with it: launch speed up 5.5 → 14 (apex 2.6 → 5.4 units), spin 10 → 20
+rad/s, and the figure comes to rest 9 → 18 units out, with the forward speed worked back from that
+distance so a high throw does not overshoot the shot. Height and spin carry most of the difference
+because they are what is on screen: the live beat and the replay each show only the first ~0.45s
+of the flight, so the landing is never seen. It used to grade distance only — `0.7 × closing`
+clamped to 10..18 u/s at a fixed height and spin — which made the furthest throw 1.4× the shortest
+and every hit from 25.7 up identical. `?ejectthrow=classic` brings that back.
+
+**They come out of the cab, not out of thin air.** The figure starts in the driver's seat
+(`TAXI_DRIVER_SEAT`, geometry/taxi.js) at 0.3 of full size, hidden by the shell, and over its first
+`EMERGE` (0.15s of sim time, ~0.8s under the crash slow-mo) slides out to its arc while growing to
+full size on an ease-out. It is solid throughout. Before this it appeared full size in the air
+above the bonnet on the impact frame, and a 0.25s opacity fade on top of that still read as a pop:
+a see-through figure already in mid-air that snapped solid. `?eject=classic` brings the fade back.
 
 **It never lands in a building.** The throw follows the taxi's heading, so `fire()` walks the
 ground track first and, if it meets a block, unbridged river or the edge of the map, scales every
@@ -2035,8 +2093,9 @@ old hold, as does shot mode.
 
 **It is a recording, not a re-run.** Nothing in the sim can be stepped backwards, and re-firing the
 blast for the camera would have been a *different* explosion. So `createTape` samples, at 30Hz of sim
-time, every dynamic `InstancedMesh` in the scene plus every node under the taxi's group. That one
-rule picks up far more than the two cars: the traffic, its lamp pods, and every particle pool the
+time, every dynamic `InstancedMesh` in the scene plus every node under `traffic.drawnRoots` — the
+taxi's group and every group a car has worn in place of its instance (the cruisers, the racer, the
+fire engine). That one rule picks up far more than the two cars: the traffic, its lamp pods, and every particle pool the
 wreck is drawn with — `blast.js`, `dust.js`, `sparks.js`, `flames.js` are all instanced, `aAlpha`
 included — so what the replay shows is what the player saw. A sample is ~150KB and the ring holds
 3.2s of it. Playback interpolates between samples, with one exception: an instance that moved more
@@ -2049,6 +2108,17 @@ pause, and the tape draws the frame. Boats, pedestrians, skid marks and the sky 
 stand where the live beat left them. The wreck shells are scrubbed alongside with `wreckage.seek()`,
 which is free because they were already a closed form of their age; the struck car's shell is
 hidden before the impact (`hideBefore`), because until then that car was an instance on the tape.
+
+**A car drawn by its own group is taped because it was dressed, not because it was listed.** A
+group of ordinary meshes looks like scenery from the outside, so the tape has to be told which
+groups are vehicles. It used to be told by a list in main.js, and every skinned vehicle added after
+the list was written was missing from it: on the impact frame `wreckShell` hides the live group and
+the shell only exists from t0, so the struck car was absent from the approach of every cut and
+popped in with its own fireball — the cruiser first, then the racer and the fire engine. Now the
+only way to put a group in a car's place is `traffic.wearSkin(car, draw, root)`, which adds `root`
+to the live `drawnRoots` Set the tape reads on every sample; a skin assigned by hand is counted
+(`unrootedSkins`), and `tools/wreckreplay.mjs` crashes into every kind of vehicle and fails if any
+of them is missing from a frame across the hit.
 
 **The live beat is also the recording of the aftermath.** The longest shot plays `REPLAY_POST`
 (0.45s of sim) past the hit, and the only frames after the hit are the ones the live beat recorded.
@@ -2516,8 +2586,9 @@ It is a car in `cars` — it follows its lane, queues, signals, takes a route, c
 whatever is behind it queues behind it — but it has **no instance** (`enterGuest` in
 `sim/traffic.js`). It is in neither `ambient` nor `trucks`, so it takes no buffer slot, never touches
 the density ramp's ordering or the police block at the tail of `ambient`, and leaving is a splice out
-of `cars`. The render pass hands its pose to `car.skin` and skips `writeAmbient`; the wreck path asks
-`car.guestWreck` for a shell, because there is no instance to copy one from.
+of `cars`. Its owner dresses it with `traffic.wearSkin` (which puts its group on [the replay's
+tape](#the-replay)); the render pass hands its pose to `car.skin` and skips `writeAmbient`; the
+wreck path asks `car.guestWreck` for a shell, because there is no instance to copy one from.
 
 It is not police on purpose: the robbery and the patrol share the cop fleet and both clear, recycle
 and re-route everything in `policeCars` at the end of an event. A fire engine caught in that would
@@ -3043,8 +3114,9 @@ same hole one layer over — it was tinted from `carBody[colorIndex]` — and go
 now, and carries its cab — and its bar, dark (the lit pods collapse, the housing and lenses ride
 the roof). Without it the bar vanished on impact. The patrol cruiser's wreck reads its pose off
 `car.skinPose`, because a skinned car's instance is collapsed: read off the instance, the whole
-cruiser decomposed to a NaN scale and vanished. `police.group` is a root of the crash replay's tape
-for the same reason the taxi's group is — it is not an instance, and was missing from every cut.
+cruiser decomposed to a NaN scale and vanished. `police.group` is on the crash replay's tape for
+the same reason the taxi's group is — it is not an instance, and was missing from every cut —
+by way of `wearSkin` ([the replay](#the-replay)).
 
 **The two-tone.** A cop is a light-blue body under a white cab, after the 1980s NYPD cruiser, where
 it used to be a solid blue (#2E5FA8) a few steps off the ordinary blue car — one blue car among
@@ -3218,7 +3290,7 @@ reds, yields and can be rammed, and while chasing it overtakes and brake-checks 
 because those are behaviours of any chasing cop rather than of the robbery.
 
 **What makes it *the* patrol car is the mesh.** `car.skin` in `sim/traffic.js` hands the pose the
-render pass composed to a callback and collapses the car's own instance; `police.wear(car)` draws
+render pass composed to a callback and collapses the car's own instance; `police.wear(car, traffic)` draws
 the cruiser there instead — the fleet's own two-tone car and bar, plus two real point lights behind
 the lamps, which an instanced pod cannot carry. `game/coplights.js` skips a skinned car for that
 reason: it brings its own lamps. The unlit bar (housing and painted lenses) stays on the roof when

@@ -4,13 +4,14 @@ import { bakeColor, propMaterial } from '../util/geo.js';
 import { PALETTE, color, jitterColor } from '../palette.js';
 import {
   GRID_I, GRID_J, lineX, lineZ, halfRoadZ, riverBanks, riverRow, segmentKey,
-  harborBasin, coastEast, coastWest, coastNorth, isArterialZ, LTRAIN_NS,
+  harborBasin, coastEast, coastWest, coastNorth, isArterialZ, LTRAIN_NS, BIG_CITY,
 } from './grid.js';
 import {
   harborPiers, coastZ, seaInset, seaStartX, coastArcStart, southShore, shoreZ, seaRimSouth, southKerbZ,
   parkShore, seawallX,
 } from './harborplan.js';
 import { SLAB_X, KERB_H, PAVE_INSET, EDGE_FADE, FADE_RINGS } from './ground.js';
+import { EDGE_FOG } from '../game/edgefog.js';
 import { patchRiverWater, patchHarborWater, getWaterStyle, SEA_RUN_IN } from './riverwater.js';
 
 // A river running east-west through the city, and the four crossings that get over it.
@@ -143,11 +144,21 @@ export const DECK_OVERHANG = EMBANK_WALK;
  * the outermost street — the one that never stops for a signal, and the one the police corridor
  * drives end to end — on an embankment with water down one side.
  */
+// Where the fixed bridges stand on the 5 × 5 island: a block in from the coast, two of them
+// (`planRiver`). `?bridges=classic` keeps the ring bridges and the L's span beside the leaf.
+export const BRIDGES_INLAND = !BIG_CITY && (typeof location !== 'undefined'
+  ? new URLSearchParams(location.search).get('bridges') !== 'classic'
+  : globalThis.process?.env?.BRIDGES !== 'classic');
+
 const middleRow = (rng) => rng.int(Math.floor((GRID_J - 1) / 2), Math.ceil((GRID_J - 1) / 2));
 
 /**
  * Which crossings carry a bridge, and what kind. **Three of the six** in the 5 × 6 city, four of
  * the seven in the 6 × 7 (the fourth is fixed, beside the drawbridge — see below).
+ *
+ * **On the island the fixed bridges stand a line in from each coast** and the ring roads end at the
+ * water — see the end of this function. What follows is the rule under `?bridges=classic` and on
+ * `?city=big`.
  *
  * **The two ring roads always bridge.** The outermost roads are the signal-free ring (grid.js), the
  * police corridor drives one end to end, and ambient traffic yields into it rather than stopping —
@@ -231,6 +242,23 @@ export function planRiver(rng) {
     }
   }
   if (draw !== null) crossings.set(draw, 'draw');
+
+  // **The 5 × 5 island's crossings sit a block in from the coast, and there are three** (Tyler,
+  // 2026-10-18: "kill one of the fixed bridges. Pull the outer ones in a block"). The two ring
+  // bridges move to lines 1 and 4, and the L's fixed span goes: the train has its own truss over
+  // the water (game/ltrain.js) and needs no road under it, and of the three fixed spans it was the
+  // one sitting right beside the drawbridge, so it was the one doing the least. What is left is a
+  // fixed bridge, the leaf and a fixed bridge, one or two lines apart — the most even three of six
+  // can be once the leaf has to stay in the middle. The ring roads end at the water in a bend on
+  // each bank, the same two-armed node as a ring corner, so nothing needs a signal or a yield there.
+  //
+  // After the draw, so the layout stream reads exactly what it did. `?bridges=classic` keeps the
+  // old four; `?city=big` is left as it was.
+  if (BRIDGES_INLAND && GRID_I >= 4) {
+    for (const [i, kind] of crossings) if (kind === 'fixed') crossings.set(i, 'water');
+    crossings.set(1, 'fixed');
+    crossings.set(GRID_I - 1, 'fixed');
+  }
 
   // The crossings with no bridge are closed roads in the ordinary sense — `legalExits` drops them,
   // the network never bakes an edge, ambient traffic and the router both plan around them for free.
@@ -421,7 +449,10 @@ const BANK_REACH = () => SLAB_X / 2;
  * moved out (`WEST_REACH`, city/westedge.js). The walls and the walk run on through them, so the
  * river reaches the edge of the world between two banks rather than in an open trench.
  */
-const channelWest = () => -coastWest();
+// Under the fog of war (game/edgefog.js) they run on a fade band further, past where the fog has
+// gone solid: stopping at the coast left the walls' ends in the fog's thinnest billows, and the
+// channel read as a cutting that stops rather than a river running on into the clouds.
+const channelWest = () => -coastWest() + (EDGE_FOG ? EDGE_FADE : 0);
 /**
  * How far the island reaches on the side of the map `x` is on. The two used to be the same
  * number (`BANK_REACH`); the harbor moved the east coast out, so anything measuring "how far
@@ -695,6 +726,13 @@ function fadeMix(x) {
 
 /** How far through the shoal a world x is: 0 in the deep channel, 1 at the coast and beyond. */
 function shoalMix(x) {
+  // **Not under the fog of war.** The shoal exists to close the cutting before the rim fade has to
+  // cross it, and with the edge fog (game/edgefog.js) there is no rim fade to cross: the bank
+  // swallows the mouth whole. Left in, it drew exactly what it was built to hide, once the fog
+  // thinned enough to show it — the river turning to asphalt and ramping up out of its own channel
+  // into the clouds (Tyler, 2026-10-20: "Don't have the water slope up - just continue flat off
+  // into the clouds"). So the water stays at `WATER_Y` and in its own colour all the way out.
+  if (EDGE_FOG) return 0;
   // The sea past the harbor is open water out to the rim (`seaMesh`), so nothing on the east side
   // shelves: a boat there sits at sea level until it fades.
   if (x > 0 && harborBasin()) return 0;
@@ -777,7 +815,9 @@ function waterMesh({ deep, open }, edges) {
     // dissolve on one curve. This is only safe *because* of the shoal above it: three earlier
     // attempts to fade the water ran 24 luma ahead of the asphalt the whole way and read as a pale
     // blade, and what fixed that is the strip already being the asphalt's colour out here.
-    a: 1 - fadeMix(x),
+    // Under the fog it stays opaque: the fog is what dissolves it, so the strip has no fade of its
+    // own to run, and see-through water under a thin billow would show the fog floor through it.
+    a: EDGE_FOG ? 1 : 1 - fadeMix(x),
   }));
   // Classic shades the strip dark at the walls and open down the middle. The smooth look turns that
   // round, because its bed shelves (`BED_EDGE`/`BED_MID` in riverwater.js): the centre is the deep

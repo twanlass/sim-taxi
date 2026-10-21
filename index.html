@@ -176,12 +176,13 @@
          says the same), so the whole gauge *and* its glow sit inside it. The crown hung out over
          the top of a box exactly the button's size, on `overflow: visible`, and a `filter` on an
          element is free to clip to that element's box: when the burn glow came on, the top of the
-         arc was cut off, and it popped back as the glow went. The numbers are 50 units at the
-         button's scale, `--gas-d` per 150. */
+         arc was cut off, and it popped back as the glow went. The numbers are 80 units at the
+         button's scale, `--gas-d` per 150: 50 until the fuse flame, which licks up to ~32 units
+         out past the crown's outer edge. */
       #boost-meter .boost-arc {
         position: absolute; display: block;
-        left: calc(-50 * var(--gas-d) / 150); top: calc(-50 * var(--gas-d) / 150);
-        width: calc(250 * var(--gas-d) / 150); height: calc(250 * var(--gas-d) / 150);
+        left: calc(-80 * var(--gas-d) / 150); top: calc(-80 * var(--gas-d) / 150);
+        width: calc(310 * var(--gas-d) / 150); height: calc(310 * var(--gas-d) / 150);
         /* The button's centre, so the throb swells the arc evenly off it. */
         transform-origin: 50% 50%;
         transition: filter 0.15s ease, transform 0.1s ease;
@@ -196,14 +197,33 @@
         stroke: #fff; stroke-width: 2.5; stroke-linecap: round; opacity: 0.95;
       }
       #boost-meter .boost-glint[hidden] { display: none; }
+      /* Under the fuse flame the white line is a hard edge right where the flame fades in. */
+      #boost-meter.is-fuse .boost-glint { display: none; }
       #boost-meter.is-empty .boost-glint { opacity: 0.5; }
       /* The leading edge of a pour: a soft bright dot riding the fuel's front, faded in and out by
          the same envelope. The softness is a radial gradient rather than a CSS `blur()`, because a
          CSS filter on an element *inside* an SVG gets a filter region off that element's own tiny
          box, and WebKit has never been dependable about the functions there at all. */
       #boost-meter .boost-edge { fill: url(#fuel-edge); opacity: var(--fill, 0); }
-      /* Burning. The arc lights up, so the fuel going down reads as fuel being spent. */
+      /* Burning. The arc lights up, so the fuel going down reads as fuel being spent. The glow's
+         */
       #boost-meter.is-active .boost-arc { filter: drop-shadow(0 0 6px rgba(255, 200, 0, 0.9)); }
+      /* The fuse flame (the default, Tyler 2026-10-20: "we have rad flames coming from the taxi
+         tailpipe, can we integrate those"): the tailpipe's own tongue (game/locoflame.js
+         `tongueOutline`), its three layers and four frames at the plume's 16fps, lying along the
+         bar off the fuel's front for as long as the plume burns (`drawFuseFlame` in main.js).
+         Always Loco orange: following the plume up a drift chain (violet, blue, teal, the fuel
+         too) was tried and Tyler kept it orange. Only the front burns: a whole bar on fire reads
+         the same full as empty, and it sits under the player's thumbs. `?locobar=classic` is the
+         plain bar. */
+      #boost-meter .boost-flame { pointer-events: none; }
+      /* The tongues' colours are gradients main.js builds (`fuse-fade-*`), clear at the base and
+         solid a little way along, so the flame grows out of the fuel instead of sitting on it. */
+      #boost-meter .boost-flame .f { visibility: hidden; animation: combo-flame-frame 0.25s step-end infinite; }
+      @media (prefers-reduced-motion: reduce) {
+        #boost-meter .boost-flame .f { animation: none; }
+        #boost-meter .boost-flame .f:first-child { visibility: visible; }
+      }
       /* Empty, and the climb back to a quarter tank: the fuel is there to watch but not to spend
          yet, so the gold is muted — the pedal's reasoning (see `#boost.is-empty`). */
       #boost-meter.is-empty .boost-fill { filter: saturate(0.35) brightness(0.8); }
@@ -274,14 +294,18 @@
       #chase-siren canvas { display: block; width: 60px; height: 44px; }
       /* Where it stands. By default it is a child of #boost-meter and sits on the crown of the
          fuel gauge (Tyler, 2026-10-15), centred over Loco Mode: the gauge's outer edge is
-         BASE_R + width + RIM = 101 units off the button's centre (game/fuelarc.js), at
-         `--gas-d` per 150, and it pops up out of that rather than down out of the top edge.
+         BASE_R + width + RIM off the button's centre (game/fuelarc.js) — `--arc-out`, 109 units
+         with the wider gap (Tyler, 2026-10-20) and 101 under `?buttons=classic` — at `--gas-d` per 150,
+         and it pops up out of that rather than down out of the top edge. The probe holds
+         `--arc-out` to fuelarc.js.
          `?pedals=classic` moves it back into #hud, on the cash row beside the pause. It rides
          the pedals' entrance, and #boost-meter's own hiding rules (replay, game over, shot mode). */
       #boost-meter #chase-siren {
-        left: calc(50% - 30px); bottom: calc(50% + 101 * var(--gas-d) / 150 + 2px);
+        --arc-out: 109;
+        left: calc(50% - 30px); bottom: calc(50% + var(--arc-out) * var(--gas-d) / 150 + 2px);
         transform-origin: center bottom; transform: scale(0.3) translateY(30%);
       }
+      body.buttons-classic #boost-meter #chase-siren { --arc-out: 101; }
       #hud #chase-siren { top: calc((var(--hud-row) - 44px) / 2); right: var(--pause-w); }
       #boost-meter #chase-siren.is-on, #boost-meter #chase-siren.is-cooling { transform: none; }
       @media (prefers-reduced-motion: reduce) {
@@ -581,6 +605,9 @@
         font-size: 20px; white-space: nowrap; text-transform: uppercase; letter-spacing: 0.04em;
         color: #FFFFFF; text-shadow: 0 2px 10px rgba(10, 20, 40, 0.7);
       }
+      /* The street race's three, two, one (game/race.js): bigger than a word, because it is the
+         one thing on screen the player should be watching for those three seconds. */
+      .earning.is-label.is-count { font-size: 34px; }
       /* The combo's words off the roof and its multiplied total at the drop-off. */
       .earning.run-combo { color: #B27CFF; }
 
@@ -869,6 +896,34 @@
         animation: run-end-breathe 2.4s ease-in-out 0.8s infinite;
       }
       @keyframes run-end-breathe { 50% { opacity: 0.32; } }
+      /* At the foot of the screen instead (the default; `?gameover=classic` keeps the slot above).
+         Out of the card's flow and pinned to the blackout, so it never moves the stats, and set in
+         white with a soft glow that swells and fades — a pulse rather than the breathe's dim, so it
+         reads as the screen asking for something rather than as a caption going grey. */
+      #run-end .run-end-continue.is-foot {
+        position: fixed; top: auto; bottom: calc(clamp(20px, 5vh, 44px) + var(--safe-bottom));
+        color: #fff; opacity: 0.9; font-weight: 600;
+        animation: run-end-pulse 1.8s ease-in-out 0.8s infinite;
+      }
+      @keyframes run-end-pulse {
+        0%, 100% { opacity: 0.9; text-shadow: 0 0 0 rgba(255, 255, 255, 0); }
+        50% { opacity: 0.5; text-shadow: 0 0 14px rgba(255, 255, 255, 0.6); }
+      }
+
+      /* The polaroid over the title: one frame of the ending (game/polaroid.js). Sized off the
+         viewport's height like the rest of the card, so a landscape phone gets a smaller print
+         rather than a title pushed below the fold. The tilt is the resting state; runend.js drops
+         it in from a steeper one. The New Move card's clip is printed on the same paper (below). */
+      #run-end .run-end-photo { margin-bottom: clamp(14px, 3.4vh, 30px); }
+      #run-end .run-end-print, body:not(.move-card-classic) #new-move .nm-print {
+        background: #f7f4ec; padding: 8px 8px 30px; border-radius: 2px;
+        transform: rotate(var(--print-tilt, -4deg));
+        box-shadow: 0 10px 28px rgba(0, 0, 0, 0.6), 0 2px 6px rgba(0, 0, 0, 0.45);
+      }
+      #run-end .run-end-shot {
+        display: block; width: clamp(96px, 24vh, 190px); height: auto; aspect-ratio: 1;
+        background: #222;
+      }
 
       /* The Loco Mode pill and the ⚙️ tweak toggle are gameplay controls; once the run is over
          they are noise behind the retry pill. */
@@ -1012,6 +1067,12 @@
          shadow from the top. `?pedals=classic` (body.pedals-classic) shows the drawings these
          replaced, which still ship beside them. */
       body.pedals-classic .pedal-nes, body:not(.pedals-classic) .pedal-classic { display: none; }
+      /* No shine (the default, Tyler 2026-10-20: "remove the cartoony white shine graphics"): the
+         glint, its dot and the dish's lit lower rim are `.nes-shine` and stay out, so the
+         buttons keep their plastic, crescent, dish and debossed letter without the gloss. A flat
+         disc was tried first and Tyler went back to the NES drawing. `?buttons=classic`
+         (body.buttons-classic, which `?pedals=classic` also sets) puts the shine back. */
+      body:not(.buttons-classic) .nes-shine { display: none; }
       .pedal-letter { font: 700 50px/1 -apple-system, system-ui, "Helvetica Neue", Arial, sans-serif; }
       #boost.is-held .pedal-nes .pedal-face, #boost.is-down .pedal-nes .pedal-face,
       #brake.is-held .pedal-nes .pedal-face, #brake.is-on .pedal-nes .pedal-face {
@@ -1182,12 +1243,35 @@
       @media (prefers-reduced-motion: reduce) {
         .fare-pointer > span { transition: none; }
       }
-      /* Outlined to the same weight as the markers in the world, so an arrow reads as the same
-         graphic vocabulary. `currentColor` is what lets one style write on the wrapper repaint it
-         as the fare's clock drains. */
+      /* The nudge: a slow, small swell and a lean of a few px toward whatever the arrow points at,
+         so an arrow at the edge catches the eye without reading as an alarm. On the svg, a layer
+         below the span's press dip and the div's JS-written clamp and rotation, so none of the three
+         has to know about the others; and because the div is rotated, the svg's own +x *is* the
+         pointing direction, so a translateX bobs every arrow toward its mark. 3px and 6% on a 35px
+         arrow (~1/12 and ~2px of swell): at play zoom anything bigger read as urgency, which is
+         colour's job. Phase is staggered per pooled slot (`--nudge-delay`, src/game/farepointers.js)
+         so several arrows on screen don't throb in step. `?arrowpulse=classic` holds them still. */
+      .fare-pointer svg {
+        animation: fare-pointer-nudge 1.3s ease-in-out infinite;
+        animation-delay: var(--nudge-delay, 0s);
+      }
+      @keyframes fare-pointer-nudge {
+        0%, 100% { transform: translateX(0) scale(1); }
+        50% { transform: translateX(3px) scale(1.06); }
+      }
+      #fare-pointers.no-nudge .fare-pointer svg { animation: none; }
+      @media (prefers-reduced-motion: reduce) {
+        .fare-pointer svg { animation: none; }
+      }
+      /* Outlined to the same weight as the pie over the rider: `--marker-outline` is written from
+         MARKER_OUTLINE_PX (src/game/camera.js), the one number both read. `non-scaling-stroke` makes
+         it screen px rather than viewBox units, so the drop-off's bigger arrow wears the same line.
+         `currentColor` is what lets one style write on the wrapper repaint it as the fare's clock
+         drains. */
       .fare-pointer polygon {
         fill: currentColor;
-        stroke: #0a1615; stroke-width: 3; stroke-linejoin: round;
+        stroke: #0a1615; stroke-width: var(--marker-outline, 1.5px); stroke-linejoin: round;
+        vector-effect: non-scaling-stroke;
       }
       body.shot-mode .fare-pointer, body.game-over .fare-pointer { display: none; }
 
@@ -1299,7 +1383,7 @@
 
       /* --- speech bubbles -------------------------------------------------
          Every line anybody says on screen: the tutorial's tips (#coach), the robber
-         (#robber-talk), dispatch (#radio) and the cop's shout (#cop-shout). One bubble, built and
+         (#robber-talk), dispatch (#radio), the cop's shout (#cop-shout) and the depot (#depot-call). One bubble, built and
          pinned by src/game/speech.js — which is where "pinned to what it is about, and waiting at
          the screen's edge when that is off frame" lives. This is the look: the Figma file's
          "bubble-ui" (Taxi 🚕, node 180:1286) at the HUD's ×0.652 — 24px padding and radius become
@@ -1312,16 +1396,19 @@
 
          Not `#tip`/`#intro`/`#banner`/`#popup`: those sit on ad-blocker filter lists, and one
          match takes the module graph down with ERR_BLOCKED_BY_CLIENT (CLAUDE.md). */
-      #coach, #robber-talk, #radio, #cop-shout {
+      #coach, #robber-talk, #radio, #cop-shout, #depot-call, #race-talk {
         position: fixed; inset: 0; z-index: 22;
         pointer-events: none; user-select: none; -webkit-user-select: none;
       }
-      #coach[hidden], #robber-talk[hidden], #radio[hidden], #cop-shout[hidden] { display: none; }
+      #coach[hidden], #robber-talk[hidden], #radio[hidden], #cop-shout[hidden], #depot-call[hidden],
+      #race-talk[hidden] { display: none; }
       /* Never over a screenshot, and never over the retry screen: the run is the thing then. */
       body.shot-mode #coach, body.game-over #coach,
       body.shot-mode #robber-talk, body.game-over #robber-talk,
       body.shot-mode #radio, body.game-over #radio,
-      body.shot-mode #cop-shout, body.game-over #cop-shout { display: none; }
+      body.shot-mode #cop-shout, body.game-over #cop-shout,
+      body.shot-mode #depot-call, body.game-over #depot-call,
+      body.shot-mode #race-talk, body.game-over #race-talk { display: none; }
 
       .speech { position: absolute; left: 0; top: 0; will-change: transform; }
       /* The entrance and exit. Grows out of the pointer (speech.js sets the origin on it), so the
@@ -1371,6 +1458,23 @@
          grows to fit it: the 178px cap is about where *text* breaks, and a row of buttons does not
          wrap. */
       .speech-card.has-media { max-width: calc(100vw - 20px); }
+      /* The street racer's "…" before it is tapped (main.js), where there is no tag to show it on
+         (`?bubbles=classic`/`dock`): no name, and a card hugging the dots. */
+      #race-talk.is-ellipsis .speech-title { display: none; }
+      #race-talk.is-ellipsis .speech-card { padding: 10px 14px; }
+      /* Just the tag, no card (speech.js `showTag`). */
+      .tag-only > .speech { display: none; }
+      /* The racer's tag and card take a tap (main.js): the car can be off screen when it offers.
+         The tag's 24px disc is small for a thumb, so its hit area reaches 12px past it. */
+      #race-talk .speech-tag-pin, #race-talk .speech-card { pointer-events: auto; cursor: pointer; touch-action: manipulation; }
+      #race-talk .speech-tag-pin::before { content: ''; position: absolute; inset: -12px; }
+      /* Any talker's tag waiting at the screen edge takes a tap on a narrow screen (speech.js,
+         `onEdgeTap`): it rides the camera to the talker, like a rider's arrow. The same reach past
+         the disc as the racer's, and the arrows' press dip, set as a class for the arrows' reason. */
+      .speech-tag-pin.can-edge-tap { pointer-events: auto; cursor: pointer; touch-action: manipulation; }
+      .speech-tag-pin.can-edge-tap::before { content: ''; position: absolute; inset: -12px; }
+      .speech-tag { transition: scale 0.08s ease; }
+      .speech-tag-pin.is-held .speech-tag { scale: 0.86; }
       .speech-media { margin-top: 8px; }
       .speech-media[hidden] { display: none; }
       /* The line types itself out: the typed part, then the rest of the line laid out but unseen,
@@ -1382,6 +1486,128 @@
         position: absolute; left: 0; top: 0; width: 11.4px; height: 9.2px;
         display: block; overflow: visible;
         transform-origin: 50% 100%;
+      }
+      /* Docked (the default, game/speech.js): the card sits in one fixed slot at the bottom, just
+         over the Loco Mode fuel arc, and never moves, so it has no pointer and rises in from below
+         instead of growing out of one. Wider than a pinned card, since it covers nothing it is about: most lines then fit on
+         one line and the card stays a short strip. */
+      .speech-docked .speech-card { max-width: min(300px, calc(100vw - 20px)); }
+      .speech-docked > .speech .speech-pointer { display: none; }
+      .speech-docked > .speech > .speech-body { transform: translateY(14px); transform-origin: 50% 100%; }
+      .speech-docked.is-open > .speech > .speech-body { transform: none; }
+      .speech-docked.is-closing > .speech > .speech-body { transform: translateY(10px); }
+      .speech-docked .speech-card { box-shadow: 0 4px 14px rgba(20, 24, 48, 0.28); }
+      /* A docked card grows with its line as it types (Tyler, 2026-10-20) rather than standing at its
+         finished size from the first letter, so the untyped rest is not laid out at all. speech.js
+         pins the card's left edge where the finished card's will be, so the text never shifts. */
+      .speech-docked .speech-rest { display: none; }
+      /* The caret while a docked line types: a zero-width box with a 2px right border, so it takes no
+         room in the line, and a caret with width would make the card a step wider than its text. */
+      .speech-docked.is-typing .speech-run.is-caret .speech-typed::after {
+        content: ''; display: inline-block; width: 0; height: 0.95em; margin-right: -2px;
+        border-right: 2px solid currentColor; vertical-align: -0.12em;
+        animation: speech-caret 0.5s step-end infinite alternate;
+      }
+      @keyframes speech-caret { from { opacity: 1; } to { opacity: 0.25; } }
+      /* Black, `?bubblestyle=classic` (the default for an afternoon, 2026-10-20): white type, the
+         speaker in grey caps, and the tag in the same black. */
+      /* See-through, with the city blurred behind it (Tyler, 2026-10-20) — the card and the tag both.
+         The fade has to be on the card and the tag themselves rather than on the body that holds
+         them: an ancestor with opacity under 1 is a backdrop root, so for the whole of a fade-in
+         the blur would see nothing behind it and then snap on at the end. */
+      .speech-style-black .speech-card {
+        background: rgba(13, 14, 18, 0.62);
+        -webkit-backdrop-filter: blur(12px) saturate(1.2); backdrop-filter: blur(12px) saturate(1.2);
+        box-shadow: 0 4px 14px rgba(0, 0, 0, 0.22); padding: 13px 16px; border-radius: 14px;
+      }
+      .speech-glass.speech-docked > .speech > .speech-body,
+      .speech-glass.speech-docked > .speech-tag-pin > .speech-tag-body { opacity: 1; }
+      .speech-glass .speech-card, .speech-glass .speech-tag, .speech-glass .speech-tag-pin .speech-pointer {
+        opacity: 0; transition: opacity 0.18s ease;
+      }
+      .speech-glass.is-open .speech-card, .speech-glass.is-open .speech-tag,
+      .speech-glass.is-open .speech-tag-pin .speech-pointer { opacity: 1; }
+      .speech-glass.is-closing .speech-card, .speech-glass.is-closing .speech-tag,
+      .speech-glass.is-closing .speech-tag-pin .speech-pointer { opacity: 0; transition: opacity 0.2s ease; }
+      .speech-style-black .speech-tag {
+        background: rgba(13, 14, 18, 0.62);
+        -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px); box-shadow: none;
+      }
+      /* The tag's pointer is sunk 4px into the disc (POINTER_SINK in speech.js) to hide its rounded
+         base corners. With a see-through fill that overlap would draw as a darker band, so the sunk
+         part is clipped off — in the pointer's own unturned frame, so the cut is always its base —
+         leaving the tip from the disc's edge out. A 24px disc only curves 0.4px away over the 6.4px
+         of pointer left at that line, which is under a pixel. The same clip shapes its blur. */
+      .speech-glass .speech-tag-pin .speech-pointer {
+        clip-path: polygon(50% 0, 78.1% 56.5%, 21.9% 56.5%);
+        -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px);
+      }
+      .speech-style-black .speech-tag-pin .speech-pointer { color: rgba(13, 14, 18, 0.62); }
+      .speech-style-black .speech-title { color: rgba(255, 255, 255, 0.55); }
+      .speech-style-black .speech-text { color: #fff; }
+      .speech-style-black .speech-tag i { background: #fff; }
+      /* White, the default look (Tyler, 2026-10-20: white type on the black was hard to read):
+         black type on a nearly opaque white, still blurring the city a little behind it. On a
+         bright daytime street white on white has no edge of its own, so the shadow is a little
+         heavier than the black card's and a hairline ring draws the edge where the street is
+         pale. The tag matches. */
+      .speech-style-white .speech-card {
+        background: rgba(255, 255, 255, 0.9);
+        -webkit-backdrop-filter: blur(12px) saturate(1.2); backdrop-filter: blur(12px) saturate(1.2);
+        box-shadow: 0 0 0 1px rgba(16, 18, 26, 0.08), 0 4px 16px rgba(16, 18, 26, 0.3);
+        padding: 13px 16px; border-radius: 14px;
+      }
+      .speech-style-white .speech-tag {
+        background: rgba(255, 255, 255, 0.9);
+        -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px);
+        box-shadow: 0 0 0 1px rgba(16, 18, 26, 0.08), 0 2px 6px rgba(16, 18, 26, 0.3);
+      }
+      .speech-style-white .speech-tag-pin .speech-pointer { color: rgba(255, 255, 255, 0.9); }
+      .speech-style-white .speech-title { color: rgba(16, 18, 26, 0.5); }
+      .speech-style-white .speech-text { color: #121318; }
+      .speech-style-white .speech-tag i { background: #121318; }
+      /* The thing a line is about — "{garage}" in the line's source, game/speech.js `parseLine`.
+         Yellow type with a black outline (Tyler, 2026-10-20), the outline painted under the fill
+         (`paint-order`) so it thickens the letter outward rather than eating into the yellow: a
+         3.5px stroke shows as ~1.75px of black round each glyph, which is what lets yellow hold up
+         on the white card, where bare yellow type is under 1.5:1. It wiggles once, when its last
+         letter has typed. */
+      .speech-hl {
+        display: inline-block; color: #FFC93C;
+        -webkit-text-stroke: 3.5px #121318; paint-order: stroke fill;
+      }
+      .speech-hl.is-said { animation: speech-hl-wiggle 0.5s cubic-bezier(0.34, 1.56, 0.64, 1); }
+      @keyframes speech-hl-wiggle {
+        0% { transform: none; }
+        25% { transform: rotate(-5deg) scale(1.12); }
+        50% { transform: rotate(4deg) scale(1.08); }
+        75% { transform: rotate(-2deg) scale(1.03); }
+        100% { transform: none; }
+      }
+      /* The tag: who is talking, pinned where the card used to stand. A white disc with three dots
+         in it — the "someone is typing" mark — and the card's pointer, so it reads as the docked
+         card's other end. Small enough (24px) that following a car costs nothing to look at. */
+      .speech-tag-pin { position: absolute; left: 0; top: 0; will-change: transform; }
+      .speech-tag-body {
+        position: relative; opacity: 0; transform: scale(0.5);
+        transition: opacity 0.18s ease, transform 0.26s cubic-bezier(0.34, 1.56, 0.64, 1);
+      }
+      .is-open > .speech-tag-pin > .speech-tag-body { opacity: 1; transform: scale(1); }
+      .is-closing > .speech-tag-pin > .speech-tag-body { opacity: 0; transform: scale(0.6); transition: opacity 0.2s ease, transform 0.2s ease; }
+      .speech-tag {
+        width: 24px; height: 24px; border-radius: 50%; background: #fff;
+        display: flex; align-items: center; justify-content: center; gap: 2.5px;
+        box-shadow: 0 2px 6px rgba(20, 24, 48, 0.3);
+      }
+      .speech-tag i { width: 3.5px; height: 3.5px; border-radius: 50%; background: #2c3052; animation: speech-tag-dot 1.1s ease-in-out infinite; }
+      .speech-tag i:nth-child(2) { animation-delay: 0.15s; }
+      .speech-tag i:nth-child(3) { animation-delay: 0.3s; }
+      @keyframes speech-tag-dot { 0%, 60%, 100% { transform: none; } 30% { transform: translateY(-2.5px); } }
+      .speech-tag-pin .speech-pointer { color: #fff; }
+      @media (prefers-reduced-motion: reduce) {
+        .speech-tag i, .speech-hl.is-said { animation: none; }
+        .speech-docked > .speech > .speech-body, .speech-docked.is-open > .speech > .speech-body,
+        .speech-docked.is-closing > .speech > .speech-body, .speech-tag-body { transform: none; }
       }
       @media (prefers-reduced-motion: reduce) {
         .speech-body, .is-open > .speech > .speech-body, .is-closing > .speech > .speech-body {
@@ -1498,7 +1724,7 @@
       #new-move .speech-card { padding: 20px; gap: 8px; border-radius: 20px; }
       #new-move .speech-title { font-size: 12px; }
       #new-move .speech-text { font-size: 22px; }
-      .nm-clip[hidden] { display: none; }
+      .nm-clip[hidden], .nm-print[hidden] { display: none; }
       /* The city as it stood when the card opened, laid over the game's canvas while the card films
          its clip through it (game/uturnclip.js). Under the HUD and the dim. */
       #freeze-frame { position: fixed; left: 0; top: 0; z-index: 1; pointer-events: none; }
@@ -1508,13 +1734,21 @@
         display: block; width: min(300px, calc(100vw - 60px)); aspect-ratio: 16 / 9;
         border-radius: 12px;
       }
+      /* The clip as a polaroid (the default, Tyler 2026-10-20): the run-end print's paper, border
+         and shadow (shared rule by #run-end .run-end-print), canted less than the ending's -4deg
+         because a 16:9 print is wider and the same angle lifts its far corner twice as far. The
+         clip keeps its CSS size inside the paper — moveclip.js sizes the copy off its clientWidth,
+         which would count padding on the canvas itself. `?movecard=classic` is the bare clip. */
+      body:not(.move-card-classic) #new-move .nm-print { --print-tilt: -2.5deg; margin: 6px 0 10px; }
+      body:not(.move-card-classic) #new-move .nm-clip { width: min(284px, calc(100vw - 76px)); border-radius: 0; }
+      body.move-card-classic .nm-print { display: contents; }
       .nm-combo { display: flex; align-items: center; gap: 8px; }
       .nm-combo[hidden] { display: none; }
       /* The "+" between keys: the title's ink, so it reads as part of the card's type. */
       .nm-plus { font: 700 18px/1 var(--game-font); color: #44497d; }
       .nm-key svg { display: block; overflow: visible; width: 44px; height: 44px; }
-      body.pedals-classic .nm-boost .pedal-face { filter: url(#gas-up); }
-      body.pedals-classic .nm-brake .pedal-face { filter: url(#brake-up); }
+      body.pedals-classic .nm-boost .pedal-face { filter: url(#nm-gas-up); }
+      body.pedals-classic .nm-brake .pedal-face { filter: url(#nm-brake-up); }
 
       /* Dim until pressed, lit from the press to the end of the loop; the face drops into its base
          while held, the HUD pedals' own 5 units. */
@@ -1522,7 +1756,47 @@
       .nm-key.is-lit { filter: none; opacity: 1; }
       .nm-key :is(.pedal-face, .pedal-icon) { transition: transform 0.06s ease-out; }
       .nm-key.is-down :is(.pedal-face, .pedal-icon) { transform: translateY(5px); }
-      body:not(.pedals-classic) .nm-key.is-down .pedal-face { filter: url(#nes-down); transform: translateY(4px); }
+      body:not(.pedals-classic) .nm-key.is-down .pedal-face { filter: url(#nm-nes-down); transform: translateY(4px); }
+      /* The keys in the HUD's own colours (the default, Tyler 2026-10-20): greying an unlit key on
+         the run-end blackout turned the orange A brown and the red B maroon, so the card's buttons
+         did not look like the ones the player presses. An unlit key now waits a size smaller at full
+         colour, and the press grows it in. And the keys are drawn flat (newmove.js `flatKey`): one
+         disc in the button's colour and a white letter, no surround, crescent, dish or glint —
+         the HUD's modelling read as fake gloss at this size (Tyler, 2026-10-20).
+         `?movecard=classic` is the HUD's own drawing, dimmed until pressed. */
+      body:not(.move-card-classic) .nm-key,
+      body.new-move-after-run:not(.move-card-classic) #new-move .nm-key:not(.is-lit) {
+        filter: none; opacity: 1; transform: scale(0.84); transition: transform 0.12s ease-out;
+      }
+      body:not(.move-card-classic) .nm-key.is-lit { transform: none; }
+      /* The ring (newmove.js `pressKeys`): round the next key to press, breathing, and on the press
+         it bursts out and fades. White at the "+"'s weight, so it reads as the card's ink rather
+         than as part of the button. Drawn outside the key's own box, which is also what scales. */
+      .nm-key { position: relative; }
+      .nm-key::after {
+        content: ''; position: absolute; inset: -7px; border-radius: 50%;
+        border: 2.5px solid rgba(255, 255, 255, 0.85); opacity: 0; pointer-events: none;
+      }
+      body:not(.card-combo-classic) .nm-key.is-next::after { animation: nm-ring 1.1s ease-in-out infinite; }
+      body:not(.card-combo-classic) .nm-key.is-pressed::after { animation: nm-ring-pop 0.45s ease-out forwards; }
+      @keyframes nm-ring {
+        0%, 100% { opacity: 0.9; transform: scale(1); }
+        50% { opacity: 0.45; transform: scale(1.1); }
+      }
+      @keyframes nm-ring-pop {
+        0% { opacity: 0.9; transform: scale(1); }
+        100% { opacity: 0; transform: scale(1.55); }
+      }
+      /* The combo over the clip (newmove.js `comboOverlay`): the HUD's meter at the top of the
+         frame, where play puts it, and the purple word off the taxi's roof. A touch under the HUD's
+         size, the clip being a third of the screen's width; the word keeps its own. */
+      .nm-shot { position: relative; }
+      .nm-overlay { position: absolute; inset: 0; overflow: hidden; pointer-events: none; }
+      .nm-overlay .nm-meter {
+        position: absolute; top: 6px; left: 50%; transform: translateX(-50%) scale(0.8);
+        transform-origin: center top;
+      }
+      .nm-overlay .earning { position: absolute; z-index: 1; font-size: 16px; }  /* the meter's 0.8 */
 
       /* --- the HUD's entrance ------------------------------------------------
          Everything the player will need but cannot use yet starts off its own screen edge, and
@@ -1796,6 +2070,21 @@
       #title-screen .title-credits { display: flex; flex-direction: column; gap: clamp(12px, 2.6vh, 20px); }
       #title-screen .title-credit dt { font-size: 15px; font-weight: 500; opacity: 0.75; }
       #title-screen .title-credit dd { font-size: 22px; font-weight: 700; margin-top: 2px; }
+      #title-screen .title-credit-claude {
+        appearance: none; border: 0; background: none; padding: 6px; margin: -6px -6px -6px 2px;
+        cursor: pointer; vertical-align: -1px; line-height: 0;
+      }
+      #title-screen .title-credit-sprite { display: block; height: 16px; width: 22px; }
+      /* The egg's layer (game/creditegg.js): over the credits, and clipped so the boost leaves. */
+      #title-screen .title-egg { position: absolute; inset: 0; overflow: hidden; pointer-events: none; z-index: 2; }
+      #title-screen .title-egg-taxi { position: absolute; width: 48px; height: 26px; }
+      #title-screen .title-egg-taxi svg { position: absolute; left: 0; top: 0; }
+      #title-screen .title-egg-taxi .title-egg-flame {
+        left: -14px; top: 10px; visibility: hidden; transform-origin: right center;
+        animation: title-egg-flicker 120ms steps(2) infinite;
+      }
+      @keyframes title-egg-flicker { from { transform: scaleX(1); } to { transform: scaleX(1.5); } }
+      #title-screen .title-egg-rider { visibility: hidden; }
 
       /* Bottom-anchored, and the bottom inset clears the home indicator on a notched phone. The
          gutter is a share of the width rather than a fixed pixel count so the block sits the same
@@ -1880,6 +2169,31 @@
       }
       /* Bottom right, in the control row's own corner inset: the top-right corner is the pause
          button's, and the two sat on top of each other. The panel opens upward from it. */
+      /* The panel's 🖥 / 📱 switch and the phone frame it draws (src/game/phoneframe.js). Framed,
+         the root's side insets are the frame's margins, which pulls every pinned HUD element in
+         to where a phone lays it out; the panel and its ⚙️ opt back out, being the tool. The mask
+         sits over the canvas and the 🔊 pins (12) and under the HUD (18 and up). */
+      :root.phone-frame {
+        --frame-w: min(100vw, calc(100vh * 393 / 852));
+        --safe-left: calc((100vw - var(--frame-w)) / 2);
+        --safe-right: calc((100vw - var(--frame-w)) / 2);
+      }
+      :root.phone-frame #dbg-toggle, :root.phone-frame #dbg-panel { right: var(--ctl-inset); }
+      #phone-frame { display: none; position: fixed; inset: 0; z-index: 13; pointer-events: none; overflow: hidden; }
+      :root.phone-frame #phone-frame { display: block; }
+      #phone-frame > div {
+        position: absolute; top: 0; bottom: 0; left: 50%; width: var(--frame-w); transform: translateX(-50%);
+        box-shadow: 0 0 0 100vmax rgba(10, 10, 14, 0.82); outline: 1px solid rgba(255, 255, 255, 0.35);
+      }
+      .dbg-head-row { display: flex; gap: 6px; align-items: center; }
+      .dbg-head-row .dbg-search { flex: 1; min-width: 0; }
+      .dbg-device { display: flex; flex: none; border: 1px solid var(--dbg-line); border-radius: 8px; overflow: hidden; }
+      .dbg-device button {
+        width: 32px; height: 28px; border: 0; background: var(--dbg-fill); color: var(--dbg-text);
+        cursor: pointer; font-size: 14px; line-height: 1; opacity: 0.55;
+      }
+      .dbg-device button + button { border-left: 1px solid var(--dbg-line); }
+      .dbg-device button.is-active { background: var(--dbg-accent); opacity: 1; }
       #dbg-toggle {
         position: fixed; bottom: var(--ctl-bottom); right: var(--ctl-right); z-index: 20;
         width: 38px; height: 38px; border: 1px solid var(--dbg-line); border-radius: 10px; cursor: pointer;
@@ -2101,7 +2415,26 @@
         cursor: pointer; background: var(--dbg-fill); color: var(--dbg-text); font: 700 10px/1 system-ui, sans-serif;
       }
       .aud-ms.is-on { background: #f5c56b; color: #141416; border-color: #f5c56b; }
-      .aud-ms.is-on:last-child { background: #7aa2ff; border-color: #7aa2ff; }
+      .aud-ms.aud-solo.is-on { background: #7aa2ff; border-color: #7aa2ff; }
+      .aud-ms-pair { display: flex; gap: 4px; margin-left: auto; flex: none; align-self: center; }
+      .aud-sound.is-silenced > :not(.aud-name), .aud-sound.is-silenced .aud-name > :not(.aud-ms-pair) { opacity: 0.45; }
+      /* The buses over the groups, and the peak meter on Master (src/game/audiopanel.js). */
+      .aud-bus { margin-top: 6px; }
+      .aud-bus-name { flex: 1; font-size: 12px; padding: 2px 0; }
+      .aud-meter { margin: 2px 0 8px; cursor: pointer; }
+      .aud-meter-row { display: flex; align-items: center; gap: 6px; margin-bottom: 3px; font-size: 9px; opacity: 0.8; }
+      .aud-meter-bar { position: relative; flex: 1; height: 8px; border-radius: 2px; overflow: hidden; background: rgba(255, 255, 255, 0.08); }
+      .aud-meter-fill {
+        position: absolute; inset: 0; clip-path: inset(0 100% 0 0);
+        /* -60..0 dBFS: green to -12, amber to -6, red above. Clipped rather than sized, so the
+           colours stay put on the scale. */
+        background: linear-gradient(to right, #5fd38d 0 80%, #f5c56b 80% 90%, #ff6b6b 90% 100%);
+      }
+      .aud-meter-tick { position: absolute; top: 0; bottom: 0; width: 2px; margin-left: -1px; background: #fff; }
+      .aud-meter-scale { position: relative; height: 10px; margin-left: 13px; font-size: 8px; opacity: 0.5; }
+      .aud-meter-scale span { position: absolute; transform: translateX(-50%); }
+      .aud-meter-read { font: 600 11px/1.4 ui-monospace, monospace; margin-top: 2px; }
+      .aud-meter.is-clipped .aud-meter-read { color: #ff6b6b; }
       /* A folded group hides its sounds — unless the panel's search is in use, which shows a match
          wherever it is. A class, because `hidden` on these belongs to the search. */
       #dbg-panel:has(.dbg-search:placeholder-shown) .aud-sound.is-folded { display: none; }
@@ -2234,7 +2567,7 @@
     <!-- Loco Mode's fuel: a gauge arc over the gas button, in the button's own viewBox. A read-out
          only — the pedal is the control. See #boost-meter. -->
     <div id="boost-meter" aria-hidden="true">
-      <svg class="boost-arc" viewBox="-50 -50 250 250">
+      <svg class="boost-arc" viewBox="-80 -80 310 310">
         <defs>
           <radialGradient id="fuel-edge">
             <stop offset="0.35" stop-color="#FFFDF2" /><stop offset="0.6" stop-color="#FFE9A0" stop-opacity="0.9" />
@@ -2249,6 +2582,8 @@
         <path class="boost-fill" />
         <circle class="boost-edge" r="0" />
         <line class="boost-glint" hidden />
+        <!-- The fuse flame, built into here by main.js unless `?locobar=classic`. -->
+        <g class="boost-flame"></g>
       </svg>
       <!-- The 🚨 while the police are after the taxi, drawn into by game/chasesiren.js. It stands
            over the crown of the gauge; `?pedals=classic` moves it back into #hud (main.js). -->
@@ -2356,10 +2691,10 @@
         <circle cx="75" cy="76" r="64" fill="#7A4100" />
         <g class="pedal-face">
           <circle cx="75" cy="71" r="62" fill="url(#nes-gas-face)" />
-          <path d="M25.15 47.76A55 55 0 0 1 56.19 19.32" stroke="#fff" stroke-opacity="0.6" stroke-width="5" stroke-linecap="round" fill="none" />
-          <circle cx="67.35" cy="16.54" r="2.4" fill="#fff" fill-opacity="0.6" />
+          <path class="nes-shine" d="M25.15 47.76A55 55 0 0 1 56.19 19.32" stroke="#fff" stroke-opacity="0.6" stroke-width="5" stroke-linecap="round" fill="none" />
+          <circle class="nes-shine" cx="67.35" cy="16.54" r="2.4" fill="#fff" fill-opacity="0.6" />
           <circle cx="75" cy="71" r="44" fill="url(#nes-gas-dish)" stroke="#000" stroke-opacity="0.22" stroke-width="1.5" />
-          <path d="M113.11 93A44 44 0 0 1 36.89 93" stroke="#fff" stroke-opacity="0.4" stroke-width="1.5" fill="none" />
+          <path class="nes-shine" d="M113.11 93A44 44 0 0 1 36.89 93" stroke="#fff" stroke-opacity="0.4" stroke-width="1.5" fill="none" />
           <!-- Debossed, not printed (Tyler, 2026-10-15): the letter is the dish's own plastic, a
                tenth lighter, and reads by its walls alone — the top wall in shadow, the bottom
                one catching the light, the way a cut into the dish would. -->
@@ -2444,10 +2779,10 @@
         <circle cx="75" cy="76" r="64" fill="#6E1214" />
         <g class="pedal-face">
           <circle cx="75" cy="71" r="62" fill="url(#nes-brake-face)" />
-          <path d="M25.15 47.76A55 55 0 0 1 56.19 19.32" stroke="#fff" stroke-opacity="0.6" stroke-width="5" stroke-linecap="round" fill="none" />
-          <circle cx="67.35" cy="16.54" r="2.4" fill="#fff" fill-opacity="0.6" />
+          <path class="nes-shine" d="M25.15 47.76A55 55 0 0 1 56.19 19.32" stroke="#fff" stroke-opacity="0.6" stroke-width="5" stroke-linecap="round" fill="none" />
+          <circle class="nes-shine" cx="67.35" cy="16.54" r="2.4" fill="#fff" fill-opacity="0.6" />
           <circle cx="75" cy="71" r="44" fill="url(#nes-brake-dish)" stroke="#000" stroke-opacity="0.22" stroke-width="1.5" />
-          <path d="M113.11 93A44 44 0 0 1 36.89 93" stroke="#fff" stroke-opacity="0.4" stroke-width="1.5" fill="none" />
+          <path class="nes-shine" d="M113.11 93A44 44 0 0 1 36.89 93" stroke="#fff" stroke-opacity="0.4" stroke-width="1.5" fill="none" />
           <!-- Debossed, not printed (Tyler, 2026-10-15): the letter is the dish's own plastic, a
                tenth lighter, and reads by its walls alone — the top wall in shadow, the bottom
                one catching the light, the way a cut into the dish would. -->
@@ -2483,6 +2818,8 @@
     <div id="new-move" role="status" aria-live="polite" hidden></div>
     <div id="cop-shout" role="status" aria-live="polite" hidden></div>
     <div id="radio" role="status" aria-live="polite" hidden></div>
+    <div id="race-talk" role="status" aria-live="polite" hidden></div>
+    <div id="depot-call" role="status" aria-live="polite" hidden></div>
     <div id="title-screen" hidden></div>
     <div id="home-tip" hidden></div>
     <div id="wipe" aria-hidden="true" hidden></div>

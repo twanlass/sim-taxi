@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { bakeColor, propMaterial, setFinish, FINISH, SMOOTH_BODY, bodyBox, softenNormals } from '../util/geo.js';
-import { PALETTE, color } from '../palette.js';
+import { color } from '../palette.js';
 import {
   wheelGeometries, wheelGeometry, wheelAnchors, archedBodyGeometries, archOutlines, extrudeOutlines,
   WHEEL_R, ARCH_R, CHASSIS_LIFT, SILL_Y,
@@ -41,6 +41,32 @@ const CLASSIC_ROOF = typeof location !== 'undefined'
 // Where the painted roof starts, in car-local height before CHASSIS_LIFT: the glass runs from the
 // body's top (1.15) up to here, and the roof from here to the cabin's top (1.75).
 const ROOF_BASE = 1.62;
+
+// The windscreen leans back: every unit of height up the cabin's front face sets it this far
+// toward the tail (0.75 ≈ 37° off vertical). A sheer front read as a delivery van; a raked one reads
+// as the car leaning into its own speed. Measured from the body's top (the screen's foot), so the
+// cabin's front edge at the roof sits 0.45 back and the bonnet gains that much visible length.
+export const SCREEN_RAKE = 0.75;
+export const SCREEN_FOOT = 1.15 + CHASSIS_LIFT;
+
+/** Lean the vertices of `geo` at or ahead of `fromX` back by SCREEN_RAKE per unit over the foot. */
+function rakeBack(geo, fromX = -Infinity, round = 0) {
+  // `round` is the box's edge radius under `?carbody=smooth` (bodyBox). A rounded box has vertices
+  // in the band behind its front face too, and shearing the face alone would push it back through
+  // them, so the shear ramps in across that band. A plain box has nothing in the band, so the
+  // ramp changes nothing there.
+  const pos = geo.attributes.position;
+  for (let k = 0; k < pos.count; k++) {
+    const x = pos.getX(k);
+    const w = round > 0
+      ? THREE.MathUtils.clamp((x - (fromX - round)) / round, 0, 1)
+      : (x >= fromX - 1e-6 ? 1 : 0);
+    if (w > 0) pos.setX(k, x - w * SCREEN_RAKE * (pos.getY(k) - SCREEN_FOOT));
+  }
+  // A box keeps its own vertices per face, so recomputing gives the leaning face its true normal.
+  geo.computeVertexNormals();
+  return geo;
+}
 
 // World-space distance from the taxi origin back to the bumper — used by the tailpipe flame burst
 // (main.js). Kept here rather than in flames.js so both offsets follow if the mesh ever resizes.
@@ -102,6 +128,7 @@ function shellParts() {
   if (CLASSIC_ROOF) {
     const cabin = new THREE.BoxGeometry(CAR_LEN * 0.5, 0.6, CAR_W * 0.86);
     cabin.translate(-0.2, 1.45 + CHASSIS_LIFT, 0);
+    rakeBack(cabin, -0.2 + CAR_LEN * 0.25);
     parts.push(setFinish(bakeColor(cabin, color('carGlass')), FINISH.GLASS));
   } else {
     // A yellow roof over a band of dark windows. The camera looks down on the car, so the roof is
@@ -113,10 +140,21 @@ function shellParts() {
     const soft = (g) => (SMOOTH_BODY ? softenNormals(g) : g);
     const glass = bodyBox(CAR_LEN * 0.5, ROOF_BASE - 1.15, CAR_W * 0.86, 0.1);
     glass.translate(-0.2, (1.15 + ROOF_BASE) / 2 + CHASSIS_LIFT, 0);
+    rakeBack(glass, -0.2 + CAR_LEN * 0.25, 0.1);
     parts.push(setFinish(soft(bakeColor(glass, color('carGlass'))), FINISH.GLASS));
+    // The roof's front edge carries the same lean on, so glass and lid read as one sloped face.
     const roof = bodyBox(CAR_LEN * 0.5 + 0.06, 1.75 - ROOF_BASE, CAR_W * 0.86 + 0.06, 0.06);
     roof.translate(-0.2, (ROOF_BASE + 1.75) / 2 + CHASSIS_LIFT, 0);
+    rakeBack(roof, -0.2 + CAR_LEN * 0.25 + 0.03, 0.06);
     parts.push(setFinish(soft(bakeColor(roof, color('taxiBody'))), FINISH.PAINT));
+    // A chrome divider across each side window, splitting front glass from back. It stands just
+    // proud of the glass (0.012 clear) and runs foot to roof so it reads as a pillar, not a stripe.
+    const pillarH = ROOF_BASE - 1.15;
+    for (const side of [-1, 1]) {
+      const pillar = new THREE.BoxGeometry(0.09, pillarH, 0.04);
+      pillar.translate(-0.27, (1.15 + ROOF_BASE) / 2 + CHASSIS_LIFT, side * (CAR_W * 0.43 + 0.012));
+      parts.push(setFinish(bakeColor(pillar, color('bumperChrome')), FINISH.METAL));
+    }
   }
 
 
@@ -139,22 +177,33 @@ function shellParts() {
   // The app icon is rendered from this mesh (tools/icon/), so it wears the same six. At CAR_LEN * 0.82 that puts a cell at ~0.55 world
   // units ≈ 4px — the finest pitch that survives. Twelve cells (square ones, matching the band's
   // own height) measure ~2px each and alias into a flicker as the car turns.
-  const STRIPE_CELLS = 6;
-  const stripeLen = CAR_LEN * 0.82;
-  const cellLen = stripeLen / STRIPE_CELLS;
-  for (const side of [-1, 1]) {
-    for (let i = 0; i < STRIPE_CELLS; i++) {
-      const cell = new THREE.BoxGeometry(cellLen, STRIPE_TOP - STRIPE_LOW, 0.06);
-      cell.translate(
-        -stripeLen / 2 + (i + 0.5) * cellLen,
-        (STRIPE_LOW + STRIPE_TOP) / 2,
-        side * (CAR_W / 2 + 0.02),
-      );
-      // Both colours painted, rather than letting the light cells fall through to the body: the
-      // body is `taxiBody` yellow, and a yellow-and-black band is a hazard stripe, not a taxi. The
-      // white is `taxiSign`, the off-white the roof sign already lights up in — the car's existing
-      // white, so the livery stays a two-colour car rather than gaining a third.
-      parts.push(setFinish(bakeColor(cell, color(i % 2 === 0 ? 'taxiTrim' : 'taxiSign')), FINISH.PAINT));
+  // The flank stripe is off for now: the chequer lives on the bonnet and boot lid instead (below).
+  // Both colours are painted rather than letting the light cells fall through to the body, since a
+  // yellow-and-black band is a hazard stripe, not a taxi; the white is `taxiSign`.
+
+  // The same two colours down the middle of the bonnet and the boot lid, two cells wide, and the
+  // roof between them stays plain yellow. Square cells (DECK_CELL) so the chequer stays a chequer
+  // at any angle; the run starts a cell clear of the windscreen's foot (x = 0.65) and of the tail
+  // (-1.7), and each is whole cells so no cell is cut short at the bumper. The plates sit
+  // DECK_LIFT over the body's top plane so they never share it (coplanar shimmer).
+  const DECK_CELL = 0.24;
+  const DECK_LIFT = 0.012;
+  const deckTop = 1.18 + CHASSIS_LIFT;
+  const deckRuns = [
+    { from: 0.72, rows: 4 }, // bonnet, working forward from the screen
+    { from: -1.05 - 0.07, rows: 2, back: true }, // boot lid, working back from the cabin
+    // The roof's flat top runs -1.08 back to 0.23 (its front edge leans back 0.45 over the rake),
+    // so five cells fit from just inside the front edge.
+    { from: 0.175, rows: 5, back: true, top: 1.75 + CHASSIS_LIFT },
+  ];
+  for (const { from, rows, back, top = deckTop } of deckRuns) {
+    for (let row = 0; row < rows; row++) {
+      for (const col of [0, 1]) {
+        const plate = new THREE.BoxGeometry(DECK_CELL, 0.024, DECK_CELL);
+        const x = from + (back ? -1 : 1) * (row + 0.5) * DECK_CELL;
+        plate.translate(x, top + DECK_LIFT, (col - 0.5) * DECK_CELL);
+        parts.push(setFinish(bakeColor(plate, color((row + col) % 2 === 0 ? 'taxiTrim' : 'taxiSign')), FINISH.PAINT));
+      }
     }
   }
 
@@ -163,16 +212,9 @@ function shellParts() {
   return parts;
 }
 
-// The roof sign's box, in car-local space. One definition for the live car and the depot's sign.
-function roofSignGeometry() {
-  const signGeo = new THREE.BoxGeometry(0.75, 0.34, 0.4);
-  signGeo.translate(-0.1, 1.92 + CHASSIS_LIFT, 0);
-  return signGeo;
-}
-
 /**
  * The whole taxi as one static geometry, in car-local space at unit scale (+x the nose, origin on
- * the road): the shell, all four wheels, both bumpers and the roof sign lit. For the sign on the
+ * the road): the shell, all four wheels and both bumpers. For the sign on the
  * depot's roof (city/garage.js), which wants the car's silhouette and none of what makes the live
  * one the player's — no ghost outline, no pick volume, no damage, no lamps.
  */
@@ -182,7 +224,6 @@ export function taxiSignGeometry() {
     parts.push(wheelGeometry().translate(anchor.x, anchor.y, anchor.z));
   }
   parts.push(bumperGeometry(CAR_LEN, CAR_W, 1), bumperGeometry(CAR_LEN, CAR_W, -1));
-  parts.push(setFinish(bakeColor(roofSignGeometry(), color('taxiSign')), FINISH.PAINT));
   const merged = mergeGeometries(parts, false);
   parts.forEach((p) => p.dispose());
   return merged;
@@ -262,21 +303,10 @@ export function createTaxiMesh() {
   hit.userData.pickable = 'taxi';
   group.add(hit);
 
-  // Roof sign — reads as "taxi" at this zoom, and lights up while a rider is aboard. It used to
-  // carry the fare's own colour, back when colour paired a rider with their drop-off pin; now
-  // that pairing is gone (the drop-off pin is fixed to Loco Mode's yellow, see marker.js), so the
-  // sign only has one thing left to say and says it with on/off rather than hue.
-  const sign = new THREE.Mesh(
-    roofSignGeometry(),
-    // Starts dark — the taxi is empty until a fare boards.
-    new THREE.MeshLambertMaterial({ color: new THREE.Color(PALETTE.taxiTrim), flatShading: true }),
-  );
-  sign.castShadow = true;
-  sign.receiveShadow = true;
-  sign.userData.pickable = 'taxi';
-  group.add(sign);
-  // A smaller rim than the shell's: the default 0.3 on a 0.34-unit-tall sign would double it.
-  addGhostOutline(sign, { rim: 0.15 });
+  // **No roof sign.** There was one — a box on the roof, dark when empty and lit off-white while a
+  // rider was aboard — and it came off at the workshop bench: the painted yellow roof already says
+  // "taxi" from above, and the sign was a dark lump sitting on it for most of every run. Who is aboard
+  // is said by the rider's pin and the HUD. `setOccupied` stays as a no-op so its callers need not care.
 
   // **No parcel on the rear deck.** There was one — a `PARCEL_DECK_SCALE` box behind the cabin, shown
   // while a package was aboard — and it was the honest answer to "does the car have one" at a size
@@ -337,10 +367,8 @@ export function createTaxiMesh() {
   group.scale.setScalar(TAXI_SCALE);
   group.rotation.order = 'YXZ';   // so roll applies about the car's own long axis
 
-  /** Lights the roof sign while a rider is aboard; dark (the trim's own colour) while empty. */
-  const setOccupied = (occupied) => {
-    sign.material.color.set(occupied ? PALETTE.taxiSign : PALETTE.taxiTrim);
-  };
+  /** Used to light the roof sign while a rider was aboard; the sign is gone (see above). */
+  const setOccupied = () => {};
 
   /**
    * Light the whole car, 0..1 — the flourish that says a courier box has been accepted
@@ -364,7 +392,7 @@ export function createTaxiMesh() {
    * above is actually protecting.
    */
   const HIGHLIGHT = 0.32;
-  const litParts = [shell, sign, ...steered];
+  const litParts = [shell, ...steered];
   const setHighlight = (amount) => {
     const lift = HIGHLIGHT * amount;
     for (const part of litParts) part.material.emissive.setScalar(lift);
@@ -389,7 +417,6 @@ export function createTaxiMesh() {
 
   return {
     group,
-    sign,
     damage,
     /**
      * The six light pods — two per lamp, see the note by their construction — so `main.js` can
@@ -562,6 +589,15 @@ const SCREEN_ROOF = 0.45;
 const SCREEN_HOLE_R = 0.24;
 const SCREEN_HOLE_Y = (SCREEN_LOW + SCREEN_TOP) / 2 + 0.03;
 const SCREEN_HOLE_Z = -0.28;
+// Where the driver sits, in world units off the taxi's centre: behind the hole, low in the cabin box
+// (x −1.05..0.65, y 1.15..1.75 above CHASSIS_LIFT) — so a figure started here is wholly inside the
+// shell, and game/ejection.js can bring the cabbie out through the glass instead of conjuring them
+// in the air above the bonnet.
+export const TAXI_DRIVER_SEAT = {
+  fwd: -0.35 * TAXI_SCALE,
+  y: (1.45 + CHASSIS_LIFT) * TAXI_SCALE,
+  side: SCREEN_HOLE_Z * TAXI_SCALE,
+};
 // There was a fifth piece: the struck corner of the shell crushed in, down and darkened, a vertex
 // displacement on the merged body. It read at close zoom and looked wrong — a box with one corner
 // sheared off, which at play zoom reads as a modelling fault rather than as a dent — and came out.
@@ -641,7 +677,7 @@ function buildDamage(group, lightPods, bumpers, chrome) {
   // The windscreen, after the driver has gone through it (game/ejection.js). The cabin is one dark
   // glass box, so what says *broken* is the pane going pale — crazed safety glass turns milky — with
   // a ragged dark hole on the driver's side where the figure went out. The pale runs up over the
-  // front of the roof as well: the cabin's front face is vertical, so a taxi facing away from the
+  // front of the roof as well: the cabin's front face is near-vertical, so a taxi facing away from the
   // camera shows none of it, and the roof is the one surface every crash-cam angle can see.
   //
   // Plates laid over the cabin rather than a change to its colour, because the cabin is merged into
@@ -652,9 +688,10 @@ function buildDamage(group, lightPods, bumpers, chrome) {
   const screenParts = [];
   const paneFront = new THREE.BoxGeometry(0.01, SCREEN_TOP - SCREEN_LOW, SCREEN_HALF_W * 2);
   paneFront.translate(SCREEN_X + 0.01, (SCREEN_LOW + SCREEN_TOP) / 2, 0);
-  screenParts.push(bakeColor(paneFront, color('crazedGlass')));
+  // The plates lean with the screen (SCREEN_RAKE); the roof plate slides back by the roof edge's lean.
+  screenParts.push(bakeColor(rakeBack(paneFront), color('crazedGlass')));
   const paneRoof = new THREE.BoxGeometry(SCREEN_ROOF, 0.01, SCREEN_HALF_W * 2);
-  paneRoof.translate(SCREEN_X - SCREEN_ROOF / 2, CABIN_TOP + 0.01, 0);
+  paneRoof.translate(SCREEN_X - SCREEN_ROOF / 2 - SCREEN_RAKE * (CABIN_TOP - SCREEN_FOOT), CABIN_TOP + 0.01, 0);
   screenParts.push(bakeColor(paneRoof, color('crazedGlass')));
   const holeRim = new THREE.CircleGeometry(SCREEN_HOLE_R, 9);
   const rim = holeRim.attributes.position;
@@ -667,7 +704,7 @@ function buildDamage(group, lightPods, bumpers, chrome) {
   }
   holeRim.rotateY(Math.PI / 2);
   holeRim.translate(SCREEN_X + 0.02, SCREEN_HOLE_Y, SCREEN_HOLE_Z);
-  screenParts.push(bakeColor(holeRim, color('taxiTrim')));
+  screenParts.push(bakeColor(rakeBack(holeRim), color('taxiTrim')));
   const brokenScreen = new THREE.Mesh(mergeGeometries(screenParts.map((g) => (g.index ? g.toNonIndexed() : g))), propMaterial());
   brokenScreen.userData.pickable = 'taxi';
   brokenScreen.scale.setScalar(0);

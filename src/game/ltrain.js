@@ -45,9 +45,10 @@ import { markOccluder, setOccluderDepthMaterial } from './ssao.js';
 // paid by the fade below rather than by keeping it low.
 //
 // **Faded where it covers something that matters.** The taxi already has its ghost outline for
-// when a building hides it, but a fare marker does not, and a deck across a rider's kerb is a fare
-// the player cannot see. So the structure and the train dither out over whatever it is hiding — see
-// `FADE_*` below.
+// when a building hides it, and that works through the deck too, so the deck stays solid over the
+// taxi like a building does. A fare marker has no outline, and a deck across a rider's kerb is a
+// fare the player cannot see, so the structure and the train dither out over the pins — see
+// `FADE_*` below. (`?trainfade=classic` in main.js adds the taxi back as a fade point.)
 //
 // The train is four cars, each set on the path by its two trucks, so a car rounds the corner as a
 // chord across the curve rather than as a bent box. It runs off one end of the island, waits, and
@@ -225,8 +226,8 @@ const BOGIE_AT = CAR_LEN / 2 - 0.9;
 // densities reads as a see-through deck rather than as a pattern.
 //
 // Two things fade it. The coast, on the smoothstep the ground and the boats use (its band is
-// `COAST_*` below), so the line dissolves off the island with the asphalt under it. And up to `FADE_SLOTS` points on the ground the player needs to see — the taxi and the fare
-// pins — each projected *up the sightline* to the deck: the part of the deck hiding a point is not
+// `COAST_*` below), so the line dissolves off the island with the asphalt under it. And up to `FADE_SLOTS` points on the ground the player needs to see — the fare pins
+// (and the taxi under `?trainfade=classic`) — each projected *up the sightline* to the deck: the part of the deck hiding a point is not
 // above it, it is `FADE_LIFT * (1, 1)` further toward the camera.
 const FADE_SLOTS = 8;
 const FADE_IN = 2.6;     // fully faded inside this radius of a projected point...
@@ -971,7 +972,7 @@ function buildCar() {
   // Body, roof and the air-con pod on it.
   parts.push(box(CAR_LEN, BODY_H, CAR_W, 0, 0.3 + BODY_H / 2, 0, PALETTE.ltrainBody));
   parts.push(box(CAR_LEN - 0.3, 0.15, CAR_W - 0.3, 0, 0.3 + BODY_H + 0.075, 0, PALETTE.ltrainRoof));
-  parts.push(box(1.4, 0.16, 1.0, 0, 0.3 + BODY_H + 0.15 + 0.08, 0, PALETTE.ltrainRoof));
+  parts.push(box(1.4, 0.16, 1.0, 0, 0.3 + BODY_H + 0.15 + 0.08, 0, PALETTE.ltrainRoofUnit));
   // The window band down each side and the stripe under it, standing a hair proud of the body.
   // Sides only: the camera never sees the far side's band, but a train is symmetric and costs
   // eight boxes either way.
@@ -984,6 +985,28 @@ function buildCar() {
     parts.push(box(0.04, 0.5, CAR_W - 0.5, e * (CAR_LEN / 2 + 0.02), 0.3 + BODY_H - 0.4, 0, PALETTE.ltrainGlass));
   }
   return mergeGeometries(parts, false);
+}
+
+/**
+ * The train alone, off its deck, for the model workshop's bench (src/workshop/catalog.js): the
+ * same car geometry and paint `createLTrain` uses, CARS of them nose to tail at CAR_GAP on a
+ * straight, without the coast fade or the entrance, which both need the city to mean anything.
+ */
+export function createTrainMesh() {
+  const group = new THREE.Group();
+  group.name = 'ltrain';
+  const carGeo = buildCar();
+  const material = vehiclePaintOn()
+    ? propMaterial({ gloss: { geometry: carGeo, amount: 0.55 } })
+    : propMaterial();
+  for (let n = 0; n < CARS; n++) {
+    const car = new THREE.Mesh(carGeo, material);
+    car.castShadow = true;
+    car.receiveShadow = true;
+    car.position.x = (n - (CARS - 1) / 2) * (CAR_LEN + CAR_GAP);
+    group.add(car);
+  }
+  return group;
 }
 
 // --- The line -----------------------------------------------------------------------------------

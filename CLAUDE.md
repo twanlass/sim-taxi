@@ -33,12 +33,13 @@ about to change.
 | [docs/params.md](docs/params.md) | Every URL parameter, including the `?<feature>=classic` toggles |
 | [docs/testing.md](docs/testing.md) | `npm run check`, the headless tools, screenshots |
 | [docs/lab.md](docs/lab.md) | The passing lab at `/lab/` — a straight road with no lights, for watching Loco Mode |
+| [docs/workshop.md](docs/workshop.md) | The model workshop at `/workshop/` — a vehicle or landmark on a bench, with a chat that edits its source live |
 | [docs/ios.md](docs/ios.md) | The App Store build: the WKWebView shell, the custom URL scheme, `window.__native` |
 
 ## Commands
 
 ```bash
-npm run dev        # http://localhost:5173 — and the passing lab at /lab/
+npm run dev        # http://localhost:5173 — the passing lab at /lab/, the model workshop at /workshop/
 npm run check      # the whole headless suite, ~1.8s — run this before reporting anything
 npm run build      # production bundle into dist/ (two pages: the game and /lab/)
 npm run build:ios  # the same bundle, minus /lab/, copied into the iOS app — see docs/ios.md
@@ -515,6 +516,16 @@ Omit the whole section if there's nothing to note.
   flipped sign and measured from the line the bug had put everything on, which is the second half of
   the lesson — a lateral check has to build its centreline from the *lane offset the traffic model
   uses*, not from the code under test.
+- **The canvas is see-through, and a program compiled `transparent` stays that way.** Three asks
+  for an `alpha: true` context whatever you pass it, so any pixel left with alpha under 1 shows the
+  page's sky-blue background through it. Opaque materials are safe only because three compiles them
+  with `OPAQUE`, which pins the alpha to 1 — and that define is baked in at *compile* time, so a
+  material compiled while `transparent` and flipped back afterwards keeps writing its own alpha.
+  The city's entrance wave does exactly that to every mesh it grows, and for the alpha-cut grass and
+  leaf fuzz that alpha is the atlas's coverage: tufts came out glowing white under a squall, on a
+  phone and in live play only, because shot mode settles the entrance before the first compile.
+  Hence `gl_FragColor.a = vEntryFade` in `game/cityentry.js`. A `readPixels` on the alpha channel
+  finds this in one frame; a screenshot never shows it the same way twice.
 - **`instanceColor` is RGB only.** Per-instance alpha needs a custom attribute plus an
   `onBeforeCompile` patch — a 4-component colour attribute takes a different code path.
 - **Jitter vertices by position, not index.** Non-indexed geometry repeats shared corners, and

@@ -5,7 +5,7 @@ import { BUILDING_COLORS, color, jitterColor } from '../palette.js';
 import { makeRng, valueNoise2D } from '../util/rng.js';
 import { KERB_H } from './ground.js';
 import { plantedCrowns, treeParts, treeShape } from './props.js';
-import { buildBank, chooseBankLot } from './bank.js';
+import { buildBank, bankDomeMesh, chooseBankLot } from './bank.js';
 
 const FLOOR_H = 2.6;
 // The ground floor is its own storey height. A shopfront is taller than the flats above it, and
@@ -448,6 +448,9 @@ function groundFloor(parts, cx, cz, w, d, streetSides, rng) {
   const u = (bay + 0.5 - bays / 2) * pitch;
   const doorW = Math.min(1.15, pitch * 0.7);
   const doorH = GROUND_H - 0.45;
+  // Reported to the same sink as the panes, so Rain Mode's street lamps can keep off the doorway
+  // (`entrances` in game/citylights.js). `litWindows` skips it: a door is not a window.
+  paneSink?.({ rects: [{ u, y: base + doorH / 2, w: doorW, h: doorH }], side, cx, cz, hw: w / 2, hd: d / 2, kind: 'door' });
 
   // Stood off in two layers, so neither the door nor its surround is coplanar with the glazing
   // beside it. The surround is not decoration: `door` and `shopfront` sit within four points of
@@ -1186,6 +1189,10 @@ export function createBuildings(rng, blocks) {
     const b = buildableOf(entry.lot);
     const rand = hash01(b.cx, b.cz);
     for (let i = from; i < parts.length; i++) stampEntry(parts[i], b.cx, b.cz, rand);
+    // The bank's dome is its own glossy mesh (below), so it is not in `parts` to be stamped with the
+    // rest of its building: stamped here with the same anchor so it rises with it. `bank` is the
+    // real one by now, assigned in this lot's own iteration, so the first unstamped dome is its.
+    if (bank && !bank.domeGeometry.attributes.aEntry) stampEntry(bank.domeGeometry, b.cx, b.cz, rand);
     entrySites.push({ x: b.cx, z: b.cz, r: Math.max(b.w, b.d) / 2, rand });
   }
   scratch.forEach((p) => p.dispose());
@@ -1244,8 +1251,13 @@ export function createBuildings(rng, blocks) {
   mesh.castShadow = true;
   mesh.receiveShadow = true;
   mesh.name = 'buildings';
+  // The bank's dome: patinated copper on the glossy material, soft normals (`smooth`), centred for
+  // its bent highlight on its own geometry. A mesh of its own because the merged one above is a
+  // plain lit material. Null in a city with no bank; the caller adds it, marks it an occluder and
+  // puts it in the entrance wave beside `mesh`.
+  const domeMesh = bank ? bankDomeMesh(bank.domeGeometry) : null;
   return {
-    mesh, count: parts.length, courtyards, court, pad, entrySites, rehomed,
+    mesh, domeMesh, count: parts.length, courtyards, court, pad, entrySites, rehomed,
     // Where the bank stands, or null if this city has nowhere for one. See city/bank.js — the door
     // point on it is what `game/robbery.js` measures the trigger range from, and what the robber
     // comes running out of.

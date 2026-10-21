@@ -29,7 +29,7 @@ import { createSpeech } from './speech.js';
 // match those, and one hit takes the module graph down (see CLAUDE.md).
 
 /** What the dispatcher says when the robber gets in. */
-export const ROBBERY_CALL = { title: 'Police dispatch', line: '10-65 in progress!' };
+export const ROBBERY_CALL = { title: 'Police dispatch', line: '{10-65} in progress!' };
 
 /**
  * ...and what the police say when the patrol cruiser loses the taxi (game/patrol.js). The same

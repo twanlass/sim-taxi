@@ -306,8 +306,10 @@ north-south line it replaced, and `?lroute=classic` the east-west one before tha
 - **It is high (deck top 6.4) on purpose.** The first cut was low (3.3) and over the median only,
   because anything `h` tall hides about `1.09h` of ground behind it on each axis. At play zoom it
   read as a railway cut through the city at street level. What hides more now is paid for by the
-  fade: the taxi and every visible fare pin are projected up their sightline to the deck and the
-  deck dithers out there (`FADE_*`). Off the island it dithers out the same way, a little ahead of
+  fade: every visible fare pin is projected up its sightline to the deck and the deck dithers out
+  there (`FADE_*`). The taxi is not one of them: it has its ghost outline, which traces it through
+  the deck as it does through a building, so the deck stays solid over it (`?trainfade=classic`
+  thins it over the taxi too, as it used to). Off the island it dithers out the same way, a little ahead of
   the ground's own fade, which reads as gone sooner than its alpha says.
 - **Wheel sparks** every few seconds off one truck, through the shared spark pool with its floor
   set to the road, so they fall through the open deck. Only at speed and only over the island.
@@ -478,6 +480,19 @@ ever see. Four shapes of the same trap here, each worth knowing before moving an
   different lengths and neither divides by anything, so a fixed pitch ends a run on half a square at
   the corner. The probe walks the squares and demands the colour flips at every step, because a
   course that stopped alternating is still a course of squares from far enough away.
+
+**A blue neon tube runs round the roofline** in that reveal, under the coping, on the same two
+elevations: the burger joint's roofline neon in the sign's `depotNeon` blue, mitred the same way
+(the +X arm carries the corner, the +Z arm stops on its inner face). It stands 0.14 proud of the
+wall, inside the coping's 0.18 overhang so their outer faces are never coplanar, and hangs 0.06
+under the coping's underside, which is more than the 0.04 the lip hides. It is now the separator
+between the dark coping and the course, a job the sliver of yellow wall used to do. Unlit and in
+the bloom (kind `window`), like the sign. `?depotneon=classic` leaves it off.
+
+**The two office windows light up after dark**, on the same switch as the city's lit windows
+(`switchedLights` in game/citylights.js): night or a squall's shade passes each pane's threshold and
+it fades on. Their thresholds sit at 0.1–0.22, early, with the shops. Only a city with weather has
+the switch, so they exist only when `rain.enabled`. `?depotwindows=classic` leaves them dark.
 
 The forecourt gets **two guide lines** out of the bay — the last thing still wearing `garageSign`,
 which is `taxiBody`'s own hex, because two lines on the ground where the car is about to be are the
@@ -815,7 +830,7 @@ darkness as the helicopter's searchlight.
 ## The bank
 
 `src/city/bank.js`. One per city: a low, wide stone building with a colonnade under a pediment and a
-patinated dome behind it. It is the third building the tower generator does not draw, and the first
+patinated-copper dome behind it. It is the third building the tower generator does not draw, and the first
 of the three that is **a lot rather than a whole block** — the depot needs a forecourt to pull out of
 and the burger joint needs a drive-through lane, both of which are ground `splitLot` would divide out
 from under them. A bank is a building with a door on the street.
@@ -839,7 +854,7 @@ than "a distinctive building" and is the whole of why it is shaped the way it is
 | **Low and wide** | Roofline a flat 6.95, dome to 9.59 on average (9.39–9.73 over 40 seeds), against neighbours that run 5 to 16. The bank is a gap in the skyline before it is anything else — and the roofline is [derived rather than drawn](#the-roofline-is-derived-not-drawn). |
 | **A colonnade** | The one vertical rhythm in a city of plain boxes. `bankColumn` is a paler stone than `bankStone` for this: at play zoom a column is about three pixels, and what reads is the column against the wall rather than the shadow between them. |
 | **A pediment** | The one triangle at street level. Pitched roofs exist (`pitchedRoof`) but they sit on low-rise and never at the front. |
-| **A dome** | The one curved mass in the city, in the one colour nothing else wears. |
+| **A dome** | The one curved mass in the city, in the one colour nothing else wears: verdigris (`bankDome`) on `FINISH.PATINA` (a broad green satin sheen, a faint clear shine, fine mottled sparkle) with soft normals. Each pane (a gore of a ring) gets a hash-jittered lightness and hue, darker the lower it runs and lighter on the top ring, so it streaks like weathered copper; coloured per triangle in `bank.js`. It is **not in `parts`**: `buildBank` hands it back as `site.domeGeometry` and `createBuildings` returns it as `domeMesh` (`bankDomeMesh`: a glossy `propMaterial` of its own, stamped with the lot's entry anchor so it rises with the building), which `main.js` adds, marks an occluder and puts in the entrance wave. The workshop bench draws it the same way. |
 
 The envelope stays **inside** the muted building family, unlike the depot's and the joint's. A bank
 is a bank among offices rather than a shed or a roadside box, and painting it to shout would have
@@ -911,6 +926,18 @@ the +Z kerb so the tube man's corner stays open, plus a pylon with GAS over a pr
 canopy's depth and height are a sightline too: the pumps sit 1.8 in from its +Z edge, so a line
 from a pump's top climbs 1.66 on its way out and clears the 3.7 underside. Deeper or lower and the
 pumps vanish under their own roof; the probe fires a ray from each pump to check.
+
+**The movie theater** (`city/movietheater.js`) is a **workshop-only** bench model for now: nothing in
+the city places it, but it exports a `LANDMARK`, so the workshop catalog finds it on its own. A deep teal
+(`cinemaWall`, the complement of the red board, marquee and carpet) brick fly tower with CINEMA lit across a red board on its face, framed in gold, a low cream lobby in front, a marquee over the doors on two posts (a plain red slab: no light strip, no gold trim), poster frames
+either side, a red carpet (`cinemaCarpet`) running from the doors across the forecourt to the kerb, and a ticket booth in the forecourt. The plant room on the tower roof is a muted teal-grey
+(`cinemaRoofUnit`, only a step lighter than the wall so it blends with the roof rather than glaring), not the coping's dark `cinemaTrim`.
+Bulbs run round the sign's frame only, and they chase: every third bulb shares one of three meshes, and the model's `update(dt)` darkens
+one mesh at a time, 0.14s per phase, so a dark gap travels round the loop like a marquee's. Whole
+meshes taking turns being `visible`, not a colour per bulb, because the glow is unlit vertex colour.
+The entrance and the name are on +Z, since only +X and +Z faces are ever seen. The name is lettered
+with `wordParts` from `city/roadside.js`, which gained C, I, N and E for it. Colours are the
+`cinema*` entries in `palette.js`. Tyler asked for it at the bench (2026-10-20).
 
 **The tube man** (`game/tubeman.js`) flails on the lot's +X+Z corner, the one the camera faces: a
 red tube on a blower box, yellow streamers for hair and cuffs, a cartoon face. He is a chain of
@@ -1103,7 +1130,9 @@ park can have a third of a unit of grass on three sides (3 courts in 40 seeds), 
 sideline's apron** ranks ahead of the near lawn: the box is set down on the blacktop outside the
 lines. On each beat it hops, squashes as it lands, its woofers pump, and an orange quaver or beamed pair floats up over
 it; the notes are opaque and go out by shrinking, because a translucent one blends twice where its
-head, stem and flag overlap. It is silent for now — see [audio.md](audio.md#the-boom-box) for the
+head, stem and flag overlap. Only the box is in the city's entrance wave; the notes follow its scale
+and visibility, because the wave also owns `visible` on what it is handed and once switched the
+pool's never-emitted spares on at the world origin. It is silent for now — see [audio.md](audio.md#the-boom-box) for the
 hook.
 
 ### A skatepark
@@ -1253,6 +1282,27 @@ default city; `CITY=big npm run check` is the big one's suite.
 | `ground.js` | asphalt slab, road surface, kerbs (`KERB_H = 0.35`), block tops — a park's is a walk around a lawn, [above](#a-park-has-a-frontage) — crosswalks | One merged mesh, plus the edge fade as a child — alpha can't ride in the merge's 3-component colour. Crosswalks are omitted at unsignalised junctions — a crosswalk implies a signal. |
 | `buildings.js` | towers, courtyard blocks, façades, roof furniture | One merged mesh. Height ceiling is deliberately low; tall towers hid the taxi. See [what a building is made of](#what-a-building-is-made-of). |
 | `props.js` | trees, park benches, the statue | Merged per material via `bakeColor`, so hundreds of props cost one draw call. Placement is [above](#benches-and-one-statue). |
+| `manholes.js` | four or five manhole covers | Its own mesh, wet in the rain, not brushed. [Below](#manhole-covers). |
+
+### Manhole covers
+
+Four or five cast-iron covers per city (`city/manholes.js`, `?manholes=classic` for none), placed
+off the city seed in **junctions**: one per chosen junction, set off the box's centre on both axes,
+at least 1.6 blocks apart (so never in neighbouring or diagonal junctions), inner junctions only and
+only ones with three or more open roads. The junction box is the one piece of road with no paint in
+it — crosswalks start just past its edge — and `BOX_CLEAR` keeps the disc half a unit inside it.
+(The first cut put them mid-block in a lane; Tyler asked for intersections.) Flat, at the paint's
+height, with no collision and no say in the traffic.
+
+They are drawn bigger than life (`COVER_R` 0.72, so ~11 px across at play zoom on a phone) because at
+true size they are four pixels. What reads at that distance is albedo — a lid darker than the
+asphalt inside a frame lighter than it — and that is also what still reads at night, when the glint
+has gone with the sun. Close up the lid's diamond tread and the frame's bevel are a height field in
+the fragment shader, bending the normal; a Blinn glint added inside three's own direct-light loop
+(`RE_Direct` wrapped) is what makes it metal, and being in that loop is what keeps it out of
+shadows. The tread fades out by `fwidth` before it can crawl. Their own mesh rather than part of the
+ground, because the ground wears the painterly road strokes and iron under a stroke reads as road;
+`rain.wetGround` still patches it, so the covers shine in a squall like the street round them.
 
 ### What a building is made of
 

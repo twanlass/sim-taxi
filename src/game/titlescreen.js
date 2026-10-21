@@ -21,6 +21,7 @@
  */
 
 import { HALF_SPAN_X, HALF_SPAN_Z } from '../city/grid.js';
+import { createClaudeMark } from './creditegg.js';
 import { el, menuPage, settingsRows } from './menupage.js';
 
 /** Seconds per lap of the drift. Slow on purpose: ~1 world unit a second is a stroll, not a tour. */
@@ -48,8 +49,8 @@ export function panAt(t) {
 export const CREDITS = [
   ['Game design', 'Tyler, Nia, and Isla Wanlass'],
   ['Art direction', 'Tyler Wanlass'],
-  ['Sound design', 'Nicolas Joaquin'],
-  ['Programming', 'Claude 🦀'],
+  ['Music + sound design', 'Nicolás J. Infantas Jamett'],
+  ['Programming', 'Claude', 'claude'],
 ];
 
 const stillPlease = () => window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
@@ -90,9 +91,17 @@ export function createTitleScreen(root, { sound, settings, onPlay }) {
   // --- Credits ----------------------------------------------------------------------------------
   const creditsPage = menuPage('credits', 'Credits', () => show('menu'));
   const list = el('dl', 'title-credits');
-  for (const [role, name] of CREDITS) {
+  // The third field names a mark to set after the name: only Claude's, which is also a button
+  // (game/creditegg.js).
+  let claudeMark = null;
+  for (const [role, name, mark] of CREDITS) {
     const item = el('div', 'title-credit');
-    item.append(el('dt', null, role), el('dd', null, name));
+    const dd = el('dd', null, name);
+    if (mark === 'claude') {
+      claudeMark = createClaudeMark(root);
+      dd.append(claudeMark.node);
+    }
+    item.append(el('dt', null, role), dd);
     list.append(item);
   }
   creditsPage.body.append(list);
@@ -107,6 +116,7 @@ export function createTitleScreen(root, { sound, settings, onPlay }) {
     const from = view;
     view = next;
     root.dataset.view = next;
+    if (next !== 'credits') claudeMark?.cancel();
     for (const [name, node] of Object.entries(views)) {
       node.hidden = name !== next;
       node.setAttribute('aria-hidden', String(name !== next));

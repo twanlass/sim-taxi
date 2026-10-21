@@ -141,6 +141,10 @@ const FRAGMENT = /* glsl */ `
 		vec2 efp = vEdgeFogWorld.xz;
 		vec2 efq = abs( efp ) - vec2( ${f(FOG_HALF_X - FOG_RADIUS)}, ${f(FOG_HALF_Z - FOG_RADIUS)} );
 		float efd = length( max( efq, 0.0 ) ) + min( max( efq.x, efq.y ), 0.0 ) - ${f(FOG_RADIUS)};
+		// The billows and the height only ever push the bank outward, so a fragment inside
+		// FOG_START is fog-free whatever the noise says — and that is most of the screen. Exact,
+		// not an approximation: it skips the five noise reads only where they could not matter.
+		if ( efd > ${f(FOG_START)} || vEdgeFogWorld.y < ${f(FLOOR_Y + 1)} ) {
 		float eft = edgeFog.w;
 		vec2 efs = efp * 0.022 + vec2( 0.0, ${f(FOG_WARP_SPEED * 0.022)} ) * eft;
 		vec2 efw = efp + ( vec2( edgeFogNoise( efs ), edgeFogNoise( efs.yx + 4.7 ) ) - 0.5 ) * ${f(2 * FOG_WARP)};
@@ -156,6 +160,7 @@ const FRAGMENT = /* glsl */ `
 		// bank has bodies in it rather than being one flat sheet of colour.
 		vec3 efc = edgeFog.xyz * ( 0.86 + 0.2 * efn );
 		gl_FragColor.rgb = mix( gl_FragColor.rgb, efc, efa );
+		}
 	}
 #endif
 `;

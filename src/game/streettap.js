@@ -1,5 +1,5 @@
 import {
-  GRID_I, GRID_J, PITCH, HALF_SPAN_X, HALF_SPAN_Z, lineX, lineZ, halfRoadX, halfRoadZ,
+  GRID_I, GRID_J, PITCH, HALF_SPAN_X, HALF_SPAN_Z, lineX, lineZ, halfRoadX, halfRoadZ, lineIndexZ, rowIndexZ,
   nextIntersection, opposite,
 } from '../city/grid.js';
 
@@ -58,7 +58,7 @@ export function streetAt(x, z) {
   if (Math.abs(x) > HALF_SPAN_X + reachX || Math.abs(z) > HALF_SPAN_Z + reachZ) return null;
 
   // A road running along X sits on a z line; one running along Z, on an x line.
-  const j = clampIdx(z, HALF_SPAN_Z, GRID_J);
+  const j = Math.min(GRID_J, Math.max(0, lineIndexZ(z)));
   const i = clampIdx(x, HALF_SPAN_X, GRID_I);
   const offX = Math.abs(z - lineZ(j));       // distance off the X road's centreline
   const offZ = Math.abs(x - lineX(i));       // distance off the Z road's centreline
@@ -71,7 +71,7 @@ export function streetAt(x, z) {
     const i0 = cell(x, HALF_SPAN_X, GRID_I);
     return { a: { i: i0, j }, b: { i: i0 + 1, j } };
   }
-  const j0 = cell(z, HALF_SPAN_Z, GRID_J);
+  const j0 = Math.min(GRID_J - 1, Math.max(0, rowIndexZ(z)));
   return { a: { i, j: j0 }, b: { i, j: j0 + 1 } };
 }
 

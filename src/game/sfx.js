@@ -28,6 +28,7 @@
  */
 // The designer's mix — see SHIPPED_MIX below.
 import MIX from '../../assets/audio/mix.json' with { type: 'json' };
+import { isNative } from '../util/platform.js';
 
 // The designer's files, keyed by the designer's own names so a re-delivery drops straight in. Each
 // is a literal `new URL` so Vite can see it at build time; a URL assembled from a variable is one
@@ -84,7 +85,6 @@ export const FILES = {
   '16_SCN_spawn_C': new URL('../../assets/audio/16_SCN_spawn_C.m4a', import.meta.url).href,
   '17_SCN_gate': new URL('../../assets/audio/17_SCN_gate.m4a', import.meta.url).href,
   '18_SCN_bridge': new URL('../../assets/audio/18_SCN_bridge.m4a', import.meta.url).href,
-  '19_AMB_city_loop_A_ST': new URL('../../assets/audio/19_AMB_city_loop_A_ST.m4a', import.meta.url).href,
   '19_AMB_city_loop_B_ST': new URL('../../assets/audio/19_AMB_city_loop_B_ST.m4a', import.meta.url).href,
   '20_AMB_construction_loop_MONO': new URL('../../assets/audio/20_AMB_construction_loop_MONO.m4a', import.meta.url).href,
   '21_SCN_birds_soft_A': new URL('../../assets/audio/21_SCN_birds_soft_A.m4a', import.meta.url).href,
@@ -116,8 +116,7 @@ export const FILES = {
  * What the game calls each sound, and the takes it draws from. The designer delivers most one-shots
  * as lettered variants (`_A`, `_B`, `_C`…) mixed level with each other and meant to be picked **one
  * per trigger**, so a door or a skid heard twice in a row is not the same recording twice — see
- * `pickTake`. A bed has one file, since a loop cannot change take mid-cycle — or, CHAINED, plays its
- * files end to end as one.
+ * `pickTake`. A bed has one file, since a loop cannot change take mid-cycle.
  */
 export const SOUNDS = {
   idle: ['01_ENG_idle_loop'],
@@ -151,8 +150,9 @@ export const SOUNDS = {
   spawn: ['16_SCN_spawn_A', '16_SCN_spawn_B', '16_SCN_spawn_C'],
   gate: ['17_SCN_gate'],
   bridge: ['18_SCN_bridge'],
-  // Two loops that follow one another rather than takes: see CHAINED.
-  city: ['19_AMB_city_loop_A_ST', '19_AMB_city_loop_B_ST'],
+  // B alone. It shipped as A then B joined into one 42s loop until the designer's October 19 mix
+  // note: "B works much better right now", and A was dropped.
+  city: ['19_AMB_city_loop_B_ST'],
   // Mono only in the final delivery: the designer tried both in the game and kept mono for every
   // bed heard from a point on the map.
   construction: ['20_AMB_construction_loop_MONO'],
@@ -182,13 +182,6 @@ export const SOUNDS = {
 export const PICKED = new Set(['rain']);
 
 /**
- * Beds delivered as several loops meant to follow one another — the city's A and B. A bed can only
- * play one buffer, so the takes are joined end to end into one (`chainBuffer`), each trimmed to its
- * master's true length first, and that loops: the city repeats every 42s rather than every 21.
- */
-export const CHAINED = new Set(['city']);
-
-/**
  * Sounds heard **from somewhere**: `mix.place[key]` is the falloff — full inside `near` world units
  * of the taxi, silent past `far` — and each is panned by where it sits across the screen. main.js
  * hands over the distance and the pan (`placeAt` there); the curve lives here so the panel can move
@@ -215,8 +208,8 @@ export const LOOPS = new Set(['idle', 'locoLoop', 'signal', 'siren', 'city', 'co
 export const AMBIENT = ['city', 'construction', 'seagulls', 'rain', 'court'];
 
 /**
- * The mix groups: every sound in exactly one, each group a gain node between its voices and the
- * master. Nicolás asked for them once Block 2 doubled the count (October 2026): with this many
+ * The mix groups: every sound in exactly one, each group a gain node between its voices and its
+ * bus (BUSES). Nicolás asked for them once Block 2 doubled the count (October 2026): with this many
  * elements a mix is set group against group first and sound against sound second, and the ⚙️ panel
  * lists the sounds under these headings with a fader, a mute and a solo each. The fader is in
  * mix.json (`groups.<key>.gain`) and ships; mute and solo are for listening only and never leave
@@ -224,18 +217,55 @@ export const AMBIENT = ['city', 'construction', 'seagulls', 'rain', 'court'];
  * which has no key of its own (`makeRotor`).
  */
 export const GROUPS = [
-  { key: 'engine', label: 'Engine & Loco',
+  { key: 'engine', label: 'Engine & Loco', bus: 'player',
     sounds: ['idle', 'accel', 'brake', 'locoActivate', 'locoLoop', 'locoLaunch', 'locoBrake', 'skid'] },
-  { key: 'taxi', label: 'Taxi', sounds: ['doorOpen', 'doorClose', 'signal', 'horn'] },
-  { key: 'impacts', label: 'Impacts', sounds: ['bump', 'crash', 'takeoff', 'land'] },
-  { key: 'police', label: 'Police', sounds: ['siren', 'copSkid', 'chirp'] },
-  { key: 'people', label: 'People', sounds: ['angry'] },
-  { key: 'events', label: 'City events',
+  { key: 'taxi', label: 'Taxi', bus: 'player', sounds: ['doorOpen', 'doorClose', 'signal', 'horn'] },
+  { key: 'impacts', label: 'Impacts', bus: 'player', sounds: ['bump', 'crash', 'takeoff', 'land'] },
+  { key: 'events', label: 'City events', bus: 'world',
     sounds: ['spawn', 'gate', 'bridge', 'birdsUp', 'birdsDown', 'plane', 'heli', 'driveThru'] },
-  { key: 'ambience', label: 'Ambience', sounds: AMBIENT },
+  { key: 'ambience', label: 'Ambience', bus: 'world', sounds: AMBIENT },
+  { key: 'people', label: 'People', bus: 'world', sounds: ['angry'] },
+  { key: 'police', label: 'Police', bus: 'world', sounds: ['siren', 'copSkid', 'chirp'] },
 ];
 /** Which group a sound is in, by sound. */
 export const GROUP_OF = Object.fromEntries(GROUPS.flatMap((g) => g.sounds.map((s) => [s, g.key])));
+
+/**
+ * The buses above the groups — Nicolás's second level (October 2026), so a mix can be set Player
+ * against World and music against effects before any group is touched:
+ *
+ *     Master ─┬─ Music ── the radio's tracks
+ *             └─ SFX ──┬─ Player ── Engine & Loco, Taxi, Impacts
+ *                      └─ World ─── City events, Ambience, People, Police
+ *
+ * Each is a gain node. Their faders are mix.json's: `buses.<key>.gain` for Master, Player and
+ * World, and the two that were there first keep their old keys — SFX is `master` (it was the
+ * whole effects level before there was a Master above it) and Music is `music.master`.
+ */
+export const BUSES = [
+  { key: 'master', label: 'Master', parent: null },
+  { key: 'music', label: 'Music', parent: 'master' },
+  { key: 'sfx', label: 'SFX', parent: 'master' },
+  { key: 'player', label: 'Player', parent: 'sfx' },
+  { key: 'world', label: 'World', parent: 'sfx' },
+];
+// Where "bass" stops for `readBass`: the kick and the bass line, under the snare.
+const BASS_HZ = 150;
+
+/** The buses with a `buses.<key>` fader of their own in mix.json. */
+const OWN_FADER = ['master', 'player', 'world'];
+
+/**
+ * Every node of the mix tree by its parent: buses, groups, sounds, the radio's tracks, and the
+ * rotor (under Police, unlisted). This is what mute and solo walk — any of them can be muted or
+ * soloed, and the keys share one namespace, which the probe checks.
+ */
+export const MIX_PARENT = {
+  ...Object.fromEntries(BUSES.map((b) => [b.key, b.parent])),
+  ...Object.fromEntries(GROUPS.map((g) => [g.key, g.bus])),
+  ...GROUP_OF,
+  rotor: 'police',
+};
 
 // The loops' true lengths, by file, from the masters (afinfo). A decoder that does not trim AAC's
 // 2112 frames of encoder priming hands back a buffer that long *plus* the pad, and looping the whole
@@ -243,7 +273,7 @@ export const GROUP_OF = Object.fromEntries(GROUPS.flatMap((g) => g.sounds.map((s
 // seconds. See `loopWindow`. By file rather than by sound since a PICK bed changes file.
 const LOOP_SECONDS = {
   '01_ENG_idle_loop': 4, '06_LOCO_engine_loop': 8, '15_SIGNAL_turn': 4.53125,
-  '25_NPC_siren_loop': 8.6875, '19_AMB_city_loop_A_ST': 21, '19_AMB_city_loop_B_ST': 21,
+  '25_NPC_siren_loop': 8.6875, '19_AMB_city_loop_B_ST': 21,
   '20_AMB_construction_loop_MONO': 21, '29_AMB_seagulls_loop_MONO': 21,
   '30_AMB_rain_loop_MONO': 21, '30_AMB_rain_loop_ST': 21, '31_AMB_basketball_loop_MONO': 21,
 };
@@ -263,8 +293,9 @@ export const DRIVE_THRU_TAIL = 2;
  * radio sits at -24 LUFS at full slider; -12 dB puts it at about -36, behind the speaker and still
  * playing. The speaker's master is -21.8 LUFS; at its first mix gain (0.6) and the default effects
  * slider (0.75, squared) it landed near -31, only 5 LU over the ducked radio, and on a phone it could
- * not be heard. At 1.2 it is near -25. Its one transient (0 dBFS, 11s in) still clears full scale at
- * the default slider; above about 0.91 effects that single hit clips, the rest peaks at -4 to -7.
+ * not be heard. At 1.2 it is near -25. Its one transient (0 dBFS, 11s in) cleared full scale at the old
+ * 0.75 default; above about 0.91 effects that single hit clips, and the default is now 1, so it
+ * does. The rest peaks at -4 to -7.
  */
 const MUSIC_DUCK = 0.25;
 // How long the radio takes to fade out once the game-over screen appears. Long enough to read as
@@ -326,6 +357,11 @@ const DASH_OPEN_LOW = 10;
  *
  * An ad is produced on its own and keeps its hard edges either side.
  */
+// How long a context may sit stopped through the player's taps before it is replaced (`revive`),
+// in seconds, and the fraction of that wall time its clock must have covered to count as moving.
+// Not measured on a device yet: 1.5s is a guess at comfortably longer than a healthy `resume()`
+// takes, and 0.5 leaves room for a stutter without mistaking a clock that has stopped.
+const REVIVE = { after: 1.5, pace: 0.5 };
 const RADIO_FADE = { under: 1, over: 2, duck: 0.5, rise: 1, dip: 0.4 };
 // Where the opening songs of the last session are remembered, so the next one opens on another
 // (Tyler: "always play a different initial music track on game start").
@@ -351,10 +387,6 @@ const AAC_PRIMING = 2112 / 48000;
  */
 const RADIO_FILES = {
   MUSIC_radio_intro: new URL('../../assets/audio/MUSIC_radio_intro.m4a', import.meta.url).href,
-  MUSIC_country: new URL('../../assets/audio/MUSIC_country.m4a', import.meta.url).href,
-  MUSIC_jazz: new URL('../../assets/audio/MUSIC_jazz.m4a', import.meta.url).href,
-  MUSIC_rock: new URL('../../assets/audio/MUSIC_rock.m4a', import.meta.url).href,
-  MUSIC_funk: new URL('../../assets/audio/MUSIC_funk.m4a', import.meta.url).href,
   '26_MUS_rolling': new URL('../../assets/audio/26_MUS_rolling.m4a', import.meta.url).href,
   '27_MUS_upbeat': new URL('../../assets/audio/27_MUS_upbeat.m4a', import.meta.url).href,
   '28_MUS_hiphop': new URL('../../assets/audio/28_MUS_hiphop.m4a', import.meta.url).href,
@@ -381,10 +413,10 @@ const dB = (d) => 10 ** (d / 20);
 export const RADIO = {
   intro: 'MUSIC_radio_intro',
   // Nicolás's four (Block 2 final, October 2026), written for the station: 40-50s each with short
-  // intros and clean endings, all mastered to -18 LUFS. They replaced the four below, which
-  // `?songs=classic` plays instead (`classicSongs` in createSfx).
+  // intros and clean endings, all mastered to -18 LUFS. They replaced four earlier 30s songs
+  // (country, jazz, rock, funk) whose source was never recorded; those were deleted in October
+  // 2026 rather than shipped in the App Store build behind a flag nothing in the app can set.
   songs: ['26_MUS_rolling', '27_MUS_upbeat', '28_MUS_hiphop', '33_MUS_indiepop'],
-  classicSongs: ['MUSIC_country', 'MUSIC_jazz', 'MUSIC_rock', 'MUSIC_funk'],
   ads: ['RADIO_ad_earls', 'RADIO_ad_le_barge', 'RADIO_ad_loco_juice'],
   breakIn: 'RADIO_break_in',
   breakOut: 'RADIO_break_out',
@@ -392,15 +424,14 @@ export const RADIO = {
   adEvery: 2,
   idEvery: 3,
   seconds: {
-    MUSIC_radio_intro: 6.34775, MUSIC_country: 30, MUSIC_jazz: 30, MUSIC_rock: 30, MUSIC_funk: 30,
+    MUSIC_radio_intro: 6.34775,
     '26_MUS_rolling': 45, '27_MUS_upbeat': 49.5714375, '28_MUS_hiphop': 40.6299375,
     '33_MUS_indiepop': 49.133875,
     RADIO_ad_earls: 9.4, RADIO_ad_le_barge: 14.528, RADIO_ad_loco_juice: 13.24,
     RADIO_break_in: 3.474271, RADIO_break_out: 4.284063, RADIO_station_id: 4.362438,
   },
   gain: {
-    MUSIC_radio_intro: dB(-6.1), MUSIC_country: dB(-10.5), MUSIC_jazz: dB(-11.7), MUSIC_rock: dB(-13.2),
-    MUSIC_funk: dB(-11.6),
+    MUSIC_radio_intro: dB(-6.1),
     // ebur128 off the masters: -18.3, -17.8, -18.2 and -18.1 LUFS, true peak -3 to -3.9.
     '26_MUS_rolling': dB(-5.7), '27_MUS_upbeat': dB(-6.2), '28_MUS_hiphop': dB(-5.8),
     '33_MUS_indiepop': dB(-5.9),
@@ -409,8 +440,24 @@ export const RADIO = {
   },
 };
 /** Every file the radio can play, in the order the ⚙️ panel lists them. */
-RADIO.all = [RADIO.intro, ...RADIO.songs, ...RADIO.classicSongs, ...RADIO.ads, RADIO.breakIn,
+RADIO.all = [RADIO.intro, ...RADIO.songs, ...RADIO.ads, RADIO.breakIn,
   RADIO.breakOut, RADIO.stationId];
+for (const key of RADIO.all) MIX_PARENT[key] = 'music';
+
+/**
+ * How much of a node passes for listening (0 or 1), given the panel's mute and solo sets — the
+ * DAW rule. A muted node is silent. While anything is soloed, a node passes only if it is soloed,
+ * sits under something soloed, or sits *above* something soloed (the path down to it has to stay
+ * open); everything else is silent. Applied at every node, so a mute or a solo anywhere carries
+ * down through the gain chain on its own. Pure, so the probe can hold the rule.
+ */
+export function monitorPass(key, { mute, solo }) {
+  if (mute.has(key)) return 0;
+  if (!solo.size) return 1;
+  for (let k = key; k != null; k = MIX_PARENT[k]) if (solo.has(k)) return 1;
+  for (const s of solo) for (let k = MIX_PARENT[s]; k != null; k = MIX_PARENT[k]) if (k === key) return 1;
+  return 0;
+}
 
 /**
  * What the station puts between the `n`th song (counting from 1) and the next: `'ad'` for an ad
@@ -484,6 +531,7 @@ function cleanMix(raw, base) {
   const shape = base ?? src;
   const out = {
     master: clamp(num(src.master) ?? shape.master ?? 1, LIMITS.master),
+    buses: {},
     groups: {},
     sounds: {},
     minGap: {},
@@ -491,6 +539,9 @@ function cleanMix(raw, base) {
     engine: {},
     music: { master: 1, tracks: {} },
   };
+  for (const key of OWN_FADER) {
+    out.buses[key] = { gain: clamp(num(src.buses?.[key]?.gain) ?? shape.buses?.[key]?.gain ?? 1, LIMITS.master) };
+  }
   for (const { key } of GROUPS) {
     out.groups[key] = { gain: clamp(num(src.groups?.[key]?.gain) ?? shape.groups?.[key]?.gain ?? 1, LIMITS.gain) };
   }
@@ -560,16 +611,16 @@ function loopWindow(buffer, seconds) {
  * @param {object} opts
  * @param {{ next: () => number }} [opts.rng]  Draws each trigger's take (`pickTake`). Math.random without.
  * @param {boolean} [opts.menuMusic]  Hold the station off the air until `goOnAir` — the title menu
- *   plays songs alone until then. False (`?menumusic=classic`, or no title screen) opens on the intro.
- * @param {boolean} [opts.classicSongs]  The radio plays the four songs Nicolás's replaced
- *   (`?songs=classic`).
+ *   is silent until then (or plays songs alone, `menuSongs`). False (`?menumusic=classic`, or no title
+ *   screen) opens on the intro.
+ * @param {boolean} [opts.menuSongs]  Songs back to back under the title menu while it is off the air
+ *   (`?titlemusic=classic`). False leaves the menu to the effects, so the music arrives with Play.
  * @param {boolean} [opts.radioFade]  The station talks over the edges of the songs (`RADIO_FADE`).
  *   False (`?radiofade=classic`) plays every track after the last with a hard cut.
  */
-export function createSfx({ rng, menuMusic = false, classicSongs = false, radioFade = true } = {}) {
-  // The songs this session's station plays, and every file it can schedule. Only these are
-  // fetched and decoded up front: the other set is a few MB of download and ~30 MB of PCM.
-  const songs = classicSongs ? RADIO.classicSongs : RADIO.songs;
+export function createSfx({ rng, menuMusic = false, menuSongs = false, radioFade = true } = {}) {
+  // Every file the station can schedule, fetched and decoded up front.
+  const songs = RADIO.songs;
   const playlist = [RADIO.intro, ...songs, ...RADIO.ads, RADIO.breakIn, RADIO.breakOut, RADIO.stationId];
   const hasAudio = typeof window !== 'undefined'
     && (window.AudioContext || window.webkitAudioContext);
@@ -598,26 +649,27 @@ export function createSfx({ rng, menuMusic = false, classicSongs = false, radioF
     // The radio's last few tracks as scheduled, `{ track, at }` in context seconds — for checking
     // the rotation from the console (`__taxi.sfx.state.radio`).
     radio: [],
+    // Contexts thrown away for a new one (`revive`) — for checking from the console on a phone.
+    revived: 0,
   };
   const random = rng ? () => rng.next() : Math.random;
   // Live, and read every frame, so the panel can move any number while the car is driving.
   const mix = copyMix(SHIPPED_MIX);
   const tuning = () => copyMix(mix);
-  // The panel's mute and solo per group (GROUPS) — for listening, so not part of the mix: never
-  // stashed, never exported, gone on a reload. Any solo silences every group not soloed.
+  // The panel's mute and solo, on any node of the mix tree (MIX_PARENT) — for listening, so not
+  // part of the mix: never stashed, never exported, gone on a reload. See `monitorPass`.
   const monitorSets = { mute: new Set(), solo: new Set() };
   const monitor = () => ({ mute: [...monitorSets.mute], solo: [...monitorSets.solo] });
-  const groupLevel = (key) => mix.groups[key].gain
-    * (monitorSets.mute.has(key) || (monitorSets.solo.size && !monitorSets.solo.has(key)) ? 0 : 1);
+  const pass = (key) => monitorPass(key, monitorSets);
   /** Merge a partial mix in. Anything unknown or non-numeric is dropped (see `cleanMix`). */
   function tuneMix(partial) {
     const merged = copyMix(mix);
     const src = partial && typeof partial === 'object' ? partial : {};
     if ('master' in src) merged.master = src.master;
-    for (const part of ['groups', 'sounds', 'minGap', 'place', 'engine']) {
+    for (const part of ['buses', 'groups', 'sounds', 'minGap', 'place', 'engine']) {
       for (const [key, value] of Object.entries(src[part] ?? {})) {
         if (!(key in merged[part])) continue;
-        merged[part][key] = part === 'groups' || part === 'sounds' || part === 'place'
+        merged[part][key] = part === 'buses' || part === 'groups' || part === 'sounds' || part === 'place'
           ? { ...merged[part][key], ...value } : value;
       }
     }
@@ -629,9 +681,9 @@ export function createSfx({ rng, menuMusic = false, classicSongs = false, radioF
     }
     Object.assign(mix, cleanMix(merged, SHIPPED_MIX));
   }
-  /** Mute or solo a group (either may be omitted). An unknown group is ignored. */
+  /** Mute or solo a node of the mix tree (either may be omitted). An unknown key is ignored. */
   function setMonitorSets(key, mute, solo) {
-    if (!(key in mix.groups)) return;
+    if (!(key in MIX_PARENT)) return;
     if (mute !== undefined) monitorSets.mute[mute ? 'add' : 'delete'](key);
     if (solo !== undefined) monitorSets.solo[solo ? 'add' : 'delete'](key);
   }
@@ -646,6 +698,8 @@ export function createSfx({ rng, menuMusic = false, classicSongs = false, radioF
       goOnAir: (opts) => { state.dashRadio = Boolean(opts?.dash); },
       openDash: () => { state.dashRadio = false; }, dashMusicSeconds: () => Infinity, tuning, tune: tuneMix, reset: () => tuneMix(SHIPPED_MIX),
       monitor, setMonitor: (key, { mute, solo } = {}) => setMonitorSets(key, mute, solo),
+      clearMonitor: () => { monitorSets.mute.clear(); monitorSets.solo.clear(); },
+      audible: pass, meter: () => null,
       audition: () => null, stopAuditions: noop, files: FILES, radioFiles: RADIO_FILES,
       replace: async () => ({ ok: false, failed: [] }), revert: noop, replaced: () => null,
       pickReplacement: noop,
@@ -698,7 +752,21 @@ export function createSfx({ rng, menuMusic = false, classicSongs = false, radioF
   // The radio's own fader inside the music bus, so a track previewed from the panel can play alone:
   // it goes to 0 while a preview runs and back up when the last one ends (`auditionTrack`).
   let radioBus = null;
-  /** What the master gain should read: the mix's master, under the player's slider and the mute. */
+  // The tree above the groups (BUSES): `out` is Master and the one node that reaches the speakers;
+  // `master` is the SFX bus (named before there was a Master over it) and `musicBus` the Music
+  // bus, each with a monitor node after it — they have their own automation (the player's
+  // sliders, the duck, the fade at a run's end) that mute and solo must not fight. Player and
+  // World are `busNode`.
+  let out = null;
+  const busNode = {};
+  const monitorNode = {};
+  // The ⚙️ panel's peak meter on `out`, made the first time it is read (`readMeter`): a tap off the
+  // side of the chain, so it changes nothing that is heard, and absent from a normal session.
+  let meterTap = null;
+  // The street racer's underglow pulses to the music (`readBass`): a tap off the Music bus, made the
+  // first time a racer asks, after the bus's own fader — so a muted or ducked song pulses nothing.
+  let bassTap = null;
+  /** What the SFX bus gain should read: the mix's level, under the player's slider and the mute. */
   const masterLevel = () => (state.muted ? 0 : mix.master * state.effects ** 2);
   const musicLevel = () => (state.muted || state.musicOut ? 0
     : mix.music.master * state.music ** 2 * (state.ducked ? MUSIC_DUCK : 1));
@@ -751,42 +819,9 @@ export function createSfx({ rng, menuMusic = false, classicSongs = false, radioF
   let stoppedFor = 0;
   let wasAir = false;
 
-  /** The file a bed plays: its one file, for a PICK the one chosen, for a CHAINED bed the join. */
+  /** The file a bed plays: its one file, or for a PICK the one chosen. */
   const bedFile = (key) => (replacements[key] ? replacements[key].ids[replacements[key].pick] : null)
-    ?? (CHAINED.has(key) ? chainBuffer(key) : null)
     ?? SOUNDS[key][PICKED.has(key) ? mix.sounds[key].pick : 0];
-
-  /**
-   * A CHAINED bed's takes joined into one buffer, under an id of its own in `buffers`, built once
-   * every take has decoded. Each is cut to its master's true length (`loopWindow`) before the
-   * join, so neither AAC's priming nor its end padding lands as a gap in the middle. Until then,
-   * or if a take failed, null — and the bed plays its first file alone.
-   */
-  const chained = {};
-  function chainBuffer(key) {
-    if (chained[key]) return chained[key];
-    const parts = SOUNDS[key].map((f) => buffers[f]);
-    if (!ctx || parts.some((b) => !b)) return null;
-    const spans = parts.map((b, i) => {
-      const w = loopWindow(b, LOOP_SECONDS[SOUNDS[key][i]] ?? b.duration);
-      return { b, from: Math.round(w.start * b.sampleRate), to: Math.round(w.end * b.sampleRate) };
-    });
-    const length = spans.reduce((n, s) => n + s.to - s.from, 0);
-    const channels = Math.max(...parts.map((b) => b.numberOfChannels));
-    const out = ctx.createBuffer(channels, length, parts[0].sampleRate);
-    for (let c = 0; c < channels; c++) {
-      const into = out.getChannelData(c);
-      let at = 0;
-      for (const s of spans) {
-        into.set(s.b.getChannelData(Math.min(c, s.b.numberOfChannels - 1)).subarray(s.from, s.to), at);
-        at += s.to - s.from;
-      }
-    }
-    const id = SOUNDS[key].join('+');
-    buffers[id] = out;
-    chained[key] = id;
-    return id;
-  }
 
   /**
    * A gain, then a stereo panner where the browser has one (every target since Safari 14.1), into
@@ -798,15 +833,72 @@ export function createSfx({ rng, menuMusic = false, classicSongs = false, radioF
     g.gain.value = gain;
     const pan = ctx.createStereoPanner ? ctx.createStereoPanner() : null;
     src.connect(g);
-    (pan ? g.connect(pan) : g).connect(groupBus[GROUP_OF[key]] ?? master);
+    (pan ? g.connect(pan) : g).connect(soundBus[key] ?? groupBus[GROUP_OF[key]] ?? master);
     return { src, gain: g, pan, file: null };
   }
 
-  // One gain node per group, between its voices and the master — see GROUPS. Built with the context.
+  // One gain node per group, between its voices and its bus — see GROUPS — and one per sound
+  // between its voices and its group, which only carries that sound's mute and solo: its level is
+  // per voice, because a bed re-aims its own gain every frame. Built with the context.
   const groupBus = {};
-  function setGroupLevels(tau = 0.02) {
+  const soundBus = {};
+  /** Every fader and monitor node in the tree, moved to what the mix and the panel say. */
+  function setLevels(tau = 0.02) {
     if (!ctx) return;
-    for (const { key } of GROUPS) groupBus[key].gain.setTargetAtTime(groupLevel(key), ctx.currentTime, tau);
+    const t = ctx.currentTime;
+    out.gain.setTargetAtTime(mix.buses.master.gain * pass('master'), t, tau);
+    monitorNode.sfx.gain.setTargetAtTime(pass('sfx'), t, tau);
+    monitorNode.music.gain.setTargetAtTime(pass('music'), t, tau);
+    for (const key of ['player', 'world']) busNode[key].gain.setTargetAtTime(mix.buses[key].gain * pass(key), t, tau);
+    for (const { key } of GROUPS) groupBus[key].gain.setTargetAtTime(mix.groups[key].gain * pass(key), t, tau);
+    for (const key of Object.keys(soundBus)) soundBus[key].gain.setTargetAtTime(pass(key), t, tau);
+    for (const v of radioVoices) v.gain.gain.setTargetAtTime(trackLevel(v.key), t, tau);
+    for (const v of auditions) if (v.track) v.gain.gain.setTargetAtTime(trackLevel(v.track), t, tau);
+  }
+
+  /**
+   * The peak on Master since the last read, per channel, as linear sample values — the ⚙️ panel's
+   * meter polls it every frame. Two analysers behind a splitter, since an AnalyserNode mixes its
+   * input down to mono first and a hard-panned peak would read 6 dB low. Each read takes the last
+   * 2048 samples (43 ms at 48 kHz), longer than a frame, so nothing between two reads is missed.
+   */
+  function readMeter() {
+    if (!ctx) return null;
+    if (!meterTap) {
+      const split = ctx.createChannelSplitter(2);
+      const sides = [ctx.createAnalyser(), ctx.createAnalyser()];
+      out.connect(split);
+      sides.forEach((a, i) => { a.fftSize = 2048; split.connect(a, i); });
+      meterTap = { sides, data: new Float32Array(2048) };
+    }
+    return meterTap.sides.map((a) => {
+      a.getFloatTimeDomainData(meterTap.data);
+      let peak = 0;
+      for (const x of meterTap.data) { const m = Math.abs(x); if (m > peak) peak = m; }
+      return peak;
+    });
+  }
+
+  /**
+   * How much low end is on the Music bus right now, 0..1 — the kick drum, near enough. The bins
+   * under `BASS_HZ`, averaged, on the analyser's own dB scale (minDecibels..maxDecibels mapped to
+   * 0..1), with no smoothing of its own: the caller wants the transient, and smooths it there.
+   */
+  function readBass() {
+    if (!ctx || !musicBus) return 0;
+    if (!bassTap) {
+      const a = ctx.createAnalyser();
+      a.fftSize = 1024;
+      a.smoothingTimeConstant = 0;
+      musicBus.connect(a);
+      const bins = Math.max(1, Math.round(BASS_HZ / (ctx.sampleRate / a.fftSize)));
+      bassTap = { a, bins, data: new Uint8Array(a.frequencyBinCount) };
+    }
+    bassTap.a.getByteFrequencyData(bassTap.data);
+    let sum = 0;
+    // From bin 1: bin 0 is DC.
+    for (let i = 1; i <= bassTap.bins; i++) sum += bassTap.data[i];
+    return sum / bassTap.bins / 255;
   }
 
   function makeLoop(key, gain = 0) {
@@ -901,34 +993,56 @@ export function createSfx({ rng, menuMusic = false, classicSongs = false, radioF
     g.gain.value = 0;
     noise.connect(lowpass).connect(chop);
     thump.connect(thumpGain).connect(chop);
-    chop.connect(g).connect(groupBus.police);
+    chop.connect(g).connect(soundBus.rotor);
     noise.start();
     thump.start();
     lfo.start();
     return { gain: g };
   }
 
-  async function start() {
+  /** A context and the whole mix tree in it, up to the dash radio — everything but the voices. */
+  function buildGraph() {
     const Ctor = window.AudioContext || window.webkitAudioContext;
     ctx = new Ctor({ latencyHint: 'interactive' });
-    master = ctx.createGain();
+    const gainNode = (to) => { const g = ctx.createGain(); g.connect(to); return g; };
+    out = gainNode(ctx.destination);
+    monitorNode.sfx = gainNode(out);
+    master = gainNode(monitorNode.sfx);
     master.gain.value = masterLevel();
-    master.connect(ctx.destination);
-    for (const { key } of GROUPS) {
-      groupBus[key] = ctx.createGain();
-      groupBus[key].gain.value = groupLevel(key);
-      groupBus[key].connect(master);
-    }
-    musicBus = ctx.createGain();
+    for (const key of ['player', 'world']) busNode[key] = gainNode(master);
+    for (const { key, bus } of GROUPS) groupBus[key] = gainNode(busNode[bus]);
+    for (const [key, parent] of Object.entries(GROUP_OF)) soundBus[key] = gainNode(groupBus[parent]);
+    soundBus.rotor = gainNode(groupBus.police);
+    monitorNode.music = gainNode(out);
+    musicBus = gainNode(monitorNode.music);
     musicBus.gain.value = musicLevel();
-    musicBus.connect(ctx.destination);
+    setLevels(0.001);
     radioBus = ctx.createGain();
     buildDash();
     setDash(state.dashRadio, ctx.currentTime);
-    startRadio();
-    // The spawn's takes first: they are the one sound with a deadline (see `play`).
-    const order = [...SOUNDS.spawn, ...Object.keys(FILES).filter((f) => !SOUNDS.spawn.includes(f))];
-    await Promise.all(order.map(async (key) => {
+  }
+
+  /** The beds that run all session, out of buffers already decoded — a fresh set (`revive`). */
+  function buildBeds() {
+    idle = tryLoop('idle');
+    siren = tryLoop('siren');
+    loco = tryLoop('locoLoop');
+    for (const key of AMBIENT) ambient[key] = tryLoop(key);
+    rotor = makeRotor();
+  }
+
+  /** Any bed not running yet whose file has now decoded, so each starts the moment it can. */
+  function fillBeds() {
+    idle ??= tryLoop('idle');
+    siren ??= tryLoop('siren');
+    loco ??= tryLoop('locoLoop');
+    for (const key of AMBIENT) ambient[key] ??= tryLoop(key);
+    rotor ??= makeRotor();
+  }
+
+  async function decodeAll(keys) {
+    await Promise.all(keys.map(async (key) => {
+      if (buffers[key] || !FILES[key]) return;
       const p = bytesOf(key);
       try {
         const buf = await p;
@@ -938,11 +1052,34 @@ export function createSfx({ rng, menuMusic = false, classicSongs = false, radioF
         console.warn(`sfx: ${key} did not load`, err);
       }
     }));
-    idle = tryLoop('idle');
-    siren = tryLoop('siren');
-    loco = tryLoop('locoLoop');
-    for (const key of AMBIENT) ambient[key] = tryLoop(key);
+  }
+
+  // In three waves, each waiting on the last, because the title menu's sound is the city's beds and
+  // they used to be the *last* thing it got. One `Promise.all` over every file handed the decoder
+  // all 73 at once (~400 s of audio, and the radio's ~185 s queued ahead of them), and nothing
+  // started until the slowest had finished — so the menu sat silent through the whole set, with
+  // the city loop ~50th in the queue. The spawn's takes still go first (the one sound with a
+  // deadline, see `play`), then the city bed on its own, then the rest of the beds, then
+  // everything else. Measured on a cloud core with ffmpeg as a stand-in decoder: the
+  // spawn and the city loop together are ~0.15 s, the whole set ~4 s.
+  async function start() {
+    buildGraph();
     rotor = makeRotor();
+    const rest = Object.keys(FILES);
+    const beds = ['idle', 'siren', 'locoLoop', ...AMBIENT].map(bedFile);
+    await decodeAll([...SOUNDS.spawn, bedFile('city')]);
+    fillBeds();
+    // The station's ~185 s goes behind the effects while it is off the air (the title menu); on
+    // the air already (no title screen, or the menu's own songs) it waits only for the spawn and
+    // the city. Play pressed before the effects are in opens the station itself (`goOnAir`), so
+    // it is not started a second time here.
+    const radioNow = onAir || menuSongs;
+    if (radioNow) startRadio();
+    await decodeAll(beds);
+    fillBeds();
+    await decodeAll(rest);
+    fillBeds();
+    if (!radioNow && !onAir) startRadio();
     state.ready = true;
     if (state.held) suspendCtx();
   }
@@ -1050,7 +1187,9 @@ export function createSfx({ rng, menuMusic = false, classicSongs = false, radioF
   const trackBuffer = (key) => radioReplaced[key]?.buffer ?? radioBuffers[key];
   // What a track is played for: the master's true length, or a local file's own.
   const trackSeconds = (key) => (radioReplaced[key] ? radioReplaced[key].buffer.duration : RADIO.seconds[key]);
-  const trackLevel = (key) => RADIO.gain[key] * mix.music.tracks[key].gain;
+  // The track's mute and solo ride its own gain, as its level does: a preview plays into the music
+  // bus past `radioBus`, so there is no one node every play of a track goes through.
+  const trackLevel = (key) => RADIO.gain[key] * mix.music.tracks[key].gain * pass(key);
   // Tracks on the clock right now, so a level moved on the panel reaches the song that is playing.
   const radioVoices = new Set();
   // One decode per file however many callers ask: the menu and the cut to the intro can both want
@@ -1196,10 +1335,18 @@ export function createSfx({ rng, menuMusic = false, classicSongs = false, radioF
    *
    * Off the air (the title menu, Tyler October 2026): one song picked at random, decoded ahead of
    * everything else so the menu is not silent for long after the first tap, then more songs back to
-   * back with no ads and no ID until Play cuts to the intro (`goOnAir`).
+   * back with no ads and no ID until Play cuts to the intro (`goOnAir`). That is `?titlemusic=classic`
+   * now: by default the menu is effects only (Tyler, October 2026), so the music is something Play
+   * gives you rather than something it changes. The tracks still decode here, intro first, so the
+   * cut to the intro is not waiting on a decode.
    */
   async function startRadio() {
     if (onAir) { openStation(); return; }
+    if (!menuSongs) {
+      await decodeRadio(RADIO.intro);
+      await Promise.all(playlist.map(decodeRadio));
+      return;
+    }
     const fresh = songs.filter((k) => !lastOpeners.includes(k));
     const pool = fresh.length ? fresh : songs;
     const first = pool[Math.floor(random() * pool.length)];
@@ -1280,21 +1427,81 @@ export function createSfx({ rng, menuMusic = false, classicSongs = false, radioF
     }
   }
 
+  /**
+   * A new context in place of one iOS will not give back, built inside the gesture that found it
+   * dead so it starts running. Everything sounding in the old one is dropped with it: the beds are
+   * rebuilt off the decoded buffers (an `AudioBuffer` belongs to no context), the radio carries on
+   * with its next track rather than replaying the intro, and a one-shot that was mid-air is lost.
+   */
+  function revive() {
+    const old = ctx;
+    for (const v of radioVoices) v.src.onended = null;
+    radioVoices.clear();
+    for (const v of auditions) v.src.onended = null;
+    auditions.clear();
+    state.previewTrack = null;
+    Promise.resolve(old.close?.()).catch(() => {});
+    meterTap = null;
+    bassTap = null;
+    signal = null;
+    signalHand = null;
+    activate = null;
+    locoSince = -1;
+    buildGraph();
+    setLevels(0.001);
+    buildBeds();
+    // The old clock's schedule means nothing on the new one.
+    generation++;
+    ahead = 0;
+    queuedEnd = 0;
+    prev = null;
+    state.dashSongAt = null;
+    if (onAir || menuSongs) topUp();
+    state.revived++;
+  }
+
   // The unlock. Created *inside* the gesture, because Safari only lets a context start running
   // from one; `resume()` again on every later gesture until it is actually running, because iOS
   // will also suspend it behind the app's back (a phone call, the app backgrounded).
+  //
+  // **And sometimes never gives it back.** Coming back from another app, WKWebView can leave the
+  // context `suspended` or `interrupted` with a `resume()` that never settles, or report `running`
+  // with a clock that does not move — the game came back silent and stayed that way however much
+  // it was tapped (Tyler, October 2026; WebKit bugs 240646 and 291892 are the same shape). So each
+  // gesture also checks the clock against the wall since the last one, and a context that has had
+  // a gesture to resume in and still is not keeping time is thrown away (`revive`). Only while
+  // nothing is holding it: a pause stops the clock on purpose.
+  let probe = null;       // { wall, clock } at the last gesture that found the context free to run
+  let revivedAt = -Infinity;
   const unlock = () => {
-    if (!ctx) start();
-    else if (ctx.state !== 'running' && !state.held) resumeCtx();
+    if (!ctx) { start(); return; }
+    if (state.held || document.hidden) { probe = null; return; }
+    const wall = performance.now() / 1000;
+    const span = probe ? wall - probe.wall : 0;
+    const moving = probe && ctx.state === 'running' && ctx.currentTime - probe.clock >= span * REVIVE.pace;
+    // Only a clock seen moving moves the baseline, so a stall is measured from the first gesture
+    // that had the chance to fix it — however often the player taps in between.
+    if (!probe || moving) probe = { wall, clock: ctx.currentTime };
+    else if (span >= REVIVE.after && wall - revivedAt >= REVIVE.after) {
+      revivedAt = wall;
+      revive();
+      probe = null;
+      return;
+    }
+    if (ctx.state !== 'running') resumeCtx();
   };
   for (const type of ['pointerdown', 'touchend', 'keydown']) {
     window.addEventListener(type, unlock, { capture: true, passive: true });
   }
-  document.addEventListener('visibilitychange', () => {
+  const wake = () => {
     if (!ctx) return;
+    probe = null;
     if (document.hidden) suspendCtx();
     else if (!state.held) resumeCtx();
-  });
+  };
+  document.addEventListener('visibilitychange', wake);
+  // A page restored from the back-forward cache fires this and not `visibilitychange`.
+  window.addEventListener('pageshow', wake);
 
   /**
    * Fire a one-shot. `delay` is seconds from now on the audio clock, which stops with a hold, so a
@@ -1372,16 +1579,22 @@ export function createSfx({ rng, menuMusic = false, classicSongs = false, radioF
    * @param {number} opts.top     The Loco top (`boostCruise()`).
    * @param {boolean} opts.holding  The pill is held (not the cooldown tail).
    * @param {boolean} opts.over   The run has ended.
+   * @param {boolean} [opts.menu]  The title menu is up and Play has not been pressed. The taxi is
+   *   not the player's yet, so it makes no sound at all — the city's beds and one-shots carry on
+   *   (Tyler, October 2026: the menu is effects only, and the idle under it read as the run having
+   *   started). Unlike `over` it leaves the siren and the rotor alone, which are the city's.
    * @param {number} [opts.siren]  0..1, how loud the nearest running siren is from where the taxi
    *   is — main.js works it out from distance (see `sirenLevel` there). 0 is no siren on the map.
    */
   function update(dt, taxi, {
-    cruise, top, holding, over, siren: sirenAt = 0, rotor: rotorAt = 0, ambient: places = {},
+    cruise, top, holding, over, menu = false, siren: sirenAt = 0, rotor: rotorAt = 0, ambient: places = {},
   }) {
-    if (!state.ready) return;
+    // Not `ready`: that waits for every file, and the beds start as their own files land (`start`).
+    // Every voice below is null-checked until then.
+    if (!ctx) return;
     const t = ctx.currentTime;
     const v = Math.max(0, taxi.v);
-    const alive = !over && !taxi.crashed;
+    const alive = !over && !menu && !taxi.crashed;
 
     if (!holding && locoSince >= 0) locoOff();
 
@@ -1459,6 +1672,10 @@ export function createSfx({ rng, menuMusic = false, classicSongs = false, radioF
       rotor.gain.gain.setTargetAtTime(g, t, over ? 0.4 : 0.3);
     }
 
+    // A placed ▶ from the panel follows its pin, its rings and its Level as it plays. A short glide:
+    // this is a knob being turned, not a car rounding a corner. Gone off the map reads as silent.
+    for (const v of auditions) if (v.where) aim(v, v.key, v.where() ?? { level: 0 }, 0.03);
+
     // The city's beds. Half a second's glide: a bed swelling as the taxi rounds the corner onto
     // the court reads as arriving, and a frame's worth of distance is never a step.
     for (const key of AMBIENT) {
@@ -1475,6 +1692,7 @@ export function createSfx({ rng, menuMusic = false, classicSongs = false, radioF
   function hold(on) {
     if (on === state.held) return;
     state.held = on;
+    probe = null;
     if (!ctx) return;
     if (on) suspendCtx();
     else if (!document.hidden) resumeCtx();
@@ -1529,10 +1747,8 @@ export function createSfx({ rng, menuMusic = false, classicSongs = false, radioF
     if (!ctx) return;
     const t = ctx.currentTime;
     master.gain.setTargetAtTime(masterLevel(), t, 0.02);
-    setGroupLevels();
     if (!state.musicOut) musicBus.gain.setTargetAtTime(musicLevel(), t, 0.02);
-    for (const v of radioVoices) v.gain.gain.setTargetAtTime(trackLevel(v.key), t, 0.02);
-    for (const v of auditions) if (v.track) v.gain.gain.setTargetAtTime(trackLevel(v.track), t, 0.02);
+    setLevels();
   }
 
   // The panel's audition voices, tracked so an 11-second activate can be stopped.
@@ -1541,15 +1757,23 @@ export function createSfx({ rng, menuMusic = false, classicSongs = false, radioF
    * Play a sound once at its mixed gain and rate, loops included and past `minGap` — the panel's
    * ▶. A sound with variants draws the next take the way `play` does. Returns the file it played,
    * or null when nothing could (no tap yet, the file missing, muted or held).
+   *
+   * With `where` (a function answering `{ d, pan }` off `placeAt`, or null), it is heard from
+   * there, and re-aimed every frame in `update` like a bed — so dragging a ring, the Level slider
+   * or panning the 👂 moves it while it plays (Tyler, October 2026). Without, it is the raw file —
+   * what Shift-▶ asks for, and every sound with no place.
    */
-  function audition(key) {
+  function audition(key, where = null) {
     if (!state.ready || state.muted || state.held || !SOUNDS[key]) return null;
     const file = pickTake(key);
     if (!file) return null;
     const src = ctx.createBufferSource();
     src.buffer = buffers[file];
     src.playbackRate.value = mix.sounds[key].rate;
-    const voice = chain(src, mix.sounds[key].gain, key);
+    const at = where?.();
+    const voice = chain(src, mix.sounds[key].gain * (at ? falloff(key, at.d) : 1), key);
+    if (at && voice.pan) voice.pan.pan.value = Math.max(-1, Math.min(1, at.pan ?? 0)) * PAN_WIDTH;
+    if (where) Object.assign(voice, { key, where });
     auditions.add(voice);
     src.onended = () => auditions.delete(voice);
     src.start();
@@ -1648,6 +1872,14 @@ export function createSfx({ rng, menuMusic = false, classicSongs = false, radioF
     delete replacements[key];
   }
 
+  // The iOS app does not wait for a tap. Its shell lifts WebKit's gesture rule
+  // (`mediaTypesRequiringUserActionForPlayback = []`, the same allowance the startup screen's
+  // sting runs on — game/splashsound.js), so the context can run from boot and the files decode
+  // while the logo plays. Waiting for the first tap there meant the title menu came up silent and
+  // the city only arrived a tap *and* a decode later. Should WebKit hold the context suspended
+  // anyway, the first tap resumes it (`unlock`), which is where every browser still starts.
+  if (isNative()) start();
+
   return {
     state,
     play,
@@ -1669,10 +1901,20 @@ export function createSfx({ rng, menuMusic = false, classicSongs = false, radioF
     tuning,
     tune,
     reset: () => tune(SHIPPED_MIX),
-    /** The groups muted and soloed on the panel, `{ mute: [...], solo: [...] }`. */
+    /** What is muted and soloed on the panel, `{ mute: [...], solo: [...] }`, by node of MIX_PARENT. */
     monitor,
-    /** Mute or solo a group for listening — `setMonitor('ambience', { solo: true })`. */
-    setMonitor(key, { mute, solo } = {}) { setMonitorSets(key, mute, solo); setGroupLevels(); },
+    /**
+     * Mute or solo any bus, group, sound or track for listening — `setMonitor('ambience',
+     * { solo: true })`, `setMonitor('angry', { mute: true })`.
+     */
+    setMonitor(key, { mute, solo } = {}) { setMonitorSets(key, mute, solo); setLevels(); },
+    clearMonitor() { monitorSets.mute.clear(); monitorSets.solo.clear(); setLevels(); },
+    /** 1 if `key` passes for listening under the current mutes and solos, else 0. */
+    audible: pass,
+    /** The peak on Master since the last read, `[left, right]` linear, or null before a tap. */
+    meter: readMeter,
+    /** The low end on the Music bus, 0..1 — what the street racer's underglow pulses to. */
+    bass: readBass,
     audition,
     stopAuditions,
     files: FILES,

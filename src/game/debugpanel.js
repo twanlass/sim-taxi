@@ -10,6 +10,10 @@ import {
 } from '../util/geo.js';
 import { MIN_ELEVATION } from './daylight.js';
 import { BLOOM_INTENSITY, BLOOM_KINDS } from './bloom.js';
+import {
+  PRESETS as GRADE_PRESETS, colorGrade, setGradePreset, setGradeCube, setGradeStrength, setGradeSaturation,
+  resetGrade, bakedTable, toCube, gradeSnapshot,
+} from './colorgrade.js';
 import { buildAudioSections } from './audiopanel.js';
 import { attachQuickTips } from './quicktips.js';
 
@@ -125,8 +129,12 @@ export function createDebugPanel({
   // ...and freeze the moving ones (plane, chopper, birds) with their sound looping — the ⏸ buttons.
   // See `holds` in main.js.
   soundHolds = {},
+  // Where a placed sound is heard from right now, for its ▶ — `soundPlace` in main.js.
+  soundPlace = () => null,
   // The wreck fireball's cut — `{ styles, current, set }` over game/blast.js's WRECK_STYLES.
   wreck = null,
+  // The 🖥 / 📱 switch beside the search (game/phoneframe.js), or null for no switch.
+  phoneFrame = null,
 }) {
   const toggle = document.createElement('button');
   toggle.id = 'dbg-toggle';
@@ -694,6 +702,92 @@ export function createDebugPanel({
     hdrRow('Threshold', 'threshold', 0, 1.5, 0.05);
   }
 
+  // --- Colour grade -----------------------------------------------------------
+  // A LUT and a saturation knob over the whole frame (game/colorgrade.js). All live, and all
+  // remembered across reloads — a grade is a judgement made over several sessions of play, not one
+  // look at a slider. Neutral until something here moves.
+  heading('Colour grade');
+  {
+    const g = colorGrade();
+    const fileOption = 'file';
+    const look = dropdown([...Object.keys(GRADE_PRESETS), fileOption], g.preset);
+    look.querySelector(`option[value="${fileOption}"]`).textContent = g.preset === fileOption ? `file: ${g.cubeName}` : 'file…';
+    look.querySelector(`option[value="${fileOption}"]`).disabled = g.preset !== fileOption;
+    row(panel, 'LUT', look);
+
+    const status = document.createElement('p');
+    status.className = 'dbg-note';
+    status.dataset.search = 'lut cube file grade';
+
+    const picker = document.createElement('input');
+    picker.type = 'file';
+    picker.accept = '.cube';
+    picker.hidden = true;
+    const load = document.createElement('button');
+    load.type = 'button';
+    load.className = 'dbg-wide';
+    load.textContent = 'Load .cube file…';
+    load.addEventListener('click', () => picker.click());
+
+    const strength = slider(0, 1, 0.01, g.strength);
+    const strengthValue = row(panel, 'LUT strength', strength);
+    const saturation = slider(0, 2, 0.01, g.saturation);
+    const saturationValue = row(panel, 'Saturation', saturation);
+
+    const show = () => {
+      const now = colorGrade();
+      strength.value = String(now.strength);
+      strengthValue.textContent = now.strength.toFixed(2);
+      saturation.value = String(now.saturation);
+      saturationValue.textContent = now.saturation.toFixed(2);
+      look.value = now.preset;
+      const opt = look.querySelector(`option[value="${fileOption}"]`);
+      opt.textContent = now.preset === fileOption ? `file: ${now.cubeName}` : 'file…';
+      opt.disabled = now.preset !== fileOption;
+      status.textContent = now.active ? 'Grading the frame.' : 'Neutral — the frame is drawn as shipped.';
+    };
+
+    look.addEventListener('change', () => { setGradePreset(look.value); show(); });
+    strength.addEventListener('input', () => { setGradeStrength(Number(strength.value)); show(); });
+    saturation.addEventListener('input', () => { setGradeSaturation(Number(saturation.value)); show(); });
+    picker.addEventListener('change', async () => {
+      const file = picker.files?.[0];
+      picker.value = '';
+      if (!file) return;
+      try {
+        const parsed = setGradeCube(await file.text(), file.name);
+        show();
+        status.textContent = `Loaded ${file.name} (${parsed.size}³${parsed.title ? `, "${parsed.title}"` : ''}).`;
+      } catch (err) {
+        status.textContent = `Couldn't use ${file.name}: ${err.message}`;
+      }
+    });
+
+    // The grade with its strength and saturation folded in, as one .cube — what to hand back to
+    // be made the shipped look. The JSON export below carries the knobs as well.
+    const download = document.createElement('button');
+    download.type = 'button';
+    download.className = 'dbg-wide';
+    download.textContent = 'Download baked .cube';
+    download.addEventListener('click', () => {
+      const blob = new Blob([toCube(bakedTable())], { type: 'text/plain' });
+      const a = Object.assign(document.createElement('a'), {
+        href: URL.createObjectURL(blob), download: 'rocket-rides-grade.cube',
+      });
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+    });
+
+    const reset = document.createElement('button');
+    reset.type = 'button';
+    reset.className = 'dbg-wide';
+    reset.textContent = 'Reset grade';
+    reset.addEventListener('click', () => { resetGrade(); show(); });
+
+    panel.append(load, picker, download, reset, status);
+    show();
+  }
+
   // --- Haze -------------------------------------------------------------------
   // Atmospheric perspective (game/scene.js). All three are live and none of them needs a
   // recompile — two planes and a colour on a fog object — and all three want to be live, because
@@ -1193,7 +1287,7 @@ export function createDebugPanel({
   // is already the new state.
   let audio = null;
   if (sfx) {
-    audio = buildAudioSections(panel, sfx, { triggers: soundTriggers, holds: soundHolds });
+    audio = buildAudioSections(panel, sfx, { triggers: soundTriggers, holds: soundHolds, placeOf: soundPlace });
     toggle.addEventListener('click', () => (panel.hidden ? audio.close() : audio.open()));
   }
 
@@ -1249,6 +1343,9 @@ export function createDebugPanel({
       // The keys map onto CARTOON_DEFAULTS in game/cartoon.js. The hull rims are not in here
       // because they are not live — see the note by the section above.
       cartoon: cartoon.state.enabled ? { ...cartoon.state, enabled: undefined } : false,
+      // The keys map onto GRADE_DEFAULTS in game/colorgrade.js; a loaded file is named, and its
+      // table travels separately as the section's "Download baked .cube".
+      colorGrade: gradeSnapshot(),
     },
     // The keys map onto game/cityentry.js's constants: wave → WAVE, grow → ENTRY_DUR,
     // jitter → JITTER, overshoot → OVERSHOOT; dust is the multiplier on the burst power.
@@ -1294,7 +1391,7 @@ export function createDebugPanel({
   fareTime.dispatchEvent(new Event('input'));
   refresh();
 
-  const sections = organise(panel);
+  const sections = organise(panel, phoneFrame);
 
   /**
    * Open the panel on one sound's controls — the 🔊 pins on the map (game/soundpins.js). Opens the
@@ -1337,7 +1434,7 @@ const TAB_KEY = 'dbg-tab';
  */
 const TABS = [
   ['Audio', ['Audio', 'Engine sound', 'Sounds', 'Music', 'Audio export']],
-  ['Visuals', ['Light', 'Crayon', 'Cartoon', 'Car finish', 'Bloom', 'HDR', 'Haze', 'Clouds', 'City entrance']],
+  ['Visuals', ['Light', 'Crayon', 'Cartoon', 'Car finish', 'Bloom', 'HDR', 'Colour grade', 'Haze', 'Clouds', 'City entrance']],
   ['Game', ['Game', 'Loco Mode', 'Loco weave', 'Restart to apply', 'Scores', 'Export']],
 ];
 const tabOf = (title) => TABS.find(([, titles]) => titles.includes(title))?.[0] ?? 'Game';
@@ -1366,7 +1463,7 @@ function itemText(el) {
   return buttons.length ? [...buttons].map((b) => b.textContent).join(' ') : '';
 }
 
-function organise(panel) {
+function organise(panel, phoneFrame = null) {
   const open = loadOpen();
 
   const search = document.createElement('input');
@@ -1379,7 +1476,8 @@ function organise(panel) {
 
   const header = document.createElement('div');
   header.className = 'dbg-head';
-  header.append(search);
+  header.append(phoneFrame ? Object.assign(document.createElement('div'), { className: 'dbg-head-row' }) : search);
+  if (phoneFrame) header.firstChild.append(search, phoneFrame.buildSwitch());
 
   let tab = loadTab();
   const tabBar = document.createElement('div');
