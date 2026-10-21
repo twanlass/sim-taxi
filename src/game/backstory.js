@@ -1,4 +1,5 @@
 import { createSpeech } from './speech.js';
+import { createSeenFlag } from './progress.js';
 
 /**
  * The story before the first run: four lines from dispatch, on the docked speech card, tapped
@@ -19,7 +20,9 @@ export const BACKSTORY_LINES = [
   'So go remind this town what a cab is for.',
 ];
 
-const SEEN_KEY = 'simTaxi.backstorySeen';
+// Through progress.js, so Demo mode tells it on every Play and writes nothing.
+let seenFlag = null;
+const seen = () => (seenFlag ??= createSeenFlag({ key: 'simTaxi.backstorySeen' }));
 
 export function backstoryMode() {
   if (typeof window === 'undefined') return 'once';
@@ -27,15 +30,11 @@ export function backstoryMode() {
   return v === 'classic' || v === 'always' ? v : 'once';
 }
 
-/** Will Play tell the story first? Soft on storage, like the high scores: no storage, no story. */
+/** Will Play tell the story first? */
 export function wantsBackstory(mode = backstoryMode()) {
   if (mode === 'classic') return false;
   if (mode === 'always') return true;
-  try { return window.localStorage.getItem(SEEN_KEY) !== '1'; } catch { return false; }
-}
-
-function markSeen() {
-  try { window.localStorage.setItem(SEEN_KEY, '1'); } catch { /* soft: they hear it again */ }
+  return !seen().get();
 }
 
 /**
@@ -44,7 +43,7 @@ function markSeen() {
  * ends it. Marked seen as it starts, so quitting halfway does not bring it back.
  */
 export function tellBackstory(root, { done, lines = BACKSTORY_LINES }) {
-  markSeen();
+  seen().set();
   const layer = document.createElement('div');
   layer.className = 'title-story';
   const talk = document.createElement('div');

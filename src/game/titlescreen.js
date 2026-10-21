@@ -125,12 +125,13 @@ function playIntro(cold) {
  * @param {object} opts
  * @param {{ isOn: () => boolean, set: (on: boolean) => void }} opts.sound  The game's one mute.
  * @param {ReturnType<import('./settings.js').createSettings>} opts.settings
+ * @param {ReturnType<import('./progress.js').createDemo>} [opts.demo]  Demo mode, for its Settings row.
  * @param {() => void} opts.onPlay  Fired once, on the press that starts the run.
  * @param {(done: () => void) => boolean} [opts.beforePlay]  Asked on the press: answer true to take
  *   the screen over first (the menu goes, the gate stays shut) and call `done` to let the run go —
  *   the backstory's hook (game/backstory.js).
  */
-export function createTitleScreen(root, { sound, settings, onPlay, beforePlay = null }) {
+export function createTitleScreen(root, { sound, settings, demo = null, onPlay, beforePlay = null }) {
   if (!root) return null;
 
   let holding = true;
@@ -154,7 +155,19 @@ export function createTitleScreen(root, { sound, settings, onPlay, beforePlay = 
 
   // --- Settings ---------------------------------------------------------------------------------
   const settingsPage = menuPage('settings', 'Settings', () => show('menu'));
-  const settingsBody = settingsRows(settingsPage.body, { sound, settings });
+  const settingsBody = settingsRows(settingsPage.body, { sound, settings, demo });
+  // Five quick taps on the Settings heading reveal the Demo mode row — the way in on the App Store
+  // build, which has no URL bar for `?demo` (game/progress.js).
+  if (demo) {
+    let taps = 0;
+    let last = 0;
+    settingsPage.section.querySelector('.title-header').addEventListener('click', () => {
+      const now = performance.now();
+      taps = now - last < 600 ? taps + 1 : 1;
+      last = now;
+      if (taps >= 5) { taps = 0; settingsBody.revealDemo(); }
+    });
+  }
 
   // --- Credits ----------------------------------------------------------------------------------
   const creditsPage = menuPage('credits', 'Credits', () => show('menu'));

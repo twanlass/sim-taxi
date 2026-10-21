@@ -108,6 +108,7 @@ import { createRoadwork } from './game/roadwork.js';
 import { createFire } from './game/fire.js';
 import { createRace, WIN_PAY, LOSE_COST, TANK_FLOOR, COUNT_STEP } from './game/race.js';
 import { createSpeech } from './game/speech.js';
+import { MARKER_BASE } from './game/faremarker.js';
 import { createFlatbed } from './game/flatbed.js';
 import { createBoxSpill } from './game/boxspill.js';
 import { showRunEnd } from './game/runend.js';
@@ -170,6 +171,7 @@ import { setCityOccluders, sightlineClear } from './game/sightline.js';
 import { createBootleg, COMBO_GAP_MS as BOOTLEG_GAP_MS } from './game/bootleg.js';
 import { createOvertakeCombo, OVERTAKE_GRACE } from './game/overtake.js';
 import { createNewMove, createSeenFlag, MOVES, REPAIR, SHOW_DELAY } from './game/newmove.js';
+import { demoMode } from './game/progress.js';
 import { createUturnClip, pickStreet, clipKeys as uturnKeys, LANDS_AT as UTURN_LANDS } from './game/uturnclip.js';
 import { createDriftClip, pickCorner, clipKeys as driftKeys, LANDS_AT as DRIFT_LANDS } from './game/driftclip.js';
 import { createOvertakeClip, pickOvertakeStreet, clipKeys as overtakeKeys, LANDS_AT as OVERTAKE_LANDS } from './game/overtakeclip.js';
@@ -245,6 +247,11 @@ difficulty.pinDifficulty(getDifficultyPin() ?? shot?.difficulty ?? null);
 // the Resolution choice is the pixel-ratio cap. Shot mode ignores it, so a stored 1.5 on the machine
 // taking screenshots cannot soften every reference image.
 const settings = createSettings();
+// Demo mode (game/progress.js): every once-ever moment shows again, and nothing is written. Read
+// live — it is a switch on the title screen's Settings page, flipped moments before Play.
+const demo = demoMode();
+// The tutorial tips, which Demo mode holds on: a demo is for showing the tips off.
+const tipsOn = () => demo.on() || settings.get().tips;
 // The Difficulty row (Easy / Regular / Hard). Applied here, before the fare system budgets its first
 // clock, and live from then on: a change takes effect from the next rider to spawn. `?difficulty=`
 // pins it for the load and leaves the saved choice alone; shot mode holds Easy, so a stored Hard on
@@ -883,6 +890,8 @@ const fares = createFareSystem(makeRng(runSeed + 55), scene, {
   rating: ratingOn,
   // The bank rider's coin loads with every one who rides — BANK_ROBBER_STEP in game/fares.js.
   risingOdds: new URLSearchParams(window.location.search).get('robberyodds') !== 'classic',
+  // Demo mode: every bank rider is the robbery, whatever BANK_ROBBER_ALWAYS says.
+  ...(demo.on() && { alwaysRob: true }),
   reserved: () => parcels?.occupiedSpots() ?? [],
   judgeRun: () => combo.judge(),
 });
@@ -1041,7 +1050,7 @@ const depotCall = !shot && garage && !repairTipClassic
   ? createDepotCall({
     project: projectToScreen, viewport, site: garage.site,
     // Its tag at the screen edge rides the camera to the garage, which is then there to tap.
-    onEdgeTap: () => lookAtTalker(garage.site.focus, () => Boolean(depotCall?.state.open), () => {
+    onEdgeTap: () => lookAtTalker(garage.site.focus, () => Boolean(depotCall?.state.open || depotCall?.state.marked), () => {
       depotCall.extend();
     }),
     edgeTappable: () => isNarrow(),
@@ -2076,6 +2085,8 @@ const raceParam = new URLSearchParams(window.location.search).get('race');
 race = shot || raceParam === 'classic' ? null : createRace({
   rng: makeRng(runSeed + 743), scene, traffic, routeTo,
   soon: raceParam === 'soon',
+  // Demo mode: the first racer turns up after the first drop-off rather than the 2nd to 4th.
+  firstDue: demo.on() ? 1 : null,
   // The underglow pulses to whatever the music is doing (game/sfx.js, `bass`).
   bass: () => sfx?.bass?.() ?? 0,
   // Nothing turns up over anything that owns the run, or over a trip the taxi is already on to the
@@ -2122,16 +2133,38 @@ const raceTalkAt = () => {
   return at ? projectToScreen(at.x, 2.2, at.z) : null;
 };
 
+// The yellow side-quest "!" (Tyler, 2026-10-21): the racer's offer, the garage door while the taxi
+// smokes (game/depotcall.js), and the bank rider in place of the pie (game/fares.js hides it).
+// `?questmark=classic` keeps the dots and the pie.
+const questMarks = new URLSearchParams(window.location.search).get('questmark') !== 'classic';
+const bankMarkRoot = document.getElementById('bank-mark');
+const bankMark = questMarks && !shot && bankMarkRoot ? createSpeech(bankMarkRoot, { viewport }) : null;
+let bankMarkFare = null;
+/** The "!" over the bank rider while they wait, pointing where the pie's underside would be. */
+function updateBankMark(dt) {
+  if (!bankMark) return;
+  const fare = fares.waitingAll().find((f) => f.bank && f.slot.marker.group.visible) ?? null;
+  if (fare !== bankMarkFare) {
+    bankMarkFare = fare;
+    if (fare) {
+      const at = fare.slot.marker.group.position;
+      bankMark.showTag(() => projectToScreen(at.x, MARKER_BASE, at.z), { quest: true });
+    } else bankMark.hide();
+  }
+  bankMark.update(dt);
+  bankMarkRoot.classList.toggle('at-edge', bankMark.atEdge());
+}
+
 /**
  * Everything the player sees off the race: the bubble, the count, the money. game/race.js knows a
  * race happened; what a run's cash and a tank are for is this file's.
  */
 function onRaceEvent(type, detail) {
   if (type === 'available') {
-    // In reach with an empty cab: just the talker's "…" tag until the player taps it (`race.ask`) —
+    // In reach with an empty cab: just the talker's "!" tag until the player taps it (`race.ask`) —
     // pointing in from the screen edge when the car is off it — and the horn to say so. Without a
     // tag (`?bubbles=classic`/`dock`), a card with only the dots on it.
-    if (raceTalk && !raceTalk.showTag(raceTalkAt)) {
+    if (raceTalk && !raceTalk.showTag(raceTalkAt, { quest: true })) {
       raceTalkRoot?.classList.add('is-ellipsis');
       raceTalk.show('', '…', raceTalkAt);
     }
@@ -5763,6 +5796,7 @@ const wantsTitle = !shot && !devMode && !consumeTitleSkip()
 const title = wantsTitle ? createTitleScreen(document.getElementById('title-screen'), {
   sound: soundSwitch,
   settings,
+  demo,
   // The first Play on a device hears dispatch out first, over the reel, with the gate still shut —
   // see game/backstory.js. `?intro=classic` goes straight to the garage as before.
   beforePlay: (done) => {
@@ -5823,7 +5857,7 @@ let runBegun = false;
 function beginRun() {
   runBegun = true;
   sfx?.goOnAir({ dash: dashRadio });
-  if (!settings.get().tips) dropTutorial();
+  if (!tipsOn()) dropTutorial();
 }
 function dropTutorial() {
   if (!tutorial) return;
@@ -5836,7 +5870,7 @@ function dropTutorial() {
 // The pause screen's Settings has the tips switch too. Off mid-run silences a tutorial still
 // talking; on again cannot bring it back, but the New Move cards read the setting live and resume.
 // Before Play it waits for `beginRun` — dropping it under the title screen would let the HUD in.
-settings.onChange((v) => { if (runBegun && !v.tips) dropTutorial(); });
+settings.onChange((v) => { if (runBegun && !v.tips && !demo.on()) dropTutorial(); });
 if (!title) beginRun();
 
 // While that screen is up the run is parked: no fare spawns, and no clock drains. The traffic keeps
@@ -6026,7 +6060,7 @@ function nextMove(delivered) {
  * who has not been shown it yet.
  */
 const newMoveWanted = (move = newMoveDue) => Boolean(newMove) && Boolean(move) && !move.seen.get()
-  && wantsTutorial && settings.get().tips && (!tutorial || tutorial.state.step === 'done');
+  && wantsTutorial && tipsOn() && (!tutorial || tutorial.state.step === 'done');
 /**
  * Is now a calm beat? Checked when the delay runs out rather than at the drop-off, because the
  * drop-off of a robber *starts* a patrol chase, and anything that has taken the taxi or the screen
@@ -6047,8 +6081,12 @@ function showUnlockedMoves(done) {
   if (!movesAfterRun || !newMove) return false;
   // One card per run's end, the first not yet shown (Tyler, 2026-10-13); a run that unlocked more
   // leaves the rest for the runs after it, which still have to reach each one's `after`.
-  const queue = Object.values(moves).filter((m) => newMoveWanted(m) && fares.state.delivered >= m.after)
-    .slice(0, 1);
+  // Demo mode shows one every run, however short, taking the moves in turn across runs — with every
+  // flag unseen, "the first not yet shown" would be the overtake every time.
+  const queue = demo.on()
+    ? [demo.rotate(Object.values(moves).filter((m) => newMoveWanted(m)), 'move')].filter(Boolean)
+    : Object.values(moves).filter((m) => newMoveWanted(m) && fares.state.delivered >= m.after)
+      .slice(0, 1);
   if (!queue.length) return false;
   document.body.classList.add('new-move-after-run');
   const next = () => {
@@ -6067,7 +6105,7 @@ function showUnlockedMoves(done) {
 }
 /** The depot's line, if the run will take it now — the card's gates, read the same way. */
 function sayDepotCall() {
-  if (!wantsTutorial || !settings.get().tips || (tutorial && tutorial.state.step !== 'done')) return false;
+  if (!wantsTutorial || !tipsOn() || (tutorial && tutorial.state.step !== 'done')) return false;
   if (!newMoveCalm() || newMove?.isOpen()) return false;
   depotCall.show();
   depotCallSaid = true;
@@ -6704,7 +6742,13 @@ function tick() {
   //
   // The line (the default) takes the card's trigger and its gates, less `newMoveWanted`'s seen flag:
   // it has its own rule for when it stops (`repairUsed`).
-  depotCall?.update(dt, { over: fares.state.gameOver });
+  // The "!" on the garage door: up whenever a tap there would send a smoking taxi in. Smoking
+  // rather than any scratch, so it says "go and get that seen to" and not "you have been touched".
+  depotCall?.update(dt, {
+    over: fares.state.gameOver,
+    mark: questMarks && traffic.taxi.hp <= TAXI_HP * SMOKE_FRACTION && canRepair(),
+  });
+  updateBankMark(dt);
   const repairTipDue = depotCall
     ? !depotCallSaid && !repairUsed.get()
     : garage && newMove && !repairCard.seen.get();

@@ -107,6 +107,12 @@ function edgeTapsOff() {
   return new URLSearchParams(window.location.search).get('tipfocus') === 'classic';
 }
 
+/** `?questmark=classic`: an offer's tag shows the speech dots like any other. Browser-only. */
+function questMarkOff() {
+  if (typeof window === 'undefined') return false;
+  return new URLSearchParams(window.location.search).get('questmark') === 'classic';
+}
+
 /** 'tag' (the default), 'dock' or 'classic' — `?bubbles=`. Browser-only. */
 function speechMode() {
   if (typeof window === 'undefined') return 'tag';
@@ -324,7 +330,7 @@ export function createSpeech(root, { viewport = null, typing = false, onDismiss 
         ${POINTER_SVG}
       </div>
     </div>${tagged ? `
-    <div class="speech-tag-pin"><div class="speech-tag-body"><div class="speech-tag"><i></i><i></i><i></i></div>${POINTER_SVG}</div></div>` : ''}`;
+    <div class="speech-tag-pin"><div class="speech-tag-body"><div class="speech-tag"><i></i><i></i><i></i><b>!</b></div>${POINTER_SVG}</div></div>` : ''}`;
   const el = root.querySelector('.speech');
   const body = root.querySelector('.speech-body');
   const card = root.querySelector('.speech-card');
@@ -513,7 +519,7 @@ export function createSpeech(root, { viewport = null, typing = false, onDismiss 
      */
     show(title, line, at, media = null) {
       if (closing) { clearTimeout(closing); closing = null; }
-      root.classList.remove('tag-only');
+      root.classList.remove('tag-only', 'tag-quest');
       titleEl.textContent = title;
       mediaEl.replaceChildren(...(media ? [media] : []));
       mediaEl.hidden = !media;
@@ -549,11 +555,17 @@ export function createSpeech(root, { viewport = null, typing = false, onDismiss 
      * Just the tag on the talker, with no card: someone has something to say and is waiting to be
      * asked (the street racer, until it is tapped). Answers false where there is no tag
      * (`?bubbles=classic`/`dock`), so the caller can say it some other way.
+     *
+     * `quest`: the talker is offering something the player can take or leave — a side quest — and
+     * the tag says so with a yellow "!" instead of the dots, the mark an RPG hangs over an NPC with
+     * a quest to give. The dots are kept for "someone is talking": the moment the offer turns into
+     * a line (`show`), the tag goes back to them. `?questmark=classic` keeps the dots throughout.
      */
-    showTag(at) {
+    showTag(at, { quest = false } = {}) {
       if (!tagged) return false;
       this.show('', '', at);
       root.classList.add('tag-only');
+      if (quest && !questMarkOff()) root.classList.add('tag-quest');
       leaveDock();
       return true;
     },
