@@ -130,12 +130,13 @@ panel) with them: the one flag for playtesting. Shot mode never builds it.
 ## The backstory
 
 `src/game/backstory.js`. The first time a device presses **Play**, the menu goes and dispatch
-radios in before the cut to the garage door: four lines on the docked speech card, over the
-title reel, typed out and tapped through.
+radios in before the cut to the garage door: four lines on the docked speech card, at the foot of
+the screen over the title reel (there are no pedals yet for it to sit above), typed out and tapped
+through.
 
-> Dispatch to Car 9. You still on the road?
-> Council signed the **robo-taxi** deal. They roll in Monday.
-> They brake for pigeons. Riders love 'em.
+> Dispatch to Car 9. You there?
+> City council signed that **robo-taxi** deal. Cars are going to be on the streets come Monday.
+> Those stupid taxis brake for pigeons. Riders love 'em.
 > So go remind this town what a cab is for.
 
 A tap anywhere finishes the line or moves on (Enter and Space too); **Skip** in the top corner, or

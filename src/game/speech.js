@@ -301,9 +301,11 @@ export function placeSpeech(target, w, h, vw, vh, insets = safe) {
  *                  whether it took the tap. Omit it and an edge tag is a decoration.
  * @param edgeTappable () => boolean — whether an edge tag takes a press *right now*, read per frame
  *                  (main.js passes `isNarrow`: above it nothing is ever off the frame to pan to)
+ * @param dockFloor (vh, insets) => number — where a docked card's slot sits, in place of the fuel
+ *                  arc's top: for a card with no pedals under it (the backstory, game/backstory.js)
  */
 export function createSpeech(root, { viewport = null, typing = false, onDismiss = () => {}, pinned = false,
-  onEdgeTap = null, edgeTappable = () => true } = {}) {
+  onEdgeTap = null, edgeTappable = () => true, dockFloor = null } = {}) {
   watchSafeInsets();
   const mode = speechMode();
   const docked = !pinned && mode !== 'classic';
@@ -387,7 +389,8 @@ export function createSpeech(root, { viewport = null, typing = false, onDismiss 
   const measure = () => {
     size = { w: card.offsetWidth, h: card.offsetHeight };
     slot.h = size.h;
-    if (docked) floor = readArcTop(viewport ? viewport.height() : window.innerHeight);
+    const vh = viewport ? viewport.height() : window.innerHeight;
+    if (docked) floor = dockFloor ? dockFloor(vh, safe) : readArcTop(vh);
   };
   window.addEventListener('resize', () => { if (open && !(docked && isTyping())) measure(); });
 
@@ -560,7 +563,13 @@ export function createSpeech(root, { viewport = null, typing = false, onDismiss 
      */
     tap() {
       if (!typing || !open) return false;
-      if (isTyping()) { finishTyping(); return true; }
+      if (isTyping()) {
+        finishTyping();
+        // The docked slot is placed off the live height, so a line finished early by a tap has to
+        // re-read it — or a line that wraps onto a new row in its last letters hangs off the floor.
+        if (docked) live = { w: card.offsetWidth, h: card.offsetHeight };
+        return true;
+      }
       onDismiss();
       return true;
     },

@@ -13,9 +13,9 @@ import { createSpeech } from './speech.js';
  * Not `intro`: `#intro` is on ad-blocker filter lists (CLAUDE.md), hence `backstory`.
  */
 export const BACKSTORY_LINES = [
-  'Dispatch to Car 9. You still on the road?',
-  'Council signed the {robo-taxi} deal. They roll in Monday.',
-  "They brake for pigeons. Riders love 'em.",
+  'Dispatch to Car 9. You there?',
+  'City council signed that {robo-taxi} deal. Cars are going to be on the streets come Monday.',
+  "Those stupid taxis brake for pigeons. Riders love 'em.",
   'So go remind this town what a cab is for.',
 ];
 
@@ -61,7 +61,10 @@ export function tellBackstory(root, { done, lines = BACKSTORY_LINES }) {
   let at = 0;
   let over = false;
   let raf = 0;
-  const bubble = createSpeech(talk, { typing: true, onDismiss: () => next() });
+  // At the foot of the screen: there are no pedals up yet for the slot to sit over.
+  const bubble = createSpeech(talk, {
+    typing: true, onDismiss: () => next(), dockFloor: (vh, insets) => vh - insets.bottom - 8,
+  });
   // Docked, the card ignores its target; under `?bubbles=classic` it points at the lower middle.
   const below = () => ({ x: window.innerWidth / 2, y: window.innerHeight * 0.72 });
   const say = () => bubble.show('Dispatch', lines[at], below);
