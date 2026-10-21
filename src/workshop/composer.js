@@ -18,6 +18,9 @@ const MIC_ICON = `<svg class="mic-icon" width="12" height="14" viewBox="0 0 12 1
   <rect x="3.75" y="0.75" width="4.5" height="8" rx="2.25" fill="currentColor" stroke="none"/>
   <path d="M1.5 6.5a4.5 4.5 0 0 0 9 0M6 11v2.25"/>
 </svg>`;
+const UP_ICON = `<svg class="up-icon" width="14" height="14" viewBox="0 0 14 14" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+  <path d="M7 12V2.5M2.75 6.75 7 2.5l4.25 4.25"/>
+</svg>`;
 const STOP_ICON = '<svg class="stop-icon" width="10" height="10" viewBox="0 0 10 10" aria-hidden="true"><rect width="10" height="10" rx="2" fill="currentColor"/></svg>';
 
 // The browser's own speech recognition (the Web Speech API, prefixed in Chrome and Safari), so
@@ -79,7 +82,10 @@ export function createComposer({
     stopButton.addEventListener('click', () => onStop?.());
   }
   const sendButton = button('act primary send', null, 'Send');
-  actions.append(...[mic, stopButton, sendButton].filter(Boolean));
+  // Voice mode's second button, to the right of the mic-turned-Stop: end the dictation and send what
+  // was heard. Only shown while listening (CSS, `.composer.listening`), where Send itself is hidden.
+  const stopSend = button('act primary stopsend', 'Stop and send', UP_ICON);
+  actions.append(...[mic, stopButton, sendButton, stopSend].filter(Boolean));
   el.append(input, left, actions);
 
   /** Send is only live with something to send. */
@@ -120,6 +126,12 @@ export function createComposer({
   // recognised, interim words included, after whatever was already typed. While it listens the
   // picker, Stop and Send step aside and the mic is a stop button (CSS, `.composer.listening`).
   let recognizer = null;
+  let sendOnEnd = false;          // Stop and send: the last words arrive after stop(), so send at onend
+  stopSend.addEventListener('click', () => {
+    if (!recognizer) return;
+    sendOnEnd = true;
+    recognizer.stop();
+  });
   if (Recognition) {
     mic.hidden = false;
     mic.addEventListener('click', () => {
@@ -153,6 +165,7 @@ export function createComposer({
         el.classList.remove('listening');
         label(mic, 'Dictate');
         input.focus();
+        if (sendOnEnd) { sendOnEnd = false; submit(); }
       };
       try {
         r.start();

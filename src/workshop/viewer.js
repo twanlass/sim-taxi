@@ -35,7 +35,9 @@ const kept = hot?.data?.orbit ? hot.data : (() => {
   try {
     const saved = JSON.parse(sessionStorage.getItem(STASH));
     sessionStorage.removeItem(STASH);
-    return saved ?? {};
+    // A bench URL naming another model (`?model=`) is a different subject: its framing is not ours.
+    const wanted = new URLSearchParams(window.location.search).get('model');
+    return saved && (!wanted || wanted === saved.model) ? saved : {};
   } catch { return {}; }
 })();
 const params = new URLSearchParams(window.location.search);
@@ -1218,6 +1220,23 @@ function releaseSnapshot() {
   }));
 }
 on(window, 'pagehide', stashSnapshot);
+// Any way the page goes away (a full reload Vite does itself, a manual refresh, an edit to the page
+// or the chat) hands the framing to the next load. Only the hot-swapping paths used to, so every
+// other reload recentred the model and lost the zoom.
+function stashFraming() {
+  if (!current) return;
+  try {
+    foldZoom();
+    sessionStorage.setItem(STASH, JSON.stringify({
+      model: state.model,
+      gameZoom,
+      orbitHalf,
+      placement,
+      orbit: { position: orbitCamera.position.toArray(), target: orbit.target.toArray() },
+    }));
+  } catch { /* the framing is lost, the reload still happens */ }
+}
+on(window, 'pagehide', stashFraming);
 
 // --- An edit lands as a crossfade, and what it changed lights up -------------
 //
@@ -1363,15 +1382,7 @@ if (hot) {
   const RELOAD_ON = /\/src\/(palette|util\/geo|game\/(renderpath|ssao|bloom|scene))\.js$/;
   hot.on('vite:beforeUpdate', (payload) => {
     if (!payload.updates.some((u) => RELOAD_ON.test(u.path))) return;
-    try {
-      sessionStorage.setItem(STASH, JSON.stringify({
-        model: state.model,
-        gameZoom,
-        orbitHalf,
-        placement,
-        orbit: { position: orbitCamera.position.toArray(), target: orbit.target.toArray() },
-      }));
-    } catch { /* the framing is lost, the reload still happens */ }
+    stashFraming();
     reloadSmoothly();
   });
   // Vite's own full reloads (an edit nothing can hot-swap, the page itself) say so first; `pagehide`
@@ -1381,6 +1392,7 @@ if (hot) {
   // it skips an .html edit that names another page (the same test as its client's).
   hot.on('vite:beforeFullReload', (payload) => {
     stashSnapshot();
+    stashFraming();
     const page = decodeURI(window.location.pathname);
     const path = payload?.path;
     if (path?.endsWith('.html') && !(path === page || path === '/index.html' || (page.endsWith('/') && `${page}index.html` === path))) return undefined;
@@ -1388,6 +1400,7 @@ if (hot) {
     return new Promise(() => {});
   });
   hot.dispose((data) => {
+    foldZoom();   // a wheel zoom not yet folded into orbitHalf would otherwise be lost
     data.ui = uiSignatures();
     data.model = state.model;
     data.gameZoom = gameZoom;

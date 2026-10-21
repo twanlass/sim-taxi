@@ -425,6 +425,10 @@
       .composer.listening .mic .stop-icon { display: block; }
       .composer.listening .mic { background: var(--accent); color: var(--on-accent); }
       .composer.listening .speed, .composer.listening .stop, .composer.listening .send { display: none; }
+      /* Stop and send: an up arrow, only while listening, to the right of the stop button. */
+      .composer .stopsend { display: none; padding: 4px 12px; }
+      .composer.listening .stopsend { display: inline-flex; }
+      .composer .stopsend svg { display: block; }
       .act.primary { background: var(--accent); color: var(--on-accent); font-weight: 700; }
       .act:disabled { opacity: 0.35; cursor: default; }
       /* One weight through the chat panel and the composers: the buttons (Send and Queue included)

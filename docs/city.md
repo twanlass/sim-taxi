@@ -925,6 +925,18 @@ canopy's depth and height are a sightline too: the pumps sit 1.8 in from its +Z 
 from a pump's top climbs 1.66 on its way out and clears the 3.7 underside. Deeper or lower and the
 pumps vanish under their own roof; the probe fires a ray from each pump to check.
 
+**The movie theater** (`city/movietheater.js`) is a **workshop-only** bench model for now: nothing in
+the city places it, but it exports a `LANDMARK`, so the workshop catalog finds it on its own. A deep teal
+(`cinemaWall`, the complement of the red board, marquee and carpet) brick fly tower with CINEMA lit across a red board on its face, framed in gold, a low cream lobby in front, a marquee over the doors on two posts (a plain red slab: no light strip, no gold trim), poster frames
+either side, a red carpet (`cinemaCarpet`) running from the doors across the forecourt to the kerb, and a ticket booth in the forecourt. The plant room on the tower roof is a muted teal-grey
+(`cinemaRoofUnit`, only a step lighter than the wall so it blends with the roof rather than glaring), not the coping's dark `cinemaTrim`.
+Bulbs run round the sign's frame only, and they chase: every third bulb shares one of three meshes, and the model's `update(dt)` darkens
+one mesh at a time, 0.14s per phase, so a dark gap travels round the loop like a marquee's. Whole
+meshes taking turns being `visible`, not a colour per bulb, because the glow is unlit vertex colour.
+The entrance and the name are on +Z, since only +X and +Z faces are ever seen. The name is lettered
+with `wordParts` from `city/roadside.js`, which gained C, I, N and E for it. Colours are the
+`cinema*` entries in `palette.js`. Tyler asked for it at the bench (2026-10-20).
+
 **The tube man** (`game/tubeman.js`) flails on the lot's +X+Z corner, the one the camera faces: a
 red tube on a blower box, yellow streamers for hair and cuffs, a cartoon face. He is a chain of
 capsules jointed end to end, bent by two travelling waves so the S runs up the tube, and every few

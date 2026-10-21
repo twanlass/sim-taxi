@@ -218,6 +218,13 @@ viewport under a camera the edit was meant to leave alone. The offset it applied
 rides `import.meta.hot.data` (and `sessionStorage` across a reload) and an in-place rebuild of the
 same model reuses it; picking another model recentres as before.
 
+**Any reload keeps the framing, not just the swaps.** `stashFraming` writes the model, zoom, offset and
+orbit camera to `sessionStorage` on `pagehide` and on Vite's `vite:beforeFullReload`, so a manual
+refresh or an edit to the page or the chat lands on the same view (a wheel zoom not yet folded into
+`orbitHalf` is folded first). Only the shared-state reload used to stash it, so every other reload
+recentred the model. A `?model=` naming a different model than the stashed one discards the stash:
+another subject, another framing.
+
 **The exception is an edit to shared state, which reloads the page instead.** After a palette edit
 the bench drew only the sky and the grid until the tab was refreshed by hand. So an update touching
 `palette.js`, `util/geo.js` or the render passes (`renderpath`, `ssao`, `bloom`, `scene`) reloads the
@@ -333,7 +340,9 @@ viewport.
 The mic, bottom-right of the composer beside Send (the Speed picker is bottom-left), dictates into the composer with the browser's own Web Speech API
 (`SpeechRecognition`), so there is nothing to install and the page uploads nothing itself. Pressed,
 it starts listening and the transcript streams into the box as it is recognised, appended after
-whatever was already typed; the picker, Stop and Send hide and the mic turns into a stop button.
+whatever was already typed; the picker, Stop and Send hide and the mic turns into a stop button, with a
+Stop-and-send button (an up arrow, no label) to its right that ends the dictation and sends what was heard.
+The last words arrive after `stop()`, so it sends from `onend` (`sendOnEnd`) rather than on the click.
 Every control in the composer (Speed picker, mic and its stop state, Stop, Send / Queue) is a fixed 28px tall, so the row never
 steps as buttons swap.
 Pressing it again, or sending, ends it. The button is hidden in a browser without the API
