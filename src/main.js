@@ -2363,12 +2363,13 @@ const launchTimeScale = (u) => 1 - (1 - LAUNCH_SLOW_MO_MIN) * Math.sin(Math.PI *
 // it was the whole CRASH_BANNER_DELAY and is now REPLAY_LEAD — and it has a floor that is not a
 // matter of taste: the replay can only show what the tape recorded, and the tape records the
 // seconds after the impact *during* this beat. Under the slow-mo ramp (SLOW_MO_MIN 0.18 rising
-// over 2100ms) 1.2s of wall clock is ~0.49s of sim, against the REPLAY_POST (0.45) the longest
-// shot plays out past the hit. A shot asking for more than was recorded is cut short, not broken.
+// over 2100ms) 1.55s of wall clock is ~0.75s of sim, against the REPLAY_POST (0.7) the longest
+// shot plays out past the hit — the last cut's, lengthened by a second of wall clock; at 1.2 the
+// live beat recorded 0.49 and that shot was capped at 0.45. A shot asking for more than was recorded is cut short, not broken.
 //
 // Not in shot mode — a still has no replay to show — and not for a bust or a timeout: nothing
 // happened fast enough in either to be worth seeing twice.
-const REPLAY_LEAD = 1200;
+const REPLAY_LEAD = 1550;
 // The breath between a tap that skips the replay and the card arriving — long enough that the tap
 // has let go before the card is there to take it as a tap on the tally. A replay that plays out
 // has no tail: its last slow-mo frame jump cuts straight to the card. It used to hand back to the
