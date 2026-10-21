@@ -17,15 +17,13 @@ import { BODY_TOP, HOOD_HINGE_X, BOOT_HINGE_X } from './damage.js';
 // Each fragment finds the voxel it is in — a CELL grid in the car's own space — and scores that
 // voxel: coarse value noise sampled at the voxel's centre, so a whole cell is in or out together
 // (the voxel look), plus its distance to the nearest corner, so chips open from the corners and work
-// inward. Under the wear threshold it shows bare steel; in a thin band above it, red-oxide primer,
-// which lands round the edge of each chip because the noise is smooth. The wear is one value per
-// corner, blended across the car, so the struck corner chips and the far end stays clean.
+// inward. Under the wear threshold it shows bare steel. The wear is one value per corner, blended
+// across the car, so the struck corner chips and the far end stays clean.
 //
-// Why a primer at all: bare steel and taxi yellow are within a few points of each other in
-// lightness, so a silver patch alone reads at play zoom as a glint on the paint — the very "pale
-// bonnet" low sun already puts there. The primer is a lightness step the eye cannot take for light.
-// Red oxide rather than the dark grey first tried: black round silver is the livery's own chequer,
-// and a chipped bonnet read as a second one.
+// There was a primer ring round each chip, a band just above the threshold: dark grey first, which
+// read as a second copy of the livery's chequer, then red oxide, which Tyler cut (2026-10-21) as
+// reading like noise. Bare steel alone is the risk that ring was there for — it is about as light as
+// the yellow, so at play zoom it can pass for a glint — and the plain version is the call.
 //
 // Only paint chips. The test is the vertex colour — the taxi's yellow (high red, almost no blue) —
 // so the glass, chrome, chequer cells, tyres and wheel wells that share the shell's material are
@@ -41,9 +39,9 @@ const BLOB = 0.22;
 // middle is about 1). More distance and the chips march in from the corners in a front; more noise
 // and they scatter.
 const NOISE_SHARE = 0.6;
-// A fully worn corner shows steel up to this score, and primer for PRIMER above that.
-const WEAR_REACH = 0.64;
-const PRIMER = 0.07;
+// A fully worn corner shows steel up to this score. 0.68 rather than 0.64 to give back the footprint
+// the primer band used to add round each chip.
+const WEAR_REACH = 0.68;
 
 const f = (n) => n.toFixed(3);
 
@@ -51,7 +49,6 @@ const CHIP_DECLS = /* glsl */ `
 varying vec3 vChipObj;
 uniform vec4 uChipWear;
 uniform vec3 uChipMetal;
-uniform vec3 uChipPrimer;
 float chipHash(vec3 p) {
 	p = fract(p * vec3(0.1031, 0.1030, 0.0973));
 	p += dot(p, p.yxz + 33.33);
@@ -85,9 +82,9 @@ const CHIP_FRAGMENT = /* glsl */ `
 			* ${f(WEAR_REACH)};
 		// The taxi's yellow and nothing else: high red, next to no blue.
 		float cPaint = step(0.45, vColor.r) * step(vColor.b, 0.25 * vColor.r);
-		if (cPaint > 0.5 && cW > 0.0 && cScore < cW + ${f(PRIMER)}) {
+		if (cPaint > 0.5 && cScore < cW) {
 			// Times diffuse, so a wreck's scorch (a multiply on the material colour) darkens it too.
-			diffuseColor.rgb = (cScore < cW ? uChipMetal : uChipPrimer) * diffuse;
+			diffuseColor.rgb = uChipMetal * diffuse;
 			__CHIP_FINISH__
 		}
 	}
@@ -105,7 +102,6 @@ function chip(material, wear, offset) {
     uChipWear: wear,
     uChipOffset: { value: offset },
     uChipMetal: { value: color('taxiBareMetal') },
-    uChipPrimer: { value: color('taxiPrimer') },
   };
   material.onBeforeCompile = (shader, renderer) => {
     base.call(material, shader, renderer);

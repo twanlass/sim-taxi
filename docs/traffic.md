@@ -1868,14 +1868,13 @@ paint keeps its colour and comes off in voxel chips, drawn by a patch on the pai
 rather than by geometry. Each fragment finds its 0.09-unit voxel in the car's space and scores it:
 value noise sampled at the voxel's centre (so whole cells go together), plus its distance to the
 nearest corner (so chips open from the corners inward). Under the wear threshold it is bare steel
-(`taxiBareMetal`); in a band just above it, red-oxide primer (`taxiPrimer`), which lands round each
-chip's edge. Wear is one value per corner, blended across the car: the struck corner reaches 0.3 at
-the first hit and 1 at empty, the other three follow on the square of that up to 0.6. Only the
+(`taxiBareMetal`). Wear is one value per corner, blended across the car: the struck corner reaches
+0.3 at the first hit and 1 at empty, the other three follow on the square of that up to 0.6. Only the
 taxi's yellow chips (the test is the vertex colour), so glass, chrome and the chequer are left
 alone. The shell and both lids share the one wear uniform, so a lid swung up, the wreck and the crash
-replay all wear the same chips. The primer is what reads at play zoom — steel alone is about as
-light as the yellow and reads as a glint — and it is red oxide because a dark ring round silver is
-the livery's own chequer. The hit that wrecks the car never reaches `hit`, so `scuff` wears its
+replay all wear the same chips. Each chip had a primer ring at first — dark grey, which read as a
+second chequer, then red oxide, which read as noise — and it came out: plain steel is the look.
+The hit that wrecks the car never reaches `hit`, so `scuff` wears its
 corner in full before the wreck takes the shell. A first cut laid the chips on as merged cell boxes;
 it needed a copy on each lid and came out for the shader.
 
