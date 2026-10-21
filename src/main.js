@@ -2127,10 +2127,10 @@ const raceTalkAt = () => {
  */
 function onRaceEvent(type, detail) {
   if (type === 'available') {
-    // In reach with an empty cab: just the talker's "…" tag until the player taps it (`race.ask`) —
+    // In reach with an empty cab: just the talker's "!" tag until the player taps it (`race.ask`) —
     // pointing in from the screen edge when the car is off it — and the horn to say so. Without a
     // tag (`?bubbles=classic`/`dock`), a card with only the dots on it.
-    if (raceTalk && !raceTalk.showTag(raceTalkAt)) {
+    if (raceTalk && !raceTalk.showTag(raceTalkAt, { quest: true })) {
       raceTalkRoot?.classList.add('is-ellipsis');
       raceTalk.show('', '…', raceTalkAt);
     }

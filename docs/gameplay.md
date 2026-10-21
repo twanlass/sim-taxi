@@ -2619,8 +2619,13 @@ them. After a race it drives off, and comes back the same 2 to 4 drop-offs later
 again at the same interval after a race"). Counted in deliveries rather than seconds, the next race
 is earned by driving fares, so it cannot be farmed by sitting next to the racer. It has a white stripe down
 its spine, a proud wing on the boot and cyan light pooling under it that pulses to the music, and
-over it hangs a "…" — the [speech tag](#speech-bubbles) alone, with no card (`showTag`; a card with
-only the dots under `?bubbles=classic`/`dock`). The "…" is up whenever the race can be taken (an
+over it hangs a yellow **"!"** — the [speech tag](#speech-bubbles) alone, with no card, marked as an
+offer (`showTag(at, { quest: true })`; a card with only the dots under `?bubbles=classic`/`dock`).
+The "!" is the side-quest mark: the one an RPG hangs over an NPC with a quest to give (World of
+Warcraft's yellow "!", whose "?" means *hand it in*, which is why it isn't a "?"). It stays apart
+from the dots on purpose: "…" is someone talking or a tip, "!" is something the player can take or
+leave, and the tag goes back to the dots the moment the racer speaks. `?questmark=classic` keeps the
+dots. The "!" is up whenever the race can be taken (an
 empty cab, nothing owning the run) and the player can find the car: on the car whenever it is on
 screen, wherever the player has panned to, and pointing in from the screen edge only while the taxi
 is within `NEAR_BLOCKS` (3) of it, with a horn. Out of reach and off screen, or a rider picked up,
@@ -2680,7 +2685,7 @@ called off leaves it in town instead, resting `REST_TIME` (20s) before it offers
 event cannot cost the run ([it is imposed](#it-is-imposed-so-it-cannot-cost-the-run)), so the race
 is a tap like every other choice in the game. Ignoring it is free: the racer just keeps driving.
 
-- **Tappable whenever the "…" is up**, on the car (a screen-plane quad, `HIT_W` × `HIT_H`) or on
+- **Tappable whenever the "!" is up**, on the car (a screen-plane quad, `HIT_W` × `HIT_H`) or on
   the tag. Only something that owns the run outright takes it away (`interrupted`: a getaway, a
   chase, the run ending); a tutorial tip or a burger run does not.
 - **Empty cab only.** With a rider aboard the offer is down. A tap while the taxi is on its way to

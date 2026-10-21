@@ -1631,8 +1631,29 @@
       .speech-tag i:nth-child(3) { animation-delay: 0.3s; }
       @keyframes speech-tag-dot { 0%, 60%, 100% { transform: none; } 30% { transform: translateY(-2.5px); } }
       .speech-tag-pin .speech-pointer { color: #fff; }
+      .speech-tag b { display: none; }
+      /* An offer — a side quest the player can take or leave (speech.js `showTag`, the street
+         racer): a yellow "!" in place of the dots, the mark an RPG hangs over an NPC with a quest
+         to give. The yellow is the highlighted word's (.speech-hl), so the "!" and the "{race}" it
+         turns into on a tap are one colour. Opaque rather than glass: the blur is what lets white
+         sit over a pale street, and yellow carries itself. The dark outline is the rider pie's
+         1.5px one (MARKER_OUTLINE_PX), drawn round disc and pointer together by four hard
+         drop-shadows, so the two read as one shape against the rain-grey street. The "!" hops on
+         the arrows' 1.3s beat instead of the dots' typing ripple. */
+      .tag-quest .speech-tag-pin .speech-tag { background: #FFC93C; box-shadow: none; -webkit-backdrop-filter: none; backdrop-filter: none; }
+      .tag-quest .speech-tag-pin .speech-pointer { color: #FFC93C; -webkit-backdrop-filter: none; backdrop-filter: none; }
+      .tag-quest .speech-tag-pin .speech-tag-body {
+        filter: drop-shadow(1.5px 0 0 #121318) drop-shadow(-1.5px 0 0 #121318) drop-shadow(0 1.5px 0 #121318)
+          drop-shadow(0 -1.5px 0 #121318) drop-shadow(0 2px 3px rgba(16, 18, 26, 0.35));
+      }
+      .tag-quest .speech-tag i { display: none; }
+      .tag-quest .speech-tag b {
+        display: block; font: 700 17px/1 'Space Grotesk', system-ui, sans-serif; color: #121318;
+        animation: speech-quest-hop 1.3s ease-in-out infinite;
+      }
+      @keyframes speech-quest-hop { 0%, 55%, 100% { transform: none; } 20% { transform: translateY(-2.5px) rotate(-6deg); } 38% { transform: translateY(0.5px) rotate(3deg); } }
       @media (prefers-reduced-motion: reduce) {
-        .speech-tag i, .speech-hl.is-said { animation: none; }
+        .speech-tag i, .speech-tag b, .speech-hl.is-said { animation: none; }
         .speech-docked > .speech > .speech-body, .speech-docked.is-open > .speech > .speech-body,
         .speech-docked.is-closing > .speech > .speech-body, .speech-tag-body { transform: none; }
       }
