@@ -142,6 +142,7 @@ doc; what the classic version was, and why it changed, is in that doc's history 
 | `?flatbed=soon` | The flatbed starts shedding crates three seconds in | [traffic.md](traffic.md) |
 | `?fire=soon` | A building catches fire early | [traffic.md](traffic.md) |
 | `?race=soon` | The street racer turns up a few seconds in rather than after the 2nd-4th drop-off, and comes back ~12s after each race | [gameplay.md](gameplay.md#the-street-race) |
+| `?demo` / `?demo=off` | Demo mode on (or off) for this load, overruling the Settings switch and saving nothing; also reveals that switch | [gameplay.md](gameplay.md#demo-mode) |
 | `?parcels=0` / `=1` | Packages off / forced on (they are off in shot mode by default) | [gameplay.md](gameplay.md) |
 | `?cars=N` | Total vehicles, taxi included. `?cars=1` leaves the taxi alone on the road | [testing.md](testing.md) |
 | `?d=0..1` | Pins the difficulty curve instead of the delivery count | [difficulty.md](difficulty.md) |

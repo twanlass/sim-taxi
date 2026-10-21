@@ -437,10 +437,12 @@ function createRivalMesh() {
  * @param onEvent  `(type, detail) => void` — everything the player sees off the car: the bubble, the
  *                 count, the money. This module knows a race happened, not what a run's cash is.
  * @param soon     `?race=soon`
+ * @param firstDue the drop-off the first racer turns up at, overriding DROPS_BETWEEN — Demo mode's 1
  */
 export function createRace({
   rng, scene, traffic, routeTo, blocked = () => false, interrupted = () => false, canStart = () => true,
   seen = () => false, delivered = () => 0, onEvent = () => {}, soon = false, bass = () => 0,
+  firstDue = null,
 }) {
   const taxi = traffic.taxi;
   let rivalChase = RIVAL_CHASE;
@@ -493,7 +495,8 @@ export function createRace({
     t: 0,
     cooldown: soon ? SOON_WAIT : ARRIVE_WAIT,
     // The run's delivery count it turns up at (see DROPS_BETWEEN).
-    dueAt: soon ? 0 : rng.int(DROPS_BETWEEN[0], DROPS_BETWEEN[1]),
+    // The roll is drawn either way, so Demo mode does not reshuffle the rest of the race's stream.
+    dueAt: soon ? 0 : ((roll) => firstDue ?? roll)(rng.int(DROPS_BETWEEN[0], DROPS_BETWEEN[1])),
     car: null,
     /** The two lanes the start was put on, shut to newcomers until the flag drops. */
     startLanes: null,
