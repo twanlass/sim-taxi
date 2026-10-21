@@ -83,6 +83,13 @@ export const MOVES = {
     seenKey: 'simTaxi.seen.drift', after: 4, line: 'Drift',
     keys: [['boost', 'boost'], ['brake', 'brake'], ['kick', 'boost']],
   },
+  // The one move that is earned rather than taught: off until the player first beats the street
+  // racer (game/burnout.js), so no fare count; main.js gives it an `earned` test instead. Its card
+  // goes up at the end of the run that won it.
+  burnout: {
+    seenKey: 'simTaxi.seen.burnout', after: 0, line: 'Burnout',
+    keys: [['brake', 'brake'], ['launch', 'boost']],
+  },
 };
 
 /**

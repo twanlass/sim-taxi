@@ -1917,6 +1917,10 @@
          holding. There was a quick white throb before it for "a blip would take now"; Tyler had it
          taken out, so the moment to throw the combo is the player's to judge. */
       #boost.is-pass-armed { filter: drop-shadow(0 0 12px rgba(255, 255, 255, 1)); }
+      /* The burnout launch is armed: the brake held at a standstill (game/burnout.js). */
+      #brake.is-burnout-armed {
+        filter: drop-shadow(0 0 2px #fff) drop-shadow(0 0 2px #fff) drop-shadow(0 0 12px rgba(255, 255, 255, 1));
+      }
       @media (prefers-reduced-motion: reduce) {
         body.coach-boost #boost {
           animation: none; filter: drop-shadow(0 0 12px rgba(245, 193, 48, 0.85));

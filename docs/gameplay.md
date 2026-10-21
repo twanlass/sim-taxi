@@ -654,6 +654,40 @@ out on the kick's purple twin plume with the bark out of the pipe.
   card has been seen, so the two never land on one drop-off and always come in order. Remembered
   under `simTaxi.seen.drift`. `__taxi.newMove.open('drift')` shows it on demand.
 
+### The burnout launch: a race win earns it
+
+`game/burnout.js`, `game/burnoutclip.js`, `tools/burnoutreel.mjs`, `LAUNCH_GAIN` in sim/traffic.js.
+`?raceunlock=classic` turns it off; `?raceunlock=won` plays as if the racer were already beaten.
+
+**The one move that is earned rather than taught** (Tyler: "winning a race unlocks a combo"). The
+three cards above only teach moves that work from the first second; this one is off until the player
+first beats the [street racer](#the-street-race), and then it is theirs for good
+(`simTaxi.unlocked.burnout`). It is a new move because gating one of the existing three behind a
+race, which a good player wins about half the time, would take it away from anyone who never races.
+For good rather than for the run, because the racer turns up at random.
+
+**Hold the brake at a standstill, then Loco Mode.** After `ARM_HOLD` (0.35s) of brake on a stopped
+car the brake button wears the white ring an armed overtake gives the pill, and the next Loco press
+is a launch: for `LAUNCH_TIME` (0.6s) the boost pulls `LAUNCH_GAIN` (3x) as hard, still under every
+cap the taxi follows by (a leader, a line, a corner), so it is a harder shove and never a jump in
+speed. Measured off a standing start: the Loco top of 18.7 in 0.12s against 0.35s, and 4.4 units
+further up the road after a second. On top of the ordinary press's flame and wheelie it throws a cloud
+of tyre smoke off both rear wheels, lays rubber for `BURNOUT_SKID_TIME` (1.1s) and screeches.
+
+- **Brake *then* Loco, because the pedals can only press it that way.** One pointer owns the pedal
+  row and the last pedal pressed wins, so "hold both and let go of the brake" is not a press the row
+  can make. Brake then Loco is one it already makes (the pedal slide) and meant nothing at a
+  standstill until now: the U-turn and the drift need speed and the overtake needs a car.
+- **A half on the combo meter, once per lane.** The city's junctions are all-way stops, so without
+  the lane rule every corner would be a free step.
+- **The racer says it.** The win's money lands, and then the racer: "Not bad. Hold the brake, then
+  Loco. That's my burnout." — so it can be used for the rest of that run. Until it is won, a loss
+  gets "Beat me and I'll teach you my burnout.", so the next offer names its prize.
+- **Its card waits for the run's end** like every move card, and goes before any other the run
+  unlocked: it is the one the run did something to win. The clip (recorded by
+  `tools/burnoutreel.mjs`, checked on every `npm run check`) rolls up, stops on the brake, sits,
+  and leaves; the keys are the brake, then Loco.
+
 ## The fare loop
 
 `src/game/fares.js`. Each fare is its own little machine — `waiting → riding → gone` — carrying its

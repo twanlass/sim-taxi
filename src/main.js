@@ -170,10 +170,12 @@ import { setCityOccluders, sightlineClear } from './game/sightline.js';
 import { createBootleg, COMBO_GAP_MS as BOOTLEG_GAP_MS } from './game/bootleg.js';
 import { createOvertakeCombo, OVERTAKE_GRACE } from './game/overtake.js';
 import { createNewMove, createSeenFlag, MOVES, REPAIR, SHOW_DELAY } from './game/newmove.js';
-import { demoMode } from './game/progress.js';
+import { demoMode, createUnlockFlag } from './game/progress.js';
 import { createUturnClip, pickStreet, clipKeys as uturnKeys, LANDS_AT as UTURN_LANDS } from './game/uturnclip.js';
 import { createDriftClip, pickCorner, clipKeys as driftKeys, LANDS_AT as DRIFT_LANDS } from './game/driftclip.js';
 import { createOvertakeClip, pickOvertakeStreet, clipKeys as overtakeKeys, LANDS_AT as OVERTAKE_LANDS } from './game/overtakeclip.js';
+import { createBurnoutClip, pickBurnoutStreet, clipKeys as burnoutKeys, LANDS_AT as BURNOUT_LANDS } from './game/burnoutclip.js';
+import { createBurnout, UNLOCK_KEY as BURNOUT_UNLOCK_KEY, BURNOUT_SKID_TIME } from './game/burnout.js';
 import { createRepairClip, clipKeys as repairKeys } from './game/repairclip.js';
 import { SKYLINE_CEILING } from './city/buildings.js';
 import { popHighlight, POP_TIME } from './game/selectpop.js';
@@ -1346,6 +1348,16 @@ setPassPace(new URLSearchParams(window.location.search).get('passpace'));
 setDodge(new URLSearchParams(window.location.search).get('swerve'));
 // A hop always comes down; `?hop=classic` lets the brake park the taxi in mid-air again.
 setHopStyle(new URLSearchParams(window.location.search).get('hop'));
+// The burnout launch (game/burnout.js): the brake held at a standstill, then Loco Mode. Earned by
+// beating the street racer and kept for good. `?raceunlock=classic` has no burnout and nothing to
+// win; `?raceunlock=won` plays as if the racer were already beaten, without remembering it.
+const raceUnlockParam = new URLSearchParams(window.location.search).get('raceunlock');
+// Through `createUnlockFlag`, so Demo mode (game/progress.js) has it from the start and saves nothing.
+const burnoutUnlocked = createUnlockFlag({ key: BURNOUT_UNLOCK_KEY });
+const burnout = raceUnlockParam === 'classic' ? null : createBurnout({
+  taxi: traffic.taxi,
+  unlocked: () => raceUnlockParam === 'won' || burnoutUnlocked.get(),
+});
 const bootleg = createBootleg({
   taxi: traffic.taxi,
   destination: () => traffic.taxi.pendingTarget ?? null,
@@ -2102,7 +2114,7 @@ race = shot || raceParam === 'classic' ? null : createRace({
   // Two units inside the frame to come up, two outside to go, so a car on the edge does not flick.
   seen: (car, keep) => inShot(car.x, car.z, keep ? 2 : -2),
   delivered: () => fares.state.delivered,
-  onEvent: onRaceEvent,
+  onEvent: (type, detail) => { onRaceEvent(type, detail); raceUnlockEvent(type); },
 });
 fares.setHold(() => Boolean(race?.holdsBoard()));
 // The rival's speech bubble — the challenge, with the stakes on it, pinned to its roof.
@@ -2279,6 +2291,31 @@ function onRaceEvent(type, detail) {
     popLabel('Race off');
   }
 }
+
+/**
+ * The race's prize beyond the money: the first win unlocks the burnout launch, for good, and the
+ * racer says how to do it once the money has landed, so it can be used for the rest of the run. Its
+ * card waits for the run's end like every move card (`showUnlockedMoves`). Until then a loss has
+ * the racer name the prize, so the next offer is not a bet on nothing but cash.
+ */
+function raceUnlockEvent(type) {
+  if (!burnout || !raceTalk || burnoutUnlocked.get()) return;
+  if (type === 'won') {
+    burnoutUnlocked.set();
+    setTimeout(() => {
+      raceTalk.show('Street racer', 'Not bad. Hold the brake, then Loco. That\'s my {burnout}.', raceTalkAt);
+      setTimeout(() => { if (race && !race.offering()) raceTalk.hide(); }, RACE_PRIZE_MS);
+    }, RACE_MONEY_MS + RACE_PRIZE_DELAY);
+  } else if (type === 'lost') {
+    setTimeout(() => {
+      raceTalk.show('Street racer', 'Beat me and I\'ll teach you my {burnout}.', raceTalkAt);
+      setTimeout(() => { if (race && !race.offering()) raceTalk.hide(); }, RACE_PRIZE_MS);
+    }, RACE_MONEY_MS + RACE_PRIZE_DELAY);
+  }
+}
+// After the money has landed, a beat; then long enough to read a line twice.
+const RACE_PRIZE_DELAY = 300;
+const RACE_PRIZE_MS = 4200;
 
 // The cut to the start: the skip's own beat of black (game/wipe.js). It was 250ms, to read as a
 // scene change, and that read as lag instead: 160 + 250 + the fade back before anything answered
@@ -4566,6 +4603,8 @@ function holdLocoMode() {
   // The other half of "last pedal pressed wins" — see holdBrake. Without this a player holding the
   // brake button with one thumb and jabbing the pill with the other would spend fuel on a car the
   // brake is still pinning to the road.
+  // The burnout reads the brake first: this release is the very thing that would disarm it.
+  const launch = burnout?.press() ?? null;
   releaseBrake();
   // The drift's second half: back on the pill after the tap. This is where the slide starts — the
   // tap was only a brake — so the screech, the shake and the four-wheel stamp are here rather than
@@ -4578,8 +4617,37 @@ function holdLocoMode() {
   }
   if (boost.press()) {
     kickLocoMode();
+    if (launch !== null) burnoutLaunch(launch);
+  } else if (launch !== null) {
+    burnout.cancel();
   }
   return true;
+}
+
+/**
+ * The burnout launch went: on top of the ordinary press's flame, bark and wheelie, a cloud of tyre
+ * smoke off both rear wheels, a longer streak of rubber, the screech and a harder shove. `pays` is
+ * whether it lands a combo step (once per lane, game/burnout.js).
+ */
+function burnoutLaunch(pays) {
+  const car = traffic.taxi;
+  if (car.crashed) return;
+  const fx = Math.cos(car.yaw);
+  const fz = -Math.sin(car.yaw);
+  const rx = Math.sin(car.yaw);
+  const rz = Math.cos(car.yaw);
+  for (const side of [-1, 1]) {
+    dust.burst(
+      car.x - fx * TAXI_REAR_AXLE_BACK + rx * side * TAXI_REAR_TRACK,
+      car.z - fz * TAXI_REAR_AXLE_BACK + rz * side * TAXI_REAR_TRACK,
+      car.yaw + Math.PI, 16, 0.75, { linger: 1.5 },
+    );
+  }
+  launchSkidT = BURNOUT_SKID_TIME;
+  sfx?.play('skid');
+  haptic('drift');
+  controller.kickShake(0.35);
+  if (pays && !fares.state.gameOver) landCombo('burnout');
 }
 
 // Fires only on the transition into Loco Mode — not while it's already active — so a re-press
@@ -5992,6 +6060,15 @@ const moves = {
     combo: { ...comboValue('drift'), at: DRIFT_LANDS },
     makeClip: filmMove(pickCorner, (stage, corner) => createDriftClip({ ...stage, corner })),
   },
+  // Earned by a race win rather than reached by a fare count (game/burnout.js).
+  ...(burnout ? {
+    burnout: {
+      ...MOVES.burnout, seen: createSeenFlag({ key: MOVES.burnout.seenKey }), clipKeys: burnoutKeys,
+      earned: () => burnoutUnlocked.get(),
+      combo: { ...comboValue('burnout'), at: BURNOUT_LANDS },
+      makeClip: filmMove(pickBurnoutStreet, (stage, street) => createBurnoutClip({ ...stage, street })),
+    },
+  } : {}),
 };
 // The depot's card, on the same layer: once ever, a beat after the taxi first starts smoking. It
 // replaced a "Head to the shop for repairs." bubble over the garage door — see REPAIR in
@@ -6042,7 +6119,7 @@ let newMoveDue = null;
  * drop-off never has two to show.
  */
 function nextMove(delivered) {
-  const move = Object.values(moves).find((m) => !m.seen.get());
+  const move = Object.values(moves).find((m) => !m.seen.get() && (!m.earned || m.earned()));
   return move && delivered >= move.after ? move : null;
 }
 /**
@@ -6074,10 +6151,13 @@ function showUnlockedMoves(done) {
   // One card per run's end, the first not yet shown (Tyler, 2026-10-13); a run that unlocked more
   // leaves the rest for the runs after it, which still have to reach each one's `after`.
   // Demo mode shows one every run, however short, taking the moves in turn across runs — with every
-  // flag unseen, "the first not yet shown" would be the overtake every time.
+  // flag unseen, "the first not yet shown" would be the overtake every time. Otherwise a move a race
+  // earned goes first: it is the one the run did something to win.
+  const ready = (m) => newMoveWanted(m) && (m.earned ? m.earned() : fares.state.delivered >= m.after);
   const queue = demo.on()
     ? [demo.rotate(Object.values(moves).filter((m) => newMoveWanted(m)), 'move')].filter(Boolean)
-    : Object.values(moves).filter((m) => newMoveWanted(m) && fares.state.delivered >= m.after)
+    : Object.values(moves).filter(ready)
+      .sort((a, b) => Number(Boolean(b.earned)) - Number(Boolean(a.earned)))
       .slice(0, 1);
   if (!queue.length) return false;
   document.body.classList.add('new-move-after-run');
@@ -6295,6 +6375,9 @@ function tick() {
     // And not through a sliding drift, whose corner is deaf to the pedal. An armed one is not: until
     // the pill comes back the tap is a brake (see holdBrake).
     const bootlegBrake = bootleg.update(dt, { brakeHeld: brakeHeld && !fares.state.gameOver });
+    // Armed: a white ring on the brake, like the pill's for an armed overtake.
+    brakeButton?.classList.toggle('is-burnout-armed',
+      Boolean(burnout?.update(dt, { brakeHeld: brakeHeld && !fares.state.gameOver })));
     overtake.update(dt, { held: boost.isActive() && !traffic.taxi.staged, brakeHeld });
     const drifting = driftHolds(traffic.taxi) && traffic.taxi.drift.phase !== 'carry';
     // Or the street race's, for the finale: the winner pulling up and the loser skidding in. Through
@@ -7861,6 +7944,7 @@ window.__taxi = {
   patrols,
   /** The brake-tap spin (game/bootleg.js) — `spin()` fires one, `state` tallies them. */
   bootleg,
+  burnout,
   overtake,
   /**
    * The "New Move Unlocked" card (game/newmove.js), null in shot mode. `open(name)` shows that
