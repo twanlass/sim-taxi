@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { PALETTE } from '../palette.js';
 import { AO_UNIFORMS, CLOUD_UNIFORMS, CLOUD_GLSL } from '../util/geo.js';
 import { WET_EXTENT } from './squall.js';
+import { HALF_SPAN_X, HALF_SPAN_Z } from '../city/grid.js';
 
 /**
  * Rain Mode — `?rain`. An exploration, off by default: the city on a wet afternoon.
@@ -644,6 +645,7 @@ ${WET_ALBEDO}`, 'ground fragment');
     uCellTime: CLOUD_UNIFORMS.uCellTime,
     uCellShape: CLOUD_UNIFORMS.uCellShape,
     uCellLight: CLOUD_UNIFORMS.uCellLight,
+    uHalfSpan: { value: new THREE.Vector2(HALF_SPAN_X, HALF_SPAN_Z) },
   };
   const sunRays = new THREE.Mesh(rayGeo, new THREE.ShaderMaterial({
     uniforms: rayUniforms,
@@ -662,6 +664,7 @@ ${WET_ALBEDO}`, 'ground fragment');
       uniform float uCellTime;
       uniform vec4 uCellShape;
       uniform vec4 uCellLight;
+      uniform vec2 uHalfSpan;
       attribute vec2 corner;
       attribute vec4 seed;
       varying vec2 vCorner;
@@ -681,7 +684,12 @@ ${WET_ALBEDO}`, 'ground fragment');
         float gap = smoothstep(0.08, 0.3, shade) * (1.0 - smoothstep(0.7, 0.95, shade));
         float passed = smoothstep(0.4, 0.75, wet);
         float breathe = smoothstep(0.1, 0.6, 0.5 + 0.5 * sin(uCellTime * (0.22 + 0.2 * seed.w) + seed.w * 40.0));
-        vAlpha = uStrength * gap * passed * breathe * (0.6 + 0.4 * seed.z);
+        // Not out over the edge fog: a ray standing past the island's last street meets the fog's
+        // ground plane in a hard line (Tyler's screenshot, 2026-10-21), so it fades out over the
+        // last few units of the city instead.
+        vec2 out2 = abs(xz) - uHalfSpan;
+        float island = 1.0 - smoothstep(-8.0, 0.0, max(out2.x, out2.y));
+        vAlpha = uStrength * gap * passed * breathe * island * (0.6 + 0.4 * seed.z);
         vCorner = corner;
         if (vAlpha < 0.003 || uCell.w < 0.5) {
           // Off: behind the clip volume, so the quad costs no fill.
@@ -698,7 +706,19 @@ ${WET_ALBEDO}`, 'ground fragment');
         gl_Position = projectionMatrix * v;
       }
     `,
-    fragmentShader: shafts.material.fragmentShader,
+    // The storm's shaft profile, with the foot faded in over a third of the length rather than 6%:
+    // the quad's base is where it cuts into the ground, and a sharp-footed ray drew that cut as a line.
+    fragmentShader: /* glsl */ `
+      uniform vec3 uColor;
+      varying vec2 vCorner;
+      varying float vAlpha;
+      void main() {
+        float across = 1.0 - abs(vCorner.x);
+        across *= across;
+        float along = smoothstep(0.0, 0.35, vCorner.y) * pow(1.0 - vCorner.y, 1.4);
+        gl_FragColor = vec4(uColor * vAlpha * across * along, 1.0);
+      }
+    `,
   }));
   sunRays.frustumCulled = false;
   sunRays.renderOrder = 2;
