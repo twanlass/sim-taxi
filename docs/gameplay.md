@@ -2631,6 +2631,10 @@ spot (a horn and "You're on!"), then the screen cuts to black and opens close up
 corner is marked across the island (a white waypoint ring with a chequered flag flying over it, 4-8
 blocks away and never on the ring road, which is in the fog), the camera goes to look at it and
 comes back, the count goes three, two, one, and the two cars set off together, drag-race style.
+The count runs at `COUNT_STEP` (1.25s a number; Tyler: "slow the countdown a touch") and is pinned
+above the middle of the screen in 40px tabular figures, so the digits stay put rather than following
+the taxi and shifting with each glyph's width. "Head back!", "You won!" and "You lost!" are held on
+screen for `RACE_LABEL_MS` (2.8s) rather than popping like a fare's cash (main.js).
 
 **The race is there and back.** Each car has to come within `ARRIVE_RADIUS` of the flag's corner,
 and then of `home`, one end of the street they started on (`chooseHome`). When the taxi rounds the
@@ -2651,13 +2655,20 @@ they go out as it brakes for a corner and relight down the straight.
 
 **The finish is choreographed** (`updateFinale`, Tyler's six steps). The winner crosses the line
 and pulls up there (`WINNER_HOLD`, 1s; the taxi on the race's brake, `brakesTaxi`, since `parked`
-stops a car dead). Then a cut, behind the same wipe as the start: the winner is parked mid-block on a
-side street near where it finished, and the loser is put a block back on the oncoming side, rolling
-at `ARRIVAL_ROLL` (`chooseArrival`, by the start's rules: clear of traffic, off the water, in
-sight). The camera opens on the loser at `RACE_WATCH_ZOOM` (30) and follows it down the block until
-it skids to a stop window to window with the winner: on the hard brake from the point
-`stopDistance` says lands it level, with a squeal and rubber off its back wheels. Only then the word
-("You won!" / "You lost!"), and `RESULT_HOLD` (1.1s) later the money pops in the middle of the
+stops a car dead). Then a cut, behind the same wipe as the start: the winner is parked near the
+front of a side street near where it finished, **facing the way they raced** (`homeDir`, the heading
+the winner crossed the line on; Tyler: "make sure both cars face the same direction"), and the loser
+is put a block back on the same street, rolling at `ARRIVAL_ROLL` (`chooseArrival`, by the start's
+rules: clear of traffic, off the water, in sight). The street is one lane each way, so as at the
+start the racer is the one in the oncoming lane: on the cop pass's offset (`racePass`), held out
+there by `parkedOut` until the money has moved, whichever of them won. The winner stands at least
+`ARRIVAL_CLEAR` (7.5) up its lane, past what the junction's box check keeps clear of a landing
+(6.8): mid-block held the loser at the junction behind, 18 units short, in every race measured.
+The camera opens on the loser at `RACE_WATCH_ZOOM` (30) and follows it up the block until it skids
+to a stop level with the winner: on the hard brake from the point `stopDistance` says lands it
+level, with a squeal and rubber off its back wheels (over 96 headless races, within a unit along and
+12° of heading). Only then the word ("You won!" / "You lost!"), and `RESULT_HOLD` (2.2s) later the
+money pops in the middle of the
 screen and flies away — up into the cash counter for a win, out to the racer's car for a loss —
 and once it has landed the camera eases back out to the zoom the player had. The racer comes in at
 `ARRIVAL_CHASE` (0.4) rather than race pace: at 21.7 it reached the block too fast to stop on it.
@@ -2759,7 +2770,7 @@ sat on the line until the taxi drove by, and when it never did (Tyler: "racer ne
 there through the end of the race and after.
 
 - **The black opens on the faceoff**: the camera cut to the pair at `RACE_SHOT_ZOOM` (22, against
-  play's 52) for `FACEOFF` (1.6s), then the zoom walks back out while the camera goes to look at
+  play's 52) for `FACEOFF` (2.6s, long enough to read "Round the flag and back."), then the zoom walks back out while the camera goes to look at
   the finish. `parked` holds the taxi through all of it and outranks Loco Mode, so a thumb on the
   pill cannot jump the start. Both lanes are shut to newcomers (`setClosedLanes(…, 'race')`) and
   both cars carry `holdsLine`, so an oncoming left does not wait on a car that is not coming
@@ -3255,8 +3266,12 @@ button coming alive on the frame it lands. Four things make it a recovery rather
 - **The gas pedal stays dead for the whole five seconds** rather than waking on the first frame with a
   sixtieth of a second in it and going grey again under the player's thumb. A delivery outranks the
   climb: a pour lights the button on the frame it starts.
-- **The climb is shown.** The gas pedal greys out, and the fuel gauge carries the climb: the arc
-  fills back to a quarter in a muted gold (`#boost-meter.is-empty`), riding the pour's envelope —
+- **The climb is shown, in grey.** The gas pedal greys out, and the fuel gauge carries the climb: the
+  arc fills back to a quarter in **grey** (`#fuel-grad-dead`, swapped in under
+  `#boost-meter.is-empty`), so the bar says "not yet" the same way the pedal does (Tyler,
+  2026-10-21). On the frame the pedal wakes, both snap back to colour with a half-second flash of
+  the burn's glow (`.is-woke`, `wakeLoco` in main.js), which is the moment to press.
+  `?locogrey=classic` is the muted gold and no flash. The climb rides the pour's envelope —
   `updateBoostButton` feeds the recharge to `game/boostmeter.js` as a pour, so the climb gets that
   envelope and the spring at the end of it for free — but not its movement or its full glow
   (`#boost-meter.is-charging.is-filling`): a gauge bouncing on a pedal that refuses the press reads
@@ -3649,11 +3664,24 @@ straight through the door as it came down. It now parks 0.25 off the back wall i
 behind the curtain), and `stageLampsOff` in `sim/traffic.js` takes the brake lamps down once it has
 stopped — a loose rear lamp hangs on a 0.6 wire, so distance alone is not enough margin.
 
-**The destination is a lane**, for [the burger run's reasons](#the-burger-run): the driveway opens
-off the near lane of the road the door faces, running +Z, so the route is `findRouteOnto` that lane
-and the band is trimmed at the mouth by `endAt`. The taxi stays in the traffic model right up to the
-mouth and is caught on the frame it reaches it — a taxi that went past, boosting or weaving wide, is
-sent round the block for one more go. The same identity rule as the burger holds too: anything else
+**The destination is a lane — either side of the road**, for [the burger run's
+reasons](#the-burger-run). The driveway can be reached two ways: a right turn off the near lane of
+the road the door faces (running +Z, the one the opening merges onto), or a left turn off the far
+lane, across the near one. The run asks `findRouteOnto` for each and takes the cheaper, with a
+quarter-block handicap on the left for the wait it may cost, and the band is trimmed at whichever
+mouth it chose by `endAt`. The left is a quarter circle the two lane centres wide, coming out square
+across the near lane and then straight over it to the kerb (`entryPath(site, 'far')` in
+`game/opening.js`). A main street has no left in, because the planted median is in the way.
+
+**The left waits for a gap.** Once caught the taxi is out of the traffic model, so nothing on the
+near lane can see it crossing. While it is still on the far lane it is an ordinary car, so the run
+holds it on the brake short of the mouth until the near lane is clear 22 units back and 3 ahead of
+the driveway (about what an oncoming car covers at cruise while the taxi gets across), and cars
+behind queue on it. After 6 seconds without a gap it gives up and drives on.
+
+The taxi stays in the traffic model right up to the mouth and is caught on the frame it reaches it
+— a taxi that went past, boosting or weaving wide, is sent round for one more go, by whichever side
+is cheaper from there. The same identity rule as the burger holds too: anything else
 the player aims the taxi at takes the wheel back — including a rider boarding en route, who is
 dispatched to their drop-off and ends the trip there (the burger run hands the wheel back to the
 joint; the depot doesn't, because a repair is refused with anyone aboard). A taxi already turning
@@ -3968,7 +3996,7 @@ Escape and P toggle it from a keyboard.
 `src/game/runend.js`, styled in `index.html` under `#run-end`. The run ends three ways — a fare's
 clock hitting zero (aboard, or the third [strike](difficulty.md#strikes) on the kerb), a collision,
 a police bust — and all three land on the same screen: a title, the
-reason, the run's two stats (**Cash**, then **Time**), the [high-score table](#high-scores), and **Play again**. The title is
+reason, the run's three stats (**Cash**, **Max combo**, then **Time**), the [high-score table](#high-scores), and **Play again**. The title is
 set by the caller, so a timeout reads **Too Slow!**, a collision reads **Wrecked!**, and a police
 bust reads **Busted!**.
 
@@ -4000,10 +4028,14 @@ It is a **full-screen blackout**, not a modal over the city: a blurred card's ed
 loudest thing on the screen. Blacking the whole viewport out puts the run's numbers on nothing at
 all, which is what makes them the ending rather than an overlay on one.
 
-There are two rows, **Cash** then **Time**. Each rider's clock is budgeted off the work the fare
-takes ([difficulty.md](difficulty.md)), so how many fares a run carried and how far up the ramp it
-got both mostly restate how long it lasted, and near-synonyms would bury Cash, the one number the
-table ranks by. Cash comes first for that reason. History:
+There are three rows, **Cash**, **Max combo**, then **Time**. Each rider's clock is budgeted off the
+work the fare takes ([difficulty.md](difficulty.md)), so how many fares a run carried and how far up
+the ramp it got both mostly restate how long it lasted, and near-synonyms would bury Cash, the one
+number the table ranks by. Cash comes first for that reason. **Max combo** is the highest the
+[combo meter](#the-combo-meter) reached in the run (`combo.state.best`), written the way the meter
+writes it ("2.5x"). It is not a synonym of anything: it is the only row about how the run was
+driven rather than how long. A run that never landed a combo shows **1x** rather than dropping the
+row, so the card is the same shape every run. History:
 [the run-end screen](gameplay-history.md#the-run-end-screen).
 
 The stats are **one row each, label and value side by side**, and both are set in the *same* size,

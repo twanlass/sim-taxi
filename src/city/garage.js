@@ -8,7 +8,8 @@ import { taxiSignGeometry } from '../geometry/taxi.js';
 import { KERB_H } from './ground.js';
 import { lippedCap } from './buildings.js';
 import {
-  DIR, GRID_I, GRID_J, HALF_ROAD, LANE, isSegmentClosed, junctionReach, lineX, lineZ,
+  DIR, GRID_I, GRID_J, HALF_ROAD, LANE, isArterialZ, isSegmentClosed, junctionReach, laneOffZ,
+  lineX, lineZ,
 } from './grid.js';
 
 // The taxi's garage: a single-storey depot with a roller door on the street, and the one building
@@ -374,6 +375,27 @@ export function garageSite(block) {
       back: (lineZ(block.bj + 1) - junctionReach(DIR.PZ, block.bi + 1, block.bj + 1))
         - (doorZ + (HALF_ROAD - LANE)),
     },
+    // The way in from the other side of the road: the far lane, running −Z towards the junction at
+    // the near end of this block, and a left turn across the near lane into the driveway. Null on a
+    // main street, whose planted median stands between the far carriageway and the door.
+    //
+    // `x` is the lane's centre. The turn off it is a quarter circle of radius `x − near lane` — the
+    // two lane centres apart, so it lands square across the near lane on its centreline — and then
+    // `turnR` of straight over the rest of the near lane to the kerb (`entryPath` in
+    // game/opening.js). `back` is where `placeCar` has a car on that lane level with the mouth,
+    // counted back from the junction it runs to, exactly as `merge.back` is for the exit.
+    far: isArterialZ(block.bi + 1) ? null : (() => {
+      const x = lineX(block.bi + 1) + laneOffZ(block.bi + 1);
+      const leftR = 2 * laneOffZ(block.bi + 1);
+      return {
+        d: DIR.NZ,
+        i: block.bi + 1,
+        j: block.bj,
+        x,
+        leftR,
+        back: (doorZ + leftR) - (lineZ(block.bj) + junctionReach(DIR.NZ, block.bi + 1, block.bj)),
+      };
+    })(),
     // The camera's subject: the middle of the opening, in three dimensions.
     focus: { x: curtainX, y: KERB_H + DOOR_H / 2, z: doorZ },
   };

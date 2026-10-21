@@ -106,7 +106,7 @@ import { createClouds } from './game/clouds.js';
 import { createCarGhosts } from './game/carghosts.js';
 import { createRoadwork } from './game/roadwork.js';
 import { createFire } from './game/fire.js';
-import { createRace, WIN_PAY, LOSE_COST, TANK_FLOOR } from './game/race.js';
+import { createRace, WIN_PAY, LOSE_COST, TANK_FLOOR, COUNT_STEP } from './game/race.js';
 import { createSpeech } from './game/speech.js';
 import { createFlatbed } from './game/flatbed.js';
 import { createBoxSpill } from './game/boxspill.js';
@@ -974,14 +974,20 @@ const burgerRun = driveThru
 // The fare board's clocks are held for the whole visit, from the turn in off the lane to the camera
 // being handed back — the cost of a repair is the drive there, not the cut scene. See
 // `holdFareClocks`.
+// `?garageroute=classic` is the depot reached by its right turn in only — the lap round the block
+// whenever the taxi comes down the far side of the road (see the header of game/depotrun.js).
+const garageRouteClassic = new URLSearchParams(window.location.search).get('garageroute') === 'classic';
 const depotRun = garage && !shot
   ? createDepotRun({
     site: garage.site,
     mouth: entryPath(garage.site).mouth,
+    farMouth: garageRouteClassic ? null : entryPath(garage.site, 'far')?.mouth ?? null,
+    cars: traffic.cars,
     taxi: traffic.taxi,
     routeTo,
-    onArrive: (s0, handBack) => {
+    onArrive: (s0, handBack, side) => {
       if (!opening?.enter(s0, {
+        side,
         // Behind the shut door, so nobody sees the damage go.
         onRepair: () => {
           traffic.taxi.hp = TAXI_HP;
@@ -2182,17 +2188,17 @@ function onRaceEvent(type, detail) {
     });
   } else if (type === 'count') {
     raceTalk?.hide();
-    popLabel(String(detail.n), 'is-count');
+    popLabel(String(detail.n), 'is-count', COUNT_STEP * 1000, raceCountAt);
     haptic('snap');
   } else if (type === 'go') {
-    popLabel('Go!', 'is-count');
+    popLabel('Go!', 'is-count', LABEL_RISE_MS, raceCountAt);
     haptic('loco');
     // Enough in the tank to race on — see TANK_FLOOR. Poured straight in rather than flown: the
     // player's thumb is already on the pill.
     if (boost.fraction() < TANK_FLOOR) boost.topUp(TANK_FLOOR - boost.fraction());
   } else if (type === 'rounded') {
     // Halfway: the flag has just jumped back to the start line, which is easy to miss on a phone.
-    popLabel('Head back!', 'is-count');
+    popLabel('Head back!', 'is-count', RACE_LABEL_MS);
     haptic('snap');
   } else if (type === 'home') {
     // The first one is over the line, and pulls up there (game/race.js, WINNER_HOLD). Nothing on
@@ -2215,7 +2221,7 @@ function onRaceEvent(type, detail) {
   } else if (type === 'decided') {
     // Step 5: pulled up beside the winner — the word. The money is RESULT_HOLD later ('won'/'lost').
     raceSkid = null;
-    popLabel(detail.winner === 'taxi' ? 'You won!' : 'You lost!');
+    popLabel(detail.winner === 'taxi' ? 'You won!' : 'You lost!', 'is-count', RACE_LABEL_MS);
     haptic(detail.winner === 'taxi' ? 'pick' : 'snap');
     raceWatch ??= detail.loser;
     raceZoomHome ??= controller.state.zoom;
@@ -2249,6 +2255,12 @@ function onRaceEvent(type, detail) {
 const RACE_CUT_HOLD = 90;
 // How long "You're on!" gets before the screen goes: its ten letters type in 0.26s (speech.js).
 const RACE_CUT_DELAY = 500;
+// The race's words ("Head back!", "You won!") rise for twice an ordinary label's 1.4s: Tyler, "hold
+// messages longer". "You won!" then sits through RESULT_HOLD (2.2s) before the money moves.
+const RACE_LABEL_MS = 2800;
+// Where the three, two, one stand: one fixed point, a third of the way down the screen, rather than
+// over a taxi the camera is still easing back to — which moved each digit sideways from the last.
+const raceCountAt = () => ({ x: viewport.width() / 2, y: viewport.height() * 0.36 });
 // How long "Next time, then." stays up: its 16 letters type in ~0.4s (speech.js), then a beat to read.
 const RACE_DECLINE_MS = 1800;
 const RACE_SHOT_ZOOM = 22;
@@ -2363,12 +2375,13 @@ const launchTimeScale = (u) => 1 - (1 - LAUNCH_SLOW_MO_MIN) * Math.sin(Math.PI *
 // it was the whole CRASH_BANNER_DELAY and is now REPLAY_LEAD — and it has a floor that is not a
 // matter of taste: the replay can only show what the tape recorded, and the tape records the
 // seconds after the impact *during* this beat. Under the slow-mo ramp (SLOW_MO_MIN 0.18 rising
-// over 2100ms) 1.2s of wall clock is ~0.49s of sim, against the REPLAY_POST (0.45) the longest
-// shot plays out past the hit. A shot asking for more than was recorded is cut short, not broken.
+// over 2100ms) 1.55s of wall clock is ~0.75s of sim, against the REPLAY_POST (0.7) the longest
+// shot plays out past the hit — the last cut's, lengthened by a second of wall clock; at 1.2 the
+// live beat recorded 0.49 and that shot was capped at 0.45. A shot asking for more than was recorded is cut short, not broken.
 //
 // Not in shot mode — a still has no replay to show — and not for a bust or a timeout: nothing
 // happened fast enough in either to be worth seeing twice.
-const REPLAY_LEAD = 1200;
+const REPLAY_LEAD = 1550;
 // The breath between a tap that skips the replay and the card arriving — long enough that the tap
 // has let go before the card is there to take it as a tap on the tally. A replay that plays out
 // has no tail: its last slow-mo frame jump cuts straight to the card. It used to hand back to the
@@ -4053,8 +4066,13 @@ const labelQueue = [];
 let labelUp = null;          // { el, rise, at } — the one on screen
 let labelTimer = 0;
 
-function popLabel(text, cls = '') {
-  labelQueue.push({ text, cls });
+/**
+ * @param ms   how long it rises for, `LABEL_RISE_MS` unless the caller wants it held longer
+ * @param at   `() => {x, y}` to anchor at instead of the taxi — the race's count stands in one place,
+ *             where a taxi still easing in under the camera walked its digits sideways
+ */
+function popLabel(text, cls = '', ms = LABEL_RISE_MS, at = null) {
+  labelQueue.push({ text, cls, ms, at });
   pumpLabels();
 }
 
@@ -4081,8 +4099,8 @@ function clearLabel(up) {
   if (labelUp === up) labelUp = null;
 }
 
-function showLabel({ text, cls }) {
-  const start = taxiScreenPos();
+function showLabel({ text, cls, ms = LABEL_RISE_MS, at = null }) {
+  const start = at?.() ?? taxiScreenPos();
   const el = document.createElement('div');
   el.className = `earning is-label ${cls}`;
   el.textContent = text;
@@ -4091,10 +4109,12 @@ function showLabel({ text, cls }) {
   document.body.append(el);
   const rise = el.animate([
     { opacity: 0, transform: 'translate(-50%, -50%) translateY(4px)   scale(0.8)' },
-    { opacity: 1, transform: 'translate(-50%, -50%) translateY(-26px) scale(1.06)', offset: 0.3 },
-    { opacity: 1, transform: 'translate(-50%, -50%) translateY(-34px) scale(1)', offset: 0.75 },
+    // The pop and the fade keep their 1.4s timings (420ms up, 350ms out) whatever `ms` is, so a
+    // label held longer holds rather than rising in slow motion.
+    { opacity: 1, transform: 'translate(-50%, -50%) translateY(-26px) scale(1.06)', offset: 420 / ms },
+    { opacity: 1, transform: 'translate(-50%, -50%) translateY(-34px) scale(1)', offset: 1 - 350 / ms },
     { opacity: 0, transform: 'translate(-50%, -50%) translateY(-44px) scale(1)' },
-  ], { duration: LABEL_RISE_MS, easing: 'cubic-bezier(0.22, 1, 0.36, 1)', fill: 'forwards' });
+  ], { duration: ms, easing: 'cubic-bezier(0.22, 1, 0.36, 1)', fill: 'forwards' });
   const up = { el, rise, at: performance.now() };
   labelUp = up;
   rise.onfinish = () => {
@@ -4277,12 +4297,17 @@ function updateHud(dt) {
     showRunEnd(hud.banner, {
       title: s.failTitle,
       reason: s.failReason,
-      // Two numbers: what the run paid, which is what it is ranked on, and how long it lasted.
-      // Fares and Shift were cut (Tyler, 2026-10-06): with every rider's clock budgeted off the
-      // work it takes, both mostly restate Time, and four rows of near-synonyms buried the one
-      // number the table sorts by.
+      // What the run paid, which is what it is ranked on; the highest the combo meter got; and how
+      // long it lasted. Fares and Shift were cut (Tyler, 2026-10-06): with every rider's clock
+      // budgeted off the work it takes, both mostly restate Time, and four rows of near-synonyms
+      // buried the one number the table sorts by. Max combo is not one of those — it is the only
+      // row about *how* the run was driven — so it went back in (Tyler, 2026-10-21). It counts in
+      // tenths because the roll is integer, and floors at 1x so it climbs from where the meter
+      // starts rather than from 0x; a run that never landed a combo says 1x rather than dropping
+      // the row, so the card is the same shape every time.
       stats: [
         { label: 'Cash', value: s.money, format: (n) => `$${n}` },
+        { label: 'Max combo', value: Math.round(combo.state.best * 10), format: (n) => formatMult(Math.max(1, n / 10)) },
         { label: 'Time', value: s.elapsed, format: formatRunTime },
       ],
       // Recorded here rather than the moment the run ended, so the write happens on the frame the
@@ -4418,9 +4443,32 @@ function drawFuseFlame(level) {
   }
 }
 
+// The bar is grey for the climb out of empty and snaps back to gold with a flash on the frame the
+// pedal wakes (index.html, `.is-woke`). `?locogrey=classic` keeps the muted gold and no flash.
+const locoGrey = new URLSearchParams(window.location.search).get('locogrey') !== 'classic';
+if (!locoGrey) document.body.classList.add('locogrey-classic');
+let locoWasEmpty = false;
+let locoWokeTimer = 0;
+function wakeLoco() {
+  for (const el of [boostButton, boostMeterEl]) {
+    if (!el) continue;
+    // Off, a reflow, and on again: a CSS animation only restarts when its class is re-added.
+    el.classList.remove('is-woke');
+    void el.offsetWidth;
+    el.classList.add('is-woke');
+  }
+  clearTimeout(locoWokeTimer);
+  locoWokeTimer = setTimeout(() => {
+    boostButton?.classList.remove('is-woke');
+    boostMeterEl?.classList.remove('is-woke');
+  }, 600);
+}
+
 function updateBoostButton(dt) {
   if (!boostButton) return;
   const mode = boost.state.mode;
+  if (locoWasEmpty && mode !== 'empty' && locoGrey) wakeLoco();
+  locoWasEmpty = mode === 'empty';
   // The recharge out of 'empty' is fed to the meter as a pour, because to the player it is one:
   // fuel is arriving and the bar is moving. That buys the climb the leading edge and the glow for
   // free, and — the part worth the reuse — the spring on the end, which fires on the frame the
@@ -6213,7 +6261,9 @@ function tick() {
     const drifting = driftHolds(traffic.taxi) && traffic.taxi.drift.phase !== 'carry';
     // Or the street race's, for the finale: the winner pulling up and the loser skidding in. Through
     // the pedal because `parked` stops a car dead on the frame it is set (game/race.js).
-    traffic.taxi.braking = (bootlegBrake && !drifting) || Boolean(race?.brakesTaxi());
+    // And the depot run's, holding a left into the garage short of the driveway for a gap.
+    traffic.taxi.braking = (bootlegBrake && !drifting) || Boolean(race?.brakesTaxi())
+      || Boolean(depotRun?.holdsTaxi());
   }
   updateBoostButton(dt);
   skids.update(dt);
