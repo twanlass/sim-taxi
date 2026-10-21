@@ -4714,6 +4714,25 @@ const PRESSURE_END = difficulty.getTuning().pressureEnd;
     check('a finger picks on lift, once, and only if it did not slide; a mouse picks on click',
       seen.join() === '1,1,0,0,1', `touch ${seen[0]}, +echo ${seen[1]}, slid ${seen[2]}, `
       + `mouse lift ${seen[3]}, mouse click ${seen[4]}`);
+
+    // 5. A finger on a control laid over the canvas — the racer's "…" tag — that moves out from
+    //    under it on its own press: iOS hit-tests the click after the lift and hands it to the
+    //    canvas. That click is the tag's echo, and picking it as a miss turned the race the tag had
+    //    just asked about down ("Next time, then"). The next real tap on the map still picks.
+    const tag = {};
+    const tagTap = () => {
+      const base = { target: tag, isPrimary: true, pointerId: 4, pointerType: 'touch', clientX: at.x, clientY: at.y };
+      winOn.pointerdown(base);
+      winOn.pointerup?.(base);
+    };
+    let misses = 0;
+    // A fresh picker on the same stand-in: its handlers replace the first one's in `on`/`winOn`.
+    createPicker(pCam.camera, fingerCanvas, () => [], (kind) => { if (!kind) misses += 1; });
+    const after = [];
+    tagTap(); click(); after.push(misses);
+    misses = 0; finger('touch'); after.push(misses);
+    check('a tag\'s tap does not reach the map as a miss when its click lands on the canvas',
+      after.join() === '0,1', `tag + click ${after[0]} misses, then a map tap ${after[1]}`);
   }
 
   // --- The rider's diamond changes colour as the clock drains.
