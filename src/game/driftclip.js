@@ -26,6 +26,8 @@ export const BOOST_ON = 0.5;
 export const TAP = 1.2;
 export const TAP_LEN = 0.13;          // how long a key reads as pressed
 export const KICK_ON = 1.6;
+/** When the game lands the drift's combo: on the exit kick, Loco back on (sim/traffic.js). */
+export const LANDS_AT = KICK_ON;
 const KEYS_OFF = 2.7;                 // the row dims for the last beat, then the loop starts again
 
 /** The loop, in seconds: the length of the recording. */

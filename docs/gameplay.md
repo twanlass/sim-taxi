@@ -521,6 +521,12 @@ own speech bubble, made wider and centred over a dim with no pointer: "New Move 
 title slot, "U-Turn" as the line, then a clip of the move and the pedal row under it. No other words.
 The clip is printed on the run-end polaroid's paper ([The polaroid](#the-polaroid); one shared rule),
 canted -2.5° rather than -4° because the print is wide. `?movecard=classic` is the bare clip.
+Over the clip plays **the combo as the HUD shows it** (`comboOverlay` in game/newmove.js): the
+combo meter at the top of the frame reading 1x, and on the frame the game would land the move
+(each clip module's `LANDS_AT`) it rolls a step and the purple word ("Overtake 1.5x") rises off the
+taxi's roof, projected through the clip's camera (`taxiAt` in game/moveclip.js). Same markup and
+classes as play, so the card teaches what the player will see. The key to press next wears a
+breathing white ring, which bursts and fades on its press. `?cardcombo=classic` turns both off.
 
 The clip (`game/uturnclip.js` and `game/moveclip.js`) is a scripted 4.6s loop filmed **in the player's own city**, at the
 game's 3/4 view. On open, `pickStreet` chooses a straight two-way side street off the river with no

@@ -5,7 +5,7 @@ import { makeRng } from './util/rng.js';
 import { createScene, sinkShadowCaster, setHazeTop, HAZE_TOP } from './game/scene.js';
 import { createRain, GRIP } from './game/rain.js';
 import { createStorm } from './game/storm.js';
-import { createComboMeter, comboScope, formatMult } from './game/combometer.js';
+import { createComboMeter, comboScope, comboValue, formatMult } from './game/combometer.js';
 import { createSquall, RAMP, RAMP_CLASSIC, CELL_EDGE } from './game/squall.js';
 import { pedalZones as growPedalZones, pedalAfterMove } from './game/pedalzones.js';
 import {
@@ -168,9 +168,9 @@ import { setCityOccluders, sightlineClear } from './game/sightline.js';
 import { createBootleg, COMBO_GAP_MS as BOOTLEG_GAP_MS } from './game/bootleg.js';
 import { createOvertakeCombo, OVERTAKE_GRACE } from './game/overtake.js';
 import { createNewMove, createSeenFlag, MOVES, REPAIR, SHOW_DELAY } from './game/newmove.js';
-import { createUturnClip, pickStreet, clipKeys as uturnKeys } from './game/uturnclip.js';
-import { createDriftClip, pickCorner, clipKeys as driftKeys } from './game/driftclip.js';
-import { createOvertakeClip, pickOvertakeStreet, clipKeys as overtakeKeys } from './game/overtakeclip.js';
+import { createUturnClip, pickStreet, clipKeys as uturnKeys, LANDS_AT as UTURN_LANDS } from './game/uturnclip.js';
+import { createDriftClip, pickCorner, clipKeys as driftKeys, LANDS_AT as DRIFT_LANDS } from './game/driftclip.js';
+import { createOvertakeClip, pickOvertakeStreet, clipKeys as overtakeKeys, LANDS_AT as OVERTAKE_LANDS } from './game/overtakeclip.js';
 import { createRepairClip, clipKeys as repairKeys } from './game/repairclip.js';
 import { SKYLINE_CEILING } from './city/buildings.js';
 import { popHighlight, POP_TIME } from './game/selectpop.js';
@@ -5855,14 +5855,17 @@ const filmMove = (pick, make) => (cardCanvas) => {
 const moves = {
   overtake: {
     ...MOVES.overtake, seen: createSeenFlag({ key: MOVES.overtake.seenKey }), clipKeys: overtakeKeys,
+    combo: { ...comboValue('overtake'), at: OVERTAKE_LANDS },
     makeClip: filmMove(pickOvertakeStreet, (stage, street) => createOvertakeClip({ ...stage, street })),
   },
   uturn: {
     ...MOVES.uturn, seen: createSeenFlag({ key: MOVES.uturn.seenKey }), clipKeys: uturnKeys,
+    combo: { ...comboValue('uturn'), at: UTURN_LANDS },
     makeClip: filmMove(pickStreet, (stage, street) => createUturnClip({ ...stage, street })),
   },
   drift: {
     ...MOVES.drift, seen: createSeenFlag({ key: MOVES.drift.seenKey }), clipKeys: driftKeys,
+    combo: { ...comboValue('drift'), at: DRIFT_LANDS },
     makeClip: filmMove(pickCorner, (stage, corner) => createDriftClip({ ...stage, corner })),
   },
 };
@@ -5894,9 +5897,18 @@ const movesAfterRun = new URLSearchParams(window.location.search).get('newmove')
 if (new URLSearchParams(window.location.search).get('movecard') === 'classic') {
   document.body.classList.add('move-card-classic');
 }
+// The card's combo meter and word over the clip, and the ring on the key to press next (Tyler,
+// 2026-10-21; newmove.js). `?cardcombo=classic` is the bare clip and plain keys.
+if (new URLSearchParams(window.location.search).get('cardcombo') === 'classic') {
+  document.body.classList.add('card-combo-classic');
+}
 // What a closing card hands over to — the next card of the run's queue (`showUnlockedMoves`).
 let afterNewMove = null;
-const newMove = shot ? null : createNewMove({ viewport, onClose: () => afterNewMove?.() });
+const newMove = shot ? null : createNewMove({
+  viewport, onClose: () => afterNewMove?.(),
+  // The HUD's own combo meter and word, played in the clip (newmove.js `comboOverlay`).
+  comboMeter: { flame: comboFlameSvg(), colors: COMBO_FLAME, format: formatMult, tier: comboFlameTier },
+});
 // Seconds of game time until the card lands, or negative when none is due, and which move it is.
 let newMoveIn = -1;
 let newMoveDue = null;

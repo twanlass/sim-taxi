@@ -1769,6 +1769,34 @@
         filter: none; opacity: 1; transform: scale(0.84); transition: transform 0.12s ease-out;
       }
       body:not(.move-card-classic) .nm-key.is-lit { transform: none; }
+      /* The ring (newmove.js `pressKeys`): round the next key to press, breathing, and on the press
+         it bursts out and fades. White at the "+"'s weight, so it reads as the card's ink rather
+         than as part of the button. Drawn outside the key's own box, which is also what scales. */
+      .nm-key { position: relative; }
+      .nm-key::after {
+        content: ''; position: absolute; inset: -7px; border-radius: 50%;
+        border: 2.5px solid rgba(255, 255, 255, 0.85); opacity: 0; pointer-events: none;
+      }
+      body:not(.card-combo-classic) .nm-key.is-next::after { animation: nm-ring 1.1s ease-in-out infinite; }
+      body:not(.card-combo-classic) .nm-key.is-pressed::after { animation: nm-ring-pop 0.45s ease-out forwards; }
+      @keyframes nm-ring {
+        0%, 100% { opacity: 0.9; transform: scale(1); }
+        50% { opacity: 0.45; transform: scale(1.1); }
+      }
+      @keyframes nm-ring-pop {
+        0% { opacity: 0.9; transform: scale(1); }
+        100% { opacity: 0; transform: scale(1.55); }
+      }
+      /* The combo over the clip (newmove.js `comboOverlay`): the HUD's meter at the top of the
+         frame, where play puts it, and the purple word off the taxi's roof. A touch under the HUD's
+         size, the clip being a third of the screen's width; the word keeps its own. */
+      .nm-shot { position: relative; }
+      .nm-overlay { position: absolute; inset: 0; overflow: hidden; pointer-events: none; }
+      .nm-overlay .nm-meter {
+        position: absolute; top: 6px; left: 50%; transform: translateX(-50%) scale(0.8);
+        transform-origin: center top;
+      }
+      .nm-overlay .earning { position: absolute; z-index: 1; font-size: 16px; }  /* the meter's 0.8 */
 
       /* --- the HUD's entrance ------------------------------------------------
          Everything the player will need but cannot use yet starts off its own screen edge, and

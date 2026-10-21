@@ -424,9 +424,28 @@ export function createMoveClip({ scene, camera, renderFrame, canvas, freeze, car
     stamped = upTo;
   }
 
+  const roof = new THREE.Vector3();
   return {
     get time() { return t; },
     restart() { t = 0; stamped = -1; },
+    /**
+     * Where the taxi is in the card's frame, as fractions of its width and height: the point main.js
+     * pops combo words off in play (`taxiScreenPos`, 1.4 up), so the card's word lands where the
+     * game's will (newmove.js). Through the camera of the frame last drawn.
+     */
+    taxiAt() {
+      const cssW = cardCanvas.clientWidth;
+      const cssH = cardCanvas.clientHeight;
+      if (!cssW || !cssH) return null;
+      const viewW = canvas.clientWidth || 1;
+      const viewH = canvas.clientHeight || 1;
+      roof.set(car.x, 1.4, car.z).project(clipCam);
+      // The card shows the middle cssW × cssH of the full frame (`frame`).
+      return {
+        x: ((roof.x + 1) / 2 * viewW - (viewW - cssW) / 2) / cssW,
+        y: ((1 - roof.y) / 2 * viewH - (viewH - cssH) / 2) / cssH,
+      };
+    },
     update(dt) {
       // The window was resized under the card: the still is the wrong size, so take it again with
       // the stand-in out of shot.
