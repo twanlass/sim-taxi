@@ -106,7 +106,7 @@ import { createClouds } from './game/clouds.js';
 import { createCarGhosts } from './game/carghosts.js';
 import { createRoadwork } from './game/roadwork.js';
 import { createFire } from './game/fire.js';
-import { createRace, WIN_PAY, LOSE_COST, TANK_FLOOR } from './game/race.js';
+import { createRace, WIN_PAY, LOSE_COST, TANK_FLOOR, COUNT_STEP } from './game/race.js';
 import { createSpeech } from './game/speech.js';
 import { createFlatbed } from './game/flatbed.js';
 import { createBoxSpill } from './game/boxspill.js';
@@ -2182,17 +2182,17 @@ function onRaceEvent(type, detail) {
     });
   } else if (type === 'count') {
     raceTalk?.hide();
-    popLabel(String(detail.n), 'is-count');
+    popLabel(String(detail.n), 'is-count', COUNT_STEP * 1000, raceCountAt);
     haptic('snap');
   } else if (type === 'go') {
-    popLabel('Go!', 'is-count');
+    popLabel('Go!', 'is-count', LABEL_RISE_MS, raceCountAt);
     haptic('loco');
     // Enough in the tank to race on — see TANK_FLOOR. Poured straight in rather than flown: the
     // player's thumb is already on the pill.
     if (boost.fraction() < TANK_FLOOR) boost.topUp(TANK_FLOOR - boost.fraction());
   } else if (type === 'rounded') {
     // Halfway: the flag has just jumped back to the start line, which is easy to miss on a phone.
-    popLabel('Head back!', 'is-count');
+    popLabel('Head back!', 'is-count', RACE_LABEL_MS);
     haptic('snap');
   } else if (type === 'home') {
     // The first one is over the line, and pulls up there (game/race.js, WINNER_HOLD). Nothing on
@@ -2215,7 +2215,7 @@ function onRaceEvent(type, detail) {
   } else if (type === 'decided') {
     // Step 5: pulled up beside the winner — the word. The money is RESULT_HOLD later ('won'/'lost').
     raceSkid = null;
-    popLabel(detail.winner === 'taxi' ? 'You won!' : 'You lost!');
+    popLabel(detail.winner === 'taxi' ? 'You won!' : 'You lost!', 'is-count', RACE_LABEL_MS);
     haptic(detail.winner === 'taxi' ? 'pick' : 'snap');
     raceWatch ??= detail.loser;
     raceZoomHome ??= controller.state.zoom;
@@ -2249,6 +2249,12 @@ function onRaceEvent(type, detail) {
 const RACE_CUT_HOLD = 90;
 // How long "You're on!" gets before the screen goes: its ten letters type in 0.26s (speech.js).
 const RACE_CUT_DELAY = 500;
+// The race's words ("Head back!", "You won!") rise for twice an ordinary label's 1.4s: Tyler, "hold
+// messages longer". "You won!" then sits through RESULT_HOLD (2.2s) before the money moves.
+const RACE_LABEL_MS = 2800;
+// Where the three, two, one stand: one fixed point, a third of the way down the screen, rather than
+// over a taxi the camera is still easing back to — which moved each digit sideways from the last.
+const raceCountAt = () => ({ x: viewport.width() / 2, y: viewport.height() * 0.36 });
 // How long "Next time, then." stays up: its 16 letters type in ~0.4s (speech.js), then a beat to read.
 const RACE_DECLINE_MS = 1800;
 const RACE_SHOT_ZOOM = 22;
@@ -4050,8 +4056,13 @@ const labelQueue = [];
 let labelUp = null;          // { el, rise, at } — the one on screen
 let labelTimer = 0;
 
-function popLabel(text, cls = '') {
-  labelQueue.push({ text, cls });
+/**
+ * @param ms   how long it rises for, `LABEL_RISE_MS` unless the caller wants it held longer
+ * @param at   `() => {x, y}` to anchor at instead of the taxi — the race's count stands in one place,
+ *             where a taxi still easing in under the camera walked its digits sideways
+ */
+function popLabel(text, cls = '', ms = LABEL_RISE_MS, at = null) {
+  labelQueue.push({ text, cls, ms, at });
   pumpLabels();
 }
 
@@ -4078,8 +4089,8 @@ function clearLabel(up) {
   if (labelUp === up) labelUp = null;
 }
 
-function showLabel({ text, cls }) {
-  const start = taxiScreenPos();
+function showLabel({ text, cls, ms = LABEL_RISE_MS, at = null }) {
+  const start = at?.() ?? taxiScreenPos();
   const el = document.createElement('div');
   el.className = `earning is-label ${cls}`;
   el.textContent = text;
@@ -4088,10 +4099,12 @@ function showLabel({ text, cls }) {
   document.body.append(el);
   const rise = el.animate([
     { opacity: 0, transform: 'translate(-50%, -50%) translateY(4px)   scale(0.8)' },
-    { opacity: 1, transform: 'translate(-50%, -50%) translateY(-26px) scale(1.06)', offset: 0.3 },
-    { opacity: 1, transform: 'translate(-50%, -50%) translateY(-34px) scale(1)', offset: 0.75 },
+    // The pop and the fade keep their 1.4s timings (420ms up, 350ms out) whatever `ms` is, so a
+    // label held longer holds rather than rising in slow motion.
+    { opacity: 1, transform: 'translate(-50%, -50%) translateY(-26px) scale(1.06)', offset: 420 / ms },
+    { opacity: 1, transform: 'translate(-50%, -50%) translateY(-34px) scale(1)', offset: 1 - 350 / ms },
     { opacity: 0, transform: 'translate(-50%, -50%) translateY(-44px) scale(1)' },
-  ], { duration: LABEL_RISE_MS, easing: 'cubic-bezier(0.22, 1, 0.36, 1)', fill: 'forwards' });
+  ], { duration: ms, easing: 'cubic-bezier(0.22, 1, 0.36, 1)', fill: 'forwards' });
   const up = { el, rise, at: performance.now() };
   labelUp = up;
   rise.onfinish = () => {

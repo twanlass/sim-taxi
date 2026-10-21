@@ -57,7 +57,7 @@ function race(seed, player) {
       if (type === 'arrival-cut') race.stageArrival();
       if (process.env.RACE_DEBUG && ['arrival', 'skid', 'decided'].includes(type)) { const c = race.state.car; const t = traffic.taxi; const fx = Math.cos(t.yaw), fz = -Math.sin(t.yaw);
         const along = (c.x - t.x) * fx + (c.z - t.z) * fz; const across = (c.x - t.x) * Math.sin(t.yaw) + (c.z - t.z) * Math.cos(t.yaw);
-        console.log(`      ${type} ${race.state.winner} t=${race.state.stepT.toFixed(2)} along ${along.toFixed(2)} across ${across.toFixed(2)} v ${c.v.toFixed(1)}/${t.v.toFixed(1)} s ${c.s.toFixed(2)}/${race.state.arrival?.stopS.toFixed(2)} lane ${c.lane?.id === race.state.arrival?.lane.id} ${c.state}`); }
+        console.log(`      ${type} ${race.state.winner} t=${race.state.stepT.toFixed(2)} along ${along.toFixed(2)} across ${across.toFixed(2)} v ${c.v.toFixed(1)}/${t.v.toFixed(1)} s ${c.s.toFixed(2)}/${race.state.arrival?.stopS.toFixed(2)} lane ${c.lane?.id === race.state.arrival?.lane.id} ${c.state} yaw Δ ${(Math.atan2(Math.sin(c.yaw - t.yaw), Math.cos(c.yaw - t.yaw)) * 180 / Math.PI).toFixed(0)}°`); }
     },
   });
   // No wipe here either: land the start the moment it is tapped.

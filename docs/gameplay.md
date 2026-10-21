@@ -2631,6 +2631,10 @@ spot (a horn and "You're on!"), then the screen cuts to black and opens close up
 corner is marked across the island (a white waypoint ring with a chequered flag flying over it, 4-8
 blocks away and never on the ring road, which is in the fog), the camera goes to look at it and
 comes back, the count goes three, two, one, and the two cars set off together, drag-race style.
+The count runs at `COUNT_STEP` (1.25s a number; Tyler: "slow the countdown a touch") and is pinned
+above the middle of the screen in 40px tabular figures, so the digits stay put rather than following
+the taxi and shifting with each glyph's width. "Head back!", "You won!" and "You lost!" are held on
+screen for `RACE_LABEL_MS` (2.8s) rather than popping like a fare's cash (main.js).
 
 **The race is there and back.** Each car has to come within `ARRIVE_RADIUS` of the flag's corner,
 and then of `home`, one end of the street they started on (`chooseHome`). When the taxi rounds the
@@ -2651,13 +2655,20 @@ they go out as it brakes for a corner and relight down the straight.
 
 **The finish is choreographed** (`updateFinale`, Tyler's six steps). The winner crosses the line
 and pulls up there (`WINNER_HOLD`, 1s; the taxi on the race's brake, `brakesTaxi`, since `parked`
-stops a car dead). Then a cut, behind the same wipe as the start: the winner is parked mid-block on a
-side street near where it finished, and the loser is put a block back on the oncoming side, rolling
-at `ARRIVAL_ROLL` (`chooseArrival`, by the start's rules: clear of traffic, off the water, in
-sight). The camera opens on the loser at `RACE_WATCH_ZOOM` (30) and follows it down the block until
-it skids to a stop window to window with the winner: on the hard brake from the point
-`stopDistance` says lands it level, with a squeal and rubber off its back wheels. Only then the word
-("You won!" / "You lost!"), and `RESULT_HOLD` (1.1s) later the money pops in the middle of the
+stops a car dead). Then a cut, behind the same wipe as the start: the winner is parked near the
+front of a side street near where it finished, **facing the way they raced** (`homeDir`, the heading
+the winner crossed the line on; Tyler: "make sure both cars face the same direction"), and the loser
+is put a block back on the same street, rolling at `ARRIVAL_ROLL` (`chooseArrival`, by the start's
+rules: clear of traffic, off the water, in sight). The street is one lane each way, so as at the
+start the racer is the one in the oncoming lane: on the cop pass's offset (`racePass`), held out
+there by `parkedOut` until the money has moved, whichever of them won. The winner stands at least
+`ARRIVAL_CLEAR` (7.5) up its lane, past what the junction's box check keeps clear of a landing
+(6.8): mid-block held the loser at the junction behind, 18 units short, in every race measured.
+The camera opens on the loser at `RACE_WATCH_ZOOM` (30) and follows it up the block until it skids
+to a stop level with the winner: on the hard brake from the point `stopDistance` says lands it
+level, with a squeal and rubber off its back wheels (over 96 headless races, within a unit along and
+12° of heading). Only then the word ("You won!" / "You lost!"), and `RESULT_HOLD` (2.2s) later the
+money pops in the middle of the
 screen and flies away — up into the cash counter for a win, out to the racer's car for a loss —
 and once it has landed the camera eases back out to the zoom the player had. The racer comes in at
 `ARRIVAL_CHASE` (0.4) rather than race pace: at 21.7 it reached the block too fast to stop on it.
@@ -2759,7 +2770,7 @@ sat on the line until the taxi drove by, and when it never did (Tyler: "racer ne
 there through the end of the race and after.
 
 - **The black opens on the faceoff**: the camera cut to the pair at `RACE_SHOT_ZOOM` (22, against
-  play's 52) for `FACEOFF` (1.6s), then the zoom walks back out while the camera goes to look at
+  play's 52) for `FACEOFF` (2.6s, long enough to read "Round the flag and back."), then the zoom walks back out while the camera goes to look at
   the finish. `parked` holds the taxi through all of it and outranks Loco Mode, so a thumb on the
   pill cannot jump the start. Both lanes are shut to newcomers (`setClosedLanes(…, 'race')`) and
   both cars carry `holdsLine`, so an oncoming left does not wait on a car that is not coming
