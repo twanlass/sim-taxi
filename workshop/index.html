@@ -26,6 +26,10 @@
         --on-accent: #fff;
         /* The panels' corner, shared so the bench, the inset and the chat read as one set. */
         --radius: 12px;
+        /* How far a composer sits in from the panel that holds it (the chat, the pin note). Its box's
+           corner is the panel's less this, so the two curves are concentric rather than the inner one
+           bulging toward the outer at the corners. */
+        --composer-inset: 5px;
       }
       * { margin: 0; padding: 0; box-sizing: border-box; }
       html, body {
@@ -66,7 +70,7 @@
       #bench select option, #bench select optgroup { color: #16120a; }
       /* The native arrow sits flush against the pill's edge; drawn by hand instead so it has room.
          One chevron for every select in the workshop (the bench's two and the chat's Speed). */
-      #bench select, #speed {
+      #bench select, .composer .speed {
         appearance: none; -webkit-appearance: none;
         background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%23eef3f7' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
         background-repeat: no-repeat; background-position: right 10px center;
@@ -82,11 +86,11 @@
          is a pointer to hover with (a touch screen would leave them stuck on after a tap), and never
          on a disabled one. Pills go a step lighter, black fills a step off black, since there is
          nothing darker to go to. */
-      .seg button, .act, #bench select, #speed, #attachments button, .msg.user.queued button, #play,
+      .seg button, .act, #bench select, .composer .speed, #attachments button, .msg.user.queued button, #play,
       #inset-toggle { transition: background-color 0.12s, filter 0.12s, opacity 0.12s; }
       @media (hover: hover) {
         .seg button:hover:not(.on), .act:hover:not(:disabled):not(.primary),
-        #bench select:hover, #speed:hover { background-color: rgba(255, 255, 255, 0.22); }
+        #bench select:hover, .composer .speed:hover { background-color: rgba(255, 255, 255, 0.22); }
         .seg button.on:hover, .act.primary:hover:not(:disabled), .undo .act:hover:not(:disabled) {
           background: #2a323a;
         }
@@ -98,6 +102,9 @@
       .seg button:active:not(:disabled), .act:active:not(:disabled) { transform: translateY(0.5px); }
       label.slider { display: grid; grid-template-columns: 40px 1fr 38px; align-items: center; gap: 8px; }
       label.slider input { width: 100%; accent-color: var(--ink); }
+      #rim-box summary { cursor: pointer; }
+      #rim-rows { display: grid; gap: 4px; margin: 6px 0; }
+      #rim-rows label.slider { grid-template-columns: 78px 1fr 38px; }
       label.pick { display: grid; grid-template-columns: 40px 1fr; align-items: center; gap: 8px; }
       label.check { display: flex; gap: 6px; align-items: center; cursor: pointer; }
       .value { text-align: right; font-variant-numeric: tabular-nums; opacity: 0.8; }
@@ -157,14 +164,12 @@
       /* Sent and waiting on a reply (queued or in progress): dimmer, so the one being written is
          the one that reads as live. */
       .pin.sent { opacity: 0.6; z-index: 4; }
+      /* The same composer as the chat's (composer.js), in a panel of its own: wide enough for the
+         Speed picker, the mic and Send to sit along its bottom with room for a few words between. */
       #pin-note {
-        position: absolute; left: 0; top: 0; z-index: 5; width: 280px;
-        display: grid; gap: 6px; padding: 10px; border-radius: 10px;
+        position: absolute; left: 0; top: 0; z-index: 5; width: 320px;
+        display: grid; gap: 6px; padding: var(--composer-inset); border-radius: var(--radius);
         background: var(--panel); color: var(--ink); backdrop-filter: blur(6px);
-      }
-      #pin-note textarea {
-        width: 100%; resize: none; padding: 7px 9px 36px; border: 0; border-radius: 8px; outline: none;
-        background: rgba(255, 255, 255, 0.1); color: inherit; font: inherit;
       }
       #pin[hidden], .pin[hidden], #pin-note[hidden], #pin-note [hidden] { display: none; }
       body.playing #pin, body.playing .pin, body.playing #pin-note { display: none; }
@@ -200,14 +205,19 @@
         -webkit-mask-image: linear-gradient(to bottom, transparent 0, transparent 30px, #000 78px, #000 calc(100% - 40px), transparent 100%);
       }
       .msg { max-width: 92%; padding: 8px 11px; border-radius: 12px; white-space: pre-wrap; word-wrap: break-word; }
+      /* The pictures sit above the prompt; a bubble with no text has nothing to keep a gap from. */
+      .bubble-thumbs { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 12px; }
+      .bubble-thumbs.alone { margin-bottom: 0; }
+      .bubble-thumbs img { height: 72px; max-width: 100%; border-radius: 6px; display: block; }
       .msg.user { align-self: flex-end; background: var(--accent); color: var(--on-accent); font-weight: 600; }
       /* The emoji reaction on a user's message (chat.js): hangs off its bottom edge, 8px in from the right, popping
          in after a delay the script sets on it (`reaction-pop`). Lighter than the panel so it stands
          off the black bubble it overlaps. */
       .msg.user:has(.reaction) { position: relative; margin-bottom: 8px; }
-      /* A short message ends before the pill does: 8px inset + ~34px of pill is 42px in from the right edge,
-         so the text gets that much room (11px of it is the bubble's own padding already). */
-      .msg.user.short:has(.reaction) { padding-right: 46px; }
+      /* The pill reaches 8px inset + ~34px of pill = 42px in from the right edge, so every reacted
+         message gives its text that much room (11px of it is the bubble's own padding already), not
+         just the short ones: a long one's last line can end under the pill too. */
+      .msg.user:has(.reaction) { padding-right: 46px; }
       .reaction {
         position: absolute; right: 8px; bottom: -11px; padding: 3px 8px; border-radius: 999px;
         font-size: 12px; line-height: 1.3; background: rgb(62 74 86); color: var(--ink);
@@ -284,11 +294,11 @@
         background: var(--ink); vertical-align: 1px; animation: pulse 1.1s ease-in-out infinite;
       }
       @keyframes pulse { 0%, 100% { opacity: 0.25; transform: scale(0.75); } 50% { opacity: 1; transform: scale(1); } }
-      #speed {
+      .composer .speed {
         padding: 3px 24px 3px 10px; border: 0; border-radius: 999px; font: inherit; font-size: 12px; font-weight: 600;
         background-color: rgba(255, 255, 255, 0.12); color: inherit; cursor: pointer;
       }
-      #speed option { color: #16120a; }
+      .composer .speed option { color: #16120a; }
       @keyframes blink { 50% { opacity: 0; } }
       /* "Start a new chat?" (chat.js, `refreshSuggest`): a chip above the composer, only when the
          bench has moved to another model or the chat has run long. */
@@ -296,20 +306,23 @@
       #suggest[hidden] { display: none; }
       #suggest-new { flex: 1; font-size: 12px; text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
       #suggest-x { font-size: 12px; }
-      #compose { padding: 10px; display: grid; gap: 6px; }
-      #input {
+      #compose { padding: var(--composer-inset); display: grid; gap: 6px; }
+      .composer textarea {
         /* Grows with its text (chat.js, `autosize`) up to ten rows, then scrolls. The bottom padding
            is the strip the buttons sit in, so there is always a row clear under the last line. Ten
            rows is 10 line-heights (1.5em) plus the padding (9 + 40) and the border (2). */
         width: 100%; min-height: 64px; max-height: calc(10 * 1.5em + 51px); resize: none; overflow-y: auto;
-        padding: 9px 11px 40px; border-radius: 10px; border: 1px solid rgba(255, 255, 255, 0.12);
+        padding: 9px 11px 40px; border-radius: calc(var(--radius) - var(--composer-inset));
+        border: 1px solid rgba(255, 255, 255, 0.12);
         background: rgba(255, 255, 255, 0.05); color: inherit; font: inherit;
       }
       /* White at reduced opacity rather than the browser's grey, which read as a disabled box. */
-      #input::placeholder { color: rgb(255 255 255 / 55%); opacity: 1; }
-      #input:focus { outline: 2px solid rgba(255, 255, 255, 0.35); outline-offset: -1px; }
-      /* A text box with its buttons sitting inside its bottom-right corner: the chat's and the pin
-         note's. The box keeps clear room under its last line so text never runs beneath them. */
+      .composer textarea::placeholder { color: rgb(255 255 255 / 55%); opacity: 1; }
+      /* The border brightens instead of an outline drawn over it, so the edge stays the 1px it is. */
+      .composer textarea:focus { outline: none; border-color: rgba(255, 255, 255, 0.28); }
+      /* The composer (composer.js): a text box with its buttons sitting inside its bottom edge, the
+         chat's and the pin note's alike. The box keeps clear room under its last line so text never
+         runs beneath them. */
       .field { position: relative; }
       .field textarea { display: block; }   /* the bottom padding is on each box's own rule */
       .field-actions { position: absolute; right: 7px; bottom: 7px; display: flex; gap: 6px; }
@@ -318,11 +331,19 @@
          content, so a select, an icon pill and a text pill all came out a few pixels apart. */
       .field select, .field .act { height: 28px; box-sizing: border-box; line-height: 1; }
       .field .act { display: inline-flex; align-items: center; justify-content: center; }
-      #speed, #mic, #stop { padding-top: 0; padding-bottom: 0; }
-      /* The Speed picker, bottom-left of the box (chat.js reads it by id). */
+      .composer .speed, .composer .mic, .composer .stop { padding-top: 0; padding-bottom: 0; }
+      /* The Speed picker, bottom-left of the box. */
       .field-left { position: absolute; left: 7px; bottom: 7px; display: flex; gap: 6px; }
       /* Images pasted or dropped into the chat, waiting to go with the next message (chat.js). */
-      #attachments { display: flex; gap: 6px; flex-wrap: wrap; }
+      /* Inside the box, above the text, the way a sent bubble shows its pictures: laid over the
+         textarea's top padding, which chat.js grows by the row's height plus the bubble's 12px gap
+         (`--attach-h`), so the text starts under them and the box's border and focus ring wrap both.
+         Inset to the textarea's own padding so the thumbs line up with the text's left edge. */
+      #attachments {
+        position: absolute; top: 10px; left: 12px; right: 12px; z-index: 1;
+        display: flex; gap: 6px; flex-wrap: wrap;
+      }
+      .composer textarea { padding-top: calc(9px + var(--attach-h, 0px)); max-height: calc(10 * 1.5em + 51px + var(--attach-h, 0px)); }
       #attachments[hidden] { display: none; }
       #attachments .thumb { position: relative; width: 56px; height: 56px; border-radius: 8px; overflow: hidden; }
       #attachments img { width: 100%; height: 100%; object-fit: cover; display: block; }
@@ -330,22 +351,22 @@
         position: absolute; right: 2px; top: 2px; width: 16px; height: 16px; border: 0; border-radius: 50%;
         background: rgba(0, 0, 0, 0.6); color: #fff; font: inherit; font-size: 11px; line-height: 1; cursor: pointer;
       }
-      #compose.dropping #input { outline: 2px dashed var(--ink); outline-offset: -1px; }
+      #compose.dropping textarea { outline: 2px dashed var(--ink); outline-offset: -1px; }
       /* Stop is an icon: a rounded square, centred in a pill as tall as Send. */
-      #stop { display: inline-flex; align-items: center; justify-content: center; padding: 4px 12px; }
-      #stop[hidden] { display: none; }
-      #stop svg { display: block; }
-      /* Voice mode (chat.js). The mic is an icon pill like Stop. Listening, it becomes a stop button
+      .composer .stop { display: inline-flex; align-items: center; justify-content: center; padding: 4px 12px; }
+      .composer .stop[hidden] { display: none; }
+      .composer .stop svg { display: block; }
+      /* Voice mode (composer.js). The mic is an icon pill like Stop. Listening, it becomes a stop button
          (the mic glyph swaps for the square, and it fills black) and the Speed picker, Stop and Send
          step out of the way so the transcript has the box to itself. `hidden` stays the one switch
          for the button existing at all, since not every browser has speech recognition. */
-      #mic { display: inline-flex; align-items: center; justify-content: center; padding: 4px 12px; }
-      #mic[hidden] { display: none; }
-      #mic svg { display: block; }
-      #mic .stop-icon, #compose.listening #mic .mic-icon { display: none; }
-      #compose.listening #mic .stop-icon { display: block; }
-      #compose.listening #mic { background: var(--accent); color: var(--on-accent); }
-      #compose.listening #speed, #compose.listening #stop, #compose.listening #send { display: none; }
+      .composer .mic { display: inline-flex; align-items: center; justify-content: center; padding: 4px 12px; }
+      .composer .mic[hidden] { display: none; }
+      .composer .mic svg { display: block; }
+      .composer .mic .stop-icon, .composer.listening .mic .mic-icon { display: none; }
+      .composer.listening .mic .stop-icon { display: block; }
+      .composer.listening .mic { background: var(--accent); color: var(--on-accent); }
+      .composer.listening .speed, .composer.listening .stop, .composer.listening .send { display: none; }
       .act.primary { background: var(--accent); color: var(--on-accent); font-weight: 700; }
       .act:disabled { opacity: 0.35; cursor: default; }
 
@@ -386,10 +407,6 @@
         <h1>Model workshop</h1>
         <select id="model" aria-label="Model"></select>
         <div class="source" id="source"></div>
-        <div class="row seg" id="views">
-          <button type="button" data-view="orbit">Orbit</button>
-          <button type="button" data-view="game">Game view</button>
-        </div>
         <label class="pick">Paint <select id="paint" aria-label="Paint look"></select></label>
         <label class="pick">Weather <select id="weather" aria-label="Weather">
           <option value="day">Day</option>
@@ -397,6 +414,11 @@
           <option value="night">Night</option>
         </select></label>
         <label class="slider">Hour<input id="hour" type="range" min="0" max="24" step="0.1" /><span class="value" id="hour-v"></span></label>
+        <details id="rim-box">
+          <summary>Rim light</summary>
+          <div id="rim-rows"></div>
+          <button type="button" class="act" id="rim-reset">Reset</button>
+        </details>
         <div class="row">
           <label class="check"><input id="spin" type="checkbox" /> Turntable</label>
           <label class="check"><input id="wire" type="checkbox" /> Wireframe</label>
@@ -406,14 +428,8 @@
       </div>
       <div id="inset-box"><canvas id="inset-canvas"></canvas><button type="button" id="inset-toggle" aria-label="Minimize game zoom" title="Minimize">–</button></div>
       <div id="pin" hidden></div>
-      <div id="pin-note" hidden>
-        <div class="field">
-          <textarea id="pin-input" rows="2" placeholder="What should change here?"></textarea>
-          <span class="field-actions">
-            <button type="button" class="act primary" id="pin-send">Send</button>
-          </span>
-        </div>
-      </div>
+      <!-- Holds a composer (src/workshop/composer.js), built by viewer.js. -->
+      <div id="pin-note" hidden></div>
       <button type="button" id="play"><span class="glyph">▶</span><span class="label">Play</span></button>
       <div id="bench-error"></div>
     </div>
@@ -429,28 +445,8 @@
         <button type="button" class="act" id="suggest-x" title="Not now" aria-label="Dismiss">×</button>
       </div>
       <form id="compose">
-        <div id="attachments" hidden></div>
-        <div class="field">
-          <textarea id="input" placeholder="Make the taxi's roof sign bigger…" rows="3"></textarea>
-          <span class="field-left">
-            <select id="speed" title="Which model: Auto sends short, single requests to the fast one">
-              <option value="auto">Auto</option>
-              <option value="fast">Fast</option>
-              <option value="smart">Smart</option>
-            </select>
-          </span>
-          <span class="field-actions">
-            <button type="button" class="act" id="mic" aria-label="Dictate" title="Dictate" hidden>
-              <svg class="mic-icon" width="12" height="14" viewBox="0 0 12 14" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round">
-                <rect x="3.75" y="0.75" width="4.5" height="8" rx="2.25" fill="currentColor" stroke="none"/>
-                <path d="M1.5 6.5a4.5 4.5 0 0 0 9 0M6 11v2.25"/>
-              </svg>
-              <svg class="stop-icon" width="10" height="10" viewBox="0 0 10 10" aria-hidden="true"><rect width="10" height="10" rx="2" fill="currentColor"/></svg>
-            </button>
-            <button type="button" class="act" id="stop" aria-label="Stop" title="Stop" hidden><svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true"><rect width="10" height="10" rx="2" fill="currentColor"/></svg></button>
-            <button type="submit" class="act primary" id="send">Send</button>
-          </span>
-        </div>
+        <!-- #attachments is made by chat.js, inside the composer. -->
+        <!-- The composer goes here: built by src/workshop/composer.js, the same one as the pin note. -->
       </form>
     </aside>
 

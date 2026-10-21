@@ -612,6 +612,17 @@ export function getPaintLook() {
   return new URLSearchParams(window.location.search).get('paint');
 }
 
+/**
+ * `?rimtune=width:6,strength:1.5,…` — the rim light's live numbers (util/geo.js `RIM_TUNING`), which
+ * the model workshop passes through on Play so the game opens on what the bench's sliders show.
+ * Unknown keys and non-numbers are skipped by the caller.
+ */
+export function getRimTune() {
+  const raw = new URLSearchParams(window.location.search).get('rimtune');
+  if (!raw) return [];
+  return raw.split(',').map((pair) => pair.split(':')).map(([key, v]) => [key, Number(v)]);
+}
+
 /** `?rim=off|magenta|cyan|gold|white` — the paint's rim line; null is each car's own hue (util/geo.js). */
 export function getRimColor() {
   return new URLSearchParams(window.location.search).get('rim');

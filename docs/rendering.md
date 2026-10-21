@@ -273,9 +273,10 @@ rim line, which every look but classic now wears. Two things make it:
 - **The sheen takes the paint's full hue** (`tint` 1, toon has 0.5). Toon's half-white sheen is what
   turned the taxi pale blue-grey from above: a hard shape over most of a sunlit flank, half of it
   white. At 1 the taxi stays yellow.
-- **The highlights are small.** Toon's glint snaps on at cos 0.996 of the half-angle and its sheen at
-  0.975 (`uToonCut`, shared by toon and rim). The first cut, 0.982 and 0.86, drew a sun-sized oval
-  across the windscreen and a lobe over half the roof (Tyler, 2026-10-17).
+- **The highlights are small.** Toon's glint and sheen snap on at cos 1.001 and 1.01 of the half-angle
+  (`uToonCut`, shared by toon and rim) — past 1, so both are gone for now (set from the workshop
+  sliders, 2026-10-19). The first cuts, 0.982 and 0.86, drew a sun-sized oval across the
+  windscreen and a lobe over half the roof (Tyler, 2026-10-17); 0.996 and 0.975 followed.
 - **The rim is found on the screen, not on the surface.** The bodies are flat boxes, so no normal
   says where an edge is. Each light steps the fragment 4 half-res texels toward itself across the
   AO prepass's depth (`gRimEdge`); where the step lands more than 0.4 units further back — road, or
@@ -288,15 +289,15 @@ rim line, which every look but classic now wears. Two things make it:
 
 The line takes each car's own hue by default (`?rim=paint`; a yellow taxi gets a gold edge, a white
 cop a white one), `?rim=magenta|cyan|gold|white` tints every car one colour (`RIM_COLORS`), and
-`?rim=off` compiles it out. The ⚙️ panel has its width (in half-res texels), strength, sky share,
+`?rim=off` compiles it out. `RIM_STRENGTH` is 0 now (was 3; workshop sliders, 2026-10-19), so the line draws at zero until `?rimtune=` raises it. The ⚙️ panel has its width (in half-res texels), strength, sky share,
 car-colour mix and depth gap live, and the two toon cuts (past 1, that highlight is gone). `?paint=toon` is the look before rim; `?paint=layered` the
 realistic layered paint described above, and `?paint=satin&rim=off` any look without the line.
 
 **Flip colour, realistic paint and smooth bodies** (2026-10-17, experiments from Tyler's car-paint
 brief). The flip colour turns the paint toward a deeper shade of itself (its own colour squared,
 so yellow goes amber and white stays white) as the bent normal turns away from the camera, at
-`uFlip` strength: 0.7 on `rim`, 0.8 on `real`, `?flip=` to override, ⚙️ sliders for strength and
-falloff. `?paint=real` is the brief's stack on this source: a sharp clear-coat glint over a soft
+`uFlip` strength: 0.7 on `rim`, 1 on `real` (was 0.8), `?flip=` to override, ⚙️ sliders for strength and
+falloff (power 4 by default, was 1.6). `?paint=real` is the brief's stack on this source: a sharp clear-coat glint over a soft
 sheen, flakes, the full Fresnel coat and the flip, with both bends cut to a quarter because the
 bends are what smeared the layered look's reflection across a box. `?carbody=smooth` rounds the
 bodies instead: the arched body's profile corners filleted (0.14) and its flanks bevelled (0.05,
@@ -308,15 +309,15 @@ lit from those normals rather than flat-shaded. Smooth bodies are not a default.
 **painted reflection streaks** (`STREAKS`): a box panel reflects one point of the sky edge to
 edge, so instead each flank and end gets a horizon line, and every panel two diagonal bands,
 keyed to the body's box and slid by the flank's facing so they move as the car turns. Their colour
-is the sky's, lifted toward its own brightness, so they fade at night. `real` also doubles the rim
-to 8 texels, capped at 0.5 world units (`RIM_MAX_WORLD`), so the doubling shows in close-ups and
-play zoom keeps the rim look's width: uncapped, 8 texels at play zoom on a phone is 1.1 units, the
+is the sky's, lifted toward its own brightness, so they fade at night. `real` once doubled the rim
+to 8 texels, capped at 0.5 world units (`RIM_MAX_WORLD`); it is now 1 texel (workshop sliders,
+2026-10-19). The cap was there because, uncapped, 8 texels at play zoom on a phone is 1.1 units, the
 whole flank of a car. The rim and the streaks only go on car- and truck-sized bodies
 (`gCarSized`); the harbour's ships wear the same paint and came out white under both. And it only
 draws on a fragment the AO prepass drew itself: the helicopter, the plane and the river boats are
 not occluders, so the ground behind their own pixel read as an edge everywhere and they came out
 white. The gap is measured against the fragment's own plane carried along the step, so a
-receding bonnet or roof is not mistaken for an edge (it striped the taxi's panels at 2x). ⚙️ "Reflection streaks" sets their strength (0.6 on `real`, Tyler's pick; 0 elsewhere).
+receding bonnet or roof is not mistaken for an edge (it striped the taxi's panels at 2x). ⚙️ "Reflection streaks" sets their strength (0.25 on `real`, was Tyler's 0.6; 0 elsewhere).
 
 **Cost.** Per glossy fragment: two hashes, the derivatives, and two more Blinn-Phong lobes per
 light (one at play zoom, where the sparkle is skipped). Cars are a few percent of the frame, and
@@ -1026,6 +1027,12 @@ alone, so between the rings all four screen orientations are covered.
 **The taps are fixed, not jittered.** There is no noise, so there is no bilateral blur pass, and a
 frozen shot renders the same frame every time. Upsampling from half resolution is the hardware's
 bilinear filter, which is the only softening the signal needs.
+
+**The AO texture is claimed every frame, not once.** The `tAmbientOcclusion` uniforms are
+module-wide, so a second renderer on the page (the workshop's new-chat taxi builds its own pass)
+points them at *its* target. A texture from another WebGL context samples as black, and everything
+lit by the indirect term alone — the bench's shaded paint — went pure black. `render()` re-points
+the uniforms at its own target each frame, and `dispose()` clears them only if they are still its own.
 
 ### `MAX_DEPTH_DIFF` is bounded on both sides, and that is what fixes the radius
 
@@ -2525,7 +2532,8 @@ only when `boost.press()` returns true — the ready→active transition — so 
 running boost doesn't re-fire either.
 
 - **Tailpipe flame.** One-shot `InstancedMesh` burst of additive-blended orange motes, emitted
-  from the taxi's rear bumper (`TAXI_TAILPIPE_BACK` / `TAXI_TAILPIPE_HEIGHT` exported from
+  from just inside the taxi's boot (`TAXI_TAILPIPE_BACK`, the symmetric half-length, short of the
+  longer tail by `REAR_EXTRA` / `TAXI_TAILPIPE_HEIGHT` exported from
   `geometry/taxi.js`) shooting backwards along `-yaw`. Short-lived (~0.38s), grows fast, air-brakes
   quickly; alpha snaps to 1 then eases out. Additive blend so it *brightens* the road behind it
   rather than reading as an opaque decal. The crash owns its own module (`game/blast.js`), so this
@@ -3581,10 +3589,21 @@ invisible when the corner *was* the notch, obvious across a ten-step arc.
 The cabin is a band of dark windows under a **yellow roof** (`taxiBody`, painted), not one glass
 box. The camera looks down on the car, so the roof is most of what it sees: as an all-glass cabin
 the empty taxi read from above as dark glass and an unlit sign with yellow trim, and got lost in a
-busy frame. The glass runs from the body's top to `ROOF_BASE` (1.62) and the roof from there to the
-cabin's old top (1.75), overhanging the glass by 0.03 each way so it reads as a lid; the roof sign
+busy frame. The glass runs from the body's top to `ROOF_BASE` (1.62 + `BODY_RAISE`) and the roof from there
+to the cabin's top (`CABIN_TOP_H`, 1.75 + `BODY_RAISE`). The whole cabin rides up with the body:
+raising only the body's top ate the glass from 0.47 tall to 0.32. The roof overhangs the glass by 0.03 each way so it reads as a lid; the roof sign
 and the broken windscreen's plates sit where they always did. The depot's sign is built from the
 same parts, so it wears the roof too. `?taxiroof=classic` puts the glass box back.
+
+The cabin's rear is **curved like a classic 1970s cab's back window**: `curveBack` bows the glass
+and roof boxes' rear half forward as it climbs, zero at the body's top and `BACK_TUCK` (0.45) at the
+roof, along t² so it bows rather than leaning like a straight chamfer (which would only echo the
+windscreen's rake). The roof keeps ~0.8 of length after the windscreen's lean takes its share off
+the front. The cabin also **runs back over the taxi's longer tail**: `CABIN_EXTRA` (0.9, the tail's
+`REAR_EXTRA` growth plus 0.45) lengthens the glass and roof boxes at the rear only, so the front
+stays where it was and the centre moves back by half the growth, leaving a short boot deck behind
+the glass. A box has no vertices between its top and bottom edge to bend, so the cabin pieces are
+built with height segments (`cabinBox`; `?carbody=smooth` brings its own rings).
 
 Still open: in low sun the bonnet and boot come out pale silver, because the paint's sky reflection
 washes the yellow out of every face that points up — which costs the car more of its yellow from
@@ -3592,15 +3611,16 @@ above than the glass ever did.
 
 ### The taxi's chequer — `geometry/taxi.js`
 
-A band down each flank, `CAR_LEN * 0.82` long and 0.22 tall, split into **six cells** alternating
-`taxiTrim` near-black and `taxiSign` off-white. Six boxes a side rather than one, merged into the
-shell with everything else, so the livery costs a draw call of nothing.
+A band down each flank, the full `CAR_LEN` (plus `REAR_EXTRA`) from nose to tail, of **eight cells** in **one row** alternating `taxiTrim`
+near-black and `taxiSign` off-white, each cell two `STRIPE_ROW`s tall. Eight boxes a side rather than
+one (an even count, so it is black at one end and white at the other; ~0.48 a cell, near the old 0.55 pitch that survives at ~4px), merged into the shell with everything else, so the livery costs a draw call of nothing. It was a
+two-row chequerboard; it is one tall band now.
 
-**One row, not a chequerboard**, and that is a zoom decision. Through `TAXI_SCALE` the band is about
-2px tall at play zoom, so a second row would ask for 1px and get mush; a single row of alternating
-cells is the largest thing that still reads as *chequer* at this size. Six cells puts one at ~4px —
-about the finest pitch that survives. Square cells matching the band's own height would want twelve,
-at ~2px each, which alias into a flicker as the car turns.
+**The body's box is raised to hold the band's height** (`BODY_RAISE`). A single row sat in the
+shoulder under the old roofline, and a band two rows tall on the
+same flank would have been pasted over the glass. Raising the body carries everything
+that stood on the body's top up with it: the glass cabin's base, the windscreen foot (`SCREEN_FOOT`),
+the door belt, the lids and `TAXI_DECK_Y`.
 
 **Both colours are painted.** Letting the light cells fall through to the body makes a
 yellow-and-black band, which is a hazard stripe, not a taxi. The white is the roof sign's own off-white rather than a new entry, so the livery keeps the

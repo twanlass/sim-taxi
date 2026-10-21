@@ -52,9 +52,10 @@ doc; what the classic version was, and why it changed, is in that doc's history 
 | `?roofs=classic` | Solid flat roof caps, with no lip and no sunk deck | #511 | [city.md](city.md) |
 | `?foliage=classic` | The first, louder autumn palette | #486 | [rendering.md](rendering.md) |
 | `?water=classic` | The faceted first river surface | | [river.md](river.md) |
-| `?paint=classic` / `=layered` / `=chameleon` / `=satin` / `=toon` / `=rim` | Car paint before the layered finish, or one of the explored looks (default is `real`: sharp glint, flakes, flip colour, painted reflection streaks, double-width rim; `rim` was the default before it, `toon` before that) | #501 | [rendering.md](rendering.md) |
+| `?paint=classic` / `=layered` / `=chameleon` / `=satin` / `=toon` / `=rim` | Car paint before the layered finish, or one of the explored looks (default is `real`: sharp glint, flakes, flip colour, painted reflection streaks; `rim` was the default before it, `toon` before that) | #501 | [rendering.md](rendering.md) |
 | `?rim=off` / `=magenta` / `=cyan` / `=gold` / `=white` | The rim line every paint look wears: off, or one tint for every car (default: each car's own colour) | | [rendering.md](rendering.md#car-paint--the-layered-finish) |
-| `?flip=<0..1>` / `=off` | The paint's flip colour, a deeper shade of itself at grazing angles (default: 0.7 on `rim`, 0.8 on `real`, off elsewhere) | | [rendering.md](rendering.md#car-paint--the-layered-finish) |
+| `?rimtune=width:6,strength:1.5,…` | The paint's rim-light numbers (`RIM_TUNING` in util/geo.js), applied after the look and `?rim`; the model workshop sets it on Play so the game opens on its sliders | | [workshop.md](workshop.md) |
+| `?flip=<0..1>` / `=off` | The paint's flip colour, a deeper shade of itself at grazing angles (default: 0.7 on `rim`, 1 on `real`, off elsewhere) | | [rendering.md](rendering.md#car-paint--the-layered-finish) |
 | `?carbody=smooth` | Experimental: cars with rounded body edges and soft normals instead of flat boxes | | [rendering.md](rendering.md#car-paint--the-layered-finish) |
 | `?vehiclepaint=classic` | The plane, helicopters, boats, container ships and L train back on the plain flat material instead of the cars' paint | | [rendering.md](rendering.md#every-other-vehicle) |
 | `?classics=classic` / `=0.3` | No convertibles or camper vans / that chance per car, capped at 0.5 (default 1 in 40) | #495 | [traffic.md](traffic.md) |

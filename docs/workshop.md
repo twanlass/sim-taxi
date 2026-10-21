@@ -17,6 +17,7 @@ It runs under the dev server only. It is not a build input, so `npm run build` l
 | `src/workshop/catalog.js` | what can go on the bench, and which file builds each one |
 | `src/workshop/viewer.js` | the bench: renderer, cameras, the hot reload |
 | `src/workshop/chat.js` | the chat panel (browser side) |
+| `src/workshop/composer.js` | the composer as a component (`createComposer`): the growing text box with the Speed picker, mic, optional Stop and Send inside its bottom edge, Enter to send and dictation. Used by the chat panel and by the pin's note, so the two cannot drift; imports nothing |
 | `src/workshop/emptytaxi.js` | the new-chat screen: no copy, the game's taxi side on, doing its Loco Mode weave and bob on the spot, burning the Loco plume out of its tailpipe over a disc of road that fades to nothing round it (an `alphaMap`, so the panel behind stays the page, not black) whose centre dashes stream past; drawn through the game's render path so it wears the rim line and AO |
 | `src/workshop/consolelog.js` | forwards the page's console errors and warnings to the endpoint, and hands errors to `chat.js` for the auto-fix |
 | `tools/workshop-agent.mjs` | the chat's dev-server endpoint, which runs `claude -p` in the repo |
@@ -134,9 +135,9 @@ Each message the user sends wears an emoji reaction hanging off its bottom edge,
 text they typed contains a `?`, 👍 otherwise. It is deterministic on purpose, not the agent's reply
 (no model call), and it reads the typed text rather than the bubble, so a pin's label can't turn a
 statement into a question. It is stored on the message (`reaction`, with `sentAt`), so it survives
-the reload with the rest of the conversation. A one-line message of 24 characters or fewer is
-narrower than the pill's reach in from the edge (~42px), so it gets a `short` class and 46px of
-right padding to keep the badge off its last letters. The badge pops in 1200ms after the send; until
+the reload with the rest of the conversation. Every reacted message gets 46px of right padding
+(`.msg.user:has(.reaction)`), because the pill reaches ~42px in from the edge: a short one-liner
+would end under it, and so can the last line of a long message. The badge pops in 1200ms after the send; until
 then a "…" (three bouncing dots in the same pill, `.reaction.typing`) stands in for the agent
 thinking, fading in just after the message lands and out as the badge takes its place. The log is
 rebuilt on every streamed event, which would restart a plain CSS animation each time, so the
@@ -156,10 +157,14 @@ The half-typed message in the composer survives the same reload: it is written t
 nothing across a reload on its own, and the agent's edits reload the tab mid-sentence. Text only —
 pasted images are too big for `sessionStorage` and are not kept.
 
-The composer grows with its text (`autosize` in `chat.js`) from its 64px minimum to a cap of ten rows, then
+The composer grows with its text (`autosize` in `composer.js`) from its 64px minimum to a cap of ten rows, then
 scrolls; the manual resize handle is gone. The textarea's bottom padding is the strip the buttons sit in, so
 there is always a row clear under the last line. `scrollHeight` leaves the border out of a border-box, hence
 the `+ 2`, and the height is collapsed to `auto` first so it can shrink after a send or a deleted paragraph.
+
+A composer sits `--composer-inset` (5px) in from the panel that holds it (the chat, the pin note), and its
+box's corner is `--radius` less that inset, so the two curves are concentric instead of the inner one
+bulging toward the outer at the corners. Change the inset and the radius follows; don't give either a literal.
 
 Send (Queue, while the agent is busy) is disabled while the composer holds nothing to send: no text beyond
 whitespace and no pasted image (`syncSend`, run from `autosize` and `drawAttachments`, so every path that
@@ -249,9 +254,9 @@ dolly is folded from `camera.zoom` into the frustum each frame, because the AO's
 sized off `right - left` alone. It sits at the game camera's 400-unit standoff with a 1400 far plane,
 not at whatever clears the model: the sky dome is a 900-unit sphere, and a tighter far plane cuts it
 off and leaves the bench on black. It starts from the game camera's side of the model so the first
-thing you see is the face the player sees. **Game view** is the game's own
-`createCityCamera`: the fixed orthographic 3/4 view, wheel to zoom. Check anything small there,
-because at play zoom a world unit is about 7.7 px. The hour slider drives `game/daylight.js`, and
+thing you see is the face the player sees. There is no separate game view: the
+game-zoom inset below is the game's own `createCityCamera`, and checking anything small there
+is what it is for. The hour slider drives `game/daylight.js`, and
 the turntable spins the orbit. **Wireframe** draws the model's own materials as wires (the bench
 floor stays solid), for counting triangles and finding a stray face.
 
@@ -272,7 +277,7 @@ plinth so they stand at their city height, then recentred. The ambient fleet's v
 assembled from the same geometries `createTraffic` instances (body, front wheels, cargo box), on
 one material per paint, the way `wreckShell` copies a car out of the fleet.
 
-URL: `?model=<id>&view=game&hour=<0-24>&spin=1&wire=1&inset=0&paint=<look>&weather=<squall|night>`. The page keeps it current, so a reload or a shared
+URL: `?model=<id>&hour=<0-24>&spin=1&wire=1&inset=0&paint=<look>&weather=<squall|night>`. The page keeps it current, so a reload or a shared
 link comes back to the same bench.
 
 **Weather** previews lamps: Day, Squall or Night. It throws the game's own switches by hand
@@ -283,8 +288,11 @@ with the lights on, and Day or Squall hand the hour back. Wet and lens are left 
 patched one, so a mirror pass would only draw the model twice. `weather` is omitted from the URL while it is Day.
 
 **Paint** picks one of the game's `?paint=` looks. The look is compiled into the shader, so picking
-one rebuilds the model. **Play** opens the real game in a frame over the bench, carrying the paint
-look across, and tears it down again on the way back. **`R`** reframes the model (the Reframe button's key, ignored while typing). **`.`** hides every panel and leaves just the
+one rebuilds the model. **Rim light** (a collapsed section under Hour) is ten sliders on the paint's rim
+(`rimTuning`/`setRimTuning` in `util/geo.js`, the same rows as the game's ⚙️ panel). They are uniforms, so they move the
+paint live with no rebuild; each paint look sets its own rim width, so picking one re-reads the sliders, and Reset returns
+them to what they read when the page loaded, before any saved values were applied. They are not in the bench's URL: a 400ms-debounced move writes them to `localStorage` (`workshop.rim`), so a reload keeps the sliders (a stale or hand-edited entry is ignored), and echoes them as a `[rim-tuning] {…}` warning, which the page forwards to `.workshop/console.log`, so the chat can read the numbers back. **Play** opens the real game in a frame over the bench, carrying the paint
+look across and the sliders as `?rimtune=` (`getRimTune` in `util/shot.js`, applied in `decideLooks` after the look and rim colour, which each reset the numbers), so the game opens on what the bench shows; it tears the frame down again on the way back. **`R`** reframes the model (the Reframe button's key, ignored while typing). **`.`** hides every panel and leaves just the
 viewport.
 
 ## Voice
@@ -301,18 +309,34 @@ and the page needs microphone permission: a refusal is reported in the chat.
 
 ## Pasted images
 
-Images pasted or dropped onto the compose box (up to six) show as thumbnails above it and go with
-the next message. Each is re-encoded to PNG through a canvas, capped at 1600 px on the long side,
+Images pasted or dropped onto the compose box (up to six) show as thumbnails inside it, above the
+text, and go with the next message. The row (`#attachments`, made by `chat.js` and prepended to the composer) is
+laid over the textarea's top padding, which grows by the row's measured height plus the same 12px gap a sent
+bubble uses (`--attach-h`, set in `drawAttachments`), so six thumbnails wrapping to a second row push the text down
+and the box's border (which brightens on focus rather than gaining an outline) wraps both. Each is re-encoded to PNG through a canvas, capped at 1600 px on the long side,
 and the endpoint writes them to `.workshop/attachment-<n>.png` (clearing the last turn's first) and
 tells the agent to read them. Queued, they wait in IndexedDB beside the screenshot.
+
+The sent bubble (and its queued twin) shows the pictures as a row of thumbnails above the text with a
+12px gap between (the row is prepended, and drops its margin when the bubble has no text), not a
+"🖼 ×n" count. The full PNGs would not fit in the saved log (`sessionStorage`), so each is redrawn
+through a canvas to a 160 px JPEG (`thumbOf`) and that is what the message keeps and a reload replays.
 
 ## Pins and the queue
 
 A click on the model (a press that doesn't travel, so the orbit keeps its drags) drops a pin and
-opens a note beside it. The note goes to the chat with the spot described in the builder's own
+opens a note beside it. The note is the chat's own composer (`createComposer`), two rows tall, so a pinned message has the Speed picker and the mic too, and its Send reads Queue while the chat is on a reply. It is rebuilt with `viewer.js` on every hot reload, so the text being typed is handed across in `hot.data` (`pinText`). The note goes to the chat with the spot described in the builder's own
 coordinates (the hit point taken back through the model's transform, recentring and `TAXI_SCALE`
 included), the facing of the surface, the palette name of its vertex colour, and a screenshot with
 a ring drawn at the spot. The agent edits source, so those are the numbers it can find there.
+
+The sent bubble also carries a 240 px square thumbnail of the bench around the pin, ring at its
+centre (`captureCrop` in `viewer.js`), so the note can be tied back to the spot it was about when you
+scroll back through the chat. It is cut from the live canvas at its own pixel density and, like the
+full screenshot, taken at send time rather than when the message reaches the front of the queue. It is
+for you: the agent still gets only the 1024-wide shot. The bubble's text leads with `📍 <part>:` only
+when the builder named the part; the generic labels (`unnamed mesh`, `group`, `on the bench beside
+it`) are left off, since they say nothing the thumbnail doesn't (`GENERIC_LABELS` in `chat.js`).
 
 Messages sent while a reply is still going wait in a queue under it and go one at a time as each
 reply finishes; the server only ever runs one. A queued message goes with the bench as it was when

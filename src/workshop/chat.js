@@ -11,22 +11,16 @@
 // a reloaded page reattaches and replays what it missed.
 
 import { installConsoleCapture, signature } from './consolelog.js';
+import { createComposer } from './composer.js';
 
 const STORE = 'workshop-chat';
 const log = document.getElementById('log');
-const input = document.getElementById('input');
 const form = document.getElementById('compose');
-const sendButton = document.getElementById('send');
-const stopButton = document.getElementById('stop');
 const newButton = document.getElementById('new-chat');
-const attachmentsEl = document.getElementById('attachments');
-// Which model a message goes to: Auto lets the endpoint judge (`isSimple`), Fast and Smart say.
-// Kept in localStorage rather than the conversation, since it is a preference, not a turn.
-const speedSelect = document.getElementById('speed');
-if (speedSelect) {
-  speedSelect.value = localStorage.getItem('workshop-speed') ?? 'auto';
-  speedSelect.addEventListener('change', () => localStorage.setItem('workshop-speed', speedSelect.value));
-}
+// The pasted images' thumbnails, which go inside the composer above the text (`drawAttachments`).
+const attachmentsEl = Object.assign(document.createElement('div'), { id: 'attachments', hidden: true });
+// The gap between the thumbnails and the text: the same as a sent bubble's (`.bubble-thumbs`).
+const ATTACH_GAP = 12;
 
 /**
  * { sessionId, messages: [{ role, text } | { role: 'tool', name, detail }], runId, seen, queue }
@@ -95,6 +89,29 @@ const ATTACH_MAX = 1600;
 const ATTACH_LIMIT = 6;
 let attached = [];        // data URLs waiting for the next message
 
+// The text box, Speed picker, mic, Stop and Send: the same component as the pin note on the bench
+// (composer.js). Made here rather than at the top because building it asks `canSend`, which reads
+// `attached`. Its handlers are function declarations further down, hoisted.
+const composer = createComposer({
+  placeholder: 'Make the taxi\'s roof sign bigger…',
+  inputId: 'input',
+  stop: true,
+  canSend: () => attached.length > 0,
+  onSend: submit,
+  onInput: keepDraft,
+  onStop: () => {
+    if (chat.runId) fetch(`/__workshop/runs/${chat.runId}/stop`, { method: 'POST' }).catch(() => {});
+  },
+  onError: (text) => {
+    chat.messages.push({ role: 'error', text });
+    save();
+    render();
+  },
+});
+form.append(composer.el);
+composer.el.prepend(attachmentsEl);
+const { input, sendButton, stopButton, speedSelect } = composer;
+
 async function toPng(file) {
   const bitmap = await createImageBitmap(file);
   const scale = Math.min(1, ATTACH_MAX / Math.max(bitmap.width, bitmap.height));
@@ -112,6 +129,36 @@ async function addImages(files) {
     try { attached.push(await toPng(file)); } catch { /* not an image the browser can decode */ }
   }
   drawAttachments();
+}
+
+// What a sent bubble shows of an image: a small JPEG kept in the saved log (sessionStorage), where
+// the full PNG would not fit.
+const THUMB_PX = 160;
+async function thumbOf(src) {
+  try {
+    const img = new Image();
+    img.src = src;
+    await img.decode();
+    const scale = Math.min(1, THUMB_PX / Math.max(img.naturalWidth, img.naturalHeight));
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.max(1, Math.round(img.naturalWidth * scale));
+    canvas.height = Math.max(1, Math.round(img.naturalHeight * scale));
+    canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
+    return canvas.toDataURL('image/jpeg', 0.7);
+  } catch { return null; }
+}
+
+/** The pictures in a bubble, as a row of thumbnails, to go above its text. */
+function thumbRow(thumbs, text) {
+  const row = document.createElement('div');
+  row.className = text?.trim() ? 'bubble-thumbs' : 'bubble-thumbs alone';
+  for (const src of thumbs) {
+    const img = document.createElement('img');
+    img.src = src;
+    img.alt = 'Attached image';
+    row.append(img);
+  }
+  return row;
 }
 
 function drawAttachments() {
@@ -134,6 +181,12 @@ function drawAttachments() {
     thumb.append(img, remove);
     return thumb;
   }));
+  // Make room for the row in the box's top padding: measured rather than assumed, since six of
+  // them wrap to a second row in the chat's width. The thumbs are a fixed size, so the height is
+  // known before the images decode.
+  const room = attached.length ? attachmentsEl.offsetHeight + ATTACH_GAP : 0;
+  composer.el.style.setProperty('--attach-h', `${room}px`);
+  composer.autosize();
 }
 
 input.addEventListener('paste', (event) => {
@@ -245,10 +298,8 @@ function element(message, latestUndo) {
   } else {
     el.className = `msg ${message.role}`;
     el.innerHTML = inline(message.text ?? '');
+    if (message.thumbs?.length) el.prepend(thumbRow(message.thumbs, message.text));
     if (message.reaction) {
-      // A short one-liner is narrower than the badge's reach in from the right edge, so the badge
-      // would sit on its last letters: `short` gives it right padding to clear the pill (index.html).
-      if (!/\n/.test(message.text ?? '') && (message.text ?? '').length <= 24) el.classList.add('short');
       const badge = document.createElement('span');
       badge.className = 'reaction';
       badge.textContent = message.reaction;
@@ -351,7 +402,8 @@ function render() {
   for (const item of chat.queue) {
     const el = document.createElement('div');
     el.className = 'msg user queued';
-    el.innerHTML = inline(bubbleText(item.text, item.pin, item.images ?? 0));
+    el.innerHTML = inline(bubbleText(item.text, item.pin));
+    if (item.thumbs?.length) el.prepend(thumbRow(item.thumbs, bubbleText(item.text, item.pin)));
     const cancel = document.createElement('button');
     cancel.type = 'button';
     cancel.title = 'Remove from the queue';
@@ -368,9 +420,11 @@ function render() {
   stopButton.hidden = !running;
 }
 
-// The images themselves stay out of the log (sessionStorage again), so a bubble just counts them.
-const bubbleText = (text, pin, images = 0) => `${pin ? `📍 ${pin.label}: ` : ''}${text}`
-  + (images ? `${text ? ' ' : ''}🖼 ×${images}` : '');
+// The full images stay out of the log (sessionStorage again); a bubble keeps small thumbnails.
+// The part's name only when the builder gave it one: "📍 unnamed mesh:" says nothing, and the
+// square crop beside the message already shows where it was pinned.
+const GENERIC_LABELS = new Set(['unnamed mesh', 'group', 'on the bench beside it']);
+const bubbleText = (text, pin) => `${pin && !GENERIC_LABELS.has(pin.label) ? `📍 ${pin.label}: ` : ''}${text}`;
 
 // True from the moment a message starts going until the server has given it a run id (or refused
 // it): without it, a message typed in that gap — or the queue draining into it — would be posted
@@ -385,14 +439,14 @@ function benchNow() {
 }
 
 /** Hold a message until the run ahead of it is done, with the bench as it is now. */
-function enqueue(text, pin = null, image = null, attachments = [], speed = null) {
+function enqueue(text, pin = null, image = null, attachments = [], speed = null, thumbs = []) {
   const id = `q-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
   if (!image) {
     try { image = window.__workshop?.capture?.() ?? null; } catch { /* sent with a fresh one */ }
   }
   if (image) keepImage(id, image);
   if (attachments.length) keepImage(`${id}:att`, attachments);
-  chat.queue.push({ id, text, pin, bench: benchNow(), images: attachments.length, speed });
+  chat.queue.push({ id, text, pin, bench: benchNow(), images: attachments.length, thumbs, speed });
   save();
   render();
 }
@@ -419,7 +473,7 @@ async function drain() {
   starting = false;
   const lost = (item.images ?? 0) - attachments.length;
   const text = lost > 0 ? `${item.text}\n\n(${lost} image(s) they attached were lost before this was sent.)` : item.text;
-  send(text, item.pin, image, item.bench, attachments, item.speed);
+  send(text, item.pin, image, item.bench, attachments, item.speed, item.thumbs);
 }
 
 // --- Talking to the dev server ---------------------------------------------
@@ -678,12 +732,12 @@ async function undo(message) {
  * `image` and `at` (the model and view) come with a queued message, taken when it was queued; a
  * message sent straight away reads them off the bench now.
  */
-async function send(text, pin = null, image = null, at = null, attachments = [], speed = null) {
+async function send(text, pin = null, image = null, at = null, attachments = [], speed = null, thumbs = []) {
   const bench = window.__workshop;
   starting = true;
   // Deterministic reaction, off what they typed (not the pin's label): a question gets 👀, anything
   // else 👍.
-  chat.messages.push({ role: 'user', text: bubbleText(text, pin, attachments.length), reaction: text.includes('?') ? '👀' : '👍', sentAt: Date.now() });
+  chat.messages.push({ role: 'user', text: bubbleText(text, pin), thumbs, reaction: text.includes('?') ? '👀' : '👍', sentAt: Date.now() });
   // The endpoint refuses an empty message, and an image on its own is a fair thing to send.
   const said = text || 'See the attached image.';
   const message = pin
@@ -763,25 +817,14 @@ function syncSend() {
   sendButton.disabled = !input.value.trim() && !attached.length;
 }
 
-/**
- * Size the box to its text. Collapsed first so it can shrink as well as grow, then set to the
- * content's height plus the border (`scrollHeight` leaves it out and the box is border-box). The
- * CSS `min-height` and `max-height` (ten rows) are what bound it; past the cap it scrolls.
- */
-function autosize() {
-  syncSend();
-  input.style.height = 'auto';
-  input.style.height = `${input.scrollHeight + 2}px`;
-  // Kept at the end while it grows, so the line being typed is not the one scrolled away.
-  if (input.scrollHeight > input.clientHeight) input.scrollTop = input.scrollHeight;
-}
+const autosize = () => composer.autosize();
 
 try { input.value = sessionStorage.getItem(DRAFT) ?? ''; } catch { /* a private window */ }
 autosize();
-input.addEventListener('input', () => {
-  autosize();
+// The composer's `onInput`: every keystroke, and every dictated word.
+function keepDraft() {
   try { sessionStorage.setItem(DRAFT, input.value); } catch { /* best effort */ }
-});
+}
 const clearDraft = () => {
   try { sessionStorage.removeItem(DRAFT); } catch { /* best effort */ }
   autosize();
@@ -811,102 +854,23 @@ try {
   }
 } catch { /* nothing noted */ }
 
-// --- Voice mode ---------------------------------------------------------------
-//
-// The browser's own speech recognition (the Web Speech API: `SpeechRecognition`, prefixed in Chrome
-// and Safari), so nothing is uploaded by this page and nothing is installed. The mic sits beside the
-// Speed picker; pressed, it starts listening and the transcript streams into the composer as it is
-// recognised, interim words included, appended after whatever was already typed. While it listens
-// the picker and Send are hidden and the mic is a stop button (CSS, `#compose.listening`). Not
-// every browser has it (Firefox does not), and the button stays hidden there.
-//
-// In Chrome the audio is sent to Google's recognition service, which is the browser's doing and not
-// ours, and the page needs microphone permission: a refusal is said in the chat rather than lost.
-const micButton = document.getElementById('mic');
-const Recognition = window.SpeechRecognition ?? window.webkitSpeechRecognition;
-let recognizer = null;
+// Voice mode is the composer's own (composer.js); a blocked microphone comes back through its
+// `onError` and is said in the chat rather than lost.
 
-if (micButton && Recognition) {
-  micButton.hidden = false;
-
-  const stopListening = () => recognizer?.stop();
-
-  micButton.addEventListener('click', () => {
-    if (recognizer) { stopListening(); return; }
-
-    const r = new Recognition();
-    r.continuous = true;          // keep going through pauses until stopped
-    r.interimResults = true;      // words appear as they are heard, then settle
-    r.lang = navigator.language || 'en-US';
-    // What was in the box when listening began, so the transcript goes after it, with a space
-    // between if the box did not already end in one.
-    const base = input.value && !/\s$/.test(input.value) ? `${input.value} ` : input.value;
-    r.onresult = (event) => {
-      let heard = '';
-      // `results` is everything since `start()`, finished and in-progress alike, so the box is
-      // rebuilt from base + all of it each time rather than appended to.
-      for (let i = 0; i < event.results.length; i++) heard += event.results[i][0].transcript;
-      input.value = base + heard.trimStart();
-      input.scrollTop = input.scrollHeight;
-      // The same event a keystroke fires, so the draft is kept for a reload.
-      input.dispatchEvent(new Event('input'));
-    };
-    r.onerror = (event) => {
-      // `no-speech` and `aborted` are just a quiet room or our own stop: not worth a message.
-      if (event.error === 'no-speech' || event.error === 'aborted') return;
-      chat.messages.push({
-        role: 'error',
-        text: event.error === 'not-allowed' || event.error === 'service-not-allowed'
-          ? 'Microphone access was blocked. Allow it for this page in the browser, then try again.'
-          : `Voice input stopped: ${event.error}.`,
-      });
-      save();
-      render();
-    };
-    r.onend = () => {
-      recognizer = null;
-      form.classList.remove('listening');
-      micButton.setAttribute('aria-label', 'Dictate');
-      micButton.title = 'Dictate';
-      input.focus();
-    };
-    try {
-      r.start();
-    } catch {
-      return;                     // already running: a double press
-    }
-    recognizer = r;
-    form.classList.add('listening');
-    micButton.setAttribute('aria-label', 'Stop dictating');
-    micButton.title = 'Stop dictating';
-  });
-
-  // The page going away mid-dictation would leave a recognizer talking to nothing.
-  addEventListener('pagehide', () => recognizer?.abort());
-}
-
-form.addEventListener('submit', (event) => {
-  event.preventDefault();
-  recognizer?.stop();           // a submit while dictating (Enter) ends it first
-  const text = input.value.trim();
-  if (!text && !attached.length) return;
+// The composer's `onSend`, on Enter or Send, with something to send.
+async function submit(text) {
   const images = attached;
   chat.autoChain = 0;           // a person is steering again: the auto-fix budget starts over
   input.value = '';
   clearDraft();
   attached = [];
   drawAttachments();
-  if (busy()) enqueue(text, null, null, images); else send(text, null, null, null, images);
-});
-input.addEventListener('keydown', (event) => {
-  if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) {
-    event.preventDefault();
-    form.requestSubmit();
-  }
-});
-stopButton.addEventListener('click', () => {
-  if (chat.runId) fetch(`/__workshop/runs/${chat.runId}/stop`, { method: 'POST' }).catch(() => {});
-});
+  const thumbs = (await Promise.all(images.map(thumbOf))).filter(Boolean);
+  if (busy()) enqueue(text, null, null, images, null, thumbs); else send(text, null, null, null, images, null, thumbs);
+}
+// The form is only the drop target now (Send is the composer's own button), but Enter in a form can
+// still submit it in some browsers: never let that navigate.
+form.addEventListener('submit', (event) => event.preventDefault());
 function newChat() {
   if (chat.runId) return;
   for (const item of chat.queue) unqueue(item);
@@ -966,8 +930,10 @@ setInterval(refreshSuggest, 1000);
 // this module imports nothing the viewer does, and the viewer re-runs under it.
 window.__workshopChat = {
   busy,
-  send: (text, { image = null, ...pin } = {}) => {
-    if (busy()) enqueue(text, pin, image); else send(text, pin, image);
+  send: (text, { image = null, thumbs = [], speed = null, ...pin } = {}) => {
+    // `thumbs` is the square around the pin, shown in the bubble beside the 📍; `speed` is the pin
+    // note's own Speed picker.
+    if (busy()) enqueue(text, pin, image, [], speed, thumbs); else send(text, pin, image, null, [], speed, thumbs);
   },
 };
 

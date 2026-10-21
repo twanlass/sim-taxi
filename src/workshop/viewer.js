@@ -15,7 +15,7 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { createScene } from '../game/scene.js';
 import { createDaylight, DAY_SECONDS } from '../game/daylight.js';
 import { createCityCamera, aimAtHeight, PLAY_ZOOM } from '../game/camera.js';
-import { bakeColor, propMaterial, setClassicPaint, setPaintLook } from '../util/geo.js';
+import { bakeColor, propMaterial, setClassicPaint, setPaintLook, rimTuning, setRimTuning } from '../util/geo.js';
 import { markOccluder, unmarkOccluder } from '../game/ssao.js';
 import { markEmissive, unmarkEmissive } from '../game/bloom.js';
 import { renderBudget, decideLooks, createRenderPath } from '../game/renderpath.js';
@@ -25,6 +25,7 @@ import { setRunningLights } from '../sim/traffic.js';
 import { makeRng } from '../util/rng.js';
 import { PALETTE } from '../palette.js';
 import { CATALOG, byId } from './catalog.js';
+import { createComposer } from './composer.js';
 
 const hot = import.meta.hot;
 // What a hot re-run hands to the next one (`hot.data`), or, after the full reload a shared-state edit
@@ -56,7 +57,6 @@ const state = {
   weather: WEATHERS.includes(params.get('weather')) ? params.get('weather') : 'day',
   model: byId(params.get('model') ?? kept.model ?? 'taxi').id,
   paint: PAINTS.includes(params.get('paint')) ? params.get('paint') : DEFAULT_PAINT,
-  view: params.get('view') === 'game' ? 'game' : 'orbit',
   hour: Number.isFinite(Number(params.get('hour'))) && params.has('hour') ? Number(params.get('hour')) : 16.4,
   spin: params.get('spin') === '1',
   inset: params.get('inset') !== '0',
@@ -68,7 +68,6 @@ const els = {
   model: document.getElementById('model'),
   paint: document.getElementById('paint'),
   source: document.getElementById('source'),
-  views: document.getElementById('views'),
   weather: document.getElementById('weather'),
   hour: document.getElementById('hour'),
   hourV: document.getElementById('hour-v'),
@@ -252,7 +251,7 @@ orbit.autoRotateSpeed = 1.6;
 const game = createCityCamera(aspect(), { zoom: 12 });
 let gameZoom = kept.gameZoom ?? null;
 
-const activeCamera = () => (state.view === 'game' ? game.camera : orbitCamera);
+const activeCamera = () => orbitCamera;
 
 // The game-zoom inset: the same camera again, drawn into a corner of the same canvas at the
 // density the game plays at, so a tweak made in close-up can be judged at the size it will be seen.
@@ -324,6 +323,74 @@ function applyWire() {
 function applyPaint() {
   setClassicPaint(state.paint === 'classic');
   setPaintLook(state.paint === 'classic' ? null : state.paint);
+  // Each look sets its own rim width, so the sliders follow it.
+  syncRim();
+}
+
+// The rim light's live numbers (util/geo.js `setRimTuning`), the same rows as the game's ⚙️ panel:
+// uniforms, so they move the paint without a rebuild. Reset goes back to what they read when this
+// run started.
+const RIM_FIELDS = [
+  ['width', 'Width', 1, 12, 0.5, 1],
+  ['strength', 'Strength', 0, 8, 0.05, 2],
+  ['sky', 'Sky', 0, 2, 0.05, 2],
+  ['carColour', 'Car colour', 0, 1, 0.05, 2],
+  ['gap', 'Depth gap', 0.05, 2, 0.05, 2],
+  ['glintCut', 'Glint cut', 0.97, 1.001, 0.001, 3],
+  ['sheenCut', 'Sheen cut', 0.8, 1.01, 0.005, 3],
+  ['flip', 'Flip colour', 0, 1, 0.05, 2],
+  ['flipPower', 'Flip falloff', 0.5, 4, 0.1, 1],
+  ['streaks', 'Streaks', 0, 2, 0.05, 2],
+];
+const rimInputs = [];
+function syncRim() {
+  const now = rimTuning();
+  for (const { key, input, value, digits } of rimInputs) {
+    input.value = String(now[key]);
+    value.textContent = Number(now[key]).toFixed(digits);
+  }
+}
+{
+  const rows = document.getElementById('rim-rows');
+  rows.replaceChildren();
+  const start = rimTuning();
+  for (const [key, text, min, max, step, digits] of RIM_FIELDS) {
+    const label = document.createElement('label');
+    label.className = 'slider';
+    const input = document.createElement('input');
+    Object.assign(input, { type: 'range', min, max, step });
+    const value = document.createElement('span');
+    value.className = 'value';
+    label.append(text, input, value);
+    rows.append(label);
+    rimInputs.push({ key, input, value, digits });
+    on(input, 'input', () => {
+      setRimTuning(key, Number(input.value));
+      value.textContent = Number(input.value).toFixed(digits);
+      saveRim();
+    });
+  }
+  // Kept in localStorage so a reload keeps the sliders, and echoed as a warning because the page
+  // forwards warnings to .workshop/console.log, which is how the chat reads the numbers back.
+  let saveTimer = 0;
+  function saveRim() {
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(() => {
+      const json = JSON.stringify(rimTuning());
+      localStorage.setItem('workshop.rim', json);
+      console.warn(`[rim-tuning] ${json}`);
+    }, 400);
+  }
+  try {
+    const saved = JSON.parse(localStorage.getItem('workshop.rim') ?? 'null');
+    for (const [key, v] of Object.entries(saved ?? {})) if (key in start && Number.isFinite(v)) setRimTuning(key, v);
+  } catch { /* a stale or hand-edited entry is not worth a broken bench */ }
+  syncRim();
+  on(document.getElementById('rim-reset'), 'click', () => {
+    for (const [key] of RIM_FIELDS) setRimTuning(key, start[key]);
+    syncRim();
+    saveRim();
+  });
 }
 
 function showError(error) {
@@ -467,7 +534,6 @@ function applyWeather() {
 }
 
 function syncPanel() {
-  for (const b of els.views.querySelectorAll('button')) b.classList.toggle('on', b.dataset.view === state.view);
   els.paint.value = state.paint;
   els.weather.value = state.weather;
   els.hour.value = String(state.hour);
@@ -479,8 +545,7 @@ function syncPanel() {
   els.inset.textContent = state.inset ? '–' : '+';
   els.inset.title = state.inset ? 'Minimize' : 'Restore';
   els.inset.setAttribute('aria-label', state.inset ? 'Minimize game zoom' : 'Restore game zoom');
-  orbit.enabled = state.view === 'orbit';
-  orbit.autoRotate = state.spin && state.view === 'orbit';
+  orbit.autoRotate = state.spin;
 }
 
 function formatHour(h) {
@@ -493,7 +558,7 @@ function syncUrl() {
   const q = new URLSearchParams(window.location.search);
   q.set('model', state.model);
   if (state.paint !== DEFAULT_PAINT) q.set('paint', state.paint); else q.delete('paint');
-  if (state.view === 'game') q.set('view', 'game'); else q.delete('view');
+  q.delete('view');
   q.set('hour', state.hour.toFixed(1));
   if (state.weather !== 'day') q.set('weather', state.weather); else q.delete('weather');
   if (state.spin) q.set('spin', '1'); else q.delete('spin');
@@ -507,13 +572,6 @@ on(els.paint, 'change', () => {
   state.paint = els.paint.value;
   applyPaint();
   load(state.model, { keepFraming: true });
-});
-on(els.views, 'click', (event) => {
-  const view = event.target.closest('button')?.dataset.view;
-  if (!view) return;
-  state.view = view;
-  syncPanel();
-  syncUrl();
 });
 on(els.weather, 'change', () => {
   state.weather = els.weather.value;
@@ -566,7 +624,11 @@ function setPlaying(on) {
     frame.id = 'game-frame';
     frame.title = 'Rocket Rides';
     frame.allow = 'autoplay; fullscreen';
-    frame.src = state.paint === DEFAULT_PAINT ? '/' : `/?paint=${state.paint}`;
+    // The rim sliders ride along as `?rimtune=`, so the game opens on what the bench shows.
+    const query = new URLSearchParams();
+    if (state.paint !== DEFAULT_PAINT) query.set('paint', state.paint);
+    query.set('rimtune', Object.entries(rimTuning()).map(([k, v]) => `${k}:${v}`).join(','));
+    frame.src = `/?${query.toString().replace(/%3A/g, ':').replace(/%2C/g, ',')}`;
     // Focused once it has loaded, so the game's keys work without a click into it first.
     frame.addEventListener('load', () => frame.focus(), { once: true });
     stage.append(frame);
@@ -593,8 +655,18 @@ on(els.play, 'click', () => setPlaying(!playing()));
 
 const pinEl = document.getElementById('pin');
 const noteEl = document.getElementById('pin-note');
-const noteInput = document.getElementById('pin-input');
-const noteSend = document.getElementById('pin-send');
+// The note is the chat's own composer (composer.js) — Speed picker, mic and Send included — so a
+// pinned message can be dictated or sent to a particular model like any other. Rebuilt with this
+// module on every hot reload; the text being typed is handed across (`data.pinText`).
+const note = createComposer({
+  placeholder: 'What should change here?',
+  rows: 2,
+  inputId: 'pin-input',
+  onSend: sendPin,
+  signal: listening.signal,
+});
+noteEl.replaceChildren(note.el);
+if (kept.pinText) note.value = kept.pinText;
 let pin = null;           // { point: Vector3 (world), context, label }
 
 const PALETTE_COLORS = Object.entries(PALETTE)
@@ -721,26 +793,30 @@ function placePin() {
 
 function openPin(found) {
   pin = found;
-  noteInput.value = '';
+  note.value = '';
+  // "Queue" while the chat is still on a reply, as the chat's own Send says.
+  note.setQueued(Boolean(window.__workshopChat?.busy?.()));
   placePin();
-  noteInput.focus();
+  note.autosize();          // measured now it is shown: a hidden box has no height to measure
+  note.focus();
 }
 
 function closePin() {
+  note.stopListening();
   pin = null;
   pinEl.hidden = true;
   noteEl.hidden = true;
 }
 
-function sendPin() {
-  const text = noteInput.value.trim();
+function sendPin(text) {
   const chatApi = window.__workshopChat;
   if (!text || !pin || !chatApi) return;
   const id = `pin-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
   // The screenshot is taken now, ring and all, not when the message reaches the front of the
   // queue: by then the camera has moved on, and the ring with it.
   const image = capture(pin.point);
-  chatApi.send(text, { id, label: pin.label, context: pin.context, image });
+  const crop = captureCrop(pin.point);
+  chatApi.send(text, { id, label: pin.label, context: pin.context, image, thumbs: crop ? [crop] : [], speed: note.speedSelect.value });
   // The pin stays up, without its note, so what was asked about is still marked while it waits
   // and while the reply comes in; it comes down when that reply is done.
   addSent(id, pin.point);
@@ -765,14 +841,9 @@ on(renderer.domElement, 'pointerup', (event) => {
   const found = pick(event.clientX, event.clientY);
   if (found) openPin(found); else closePin();
 });
-on(noteSend, 'click', sendPin);
-on(noteInput, 'keydown', (event) => {
-  if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) {
-    event.preventDefault();
-    sendPin();
-  } else if (event.key === 'Escape') {
-    closePin();
-  }
+// Enter and Send are the composer's; Escape is the note's own.
+on(note.input, 'keydown', (event) => {
+  if (event.key === 'Escape') closePin();
 });
 on(window, 'keydown', (event) => {
   if (event.key === 'Escape' && pin && !event.target.closest?.('textarea:not(#pin-input), input, select')) closePin();
@@ -801,13 +872,6 @@ on(window, 'keydown', (event) => {
   if (event.key.toLowerCase() !== 'r' || event.metaKey || event.ctrlKey || event.altKey || event.repeat) return;
   if (event.target.closest?.('input, textarea, select, [contenteditable]')) return;
   frame();
-});
-// The game view zooms on the wheel like the game does; the orbit has its own dolly.
-on(renderer.domElement, 'wheel', (event) => {
-  if (state.view !== 'game') return;
-  event.preventDefault();
-  gameZoom = THREE.MathUtils.clamp((gameZoom ?? 12) * Math.exp(event.deltaY * 0.0012), 2, 80);
-  applyGame();
 });
 
 // --- Frame loop -------------------------------------------------------------
@@ -842,10 +906,8 @@ function tick() {
   if (playing()) return;
   const dt = Math.min(clock.getDelta(), 0.05);
   elapsed += dt;
-  if (state.view === 'orbit') {
-    orbit.update();
-    foldZoom();
-  }
+  orbit.update();
+  foldZoom();
   try {
     current?.update?.(dt, elapsed);
   } catch (error) {
@@ -935,9 +997,37 @@ window.__workshop = {
     const entry = byId(state.model);
     return { id: entry.id, label: entry.label, source: entry.source };
   },
-  view: () => state.view,
+  view: () => 'orbit',
   capture: () => capture(pin?.point),
 };
+
+/**
+ * A square of the bench around `mark`, ring at its centre: the thumbnail that rides on a pinned
+ * message's bubble so the note can be tied back to the spot it was about. Taken from the live
+ * canvas at its own pixel density, so it is sharper than the 1024-wide shot the agent gets.
+ */
+function captureCrop(mark, side = 220, px = 240) {
+  const s = pinScreen(mark);
+  if (!s) return null;
+  draw();
+  const src = renderer.domElement;
+  const k = src.width / size().w;
+  const out = document.createElement('canvas');
+  out.width = px;
+  out.height = px;
+  const g = out.getContext('2d');
+  g.fillStyle = '#10151a';
+  g.fillRect(0, 0, px, px);
+  g.drawImage(src, (s.x - side / 2) * k, (s.y - side / 2) * k, side * k, side * k, 0, 0, px, px);
+  g.lineWidth = 3;
+  for (const [colour, r] of [['rgba(0, 0, 0, 0.6)', 13], ['#eef3f7', 11]]) {
+    g.strokeStyle = colour;
+    g.beginPath();
+    g.arc(px / 2, px / 2, r, 0, Math.PI * 2);
+    g.stroke();
+  }
+  return out.toDataURL('image/jpeg', 0.8);
+}
 
 /** The bench as it stands, with a ring drawn at `mark` (a world point) if there is one. */
 function capture(mark) {
@@ -1081,8 +1171,9 @@ if (hot) {
     data.model = state.model;
     data.gameZoom = gameZoom;
     // The pin outlives an edit (the agent's own, often) along with whatever is typed in its note,
-    // which is the DOM's and survives on its own.
+    // which the next run's composer is handed, since it builds a fresh one.
     data.pin = pin && { ...pin, point: pin.point.toArray() };
+    data.pinText = note.value;
     data.sent = [...sent].map(([id, { point }]) => [id, point.toArray()]);
     data.orbit = { position: orbitCamera.position.toArray(), target: orbit.target.toArray() };
     cancelAnimationFrame(raf);

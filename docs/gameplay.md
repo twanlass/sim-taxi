@@ -132,11 +132,19 @@ them, and the fare loop is held for the whole of it — see [the board waits](#t
 ### Where the taxi parks
 
 Its nose sits `NOSE_BEHIND` = 0.25 units back from the shut curtain, and the number that matters is
-what that is measured from: **`TAXI_TAILPIPE_BACK`, half the *drawn* car**. The taxi group wears
-`TAXI_SCALE` = 1.18, so the body on screen is 4.01 units long where `CAR_LEN` says 3.4 — and parking
-it by half of `CAR_LEN` put the nose a third of a unit *through* the closed door, as a yellow
-rectangle stamped across the middle of the shutter. The bay is sized off the same number: 5.2 deep,
-which is the car plus the recess plus somewhere for the back bumper. The probe asserts both ends.
+what that is measured from: **`TAXI_TAILPIPE_BACK`, the *drawn* car's half-length, `CAR_LEN / 2 · TAXI_SCALE`
+(deliberately without `REAR_EXTRA`)**. The
+taxi group wears `TAXI_SCALE` = 1.18, and its tail is `REAR_EXTRA` = 0.45 longer than the other cars'
+(a full-height block butted onto the body's rear end; the wheelbase and arches are untouched, and
+stretching the body's own end vertices was tried and drew a ledge over the wheel, because the rear
+arch's far lip lands on that end), so the body on screen is
+4.54 units long where `CAR_LEN` says 3.4 — and parking it by half of `CAR_LEN` put the nose a third
+of a unit *through* the closed door, as a yellow rectangle stamped across the middle of the shutter.
+The nose end is `CAR_LEN / 2 · TAXI_SCALE`; only the back grew, and the constant stays symmetric
+because the garage, the flatbed and the parking maths all use it as the half-length: folding
+`REAR_EXTRA` in pushed the nose out with it and put the parked tail 0.42 through the bay wall. The
+longer tail overhangs it by `REAR_EXTRA · TAXI_SCALE`, which the 5.2-deep bay (the car plus the
+recess plus somewhere for the back bumper) has room for. The probe asserts both ends.
 
 The back half of the body is hidden behind the +Z jamb at this camera, and no width of opening
 changes that — the sightline gains a unit of z for every unit of x, so it walks out of the doorway
