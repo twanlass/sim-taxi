@@ -147,7 +147,7 @@ import {
   bounceOffset, KICK_SCALE, KICK_HOP, RIM_SCALE, RIM_OFFSET, EMISSIVE, HIGHLIGHT_EMISSIVE,
   DIAMOND_HALF_H, BOUNCE_HEIGHT, PLUMBOB_CLASSIC, HOURGLASS_TILT, insideHourglass, MARKER_SHAPE, PIE_TURN, PIE_FACES_PER_WEDGE, pieWedgeOf, PIE_SLICES, PIE_RIM, pieShown,
 } from '../src/geometry/diamond.js';
-import { CRYSTAL_TOP, createFareMarker } from '../src/game/faremarker.js';
+import { CRYSTAL_TOP, createFareMarker, sliceKnockScale } from '../src/game/faremarker.js';
 import { QUESTION_GEO } from '../src/geometry/questionmark.js';
 import { createPerson, HIGHLIGHT_EMISSIVE as RIDER_HIGHLIGHT } from '../src/geometry/person.js';
 import { POP_SCALE_DIAMOND, POP_SCALE_RIDER, POP_TIME } from '../src/game/selectpop.js';
@@ -5002,6 +5002,42 @@ const PRESSURE_END = difficulty.getTuning().pressureEnd;
     check('the kick is a beat, not a state',
       framesKicking > 10 && framesKicking < 40 && !diamond.isKicking(),
       `${framesKicking} frames`);
+
+    // --- Each slice the pie loses knocks it, quietly early and harder on the last three.
+    //
+    // Drive the fill down an eighth at a time, holding the level, and record the peak swell over
+    // each step. Seeded first: the fill a fresh marker is handed must not count as a step. Pie only —
+    // the plumbob and the hourglass have no slices to lose.
+    if (MARKER_SHAPE === 'pie' && process.env.SLICEPULSE !== 'classic') {
+      diamond.showAt(URGENCY_SEGMENTS, 0, 0);
+      diamond.setFill(0.95);
+      diamond.update(t += 1 / 60);
+      const seededQuiet = !diamond.isKnocking();
+      const peaks = [];
+      for (let left = 7; left >= 1; left--) {
+        diamond.setFill((left - 0.5) / PIE_SLICES);
+        let peak = 0;
+        for (let f = 0; f < 40; f++) {
+          diamond.update(t += 1 / 60);
+          peak = Math.max(peak, diamond.mesh.scale.x);
+        }
+        peaks.push(peak);
+        diamond.setFill((left - 0.6) / PIE_SLICES);   // same slice: no second knock
+        diamond.update(t += 1 / 60);
+        if (diamond.isKnocking()) peaks.push(NaN);
+      }
+      const early = peaks.slice(0, 4);
+      const late = peaks.slice(4);
+      const knocked = peaks.length === 7 && peaks.every((p) => p > restScale * 1.05);
+      check('each slice the pie loses knocks it, and only once', seededQuiet && knocked,
+        `seeded quiet ${seededQuiet}, peaks ${peaks.map((p) => p.toFixed(3)).join(' ')}`);
+      check('the knocks grow over the last three slices',
+        Math.max(...early) < late[0] && late[0] < late[1] && late[1] < late[2]
+        && late[2] <= 1 + sliceKnockScale(1) + 1e-6,
+        peaks.map((p) => p.toFixed(3)).join(' '));
+      check('the knock settles back', !diamond.isKnocking()
+        && Math.abs(diamond.mesh.scale.x - restScale) < 1e-6);
+    }
 
     // A marker that pops the moment it appears is announcing a change that hasn't happened.
     diamond.showAt(URGENCY_SEGMENTS, 0, 0);

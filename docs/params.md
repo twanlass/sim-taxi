@@ -70,6 +70,7 @@ doc; what the classic version was, and why it changed, is in that doc's history 
 | `?taxifinder=classic` | The "back to the taxi" chip above the brake corner, which comes up while the taxi is completely off-frame. Off by default since 2026-10-20, since the camera rides home on its own after 1.5s | | [rendering.md](rendering.md#getting-back-to-the-taxi) |
 | `?camreturn=classic` | The camera stays where the player panned it, instead of riding back to the taxi after 1.5s with no touch on the map | #530 | [rendering.md](rendering.md#getting-back-to-the-taxi) |
 | `?taxiroof=classic` | The taxi's cabin is one dark glass box again, instead of a yellow roof over a band of windows | #530 | [rendering.md](rendering.md#the-taxis-roof--geometrytaxijs) |
+| `?locogrey=classic` | The fuel arc's climb out of empty in muted gold rather than grey, with no flash when Loco Mode wakes | — | [gameplay.md](gameplay.md#crazy-taxi-mode) |
 | `?locobar=classic` | The fuel arc with no tailpipe flame burning off its front | — | [gameplay.md](gameplay.md#crazy-taxi-mode) |
 | `?buttons=classic` | The NES B and A with their white shine (glint, dot, the dish's lit rim), and the fuel arc 8 units closer to Loco Mode | — | [gameplay.md](gameplay.md#crazy-taxi-mode) |
 | `?pedals=classic` | The round pedals with stop and lightning icons (not the NES B and A buttons), the wider ~197° fuel arc, and the 🚨 on the cash row instead of over Loco Mode | — | [gameplay.md](gameplay.md#crazy-taxi-mode) |
@@ -112,6 +113,7 @@ doc; what the classic version was, and why it changed, is in that doc's history 
 | `?route=classic` | The route stops dead at the rider's kerb, with no stub past the pickup | #480 | [gameplay.md](gameplay.md) |
 | `?newmove=classic` | New Move cards mid-run instead of after the run | #493 | [gameplay.md](gameplay.md) |
 | `?arrowpulse=classic` | The off-screen fare arrows hold still at the frame edge, with no slow swell and lean toward their mark | | [rendering.md](rendering.md#off-screen-fare-pointers) |
+| `?slicepulse=classic` | The rider's pie (and its off-screen arrow) does not knock when it loses a slice. Headless tools take `SLICEPULSE=classic` | | [rendering.md](rendering.md#the-fare-marker--gamefaremarkerjs) |
 | `?cardcombo=classic` | The New Move card without the combo meter and purple combo word over its clip, and without the ring on the key to press next | | [gameplay.md](gameplay.md#new-move-unlocked-the-overtake-u-turn-and-drift-cards) |
 | `?movecard=classic` | The New Move card's clip bare with rounded corners (not on polaroid paper), and its pedal keys drawn as the HUD buttons (not flat) and greyed until pressed | | [gameplay.md](gameplay.md#new-move-unlocked-the-overtake-u-turn-and-drift-cards) |
 | `?garageroute=classic` | The depot is reached by a right turn off the near lane only, so a taxi on the far side of the road goes round the block (default: it can also turn left in, waiting for a gap) | | [gameplay.md](gameplay.md#repairs-at-the-depot) |

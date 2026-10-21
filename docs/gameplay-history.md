@@ -1233,6 +1233,15 @@ vignette where you wanna smash through roadblocks." The getaway fills the tank a
 across your route; the third rule made the second the one thing it asked of you that ended the run.
 Replaced by [getting caught](gameplay.md#getting-caught).
 
+## The street race's finish, head-on
+
+The first choreographed finish parked the winner mid-block and brought the loser down the *oncoming*
+lane from the block beyond, so the two stopped window to window facing opposite ways. Tyler asked
+for both to face the way they raced; the loser now comes up the winner's own street from behind
+(gameplay.md). The same pass slowed the count from 1s a number to 1.25s, pinned it in place (it
+followed the taxi and its digits shifted sideways), and held the race's words and the faceoff longer
+(`FACEOFF` 1.6s to 2.6s, `RESULT_HOLD` 1.1s to 2.2s).
+
 ## The street race's start, opposite ways round
 
 The first cut-to-the-start put the two cars window to window on the street's two lanes, the racer
@@ -1306,3 +1315,12 @@ garage in plain view. Tyler: "Taxi never routes into the garage turning left int
 reason was the staged car: once the turn in starts the taxi is out of the traffic model, and a left
 crosses a lane whose cars cannot see it. The left in now waits for a gap on that lane first.
 
+## The muted-gold climb out of empty
+
+Until 2026-10-21 the fuel arc climbed back out of empty in the ordinary gold under
+`filter: saturate(0.35) brightness(0.8)` on the fill path, and lit up again with nothing more than
+the pour's spring. The pedal beside it was already fully grey, so the two disagreed about whether
+Loco Mode was usable, and a CSS filter on an element inside an SVG is the thing WebKit is least
+dependable about, so on a phone the bar may never have muted at all. Tyler asked for it grayscale;
+it is now a separate grey gradient, with a flash back to colour on the frame the pedal wakes.
+`?locogrey=classic` keeps the old look.
