@@ -130,6 +130,7 @@ Three places read it:
 |---|---|
 | `src/main.js` (service worker) | Registration skipped. The bundle is already local, and a cache-first worker survives an App Store update — serving the old game to someone who just installed the new one. |
 | `src/game/homescreen.js` (`isInstalled`) | Returns `true`. **Without this the App Store build shows a full-screen gate on every launch telling the player to install the game from Safari's share sheet** — a Guideline 4.2 rejection, holding the run behind it while it does so. `true` is the path an installed PWA already takes, so every downstream behaviour is already correct and already exercised. |
+| `src/game/sfx.js` (audio start) | Creates the audio context and decodes the sounds at boot rather than on the first tap, since the shell lifts the gesture rule. The title menu comes up with the city already sounding ([audio.md](audio.md#gestures-pauses-and-the-phone)). |
 | `index.html` (error panel) | Says one sentence instead of painting a stack trace at `inset: 0`. Capture is unchanged and everything still accumulates into `window.__errorLog` for Safari Web Inspector — the build loses nothing diagnostically, it just stops printing it at the player. |
 
 The debug panel needed no change: it has been opt-in behind `?debug`/`?settings` since the gear

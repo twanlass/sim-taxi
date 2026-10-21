@@ -28,6 +28,7 @@
  */
 // The designer's mix — see SHIPPED_MIX below.
 import MIX from '../../assets/audio/mix.json' with { type: 'json' };
+import { isNative } from '../util/platform.js';
 
 // The designer's files, keyed by the designer's own names so a re-delivery drops straight in. Each
 // is a literal `new URL` so Vite can see it at build time; a URL assembled from a variable is one
@@ -1021,7 +1022,7 @@ export function createSfx({ rng, menuMusic = false, menuSongs = false, radioFade
     setDash(state.dashRadio, ctx.currentTime);
   }
 
-  /** The beds that run all session, out of buffers already decoded. */
+  /** The beds that run all session, out of buffers already decoded — a fresh set (`revive`). */
   function buildBeds() {
     idle = tryLoop('idle');
     siren = tryLoop('siren');
@@ -1030,12 +1031,18 @@ export function createSfx({ rng, menuMusic = false, menuSongs = false, radioFade
     rotor = makeRotor();
   }
 
-  async function start() {
-    buildGraph();
-    startRadio();
-    // The spawn's takes first: they are the one sound with a deadline (see `play`).
-    const order = [...SOUNDS.spawn, ...Object.keys(FILES).filter((f) => !SOUNDS.spawn.includes(f))];
-    await Promise.all(order.map(async (key) => {
+  /** Any bed not running yet whose file has now decoded, so each starts the moment it can. */
+  function fillBeds() {
+    idle ??= tryLoop('idle');
+    siren ??= tryLoop('siren');
+    loco ??= tryLoop('locoLoop');
+    for (const key of AMBIENT) ambient[key] ??= tryLoop(key);
+    rotor ??= makeRotor();
+  }
+
+  async function decodeAll(keys) {
+    await Promise.all(keys.map(async (key) => {
+      if (buffers[key] || !FILES[key]) return;
       const p = bytesOf(key);
       try {
         const buf = await p;
@@ -1045,7 +1052,34 @@ export function createSfx({ rng, menuMusic = false, menuSongs = false, radioFade
         console.warn(`sfx: ${key} did not load`, err);
       }
     }));
-    buildBeds();
+  }
+
+  // In three waves, each waiting on the last, because the title menu's sound is the city's beds and
+  // they used to be the *last* thing it got. One `Promise.all` over every file handed the decoder
+  // all 73 at once (~400 s of audio, and the radio's ~185 s queued ahead of them), and nothing
+  // started until the slowest had finished — so the menu sat silent through the whole set, with
+  // the city loop ~50th in the queue. The spawn's takes still go first (the one sound with a
+  // deadline, see `play`), then the city bed on its own, then the rest of the beds, then
+  // everything else. Measured on a cloud core with ffmpeg as a stand-in decoder: the
+  // spawn and the city loop together are ~0.15 s, the whole set ~4 s.
+  async function start() {
+    buildGraph();
+    rotor = makeRotor();
+    const rest = Object.keys(FILES);
+    const beds = ['idle', 'siren', 'locoLoop', ...AMBIENT].map(bedFile);
+    await decodeAll([...SOUNDS.spawn, bedFile('city')]);
+    fillBeds();
+    // The station's ~185 s goes behind the effects while it is off the air (the title menu); on
+    // the air already (no title screen, or the menu's own songs) it waits only for the spawn and
+    // the city. Play pressed before the effects are in opens the station itself (`goOnAir`), so
+    // it is not started a second time here.
+    const radioNow = onAir || menuSongs;
+    if (radioNow) startRadio();
+    await decodeAll(beds);
+    fillBeds();
+    await decodeAll(rest);
+    fillBeds();
+    if (!radioNow && !onAir) startRadio();
     state.ready = true;
     if (state.held) suspendCtx();
   }
@@ -1415,7 +1449,7 @@ export function createSfx({ rng, menuMusic = false, menuSongs = false, radioFade
     locoSince = -1;
     buildGraph();
     setLevels(0.001);
-    if (state.ready) buildBeds();
+    buildBeds();
     // The old clock's schedule means nothing on the new one.
     generation++;
     ahead = 0;
@@ -1555,7 +1589,9 @@ export function createSfx({ rng, menuMusic = false, menuSongs = false, radioFade
   function update(dt, taxi, {
     cruise, top, holding, over, menu = false, siren: sirenAt = 0, rotor: rotorAt = 0, ambient: places = {},
   }) {
-    if (!state.ready) return;
+    // Not `ready`: that waits for every file, and the beds start as their own files land (`start`).
+    // Every voice below is null-checked until then.
+    if (!ctx) return;
     const t = ctx.currentTime;
     const v = Math.max(0, taxi.v);
     const alive = !over && !menu && !taxi.crashed;
@@ -1835,6 +1871,14 @@ export function createSfx({ rng, menuMusic = false, menuSongs = false, radioFade
     for (const id of replacements[key]?.ids ?? []) delete buffers[id];
     delete replacements[key];
   }
+
+  // The iOS app does not wait for a tap. Its shell lifts WebKit's gesture rule
+  // (`mediaTypesRequiringUserActionForPlayback = []`, the same allowance the startup screen's
+  // sting runs on — game/splashsound.js), so the context can run from boot and the files decode
+  // while the logo plays. Waiting for the first tap there meant the title menu came up silent and
+  // the city only arrived a tap *and* a decode later. Should WebKit hold the context suspended
+  // anyway, the first tap resumes it (`unlock`), which is where every browser still starts.
+  if (isNative()) start();
 
   return {
     state,
