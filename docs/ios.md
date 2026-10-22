@@ -145,6 +145,12 @@ pinned to the window's full bounds and left alone — `contentInsetAdjustmentBeh
 particular, because the default insets by the safe area and would double up on the
 `env(safe-area-inset-*)` padding the CSS already applies.
 
+- **No zoom.** The shell disables the scroll view's pinch recogniser, and the viewport meta in
+  `index.html` carries `maximum-scale=1, user-scalable=no`. The second is the one that holds:
+  WebKit zooms a page without the pinch recogniser (double-tap, zoom-to-focused-element), and once
+  pinch is off there is no gesture to undo it. Tapping Settings on the pause screen once left the
+  whole game stuck at ~1.5x. WKWebView honours the viewport's limits unless
+  `ignoresViewportScaleLimits` is set, so leave that alone.
 - **Wake lock.** `isIdleTimerDisabled = true`. There is no wake-lock code in `src/` because the Web
   Wake Lock API is not available in WKWebView — the web build simply cannot do this, and the screen
   dims mid-run. A fare has a 60-second clock and a player who is thinking is still playing.

@@ -2,7 +2,15 @@
 <html lang="en" class="booting">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <!-- `maximum-scale=1, user-scalable=no` is for the iOS app. Its shell turns off the scroll
+         view's pinch recogniser, but WebKit still zooms the page on its own — double-tap and
+         zoom-to-focused-element do not go through that recogniser — and with pinch gone the
+         player has no gesture to zoom back out: tapping Settings on the pause screen left the
+         whole game stuck at ~1.5x, rows running off the right edge, until the app was killed.
+         WKWebView honours these limits (`ignoresViewportScaleLimits` defaults to false), so the
+         page cannot leave scale 1 at all. Safari ignores `user-scalable=no` since iOS 10, so on
+         the web a deliberate pinch still works; `maximum-scale=1` there only stops focus zoom. -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
     <title>Rocket Rides 🚕</title>
     <!-- Home-screen icon. iOS's mask is round-cornered, so the artwork is centred with a purple
          border that the mask crops into. Every size is rendered from the game's own taxi by
