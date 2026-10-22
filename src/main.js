@@ -12,7 +12,7 @@ import {
   collectPanes, litWindows, streetLamps, entrances, switchedLights, createTaxiHeadlights, setCityLights,
 } from './game/citylights.js';
 import {
-  createCityCamera, attachDragPan, VIEW_DIR, PLAY_ZOOM, LOCO_PUNCH_HOLD,
+  createCityCamera, attachDragPan, VIEW_DIR, PLAY_ZOOM, LOCO_PUNCH_HOLD, RIGHT,
 } from './game/camera.js';
 import { createLayout } from './city/layout.js';
 import { createGround, KERB_H } from './city/ground.js';
@@ -5350,7 +5350,7 @@ const ltrainFade = [];
 function ltrainFadePoints() {
   ltrainFade.length = 0;
   // Behind the title menu the subject is whatever the reel has cut to (game/titlereel.js).
-  if (title?.holding() && titleReel) ltrainFade.push(...titleReel.fadePoints());
+  if (title?.holding() && titleReel && !storyCam) ltrainFade.push(...titleReel.fadePoints());
   const t = traffic.taxi;
   if (classicTrainFade) ltrainFade.push({ x: t.x, z: t.z });
   for (const slot of fares.slots) {
@@ -5802,6 +5802,10 @@ const title = wantsTitle ? createTitleScreen(document.getElementById('title-scre
   beforePlay: (done) => {
     if (!wantsBackstory()) return false;
     tellBackstory(document.getElementById('title-screen'), { done });
+    // The reel stops and the camera goes to the garage, cut under the wipe, and drifts there while
+    // dispatch talks (`storyFrame`) — so Play then eases down onto the door from close by.
+    const atGarage = () => { titleReel?.clear(); storyCam = { t: 0 }; };
+    if (opening) { if (wipe) wipe.cut(atGarage); else atGarage(); }
     return true;
   },
   onPlay: () => {
@@ -5811,6 +5815,8 @@ const title = wantsTitle ? createTitleScreen(document.getElementById('title-scre
     // kind of move. The classic drift keeps its ease — that was always one continuous shot.
     if (!titleReel) return;
     titleReel.clear();
+    // Already beside the garage after the backstory: the approach eases in from there.
+    if (storyCam) { storyCam = null; return; }
     if (wipe && opening) wipe.cut(() => opening?.cutToDoor());
     else opening?.cutToDoor();
   },
@@ -5839,6 +5845,18 @@ const titleReel = title && new URLSearchParams(window.location.search).get('titl
       },
     ].filter(Boolean),
   }) : null;
+// The backstory's shot (game/backstory.js): set under the wipe once the story is up, null otherwise.
+// A slow slide along screen-right past the garage door, wider than the door shot Play lands on.
+let storyCam = null;
+const STORY_ZOOM = 24;
+const STORY_DRIFT = 0.35;   // world units a second along screen-right
+const STORY_FROM = -3;      // where the slide starts, along screen-right of the door
+function storyFrame(dt) {
+  storyCam.t += dt;
+  const door = opening.doorAt();
+  const across = STORY_FROM + storyCam.t * STORY_DRIFT;
+  return { x: door.x + RIGHT.x * across, z: door.z + RIGHT.z * across, zoom: STORY_ZOOM };
+}
 // The camera cuts onto the drift on the first frame the title holds, rather than easing to it from
 // wherever boot left it — the menu's first frame is the first frame anyone sees.
 let titleFramed = false;
@@ -6651,7 +6669,10 @@ function tick() {
   // Debug mode follows Loco Mode on a desktop too: the placed sounds are heard from the middle of
   // the screen, so playtesting them while driving means the camera has to come along.
   const locoFollows = isNarrow() || debugMode;
-  if (title?.holding() && titleReel) {
+  if (title?.holding() && storyCam && opening) {
+    const p = storyFrame(dt);
+    controller.cutTo(p.x, p.z, p.zoom, 0, aspect());
+  } else if (title?.holding() && titleReel) {
     const p = titleReel.frame(dt, aspect());
     controller.cutTo(p.x, p.z, p.zoom, 0, aspect());
   } else if (title?.holding()) {
@@ -7109,7 +7130,7 @@ function tick() {
   renderFrame();
   // The title reel's crossfade takes its still of the outgoing shot here, straight after the draw
   // and in the same task — the only moment the canvas can be read (game/titlereel.js).
-  if (title?.holding() && titleReel?.snapDue()) titleReel.snapshot(renderer.domElement);
+  if (title?.holding() && !storyCam && titleReel?.snapDue()) titleReel.snapshot(renderer.domElement);
 }
 
 // The gear button sits top-right at small widths and started overlapping the streak counter

@@ -136,13 +136,16 @@ through.
 
 > Dispatch to Car 9. You there?
 > City council signed that **robo-taxi** deal. Cars are going to be on the streets come Monday.
-> Those stupid taxis brake for pigeons. Riders love 'em.
-> So go remind this town what a cab is for.
+> Those stupid taxis brake for pigeons. No idea why people love 'em.
+> Go remind this town what a real cab experience is all about.
 
 A tap anywhere finishes the line or moves on (Enter and Space too); **Skip** in the top corner, or
 Escape, ends it. A finished line left untapped for `NUDGE_AFTER` = 3 s gives the card a
 dock-icon bounce (a 12 px hop and a 5 px one), and again every 3 s until the tap; not under reduced
-motion. The last tap lets the run go exactly as Play used to. The title screen's gate stays
+motion. The landmark reel stops when the story starts: under a cut to black the camera goes to the
+garage and slides slowly past its door (`storyFrame` in `main.js`, zoom 24, 0.35 units a second),
+so the last tap eases straight down onto the door instead of cutting there. Otherwise it lets the
+run go exactly as Play used to. The title screen's gate stays
 shut the whole time (`beforePlay` in `titlescreen.js`), so the fare board, the vignette and the
 radio all wait behind it, and the story drives its own typing clock because the frame loop's
 speech updates are parked with everything else.

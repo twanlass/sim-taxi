@@ -16,8 +16,8 @@ import { createSeenFlag } from './progress.js';
 export const BACKSTORY_LINES = [
   'Dispatch to Car 9. You there?',
   'City council signed that {robo-taxi} deal. Cars are going to be on the streets come Monday.',
-  "Those stupid taxis brake for pigeons. Riders love 'em.",
-  'So go remind this town what a cab is for.',
+  "Those stupid taxis brake for pigeons. No idea why people love 'em.",
+  'Go remind this town what a real cab experience is all about.',
 ];
 
 // A finished line nobody has tapped for this long gives the card a nudge, and again every this long
