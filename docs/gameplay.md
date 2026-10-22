@@ -2689,14 +2689,16 @@ leave, and the tag goes back to the dots the moment the racer speaks. `?questmar
 dots. The "!" is up whenever the race can be taken (an
 empty cab, nothing owning the run) and the player can find the car: on the car whenever it is on
 screen, wherever the player has panned to, and pointing in from the screen edge only while the taxi
-is within `NEAR_BLOCKS` (3) of it, with a horn. Out of reach and off screen, or a rider picked up,
+is within `NEAR_BLOCKS` (3) of it. The racer makes no sound of its own anywhere in the vignette:
+the horn it gave on turning up, on the tap and at the start is gone (Tyler: "remove all the horn
+sounds"). Out of reach and off screen, or a rider picked up,
 and it goes until that changes (a block of slack on the way out of reach and two units past the
 frame, so it does not flicker on either boundary). The tag itself is a tap target. Tap it once and it asks: "Wanna race?" (Tyler wanted the question only for
 someone who tapped, rather than one more line on a busy screen). Tap it again and it answers on the
-spot (a horn and "You're on!"), then the screen cuts to black and opens close up on the two cars side by side, window to window ("Round the flag and back."). A
+spot ("You're on!"), then the screen cuts to black and opens close up on the two cars side by side, window to window ("Round the flag and back."). A
 corner is marked across the island (a white waypoint ring with a chequered flag flying over it, 4-8
 blocks away and never on the ring road, which is in the fog), the camera goes to look at it and
-comes back, the racer asks "Ready?" (a horn and a hop), and the tap on it, on its card or on the car,
+comes back, the racer asks "Ready?" (and hops), and the tap on it, on its card or on the car,
 starts the count: three, two, one, and the two cars set off together, drag-race style. Tyler wanted
 the player to say when ("tapping that is what triggers the countdown"). Left untapped it nags once
 at `READY_NAG` (6s, "Tap me when you're ready!") and counts in on its own at `READY_MAX` (15s): the
