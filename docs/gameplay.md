@@ -51,7 +51,8 @@ afterwards would sample the city's SSAO buffer at whatever pixel it stood on. Bu
 first, it is the plain car.
 
 **Where it plays.** Every cold start. Not wherever the title screen would not be either — shot mode,
-`?dev`, `?title=off`, the reload "Play again" does — and not on **`?splash=classic`**, which is the
+`?dev`, `?title=off`, the reload "Play again" does — nor on the reload the pause menu's Quit does,
+which lands on the title without the logo (a one-shot `simTaxi.skipSplash` in sessionStorage) — and not on **`?splash=classic`**, which is the
 old load: straight into the game, though the page is still black rather than sky until the city has
 drawn. The drop itself is walked in `tools/probe.mjs`: the body never dips into the road, and the
 car starts above the frame and is gone, plume included, at `exitTime` at a phone, a square and a
