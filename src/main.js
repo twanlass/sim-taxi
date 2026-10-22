@@ -143,7 +143,7 @@ import { createHomeScreenTip } from './game/homescreen.js';
 import { createTitleScreen, TITLE_CAM } from './game/titlescreen.js';
 import { tellBackstory, wantsBackstory } from './game/backstory.js';
 import { createTitleReel } from './game/titlereel.js';
-import { splashCovers } from './game/splash.js';
+import { splashCovers, SPLASH_SKIP_KEY } from './game/splash.js';
 import { createSettings, qualityOf } from './game/settings.js';
 import { createPause } from './game/pause.js';
 import { createInspect } from './game/inspect.js';
@@ -5970,8 +5970,12 @@ const pause = shot ? null : createPause({
   canPause: () => !fares.state.gameOver && !title?.holding(),
   sound: soundSwitch,
   settings,
-  // Quit abandons the run: a reload without the "Play again" skip flag lands back on the title.
-  onQuit: () => location.reload(),
+  // Quit abandons the run: a reload without the "Play again" skip flag lands back on the title —
+  // but not through the logo smash again, which this player already watched on the way in.
+  onQuit: () => {
+    try { window.sessionStorage.setItem(SPLASH_SKIP_KEY, '1'); } catch { /* soft: they see the logo */ }
+    location.reload();
+  },
   onChange: (paused) => {
     // A pause with the gas still down would resume into a boost the player is no longer holding —
     // the pill's own pointer never comes back up, because the veil took the release. Same reason
