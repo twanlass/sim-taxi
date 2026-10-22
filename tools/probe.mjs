@@ -241,6 +241,7 @@ import { createComboMeter, comboScope, COMBO_MAX } from '../src/game/combometer.
 import { createSfx, SHIPPED_MIX, SFX_EVENTS, SOUNDS, LOOPS, RADIO, radioBetween, DRIVE_THRU_SECONDS, DRIVE_THRU_TAIL, GROUPS, BUSES, MIX_PARENT, monitorPass } from '../src/game/sfx.js';
 import MIX_FILE from '../assets/audio/mix.json' with { type: 'json' };
 import { createTitleReel, SHOT as REEL_SHOT } from '../src/game/titlereel.js';
+import { placeSpeech } from '../src/game/speech.js';
 
 const seed = Number(process.argv[2] ?? 71624);
 const CARS_DEFAULT = 7;    // low-density baseline for the fare-loop checks — keeps timing thresholds stable regardless of runtime default
@@ -22551,6 +22552,26 @@ for (const viewName of ['side', 'quarter']) {
   const moving = onScreen.filter((s) => !(s.grounded && s.vel.length() < 0.5)).length;
   check('splash logo: the debris left in frame has come to rest by the fade', moving === 0,
     `${moving} of ${onScreen.length} in frame still moving`);
+}
+
+// The quest "!" tag never flips under its talker: a racer near the top of the frame got a tag
+// hung below it with the pointer on its top edge, an upside-down pin (2026-10-22). A card still
+// flips — it is too tall to rise into the HUD row — and a tag sits above wherever it can.
+{
+  const insets = { top: 0, right: 0, bottom: 0, left: 0 };
+  const flipped = [];
+  for (let y = 0; y <= 120; y += 2) {
+    const p = placeSpeech({ x: 200, y }, 24, 24, 390, 844, insets, { tag: true });
+    // The pointer hangs off the bottom edge and points down, within the lean either side.
+    if (p.py !== 24 || Math.sin(p.angle) <= 0) flipped.push(y);
+  }
+  check('speech: an on-screen tag keeps its pointer underneath, however near the top', !flipped.length,
+    flipped.length ? `flipped at y ${flipped.join(', ')}` : '');
+  const near = placeSpeech({ x: 200, y: 50 }, 24, 24, 390, 844, insets, { tag: true });
+  check('speech: a tag with room above it stands clear of its talker', near.top + 24 <= 50,
+    `bottom ${(near.top + 24).toFixed(1)} against a target at 50`);
+  const card = placeSpeech({ x: 200, y: 50 }, 200, 80, 390, 844, insets);
+  check('speech: a card with no room above still hangs below', card.py === 0, `pointer at ${card.py}`);
 }
 
 // Average speed per car over the whole run — a stable throughput number, unlike a snapshot of

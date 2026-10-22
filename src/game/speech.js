@@ -75,6 +75,16 @@ const LEAN = (40 * Math.PI) / 180;
 // bubble never sits over the money.
 const EDGE = 10;
 const HUD_TOP = 60;
+// The tag's band, and it never flips (`placeSpeech`'s `tag`). The card's rule — no room above the
+// target, so hang it below with the pointer on its top edge — turned the tag into an upside-down
+// pin: a 24px "!" under the racer, pointing *up* at it (Tyler, 2026-10-22, the racer two blocks
+// up-screen of the taxi in a browser tab, where the canvas starts under the URL bar). A card that
+// flips is still a card; a tag that flips reads as a different symbol. So a tag stays above its
+// target and may rise into the HUD row to do it — it is a disc the size of the cash's glyphs, there
+// only while the talker is that near the top — and when even that runs out it comes down onto the
+// target with its pointer still underneath. Only on screen: a tag waiting at the top edge for an
+// off-screen talker stays clear of the HUD row, since it can wait there for as long as it likes.
+const TAG_TOP = EDGE;
 
 // How far the docked card's bottom edge stands over the top of the Loco Mode fuel arc, in CSS px
 // (Tyler: "24 units above the boost bar").
@@ -224,10 +234,12 @@ function watchSafeInsets() {
  * Where the card goes and where its pointer sits, for a target point and a card size, in a
  * viewport. Pure, so it can be asserted on headlessly (tools/probe.mjs).
  *
+ * @param tag     a tag rather than a card: it may rise into the HUD row and never flips below its
+ *                target (see TAG_TOP)
  * @returns {left, top, px, py, angle, onScreen} — the card's top-left corner, the pointer's base
  *          relative to the card's top-left, and the pointer's heading in radians (0 = right)
  */
-export function placeSpeech(target, w, h, vw, vh, insets = safe) {
+export function placeSpeech(target, w, h, vw, vh, insets = safe, { tag = false } = {}) {
   const minX = insets.left + EDGE;
   const maxX = vw - insets.right - EDGE;
   const minY = insets.top + HUD_TOP;
@@ -249,10 +261,11 @@ export function placeSpeech(target, w, h, vw, vh, insets = safe) {
     // Above the target, slid sideways to stay on the glass. If there is no room above — a target
     // up under the HUD — below it instead, pointer on the top edge.
     cx = clamp(target.x, cx0, cx1);
+    const roof = tag ? insets.top + TAG_TOP : minY;
     let top = target.y - POINTER_GAP - h;
     side = 'bottom';
-    if (top < minY) { top = target.y + POINTER_GAP; side = 'top'; }
-    top = clamp(top, minY, Math.max(minY, maxY - h));
+    if (top < roof && !tag) { top = target.y + POINTER_GAP; side = 'top'; }
+    top = clamp(top, roof, Math.max(roof, maxY - h));
     cy = top + h / 2;
   } else {
     // Clamped along the ray from the band's middle to the target, the fare pointers' rule, in a
@@ -436,7 +449,7 @@ export function createSpeech(root, { viewport = null, typing = false, onDismiss 
 
   function placeTag(at, w, h) {
     if (!tagPin || !at) return;
-    const p = placeSpeech(at, TAG, TAG, w, h);
+    const p = placeSpeech(at, TAG, TAG, w, h, safe, { tag: true });
     atEdge = !p.onScreen;
     const taps = edgeTaps && atEdge && edgeTappable();
     if (taps !== edgeLive) {
