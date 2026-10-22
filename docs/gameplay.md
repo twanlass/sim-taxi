@@ -587,12 +587,12 @@ is punished for not knowing. Its clip is two cars — the reel carries the car b
 `reelPlayer`) rather than standing still, because a pass takes ~80 units of road at the Loco top and
 a frame that held all of it drew both cars at a third the size. Its street picker takes side
 streets only while the [edge fog](rendering.md) is up: the ring road runs along the fog's inner
-edge, and a clip filmed there came out half or wholly white. The pedal row is **one A key** over a
-**rhythm bar**: the key dips while Loco is held, springs up for the blip and dips again, and the
-bar's two pills (hold, gap, hold) fill in orange as the clip plays (`buildRhythm` in
-`game/newmove.js`). The blip is 150ms, a few frames on the key, so it is the bar's gap that says
-"let go". `?overtakekeys=classic` is the old row, two A keys with a "+". Recorded by
-`tools/overtakereel.mjs`.
+edge, and a clip filmed there came out half or wholly white. The pedal row is Loco, then Loco
+again, and it shows **whose finger is on which key** (`holds` in `game/newmove.js`): a key is orange
+only while the clip holds it and a flat grey disc otherwise, and the held one dips while a ring fills
+round it over the press. So the first key fills, goes grey at the blip, and the second turns orange
+and fills through the pass. `?overtakekeys=classic` is the old row, where both keys sat orange from
+the blip on. Recorded by `tools/overtakereel.mjs`.
 The blip comes late in the loop (`BLIP_ON` 1.7s of 2.8), once the taxi is on the car's bumper:
 the combo swings out the frame it arms, so an early blip had the taxi up the oncoming lane 17 units
 short of the car for most of the loop, passing nothing. The recorder now rejects any take that pulls

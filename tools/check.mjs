@@ -251,13 +251,15 @@ try {
     if (!(REEL.frames.at(-1)[0] > REEL.lead.at(-1)[0])) throw new Error('overtakeclip: does not finish in front of the car');
     const k = clipKeys(BLIP_ON + 0.2);
     if (!(k.boost.lit && k.blip.lit && k.blip.down && !k.boost.down)) throw new Error('overtakeclip: keys wrong mid-pass');
-    // The one-key row: down, up for the blip, down again, and the rhythm bar's two holds filling in turn.
+    // Holds: one key down at a time, the first up for the blip, and each ring filling over its own press.
     const { BLIP_OFF } = await import('../src/game/overtakeclip.js');
-    const held = clipKeys(BLIP_OFF / 2).pass;
-    const blip = clipKeys((BLIP_OFF + BLIP_ON) / 2).pass;
-    if (!(held.down && !blip.down && k.pass.down)) throw new Error('overtakeclip: the one key is not held, let go and held again');
-    if (!(held.rhythm[0] > 0 && held.rhythm[1] === 0 && blip.rhythm[0] === 1 && k.pass.rhythm[1] > 0)) {
-      throw new Error('overtakeclip: the rhythm bar does not fill hold by hold');
+    const first = clipKeys(BLIP_OFF / 2);
+    const gap = clipKeys((BLIP_OFF + BLIP_ON) / 2);
+    if (!(first.boost.down && !first.blip.down && !gap.boost.down && !gap.blip.down && !k.boost.down && k.blip.down)) {
+      throw new Error('overtakeclip: the keys are not held one at a time with a release between');
+    }
+    if (!(first.boost.hold > 0 && first.boost.hold < 1 && gap.boost.hold === 0 && k.blip.hold > 0 && k.boost.hold === 0)) {
+      throw new Error('overtakeclip: the hold rings do not fill over their own presses');
     }
     const { createLayout } = await import('../src/city/layout.js');
     const { cityNetwork } = await import('../src/city/roadnet.js');

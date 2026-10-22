@@ -71,12 +71,10 @@ export const MOVES = {
   // First, and on the first drop-off it can: holding Loco Mode behind a car rams it unless the combo
   // is thrown (game/overtake.js), so a player who has not been shown it is being punished for the
   // button doing what it always did.
-  // One A, held, let go and held again, over a rhythm bar (`buildRhythm`); `?overtakekeys=classic` is the
-  // two A discs with a "+" between them (game/overtakeclip.js `clipKeys`).
+  // `holds`: the keys show whose finger is on them (`buildKeys`), because the overtake is two holds.
   overtake: {
     seenKey: 'simTaxi.seen.overtake', after: 1, line: 'Overtake',
-    keys: [['pass', 'boost']], rhythm: 2,
-    classicKeys: [['boost', 'boost'], ['blip', 'boost']],
+    keys: [['boost', 'boost'], ['blip', 'boost']], holds: true,
   },
   uturn: {
     seenKey: SEEN_KEY, after: AFTER_DELIVERED, line: 'U-Turn',
@@ -231,31 +229,14 @@ export function createNewMove({ viewport = null, onClose = () => {}, comboMeter 
   // the HUD's big-gas/small-brake sizing read as a hierarchy that is not in the combo. Built per
   // move, on open.
   let keys = {};
-  // The rhythm bar (Tyler, 2026-10-22): under a move done on one key, a pill per hold and a gap per
-  // release, each filling as the clip's playhead crosses it — the overtake's hold, blip, hold. The
-  // blip is 150ms, which on the key alone is a few frames of it popping up; the gap in the bar is
-  // what says "let go" for the whole loop. Drawn at fixed widths rather than to time, or that gap
-  // would be six pixels wide. No words, keeping the card's no-caption rule (Tyler, 2026-10-04).
-  const rhythm = document.createElement('div');
-  rhythm.className = 'nm-rhythm';
-  rhythm.setAttribute('aria-hidden', 'true');
-  media.append(rhythm);
-  let pills = [];
-  function buildRhythm(count) {
-    rhythm.replaceChildren();
-    rhythm.hidden = !count;
-    pills = [];
-    for (let i = 0; i < count; i += 1) {
-      const pill = document.createElement('span');
-      pill.className = 'nm-pill';
-      const fill = document.createElement('span');
-      fill.className = 'nm-pill-fill';
-      pill.append(fill);
-      rhythm.append(pill);
-      pills.push(fill);
-    }
-  }
-  const classicKeys = () => document.body.classList.contains('overtake-keys-classic');
+  // Holds (Tyler, 2026-10-22): on a move made of holds, a key is in the button's colour only while
+  // the clip is pressing it, grey otherwise, and a ring fills round it for as long as it is held. The
+  // overtake's two A keys used to sit orange together from the blip to the end of the loop, so the
+  // card never said which one was down, or that the first had been let go. `?overtakekeys=classic`
+  // is that row. The fill is the clip's `hold`, 0 to 1 across each press.
+  const holdsOn = () => Boolean(move?.holds) && !document.body.classList.contains('overtake-keys-classic');
+  const HOLD_RING = '<circle class="nm-hold-track" cx="30" cy="30" r="28" />'
+    + '<circle class="nm-hold-fill" cx="30" cy="30" r="28" pathLength="1" transform="rotate(-90 30 30)" />';
   function buildKeys(row) {
     combo.replaceChildren();
     combo.hidden = !row.length;
@@ -271,10 +252,17 @@ export function createNewMove({ viewport = null, onClose = () => {}, comboMeter 
       key.className = `nm-key nm-${id}`;
       const svg = art(id);
       if (svg) key.append(svg);
+      if (holdsOn()) {
+        const ring = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+        ring.setAttribute('class', 'nm-hold');
+        ring.setAttribute('viewBox', '0 0 60 60');
+        ring.innerHTML = HOLD_RING;
+        key.append(ring);
+      }
       combo.append(key);
       keys[name] = key;
     }
-    combo.classList.toggle('is-single', row.length === 1);
+    combo.classList.toggle('is-holds', holdsOn());
   }
 
   // `pinned`: the card places itself, centred, rather than taking the docked slot the talking
@@ -313,8 +301,8 @@ export function createNewMove({ viewport = null, onClose = () => {}, comboMeter 
       if (!lit) next = false;
       key.classList.toggle('is-lit', lit);
       key.classList.toggle('is-down', state[name].down);
-      const fills = state[name].rhythm;
-      if (fills) pills.forEach((pill, i) => { pill.style.transform = `scaleX(${fills[i] ?? 0})`; });
+      const fill = state[name].hold;
+      if (fill !== undefined) key.querySelector('.nm-hold-fill')?.style.setProperty('stroke-dashoffset', String(1 - fill));
     }
   }
 
@@ -437,9 +425,7 @@ export function createNewMove({ viewport = null, onClose = () => {}, comboMeter 
       move = next;
       openedAt = performance.now();
       idleT = 0;
-      const legacy = classicKeys() && move.classicKeys;
-      buildKeys(legacy ? move.classicKeys : move.keys);
-      buildRhythm(legacy ? 0 : move.rhythm ?? 0);
+      buildKeys(move.keys);
       canvas.hidden = print.hidden = false;
       // Shown first, so the card's canvas has its size before the clip measures it.
       bubble.show(move.title ?? TITLE, move.line, target, media);

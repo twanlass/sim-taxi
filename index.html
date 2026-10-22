@@ -1856,24 +1856,25 @@
         0% { opacity: 0.9; transform: scale(1); }
         100% { opacity: 0; transform: scale(1.55); }
       }
-      /* A move on one key (the overtake, newmove.js `buildRhythm`): the key dips while held and springs
-         back on the blip, and under it a pill per hold, filled in the button's orange as the clip
-         plays. The first pill is the longer hold. The gap between them is the release.
-         `?overtakekeys=classic` is the two-key row. */
-      .nm-combo.is-single .nm-key svg { width: 52px; height: 52px; transition: transform 0.07s ease-out, filter 0.07s; }
-      .nm-combo.is-single .nm-key.is-down svg { transform: scale(0.86); filter: brightness(0.86); }
-      .nm-rhythm { display: flex; gap: 9px; width: 104px; margin-top: -4px; }
-      .nm-rhythm[hidden] { display: none; }
-      .nm-pill {
-        flex: 3; height: 7px; border-radius: 4px; overflow: hidden;
-        background: rgba(68, 73, 125, 0.18);
+      /* Holds (the overtake, newmove.js `holds`): a key is the button's colour only while the clip
+         holds it, a flat grey disc otherwise (not a greyscale filter, which turned the orange brown on
+         the blackout), and while held it dips and a ring fills round it. The ring is the "+"'s ink.
+         `?overtakekeys=classic` is the plain row. */
+      .nm-combo.is-holds .nm-key svg:not(.nm-hold) { transition: transform 0.07s ease-out; }
+      .nm-combo.is-holds .nm-key:not(.is-down) svg:not(.nm-hold) circle { fill: #464c5c; }
+      .nm-combo.is-holds .nm-key:not(.is-down) .pedal-letter { fill-opacity: 0.55; }
+      .nm-combo.is-holds .nm-key.is-down svg:not(.nm-hold) { transform: scale(0.88); }
+      body:not(.move-card-classic) .nm-combo.is-holds .nm-key { transform: none; }
+      .nm-hold {
+        position: absolute; inset: -8px; width: calc(100% + 16px) !important; height: calc(100% + 16px) !important;
+        pointer-events: none; color: #44497d;
       }
-      .nm-pill + .nm-pill { flex: 2; }
-      .nm-pill-fill {
-        display: block; width: 100%; height: 100%; background: #F8A21D;
-        transform: scaleX(0); transform-origin: left center;
-      }
-      body.new-move-after-run #new-move .nm-pill { background: rgba(255, 255, 255, 0.2); }
+      body.new-move-after-run #new-move .nm-hold { color: #fff; }
+      .nm-hold circle { fill: none; stroke: currentColor; stroke-width: 3; }
+      .nm-hold-track { opacity: 0.18; }
+      .nm-hold-fill { stroke-dasharray: 1 1; stroke-dashoffset: 1; stroke-linecap: round; }
+      .nm-combo.is-holds .nm-key::after { inset: -12px; }
+      .nm-combo.is-holds { gap: 18px; }
 
       /* The combo over the clip (newmove.js `comboOverlay`): the HUD's meter at the top of the
          frame, where play puts it, and the purple word off the taxi's roof. A touch under the HUD's

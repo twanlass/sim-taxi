@@ -59,25 +59,18 @@ const PLAYER = reelPlayer(REEL, { alongShift: ALONG_MID, track: leadAlong });
 export const reelAt = (t) => PLAYER.at(t);
 
 /**
- * The pedal row at time t: for each key, whether it is lit (pressed at some point this loop) and
- * whether it is down right now. Read by newmove.js every frame.
- *
- * `pass` is the default card's one key (Tyler, 2026-10-22): the whole gesture is on one button, so
- * it is drawn as one A that goes down, comes up for the blip and goes down again, and its `rhythm`
- * is how far the playhead has filled each of the two holds under it (newmove.js `buildRhythm`). Two A
- * discs side by side (`boost`, `blip`, `?overtakekeys=classic`) read as two presses of one button,
- * and both looked pressed for most of the loop, so nothing on the card said "let go".
+ * The pedal row at time t: for each key, whether it is lit (pressed at some point this loop),
+ * whether it is down right now, and `hold`, how far round its ring has filled — 0 to 1 across each
+ * press, 0 while it is up (newmove.js `holds`). Read by newmove.js every frame.
  */
 export function clipKeys(t) {
   const on = t < KEYS_OFF;
-  const fill = (a, b) => (on ? Math.min(1, Math.max(0, (t - a) / (b - a))) : 0);
+  const fill = (down, a, b) => (down ? Math.min(1, Math.max(0, (t - a) / (b - a))) : 0);
+  const boostDown = t < BLIP_OFF;
+  const blipDown = on && t >= BLIP_ON;
   return {
-    boost: { lit: on, down: t < BLIP_OFF },
-    blip: { lit: on && t >= BLIP_ON, down: on && t >= BLIP_ON },
-    pass: {
-      lit: on, down: on && (t < BLIP_OFF || t >= BLIP_ON),
-      rhythm: [fill(0, BLIP_OFF), fill(BLIP_ON, KEYS_OFF)],
-    },
+    boost: { lit: on, down: boostDown, hold: fill(boostDown, 0, BLIP_OFF) },
+    blip: { lit: blipDown, down: blipDown, hold: fill(blipDown, BLIP_ON, KEYS_OFF) },
   };
 }
 

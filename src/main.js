@@ -6089,8 +6089,8 @@ if (new URLSearchParams(window.location.search).get('movecard') === 'classic') {
 if (new URLSearchParams(window.location.search).get('cardcombo') === 'classic') {
   document.body.classList.add('card-combo-classic');
 }
-// The overtake card's one A key over a rhythm bar (Tyler, 2026-10-22; newmove.js `buildRhythm`).
-// `?overtakekeys=classic` is the two A discs with a "+" between them.
+// The overtake card's keys grey unless held, with a ring filling round the held one (Tyler,
+// 2026-10-22; newmove.js `holds`). `?overtakekeys=classic` is both keys orange once pressed.
 if (new URLSearchParams(window.location.search).get('overtakekeys') === 'classic') {
   document.body.classList.add('overtake-keys-classic');
 }
