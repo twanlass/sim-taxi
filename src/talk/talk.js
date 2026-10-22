@@ -178,8 +178,95 @@ const ticks = slides.map((s, k) => {
   toc.appendChild(b);
   return b;
 });
+// Slide 2's cans, loaded on the first click there and swept away whenever the slide changes.
+const kid = document.getElementById('kid');
+let cans = null;
+kid.addEventListener('click', async () => {
+  cans ??= import('./cans.js').then((m) => m.createCans());
+  (await cans).drop();
+});
+// The talk's game clock: nine minutes, bottom right, started by the first step off the title. The
+// start time lives in sessionStorage so a reload mid-talk doesn't hand back the full nine; R resets.
+const TALK_MS = 9 * 60 * 1000;
+const clock = document.getElementById('clock');
+const clockTime = clock.querySelector('b');
+let startedAt = Number(sessionStorage.getItem('talk-start')) || 0;
+const fmt = (ms) => {
+  const s = Math.floor(ms / 1000);
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+};
+function tickClock() {
+  if (!startedAt) return;
+  const left = TALK_MS - (Date.now() - startedAt);
+  // Ceil while counting down so 9:00 shows for its whole first second and 0:00 lands on time up.
+  clockTime.textContent = left > 0 ? fmt(left + 999) : `+${fmt(-left)}`;
+  clock.classList.toggle('hurry', left > 0 && left <= 60_000);
+  clock.classList.toggle('over', left <= 0);
+}
+function startClock() {
+  if (startedAt) return;
+  startedAt = Date.now();
+  sessionStorage.setItem('talk-start', String(startedAt));
+  clock.classList.add('on');
+  tickClock();
+}
+function resetClock() {
+  startedAt = 0;
+  sessionStorage.removeItem('talk-start');
+  clock.classList.remove('on', 'hurry', 'over');
+  clockTime.textContent = fmt(TALK_MS);
+}
+if (startedAt) { clock.classList.add('on'); tickClock(); }
+setInterval(tickClock, 250);
+
+// Playable demos (`.demo iframe[data-src]`): loaded when their slide comes up and blanked when it
+// goes, so each visit starts a fresh game and nothing keeps running off screen. A click focuses the
+// game and its keys go to it; Esc inside hands focus back to the deck.
+function demos(slide, on) {
+  for (const f of slide.querySelectorAll('.demo iframe')) {
+    if (!on) { f.removeAttribute('src'); f.classList.remove('focused'); continue; }
+    if (f.getAttribute('src')) continue;
+    f.src = f.dataset.src;
+    f.onload = () => {
+      const w = f.contentWindow;
+      const style = w.document.createElement('style');
+      // Scale the game's fixed-size canvas to the frame without touching its own files.
+      style.textContent = 'canvas { width: min(96vw, 96vh * 1.5) !important; height: auto !important; }'
+        // `data-hide`: a demo's own dev tooling (Mystery's tuner panel and hotkey strip) stays off stage.
+        + (f.dataset.hide ? `${f.dataset.hide} { display: none !important; }` : '');
+      w.document.head.appendChild(style);
+      w.addEventListener('focus', () => f.classList.add('focused'));
+      w.addEventListener('blur', () => f.classList.remove('focused'));
+      w.addEventListener('keydown', (e) => {
+        // A game that spends Esc itself (Mystery closes its popup with it) keeps it while that's up.
+        if (e.key === 'Escape' && !w.document.querySelector('#modal.on')) { f.blur(); window.focus(); f.classList.remove('focused'); }
+      });
+    };
+  }
+}
+
+// Slide videos (`.vid video[data-src]`): fetched the first time their slide comes up, played from
+// the top on every visit, paused on the way out.
+function videos(slide, on) {
+  for (const v of slide.querySelectorAll('.vid video')) {
+    if (!on) { v.pause(); continue; }
+    if (!v.getAttribute('src')) {
+      v.addEventListener('loadeddata', () => v.classList.add('loaded'), { once: true });
+      v.src = v.dataset.src;
+    }
+    v.currentTime = 0;
+    v.play().catch(() => {});
+  }
+}
+
 function show(i) {
-  current = Math.max(0, Math.min(slides.length - 1, i));
+  const next = Math.max(0, Math.min(slides.length - 1, i));
+  if (slides[current] !== slides[next]) { demos(slides[current], false); videos(slides[current], false); }
+  demos(slides[next], true);
+  videos(slides[next], true);
+  if (next > 0) startClock();
+  if (cans && slides[next] !== kid) cans.then((c) => c.clear());
+  current = next;
   slides.forEach((s, k) => s.classList.toggle('on', k === current));
   ticks.forEach((b, k) => b.classList.toggle('on', k === current));
   document.body.classList.toggle('on-phone', slides[current].id === 'slide');
@@ -194,7 +281,7 @@ window.addEventListener('keydown', (e) => {
   if (live) return;
   if (e.key === 'ArrowRight' || e.key === 'PageDown') show(current + 1);
   else if (e.key === 'ArrowLeft' || e.key === 'PageUp') show(current - 1);
-  else if (e.key === 'r' || e.key === 'R') show(0);
+  else if (e.key === 'r' || e.key === 'R') { resetClock(); show(0); }
   else if (e.key === 'Enter' && document.body.classList.contains('on-phone')) go(true);
 });
 // The game has focus once it is live, so Escape has to be heard from inside it too.
