@@ -106,7 +106,7 @@ import { createClouds } from './game/clouds.js';
 import { createCarGhosts } from './game/carghosts.js';
 import { createRoadwork } from './game/roadwork.js';
 import { createFire } from './game/fire.js';
-import { createRace, WIN_PAY, LOSE_COST, TANK_FLOOR, COUNT_STEP } from './game/race.js';
+import { createRace, WIN_PAY, LOSE_COST, TANK_FLOOR, COUNT_STEP, COUNTDOWN } from './game/race.js';
 import { createSpeech } from './game/speech.js';
 import { MARKER_BASE } from './game/faremarker.js';
 import { createFlatbed } from './game/flatbed.js';
@@ -2089,6 +2089,8 @@ race = shot || raceParam === 'classic' ? null : createRace({
   hydraulics: new URLSearchParams(window.location.search).get('hydraulics') !== 'classic',
   // The racer asks "Ready?" once the camera is back from the finish, and the tap on it is the start.
   readyGate: new URLSearchParams(window.location.search).get('raceready') !== 'classic',
+  // The finish goes down as the camera arrives on it, rather than before the pan.
+  lateReveal: new URLSearchParams(window.location.search).get('racereveal') !== 'classic',
   // Demo mode: the first racer turns up after the first drop-off rather than the 2nd to 4th.
   firstDue: demo.on() ? 1 : null,
   // The underglow pulses to whatever the music is doing (game/sfx.js, `bass`).
@@ -2222,7 +2224,7 @@ function onRaceEvent(type, detail) {
     controller.peekAt(detail.x, detail.z, () => traffic.taxi, () => {
       cameraTakenOver = false;
       race?.countIn();
-    });
+    }, { onLook: () => race?.revealFinish(), hold: RACE_PEEK_HOLD });
   } else if (type === 'ready') {
     // Back from the finish, side by side: the racer's "Ready?", and the tap on it starts the count.
     haptic('snap');
@@ -2235,14 +2237,23 @@ function onRaceEvent(type, detail) {
     raceTalk?.hide();
   } else if (type === 'count') {
     raceTalk?.hide();
-    popLabel(String(detail.n), 'is-count', COUNT_STEP * 1000, raceCountAt);
+    popLabel(String(detail.n), raceCountClass, COUNT_STEP * 1000, raceCountAt);
     haptic('snap');
+    // A full tank for the race, flown in on the "3" the way the getaway's is (Tyler: "fully top up
+    // the player's loco meter so it's 100% so they can at least have a fighting chance"). On the
+    // count rather than the tap so it is seen landing; the taxi is parked until the green, so none
+    // of it can be spent on the way. `?racetank=classic` keeps the old floor at the green.
+    if (raceFullTank && detail.n === COUNTDOWN) {
+      flyEnergyToBoost({ from: taxiScreenPos, to: fuelScreenPos, onArrive: () => boost.topUp(1 - boost.fraction()) });
+    }
   } else if (type === 'go') {
-    popLabel('Go!', 'is-count', LABEL_RISE_MS, raceCountAt);
+    popLabel('Go!', raceCountClass, LABEL_RISE_MS, raceCountAt);
     haptic('loco');
-    // Enough in the tank to race on — see TANK_FLOOR. Poured straight in rather than flown: the
-    // player's thumb is already on the pill.
-    if (boost.fraction() < TANK_FLOOR) boost.topUp(TANK_FLOOR - boost.fraction());
+    // Enough in the tank to race on — full, or TANK_FLOOR under `?racetank=classic`. Poured straight
+    // in rather than flown: the player's thumb is already on the pill, and anything the count's
+    // flight has not landed yet is made good here.
+    const floor = raceFullTank ? 1 : TANK_FLOOR;
+    if (boost.fraction() < floor) boost.topUp(floor - boost.fraction());
   } else if (type === 'rounded') {
     // Halfway: the flag has just jumped back to the start line, which is easy to miss on a phone.
     popLabel('Head back!', 'is-count', RACE_LABEL_MS);
@@ -2307,7 +2318,18 @@ const RACE_CUT_DELAY = 500;
 const RACE_LABEL_MS = 2800;
 // Where the three, two, one stand: one fixed point, a third of the way down the screen, rather than
 // over a taxi the camera is still easing back to — which moved each digit sideways from the last.
-const raceCountAt = () => ({ x: viewport.width() / 2, y: viewport.height() * 0.36 });
+const raceFullTank = new URLSearchParams(window.location.search).get('racetank') !== 'classic';
+const raceCountClassic = new URLSearchParams(window.location.search).get('racecount') === 'classic';
+const raceCountClass = raceCountClassic ? 'is-count' : 'is-count is-countdown';
+const raceCountAt = () => ({ x: viewport.width() / 2, y: viewport.height() * (raceCountClassic ? 0.36 : RACE_COUNT_Y) });
+// The count's height on screen, as a fraction of it. Not quite the middle Tyler asked for: the
+// camera is back on the taxi when it counts, so dead centre (0.5) put each 80px digit squarely over
+// the two cars on the line, which on a 390x844 phone stand at ~0.47-0.51. At 0.4 the digit's
+// bottom clears the roofs by ~60px and is still the middle of everything above them.
+const RACE_COUNT_Y = 0.4;
+// The look at the finish holds long enough to watch it go down: the ring's 0.3s grow (RING_GROW_TIME)
+// and then a beat over the 0.9 an ordinary peek gives a rider.
+const RACE_PEEK_HOLD = 1.4;
 // How long "Next time, then." stays up: its 16 letters type in ~0.4s (speech.js), then a beat to read.
 const RACE_DECLINE_MS = 1800;
 const RACE_SHOT_ZOOM = 22;
