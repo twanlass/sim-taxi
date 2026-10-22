@@ -25,15 +25,21 @@ export const REEL = { classic: REEL_CLASSIC, touch: REEL_TOUCH }[STREETS_KEY];
 // (tools/overtakereel.mjs films it as a pre-roll and records from PRE_ROLL on). The pill comes up at
 // BLIP_OFF and goes straight back down at BLIP_ON — a 150ms blip, inside OVERTAKE_BLIP_MS — and is held
 // to the end of the loop, which is the pass.
+//
+// The blip comes late, once the taxi is on the car's bumper. It used to come at 0.6s, and since the
+// dumb overtake (#581) swings out the frame the combo arms, that put the taxi in the oncoming lane
+// 17 units short of the car and kept it there for 1.7s before it drew level — at the end of the loop,
+// under the fade — so the card read as a taxi driving up the wrong side of an empty road (Tyler,
+// 2026-10-22). Now: 1.7s closing in, out 6 units back, by and tucked in 9 ahead in the last 1.1s.
 export const PRE_ROLL = 0.6;
-export const BLIP_OFF = 0.45;
-export const BLIP_ON = 0.6;
+export const BLIP_OFF = 1.55;
+export const BLIP_ON = 1.7;
 /** When the game counts the pass and lands its combo: the blip back on throws it (sim/traffic.js). */
 export const LANDS_AT = BLIP_ON;
-const KEYS_OFF = 2.6;                 // the row dims for the last beat, then the loop starts again
+const KEYS_OFF = 2.5;                 // the row dims for the last beat, then the loop starts again
 
 /** The loop, in seconds: the length of the recording. */
-export const CLIP_LOOP = 3.0;
+export const CLIP_LOOP = 2.8;
 
 // Centred on the middle of everything both cars cover, as the U-turn's clip is — but the camera
 // follows the car being passed (`track`) rather than standing still: the taxi covers ~80 units in the
