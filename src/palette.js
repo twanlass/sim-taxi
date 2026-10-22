@@ -772,6 +772,10 @@ export const PALETTE = {
   // building's own paint lit up. The grit is the collar's warm grey a step darker, because it comes
   // out onto the pale forecourt asphalt low and thin rather than as a wall of smoke.
   weldFlash: '#BCD6FF',
+  // The glint off the taxi's front-right fender as it leaves the garage — game/glint.js. Warm
+  // rather than pure white: it is the sun off yellow paint, and a cold white star on a yellow car
+  // reads as a UI sticker rather than as light.
+  glint: '#FFF4D6',
   repairDust: '#B3ACA4',
   // The damaged taxi's bonnet smoke — game/taxidamage.js — walked from the first stop to the second
   // as the last third of its hit points goes. Both are set against the **road**, because that is

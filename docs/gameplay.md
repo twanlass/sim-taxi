@@ -193,8 +193,17 @@ near lane.
 | `settle` | A beat on the shut door, so arriving and the door moving read as two events | 0.12s |
 | `door` | The curtain winds up on an ease-*out* — a roller door leaves fast under its counterweight and creeps the last few inches | 0.95s |
 | `reveal` | The car sitting in a lit doorway, the radio crushed through its speaker ([the dash radio](audio.md#the-dash-radio)). This is the shot | 0.35s, or until the first song has played 4s through the dash (up to 8s) |
-| `roll` | Out of the bay, across the forecourt, down the kerb, right into the lane. The zoom starts widening as the nose clears the door, so the pull-back is already under way; the **shutter starts coming back down** the moment the car reaches the kerb | ~2.7s |
+| `roll` | Out of the bay, across the forecourt, down the kerb, right into the lane. As the nose clears the curtain the front-right fender **glints** (below). The zoom starts widening as the nose clears the door, so the pull-back is already under way; the **shutter starts coming back down** the moment the car reaches the kerb | ~2.7s |
 | `release` | `focusOn` back to whatever framing the run would have had — the city's centre on a desktop, the taxi on a phone, where the opening follow-cam picks it up | ~1.3s, capped at 2.0 |
+
+**The glint** (`game/glint.js`). When the drawn nose is 0.9 units past the curtain (`CLEAR_OUT`,
+fired through `onClear`), a four-point star pops on the front-right fender corner, just above the
+headlight, and is gone in 0.55s. That is the corner nearest the camera on the way out, and the
+camera is still at door zoom, so the star is about 60px across on a phone. It is a shader on one
+quad rather than a highlight in the paint: at play zoom the corner is about 5×5 pixels, and a paint
+hotspot there does not read even at door zoom. It plays every time the car comes out of the door,
+including after a [repair](#repairs-at-the-depot), where the chips are already gone by then, so the
+glint lands on clean paint. A tap that skips the vignette skips it too. `?glint=classic` turns it off.
 
 The door comes down over 1.4s, slower than it went up — that is what a roller door does, leaving
 under its counterweight and returning under a motor, and it is scenery by then rather than the

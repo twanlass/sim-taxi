@@ -127,6 +127,7 @@ import { createCargoChip } from './game/cargochip.js';
 import { createChaseSiren } from './game/chasesiren.js';
 import { createTutorial, LOCO_HINT_HOLD } from './game/tutorial.js';
 import { createOpening, entryPath } from './game/opening.js';
+import { createGlint } from './game/glint.js';
 import { createWipe } from './game/wipe.js';
 import { createFarePointers } from './game/farepointers.js';
 import { createSirenGlow } from './game/sirenglow.js';
@@ -1631,6 +1632,11 @@ const sparks = createSparks(scene, makeRng(runSeed + 134));
 // which never builds the vignette that drives it.
 const repairFx = garage && !shot
   ? createRepairFx({ scene, site: garage.site, sparks, dust, rng: makeRng(runSeed + 135) })
+  : null;
+// A glint off the front-right fender as the taxi rolls out of the garage, at the top of a run and
+// after every repair — see game/glint.js. `?glint=classic` leaves the car plain.
+const glint = garage && !shot && new URLSearchParams(window.location.search).get('glint') !== 'classic'
+  ? createGlint({ scene, taxiGroup: traffic.taxiGroup })
   : null;
 // The red and blue a cop car throws on the road during a robbery — the half of a siren that the
 // bar on the roof cannot do. Two point lights, parked on the nearest cop cars each frame; off
@@ -6391,6 +6397,7 @@ function tick() {
   flames.update(dt);
   sparks.update(dt);
   repairFx?.update(dt);
+  glint?.update(dt);
   wreckage.update(dt);
   updateCrushShells(dt);
   ejection.update(dt);
@@ -7765,6 +7772,8 @@ if (shot) {
       // Off the kerb. The same pool and the same call the boost trail uses, at about half a
       // barricade's power — two wheels coming off a 0.35-unit lip, not a car landing off a ramp.
       onDrop: () => dust.burst(traffic.taxi.x, traffic.taxi.z, traffic.taxi.yaw, 7, 0.5),
+      // The nose out into daylight: the fender catches the sun. See game/glint.js.
+      onClear: () => glint?.fire(),
       // What a repair visit shows while the door is down to its gap. See game/repairfx.js.
       workshop: repairFx,
       // The car stays in its doorway until the dash radio's first song has played crushed for a
@@ -8026,6 +8035,8 @@ window.__taxi = {
   race,
   /** The trip back to the depot for repairs — `depotRun.send()` is the tap on the garage. */
   depotRun,
+  /** The glint off the fender on the way out of the garage — see game/glint.js. Null under `?glint=classic`. */
+  glint,
   /** The depot's tip card — `newMove.open('repair')` opens it. See game/repairclip.js. */
   repairCard,
   depotCall,
