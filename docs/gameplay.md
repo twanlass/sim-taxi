@@ -2714,9 +2714,14 @@ the player to say when ("tapping that is what triggers the countdown"). Left unt
 at `READY_NAG` (6s, "Tap me when you're ready!") and counts in on its own at `READY_MAX` (15s): the
 taxi is held and every fare's clock with it until the green, so a run must not be able to wait there
 forever. `?raceready=classic` counts in as soon as the camera is back.
-The count runs at `COUNT_STEP` (1.25s a number; Tyler: "slow the countdown a touch") and is pinned
-above the middle of the screen in 40px tabular figures, so the digits stay put rather than following
-the taxi and shifting with each glyph's width. "Head back!", "You won!" and "You lost!" are held on
+The finish is not put down until the camera gets there: the ring grows in and the flag goes up on
+screen, and the look holds `RACE_PEEK_HOLD` (1.4s) so it can be watched arriving (Tyler: "wait till
+the camera pans there and then spawn the checkpoint so you can visually see where it is").
+The count runs at `COUNT_STEP` (1.25s a number; Tyler: "slow the countdown a touch") and stands in
+the middle of the screen in 80px tabular figures (Tyler: "double the size of those numbers, stick
+them in the very center"), a little above dead centre (`RACE_COUNT_Y`, 0.4) because the camera is
+back on the taxi by then and dead centre sat each digit on the two cars. The digits stay put rather than following the taxi and shifting with
+each glyph's width. "Head back!", "You won!" and "You lost!" are held on
 screen for `RACE_LABEL_MS` (2.8s) rather than popping like a fare's cash (main.js).
 
 **The race is there and back.** Each car has to come within `ARRIVE_RADIUS` of the flag's corner,
@@ -2790,9 +2795,12 @@ is a tap like every other choice in the game. Ignoring it is free: the racer jus
   (`locked`) taps on the map are ignored and the taxi stays on the line: there is no backing out
   (Tyler: "Dont allow declining after you've tapped on 'wanna race'"). Taps on the pedals are not
   map taps and decline nothing.
-- **The tank is topped up to a third at the green** (`TANK_FLOOR`, the run's own starting tank) and
-  never down. The race is decided by Loco Mode, and a player who accepted on an empty pill would
-  lose before the flag dropped.
+- **The tank is filled to the top for the race**, flown in on the "3" the way the getaway's is
+  (Tyler: "fully top up the player's loco meter so it's 100% so they can at least have a fighting
+  chance"), and made good at the green if the flight has not landed. The race is decided by Loco
+  Mode, and a player who accepted on an empty pill would lose before the flag dropped. It costs
+  the race some of its edge: the bench's full-tank row won 92-100% of races where a third of a
+  tank won 58-71%. `?racetank=classic` tops up to a third (`TANK_FLOOR`) at the green instead.
 - **Stakes are lopsided on purpose** (`WIN_PAY` $40, `LOSE_COST` $25, against a $20 median fare).
   Declining is free, so an even bet is one a sensible player never takes. A loss goes through
   `charge`, so an empty till pays what it has.

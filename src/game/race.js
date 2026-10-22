@@ -478,12 +478,13 @@ function createRivalMesh() {
  * @param soon     `?race=soon`
  * @param hydraulics false for `?hydraulics=classic`: the body sits still on its wheels
  * @param readyGate false for `?raceready=classic`: the count starts when the camera is back
+ * @param lateReveal false for `?racereveal=classic`: the finish is down before the camera pans to it
  * @param firstDue the drop-off the first racer turns up at, overriding DROPS_BETWEEN — Demo mode's 1
  */
 export function createRace({
   rng, scene, traffic, routeTo, blocked = () => false, interrupted = () => false, canStart = () => true,
   seen = () => false, delivered = () => 0, onEvent = () => {}, soon = false, bass = () => 0,
-  hydraulics = true, readyGate = true,
+  hydraulics = true, readyGate = true, lateReveal = true,
   firstDue = null,
 }) {
   const taxi = traffic.taxi;
@@ -1135,7 +1136,12 @@ export function createRace({
   /** The faceoff is over: show the finish, and wait for the camera's look at it (`countIn`). */
   function lineUp() {
     const goal = state.finish;
-    showFinish();
+    // The finish goes down when the camera gets there (`revealFinish`, Tyler: "wait till the camera
+    // pans there and then spawn the checkpoint so you can visually see where it is"), so its ring
+    // grows in on screen rather than being found already standing. `?racereveal=classic` puts it
+    // down here, before the pan.
+    state.finishShown = !lateReveal;
+    if (!lateReveal) showFinish();
     setPhase('reveal');
     onEvent('lined-up', { car: state.car, finish: goal, x: lineX(goal.i), z: lineZ(goal.j) });
   }
@@ -1144,10 +1150,19 @@ export function createRace({
   /** The look at the finish is done: "Ready?" (or straight to the count, `?raceready=classic`). */
   function countIn() {
     if (state.phase !== 'reveal') return;
+    // A swipe mid-pan drops the camera's callback, so the finish may never have been looked at.
+    revealFinish();
     if (!readyGate) { startCount(); return; }
     setPhase('ready');
     state.nagged = false;
     onEvent('ready', { car: state.car });
+  }
+
+  /** The camera has reached the finish: put it down, ring growing in, flag up. */
+  function revealFinish() {
+    if (state.phase !== 'reveal' || state.finishShown) return;
+    state.finishShown = true;
+    showFinish();
   }
 
   /** The tap on "Ready?": three, two, one. */
@@ -1519,6 +1534,8 @@ export function createRace({
     countIn,
     /** The tap on the racer's "Ready?": start the count. */
     ready,
+    /** main.js, as the camera lands on the finish: put it down. */
+    revealFinish,
     /** Is the start waiting on the camera's look at the finish? */
     revealing: () => state.phase === 'reveal',
     rival,

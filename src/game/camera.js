@@ -350,7 +350,7 @@ export function createCityCamera(aspect, { zoom = 46, target = [0, 0] } = {}) {
    * destination later — a taxi cannot outrun the camera over three quarters of a second, so the
    * duration stays a fair read on how far there is to go.
    */
-  function armGlide(toX, toZ, { track = null, hold = 0, next = null, onArrive = null } = {}) {
+  function armGlide(toX, toZ, { track = null, hold = 0, next = null, onArrive = null, onLand = null } = {}) {
     const fromX = state.target.x;
     const fromZ = state.target.z;
     const clampedX = THREE.MathUtils.clamp(toX, -HALF_SPAN_X, HALF_SPAN_X);
@@ -362,7 +362,7 @@ export function createCityCamera(aspect, { zoom = 46, target = [0, 0] } = {}) {
       // whatever follows it — a peek's beat, its arrival callback — still happens.
       dur: dist < GLIDE_EPSILON ? 0 : THREE.MathUtils.clamp(dist / GLIDE_SPEED,
         GLIDE_MIN_TIME, GLIDE_MAX_TIME),
-      track, hold, next, onArrive,
+      track, hold, next, onArrive, onLand,
     };
     return dist;
   }
@@ -539,9 +539,12 @@ export function createCityCamera(aspect, { zoom = 46, target = [0, 0] } = {}) {
      * callback never comes, which is what keeps "the camera is back on the taxi" a fact rather
      * than an assumption.
      */
-    peekAt(x, z, getReturn, onArrive) {
+    peekAt(x, z, getReturn, onArrive, { onLook = null, hold = PEEK_HOLD } = {}) {
+      // `onLook` fires once the camera is standing on the point, before the beat: the street race
+      // puts its finish down then, so the player sees it arrive rather than finding it already there.
       armGlide(x, z, {
-        hold: PEEK_HOLD,
+        hold,
+        onLand: onLook,
         next: () => armChase(getReturn, onArrive),
       });
     },
@@ -601,6 +604,13 @@ export function createCityCamera(aspect, { zoom = 46, target = [0, 0] } = {}) {
         // The landing frame falls through to the stages below, so a plain pan retires on it as it
         // always did; a peek's beat starts counting on the frame after, at its full length.
         if (glide.t < glide.dur || glide.hold > 0) return true;
+      }
+
+      // Landed: the travel is over (or there was none).
+      if (glide.onLand) {
+        const landed = glide.onLand;
+        glide.onLand = null;
+        landed();
       }
 
       // The beat. Nothing moves — the camera just sits on the rider — so this is the one stage
