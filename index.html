@@ -2097,6 +2097,15 @@
       }
       @media (hover: hover) { :is(#title-screen, #pause-veil) .title-item:hover { color: #F5C130; } }
       :is(#title-screen, #pause-veil) .title-item:active { transform: scale(0.96); }
+      /* The copyright and build line along the foot of the title menu: small and quiet, on the
+         menu's own left edge and clear of the home indicator. */
+      #title-screen .title-legal {
+        position: absolute; margin: 0;
+        left: calc(clamp(24px, 7vw, 72px) + var(--safe-left));
+        bottom: calc(16px + var(--safe-bottom));
+        font-size: 11px; font-weight: 500; letter-spacing: 0.01em;
+        color: rgba(255, 255, 255, 0.6); pointer-events: none;
+      }
 
       /* A page: the way back above the header, smaller than it, then the header, then the body. */
       :is(#title-screen, #pause-veil) .title-back {

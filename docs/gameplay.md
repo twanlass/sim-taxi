@@ -92,7 +92,8 @@ Play opens it on the announcer, so the music is part of what starting a run give
 ([audio.md](audio.md#the-radio); `?titlemusic=classic` plays songs under the menu).
 
 **Settings** and **Credits** dim the city behind a mask; the menu only shades the left edge its
-words stand on. Settings holds four things, all remembered across visits:
+words stand on, with the copyright and build number in small type along its foot
+(`COPYRIGHT` and `BUILD_VERSION` in titlescreen.js — bump the version there). Settings holds four things, all remembered across visits:
 
 | Setting | Where it lives |
 |---|---|

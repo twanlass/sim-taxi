@@ -94,6 +94,10 @@ export const CREDITS = [
   ['Programming', 'Claude', 'claude'],
 ];
 
+/** The build the title menu's foot names — bump it here, it is read nowhere else. */
+export const BUILD_VERSION = '0.08';
+export const COPYRIGHT = `© 2026 48 Made, LLC. Alpha build v${BUILD_VERSION}`;
+
 const stillPlease = () => window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
 
 /**
@@ -201,7 +205,8 @@ export function createTitleScreen(root, { sound, settings, demo = null, onPlay, 
   const settingsButton = el('button', 'title-item', 'Settings');
   const creditsButton = el('button', 'title-item', 'Credits');
   for (const b of [playButton, settingsButton, creditsButton]) b.type = 'button';
-  menu.append(playButton, settingsButton, creditsButton);
+  // The small print sits inside the menu so it fades in with it and goes when a page opens.
+  menu.append(playButton, settingsButton, creditsButton, el('p', 'title-legal', COPYRIGHT));
 
   // --- Settings ---------------------------------------------------------------------------------
   const settingsPage = menuPage('settings', 'Settings', () => show('menu'));
