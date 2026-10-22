@@ -101,6 +101,8 @@ doc; what the classic version was, and why it changed, is in that doc's history 
 | `?bubbles=dock` | The docked card with no tag on the talker | | [gameplay.md](gameplay.md#speech-bubbles) |
 | `?copchat=classic` | The cops' "pull over" and "lost the suspect" bubbles | #492 | [gameplay.md](gameplay.md) |
 | `?race=classic` | No street racers: the city before the race vignette, with no violet car tailing the empty taxi to challenge it | | [gameplay.md](gameplay.md#the-street-race) |
+| `?hydraulics=classic` | The street racer without hydraulics: its body sits still on its wheels through the offer, the start and the finish | | [gameplay.md](gameplay.md#the-street-race) |
+| `?raceready=classic` | The race's count starts as soon as the camera is back from the finish, with no "Ready?" to tap | | [gameplay.md](gameplay.md#the-street-race) |
 | `?robbery=classic` | The robbery with no opening cut (straight to the drive-past). Also implies `?bankfare=classic` | #475, #478 | [gameplay.md](gameplay.md) |
 | `?bankfare=classic` | The drive-past robbery instead of the bank rider fare | #499 | [gameplay.md](gameplay.md) |
 | `?robberyskip=classic` | A tap (or Space/Enter) skips the bank job's cut, as it used to | | [gameplay.md](gameplay.md#the-bank-job) |

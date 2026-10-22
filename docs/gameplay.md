@@ -2696,7 +2696,12 @@ someone who tapped, rather than one more line on a busy screen). Tap it again an
 spot (a horn and "You're on!"), then the screen cuts to black and opens close up on the two cars side by side, window to window ("Round the flag and back."). A
 corner is marked across the island (a white waypoint ring with a chequered flag flying over it, 4-8
 blocks away and never on the ring road, which is in the fog), the camera goes to look at it and
-comes back, the count goes three, two, one, and the two cars set off together, drag-race style.
+comes back, the racer asks "Ready?" (a horn and a hop), and the tap on it, on its card or on the car,
+starts the count: three, two, one, and the two cars set off together, drag-race style. Tyler wanted
+the player to say when ("tapping that is what triggers the countdown"). Left untapped it nags once
+at `READY_NAG` (6s, "Tap me when you're ready!") and counts in on its own at `READY_MAX` (15s): the
+taxi is held and every fare's clock with it until the green, so a run must not be able to wait there
+forever. `?raceready=classic` counts in as soon as the camera is back.
 The count runs at `COUNT_STEP` (1.25s a number; Tyler: "slow the countdown a touch") and is pinned
 above the middle of the screen in 40px tabular figures, so the digits stay put rather than following
 the taxi and shifting with each glyph's width. "Head back!", "You won!" and "You lost!" are held on
@@ -2718,6 +2723,19 @@ round instead. It is rare: a racer is seldom held up, and it passed 15 times in 
 **The racer runs on Loco Mode too:** flames out of its tailpipe (the taxi's plume,
 game/locoflame.js, on a second instance) whenever it is over `RACER_FLAME_SPEED` (1.5× cruise), so
 they go out as it brakes for a corner and relight down the straight.
+
+**The racer's car is on hydraulics** (game/hydraulics.js; Tyler: "give the racer some hydraulics to
+bounce their car during scenes"). Its body rides on the rams over four wheels that stay on the
+road, and it works them only while it stands still in a scene: at a light while it is offering, on
+the faceoff, through the look at the finish. It pumps on the bass the underglow already follows
+(up, side to side, up, nose, no faster than every `PUMP_GAP`, 0.4s), or on a slow clock with the
+music off. It hops its front wheels off the road at "Wanna race?", pumps on "You're on!" and on each
+number of the count, and squats its tail on the green. Win, and it does `WIN_HOPS` (3) front hops
+beside the taxi; lose, and it sits slammed on its rams with its nose down until it drives off. The
+hop pitches the whole car about the rear axle and drops on a fall rather than easing (0.40 rad up,
+down in 0.7s); the pumps are underdamped springs, so each one bounces two or three times and
+settles. A lowrider's trick on a tuner's body, which a cartoon city can carry.
+`?hydraulics=classic` keeps the body still.
 
 **The finish is choreographed** (`updateFinale`, Tyler's six steps). The winner crosses the line
 and pulls up there (`WINNER_HOLD`, 1s; the taxi on the race's brake, `brakesTaxi`, since `parked`

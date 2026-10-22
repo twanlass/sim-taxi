@@ -115,6 +115,7 @@ import {
 } from '../src/geometry/targetring.js';
 import { createParcelPad, PAD_R } from '../src/geometry/parcelpad.js';
 import { underglowGeometry, createPulse, pulseStep } from '../src/game/race.js';
+import { createHydraulics, LIFT_MIN, LIFT_MAX } from '../src/game/hydraulics.js';
 import { TAXI_DECK_Y, TAXI_TAILPIPE_BACK, TAXI_TAILPIPE_HEIGHT } from '../src/geometry/taxi.js';
 import { createLocoFlame } from '../src/game/locoflame.js';
 import { createParcel, PARCEL_CENTRE_Y } from '../src/geometry/parcel.js';
@@ -975,6 +976,39 @@ const onGrass = (city, i, j) => {
   check('the racer\'s underglow flares on the kick and falls between', peak > 0.9 && trough < 0.2,
     `peak ${peak.toFixed(2)}, trough ${trough.toFixed(2)}`);
   check('and rests on a flat line', rest < 0.05, `${rest.toFixed(3)} after 3s of 0.4`);
+
+  // The racer's hydraulics (game/hydraulics.js): a front hop goes up and comes down onto the road
+  // rather than through it, a pump never takes the body past its rams, and both settle — a spring
+  // that rang on would leave the car shaking through the race. Stepped at 30 fps, a dropped frame's
+  // worth, since the substeps are what keep it stable there.
+  const hyd = createHydraulics();
+  hyd.kick('hop');
+  let hopTop = 0;
+  let hopLow = 0;
+  let hopDown = null;
+  for (let f = 0; f < 60; f++) {
+    hyd.update(1 / 30);
+    hopTop = Math.max(hopTop, hyd.state.hop);
+    hopLow = Math.min(hopLow, hyd.state.hop);
+    if (hopDown === null && f > 2 && hyd.state.hop === 0) hopDown = f / 30;
+  }
+  check('the racer\'s front hop lifts the nose and lands on the road', hopTop > 0.3 && hopTop < 0.5
+    && hopLow === 0 && hopDown !== null && hopDown < 0.8,
+  `top ${hopTop.toFixed(2)} rad, lowest ${hopLow}, down after ${hopDown?.toFixed(2)}s`);
+  hyd.reset();
+  let liftLo = 0;
+  let liftHi = 0;
+  for (const kind of ['bigPump', 'bigPump', 'left', 'pump', 'tail']) {
+    hyd.kick(kind);
+    for (let f = 0; f < 4; f++) {
+      hyd.update(1 / 30);
+      liftLo = Math.min(liftLo, hyd.state.lift);
+      liftHi = Math.max(liftHi, hyd.state.lift);
+    }
+  }
+  for (let f = 0; f < 90; f++) hyd.update(1 / 30);
+  check('its pumps stay inside the rams\' stroke and settle', liftLo >= LIFT_MIN && liftHi <= LIFT_MAX && !hyd.busy(),
+    `lift ${liftLo.toFixed(2)}..${liftHi.toFixed(2)}, still moving ${hyd.busy()} after 3s`);
 }
 
 // --- The parks' grass ---------------------------------------------------------
