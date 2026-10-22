@@ -276,7 +276,15 @@ export function createTitleScreen(root, { sound, settings, demo = null, onPlay, 
     endIntro?.();
     if (beforePlay?.(go)) {
       telling = true;
-      show('story');
+      // The menu fades off rather than blinking out, now the camera flies under it instead of
+      // cutting under a wipe (main.js `beforePlay`).
+      if (stillPlease()) show('story');
+      else {
+        menu.style.pointerEvents = 'none';
+        const out = menu.animate([{ opacity: 1 }, { opacity: 0 }],
+          { duration: 260, easing: 'ease-in', fill: 'forwards' });
+        out.onfinish = () => { show('story'); out.cancel(); menu.style.pointerEvents = ''; };
+      }
       return;
     }
     go();
