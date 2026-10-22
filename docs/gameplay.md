@@ -140,7 +140,9 @@ through.
 > So go remind this town what a cab is for.
 
 A tap anywhere finishes the line or moves on (Enter and Space too); **Skip** in the top corner, or
-Escape, ends it. The last tap lets the run go exactly as Play used to. The title screen's gate stays
+Escape, ends it. A finished line left untapped for `NUDGE_AFTER` = 3 s gives the card a
+dock-icon bounce (a 12 px hop and a 5 px one), and again every 3 s until the tap; not under reduced
+motion. The last tap lets the run go exactly as Play used to. The title screen's gate stays
 shut the whole time (`beforePlay` in `titlescreen.js`), so the fare board, the vignette and the
 radio all wait behind it, and the story drives its own typing clock because the frame loop's
 speech updates are parked with everything else.

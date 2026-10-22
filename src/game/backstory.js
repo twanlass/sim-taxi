@@ -20,6 +20,13 @@ export const BACKSTORY_LINES = [
   'So go remind this town what a cab is for.',
 ];
 
+// A finished line nobody has tapped for this long gives the card a nudge, and again every this long
+// after (Tyler, 2026-10-22): nothing else on screen says the story is waiting on a tap.
+const NUDGE_AFTER = 3;
+// The nudge: a hop and a smaller second one, like a dock icon asking for attention.
+const NUDGE_HOPS = [0, -12, 0, -5, 0];
+const NUDGE_MS = 650;
+
 // Through progress.js, so Demo mode tells it on every Play and writes nothing.
 let seenFlag = null;
 const seen = () => (seenFlag ??= createSeenFlag({ key: 'simTaxi.backstorySeen' }));
@@ -66,7 +73,15 @@ export function tellBackstory(root, { done, lines = BACKSTORY_LINES }) {
   });
   // Docked, the card ignores its target; under `?bubbles=classic` it points at the lower middle.
   const below = () => ({ x: window.innerWidth / 2, y: window.innerHeight * 0.72 });
-  const say = () => bubble.show('Dispatch', lines[at], below);
+  // Seconds the current line has sat finished and untapped.
+  let idle = 0;
+  const say = () => { idle = 0; bubble.show('Dispatch', lines[at], below); };
+  const still = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
+  // On the card rather than the `.speech` it sits in, whose transform speech.js writes every frame.
+  const nudge = () => talk.querySelector('.speech-card')?.animate(
+    NUDGE_HOPS.map((y) => ({ transform: `translateY(${y}px)` })),
+    { duration: NUDGE_MS, easing: 'ease-in-out' },
+  );
 
   function finish() {
     if (over) return;
@@ -92,8 +107,13 @@ export function tellBackstory(root, { done, lines = BACKSTORY_LINES }) {
   // title screen's gate, so the story drives it.
   let last = performance.now();
   const tick = (now) => {
-    bubble.update(Math.min((now - last) / 1000, 0.1));
+    const dt = Math.min((now - last) / 1000, 0.1);
+    bubble.update(dt);
     last = now;
+    if (bubble.isOpen() && !bubble.isTyping() && !still) {
+      idle += dt;
+      if (idle >= NUDGE_AFTER) { idle = 0; nudge(); }
+    }
     if (!over) raf = requestAnimationFrame(tick);
   };
   raf = requestAnimationFrame(tick);
