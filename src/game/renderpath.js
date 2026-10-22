@@ -13,11 +13,11 @@
 
 import {
   setAmbientOcclusion, setCrayon, setCartoon, setPainterly, setPaintBrushes, setClassicPaint,
-  setPaintLook, setRim, setFlip, setVehiclePaint, setCloudShadows, rimPaintOn, setRimDepth,
+  setPaintLook, setRim, rimTuning, setRimTuning, setFlip, setVehiclePaint, setCloudShadows, rimPaintOn, setRimDepth,
 } from '../util/geo.js';
 import {
   getAmbientOcclusion, getMsaa, getShadowMapSize, getCrayon, getCartoon, getHdr, getBloom, getRain,
-  getStorm, getSquall, getPaintClassic, getPaintLook, getRimColor, getFlip, getVehiclePaintClassic,
+  getStorm, getSquall, getPaintClassic, getPaintLook, getRimColor, getRimTune, getFlip, getVehiclePaintClassic,
 } from '../util/shot.js';
 import { createBrushTiles } from './brushtiles.js';
 import { createAmbientOcclusion } from './ssao.js';
@@ -27,6 +27,7 @@ import { createCrayon } from './crayon.js';
 import { createCartoon } from './cartoon.js';
 import { cullEmptyPools } from '../util/emptypools.js';
 import { syncRiverWater } from '../city/riverwater.js';
+import { installColorGrade } from './colorgrade.js';
 
 /**
  * The URL's say in how the frame is drawn. The game adds what only it decides (the safe mode, the
@@ -52,6 +53,9 @@ export function renderBudget() {
  * before a single mesh exists: none of it can move afterwards.
  */
 export function decideLooks(budget) {
+  // The colour grade (game/colorgrade.js) goes on the end of three's fog chunk, after the edge
+  // fog's own term — which is why here, once every import has run, and not at its own import.
+  installColorGrade();
   // Ambient occlusion. `?ao=off` turns it off for a like-for-like cost comparison on a device.
   setAmbientOcclusion(budget.ao);
   // Crayon Mode, the same kind of decision: see `game/crayon.js` for its three layers.
@@ -69,6 +73,8 @@ export function decideLooks(budget) {
   setPaintLook(getPaintLook());
   setRim(getRimColor());
   setFlip(getFlip());
+  // After the look and the rim colour, which each reset the numbers a workshop slider moved.
+  for (const [key, value] of getRimTune()) if (key in rimTuning() && Number.isFinite(value)) setRimTuning(key, value);
   setVehiclePaint(!getVehiclePaintClassic());
   // Cloud shadows are compiled into every lit material, so they are decided here with the look
   // modes. See CLOUD_UNIFORMS in util/geo.js; with no weather driving them they cover nothing.

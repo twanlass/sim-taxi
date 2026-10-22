@@ -9,7 +9,7 @@
 //
 //   - **The tape** (`createTape`). Nothing in the sim can run backwards, so the replay is a
 //     *recording*, not a re-simulation: every dynamic InstancedMesh in the scene and every node
-//     under the taxi's group, sampled at TAPE_HZ of sim time into a ring. That one rule covers far
+//     under the taxi's group and every skinned car's (`drawnRoots` in sim/traffic.js), sampled at TAPE_HZ of sim time into a ring. That one rule covers far
 //     more than the two cars — the traffic, its lamp pods, and every particle pool the wreck draws
 //     with (blast.js, dust.js, sparks.js, flames.js are all instanced, `aAlpha` included), so the
 //     fireball in the replay *is* the fireball the player saw rather than a second one fired to
@@ -54,7 +54,9 @@ function isZeroScale(m, o) {
  * @param scene    traversed for dynamic InstancedMeshes (and re-traversed now and then, since some
  *                 pools are built lazily)
  * @param roots    Object3Ds whose whole subtree is recorded node by node — the taxi's group, which
- *                 is a tree of ordinary meshes rather than an instance
+ *                 is a tree of ordinary meshes rather than an instance, and every skinned car's.
+ *                 Any iterable, read on every sample: main.js hands it traffic's live
+ *                 `drawnRoots` Set, so a vehicle dressed mid-run is taped without asking
  * @param exclude  `(mesh) => bool` for instanced meshes that must stay frozen with the world
  *                 around them — a boat's wake animating behind a boat that is standing still
  */
@@ -328,20 +330,25 @@ export function createTape(scene, { roots = [], exclude = () => false } = {}) {
 // override the playback rate below for one shot: the last word sinks to a quarter speed over a
 // longer ease, so the hit lands in real slow motion rather than at the 0.5 the first two cuts
 // stutter at. That slow-mo stretches the shot's own 0.45s of blast to 1.8s of wall clock, which
-// buys what most of the old 0.7s hold was for, so the hold is shorter.
+// buys what most of the old 0.7s hold was for, so the hold is shorter. The last cut plays 0.7 past
+// the hit rather than the first two's 0.3: at a quarter speed that extra 0.25 of sim is one more
+// second of wall clock on the final shot, and it is spent playing — the blast spreading, a thrown
+// driver climbing — rather than on a longer `hold`, which is a frozen frame (this cut has no orbit).
 const SHOTS = [
   { pre: 0.3, post: 0.3, zoomFrom: 17, zoomTo: 14, side: 1 },
   { pre: 0.3, post: 0.3, zoomFrom: 14, zoomTo: 11.5, side: -1 },
-  { pre: 0.3, post: 0.45, zoomFrom: 11, zoomTo: 9, side: 0, slow: 0.25, ramp: 0.22, hold: 0.4 },
+  { pre: 0.3, post: 0.7, zoomFrom: 11, zoomTo: 9, side: 0, slow: 0.25, ramp: 0.22, hold: 0.4 },
 ];
 // The furthest past the impact any shot plays, in sim seconds. The tape only holds what the live
 // beat recorded after the hit, which is what sets REPLAY_LEAD's floor in main.js.
 export const REPLAY_POST = Math.max(...SHOTS.map((s) => s.post));
+// How many cuts there are — main.js takes the run-end polaroid off the last one.
+export const REPLAY_SHOTS = SHOTS.length;
 
 // Playback rate, as a fraction of real time: near full speed into the hit, dropping over the last
 // RAMP seconds before it and holding there through the blast. At these numbers a 0.3 + 0.3 shot is
-// ~0.95s of wall clock, and the last (at its own 0.25 over a 0.22 ramp) ~2.4s plus its 0.4s hold —
-// about 4.7s for all three.
+// ~0.95s of wall clock, and the last (at its own 0.25 over a 0.22 ramp) ~3.4s plus its 0.4s hold —
+// about 5.7s for all three.
 const FAST = 0.8;
 const SLOW = 0.5;
 const RAMP = 0.12;

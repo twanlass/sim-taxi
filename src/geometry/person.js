@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { bakeColor, propMaterial } from '../util/geo.js';
 import { PALETTE } from '../palette.js';
+import { stampGhostMask } from './ghostoutline.js';
 
 // A blocky figure: a rider hailing a cab and running to it, and — same rig, different colours —
 // a road worker standing in a closed street until the taxi comes at them.
@@ -366,6 +367,12 @@ export function createPerson({
   // dim all of them together. Collected up front rather than walked from `group.children` on every
   // frame — the set is fixed for the lifetime of the person.
   const meshes = [torso, legL, legR, armL, armR, shinL, shinR, foreL, foreR, ...robberKit];
+  // Every figure stamps the ghost mask where it draws (see stampGhostMask), so the taxi's yellow rim
+  // never traces a person. A rim draws wherever something in the depth buffer sits in front of the
+  // taxi, and a rider stepping up to the door, climbing out at the kerb or standing between the
+  // camera and the cab is in front of it just as a tower is: unstamped, the rim drew their
+  // silhouette across the car. Stencil state, not shader source, so it links nothing.
+  for (const mesh of meshes) stampGhostMask(mesh.material);
 
   /**
    * Set the whole figure's opacity. `1` returns the meshes to opaque (no blend cost).

@@ -306,8 +306,10 @@ north-south line it replaced, and `?lroute=classic` the east-west one before tha
 - **It is high (deck top 6.4) on purpose.** The first cut was low (3.3) and over the median only,
   because anything `h` tall hides about `1.09h` of ground behind it on each axis. At play zoom it
   read as a railway cut through the city at street level. What hides more now is paid for by the
-  fade: the taxi and every visible fare pin are projected up their sightline to the deck and the
-  deck dithers out there (`FADE_*`). Off the island it dithers out the same way, a little ahead of
+  fade: every visible fare pin is projected up its sightline to the deck and the deck dithers out
+  there (`FADE_*`). The taxi is not one of them: it has its ghost outline, which traces it through
+  the deck as it does through a building, so the deck stays solid over it (`?trainfade=classic`
+  thins it over the taxi too, as it used to). Off the island it dithers out the same way, a little ahead of
   the ground's own fade, which reads as gone sooner than its alpha says.
 - **Wheel sparks** every few seconds off one truck, through the shared spark pool with its floor
   set to the road, so they fall through the open deck. Only at speed and only over the island.
@@ -925,6 +927,18 @@ canopy's depth and height are a sightline too: the pumps sit 1.8 in from its +Z 
 from a pump's top climbs 1.66 on its way out and clears the 3.7 underside. Deeper or lower and the
 pumps vanish under their own roof; the probe fires a ray from each pump to check.
 
+**The movie theater** (`city/movietheater.js`) is a **workshop-only** bench model for now: nothing in
+the city places it, but it exports a `LANDMARK`, so the workshop catalog finds it on its own. A deep teal
+(`cinemaWall`, the complement of the red board, marquee and carpet) brick fly tower with CINEMA lit across a red board on its face, framed in gold, a low cream lobby in front, a marquee over the doors on two posts (a plain red slab: no light strip, no gold trim), poster frames
+either side, a red carpet (`cinemaCarpet`) running from the doors across the forecourt to the kerb, and a ticket booth in the forecourt. The plant room on the tower roof is a muted teal-grey
+(`cinemaRoofUnit`, only a step lighter than the wall so it blends with the roof rather than glaring), not the coping's dark `cinemaTrim`.
+Bulbs run round the sign's frame only, and they chase: every third bulb shares one of three meshes, and the model's `update(dt)` darkens
+one mesh at a time, 0.14s per phase, so a dark gap travels round the loop like a marquee's. Whole
+meshes taking turns being `visible`, not a colour per bulb, because the glow is unlit vertex colour.
+The entrance and the name are on +Z, since only +X and +Z faces are ever seen. The name is lettered
+with `wordParts` from `city/roadside.js`, which gained C, I, N and E for it. Colours are the
+`cinema*` entries in `palette.js`. Tyler asked for it at the bench (2026-10-20).
+
 **The tube man** (`game/tubeman.js`) flails on the lot's +X+Z corner, the one the camera faces: a
 red tube on a blower box, yellow streamers for hair and cuffs, a cartoon face. He is a chain of
 capsules jointed end to end, bent by two travelling waves so the S runs up the tube, and every few
@@ -1116,7 +1130,9 @@ park can have a third of a unit of grass on three sides (3 courts in 40 seeds), 
 sideline's apron** ranks ahead of the near lawn: the box is set down on the blacktop outside the
 lines. On each beat it hops, squashes as it lands, its woofers pump, and an orange quaver or beamed pair floats up over
 it; the notes are opaque and go out by shrinking, because a translucent one blends twice where its
-head, stem and flag overlap. It is silent for now — see [audio.md](audio.md#the-boom-box) for the
+head, stem and flag overlap. Only the box is in the city's entrance wave; the notes follow its scale
+and visibility, because the wave also owns `visible` on what it is handed and once switched the
+pool's never-emitted spares on at the world origin. It is silent for now — see [audio.md](audio.md#the-boom-box) for the
 hook.
 
 ### A skatepark

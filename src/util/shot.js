@@ -572,6 +572,11 @@ export function getSquallRampClassic() {
   return new URLSearchParams(window.location.search).get('squallramp') === 'classic';
 }
 
+/** `?sunrays=classic` — no sun rays in a squall's wake (`SUN_RAYS` in game/rain.js). */
+export function getSunRaysClassic() {
+  return new URLSearchParams(window.location.search).get('sunrays') === 'classic';
+}
+
 /**
  * Autumn — `?fall=off` puts the trees back in summer green and keeps their leaves on in a squall.
  * On by default. The colours are a hash of each trunk's position (`autumnBase` in city/props.js),
@@ -610,6 +615,17 @@ export function getVehiclePaintClassic() {
 /** `?paint=layered|chameleon|satin|toon|rim|real` — null means the default, real (util/geo.js, PAINT_LOOKS). */
 export function getPaintLook() {
   return new URLSearchParams(window.location.search).get('paint');
+}
+
+/**
+ * `?rimtune=width:6,strength:1.5,…` — the rim light's live numbers (util/geo.js `RIM_TUNING`), which
+ * the model workshop passes through on Play so the game opens on what the bench's sliders show.
+ * Unknown keys and non-numbers are skipped by the caller.
+ */
+export function getRimTune() {
+  const raw = new URLSearchParams(window.location.search).get('rimtune');
+  if (!raw) return [];
+  return raw.split(',').map((pair) => pair.split(':')).map(([key, v]) => [key, Number(v)]);
 }
 
 /** `?rim=off|magenta|cyan|gold|white` — the paint's rim line; null is each car's own hue (util/geo.js). */
@@ -697,11 +713,12 @@ export function getHdr(fallback = false) {
 }
 
 /**
- * The wreck fireball's cut, via `?wreck=classic|quick|flat` — see WRECK_STYLES in game/blast.js.
+ * The wreck fireball's cut, via `?wreck=classic|quick|flat|burn` — see WRECK_STYLES in game/blast.js.
  * Returned as the raw name; `blast.setStyle` falls back to the default on anything it does not know.
- * The fallback is flat, Tyler's pick — `?wreck=classic` brings the old fireball back.
+ * The fallback is burn, the lit fire with the wrecks left burning — `?wreck=flat` brings back the
+ * ring of flat fire it replaced, and `?wreck=classic` the original fireball.
  */
-export function getWreckStyle(fallback = 'flat') {
+export function getWreckStyle(fallback = 'burn') {
   return new URLSearchParams(window.location.search).get('wreck') ?? fallback;
 }
 

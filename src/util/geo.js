@@ -350,12 +350,13 @@ float paintNoise(vec2 p) {
 }
 uniform float uBrushTile;
 uniform float uBrushAmt;
-uniform float uBrushKind;
-varying vec3 vPaintWorld;
 `;
 
 // Spliced in after SHADOW_LIGHT. The shade ratio is 0 on a fully lit face and 1 in full shade, so
 // 4r(1-r) peaks in a shadow's soft edge and is zero on both sides of it.
+//
+// Compiled in only while uEdge is above 0 (see `paintPlan`): the streets-only look runs it at 0,
+// where the whole block is an identity on every lit fragment in the city.
 const PAINT_LIGHT = /* glsl */ `
 	{
 		vec3 pL = vec3(0.2126, 0.7152, 0.0722);
@@ -373,27 +374,51 @@ const PAINT_LIGHT = /* glsl */ `
 	}
 `;
 
-// The height fade (walls darker at their foot), then the brush tiles. uBrushKind is per material:
+// The height fade (walls darker at their foot), then the brush tiles. PAINT_KIND is per material:
 // 0 none, 1 buildings (walls and roofs), 2 ground (lawns get the ground tile, everything else up-facing
 // — the road, kerbs, pavement — gets the road tile, held off the bright lane paint).
+//
+// **A define, not a uniform** (perf pass, 2026-10-18). As a uniform every prop in the city carried
+// the whole road path — two value noises, three tile reads and the junction arithmetic — behind a
+// test it failed, and a GPU that does not branch (SwiftShader measures it at a third of the frame)
+// pays for all of it. Compiled per kind, a building's shader has none of it and the ground's has
+// no wall path. Same pixels either way; `paintPlan` is the switch.
 const PAINT_FRAGMENT = /* glsl */ `
 	{
 		vec3 pN = normalize(inverseTransformDirection(normal, viewMatrix));
 		vec3 an = abs(pN);
 		float wall = 1.0 - an.y;
+#ifdef PAINT_FOOT
 		float h = smoothstep(0.0, uHeightSpan, vPaintWorld.y);
 		gl_FragColor.rgb *= mix(1.0 - uHeightGrad * wall, 1.0, h);
-		if (uBrushKind > 0.5) {
+#endif
+		if (PAINT_KIND > 0.5) {
 			float b = 0.0;
 			if (an.y > 0.7) {
 				vec3 c = gl_FragColor.rgb;
 				float grassy = smoothstep(0.015, 0.06, c.g - max(c.r, c.b));
-				float k = uBrushKind > 1.5 ? grassy * uLawnAmt / max(uBrushAmt, 1e-3) : 1.0;
-				b = (texture2D(tBrushGround, vPaintWorld.xz / uBrushTile).r - 0.5) * k;
-				if (uBrushKind > 1.5) {
+				float k = PAINT_KIND > 1.5 ? grassy * uLawnAmt / max(uBrushAmt, 1e-3) : 1.0;
+				// k is 0 on every ground fragment while the lawn strokes are dialled off (uLawnAmt),
+				// so the read is skipped there rather than multiplied away.
+				b = k != 0.0 ? (texture2D(tBrushGround, vPaintWorld.xz / uBrushTile).r - 0.5) * k : 0.0;
+				if (PAINT_KIND > 1.5) {
 					// The road tile is coloured: each stroke is a hair red or a hair blue as well as
 					// lighter or darker, so the swing is per channel rather than one scalar.
 					float lum = dot(c, vec3(0.2126, 0.7152, 0.0722));
+					// The fade mask: two octaves of value noise, so the strokes come and go in soft
+					// patches tens of units across and the 12-unit repeat never lines up with itself
+					// down a whole street. (The ground brush tile read at a big scale was tried first:
+					// its strokes survive the magnification and the patches came out as streaks.)
+					//
+					// Worked out first, with the lawn and lane-paint holds, because where any of them
+					// is zero the stroke multiplies by exactly 1 — and that is about half the ground on
+					// screen. The two road-tile reads and the junction arithmetic below are skipped
+					// there rather than computed and thrown away (perf pass, 2026-10-18).
+					float hold = (1.0 - grassy) * (1.0 - smoothstep(0.35, 0.6, lum));
+					vec2 mq = vPaintWorld.xz / uRoadMaskScale;
+					float m = hold > 0.0 ? paintNoise(mq) * 0.65 + paintNoise(mq * 2.3 + 17.1) * 0.35 : 0.0;
+					float fade = smoothstep(uRoadMaskLo, uRoadMaskHi, m) * hold;
+					if (fade > 0.0) {
 					// The road tile's strokes all run along its u axis, so it is read as (x, z) on an
 					// east-west street and (z, x) on a north-south one. At a junction one road runs
 					// straight through and the other stops at its kerb, so a street keeps one heading
@@ -411,16 +436,10 @@ const PAINT_FRAGMENT = /* glsl */ `
 					float ns = onZ * (1.0 - onX * (1.0 - artZ * (1.0 - artX)));
 					vec3 r = mix(texture2D(tBrushRoad, vPaintWorld.xz / uRoadTile).rgb,
 						texture2D(tBrushRoad, vPaintWorld.zx / uRoadTile).rgb, ns) - 0.5;
-					// The fade mask: two octaves of value noise, so the strokes come and go in soft
-					// patches tens of units across and the 12-unit repeat never lines up with itself
-					// down a whole street. (The ground brush tile read at a big scale was tried first:
-					// its strokes survive the magnification and the patches came out as streaks.)
-					vec2 mq = vPaintWorld.xz / uRoadMaskScale;
-					float m = paintNoise(mq) * 0.65 + paintNoise(mq * 2.3 + 17.1) * 0.35;
-					float fade = smoothstep(uRoadMaskLo, uRoadMaskHi, m);
-					gl_FragColor.rgb *= 1.0 + 2.0 * r * uRoadAmt * fade * (1.0 - grassy) * (1.0 - smoothstep(0.35, 0.6, lum));
+					gl_FragColor.rgb *= 1.0 + 2.0 * r * uRoadAmt * fade;
+					}
 				}
-			} else if (uBrushKind < 1.5) {
+			} else if (PAINT_KIND < 1.5) {
 				vec2 uv = vec2(an.x > an.z ? vPaintWorld.z : vPaintWorld.x, vPaintWorld.y);
 				b = texture2D(tBrushWall, uv / uBrushTile).r - 0.5;
 			}
@@ -450,8 +469,8 @@ export const CLOUD_UNIFORMS = {
   // The squall's rain cell (game/squall.js): x, z, core radius, and 1 while it is on. Its own clock,
   // because the footprint has to agree with the CPU copy in `cellMask` that the grip and the
   // headlights read.
-  uCell: { value: new THREE.Vector4(0, 0, 30, 0) },
-  uCellEdge: { value: 14 },
+  uCell: { value: new THREE.Vector4(0, 0, 20, 0) },
+  uCellEdge: { value: 10 },
   uCellTime: { value: 0 },
   // How the front falls off past the core's edge, in edges (`RAMP` in game/squall.js): the
   // drizzle's reach and share, then where the shade starts and ends.
@@ -753,14 +772,14 @@ export const GLOSS_UNIFORMS = {
   tRimDepth: { value: null },
   uRimStep: { value: new THREE.Vector2() },
   uRimDepthScale: { value: 1 },
-  uRimShape: { value: new THREE.Vector4(0.4, 0.6, 4, 0) },
+  uRimShape: { value: new THREE.Vector4(2, 2, 4, 0) },
   // Where the toon and rim looks' glint (x) and sheen (y) snap on, as cos(half-angle): higher is
   // a smaller shape. Were 0.982 and 0.86, which drew a sun-sized oval across the windscreen and
   // a broad lobe over the roof (Tyler, 2026-10-17: "crazy big highlights").
-  uToonCut: { value: new THREE.Vector2(0.996, 0.975) },
+  uToonCut: { value: new THREE.Vector2(1.001, 1.01) },
   // The flip colour: x how far the paint turns toward a deeper shade of itself at a grazing angle,
   // y the falloff's power. Per look (`PAINT_LOOK_FLIP`), `?flip=` overrides.
-  uFlip: { value: new THREE.Vector2(0, 1.6) },
+  uFlip: { value: new THREE.Vector2(0, 4) },
   // Painted reflection streaks (STREAKS): x strength, per look (`PAINT_LOOK_STREAKS`).
   uStreak: { value: new THREE.Vector4(0, 0, 0, 0) },
 };
@@ -768,7 +787,7 @@ export const GLOSS_UNIFORMS = {
 // `?rim=<name>`: one tint for every car's rim. Without one, each car's rim takes its own paint's
 // hue at full strength (Tyler, 2026-10-16: gold on the taxi), times the colour of the light.
 export const RIM_COLORS = { magenta: '#ff3df0', cyan: '#00e5ff', gold: '#ffb347', white: '#ffffff' };
-const RIM_STRENGTH = 3;
+const RIM_STRENGTH = 1; // was 3, then 0 from the workshop sliders (Tyler, 2026-10-19); 1 (Tyler, 2026-10-20)
 let rimLine = true;
 
 /**
@@ -938,6 +957,16 @@ export function softenNormals(geometry, creaseDeg = 40) {
   return geometry;
 }
 
+/**
+ * Say which function built a geometry, for the model workshop's pin (workshop/viewer.js reads
+ * `userData.src`): a click then names the builder to edit instead of "unnamed mesh". Survives only
+ * where the geometry is drawn as returned; `mergeGeometries` makes a new one and drops it.
+ */
+export function srcTag(geometry, text) {
+  geometry.userData.src = text;
+  return geometry;
+}
+
 /** A box for a smooth body, edges rounded by `radius` (clamped to the box); a plain box otherwise. */
 export function bodyBox(w, h, d, radius = BODY_ROUND) {
   if (!SMOOTH_BODY) return new THREE.BoxGeometry(w, h, d);
@@ -1093,11 +1122,11 @@ const PAINT_LOOK_NUMBERS = {
   },
 };
 // The flip colour each look wears (`uFlip.x`); `?flip=<amount>` overrides, `?flip=off` drops it.
-const PAINT_LOOK_FLIP = { rim: 0.7, real: 0.8 };
+const PAINT_LOOK_FLIP = { rim: 0.7, real: 1 };
 // The streaks each look wears (`uStreak.x`), and its rim's width in half-res texels (Tyler,
 // 2026-10-17: double the rim on realistic).
-const PAINT_LOOK_STREAKS = { real: 0.6 }; // Tyler, 2026-10-17: "0.6 looks rad"
-const PAINT_LOOK_RIM_WIDTH = { real: 8 };
+const PAINT_LOOK_STREAKS = { real: 0.25 }; // was 0.6 (Tyler, 2026-10-17: "0.6 looks rad"); 0.25 from the workshop sliders
+const PAINT_LOOK_RIM_WIDTH = { real: 1 };
 // ...but never wider than this in world units. The doubled width was judged in close-ups; at play
 // zoom on a phone (~7 half-res texels a unit) 8 texels is 1.1 units, which is the whole visible
 // flank of a car and the whole hull of a harbour ship, so both came out lit edge to edge
@@ -1605,6 +1634,20 @@ const PAINT_LOOKS = {
  * the air exactly as the façade under it does. Hooking `<dithering_fragment>` instead would ink
  * lines at full strength across a hazed skyline.
  */
+/**
+ * Which parts of the painterly look a material compiles, decided when three compiles it. `kind` is
+ * the brush tag (`PAINT_KIND`); `edge` and `foot` are the terminator tint and the wall-foot fade,
+ * which the streets-only look runs at 0 and so leaves out of every program. `world` is whether
+ * anything is left that needs the fragment's world position. A tuning panel that wants either back
+ * has to move the uniform before the city compiles, or set `needsUpdate` on the materials.
+ */
+function paintPlan(material) {
+  const kind = material.userData.brush ?? 0;
+  const edge = PAINT_UNIFORMS.uEdge.value > 0;
+  const foot = PAINT_UNIFORMS.uHeightGrad.value > 0;
+  return { kind, edge, foot, world: kind > 0 || foot };
+}
+
 function patchProp(material, { ao = true, gloss = null } = {}) {
   // Without this the patch silently does nothing. Three builds the program cache key from the
   // material's *parameters*, before `onBeforeCompile` has touched the source, so a patched
@@ -1618,18 +1661,20 @@ function patchProp(material, { ao = true, gloss = null } = {}) {
   const key = `prop${useAO ? '-ssao' : ''}${crayonEnabled ? '-crayon' : ''}`
     + `${cartoonEnabled ? '-cartoon' : ''}${gloss ? `-gloss${classicPaint ? '-classic' : paintLook === 'layered' ? '' : `-${paintLook}`}${rimPaintOn() ? '-rim' : ''}` : ''}`
     + `${cloudsEnabled ? '-clouds' : ''}${painterlyEnabled ? '-paint10' : ''}`;
-  material.customProgramCacheKey = () => key;
+  // The painterly part is read when three asks, not now: the brush is tagged on the material after
+  // `propMaterial()` returns (main.js `brush`), and it decides what compiles (see `paintPlan`).
+  material.customProgramCacheKey = painterlyEnabled
+    ? () => { const p = paintPlan(material); return `${key}-b${p.kind}${p.edge ? '-edge' : ''}${p.foot ? '-foot' : ''}`; }
+    : () => key;
 
   material.onBeforeCompile = (shader) => {
     Object.assign(shader.uniforms, AO_UNIFORMS, SHADOW_UNIFORMS);
     if (crayonEnabled) Object.assign(shader.uniforms, CRAYON_UNIFORMS);
     if (cartoonEnabled) Object.assign(shader.uniforms, CARTOON_UNIFORMS);
     if (cloudsEnabled) Object.assign(shader.uniforms, CLOUD_UNIFORMS);
-    if (painterlyEnabled) {
-      Object.assign(shader.uniforms, PAINT_UNIFORMS, {
-        // Per material, read at compile time: whoever built the mesh tags it after propMaterial().
-        uBrushKind: { value: material.userData.brush ?? 0 },
-      });
+    const paint = painterlyEnabled ? paintPlan(material) : null;
+    if (paint) Object.assign(shader.uniforms, PAINT_UNIFORMS);
+    if (paint?.world) {
       shader.vertexShader = shader.vertexShader
         .replace('#include <common>', `#include <common>
 varying vec3 vPaintWorld;`)
@@ -1739,7 +1784,10 @@ ${glossFragment(classicPaint || paintLook === 'toon' || paintLook === 'rim')
 uniform sampler2D tAmbientOcclusion;
 uniform vec2 uAOTexel;
 uniform vec3 uShadowColor;
-uniform float uShadowTint;${painterlyEnabled ? PAINT_COMMON : ''}${crayonEnabled ? `
+uniform float uShadowTint;${paint ? PAINT_COMMON : ''}${paint?.world ? `
+#define PAINT_KIND ${paint.kind}.0${paint.foot ? `
+#define PAINT_FOOT` : ''}
+varying vec3 vPaintWorld;` : ''}${crayonEnabled ? `
 uniform sampler2D tCrayonPaper;
 uniform vec2 uCrayonPaperScale;
 uniform vec2 uCrayonBoil;
@@ -1784,13 +1832,13 @@ ${CLOUD_GLSL}` : ''}`);
 ${cloudsEnabled ? CLOUD_LIGHT : ''}
 ${cartoonEnabled ? CARTOON_LIGHT : ''}
 ${SHADOW_LIGHT}
-${painterlyEnabled ? PAINT_LIGHT : ''}`);
+${paint?.edge ? PAINT_LIGHT : ''}`);
 
     // Both inks share the seam, and they compose in the order the looks would be layered by hand:
     // the cartoon's hard line first, the crayon's broken one over it. Running both is two inks on
     // one frame and nobody should want it, but a flag combination that throws is worse than one
     // that looks odd.
-    const beforeFog = `${painterlyEnabled ? PAINT_FRAGMENT : ''}${cartoonEnabled ? CARTOON_INK : ''}${crayonEnabled ? CRAYON_FRAGMENT : ''}`;
+    const beforeFog = `${paint?.world ? PAINT_FRAGMENT : ''}${cartoonEnabled ? CARTOON_INK : ''}${crayonEnabled ? CRAYON_FRAGMENT : ''}`;
     if (beforeFog) {
       shader.fragmentShader = shader.fragmentShader
         .replace('#include <fog_fragment>', `${beforeFog}

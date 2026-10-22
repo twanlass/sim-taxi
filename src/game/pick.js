@@ -64,11 +64,27 @@ export function createPicker(
   // Propagation stops between nodes, not between listeners on one node, so this sees it either way.
   let press = null;
   let fingerAt = -Infinity;
+  // When a finger last lifted off something that is *not* the canvas — a control laid over it.
+  // iOS hit-tests the click it sends after a touch at the moment it sends it, not where the touch
+  // began, so a control that moves out from under the finger on its own press hands its click to
+  // the canvas: the street racer's "…" tag at the screen edge rides the camera onto the car when
+  // tapped (game/speech.js, `onEdgeTap`), slides off the edge in the same frame, and its click
+  // landed on bare road — a miss, which turned the race the tap had just asked about straight down
+  // ("Next time, then"). A click whose finger came down on something else is that finger's echo,
+  // not a tap on the map.
+  let elsewhereAt = -Infinity;
   const win = domElement.ownerDocument?.defaultView;
   win?.addEventListener('pointerdown', (event) => {
     press = event.target === domElement && event.isPrimary && event.pointerType !== 'mouse'
       ? { id: event.pointerId, x: event.clientX, y: event.clientY }
       : null;
+    if (event.target === domElement) elsewhereAt = -Infinity;
+  }, { capture: true });
+  // Capture, on the window, so a control that stops its own `pointerup` (the edge tag does) is
+  // still seen. A touch pointer is implicitly captured to the element it pressed, so the target
+  // here is where the finger came *down*, wherever it lifted.
+  win?.addEventListener('pointerup', (event) => {
+    if (event.target !== domElement && event.pointerType !== 'mouse') elsewhereAt = performance.now();
   }, { capture: true });
   domElement.addEventListener('pointercancel', () => { press = null; });
   domElement.addEventListener('pointerup', (event) => {
@@ -86,8 +102,10 @@ export function createPicker(
 
   domElement.addEventListener('click', (event) => {
     // One lift, one echo: spent here, so a click that is not this finger's is not caught by it.
-    const echo = performance.now() - fingerAt < CLICK_ECHO_MS;
+    const now = performance.now();
+    const echo = now - fingerAt < CLICK_ECHO_MS || now - elsewhereAt < CLICK_ECHO_MS;
     fingerAt = -Infinity;
+    elsewhereAt = -Infinity;
     if (!echo) pickAt(event);
   });
 

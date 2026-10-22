@@ -28,6 +28,7 @@
  */
 // The designer's mix — see SHIPPED_MIX below.
 import MIX from '../../assets/audio/mix.json' with { type: 'json' };
+import { isNative } from '../util/platform.js';
 
 // The designer's files, keyed by the designer's own names so a re-delivery drops straight in. Each
 // is a literal `new URL` so Vite can see it at build time; a URL assembled from a variable is one
@@ -84,7 +85,6 @@ export const FILES = {
   '16_SCN_spawn_C': new URL('../../assets/audio/16_SCN_spawn_C.m4a', import.meta.url).href,
   '17_SCN_gate': new URL('../../assets/audio/17_SCN_gate.m4a', import.meta.url).href,
   '18_SCN_bridge': new URL('../../assets/audio/18_SCN_bridge.m4a', import.meta.url).href,
-  '19_AMB_city_loop_A_ST': new URL('../../assets/audio/19_AMB_city_loop_A_ST.m4a', import.meta.url).href,
   '19_AMB_city_loop_B_ST': new URL('../../assets/audio/19_AMB_city_loop_B_ST.m4a', import.meta.url).href,
   '20_AMB_construction_loop_MONO': new URL('../../assets/audio/20_AMB_construction_loop_MONO.m4a', import.meta.url).href,
   '21_SCN_birds_soft_A': new URL('../../assets/audio/21_SCN_birds_soft_A.m4a', import.meta.url).href,
@@ -116,8 +116,7 @@ export const FILES = {
  * What the game calls each sound, and the takes it draws from. The designer delivers most one-shots
  * as lettered variants (`_A`, `_B`, `_C`…) mixed level with each other and meant to be picked **one
  * per trigger**, so a door or a skid heard twice in a row is not the same recording twice — see
- * `pickTake`. A bed has one file, since a loop cannot change take mid-cycle — or, CHAINED, plays its
- * files end to end as one.
+ * `pickTake`. A bed has one file, since a loop cannot change take mid-cycle.
  */
 export const SOUNDS = {
   idle: ['01_ENG_idle_loop'],
@@ -151,8 +150,9 @@ export const SOUNDS = {
   spawn: ['16_SCN_spawn_A', '16_SCN_spawn_B', '16_SCN_spawn_C'],
   gate: ['17_SCN_gate'],
   bridge: ['18_SCN_bridge'],
-  // Two loops that follow one another rather than takes: see CHAINED.
-  city: ['19_AMB_city_loop_A_ST', '19_AMB_city_loop_B_ST'],
+  // B alone. It shipped as A then B joined into one 42s loop until the designer's October 19 mix
+  // note: "B works much better right now", and A was dropped.
+  city: ['19_AMB_city_loop_B_ST'],
   // Mono only in the final delivery: the designer tried both in the game and kept mono for every
   // bed heard from a point on the map.
   construction: ['20_AMB_construction_loop_MONO'],
@@ -180,13 +180,6 @@ export const SOUNDS = {
  * list and the delivery, and the key comes out of here.
  */
 export const PICKED = new Set(['rain']);
-
-/**
- * Beds delivered as several loops meant to follow one another — the city's A and B. A bed can only
- * play one buffer, so the takes are joined end to end into one (`chainBuffer`), each trimmed to its
- * master's true length first, and that loops: the city repeats every 42s rather than every 21.
- */
-export const CHAINED = new Set(['city']);
 
 /**
  * Sounds heard **from somewhere**: `mix.place[key]` is the falloff — full inside `near` world units
@@ -256,6 +249,9 @@ export const BUSES = [
   { key: 'player', label: 'Player', parent: 'sfx' },
   { key: 'world', label: 'World', parent: 'sfx' },
 ];
+// Where "bass" stops for `readBass`: the kick and the bass line, under the snare.
+const BASS_HZ = 150;
+
 /** The buses with a `buses.<key>` fader of their own in mix.json. */
 const OWN_FADER = ['master', 'player', 'world'];
 
@@ -277,7 +273,7 @@ export const MIX_PARENT = {
 // seconds. See `loopWindow`. By file rather than by sound since a PICK bed changes file.
 const LOOP_SECONDS = {
   '01_ENG_idle_loop': 4, '06_LOCO_engine_loop': 8, '15_SIGNAL_turn': 4.53125,
-  '25_NPC_siren_loop': 8.6875, '19_AMB_city_loop_A_ST': 21, '19_AMB_city_loop_B_ST': 21,
+  '25_NPC_siren_loop': 8.6875, '19_AMB_city_loop_B_ST': 21,
   '20_AMB_construction_loop_MONO': 21, '29_AMB_seagulls_loop_MONO': 21,
   '30_AMB_rain_loop_MONO': 21, '30_AMB_rain_loop_ST': 21, '31_AMB_basketball_loop_MONO': 21,
 };
@@ -297,8 +293,9 @@ export const DRIVE_THRU_TAIL = 2;
  * radio sits at -24 LUFS at full slider; -12 dB puts it at about -36, behind the speaker and still
  * playing. The speaker's master is -21.8 LUFS; at its first mix gain (0.6) and the default effects
  * slider (0.75, squared) it landed near -31, only 5 LU over the ducked radio, and on a phone it could
- * not be heard. At 1.2 it is near -25. Its one transient (0 dBFS, 11s in) still clears full scale at
- * the default slider; above about 0.91 effects that single hit clips, the rest peaks at -4 to -7.
+ * not be heard. At 1.2 it is near -25. Its one transient (0 dBFS, 11s in) cleared full scale at the old
+ * 0.75 default; above about 0.91 effects that single hit clips, and the default is now 1, so it
+ * does. The rest peaks at -4 to -7.
  */
 const MUSIC_DUCK = 0.25;
 // How long the radio takes to fade out once the game-over screen appears. Long enough to read as
@@ -360,6 +357,11 @@ const DASH_OPEN_LOW = 10;
  *
  * An ad is produced on its own and keeps its hard edges either side.
  */
+// How long a context may sit stopped through the player's taps before it is replaced (`revive`),
+// in seconds, and the fraction of that wall time its clock must have covered to count as moving.
+// Not measured on a device yet: 1.5s is a guess at comfortably longer than a healthy `resume()`
+// takes, and 0.5 leaves room for a stutter without mistaking a clock that has stopped.
+const REVIVE = { after: 1.5, pace: 0.5 };
 const RADIO_FADE = { under: 1, over: 2, duck: 0.5, rise: 1, dip: 0.4 };
 // Where the opening songs of the last session are remembered, so the next one opens on another
 // (Tyler: "always play a different initial music track on game start").
@@ -385,10 +387,6 @@ const AAC_PRIMING = 2112 / 48000;
  */
 const RADIO_FILES = {
   MUSIC_radio_intro: new URL('../../assets/audio/MUSIC_radio_intro.m4a', import.meta.url).href,
-  MUSIC_country: new URL('../../assets/audio/MUSIC_country.m4a', import.meta.url).href,
-  MUSIC_jazz: new URL('../../assets/audio/MUSIC_jazz.m4a', import.meta.url).href,
-  MUSIC_rock: new URL('../../assets/audio/MUSIC_rock.m4a', import.meta.url).href,
-  MUSIC_funk: new URL('../../assets/audio/MUSIC_funk.m4a', import.meta.url).href,
   '26_MUS_rolling': new URL('../../assets/audio/26_MUS_rolling.m4a', import.meta.url).href,
   '27_MUS_upbeat': new URL('../../assets/audio/27_MUS_upbeat.m4a', import.meta.url).href,
   '28_MUS_hiphop': new URL('../../assets/audio/28_MUS_hiphop.m4a', import.meta.url).href,
@@ -415,10 +413,10 @@ const dB = (d) => 10 ** (d / 20);
 export const RADIO = {
   intro: 'MUSIC_radio_intro',
   // Nicolás's four (Block 2 final, October 2026), written for the station: 40-50s each with short
-  // intros and clean endings, all mastered to -18 LUFS. They replaced the four below, which
-  // `?songs=classic` plays instead (`classicSongs` in createSfx).
+  // intros and clean endings, all mastered to -18 LUFS. They replaced four earlier 30s songs
+  // (country, jazz, rock, funk) whose source was never recorded; those were deleted in October
+  // 2026 rather than shipped in the App Store build behind a flag nothing in the app can set.
   songs: ['26_MUS_rolling', '27_MUS_upbeat', '28_MUS_hiphop', '33_MUS_indiepop'],
-  classicSongs: ['MUSIC_country', 'MUSIC_jazz', 'MUSIC_rock', 'MUSIC_funk'],
   ads: ['RADIO_ad_earls', 'RADIO_ad_le_barge', 'RADIO_ad_loco_juice'],
   breakIn: 'RADIO_break_in',
   breakOut: 'RADIO_break_out',
@@ -426,15 +424,14 @@ export const RADIO = {
   adEvery: 2,
   idEvery: 3,
   seconds: {
-    MUSIC_radio_intro: 6.34775, MUSIC_country: 30, MUSIC_jazz: 30, MUSIC_rock: 30, MUSIC_funk: 30,
+    MUSIC_radio_intro: 6.34775,
     '26_MUS_rolling': 45, '27_MUS_upbeat': 49.5714375, '28_MUS_hiphop': 40.6299375,
     '33_MUS_indiepop': 49.133875,
     RADIO_ad_earls: 9.4, RADIO_ad_le_barge: 14.528, RADIO_ad_loco_juice: 13.24,
     RADIO_break_in: 3.474271, RADIO_break_out: 4.284063, RADIO_station_id: 4.362438,
   },
   gain: {
-    MUSIC_radio_intro: dB(-6.1), MUSIC_country: dB(-10.5), MUSIC_jazz: dB(-11.7), MUSIC_rock: dB(-13.2),
-    MUSIC_funk: dB(-11.6),
+    MUSIC_radio_intro: dB(-6.1),
     // ebur128 off the masters: -18.3, -17.8, -18.2 and -18.1 LUFS, true peak -3 to -3.9.
     '26_MUS_rolling': dB(-5.7), '27_MUS_upbeat': dB(-6.2), '28_MUS_hiphop': dB(-5.8),
     '33_MUS_indiepop': dB(-5.9),
@@ -443,7 +440,7 @@ export const RADIO = {
   },
 };
 /** Every file the radio can play, in the order the ⚙️ panel lists them. */
-RADIO.all = [RADIO.intro, ...RADIO.songs, ...RADIO.classicSongs, ...RADIO.ads, RADIO.breakIn,
+RADIO.all = [RADIO.intro, ...RADIO.songs, ...RADIO.ads, RADIO.breakIn,
   RADIO.breakOut, RADIO.stationId];
 for (const key of RADIO.all) MIX_PARENT[key] = 'music';
 
@@ -614,16 +611,16 @@ function loopWindow(buffer, seconds) {
  * @param {object} opts
  * @param {{ next: () => number }} [opts.rng]  Draws each trigger's take (`pickTake`). Math.random without.
  * @param {boolean} [opts.menuMusic]  Hold the station off the air until `goOnAir` — the title menu
- *   plays songs alone until then. False (`?menumusic=classic`, or no title screen) opens on the intro.
- * @param {boolean} [opts.classicSongs]  The radio plays the four songs Nicolás's replaced
- *   (`?songs=classic`).
+ *   is silent until then (or plays songs alone, `menuSongs`). False (`?menumusic=classic`, or no title
+ *   screen) opens on the intro.
+ * @param {boolean} [opts.menuSongs]  Songs back to back under the title menu while it is off the air
+ *   (`?titlemusic=classic`). False leaves the menu to the effects, so the music arrives with Play.
  * @param {boolean} [opts.radioFade]  The station talks over the edges of the songs (`RADIO_FADE`).
  *   False (`?radiofade=classic`) plays every track after the last with a hard cut.
  */
-export function createSfx({ rng, menuMusic = false, classicSongs = false, radioFade = true } = {}) {
-  // The songs this session's station plays, and every file it can schedule. Only these are
-  // fetched and decoded up front: the other set is a few MB of download and ~30 MB of PCM.
-  const songs = classicSongs ? RADIO.classicSongs : RADIO.songs;
+export function createSfx({ rng, menuMusic = false, menuSongs = false, radioFade = true } = {}) {
+  // Every file the station can schedule, fetched and decoded up front.
+  const songs = RADIO.songs;
   const playlist = [RADIO.intro, ...songs, ...RADIO.ads, RADIO.breakIn, RADIO.breakOut, RADIO.stationId];
   const hasAudio = typeof window !== 'undefined'
     && (window.AudioContext || window.webkitAudioContext);
@@ -652,6 +649,8 @@ export function createSfx({ rng, menuMusic = false, classicSongs = false, radioF
     // The radio's last few tracks as scheduled, `{ track, at }` in context seconds — for checking
     // the rotation from the console (`__taxi.sfx.state.radio`).
     radio: [],
+    // Contexts thrown away for a new one (`revive`) — for checking from the console on a phone.
+    revived: 0,
   };
   const random = rng ? () => rng.next() : Math.random;
   // Live, and read every frame, so the panel can move any number while the car is driving.
@@ -764,6 +763,9 @@ export function createSfx({ rng, menuMusic = false, classicSongs = false, radioF
   // The ⚙️ panel's peak meter on `out`, made the first time it is read (`readMeter`): a tap off the
   // side of the chain, so it changes nothing that is heard, and absent from a normal session.
   let meterTap = null;
+  // The street racer's underglow pulses to the music (`readBass`): a tap off the Music bus, made the
+  // first time a racer asks, after the bus's own fader — so a muted or ducked song pulses nothing.
+  let bassTap = null;
   /** What the SFX bus gain should read: the mix's level, under the player's slider and the mute. */
   const masterLevel = () => (state.muted ? 0 : mix.master * state.effects ** 2);
   const musicLevel = () => (state.muted || state.musicOut ? 0
@@ -817,42 +819,9 @@ export function createSfx({ rng, menuMusic = false, classicSongs = false, radioF
   let stoppedFor = 0;
   let wasAir = false;
 
-  /** The file a bed plays: its one file, for a PICK the one chosen, for a CHAINED bed the join. */
+  /** The file a bed plays: its one file, or for a PICK the one chosen. */
   const bedFile = (key) => (replacements[key] ? replacements[key].ids[replacements[key].pick] : null)
-    ?? (CHAINED.has(key) ? chainBuffer(key) : null)
     ?? SOUNDS[key][PICKED.has(key) ? mix.sounds[key].pick : 0];
-
-  /**
-   * A CHAINED bed's takes joined into one buffer, under an id of its own in `buffers`, built once
-   * every take has decoded. Each is cut to its master's true length (`loopWindow`) before the
-   * join, so neither AAC's priming nor its end padding lands as a gap in the middle. Until then,
-   * or if a take failed, null — and the bed plays its first file alone.
-   */
-  const chained = {};
-  function chainBuffer(key) {
-    if (chained[key]) return chained[key];
-    const parts = SOUNDS[key].map((f) => buffers[f]);
-    if (!ctx || parts.some((b) => !b)) return null;
-    const spans = parts.map((b, i) => {
-      const w = loopWindow(b, LOOP_SECONDS[SOUNDS[key][i]] ?? b.duration);
-      return { b, from: Math.round(w.start * b.sampleRate), to: Math.round(w.end * b.sampleRate) };
-    });
-    const length = spans.reduce((n, s) => n + s.to - s.from, 0);
-    const channels = Math.max(...parts.map((b) => b.numberOfChannels));
-    const out = ctx.createBuffer(channels, length, parts[0].sampleRate);
-    for (let c = 0; c < channels; c++) {
-      const into = out.getChannelData(c);
-      let at = 0;
-      for (const s of spans) {
-        into.set(s.b.getChannelData(Math.min(c, s.b.numberOfChannels - 1)).subarray(s.from, s.to), at);
-        at += s.to - s.from;
-      }
-    }
-    const id = SOUNDS[key].join('+');
-    buffers[id] = out;
-    chained[key] = id;
-    return id;
-  }
 
   /**
    * A gain, then a stereo panner where the browser has one (every target since Safari 14.1), into
@@ -908,6 +877,28 @@ export function createSfx({ rng, menuMusic = false, classicSongs = false, radioF
       for (const x of meterTap.data) { const m = Math.abs(x); if (m > peak) peak = m; }
       return peak;
     });
+  }
+
+  /**
+   * How much low end is on the Music bus right now, 0..1 — the kick drum, near enough. The bins
+   * under `BASS_HZ`, averaged, on the analyser's own dB scale (minDecibels..maxDecibels mapped to
+   * 0..1), with no smoothing of its own: the caller wants the transient, and smooths it there.
+   */
+  function readBass() {
+    if (!ctx || !musicBus) return 0;
+    if (!bassTap) {
+      const a = ctx.createAnalyser();
+      a.fftSize = 1024;
+      a.smoothingTimeConstant = 0;
+      musicBus.connect(a);
+      const bins = Math.max(1, Math.round(BASS_HZ / (ctx.sampleRate / a.fftSize)));
+      bassTap = { a, bins, data: new Uint8Array(a.frequencyBinCount) };
+    }
+    bassTap.a.getByteFrequencyData(bassTap.data);
+    let sum = 0;
+    // From bin 1: bin 0 is DC.
+    for (let i = 1; i <= bassTap.bins; i++) sum += bassTap.data[i];
+    return sum / bassTap.bins / 255;
   }
 
   function makeLoop(key, gain = 0) {
@@ -1009,7 +1000,8 @@ export function createSfx({ rng, menuMusic = false, classicSongs = false, radioF
     return { gain: g };
   }
 
-  async function start() {
+  /** A context and the whole mix tree in it, up to the dash radio — everything but the voices. */
+  function buildGraph() {
     const Ctor = window.AudioContext || window.webkitAudioContext;
     ctx = new Ctor({ latencyHint: 'interactive' });
     const gainNode = (to) => { const g = ctx.createGain(); g.connect(to); return g; };
@@ -1028,10 +1020,29 @@ export function createSfx({ rng, menuMusic = false, classicSongs = false, radioF
     radioBus = ctx.createGain();
     buildDash();
     setDash(state.dashRadio, ctx.currentTime);
-    startRadio();
-    // The spawn's takes first: they are the one sound with a deadline (see `play`).
-    const order = [...SOUNDS.spawn, ...Object.keys(FILES).filter((f) => !SOUNDS.spawn.includes(f))];
-    await Promise.all(order.map(async (key) => {
+  }
+
+  /** The beds that run all session, out of buffers already decoded — a fresh set (`revive`). */
+  function buildBeds() {
+    idle = tryLoop('idle');
+    siren = tryLoop('siren');
+    loco = tryLoop('locoLoop');
+    for (const key of AMBIENT) ambient[key] = tryLoop(key);
+    rotor = makeRotor();
+  }
+
+  /** Any bed not running yet whose file has now decoded, so each starts the moment it can. */
+  function fillBeds() {
+    idle ??= tryLoop('idle');
+    siren ??= tryLoop('siren');
+    loco ??= tryLoop('locoLoop');
+    for (const key of AMBIENT) ambient[key] ??= tryLoop(key);
+    rotor ??= makeRotor();
+  }
+
+  async function decodeAll(keys) {
+    await Promise.all(keys.map(async (key) => {
+      if (buffers[key] || !FILES[key]) return;
       const p = bytesOf(key);
       try {
         const buf = await p;
@@ -1041,11 +1052,34 @@ export function createSfx({ rng, menuMusic = false, classicSongs = false, radioF
         console.warn(`sfx: ${key} did not load`, err);
       }
     }));
-    idle = tryLoop('idle');
-    siren = tryLoop('siren');
-    loco = tryLoop('locoLoop');
-    for (const key of AMBIENT) ambient[key] = tryLoop(key);
+  }
+
+  // In three waves, each waiting on the last, because the title menu's sound is the city's beds and
+  // they used to be the *last* thing it got. One `Promise.all` over every file handed the decoder
+  // all 73 at once (~400 s of audio, and the radio's ~185 s queued ahead of them), and nothing
+  // started until the slowest had finished — so the menu sat silent through the whole set, with
+  // the city loop ~50th in the queue. The spawn's takes still go first (the one sound with a
+  // deadline, see `play`), then the city bed on its own, then the rest of the beds, then
+  // everything else. Measured on a cloud core with ffmpeg as a stand-in decoder: the
+  // spawn and the city loop together are ~0.15 s, the whole set ~4 s.
+  async function start() {
+    buildGraph();
     rotor = makeRotor();
+    const rest = Object.keys(FILES);
+    const beds = ['idle', 'siren', 'locoLoop', ...AMBIENT].map(bedFile);
+    await decodeAll([...SOUNDS.spawn, bedFile('city')]);
+    fillBeds();
+    // The station's ~185 s goes behind the effects while it is off the air (the title menu); on
+    // the air already (no title screen, or the menu's own songs) it waits only for the spawn and
+    // the city. Play pressed before the effects are in opens the station itself (`goOnAir`), so
+    // it is not started a second time here.
+    const radioNow = onAir || menuSongs;
+    if (radioNow) startRadio();
+    await decodeAll(beds);
+    fillBeds();
+    await decodeAll(rest);
+    fillBeds();
+    if (!radioNow && !onAir) startRadio();
     state.ready = true;
     if (state.held) suspendCtx();
   }
@@ -1301,10 +1335,18 @@ export function createSfx({ rng, menuMusic = false, classicSongs = false, radioF
    *
    * Off the air (the title menu, Tyler October 2026): one song picked at random, decoded ahead of
    * everything else so the menu is not silent for long after the first tap, then more songs back to
-   * back with no ads and no ID until Play cuts to the intro (`goOnAir`).
+   * back with no ads and no ID until Play cuts to the intro (`goOnAir`). That is `?titlemusic=classic`
+   * now: by default the menu is effects only (Tyler, October 2026), so the music is something Play
+   * gives you rather than something it changes. The tracks still decode here, intro first, so the
+   * cut to the intro is not waiting on a decode.
    */
   async function startRadio() {
     if (onAir) { openStation(); return; }
+    if (!menuSongs) {
+      await decodeRadio(RADIO.intro);
+      await Promise.all(playlist.map(decodeRadio));
+      return;
+    }
     const fresh = songs.filter((k) => !lastOpeners.includes(k));
     const pool = fresh.length ? fresh : songs;
     const first = pool[Math.floor(random() * pool.length)];
@@ -1385,21 +1427,81 @@ export function createSfx({ rng, menuMusic = false, classicSongs = false, radioF
     }
   }
 
+  /**
+   * A new context in place of one iOS will not give back, built inside the gesture that found it
+   * dead so it starts running. Everything sounding in the old one is dropped with it: the beds are
+   * rebuilt off the decoded buffers (an `AudioBuffer` belongs to no context), the radio carries on
+   * with its next track rather than replaying the intro, and a one-shot that was mid-air is lost.
+   */
+  function revive() {
+    const old = ctx;
+    for (const v of radioVoices) v.src.onended = null;
+    radioVoices.clear();
+    for (const v of auditions) v.src.onended = null;
+    auditions.clear();
+    state.previewTrack = null;
+    Promise.resolve(old.close?.()).catch(() => {});
+    meterTap = null;
+    bassTap = null;
+    signal = null;
+    signalHand = null;
+    activate = null;
+    locoSince = -1;
+    buildGraph();
+    setLevels(0.001);
+    buildBeds();
+    // The old clock's schedule means nothing on the new one.
+    generation++;
+    ahead = 0;
+    queuedEnd = 0;
+    prev = null;
+    state.dashSongAt = null;
+    if (onAir || menuSongs) topUp();
+    state.revived++;
+  }
+
   // The unlock. Created *inside* the gesture, because Safari only lets a context start running
   // from one; `resume()` again on every later gesture until it is actually running, because iOS
   // will also suspend it behind the app's back (a phone call, the app backgrounded).
+  //
+  // **And sometimes never gives it back.** Coming back from another app, WKWebView can leave the
+  // context `suspended` or `interrupted` with a `resume()` that never settles, or report `running`
+  // with a clock that does not move — the game came back silent and stayed that way however much
+  // it was tapped (Tyler, October 2026; WebKit bugs 240646 and 291892 are the same shape). So each
+  // gesture also checks the clock against the wall since the last one, and a context that has had
+  // a gesture to resume in and still is not keeping time is thrown away (`revive`). Only while
+  // nothing is holding it: a pause stops the clock on purpose.
+  let probe = null;       // { wall, clock } at the last gesture that found the context free to run
+  let revivedAt = -Infinity;
   const unlock = () => {
-    if (!ctx) start();
-    else if (ctx.state !== 'running' && !state.held) resumeCtx();
+    if (!ctx) { start(); return; }
+    if (state.held || document.hidden) { probe = null; return; }
+    const wall = performance.now() / 1000;
+    const span = probe ? wall - probe.wall : 0;
+    const moving = probe && ctx.state === 'running' && ctx.currentTime - probe.clock >= span * REVIVE.pace;
+    // Only a clock seen moving moves the baseline, so a stall is measured from the first gesture
+    // that had the chance to fix it — however often the player taps in between.
+    if (!probe || moving) probe = { wall, clock: ctx.currentTime };
+    else if (span >= REVIVE.after && wall - revivedAt >= REVIVE.after) {
+      revivedAt = wall;
+      revive();
+      probe = null;
+      return;
+    }
+    if (ctx.state !== 'running') resumeCtx();
   };
   for (const type of ['pointerdown', 'touchend', 'keydown']) {
     window.addEventListener(type, unlock, { capture: true, passive: true });
   }
-  document.addEventListener('visibilitychange', () => {
+  const wake = () => {
     if (!ctx) return;
+    probe = null;
     if (document.hidden) suspendCtx();
     else if (!state.held) resumeCtx();
-  });
+  };
+  document.addEventListener('visibilitychange', wake);
+  // A page restored from the back-forward cache fires this and not `visibilitychange`.
+  window.addEventListener('pageshow', wake);
 
   /**
    * Fire a one-shot. `delay` is seconds from now on the audio clock, which stops with a hold, so a
@@ -1477,16 +1579,22 @@ export function createSfx({ rng, menuMusic = false, classicSongs = false, radioF
    * @param {number} opts.top     The Loco top (`boostCruise()`).
    * @param {boolean} opts.holding  The pill is held (not the cooldown tail).
    * @param {boolean} opts.over   The run has ended.
+   * @param {boolean} [opts.menu]  The title menu is up and Play has not been pressed. The taxi is
+   *   not the player's yet, so it makes no sound at all — the city's beds and one-shots carry on
+   *   (Tyler, October 2026: the menu is effects only, and the idle under it read as the run having
+   *   started). Unlike `over` it leaves the siren and the rotor alone, which are the city's.
    * @param {number} [opts.siren]  0..1, how loud the nearest running siren is from where the taxi
    *   is — main.js works it out from distance (see `sirenLevel` there). 0 is no siren on the map.
    */
   function update(dt, taxi, {
-    cruise, top, holding, over, siren: sirenAt = 0, rotor: rotorAt = 0, ambient: places = {},
+    cruise, top, holding, over, menu = false, siren: sirenAt = 0, rotor: rotorAt = 0, ambient: places = {},
   }) {
-    if (!state.ready) return;
+    // Not `ready`: that waits for every file, and the beds start as their own files land (`start`).
+    // Every voice below is null-checked until then.
+    if (!ctx) return;
     const t = ctx.currentTime;
     const v = Math.max(0, taxi.v);
-    const alive = !over && !taxi.crashed;
+    const alive = !over && !menu && !taxi.crashed;
 
     if (!holding && locoSince >= 0) locoOff();
 
@@ -1584,6 +1692,7 @@ export function createSfx({ rng, menuMusic = false, classicSongs = false, radioF
   function hold(on) {
     if (on === state.held) return;
     state.held = on;
+    probe = null;
     if (!ctx) return;
     if (on) suspendCtx();
     else if (!document.hidden) resumeCtx();
@@ -1763,6 +1872,14 @@ export function createSfx({ rng, menuMusic = false, classicSongs = false, radioF
     delete replacements[key];
   }
 
+  // The iOS app does not wait for a tap. Its shell lifts WebKit's gesture rule
+  // (`mediaTypesRequiringUserActionForPlayback = []`, the same allowance the startup screen's
+  // sting runs on — game/splashsound.js), so the context can run from boot and the files decode
+  // while the logo plays. Waiting for the first tap there meant the title menu came up silent and
+  // the city only arrived a tap *and* a decode later. Should WebKit hold the context suspended
+  // anyway, the first tap resumes it (`unlock`), which is where every browser still starts.
+  if (isNative()) start();
+
   return {
     state,
     play,
@@ -1796,6 +1913,8 @@ export function createSfx({ rng, menuMusic = false, classicSongs = false, radioF
     audible: pass,
     /** The peak on Master since the last read, `[left, right]` linear, or null before a tap. */
     meter: readMeter,
+    /** The low end on the Music bus, 0..1 — what the street racer's underglow pulses to. */
+    bass: readBass,
     audition,
     stopAuditions,
     files: FILES,

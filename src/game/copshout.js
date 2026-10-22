@@ -21,7 +21,7 @@ import { createSpeech } from './speech.js';
 
 /** What the cop shouts. */
 export const SHOUT_TITLE = 'Police';
-export const SHOUT_LINE = 'Taxi: pull over now';
+export const SHOUT_LINE = 'Taxi: {pull over} now';
 
 /**
  * How long it stays up, in seconds of game time. Long enough to read two words at a glance while

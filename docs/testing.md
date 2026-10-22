@@ -39,6 +39,7 @@ can be made and verified in a single step.
 | **eta** | `tools/eta.mjs 40 3` | Fits and grades the trip-time estimator every fare deadline is budgeted from. Runs before the soak: a drifted estimator makes the soak's numbers a measurement of the drift |
 | **fares** | `tools/soak.mjs 25 4 9` | Auto-plays the fare loop over **9 cities × 9 situations** with a fixed "player reaction" delay, and gates on a **band** around the median |
 | **signals** | `tools/signals.mjs` | Throughput, stationary fraction, green-wave hit rate. Informational — it reports rather than fails |
+| **wreckreplay** | `tools/wreckreplay.mjs` | Every kind of vehicle — car, truck, patrol cruiser, racer, fire engine — is wrecked and played back through [the crash replay](traffic.md#the-replay): something car-sized is drawn where it stands on every frame from 0.25s before the hit to 0.1s after. `OLDROOTS=1` tapes the taxi alone, the control: it goes red on the three skinned vehicles |
 | **lab** | `tools/lab.mjs` | [The passing lab](lab.md) at `/lab/`: its road is one straight signal-free chain with the city's own lane geometry, and a taxi staged behind a cruising leader with the button held gets past it and back into lane without clipping it |
 
 `taxi.mjs` is the assertion that matters most and the one **no screenshot can make**.
@@ -101,6 +102,7 @@ node tools/diag.mjs                           # ad-hoc scratch diagnostics
 node tools/alloc.mjs 6000 110                 # bytes of garbage per simulated frame
 node tools/links.mjs --url http://localhost:5173   # shaders compiled *during* a run
 node tools/perf.mjs --url http://localhost:5173    # draws/tris per pass, JS per frame (counts exact, times not)
+node tools/gpucost.mjs --flags msaa=off ao=off     # whole-frame draw cost per flag set, GPU included (relative)
 node tools/smoke.mjs --url http://localhost:4173   # real browser, real DOM
 node tools/native-smoke.mjs --url http://localhost:4173   # the iOS fork, both ways
 ./shots.sh                                    # render the screenshot set
@@ -291,6 +293,16 @@ spent and what is left on the road is the two cars themselves —
 own fireballs. 12 and 17 ask whether the crash reads as an *event*; this one asks whether the wreck
 reads as a *pair of cars*, which is only askable once the fire is out. It is appended at the end of
 the list rather than filed beside 17 because inserting an entry renumbers every shot after it.
+
+A still answers only one beat, so the whole crash has a reel: `tools/wreckreel.mjs` opens shot 12 at
+`&wreckAt=0` and steps the wreck's own pools on through `window.__wreckStep(frames)`, capturing a
+frame each time, so the take comes out at an even 30 fps whatever the software renderer manages.
+Phone-sized by default, and `--mp4` writes the H.264 that plays inline on an iPhone:
+
+```bash
+CHROME=/opt/pw-browsers/chromium CHROME_FLAGS=--no-sandbox \
+  node tools/wreckreel.mjs --url 'http://localhost:5173/?rain=night' --out ./reel --mp4 reel.mp4
+```
 
 Shot 38 (`median`) is the arterial's planted island at `zoom: 11`, and it is close for the reason
 `mouth` is close: everything on a median is decided by a sightline measured in fractions of a unit

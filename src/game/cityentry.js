@@ -149,6 +149,17 @@ export function createCityEntry({
 
   // The discard is not decoration — see the flat-sheet note in the header. It guards both the
   // shadow pass and the main pass's depth writes while an object hasn't appeared yet.
+  //
+  // **The alpha is set, not multiplied.** Every one of these programs is compiled while the
+  // material is `transparent`, so it is compiled *without* three's `OPAQUE` define — the one that
+  // pins `diffuseColor.a` to 1 — and flipping `transparent` back in `finish()` does not recompile
+  // it. So whatever alpha the material computes keeps going into the canvas for the rest of the
+  // run, and the canvas is composited over the page (three always asks for an `alpha: true`
+  // context). For the solid meshes that is 1 and harmless. For the alpha-cut cards — the parks'
+  // grass and the leaf fuzz on the crowns — it is the atlas's coverage, anywhere from 0.5 to 1,
+  // and the page's sky-coloured background showed through every tuft: measured 199/255 on a tuft
+  // in a squall, where the dark wet lawn round it made them read as glowing white. Shot mode
+  // settles the entrance before the first render, compiles the cards opaque, and never saw it.
   const patchFragment = (shader, { alpha }) => {
     shader.fragmentShader = shader.fragmentShader
       .replace('#include <common>', '#include <common>\nvarying float vEntryFade;')
@@ -156,7 +167,7 @@ export function createCityEntry({
     if (alpha) {
       shader.fragmentShader = shader.fragmentShader
         .replace('#include <dithering_fragment>',
-          '#include <dithering_fragment>\n\tgl_FragColor.a *= vEntryFade;');
+          '#include <dithering_fragment>\n\tgl_FragColor.a = vEntryFade;');
     }
   };
 
@@ -256,8 +267,9 @@ export function createCityEntry({
     head = queue.length;
     applyObjects();
     // Back to opaque: alpha is 1 everywhere from here on, and a transparent merged city would
-    // keep paying the sorted-pass cost (and self-sort wrong) forever. No recompile — the flag is
-    // render state, not a shader define.
+    // keep paying the sorted-pass cost (and self-sort wrong) forever. No recompile, on purpose —
+    // relinking the city's programs here would hitch the frame the entrance lands on. The flag
+    // *is* also a shader define (`OPAQUE`), which is why `patchFragment` writes the alpha itself.
     for (const material of materials) material.transparent = false;
   };
 

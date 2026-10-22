@@ -650,7 +650,6 @@ export function buildAudioSections(host, sfx, { triggers = {}, holds = {}, place
     + 'and the station ID every 3. ▶ plays a track alone, the radio held quiet; ■ stops it. Level '
     + 'is on top of the track\'s own levelling. Replace… takes over the next time it comes round.');
   const kindOf = (key) => (key === RADIO.intro ? 'Intro' : RADIO.songs.includes(key) ? 'Song'
-    : RADIO.classicSongs.includes(key) ? 'Song (?songs=classic)'
     : RADIO.ads.includes(key) ? 'Ad' : 'Station');
   for (const key of RADIO.all) {
     const box = el('div', { className: 'aud-sound aud-track' });

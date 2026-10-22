@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import {
-  bakeColor, propMaterial, cloneProp, setFinish, FINISH, BODY_EULER_ORDER, SMOOTH_BODY, bodyBox, softenNormals,
+  bakeColor, propMaterial, cloneProp, setFinish, FINISH, BODY_EULER_ORDER, SMOOTH_BODY, bodyBox, softenNormals, srcTag,
 } from '../util/geo.js';
 import { PALETTE, color } from '../palette.js';
 import { KERB_H, roundedRectShape } from '../city/ground.js';
@@ -810,6 +810,51 @@ export function setDodge(name) {
   dodgeOn = name !== 'classic';
 }
 /**
+ * The overtake combo is dumb on purpose: thrown, it puts the taxi in the oncoming lane, and that is
+ * all it does. No waiting for the car in front to be close enough, no refusing a car turning left
+ * across the lane (`turningAcross`), no picking a line round something in the junction by its own
+ * kerb or the far one, no sparing a car crossing at cruise — the taxi goes where the player sent
+ * it and hits whatever is there (Tyler, 2026-10-19: "don't do anything smart. That's how the player
+ * will learn, but that's how they will also feel a real reaction to their actions").
+ *
+ * What it still asks is the road: an oncoming lane to borrow and a road on the far side of the
+ * junction (`room`), because without those there is no lane to be in. And the leader brake still
+ * holds while the taxi swings out (`boostGap`), which is the taxi not driving *through* the car it
+ * is leaving rather than a judgement about whether it should go.
+ *
+ * `?overtake=classic` puts the judgement back: the pull-out waits for PASS_TRIGGER, the #520 gate
+ * refuses a left-turner, and the junction dodge only goes for a slow blocker it has a clean line round.
+ */
+let overtakeDumb = true;
+export function setOvertakeStyle(name) {
+  overtakeDumb = name !== 'classic';
+}
+/**
+ * The one exception, and it is keyed on something the player can see: a car in front **signalling
+ * left** is not gone round into the lane it is about to swing across. The combo goes round its
+ * right instead, up on the pavement, at full speed (Tyler, 2026-10-19: "a slight peek around on the
+ * right", then "couldn't we do a peek at full speed though?"). The rule stays dumb: a blinker means
+ * right, anything else means the oncoming lane, and what is on the pavement is the player's problem
+ * — nothing there is collision-tested, so the taxi drives through the street furniture.
+ *
+ * How far is set by the collision envelope, not by the kerb (`peekLateral`). The first cut stopped
+ * on the kerb at the brake-check pull-over's 1.5, which leaves the two bodies' circles 1.5 apart
+ * against a 2.31 envelope: the taxi could not get past a car still in its lane, and the leader brake
+ * (`peeking` in `boostGap`) held it at the turner's own speed beside its tail until the turner swung
+ * away — a crawl with Loco held. Past the envelope the leader brake lets go (`seesLeader`) and the
+ * taxi keeps its speed, 2.61 off the lane centre with the whole body up the kerb.
+ *
+ * PEEK_MARGIN is for the turner's tail, not its centre. A car yawing into a left swings its rear
+ * circle *toward* the taxi, so at the bare envelope (+0.05) a taxi blipped behind a car still
+ * waiting at its line arrived as it set off and clipped its back corner, 3 runs of 3; 0.3 cleared
+ * all three.
+ */
+const PEEK_MARGIN = 0.3;
+const peekLateral = () => ENVELOPE + PEEK_MARGIN;
+const peeking = (car, leader) => car.passing && car.dodgeLateral < 0 && leader && car.passTarget === leader;
+/** How far apart two cars are across `car`'s road. */
+const sideGap = (car, other) => Math.abs(isXAxis(car.d) ? other.z - car.z : other.x - car.x);
+/**
  * The car to dodge in the junction ahead of `taxi`, the road to it, and how far across the
  * swing has to go — or null when there is nothing in the way, or no line round it.
  *
@@ -864,7 +909,11 @@ function findDodge(cars, taxi, passLateral) {
     blocker = other;
     gap = ahead;
   }
-  if (!blocker || (blocker.v ?? 0) > DODGE_CREEP) return null;
+  if (!blocker) return null;
+  // Dumb, anything in the way arms the combo and the taxi goes the ordinary way round — through it
+  // if that is where it is (`setOvertakeStyle`).
+  if (overtakeDumb) return { car: blocker, gap, lateral: passLateral };
+  if ((blocker.v ?? 0) > DODGE_CREEP) return null;
   const clearAt = (lateral) => lats.every((lat) => Math.abs(lat - (laneLat + toFar * lateral)) >= clearBy);
   const lateral = [passLateral, dodgeKerb, dodgeWide].find(clearAt);
   return lateral === undefined ? null : { car: blocker, gap, lateral };
@@ -1027,8 +1076,13 @@ export function copLaysRubber(car) {
  * round with the lane change 0.18 of the way done. See `envelopeGap`, which is what the tailgate
  * becomes while the swing is in progress.
  */
-const seesLeader = (car) => car.passOffset
-  < Math.max(ENVELOPE, laneOffsetFor(car.d, car.i, car.j));
+//
+// Both ways: a peek round the *right* of a left-turner (`peeking`) goes out to the envelope on the
+// kerb side, and past it the leader can no longer be hit either. Asked one way only, the taxi up on
+// the pavement kept braking to stop behind a car it was beside, and lost 24 to 17 u/s on the way
+// past it with Loco held.
+const seesLeader = (car) => car.passOffset < Math.max(ENVELOPE, laneOffsetFor(car.d, car.i, car.j))
+  && car.passOffset > -ENVELOPE;
 // A cop out in the oncoming lane overtaking the taxi. Listed in its own lane at its own arc length
 // like any car mid-pass, but nobody behind it should be following it — see the leader bookkeeping
 // in `update`. Police only, so the taxi's own overtake, which every number on this page was
@@ -1038,12 +1092,15 @@ const seesLeader = (car) => car.passOffset
 // front whatever its offset says, and the taxi has to follow it: skipped for the length of the swing
 // back, a cop that slowed for the next junction was caught and cut into by the very taxi it had
 // just passed (0.7 units centre to centre, measured).
-const outOfLane = (car) => car.police && car.passing && !seesLeader(car);
+// The street racer's drag start (`dragStart`, below) is the same shape: it sets off level with the
+// taxi from the oncoming lane, and the taxi must not brake for it.
+// And its overtake mid-race (`racePass`), which is the cop's pass pointed at whatever is in front.
+const outOfLane = (car) => (car.police || car.dragStart || car.racePass) && car.passing && !seesLeader(car);
 // ...and the same goes for the cop's own following. `seesLeader` alone keeps a cop blind to the
 // car in its lane for as long as its offset is out past ENVELOPE, which is right while committed and
 // wrong on the way back in: a pass abandoned 6 units behind the taxi swung back across a junction at
 // 13 u/s against the taxi's 8.5 and was 3.2 off its tail by the time the offset let it see it.
-const followsLeader = (car) => seesLeader(car) || (car.police && !car.passing);
+const followsLeader = (car) => seesLeader(car) || ((car.police || car.racePass) && !car.passing);
 // A boosting taxi with hit points that *cannot* get round the car in front rams it. Everything
 // above about the tailgate gap and the moving-leader cap is how Loco Mode avoided the car in front,
 // which was the right call while any contact was the end of the run. Now a contact is a bump
@@ -1458,8 +1515,13 @@ const closingFloor = (car, leader) => Math.max(0, (leader.v ?? 0) * Math.cos(lea
  * ending level with the car it is passing rather than a body-length behind it, and it can never
  * reach a position the detector calls a crash — the constraint *is* the detector's own geometry.
  */
+// A peek (`peeking`) is sized by how far apart the two actually are across the road, because the
+// turner is the one moving out of the way: the taxi's own offset says 1.5 for the whole manoeuvre,
+// which would hold it a car length behind the turner, at its corner speed, all the way round.
 const boostGap = (car, leader) => (car.passOffset > 0
   ? Math.min(BOOST_GAP + truckExtra(leader), envelopeGap(car.passOffset, leader))
+  : peeking(car, leader)
+    ? Math.min(BOOST_GAP + truckExtra(leader), envelopeGap(sideGap(car, leader), leader))
   : BOOST_GAP + truckExtra(leader) + (car.passArmed !== undefined && !car.passing ? COMBO_TAILGATE : 0));
 /**
  * How fast the taxi may go while it swings out round `leader`, `ahead` units behind it — the cap
@@ -1524,6 +1586,22 @@ export function setPassPace(name) {
  */
 const COMBO_TAILGATE = 1.5;
 /**
+ * Is `leader` the taxi, and the taxi already braking for this truck's body? Then the truck must not
+ * hold for it in turn, whatever the lane bookkeeping says about who is in front.
+ *
+ * The two answer "who is ahead" differently, and around a junction they can disagree both ways
+ * round. A car mid-turn is listed on its exit lane at `-(1 - turnT) · 5`, a stand-in, so a taxi
+ * that has just crossed straight on at `s ≥ 0` reads as *in front* of a truck still swinging onto
+ * the same lane — and so does a taxi further round a left onto it than the truck is round its
+ * right. The truck queues behind the taxi; the taxi brakes for the truck by its body (`truckRoom`),
+ * which really is in front of it. Each waits for the other, forever: measured, 3 runs in 40
+ * (24 cities × 90s at 35% trucks) ended with the taxi parked behind a truck stopped mid-corner for
+ * the rest of the run, 72-80s. The body is what can be hit, so the body wins. Ambient cars never
+ * meet this, because nothing but the taxi brakes for a body.
+ */
+const truckHoldsForPhantom = (car, leader) => car.isTruck && leader?.isTaxi === true
+  && leader.truckAhead === car;
+/**
  * How far clear of the car it just passed the taxi must be before it may cut back in.
  *
  * The commitment used to end the moment the taxi's *lane position* went past the leader's, and a
@@ -1564,6 +1642,13 @@ const COP_PASS_YIELD = 25;
 // following gap behind whatever is ahead, and a body. Without it the cop tucks in on top of the
 // car the taxi was queued behind.
 const COP_PASS_CUT_IN = PASS_CLEAR + 2 * CAR_LEN + 4;
+// The street racer's overtake (`racePass`): the cop's gate, pulling out from further back so it goes
+// round a car it is catching rather than one it has already stopped behind. It is rare all the
+// same, because a racer is seldom held up: over 96 headless races it spent ~0.3s a race within 10
+// of anything under 70% of its pace, and passed 15 times at 20 (9 at 10). The racer does not
+// scatter traffic in front of it the way a chasing cop does — that was clearing exactly the cars
+// it would pass, and dropping it did not move a race time (median 14.8s either way).
+const RACER_PASS_TRIGGER = 20;
 // How long the cop stands on its brakes once it has cut in. Long enough that a taxi following at
 // cruise comes to a full stop behind it (1 unit from 8.5 u/s under an ordinary brake, well inside
 // a second) and the stern-chase cops have a moment to arrive behind; short enough that a player who
@@ -2749,7 +2834,7 @@ export function carGeometry({ bumpers = true } = {}) {
 
   const merged = mergeGeometries(parts, false);
   parts.forEach((p) => p.dispose());
-  return merged;
+  return srcTag(merged, 'src/sim/traffic.js · carGeometry (shared by every car: body, glass cabin)');
 }
 
 /**
@@ -2773,7 +2858,7 @@ export function policeCabGeometry() {
     CAR_LEN * 0.5 + 2 * CAB_SKIN, CAB_ROOF + CAB_SKIN, CAR_W * 0.86 + 2 * CAB_SKIN, 0.12 + CAB_SKIN);
   cab.translate(CABIN_X, CABIN_Y + CABIN_H / 2 - CAB_ROOF / 2 + CAB_SKIN / 2, 0);
   const shell = bakeColor(cab, color('policeCab'));
-  return setFinish(SMOOTH_BODY ? softenNormals(shell) : shell, FINISH.PAINT);
+  return srcTag(setFinish(SMOOTH_BODY ? softenNormals(shell) : shell, FINISH.PAINT), 'src/sim/traffic.js · policeCabGeometry (the white roof cap)');
 }
 
 // Shared by truckCabGeometry() and truckBoxGeometry() so the two pieces — drawn from separate
@@ -2783,6 +2868,7 @@ const TRUCK_BASE_Y = 0.78 + CHASSIS_LIFT;     // top of the chassis a car's body
 const TRUCK_CAB_LEN = TRUCK_LEN * 0.3;
 const TRUCK_CAB_X = TRUCK_LEN / 2 - TRUCK_CAB_LEN / 2 - 0.1; // 0.1 nose gap
 const TRUCK_CAB_Y = TRUCK_BASE_Y + 0.4 + 0.55;
+const TRUCK_RAKE = 0.5;   // how far the cab's top front edge sits behind its bottom one
 // Exported for game/flatbed.js, which swaps one truck's box for an open deck in exactly this
 // footprint: the deck has to sit on the chassis top the box sat on, or it floats or sinks.
 // The box runs from its tail gap up to a set gap behind the cab, so its length follows the cab
@@ -2813,12 +2899,35 @@ export function truckCabGeometry({ bumpers = true } = {}) {
 
   parts.push(...archedBodyGeometries(TRUCK_LEN, TRUCK_W, TRUCK_BASE_Y, 0.8, white));
 
-  const cab = new THREE.BoxGeometry(TRUCK_CAB_LEN, 1.1, TRUCK_W * 0.84);
-  cab.translate(TRUCK_CAB_X, TRUCK_CAB_Y, 0);
+  // The cab's side profile is a trapezoid: its front face leans back by TRUCK_RAKE over its height,
+  // which is what gives the windscreen its slant. Extruded across the cab's width and centred on it.
+  const cabW = TRUCK_W * 0.84;
+  const profile = new THREE.Shape([
+    new THREE.Vector2(-TRUCK_CAB_LEN / 2, -0.55),
+    new THREE.Vector2(TRUCK_CAB_LEN / 2, -0.55),
+    new THREE.Vector2(TRUCK_CAB_LEN / 2 - TRUCK_RAKE, 0.55),
+    new THREE.Vector2(-TRUCK_CAB_LEN / 2, 0.55),
+  ]);
+  const cab = new THREE.ExtrudeGeometry(profile, { depth: cabW, bevelEnabled: false });
+  cab.translate(TRUCK_CAB_X, TRUCK_CAB_Y, -cabW / 2);
   parts.push(setFinish(bakeColor(cab, cabDark), FINISH.GLASS));
 
-  const windshield = new THREE.BoxGeometry(0.12, 0.7, TRUCK_W * 0.7);
-  windshield.translate(TRUCK_CAB_X + TRUCK_CAB_LEN / 2 - 0.05, TRUCK_CAB_Y, 0);
+  // A metal roof over the dark cab, left white so it takes the chassis' livery colour like the rest of
+  // the body. It overhangs the glass a little all round, and sinks 0.04 into the cab's top so the
+  // two never share a plane (the cab's top face would shimmer through a flush cap).
+  const roof = new THREE.BoxGeometry(TRUCK_CAB_LEN - TRUCK_RAKE + 0.16, 0.14, cabW + 0.16);
+  roof.translate(TRUCK_CAB_X - TRUCK_RAKE / 2, TRUCK_CAB_Y + 0.55 + 0.07 - 0.04, 0);
+  parts.push(setFinish(bakeColor(roof, white), FINISH.PAINT));
+
+  // The glass pane lies on the raked face, tilted by the same angle; as before it stands 0.01 proud
+  // of the cab so the two never share a plane. Positive rotation about z swings +y toward -x, back.
+  const lean = Math.atan2(TRUCK_RAKE, 1.1);
+  const windshield = new THREE.BoxGeometry(0.12, 0.7 / Math.cos(lean), TRUCK_W * 0.7);
+  windshield.rotateZ(lean);
+  windshield.translate(
+    TRUCK_CAB_X + TRUCK_CAB_LEN / 2 - TRUCK_RAKE / 2 - 0.05 * Math.cos(lean),
+    TRUCK_CAB_Y - 0.05 * Math.sin(lean),
+    0);
   parts.push(setFinish(bakeColor(windshield, cabDark), FINISH.GLASS));
 
   parts.push(...wheelGeometries(TRUCK_LEN, TRUCK_W));
@@ -2826,7 +2935,7 @@ export function truckCabGeometry({ bumpers = true } = {}) {
 
   const merged = mergeGeometries(parts, false);
   parts.forEach((p) => p.dispose());
-  return merged;
+  return srcTag(merged, 'src/sim/traffic.js · truckCabGeometry (shared by every box truck: chassis, cab, roof, windshield)');
 }
 
 /**
@@ -2840,9 +2949,35 @@ export function truckCabGeometry({ bumpers = true } = {}) {
  * and a box that never does are two meshes by construction, not by choice.
  */
 export function truckBoxGeometry() {
-  const box = new THREE.BoxGeometry(TRUCK_BOX_LEN, 2.0, TRUCK_W);
-  box.translate(TRUCK_BOX_X, TRUCK_BASE_Y + 0.4 + 1.0, 0);
-  return setFinish(bakeColor(box, color('truckBox')), FINISH.PAINT);
+  // The rear face carries a real recess so the sun and AO shade its reveal: the body stops
+  // DOOR_DEPTH short of the tail, a frame of four slabs fills that depth round an opening, and a
+  // thin darker plate closes the opening at the back of the pocket. The plate sits 0.02 proud of
+  // the body's rear face (inside the pocket) so the two never share a plane. The spill's leaves
+  // (geometry/truckdoors.js) stand outside the tail and cover all of it while they are drawn.
+  const DOOR_DEPTH = 0.12;
+  const MARGIN_X = 0.25;                // frame width at each side of the opening
+  const MARGIN_Y = 0.15;                // frame height above and below it
+  const cy = TRUCK_BASE_Y + 0.4 + 1.0;
+  const tail = TRUCK_BOX_X - TRUCK_BOX_LEN / 2;
+  const openW = TRUCK_W - 2 * MARGIN_X;
+  const openH = 2.0 - 2 * MARGIN_Y;
+  const slab = (x0, len, y, h, z, w, c) => {
+    const g = new THREE.BoxGeometry(len, h, w);
+    g.translate(x0 + len / 2, y, z);
+    return bakeColor(g, c);
+  };
+  const boxColor = color('truckBox');
+  const parts = [
+    slab(tail + DOOR_DEPTH, TRUCK_BOX_LEN - DOOR_DEPTH, cy, 2.0, 0, TRUCK_W, boxColor),
+    slab(tail, DOOR_DEPTH, cy + 1.0 - MARGIN_Y / 2, MARGIN_Y, 0, TRUCK_W, boxColor),
+    slab(tail, DOOR_DEPTH, cy - 1.0 + MARGIN_Y / 2, MARGIN_Y, 0, TRUCK_W, boxColor),
+    slab(tail, DOOR_DEPTH, cy, openH, TRUCK_W / 2 - MARGIN_X / 2, MARGIN_X, boxColor),
+    slab(tail, DOOR_DEPTH, cy, openH, -(TRUCK_W / 2 - MARGIN_X / 2), MARGIN_X, boxColor),
+    slab(tail + DOOR_DEPTH - 0.02, 0.02, cy, openH, 0, openW, color('truckBoxDoor')),
+  ];
+  const merged = mergeGeometries(parts, false);
+  parts.forEach((g) => g.dispose());
+  return srcTag(setFinish(merged, FINISH.PAINT), 'src/sim/traffic.js · truckBoxGeometry (the cargo box)');
 }
 
 // --- Brake lights and turn signals -----------------------------------------------------------
@@ -3146,6 +3281,8 @@ function spawnCars(rng, count, into = [], accept = null, truckChance = 0, classi
       overtakes: 0,
       // ...of which dodges round something stood in a junction (`findDodge`), for the tools.
       dodges: 0,
+      // ...and peeks round the right of a car signalling left (`peeking`).
+      peeks: 0,
       // 0..1 brightness for the brake and turn-signal light pods. brakeLevel is eased (see
       // BRAKE_LIGHT_RISE/FALL) — off frame one along with prevV/v agreeing there is no accel yet.
       // The turn-signal levels are not eased; they jump straight to their blink target.
@@ -3303,10 +3440,13 @@ function spawnCars(rng, count, into = [], accept = null, truckChance = 0, classi
       uturnWait: 0,
       uturnGaveUp: null,
       // Someone else's mesh drawn in this car's place: `(pos, quat, car) => void`, handed the pose
-      // the render pass composed, with the instance itself collapsed. Only the patrol cruiser sets
-      // it (sim/police.js), on the cop it becomes when it gives chase — the car is the cruiser, so
-      // the thing on screen stays the cruiser rather than turning into a different model of car.
+      // the render pass composed, with the instance itself collapsed. The patrol cruiser
+      // (sim/police.js), the racer (game/race.js) and the fire engine (game/fire.js) — always set
+      // through `wearSkin`, never by hand, because the group it draws into has to be on the crash
+      // replay's tape (see `drawnRoots`).
       skin: null,
+      // ...the group that skin draws, which is what the tape records.
+      skinRoot: null,
       // ...and the pose it was last handed, because the instance it would otherwise be read back
       // from is collapsed while a skin draws it. `wreckShell` builds the wreck from this.
       skinPose: null,
@@ -3391,6 +3531,9 @@ export function stageCar(car, x, z, yaw) {
   car.passSlope = 0;
   car.passBank = 0;
   car.passCredit = 0;
+  car.dragStart = false;
+  car.racePass = false;
+  car.parkedOut = false;
   car.pullover = 0;
   car.pulloverSlope = 0;
   car.brakeLevel = 0;
@@ -4512,12 +4655,39 @@ export function createTraffic(
     return car;
   }
 
+  // --- Skins and the crash replay's tape ------------------------------------------
+  //
+  // Every vehicle on screen is either an instance in one of the fleet's InstancedMeshes, which the
+  // tape (game/replay.js) finds on its own by walking the scene, or a group of ordinary meshes
+  // somebody else draws — the taxi, and every car wearing a `skin`. Those it cannot find: a group
+  // looks like scenery from the outside. So it used to be handed them as a list in main.js, and
+  // every skin added after the list was written was missing from it — the cruiser first (rammed,
+  // it was absent from every cut of its own crash), then the racer and the fire engine, which
+  // shipped with the same hole. On the impact frame `wreckShell` hides the live group and a wreck
+  // copy takes over from t0, so a group the tape never saw is hidden for the whole approach of
+  // every replay cut and pops in with the fireball: reported as "the race car appeared out of
+  // nowhere during the explosion".
+  //
+  // So the list is this Set, and the only way to dress a car is `wearSkin`, which adds to it.
+  // A root once seen stays: a wrecked or retired guest is exactly what the replay is about to show.
+  const drawnRoots = new Set([taxiGroup]);
+  let unrootedSkins = 0;
+
+  /** Draw `car` with `draw(pos, quat, car)` into `root` in place of its instance. */
+  function wearSkin(car, draw, root) {
+    if (!root?.isObject3D) throw new Error('wearSkin: a skin needs the group it draws into');
+    car.skin = draw;
+    car.skinRoot = root;
+    drawnRoots.add(root);
+  }
+
   /** Take a guest off the road. Answers whether it was on it. */
   function retireGuest(car) {
     const at = cars.indexOf(car);
     if (!car?.guest || at === -1) return false;
     cars.splice(at, 1);
     car.skin = null;
+    car.skinRoot = null;
     car.guestWreck = null;
     car.roadblock = 0;
     if (car.route?.length) car.route.length = 0;
@@ -5063,7 +5233,10 @@ export function createTraffic(
     // Any police car rolls it, standing down included: a cop leaving the scene has a backstop to
     // clear the map by (`STAND_DOWN_TIMEOUT`), and a full stop at every junction on the way out
     // left 3 or 4 of the fleet still in shot after it on four seeds out of five.
-    const dwell = car.police ? 0 : STOP_DWELL;
+    // ...and so does the street race's rival (game/race.js), which is the whole of what makes it
+    // a racer at an all-way stop rather than a fast car that stops at every corner: with the dwell,
+    // an unboosted taxi beat it on 8 races in 16.
+    const dwell = car.police || car.racer ? 0 : STOP_DWELL;
     if (t - car.stopAt.t < dwell) return false;
 
     const street = car.lane.phase;
@@ -5203,6 +5376,19 @@ export function createTraffic(
       if (cop.lane.length - cop.s > SIREN_HOLD_REACH) continue;
       if (priorityJunction && priorityJunction.i === cop.i && priorityJunction.j === cop.j) continue;
       sirenHold = { i: cop.i, j: cop.j, axis: isXAxis(cop.d) ? 'x' : 'z' };
+    }
+    // ...and the street race's rival gets the same, when no patrol wants it (game/race.js). It is
+    // racing a taxi that gets the boost hold every time Loco Mode is down, and without one of its own
+    // it stopped dead at every all-way stop on the way: a boosting taxi beat it on 32 races in 32,
+    // home in 6.4s against its 10-13. Same reach, same rule about the box at the arrival.
+    if (!sirenHold) {
+      for (const car of cars) {
+        if (!car.racer || car.crashed || car.state !== 'drive' || !car.lane) continue;
+        if (car.lane.length - car.s > SIREN_HOLD_REACH) continue;
+        if (priorityJunction && priorityJunction.i === car.i && priorityJunction.j === car.j) continue;
+        sirenHold = { i: car.i, j: car.j, axis: isXAxis(car.d) ? 'x' : 'z' };
+        break;
+      }
     }
 
     if (taxiActive && taxi.boost && !taxi.wasBoosting) {
@@ -5413,7 +5599,8 @@ export function createTraffic(
           const gap = front.laneS - behind.laneS;
           // Only measure real lane geometry. A turning car's lane position is a synthetic stand-in
           // used for queueing, so including it here reports overlaps that don't exist on screen.
-          if (behind.car.state === 'drive' && front.car.state === 'drive' && gap < stats.minGap) {
+          if (behind.car.state === 'drive' && front.car.state === 'drive' && !outOfLane(behind.car)
+              && gap < stats.minGap) {
             stats.minGap = gap;
           }
           leaderDist.set(behind.car, gap);
@@ -5484,6 +5671,10 @@ export function createTraffic(
       const facing = net.laneByGrid(opposite(car.d), car.i, car.j);
       const oncoming = (facing && approaching.get(facing.id)) ?? [];
       return oncoming.some((other) => {
+        // A car parked in its lane on purpose is not coming: the street race's rival waiting for a
+        // taker, and the two cars stood side by side at its start (`holdsLine`, game/race.js).
+        // Yielding to the rival deadlocked every left across it for the whole half-minute offer.
+        if (other.holdsLine && other.v < 0.05) return false;
         const otherDist = other.lane.length - other.s;
         return otherDist >= 0 && otherDist < YIELD_RANGE;
       });
@@ -5816,25 +6007,47 @@ export function createTraffic(
         && (room || asking)
         && (taxi.passArmed !== false || taxi.passing || asking);
 
-      if (taxi.state === 'drive') {
+      // ...except a thrown combo (`setOvertakeStyle`), which may pull out half way across a
+      // straight-through crossing as well as on a lane. Behind a truck the taxi spends a good
+      // share of its time in the box — 8 units of crossing to a 12-unit lane — and a combo that
+      // landed there armed and then waited for the far side read as the combo not working (Tyler,
+      // 2026-10-19: "the combo can't be activated" behind a truck). A straight crossing has no arc
+      // for the offset to peel the car off (see `crossingStraight` below), so nothing stops it.
+      const thrownInBox = overtakeDumb && taxi.passArmed === true && !taxi.passing
+        && taxi.state === 'turn' && taxi.turn?.hand === 'straight';
+      if (taxi.state === 'drive' || thrownInBox) {
         const was = taxi.passing;
         // Pulling out wants the overtake combo (game/overtake.js) where main.js runs one — a blip
         // off the pill and back on behind the car. `passArmed` undefined is the old rule, holding
         // is enough, which the passing lab and the probe still drive. Staying out does not ask.
-        const passes = room && near && taxi.passArmed !== false && !turningAcross(leader);
+        // Thrown dumb (`setOvertakeStyle`), the combo pulls out the frame it arms, whatever is
+        // ahead and however far, and stays out on the same terms as any pass.
+        const thrown = overtakeDumb && taxi.passArmed === true;
+        const passes = thrown
+          ? room && (!was || near)
+          : room && near && taxi.passArmed !== false && !turningAcross(leader);
         // A dodge wants the combo itself, never the lab's holding-is-enough rule, and pulls out
         // DODGE_LEAD short of the change's own length from the blocker — see `findDodge`.
-        const dodges = !passes && room && dodge !== null && taxi.passArmed === true
+        const dodges = !thrown && !passes && room && dodge !== null && taxi.passArmed === true
           && dodge.gap < PASS_FADE * (Math.abs(dodge.lateral) / PASS_LATERAL) + DODGE_LEAD;
         taxi.passing = locoHeld && ((taxi.passing && alongside()) || passes || dodges);
         // Latched on the frame the taxi pulls out and held for the whole manoeuvre, rather than
         // re-read per frame: half way through a pass the taxi is *ahead* of this car in lane
         // coordinates, so `leaderOf` has already moved on to whatever is in front of them both.
         if (taxi.passing && !was) {
-          taxi.passTarget = (dodges ? dodge.car : leader) ?? null;
+          taxi.passTarget = (dodges ? dodge.car : leader ?? dodge?.car) ?? null;
           if (dodges) {
             taxi.dodgeLateral = dodge.lateral;
             taxi.dodges += 1;
+          }
+          // Behind a car signalling left, the peek round its right instead (see `peeking`). Not
+          // behind a cop: a peek waits beside the turner's tail for it to swing away, and a cop
+          // blocking or chasing is not going anywhere it signals — the taxi sat beside one on the
+          // kerb, crawling at the cop's speed with Loco held (Tyler, 2026-10-20, a clip).
+          if (thrown && leader && taxi.passTarget === leader && leader.signalHand === 'left'
+            && !leader.police) {
+            taxi.dodgeLateral = -peekLateral();
+            taxi.peeks += 1;
           }
           taxi.overtakes += 1;
         }
@@ -6081,6 +6294,117 @@ export function createTraffic(
       }
     }
 
+    // --- The street racer's drag start (game/race.js).
+    //
+    // Every street is one lane each way, so two cars facing the same way cannot stand side by side
+    // on lanes of their own. The racer stands in the oncoming lane instead, on the taxi's lane at the
+    // taxi's arc length with the cop pass's offset already full, and the drag to the first corner
+    // decides who gets the lane: it cuts in once it is `PASS_CLEAR` ahead, and drops in behind once
+    // the taxi is a body length clear of it. It is the cop's overtake with the trigger taken away —
+    // the same fields, swing and `outOfLane` skip — so the two read the same on screen.
+    //
+    // Only the taxi's own lane counts: a block is 11-12 units of lane, so the drag is settled at the
+    // first junction, and once the two are on different lanes the racer swings in wherever it is.
+    // It keeps swinging through a corner (the cop freezes there), so a left out of the wrong side is
+    // a racer cutting the apex. A *right* would cross the taxi's nose, so game/race.js never plans
+    // one off the start; should one turn up while it is still level, it waits for the taxi.
+    //
+    // The first cut read `rel` off the two cars' headings alone, as the cop does, and braked for any
+    // corner. A block is too short for that: the racer sat at the start line until the taxi drove by,
+    // and a taxi that did not — the player hesitating, a cop pulling it over — left it there for good,
+    // and with the race over it never drove off (Tyler: "racer never left"). Measured headless with an
+    // idle taxi: 20 of 24 races stalled, 0 after.
+    //
+    // **The same swing overtakes mid-race** (`racePass`; Tyler: "can the racer use the overtake
+    // combo?"). A racer closing on something slower pulls out into the oncoming lane and goes round
+    // it, under the cop pass's gate with one straight junction rather than two (a race route turns
+    // so often that two refused most of what it met): the light open, the borrowed lane clear for
+    // COP_PASS_SIGHT, room in front of the car it passes, and never past one signalling a left
+    // across it. It is measured off the passed car's
+    // heading rather than its lane, as the cop's is, because a pass through a straight crossing
+    // is on two lanes at once.
+    for (const car of cars) {
+      if (car.crashed || car.staged) continue;
+      if (!car.dragStart && !car.racePass && car.racer && car.state === 'drive' && !car.uturn
+          && car.pass === 0) {
+        const leader = leaderOf.get(car);
+        // A leader crossing the junction ahead counts if it is going straight on (`state === 'turn'`
+        // covers that too — see CLAUDE.md): refusing those refused most of the cars the racer met.
+        const ahead = leader && (leader.state === 'drive' || leader.turn?.hand === 'straight');
+        if (ahead && !leader.crashed && leader.d === car.d
+            && !leader.passing && leader.passOffset < 0.5
+            && leaderDist.get(car) < RACER_PASS_TRIGGER
+            && leader.v < cruiseCapFor(car) * COP_PASS_SLOWER
+            && leader.signalHand !== 'left' && !(leader.isTaxi && leader.route?.[0] === leftOf(leader.d))
+            && car.route?.length >= 1 && car.route[0] === car.d
+            && approachSignal(car, t).open
+            && Boolean(net.laneByGrid(opposite(car.d), car.i, car.j))
+            && !((leaderDist.get(leader) ?? Infinity) < COP_PASS_CUT_IN)
+            && oncomingClearFor(car, COP_PASS_SIGHT, passLateralOn(car), true)) {
+          car.racePass = true;
+          car.passing = true;
+          car.passTarget = leader;
+          car.passFrom = car.travelled;
+          stats.racePasses = (stats.racePasses ?? 0) + 1;
+        }
+      }
+      if (!car.dragStart && !car.racePass) continue;
+      const lateral = passLateralOn(car);
+      const fade = PASS_FADE * (lateral / PASS_LATERAL);
+      const sign = dirSign(car.d);
+      const target = car.racePass ? car.passTarget : taxi;
+      const rel = car.racePass
+        ? (target && !target.crashed && target.d === car.d
+          ? (isXAxis(car.d) ? (car.x - target.x) : (car.z - target.z)) * sign : -Infinity)
+        : car.state === 'drive' && taxi.state === 'drive' && car.lane === taxi.lane && !taxi.crashed
+          ? (isXAxis(car.d) ? (car.x - taxi.x) : (car.z - taxi.z)) * sign
+          : -Infinity;
+      // Held out by game/race.js for the finish, side by side with the taxi facing the way they
+      // raced: whatever the gate would say, it stays in the oncoming lane until let go.
+      if (car.racePass && car.parkedOut) {
+        car.passing = true;
+      } else if (car.racePass && car.passing) {
+        const abandon = !approachSignal(car, t).open || !oncomingClearFor(car, COP_PASS_ABORT, lateral, true);
+        car.passing = rel < PASS_CLEAR && !(abandon && rel < -CAR_LEN);
+      } else if (car.state === 'drive' && car.passing) {
+        const room = car.lane.length - STOP_SETBACK - car.s;
+        // Only while the taxi is *moving*: a right from a standstill crosses the taxi's lane past the
+        // hold line, a body length and more in front of a taxi that is level and stopped, and a racer
+        // that waited on a taxi going nowhere waited for the rest of the race.
+        const short = room < stopDistance(car.v) + CAR_LEN && car.route?.[0] === rightOf(car.d) && car.racer
+          && taxi.v > 1;
+        const abandon = short || !oncomingClearFor(car, COP_PASS_ABORT, lateral, true);
+        car.passing = rel < PASS_CLEAR && !(abandon && rel < -CAR_LEN);
+        if (car.passing && short) car.stun = Math.max(car.stun, 0.2);
+      }
+      const moved = Math.max(0, car.travelled - (car.passFrom ?? car.travelled));
+      car.passFrom = car.travelled;
+      const ds = moved;
+      const delta = (car.passing ? 1 : 0) - car.pass;
+      const step = Math.sign(delta) * Math.min(Math.abs(delta), ds / fade);
+      car.pass += step;
+      const rate = ds > 0.0001 ? step / ds : 0;
+      car.passOffset = passEase(car.pass) * lateral;
+      car.passSlope = passEaseSlope(car.pass) * lateral * rate;
+      const bankTarget = rate === 0 ? 0 : 1 - 2 * car.pass;
+      car.passBank += (bankTarget - car.passBank) * Math.min(1, ds / PASS_BANK_EASE);
+      if (car.passOffset > ENVELOPE) {
+        const facing = opposite(car.d);
+        for (const other of cars) {
+          if (other === car || other.isTaxi || other.crashed || other.staged) continue;
+          if (other.d !== facing && !(other.state === 'turn' && other.dOut === facing)) continue;
+          // Not a car already turning in while the racer stands at the line: held mid-junction, it
+          // blocked the left the racer was waiting to make, and neither ever moved (1 race in 24).
+          if (other.state === 'turn' && car.v < 1) continue;
+          const along = (isXAxis(car.d) ? other.x - car.x : other.z - car.z) * sign;
+          if (along < 0 || along > COP_PASS_YIELD) continue;
+          const side = Math.abs(isXAxis(car.d) ? other.z - car.z : other.x - car.x);
+          if (side <= lateral + CAR_W) other.stun = Math.max(other.stun, 0.3);
+        }
+      }
+      if (!car.passing && car.pass === 0) { car.dragStart = false; car.racePass = false; car.passTarget = null; }
+    }
+
     // --- Who is in the boosting taxi's way?
     //
     // Both the lane it is driving and the lane it is about to land in: a queue sitting on the
@@ -6161,8 +6485,9 @@ export function createTraffic(
     }
     // ...and so does a guest answering a call on `chase` — the fire engine on its way in
     // (game/fire.js). Same reach and the same rule: the siren is on, the car in front gets out of it.
+    // Not the street racer, which has no siren and goes round instead (RACER_PASS_TRIGGER).
     for (const car of cars) {
-      if (car.guest && car.chase > 0 && !car.crashed) clearAhead(car, SCATTER_RANGE / 2);
+      if (car.guest && car.chase > 0 && !car.crashed && !car.racer) clearAhead(car, SCATTER_RANGE / 2);
     }
 
     for (const car of cars) {
@@ -6233,7 +6558,13 @@ export function createTraffic(
       // top end is only ever held while the button is. That coast-down is also where the nose-dip
       // comes from — the pitch spring downstream reads the resulting deceleration off car.v
       // directly, and from the overdrive top it is a longer, deeper one.
-      const fullPower = car.boost && !car.boostEasing;
+      //
+      // ...except on the drift launch, which flies at full power however the pill is held. Big Air
+      // is a combo the player has already landed, and letting go once it had fired coasted the taxi
+      // down to cruise in mid-air — measured over the far bank, 31 u/s at takeoff to 16 at touchdown
+      // against 34 held (Tyler, 2026-10-19: "if the combo gets triggered, just follow all the way
+      // through, even if loco gets let go"). The landing hands it back to the pill.
+      const fullPower = (car.boost && !car.boostEasing) || onDriftLaunch(car);
       // Nothing to brake against in the air — see DRIFT_LAUNCH_LEN. main.js rewrites the pedal
       // every frame, so this lasts exactly as long as the flight.
       if (hopFloorOn ? car.hopFrom != null : onDriftLaunch(car)) car.braking = false;
@@ -6333,7 +6664,8 @@ export function createTraffic(
         // so queueing at a red — which everything else here is tuned around — is untouched.
         //
         let leadCap = Infinity;
-        const ahead = followsLeader(car) && !rams(car, leaderOf.get(car)) ? leaderDist.get(car) : undefined;
+        const ahead = followsLeader(car) && !rams(car, leaderOf.get(car))
+          && !truckHoldsForPhantom(car, leaderOf.get(car)) ? leaderDist.get(car) : undefined;
         if (ahead !== undefined) {
           const leader = leaderOf.get(car);
           const gap = car.boost ? boostGap(car, leader) : followGap(car, leader);
@@ -6477,7 +6809,7 @@ export function createTraffic(
             // past it, and nothing but the taxi is collision-tested — see `sirenHold`. Not a car
             // ahead on its own approach, which is its leader and already followed: counting that
             // one stopped the cop at every junction it chased the taxi through.
-            if (green && car.patrol && car.siren && sirenHold
+            if (green && ((car.patrol && car.siren) || car.racer) && sirenHold
                 && sirenHold.i === car.i && sirenHold.j === car.j
                 && cars.some((other) => other !== car && !other.crashed && other.state === 'turn'
                   && other.i === car.i && other.j === car.j && other.d !== car.d)) {
@@ -6655,7 +6987,13 @@ export function createTraffic(
             // not a risk the player could read and dodge, it was the default outcome. What is
             // left is: oncoming traffic, cross traffic at a junction being run, and a car turning
             // out of the oncoming lane — all of which are in front of the player and avoidable.
-            if (car === taxi.passTarget && chosen?.hand === 'left') { chosen = null; vetoed = true; }
+            // Not while the taxi is peeking round its *right* (`peeking`), which is waiting on
+            // exactly that left: vetoed, the turner stood at its line for good and the taxi, held
+            // beside its tail, ran into it 2 of 2 times.
+            if (car === taxi.passTarget && chosen?.hand === 'left' && !(taxi.dodgeLateral < 0)) {
+              chosen = null;
+              vetoed = true;
+            }
 
             // The same two tests the approach above already asked, now on the turn actually
             // chosen — a dice roll can land on an exit the "every exit blocked" form let through.
@@ -6823,7 +7161,8 @@ export function createTraffic(
         // hold. That is what keeps `bargesThrough`'s guarantee intact: nothing stops the taxi
         // inside a junction.
         let target = cornerTarget;
-        const lead = followsLeader(car) && !rams(car, leaderOf.get(car)) ? leaderOf.get(car) : undefined;
+        const lead = followsLeader(car) && !rams(car, leaderOf.get(car))
+          && !truckHoldsForPhantom(car, leaderOf.get(car)) ? leaderOf.get(car) : undefined;
         const leadGap = lead === undefined ? undefined : leaderDist.get(car);
         if (leadGap !== undefined) {
           const room = Math.max(0, leadGap - (car.boost ? boostGap(car, lead) : followGap(car, lead)));
@@ -7254,7 +7593,10 @@ export function createTraffic(
       // car is parked against. Only part of KERB_H because only part of the body is up there.
       // Summed with the two above rather than replacing them: they are three different things
       // happening to one suspension, and only the taxi ever has more than one of them at once.
-      const mount = KERB_H * PULLOVER_MOUNT * car.pullover;
+      // The taxi's peek round a left-turner (`peeking`) is all four wheels up on the pavement, so
+      // the whole KERB_H and no lean, risen with the swing.
+      const peek = car.isTaxi && car.dodgeLateral === -peekLateral() ? passEase(car.pass) : 0;
+      const mount = KERB_H * (PULLOVER_MOUNT * car.pullover + peek);
       if (car.pullover > 0.001) roll -= PULLOVER_ROLL * car.pullover;
 
       // Rocking. Pitch is a spring-damper driven by longitudinal acceleration: braking dips the
@@ -7365,6 +7707,8 @@ export function createTraffic(
           car.bounceT = 0;
           car.bounceGain = big ? DRIFT_SLAM : 1;
           car.pitchV -= BOUNCE_PITCH * car.bounceGain;
+          // Where Big Air came down, for Crushin' It's window past it (sim/collisions.js `crushing`).
+          if (big) car.slamAt = car.travelled;
           if (car.isTaxi) emitLand(car, big);
         } else {
           airY = (big ? DRIFT_LAUNCH_HEIGHT : HOP_HEIGHT) * Math.sin(Math.PI * u);
@@ -7474,6 +7818,10 @@ export function createTraffic(
       // wheels, pods and bar all compose through `matrix`, so zeroing it hides every part at once.
       // A guest has no instance at all (see `enterGuest`): its owner draws it, and there is no slot
       // in any buffer for `writeAmbient` to write.
+      // A skin set by hand rather than through `wearSkin` draws a group the replay cannot see.
+      // Counted rather than thrown: the probe fails on it, and a player is better off with the
+      // pop-in than with a frame loop that stops.
+      if (car.skin && !drawnRoots.has(car.skinRoot)) unrootedSkins += 1;
       if (car.guest) {
         car.skin?.(pos, quat, car);
         continue;
@@ -7590,6 +7938,11 @@ export function createTraffic(
     /** Called with `{ x, z, yaw, v, deck }` on the frame the taxi's hop touches down. */
     onTaxiLand: (cb) => { landListeners.push(cb); },
     wreckShell, stats,
+    wearSkin,
+    /** Every group drawn in a car's place, the taxi's included — the crash replay tapes these. */
+    drawnRoots,
+    /** For the probe: render passes that drew a skin `wearSkin` never saw. */
+    unrootedSkins: () => unrootedSkins,
     lightPhase, displayPhase,
     // The instanced cars, index-aligned with `mesh`, and how `wheelMesh` is indexed off them
     // (`instanceIndex * wheelsPerCar + w`). Anything reading those matrices back needs both —

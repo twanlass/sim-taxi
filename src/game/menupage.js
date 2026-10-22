@@ -111,8 +111,11 @@ function choiceRow(label, options, read, write) {
  * @param {object} opts
  * @param {{ isOn: () => boolean, set: (on: boolean) => void }} opts.sound  The game's one mute.
  * @param {ReturnType<import('./settings.js').createSettings>} opts.settings
+ * @param {ReturnType<import('./progress.js').createDemo>} [opts.demo]  The title screen's only: the
+ *   Demo mode row, at the bottom and hidden until revealed (game/progress.js). Not on the pause
+ *   screen — half of what it changes is decided when the run starts.
  */
-export function settingsRows(body, { sound, settings }) {
+export function settingsRows(body, { sound, settings, demo = null }) {
   const soundRow = toggleRow('Sound', () => sound.isOn(), (on) => { sound.set(on); paintMuted(); });
   const musicRow = sliderRow('Music volume', () => settings.get().music, (v) => settings.set({ music: v }));
   const sfxRow = sliderRow('SFX volume', () => settings.get().effects,
@@ -141,14 +144,39 @@ export function settingsRows(body, { sound, settings }) {
     Object.entries(QUALITIES).map(([value, q]) => ({ value, text: q.label })),
     () => settings.get().quality, (value) => settings.set({ quality: value }));
   body.append(qualityRow.row);
+  // MSAA is fixed when the WebGL context is made, so a change waits for the next launch, and the
+  // row says so rather than looking like a switch that did nothing.
+  const antialiasRow = toggleRow('Antialiasing', () => settings.get().antialias,
+    (on) => { settings.set({ antialias: on }); paintAntialias(); });
+  const antialiasLabel = antialiasRow.row.querySelector('.title-label');
+  const paintAntialias = () => {
+    const pending = settings.get().antialias !== settings.atLaunch().antialias;
+    antialiasLabel.textContent = pending ? 'Antialiasing (next launch)' : 'Antialiasing';
+  };
+  paintAntialias();
+  body.append(antialiasRow.row);
   // Takes effect from the next rider to spawn, so it can be flipped from the pause screen mid-run.
   const difficultyRow = choiceRow('Difficulty',
     Object.entries(MODES).map(([value, m]) => ({ value, text: m.label })),
     () => settings.get().difficulty, (value) => settings.set({ difficulty: value }));
   body.append(difficultyRow.row);
+  const demoRow = demo ? toggleRow('Demo mode', () => demo.on(), (on) => demo.set(on)) : null;
+  const paintDemo = () => {
+    if (!demoRow) return;
+    demoRow.row.hidden = !demo.revealed();
+    // `?demo` on the URL outranks the switch; it reads as asleep rather than as one that is ignored.
+    demoRow.row.classList.toggle('is-asleep', demo.forced());
+    demoRow.paint();
+  };
+  if (demoRow) { paintDemo(); body.append(demoRow.row); }
   return {
+    /** Show the Demo mode row, for good (the title screen's five taps on its heading). */
+    revealDemo() { demo?.reveal(); paintDemo(); },
     refresh() {
+      paintDemo();
       qualityRow.paint();
+      antialiasRow.paint();
+      paintAntialias();
       difficultyRow.paint();
       soundRow.paint();
       musicRow.paint();

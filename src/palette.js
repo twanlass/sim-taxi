@@ -59,6 +59,11 @@ export const PALETTE = {
   // screen before it: what a cold start shows while the game loads, so it has to be the same black
   // everywhere or the hand-offs between them flash.
   splashVoid: '#000000',
+  // The startup screen's logo (game/splashlogo.js): white faces, and the cool grey its extrusion's
+  // sides fall to away from the light. Lit by its own neutral light rather than the scene's: the
+  // late-afternoon sun and the warm fill turned even pure white into cardboard tan.
+  splashLogo: '#FFFFFF',
+  splashLogoShade: '#4C5468',
   asphaltEdge: '#6B717A',
   // Tyre rubber on the road. Not black: pure black over a blue-grey asphalt read as a hole cut in
   // the road rather than something lying on it, and a touch of warm brown is what rubber smeared
@@ -393,6 +398,9 @@ export const PALETTE = {
   // whole vehicle as one hull in one colour (carBodyGhost at the cab's index), because the outline
   // says "there is a vehicle there", not "these are its panels".
   truckBox: '#DDD4BE',
+  // The inset rear door panel on that box: barely a shade under it, so it reads as a panel at play
+  // zoom without becoming a hold-door of its own (that one is truckHold).
+  truckBoxDoor: '#C9BC9C',
   // The two rare classics (geometry/classics.js). The convertible's body is tinted from carBody
   // like any car; its folded hood is dark canvas under that tint.
   convertibleHood: '#2E2F33',
@@ -446,7 +454,7 @@ export const PALETTE = {
   // half no civilian has (every other car's cabin is dark glass), and it is what says police.
   // See policeCabGeometry() in sim/traffic.js. (A first pass ran it the other way round, white
   // under baby blue; a pastel cab rendered grey-teal under the low warm sun.)
-  policeBody: '#55A8E6',
+  policeBody: '#0091FF',
   // Cooler and brighter than the two cream civilians (#E4E1DA, #D9D2C3).
   policeCab: '#F2F4F7',
 
@@ -458,6 +466,18 @@ export const PALETTE = {
   // drawn additive, so their colours are what they *add* to the facade behind them, not what they
   // cover it with. Smoke is a warm soot rather than a neutral grey, and turns to `steam` where the
   // water is landing — the one colour change that says the hose is winning.
+  // The street race (game/race.js): the rival's paint and wing, and the chequered flag. Violet
+  // because nothing else on the road is — the fleet's paints are muted, the cops are blue and the
+  // engine is red — and it is the drift flame's colour, the game's word for showing off.
+  racerBody: '#7B3CFF',
+  racerWing: '#1B1726',
+  racerStripe: '#F6F4EE',
+  // The underglow: an electric cyan, the colour opposite the violet paint, so the pad reads as a
+  // light under the car rather than as the car's own reflection on the road.
+  racerGlow: '#2FE6FF',
+  raceFlagPole: '#D9D9DE',
+  raceFlagDark: '#17171C',
+  raceFlagLight: '#F6F4EE',
   fireTruckBody: '#C8261E',
   fireTruckTrim: '#F3EFE6',
   fireTruckLadder: '#C9CFD6',
@@ -629,6 +649,12 @@ export const PALETTE = {
   // glance rather than in a read.
   urgency: ['#E8433A', '#E8433A', '#E8922E', '#E0D233', '#3ECF5A'],
 
+  // The hourglass's two end plates (geometry/diamond.js). Walnut rather than the honey wood an
+  // hourglass usually wears, because honey sits right on top of the urgency orange and the frame
+  // would melt into the sand for a quarter of every clock. Dark enough to frame the hue, light
+  // enough to stay off the black rim around it.
+  hourglassFrame: '#7A5233',
+
   // **There is no drop-off colour any more.** A `destination` teal (#5FE0D9) lived here, worn by
   // the ring on the tarmac and by the off-screen pointer that stands in for it, on the argument
   // that the marker had no clock of its own and so had to sit outside the urgency scale entirely.
@@ -664,6 +690,15 @@ export const PALETTE = {
   // under Lambert and lands a touch below white once lit; the ring is unlit, so it is set there by
   // hand.
   landRing: '#ECEAE4',
+  // The light the burning wreck throws on the road round it (the `burn` style's ground glow,
+  // game/blast.js). Drawn additively, so this is the colour of the light rather than of a thing: a
+  // deep orange, because added to grey asphalt anything paler reads as a spotlight, not as fire.
+  blastGlow: '#FF6A1A',
+  // The burning wreck's smoke column. Nearly black and a little warm: the fireball's own
+  // `blastSmoke` is a lit-looking grey because those puffs are unlit, and these are shaded — sky on
+  // top, fire under — so they can start from the colour soot actually is.
+  burnSmoke: '#2A2624',
+  burnSmokeTop: '#77726D',
 
   // The tailpipe flame Loco Mode burns for as long as it is held — see game/locoflame.js. Three
   // stops read as one nested cutout: the outer tongue, the gold under it, and the near-white at the
@@ -750,6 +785,8 @@ export const PALETTE = {
   // the first hit, so a yellow car goes mustard and then brown-yellow as its HP runs down. Warm
   // rather than grey because a grey multiply on #F5C130 reads as the car being in shadow.
   taxiGrime: '#7A6450',
+  // The paint chipped to the metal (geometry/taxiscratches.js, the default since 2026-10-21).
+  taxiBareMetal: '#C9CED4',
   // The flash on the body when a hit lands — an emissive, added on top of the paint for a fifth of a
   // second. Red because it is the one moment the car may say "hurt" in a hue: the white lift
   // (`setHighlight`, geometry/taxi.js) already means "accepted".
@@ -880,7 +917,7 @@ export const PALETTE = {
   backboard: '#EDEDEA',
   backboardMark: '#B8473A',
   rim: '#D5642A',
-  net: '#E8E6E0',
+  net: '#DCDCBC',
   // The players and their ball (game/hoopers.js). Muted jerseys for the fare-marker reason: a
   // saturated figure on a kerb is the description of a rider. One light, one dark, so the two are
   // told apart at 24px.
@@ -929,6 +966,19 @@ export const PALETTE = {
   gasBollard: '#F2C230',
   gasIce: '#5BB4E8',
   gasGlow: '#FFF3D2',
+  // The movie theater (city/movietheater.js), workshop-only for now: a deep teal brick fly tower over a
+  // cream lobby, a red marquee and carpet, a bulb-ringed sign, and posters either side of the doors.
+  cinemaWall: '#2F6270',         // deep teal: the complement of the red marquee and carpet
+  cinemaLobby: '#E8D9BC',
+  cinemaTrim: '#2B2630',
+  cinemaRoofUnit: '#6C8A93',   // the plant room on the roof: pale enough to read against the dark coping
+  cinemaMarquee: '#D63A3A',
+  cinemaCarpet: '#B01E2B',
+  cinemaGold: '#F2C14E',
+  cinemaPosterA: '#3FA3F0',
+  cinemaPosterB: '#F08A3F',
+  cinemaPosterC: '#8DD36B',
+  cinemaGlow: '#FFE9B0',
   // The tube man at the car wash (game/tubeman.js), off the photo Tyler sent: a fire-engine
   // red tube, a shock of yellow streamers for hair and the same yellow on the cuffs, a white
   // cartoon face, and a dark blower box under him.
@@ -1085,6 +1135,8 @@ export const PALETTE = {
   // The boat that asks for the lift is a sailboat now, and it is the one **white** thing on the
   // water — a light hull is value against the river, which is what this whole section is about.
   sailHull: '#ECECE8',
+  // The coachroof's own entry, so the cabin can be coloured apart from the hull.
+  sailCabin: '#BCE6EB',
   // The one saturated thing on the water, and it is a small one: the sailboat's boot stripe and
   // its sail cover. 213 degrees sits inside the same blue window the pond and the river already
   // occupy, 27 clear of the courier cyan — so it is a *boat* colour rather than a marker one.
@@ -1274,6 +1326,9 @@ export const PALETTE = {
   // cars. Not white — the body is the biggest bright thing in its block and pure white blooms.
   ltrainBody: '#C4C9CC',
   ltrainRoof: '#8F969A',
+  // The air-conditioning box on the roof: a step darker than the roof it stands on, so it reads as
+  // its own piece from above.
+  ltrainRoofUnit: '#6B7276',
   ltrainStripe: '#C8463B',
   ltrainGlass: '#2C3742',
   ltrainUnder: '#33373A',
@@ -1300,6 +1355,11 @@ export const PALETTE = {
   // The model workshop's bench grid (src/workshop/viewer.js), not the game. White drawn at a low
   // alpha over the asphalt pad, so it reads as a faint chalk line rather than a colour of its own.
   benchGrid: '#FFFFFF',
+
+  // The pixel Claude beside its name in the credits (game/titlescreen.js): Anthropic's brand Clay
+  // and its near-black, so the sprite is the mascot's own colours rather than a guess at them.
+  claudeClay: '#D97757',
+  claudeEye: '#141413',
 };
 
 export function color(value) {

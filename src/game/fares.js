@@ -176,6 +176,11 @@ const VIP_MIN_DELIVERED = 1;      // never on the tutorial fare — nothing to d
 const VIP_COOLDOWN = 55;          // seconds between opportunities, so a VIP stays a rare event
 const VIP_CHANCE = 0.16;          // chance a qualifying spawn actually becomes one
 const VIP_PAYOUT = 3;
+// Off by default (Tyler, 2026-10-21: "let's not spawn the mystery rider anymore"). Everything
+// below still works — `?vip=classic` (`VIP=classic` headless) brings them back on the old odds.
+const VIP_SPAWNS = typeof location !== 'undefined'
+  ? new URLSearchParams(location.search).get('vip') === 'classic'
+  : globalThis.process?.env?.VIP === 'classic';
 
 // --- The bank rider ---------------------------------------------------------------
 //
@@ -193,6 +198,13 @@ const VIP_PAYOUT = 3;
 // Unmeasured. The drive-past fired whenever the taxi passed the door with the gates open — 18
 // robberies in 30 autoplay runs (CALM_LEVEL in game/robbery.js) — and this fires only when the
 // player takes the bank rider and the coin agrees, so expect it rarer until these are tuned.
+/**
+ * The bank rider waits under the yellow side-quest "!" (main.js) rather than an urgency pie — they
+ * are the way into the robbery, an offer more than a fare (Tyler, 2026-10-21). `?questmark=classic`
+ * keeps the pie. Browser-only; headless tools get the pie.
+ */
+const questMark = () => typeof window !== 'undefined'
+  && new URLSearchParams(window.location.search).get('questmark') !== 'classic';
 const BANK_MIN_DELIVERED = 2;     // the robbery's own MIN_DELIVERED: no rider at the bank before then
 const BANK_COOLDOWN = 35;         // seconds after a bank rider leaves the board before the next
 const BANK_CHANCE = 0.3;          // chance a qualifying spawn is the bank rider
@@ -207,6 +219,11 @@ const BANK_CHANCE = 0.3;          // chance a qualifying spawn is the bank rider
 const BANK_ROBBER_ODDS = 0.5;     // the coin's first toss of a run (and every toss under classic)
 const BANK_ROBBER_STEP = 0.15;    // added per bank rider who rode
 const BANK_ROBBER_MAX = 0.95;     // never a certainty
+// For testing (Tyler, 2026-10-19): every bank rider is the robbery — the coin always comes up tails
+// and the ramp above is bypassed. Set false to restore 50/65/80/95. The robbery's own fairness gates
+// (`swapReady` in game/robbery.js) still apply, so a VIP on the board, a rider running out, or a
+// patrol car already chasing will still let the bank rider simply get in.
+const BANK_ROBBER_ALWAYS = true;
 
 // Where the taxi has to be to collect the bank rider: on the bank's own street, level with the
 // steps (Tyler, 2026-10-17; `?bankpickup=classic` for the junction's ARRIVE_RADIUS). Measured from
@@ -728,7 +745,7 @@ export const waitingTargets = (slot) => [slot.passenger.group, slot.marker.group
  *                  Read per call, since the set moves every time a package is collected.
  */
 export function createFareSystem(rng, scene, {
-  reserved = () => [], judgeRun = () => ({ runs: [], mult: 1 }), rating = true, risingOdds = true,
+  reserved = () => [], judgeRun = () => ({ runs: [], mult: 1 }), rating = true, risingOdds = true, alwaysRob = BANK_ROBBER_ALWAYS,
 } = {}) {
   const state = {
     // Active fares, newest last. At most MAX_FARES, and up to MAX_FARES - 1 of them can be
@@ -1026,7 +1043,12 @@ export function createFareSystem(rng, scene, {
    * so it cannot cost the run). It also pays for most of what the checkpoints' longer getaway was
    * costing the kerb — see docs/gameplay.md.
    */
-  const concealed = () => state.fares.some((f) => f.robber && f.stage === 'riding');
+  //
+  // The street race (game/race.js) asks for the same, from the tap on the racer to the line, through
+  // `setHold`: it is taken with an empty cab, and a board left running would cost a rider's clock on
+  // top of the bet.
+  let held = () => false;
+  const concealed = () => state.fares.some((f) => f.robber && f.stage === 'riding') || held();
   // With more than one rider on the kerb the "waiting fare" the game means is the one about to
   // time out — that is who a perfect player takes next.
   //
@@ -1087,8 +1109,8 @@ export function createFareSystem(rng, scene, {
     const v = dx * away.z - dz * away.x;
     return Math.abs(u) <= BANK_REACH_ALONG && Math.abs(v) <= BANK_REACH_ACROSS;
   }
-  /** The chance the next bank rider's coin comes up tails. See BANK_ROBBER_STEP. */
-  const robberOdds = () => Math.min(BANK_ROBBER_MAX, BANK_ROBBER_ODDS + BANK_ROBBER_STEP * state.bankRides);
+  /** The chance the next bank rider's coin comes up tails. See BANK_ROBBER_STEP and BANK_ROBBER_ALWAYS. */
+  const robberOdds = () => alwaysRob ? 1 : Math.min(BANK_ROBBER_MAX, BANK_ROBBER_ODDS + BANK_ROBBER_STEP * state.bankRides);
   /** Is the next spawn the bank rider? See BANK_CHANCE. */
   function wantsBank(taxiCar, near) {
     if (!bankStop || state.delivered < BANK_MIN_DELIVERED) return false;
@@ -1106,6 +1128,7 @@ export function createFareSystem(rng, scene, {
   }
 
   function wantsVip() {
+    if (!VIP_SPAWNS) return false;
     if (state.delivered < VIP_MIN_DELIVERED) return false;
     if (state.fares.some((f) => f.vip)) return false;
     if (state.elapsed - lastVipAt < VIP_COOLDOWN) return false;
@@ -1319,7 +1342,7 @@ export function createFareSystem(rng, scene, {
     // the car opens *already* stepped back rather than shrinking in front of the player
     // (game/faremarker.js). Passed here rather than set on the marker afterwards because these
     // slots are pooled and the loop does not tick a fare on the frame it spawns.
-    slot.marker.showAt(URGENCY_SEGMENTS, corner.x, corner.z, vip, Boolean(carrying()));
+    slot.marker.showAt(URGENCY_SEGMENTS, corner.x, corner.z, vip, Boolean(carrying()), bank && questMark());
 
     return fare;
   }
@@ -1938,7 +1961,12 @@ export function createFareSystem(rng, scene, {
         // is handed to `beginBail`: out of the cab, a mouthful
         // about it, and gone. Splicing by hand rather than through `clear` because `clear` hides
         // the figure, which is the one thing that has to stay on screen.
-        if (fare.vip) {
+        // The bank rider left waiting on the steps is an offer turned down, not a rider failed: they
+        // wait under the side-quest "!" with no pie to say how long (Tyler, 2026-10-21), so running
+        // out costs no strike — they walk off like a missed VIP. Once aboard they are an ordinary
+        // fare with the crystal on the roof, and an ordinary strike. `?questmark=classic` keeps the
+        // pie, and the strike with it.
+        if (fare.vip || (fare.bank && fare.stage === 'waiting' && questMark())) {
           const missed = state.fares.indexOf(fare);
           if (missed !== -1) state.fares.splice(missed, 1);
           beginBail(fare, taxiCar);
@@ -2315,6 +2343,10 @@ export function createFareSystem(rng, scene, {
     waitingAll,
     /** A getaway is running and the rest of the board is off the map — see `concealed`. */
     concealed,
+    /** Hold the board the way a getaway does, while `fn()` says so — the street race's. */
+    setHold: (fn) => { held = fn ?? (() => false); },
+    /** Nobody is the taxi's errand any more — the street race taking it, on the tap. */
+    undirect: () => { for (const f of state.fares) f.directed = false; },
     occupiedSpots,
     focus,
     slots,

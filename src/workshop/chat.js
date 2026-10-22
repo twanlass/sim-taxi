@@ -11,22 +11,16 @@
 // a reloaded page reattaches and replays what it missed.
 
 import { installConsoleCapture, signature } from './consolelog.js';
+import { createComposer } from './composer.js';
 
 const STORE = 'workshop-chat';
 const log = document.getElementById('log');
-const input = document.getElementById('input');
 const form = document.getElementById('compose');
-const sendButton = document.getElementById('send');
-const stopButton = document.getElementById('stop');
 const newButton = document.getElementById('new-chat');
-const attachmentsEl = document.getElementById('attachments');
-// Which model a message goes to: Auto lets the endpoint judge (`isSimple`), Fast and Smart say.
-// Kept in localStorage rather than the conversation, since it is a preference, not a turn.
-const speedSelect = document.getElementById('speed');
-if (speedSelect) {
-  speedSelect.value = localStorage.getItem('workshop-speed') ?? 'auto';
-  speedSelect.addEventListener('change', () => localStorage.setItem('workshop-speed', speedSelect.value));
-}
+// The pasted images' thumbnails, which go inside the composer above the text (`drawAttachments`).
+const attachmentsEl = Object.assign(document.createElement('div'), { id: 'attachments', hidden: true });
+// The gap between the thumbnails and the text: the same as a sent bubble's (`.bubble-thumbs`).
+const ATTACH_GAP = 12;
 
 /**
  * { sessionId, messages: [{ role, text } | { role: 'tool', name, detail }], runId, seen, queue }
@@ -95,6 +89,52 @@ const ATTACH_MAX = 1600;
 const ATTACH_LIMIT = 6;
 let attached = [];        // data URLs waiting for the next message
 
+// The text box, Speed picker, mic, Stop and Send: the same component as the pin note on the bench
+// (composer.js). Made here rather than at the top because building it asks `canSend`, which reads
+// `attached`. Its handlers are function declarations further down, hoisted.
+const composer = createComposer({
+  placeholder: 'Make the taxi\'s roof sign bigger…',
+  inputId: 'input',
+  stop: true,
+  canSend: () => attached.length > 0,
+  onSend: submit,
+  onInput: keepDraft,
+  onStop: () => {
+    if (chat.runId) fetch(`/__workshop/runs/${chat.runId}/stop`, { method: 'POST' }).catch(() => {});
+  },
+  onError: (text) => {
+    chat.messages.push({ role: 'error', text });
+    save();
+    render();
+  },
+});
+form.append(composer.el);
+composer.el.prepend(attachmentsEl);
+const { input, sendButton, stopButton, speedSelect } = composer;
+
+// Rotating example prompts: the empty box is the only hint of what the chat can do, and one fixed
+// line reads as the whole range. Generic enough to suit any model on the bench, and paused while
+// the box is focused so the line doesn't change under someone who is about to type.
+const IDEAS = [
+  'Make the roof sign bigger…',
+  'Paint it a different colour…',
+  'Add a roof rack with a surfboard…',
+  'Give it chunkier wheels…',
+  'Add racing stripes down the middle…',
+  'Make it look beaten up, with a dented door…',
+  'Add a rocket booster on the back…',
+  'Add a little antenna with a flag…',
+  'Make it twice as long, like a limo…',
+  'Build a new landmark: a lighthouse…',
+];
+let idea = 0;
+input.placeholder = IDEAS[0];
+setInterval(() => {
+  if (input.value || document.activeElement === input) return;
+  idea = (idea + 1) % IDEAS.length;
+  input.placeholder = IDEAS[idea];
+}, 4000);
+
 async function toPng(file) {
   const bitmap = await createImageBitmap(file);
   const scale = Math.min(1, ATTACH_MAX / Math.max(bitmap.width, bitmap.height));
@@ -112,6 +152,36 @@ async function addImages(files) {
     try { attached.push(await toPng(file)); } catch { /* not an image the browser can decode */ }
   }
   drawAttachments();
+}
+
+// What a sent bubble shows of an image: a small JPEG kept in the saved log (sessionStorage), where
+// the full PNG would not fit.
+const THUMB_PX = 160;
+async function thumbOf(src) {
+  try {
+    const img = new Image();
+    img.src = src;
+    await img.decode();
+    const scale = Math.min(1, THUMB_PX / Math.max(img.naturalWidth, img.naturalHeight));
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.max(1, Math.round(img.naturalWidth * scale));
+    canvas.height = Math.max(1, Math.round(img.naturalHeight * scale));
+    canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
+    return canvas.toDataURL('image/jpeg', 0.7);
+  } catch { return null; }
+}
+
+/** The pictures in a bubble, as a row of thumbnails, to go above its text. */
+function thumbRow(thumbs, text) {
+  const row = document.createElement('div');
+  row.className = text?.trim() ? 'bubble-thumbs' : 'bubble-thumbs alone';
+  for (const src of thumbs) {
+    const img = document.createElement('img');
+    img.src = src;
+    img.alt = 'Attached image';
+    row.append(img);
+  }
+  return row;
 }
 
 function drawAttachments() {
@@ -134,6 +204,12 @@ function drawAttachments() {
     thumb.append(img, remove);
     return thumb;
   }));
+  // Make room for the row in the box's top padding: measured rather than assumed, since six of
+  // them wrap to a second row in the chat's width. The thumbs are a fixed size, so the height is
+  // known before the images decode.
+  const room = attached.length ? attachmentsEl.offsetHeight + ATTACH_GAP : 0;
+  composer.el.style.setProperty('--attach-h', `${room}px`);
+  composer.autosize();
 }
 
 input.addEventListener('paste', (event) => {
@@ -188,8 +264,9 @@ const inline = (s) => escape(s)
 const short = (path) => path.replace(/^.*?\/(src|tools|docs|assets|workshop)\//, '$1/');
 
 // When a reaction appears after its message is sent (the "…" shows from just after the message lands
-// until then, about a second), and how long it takes to pop in (ms).
-const REACTION_DELAY = 1200;
+// until then, about two and a half seconds), and how long it takes to pop in (ms). Doubled from
+// 1200 so the "…" has time to read as the agent thinking before the emoji lands.
+const REACTION_DELAY = 2400;
 const REACTION_POP = 250;
 
 // Which undo rows have their file list open, by run, for the same reason as `openGroups` below.
@@ -244,11 +321,9 @@ function element(message, latestUndo) {
     el.innerHTML = `<b>${escape(message.name)}</b> ${escape(short(message.detail ?? ''))}`;
   } else {
     el.className = `msg ${message.role}`;
-    el.innerHTML = inline(message.text ?? '');
+    if (message.role === 'agent') fillAgent(el, message); else el.innerHTML = inline(message.text ?? '');
+    if (message.thumbs?.length) el.prepend(thumbRow(message.thumbs, message.text));
     if (message.reaction) {
-      // A short one-liner is narrower than the badge's reach in from the right edge, so the badge
-      // would sit on its last letters: `short` gives it right padding to clear the pill (index.html).
-      if (!/\n/.test(message.text ?? '') && (message.text ?? '').length <= 24) el.classList.add('short');
       const badge = document.createElement('span');
       badge.className = 'reaction';
       badge.textContent = message.reaction;
@@ -276,9 +351,67 @@ function element(message, latestUndo) {
   return el;
 }
 
+// --- The reply's reveal ------------------------------------------------------
+//
+// A new reply bubble opens on three bouncing dots, as if the agent were typing, then types its text
+// out rather than dropping it in the chunks the stream happens to deliver. Only cosmetic: the text
+// is all in `message.text` the moment it arrives, and `shown` is how much of it is drawn. The rate
+// has a floor and catches up on a backlog within about half a second, so a long reply arriving in
+// one burst is never held back for more than that. Messages without `shown` (anything from before
+// this, or restored after it finished) draw whole.
+const DOTS_MS = 700;
+const CHARS_PER_MS = 0.12;      // ~120 characters a second at the slowest
+const CATCH_UP_MS = 500;
+
+const dotting = (m) => m.at != null && Date.now() - m.at < DOTS_MS;
+const revealing = (m) => m.role === 'agent' && m.shown != null && (dotting(m) || m.shown < m.text.length);
+
+function fillAgent(el, message) {
+  const dots = dotting(message);
+  el.classList.toggle('dots', dots);
+  if (dots) {
+    el.innerHTML = '<span class="typing"><i></i><i></i><i></i></span>';
+    return;
+  }
+  el.innerHTML = inline(message.shown == null ? message.text ?? '' : message.text.slice(0, message.shown));
+}
+
+const bubbles = new Map();      // agent message → its element in the current render
+let revealRaf = 0;
+let revealLast = 0;
+function reveal(now) {
+  revealRaf = 0;
+  const dt = revealLast ? Math.min(100, now - revealLast) : 16;
+  revealLast = now;
+  const atBottom = log.scrollHeight - log.scrollTop - log.clientHeight < 48;
+  let more = false;
+  for (const [m, el] of bubbles) {
+    if (!revealing(m)) continue;
+    if (!dotting(m)) {
+      const left = m.text.length - m.shown;
+      m.shown = Math.min(m.text.length, m.shown + Math.ceil(Math.max(CHARS_PER_MS, left / CATCH_UP_MS) * dt));
+    }
+    fillAgent(el, m);
+    if (revealing(m)) more = true;
+  }
+  if (atBottom) log.scrollTop = log.scrollHeight;
+  if (more) revealRaf = requestAnimationFrame(reveal); else revealLast = 0;
+}
+function kickReveal() {
+  if (!revealRaf && [...bubbles.keys()].some(revealing)) revealRaf = requestAnimationFrame(reveal);
+}
+
 // Which tool groups are expanded, by the index of their first call, so a re-render on every
 // streamed event doesn't snap one shut under the pointer.
 const openGroups = new Set();
+
+const TOOL_VERBS = {
+  Read: 'Reading', Grep: 'Reading', Glob: 'Reading', LS: 'Reading', NotebookRead: 'Reading',
+  Edit: 'Editing', MultiEdit: 'Editing', Write: 'Editing', NotebookEdit: 'Editing',
+  Bash: 'Running', WebSearch: 'Searching', WebFetch: 'Searching', ToolSearch: 'Searching',
+  Agent: 'Delegating', Task: 'Delegating', TodoWrite: 'Planning',
+};
+const toolVerb = (name) => TOOL_VERBS[name] ?? 'Working';
 
 function toolGroup(tools, key, active) {
   const details = document.createElement('details');
@@ -292,7 +425,12 @@ function toolGroup(tools, key, active) {
   const count = document.createElement('span');
   count.className = 'count';
   count.textContent = tools.length > 1 ? `${tools.length} steps` : '1 step';
-  summary.append(element(tools.at(-1)), count);
+  // Folded, the row says what kind of thing is going on in a word; the file names and commands are
+  // in the list underneath, for whoever opens it.
+  const doing = document.createElement('div');
+  doing.className = 'tool';
+  doing.textContent = toolVerb(tools.at(-1).name);
+  summary.append(doing, count);
   details.append(summary);
   const list = document.createElement('div');
   list.className = 'tool-list';
@@ -313,6 +451,7 @@ function render() {
   const justSent = chat.messages.length > renderedCount && chat.messages.at(-1)?.role === 'user';
   renderedCount = chat.messages.length;
   log.replaceChildren();
+  bubbles.clear();
   if (!chat.messages.length) {
     // No copy: the taxi doing its Loco Mode weave on the spot. Loaded lazily, never imported, so
     // this module still imports nothing from the game (see the top of the file); emptytaxi.js is
@@ -336,6 +475,7 @@ function render() {
     }
     const el = element(messages[i], latestUndo);
     if (messages[i] === live) el.classList.add('working');
+    if (messages[i].role === 'agent') bubbles.set(messages[i], el);
     log.append(el);
   }
   // From the moment a message is sent until the first thing comes back (a tool call or a word of the
@@ -350,8 +490,9 @@ function render() {
   }
   for (const item of chat.queue) {
     const el = document.createElement('div');
-    el.className = 'msg user queued';
-    el.innerHTML = inline(bubbleText(item.text, item.pin, item.images ?? 0));
+    el.className = item.auto ? 'msg note queued' : 'msg user queued';
+    el.innerHTML = inline(item.auto ? 'Fixing a browser error…' : bubbleText(item.text, item.pin));
+    if (item.thumbs?.length) el.prepend(thumbRow(item.thumbs, bubbleText(item.text, item.pin)));
     const cancel = document.createElement('button');
     cancel.type = 'button';
     cancel.title = 'Remove from the queue';
@@ -361,16 +502,19 @@ function render() {
     log.append(el);
   }
   log.scrollTop = atBottom || justSent ? log.scrollHeight : wasTop;
+  kickReveal();
   // Not `busy`: a local of that name shadows the module's `busy()` for the whole function, so the
   // Thinking check above hit it before it was declared and threw on every render, page load included.
   const running = Boolean(chat.runId);
-  sendButton.textContent = running ? 'Queue' : 'Send';
+  composer.setQueued(running);
   stopButton.hidden = !running;
 }
 
-// The images themselves stay out of the log (sessionStorage again), so a bubble just counts them.
-const bubbleText = (text, pin, images = 0) => `${pin ? `📍 ${pin.label}: ` : ''}${text}`
-  + (images ? `${text ? ' ' : ''}🖼 ×${images}` : '');
+// The full images stay out of the log (sessionStorage again); a bubble keeps small thumbnails.
+// The part's name only when the builder gave it one: "📍 unnamed mesh:" says nothing, and the
+// square crop beside the message already shows where it was pinned.
+const GENERIC_LABELS = new Set(['unnamed mesh', 'group', 'on the bench beside it']);
+const bubbleText = (text, pin) => `${pin && !GENERIC_LABELS.has(pin.label) ? `📍 ${pin.label}: ` : ''}${text}`;
 
 // True from the moment a message starts going until the server has given it a run id (or refused
 // it): without it, a message typed in that gap — or the queue draining into it — would be posted
@@ -385,14 +529,14 @@ function benchNow() {
 }
 
 /** Hold a message until the run ahead of it is done, with the bench as it is now. */
-function enqueue(text, pin = null, image = null, attachments = [], speed = null) {
+function enqueue(text, pin = null, image = null, attachments = [], speed = null, thumbs = [], auto = false) {
   const id = `q-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
   if (!image) {
     try { image = window.__workshop?.capture?.() ?? null; } catch { /* sent with a fresh one */ }
   }
   if (image) keepImage(id, image);
   if (attachments.length) keepImage(`${id}:att`, attachments);
-  chat.queue.push({ id, text, pin, bench: benchNow(), images: attachments.length, speed });
+  chat.queue.push({ id, text, pin, bench: benchNow(), images: attachments.length, thumbs, speed, auto });
   save();
   render();
 }
@@ -419,7 +563,7 @@ async function drain() {
   starting = false;
   const lost = (item.images ?? 0) - attachments.length;
   const text = lost > 0 ? `${item.text}\n\n(${lost} image(s) they attached were lost before this was sent.)` : item.text;
-  send(text, item.pin, image, item.bench, attachments, item.speed);
+  send(text, item.pin, image, item.bench, attachments, item.speed, item.thumbs, item.auto);
 }
 
 // --- Talking to the dev server ---------------------------------------------
@@ -430,8 +574,10 @@ function apply(event) {
   } else if (event.type === 'break') {
     live = null;
   } else if (event.type === 'text') {
+    if (chat.runAuto) return;    // an auto-fix's explanation of the bug is not shown
     if (!live) {
-      live = { role: 'agent', text: '' };
+      // `at` and `shown` drive the reveal (see `reveal`): bouncing dots first, then the text typed out.
+      live = { role: 'agent', text: '', at: Date.now(), shown: 0 };
       chat.messages.push(live);
     }
     live.text += event.text;
@@ -443,7 +589,10 @@ function apply(event) {
     // quick reply was noise. The Speed picker says what was asked for.
   } else if (event.type === 'done') {
     live = null;
-    if (!event.ok && event.error) chat.messages.push({ role: 'error', text: event.error });
+    if (chat.runAuto) {
+      chat.messages.push({ role: 'note', text: event.ok ? 'Error fixed' : 'Couldn’t fix the error' });
+      chat.runAuto = false;
+    } else if (!event.ok && event.error) chat.messages.push({ role: 'error', text: event.error });
     // The test and docs status first, then Undo under it, so Undo is the last thing on the reply.
     if (event.background) {
       const bg = { role: 'bg', runId: chat.runId, check: 'running', docs: 'running', failures: '', docsFiles: [] };
@@ -488,7 +637,7 @@ function autoFix(entry) {
   save();
   const text = `The browser console reported an error right after your last edit:\n\n${entry.message.slice(0, 1200)}\n\nFix what the edit broke. The full console is in .workshop/console.log.`;
   // Smart, for the reason Fix is: a failure is what Auto's fast guess is not for.
-  if (busy()) enqueue(text, null, null, [], 'smart'); else send(text, null, null, null, [], 'smart');
+  if (busy()) enqueue(text, null, null, [], 'smart', [], true); else send(text, null, null, null, [], 'smart', [], true);
 }
 installConsoleCapture(autoFix);
 
@@ -678,12 +827,14 @@ async function undo(message) {
  * `image` and `at` (the model and view) come with a queued message, taken when it was queued; a
  * message sent straight away reads them off the bench now.
  */
-async function send(text, pin = null, image = null, at = null, attachments = [], speed = null) {
+async function send(text, pin = null, image = null, at = null, attachments = [], speed = null, thumbs = [], auto = false) {
   const bench = window.__workshop;
   starting = true;
   // Deterministic reaction, off what they typed (not the pin's label): a question gets 👀, anything
   // else 👍.
-  chat.messages.push({ role: 'user', text: bubbleText(text, pin, attachments.length), reaction: text.includes('?') ? '👀' : '👍', sentAt: Date.now() });
+  // An auto-fix (see autoFix) is one quiet line, not a bubble: nobody needs the error text.
+  if (auto) chat.messages.push({ role: 'note', text: 'Fixing a browser error…' });
+  else chat.messages.push({ role: 'user', text: bubbleText(text, pin), thumbs, reaction: text.includes('?') ? '👀' : '👍', sentAt: Date.now() });
   // The endpoint refuses an empty message, and an image on its own is a fair thing to send.
   const said = text || 'See the attached image.';
   const message = pin
@@ -733,6 +884,7 @@ async function send(text, pin = null, image = null, at = null, attachments = [],
     chat.runId = reply.runId;
     chat.lastRunId = reply.runId;
     chat.runPin = pin?.id ?? null;
+    chat.runAuto = auto;
     chat.seen = 0;
     chat.pendingNote = null;
     save();
@@ -763,25 +915,14 @@ function syncSend() {
   sendButton.disabled = !input.value.trim() && !attached.length;
 }
 
-/**
- * Size the box to its text. Collapsed first so it can shrink as well as grow, then set to the
- * content's height plus the border (`scrollHeight` leaves it out and the box is border-box). The
- * CSS `min-height` and `max-height` (ten rows) are what bound it; past the cap it scrolls.
- */
-function autosize() {
-  syncSend();
-  input.style.height = 'auto';
-  input.style.height = `${input.scrollHeight + 2}px`;
-  // Kept at the end while it grows, so the line being typed is not the one scrolled away.
-  if (input.scrollHeight > input.clientHeight) input.scrollTop = input.scrollHeight;
-}
+const autosize = () => composer.autosize();
 
 try { input.value = sessionStorage.getItem(DRAFT) ?? ''; } catch { /* a private window */ }
 autosize();
-input.addEventListener('input', () => {
-  autosize();
+// The composer's `onInput`: every keystroke, and every dictated word.
+function keepDraft() {
   try { sessionStorage.setItem(DRAFT, input.value); } catch { /* best effort */ }
-});
+}
 const clearDraft = () => {
   try { sessionStorage.removeItem(DRAFT); } catch { /* best effort */ }
   autosize();
@@ -811,102 +952,23 @@ try {
   }
 } catch { /* nothing noted */ }
 
-// --- Voice mode ---------------------------------------------------------------
-//
-// The browser's own speech recognition (the Web Speech API: `SpeechRecognition`, prefixed in Chrome
-// and Safari), so nothing is uploaded by this page and nothing is installed. The mic sits beside the
-// Speed picker; pressed, it starts listening and the transcript streams into the composer as it is
-// recognised, interim words included, appended after whatever was already typed. While it listens
-// the picker and Send are hidden and the mic is a stop button (CSS, `#compose.listening`). Not
-// every browser has it (Firefox does not), and the button stays hidden there.
-//
-// In Chrome the audio is sent to Google's recognition service, which is the browser's doing and not
-// ours, and the page needs microphone permission: a refusal is said in the chat rather than lost.
-const micButton = document.getElementById('mic');
-const Recognition = window.SpeechRecognition ?? window.webkitSpeechRecognition;
-let recognizer = null;
+// Voice mode is the composer's own (composer.js); a blocked microphone comes back through its
+// `onError` and is said in the chat rather than lost.
 
-if (micButton && Recognition) {
-  micButton.hidden = false;
-
-  const stopListening = () => recognizer?.stop();
-
-  micButton.addEventListener('click', () => {
-    if (recognizer) { stopListening(); return; }
-
-    const r = new Recognition();
-    r.continuous = true;          // keep going through pauses until stopped
-    r.interimResults = true;      // words appear as they are heard, then settle
-    r.lang = navigator.language || 'en-US';
-    // What was in the box when listening began, so the transcript goes after it, with a space
-    // between if the box did not already end in one.
-    const base = input.value && !/\s$/.test(input.value) ? `${input.value} ` : input.value;
-    r.onresult = (event) => {
-      let heard = '';
-      // `results` is everything since `start()`, finished and in-progress alike, so the box is
-      // rebuilt from base + all of it each time rather than appended to.
-      for (let i = 0; i < event.results.length; i++) heard += event.results[i][0].transcript;
-      input.value = base + heard.trimStart();
-      input.scrollTop = input.scrollHeight;
-      // The same event a keystroke fires, so the draft is kept for a reload.
-      input.dispatchEvent(new Event('input'));
-    };
-    r.onerror = (event) => {
-      // `no-speech` and `aborted` are just a quiet room or our own stop: not worth a message.
-      if (event.error === 'no-speech' || event.error === 'aborted') return;
-      chat.messages.push({
-        role: 'error',
-        text: event.error === 'not-allowed' || event.error === 'service-not-allowed'
-          ? 'Microphone access was blocked. Allow it for this page in the browser, then try again.'
-          : `Voice input stopped: ${event.error}.`,
-      });
-      save();
-      render();
-    };
-    r.onend = () => {
-      recognizer = null;
-      form.classList.remove('listening');
-      micButton.setAttribute('aria-label', 'Dictate');
-      micButton.title = 'Dictate';
-      input.focus();
-    };
-    try {
-      r.start();
-    } catch {
-      return;                     // already running: a double press
-    }
-    recognizer = r;
-    form.classList.add('listening');
-    micButton.setAttribute('aria-label', 'Stop dictating');
-    micButton.title = 'Stop dictating';
-  });
-
-  // The page going away mid-dictation would leave a recognizer talking to nothing.
-  addEventListener('pagehide', () => recognizer?.abort());
-}
-
-form.addEventListener('submit', (event) => {
-  event.preventDefault();
-  recognizer?.stop();           // a submit while dictating (Enter) ends it first
-  const text = input.value.trim();
-  if (!text && !attached.length) return;
+// The composer's `onSend`, on Enter or Send, with something to send.
+async function submit(text) {
   const images = attached;
   chat.autoChain = 0;           // a person is steering again: the auto-fix budget starts over
   input.value = '';
   clearDraft();
   attached = [];
   drawAttachments();
-  if (busy()) enqueue(text, null, null, images); else send(text, null, null, null, images);
-});
-input.addEventListener('keydown', (event) => {
-  if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) {
-    event.preventDefault();
-    form.requestSubmit();
-  }
-});
-stopButton.addEventListener('click', () => {
-  if (chat.runId) fetch(`/__workshop/runs/${chat.runId}/stop`, { method: 'POST' }).catch(() => {});
-});
+  const thumbs = (await Promise.all(images.map(thumbOf))).filter(Boolean);
+  if (busy()) enqueue(text, null, null, images, null, thumbs); else send(text, null, null, null, images, null, thumbs);
+}
+// The form is only the drop target now (Send is the composer's own button), but Enter in a form can
+// still submit it in some browsers: never let that navigate.
+form.addEventListener('submit', (event) => event.preventDefault());
 function newChat() {
   if (chat.runId) return;
   for (const item of chat.queue) unqueue(item);
@@ -966,8 +1028,10 @@ setInterval(refreshSuggest, 1000);
 // this module imports nothing the viewer does, and the viewer re-runs under it.
 window.__workshopChat = {
   busy,
-  send: (text, { image = null, ...pin } = {}) => {
-    if (busy()) enqueue(text, pin, image); else send(text, pin, image);
+  send: (text, { image = null, thumbs = [], speed = null, ...pin } = {}) => {
+    // `thumbs` is the square around the pin, shown in the bubble beside the 📍; `speed` is the pin
+    // note's own Speed picker.
+    if (busy()) enqueue(text, pin, image, [], speed, thumbs); else send(text, pin, image, null, [], speed, thumbs);
   },
 };
 

@@ -40,7 +40,7 @@ export function readSoak(search = globalThis.location?.search ?? '') {
 
 /**
  * The URL of a soak in progress. The page's own flags win over BENCH_BASE — they are the setting
- * being measured — except that the governor is left at its default rather than BENCH_BASE's `off`.
+ * being measured — except that the governor is left at the URL's choice rather than BENCH_BASE's `off`.
  */
 export function soakSearch(search, elapsed, rows) {
   const own = new URLSearchParams(search);

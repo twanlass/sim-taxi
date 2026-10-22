@@ -191,8 +191,11 @@ const clamp01 = (t) => (t < 0 ? 0 : t > 1 ? 1 : t);
  * `update(dt, car, on)` is the whole interface: `on` is the caller's read of "Loco Mode is being
  * held" (`boost.isActive()` in main.js and in the lab), and everything else — where the pipe is,
  * which way the plume points, whether there is anything to draw at all — comes off the car.
+ *
+ * `back` and `height` place the pipe on a car that is not the taxi: the street racer burns one too
+ * (game/race.js), off an ordinary car body that is CAR_LEN long rather than the taxi's scaled 4.01.
  */
-export function createLocoFlame(scene) {
+export function createLocoFlame(scene, { back = TAXI_TAILPIPE_BACK, height = TAXI_TAILPIPE_HEIGHT } = {}) {
   const group = new THREE.Group();
   group.visible = false;
   scene.add(group);
@@ -307,13 +310,13 @@ export function createLocoFlame(scene) {
     // The drift launch's barrel roll (sim/traffic.js) turns the body about TAXI_ROLL_PIVOT, so the
     // pipe, which sits below that, swings out sideways and over the top with it.
     const roll = car.shownBarrel ?? 0;
-    const below = TAXI_TAILPIPE_HEIGHT - TAXI_ROLL_PIVOT;
+    const below = height - TAXI_ROLL_PIVOT;
     const side = below * Math.sin(roll);
     group.position.set(
-      car.x - Math.cos(car.yaw) * TAXI_TAILPIPE_BACK + Math.sin(car.yaw) * side,
-      TAXI_TAILPIPE_HEIGHT + (car.shownLift ?? 0) + below * (Math.cos(roll) - 1)
-        - Math.sin(car.shownPitch ?? 0) * TAXI_TAILPIPE_BACK,
-      car.z + Math.sin(car.yaw) * TAXI_TAILPIPE_BACK + Math.cos(car.yaw) * side,
+      car.x - Math.cos(car.yaw) * back + Math.sin(car.yaw) * side,
+      height + (car.shownLift ?? 0) + below * (Math.cos(roll) - 1)
+        - Math.sin(car.shownPitch ?? 0) * back,
+      car.z + Math.sin(car.yaw) * back + Math.cos(car.yaw) * side,
     );
     // Local +X is the plume's own length, and it has to lie along the car's backward direction:
     // rotating the group by yaw + π sends local +X to (−cos yaw, 0, sin yaw), which is exactly the

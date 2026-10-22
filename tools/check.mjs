@@ -20,8 +20,8 @@ const BOOT = ['../src/game/scene.js', '../src/game/debugpanel.js', '../src/geome
   '../src/game/clouds.js', '../src/geometry/cloud.js', '../src/game/rain.js', '../src/game/citylights.js', '../src/game/storm.js', '../src/game/squall.js',
   '../src/game/cityentry.js', '../src/city/garage.js', '../src/game/opening.js',
   '../src/city/burgerjoint.js', '../src/game/drivethru.js',
-  '../src/city/bank.js', '../src/game/robbery.js', '../src/game/radio.js',
-  '../src/game/robberline.js', '../src/game/bankjob.js', '../src/game/copshout.js', '../src/game/patrol.js', '../src/game/bootleg.js', '../src/game/newmove.js', '../src/game/uturnclip.js', '../src/game/driftclip.js', '../src/game/moveclip.js', '../src/game/repairclip.js',
+  '../src/city/bank.js', '../src/game/robbery.js', '../src/game/radio.js', '../src/game/race.js', '../src/geometry/raceflag.js',
+  '../src/game/robberline.js', '../src/game/bankjob.js', '../src/game/copshout.js', '../src/game/depotcall.js', '../src/game/patrol.js', '../src/game/bootleg.js', '../src/game/newmove.js', '../src/game/uturnclip.js', '../src/game/driftclip.js', '../src/game/moveclip.js', '../src/game/repairclip.js',
   '../src/game/speech.js',
   '../src/game/coplights.js', '../src/game/cashtrail.js',
   '../src/game/wipe.js',
@@ -31,7 +31,7 @@ const BOOT = ['../src/game/scene.js', '../src/game/debugpanel.js', '../src/geome
   '../src/game/daylight.js', '../src/game/edgefog.js', '../src/game/riderfinder.js',
   '../src/game/taxifinder.js',
   '../src/game/farepointers.js', '../src/game/sirenglow.js', '../src/game/robberyglow.js',
-  '../src/game/vanish.js', '../src/game/wreckage.js', '../src/game/ejection.js', '../src/game/windshield.js', '../src/game/replay.js', '../src/game/runend.js',
+  '../src/game/vanish.js', '../src/game/wreckage.js', '../src/game/ejection.js', '../src/game/windshield.js', '../src/game/replay.js', '../src/game/runend.js', '../src/game/polaroid.js',
   '../src/game/impact.js', '../src/game/taxidamage.js', '../src/game/taxidoor.js',
   '../src/util/viewport.js',
   '../src/game/energybits.js', '../src/game/carghosts.js', '../src/game/homescreen.js',
@@ -47,7 +47,7 @@ const BOOT = ['../src/game/scene.js', '../src/game/debugpanel.js', '../src/geome
   '../src/geometry/parcel.js', '../src/geometry/food.js', '../src/geometry/cargo.js',
   '../src/geometry/parcelpad.js', '../src/game/parcels.js',
   '../src/game/cargochip.js', '../src/game/chasesiren.js',
-  '../src/game/tutorial.js', '../src/game/titlescreen.js', '../src/game/splash.js', '../src/game/splashsound.js', '../src/game/settings.js', '../src/game/highscores.js', '../src/game/locostash.js',
+  '../src/game/tutorial.js', '../src/game/titlescreen.js', '../src/game/titlereel.js', '../src/game/creditegg.js', '../src/game/splash.js', '../src/game/splashsound.js', '../src/game/settings.js', '../src/game/highscores.js', '../src/game/locostash.js',
   '../src/util/platform.js', '../src/util/haptics.js',
   '../src/lab/labroad.js'];
 
@@ -82,6 +82,10 @@ const TOOLS = [
   // The docs against the code: every URL parameter in src/ has a row in docs/params.md (and every
   // row is still read), and every relative link between the docs lands on a heading that exists.
   { name: 'docs',    args: ['tools/docs.mjs'],         pick: /(\d+\/\d+) checks passed/ },
+  // Every kind of vehicle crashed into and played back through the replay: the struck car has to be
+  // drawn on every frame across the hit. Each skinned car (cruiser, racer, fire engine) popped in
+  // with its own fireball in turn, because the tape had not been told about it.
+  { name: 'wreckreplay', args: ['tools/wreckreplay.mjs'], pick: /(\d+\/\d+) checks passed/ },
   // The New Move card's U-turn is a recording of the sim (game/uturnreel-<width>.js); this films it again
   // and fails if the game's U-turn has moved on without it.
   { name: 'uturn',   args: ['tools/uturnreel.mjs'],    pick: /(\d+\/\d+) checks passed/ },
@@ -130,6 +134,33 @@ try {
     }
   }
 
+  // The colour grade (game/colorgrade.js). It rides the fog chunk after the edge fog, so check the
+  // order, that a cloned built-in shares the one LUT texture and uniform (a clone of the texture
+  // never uploads), that it ships neutral, and that a .cube survives the round trip.
+  {
+    const THREE = await import('three');
+    const grade = await import('../src/game/colorgrade.js');
+    grade.installColorGrade();
+    const tail = THREE.ShaderChunk.fog_fragment;
+    if (!tail.includes('<colorgrade_fragment>')) throw new Error('colorgrade: the fog chunk was not patched');
+    if (tail.includes('edgeFog') && tail.indexOf('edgeFog') > tail.indexOf('<colorgrade_fragment>')) {
+      throw new Error('colorgrade: the grade runs before the edge fog, which would leave the fog ungraded');
+    }
+    const cloned = THREE.UniformsUtils.clone(THREE.ShaderLib.lambert.uniforms);
+    if (cloned.colorGradeLut?.value !== grade.GRADE_UNIFORMS.colorGradeLut.value
+      || cloned.colorGrade?.value !== grade.gradeUniform) {
+      throw new Error('colorgrade: a built-in shader does not share the one LUT and uniform');
+    }
+    if (grade.GRADE_DEFAULTS.preset !== 'none' || grade.GRADE_DEFAULTS.saturation !== 1 || grade.gradeUniform.w !== 0) {
+      throw new Error('colorgrade: the game must ship with a neutral grade');
+    }
+    const baked = grade.parseCube(grade.toCube(grade.bakedTable()));
+    for (let k = 0; k < baked.data.length; k += 97) {
+      const want = ((k / 3) % grade.LUT_SIZE) / (grade.LUT_SIZE - 1);
+      if (k % 3 === 0 && Math.abs(baked.data[k] - want) > 1e-5) throw new Error('colorgrade: the neutral bake is not an identity');
+    }
+  }
+
   // The city past the edge of the map (city/horizon.js): its haze patch run against three's own
   // Lambert source, for the reason the sink above is — a replace that misses is a city with no fade
   // and nothing logged. And its blocks, which must stand clear of every piece of the island's own
@@ -170,15 +201,15 @@ try {
   }
 
   // The resolution governor (game/governor.js), fed synthetic frame times: a clean 60 holds, a
-  // throttled phone steps down within a few windows and stops at a ratio of 1, a stall is not load,
+  // throttled phone steps down within a few windows and stops at a ratio of 2, a stall is not load,
   // and half a minute clean climbs one step back.
   {
     const { createGovernor } = await import('../src/game/governor.js');
     const hadDpr = globalThis.devicePixelRatio;
     globalThis.devicePixelRatio = 3;
-    let ratio = 2;
+    let ratio = 3;
     const renderer = { getPixelRatio: () => ratio, setPixelRatio: (r) => { ratio = r; } };
-    const gov = createGovernor({ renderer, budget: { pixelRatioCap: 2 } });
+    const gov = createGovernor({ renderer, budget: { pixelRatioCap: 3 } });
     let t = 0;
     const run = (seconds, lateEvery = 0, stepMs = 1000 / 60) => {
       for (let i = 0, n = Math.round((seconds * 1000) / stepMs); i < n; i++) {
@@ -187,15 +218,21 @@ try {
       }
     };
     run(20);
-    if (ratio !== 2) throw new Error(`governor: stepped down on clean frames (dpr ${ratio})`);
+    if (ratio !== 3) throw new Error(`governor: stepped down on clean frames (dpr ${ratio})`);
     run(9, 0, 3000);
-    if (ratio !== 2) throw new Error('governor: counted the page being away as load');
+    if (ratio !== 3) throw new Error('governor: counted the page being away as load');
     run(6, 4);
-    if (!(ratio < 2)) throw new Error('governor: did not step down at 25% late');
+    if (!(ratio < 3)) throw new Error('governor: did not step down at 25% late');
     run(40, 4);
-    if (ratio !== 1) throw new Error(`governor: did not bottom out at dpr 1 (${ratio})`);
+    // Never softer than Regular's 2x (Tyler, 2026-10-18).
+    if (ratio !== 2) throw new Error(`governor: did not bottom out at dpr 2 (${ratio})`);
     run(32);
-    if (ratio !== 1.25) throw new Error(`governor: did not climb one step after 30s clean (${ratio})`);
+    if (ratio !== 2.25) throw new Error(`governor: did not climb one step after 30s clean (${ratio})`);
+    // Regular's cap is already the floor: nowhere to step, so it holds.
+    ratio = 2;
+    const regular = createGovernor({ renderer, budget: { pixelRatioCap: 2 } });
+    for (let i = 0; i < 3600; i++) { t += i % 4 === 0 ? 34 : 1000 / 60; regular.frame(t); }
+    if (ratio !== 2) throw new Error(`governor: stepped Regular below 2x (dpr ${ratio})`);
     globalThis.devicePixelRatio = hadDpr;
   }
 
@@ -447,7 +484,9 @@ try {
   // junction must every one come to rest on the road.
   {
     const THREE = await import('three');
-    const { createEjection, FADE_IN } = await import('../src/game/ejection.js');
+    const { createEjection, EMERGE } = await import('../src/game/ejection.js');
+    const { TAXI_DRIVER_SEAT, TAXI_SCALE } = await import('../src/geometry/taxi.js');
+    const { CAR_LEN } = await import('../src/sim/traffic.js');
     const { GRID_I, GRID_J, blockBounds, lineX, lineZ } = await import('../src/city/grid.js');
     const scene = new THREE.Scene();
     const lands = [];
@@ -463,7 +502,33 @@ try {
     const reach = Math.hypot(end.x - lineX(2), end.z - lineZ(3));
     if (low < 0.25) fail.push(`dipped to y ${low.toFixed(2)}`);
     if (Math.abs(end.y - 0.3) > 1e-3) fail.push(`rests at y ${end.y.toFixed(3)}, not lying`);
-    if (!(reach > 12 && reach < 20)) fail.push(`landed ${reach.toFixed(1)} units out down an open street`);
+    if (!(reach > 9 && reach < 13)) fail.push(`landed ${reach.toFixed(1)} units out down an open street`);
+    // Graded by the hit: the hardest throw goes higher, spins faster and lands further than one that
+    // only just ejects — the first version saturated at 25.7 and threw every head-on the same.
+    {
+      const { EJECT_CLOSING } = await import('../src/game/ejection.js');
+      const measure = (closing) => {
+        const e = createEjection(new THREE.Scene(), { roadY: 0 });
+        e.fire({ x: lineX(2), z: lineZ(3), yaw: 0, closing, side: 1 });
+        let apex = 0;
+        let turn = 0;
+        for (let n = 0; n < 12; n++) {
+          e.update(1 / 60);
+          apex = Math.max(apex, e.group.position.y);
+        }
+        turn = e.group.children[0].rotation.x;
+        for (let n = 0; n < 168; n++) { e.update(1 / 60); apex = Math.max(apex, e.group.position.y); }
+        const p = e.group.position;
+        return { apex, turn, reach: Math.hypot(p.x - lineX(2), p.z - lineZ(3)), air: e.airTime() };
+      };
+      const soft = measure(EJECT_CLOSING);
+      const hard = measure(34);
+      const harder = measure(40);
+      if (!(hard.apex > soft.apex * 1.8)) fail.push(`apex ${soft.apex.toFixed(2)} → ${hard.apex.toFixed(2)}, not graded`);
+      if (!(hard.turn > soft.turn * 1.8)) fail.push(`spin at 0.2s ${soft.turn.toFixed(2)} → ${hard.turn.toFixed(2)}, not graded`);
+      if (!(hard.reach > soft.reach * 1.8 && hard.reach < 19)) fail.push(`reach ${soft.reach.toFixed(1)} → ${hard.reach.toFixed(1)}`);
+      if (Math.abs(harder.reach - hard.reach) > 1e-6) fail.push('a hit past the top of the band threw differently');
+    }
     const inBlock = (x, z) => {
       for (let bi = 0; bi < GRID_I; bi++) {
         for (let bj = 0; bj < GRID_J; bj++) {
@@ -490,19 +555,44 @@ try {
     replayed.fire({ x: lineX(2), z: lineZ(3), yaw: 0, closing: 21, side: 1 });
     for (let n = 0; n < 24; n++) replayed.update(1 / 60);
     if (scrubbed.distanceTo(replayed.group.position) > 1e-6) fail.push('seek(0.4) disagrees with stepping to 0.4');
-    // Fades in rather than popping: see-through at the impact, solid (and back in the AO prepass)
-    // once the fade is done, and the replay's scrub lands the same opacity as stepping did.
+    // Comes out of the cab rather than popping into the air: solid from the first frame, small and
+    // inside the cabin at the impact (behind the windscreen, below the roof, on the driver's side),
+    // and full size on its arc once EMERGE is out. Fired at yaw 0, forward is +x and the driver's
+    // side is −z.
     const torsoMat = () => ej.group.getObjectByProperty('isMesh', true).material;
+    ej.seek(1);
+    const full = ej.group.scale.x;
     ej.seek(0);
-    if (!(torsoMat().opacity < 0.05 && torsoMat().transparent)) fail.push(`opacity ${torsoMat().opacity} at the impact, not faded`);
-    ej.seek(FADE_IN / 2);
-    if (Math.abs(torsoMat().opacity - 0.5) > 1e-6) fail.push(`opacity ${torsoMat().opacity} halfway through the fade`);
-    ej.seek(FADE_IN);
-    if (torsoMat().opacity !== 1 || torsoMat().transparent) fail.push('still see-through after the fade');
+    const at0 = ej.group.position.clone().sub(new THREE.Vector3(lineX(2), 0, lineZ(3)));
+    if (torsoMat().opacity !== 1 || torsoMat().transparent) fail.push(`opacity ${torsoMat().opacity} at the impact, not solid`);
+    if (!(ej.group.scale.x < full * 0.35)) fail.push(`scale ${(ej.group.scale.x / full).toFixed(2)} of full at the impact`);
+    const screenFwd = (-0.2 + CAR_LEN * 0.25) * TAXI_SCALE;
+    if (!(at0.x < screenFwd && at0.z < 0 && Math.abs(at0.y - TAXI_DRIVER_SEAT.y) < 1e-6)) {
+      fail.push(`starts at (${at0.x.toFixed(2)}, ${at0.y.toFixed(2)}, ${at0.z.toFixed(2)}), not in the driver's seat`);
+    }
+    ej.seek(EMERGE / 2);
+    const half = ej.group.scale.x / full;
+    if (!(half > 0.6 && half < 1)) fail.push(`scale ${half.toFixed(2)} of full halfway out`);
+    ej.seek(EMERGE);
+    if (Math.abs(ej.group.scale.x - full) > 1e-9) fail.push('not full size once out of the cab');
     ej.seek(-0.1);
     if (ej.group.visible) fail.push('drew before the impact');
     ej.seek();
     if (!ej.group.visible || ej.group.position.distanceTo(end) > 1e-6) fail.push('seek() did not hand it back');
+    // Riders and the thrown driver are never traced by the taxi's ghost rim: every figure stamps
+    // the ghost mask where it draws (geometry/person.js).
+    {
+      const { createPerson } = await import('../src/geometry/person.js');
+      const { GHOST_REF } = await import('../src/geometry/ghostoutline.js');
+      const rider = createPerson();
+      const unstamped = [...rider.meshes, ...ej.group.children.flatMap((c) => {
+        const out = [];
+        c.traverse((o) => { if (o.isMesh) out.push(o); });
+        return out;
+      })].filter((m) => !(m.material.stencilWrite && m.material.stencilRef === GHOST_REF
+        && m.material.stencilZPass === THREE.ReplaceStencilOp));
+      if (unstamped.length) fail.push(`${unstamped.length} figure meshes would be traced by the ghost rim`);
+    }
     if (fail.length) throw new Error(`ejection: ${fail.join('; ')}`);
   }
 

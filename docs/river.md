@@ -137,9 +137,11 @@ The chain, measured to the deck's *soffit* since that is what a boat hits:
 
 Four numbers across three files, so the probe asserts the **chain** rather than its outcome: move
 any one of them and it fails here rather than shipping a tug that sails under the bridge it opens.
-The tug's mast is positioned *from* `TUG_AIR` rather than eyeballed on top of its superstructure —
+The tug's mast is sized *from* `TUG_AIR` rather than eyeballed on top of its superstructure —
 a first cut came out at 2.81, over the 2.75 the arches then left, and would have left the tug unable
-to reach the drawbridge at all.
+to reach the drawbridge at all. A 1.5x mast (4.82, `(TUG_AIR - foot) * 1.5`) was tried at the workshop
+bench and stood through the bridge decks, so the mast is now exactly `TUG_AIR - foot`: the tallest the
+arched spans allow, with the masthead at `TUG_AIR`.
 
 **The rise is what the mast gets.** The gap between the two clearances is the rise and nothing
 else (lower the water and both move together), so how far the sailboat's mast can tower over a
@@ -254,12 +256,14 @@ tier-1 kick out of the corner one block back otherwise ran out ~5.5 units short 
 and flew the ordinary hop at the kick's speed. A free-driving taxi (no route) with a kick in hand
 has its far-bank exit set to straight on, rather than losing the jackpot to an unseen dice roll.
 
-While it is up there the taxi keeps the boosting taxi's priority junction whatever the pill says,
-ignores the brake (a distance-paced arc on a stopping car is a taxi parked ten units up), and
+While it is up there the taxi keeps the boosting taxi's priority junction and its full boost power
+whatever the pill says (letting go mid-flight used to coast it from 31 u/s down to 16 before
+touchdown), ignores the brake (a distance-paced arc on a stopping car is a taxi parked ten units up), and
 `sim/collisions.js` skips it above `DRIFT_LAUNCH_CLEAR`. main.js slows the sim toward the apex
 (`launchTimeScale`, down to 0.4) so 0.65s of flight hangs for about a second, and the landing is
 the slam: the squat and the pitch kick scaled by `DRIFT_SLAM`, a 1.6 shake, a body thud and a ring of
-dust. `tools/probe.mjs` asserts the chain, the brake, the turning exit and the collision skip.
+dust. `tools/probe.mjs` asserts the chain, the brake, the let-go pill, the turning exit and the collision
+skip.
 
 Mid-flight the taxi **barrel-rolls**: one full turn about its own long axis (`barrelRollAt` in
 `sim/traffic.js`), eased in from 12% of the arc and level again by 78%, so the takeoff still reads
@@ -639,18 +643,22 @@ else, so the hold is gone.
 `geometry/boat.js` builds them, `game/boats.js` runs them. **Run seed, not city seed**: which span
 lifts is a fact about the map and has to stay learnable, but when it lifts is the situation.
 
-**What they look like, and how big.** Sized against the cars (3.4 × 1.7) and the water (9.2 across,
-7.87 on the narrow build). The barge is an 11 × 4.2 **trash barge**, half the channel: a rusty scow
+**What they look like, and how big.** Sized against the cars (3.4 × 1.7) and the water (12.2 across,
+10.87 on the narrow build). The barge is a 13.75 × 5.25 **trash barge**, about half the channel: a rusty scow
 square at the stern and rounded at the bow, with tyre fenders down its sides, a heap of bin bags,
 cardboard, tyres and drums drawn per hull, and a steel wheelhouse at the stern with a funnel up its
-back wall. It replaced a 16 × 6 container barge that read as big and as a slab. The wheelhouse is
+back wall. It replaced a 16 × 6 container barge that read as big and as a slab. It was 11 × 4.2 until the
+river widened (#563) and left it at 39% of the water; it grew a quarter **in plan only**
+(`BARGE_SCALE`), because every height on it is pinned under the flat soffit. The wheelhouse is
 hunter green, matte and weathered (rust streaks under the windows, a grime line at its foot), on a
 mesh of its own so its windows can wear the cars' glass (`propMaterial({ gloss })`). Everything stays under `BARGE_AIR` (1.63, against the flat span's 1.65), and that is
 the only thing bounding how tall the wheelhouse can be — its roof sits on it exactly: the heap stops lower, at
 `PERCH_CEIL`, so a gull standing on it still clears the flat span, and the wheelhouse roof is not a
-perch for the same reason. The boat that asks for the lift is a 6 × 2.4 white **sailboat** with its
-sails down and a tall mast; the code still calls it the tug (`kind: 'tug'`, `TUG_AIR`, `TUG_LEN`).
-Its masthead sits at `TUG_AIR` exactly.
+perch for the same reason. The boat that asks for the lift is a 6 × 2.4 **sailboat** with a white hull with its
+sails down, a tall mast and a little blocky outboard clamped to the transom (it reaches 0.3 past the
+stern, so `TUG_LEN` is unchanged); the code still calls it the tug (`kind: 'tug'`, `TUG_AIR`, `TUG_LEN`).
+Its mast runs from the deck to `TUG_AIR` exactly, the tallest the arched spans allow. The coachroof wears
+its own palette entry (`sailCabin`, the pale river-cyan `#BCE6EB`; the hull's `sailHull` is the white) so it is coloured apart from the hull.
 
 **The gulls** (`game/gulls.js`): five per barge, a child of the hull mesh wearing its material, so
 they ride with it and fade with it at the coast. Some stand on the heap or the bow; the rest circle low over it, and every few seconds one lands or takes off. A flying gull is
@@ -666,10 +674,21 @@ not. And the circle is flown at `FLY_LOW`, 3.8–4.9 off the water, but each bir
 at bridge height the whole time and the birds hung so far up-screen they read as gulls over the far
 bank. The probe soaks five minutes and counts bird-frames inside a deck: zero.
 
-A barge every 16–34s, a tug every 90–150s and never two at once. Both are slow on purpose — 2.6 and
-3.4 units per second against a car's 8.5 — because what sells a boat is being the slowest thing in
-the frame. The tug's wait went 55–95 → 90–150 with the cycle: a lift is a ten-second event now, and
-one arriving every minute stops being an event.
+A barge every 16–34s and a tug every 30–50s, so **a lift about every 45 seconds** (median 45, first
+one ~38s into a run) and the span shut about half the time. Both are slow on purpose — 2.6 and 3.4
+units per second against a car's 8.5 — because what sells a boat is being the slowest thing in the
+frame.
+
+The river is single file and **every boat keeps `FOLLOW_GAP` behind the one ahead**: a tug that
+catches a barge slows to it, and a barge reaching a tug held short of the leaf waits behind it. The
+schedule only spaces launches (`LAUNCH_GAP`), and a tug that comes due goes before any barge. The
+lift is held while *any* tug still wants it, re-asked every frame, so two tugs close together go
+through on one lift and a tug left waiting by `HOLD_SECONDS` gets another.
+
+It was a tug every 90–150s that could only set off onto an empty river, with no barge allowed out
+while one was due or out. That made the wait the floor rather than the spacing: the tug also waited
+out every barge and its own trip across the map, and the lift came round every **179s** (median of
+30 seeds, 141–225), first 2:16 in. Tyler, 2026-10-19: "I rarely see it."
 
 The tug asks for the lift **`ASK_AHEAD` units out**, which is a distance rather than a clock for the
 reason the roadworks hop is paced by distance: the answer has to be the same whatever else is
@@ -692,8 +711,8 @@ would pass through a closed span.
 ### Single file
 
 **Everything runs down the middle** (`BOAT_LANE` is 0, `LANE_WANDER` 0.2). It started when the
-barge filled three quarters of the water, and it survived the barge shrinking to half: two 4.2-wide
-hulls need 8.4 of a 7.87 channel on the narrow build. Boats used to keep a lane each way, port to port,
+barge filled three quarters of the water, and it survived the barge shrinking to half: two 5.25-wide
+hulls need 10.5 of a 10.87 channel on the narrow build, which is touching. Boats used to keep a lane each way, port to port,
 and the two bounds on that lane — a floor so passing hulls do not touch, a ceiling so the tug's mast
 clears the arch off-centre — are what kept the hulls under half the channel wide. The centreline is
 also where the arch is highest: `deckHeightAt` is a function of `z` alone and crests there, so the
@@ -765,6 +784,20 @@ since a mote never moves along the channel, one sample at spawn is exact for the
 > play zoom a wake is a few pale pixels, and a few pale pixels missing looks like nothing at all.
 
 ## The mouth
+
+**Under the fog of war (the default island), the river just runs on into the clouds.** The water
+stays flat at `WATER_Y` and in its own colour, opaque, and the channel's walls, walk and railing run
+`EDGE_FADE` past the west coast (`channelWest`), out to where the fog
+([rendering.md](rendering.md#the-fog-of-war--gameedgefogjs)) has gone solid whatever its billows are doing. The
+fog is what dissolves the mouth, so there is no rim fade for the channel to cross and nothing for a
+shoal to close. Left on, the shoal drew the very thing it existed to hide, wherever a billow thinned
+enough to show it: the river turning to asphalt and ramping up out of its own cutting into the
+clouds (Tyler, 2026-10-20: "Don't have the water slope up - just continue flat off into the
+clouds"). Checked at play zoom with the fog's noise pinned at its thinnest: the walls' ends stay
+inside solid fog. `shoalMix` returns 0 and `waterHeightAt` is `WATER_Y` everywhere.
+
+What follows is the mouth **without** the fog — `?edgefog=classic` and `?city=big`, where the island
+still feathers into the sky.
 
 Two different kinds of edge have to agree here and they are not the same kind of thing. The island
 **dissolves**: a horizontal alpha ramp at `y = 0` that takes the ground to sky over `EDGE_FADE`. The
