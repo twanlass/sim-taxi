@@ -428,6 +428,44 @@ function showError(error) {
 
 // Where the current model was set on the bench ({ id, x, y, z }), handed to the next run of an edit.
 let placement = kept.placement ?? null;
+/**
+ * A hash of what the model draws: every mesh's vertices, transform, instance matrices and material
+ * colours, as FNV-1a over their float bits. Carried across an edit so the scan sweep (`startScan`)
+ * only runs when the edit actually changed the model; any edit re-runs this module (a chat or
+ * composer tweak included), and sweeping the model for those said it had been rebuilt when it had
+ * not.
+ */
+function fingerprint(root) {
+  let h = 0x811c9dc5;
+  const f32 = new Float32Array(1);
+  const u32 = new Uint32Array(f32.buffer);
+  const mix = (n) => { h = Math.imul(h ^ n, 0x01000193) >>> 0; };
+  const floats = (arr, count = arr.length) => {
+    for (let i = 0; i < count; i++) { f32[0] = arr[i]; mix(u32[0]); }
+  };
+  root.updateMatrixWorld(true);
+  root.traverse((o) => {
+    if (!o.isMesh && !o.isLine && !o.isPoints) return;
+    floats(o.matrixWorld.elements);
+    for (const attr of ['position', 'color']) {
+      const a = o.geometry?.attributes?.[attr];
+      if (a) floats(a.array);
+    }
+    if (o.isInstancedMesh) {
+      mix(o.count);
+      floats(o.instanceMatrix.array, o.count * 16);
+      if (o.instanceColor) floats(o.instanceColor.array, o.count * 3);
+    }
+    for (const m of [o.material].flat()) {
+      if (!m) continue;
+      if (m.color) floats(m.color.toArray());
+      if (m.emissive) floats(m.emissive.toArray());
+      mix(m.visible ? 1 : 0);
+    }
+  });
+  return h;
+}
+
 function load(id, { keepFraming = false } = {}) {
   if (current) {
     scene.remove(current.holder);
@@ -474,7 +512,10 @@ function load(id, { keepFraming = false } = {}) {
   // And into the bloom's draw list, the lit meshes the entry names at the kinds main.js gives them.
   for (const [mesh, kind] of built.glow ?? []) markEmissive(mesh, kind);
 
-  current = { holder, update: built.update ?? null, lamps: built.lamps ?? null, box: box.clone() };
+  current = {
+    holder, update: built.update ?? null, lamps: built.lamps ?? null, box: box.clone(),
+    print: fingerprint(holder),
+  };
   current.lamps?.(state.weather === 'day' ? 0 : 1);
   // "Diameter" as the footprint's diagonal rather than its longer side, so a long car's pad
   // clears its corners by as much as its nose.
@@ -1232,6 +1273,7 @@ function stashFraming() {
       gameZoom,
       orbitHalf,
       placement,
+      print: current.print,
       orbit: { position: orbitCamera.position.toArray(), target: orbit.target.toArray() },
     }));
   } catch { /* the framing is lost, the reload still happens */ }
@@ -1345,7 +1387,9 @@ if (kept.orbit) {
   orbitCamera.position.copy(orbit.target).addScaledVector(dir, ORBIT_STANDOFF);
   orbit.update();
   applyGame();
-  startScan();
+  // Only when the model itself came out different: a stash without a print (the page just after
+  // this change shipped) sweeps as before.
+  if (kept.model !== state.model || kept.print == null || kept.print !== current?.print) startScan();
   els.reloaded.classList.add('show');
   setTimeout(() => els.reloaded.classList.remove('show'), 1200);
 }
@@ -1403,6 +1447,7 @@ if (hot) {
     foldZoom();   // a wheel zoom not yet folded into orbitHalf would otherwise be lost
     data.ui = uiSignatures();
     data.model = state.model;
+    data.print = current?.print;
     data.gameZoom = gameZoom;
     data.placement = placement;
     // The pin outlives an edit (the agent's own, often) along with whatever is typed in its note,

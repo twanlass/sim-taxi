@@ -112,6 +112,29 @@ form.append(composer.el);
 composer.el.prepend(attachmentsEl);
 const { input, sendButton, stopButton, speedSelect } = composer;
 
+// Rotating example prompts: the empty box is the only hint of what the chat can do, and one fixed
+// line reads as the whole range. Generic enough to suit any model on the bench, and paused while
+// the box is focused so the line doesn't change under someone who is about to type.
+const IDEAS = [
+  'Make the roof sign bigger…',
+  'Paint it a different colour…',
+  'Add a roof rack with a surfboard…',
+  'Give it chunkier wheels…',
+  'Add racing stripes down the middle…',
+  'Make it look beaten up, with a dented door…',
+  'Add a rocket booster on the back…',
+  'Add a little antenna with a flag…',
+  'Make it twice as long, like a limo…',
+  'Build a new landmark: a lighthouse…',
+];
+let idea = 0;
+input.placeholder = IDEAS[0];
+setInterval(() => {
+  if (input.value || document.activeElement === input) return;
+  idea = (idea + 1) % IDEAS.length;
+  input.placeholder = IDEAS[idea];
+}, 4000);
+
 async function toPng(file) {
   const bitmap = await createImageBitmap(file);
   const scale = Math.min(1, ATTACH_MAX / Math.max(bitmap.width, bitmap.height));
@@ -416,7 +439,7 @@ function render() {
   // Not `busy`: a local of that name shadows the module's `busy()` for the whole function, so the
   // Thinking check above hit it before it was declared and threw on every render, page load included.
   const running = Boolean(chat.runId);
-  sendButton.textContent = running ? 'Queue' : 'Send';
+  composer.setQueued(running);
   stopButton.hidden = !running;
 }
 

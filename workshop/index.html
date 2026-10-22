@@ -425,7 +425,18 @@
       .composer.listening .mic .stop-icon { display: block; }
       .composer.listening .mic { background: var(--accent); color: var(--on-accent); }
       .composer.listening .speed, .composer.listening .stop, .composer.listening .send { display: none; }
+      /* The dictation waveform (composer.js, `listenLevels`), in the picker's place while listening.
+         Bars are scaled, not resized, so a level change never reflows the box, and not eased: a
+         transition lagged the voice and read as sluggish. */
+      .composer .wave { display: none; height: 28px; align-items: center; gap: 2px; padding: 0 6px; }
+      .composer.listening .wave { display: flex; }
+      .composer .wave i {
+        width: 3px; height: 20px; border-radius: 2px; background: #fff;
+        transform: scaleY(0.15);
+      }
       /* Stop and send: an up arrow, only while listening, to the right of the stop button. */
+      .composer .send { padding: 4px 12px; }
+      .composer .send svg { display: block; }
       .composer .stopsend { display: none; padding: 4px 12px; }
       .composer.listening .stopsend { display: inline-flex; }
       .composer .stopsend svg { display: block; }

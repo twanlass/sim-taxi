@@ -29,6 +29,11 @@ const STOP_ICON = '<svg class="stop-icon" width="10" height="10" viewBox="0 0 10
 // doing and not ours.
 const Recognition = window.SpeechRecognition ?? window.webkitSpeechRecognition;
 
+// The waveform: how many bars, and how often a new level is pushed in at the right. ~70ms a step
+// scrolls a syllable across a few bars, which reads as speech; every frame was a blur.
+const WAVE_BARS = 10;            // 60px with its padding; 14 was 80 and crowded the box
+const WAVE_STEP_MS = 70;
+
 /**
  * Build a composer. Returns the element (not yet in the page) and handles on its parts.
  *
@@ -70,7 +75,13 @@ export function createComposer({
     dispatchEvent(new CustomEvent(SPEED_EVENT, { detail: speed.value }));
   });
   addEventListener(SPEED_EVENT, (event) => { speed.value = event.detail; }, { signal });
-  left.append(speed);
+  // A level meter that takes the picker's place while dictating (CSS, `.composer.listening`), so
+  // there is something moving the moment you speak, before the recogniser has any words to show.
+  const wave = document.createElement('span');
+  wave.className = 'wave';
+  wave.setAttribute('aria-hidden', 'true');
+  const bars = Array.from({ length: WAVE_BARS }, () => wave.appendChild(document.createElement('i')));
+  left.append(speed, wave);
 
   const actions = document.createElement('span');
   actions.className = 'field-actions';
@@ -81,7 +92,9 @@ export function createComposer({
     stopButton.hidden = true;
     stopButton.addEventListener('click', () => onStop?.());
   }
-  const sendButton = button('act primary send', null, 'Send');
+  // An up arrow in every state, the same icon pill as Stop and send below: a "Send" / "Queue" word was
+  // wider than the arrow that replaces it while dictating, so toggling voice mode shifted the row.
+  const sendButton = button('act primary send', 'Send', UP_ICON);
   // Voice mode's second button, to the right of the mic-turned-Stop: end the dictation and send what
   // was heard. Only shown while listening (CSS, `.composer.listening`), where Send itself is hidden.
   const stopSend = button('act primary stopsend', 'Stop and send', UP_ICON);
@@ -126,6 +139,7 @@ export function createComposer({
   // recognised, interim words included, after whatever was already typed. While it listens the
   // picker, Stop and Send step aside and the mic is a stop button (CSS, `.composer.listening`).
   let recognizer = null;
+  let meter = null;
   let sendOnEnd = false;          // Stop and send: the last words arrive after stop(), so send at onend
   stopSend.addEventListener('click', () => {
     if (!recognizer) return;
@@ -162,6 +176,8 @@ export function createComposer({
       };
       r.onend = () => {
         recognizer = null;
+        meter?.stop();
+        meter = null;
         el.classList.remove('listening');
         label(mic, 'Dictate');
         input.focus();
@@ -173,13 +189,14 @@ export function createComposer({
         return;                   // already running: a double press
       }
       recognizer = r;
+      meter = listenLevels(bars);
       el.classList.add('listening');
       label(mic, 'Stop dictating');
     });
     // The page going away (or the caller being rebuilt) mid-dictation would leave a recognizer
     // talking to nothing.
-    addEventListener('pagehide', () => recognizer?.abort(), { signal });
-    signal?.addEventListener('abort', () => recognizer?.abort());
+    addEventListener('pagehide', () => { recognizer?.abort(); meter?.stop(); }, { signal });
+    signal?.addEventListener('abort', () => { recognizer?.abort(); meter?.stop(); });
   }
 
   autosize();
@@ -190,8 +207,62 @@ export function createComposer({
     set value(text) { input.value = text; autosize(); },
     focus: (options) => input.focus(options),
     /** "Queue" rather than "Send" while a reply is still going: it will wait its turn. */
-    setQueued(queued) { sendButton.textContent = queued ? 'Queue' : 'Send'; },
+    setQueued(queued) { label(sendButton, queued ? 'Queue' : 'Send'); },
     stopListening: () => recognizer?.stop(),
+  };
+}
+
+/**
+ * Drive the waveform's bars off the microphone. Speech recognition hands over words, never audio,
+ * so this opens its own stream beside it and reads its loudness through an AnalyserNode. Each step
+ * pushes the latest level in at the right and scrolls the rest left. If the mic cannot be opened
+ * the bars just sit at their resting height; dictation does not depend on it. Returns `stop()`.
+ */
+function listenLevels(bars) {
+  let stopped = false;
+  let stream = null;
+  let context = null;
+  let raf = 0;
+  const levels = bars.map(() => 0);
+  const draw = () => bars.forEach((bar, i) => { bar.style.transform = `scaleY(${0.15 + 0.85 * levels[i]})`; });
+  draw();
+  navigator.mediaDevices?.getUserMedia({ audio: true }).then((s) => {
+    if (stopped) { s.getTracks().forEach((t) => t.stop()); return; }
+    stream = s;
+    context = new AudioContext();
+    const analyser = context.createAnalyser();
+    analyser.fftSize = 512;
+    context.createMediaStreamSource(s).connect(analyser);
+    const samples = new Float32Array(analyser.fftSize);
+    let last = 0;
+    let peak = 0;
+    const tick = (now) => {
+      raf = requestAnimationFrame(tick);
+      analyser.getFloatTimeDomainData(samples);
+      let sum = 0;
+      for (const v of samples) sum += v * v;
+      // RMS of ordinary speech near a laptop mic is ~0.02–0.1, so it is scaled up and square-rooted
+      // to make quiet talk still visibly move; the peak between steps keeps a short word from
+      // falling through the gap.
+      peak = Math.max(peak, Math.min(1, Math.sqrt(Math.sqrt(sum / samples.length) * 8)));
+      if (now - last < WAVE_STEP_MS) return;
+      last = now;
+      levels.shift();
+      levels.push(peak);
+      peak = 0;
+      draw();
+    };
+    raf = requestAnimationFrame(tick);
+  }).catch(() => {});
+  return {
+    stop() {
+      stopped = true;
+      cancelAnimationFrame(raf);
+      stream?.getTracks().forEach((t) => t.stop());
+      context?.close();
+      levels.fill(0);
+      draw();
+    },
   };
 }
 

@@ -190,10 +190,10 @@ export function westfaliaGeometry(len, width) {
   const lowerH = SPLIT - (BODY_CENTRE - BODY_H / 2);
   const parts = [...archedBodyGeometries(len, width, SPLIT - lowerH / 2, lowerH, color('westfaliaLower'))];
 
-  // The upper body, as a side profile extruded across the van: the nose rakes back 0.18 over its
+  // The upper body, as a side profile extruded across the van: the nose rakes back 0.3 over its
   // height (the T3's front is ~12° off vertical) and the roof edges are chamfered.
   const ROOF = WESTFALIA_ROOF;
-  const SCREEN_TOP_X = nose - 0.18;
+  const SCREEN_TOP_X = nose - 0.3;
   const profile = [
     new THREE.Vector2(tail, SPLIT),
     new THREE.Vector2(nose, SPLIT),
@@ -214,7 +214,10 @@ export function westfaliaGeometry(len, width) {
   const WIN_Y1 = 2.38;
   const winY = (WIN_Y0 + WIN_Y1) / 2;
   const winH = WIN_Y1 - WIN_Y0;
-  for (const [x0, x1] of [[nose - 0.62, nose - 0.24], [-0.42, nose - 0.74], [tail + 0.16, -0.54]]) {
+  // The front pane stops 0.08 short of the raked nose face at the window's top edge, where the face
+  // is furthest back; a fixed nose - 0.24 poked out through the windscreen once the rake grew.
+  const frontPaneEnd = nose - ((WIN_Y1 - SPLIT) / (ROOF - 0.06 - SPLIT)) * (nose - SCREEN_TOP_X) - 0.08;
+  for (const [x0, x1] of [[frontPaneEnd - 0.38, frontPaneEnd], [-0.42, frontPaneEnd - 0.5], [tail + 0.16, -0.54]]) {
     parts.push(paint(box(x1 - x0, winH, width + 2 * PROUD, (x0 + x1) / 2, winY, 0), 'carGlass', FINISH.GLASS));
   }
 
@@ -235,10 +238,8 @@ export function westfaliaGeometry(len, width) {
   // The back window, on the flat tail.
   parts.push(paint(box(2 * PROUD, winH, width * 0.78, tail, winY, 0), 'carGlass', FINISH.GLASS));
 
-  // The front: the black grille band between the headlights at lamp height, and the VW roundel
-  // in the middle of it, chrome, standing proud of the band.
-  const grilleH = 0.26;
-  parts.push(paint(box(2 * PROUD, grilleH, width * 0.42, nose, LIGHT_Y + 0.05, 0), 'westfaliaTrim', FINISH.TYRE));
+  // The front: just the VW roundel, chrome, on the nose. No grille band — it read as a slab
+  // sticking out of the face.
   const roundel = new THREE.CylinderGeometry(0.15, 0.15, 4 * PROUD, 16);
   roundel.rotateZ(Math.PI / 2);
   roundel.translate(nose, LIGHT_Y + 0.4, 0);

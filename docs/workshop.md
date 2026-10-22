@@ -157,6 +157,11 @@ The half-typed message in the composer survives the same reload: it is written t
 nothing across a reload on its own, and the agent's edits reload the tab mid-sentence. Text only —
 pasted images are too big for `sessionStorage` and are not kept.
 
+The empty chat composer's placeholder rotates through example prompts (`IDEAS` in `chat.js`, one every 4s), because
+the empty box is the only hint of what the chat can do and one fixed line reads as the whole range. They are
+deliberately generic so they suit any model on the bench. It holds still while the box has text or focus, so the
+line doesn't change under someone about to type. The pin note's composer keeps its own fixed placeholder.
+
 The composer grows with its text (`autosize` in `composer.js`) from its 64px minimum to a cap of ten rows, then
 scrolls; the manual resize handle is gone. The textarea's bottom padding is the strip the buttons sit in, so
 there is always a row clear under the last line. `scrollHeight` leaves the border out of a border-box, hence
@@ -166,7 +171,9 @@ A composer sits `--composer-inset` (5px) in from the panel that holds it (the ch
 box's corner is `--radius` less that inset, so the two curves are concentric instead of the inner one
 bulging toward the outer at the corners. Change the inset and the radius follows; don't give either a literal.
 
-Send (Queue, while the agent is busy) is disabled while the composer holds nothing to send: no text beyond
+Send is an up-arrow icon in every state, never a word: it is the same pill as Stop-and-send, so toggling voice
+mode swaps equal-width buttons and the row does not shift. While the agent is busy it keeps the arrow and only
+its accessible label reads Queue. It is disabled while the composer holds nothing to send: no text beyond
 whitespace and no pasted image (`syncSend`, run from `autosize` and `drawAttachments`, so every path that
 changes the text or the attachments passes through it).
 
@@ -255,8 +262,11 @@ lines, a bright line down it) over the outermost changed elements, at most ten. 
 canvases and the pin are skipped, since they change constantly. It is an overlay, not a class on the
 element, so it cannot fight the element's own `::before`/`::after` or transitions.
 
-The model gets the same cue: `startScan` in `viewer.js` runs on the same reload path, and a
-scan-lined plane with a bright rim, in the panels' cyan, rises through the model from its feet to
+The model gets the same cue, but only when the model itself changed: every edit re-runs `viewer.js`
+(a chat or composer tweak included), so `load` stamps the built model with a `fingerprint` (FNV-1a
+over every mesh's vertices, transform, instance matrices and material colours), the stash carries
+it across the reload, and `startScan` runs only if the model or the print differs. A stash with no
+print sweeps as before. The sweep is a scan-lined plane with a bright rim, in the panels' cyan, rises through the model from its feet to
 its top over 0.9s (eased out, faded over the last third). It is depth-tested, so it cuts through the
 model instead of floating over it, and additive, so it never hides what it passes.
 
@@ -343,8 +353,15 @@ it starts listening and the transcript streams into the box as it is recognised,
 whatever was already typed; the picker, Stop and Send hide and the mic turns into a stop button, with a
 Stop-and-send button (an up arrow, no label) to its right that ends the dictation and sends what was heard.
 The last words arrive after `stop()`, so it sends from `onend` (`sendOnEnd`) rather than on the click.
-Every control in the composer (Speed picker, mic and its stop state, Stop, Send / Queue) is a fixed 28px tall, so the row never
-steps as buttons swap.
+Every control in the composer (Speed picker, mic and its stop state, Stop, Send) is a fixed 28px tall, and Send is the same
+arrow pill as Stop-and-send, so the row never steps as buttons swap.
+While it listens, a 10-bar white waveform (60px; 14 crowded the box) takes the Speed picker's place bottom-left, so something moves
+the moment you speak, before the recogniser has any words. Recognition hands over words, never audio, so
+`listenLevels` (`composer.js`) opens a second microphone stream beside it and reads the loudness
+through an `AnalyserNode`: one level every ~70ms (every frame was a blur) scrolls in at the right, the
+peak since the last step so a short word is not lost. The bars are scaled, not eased: a transition
+lagged the voice and read as sluggish. If that stream is refused the bars stay at rest and
+dictation carries on.
 Pressing it again, or sending, ends it. The button is hidden in a browser without the API
 (Firefox). In Chrome the audio goes to Google's recognition service, which is the browser's choice,
 and the page needs microphone permission: a refusal is reported in the chat.
