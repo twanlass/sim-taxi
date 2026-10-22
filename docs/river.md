@@ -137,9 +137,11 @@ The chain, measured to the deck's *soffit* since that is what a boat hits:
 
 Four numbers across three files, so the probe asserts the **chain** rather than its outcome: move
 any one of them and it fails here rather than shipping a tug that sails under the bridge it opens.
-The tug's mast is positioned *from* `TUG_AIR` rather than eyeballed on top of its superstructure —
+The tug's mast is sized *from* `TUG_AIR` rather than eyeballed on top of its superstructure —
 a first cut came out at 2.81, over the 2.75 the arches then left, and would have left the tug unable
-to reach the drawbridge at all.
+to reach the drawbridge at all. A 1.5x mast (4.82, `(TUG_AIR - foot) * 1.5`) was tried at the workshop
+bench and stood through the bridge decks, so the mast is now exactly `TUG_AIR - foot`: the tallest the
+arched spans allow, with the masthead at `TUG_AIR`.
 
 **The rise is what the mast gets.** The gap between the two clearances is the rise and nothing
 else (lower the water and both move together), so how far the sailboat's mast can tower over a
@@ -652,9 +654,11 @@ hunter green, matte and weathered (rust streaks under the windows, a grime line 
 mesh of its own so its windows can wear the cars' glass (`propMaterial({ gloss })`). Everything stays under `BARGE_AIR` (1.63, against the flat span's 1.65), and that is
 the only thing bounding how tall the wheelhouse can be — its roof sits on it exactly: the heap stops lower, at
 `PERCH_CEIL`, so a gull standing on it still clears the flat span, and the wheelhouse roof is not a
-perch for the same reason. The boat that asks for the lift is a 6 × 2.4 white **sailboat** with its
-sails down and a tall mast; the code still calls it the tug (`kind: 'tug'`, `TUG_AIR`, `TUG_LEN`).
-Its masthead sits at `TUG_AIR` exactly.
+perch for the same reason. The boat that asks for the lift is a 6 × 2.4 **sailboat** with a white hull with its
+sails down, a tall mast and a little blocky outboard clamped to the transom (it reaches 0.3 past the
+stern, so `TUG_LEN` is unchanged); the code still calls it the tug (`kind: 'tug'`, `TUG_AIR`, `TUG_LEN`).
+Its mast runs from the deck to `TUG_AIR` exactly, the tallest the arched spans allow. The coachroof wears
+its own palette entry (`sailCabin`, the pale river-cyan `#BCE6EB`; the hull's `sailHull` is the white) so it is coloured apart from the hull.
 
 **The gulls** (`game/gulls.js`): five per barge, a child of the hull mesh wearing its material, so
 they ride with it and fade with it at the coast. Some stand on the heap or the bow; the rest circle low over it, and every few seconds one lands or takes off. A flying gull is

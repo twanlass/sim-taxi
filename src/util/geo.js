@@ -957,6 +957,16 @@ export function softenNormals(geometry, creaseDeg = 40) {
   return geometry;
 }
 
+/**
+ * Say which function built a geometry, for the model workshop's pin (workshop/viewer.js reads
+ * `userData.src`): a click then names the builder to edit instead of "unnamed mesh". Survives only
+ * where the geometry is drawn as returned; `mergeGeometries` makes a new one and drops it.
+ */
+export function srcTag(geometry, text) {
+  geometry.userData.src = text;
+  return geometry;
+}
+
 /** A box for a smooth body, edges rounded by `radius` (clamped to the box); a plain box otherwise. */
 export function bodyBox(w, h, d, radius = BODY_ROUND) {
   if (!SMOOTH_BODY) return new THREE.BoxGeometry(w, h, d);

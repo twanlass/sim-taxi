@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { color } from '../palette.js';
-import { bakeColor, unlitMaterial } from '../util/geo.js';
+import { bakeColor, unlitMaterial, srcTag } from '../util/geo.js';
 import { CHASSIS_LIFT } from './wheels.js';
 
 // Brake and turn-signal light pods — the geometry and material both the ambient fleet
@@ -376,7 +376,7 @@ export function patrolSwing(flash) {
  * A pod holding its roof offset in its vertices would slide down into the cabin as it dimmed.
  */
 export function sirenPodGeometry() {
-  return new THREE.BoxGeometry(SIREN_D, SIREN_H, SIREN_W);
+  return srcTag(new THREE.BoxGeometry(SIREN_D, SIREN_H, SIREN_W), 'src/geometry/lights.js · sirenPodGeometry (a lit siren lamp, shared by every cop car)');
 }
 
 /**
