@@ -177,8 +177,11 @@ function playIntro(cold, blur) {
  * @param {ReturnType<import('./settings.js').createSettings>} opts.settings
  * @param {ReturnType<import('./progress.js').createDemo>} [opts.demo]  Demo mode, for its Settings row.
  * @param {() => void} opts.onPlay  Fired once, on the press that starts the run.
+ * @param {(done: () => void) => boolean} [opts.beforePlay]  Asked on the press: answer true to take
+ *   the screen over first (the menu goes, the gate stays shut) and call `done` to let the run go —
+ *   the backstory's hook (game/backstory.js).
  */
-export function createTitleScreen(root, { sound, settings, demo = null, onPlay }) {
+export function createTitleScreen(root, { sound, settings, demo = null, onPlay, beforePlay = null }) {
   if (!root) return null;
 
   let holding = true;
@@ -266,10 +269,22 @@ export function createTitleScreen(root, { sound, settings, demo = null, onPlay }
   settingsButton.addEventListener('click', () => { show('settings'); });
   creditsButton.addEventListener('click', () => { show('credits'); });
 
+  // Between Play and the run while something `beforePlay` put up is being answered.
+  let telling = false;
   function play() {
-    if (!holding) return;
-    holding = false;
+    if (!holding || telling) return;
     endIntro?.();
+    if (beforePlay?.(go)) {
+      telling = true;
+      show('story');
+      return;
+    }
+    go();
+  }
+  function go() {
+    if (!holding) return;
+    telling = false;
+    holding = false;
     document.body.classList.remove('title-up');
     root.style.pointerEvents = 'none';
     onPlay?.();
@@ -282,7 +297,7 @@ export function createTitleScreen(root, { sound, settings, demo = null, onPlay }
   // Escape walks back out of a page. Registered on window, ahead of nothing: the pause key also
   // answers Escape, and it is told to stand down while this screen holds (`canPause` in main.js).
   window.addEventListener('keydown', (event) => {
-    if (!holding || event.key !== 'Escape' || view === 'menu') return;
+    if (!holding || event.key !== 'Escape' || view === 'menu' || telling) return;
     event.preventDefault();
     show('menu');
   });
