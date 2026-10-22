@@ -2,6 +2,7 @@ import { REEL as REEL_CLASSIC } from './overtakereel-classic.js';
 import { REEL as REEL_TOUCH } from './overtakereel-touch.js';
 import { STREETS_KEY } from '../city/grid.js';
 import { reelPlayer, createMoveClip } from './moveclip.js';
+import { EDGE_FOG } from './edgefog.js';
 import { pickStreet } from './uturnclip.js';
 
 // One recording per street width (`?streets=`, city/grid.js): the shape of the road it was filmed
@@ -60,25 +61,43 @@ export const reelAt = (t) => PLAYER.at(t);
 /**
  * The pedal row at time t: for each key, whether it is lit (pressed at some point this loop) and
  * whether it is down right now. Read by newmove.js every frame.
+ *
+ * `pass` is the default card's one key (Tyler, 2026-10-22): the whole gesture is on one button, so
+ * it is drawn as one A that goes down, comes up for the blip and goes down again, and its `rhythm`
+ * is how far the playhead has filled each of the two holds under it (newmove.js `buildRhythm`). Two A
+ * discs side by side (`boost`, `blip`, `?overtakekeys=classic`) read as two presses of one button,
+ * and both looked pressed for most of the loop, so nothing on the card said "let go".
  */
 export function clipKeys(t) {
   const on = t < KEYS_OFF;
+  const fill = (a, b) => (on ? Math.min(1, Math.max(0, (t - a) / (b - a))) : 0);
   return {
     boost: { lit: on, down: t < BLIP_OFF },
     blip: { lit: on && t >= BLIP_ON, down: on && t >= BLIP_ON },
+    pass: {
+      lit: on, down: on && (t < BLIP_OFF || t >= BLIP_ON),
+      rhythm: [fill(0, BLIP_OFF), fill(BLIP_ON, KEYS_OFF)],
+    },
   };
 }
 
 /**
  * The street to film: the U-turn's picker, asked for this run's length — the whole of it, camera
- * track or not, because both cars still drive every unit of it — and allowed the ring road, whose
- * straight sides are the only roads in the city long enough for a pass on a side street's terms.
+ * track or not, because both cars still drive every unit of it.
+ *
+ * Side streets only while the edge fog is up (game/edgefog.js). The ring road runs along the fog's
+ * inner edge, so a clip filmed there is half fog bank — and where the camera tracked out over the
+ * corner, all of it: the white-out on the card Tyler reported (2026-10-22). Every shipped city has
+ * a side street long enough once the traffic is cleared off it, which is the picker's own fallback
+ * (main.js `filmMove`), so the cost is a clip with no other cars in it on some runs, not a card
+ * without a clip. `?edgefog=classic` and the big city keep the ring road.
  */
+export const OVERTAKE_KLASSES = EDGE_FOG ? ['side'] : ['side', 'ring'];
 export function pickOvertakeStreet(site) {
   return pickStreet({
     ...site,
     run: { from: Math.min(...ALONGS) - ALONG_MID - 3, to: Math.max(...ALONGS) - ALONG_MID + 3 },
-    klasses: ['side', 'ring'],
+    klasses: OVERTAKE_KLASSES,
   });
 }
 

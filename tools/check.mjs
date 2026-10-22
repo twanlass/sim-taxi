@@ -238,7 +238,7 @@ try {
 
   // ...and the overtake's (game/overtakeclip.js): the taxi starts behind the car in its own lane, is
   // out in the far one past it, and finishes back in its own lane in front of it; and the picker
-  // finds a long enough street (side or ring) in the shipped cities.
+  // finds a long enough street in the shipped cities (side streets only under the edge fog).
   {
     const { reelAt, clipKeys, pickOvertakeStreet, CLIP_LOOP, BLIP_ON } = await import('../src/game/overtakeclip.js');
     const { REEL } = await import('../src/game/overtakeclip.js');
@@ -251,6 +251,14 @@ try {
     if (!(REEL.frames.at(-1)[0] > REEL.lead.at(-1)[0])) throw new Error('overtakeclip: does not finish in front of the car');
     const k = clipKeys(BLIP_ON + 0.2);
     if (!(k.boost.lit && k.blip.lit && k.blip.down && !k.boost.down)) throw new Error('overtakeclip: keys wrong mid-pass');
+    // The one-key row: down, up for the blip, down again, and the rhythm bar's two holds filling in turn.
+    const { BLIP_OFF } = await import('../src/game/overtakeclip.js');
+    const held = clipKeys(BLIP_OFF / 2).pass;
+    const blip = clipKeys((BLIP_OFF + BLIP_ON) / 2).pass;
+    if (!(held.down && !blip.down && k.pass.down)) throw new Error('overtakeclip: the one key is not held, let go and held again');
+    if (!(held.rhythm[0] > 0 && held.rhythm[1] === 0 && blip.rhythm[0] === 1 && k.pass.rhythm[1] > 0)) {
+      throw new Error('overtakeclip: the rhythm bar does not fill hold by hold');
+    }
     const { createLayout } = await import('../src/city/layout.js');
     const { cityNetwork } = await import('../src/city/roadnet.js');
     const { makeRng } = await import('../src/util/rng.js');
