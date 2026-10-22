@@ -69,6 +69,7 @@ doc; what the classic version was, and why it changed, is in that doc's history 
 | `?stuntman=classic` | Smashing a roadworks barricade is scenery: no Stuntman combo step, no Loco refund | | [gameplay.md](gameplay.md#the-combo-meter) |
 | `?taxifinder=classic` | The "back to the taxi" chip above the brake corner, which comes up while the taxi is completely off-frame. Off by default since 2026-10-20, since the camera rides home on its own after 1.5s | | [rendering.md](rendering.md#getting-back-to-the-taxi) |
 | `?camreturn=classic` | The camera stays where the player panned it, instead of riding back to the taxi after 1.5s with no touch on the map | #530 | [rendering.md](rendering.md#getting-back-to-the-taxi) |
+| `?taxidamage=classic` | The taxi's paint dulls toward `taxiGrime` as it takes damage, instead of chipping to bare metal at the struck corner | #632 | [traffic.md](traffic.md) |
 | `?taxiroof=classic` | The taxi's cabin is one dark glass box again, instead of a yellow roof over a band of windows | #530 | [rendering.md](rendering.md#the-taxis-roof--geometrytaxijs) |
 | `?locogrey=classic` | The fuel arc's climb out of empty in muted gold rather than grey, with no flash when Loco Mode wakes | — | [gameplay.md](gameplay.md#crazy-taxi-mode) |
 | `?locobar=classic` | The fuel arc with no tailpipe flame burning off its front | — | [gameplay.md](gameplay.md#crazy-taxi-mode) |
@@ -77,8 +78,11 @@ doc; what the classic version was, and why it changed, is in that doc's history 
 | `?chasesiren=classic` | No 🚨 during a chase | #513 | [traffic.md](traffic.md#spotted-and-then-caught-or-lost) |
 | `?helispot=classic` | The police helicopter's first, brighter and harder-edged searchlight | | [gameplay.md](gameplay.md) |
 | `?splashcam=classic` | The startup screen from the game's 33° three-quarter view (the first cut) instead of the low side-on camera | | [gameplay.md](gameplay.md#the-startup-screen) |
-| `?titleintro=classic` | The title menu and a sharp city are both on screen the moment the black lifts, instead of the city fading up blurred, the menu fading in and the blur clearing | | [gameplay.md](gameplay.md#the-title-screen) |
-| `?titlecam=classic` | The title screen's backdrop is one slow ellipse over the middle of the city, and Play eases down onto the depot, instead of jump cuts between landmarks and a cut to the depot | | [gameplay.md](gameplay.md#the-title-screen) |
+| `?intro=classic` | Play goes straight to the garage door, with no dispatch backstory first. `?intro=always` tells the story on every Play instead of once per device | | [gameplay.md](gameplay.md#the-backstory) |
+| `?titleintro=blur` | The title's city fades up out of black blurred, the menu fades in and then the blur clears, instead of a sharp city with only the menu fading in | | [gameplay.md](gameplay.md#the-title-screen) |
+| `?titleintro=classic` | The title menu and a sharp city are both on screen the moment the black lifts, with no fade at all | | [gameplay.md](gameplay.md#the-title-screen) |
+| `?titlecam=reel` | The title screen's backdrop jump cuts between landmarks (court, skatepark, L, burger joint) and Play cuts to the depot, instead of one slow slide across the city | | [gameplay.md](gameplay.md#the-title-screen) |
+| `?titlecam=classic` | The title screen's backdrop is one slow ellipse over the middle of the city, instead of a slide there and back along screen-right | | [gameplay.md](gameplay.md#the-title-screen) |
 | `?splashsound=classic` | The startup screen plays silent, as it first shipped, rather than with the landing, bounce and Loco sounds | | [gameplay.md](gameplay.md#the-startup-screen) |
 | `?ejectthrow=classic` | The thrown driver's arc graded only by distance (forward speed `0.7 × closing`, clamped 10-18) at one fixed height and spin, instead of height, spin and distance all scaling with how hard the hit was | | [traffic.md](traffic.md) |
 | `?eject=classic` | The wrecked taxi's driver appearing full size in the air above the bonnet and fading in, instead of squeezing out through the windscreen | | [traffic.md](traffic.md) |
@@ -92,6 +96,7 @@ doc; what the classic version was, and why it changed, is in that doc's history 
 | `?bubbles=classic` | Speech bubbles pinned over whatever they are about (cars, riders, the pedal), following it round the screen, instead of a card docked at the top with a small tag on the talker | | [gameplay.md](gameplay.md#speech-bubbles) |
 | `?bubblestyle=classic` | The docked speech card and tag in see-through black with white type instead of white with black type | | [gameplay.md](gameplay.md#speech-bubbles) |
 | `?bubblestyle=card` | The docked speech card as the white Figma card with its blue gradient | | [gameplay.md](gameplay.md#speech-bubbles) |
+| `?questmark=classic` | No yellow side-quest "!": the street racer's offer shows the speech tag's typing dots ("…"), the garage door has no "!" while the taxi smokes, and the bank rider waits under the urgency pie | | [gameplay.md](gameplay.md#speech-bubbles) |
 | `?tipfocus=classic` | A speech tag waiting at the screen edge takes no tap; the racer's still asks from where it is, and nothing pans the camera to the talker | | [gameplay.md](gameplay.md#speech-bubbles) |
 | `?bubbles=dock` | The docked card with no tag on the talker | | [gameplay.md](gameplay.md#speech-bubbles) |
 | `?copchat=classic` | The cops' "pull over" and "lost the suspect" bubbles | #492 | [gameplay.md](gameplay.md) |
@@ -106,6 +111,7 @@ doc; what the classic version was, and why it changed, is in that doc's history 
 | `?robberyodds=classic` | The bank rider's coin stays a fair 50/50 instead of loading toward a robbery with each bank ride | #522 | [gameplay.md](gameplay.md#the-bank-job) |
 | `?uturn=classic` | The first U-turn, a spin on the spot, instead of the handbrake turn | #458 | [gameplay.md](gameplay.md) |
 | `?barrelroll=classic` | Big Air flown level, no barrel roll | #485 | [river.md](river.md) |
+| `?vip=classic` | VIP riders (the purple question mark, triple pay) spawn again; off by default | | [gameplay.md](gameplay.md#vip-pickups) |
 | `?crush=classic` | Big Air coming down on a car is a hit (usually the wreck) instead of Crushin' It | | [gameplay.md](gameplay.md#the-combo-meter) |
 | `?overtake=classic` | The overtake combo judges the road before pulling out: it waits until the car is close, won't pull out round a car turning left, and only swerves round a slow car in the junction it has a clean line round. The default throws the taxi into the oncoming lane the moment the combo lands, whatever is there, or up on the kerb round the right of a car signalling left | | [traffic.md](traffic.md#overtaking) |
 | `?passturn=classic` | The taxi pulls out to overtake a car already turning left across it, and grinds along its side | #520 | [traffic.md](traffic.md) |
@@ -141,6 +147,7 @@ doc; what the classic version was, and why it changed, is in that doc's history 
 | `?flatbed=soon` | The flatbed starts shedding crates three seconds in | [traffic.md](traffic.md) |
 | `?fire=soon` | A building catches fire early | [traffic.md](traffic.md) |
 | `?race=soon` | The street racer turns up a few seconds in rather than after the 2nd-4th drop-off, and comes back ~12s after each race | [gameplay.md](gameplay.md#the-street-race) |
+| `?demo` / `?demo=off` | Demo mode on (or off) for this load, overruling the Settings switch and saving nothing; also reveals that switch | [gameplay.md](gameplay.md#demo-mode) |
 | `?parcels=0` / `=1` | Packages off / forced on (they are off in shot mode by default) | [gameplay.md](gameplay.md) |
 | `?cars=N` | Total vehicles, taxi included. `?cars=1` leaves the taxi alone on the road | [testing.md](testing.md) |
 | `?d=0..1` | Pins the difficulty curve instead of the delivery count | [difficulty.md](difficulty.md) |

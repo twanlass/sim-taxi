@@ -72,6 +72,8 @@ import { popEnvelope, popHighlight, POP_TIME, POP_SCALE_DIAMOND } from './select
 // The pie adds MARKER_CLEARANCE on top (geometry/diamond.js): a short shape gets no free air from
 // its own height, and Tyler asked for some space over the rider's head.
 const LIFT = DIAMOND_HALF_H + 4.7 + MARKER_CLEARANCE;
+/** Where the crystal's underside sits when it stands still — what a mark drawn in its place points at. */
+export const MARKER_BASE = LIFT - DIAMOND_HALF_H;
 
 /**
  * How high over its corner the crystal's top point reaches, at the top of its bounce.
@@ -448,7 +450,7 @@ export function createFareMarker(scene, phase = 0) {
      * snapshots its live list before it refills, so a marker shown here is not updated until the
      * next frame, and shot mode never gets one.
      */
-    showAt(nextLevel, x, z, vip = false, backgrounded = false) {
+    showAt(nextLevel, x, z, vip = false, backgrounded = false, quest = false) {
       // Straight to the opening colour with no kick: a marker that pops the moment it appears is
       // announcing a change that hasn't happened. A VIP opens straight into its fixed purple
       // instead of the urgency scale's top level — see setUrgency.
@@ -457,8 +459,10 @@ export function createFareMarker(scene, phase = 0) {
       const openColour = fareColor(nextLevel, vip);
       diamond.setColor(openColour);
       ring.setColor(openColour);
-      // One or the other, never both — see the header.
-      diamond.mesh.visible = !vip;
+      // One or the other, never both — see the header. Neither for a `quest` rider (the bank's):
+      // main.js stands the yellow side-quest "!" over them instead, and the crystal turns up only
+      // when it has a trip to time, at `beginTransfer`.
+      diamond.mesh.visible = !vip && !quest;
       mystery.mesh.visible = vip;
       // Full, whatever the level says. A rider appears with their whole clock, and the first tick
       // is a frame away — a crystal that drew empty for that frame would flash the wrong news. A
@@ -516,6 +520,8 @@ export function createFareMarker(scene, phase = 0) {
      */
     beginTransfer() {
       transferPending = true;
+      // A quest rider's crystal was hidden on the kerb; the clock it carries is real from here.
+      if (!mystery.mesh.visible) diamond.mesh.visible = true;
       // The kerb corner is no longer where this fare is, so the disc pulls back into its own centre
       // as the drop-off's grows out of *its* one (fares.js, beginRide). Switching one off on the
       // frame the other switched on read as two unrelated events; two discs moving in opposite

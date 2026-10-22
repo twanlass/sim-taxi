@@ -63,44 +63,28 @@ game's own 33° three-quarter view, with the car leaving off the top right.
 `src/game/titlescreen.js`, in `#title-screen`. A load opens on **Play, Settings, Credits**, left
 aligned over the live city. The menu is the only thing on screen: no HUD, no ⏸, no riders.
 
-**It comes in in three beats** (`playIntro`): the city fades up out of black slightly out of focus,
-the menu fades in over it 0.25 s later (0.6 s), and then the city sharpens (from 0.75 s, over
-2.4 s). The startup screen's own fade is the first beat, since the city waits behind it already
-blurred; with no startup screen the title brings a 0.6 s black veil of its own. The blur is a CSS
-`blur(6px)` on the city's canvas, scaled up 5% so the blur's edge falls off-screen, and it is taken
-off the element entirely once the intro is over: a compositor blur costs a pass over the whole
-canvas on every frame it is set, so it is only ever set for those three seconds. Play mid-intro ends
-it at once. Reduced motion skips it. `?titleintro=classic` is the screen as it was, menu and sharp
-city both there when the black lifts.
+**The menu fades in over a city that is already there** (`playIntro`): sharp from the moment the
+black lifts, the menu coming up 0.25 s later over 0.6 s. Play mid-fade ends it at once; reduced
+motion skips it. `?titleintro=blur` is the three-beat version it replaced (city fading up blurred,
+then sharpening) and `?titleintro=classic` no fade at all — see
+[history](gameplay-history.md#the-title-screen).
 
-**Behind it the camera cuts round the landmarks** (`src/game/titlereel.js`): the basketball court
-with its players shooting around, the skatepark, the burger joint, and the L whenever a train
-happens to be running on the island — followed down the line, and cut away from before it reaches
-the coast. Each shot is `SHOT` = 5 s at `REEL_ZOOM` = 45.8 (halfway between play's 52 and the Loco
-Mode push-in's 39.5) on a wide screen and `PHONE_ZOOM` = 30 on a phone, with a slow drift along
-screen-right and a small push-in. It is framed clear of the menu's column: a third of the
-half-width right of centre on a wide screen, and on a phone just above or below the menu (34% or
-66% down), whichever keeps the camera nearer the middle of the map, so a landmark by the coast does
-not fill the frame with fog.
-
-**Shots crossfade over `XFADE` = 1.4 s.** It is a still of the outgoing shot dissolving off the
-live incoming one, not two live shots blended: the frame a shot ends on is copied onto a 2D canvas
-under the menu straight after it is drawn, the camera cuts under that full cover on the next frame,
-and the cover fades out. One `drawImage` per cut, where a live blend would draw the city twice a
-frame for the length of the fade. The cover never takes a tap. The landmarks rotate; the train is
-an event, slotted in at the next cut whenever it has at least 3 s of island left and was not the
-shot just played. A city missing a landmark plays the rest. Reduced motion gets hard cuts and no
-drift. **Play** cuts to the depot door under the wipe (game/wipe.js) rather than easing there, and
-the opening vignette plays from the door. `?titlecam=classic` is the reel's predecessor: one slow
-ellipse over the middle of the city (`panAt`: a lap every two minutes at zoom 34), eased down onto
-the depot on Play.
+**Behind it the camera makes one slow slide** (`panAt`): along screen-right through the middle of
+the city, crossing the river once, `SLIDE_REACH` = 32 units either side of the origin at `PAN_ZOOM`
+= 34, there and back every `SLIDE_PERIOD` = 160 s on a cosine, so it never visibly stops and turns.
+It starts already moving, 0.7 of the reach left of centre. Screen-right because the whole frame
+travels sideways under the menu rather than into it, and because the intro story's shot past the
+garage slides the same way. **Play** eases down from wherever it is onto the depot door, one
+continuous shot. `?titlecam=reel` is the landmark reel it replaced (`src/game/titlereel.js`, see
+[history](gameplay-history.md#the-title-screen)); `?titlecam=classic` the ellipse
+before that.
 
 **It parks the run the way the Home Screen tip does.** `parked()` in `main.js` is the one gate both
 answer to: the fare board is not seeded, the tutorial and the vignette are held, Space and B do
 nothing, the ⏸ refuses, and the city's entrance wave is *settled* rather than played — the menu sits
 over a finished city with its traffic running, which is the whole point of the backdrop. **Play**
 lets go of all of it at once, so what follows is exactly the run that used to start on load: down
-to the garage door, the door up, the taxi out, the tips. The drift sits at the top of the camera's
+to the garage door, the door up, the taxi out, the tips. The slide sits at the top of the camera's
 priority list while the title holds, and the vignette's approach eases from wherever it left off.
 
 **The menu has no music.** Its taps and the city's effects play, but the radio stays off until
@@ -108,7 +92,8 @@ Play opens it on the announcer, so the music is part of what starting a run give
 ([audio.md](audio.md#the-radio); `?titlemusic=classic` plays songs under the menu).
 
 **Settings** and **Credits** dim the city behind a mask; the menu only shades the left edge its
-words stand on. Settings holds four things, all remembered across visits:
+words stand on, with the copyright and build number in small type along its foot
+(`COPYRIGHT` and `BUILD_VERSION` in titlescreen.js — bump the version there). Settings holds four things, all remembered across visits:
 
 | Setting | Where it lives |
 |---|---|
@@ -126,6 +111,65 @@ the menu again, so `onRetry` sets a one-shot `sessionStorage` flag the next boot
 **`?title=off`** skips it too, the same escape hatch `?vignette=off` is; `tools/smoke.mjs` runs every
 page but its own title check that way. **`?dev`** skips both, and turns on debug mode (the ⚙️
 panel) with them: the one flag for playtesting. Shot mode never builds it.
+
+## The backstory
+
+`src/game/backstory.js`. The first time a device presses **Play**, the menu goes and dispatch
+radios in before the cut to the garage door: four lines on the docked speech card, at the foot of
+the screen over the title's backdrop (there are no pedals yet for it to sit above), typed out and tapped
+through.
+
+> Dispatch to Car 9. You there?
+> City council signed that **robo-taxi** deal. Cars are going to be on the streets come Monday.
+> Those rolling toasters brake for pigeons. No idea why people love 'em.
+> Go remind this town what a real cab is all about.
+
+A tap anywhere finishes the line or moves on (Enter and Space too); **Skip** in the top corner, or
+Escape, ends it. A finished line left untapped for `NUDGE_AFTER` = 3 s gives the card a
+dock-icon bounce (a 12 px hop and a 5 px one), and again every 3 s until the tap; not under reduced
+motion. When the story starts the camera flies from the title's slide down to the garage in one
+move (`STORY_GLIDE` = 3.5 s, a smootherstep blend of the two moving shots, so it leaves and arrives
+at their own speeds) and slides slowly past its door (`storyFrame` in `main.js`, zoom 24, 0.35 units
+a second). Under `?titlecam=reel`, and under reduced motion, it cuts there under the wipe instead.
+Either way the last tap eases straight down onto the door rather than cutting there. Otherwise it lets the
+run go exactly as Play used to. The title screen's gate stays
+shut the whole time (`beforePlay` in `titlescreen.js`), so the fare board, the vignette and the
+radio all wait behind it, and the story drives its own typing clock because the frame loop's
+speech updates are parked with everything else.
+
+**Once per device.** It is a `createSeenFlag` (`src/game/progress.js`), marked seen as it
+*starts*, so a player who quits halfway is not told it twice, and [Demo mode](#demo-mode) tells it
+on every Play. "Play again" reloads past the title and so past this too.
+`?intro=classic` never tells it; `?intro=always` tells it on every Play.
+
+**The robo-taxis are flavour** (Tyler, 2026-10-21). Nothing in the run refers back to them yet.
+The idea the lines are built on is that the threat explains the controls: the robots stop at
+yellows and never speed, so the player wins by doing what they won't.
+
+## Demo mode
+
+For showing the game to someone: every run plays as a first run. A switch at the bottom of the
+title screen's Settings, which is only there once revealed, by opening the game with **`?demo`**
+or by tapping the Settings heading five times (the App Store build has no URL bar). A player who
+never goes looking never sees it. `?demo` turns it on for that load without saving; `?demo=off`
+forces it off.
+
+While it is on:
+
+- **Every "once ever" flag reads unseen** at the start of each run, and **nothing is written**: the
+  New Move cards, the depot's repair line (which otherwise stops once the taxi has been in for
+  repairs), and anything later built on `createSeenFlag`. A card shown is not shown again the
+  same run, and switching Demo mode off hands back the player's own flags exactly as they were.
+- **Every unlock reads earned** (`createUnlockFlag`), and earning one writes nothing.
+- **A move card at every run's end**, however short the run, taking Overtake, U-Turn and Drift in
+  turn across runs (the card's `after` thresholds are skipped).
+- **The tutorial tips stay on**, whatever the Tutorial tips switch says.
+- **Every bank rider is the robbery**, whatever `BANK_ROBBER_ALWAYS` in game/fares.js says.
+- **The first street racer turns up after the first drop-off** rather than the 2nd to 4th.
+
+High scores are not progress in this sense and are left alone. All of it lives in
+`src/game/progress.js`: any new one-time moment that makes its flag there is covered without
+further wiring, and one that reads `localStorage` itself is not.
 
 ## The opening vignette
 
@@ -544,6 +588,10 @@ is punished for not knowing. Its clip is two cars — the reel carries the car b
 a frame that held all of it drew both cars at a third the size. That length is also why its street
 picker accepts the ring road as well as side streets. The pedal row is Loco, then Loco again: the
 first key goes dark at the blip and the second lights. Recorded by `tools/overtakereel.mjs`.
+The blip comes late in the loop (`BLIP_ON` 1.7s of 2.8), once the taxi is on the car's bumper:
+the combo swings out the frame it arms, so an early blip had the taxi up the oncoming lane 17 units
+short of the car for most of the loop, passing nothing. The recorder now rejects any take that pulls
+out more than 9 units back (centre to centre) or sits tailgating for over 0.4s first.
 
 The bootleg (boost, then two quick brake taps — `game/bootleg.js`) is the one input nobody finds by
 looking, so it gets a card (`game/newmove.js`, `#new-move` in index.html). It is the tutorial's
@@ -1842,6 +1890,10 @@ so the soak suite's expected earnings are roughly where a flat fare put them. Hi
 
 ## VIP pickups
 
+**Off by default** (Tyler, 2026-10-21): `wantsVip` returns false, so no VIP ever spawns. The
+system below is intact and comes back on `?vip=classic` (`VIP=classic` headless); the rest of this
+section describes it as it plays there.
+
 `src/game/fares.js` and `src/game/faremarker.js`. A rare rider layered on top of the ordinary
 board — their diamond opens on a fixed purple, never drawn from the urgency scale, so "this one is a
 VIP" is never confused with how much time they have left, and every other surface that fare speaks
@@ -2150,6 +2202,15 @@ robbery without `holdAlarm`, so the headless suite still sees the police on the 
 `game/bankjob.js` — the opening of every robbery by default (#475, the default since #478;
 `?robbery=classic` drops the cut and goes straight to the robber's line). The point is that the
 player *sees* the robber get in.
+
+**The bank rider waits under the side-quest "!"** rather than an urgency pie (Tyler, 2026-10-21):
+they are the way into the robbery, an offer more than a fare. The pie is hidden on the kerb
+(`showAt`'s `quest` in game/faremarker.js) and the yellow tag stands where it was (`#bank-mark`,
+`updateBankMark` in main.js); the kerb disc stays, and the pie appears at pickup to fly to the roof
+with the trip's clock. Off screen the rider's own arrow points the way, so the "!" does not wait at
+the edge as well. They still have a clock on the kerb, but with nothing showing it, running it out
+is an offer turned down rather than a rider failed: no strike, they walk off like a missed VIP.
+Aboard, they are an ordinary fare again. `?questmark=classic` keeps the pie, and the strike.
 
 **It starts with the bank rider** (`BANK_CHANCE` in game/fares.js: 30% of qualifying spawns, from
 the second delivery, the bank junction within the spawn box, 35s after the last one left the
@@ -2619,8 +2680,13 @@ them. After a race it drives off, and comes back the same 2 to 4 drop-offs later
 again at the same interval after a race"). Counted in deliveries rather than seconds, the next race
 is earned by driving fares, so it cannot be farmed by sitting next to the racer. It has a white stripe down
 its spine, a proud wing on the boot and cyan light pooling under it that pulses to the music, and
-over it hangs a "…" — the [speech tag](#speech-bubbles) alone, with no card (`showTag`; a card with
-only the dots under `?bubbles=classic`/`dock`). The "…" is up whenever the race can be taken (an
+over it hangs a yellow **"!"** — the [speech tag](#speech-bubbles) alone, with no card, marked as an
+offer (`showTag(at, { quest: true })`; a card with only the dots under `?bubbles=classic`/`dock`).
+The "!" is the side-quest mark: the one an RPG hangs over an NPC with a quest to give (World of
+Warcraft's yellow "!", whose "?" means *hand it in*, which is why it isn't a "?"). It stays apart
+from the dots on purpose: "…" is someone talking or a tip, "!" is something the player can take or
+leave, and the tag goes back to the dots the moment the racer speaks. `?questmark=classic` keeps the
+dots. The "!" is up whenever the race can be taken (an
 empty cab, nothing owning the run) and the player can find the car: on the car whenever it is on
 screen, wherever the player has panned to, and pointing in from the screen edge only while the taxi
 is within `NEAR_BLOCKS` (3) of it, with a horn. Out of reach and off screen, or a rider picked up,
@@ -2698,7 +2764,7 @@ called off leaves it in town instead, resting `REST_TIME` (20s) before it offers
 event cannot cost the run ([it is imposed](#it-is-imposed-so-it-cannot-cost-the-run)), so the race
 is a tap like every other choice in the game. Ignoring it is free: the racer just keeps driving.
 
-- **Tappable whenever the "…" is up**, on the car (a screen-plane quad, `HIT_W` × `HIT_H`) or on
+- **Tappable whenever the "!" is up**, on the car (a screen-plane quad, `HIT_W` × `HIT_H`) or on
   the tag. Only something that owns the run outright takes it away (`interrupted`: a getaway, a
   chase, the run ending); a tutorial tip or a burger run does not.
 - **Empty cab only.** With a rider aboard the offer is down. A tap while the taxi is on its way to
@@ -3596,6 +3662,13 @@ has used the depot knows the way. It answers to the card's gates: the tips setti
 opening tutorial being done, and a calm beat (`newMoveCalm`) — a getaway, a patrol chase or a taxi
 already on its way in defers it, and it is tried again every half second while the car still smokes.
 `__taxi.depotCall.show()` says it.
+
+**The door wears the side-quest "!"** for as long as a tap there would send the smoking taxi in:
+`SMOKE_FRACTION` or worse, and `canRepair` (no rider aboard, no getaway or race, the depot free).
+It is the racer's tag with no card, so the player always has something to tap, every run and not just
+for the 4.5s the line is up (Tyler, 2026-10-21). It does not answer to the tips setting: it is a
+marker, not a lesson. When the line times out its "…" turns straight into the "!"; at the screen
+edge the "!" pans the camera to the garage like the line's tag does. `?questmark=classic` has no "!".
 
 **`?repairtip=classic`** puts back the card it replaced (Tyler, 2026-10-06 to 2026-10-20): the
 [New Move card](#new-move-unlocked-the-overtake-u-turn-and-drift-cards) with **"TAXI GARAGE / Tap for

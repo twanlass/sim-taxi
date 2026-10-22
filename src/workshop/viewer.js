@@ -428,6 +428,44 @@ function showError(error) {
 
 // Where the current model was set on the bench ({ id, x, y, z }), handed to the next run of an edit.
 let placement = kept.placement ?? null;
+/**
+ * A hash of what the model draws: every mesh's vertices, transform, instance matrices and material
+ * colours, as FNV-1a over their float bits. Carried across an edit so the scan sweep (`startScan`)
+ * only runs when the edit actually changed the model; any edit re-runs this module (a chat or
+ * composer tweak included), and sweeping the model for those said it had been rebuilt when it had
+ * not.
+ */
+function fingerprint(root) {
+  let h = 0x811c9dc5;
+  const f32 = new Float32Array(1);
+  const u32 = new Uint32Array(f32.buffer);
+  const mix = (n) => { h = Math.imul(h ^ n, 0x01000193) >>> 0; };
+  const floats = (arr, count = arr.length) => {
+    for (let i = 0; i < count; i++) { f32[0] = arr[i]; mix(u32[0]); }
+  };
+  root.updateMatrixWorld(true);
+  root.traverse((o) => {
+    if (!o.isMesh && !o.isLine && !o.isPoints) return;
+    floats(o.matrixWorld.elements);
+    for (const attr of ['position', 'color']) {
+      const a = o.geometry?.attributes?.[attr];
+      if (a) floats(a.array);
+    }
+    if (o.isInstancedMesh) {
+      mix(o.count);
+      floats(o.instanceMatrix.array, o.count * 16);
+      if (o.instanceColor) floats(o.instanceColor.array, o.count * 3);
+    }
+    for (const m of [o.material].flat()) {
+      if (!m) continue;
+      if (m.color) floats(m.color.toArray());
+      if (m.emissive) floats(m.emissive.toArray());
+      mix(m.visible ? 1 : 0);
+    }
+  });
+  return h;
+}
+
 function load(id, { keepFraming = false } = {}) {
   if (current) {
     scene.remove(current.holder);
@@ -474,7 +512,10 @@ function load(id, { keepFraming = false } = {}) {
   // And into the bloom's draw list, the lit meshes the entry names at the kinds main.js gives them.
   for (const [mesh, kind] of built.glow ?? []) markEmissive(mesh, kind);
 
-  current = { holder, update: built.update ?? null, lamps: built.lamps ?? null, box: box.clone() };
+  current = {
+    source: entry.source, holder, update: built.update ?? null, lamps: built.lamps ?? null, box: box.clone(),
+    print: fingerprint(holder),
+  };
   current.lamps?.(state.weather === 'day' ? 0 : 1);
   // "Diameter" as the footprint's diagonal rather than its longer side, so a long car's pad
   // clears its corners by as much as its nose.
@@ -774,7 +815,18 @@ function describeHit(hit) {
   for (let n = hit.object; n && n !== current.holder; n = n.parent) {
     path.unshift(n.name || (n.isMesh ? 'unnamed mesh' : 'group'));
   }
+  // Builders that merge their parts (geometry/classics.js `merge`) leave vertex ranges on the
+  // geometry; the range holding the hit triangle names the part inside the mesh.
+  const range = hit.face && hit.object.geometry.userData.parts?.find((r) => hit.face.a >= r.start && hit.face.a < r.start + r.count);
+  if (range) path.push(range.name);
   lines.push(`- part: ${path.join(' > ')}${hit.object.userData.pickable ? ` (pickable: ${hit.object.userData.pickable})` : ''}`);
+  // Where to edit it, so nobody greps: a part (or its geometry, or an ancestor) can say which
+  // function built it with `userData.src` — e.g. 'src/sim/traffic.js · carGeometry (shared by every
+  // car)' — and the model's own builder is always named. Unmarked parts fall back to the latter.
+  let partSrc = hit.object.geometry.userData.src;
+  for (let n = hit.object; n && !partSrc && n !== current.holder; n = n.parent) partSrc = n.userData.src;
+  if (partSrc) lines.push(`- built by: ${partSrc}`);
+  if (current.source) lines.push(`- model source: ${current.source}`);
   lines.push(`- point, in the model's own (builder) coordinates: ${fmt(local)}`);
   if (hit.face) {
     const normal = hit.face.normal.clone().transformDirection(hit.object.matrixWorld);
@@ -877,13 +929,22 @@ on(window, 'workshop:run-done', (event) => {
 let press = null;
 on(renderer.domElement, 'pointerdown', (event) => {
   press = event.button === 0 ? { x: event.clientX, y: event.clientY, t: performance.now() } : null;
+  // A click out of the swatch's colour picker (the browser's popup) or hex field only dismisses
+  // that: it lands here too, and used to close the panel and revert the edit along with it.
+  if (press && swatch && swatchEl.contains(document.activeElement)) {
+    document.activeElement.blur();
+    press.swallow = true;
+  }
 });
 on(renderer.domElement, 'pointerup', (event) => {
   if (!press || event.button !== 0) return;
   const moved = Math.hypot(event.clientX - press.x, event.clientY - press.y);
   const quick = performance.now() - press.t < 450;
+  const swallow = press.swallow;
   press = null;
-  if (moved > 4 || !quick) return;
+  if (moved > 4 || !quick || swallow) return;
+  if (event.metaKey || event.ctrlKey) { openSwatch(event.clientX, event.clientY); return; }
+  closeSwatch();
   const found = pick(event.clientX, event.clientY);
   if (found) openPin(found); else closePin();
 });
@@ -893,6 +954,148 @@ on(note.input, 'keydown', (event) => {
 });
 on(window, 'keydown', (event) => {
   if (event.key === 'Escape' && pin && !event.target.closest?.('textarea:not(#pin-input), input, select')) closePin();
+});
+
+// --- ⌘-click colour swatch ----------------------------------------------------
+//
+// Cmd- (or Ctrl-) clicking the model opens a colour picker on the spot and recolours, live, every
+// surface in the model that wears the colour under the cursor. Nearly every colour here is baked
+// into vertices (`bakeColor`), not set on a material, so "the material's colour" means *that baked
+// colour wherever it appears* — the same paint is one palette entry, and recolouring only the hit
+// triangle would show something the palette cannot express. The preview is only ever a preview:
+// closing the panel puts the old colour back, and "Save" hands the change to the chat to make in
+// palette.js, which is where it actually lives (and whose edit reloads the page with it built in).
+
+const swatchEl = document.getElementById('swatch');
+let swatch = null;        // { point, name, from: Color (linear), to, targets, restore() }
+
+/** Everything in the model wearing `c`: vertex colour ranges, instance colours or material colours. */
+function wearersOf(hit, c) {
+  const close = (r, g, b) => (r - c.r) ** 2 + (g - c.g) ** 2 + (b - c.b) ** 2 < 1e-6;
+  const targets = [];
+  const seen = new Set();   // geometry is shared between meshes (and with the game's own traffic)
+  current.holder.traverse((o) => {
+    if (!o.isMesh) return;
+    // Only the kind of colour that was hit: a white material under vertex colours is not "white".
+    const byVertex = Boolean(hit.object.geometry.attributes.color);
+    const byInstance = !byVertex && Boolean(hit.object.instanceColor);
+    if (byVertex || byInstance) {
+      const attr = byVertex ? o.geometry.attributes.color : o.instanceColor;
+      if (!attr || seen.has(attr)) return;
+      seen.add(attr);
+      const at = [];
+      for (let i = 0; i < attr.count; i++) if (close(attr.getX(i), attr.getY(i), attr.getZ(i))) at.push(i);
+      if (at.length) targets.push({ attr, at });
+      return;
+    }
+    for (const m of [o.material].flat()) {
+      if (m?.color && !seen.has(m) && close(m.color.r, m.color.g, m.color.b)) { seen.add(m); targets.push({ material: m }); }
+    }
+  });
+  return targets;
+}
+
+function paint(targets, c) {
+  for (const t of targets) {
+    if (t.material) { t.material.color.copy(c); continue; }
+    for (const i of t.at) t.attr.setXYZ(i, c.r, c.g, c.b);
+    t.attr.needsUpdate = true;
+  }
+}
+
+function openSwatch(clientX, clientY) {
+  closeSwatch();
+  closePin();
+  if (!current) return;
+  const rect = renderer.domElement.getBoundingClientRect();
+  raycaster.setFromCamera(new THREE.Vector2(((clientX - rect.left) / rect.width) * 2 - 1, -((clientY - rect.top) / rect.height) * 2 + 1), activeCamera());
+  const hit = raycaster.intersectObject(current.holder, true).find(drawnHit);
+  if (!hit?.face) return;
+  const geoColor = hit.object.geometry.attributes.color;
+  const material = [hit.object.material].flat()[hit.face.materialIndex ?? 0];
+  const from = geoColor ? new THREE.Color().fromBufferAttribute(geoColor, hit.face.a)
+    : hit.object.instanceColor && hit.instanceId != null ? new THREE.Color().fromBufferAttribute(hit.object.instanceColor, hit.instanceId)
+      : material?.color?.clone();
+  if (!from) return;
+  const targets = wearersOf(hit, from);
+  const where = describeHit(hit);
+  swatch = { point: hit.point.clone(), name: paletteName(from), from, to: from.clone(), targets, where };
+  const count = targets.reduce((n, t) => n + (t.at ? t.at.length : 1), 0);
+  const unit = targets[0]?.at ? (geoColor ? 'vertices' : 'instances') : 'materials';
+
+  const head = document.createElement('div');
+  head.className = 'swatch-head';
+  // Just "Edit": the palette name means nothing at a glance, and Save's tooltip still carries it.
+  head.textContent = 'Edit';
+  head.title = `${count} ${unit} in this model wear this colour`;
+  const picker = Object.assign(document.createElement('input'), { type: 'color', value: `#${from.getHexString()}` });
+  const hex = Object.assign(document.createElement('input'), { type: 'text', value: `#${from.getHexString()}`, spellcheck: false, size: 7, maxLength: 7 });
+  const revert = Object.assign(document.createElement('button'), { type: 'button', textContent: 'Cancel', className: 'act' });
+  const save = Object.assign(document.createElement('button'), { type: 'button', textContent: 'Save', className: 'act primary' });
+  save.title = swatch.name ? `Ask the chat to set PALETTE.${swatch.name} in palette.js` : 'Ask the chat to make this change in the source';
+  const row = document.createElement('div');
+  row.className = 'swatch-row';
+  row.append(picker, hex);
+  const actions = document.createElement('div');
+  actions.className = 'swatch-actions';
+  actions.append(revert, save);
+  swatchEl.replaceChildren(head, row, actions);
+
+  // The input's hex is sRGB and the baked colours are linear; THREE.Color converts both ways.
+  const set = (value, from) => {
+    if (!/^#[0-9a-f]{6}$/i.test(value)) return;
+    swatch.to.set(value);
+    paint(targets, swatch.to);
+    if (from !== picker) picker.value = value.toLowerCase();
+    if (from !== hex) hex.value = value.toLowerCase();
+    save.disabled = swatch.to.equals(swatch.from);
+  };
+  save.disabled = true;
+  on(picker, 'input', () => set(picker.value, picker));
+  on(hex, 'change', () => set(hex.value.startsWith('#') ? hex.value : `#${hex.value}`, hex));
+  on(hex, 'keydown', (event) => { if (event.key === 'Enter') hex.blur(); });
+  on(revert, 'click', () => closeSwatch());
+  on(save, 'click', saveSwatch);
+  placeSwatch();
+}
+
+function closeSwatch({ keep = false } = {}) {
+  if (!swatch) return;
+  if (!keep) paint(swatch.targets, swatch.from);
+  swatch = null;
+  swatchEl.hidden = true;
+  swatchEl.replaceChildren();
+}
+
+function saveSwatch() {
+  const chatApi = window.__workshopChat;
+  if (!swatch || !chatApi || swatch.to.equals(swatch.from)) return;
+  const was = `#${swatch.from.getHexString()}`;
+  const now = `#${swatch.to.getHexString()}`;
+  const what = swatch.name ? `PALETTE.${swatch.name}` : `the ${was} colour here`;
+  const text = `Change ${what} to ${now} (was ${was}).`;
+  const context = `${swatch.where.context}\n`
+    + `- picked live with the ⌘-click colour swatch, which recoloured every surface in this model wearing ${was}; `
+    + (swatch.name ? `if PALETTE.${swatch.name} is shared with things that should keep the old colour, give this model its own entry instead` : 'that colour matches no palette entry, so find where it is made');
+  chatApi.send(text, { id: `swatch-${Date.now().toString(36)}`, label: what, context, image: capture(swatch.point) });
+  // Left showing the new colour: the edit to palette.js reloads the page with it built in.
+  closeSwatch({ keep: true });
+}
+
+function placeSwatch() {
+  if (!swatch) return;
+  const s = pinScreen(swatch.point);
+  swatchEl.hidden = !s;
+  if (!s) return;
+  const { w, h } = size();
+  const sw = swatchEl.offsetWidth;
+  const sh = swatchEl.offsetHeight;
+  const x = s.x + 14 + sw > w - covered - 8 ? s.x - 14 - sw : s.x + 14;
+  const y = Math.min(Math.max(8, s.y - 20), h - sh - 8);
+  swatchEl.style.transform = `translate(${x}px, ${y}px)`;
+}
+on(window, 'keydown', (event) => {
+  if (event.key === 'Escape' && swatch) closeSwatch();
 });
 
 // `.` hides every panel and leaves just the viewport. Kept on the body's class rather than in
@@ -1034,6 +1237,7 @@ function tick() {
   rain?.update(dt, activeCamera());
   draw();
   placePin();
+  placeSwatch();
 }
 
 // The inset's camera, stretched to the whole canvas. The AO, the rim's depth and the bloom are all
@@ -1232,6 +1436,7 @@ function stashFraming() {
       gameZoom,
       orbitHalf,
       placement,
+      print: current.print,
       orbit: { position: orbitCamera.position.toArray(), target: orbit.target.toArray() },
     }));
   } catch { /* the framing is lost, the reload still happens */ }
@@ -1345,7 +1550,9 @@ if (kept.orbit) {
   orbitCamera.position.copy(orbit.target).addScaledVector(dir, ORBIT_STANDOFF);
   orbit.update();
   applyGame();
-  startScan();
+  // Only when the model itself came out different: a stash without a print (the page just after
+  // this change shipped) sweeps as before.
+  if (kept.model !== state.model || kept.print == null || kept.print !== current?.print) startScan();
   els.reloaded.classList.add('show');
   setTimeout(() => els.reloaded.classList.remove('show'), 1200);
 }
@@ -1403,6 +1610,7 @@ if (hot) {
     foldZoom();   // a wheel zoom not yet folded into orbitHalf would otherwise be lost
     data.ui = uiSignatures();
     data.model = state.model;
+    data.print = current?.print;
     data.gameZoom = gameZoom;
     data.placement = placement;
     // The pin outlives an edit (the agent's own, often) along with whatever is typed in its note,
@@ -1411,6 +1619,9 @@ if (hot) {
     data.pinText = note.value;
     data.sent = [...sent].map(([id, { point }]) => [id, point.toArray()]);
     data.orbit = { position: orbitCamera.position.toArray(), target: orbit.target.toArray() };
+    // An unsaved preview comes off: the geometry it painted may be shared with modules that outlive
+    // this run, and the next run's model would come up wearing it.
+    closeSwatch();
     cancelAnimationFrame(raf);
     listening.abort();
     resizer.disconnect();

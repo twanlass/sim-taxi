@@ -414,18 +414,21 @@ export function createTugMesh(rng) {
   // The band is a hair wider and shorter than the cabin, so no face of one lies on a face of the
   // other.
   const cabinZ = -L * 0.1;
-  parts.push(block(1.25, 0.32, L * 0.36, 0, SAIL_DECK_Y, cabinZ, white));
+  const cabin = jitterColor(PALETTE.sailCabin, rng, { l: 0.015, s: 0.01 });
+  parts.push(block(1.25, 0.32, L * 0.36, 0, SAIL_DECK_Y, cabinZ, cabin));
   parts.push(block(1.27, 0.1, L * 0.36 - 0.25, 0, SAIL_DECK_Y + 0.12, cabinZ, PALETTE.rigging, FINISH.GLASS));
 
-  // The mast, from the deck to `TUG_AIR` exactly.
+  // The mast, from the deck to `TUG_AIR` exactly: the tallest the arched spans allow. A 1.5x mast
+  // (4.82) was tried at the bench and stood through the bridge decks, so it is capped here.
   const foot = SAIL_DECK_Y;
   const mastH = TUG_AIR - foot;
+  const mastTop = foot + mastH;
   const mast = new THREE.CylinderGeometry(0.055, 0.09, mastH, 8);
   mast.translate(0, foot + mastH / 2, MAST_Z);
   parts.push(setFinish(bakeColor(mast, PALETTE.mast), FINISH.METAL));
 
   // Spreaders, three fifths of the way up, and the shrouds over them to the deck edge.
-  const top = new THREE.Vector3(0, TUG_AIR - 0.06, MAST_Z);
+  const top = new THREE.Vector3(0, mastTop - 0.06, MAST_Z);
   const sprY = foot + mastH * 0.6;
   const sprW = 0.5;
   parts.push(rod(new THREE.Vector3(-sprW, sprY, MAST_Z), new THREE.Vector3(sprW, sprY, MAST_Z), 0.04, PALETTE.mast));
@@ -436,12 +439,9 @@ export function createTugMesh(rng) {
     parts.push(rod(tip, chain, 0.03, PALETTE.rigging));
   }
 
-  // Forestay to the stemhead and backstay to the transom: the two lines that make the triangle,
-  // and the triangle is what says "sailboat" from across the map. The forestay carries the jib,
-  // rolled up round it, so it is drawn as a thin white spar rather than as wire.
-  const stem = new THREE.Vector3(0, SAIL_DECK_Y, L / 2 - 0.15);
+  // Backstay to the transom. There is no forestay: it was a fat white furled-jib spar from the
+  // masthead to the stemhead and read as a pole stuck diagonally in the bow, so it came out.
   const transom = new THREE.Vector3(0, SAIL_DECK_Y, -L / 2 + 0.15);
-  parts.push(rod(top, stem, 0.08, white, FINISH.PAINT));
   parts.push(rod(top, transom, 0.03, PALETTE.rigging));
 
   // The boom, and the mainsail lowered onto it under a blue cover: fat at the mast where the sail
@@ -449,8 +449,24 @@ export function createTugMesh(rng) {
   // stick or a box.
   const boomY = SAIL_DECK_Y + 0.6;
   const boomAft = -L / 2 + 0.45;
-  parts.push(spar(boomAft, MAST_Z - 0.02, 0.04, 0.04, boomY, PALETTE.mast, 6));
-  parts.push(spar(boomAft + 0.25, MAST_Z - 0.08, 0.08, 0.17, boomY + 0.12, trim, 8, FINISH.MATTE));
+  // Both swung 2.5 degrees about the mast (the boom's pivot), so the sail sits slightly off the
+  // centreline rather than dead astern.
+  const swing = (geo) => {
+    geo.translate(0, 0, -MAST_Z);
+    geo.rotateY(THREE.MathUtils.degToRad(2.5));
+    geo.translate(0, 0, MAST_Z);
+    return geo;
+  };
+  parts.push(swing(spar(boomAft, MAST_Z - 0.02, 0.04, 0.04, boomY, PALETTE.mast, 6)));
+  parts.push(swing(spar(boomAft + 0.25, MAST_Z - 0.08, 0.08, 0.17, boomY + 0.12, trim, 8, FINISH.MATTE)));
+
+  // A blocky outboard clamped to the transom: a dark cowl on the deck line, a leg dropping past
+  // the waterline and a little prop block at its foot. It reaches 0.3 past the stern, so the boat's
+  // length (TUG_LEN) and the clearance chain above are unchanged by it.
+  const sternZ = -L / 2;
+  parts.push(block(0.46, 0.5, 0.5, 0, SAIL_DECK_Y - 0.05, sternZ - 0.1, PALETTE.rigging));
+  parts.push(block(0.16, 0.8, 0.22, 0, -0.25, sternZ - 0.2, PALETTE.mast, FINISH.METAL));
+  parts.push(block(0.1, 0.1, 0.3, 0, -0.32, sternZ - 0.2, PALETTE.rigging));
 
   return merge(parts);
 }

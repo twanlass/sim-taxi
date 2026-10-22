@@ -240,7 +240,7 @@ try {
   // out in the far one past it, and finishes back in its own lane in front of it; and the picker
   // finds a long enough street (side or ring) in the shipped cities.
   {
-    const { reelAt, clipKeys, pickOvertakeStreet, CLIP_LOOP } = await import('../src/game/overtakeclip.js');
+    const { reelAt, clipKeys, pickOvertakeStreet, CLIP_LOOP, BLIP_ON } = await import('../src/game/overtakeclip.js');
     const { REEL } = await import('../src/game/overtakeclip.js');
     const leadAt = (t) => REEL.lead[Math.min(REEL.lead.length - 1, Math.round(t / REEL.step))];
     const start = reelAt(0);
@@ -249,8 +249,8 @@ try {
     if (!REEL.frames.some((f) => f[1] < 0)) throw new Error('overtakeclip: never pulls out');
     if (!(start.along < leadAt(0)[0] - REEL.frames[0][0] + start.along)) throw new Error('overtakeclip: does not start behind the car');
     if (!(REEL.frames.at(-1)[0] > REEL.lead.at(-1)[0])) throw new Error('overtakeclip: does not finish in front of the car');
-    const k = clipKeys(CLIP_LOOP * 0.5);
-    if (!(k.boost.lit && k.blip.lit && k.blip.down && !k.boost.down)) throw new Error('overtakeclip: keys wrong mid-loop');
+    const k = clipKeys(BLIP_ON + 0.2);
+    if (!(k.boost.lit && k.blip.lit && k.blip.down && !k.boost.down)) throw new Error('overtakeclip: keys wrong mid-pass');
     const { createLayout } = await import('../src/city/layout.js');
     const { cityNetwork } = await import('../src/city/roadnet.js');
     const { makeRng } = await import('../src/util/rng.js');

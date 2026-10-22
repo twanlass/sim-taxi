@@ -398,6 +398,9 @@ export const PALETTE = {
   // whole vehicle as one hull in one colour (carBodyGhost at the cab's index), because the outline
   // says "there is a vehicle there", not "these are its panels".
   truckBox: '#DDD4BE',
+  // The inset rear door panel on that box: barely a shade under it, so it reads as a panel at play
+  // zoom without becoming a hold-door of its own (that one is truckHold).
+  truckBoxDoor: '#C9BC9C',
   // The two rare classics (geometry/classics.js). The convertible's body is tinted from carBody
   // like any car; its folded hood is dark canvas under that tint.
   convertibleHood: '#2E2F33',
@@ -451,7 +454,7 @@ export const PALETTE = {
   // half no civilian has (every other car's cabin is dark glass), and it is what says police.
   // See policeCabGeometry() in sim/traffic.js. (A first pass ran it the other way round, white
   // under baby blue; a pastel cab rendered grey-teal under the low warm sun.)
-  policeBody: '#55A8E6',
+  policeBody: '#0091FF',
   // Cooler and brighter than the two cream civilians (#E4E1DA, #D9D2C3).
   policeCab: '#F2F4F7',
 
@@ -782,6 +785,8 @@ export const PALETTE = {
   // the first hit, so a yellow car goes mustard and then brown-yellow as its HP runs down. Warm
   // rather than grey because a grey multiply on #F5C130 reads as the car being in shadow.
   taxiGrime: '#7A6450',
+  // The paint chipped to the metal (geometry/taxiscratches.js, the default since 2026-10-21).
+  taxiBareMetal: '#C9CED4',
   // The flash on the body when a hit lands — an emissive, added on top of the paint for a fifth of a
   // second. Red because it is the one moment the car may say "hurt" in a hue: the white lift
   // (`setHighlight`, geometry/taxi.js) already means "accepted".
@@ -912,7 +917,7 @@ export const PALETTE = {
   backboard: '#EDEDEA',
   backboardMark: '#B8473A',
   rim: '#D5642A',
-  net: '#E8E6E0',
+  net: '#DCDCBC',
   // The players and their ball (game/hoopers.js). Muted jerseys for the fare-marker reason: a
   // saturated figure on a kerb is the description of a rider. One light, one dark, so the two are
   // told apart at 24px.
@@ -1130,6 +1135,8 @@ export const PALETTE = {
   // The boat that asks for the lift is a sailboat now, and it is the one **white** thing on the
   // water — a light hull is value against the river, which is what this whole section is about.
   sailHull: '#ECECE8',
+  // The coachroof's own entry, so the cabin can be coloured apart from the hull.
+  sailCabin: '#BCE6EB',
   // The one saturated thing on the water, and it is a small one: the sailboat's boot stripe and
   // its sail cover. 213 degrees sits inside the same blue window the pond and the river already
   // occupy, 27 clear of the courier cyan — so it is a *boat* colour rather than a marker one.

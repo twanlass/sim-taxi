@@ -65,6 +65,8 @@ const LOOSE_SPEED = SPEED;
  */
 const PATROL_LAMP = 70;
 
+const WINDSCREEN_RAKE = 0.3;   // how far the top of the screen sits back from its foot
+
 /**
  * An ambient car, painted. `carGeometry()` bakes its body white and its glass dark so the fleet's
  * `instanceColor` can tint it; this is that same multiply done once into the vertex colours, so the
@@ -83,9 +85,26 @@ function policeGeometry() {
     colors.setXYZ(i, colors.getX(i) * tint.r, colors.getY(i) * tint.g, colors.getZ(i) * tint.b);
   }
   const cab = policeCabGeometry();
+  // Rake the windscreen: the cabin's front half leans back with height, its foot staying put on the
+  // bonnet. Done here, on the cruiser's own copy, because `carGeometry()` is the whole fleet's cabin.
+  // The white roof cap is moved by the full slant so it still caps the raked glass.
+  const pos = car.attributes.position;
+  const cabBottom = CABIN_TOP - 0.6;
+  for (let i = 0; i < pos.count; i++) {
+    if (finish.getX(i) !== FINISH.GLASS || pos.getX(i) <= CABIN_X || pos.getY(i) < cabBottom - 0.01) continue;
+    const t = Math.min(1, Math.max(0, (pos.getY(i) - cabBottom) / 0.6));
+    pos.setX(i, pos.getX(i) - WINDSCREEN_RAKE * t);
+  }
+  const capPos = cab.attributes.position;
+  for (let i = 0; i < capPos.count; i++) {
+    if (capPos.getX(i) > CABIN_X) capPos.setX(i, capPos.getX(i) - WINDSCREEN_RAKE);
+  }
   const merged = mergeGeometries([car, cab], false);
   car.dispose();
   cab.dispose();
+  // For the workshop's pin (workshop/viewer.js): body, glass and roof cap are all merged into this
+  // one mesh, so a click on any of them should land on the three builders that made it.
+  merged.userData.src = 'src/sim/police.js · policeGeometry = carGeometry (src/sim/traffic.js, shared by every car) + policeCabGeometry (roof cap)';
   return merged;
 }
 

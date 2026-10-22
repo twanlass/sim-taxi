@@ -199,7 +199,12 @@ export const CATALOG = [
   {
     id: 'firetruck', label: 'Fire engine', kind: 'Vehicles',
     source: 'src/geometry/firetruck.js · createFireTruckMesh',
-    build: () => ({ object: createFireTruckMesh().group }),
+    // The game keeps the engine's shell hidden until it responds to a fire, so show it on the bench.
+    build: () => {
+      const engine = createFireTruckMesh();
+      engine.shell.visible = true;
+      return { object: engine.group };
+    },
   },
   {
     id: 'heli', label: 'Helicopter', kind: 'Vehicles',

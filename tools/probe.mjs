@@ -242,6 +242,7 @@ import { createComboMeter, comboScope, COMBO_MAX } from '../src/game/combometer.
 import { createSfx, SHIPPED_MIX, SFX_EVENTS, SOUNDS, LOOPS, RADIO, radioBetween, DRIVE_THRU_SECONDS, DRIVE_THRU_TAIL, GROUPS, BUSES, MIX_PARENT, monitorPass } from '../src/game/sfx.js';
 import MIX_FILE from '../assets/audio/mix.json' with { type: 'json' };
 import { createTitleReel, SHOT as REEL_SHOT } from '../src/game/titlereel.js';
+import { placeSpeech } from '../src/game/speech.js';
 
 const seed = Number(process.argv[2] ?? 71624);
 const CARS_DEFAULT = 7;    // low-density baseline for the fare-loop checks — keeps timing thresholds stable regardless of runtime default
@@ -8267,9 +8268,14 @@ function rideToPickup() {
   check('the first hit flashes the body red, and the flash goes',
     flashPeak > 0.3 && body.material.emissive.r === 0 && body.material.emissive.g < flashPeak * 0.5,
     `peak ${flashPeak.toFixed(2)}, now ${body.material.emissive.r.toFixed(2)}`);
-  check('and leaves the paint dulled and the bonnet steaming',
-    dDamage.grime() > 0.25 && body.material.color.b < 0.85 && smokes.length >= 5,
-    `grime ${dDamage.grime().toFixed(2)}, ${smokes.length} wisps`);
+  // The paint keeps its colour (Tyler, 2026-10-21: the tint did not read) and chips instead — at the
+  // struck corner, the front right, more than anywhere else.
+  const chips = dTraffic.taxiDamage.scratches;
+  const wearList = () => [[1, 1], [1, -1], [-1, 1], [-1, -1]].map(([e, sd]) => chips.wearAt(e, sd).toFixed(2)).join(' ');
+  check('and leaves the paint its own colour, chipped at the struck corner, and the bonnet steaming',
+    dDamage.grime() === 0 && body.material.color.getHex() === 0xffffff && smokes.length >= 5
+    && chips.wearAt(1, 1) > 0.3 && [[1, -1], [-1, 1], [-1, -1]].every(([e, sd]) => chips.wearAt(e, sd) < chips.wearAt(1, 1) / 2),
+    `grime ${dDamage.grime().toFixed(2)}, ${smokes.length} wisps, wear ${wearList()}`);
   const frontRight = pods.filter((pod) => homes.get(pod).x > 0 && homes.get(pod).z > 0);
   const others = pods.filter((pod) => !frontRight.includes(pod));
   const hung = frontRight.every((pod) => pod.position.y < homes.get(pod).y - 0.2);
@@ -8395,8 +8401,35 @@ function rideToPickup() {
   check('the smoke comes off the bonnet, clear of the body', ahead > 0.8 && sy > TAXI_DECK_Y,
     `${ahead.toFixed(2)} ahead of centre, ${sy.toFixed(2)} up against a deck at ${TAXI_DECK_Y.toFixed(2)}`);
 
+  // Near empty, the chips have spread to every corner and the struck one is worn nearly through.
+  const scratches = dTraffic.taxiDamage.scratches;
+  check('low on HP, the chips have spread to all four corners',
+    [[1, -1], [-1, 1], [-1, -1]].every(([e, sd]) => scratches.wearAt(e, sd) > 0.2) && scratches.wearAt(1, 1) > 0.8,
+    wearList());
+  // The chips are a patch on the paint's shader (geometry/taxiscratches.js), on the shell and both
+  // lids. Run each material's patch over three's own source for it: a hook that matched nothing
+  // would be a clean car with nothing logged, and every patch here throws on a miss. And the key
+  // has to say so, or the patched program collides with every unpatched one (CLAUDE.md).
+  const patchOk = scratches.materials.every((m) => {
+    const lib = THREE.ShaderLib[m.isMeshPhongMaterial ? 'phong' : 'lambert'];
+    const shader = { vertexShader: lib.vertexShader, fragmentShader: lib.fragmentShader,
+      uniforms: THREE.UniformsUtils.clone(lib.uniforms), defines: {} };
+    try { m.onBeforeCompile(shader, null); } catch (e) { console.log(e.message); return false; }
+    return shader.fragmentShader.includes('cScore < cW') && shader.uniforms.uChipWear
+      && m.customProgramCacheKey().endsWith('-chips');
+  });
+  check('the chips patch the shell\'s and both lids\' shaders, under a key of their own', patchOk);
+
   dDamage.reset();
   dTaxi.hp = TAXI_HP;
+  dDamage.update(1 / 60);
+  check('reset takes the chips off', [[1, 1], [1, -1], [-1, 1], [-1, -1]].every(([e, sd]) => scratches.wearAt(e, sd) === 0));
+  // The wreck's hit never comes through `hit`: `scuff` wears the struck corner in full on its own,
+  // so the shell left in the road wears the hit that ended the run.
+  dDamage.scuff(dTaxi.x - Math.cos(dTaxi.yaw) * 1.5 + Math.sin(dTaxi.yaw) * 0.7,
+    dTaxi.z + Math.sin(dTaxi.yaw) * 1.5 + Math.cos(dTaxi.yaw) * 0.7);
+  check('the wreck\'s hit chips the corner it landed on, in full', scratches.wearAt(-1, 1) === 1, wearList());
+  dDamage.reset();
   dDamage.update(1 / 60);
   check('reset puts every part back', dDamage.tier() === 0 && dDamage.bootAngle() === 0.6
     && dDamage.grime() === 0 && body.material.color.getHex() === 0xffffff
@@ -22553,6 +22586,26 @@ for (const viewName of ['side', 'quarter']) {
   const moving = onScreen.filter((s) => !(s.grounded && s.vel.length() < 0.5)).length;
   check('splash logo: the debris left in frame has come to rest by the fade', moving === 0,
     `${moving} of ${onScreen.length} in frame still moving`);
+}
+
+// The quest "!" tag never flips under its talker: a racer near the top of the frame got a tag
+// hung below it with the pointer on its top edge, an upside-down pin (2026-10-22). A card still
+// flips — it is too tall to rise into the HUD row — and a tag sits above wherever it can.
+{
+  const insets = { top: 0, right: 0, bottom: 0, left: 0 };
+  const flipped = [];
+  for (let y = 0; y <= 120; y += 2) {
+    const p = placeSpeech({ x: 200, y }, 24, 24, 390, 844, insets, { tag: true });
+    // The pointer hangs off the bottom edge and points down, within the lean either side.
+    if (p.py !== 24 || Math.sin(p.angle) <= 0) flipped.push(y);
+  }
+  check('speech: an on-screen tag keeps its pointer underneath, however near the top', !flipped.length,
+    flipped.length ? `flipped at y ${flipped.join(', ')}` : '');
+  const near = placeSpeech({ x: 200, y: 50 }, 24, 24, 390, 844, insets, { tag: true });
+  check('speech: a tag with room above it stands clear of its talker', near.top + 24 <= 50,
+    `bottom ${(near.top + 24).toFixed(1)} against a target at 50`);
+  const card = placeSpeech({ x: 200, y: 50 }, 200, 80, 390, 844, insets);
+  check('speech: a card with no room above still hangs below', card.py === 0, `pointer at ${card.py}`);
 }
 
 // Average speed per car over the whole run — a stable throughput number, unlike a snapshot of

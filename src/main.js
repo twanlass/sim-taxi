@@ -12,7 +12,7 @@ import {
   collectPanes, litWindows, streetLamps, entrances, switchedLights, createTaxiHeadlights, setCityLights,
 } from './game/citylights.js';
 import {
-  createCityCamera, attachDragPan, VIEW_DIR, PLAY_ZOOM, LOCO_PUNCH_HOLD,
+  createCityCamera, attachDragPan, VIEW_DIR, PLAY_ZOOM, LOCO_PUNCH_HOLD, RIGHT,
 } from './game/camera.js';
 import { createLayout } from './city/layout.js';
 import { createGround, KERB_H } from './city/ground.js';
@@ -108,6 +108,7 @@ import { createRoadwork } from './game/roadwork.js';
 import { createFire } from './game/fire.js';
 import { createRace, WIN_PAY, LOSE_COST, TANK_FLOOR, COUNT_STEP } from './game/race.js';
 import { createSpeech } from './game/speech.js';
+import { MARKER_BASE } from './game/faremarker.js';
 import { createFlatbed } from './game/flatbed.js';
 import { createBoxSpill } from './game/boxspill.js';
 import { showRunEnd } from './game/runend.js';
@@ -139,7 +140,8 @@ import {
 } from './util/geo.js';
 import * as difficulty from './game/difficulty.js';
 import { createHomeScreenTip } from './game/homescreen.js';
-import { createTitleScreen } from './game/titlescreen.js';
+import { createTitleScreen, TITLE_CAM } from './game/titlescreen.js';
+import { tellBackstory, wantsBackstory } from './game/backstory.js';
 import { createTitleReel } from './game/titlereel.js';
 import { splashCovers } from './game/splash.js';
 import { createSettings, qualityOf } from './game/settings.js';
@@ -169,6 +171,7 @@ import { setCityOccluders, sightlineClear } from './game/sightline.js';
 import { createBootleg, COMBO_GAP_MS as BOOTLEG_GAP_MS } from './game/bootleg.js';
 import { createOvertakeCombo, OVERTAKE_GRACE } from './game/overtake.js';
 import { createNewMove, createSeenFlag, MOVES, REPAIR, SHOW_DELAY } from './game/newmove.js';
+import { demoMode } from './game/progress.js';
 import { createUturnClip, pickStreet, clipKeys as uturnKeys, LANDS_AT as UTURN_LANDS } from './game/uturnclip.js';
 import { createDriftClip, pickCorner, clipKeys as driftKeys, LANDS_AT as DRIFT_LANDS } from './game/driftclip.js';
 import { createOvertakeClip, pickOvertakeStreet, clipKeys as overtakeKeys, LANDS_AT as OVERTAKE_LANDS } from './game/overtakeclip.js';
@@ -244,6 +247,11 @@ difficulty.pinDifficulty(getDifficultyPin() ?? shot?.difficulty ?? null);
 // the Resolution choice is the pixel-ratio cap. Shot mode ignores it, so a stored 1.5 on the machine
 // taking screenshots cannot soften every reference image.
 const settings = createSettings();
+// Demo mode (game/progress.js): every once-ever moment shows again, and nothing is written. Read
+// live — it is a switch on the title screen's Settings page, flipped moments before Play.
+const demo = demoMode();
+// The tutorial tips, which Demo mode holds on: a demo is for showing the tips off.
+const tipsOn = () => demo.on() || settings.get().tips;
 // The Difficulty row (Easy / Regular / Hard). Applied here, before the fare system budgets its first
 // clock, and live from then on: a change takes effect from the next rider to spawn. `?difficulty=`
 // pins it for the load and leaves the saved choice alone; shot mode holds Easy, so a stored Hard on
@@ -882,6 +890,8 @@ const fares = createFareSystem(makeRng(runSeed + 55), scene, {
   rating: ratingOn,
   // The bank rider's coin loads with every one who rides — BANK_ROBBER_STEP in game/fares.js.
   risingOdds: new URLSearchParams(window.location.search).get('robberyodds') !== 'classic',
+  // Demo mode: every bank rider is the robbery, whatever BANK_ROBBER_ALWAYS says.
+  ...(demo.on() && { alwaysRob: true }),
   reserved: () => parcels?.occupiedSpots() ?? [],
   judgeRun: () => combo.judge(),
 });
@@ -1040,7 +1050,7 @@ const depotCall = !shot && garage && !repairTipClassic
   ? createDepotCall({
     project: projectToScreen, viewport, site: garage.site,
     // Its tag at the screen edge rides the camera to the garage, which is then there to tap.
-    onEdgeTap: () => lookAtTalker(garage.site.focus, () => Boolean(depotCall?.state.open), () => {
+    onEdgeTap: () => lookAtTalker(garage.site.focus, () => Boolean(depotCall?.state.open || depotCall?.state.marked), () => {
       depotCall.extend();
     }),
     edgeTappable: () => isNarrow(),
@@ -2079,6 +2089,8 @@ race = shot || raceParam === 'classic' ? null : createRace({
   hydraulics: new URLSearchParams(window.location.search).get('hydraulics') !== 'classic',
   // The racer asks "Ready?" once the camera is back from the finish, and the tap on it is the start.
   readyGate: new URLSearchParams(window.location.search).get('raceready') !== 'classic',
+  // Demo mode: the first racer turns up after the first drop-off rather than the 2nd to 4th.
+  firstDue: demo.on() ? 1 : null,
   // The underglow pulses to whatever the music is doing (game/sfx.js, `bass`).
   bass: () => sfx?.bass?.() ?? 0,
   // Nothing turns up over anything that owns the run, or over a trip the taxi is already on to the
@@ -2127,16 +2139,38 @@ const raceTalkAt = () => {
   return at ? projectToScreen(at.x, 2.2, at.z) : null;
 };
 
+// The yellow side-quest "!" (Tyler, 2026-10-21): the racer's offer, the garage door while the taxi
+// smokes (game/depotcall.js), and the bank rider in place of the pie (game/fares.js hides it).
+// `?questmark=classic` keeps the dots and the pie.
+const questMarks = new URLSearchParams(window.location.search).get('questmark') !== 'classic';
+const bankMarkRoot = document.getElementById('bank-mark');
+const bankMark = questMarks && !shot && bankMarkRoot ? createSpeech(bankMarkRoot, { viewport }) : null;
+let bankMarkFare = null;
+/** The "!" over the bank rider while they wait, pointing where the pie's underside would be. */
+function updateBankMark(dt) {
+  if (!bankMark) return;
+  const fare = fares.waitingAll().find((f) => f.bank && f.slot.marker.group.visible) ?? null;
+  if (fare !== bankMarkFare) {
+    bankMarkFare = fare;
+    if (fare) {
+      const at = fare.slot.marker.group.position;
+      bankMark.showTag(() => projectToScreen(at.x, MARKER_BASE, at.z), { quest: true });
+    } else bankMark.hide();
+  }
+  bankMark.update(dt);
+  bankMarkRoot.classList.toggle('at-edge', bankMark.atEdge());
+}
+
 /**
  * Everything the player sees off the race: the bubble, the count, the money. game/race.js knows a
  * race happened; what a run's cash and a tank are for is this file's.
  */
 function onRaceEvent(type, detail) {
   if (type === 'available') {
-    // In reach with an empty cab: just the talker's "…" tag until the player taps it (`race.ask`) —
+    // In reach with an empty cab: just the talker's "!" tag until the player taps it (`race.ask`) —
     // pointing in from the screen edge when the car is off it — and the horn to say so. Without a
     // tag (`?bubbles=classic`/`dock`), a card with only the dots on it.
-    if (raceTalk && !raceTalk.showTag(raceTalkAt)) {
+    if (raceTalk && !raceTalk.showTag(raceTalkAt, { quest: true })) {
       raceTalkRoot?.classList.add('is-ellipsis');
       raceTalk.show('', '…', raceTalkAt);
     }
@@ -2478,6 +2512,8 @@ const taxiDamage = createTaxiDamage({
   // The ladder before the first hit was made to show (flash, grime and steam): see the top of
   // game/taxidamage.js.
   classic: new URLSearchParams(window.location.search).get('damage') === 'classic',
+  // The paint dulling toward `taxiGrime` instead of chipping to the metal (geometry/taxiscratches.js).
+  tint: new URLSearchParams(window.location.search).get('taxidamage') === 'classic',
 });
 // ...and what the cars it hits wear: the same lids, lamps and bumper, on a pool of rigs. See
 // game/cardamage.js.
@@ -2643,6 +2679,8 @@ collisions.onImpact(({ x, z, speed, closing, other }) => {
   // opens apart — a glance rather than two objects deleted in formation. Cars meeting dead centre
   // give a cross near zero, and `|| 1` picks a side rather than leaving both shells unturned.
   const struckSide = Math.sign(fx * (other.z - traffic.taxi.z) - fz * (other.x - traffic.taxi.x)) || 1;
+  // The last hit's chips, before the wreck takes the shell's colours to scorch from.
+  taxiDamage.scuff(x, z);
   const taxiShell = traffic.wreckShell(traffic.taxi);
   wreckage.take(taxiShell, {
     driftX: fx * carry * SHELL_CARRY * TAXI_KEEP,
@@ -5332,7 +5370,7 @@ const ltrainFade = [];
 function ltrainFadePoints() {
   ltrainFade.length = 0;
   // Behind the title menu the subject is whatever the reel has cut to (game/titlereel.js).
-  if (title?.holding() && titleReel) ltrainFade.push(...titleReel.fadePoints());
+  if (title?.holding() && titleReel && !storyCam) ltrainFade.push(...titleReel.fadePoints());
   const t = traffic.taxi;
   if (classicTrainFade) ltrainFade.push({ x: t.x, z: t.z });
   for (const slot of fares.slots) {
@@ -5778,22 +5816,44 @@ const wantsTitle = !shot && !devMode && !consumeTitleSkip()
 const title = wantsTitle ? createTitleScreen(document.getElementById('title-screen'), {
   sound: soundSwitch,
   settings,
+  demo,
+  // The first Play on a device hears dispatch out first, over the backdrop, with the gate still shut —
+  // see game/backstory.js. `?intro=classic` goes straight to the garage as before.
+  beforePlay: (done) => {
+    if (!wantsBackstory()) return false;
+    tellBackstory(document.getElementById('title-screen'), { done });
+    // The camera goes to the garage and drifts there while dispatch talks (`storyFrame`) — so Play
+    // then eases down onto the door from close by. Off the slide it flies there (`STORY_GLIDE`),
+    // one continuous shot (Tyler, 2026-10-22); off the reel, which is all cuts, it cuts under the
+    // wipe, and so does reduced motion.
+    const glide = !titleReel && !(window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false);
+    const atGarage = () => {
+      titleReel?.clear();
+      const { target, zoom } = controller.state;
+      storyCam = { t: 0, glide, from: { x: target.x, z: target.z, zoom } };
+    };
+    if (opening) { if (wipe && !glide) wipe.cut(atGarage); else atGarage(); }
+    return true;
+  },
   onPlay: () => {
     beginRun();
     // Play jump cuts to the depot under the wipe, rather than easing down onto it from wherever
     // the reel had the camera: the reel is a run of cuts, and a swoop out of it reads as a new
-    // kind of move. The classic drift keeps its ease — that was always one continuous shot.
+    // kind of move. The slide (and the classic ellipse) keeps its ease — that is one continuous shot.
+    // Already beside the garage after the backstory: the approach eases in from there.
+    if (storyCam) { storyCam = null; titleReel?.clear(); return; }
     if (!titleReel) return;
     titleReel.clear();
     if (wipe && opening) wipe.cut(() => opening?.cutToDoor());
     else opening?.cutToDoor();
   },
 }) : null;
-// The title's backdrop: a reel of jump cuts round the landmarks (game/titlereel.js), each a few
-// seconds with a slow drift. `?titlecam=classic` is the slow ellipse over the middle of the city
-// it replaced (2026-10-17, Tyler). Each shot is aimed at its subject's middle, at that height:
-// the players' chests, the skaters', the train's roof rail, and halfway up the burger joint's pole.
-const titleReel = title && new URLSearchParams(window.location.search).get('titlecam') !== 'classic'
+// The title's backdrop is one slow slide across the city (`panAt` in game/titlescreen.js, Tyler
+// 2026-10-22). `?titlecam=reel` is the reel of jump cuts round the landmarks it replaced
+// (game/titlereel.js), each a few seconds with a slow drift. Each shot is aimed at its subject's
+// middle, at that height: the players' chests, the skaters', the train's roof rail, and halfway up
+// the burger joint's pole.
+const titleReel = title && TITLE_CAM === 'reel'
   ? createTitleReel({
     cover: title.cover,
     still: () => window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false,
@@ -5813,6 +5873,27 @@ const titleReel = title && new URLSearchParams(window.location.search).get('titl
       },
     ].filter(Boolean),
   }) : null;
+// The backstory's shot (game/backstory.js): set under the wipe once the story is up, null otherwise.
+// A slow slide along screen-right past the garage door, wider than the door shot Play lands on.
+let storyCam = null;
+const STORY_ZOOM = 24;
+const STORY_DRIFT = 0.35;   // world units a second along screen-right
+const STORY_FROM = -3;      // where the slide starts, along screen-right of the door
+/**
+ * Seconds for the flight from the title's slide down to the story's shot. A blend of the two moving
+ * frames rather than an ease toward the second: the weight runs 0 to 1 on a smootherstep, so the
+ * camera leaves at exactly the slide's own speed and arrives at exactly the story drift's — an
+ * exponential ease (`focusOn`) does its fastest moving on the first frame, which reads as a lurch
+ * out of a shot that was barely moving. The far side of the map from the garage is ~60 units, so
+ * 3.5 s peaks near 32 units a second, about the taxi's Loco top speed.
+ */
+const STORY_GLIDE = 3.5;
+function storyFrame(dt) {
+  storyCam.t += dt;
+  const door = opening.doorAt();
+  const across = STORY_FROM + storyCam.t * STORY_DRIFT;
+  return { x: door.x + RIGHT.x * across, z: door.z + RIGHT.z * across, zoom: STORY_ZOOM };
+}
 // The camera cuts onto the drift on the first frame the title holds, rather than easing to it from
 // wherever boot left it — the menu's first frame is the first frame anyone sees.
 let titleFramed = false;
@@ -5831,7 +5912,7 @@ let runBegun = false;
 function beginRun() {
   runBegun = true;
   sfx?.goOnAir({ dash: dashRadio });
-  if (!settings.get().tips) dropTutorial();
+  if (!tipsOn()) dropTutorial();
 }
 function dropTutorial() {
   if (!tutorial) return;
@@ -5844,7 +5925,7 @@ function dropTutorial() {
 // The pause screen's Settings has the tips switch too. Off mid-run silences a tutorial still
 // talking; on again cannot bring it back, but the New Move cards read the setting live and resume.
 // Before Play it waits for `beginRun` — dropping it under the title screen would let the HUD in.
-settings.onChange((v) => { if (runBegun && !v.tips) dropTutorial(); });
+settings.onChange((v) => { if (runBegun && !v.tips && !demo.on()) dropTutorial(); });
 if (!title) beginRun();
 
 // While that screen is up the run is parked: no fare spawns, and no clock drains. The traffic keeps
@@ -6034,7 +6115,7 @@ function nextMove(delivered) {
  * who has not been shown it yet.
  */
 const newMoveWanted = (move = newMoveDue) => Boolean(newMove) && Boolean(move) && !move.seen.get()
-  && wantsTutorial && settings.get().tips && (!tutorial || tutorial.state.step === 'done');
+  && wantsTutorial && tipsOn() && (!tutorial || tutorial.state.step === 'done');
 /**
  * Is now a calm beat? Checked when the delay runs out rather than at the drop-off, because the
  * drop-off of a robber *starts* a patrol chase, and anything that has taken the taxi or the screen
@@ -6055,8 +6136,12 @@ function showUnlockedMoves(done) {
   if (!movesAfterRun || !newMove) return false;
   // One card per run's end, the first not yet shown (Tyler, 2026-10-13); a run that unlocked more
   // leaves the rest for the runs after it, which still have to reach each one's `after`.
-  const queue = Object.values(moves).filter((m) => newMoveWanted(m) && fares.state.delivered >= m.after)
-    .slice(0, 1);
+  // Demo mode shows one every run, however short, taking the moves in turn across runs — with every
+  // flag unseen, "the first not yet shown" would be the overtake every time.
+  const queue = demo.on()
+    ? [demo.rotate(Object.values(moves).filter((m) => newMoveWanted(m)), 'move')].filter(Boolean)
+    : Object.values(moves).filter((m) => newMoveWanted(m) && fares.state.delivered >= m.after)
+      .slice(0, 1);
   if (!queue.length) return false;
   document.body.classList.add('new-move-after-run');
   const next = () => {
@@ -6075,7 +6160,7 @@ function showUnlockedMoves(done) {
 }
 /** The depot's line, if the run will take it now — the card's gates, read the same way. */
 function sayDepotCall() {
-  if (!wantsTutorial || !settings.get().tips || (tutorial && tutorial.state.step !== 'done')) return false;
+  if (!wantsTutorial || !tipsOn() || (tutorial && tutorial.state.step !== 'done')) return false;
   if (!newMoveCalm() || newMove?.isOpen()) return false;
   depotCall.show();
   depotCallSaid = true;
@@ -6621,7 +6706,25 @@ function tick() {
   // Debug mode follows Loco Mode on a desktop too: the placed sounds are heard from the middle of
   // the screen, so playtesting them while driving means the camera has to come along.
   const locoFollows = isNarrow() || debugMode;
-  if (title?.holding() && titleReel) {
+  if (title?.holding() && storyCam && opening) {
+    const p = storyFrame(dt);
+    const u = storyCam.glide ? Math.min(storyCam.t / STORY_GLIDE, 1) : 1;
+    if (u < 1) {
+      // The slide keeps running underneath, followed the way the title branch below follows it
+      // (the camera trails the slide by the same 0.8 ease), so the blend leaves at its own speed.
+      const pan = title.pan(dt);
+      const { from } = storyCam;
+      const k = 1 - Math.exp(-dt * 0.8);
+      from.x += (pan.x - from.x) * k;
+      from.z += (pan.z - from.z) * k;
+      from.zoom += (pan.zoom - from.zoom) * k;
+      const w = u * u * u * (u * (u * 6 - 15) + 10);
+      p.x = from.x + (p.x - from.x) * w;
+      p.z = from.z + (p.z - from.z) * w;
+      p.zoom = from.zoom + (p.zoom - from.zoom) * w;
+    }
+    controller.cutTo(p.x, p.z, p.zoom, 0, aspect());
+  } else if (title?.holding() && titleReel) {
     const p = titleReel.frame(dt, aspect());
     controller.cutTo(p.x, p.z, p.zoom, 0, aspect());
   } else if (title?.holding()) {
@@ -6712,7 +6815,13 @@ function tick() {
   //
   // The line (the default) takes the card's trigger and its gates, less `newMoveWanted`'s seen flag:
   // it has its own rule for when it stops (`repairUsed`).
-  depotCall?.update(dt, { over: fares.state.gameOver });
+  // The "!" on the garage door: up whenever a tap there would send a smoking taxi in. Smoking
+  // rather than any scratch, so it says "go and get that seen to" and not "you have been touched".
+  depotCall?.update(dt, {
+    over: fares.state.gameOver,
+    mark: questMarks && traffic.taxi.hp <= TAXI_HP * SMOKE_FRACTION && canRepair(),
+  });
+  updateBankMark(dt);
   const repairTipDue = depotCall
     ? !depotCallSaid && !repairUsed.get()
     : garage && newMove && !repairCard.seen.get();
@@ -7073,7 +7182,7 @@ function tick() {
   renderFrame();
   // The title reel's crossfade takes its still of the outgoing shot here, straight after the draw
   // and in the same task — the only moment the canvas can be read (game/titlereel.js).
-  if (title?.holding() && titleReel?.snapDue()) titleReel.snapshot(renderer.domElement);
+  if (title?.holding() && !storyCam && titleReel?.snapDue()) titleReel.snapshot(renderer.domElement);
 }
 
 // The gear button sits top-right at small widths and started overlapping the streak counter
