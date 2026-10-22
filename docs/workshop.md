@@ -36,6 +36,10 @@ game's code. Open the game in another tab and it is already there. That is also 
 to a shared builder changes everything that uses it. Doubling the taxi's roof sign also grows the
 one on the depot's roof, because `roofSignGeometry` draws both. The agent usually says so.
 
+An entry may undo what the game does to a builder's result, when the game only shows it on an event: the
+fire engine's `shell` is hidden until it responds to a fire, so its entry sets `shell.visible = true` or the
+bench would draw an empty group.
+
 **Undo** sits under every reply that edited files, below the "Running tests" / docs status so it is
 the last thing on the reply, with the files listed under **Changes** beside it, and puts those files back the way they were before that turn. Only the latest turn's undo is live: an older turn's snapshot predates every turn
 after it, so restoring it would quietly undo those too. The snapshot is `git stash create`, which
@@ -93,6 +97,11 @@ agent fixing its own console is one bad fix from a loop: one attempt per error s
 with its numbers removed, kept in the conversation so the reload the edit causes cannot re-fire it), and
 at most two in a row (`AUTOFIX_CHAIN`) until the person sends a message.
 
+The log shows none of it: nobody needs the error text or the agent's account of the bug. The message
+is flagged `auto` and renders as a quiet status line (`.msg.note`, not a bubble, in the queue too):
+"Fixing a browser error…", then "Error fixed" (or "Couldn't fix the error") when the run ends. The
+run's text events are dropped while `chat.runAuto` is set.
+
 **The wait before the first tool call is mostly the CLI starting, and the log is never empty during it.**
 Between Send and the first tool call or word of the reply there is real work: the undo snapshot
 (three git calls), `claude -p` starting up, and the model's first token. The page cannot remove it,
@@ -137,14 +146,25 @@ text they typed contains a `?`, 👍 otherwise. It is deterministic on purpose, 
 statement into a question. It is stored on the message (`reaction`, with `sentAt`), so it survives
 the reload with the rest of the conversation. Every reacted message gets 46px of right padding
 (`.msg.user:has(.reaction)`), because the pill reaches ~42px in from the edge: a short one-liner
-would end under it, and so can the last line of a long message. The badge pops in 1200ms after the send; until
+would end under it, and so can the last line of a long message. The badge pops in 2400ms after the send (doubled from 1200 so the dots read as thinking); until
 then a "…" (three bouncing dots in the same pill, `.reaction.typing`) stands in for the agent
 thinking, fading in just after the message lands and out as the badge takes its place. The log is
 rebuilt on every streamed event, which would restart a plain CSS animation each time, so the
-animation's delay is whatever is left of the 1200ms (negative once it is under way, resuming at the
+animation's delay is whatever is left of the 2400ms (negative once it is under way, resuming at the
 right frame; the dots' single `typing-life` animation spans the whole wait the same way), and a
 badge older than the delay plus the 250ms pop gets no animation at all, nor dots once the delay has passed. Its
 background is a shade lighter than the panel so it stands off the black user bubble it overlaps.
+
+**A reply opens on dots and types itself out.** A new agent bubble (`live` in `apply`, stamped with `at`
+and `shown: 0`) shows the same three bouncing dots for `DOTS_MS` (700ms), then `reveal` in `chat.js`
+draws `message.text` a slice at a time from a `requestAnimationFrame` loop, so a reply reads as typed
+rather than arriving in whatever chunks the stream delivers. It is only cosmetic: the whole text is on
+the message the moment it arrives and `shown` is how much is drawn. The rate has a floor of ~120
+characters a second and catches up on any backlog within about 500ms, so a long reply landing in one
+burst is never held back longer than that. The loop is needed because the log is rebuilt on every
+event; `render()` re-registers each agent bubble in `bubbles` and `kickReveal` restarts it. Messages
+without `shown` (older ones, or restored after the reveal finished) draw whole, and the `▍` cursor
+(`.working`) is suppressed while the dots are up.
 
 **The log only follows a reply while the reader is at the bottom.** Because it is rebuilt on every
 streamed event, emptying it shrinks it and the browser clamps `scrollTop`, which used to drag a
@@ -283,7 +303,7 @@ Two things about this are not obvious:
 
 **The bench's knobs are a column of panels, top-left: Model (the model drop-down and Paint) and Scene (everything else).** Each
 is a `.panel` with a titled header (the `h1`, and the fold toggle at its far right) over a `.panel-body`; Model's body holds the
-drop-down and Paint. Folding Model leaves just its title. The column is a flex stack, so folding one shut (the – / + button, which
+drop-down and Paint. Folding Model leaves just its title. Scene starts folded (`collapsed` in the markup) and Model starts open. The column is a flex stack, so folding one shut (the – / + button, which
 shows only while the pointer is over the panel, always when folded, and always on a touch screen; the click handler in `viewer.js`
 toggles `.collapsed` and reads the panel's name from `data-name`) lets the panels below slide up with no layout code. A new group of knobs is a new
 `.panel` in `#bench`, not more rows in an old one.
@@ -388,6 +408,40 @@ opens a note beside it. The note is the chat's own composer (`createComposer`), 
 coordinates (the hit point taken back through the model's transform, recentring and `TAXI_SCALE`
 included), the facing of the surface, the palette name of its vertex colour, and a screenshot with
 a ring drawn at the spot. The agent edits source, so those are the numbers it can find there.
+
+A part inside a merged mesh is named too. `merge` in `geometry/classics.js` flattens a model's parts
+into one geometry, which used to leave a click saying only `unnamed mesh`; a builder now wraps a part
+in `named(label, geometry)` and `merge` records each label's vertex range in `geometry.userData.parts`,
+which `describeHit` matches against the hit triangle and appends to the part path. Only the Westfalia
+labels its parts so far (`lower body`, `upper body`, `windscreen`, `pop-top`, ...); an unlabelled part
+still reads `unnamed mesh`.
+
+The description also says where to edit it, so the agent needn't grep: `- built by:` is the first
+`userData.src` found on the hit geometry, then up its ancestors to the model's holder (the police
+cruiser's merged mesh names the three builders that made it), and `- model source:` is the catalog
+entry's `source`. A part with no `src` just omits the first line.
+
+`src` is stamped by `srcTag(geometry, text)` in `util/geo.js`, on the shared builders so far: `carGeometry`,
+`policeCabGeometry`, `truckCabGeometry`, `truckBoxGeometry`, `wheelGeometry` and `sirenPodGeometry`.
+The tag survives only where the geometry is drawn as returned; `mergeGeometries` makes a new geometry
+and drops it, so a builder that merges tags its own result.
+
+**⌘-click (or Ctrl-click) the model** opens a colour swatch on the spot instead of a pin (`openSwatch`
+in `viewer.js`, the `#swatch` panel in `workshop/index.html`, placed beside the hit like the pin note):
+a plain "Edit" title (the palette name means nothing at a glance; Save's tooltip still carries it), a
+native colour input, a hex field (capped at seven characters, so the text can't spill out of the
+panel), Cancel and Save. Nearly every colour here is baked into vertices
+(`bakeColor`), not set on a material, so the picker recolours, live, **every surface in the model
+wearing the colour under the cursor** (`wearersOf`: matching vertex-colour ranges, instance colours or
+material colours, whichever kind was hit), since that colour is one palette entry and painting only the
+hit triangle would show something the palette can't express. It is only a preview: closing the panel
+(Cancel, a plain click, Escape, or a hot reload, whose geometry may be shared with modules that outlive the run)
+puts the old colour back. A click on the model while the colour input or hex field has focus is
+the exception: it only dismisses the browser's picker popup (blurs the field) and leaves the panel and
+the edit alone; the next click closes as usual. **Save** sends the chat "Change `PALETTE.<name>` to #…" with the usual hit
+context and screenshot (a colour matching no palette entry says so and asks the agent to find where it
+is made, and the context warns it to give the model its own entry if the palette one is shared); the
+panel stays on the new colour until the edit to `palette.js` reloads the page. Hidden in Play and bare mode.
 
 The sent bubble also carries a 240 px square thumbnail of the bench around the pin, ring at its
 centre (`captureCrop` in `viewer.js`), so the note can be tied back to the spot it was about when you

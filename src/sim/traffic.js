@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import {
-  bakeColor, propMaterial, cloneProp, setFinish, FINISH, BODY_EULER_ORDER, SMOOTH_BODY, bodyBox, softenNormals,
+  bakeColor, propMaterial, cloneProp, setFinish, FINISH, BODY_EULER_ORDER, SMOOTH_BODY, bodyBox, softenNormals, srcTag,
 } from '../util/geo.js';
 import { PALETTE, color } from '../palette.js';
 import { KERB_H, roundedRectShape } from '../city/ground.js';
@@ -2834,7 +2834,7 @@ export function carGeometry({ bumpers = true } = {}) {
 
   const merged = mergeGeometries(parts, false);
   parts.forEach((p) => p.dispose());
-  return merged;
+  return srcTag(merged, 'src/sim/traffic.js · carGeometry (shared by every car: body, glass cabin)');
 }
 
 /**
@@ -2858,7 +2858,7 @@ export function policeCabGeometry() {
     CAR_LEN * 0.5 + 2 * CAB_SKIN, CAB_ROOF + CAB_SKIN, CAR_W * 0.86 + 2 * CAB_SKIN, 0.12 + CAB_SKIN);
   cab.translate(CABIN_X, CABIN_Y + CABIN_H / 2 - CAB_ROOF / 2 + CAB_SKIN / 2, 0);
   const shell = bakeColor(cab, color('policeCab'));
-  return setFinish(SMOOTH_BODY ? softenNormals(shell) : shell, FINISH.PAINT);
+  return srcTag(setFinish(SMOOTH_BODY ? softenNormals(shell) : shell, FINISH.PAINT), 'src/sim/traffic.js · policeCabGeometry (the white roof cap)');
 }
 
 // Shared by truckCabGeometry() and truckBoxGeometry() so the two pieces — drawn from separate
@@ -2868,6 +2868,7 @@ const TRUCK_BASE_Y = 0.78 + CHASSIS_LIFT;     // top of the chassis a car's body
 const TRUCK_CAB_LEN = TRUCK_LEN * 0.3;
 const TRUCK_CAB_X = TRUCK_LEN / 2 - TRUCK_CAB_LEN / 2 - 0.1; // 0.1 nose gap
 const TRUCK_CAB_Y = TRUCK_BASE_Y + 0.4 + 0.55;
+const TRUCK_RAKE = 0.5;   // how far the cab's top front edge sits behind its bottom one
 // Exported for game/flatbed.js, which swaps one truck's box for an open deck in exactly this
 // footprint: the deck has to sit on the chassis top the box sat on, or it floats or sinks.
 // The box runs from its tail gap up to a set gap behind the cab, so its length follows the cab
@@ -2898,12 +2899,35 @@ export function truckCabGeometry({ bumpers = true } = {}) {
 
   parts.push(...archedBodyGeometries(TRUCK_LEN, TRUCK_W, TRUCK_BASE_Y, 0.8, white));
 
-  const cab = new THREE.BoxGeometry(TRUCK_CAB_LEN, 1.1, TRUCK_W * 0.84);
-  cab.translate(TRUCK_CAB_X, TRUCK_CAB_Y, 0);
+  // The cab's side profile is a trapezoid: its front face leans back by TRUCK_RAKE over its height,
+  // which is what gives the windscreen its slant. Extruded across the cab's width and centred on it.
+  const cabW = TRUCK_W * 0.84;
+  const profile = new THREE.Shape([
+    new THREE.Vector2(-TRUCK_CAB_LEN / 2, -0.55),
+    new THREE.Vector2(TRUCK_CAB_LEN / 2, -0.55),
+    new THREE.Vector2(TRUCK_CAB_LEN / 2 - TRUCK_RAKE, 0.55),
+    new THREE.Vector2(-TRUCK_CAB_LEN / 2, 0.55),
+  ]);
+  const cab = new THREE.ExtrudeGeometry(profile, { depth: cabW, bevelEnabled: false });
+  cab.translate(TRUCK_CAB_X, TRUCK_CAB_Y, -cabW / 2);
   parts.push(setFinish(bakeColor(cab, cabDark), FINISH.GLASS));
 
-  const windshield = new THREE.BoxGeometry(0.12, 0.7, TRUCK_W * 0.7);
-  windshield.translate(TRUCK_CAB_X + TRUCK_CAB_LEN / 2 - 0.05, TRUCK_CAB_Y, 0);
+  // A metal roof over the dark cab, left white so it takes the chassis' livery colour like the rest of
+  // the body. It overhangs the glass a little all round, and sinks 0.04 into the cab's top so the
+  // two never share a plane (the cab's top face would shimmer through a flush cap).
+  const roof = new THREE.BoxGeometry(TRUCK_CAB_LEN - TRUCK_RAKE + 0.16, 0.14, cabW + 0.16);
+  roof.translate(TRUCK_CAB_X - TRUCK_RAKE / 2, TRUCK_CAB_Y + 0.55 + 0.07 - 0.04, 0);
+  parts.push(setFinish(bakeColor(roof, white), FINISH.PAINT));
+
+  // The glass pane lies on the raked face, tilted by the same angle; as before it stands 0.01 proud
+  // of the cab so the two never share a plane. Positive rotation about z swings +y toward -x, back.
+  const lean = Math.atan2(TRUCK_RAKE, 1.1);
+  const windshield = new THREE.BoxGeometry(0.12, 0.7 / Math.cos(lean), TRUCK_W * 0.7);
+  windshield.rotateZ(lean);
+  windshield.translate(
+    TRUCK_CAB_X + TRUCK_CAB_LEN / 2 - TRUCK_RAKE / 2 - 0.05 * Math.cos(lean),
+    TRUCK_CAB_Y - 0.05 * Math.sin(lean),
+    0);
   parts.push(setFinish(bakeColor(windshield, cabDark), FINISH.GLASS));
 
   parts.push(...wheelGeometries(TRUCK_LEN, TRUCK_W));
@@ -2911,7 +2935,7 @@ export function truckCabGeometry({ bumpers = true } = {}) {
 
   const merged = mergeGeometries(parts, false);
   parts.forEach((p) => p.dispose());
-  return merged;
+  return srcTag(merged, 'src/sim/traffic.js · truckCabGeometry (shared by every box truck: chassis, cab, roof, windshield)');
 }
 
 /**
@@ -2925,9 +2949,35 @@ export function truckCabGeometry({ bumpers = true } = {}) {
  * and a box that never does are two meshes by construction, not by choice.
  */
 export function truckBoxGeometry() {
-  const box = new THREE.BoxGeometry(TRUCK_BOX_LEN, 2.0, TRUCK_W);
-  box.translate(TRUCK_BOX_X, TRUCK_BASE_Y + 0.4 + 1.0, 0);
-  return setFinish(bakeColor(box, color('truckBox')), FINISH.PAINT);
+  // The rear face carries a real recess so the sun and AO shade its reveal: the body stops
+  // DOOR_DEPTH short of the tail, a frame of four slabs fills that depth round an opening, and a
+  // thin darker plate closes the opening at the back of the pocket. The plate sits 0.02 proud of
+  // the body's rear face (inside the pocket) so the two never share a plane. The spill's leaves
+  // (geometry/truckdoors.js) stand outside the tail and cover all of it while they are drawn.
+  const DOOR_DEPTH = 0.12;
+  const MARGIN_X = 0.25;                // frame width at each side of the opening
+  const MARGIN_Y = 0.15;                // frame height above and below it
+  const cy = TRUCK_BASE_Y + 0.4 + 1.0;
+  const tail = TRUCK_BOX_X - TRUCK_BOX_LEN / 2;
+  const openW = TRUCK_W - 2 * MARGIN_X;
+  const openH = 2.0 - 2 * MARGIN_Y;
+  const slab = (x0, len, y, h, z, w, c) => {
+    const g = new THREE.BoxGeometry(len, h, w);
+    g.translate(x0 + len / 2, y, z);
+    return bakeColor(g, c);
+  };
+  const boxColor = color('truckBox');
+  const parts = [
+    slab(tail + DOOR_DEPTH, TRUCK_BOX_LEN - DOOR_DEPTH, cy, 2.0, 0, TRUCK_W, boxColor),
+    slab(tail, DOOR_DEPTH, cy + 1.0 - MARGIN_Y / 2, MARGIN_Y, 0, TRUCK_W, boxColor),
+    slab(tail, DOOR_DEPTH, cy - 1.0 + MARGIN_Y / 2, MARGIN_Y, 0, TRUCK_W, boxColor),
+    slab(tail, DOOR_DEPTH, cy, openH, TRUCK_W / 2 - MARGIN_X / 2, MARGIN_X, boxColor),
+    slab(tail, DOOR_DEPTH, cy, openH, -(TRUCK_W / 2 - MARGIN_X / 2), MARGIN_X, boxColor),
+    slab(tail + DOOR_DEPTH - 0.02, 0.02, cy, openH, 0, openW, color('truckBoxDoor')),
+  ];
+  const merged = mergeGeometries(parts, false);
+  parts.forEach((g) => g.dispose());
+  return srcTag(setFinish(merged, FINISH.PAINT), 'src/sim/traffic.js · truckBoxGeometry (the cargo box)');
 }
 
 // --- Brake lights and turn signals -----------------------------------------------------------

@@ -32,8 +32,21 @@ const box = (sx, sy, sz, x, y, z) => {
 };
 const paint = (g, name, finish = FINISH.PAINT) => setFinish(bakeColor(g, color(name)), finish);
 
+/** Label a part for the model workshop's pin; `merge` keeps the label as a vertex range. */
+const named = (label, g) => { g.userData.part = label; return g; };
+
 function merge(parts) {
   const merged = mergeGeometries(parts, false);
+  // Merging forgets which triangles came from which part, so a pinned click could only ever say
+  // "unnamed mesh". The labelled parts' vertex ranges ride on the geometry for the workshop to read.
+  let start = 0;
+  const ranges = [];
+  for (const p of parts) {
+    const count = p.attributes.position.count;
+    if (p.userData.part) ranges.push({ name: p.userData.part, start, count });
+    start += count;
+  }
+  if (ranges.length) merged.userData.parts = ranges;
   parts.forEach((p) => p.dispose());
   return merged;
 }
@@ -188,7 +201,8 @@ export function westfaliaGeometry(len, width) {
   // to it, so the arches and their liners come for free.
   const SPLIT = 1.62;
   const lowerH = SPLIT - (BODY_CENTRE - BODY_H / 2);
-  const parts = [...archedBodyGeometries(len, width, SPLIT - lowerH / 2, lowerH, color('westfaliaLower'))];
+  const parts = archedBodyGeometries(len, width, SPLIT - lowerH / 2, lowerH, color('westfaliaLower'));
+  named('lower body', parts[0]);
 
   // The upper body, as a side profile extruded across the van: the nose rakes back 0.3 over its
   // height (the T3's front is ~12° off vertical) and the roof edges are chamfered.
@@ -202,11 +216,11 @@ export function westfaliaGeometry(len, width) {
     new THREE.Vector2(tail + 0.08, ROOF),
     new THREE.Vector2(tail, ROOF - 0.08),
   ];
-  parts.push(paint(extrudeOutlines([profile], -width / 2, width / 2), 'westfaliaUpper'));
+  parts.push(named('upper body', paint(extrudeOutlines([profile], -width / 2, width / 2), 'westfaliaUpper')));
 
   // The rub strip, black, on the split all the way round — it also covers the seam between the two
   // paints. Proud of every face it wraps.
-  parts.push(paint(box(len + 2 * PROUD, 0.08, width + 2 * PROUD, 0, SPLIT, 0), 'westfaliaTrim', FINISH.TYRE));
+  parts.push(named('rub strip', paint(box(len + 2 * PROUD, 0.08, width + 2 * PROUD, 0, SPLIT, 0), 'westfaliaTrim', FINISH.TYRE)));
 
   // Side windows: three long panes, proud of both flanks (one box straight through the van, whose
   // two side faces are the panes and whose ends are buried).
@@ -218,7 +232,7 @@ export function westfaliaGeometry(len, width) {
   // is furthest back; a fixed nose - 0.24 poked out through the windscreen once the rake grew.
   const frontPaneEnd = nose - ((WIN_Y1 - SPLIT) / (ROOF - 0.06 - SPLIT)) * (nose - SCREEN_TOP_X) - 0.08;
   for (const [x0, x1] of [[frontPaneEnd - 0.38, frontPaneEnd], [-0.42, frontPaneEnd - 0.5], [tail + 0.16, -0.54]]) {
-    parts.push(paint(box(x1 - x0, winH, width + 2 * PROUD, (x0 + x1) / 2, winY, 0), 'carGlass', FINISH.GLASS));
+    parts.push(named('side window', paint(box(x1 - x0, winH, width + 2 * PROUD, (x0 + x1) / 2, winY, 0), 'carGlass', FINISH.GLASS)));
   }
 
   // The windscreen, laid on the raked nose. The nose face runs from (nose, SPLIT) to
@@ -234,16 +248,20 @@ export function westfaliaGeometry(len, width) {
   screen.rotateZ(faceTilt);
   const sy = (screenY0 + screenY1) / 2;
   screen.translate(xOnFace(sy), sy, 0);
-  parts.push(paint(screen, 'carGlass', FINISH.GLASS));
+  parts.push(named('windscreen', paint(screen, 'carGlass', FINISH.GLASS)));
   // The back window, on the flat tail.
-  parts.push(paint(box(2 * PROUD, winH, width * 0.78, tail, winY, 0), 'carGlass', FINISH.GLASS));
+  parts.push(named('rear window', paint(box(2 * PROUD, winH, width * 0.78, tail, winY, 0), 'carGlass', FINISH.GLASS)));
 
   // The front: just the VW roundel, chrome, on the nose. No grille band — it read as a slab
   // sticking out of the face.
   const roundel = new THREE.CylinderGeometry(0.15, 0.15, 4 * PROUD, 16);
   roundel.rotateZ(Math.PI / 2);
   roundel.translate(nose, LIGHT_Y + 0.4, 0);
-  parts.push(paint(roundel, 'hubcap', FINISH.METAL));
+  parts.push(named('front roundel', paint(roundel, 'hubcap', FINISH.METAL)));
+  // The same roundel on the tail, below the back window. Cloned: `paint` bakes colour into the geometry.
+  const tailRoundel = roundel.clone();
+  tailRoundel.translate(tail - nose, 0, 0);
+  parts.push(named('rear roundel', paint(tailRoundel, 'hubcap', FINISH.METAL)));
 
   // The pop-top, closed: a white fibreglass cap a little narrower than the roof, sloped at the
   // front, flat at the back where the Westfalia's hinge-up end is. Its underside is buried 0.01.
@@ -255,7 +273,7 @@ export function westfaliaGeometry(len, width) {
     new THREE.Vector2(tail + 0.2, ROOF + CAP_H),
   ];
   const capW = width * 0.86;
-  parts.push(paint(extrudeOutlines([cap], -capW / 2, capW / 2), 'westfaliaRoof'));
+  parts.push(named('pop-top', paint(extrudeOutlines([cap], -capW / 2, capW / 2), 'westfaliaRoof')));
 
   parts.push(...wheelGeometries(len, width));
   return merge(parts);
