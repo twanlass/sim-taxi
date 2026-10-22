@@ -1169,6 +1169,15 @@ Two details are load-bearing and easy to lose:
 - **Cost is read off the lane** (`lane.klass`, `lane.withWave`), not recomputed from `(i, j, d)`.
   An editor-drawn arterial has no line index to look either up by.
 
+**Near-ties go straight off an arched bridge**, so there is room for
+[Big Air](river.md#the-drift-launch), which only fires when the route goes straight on at the far
+bank. The taxi's router knocks `BIG_AIR_TILT` (0.11) off the move "straight on past an arched deck"
+— less than any block costs, so it never lengthens a trip, only picks between routes the hierarchy
+weights already call near enough equal. Over every trip on 12 cities (`tools/bigair-route.mjs`) the
+share of bridge crossings that go straight on rose from 35% to 69%, against a ceiling of 75% (the
+rest end on, or come back along, the far bank's street); legs per trip unchanged, turns slightly
+down. Cops and other service routes don't get it. `?bigairroute=classic` takes it off.
+
 `tools/roadnet.mjs` asserts the ported router returns the *same route* — not merely a route — as
 the grid router did, over all 5,184 `(start, heading, target)` triples on three seeds.
 

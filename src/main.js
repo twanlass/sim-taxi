@@ -148,7 +148,7 @@ import { createSettings, qualityOf } from './game/settings.js';
 import { createPause } from './game/pause.js';
 import { createInspect } from './game/inspect.js';
 import {
-  findRoute, findRouteVia, findRouteOnto, findRouteAlong, planOrigin, crossingOrigin, carryOn,
+  findRoute, findRouteVia, findRouteOnto, findRouteAlong, planOrigin, crossingOrigin, carryOn, setBigAirRoute,
 } from './game/route.js';
 import { streetAt, routeDrives, STREET_TAP_MAX_DETOUR } from './game/streettap.js';
 import { createPathDrag } from './game/pathdrag.js';
@@ -1333,6 +1333,7 @@ const patrol = {
 setSpinStyle(getUturnStyle());
 // The drift launch rolls the taxi a full turn in mid-air; `?barrelroll=classic` flies it level.
 setBarrelRoll(new URLSearchParams(window.location.search).get('barrelroll'));
+setBigAirRoute(new URLSearchParams(window.location.search).get('bigairroute'));
 // The taxi waits for a car already turning left before pulling out round it; `?passturn=classic`
 // pulls out anyway and grinds along its flank, as before.
 setPassTurnGate(new URLSearchParams(window.location.search).get('passturn'));
