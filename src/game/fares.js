@@ -8,6 +8,7 @@ import { createPerson } from '../geometry/person.js';
 import { taxiSideToward, taxiDoorPoint } from '../geometry/taxi.js';
 import { createCurseBubble } from '../geometry/cursebubble.js';
 import { createFareMarker } from './faremarker.js';
+import { PIE_SLICES } from '../geometry/diamond.js';
 import { sightlineClear } from './sightline.js';
 import { RING_R, RING_Y } from '../geometry/targetring.js';
 import { urgencyLevel, URGENCY_SEGMENTS, fareColor } from './urgency.js';
@@ -761,9 +762,9 @@ export function createFareSystem(rng, scene, {
     // bursting.
     // -Infinity so the very first spawn is unrestricted.
     lastSpawnAt: -Infinity,
-    // Whether this run's rush has happened (see RUSH_AT in difficulty.js). Latched, so a board that
-    // later drains back to one rider gets the floor's top-up rather than a second rush.
-    rushed: false,
+    // The kerb's step on the ramp (KERB_RAMP in difficulty.js) the run has reached. A step up is a
+    // rush; a kerb that drains below the step it is already on gets the floor's top-up instead.
+    kerbLevel: 1,
     gameOver: false,
     failTitle: 'Too Slow!',
     failReason: null,
@@ -1776,13 +1777,28 @@ export function createFareSystem(rng, scene, {
 
   const kerbCount = () => state.fares.filter((f) => f.stage === 'waiting').length;
 
-  /** The rush is due: the RUSH_AT-th delivery has just landed and it has not happened yet. */
-  const rushDue = () => rush && !state.rushed && !concealed()
-    && state.delivered >= difficulty.RUSH_AT && kerbCount() < difficulty.RUSH_RIDERS;
+  /**
+   * Now and then a rider opens a slice down (LATE_CHANCE in difficulty.js). Last, after any
+   * re-budget, so the slice comes off the clock the rider actually got. The pie is filled on the
+   * spot rather than on the next tick: a rush's riders are drawn under the frozen pull-out, which
+   * ticks nothing, and they would show a full pie for the whole of it.
+   */
+  function startLate(fare) {
+    if (!rush || state.kerbLevel < 2 || fare.vip || fare.bank || fare.robber) return;
+    if (!rng.chance(difficulty.LATE_CHANCE)) return;
+    fare.timeLeft = fare.limit * (1 - 1 / PIE_SLICES);
+    fare.late = true;
+    fare.slot.marker.setFill(urgencyOf(fare));
+  }
 
-  /** The kerb has run down below the floor, and has been that way long enough to top it up. */
-  const floorDue = () => rush && state.rushed && !concealed()
-    && kerbCount() < difficulty.BOARD_FLOOR
+  /** The ramp has just stepped up a rider (KERB_RAMP in difficulty.js) and the kerb is short of it. */
+  const rushDue = () => rush && !concealed()
+    && difficulty.kerbFloor(state.delivered) > state.kerbLevel
+    && kerbCount() < difficulty.kerbFloor(state.delivered);
+
+  /** The kerb has run down below its step, and has been that way long enough to top it up. */
+  const floorDue = () => rush && state.kerbLevel > 1 && !concealed()
+    && kerbCount() < state.kerbLevel
     && state.fares.length < MAX_FARES
     && state.elapsed - state.lastSpawnAt >= difficulty.FLOOR_GAP;
 
@@ -1868,14 +1884,14 @@ export function createFareSystem(rng, scene, {
     // extra clocks arrive out of phase and the board turns into a prioritisation puzzle instead
     // of a single hard moment followed by a lull.
     //
-    // The rush and the floor go first (see RUSH_AT in difficulty.js). The rush is plain riders only —
+    // The rush and the floor go first (see KERB_RAMP in difficulty.js). The rush is plain riders only —
     // it is the moment the board is introduced, and a VIP's or a bank rider's own rules have no
     // business in the middle of it — and it emits one 'rush' event after their 'spawned's, carrying
     // the first of them, which is what main.js opens the camera's pull-out on.
     if (rushDue()) {
-      state.rushed = true;
+      state.kerbLevel = difficulty.kerbFloor(state.delivered);
       const fresh = [];
-      while (kerbCount() < difficulty.RUSH_RIDERS) {
+      while (kerbCount() < state.kerbLevel && state.fares.length < MAX_FARES) {
         // Within RUSH_REACH of the taxi, so the camera's pull-out can hold all of them and the car
         // at once on a phone held upright, which is under half as wide as it is tall.
         const spawned = spawnFare(taxiCar, spawnBias(taxiCar), false, false, difficulty.RUSH_REACH);
@@ -1883,7 +1899,10 @@ export function createFareSystem(rng, scene, {
         fresh.push(spawned);
       }
       const kerb = state.fares.filter((f) => f.stage === 'waiting');
-      for (const f of fresh) budgetBehind(f, taxiCar, kerb.filter((o) => o !== f));
+      for (const f of fresh) {
+        budgetBehind(f, taxiCar, kerb.filter((o) => o !== f));
+        startLate(f);
+      }
       if (fresh.length) {
         state.lastSpawnAt = state.elapsed;
         for (const f of fresh) emit('spawned', f);
@@ -1900,6 +1919,7 @@ export function createFareSystem(rng, scene, {
       const spawned = spawnFare(taxiCar, near, vip, bank);
       if (spawned) {
         if (floor) budgetBehind(spawned, taxiCar, others);
+        startLate(spawned);
         state.lastSpawnAt = state.elapsed;
         if (spawned.vip) lastVipAt = state.elapsed;
         emit('spawned', spawned);

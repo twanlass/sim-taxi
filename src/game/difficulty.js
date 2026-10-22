@@ -237,19 +237,32 @@ export function maxFares(delivered) {
  * player driving well emptied the board before a second rider was ever due, and the four-fare board
  * only ever showed up for one who was running late (docs/difficulty.md#what-the-sweep-found).
  *
- * So the board is taught in two steps instead of one. The first two fares are alone, and the
- * delivery of the second sets off a rush: `RUSH_RIDERS` waiting at once, the camera pulled out over
- * the lot of them (game/rushcut.js). From then on the kerb is never allowed to run down below
- * `BOARD_FLOOR` waiting riders, `FLOOR_GAP` seconds after one leaves it, whatever the stagger says.
- * Every mode, not just Easy: the harder ones already fill faster, and the floor only binds when the
- * stagger would leave the kerb thinner than this. `?rush=classic` is the board as it was.
+ * So the kerb ramps by delivery instead (Tyler, 2026-10-22: "1, 1, 2, 2, 3, 3, 3 etc"): `KERB_RAMP`
+ * is how many riders are kept waiting after each drop-off, and the last entry holds for the rest of
+ * the run. Three is the ceiling because the board is four (BOARD_MAX) and one seat is in the car. Each
+ * step up is a **rush**: the new riders appear at once and the camera pulls out over everyone
+ * waiting (game/rushcut.js). Between steps the kerb is topped back up to the ramp's number
+ * `FLOOR_GAP` seconds after a rider leaves it, whatever the stagger says. Every mode, not just Easy:
+ * the harder ones already fill faster, and the floor only binds when the stagger would leave the
+ * kerb thinner than this. `?rush=classic` is the board as it was.
  */
-export const RUSH_AT = 2;
-export const RUSH_RIDERS = 3;
+export const KERB_RAMP = [1, 1, 2, 2, 3];
+/** Riders the kerb is kept at after `delivered` drop-offs. */
+export const kerbFloor = (delivered) => KERB_RAMP[Math.min(delivered, KERB_RAMP.length - 1)];
+/** The first rush: the delivery the kerb first steps past one. */
+export const RUSH_AT = KERB_RAMP.findIndex((n) => n > 1);
 /** Blocks from the taxi the rush's riders may stand, so its pull-out fits them all on a phone. */
 export const RUSH_REACH = 2;
-export const BOARD_FLOOR = 2;
 export const FLOOR_GAP = 4;
+
+/**
+ * The chance a rider turns up with a slice already gone (Tyler, 2026-10-22: "a random chance that
+ * when spawned there isn't a full clock, like one slice missing"): their clock opens at
+ * `1 - 1/PIE_SLICES` of its budget, so the pie shows seven of eight and the seconds are really
+ * missing. Never the tutorial fare, a VIP, the bank rider or a robber, and only once the kerb has
+ * stepped past one rider, so the first two fares stay the gentle ones.
+ */
+export const LATE_CHANCE = 0.3;
 
 /** Seconds between successive spawns on a non-empty board. */
 export const spawnGap = (delivered) => FARE_CYCLE / pressure(delivered);

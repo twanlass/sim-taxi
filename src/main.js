@@ -886,8 +886,8 @@ const combo = createComboMeter({ scope: comboScope(new URLSearchParams(window.lo
 // The strikes read as a driver's star rating by default; `?rating=off` puts the three rings back.
 // See RATING_START in game/fares.js.
 const ratingOn = new URLSearchParams(window.location.search).get('rating') !== 'off';
-// The rush: the second delivery puts three riders on the kerb at once, and the kerb never runs
-// below two after it (RUSH_AT in game/difficulty.js). `?rush=classic` is the board as it was.
+// The rush: the kerb ramps 1, 1, 2, 2, 3 riders over the first drop-offs, each step up arriving at
+// once under a camera pull-out (KERB_RAMP in game/difficulty.js). `?rush=classic` is the board as it was.
 const rushOn = new URLSearchParams(window.location.search).get('rush') !== 'classic';
 const fares = createFareSystem(makeRng(runSeed + 55), scene, {
   rating: ratingOn,

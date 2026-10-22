@@ -2,9 +2,9 @@ import { MAX_SPAN } from '../city/grid.js';
 import { PLAY_ZOOM, RIGHT, UP, VIEW_UP } from './camera.js';
 
 // The rush's pull-out (Tyler, 2026-10-20: "maybe we even zoom out and highlight them then continue
-// the game"). The second delivery puts three riders on the kerb at once (RUSH_AT in difficulty.js),
-// which is the first time in a run the board is more than one rider — so the world stops for a
-// beat, the camera pulls out over the taxi and all of them, each rider's mark pops in turn, and the
+// the game"). Each step up the kerb's ramp (KERB_RAMP in difficulty.js) puts its new riders on the
+// kerb at once, the first of them the first time in a run the board is more than one rider — so the
+// world stops for a beat, the camera pulls out over the taxi and all of them, each rider's mark pops in turn, and the
 // camera comes back to where it was before anything moves again.
 //
 // **Stopped, not slowed**, for the bank job's reason (game/bankjob.js): the clocks the beat is
