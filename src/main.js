@@ -2168,14 +2168,13 @@ function updateBankMark(dt) {
 function onRaceEvent(type, detail) {
   if (type === 'available') {
     // In reach with an empty cab: just the talker's "!" tag until the player taps it (`race.ask`) —
-    // pointing in from the screen edge when the car is off it — and the horn to say so. Without a
+    // pointing in from the screen edge when the car is off it. No horn: the racer makes no sound of
+    // its own anywhere in the vignette (Tyler: "remove all the horn sounds"). Without a
     // tag (`?bubbles=classic`/`dock`), a card with only the dots on it.
     if (raceTalk && !raceTalk.showTag(raceTalkAt, { quest: true })) {
       raceTalkRoot?.classList.add('is-ellipsis');
       raceTalk.show('', '…', raceTalkAt);
     }
-    // The horn only for a racer in reach: one the camera merely panned across is not calling out.
-    if (detail.near) sfx?.play('horn', { at: placeAt(detail.car.x, detail.car.z) });
   } else if (type === 'asked') {
     haptic('snap');
     raceTalkRoot?.classList.remove('is-ellipsis');
@@ -2185,13 +2184,12 @@ function onRaceEvent(type, detail) {
     raceTalk?.hide();
   } else if (type === 'accepted') {
     fares.undirect();
-    // Answered on the frame of the tap, before the cut: the horn and the racer's own word. The
+    // Answered on the frame of the tap, before the cut: the racer's own word. The
     // first build only hid the bubble and started the wipe, so the first thing the player could
     // see was the next bubble half a second later (Tyler: "I tap it and then a little while later
     // I see a little chat bubble... What's the delay for?") — and on a phone browser the haptic,
     // the one thing that did land on the tap, does not exist.
     haptic('pick');
-    sfx?.play('horn', { at: placeAt(detail.car.x, detail.car.z) });
     raceTalk?.show('Street racer', "You're on!", raceTalkAt);
     // ...and then the cut to the start, once that has been heard: both cars are put side by side
     // under the black (game/race.js, `stage`). The bubble sits under the wipe, so cutting at once
@@ -2206,7 +2204,6 @@ function onRaceEvent(type, detail) {
     raceZoomHome ??= controller.state.zoom;
     controller.cutTo(detail.x, detail.z, RACE_SHOT_ZOOM, controller.state.yaw, aspect());
     raceTalk?.show('Street racer', 'Round the flag and back.', raceTalkAt);
-    sfx?.play('horn', { at: placeAt(detail.car.x, detail.car.z) });
   } else if (type === 'declined') {
     raceShot = null;
     raceTalkRoot?.classList.remove('is-ellipsis');
@@ -2229,11 +2226,9 @@ function onRaceEvent(type, detail) {
   } else if (type === 'ready') {
     // Back from the finish, side by side: the racer's "Ready?", and the tap on it starts the count.
     haptic('snap');
-    sfx?.play('horn', { at: placeAt(detail.car.x, detail.car.z) });
     raceTalk?.show('Street racer', '{Ready}?', raceTalkAt);
   } else if (type === 'ready-nag') {
-    // Not tapped: once more, louder (READY_NAG), before it counts in on its own (READY_MAX).
-    sfx?.play('horn', { at: placeAt(detail.car.x, detail.car.z) });
+    // Not tapped: once more (READY_NAG), before it counts in on its own (READY_MAX).
     raceTalk?.show('Street racer', 'Tap me when you\'re {ready}!', raceTalkAt);
   } else if (type === 'readied') {
     haptic('pick');
