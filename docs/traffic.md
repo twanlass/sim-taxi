@@ -686,20 +686,28 @@ conservative instead of exact: a car's own `isTruck` isn't rolled until after it
 assumes a possible truck on that side of the pairing — a no-op when `truckChance` is 0, which is
 every scripted scenario in `tools/` but the one that exercises trucks on purpose.
 
-The body is three InstancedMeshes rather than the car pair's two: `truckMesh` (chassis, cab and
+The body is three InstancedMeshes rather than the car pair's two: `truckMesh` (chassis, cab, roof and
 windshield, from `truckCabGeometry()`) and `truckWheelMesh` alongside a third, `truckBoxMesh`
 (the cargo box, from `truckBoxGeometry()`), all built at `TRUCK_LEN`/`TRUCK_W`. They have to be
 separate meshes rather than one taller instance of the car body: an InstancedMesh draws one
 geometry for every instance, so a visibly bigger vehicle can't share the car body's buffer no
 matter how rare it is. Only the chassis is painted per-instance — it reads `PALETTE.carBody` at
 the car's own `colorIndex`, exactly like an ordinary car's body, so a truck's livery varies the
-way a car's does. The cab and windshield are baked at the fixed dark `carGlass` colour instead,
-same as a car's own cabin glass: "make the cab black, so it looks like the cars in that sense" was
+way a car's does. The cab is a trapezoid extrusion whose front face leans back 0.5 (`TRUCK_RAKE`) over its height, which
+is the windscreen's slant. The cab and windshield are baked at the fixed dark `carGlass` colour instead,
+same as a car's own cabin glass, except the metal roof cap over the cab, which is baked white and so
+takes the livery colour like the chassis (it overhangs the glass 0.08 and sinks 0.04 into the cab's top
+so the two never share a plane; the roof is shortened by `TRUCK_RAKE` to match the cab's raked front,
+and the windshield pane is tilted to lie on that face): "make the cab black, so it looks like the cars in that sense" was
 the brief, and a car's greenhouse is always dark regardless of its body colour, so the truck's cab
 now reads as the same *kind* of part rather than as more chassis livery. The cargo box goes a step
 further and is never instance-tinted at all — it's baked at the one fixed `PALETTE.truckBox` (a
 plain tan/white) because a real box truck's box is bare aluminium or cardboard regardless of the
-cab pulling it. One InstancedMesh only ever carries one tint per instance, so a part that varies,
+cab pulling it. Its rear face carries a real recess, so the sun and AO shade its reveal: the body
+stops 0.12 short of the tail, a four-slab frame fills that depth round the opening, and a thin plate
+at `PALETTE.truckBoxDoor` (a couple of shades deeper tan than the box, so the closed door reads as a panel) closes the pocket, 0.02 proud of the body's
+rear face so the two never share a plane. All baked into the same geometry; the spill's door leaves
+stand outside the tail and cover it while they are drawn. One InstancedMesh only ever carries one tint per instance, so a part that varies,
 a part that's fixed-dark and a part that's fixed-tan are three meshes by construction, not by
 choice. `car.isTruck` is what routes a car to the right meshes everywhere that matters —
 `writeAmbient`, `wreckShell`, the paint step.
@@ -754,7 +762,7 @@ ordinary cars, a truck's mean `|pitch|` comes out well under half a car's.
 
 Two rare bodies stand in for an ordinary car at `CLASSIC_CHANCE` (1/40) each: an open-top
 convertible in the fleet's paint, and a 1980s VW T3 Westfalia camper in a baked two-tone (ivory over
-burnt orange, black rub strip, roundel on the nose, closed pop-top). Geometry is
+burnt orange, black rub strip, a roundel on the nose and another on the tail, closed pop-top). Geometry is
 `geometry/classics.js`; `?classics=classic` turns them off and `?classics=0.3` floods the map.
 
 They are **looks only**. `car.model` is read by the render pass and nothing else — speed, length,
@@ -3308,7 +3316,10 @@ because those are behaviours of any chasing cop rather than of the robbery.
 **What makes it *the* patrol car is the mesh.** `car.skin` in `sim/traffic.js` hands the pose the
 render pass composed to a callback and collapses the car's own instance; `police.wear(car, traffic)` draws
 the cruiser there instead — the fleet's own two-tone car and bar, plus two real point lights behind
-the lamps, which an instanced pod cannot carry. `game/coplights.js` skips a skinned car for that
+the lamps, which an instanced pod cannot carry. Its windscreen is raked: `policeGeometry()` leans the
+glass of the cabin's front half back by `WINDSCREEN_RAKE` (0.3) over its height, foot fixed on the
+bonnet, and slides the white cab cap back by the full amount to cover it — on the cruiser's own copy,
+since `carGeometry()` is every ambient car's cabin. `game/coplights.js` skips a skinned car for that
 reason: it brings its own lamps. The unlit bar (housing and painted lenses) stays on the roof when
 the bar goes dark as the car drives off, so it still reads as police.
 

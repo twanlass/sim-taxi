@@ -231,6 +231,27 @@
       }
       #pin[hidden], .pin[hidden], #pin-note[hidden], #pin-note [hidden] { display: none; }
       body.playing #pin, body.playing .pin, body.playing #pin-note { display: none; }
+      /* The ⌘-click colour swatch (viewer.js): the pin note's panel, placed the same way, holding a
+         picker that recolours the model live and a Save that asks the chat to write it to the palette. */
+      #swatch {
+        position: absolute; left: 0; top: 0; z-index: 5; width: 200px;
+        display: grid; gap: 8px; padding: 10px; border-radius: var(--radius);
+        background: var(--panel); color: var(--ink); backdrop-filter: blur(6px);
+      }
+      #swatch[hidden], body.playing #swatch, body.bare #swatch { display: none; }
+      #swatch .swatch-head { font-weight: 700; }
+      #swatch .swatch-row { display: flex; gap: 8px; align-items: center; min-width: 0; }
+      #swatch input[type="color"] {
+        width: 40px; height: 32px; padding: 0; border: 0; border-radius: 8px; background: none; cursor: pointer;
+      }
+      #swatch input[type="color"]::-webkit-color-swatch-wrapper { padding: 0; }
+      #swatch input[type="color"]::-webkit-color-swatch { border: 2px solid rgba(255, 255, 255, 0.25); border-radius: 8px; }
+      #swatch input[type="text"] {
+        /* Border-box and a zero basis, or the field's intrinsic width plus its padding ran out of the panel. */
+        flex: 1 1 0; width: 0; min-width: 0; box-sizing: border-box; padding: 6px 8px; border: 0; border-radius: 8px;
+        background: rgba(255, 255, 255, 0.08); color: inherit; font: 12px ui-monospace, Menlo, monospace;
+      }
+      #swatch .swatch-actions { display: flex; gap: 6px; justify-content: flex-end; }
       #bench-error {
         position: absolute; left: 14px; right: 14px; bottom: 14px; z-index: 5; display: none;
         padding: 10px 12px; border-radius: 10px; background: rgba(150, 30, 30, 0.9); color: #fff;
@@ -298,8 +319,19 @@
         100% { opacity: 0; transform: scale(0.8); }
       }
       @keyframes reaction-pop { from { opacity: 0; transform: scale(0.3); } to { opacity: 1; transform: scale(1); } }
+      /* A status line in the log, not a bubble: the auto-fix's "Fixing a browser error…" / "Error fixed". */
+      .msg.note { align-self: flex-start; padding: 0 4px; background: none; font-size: 12px; opacity: 0.6; }
       .msg.agent { align-self: flex-start; background: rgba(255, 255, 255, 0.07); }
       .msg.agent.working::after { content: "▍"; animation: blink 1s steps(2) infinite; opacity: 0.7; }
+      /* A new reply's opening beat (chat.js `reveal`): the reaction's bouncing dots, in the bubble itself. */
+      .msg.agent.dots::after { content: none; }
+      .msg.agent .typing { display: inline-flex; gap: 4px; align-items: center; height: 1.5em; padding: 0 2px; }
+      .msg.agent .typing i {
+        width: 5px; height: 5px; border-radius: 50%; background: var(--ink); opacity: 0.8;
+        animation: typing-dot 0.9s ease-in-out infinite;
+      }
+      .msg.agent .typing i:nth-child(2) { animation-delay: 0.15s; }
+      .msg.agent .typing i:nth-child(3) { animation-delay: 0.3s; }
       /* Sent while a reply was still going (chat.js): waiting its turn, below the live reply. */
       .msg.user.queued { opacity: 0.55; position: relative; padding-right: 26px; }
       .msg.user.queued::before { content: "Queued · "; font-weight: 700; }
@@ -425,7 +457,18 @@
       .composer.listening .mic .stop-icon { display: block; }
       .composer.listening .mic { background: var(--accent); color: var(--on-accent); }
       .composer.listening .speed, .composer.listening .stop, .composer.listening .send { display: none; }
+      /* The dictation waveform (composer.js, `listenLevels`), in the picker's place while listening.
+         Bars are scaled, not resized, so a level change never reflows the box, and not eased: a
+         transition lagged the voice and read as sluggish. */
+      .composer .wave { display: none; height: 28px; align-items: center; gap: 2px; padding: 0 6px; }
+      .composer.listening .wave { display: flex; }
+      .composer .wave i {
+        width: 3px; height: 20px; border-radius: 2px; background: #fff;
+        transform: scaleY(0.15);
+      }
       /* Stop and send: an up arrow, only while listening, to the right of the stop button. */
+      .composer .send { padding: 4px 12px; }
+      .composer .send svg { display: block; }
       .composer .stopsend { display: none; padding: 4px 12px; }
       .composer.listening .stopsend { display: inline-flex; }
       .composer .stopsend svg { display: block; }
@@ -483,8 +526,8 @@
           </details>
         </div>
        </section>
-       <section class="panel" data-name="Scene">
-        <div class="panel-head"><h1>Scene</h1><button type="button" class="panel-toggle" aria-label="Collapse Scene" title="Collapse"></button></div>
+       <section class="panel collapsed" data-name="Scene">
+        <div class="panel-head"><h1>Scene</h1><button type="button" class="panel-toggle" aria-label="Expand Scene" title="Expand"></button></div>
         <div class="panel-body">
         <label class="pick">Weather <select id="weather" aria-label="Weather">
           <option value="day">Day</option>
@@ -505,6 +548,8 @@
       <div id="pin" hidden></div>
       <!-- Holds a composer (src/workshop/composer.js), built by viewer.js. -->
       <div id="pin-note" hidden></div>
+      <!-- The ⌘-click colour swatch: filled by viewer.js each time it opens. -->
+      <div id="swatch" hidden></div>
       <button type="button" id="play"><span class="glyph">▶</span><span class="label">Play</span></button>
       <div id="bench-error"></div>
     </div>

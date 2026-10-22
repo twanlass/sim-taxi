@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import { bakeColor, setFinish, softenNormals, FINISH, SMOOTH_BODY, BODY_ROUND } from '../util/geo.js';
+import { bakeColor, setFinish, softenNormals, srcTag, FINISH, SMOOTH_BODY, BODY_ROUND } from '../util/geo.js';
 import { color } from '../palette.js';
 
 // Wheels, and the ride height that follows from them. Every vehicle in the game is built against
@@ -81,7 +81,7 @@ export function wheelAnchors(len, width) {
  * car's origin.
  */
 export function wheelGeometry() {
-  return tyreWithHubs();
+  return srcTag(tyreWithHubs(), 'src/geometry/wheels.js · wheelGeometry (the steered front wheel, shared by every car)');
 }
 
 // The hubcap: a steel disc on each face of the tyre, the metal finish (`FINISH.METAL`). Both faces,
