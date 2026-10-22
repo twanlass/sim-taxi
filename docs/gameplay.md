@@ -116,8 +116,8 @@ panel) with them: the one flag for playtesting. Shot mode never builds it.
 ## The backstory
 
 `src/game/backstory.js`. The first time a device presses **Play**, the menu goes and dispatch
-radios in before the cut to the garage door: four lines on the docked speech card, at the foot of
-the screen over the title's backdrop (there are no pedals yet for it to sit above), typed out and tapped
+radios in before the cut to the garage door: four lines on the docked speech card, its bottom edge
+76% of the way down the screen (`STORY_CARD_BOTTOM`) over the title's backdrop, typed out and tapped
 through.
 
 > Dispatch to Car 9. You there?
