@@ -601,6 +601,10 @@ is punished for not knowing. Its clip is two cars — the reel carries the car b
 a frame that held all of it drew both cars at a third the size. That length is also why its street
 picker accepts the ring road as well as side streets. The pedal row is Loco, then Loco again: the
 first key goes dark at the blip and the second lights. Recorded by `tools/overtakereel.mjs`.
+The blip comes late in the loop (`BLIP_ON` 1.7s of 2.8), once the taxi is on the car's bumper:
+the combo swings out the frame it arms, so an early blip had the taxi up the oncoming lane 17 units
+short of the car for most of the loop, passing nothing. The recorder now rejects any take that pulls
+out more than 9 units back (centre to centre) or sits tailgating for over 0.4s first.
 
 The bootleg (boost, then two quick brake taps — `game/bootleg.js`) is the one input nobody finds by
 looking, so it gets a card (`game/newmove.js`, `#new-move` in index.html). It is the tutorial's
