@@ -21,10 +21,51 @@
  */
 
 import { HALF_SPAN_X, HALF_SPAN_Z } from '../city/grid.js';
+import { RIGHT } from './camera.js';
 import { createClaudeMark } from './creditegg.js';
 import { el, menuPage, settingsRows } from './menupage.js';
 
-/** Seconds per lap of the drift. Slow on purpose: ~1 world unit a second is a stroll, not a tour. */
+const params = new URLSearchParams(globalThis.location?.search ?? '');
+
+/**
+ * The backdrop (Tyler, 2026-10-22): one slow slide along screen-right across the middle of the
+ * city, there and back. `?titlecam=reel` is the landmark reel it replaced (game/titlereel.js, read
+ * by main.js), `?titlecam=classic` the ellipse before that (`panClassicAt`).
+ *
+ * Along screen-right because that is the one direction the whole frame moves through at once — the
+ * picture travels sideways under the menu rather than up into it — and because it is the direction
+ * the intro story's shot past the garage slides in too, so the two read as the same camera.
+ * Through the origin it crosses the river once on the way, bridges and boats included.
+ */
+export const TITLE_CAM = params.get('titlecam') === 'reel' ? 'reel'
+  : params.get('titlecam') === 'classic' ? 'classic' : 'slide';
+/** Seconds for the slide there and back. */
+export const SLIDE_PERIOD = 160;
+/**
+ * How far either side of the middle the slide reaches, in world units along screen-right. 32 puts
+ * the far ends at ±22.6 on each axis, under half of either half-span (52.5 × 64.5), so the frame
+ * stays over buildings rather than running out into the fog. Peak speed is 2π · 32 / 160 = 1.26
+ * units a second, under a centimetre of screen a second on a phone.
+ */
+export const SLIDE_REACH = 32;
+/**
+ * Where on the cosine the slide starts: 0.7 of the reach left of the middle, already moving at
+ * 0.71 of its peak. Not at an end, where a cosine is at rest — the menu would fade in over a
+ * still frame and the pan would read as starting late.
+ */
+const SLIDE_PHASE = Math.acos(0.7);
+
+/**
+ * Where the slide is at `t` seconds. A cosine, so the turn at each end is a long ease rather than a
+ * stop: at 160 s a lap, the slowest stretch either side of a turn lasts the better part of a minute
+ * and no one sitting on the menu sees it reverse.
+ */
+export function panAt(t) {
+  const along = -SLIDE_REACH * Math.cos(SLIDE_PHASE + (t / SLIDE_PERIOD) * Math.PI * 2);
+  return { x: RIGHT.x * along, z: RIGHT.z * along, zoom: PAN_ZOOM };
+}
+
+/** Seconds per lap of the classic ellipse. Slow on purpose: ~1 world unit a second is a stroll, not a tour. */
 export const PAN_PERIOD = 120;
 /**
  * How tight the backdrop is framed — the frustum's half-height, against PLAY_ZOOM's 52. Close
@@ -37,11 +78,11 @@ const PAN_RX = 0.3;
 const PAN_RZ = 0.3;
 
 /**
- * Where the drift is at `t` seconds: a slow ellipse round the middle of the city. An ellipse rather
- * than a back-and-forth so the motion never stops and turns, which reads as a camera *move*, and
- * the ratio of the radii follows the map's own (it is a block row taller than it is wide).
+ * `?titlecam=classic`: a slow ellipse round the middle of the city. An ellipse rather than a
+ * back-and-forth so the motion never stops and turns, and the ratio of the radii follows the map's
+ * own (it is a block row taller than it is wide).
  */
-export function panAt(t) {
+export function panClassicAt(t) {
   const a = (t / PAN_PERIOD) * Math.PI * 2;
   return { x: Math.cos(a) * HALF_SPAN_X * PAN_RX, z: Math.sin(a) * HALF_SPAN_Z * PAN_RZ, zoom: PAN_ZOOM };
 }
@@ -56,9 +97,13 @@ export const CREDITS = [
 const stillPlease = () => window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
 
 /**
- * The way in, in three beats (Tyler, 2026-10-21): the city fades up out of black a little out of
- * focus, the menu fades in over it, then the city sharpens. `?titleintro=classic` is the screen as
- * it was, menu and city both there the moment the black lifts.
+ * The way in (Tyler, 2026-10-22): the city is there, sharp, the moment the black lifts, and the
+ * menu fades in over it. `?titleintro=blur` is the three-beat version it replaced — the city fading
+ * up out of black a little out of focus, the menu fading in, then the city sharpening — and
+ * `?titleintro=classic` the screen before either, menu and city both there at once.
+ *
+ * Everything below about the blur and the veil is the `blur` version's; the default sets neither,
+ * and is only the menu's fade on the same timeline.
  *
  * **The blur is a CSS filter on the city's canvas, and only for the intro.** It is the cheapest
  * blur there is to get: no extra render pass and no second copy of the frame, just the compositor
@@ -87,8 +132,12 @@ export const INTRO = {
   focus: 2.4,
 };
 
-function playIntro(cold) {
+export const TITLE_INTRO = ['blur', 'classic'].includes(params.get('titleintro'))
+  ? params.get('titleintro') : 'fade';
+
+function playIntro(cold, blur) {
   const html = document.documentElement;
+  cold = cold && blur;
   const lead = cold ? INTRO.veil : 0;
   html.style.setProperty('--intro-menu-at', `${lead + INTRO.menuAt}s`);
   html.style.setProperty('--intro-focus-at', `${lead + INTRO.focusAt}s`);
@@ -96,20 +145,21 @@ function playIntro(cold) {
   html.style.setProperty('--intro-menu', `${INTRO.menu}s`);
   html.style.setProperty('--intro-focus', `${INTRO.focus}s`);
   html.classList.add('title-intro');
+  if (blur) html.classList.add('title-blur');
   if (cold) html.classList.add('title-cold');
   let timer = 0;
   let observer = null;
   const end = () => {
     clearTimeout(timer);
     observer?.disconnect();
-    html.classList.remove('title-intro', 'title-intro-go', 'title-cold');
+    html.classList.remove('title-intro', 'title-intro-go', 'title-blur', 'title-cold');
   };
   const go = () => {
     observer?.disconnect();
     // A frame on the blurred, menu-less state first, so the transitions have a start to run from.
     requestAnimationFrame(() => {
       html.classList.add('title-intro-go');
-      const length = lead + Math.max(INTRO.menuAt + INTRO.menu, INTRO.focusAt + INTRO.focus);
+      const length = lead + Math.max(INTRO.menuAt + INTRO.menu, blur ? INTRO.focusAt + INTRO.focus : 0);
       timer = setTimeout(end, length * 1000 + 50);
     });
   };
@@ -240,8 +290,8 @@ export function createTitleScreen(root, { sound, settings, demo = null, onPlay }
   document.body.classList.add('title-up');
   root.hidden = false;
   show('menu');
-  const endIntro = !stillPlease() && new URLSearchParams(window.location.search).get('titleintro') !== 'classic'
-    ? playIntro(!document.getElementById('splash')) : null;
+  const endIntro = !stillPlease() && TITLE_INTRO !== 'classic'
+    ? playIntro(!document.getElementById('splash'), TITLE_INTRO === 'blur') : null;
 
   return {
     holding: () => holding,
@@ -252,7 +302,7 @@ export function createTitleScreen(root, { sound, settings, demo = null, onPlay }
     /** Advance the drift's clock and say where the camera wants to be. */
     pan(dt) {
       clock += dt;
-      return panAt(clock);
+      return TITLE_CAM === 'classic' ? panClassicAt(clock) : panAt(clock);
     },
   };
 }

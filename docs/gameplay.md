@@ -63,44 +63,28 @@ game's own 33° three-quarter view, with the car leaving off the top right.
 `src/game/titlescreen.js`, in `#title-screen`. A load opens on **Play, Settings, Credits**, left
 aligned over the live city. The menu is the only thing on screen: no HUD, no ⏸, no riders.
 
-**It comes in in three beats** (`playIntro`): the city fades up out of black slightly out of focus,
-the menu fades in over it 0.25 s later (0.6 s), and then the city sharpens (from 0.75 s, over
-2.4 s). The startup screen's own fade is the first beat, since the city waits behind it already
-blurred; with no startup screen the title brings a 0.6 s black veil of its own. The blur is a CSS
-`blur(6px)` on the city's canvas, scaled up 5% so the blur's edge falls off-screen, and it is taken
-off the element entirely once the intro is over: a compositor blur costs a pass over the whole
-canvas on every frame it is set, so it is only ever set for those three seconds. Play mid-intro ends
-it at once. Reduced motion skips it. `?titleintro=classic` is the screen as it was, menu and sharp
-city both there when the black lifts.
+**The menu fades in over a city that is already there** (`playIntro`): sharp from the moment the
+black lifts, the menu coming up 0.25 s later over 0.6 s. Play mid-fade ends it at once; reduced
+motion skips it. `?titleintro=blur` is the three-beat version it replaced (city fading up blurred,
+then sharpening) and `?titleintro=classic` no fade at all — see
+[history](gameplay-history.md#the-title-screen).
 
-**Behind it the camera cuts round the landmarks** (`src/game/titlereel.js`): the basketball court
-with its players shooting around, the skatepark, the burger joint, and the L whenever a train
-happens to be running on the island — followed down the line, and cut away from before it reaches
-the coast. Each shot is `SHOT` = 5 s at `REEL_ZOOM` = 45.8 (halfway between play's 52 and the Loco
-Mode push-in's 39.5) on a wide screen and `PHONE_ZOOM` = 30 on a phone, with a slow drift along
-screen-right and a small push-in. It is framed clear of the menu's column: a third of the
-half-width right of centre on a wide screen, and on a phone just above or below the menu (34% or
-66% down), whichever keeps the camera nearer the middle of the map, so a landmark by the coast does
-not fill the frame with fog.
-
-**Shots crossfade over `XFADE` = 1.4 s.** It is a still of the outgoing shot dissolving off the
-live incoming one, not two live shots blended: the frame a shot ends on is copied onto a 2D canvas
-under the menu straight after it is drawn, the camera cuts under that full cover on the next frame,
-and the cover fades out. One `drawImage` per cut, where a live blend would draw the city twice a
-frame for the length of the fade. The cover never takes a tap. The landmarks rotate; the train is
-an event, slotted in at the next cut whenever it has at least 3 s of island left and was not the
-shot just played. A city missing a landmark plays the rest. Reduced motion gets hard cuts and no
-drift. **Play** cuts to the depot door under the wipe (game/wipe.js) rather than easing there, and
-the opening vignette plays from the door. `?titlecam=classic` is the reel's predecessor: one slow
-ellipse over the middle of the city (`panAt`: a lap every two minutes at zoom 34), eased down onto
-the depot on Play.
+**Behind it the camera makes one slow slide** (`panAt`): along screen-right through the middle of
+the city, crossing the river once, `SLIDE_REACH` = 32 units either side of the origin at `PAN_ZOOM`
+= 34, there and back every `SLIDE_PERIOD` = 160 s on a cosine, so it never visibly stops and turns.
+It starts already moving, 0.7 of the reach left of centre. Screen-right because the whole frame
+travels sideways under the menu rather than into it, and because the intro story's shot past the
+garage slides the same way. **Play** eases down from wherever it is onto the depot door, one
+continuous shot. `?titlecam=reel` is the landmark reel it replaced (`src/game/titlereel.js`, see
+[history](gameplay-history.md#the-title-screen)); `?titlecam=classic` the ellipse
+before that.
 
 **It parks the run the way the Home Screen tip does.** `parked()` in `main.js` is the one gate both
 answer to: the fare board is not seeded, the tutorial and the vignette are held, Space and B do
 nothing, the ⏸ refuses, and the city's entrance wave is *settled* rather than played — the menu sits
 over a finished city with its traffic running, which is the whole point of the backdrop. **Play**
 lets go of all of it at once, so what follows is exactly the run that used to start on load: down
-to the garage door, the door up, the taxi out, the tips. The drift sits at the top of the camera's
+to the garage door, the door up, the taxi out, the tips. The slide sits at the top of the camera's
 priority list while the title holds, and the vignette's approach eases from wherever it left off.
 
 **The menu has no music.** Its taps and the city's effects play, but the radio stays off until

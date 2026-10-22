@@ -140,7 +140,7 @@ import {
 } from './util/geo.js';
 import * as difficulty from './game/difficulty.js';
 import { createHomeScreenTip } from './game/homescreen.js';
-import { createTitleScreen } from './game/titlescreen.js';
+import { createTitleScreen, TITLE_CAM } from './game/titlescreen.js';
 import { createTitleReel } from './game/titlereel.js';
 import { splashCovers } from './game/splash.js';
 import { createSettings, qualityOf } from './game/settings.js';
@@ -5800,18 +5800,19 @@ const title = wantsTitle ? createTitleScreen(document.getElementById('title-scre
     beginRun();
     // Play jump cuts to the depot under the wipe, rather than easing down onto it from wherever
     // the reel had the camera: the reel is a run of cuts, and a swoop out of it reads as a new
-    // kind of move. The classic drift keeps its ease — that was always one continuous shot.
+    // kind of move. The slide (and the classic ellipse) keeps its ease — that is one continuous shot.
     if (!titleReel) return;
     titleReel.clear();
     if (wipe && opening) wipe.cut(() => opening?.cutToDoor());
     else opening?.cutToDoor();
   },
 }) : null;
-// The title's backdrop: a reel of jump cuts round the landmarks (game/titlereel.js), each a few
-// seconds with a slow drift. `?titlecam=classic` is the slow ellipse over the middle of the city
-// it replaced (2026-10-17, Tyler). Each shot is aimed at its subject's middle, at that height:
-// the players' chests, the skaters', the train's roof rail, and halfway up the burger joint's pole.
-const titleReel = title && new URLSearchParams(window.location.search).get('titlecam') !== 'classic'
+// The title's backdrop is one slow slide across the city (`panAt` in game/titlescreen.js, Tyler
+// 2026-10-22). `?titlecam=reel` is the reel of jump cuts round the landmarks it replaced
+// (game/titlereel.js), each a few seconds with a slow drift. Each shot is aimed at its subject's
+// middle, at that height: the players' chests, the skaters', the train's roof rail, and halfway up
+// the burger joint's pole.
+const titleReel = title && TITLE_CAM === 'reel'
   ? createTitleReel({
     cover: title.cover,
     still: () => window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false,
