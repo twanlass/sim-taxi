@@ -740,6 +740,8 @@ export function createOpening({
 
   return {
     update, frameCamera, holdsCamera, settle, skip, enter, cutToDoor,
+    /** The ground point the approach lands on: the door, aimed at its own height. */
+    doorAt: () => doorAim,
     /** The run's own opening is still playing. A repair visit is not this — see `visiting`. */
     running: () => mode === 'opening' && phase !== 'done',
     /** A repair visit is in progress, from the turn in off the lane to the camera handed back. */

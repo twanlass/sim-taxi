@@ -78,6 +78,7 @@ doc; what the classic version was, and why it changed, is in that doc's history 
 | `?chasesiren=classic` | No 🚨 during a chase | #513 | [traffic.md](traffic.md#spotted-and-then-caught-or-lost) |
 | `?helispot=classic` | The police helicopter's first, brighter and harder-edged searchlight | | [gameplay.md](gameplay.md) |
 | `?splashcam=classic` | The startup screen from the game's 33° three-quarter view (the first cut) instead of the low side-on camera | | [gameplay.md](gameplay.md#the-startup-screen) |
+| `?intro=classic` | Play goes straight to the garage door, with no dispatch backstory first. `?intro=always` tells the story on every Play instead of once per device | | [gameplay.md](gameplay.md#the-backstory) |
 | `?titleintro=classic` | The title menu and a sharp city are both on screen the moment the black lifts, instead of the city fading up blurred, the menu fading in and the blur clearing | | [gameplay.md](gameplay.md#the-title-screen) |
 | `?titlecam=classic` | The title screen's backdrop is one slow ellipse over the middle of the city, and Play eases down onto the depot, instead of jump cuts between landmarks and a cut to the depot | | [gameplay.md](gameplay.md#the-title-screen) |
 | `?splashsound=classic` | The startup screen plays silent, as it first shipped, rather than with the landing, bounce and Loco sounds | | [gameplay.md](gameplay.md#the-startup-screen) |

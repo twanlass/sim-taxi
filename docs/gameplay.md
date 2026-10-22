@@ -127,6 +127,38 @@ the menu again, so `onRetry` sets a one-shot `sessionStorage` flag the next boot
 page but its own title check that way. **`?dev`** skips both, and turns on debug mode (the ⚙️
 panel) with them: the one flag for playtesting. Shot mode never builds it.
 
+## The backstory
+
+`src/game/backstory.js`. The first time a device presses **Play**, the menu goes and dispatch
+radios in before the cut to the garage door: four lines on the docked speech card, at the foot of
+the screen over the title reel (there are no pedals yet for it to sit above), typed out and tapped
+through.
+
+> Dispatch to Car 9. You there?
+> City council signed that **robo-taxi** deal. Cars are going to be on the streets come Monday.
+> Those stupid taxis brake for pigeons. No idea why people love 'em.
+> Go remind this town what a real cab is all about.
+
+A tap anywhere finishes the line or moves on (Enter and Space too); **Skip** in the top corner, or
+Escape, ends it. A finished line left untapped for `NUDGE_AFTER` = 3 s gives the card a
+dock-icon bounce (a 12 px hop and a 5 px one), and again every 3 s until the tap; not under reduced
+motion. The landmark reel stops when the story starts: under a cut to black the camera goes to the
+garage and slides slowly past its door (`storyFrame` in `main.js`, zoom 24, 0.35 units a second),
+so the last tap eases straight down onto the door instead of cutting there. Otherwise it lets the
+run go exactly as Play used to. The title screen's gate stays
+shut the whole time (`beforePlay` in `titlescreen.js`), so the fare board, the vignette and the
+radio all wait behind it, and the story drives its own typing clock because the frame loop's
+speech updates are parked with everything else.
+
+**Once per device.** It is a `createSeenFlag` (`src/game/progress.js`), marked seen as it
+*starts*, so a player who quits halfway is not told it twice, and [Demo mode](#demo-mode) tells it
+on every Play. "Play again" reloads past the title and so past this too.
+`?intro=classic` never tells it; `?intro=always` tells it on every Play.
+
+**The robo-taxis are flavour** (Tyler, 2026-10-21). Nothing in the run refers back to them yet.
+The idea the lines are built on is that the threat explains the controls: the robots stop at
+yellows and never speed, so the player wins by doing what they won't.
+
 ## Demo mode
 
 For showing the game to someone: every run plays as a first run. A switch at the bottom of the
