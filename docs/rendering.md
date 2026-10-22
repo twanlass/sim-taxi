@@ -102,8 +102,8 @@ The arch is sized to the **swept** tyre, not the still one: `ARCH_R = WHEEL_R + 
 wheel at `STEER_MAX` fore and aft and over the top, and `tools/probe.mjs` samples a tyre at full lock
 on a car and a truck and asserts nothing lands in the panel. Because the wheels are oversized for the
 camera, a car's arches run off both ends of the body — the corners are open below 0.81 — and they rise
-to 1.34 against a 1.50 roofline. That last number is why the taxi's chequer stripe rides the shoulder:
-cut at the waist, it would keep about two of its six cells. Anything else laid on a flank (the taxi's
+to 1.34 against a 1.50 roofline. That last number is why the taxi's flank chequer stripe (since removed) rode the
+shoulder: cut at the waist, it would have kept about two of its six cells. Anything else laid on a flank (the taxi's
 rear door, the fire engine's band) is cut with the same `archOutlines`.
 
 History: [what the arches replaced](rendering-history.md#wheel-wells--archedbodygeometries-in-geometrywheelsjs).
@@ -273,9 +273,10 @@ rim line, which every look but classic now wears. Two things make it:
 - **The sheen takes the paint's full hue** (`tint` 1, toon has 0.5). Toon's half-white sheen is what
   turned the taxi pale blue-grey from above: a hard shape over most of a sunlit flank, half of it
   white. At 1 the taxi stays yellow.
-- **The highlights are small.** Toon's glint snaps on at cos 0.996 of the half-angle and its sheen at
-  0.975 (`uToonCut`, shared by toon and rim). The first cut, 0.982 and 0.86, drew a sun-sized oval
-  across the windscreen and a lobe over half the roof (Tyler, 2026-10-17).
+- **The highlights are small.** Toon's glint and sheen snap on at cos 1.001 and 1.01 of the half-angle
+  (`uToonCut`, shared by toon and rim) — past 1, so both are gone for now (set from the workshop
+  sliders, 2026-10-19). The first cuts, 0.982 and 0.86, drew a sun-sized oval across the
+  windscreen and a lobe over half the roof (Tyler, 2026-10-17); 0.996 and 0.975 followed.
 - **The rim is found on the screen, not on the surface.** The bodies are flat boxes, so no normal
   says where an edge is. Each light steps the fragment 4 half-res texels toward itself across the
   AO prepass's depth (`gRimEdge`); where the step lands more than 0.4 units further back — road, or
@@ -288,15 +289,15 @@ rim line, which every look but classic now wears. Two things make it:
 
 The line takes each car's own hue by default (`?rim=paint`; a yellow taxi gets a gold edge, a white
 cop a white one), `?rim=magenta|cyan|gold|white` tints every car one colour (`RIM_COLORS`), and
-`?rim=off` compiles it out. The ⚙️ panel has its width (in half-res texels), strength, sky share,
+`?rim=off` compiles it out. `RIM_STRENGTH` is 1 (was 3; 0 for a day from the workshop sliders, 2026-10-19; 1 from 2026-10-20), and `?rimtune=` overrides it. The ⚙️ panel has its width (in half-res texels), strength, sky share,
 car-colour mix and depth gap live, and the two toon cuts (past 1, that highlight is gone). `?paint=toon` is the look before rim; `?paint=layered` the
 realistic layered paint described above, and `?paint=satin&rim=off` any look without the line.
 
 **Flip colour, realistic paint and smooth bodies** (2026-10-17, experiments from Tyler's car-paint
 brief). The flip colour turns the paint toward a deeper shade of itself (its own colour squared,
 so yellow goes amber and white stays white) as the bent normal turns away from the camera, at
-`uFlip` strength: 0.7 on `rim`, 0.8 on `real`, `?flip=` to override, ⚙️ sliders for strength and
-falloff. `?paint=real` is the brief's stack on this source: a sharp clear-coat glint over a soft
+`uFlip` strength: 0.7 on `rim`, 1 on `real` (was 0.8), `?flip=` to override, ⚙️ sliders for strength and
+falloff (power 4 by default, was 1.6). `?paint=real` is the brief's stack on this source: a sharp clear-coat glint over a soft
 sheen, flakes, the full Fresnel coat and the flip, with both bends cut to a quarter because the
 bends are what smeared the layered look's reflection across a box. `?carbody=smooth` rounds the
 bodies instead: the arched body's profile corners filleted (0.14) and its flanks bevelled (0.05,
@@ -308,15 +309,15 @@ lit from those normals rather than flat-shaded. Smooth bodies are not a default.
 **painted reflection streaks** (`STREAKS`): a box panel reflects one point of the sky edge to
 edge, so instead each flank and end gets a horizon line, and every panel two diagonal bands,
 keyed to the body's box and slid by the flank's facing so they move as the car turns. Their colour
-is the sky's, lifted toward its own brightness, so they fade at night. `real` also doubles the rim
-to 8 texels, capped at 0.5 world units (`RIM_MAX_WORLD`), so the doubling shows in close-ups and
-play zoom keeps the rim look's width: uncapped, 8 texels at play zoom on a phone is 1.1 units, the
+is the sky's, lifted toward its own brightness, so they fade at night. `real` once doubled the rim
+to 8 texels, capped at 0.5 world units (`RIM_MAX_WORLD`); it is now 1 texel (workshop sliders,
+2026-10-19). The cap was there because, uncapped, 8 texels at play zoom on a phone is 1.1 units, the
 whole flank of a car. The rim and the streaks only go on car- and truck-sized bodies
 (`gCarSized`); the harbour's ships wear the same paint and came out white under both. And it only
 draws on a fragment the AO prepass drew itself: the helicopter, the plane and the river boats are
 not occluders, so the ground behind their own pixel read as an edge everywhere and they came out
 white. The gap is measured against the fragment's own plane carried along the step, so a
-receding bonnet or roof is not mistaken for an edge (it striped the taxi's panels at 2x). ⚙️ "Reflection streaks" sets their strength (0.6 on `real`, Tyler's pick; 0 elsewhere).
+receding bonnet or roof is not mistaken for an edge (it striped the taxi's panels at 2x). ⚙️ "Reflection streaks" sets their strength (0.25 on `real`, was Tyler's 0.6; 0 elsewhere).
 
 **Cost.** Per glossy fragment: two hashes, the derivatives, and two more Blinn-Phong lobes per
 light (one at play zoom, where the sparkle is skipped). Cars are a few percent of the frame, and
@@ -588,7 +589,11 @@ a fare may be reading the board with their thumb off the glass. `?camreturn=clas
 camera wherever the player put it, as it was before
 ([history](rendering-history.md#camera)).
 
-`src/game/taxifinder.js` covers the three seconds before that. The taxi can still drive off the
+That return is the whole answer by default. **The taxi-finder chip is off** (Tyler, 2026-10-20:
+"get rid of the taxi button"); `?taxifinder=classic` brings it back, and the rest of this section
+describes it as it behaves under that flag.
+
+`src/game/taxifinder.js` covers the gap before that. The taxi can still drive off the
 frame entirely, which on a phone is one look across town away, and dragging the map until the
 yellow car turns up is a hunt across near-identical blocks on a clock that is draining. So while
 the taxi is **completely** off-frame a chip of it fades in at the opposite end of the bottom row
@@ -1026,6 +1031,12 @@ alone, so between the rings all four screen orientations are covered.
 **The taps are fixed, not jittered.** There is no noise, so there is no bilateral blur pass, and a
 frozen shot renders the same frame every time. Upsampling from half resolution is the hardware's
 bilinear filter, which is the only softening the signal needs.
+
+**The AO texture is claimed every frame, not once.** The `tAmbientOcclusion` uniforms are
+module-wide, so a second renderer on the page (the workshop's new-chat taxi builds its own pass)
+points them at *its* target. A texture from another WebGL context samples as black, and everything
+lit by the indirect term alone — the bench's shaded paint — went pure black. `render()` re-points
+the uniforms at its own target each frame, and `dispose()` clears them only if they are still its own.
 
 ### `MAX_DEPTH_DIFF` is bounded on both sides, and that is what fixes the radius
 
@@ -1625,13 +1636,15 @@ placed in world space through whichever camera is drawing.
 The other kind of weather is one rain cell crossing a sunny city, not the whole sky changing. A
 cell comes in over a corner and crosses to the one opposite in `CROSS` 75 s, with a sideways slip so
 crossings take different lines. Then there are 25 s of quiet before the next one, from a different
-corner. `?squall=0.45` pins a cell that far along a crossing. It also fast-forwards the wet map from
+corner. The first one starts `FIRST` 20 s after the taxi is the player's to drive: the crossing clock
+(`state.clock`) is held until `squall.begin()`, called on the frame the pedals arrive, so the title
+menu and the garage vignette do not spend it. `?squall=0.45` pins a cell that far along a crossing. It also fast-forwards the wet map from
 the start of the crossing, so a still frame shows the trail.
 
 Everything that was a level in the storm becomes a position here:
 
-- **The cell's footprint** is a soft, ragged disc: core radius `CELL_R` 30, soft edge `CELL_EDGE`
-  14, and its edge noised over time. It exists twice, as `cellFront`/`cellMask`/`cellShade` on the
+- **The cell's footprint** is a soft, ragged disc: core radius `CELL_R` 20, soft edge `CELL_EDGE`
+  10, and its edge noised over time. It exists twice, as `cellFront`/`cellMask`/`cellShade` on the
   CPU and `cellFront`/`cellRain`/`cellShade` in `CLOUD_GLSL`, built from the same hash, so the grip
   under the taxi agrees with the rain on screen. Keep the two in step.
 - **The front arrives in order** (`RAMP` in game/squall.js, passed to the shaders as `uCellShape`
@@ -1675,6 +1688,16 @@ Everything that was a level in the storm becomes a position here:
   centre stands in only before the taxi exists).
 - **Mirror pass.** It runs while any of the map is wet (`maxWet`) and is skipped when the whole
   island has dried.
+- **Sun rays in its wake** (`SUN_RAYS` in game/rain.js, `?sunrays=classic` for none). 24 additive
+  quads, the storm's shaft shape pointed at the sun, scattered 60° either side of straight behind
+  the cell (the width of its wet track) across its shade's soft band. Each is lit only where the shade is partial and the wet map is over
+  0.4 — the rain has already been there — so they appear behind the cell as it passes with no timer;
+  ahead of it the drizzle wets the ground to a quarter at most. Each breathes on its own slow cycle,
+  and an unlit one is collapsed in the vertex shader, so it costs no fill. They scale with the sun's
+  power, so a squall at night has none. Quads rather than a screen-space radial blur because the sun
+  is behind this camera, with no on-screen source to streak from, and a full-screen pass is the cost
+  the colour grade was built to avoid. The storm's own shafts stand over gaps in the cloud field,
+  whose cover follows the squall's faint 0.2 grey and so never opens them.
 
 History: [the wet map's first drying rate, and windows that wiped on](rendering-history.md#a-squall--the-default-weather-gamesqualljs).
 
@@ -1744,6 +1767,39 @@ switches its lights on.
   see [wet tyres](#wet-tyres--gamesprayjs-plus-a-second-gameskidmarksjs-pool).)
 - **Unlit markers on the road** (the route band, the target discs) are clipped out of the mirror
   with the road they sit on, so they do not reflect.
+
+## Colour grade — `game/colorgrade.js`
+
+A 3D lookup table and a saturation knob over the whole game view. **Neutral by default**: the shipped
+frame is untouched until something is picked in the ⚙️ panel's **Colour grade** section (Visuals tab),
+which has a LUT dropdown (six bundled looks built in code, plus whatever `.cube` was loaded with
+**Load .cube file…**), **LUT strength** (0–1), **Saturation** (0–2, 1 unchanged), **Download baked
+.cube** (the LUT with both sliders folded in, for making a grade the shipped look) and **Reset**. The
+choice is remembered in localStorage across reloads; `?grade=` and `?gradesat=` pick one for a
+single load without remembering it, and shot mode draws neutral unless they are given.
+
+### A fragment tail, not a pass
+
+There is no composite pass in this game to fold a grade into — the frame is drawn straight to the
+canvas — and adding one costs what [`?hdr`](#bloom--gamebloomjs-and-the-comparison-in-gamehdrjs)
+costs: a full-size target, MSAA bought back as `samples`, a resolve and a full-screen draw every
+frame. Instead the grade is appended to three's `fog_fragment` chunk, the way the edge fog is, so
+every built-in material looks its own fragment up as its last step: after the haze and the edge fog,
+in display space, which is the space a `.cube` is authored in. Off, it is one uniform branch per
+fragment. It is installed from `decideLooks()` rather than at import so that it lands *after* the
+edge fog's term in that chunk.
+
+What that trades: translucent surfaces are graded before they blend rather than after (identical for
+saturation, which is linear; a LUT bends a little between the two colours mixed), a fragment drawn
+twice is graded twice, and a hand-written `ShaderMaterial` is graded only if it includes
+`colorgrade_fragment` — the sky dome and the route band do; the small additive glows (window lights,
+headlamp cones, rain) and the bloom's spill do not. Under `?hdr` the grade sees linear values,
+because three turns the sRGB encode off when rendering to a target.
+
+Every LUT is resampled to one fixed 33³ half-float texture, because three allocates a 3D texture's
+storage once and a table of a different size would not fit. The texture is a `Data3DTexture` whose
+`clone()` returns itself: built-in materials clone ShaderLib's uniforms, and a cloned texture never
+uploads.
 
 ## Bloom — `game/bloom.js`, and the comparison in `game/hdr.js`
 
@@ -2601,22 +2657,43 @@ History: [the first `HALF_W`](rendering-history.md#the-tailpipe-plume--gamelocof
 
 ### Wreck — `game/blast.js`, `game/wreckage.js`
 
-Plus a smoke collar out of `game/dust.js`.
-
 The crash is **one call per car** — `blast.fire(x, z, tint, yaw, speed)` — and everything *it* puts on the road
-lives in one module: a shockwave ring on the tarmac, a fireball, a scatter of shards in that car's
-paint, and two tyres that bounce out and roll away. Four `InstancedMesh`es, about forty-five live
-instances at the peak of a two-car wreck.
-Around the pair of them goes one call to [`dust.wreckSmoke`](#dust--gamedustjs), which is
-[the collar](#the-smoke-collar) below.
+lives in one module: a fireball, a flash of firelight on the tarmac, a scatter of shards in that car's
+paint, and two tyres that bounce out and roll away. Then **one `blast.burn(shell)` per wreck** keeps
+it alight through the run-end hold: flame tongues licking off the shell, a dark column of smoke rising
+from it, and a flickering pool of orange light on the road under it, all read off the shell's
+position every frame so the fire slides with the car. Five `InstancedMesh`es; about seventy live
+instances at the peak.
 
-What makes a crash read at a fixed 3/4 camera is **shape and timing**, not a physics packet, so the
-vocabulary here is graphic rather than physical (history: [the four-effect stack it
-replaced](rendering-history.md#wreck--gameblastjs-gamewreckagejs)):
+This is the `burn` style, the default since 2026-10-20, and it exists because the fire it replaced
+was **unlit flat colour** — twelve one-colour hexagons and a white ring — which read as stickers once
+the cars took real paint and the street a real sun ("flat and cartoony"). What changed, and what did
+not:
 
-- **Unlit flat colour, not Lambert.** A faceted sphere needs a light to show its facets and the sun
-  is behind the camera, so these carry no shading at all and read as silhouettes. It is also what
-  keeps a night-time wreck as bright as a golden-hour one.
+- **Shaded, still faceted.** Each fireball facet is lit by how squarely it faces the camera — the
+  facets square to the eye are the pale hot heart of a puff and the ones turning away its deep
+  skin — and the silhouette facets fade out on the *sine* of that angle, the clouds' rim rule
+  (CLAUDE.md, *A rim fade on `dot(normal, view)`*). The normal comes off a screen-space derivative,
+  as `flatShading`'s does. Smoke is shaded the other way: sky on top, firelight underneath while it
+  is still low over the wreck. A second per-instance attribute, `aFire` (shade, heat, underglow),
+  carries it, and `shade` 0 leaves a puff in the older styles' flat fill.
+- **Light on the road, without a light.** A real `PointLight` that appears only during a wreck
+  changes every lit material's light count and relinks the city's shaders on the crash frame
+  (CLAUDE.md); one kept in the scene at zero is a cost every frame of every run. So the glow is an
+  additive radial quad, the headlight cones' trade. In daylight it barely registers; at night it is
+  most of the picture.
+- **No shockwave ring, and no [smoke collar](#the-smoke-collar).** The glow's flash gives the bang
+  its size on the first frame, and the burning wreck's smoke column carries the beat after it. The
+  pale translucent collar, laid over that, read as panes of tinted glass round the cars
+  (`blast.wantsCollar()` keeps it for the older styles).
+- **The cars stay readable.** The fireball keeps flat's shape — a skirt starting 1.4 units out from
+  each car, no core puff — a little taller (squash 0.65) because the rim fade lets the eye through a
+  puff's edge. The flame tongues are under a unit and a half across.
+
+Everything below is common to all four styles. What makes a crash read at a fixed 3/4 camera is
+**shape and timing**, not a physics packet, so the vocabulary is graphic rather than physical
+(history: [the four-effect stack it replaced, and the unlit fire](rendering-history.md#wreck--gameblastjs-gamewreckagejs)):
+
 - **Colour is the animation.** Every puff walks one ramp — core → gold → flame → ember → smoke —
   keyed on its own life *plus a fixed shade bias*, so the cluster is spread across the ramp rather
   than marching through it together. That internal structure is what a flat fill would otherwise
@@ -2637,12 +2714,13 @@ replaced](rendering-history.md#wreck--gameblastjs-gamewreckagejs)):
 > the colour of the wall behind it. And the ramp has to be allowed to *reach* smoke before any alpha
 > comes off, or a still-orange puff fading out leaves translucent pink hexagons over the road.
 
-The shockwave is the mark that reads first, because a flat ring at this camera projects as an
-ellipse spreading out from under the wreck — the blast has a size before the fireball has grown into
-one. Fourteen segments, so the flat sides show at the wreck zoom.
+Under the older styles a shockwave ring reads first, because a flat ring at this camera projects as
+an ellipse spreading out from under the wreck. Fourteen segments, so the flat sides show at the
+wreck zoom. The big-air landing still fires it on its own (`blast.shock`).
 
-**Three cuts of the fireball** (`WRECK_STYLES`, picked with `?wreck=classic|quick|flat` or the ⚙️
-panel's *Wreck fire*, read at detonation). **flat is the default** (Tyler's pick). `classic` is the
+**Four cuts of the fireball** (`WRECK_STYLES`, picked with `?wreck=classic|quick|flat|burn` or the ⚙️
+panel's *Wreck fire*, read at detonation). **burn is the default**, above; flat was Tyler's pick
+before it. `classic` is the
 original full fireball, which hides the two cars the run ended on for most of a second — see
 [history](rendering-history.md#wreck--gameblastjs-gamewreckagejs). `quick` is
 the same fire smaller and over in ~55% of the time. `flat` squashes each puff to
@@ -3586,24 +3664,32 @@ cabin's old top (1.75), overhanging the glass by 0.03 each way so it reads as a 
 and the broken windscreen's plates sit where they always did. The depot's sign is built from the
 same parts, so it wears the roof too. `?taxiroof=classic` puts the glass box back.
 
+A **chrome divider** (`bumperChrome`, `FINISH.METAL`) stands on each flank at x = -0.27, splitting
+the side glass into front and back windows. It is a 0.09 × 0.04 box running from the glass's foot
+(1.15) up to `ROOF_BASE`, so it reads as a pillar rather than a stripe, and it sits 0.012 proud of
+the glass at `CAR_W * 0.43` so it never shares its plane.
+
 Still open: in low sun the bonnet and boot come out pale silver, because the paint's sky reflection
 washes the yellow out of every face that points up — which costs the car more of its yellow from
 above than the glass ever did.
 
 ### The taxi's chequer — `geometry/taxi.js`
 
-A band down each flank, `CAR_LEN * 0.82` long and 0.22 tall, split into **six cells** alternating
-`taxiTrim` near-black and `taxiSign` off-white. Six boxes a side rather than one, merged into the
-shell with everything else, so the livery costs a draw call of nothing.
+The chequer lives on the bonnet, the roof and the boot lid; **the flanks are plain yellow**. The side
+band (one row of six cells, `CAR_LEN * 0.82` long, alternating `taxiTrim` and `taxiSign`) was taken
+off by request, and `geometry/taxi.js` keeps a comment where it was. Its zoom reasoning still
+governs the deck strip: at play zoom a cell wants ~4px to read as *chequer*, and finer pitches alias
+into a flicker as the car turns.
 
-**One row, not a chequerboard**, and that is a zoom decision. Through `TAXI_SCALE` the band is about
-2px tall at play zoom, so a second row would ask for 1px and get mush; a single row of alternating
-cells is the largest thing that still reads as *chequer* at this size. Six cells puts one at ~4px —
-about the finest pitch that survives. Square cells matching the band's own height would want twelve,
-at ~2px each, which alias into a flicker as the car turns.
+**The bonnet, roof and boot lid carry a second chequer: a strip two cells wide down their middle**, four
+rows on the bonnet, five on the roof and two on the boot, in the same two colours, one stripe over the
+whole car. The roof run starts 0.175 in from its front edge (the flat top runs -1.08 back to 0.23, and
+the front edge leans back 0.45 over the rake) and works back, at the roof's own height. These cells are square (0.24, `DECK_CELL`) so the strip still reads as chequer from any
+heading, each run is whole rows so none is cut short at a bumper, and the plates sit `DECK_LIFT`
+(0.012) over the body's top plane so they never share it.
 
 **Both colours are painted.** Letting the light cells fall through to the body makes a
-yellow-and-black band, which is a hazard stripe, not a taxi. The white is the roof sign's own off-white rather than a new entry, so the livery keeps the
+yellow-and-black strip, which is a hazard stripe, not a taxi. The white is the roof sign's own off-white rather than a new entry, so the livery keeps the
 car to two colours.
 
 The white cells clip under the accept flourish's 0.32 emissive lift, and that is fine — the roof sign
@@ -3641,6 +3727,10 @@ post pass, but three things it cannot live without, all asserted headlessly in `
   sits in front of the hull", and a taxi part missing from the mask *is* something in front of
   the hull. The steered front wheels are separate meshes, outside the merged shell, and have to be
   added by hand ([the streak when they weren't](rendering-history.md#taxi-ghost-outline--geometryghostoutlinejs)).
+- **Anything that is not a tower but stands in front of the car stamps the mask too**
+  (`stampGhostMask`). The birds, the aeroplane, the helicopter and every person (`createPerson`:
+  riders at the door, the cabbie thrown through the windscreen) write the mask ref where they
+  draw, so the rim leaves a gap under them rather than tracing their silhouette in yellow.
 
 Both passes are flagged `transparent` purely to land in the transparent queue, which draws after
 every opaque object — the depth buffer has to be complete before the mask stamps. `addGhostOutline`
@@ -3777,12 +3867,12 @@ and a car wrecked on this frame must not wear a ghost over its own fireball.
 
 ### The pie — `geometry/diamond.js`
 
-The marker a waiting rider floats: a **pie**, a thick disc, bouncing, with no black outline, cut into
+The marker a waiting rider floats: a **pie**, a thick disc, bouncing, in a thin black outline, cut into
 eight slices, two per urgency level, the whole pie in the one [urgency](gameplay.md#urgency-is-one-scale)
 colour of the level the fare is at. The clock eats it clockwise from twelve o'clock, so each pair
 of slices that goes is a quarter of the clock, and the colour steps (with the kick) at that moment.
 What is left is solid and one even shade; eaten slices stay as a flat black tint at 30%
-(`PIE_EATEN_ALPHA`), not the pale glass of the hue the other vessels empty into: with no outline,
+(`PIE_EATEN_ALPHA`), not the pale glass of the hue the other vessels empty into: without an outline,
 pale glass vanished into the road at play zoom and a half-eaten pie read as a semicircle. A fresh pie already has a sixteenth missing at twelve o'clock (`PIE_STARTER_SLIVER`), so it reads as a timer before anything has drained. After that the clock takes a **whole slice at a time**, so the cut always lands on a
 slice's own radial wall, and a drained pie shows that wall as a solid edge of thickness where the
 missing slices were. Every wall is drawn before every cap (`pieWedgeOf` maps faces back to slices
@@ -3796,10 +3886,18 @@ The marker sits `MARKER_CLEARANCE` (0.8) higher than the taller shapes, for air 
 0.55 thick, built face-on in their own XY plane and turned (`PIE_TURN`) toward the camera and
 tilted back to a 60° normal, 27° past face-on, so the face reads as a disc with depth and the near
 edge shows its thickness. The fill shader picks the cut and the alternate shading from the angle
-of the untilted `fillXY` attribute. The outline hull is still built (one solid 32-sided drum at a lighter `PIE_RIM` of
-0.14, since at the shared 0.22 it was the loudest thing on the marker) but hidden: the solid, lit,
-tilted disc separates from the city by its own edge, and Tyler asked to "try without the black
-outline".
+of the untilted `fillXY` attribute.
+
+**The outline** is one solid 32-sided drum around the whole disc (`pieHullGeometry`), drawn as the
+usual inverted hull, so it traces the silhouette of the full pie, eaten slices included. Its weight
+is the [off-screen arrow's](#off-screen-fare-pointers), by construction: `MARKER_OUTLINE_PX` in
+`game/camera.js` (1.5) is the one number for both. The arrow draws it as a `non-scaling-stroke`
+in CSS px; the pie converts it to world units at `PHONE_PX_PER_UNIT` (844px over `2 * PLAY_ZOOM`,
+8.1px a unit), giving `PIE_RIM` 0.185. It started at 3.3, the arrow's old stroke, and came down
+to 1.5 because at that weight the ring was the loudest thing on an 18px pie. So the two match at phone play zoom, and a pinch grows the
+pie's line with the pie, as it does everything in the world. The pie went without an outline for
+a round (Tyler, 2026-10-18: "try without the black outline") and has it back at the arrow's weight
+(2026-10-20); `?pieoutline=classic` hides it again.
 
 History of this round: the first pie was four slices of the one current hue, 3.1 across, cut apart
 by black gaps. Tyler: "More slices (8). Map to existing urgency colors. Smaller over all. Tilt
@@ -4297,6 +4395,24 @@ viewport edge and rotate to point at a mark that has slipped off the frame. Each
 the fare it stands in for, which is that rider's clock: the colour is written from JS onto the
 wrapper's `color` and the polygon fills with `currentColor`, so a level change is one style write.
 The value in the stylesheet is only what one opens on before its first write.
+The black outline is `MARKER_OUTLINE_PX` (1.5, `game/camera.js`), written onto the host as
+`--marker-outline` and drawn as a `non-scaling-stroke`, so it is the same screen width on the
+drop-off's bigger arrow and through the press dip, and the same number [the pie](#the-pie--geometrydiamondjs)
+is outlined by.
+
+**They nudge.** Each arrow swells 6% and leans 3px toward its mark and back, once every 1.3s, on an
+ease-in-out (`fare-pointer-nudge` in `index.html`) — enough for an arrow at the edge to catch the eye
+in peripheral vision, small enough that it reads as a glance and not an alarm; urgency is the colour's
+job. It lives on the svg, under the press dip and the JS-written clamp and rotation, and because the
+div is rotated the svg's own +x is the pointing direction. Pooled slots are staggered by
+`1.3 × 0.618` s so several arrows never throb in step. Off under `prefers-reduced-motion` and
+`?arrowpulse=classic`.
+
+**They knock with the pie.** When the rider's pie loses a slice, its arrow swells by the same
+`sliceKnockScale` on the same 0.36s beat (`followKnocks`). It is a Web Animation on the svg with its
+first and last keyframes left implicit, so for its length it *replaces* the nudge rather than adding
+to it, lifting off and handing back wherever the nudge is. A pooled arrow that has just changed
+fares, or just come back on screen, takes the count without knocking.
 
 **Two kinds, one arrow, and they are exclusive.** With the seat free, *every rider still on a kerb*
 gets one — which replaced the [rider-finder chips](gameplay.md#finding-the-next-rider). With a rider
@@ -4509,13 +4625,23 @@ Four animations share the crystal's local transform and simply add:
 | Channel | Driven by |
 |---|---|
 | `position.y` | the resting bounce, plus `KICK_HOP` × the kick envelope |
-| `scale` | `KICK_SCALE` × the kick envelope, plus the panic pulse's `0.15 × (0.5 + 0.5 sin)`, plus `POP_SCALE_DIAMOND` × the [select pop](gameplay.md#the-tap-pops) |
+| `scale` | the larger of `KICK_SCALE` × the kick envelope and the slice knock (below), plus the panic pulse's `0.15 × (0.5 + 0.5 sin)`, plus `POP_SCALE_DIAMOND` × the [select pop](gameplay.md#the-tap-pops) |
 | `emissiveIntensity` | the select pop's light, `EMISSIVE` (0.35) → `HIGHLIGHT_EMISSIVE` (1.05) and back |
 
 Adding rather than switching is deliberate: a level change landing inside the last five seconds
 should read as a knock on top of a beating marker, not replace it — and a tap on that same rider has
 to answer over both. The pop is the one that touches `scale` and *not* `position.y`: the hop is the
 kick's signature, and a pop that left the ground would read as the clock having stepped.
+
+**Each slice the pie loses knocks it.** When the pie steps down an eighth (`pieShown`), the crystal
+swells on the kick's envelope with no hop, at a strength set by how many slices are left
+(`SLICE_KNOCK`): 8% for the first four steps, then 12%, 17% and 24% as it goes to three, two and the
+last slice. Quiet early because the rider rush keeps two or more pies up and seven equal knocks per
+clock would keep the board twitching; loud late because those are the steps a player must act on.
+Every second step is also a level change, and there the knock and the kick take the larger rather
+than adding. The first fill after a spawn only seeds the count. Pie only, off under
+`prefers-reduced-motion`, and `?slicepulse=classic` turns it off. The off-screen arrow standing in for
+the rider knocks with it — see [Off-screen fare pointers](#off-screen-fare-pointers).
 
 **Everything is a function of sim time**, including the flight and the pulse — no accumulated `dt`
 anywhere — because a frozen shot has to render the same frame every time. Both the kick's and the

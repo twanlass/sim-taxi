@@ -4,6 +4,7 @@
   "start_url": "/",
   "display": "standalone",
   "display_override": ["fullscreen"],
+  "orientation": "portrait",
   "background_color": "#000000",
   "theme_color": "#A46BFF",
   "icons": [

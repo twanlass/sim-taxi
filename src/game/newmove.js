@@ -1,4 +1,5 @@
 import { createSpeech } from './speech.js';
+import { createSeenFlag as seenFlag } from './progress.js';
 
 // "New Move Unlocked": the card that teaches a move the player cannot find by looking — the bootleg
 // (game/bootleg.js: hold Loco Mode, then tap the brake twice, and the taxi spins round onto the far
@@ -93,7 +94,7 @@ export const MOVES = {
  * which a repair is not. Kept out of MOVES because main.js walks those in order on drop-offs.
  */
 export const REPAIR = {
-  seenKey: 'simTaxi.seen.repair', title: 'Taxi Depot', line: 'Tap for Repairs', keys: [],
+  seenKey: 'simTaxi.seen.repair', title: 'Taxi Garage', line: 'Tap for Repairs', keys: [],
 };
 
 /**
@@ -119,29 +120,19 @@ const TAP_GUARD_MS = 300;
 const IDLE_KEYS_LOOP = 5;   // the U-turn's row dims at 4.2s, the latest of the three
 
 /**
- * @param {object} opts
- * @param {Storage | null} [opts.storage]  Injected for the headless checks; the page's own otherwise.
+ * The card's "seen" flag. It lives in game/progress.js with every other once-ever flag, so Demo
+ * mode can override them all in one place; this keeps the U-turn's key as the default.
  */
-export function createSeenFlag({ storage, key = SEEN_KEY } = {}) {
-  const store = () => {
-    if (storage !== undefined) return storage;
-    try { return typeof window !== 'undefined' ? window.localStorage : null; } catch { return null; }
-  };
-  let seen;
-  try { seen = store()?.getItem(key) === '1'; } catch { seen = false; }
-  return {
-    get: () => seen,
-    set() {
-      seen = true;
-      try { store()?.setItem(key, '1'); } catch { /* soft: this visit only */ }
-    },
-  };
-}
+export const createSeenFlag = ({ storage, key = SEEN_KEY, demo } = {}) => seenFlag({ storage, key, demo });
 
 // The card's words: the tutorial bubble's title slot carries the eyebrow, its line the move's name.
 // Nothing else — the clip and the pedal row are the instruction (Tyler, 2026-10-04: no caption, no "tap to
 // continue"; every tutorial bubble is answered by a tap and this one is no different).
 const TITLE = 'New Move Unlocked';
+
+// Pixels from the clip's top the combo word may start at: the meter (~26px tall at the card's 0.8)
+// plus the word's 44px rise, so it never climbs over the count it is announcing.
+const MIN_RISE_ROOM = 76;
 
 /**
  * The card itself: the game's speech bubble (game/speech.js) — the same card every tutorial tip
@@ -156,7 +147,7 @@ const TITLE = 'New Move Unlocked';
  * @param viewport  util/viewport.js
  * @param onClose   () => void — the card has been dismissed
  */
-export function createNewMove({ viewport = null, onClose = () => {} } = {}) {
+export function createNewMove({ viewport = null, onClose = () => {}, comboMeter = null } = {}) {
   const root = document.getElementById('new-move');
   const idle = { isOpen: () => false, open: () => false, close: () => {}, update: () => {} };
   if (!root) return idle;
@@ -223,7 +214,15 @@ export function createNewMove({ viewport = null, onClose = () => {} } = {}) {
   // canvas, because moveclip.js sizes the copy off the canvas's clientWidth.
   const print = document.createElement('div');
   print.className = 'nm-print';
-  print.append(canvas);
+  // The clip and, laid over it, the HUD's combo meter and the word the move pops off the roof
+  // (`comboOverlay`), so the card shows what the game will say when the player does it.
+  const shot = document.createElement('div');
+  shot.className = 'nm-shot';
+  const overlay = document.createElement('div');
+  overlay.className = 'nm-overlay';
+  overlay.setAttribute('aria-hidden', 'true');
+  shot.append(canvas, overlay);
+  print.append(shot);
   media.append(print, combo);
   // All three keys at one size, a "+" between each (Tyler, 2026-10-04): the row is a recipe, and
   // the HUD's big-gas/small-brake sizing read as a hierarchy that is not in the combo. Built per
@@ -249,7 +248,9 @@ export function createNewMove({ viewport = null, onClose = () => {} } = {}) {
     }
   }
 
-  const bubble = createSpeech(root, { viewport, typing: false });
+  // `pinned`: the card places itself, centred, rather than taking the docked slot the talking
+  // bubbles use (game/speech.js).
+  const bubble = createSpeech(root, { viewport, typing: false, pinned: true });
   // Centred on the screen. The speech card stands *above* its target, so the target is the middle
   // of the screen pushed down by half the card's own height (measured live: the clip sizes itself
   // to the viewport's width).
@@ -266,12 +267,103 @@ export function createNewMove({ viewport = null, onClose = () => {} } = {}) {
   // The pedal row's own clock, for a card with no clip (IDLE_KEYS_LOOP).
   let idleT = 0;
 
+  // The ring (Tyler, 2026-10-21): the next key in the row to be pressed wears a pulsing ring, which
+  // bursts outward and fades on the frame the clip presses it, and the ring moves on to the next.
   function pressKeys() {
     const state = move.clipKeys(clip ? clip.time : idleT);
+    let next = true;
     for (const [name, key] of Object.entries(keys)) {
-      key.classList.toggle('is-lit', state[name].lit);
+      const lit = state[name].lit;
+      if (lit && !key.classList.contains('is-lit')) {
+        key.classList.remove('is-pressed');
+        void key.offsetWidth;
+        key.classList.add('is-pressed');
+      }
+      if (!lit) key.classList.remove('is-pressed');
+      key.classList.toggle('is-next', !lit && next);
+      if (!lit) next = false;
+      key.classList.toggle('is-lit', lit);
       key.classList.toggle('is-down', state[name].down);
     }
+  }
+
+  // The combo, as the HUD shows it: the meter (main.js `updateComboTag`) reading 1x, and on the
+  // frame the game would land the move (`combo.at`, the clip module's LANDS_AT) the count rolls on
+  // a step and the purple word rises off the taxi's roof (main.js `showLabel`) — the same markup
+  // and classes, so a restyle of either reaches the card. The meter is shown from 1x here, which
+  // play never does (it waits for the first step): the 1x is what the step is a step *from*.
+  // `?cardcombo=classic` (body.card-combo-classic) leaves the clip bare and the keys without rings.
+  const comboOn = () => comboMeter && !document.body.classList.contains('card-combo-classic');
+  let meter = null;
+  let lastT = 0;
+  function meterCount(mult, roll) {
+    const roller = meter.querySelector('.combo-roll');
+    for (const old of roller.querySelectorAll('.combo-count:not(.is-leaving)')) {
+      if (!roll) { old.remove(); continue; }
+      old.classList.add('is-leaving');
+      old.addEventListener('animationend', () => old.remove(), { once: true });
+    }
+    const count = document.createElement('span');
+    count.className = 'combo-count';
+    count.innerHTML = `<span class="combo-num">${comboMeter.format(mult).slice(0, -1)}</span><span class="combo-x">x</span>`;
+    if (roll) count.classList.add('is-entering');
+    roller.append(count);
+    meter.style.setProperty('--flame-size', String(1 + 0.12 * comboMeter.tier(mult)));
+    if (roll) {
+      meter.classList.remove('is-flaring');
+      void meter.offsetWidth;
+      meter.classList.add('is-flaring');
+    }
+  }
+  function comboOverlay() {
+    overlay.replaceChildren();
+    meter = null;
+    lastT = 0;
+    if (!clip || !move.combo || !comboOn()) return;
+    meter = document.createElement('div');
+    meter.className = 'combo-meter nm-meter';
+    meter.innerHTML = `${comboMeter.flame}<span class="combo-roll"></span>`;
+    const [outer, mid, core] = comboMeter.colors;
+    meter.style.setProperty('--flame-outer', outer);
+    meter.style.setProperty('--flame-mid', mid);
+    meter.style.setProperty('--flame-core', core);
+    overlay.append(meter);
+    meterCount(1, false);
+  }
+  function playCombo() {
+    if (!meter) return;
+    const t = clip.time;
+    const { at, label, step } = move.combo;
+    if (t < lastT) {
+      // Round the loop: back to 1x, and any word still rising goes with the old pass.
+      meterCount(1, false);
+      for (const word of overlay.querySelectorAll('.earning')) word.remove();
+    }
+    const landed = t >= at && (lastT < at || t < lastT);
+    lastT = t;
+    if (!landed) return;
+    const mult = 1 + step;
+    meterCount(mult, true);
+    const roof = clip.taxiAt?.();
+    const word = document.createElement('div');
+    word.className = 'earning is-label run-combo';
+    word.textContent = `${label} ${comboMeter.format(mult)}`;
+    overlay.append(word);
+    // Off the roof, but kept whole inside the print: the overtake's taxi sits near the frame's left
+    // edge as it passes, and the word cut there. And clear of the meter, which it would rise into
+    // off a taxi near the top (the rise climbs 44px, MIN_RISE_ROOM below the frame's top).
+    const W = overlay.clientWidth;
+    const H = overlay.clientHeight;
+    const half = word.offsetWidth / 2 + 4;
+    word.style.left = `${Math.min(W - half, Math.max(half, (roof?.x ?? 0.5) * W))}px`;
+    word.style.top = `${Math.min(H - 14, Math.max(MIN_RISE_ROOM, (roof?.y ?? 0.5) * H))}px`;
+    // main.js `showLabel`'s rise, its 1400ms (LABEL_RISE_MS) included.
+    word.animate([
+      { opacity: 0, transform: 'translate(-50%, -50%) translateY(4px)   scale(0.8)' },
+      { opacity: 1, transform: 'translate(-50%, -50%) translateY(-26px) scale(1.06)', offset: 0.3 },
+      { opacity: 1, transform: 'translate(-50%, -50%) translateY(-34px) scale(1)', offset: 0.75 },
+      { opacity: 0, transform: 'translate(-50%, -50%) translateY(-44px) scale(1)' },
+    ], { duration: 1400, easing: 'cubic-bezier(0.22, 1, 0.36, 1)', fill: 'forwards' }).onfinish = () => word.remove();
   }
 
   function close() {
@@ -321,6 +413,7 @@ export function createNewMove({ viewport = null, onClose = () => {} } = {}) {
       try { clip = move.makeClip(canvas); } catch (err) { console.warn(`${move.line} clip:`, err); clip = null; }
       // Nowhere to film: the card without a clip, re-measured.
       if (!clip) { canvas.hidden = print.hidden = true; bubble.show(move.title ?? TITLE, move.line, target, media); }
+      comboOverlay();
       pressKeys();
       document.body.classList.add('new-move-open');
       return true;
@@ -331,12 +424,13 @@ export function createNewMove({ viewport = null, onClose = () => {} } = {}) {
     update(dt) {
       if (!open) return false;
       clip?.update(dt);
+      if (clip) playCombo();
       idleT = (idleT + dt) % IDLE_KEYS_LOOP;
       pressKeys();
       bubble.update(dt);
       return Boolean(clip);
     },
     /** Seek the clip — for the screenshot tooling. */
-    seek(t) { if (clip) { clip.restart(); clip.update(t); pressKeys(); } },
+    seek(t) { if (clip) { clip.restart(); comboOverlay(); clip.update(t); playCombo(); pressKeys(); } },
   };
 }

@@ -1,4 +1,6 @@
 import * as THREE from 'three';
+import { MARKER_OUTLINE_PX } from './camera.js';
+import { sliceKnockScale } from './faremarker.js';
 
 // Off-screen fare pointers.
 //
@@ -110,10 +112,28 @@ function readSafeInsets() {
 // onto and `event.target` is the div the listener is on.
 const ARROW_SVG = '<span><svg viewBox="-16 -16 32 32"><polygon points="13,0 -9,-10 -4,0 -9,10" /></svg></span>';
 
+// The nudge's phase step between pooled slots, in seconds: the period (1.3s, `fare-pointer-nudge` in
+// index.html) times the golden ratio's fraction, so however many arrows are up no two land on the
+// same beat and none sits exactly half a beat off another (which reads as a see-saw, not a glance).
+const NUDGE_PHASE_STEP = 1.3 * 0.618;
+
 // How far a finger may smear and still be a tap, in px. The same 8 as `PAN_SLOP` in game/camera.js
 // — every selection on a phone lands with 2-4px of travel — and it is here for a reason that is
 // specific to a pointer the element *keeps*: see the press handler below.
 const TAP_SLOP = 8;
+
+// The slice knock, carried to the arrow: when the pie over a rider steps down an eighth, the arrow
+// standing in for it off-frame knocks on the same beat at the same strength (`sliceKnockScale` in
+// game/faremarker.js — quiet early, loud on the last three slices). Same length as the crystal's
+// kick envelope, peaking early, so the two read as one gesture.
+//
+// It **replaces** the nudge for its 0.36s rather than adding to it. A script animation sits above
+// a CSS one in the effect stack, and its start and end keyframes are left implicit, so it lifts
+// off whatever the nudge is showing at that instant and hands back to it where the nudge has got
+// to — no jump, and no swell on top of a swell. `?slicepulse=classic` and Reduce Motion skip it
+// (the marker gives no knocks to follow).
+const KNOCK_MS = 360;
+const KNOCK_PEAK_AT = 0.3;
 
 /**
  * @param onTap     (x, z) => void — a press on an arrow, handed the world point it was aiming at.
@@ -126,9 +146,17 @@ export function createFarePointers({ camera, pinLocation, viewport = null, onTap
   tappable = () => false }) {
   const host = document.getElementById('fare-pointers');
   if (!host) return { update: () => {} };
+  // The arrow's outline weight, from the one constant the pie over the rider is outlined by too.
+  // A CSS variable read by a `non-scaling-stroke`, so it is screen px whatever size the arrow is
+  // drawn at — the drop-off's larger arrow and the press dip included.
+  host.style.setProperty('--marker-outline', `${MARKER_OUTLINE_PX}px`);
 
   readSafeInsets();
   window.addEventListener('resize', readSafeInsets);
+  // `?arrowpulse=classic`: the arrows hold still, as they did before the nudge. Read here rather
+  // than at module scope, which the headless suite imports with no `window`.
+  host.classList.toggle('no-nudge',
+    new URLSearchParams(window.location.search).get('arrowpulse') === 'classic');
 
   const projected = new THREE.Vector3();
 
@@ -146,12 +174,15 @@ export function createFarePointers({ camera, pinLocation, viewport = null, onTap
     el.className = 'fare-pointer';
     el.hidden = true;
     el.innerHTML = ARROW_SVG;
+    // A negative delay starts the loop part-way through rather than holding the arrow still first.
+    el.style.setProperty('--nudge-delay', `${(-index * NUDGE_PHASE_STEP).toFixed(3)}s`);
     host.appendChild(el);
     // `atX`/`atZ` rather than the point `pinLocation` handed back: one pooled div answers for a
     // different fare from one frame to the next, so the destination has to be read at press time.
     // A listener closed over whoever held the slot when it was created would ride the camera to a
     // rider who was picked up two blocks ago.
-    const arrow = { el, painted: null, dropoff: null, atX: 0, atZ: 0, aimed: false };
+    const arrow = { el, painted: null, dropoff: null, atX: 0, atZ: 0, aimed: false,
+      marker: null, knocks: 0 };
     // Not a `<button>`, and the host keeps its `aria-hidden`: a focusable control inside an
     // aria-hidden subtree is one a keyboard can reach and a screen reader cannot describe (the
     // same trap `taxifinder.js` spends a `disabled` on avoiding). This is a redundant affordance —
@@ -281,6 +312,30 @@ export function createFarePointers({ camera, pinLocation, viewport = null, onTap
   function hide(arrow) {
     arrow.el.hidden = true;
     arrow.aimed = false;
+    arrow.marker = null;
+  }
+
+  /**
+   * Follow the fare's marker: knock if its pie has stepped down since the last frame this arrow
+   * was aimed at the same marker. A pooled arrow that has just changed hands only takes the count —
+   * the step it would be reporting happened to someone else's clock.
+   */
+  function followKnocks(arrow, fare, onScreen) {
+    const marker = fare?.slot?.marker;
+    if (!onScreen || !marker?.knockCount) {
+      arrow.marker = null;
+      return;
+    }
+    const count = marker.knockCount();
+    if (arrow.marker === marker && count > arrow.knocks) {
+      const peak = 1 + sliceKnockScale(marker.slicesLeft());
+      arrow.el.firstElementChild?.firstElementChild?.animate?.(
+        [{ offset: KNOCK_PEAK_AT, transform: `translateX(0) scale(${peak.toFixed(3)})`, easing: 'ease-in-out' }],
+        { duration: KNOCK_MS, easing: 'ease-out' },
+      );
+    }
+    arrow.marker = marker;
+    arrow.knocks = count;
   }
 
   /**
@@ -304,7 +359,8 @@ export function createFarePointers({ camera, pinLocation, viewport = null, onTap
 
     if (aboard && aboard.stage === 'riding') {
       const c = pinLocation(aboard.target.i, aboard.target.j);
-      aim(arrowAt(slot), c, colorOf ? colorOf(aboard) : null, true);
+      const arrow = arrowAt(slot);
+      followKnocks(arrow, aboard, aim(arrow, c, colorOf ? colorOf(aboard) : null, true));
       slot += 1;
     }
 
@@ -324,7 +380,8 @@ export function createFarePointers({ camera, pinLocation, viewport = null, onTap
       if (fare.stage !== 'waiting') continue;
       // The bank rider stands on the bank's steps rather than a kerb corner (`kerbFor`, game/fares.js).
       const c = fare.stand ?? pinLocation(fare.target.i, fare.target.j);
-      aim(arrowAt(slot), c, colorOf ? colorOf(fare) : null, false);
+      const arrow = arrowAt(slot);
+      followKnocks(arrow, fare, aim(arrow, c, colorOf ? colorOf(fare) : null, false));
       slot += 1;
     }
 

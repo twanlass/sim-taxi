@@ -487,6 +487,12 @@ export function createAmbientOcclusion(
      */
     render(scene, camera) {
       resizeIfNeeded();
+      // Claimed every frame, not once at construction: the uniforms are module-wide, and a second
+      // renderer on the page (the workshop's new-chat taxi) builds a pass of its own that points
+      // them at *its* target. A texture from another WebGL context samples as black, so the bench's
+      // shaded paint — everything lit by the indirect term alone — went to pure black.
+      AO_UNIFORMS.tAmbientOcclusion.value = aoTarget.texture;
+      AO_UNIFORMS.uAOTexel.value.set(1 / drawingBuffer.x, 1 / drawingBuffer.y);
 
       const savedMask = camera.layers.mask;
       const savedOverride = scene.overrideMaterial;
@@ -550,7 +556,8 @@ export function createAmbientOcclusion(
       depthMaterials.forEach((material) => material.dispose());
       aoQuad.geometry.dispose();
       aoQuad.material.dispose();
-      AO_UNIFORMS.tAmbientOcclusion.value = null;
+      // Only if it is still ours: the other renderer's pass may hold it now.
+      if (AO_UNIFORMS.tAmbientOcclusion.value === aoTarget.texture) AO_UNIFORMS.tAmbientOcclusion.value = null;
     },
   };
 }

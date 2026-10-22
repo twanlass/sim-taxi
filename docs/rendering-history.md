@@ -102,6 +102,10 @@ against a whole city already sliding past under the follow-cam. Verified in a re
 - **The invisible skid mark.** An early skid mark that was reported invisible wasn't: it was 0.3
   units wide, and at play zoom 1 unit ≈ 7.7px, so it rendered as 2px. That is where the
   size-it-against-the-camera rule comes from.
+- **The taxi-finder chip** (`?taxifinder=classic`). A dark disc with the taxi on it, above the
+  bottom-right corner, that came up while the car was completely off-frame and rode the camera back
+  on a tap. It predates the 1.5s idle return (#530), which made it redundant for all but that 1.5s,
+  and Tyler cut it on 2026-10-20.
 
 ## Lighting
 
@@ -241,6 +245,12 @@ was halfway across, so the rain read as drying the ground behind itself. It is 4
 first read the footprint per vertex, and every window wiped on from one side as the edge went over
 it; they read it at their anchor now. The lens drops' reach and linger were raised on 2026-10-08
 (#454).
+
+The cell was first `CELL_R` 30 with a 14-unit edge, so with its shade reaching 3.2 edges out the dark
+patch was ~150 units across over a 105 × 129 island — the city under a cloud rather than a cell
+crossing it. It is 20 and 10. The first cell arrived 12 s after *boot*, so the title menu and the
+garage vignette spent the wait; it now arrives 20 s after the player gets control. A squall had no
+sun rays until 2026-10-21 (`?sunrays=classic`).
 
 **The first front arrived all at once** (`?squallramp=classic`). The shade reached 1.6 edges past
 the core, the lights read that same shade, and the rain filled over the one edge inside it, so at any
@@ -410,6 +420,16 @@ pink hexagons hanging over the road.
 
 **`?wreck=classic`** is the original full fireball: it hid the two cars the run ended on for most of a
 second, which is why `flat` became the default (Tyler's pick).
+
+**`?wreck=flat`** was the default from 2026-10-05 to 2026-10-20: the same skirt of fire, drawn **unlit
+in flat colour**, with a white shockwave ring under it and the pale [smoke
+collar](rendering.md#the-smoke-collar) round it. Unlit was a deliberate choice — the sun is behind
+the camera, so a Lambert sphere showed no facets, and unlit kept a night wreck as bright as a day
+one. It stopped working when the rest of the frame moved on: against realistic car paint and a
+painted, sunlit street, twelve one-colour hexagons and a white ellipse read as stickers ("flat and
+cartoony", Tyler), and once the fire went out after a second nothing on screen was still burning.
+`burn` lit the puffs by facet instead of by the sun, put firelight on the road, and kept the wrecks
+alight for the hold.
 
 #### The wrecks that stay
 
@@ -788,3 +808,11 @@ ultra, sometimes it renders at regular". A floor that kept Ultra at 2.25 was tri
 preferred no resolution changes at all, with the Quality setting as the player's lever, and the
 governor went off by default (#570). Without it a hot phone was "pretty choppy and pretty bad", so
 it came back the same day with its floor raised from 1 to 2.
+
+## The taxi's damage tint (until 2026-10-21)
+
+From PR #456 the taxi's paint dulled toward `taxiGrime` as it took damage: a multiply on the shell
+and both lids, 40% of the way at the first hit and the rest of the way down to empty, eased in over
+a quarter second. It did not read — a dulled yellow is still a yellow car, and with nothing beside it
+to compare against, the eye takes it for the light — and it was replaced by the chipped paint
+([traffic.md](traffic.md)). `?taxidamage=classic` puts it back.

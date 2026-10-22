@@ -19,6 +19,22 @@ export const DISTANCE = 400;
 // haze against it, so it lives here rather than as a literal in each.
 export const PLAY_ZOOM = 52;
 
+// What one world unit measures on a phone at play zoom, in CSS px: the 390×844 portrait iPhone
+// `tools/shoot.mjs` stands in for, whose 844px of height spans `2 * PLAY_ZOOM` units. 8.1, against
+// the ~7.7 the desktop-era comments quote. A pinch moves it; this is the frame the game is judged in.
+export const PHONE_PX_PER_UNIT = 844 / (2 * PLAY_ZOOM);
+
+// **The black outline every rider mark wears, in CSS px — the one number for both.** The off-screen
+// arrow (game/farepointers.js, a non-scaling SVG stroke) draws it at exactly this width; the pie over
+// the rider (geometry/diamond.js, an inverted hull in world units) converts it at
+// `PHONE_PX_PER_UNIT`, so the two match at play zoom and the pie's grows and shrinks with it under a
+// pinch, as any part of the world does. Measured as the width of the black band you can see: a
+// stroke straddles its edge but paints over the fill, so its whole width shows; a hull's whole
+// offset shows outside the shape. The arrow drew 3.3 before this was pulled out (a 3-unit stroke in
+// a 32-unit viewBox at 35px); at that weight the pie's ring took it from 18px across to 25 and was
+// the loudest thing on the marker, so both came down to 1.5 (Tyler, 2026-10-20).
+export const MARKER_OUTLINE_PX = 1.5;
+
 const Y_AXIS = new THREE.Vector3(0, 1, 0);
 
 // Screen right is world (+X, -Z) for this view direction; screen up is (-X, -Z).

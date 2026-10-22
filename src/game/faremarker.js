@@ -3,7 +3,7 @@ import { KERB_H } from '../city/ground.js';
 import { URGENCY_SEGMENTS, fareColor } from './urgency.js';
 import {
   createDiamond, DIAMOND_HALF_H, MARKER_CLEARANCE, bounceOffset, BOUNCE_HEIGHT,
-  kickEnvelope, KICK_TIME, KICK_SCALE, KICK_HOP,
+  kickEnvelope, KICK_TIME, KICK_SCALE, KICK_HOP, MARKER_SHAPE, PIE_SLICES,
 } from '../geometry/diamond.js';
 import { createQuestionMark, ROCK_ANGLE, ROCK_RATE } from '../geometry/questionmark.js';
 import { createTargetRing, RING_Y } from '../geometry/targetring.js';
@@ -72,6 +72,8 @@ import { popEnvelope, popHighlight, POP_TIME, POP_SCALE_DIAMOND } from './select
 // The pie adds MARKER_CLEARANCE on top (geometry/diamond.js): a short shape gets no free air from
 // its own height, and Tyler asked for some space over the rider's head.
 const LIFT = DIAMOND_HALF_H + 4.7 + MARKER_CLEARANCE;
+/** Where the crystal's underside sits when it stands still — what a mark drawn in its place points at. */
+export const MARKER_BASE = LIFT - DIAMOND_HALF_H;
 
 /**
  * How high over its corner the crystal's top point reaches, at the top of its bounce.
@@ -109,6 +111,33 @@ const TRANSFER_ARC = 1.6;      // world units of extra height at the midpoint of
 const PULSE_BELOW_S = 5;
 const PULSE_HZ = 3.5;
 const PULSE_AMPLITUDE = 0.15;
+
+// The slice knock. The pie steps down an eighth at a time (`pieShown` in geometry/diamond.js), and
+// each step is the clock losing a piece — so it knocks, a scale-only swell on the kick's envelope
+// with no hop: the hop stays the level change's, which is the bigger news.
+//
+// **Quiet early, loud late**, indexed by how many slices are left after the step. With the rider
+// rush keeping two or more riders up, seven knocks per clock at one strength would be a board that
+// never stops twitching, and the early ones carry little news — a pie at 5/8 is not a problem yet.
+// The last three are where a player has to act, so they grow. 0.08 is ~1.5px on the 18px pie at
+// play zoom, the smallest that still reads as a beat rather than a render glitch; 0.24 is ~4px.
+// The step to the last slice is the loudest because it is the last *step*: from there the final
+// slice sweeps down continuously and the panic pulse takes over under five seconds.
+//
+// On a level-change frame (every second slice) the kick already swells the crystal, so the two take
+// the larger rather than adding — one knock, not a double one.
+//
+// Pie only: the plumbob and the hourglass (`?plumbob=`) drain continuously and have no slices to
+// lose. Off under Reduce Motion, and `?slicepulse=classic` turns it off.
+const SLICE_KNOCK = [0, 0.24, 0.17, 0.12, 0.08, 0.08, 0.08, 0.08];
+/** Strength of the knock for a pie stepping down to `left` slices — shared with the arrows. */
+export const sliceKnockScale = (left) => SLICE_KNOCK[left] ?? 0;
+const SLICE_PULSE = MARKER_SHAPE === 'pie' && (typeof location !== 'undefined'
+  ? new URLSearchParams(location.search).get('slicepulse') !== 'classic'
+  : globalThis.process?.env?.SLICEPULSE !== 'classic');
+const reducedMotion = typeof window !== 'undefined'
+  ? window.matchMedia?.('(prefers-reduced-motion: reduce)') : null;
+const slicesIn = (fraction) => Math.max(0, Math.ceil(fraction * PIE_SLICES - 1e-6));
 
 // --- Backgrounded, while a rider is aboard ----------------------------------
 //
@@ -251,6 +280,13 @@ export function createFareMarker(scene, phase = 0) {
   let transferPending = false;
   let refuseAt = null;
   let refusePending = false;
+  // The slice knock: how many slices the pie last showed, and the knock it set off. `knocks` counts
+  // every one, so the off-screen arrow standing in for this marker can tell a new one from the last.
+  let slices = PIE_SLICES;
+  let knockAt = null;
+  let knockPending = false;
+  let knockScale = 0;
+  let knocks = 0;
   // The step-back, and where it is heading. `bg` is eased toward `bgTarget` in `update`; `showAt`
   // snaps it, so a rider who appears while the seat is already full opens backgrounded rather than
   // shrinking in front of the player as their first act.
@@ -316,6 +352,13 @@ export function createFareMarker(scene, phase = 0) {
     // it opened as for its whole life on the board; the panic pulse carries urgency for it instead.
     if (vipMarked) return;
     diamond.setFill(fraction);
+    const now = slicesIn(fraction);
+    if (slices !== null && now < slices && now > 0 && SLICE_PULSE && !reducedMotion?.matches) {
+      knockPending = true;
+      knockScale = sliceKnockScale(now);
+      knocks += 1;
+    }
+    slices = now;
   }
 
   return {
@@ -347,6 +390,11 @@ export function createFareMarker(scene, phase = 0) {
     getFill: () => diamond.getFill(),
     /** Whether the level-change kick is mid-flight — for the headless tools. */
     isKicking: () => kickPending || kickAt !== null,
+    /** Likewise the slice knock. */
+    isKnocking: () => knockPending || knockAt !== null,
+    /** Slices left on the pie, and how many knocks it has given — for the off-screen arrow. */
+    slicesLeft: () => slices ?? PIE_SLICES,
+    knockCount: () => knocks,
     /** Likewise the select pop. */
     isPopping: () => popPending || popAt !== null,
     /**
@@ -402,7 +450,7 @@ export function createFareMarker(scene, phase = 0) {
      * snapshots its live list before it refills, so a marker shown here is not updated until the
      * next frame, and shot mode never gets one.
      */
-    showAt(nextLevel, x, z, vip = false, backgrounded = false) {
+    showAt(nextLevel, x, z, vip = false, backgrounded = false, quest = false) {
       // Straight to the opening colour with no kick: a marker that pops the moment it appears is
       // announcing a change that hasn't happened. A VIP opens straight into its fixed purple
       // instead of the urgency scale's top level — see setUrgency.
@@ -411,8 +459,10 @@ export function createFareMarker(scene, phase = 0) {
       const openColour = fareColor(nextLevel, vip);
       diamond.setColor(openColour);
       ring.setColor(openColour);
-      // One or the other, never both — see the header.
-      diamond.mesh.visible = !vip;
+      // One or the other, never both — see the header. Neither for a `quest` rider (the bank's):
+      // main.js stands the yellow side-quest "!" over them instead, and the crystal turns up only
+      // when it has a trip to time, at `beginTransfer`.
+      diamond.mesh.visible = !vip && !quest;
       mystery.mesh.visible = vip;
       // Full, whatever the level says. A rider appears with their whole clock, and the first tick
       // is a frame away — a crystal that drew empty for that frame would flash the wrong news. A
@@ -420,6 +470,12 @@ export function createFareMarker(scene, phase = 0) {
       diamond.setFill(1);
       kickAt = null;
       kickPending = false;
+      // Null rather than a full pie: the first fill after a spawn seeds it without knocking, so a
+      // fare that opens part-drained (one that starts in the car) does not announce a step it never
+      // took.
+      slices = null;
+      knockAt = null;
+      knockPending = false;
       // Slot reuse: the previous fare on this slot may have been tapped in the last half second of
       // its life, and a fresh rider opening mid-swell would announce a tap that never happened.
       popAt = null;
@@ -464,6 +520,8 @@ export function createFareMarker(scene, phase = 0) {
      */
     beginTransfer() {
       transferPending = true;
+      // A quest rider's crystal was hidden on the kerb; the clock it carries is real from here.
+      if (!mystery.mesh.visible) diamond.mesh.visible = true;
       // The kerb corner is no longer where this fare is, so the disc pulls back into its own centre
       // as the drop-off's grows out of *its* one (fares.js, beginRide). Switching one off on the
       // frame the other switched on read as two unrelated events; two discs moving in opposite
@@ -541,6 +599,17 @@ export function createFareMarker(scene, phase = 0) {
         else kick = kickEnvelope(since);
       }
 
+      if (knockPending) {
+        knockAt = elapsed;
+        knockPending = false;
+      }
+      let knock = 0;
+      if (knockAt !== null) {
+        const since = elapsed - knockAt;
+        if (since >= KICK_TIME) knockAt = null;
+        else knock = kickEnvelope(since) * knockScale;
+      }
+
       if (popPending) {
         popAt = elapsed;
         popPending = false;
@@ -602,7 +671,11 @@ export function createFareMarker(scene, phase = 0) {
       // is a glow now, and the crystal keeps its size through the whole of a fare's life — so a
       // backgrounded rider still kicks, pulses and pops at exactly the size the eye has learned
       // those gestures at.
-      diamond.mesh.scale.setScalar(1 + kick * KICK_SCALE + pulse + pop * POP_SCALE_DIAMOND);
+      //
+      // The slice knock is the exception: it lands on the kick's own frame every second slice, so
+      // the two take the larger rather than adding (see SLICE_KNOCK).
+      const knockOrKick = Math.max(kick * KICK_SCALE, knock);
+      diamond.mesh.scale.setScalar(1 + knockOrKick + pulse + pop * POP_SCALE_DIAMOND);
       poseMystery(elapsed);
     },
   };

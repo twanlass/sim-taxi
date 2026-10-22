@@ -469,8 +469,8 @@ export const CLOUD_UNIFORMS = {
   // The squall's rain cell (game/squall.js): x, z, core radius, and 1 while it is on. Its own clock,
   // because the footprint has to agree with the CPU copy in `cellMask` that the grip and the
   // headlights read.
-  uCell: { value: new THREE.Vector4(0, 0, 30, 0) },
-  uCellEdge: { value: 14 },
+  uCell: { value: new THREE.Vector4(0, 0, 20, 0) },
+  uCellEdge: { value: 10 },
   uCellTime: { value: 0 },
   // How the front falls off past the core's edge, in edges (`RAMP` in game/squall.js): the
   // drizzle's reach and share, then where the shade starts and ends.
@@ -772,14 +772,14 @@ export const GLOSS_UNIFORMS = {
   tRimDepth: { value: null },
   uRimStep: { value: new THREE.Vector2() },
   uRimDepthScale: { value: 1 },
-  uRimShape: { value: new THREE.Vector4(0.4, 0.6, 4, 0) },
+  uRimShape: { value: new THREE.Vector4(2, 2, 4, 0) },
   // Where the toon and rim looks' glint (x) and sheen (y) snap on, as cos(half-angle): higher is
   // a smaller shape. Were 0.982 and 0.86, which drew a sun-sized oval across the windscreen and
   // a broad lobe over the roof (Tyler, 2026-10-17: "crazy big highlights").
-  uToonCut: { value: new THREE.Vector2(0.996, 0.975) },
+  uToonCut: { value: new THREE.Vector2(1.001, 1.01) },
   // The flip colour: x how far the paint turns toward a deeper shade of itself at a grazing angle,
   // y the falloff's power. Per look (`PAINT_LOOK_FLIP`), `?flip=` overrides.
-  uFlip: { value: new THREE.Vector2(0, 1.6) },
+  uFlip: { value: new THREE.Vector2(0, 4) },
   // Painted reflection streaks (STREAKS): x strength, per look (`PAINT_LOOK_STREAKS`).
   uStreak: { value: new THREE.Vector4(0, 0, 0, 0) },
 };
@@ -787,7 +787,7 @@ export const GLOSS_UNIFORMS = {
 // `?rim=<name>`: one tint for every car's rim. Without one, each car's rim takes its own paint's
 // hue at full strength (Tyler, 2026-10-16: gold on the taxi), times the colour of the light.
 export const RIM_COLORS = { magenta: '#ff3df0', cyan: '#00e5ff', gold: '#ffb347', white: '#ffffff' };
-const RIM_STRENGTH = 3;
+const RIM_STRENGTH = 1; // was 3, then 0 from the workshop sliders (Tyler, 2026-10-19); 1 (Tyler, 2026-10-20)
 let rimLine = true;
 
 /**
@@ -957,6 +957,16 @@ export function softenNormals(geometry, creaseDeg = 40) {
   return geometry;
 }
 
+/**
+ * Say which function built a geometry, for the model workshop's pin (workshop/viewer.js reads
+ * `userData.src`): a click then names the builder to edit instead of "unnamed mesh". Survives only
+ * where the geometry is drawn as returned; `mergeGeometries` makes a new one and drops it.
+ */
+export function srcTag(geometry, text) {
+  geometry.userData.src = text;
+  return geometry;
+}
+
 /** A box for a smooth body, edges rounded by `radius` (clamped to the box); a plain box otherwise. */
 export function bodyBox(w, h, d, radius = BODY_ROUND) {
   if (!SMOOTH_BODY) return new THREE.BoxGeometry(w, h, d);
@@ -1112,11 +1122,11 @@ const PAINT_LOOK_NUMBERS = {
   },
 };
 // The flip colour each look wears (`uFlip.x`); `?flip=<amount>` overrides, `?flip=off` drops it.
-const PAINT_LOOK_FLIP = { rim: 0.7, real: 0.8 };
+const PAINT_LOOK_FLIP = { rim: 0.7, real: 1 };
 // The streaks each look wears (`uStreak.x`), and its rim's width in half-res texels (Tyler,
 // 2026-10-17: double the rim on realistic).
-const PAINT_LOOK_STREAKS = { real: 0.6 }; // Tyler, 2026-10-17: "0.6 looks rad"
-const PAINT_LOOK_RIM_WIDTH = { real: 8 };
+const PAINT_LOOK_STREAKS = { real: 0.25 }; // was 0.6 (Tyler, 2026-10-17: "0.6 looks rad"); 0.25 from the workshop sliders
+const PAINT_LOOK_RIM_WIDTH = { real: 1 };
 // ...but never wider than this in world units. The doubled width was judged in close-ups; at play
 // zoom on a phone (~7 half-res texels a unit) 8 texels is 1.1 units, which is the whole visible
 // flank of a car and the whole hull of a harbour ship, so both came out lit edge to edge

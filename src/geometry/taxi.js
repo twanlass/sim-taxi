@@ -11,6 +11,7 @@ import {
   turnSignalMaterial,
 } from './lights.js';
 import { addGhostOutline, addGhostMask } from './ghostoutline.js';
+import { chipPaint } from './taxiscratches.js';
 import { bumperGeometry, bumperLength, BUMPER_D, BUMPER_H } from './bumpers.js';
 import {
   BOOT_HINGE_X, HOOD_HINGE_X, HOOD_LEN, BODY_TOP, BOOT_LEN, LAMP_WIRE, LAMP_SIZE, lampSocket, lampHang,
@@ -147,6 +148,14 @@ function shellParts() {
     roof.translate(-0.2, (ROOF_BASE + 1.75) / 2 + CHASSIS_LIFT, 0);
     rakeBack(roof, -0.2 + CAR_LEN * 0.25 + 0.03, 0.06);
     parts.push(setFinish(soft(bakeColor(roof, color('taxiBody'))), FINISH.PAINT));
+    // A chrome divider across each side window, splitting front glass from back. It stands just
+    // proud of the glass (0.012 clear) and runs foot to roof so it reads as a pillar, not a stripe.
+    const pillarH = ROOF_BASE - 1.15;
+    for (const side of [-1, 1]) {
+      const pillar = new THREE.BoxGeometry(0.09, pillarH, 0.04);
+      pillar.translate(-0.27, (1.15 + ROOF_BASE) / 2 + CHASSIS_LIFT, side * (CAR_W * 0.43 + 0.012));
+      parts.push(setFinish(bakeColor(pillar, color('bumperChrome')), FINISH.METAL));
+    }
   }
 
 
@@ -169,22 +178,33 @@ function shellParts() {
   // The app icon is rendered from this mesh (tools/icon/), so it wears the same six. At CAR_LEN * 0.82 that puts a cell at ~0.55 world
   // units ≈ 4px — the finest pitch that survives. Twelve cells (square ones, matching the band's
   // own height) measure ~2px each and alias into a flicker as the car turns.
-  const STRIPE_CELLS = 6;
-  const stripeLen = CAR_LEN * 0.82;
-  const cellLen = stripeLen / STRIPE_CELLS;
-  for (const side of [-1, 1]) {
-    for (let i = 0; i < STRIPE_CELLS; i++) {
-      const cell = new THREE.BoxGeometry(cellLen, STRIPE_TOP - STRIPE_LOW, 0.06);
-      cell.translate(
-        -stripeLen / 2 + (i + 0.5) * cellLen,
-        (STRIPE_LOW + STRIPE_TOP) / 2,
-        side * (CAR_W / 2 + 0.02),
-      );
-      // Both colours painted, rather than letting the light cells fall through to the body: the
-      // body is `taxiBody` yellow, and a yellow-and-black band is a hazard stripe, not a taxi. The
-      // white is `taxiSign`, the off-white the roof sign already lights up in — the car's existing
-      // white, so the livery stays a two-colour car rather than gaining a third.
-      parts.push(setFinish(bakeColor(cell, color(i % 2 === 0 ? 'taxiTrim' : 'taxiSign')), FINISH.PAINT));
+  // The flank stripe is off for now: the chequer lives on the bonnet and boot lid instead (below).
+  // Both colours are painted rather than letting the light cells fall through to the body, since a
+  // yellow-and-black band is a hazard stripe, not a taxi; the white is `taxiSign`.
+
+  // The same two colours down the middle of the bonnet and the boot lid, two cells wide, and the
+  // roof between them stays plain yellow. Square cells (DECK_CELL) so the chequer stays a chequer
+  // at any angle; the run starts a cell clear of the windscreen's foot (x = 0.65) and of the tail
+  // (-1.7), and each is whole cells so no cell is cut short at the bumper. The plates sit
+  // DECK_LIFT over the body's top plane so they never share it (coplanar shimmer).
+  const DECK_CELL = 0.24;
+  const DECK_LIFT = 0.012;
+  const deckTop = 1.18 + CHASSIS_LIFT;
+  const deckRuns = [
+    { from: 0.72, rows: 4 }, // bonnet, working forward from the screen
+    { from: -1.05 - 0.07, rows: 2, back: true }, // boot lid, working back from the cabin
+    // The roof's flat top runs -1.08 back to 0.23 (its front edge leans back 0.45 over the rake),
+    // so five cells fit from just inside the front edge.
+    { from: 0.175, rows: 5, back: true, top: 1.75 + CHASSIS_LIFT },
+  ];
+  for (const { from, rows, back, top = deckTop } of deckRuns) {
+    for (let row = 0; row < rows; row++) {
+      for (const col of [0, 1]) {
+        const plate = new THREE.BoxGeometry(DECK_CELL, 0.024, DECK_CELL);
+        const x = from + (back ? -1 : 1) * (row + 0.5) * DECK_CELL;
+        plate.translate(x, top + DECK_LIFT, (col - 0.5) * DECK_CELL);
+        parts.push(setFinish(bakeColor(plate, color((row + col) % 2 === 0 ? 'taxiTrim' : 'taxiSign')), FINISH.PAINT));
+      }
     }
   }
 
@@ -570,6 +590,15 @@ const SCREEN_ROOF = 0.45;
 const SCREEN_HOLE_R = 0.24;
 const SCREEN_HOLE_Y = (SCREEN_LOW + SCREEN_TOP) / 2 + 0.03;
 const SCREEN_HOLE_Z = -0.28;
+// Where the driver sits, in world units off the taxi's centre: behind the hole, low in the cabin box
+// (x −1.05..0.65, y 1.15..1.75 above CHASSIS_LIFT) — so a figure started here is wholly inside the
+// shell, and game/ejection.js can bring the cabbie out through the glass instead of conjuring them
+// in the air above the bonnet.
+export const TAXI_DRIVER_SEAT = {
+  fwd: -0.35 * TAXI_SCALE,
+  y: (1.45 + CHASSIS_LIFT) * TAXI_SCALE,
+  side: SCREEN_HOLE_Z * TAXI_SCALE,
+};
 // There was a fifth piece: the struck corner of the shell crushed in, down and darkened, a vertex
 // displacement on the merged body. It read at close zoom and looked wrong — a box with one corner
 // sheared off, which at play zoom reads as a modelling fault rather than as a dent — and came out.
@@ -707,6 +736,8 @@ function buildDamage(group, lightPods, bumpers, chrome) {
 
   // The body's paint — the shell's own material (bumpers share it) and the two lids — for wear.
   const paint = [chrome, lid.material, hood.material];
+  // The chipped paint (geometry/taxiscratches.js): a patch on the same three materials.
+  const scratches = chipPaint({ shell: chrome, hood: hood.material, boot: lid.material });
   const CLEAN = new THREE.Color(1, 1, 1);
   const GRIME = color('taxiGrime');
   const FLASH = color('taxiHitFlash');
@@ -769,6 +800,15 @@ function buildDamage(group, lightPods, bumpers, chrome) {
     setGrime(t) {
       for (const m of paint) m.color.copy(CLEAN).lerp(GRIME, t);
     },
+    /**
+     * The chipped paint, by corner — a Map of `${end},${side}` → 0..1.
+     * See geometry/taxiscratches.js.
+     */
+    setWear(levels) {
+      scratches.setWear(levels);
+    },
+    /** For the headless check. */
+    scratches,
     /** The hit flash, 0..1 — an emissive `taxiHitFlash` on the same three. */
     setFlash(amount) {
       for (const m of paint) m.emissive.copy(FLASH).multiplyScalar(amount);
@@ -777,6 +817,7 @@ function buildDamage(group, lightPods, bumpers, chrome) {
     reset() {
       this.setGrime(0);
       this.setFlash(0);
+      scratches.setWear(new Map());
       for (const [key] of lamps) this.setLamp(...key.split(',').map(Number), null);
       bootHinge.scale.setScalar(0);
       hole.scale.setScalar(0);

@@ -686,20 +686,28 @@ conservative instead of exact: a car's own `isTruck` isn't rolled until after it
 assumes a possible truck on that side of the pairing — a no-op when `truckChance` is 0, which is
 every scripted scenario in `tools/` but the one that exercises trucks on purpose.
 
-The body is three InstancedMeshes rather than the car pair's two: `truckMesh` (chassis, cab and
+The body is three InstancedMeshes rather than the car pair's two: `truckMesh` (chassis, cab, roof and
 windshield, from `truckCabGeometry()`) and `truckWheelMesh` alongside a third, `truckBoxMesh`
 (the cargo box, from `truckBoxGeometry()`), all built at `TRUCK_LEN`/`TRUCK_W`. They have to be
 separate meshes rather than one taller instance of the car body: an InstancedMesh draws one
 geometry for every instance, so a visibly bigger vehicle can't share the car body's buffer no
 matter how rare it is. Only the chassis is painted per-instance — it reads `PALETTE.carBody` at
 the car's own `colorIndex`, exactly like an ordinary car's body, so a truck's livery varies the
-way a car's does. The cab and windshield are baked at the fixed dark `carGlass` colour instead,
-same as a car's own cabin glass: "make the cab black, so it looks like the cars in that sense" was
+way a car's does. The cab is a trapezoid extrusion whose front face leans back 0.5 (`TRUCK_RAKE`) over its height, which
+is the windscreen's slant. The cab and windshield are baked at the fixed dark `carGlass` colour instead,
+same as a car's own cabin glass, except the metal roof cap over the cab, which is baked white and so
+takes the livery colour like the chassis (it overhangs the glass 0.08 and sinks 0.04 into the cab's top
+so the two never share a plane; the roof is shortened by `TRUCK_RAKE` to match the cab's raked front,
+and the windshield pane is tilted to lie on that face): "make the cab black, so it looks like the cars in that sense" was
 the brief, and a car's greenhouse is always dark regardless of its body colour, so the truck's cab
 now reads as the same *kind* of part rather than as more chassis livery. The cargo box goes a step
 further and is never instance-tinted at all — it's baked at the one fixed `PALETTE.truckBox` (a
 plain tan/white) because a real box truck's box is bare aluminium or cardboard regardless of the
-cab pulling it. One InstancedMesh only ever carries one tint per instance, so a part that varies,
+cab pulling it. Its rear face carries a real recess, so the sun and AO shade its reveal: the body
+stops 0.12 short of the tail, a four-slab frame fills that depth round the opening, and a thin plate
+at `PALETTE.truckBoxDoor` (a couple of shades deeper tan than the box, so the closed door reads as a panel) closes the pocket, 0.02 proud of the body's
+rear face so the two never share a plane. All baked into the same geometry; the spill's door leaves
+stand outside the tail and cover it while they are drawn. One InstancedMesh only ever carries one tint per instance, so a part that varies,
 a part that's fixed-dark and a part that's fixed-tan are three meshes by construction, not by
 choice. `car.isTruck` is what routes a car to the right meshes everywhere that matters —
 `writeAmbient`, `wreckShell`, the paint step.
@@ -754,7 +762,7 @@ ordinary cars, a truck's mean `|pitch|` comes out well under half a car's.
 
 Two rare bodies stand in for an ordinary car at `CLASSIC_CHANCE` (1/40) each: an open-top
 convertible in the fleet's paint, and a 1980s VW T3 Westfalia camper in a baked two-tone (ivory over
-burnt orange, black rub strip, roundel on the nose, closed pop-top). Geometry is
+burnt orange, black rub strip, a roundel on the nose and another on the tail, closed pop-top). Geometry is
 `geometry/classics.js`; `?classics=classic` turns them off and `?classics=0.3` floods the map.
 
 They are **looks only**. `car.model` is read by the render pass and nothing else — speed, length,
@@ -1857,11 +1865,26 @@ play zoom on its own. Each adds a distinct ingredient rather than turning the la
 ladder above on its own). The tiers all wait for a threshold, so the commonest first hit — a 24-HP
 tailgate from full — showed a lamp a few pixels across and nothing else. So three things start at
 the first hit and grow with every one after it: the body **flashes red** twice as the hit lands
-(`taxiHitFlash`, an emissive, 0.3s); the **paint dulls** toward `taxiGrime`, 40% of the way at the
-first hit and the rest of the way down to empty, eased in over a quarter second; and **white steam**
+(`taxiHitFlash`, an emissive, 0.3s); the **paint chips to the metal** at the corner that was struck
+(below); and **white steam**
 comes off the bonnet from the first hit, faster down to the red line, where the smoke in tier 3 takes
 over — so the smoke grows out of something rather than arriving. The rattle starts at tier 2 rather
 than 3, so a car with its boot up also drives broken.
+
+**The chipped paint** (geometry/taxiscratches.js; `?taxidamage=classic` for the tint it replaced). The
+paint keeps its colour and comes off in voxel chips, drawn by a patch on the paint's own shader
+rather than by geometry. Each fragment finds its 0.09-unit voxel in the car's space and scores it:
+value noise sampled at the voxel's centre (so whole cells go together), plus its distance to the
+nearest corner (so chips open from the corners inward). Under the wear threshold it is bare steel
+(`taxiBareMetal`). Wear is one value per corner, blended across the car: the struck corner reaches
+0.3 at the first hit and 1 at empty, the other three follow on the square of that up to 0.6. Only the
+taxi's yellow chips (the test is the vertex colour), so glass, chrome and the chequer are left
+alone. The shell and both lids share the one wear uniform, so a lid swung up, the wreck and the crash
+replay all wear the same chips. Each chip had a primer ring at first — dark grey, which read as a
+second chequer, then red oxide, which read as noise — and it came out: plain steel is the look.
+The hit that wrecks the car never reaches `hit`, so `scuff` wears its
+corner in full before the wreck takes the shell. A first cut laid the chips on as merged cell boxes;
+it needed a copy on each lid and came out for the shader.
 
 And one piece off the tiers: **rear-ending a car pops the bonnet**, however much HP is left. It is the
 boot's mirror image, hinged at the foot of the windscreen, and it flaps on the same spring for the
@@ -2010,11 +2033,28 @@ unit, which reads as a wreck being panned across rather than as one car hitting 
 **A hard enough wreck throws the driver out through the windscreen.** `game/ejection.js`. At a
 closing speed of `EJECT_CLOSING` (18 u/s) or more — a T-bone or a head-on at boost cruise, a
 full-boost rear-end into a stopped queue, anything in overdrive, but not rear-ending traffic going
-the same way — a cabbie in a blue shirt and a dark cap (the riders' rig at 0.8 scale) leaves the
-front of the cabin, tumbles head over heels with arms windmilling and legs pedalling, bounces once
-or twice with a puff and a thud, and slides to a sprawl ~16 units down the road. Thrown slightly
+the same way — a cabbie in a blue shirt and a dark cap (the riders' rig at 0.8 scale) squeezes out
+through the hole in the windscreen, tumbles head over heels with arms windmilling and legs pedalling, bounces once
+or twice with a puff and a thud, and slides to a sprawl down the road. Thrown slightly
 away from the struck car's side so they do not land in its fireball. The end-of-beat camera frames
 the point halfway between the wreck and the landing, so both stay in a portrait phone's shot.
+
+**How hard the hit was decides how big the throw is.** The closing speed is mapped onto 0..1 from
+`EJECT_CLOSING` (18) to `HARDEST` (34, about the top of what the game produces), and the height,
+spin and distance all climb with it: launch speed up 5.5 → 14 (apex 2.6 → 5.4 units), spin 10 → 20
+rad/s, and the figure comes to rest 9 → 18 units out, with the forward speed worked back from that
+distance so a high throw does not overshoot the shot. Height and spin carry most of the difference
+because they are what is on screen: the live beat and the replay's last cut show only the first ~0.7s
+of the flight, so the landing is never seen. It used to grade distance only — `0.7 × closing`
+clamped to 10..18 u/s at a fixed height and spin — which made the furthest throw 1.4× the shortest
+and every hit from 25.7 up identical. `?ejectthrow=classic` brings that back.
+
+**They come out of the cab, not out of thin air.** The figure starts in the driver's seat
+(`TAXI_DRIVER_SEAT`, geometry/taxi.js) at 0.3 of full size, hidden by the shell, and over its first
+`EMERGE` (0.15s of sim time, ~0.8s under the crash slow-mo) slides out to its arc while growing to
+full size on an ease-out. It is solid throughout. Before this it appeared full size in the air
+above the bonnet on the impact frame, and a 0.25s opacity fade on top of that still read as a pop:
+a see-through figure already in mid-air that snapped solid. `?eject=classic` brings the fade back.
 
 **It never lands in a building.** The throw follows the taxi's heading, so `fire()` walks the
 ground track first and, if it meets a block, unbridged river or the edge of the map, scales every
@@ -2061,13 +2101,14 @@ replaced, an opacity.
 ### The replay
 
 `game/replay.js`. A wreck no longer goes straight from the live beat to the retry card. After
-`REPLAY_LEAD` (1.2s) of the slow-mo pull-in, the frame cuts to the moment of impact three more
+`REPLAY_LEAD` (1.55s) of the slow-mo pull-in, the frame cuts to the moment of impact three more
 times, about a second each, from three angles picked from all the way round it (below), the last
 the tightest. Cut, crash, cut, crash, cut, crash, card. Each shot opens 0.3s of sim before the
 hit and plays at 0.8× into it and 0.5× through the blast, with a white flash on each cut and the
 crash sound under each one. The last shot eases further, to 0.25× over a longer ramp (`slow` and
-`ramp` in `SHOTS`), so the final hit plays in real slow motion, then holds its final frame for 0.4s
-of wall clock (`hold`), still orbiting, so the last word lands before the card — about 4.7s for all
+`ramp` in `SHOTS`), so the final hit plays in real slow motion and runs 0.7s of sim past it (the first two stop at
+0.3), about a second longer on screen than the others, then holds its final frame for 0.4s
+of wall clock (`hold`) so the last word lands before the card — about 5.7s for all
 three. The card then comes up on that frame: a jump cut, with no hand back to the live wreck in
 between. There is no letterbox or REPLAY tag: the
 first version had both, played the whole approach in slow motion over two longer angles, and ran
@@ -2076,8 +2117,9 @@ old hold, as does shot mode.
 
 **It is a recording, not a re-run.** Nothing in the sim can be stepped backwards, and re-firing the
 blast for the camera would have been a *different* explosion. So `createTape` samples, at 30Hz of sim
-time, every dynamic `InstancedMesh` in the scene plus every node under the taxi's group. That one
-rule picks up far more than the two cars: the traffic, its lamp pods, and every particle pool the
+time, every dynamic `InstancedMesh` in the scene plus every node under `traffic.drawnRoots` — the
+taxi's group and every group a car has worn in place of its instance (the cruisers, the racer, the
+fire engine). That one rule picks up far more than the two cars: the traffic, its lamp pods, and every particle pool the
 wreck is drawn with — `blast.js`, `dust.js`, `sparks.js`, `flames.js` are all instanced, `aAlpha`
 included — so what the replay shows is what the player saw. A sample is ~150KB and the ring holds
 3.2s of it. Playback interpolates between samples, with one exception: an instance that moved more
@@ -2090,6 +2132,17 @@ pause, and the tape draws the frame. Boats, pedestrians, skid marks and the sky 
 stand where the live beat left them. The wreck shells are scrubbed alongside with `wreckage.seek()`,
 which is free because they were already a closed form of their age; the struck car's shell is
 hidden before the impact (`hideBefore`), because until then that car was an instance on the tape.
+
+**A car drawn by its own group is taped because it was dressed, not because it was listed.** A
+group of ordinary meshes looks like scenery from the outside, so the tape has to be told which
+groups are vehicles. It used to be told by a list in main.js, and every skinned vehicle added after
+the list was written was missing from it: on the impact frame `wreckShell` hides the live group and
+the shell only exists from t0, so the struck car was absent from the approach of every cut and
+popped in with its own fireball — the cruiser first, then the racer and the fire engine. Now the
+only way to put a group in a car's place is `traffic.wearSkin(car, draw, root)`, which adds `root`
+to the live `drawnRoots` Set the tape reads on every sample; a skin assigned by hand is counted
+(`unrootedSkins`), and `tools/wreckreplay.mjs` crashes into every kind of vehicle and fails if any
+of them is missing from a frame across the hit.
 
 **The live beat is also the recording of the aftermath.** The longest shot plays `REPLAY_POST`
 (0.45s of sim) past the hit, and the only frames after the hit are the ones the live beat recorded.
@@ -2557,8 +2610,9 @@ It is a car in `cars` — it follows its lane, queues, signals, takes a route, c
 whatever is behind it queues behind it — but it has **no instance** (`enterGuest` in
 `sim/traffic.js`). It is in neither `ambient` nor `trucks`, so it takes no buffer slot, never touches
 the density ramp's ordering or the police block at the tail of `ambient`, and leaving is a splice out
-of `cars`. The render pass hands its pose to `car.skin` and skips `writeAmbient`; the wreck path asks
-`car.guestWreck` for a shell, because there is no instance to copy one from.
+of `cars`. Its owner dresses it with `traffic.wearSkin` (which puts its group on [the replay's
+tape](#the-replay)); the render pass hands its pose to `car.skin` and skips `writeAmbient`; the
+wreck path asks `car.guestWreck` for a shell, because there is no instance to copy one from.
 
 It is not police on purpose: the robbery and the patrol share the cop fleet and both clear, recycle
 and re-route everything in `policeCars` at the end of an event. A fire engine caught in that would
@@ -3084,8 +3138,9 @@ same hole one layer over — it was tinted from `carBody[colorIndex]` — and go
 now, and carries its cab — and its bar, dark (the lit pods collapse, the housing and lenses ride
 the roof). Without it the bar vanished on impact. The patrol cruiser's wreck reads its pose off
 `car.skinPose`, because a skinned car's instance is collapsed: read off the instance, the whole
-cruiser decomposed to a NaN scale and vanished. `police.group` is a root of the crash replay's tape
-for the same reason the taxi's group is — it is not an instance, and was missing from every cut.
+cruiser decomposed to a NaN scale and vanished. `police.group` is on the crash replay's tape for
+the same reason the taxi's group is — it is not an instance, and was missing from every cut —
+by way of `wearSkin` ([the replay](#the-replay)).
 
 **The two-tone.** A cop is a light-blue body under a white cab, after the 1980s NYPD cruiser, where
 it used to be a solid blue (#2E5FA8) a few steps off the ordinary blue car — one blue car among
@@ -3259,9 +3314,12 @@ reds, yields and can be rammed, and while chasing it overtakes and brake-checks 
 because those are behaviours of any chasing cop rather than of the robbery.
 
 **What makes it *the* patrol car is the mesh.** `car.skin` in `sim/traffic.js` hands the pose the
-render pass composed to a callback and collapses the car's own instance; `police.wear(car)` draws
+render pass composed to a callback and collapses the car's own instance; `police.wear(car, traffic)` draws
 the cruiser there instead — the fleet's own two-tone car and bar, plus two real point lights behind
-the lamps, which an instanced pod cannot carry. `game/coplights.js` skips a skinned car for that
+the lamps, which an instanced pod cannot carry. Its windscreen is raked: `policeGeometry()` leans the
+glass of the cabin's front half back by `WINDSCREEN_RAKE` (0.3) over its height, foot fixed on the
+bonnet, and slides the white cab cap back by the full amount to cover it — on the cruiser's own copy,
+since `carGeometry()` is every ambient car's cabin. `game/coplights.js` skips a skinned car for that
 reason: it brings its own lamps. The unlit bar (housing and painted lenses) stays on the roof when
 the bar goes dark as the car drives off, so it still reads as police.
 

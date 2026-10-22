@@ -9,6 +9,7 @@ import { deckHeightAt } from '../city/river.js';
 import { cityNetwork } from '../city/roadnet.js';
 import { turnPosition } from '../sim/traffic.js';
 import { DECK_SEGMENTS } from '../geometry/bridge.js';
+import { GRADE_UNIFORMS } from './colorgrade.js';
 
 /**
  * Draws the taxi's planned route as a band of paint laid down the lane it will drive.
@@ -664,6 +665,7 @@ export function createRouteLine(scene) {
   // whereas one float per vertex interpolates the length of a 20-unit straight for free.
   const material = new THREE.ShaderMaterial({
     uniforms: {
+      ...GRADE_UNIFORMS,
       uColor: { value: new THREE.Color(PALETTE.routeLine) },
       uOpacity: { value: ROUTE_OPACITY },
       uLength: { value: 1 },
@@ -705,6 +707,7 @@ export function createRouteLine(scene) {
       uniform float uGrabDist;
       uniform float uStop;
       varying float vDist;
+      #include <colorgrade_pars_fragment>
       const float PULSE_PERIOD = ${PULSE_PERIOD.toFixed(4)};
       const float PULSE_SPEED = ${PULSE_SPEED.toFixed(4)};
       const float PULSE_SHARPNESS = ${PULSE_SHARPNESS.toFixed(4)};
@@ -758,6 +761,7 @@ export function createRouteLine(scene) {
         vec3 rgb = mix(uColor, vec3(1.0), min(1.0, boost + uGrab * focus * GRAB_WHITEN));
         gl_FragColor = vec4(rgb, a);
         #include <colorspace_fragment>
+        #include <colorgrade_fragment>
         gl_FragColor = uMultiply > 0.5
           ? vec4(mix(vec3(1.0), gl_FragColor.rgb, a), 1.0)
           : vec4(gl_FragColor.rgb * a, a);
@@ -976,5 +980,7 @@ export function createRouteLine(scene) {
     replaySweep,
     blend: () => blendName,
     hide: () => { mesh.visible = false; },
+    /** How strongly the band is laid down — the street racer's ghost route wears a fainter one. */
+    setOpacity: (v) => { material.uniforms.uOpacity.value = v; },
   };
 }

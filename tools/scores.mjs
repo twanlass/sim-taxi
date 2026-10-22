@@ -217,6 +217,41 @@ const cashes = (store) => loadScores(store).map((e) => e.cash).join(',');
   check('no store at all is unseen', createSeenFlag({ storage: null }).get() === false);
 }
 
+// --- Demo mode (game/progress.js) --------------------------------------------
+// Everything shows again, and the player's own progress is never written.
+{
+  const { createDemo, createSeenFlag, createUnlockFlag, DEMO_KEY } = await import('../src/game/progress.js');
+  const store = fakeStore();
+  const session = fakeStore();
+  const real = createSeenFlag({ storage: store, key: 'k.seen' });
+  real.set();
+  const won = createUnlockFlag({ storage: store, key: 'k.won' });
+  const demo = createDemo({ storage: store, session, search: '' });
+  check('Demo mode starts off and hidden', !demo.on() && !demo.revealed());
+  demo.set(true);
+  check('and is remembered once switched on', store.getItem(DEMO_KEY) === '1'
+    && createDemo({ storage: store, session, search: '' }).on());
+  const seen = createSeenFlag({ storage: store, key: 'k.seen', demo });
+  check('a seen flag reads unseen under Demo mode', seen.get() === false);
+  seen.set();
+  check('is seen for the rest of the run once shown', seen.get() === true);
+  const fresh = createSeenFlag({ storage: store, key: 'k.fresh', demo });
+  fresh.set();
+  check('and writes nothing to the store', store.getItem('k.fresh') === null);
+  const unlock = createUnlockFlag({ storage: store, key: 'k.won', demo });
+  check('an unlock reads earned under Demo mode', unlock.get() === true && won.get() === false);
+  unlock.set();
+  check('and earning it there writes nothing', store.getItem('k.won') === null);
+  demo.set(false);
+  check('switching it off hands back the real flags', seen.get() === true && fresh.get() === false
+    && unlock.get() === false);
+  const forced = createDemo({ storage: fakeStore(), session, search: '?demo' });
+  check('?demo forces it on and reveals the row', forced.on() && forced.forced() && forced.revealed());
+  check('?demo=off forces it off', !createDemo({ storage: store, session, search: '?demo=off' }).on());
+  const turns = [1, 2, 3].map(() => forced.rotate(['a', 'b'], 'test'));
+  check('the cards rotate across runs', turns.join('') === 'aba', turns.join(''));
+}
+
 const passed = results.filter(Boolean).length;
 for (const line of failures.slice(0, 12)) console.log(`  FAIL ${line}`);
 console.log(`${passed}/${results.length} checks passed`);

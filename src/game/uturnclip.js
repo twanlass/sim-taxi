@@ -36,6 +36,8 @@ export const BOOST_OFF = 1.3;
 export const TAP_1 = 1.4;
 export const TAP_2 = 1.7;
 export const TAP_LEN = 0.13;          // how long a key reads as pressed
+/** When the game lands the U-turn's combo: the second tap starts the spin (bootleg.js `onSpin`). */
+export const LANDS_AT = TAP_2;
 const KEYS_OFF = 4.2;                 // the row dims for the last beat, then the loop starts again
 
 /** The loop, in seconds: the length of the recording. */

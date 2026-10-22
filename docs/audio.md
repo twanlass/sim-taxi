@@ -104,7 +104,7 @@ event starts a bed, so no event can leave one stuck on.
 
 | Bed | Driven by |
 |---|---|
-| Engine idle | Always on. Playback rate 0.9 → 1.35 from standstill to cruise, ducked to a quarter under Loco Mode, faded out when the run ends |
+| Engine idle | On from **Play** to the end of the run — silent under the title menu, as are the pull-away, takeoff and blinker (`menu` in `sfx.update`). Playback rate 0.9 → 1.35 from standstill to cruise, ducked to a quarter under Loco Mode, faded out when the run ends |
 | Loco engine loop | Fades in 6 s into a Loco hold, over the activate's tail, and out on release. Rate rises across the overdrive band |
 | Police siren | Always running, silent until a car on the map has `siren` set (a patrol giving chase, a robbery's cops, the arrest crew). Its level comes from the nearest one's distance to the taxi (`sirenLevel` in main.js): full inside 18 units, easing to a floor of 0.35 by 70, so a chase across the map is still heard. Faded out when the run ends |
 | Turn signal | Runs while `taxi.signalHand` is set. A new voice starts for each indicating window so it opens on a tick, just as the lamp opens lit. The master ticks every 0.9 s, which is the sim's 1.1 Hz `TURN_SIGNAL_HZ`, so the sound stays in step with the lamp |
@@ -184,7 +184,7 @@ right now"). Rain still comes both ways, to try in the mix.
 |---|---|---|---|
 | `spawn` | 16 A–C | Once per entrance, the city building itself (the wave) | first frame of `cityEntry.running()` with a context and a decoded take; re-armed by a replay. **Not heard under the title screen**, which settles the entrance before anything can be tapped |
 | `gate` | 17 | The depot's roller door at the start of a run | `opening.phase()` going `settle` → `door` |
-| `bridge` | 18 | The whole drawbridge cycle, from the barriers starting down | `drawbridge.state.phase` → `closing`; steered for 26 s |
+| `bridge` | 18 | The whole drawbridge cycle, from the barriers starting down | `drawbridge.state.phase` → `closing`; steered for 26 s, faded out (τ 0.15 s) the frame the gates start back up (`raising`) |
 | `city` | 19 B | Bed, everywhere, always | — |
 | `construction` | 20 MONO | Bed at the roadworks' closed block while it stands, faded with it | `roadwork.state` |
 | `birdsUp` / `birdsDown` | 21 strong A–C / soft A–C | A pigeon flock scattering / the last of it landing | `flock.state.flights` / `.landings` |
@@ -227,16 +227,19 @@ afconvert's encode.
 
 ## The radio
 
-The music is a car radio, the station KPRS. On the **title menu** it is not on the air yet: the
-first tap starts one of the songs at random, and more follow back to back (no ads, no ID) for
-as long as the menu is up. **Play** cuts it (60 ms down) to `MUSIC_radio_intro` (6.3 s; it replaced
+The music is a car radio, the station KPRS. The **title menu** has no music at all: the first tap (at boot, in the iOS app)
+unlocks the effects (the menu's taps, the logo, the city's beds; nothing of the taxi's, which waits for Play too) and decodes the station in the background, but the
+radio stays off until **Play**, so the music arrives as the payoff for starting a run (Tyler, October
+2026). `?titlemusic=classic` brings back the menu's songs: the first tap starts one at random, more
+follow back to back (no ads, no ID) for as long as the menu is up, and Play cuts it (60 ms down).
+**Play** opens the station on `MUSIC_radio_intro` (6.3 s; it replaced
 a 15 s one in October 2026), the announcer's "beautiful day in this concrete jungle", then a hard cut to one of four songs at random, and at the end of each a fresh pick, never the
 song that just played. The songs are Nicolás's, written for the station (Block 2, October 2026):
 `26_MUS_rolling` (funk), `27_MUS_upbeat` (funk with vocals), `28_MUS_hiphop` and `33_MUS_indiepop`,
 40 to 50 s each with short intros and clean endings. They replaced four 30 s songs
-(`MUSIC_country`, `MUSIC_jazz`, `MUSIC_rock`, `MUSIC_funk`), which `?songs=classic` puts back on
-the air. Only the set on the air is fetched and decoded; the ⚙️ panel's ▶ on one of the other set
-fetches it on asking. Between songs the station talks:
+(`MUSIC_country`, `MUSIC_jazz`, `MUSIC_rock`, `MUSIC_funk`), deleted in October 2026: their source
+was never recorded, and `?songs=classic` kept them in the App Store build behind a flag the app has
+no way to set. Between songs the station talks:
 
 - **An ad break every 2 songs** (`RADIO.adEvery`): `RADIO_break_in` (the tee-up), one of three ads
   (`RADIO_ad_earls`, `RADIO_ad_le_barge`, `RADIO_ad_loco_juice`) at random and never the last one,
@@ -245,10 +248,11 @@ fetches it on asking. Between songs the station talks:
   due, and the ID follows the break rather than splitting it.
 
 So the hour runs: intro, song, song, *break*, song, *ID*, song, *break*, song, song, *break*, *ID*, …
-The menu's song is never the first song after the intro. Play again reloads past the title screen,
+Under `?titlemusic=classic` the menu's song is never the first song after the intro. Play again reloads past the title screen,
 so that run goes straight to the intro on its first tap, as do `?title=off` and `?dev`. Before
 October 2026 the station went on the air on the first tap anywhere, so the intro played under the
-menu and was usually over by the time the run began; `?menumusic=classic` keeps that.
+menu and was usually over by the time the run began; `?menumusic=classic` keeps that. Between then
+and the silent menu, the menu played songs alone until Play (#519); `?titlemusic=classic` keeps that.
 `__taxi.sfx.state.radio` lists the last few items scheduled.
 
 It lives in `sfx.js` beside the effects (`RADIO`, `RADIO_FILES`, `startRadio`) but outside
@@ -293,8 +297,8 @@ The station talks over the edges of the songs the way a DJ does (`RADIO_FADE` in
 The ads keep their hard edges either side, being produced pieces of their own. A track that decoded
 too late to overlap simply follows.
 
-**Each game opens on a different song.** The songs that opened the last session (the title menu's
-first song and the first song after the intro) are remembered in `localStorage`
+**Each game opens on a different song.** The songs that opened the last session (the first song
+after the intro, and under `?titlemusic=classic` the title menu's first song too) are remembered in `localStorage`
 (`simTaxi.openingSongs`), and this session's first picks avoid them while there is another to play.
 
 ### The dash radio
@@ -302,8 +306,8 @@ first song and the first song after the intro) are remembered in `localStorage`
 From **Play** the station sounds as if it is coming from a cheap AM set in the taxi, and it **opens
 out into the full mix as the car rolls out of its garage** in the
 [opening vignette](gameplay.md#the-opening-vignette): the film move from music playing in the scene
-to music playing over it. The menu's song is full-range, so Play is also the moment you get in the
-car. The in-car end is crushed hard on purpose, because the reveal is only as big as the distance
+to music playing over it. The menu is silent, so Play is also the moment the radio comes on, and
+it comes on in the car. The in-car end is crushed hard on purpose, because the reveal is only as big as the distance
 between the two ends (`DASH` in `sfx.js`):
 
 - **Band**: high-pass at 700 Hz, an 8 dB bump at 1.4 kHz, low-pass at 2 kHz, both pass filters
@@ -330,14 +334,36 @@ on the next frame. Only the station goes through it: the ⚙️ panel's track pr
 
 ## Gestures, pauses and the phone
 
-- **Nothing can play before a tap**, the startup screen's sting in the iOS app aside: it runs on a
-  context of its own (`game/splashsound.js`, see [gameplay.md](gameplay.md#the-startup-screen)).
-  Every browser keeps an `AudioContext` suspended until the page has been touched. The context is created inside the first `pointerdown`/`touchend`/`keydown`
-  (Safari only starts one from inside a gesture), and the files are decoded then. The fetches start
-  at boot, so the bytes have usually arrived by the time of that first tap.
+- **In a browser nothing can play before a tap.** Every browser keeps an `AudioContext` suspended
+  until the page has been touched, so the context is created inside the first
+  `pointerdown`/`touchend`/`keydown` (Safari only starts one from inside a gesture), and the files
+  are decoded then. The fetches start at boot, so the bytes have usually arrived by the time of that
+  first tap.
+- **The iOS app starts at boot.** Its shell lifts the gesture rule
+  (`mediaTypesRequiringUserActionForPlayback = []`), which is also what lets the startup screen's
+  sting play on a context of its own (`game/splashsound.js`, see
+  [gameplay.md](gameplay.md#the-startup-screen)). So `createSfx` creates its context and starts
+  decoding straight away, under the logo, and the title menu comes up with the city already
+  sounding. Until October 2026 it waited for a tap like a browser, and the menu sat silent until
+  then plus the time to decode every file. If WebKit holds the context suspended anyway, the first
+  tap resumes it.
+- **The city's beds decode first.** The files decode in waves, each waiting on the last: the spawn's
+  takes (the one sound with a deadline), then the city loop, then the other beds, then everything
+  else, and the radio after that while it is off the air. Each bed starts as soon as its own file
+  is in. It used to be one batch of all 73 files with nothing starting until the slowest had
+  finished, the city loop about 50th in the queue and the station's ~185 s ahead of it.
 - **The world stopping stops the sound.** The pause and the robber's line both call
   `sfx.hold(true)`, which suspends the context. A door scheduled to close is on the audio clock, so
   it waits with everything else. A hidden tab suspends it too.
+- **Coming back from another app.** Showing the page again resumes the context, and every tap
+  resumes it again while it is not running. That was not enough in the iOS app: WKWebView can hand
+  back a context that never resumes, or one that says `running` with a clock that has stopped, and
+  the game stayed silent however much it was tapped. So each tap also compares the audio clock
+  with the wall clock since the last tap that saw it moving, and a context that has gone
+  `REVIVE.after` (1.5 s) of taps without keeping time is closed and rebuilt inside the tap
+  (`revive` in `game/sfx.js`). The beds come back off the decoded buffers and the radio carries on
+  with its next track; anything mid-play is lost. A held context (the pause) is never judged.
+  `__taxi.sfx.state.revived` counts the rebuilds.
 - **iOS**: `navigator.audioSession.type = 'playback'` (Safari 16.4+), so the game plays through
   the silent switch — it carries its own music, not just effects. It stops the player's music
   rather than mixing with it; `'ambient'` did the opposite and left a phone on silent hearing
@@ -458,7 +484,8 @@ and 1.25, a flatbed crate is `crash` at 0.3 and 1.6, and `land` scales with the 
 ## Checking it
 
 `window.__taxi.sfx.state` reports `{ ready, loaded, total, muted, held }`. `loaded` should equal
-`total` (74) after the first tap. `window.__taxi.sfx.play('crash')` fires any one-shot by name, and
+`total` (74) after the first tap (at boot, in the iOS app); `ready` is the last wave landing, and the
+beds do not wait for it. `window.__taxi.sfx.play('crash')` fires any one-shot by name, and
 `tuning()`, `tune(partial)` and `reset()` reach the same mix the Audio sections edit. The
 module is in check.mjs's `BOOT` list, which proves it imports cleanly in node, where it builds a
 no-op.

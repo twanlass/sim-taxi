@@ -22,11 +22,20 @@ import { BARGE_AIR, TUG_AIR } from '../city/river.js';
 // sized off the **water**, which is the thing they are seen against: the water is 9.2 across on an
 // ordinary channel and 7.87 where one bank is an arterial, and a working barge fills most of it.
 
-/** Barge: half the water across — 4.2 against 9.2, or 7.87 where one bank is an arterial — and
- *  eleven long, a little over three cars. It was 16 × 6 for a while, three quarters of the channel,
+// **The river got wider and the barge followed it, in plan only.** #563 took the water from 7.87
+// to 10.87 on the narrow build (an arterial bank), which left the 4.2 beam at 39% of the channel
+// rather than 53%. A quarter bigger puts it back at 48%; 15% was tried and barely showed at play
+// zoom. It grows in length and beam by `BARGE_SCALE` and **not in height**: every height on this
+// boat is pinned under the flat span's soffit (`BARGE_AIR`, 0.02 of headroom), so a uniform scale would have it ask for the lift like a
+// sailboat. The wheelhouse, funnel and fenders keep their size, which is right — they are sized to
+// a person, not to the hull.
+const BARGE_SCALE = 1.25;
+
+/** Barge: about half the water across — 5.25 against 12.2, or 10.87 where one bank is an
+ *  arterial — and 13.75 long, four cars. It was 16 × 6 for a while, three quarters of the channel,
  *  which read as big and also as a slab; a trash barge wants to be a *heap* with a boat under it. */
-export const BARGE_LEN = 11;
-export const BARGE_BEAM = 4.2;
+export const BARGE_LEN = 11 * BARGE_SCALE;
+export const BARGE_BEAM = 4.2 * BARGE_SCALE;
 /** Sailboat: a thirty-footer at car scale. Not much longer than the old tug — what grew is the mast. */
 export const TUG_LEN = 6.0;
 export const TUG_BEAM = 2.4;
@@ -116,7 +125,7 @@ const BARGE_DRAFT = 0.3;
 // quarter-ellipse over `BOW_ROUND` of the length rather than one raked step. It stops at a 0.38
 // beam fraction instead of a point — a barge that came to a point would be a ship.
 const BARGE_STATIONS = 21;
-const BOW_ROUND = 2.4;
+const BOW_ROUND = 2.4 * BARGE_SCALE;
 const BARGE_PLAN = [];
 const BARGE_RAKE = [];
 for (let k = 0; k < BARGE_STATIONS; k++) {
@@ -242,7 +251,8 @@ export function createBargeMesh(rng) {
     { w: 0.5, col: PALETTE.trashWhite, shape: 'box' },
   ];
   // Dense enough that the mound under them only shows in the gaps: a heap, not a deck with litter.
-  const pieces = 85;
+  // Scaled with the deck's area, so a bigger barge is a bigger heap and not a sparser one.
+  const pieces = Math.round(85 * BARGE_SCALE * BARGE_SCALE);
   // Pieces that hit the ceiling each stop a step lower than the last. Clamped flat to `ceil` they
   // all shared one plane — 18 to 25 of the 85 per barge, measured over five seeds — and their
   // overlapping tops z-fought across the crown of the heap. A counter rather than an rng draw, so
@@ -404,18 +414,21 @@ export function createTugMesh(rng) {
   // The band is a hair wider and shorter than the cabin, so no face of one lies on a face of the
   // other.
   const cabinZ = -L * 0.1;
-  parts.push(block(1.25, 0.32, L * 0.36, 0, SAIL_DECK_Y, cabinZ, white));
+  const cabin = jitterColor(PALETTE.sailCabin, rng, { l: 0.015, s: 0.01 });
+  parts.push(block(1.25, 0.32, L * 0.36, 0, SAIL_DECK_Y, cabinZ, cabin));
   parts.push(block(1.27, 0.1, L * 0.36 - 0.25, 0, SAIL_DECK_Y + 0.12, cabinZ, PALETTE.rigging, FINISH.GLASS));
 
-  // The mast, from the deck to `TUG_AIR` exactly.
+  // The mast, from the deck to `TUG_AIR` exactly: the tallest the arched spans allow. A 1.5x mast
+  // (4.82) was tried at the bench and stood through the bridge decks, so it is capped here.
   const foot = SAIL_DECK_Y;
   const mastH = TUG_AIR - foot;
+  const mastTop = foot + mastH;
   const mast = new THREE.CylinderGeometry(0.055, 0.09, mastH, 8);
   mast.translate(0, foot + mastH / 2, MAST_Z);
   parts.push(setFinish(bakeColor(mast, PALETTE.mast), FINISH.METAL));
 
   // Spreaders, three fifths of the way up, and the shrouds over them to the deck edge.
-  const top = new THREE.Vector3(0, TUG_AIR - 0.06, MAST_Z);
+  const top = new THREE.Vector3(0, mastTop - 0.06, MAST_Z);
   const sprY = foot + mastH * 0.6;
   const sprW = 0.5;
   parts.push(rod(new THREE.Vector3(-sprW, sprY, MAST_Z), new THREE.Vector3(sprW, sprY, MAST_Z), 0.04, PALETTE.mast));
@@ -426,12 +439,9 @@ export function createTugMesh(rng) {
     parts.push(rod(tip, chain, 0.03, PALETTE.rigging));
   }
 
-  // Forestay to the stemhead and backstay to the transom: the two lines that make the triangle,
-  // and the triangle is what says "sailboat" from across the map. The forestay carries the jib,
-  // rolled up round it, so it is drawn as a thin white spar rather than as wire.
-  const stem = new THREE.Vector3(0, SAIL_DECK_Y, L / 2 - 0.15);
+  // Backstay to the transom. There is no forestay: it was a fat white furled-jib spar from the
+  // masthead to the stemhead and read as a pole stuck diagonally in the bow, so it came out.
   const transom = new THREE.Vector3(0, SAIL_DECK_Y, -L / 2 + 0.15);
-  parts.push(rod(top, stem, 0.08, white, FINISH.PAINT));
   parts.push(rod(top, transom, 0.03, PALETTE.rigging));
 
   // The boom, and the mainsail lowered onto it under a blue cover: fat at the mast where the sail
@@ -439,8 +449,24 @@ export function createTugMesh(rng) {
   // stick or a box.
   const boomY = SAIL_DECK_Y + 0.6;
   const boomAft = -L / 2 + 0.45;
-  parts.push(spar(boomAft, MAST_Z - 0.02, 0.04, 0.04, boomY, PALETTE.mast, 6));
-  parts.push(spar(boomAft + 0.25, MAST_Z - 0.08, 0.08, 0.17, boomY + 0.12, trim, 8, FINISH.MATTE));
+  // Both swung 2.5 degrees about the mast (the boom's pivot), so the sail sits slightly off the
+  // centreline rather than dead astern.
+  const swing = (geo) => {
+    geo.translate(0, 0, -MAST_Z);
+    geo.rotateY(THREE.MathUtils.degToRad(2.5));
+    geo.translate(0, 0, MAST_Z);
+    return geo;
+  };
+  parts.push(swing(spar(boomAft, MAST_Z - 0.02, 0.04, 0.04, boomY, PALETTE.mast, 6)));
+  parts.push(swing(spar(boomAft + 0.25, MAST_Z - 0.08, 0.08, 0.17, boomY + 0.12, trim, 8, FINISH.MATTE)));
+
+  // A blocky outboard clamped to the transom: a dark cowl on the deck line, a leg dropping past
+  // the waterline and a little prop block at its foot. It reaches 0.3 past the stern, so the boat's
+  // length (TUG_LEN) and the clearance chain above are unchanged by it.
+  const sternZ = -L / 2;
+  parts.push(block(0.46, 0.5, 0.5, 0, SAIL_DECK_Y - 0.05, sternZ - 0.1, PALETTE.rigging));
+  parts.push(block(0.16, 0.8, 0.22, 0, -0.25, sternZ - 0.2, PALETTE.mast, FINISH.METAL));
+  parts.push(block(0.1, 0.1, 0.3, 0, -0.32, sternZ - 0.2, PALETTE.rigging));
 
   return merge(parts);
 }

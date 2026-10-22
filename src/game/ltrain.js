@@ -45,9 +45,10 @@ import { markOccluder, setOccluderDepthMaterial } from './ssao.js';
 // paid by the fade below rather than by keeping it low.
 //
 // **Faded where it covers something that matters.** The taxi already has its ghost outline for
-// when a building hides it, but a fare marker does not, and a deck across a rider's kerb is a fare
-// the player cannot see. So the structure and the train dither out over whatever it is hiding — see
-// `FADE_*` below.
+// when a building hides it, and that works through the deck too, so the deck stays solid over the
+// taxi like a building does. A fare marker has no outline, and a deck across a rider's kerb is a
+// fare the player cannot see, so the structure and the train dither out over the pins — see
+// `FADE_*` below. (`?trainfade=classic` in main.js adds the taxi back as a fade point.)
 //
 // The train is four cars, each set on the path by its two trucks, so a car rounds the corner as a
 // chord across the curve rather than as a bent box. It runs off one end of the island, waits, and
@@ -225,8 +226,8 @@ const BOGIE_AT = CAR_LEN / 2 - 0.9;
 // densities reads as a see-through deck rather than as a pattern.
 //
 // Two things fade it. The coast, on the smoothstep the ground and the boats use (its band is
-// `COAST_*` below), so the line dissolves off the island with the asphalt under it. And up to `FADE_SLOTS` points on the ground the player needs to see — the taxi and the fare
-// pins — each projected *up the sightline* to the deck: the part of the deck hiding a point is not
+// `COAST_*` below), so the line dissolves off the island with the asphalt under it. And up to `FADE_SLOTS` points on the ground the player needs to see — the fare pins
+// (and the taxi under `?trainfade=classic`) — each projected *up the sightline* to the deck: the part of the deck hiding a point is not
 // above it, it is `FADE_LIFT * (1, 1)` further toward the camera.
 const FADE_SLOTS = 8;
 const FADE_IN = 2.6;     // fully faded inside this radius of a projected point...
@@ -971,7 +972,7 @@ function buildCar() {
   // Body, roof and the air-con pod on it.
   parts.push(box(CAR_LEN, BODY_H, CAR_W, 0, 0.3 + BODY_H / 2, 0, PALETTE.ltrainBody));
   parts.push(box(CAR_LEN - 0.3, 0.15, CAR_W - 0.3, 0, 0.3 + BODY_H + 0.075, 0, PALETTE.ltrainRoof));
-  parts.push(box(1.4, 0.16, 1.0, 0, 0.3 + BODY_H + 0.15 + 0.08, 0, PALETTE.ltrainRoof));
+  parts.push(box(1.4, 0.16, 1.0, 0, 0.3 + BODY_H + 0.15 + 0.08, 0, PALETTE.ltrainRoofUnit));
   // The window band down each side and the stripe under it, standing a hair proud of the body.
   // Sides only: the camera never sees the far side's band, but a train is symmetric and costs
   // eight boxes either way.
@@ -1409,6 +1410,29 @@ export function createLTrain(scene, rng, { sparks = null, lights = true, intro =
       ? { ...plan.world(state.x, TRACK_OFF), y: RAIL_TOP, level: state.speed / SPEED }
       : null),
     runTime,
+    /**
+     * The title screen's reel (game/titlereel.js): the train's middle at roof-rail height while it
+     * is running on the island, else null...
+     */
+    subject() {
+      if (state.phase !== 'run') return null;
+      const mid = plan.world(state.x, TRACK_OFF);
+      return coastKeep(mid.x, mid.z) >= 1 ? { x: mid.x, y: RAIL_TOP, z: mid.z } : null;
+    },
+    /**
+     * ...and how many seconds it has left before that middle crosses the coast, walked forward on
+     * the run's own distance-time profile. 0 off the island. Stepped at a tenth of a second, which
+     * is 1.2 units at cruise — far finer than the shot it decides.
+     */
+    islandLeft() {
+      if (!this.subject()) return 0;
+      for (let t = state.t; t < runTime; t += 0.1) {
+        const s = along(t);
+        const mid = plan.world(state.dir > 0 ? plan.from + s : plan.to - s, TRACK_OFF);
+        if (coastKeep(mid.x, mid.z) < 1) return t - state.t;
+      }
+      return runTime - state.t;
+    },
   };
 }
 
