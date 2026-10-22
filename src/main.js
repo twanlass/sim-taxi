@@ -6858,6 +6858,10 @@ function tick() {
     // they were about to — `onBoard` above dispatches the getaway and the bank job's cut opens.
     if (type === 'swapped') {
       robbery?.swap();
+      // Take the "!" down now: the bank job's cut stops the world from the next frame, and the
+      // frozen frame returns before `updateBankMark` above ever runs again — the tag sat over the
+      // robber for the whole cut.
+      updateBankMark(0);
       continue;
     }
     if (type === 'pickup') {
