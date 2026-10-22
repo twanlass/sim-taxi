@@ -137,7 +137,7 @@ through.
 > Dispatch to Car 9. You there?
 > City council signed that **robo-taxi** deal. Cars are going to be on the streets come Monday.
 > Those stupid taxis brake for pigeons. No idea why people love 'em.
-> Go remind this town what a real cab experience is all about.
+> Go remind this town what a real cab is all about.
 
 A tap anywhere finishes the line or moves on (Enter and Space too); **Skip** in the top corner, or
 Escape, ends it. A finished line left untapped for `NUDGE_AFTER` = 3 s gives the card a
