@@ -16,7 +16,7 @@ import { createSeenFlag } from './progress.js';
 export const BACKSTORY_LINES = [
   'Dispatch to Car 9. You there?',
   'City council signed that {robo-taxi} deal. Cars are going to be on the streets come Monday.',
-  "Those stupid taxis brake for pigeons. No idea why people love 'em.",
+  "Those rolling toasters brake for pigeons. No idea why people love 'em.",
   'Go remind this town what a real cab is all about.',
 ];
 
