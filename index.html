@@ -2024,15 +2024,15 @@
       #title-screen .title-cover {
         position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; pointer-events: none;
       }
-      /* The title's way in (`playIntro` in game/titlescreen.js): the city blurred and the menu out,
-         then the menu fades in and the city sharpens. The transitions live on `-go` only, so taking
+      /* The title's way in (`playIntro` in game/titlescreen.js): the menu out, then faded in over
+         the city. Under `title-blur` (`?titleintro=blur`) the city starts blurred and sharpens too. The transitions live on `-go` only, so taking
          the classes off at the end drops the filter outright instead of animating it away. The
          black under the canvas is what the blur's edge samples in from. */
-      html.title-intro body { background: #000; }
-      html.title-intro .city-canvas { filter: blur(6px); transform: scale(1.05); }
+      html.title-blur body { background: #000; }
+      html.title-blur .city-canvas { filter: blur(6px); transform: scale(1.05); }
       html.title-intro #title-screen .title-menu,
       html.title-intro #title-screen::before { opacity: 0; }
-      html.title-intro-go .city-canvas {
+      html.title-blur.title-intro-go .city-canvas {
         filter: blur(0px); transform: none;
         transition: filter var(--intro-focus) ease-in-out var(--intro-focus-at),
           transform var(--intro-focus) ease-in-out var(--intro-focus-at);

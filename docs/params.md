@@ -79,8 +79,10 @@ doc; what the classic version was, and why it changed, is in that doc's history 
 | `?helispot=classic` | The police helicopter's first, brighter and harder-edged searchlight | | [gameplay.md](gameplay.md) |
 | `?splashcam=classic` | The startup screen from the game's 33° three-quarter view (the first cut) instead of the low side-on camera | | [gameplay.md](gameplay.md#the-startup-screen) |
 | `?intro=classic` | Play goes straight to the garage door, with no dispatch backstory first. `?intro=always` tells the story on every Play instead of once per device | | [gameplay.md](gameplay.md#the-backstory) |
-| `?titleintro=classic` | The title menu and a sharp city are both on screen the moment the black lifts, instead of the city fading up blurred, the menu fading in and the blur clearing | | [gameplay.md](gameplay.md#the-title-screen) |
-| `?titlecam=classic` | The title screen's backdrop is one slow ellipse over the middle of the city, and Play eases down onto the depot, instead of jump cuts between landmarks and a cut to the depot | | [gameplay.md](gameplay.md#the-title-screen) |
+| `?titleintro=blur` | The title's city fades up out of black blurred, the menu fades in and then the blur clears, instead of a sharp city with only the menu fading in | | [gameplay.md](gameplay.md#the-title-screen) |
+| `?titleintro=classic` | The title menu and a sharp city are both on screen the moment the black lifts, with no fade at all | | [gameplay.md](gameplay.md#the-title-screen) |
+| `?titlecam=reel` | The title screen's backdrop jump cuts between landmarks (court, skatepark, L, burger joint) and Play cuts to the depot, instead of one slow slide across the city | | [gameplay.md](gameplay.md#the-title-screen) |
+| `?titlecam=classic` | The title screen's backdrop is one slow ellipse over the middle of the city, instead of a slide there and back along screen-right | | [gameplay.md](gameplay.md#the-title-screen) |
 | `?splashsound=classic` | The startup screen plays silent, as it first shipped, rather than with the landing, bounce and Loco sounds | | [gameplay.md](gameplay.md#the-startup-screen) |
 | `?ejectthrow=classic` | The thrown driver's arc graded only by distance (forward speed `0.7 × closing`, clamped 10-18) at one fixed height and spin, instead of height, spin and distance all scaling with how hard the hit was | | [traffic.md](traffic.md) |
 | `?eject=classic` | The wrecked taxi's driver appearing full size in the air above the bonnet and fading in, instead of squeezing out through the windscreen | | [traffic.md](traffic.md) |

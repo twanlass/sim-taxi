@@ -140,7 +140,7 @@ import {
 } from './util/geo.js';
 import * as difficulty from './game/difficulty.js';
 import { createHomeScreenTip } from './game/homescreen.js';
-import { createTitleScreen } from './game/titlescreen.js';
+import { createTitleScreen, TITLE_CAM } from './game/titlescreen.js';
 import { tellBackstory, wantsBackstory } from './game/backstory.js';
 import { createTitleReel } from './game/titlereel.js';
 import { splashCovers } from './game/splash.js';
@@ -5797,35 +5797,43 @@ const title = wantsTitle ? createTitleScreen(document.getElementById('title-scre
   sound: soundSwitch,
   settings,
   demo,
-  // The first Play on a device hears dispatch out first, over the reel, with the gate still shut —
+  // The first Play on a device hears dispatch out first, over the backdrop, with the gate still shut —
   // see game/backstory.js. `?intro=classic` goes straight to the garage as before.
   beforePlay: (done) => {
     if (!wantsBackstory()) return false;
     tellBackstory(document.getElementById('title-screen'), { done });
-    // The reel stops and the camera goes to the garage, cut under the wipe, and drifts there while
-    // dispatch talks (`storyFrame`) — so Play then eases down onto the door from close by.
-    const atGarage = () => { titleReel?.clear(); storyCam = { t: 0 }; };
-    if (opening) { if (wipe) wipe.cut(atGarage); else atGarage(); }
+    // The camera goes to the garage and drifts there while dispatch talks (`storyFrame`) — so Play
+    // then eases down onto the door from close by. Off the slide it flies there (`STORY_GLIDE`),
+    // one continuous shot (Tyler, 2026-10-22); off the reel, which is all cuts, it cuts under the
+    // wipe, and so does reduced motion.
+    const glide = !titleReel && !(window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false);
+    const atGarage = () => {
+      titleReel?.clear();
+      const { target, zoom } = controller.state;
+      storyCam = { t: 0, glide, from: { x: target.x, z: target.z, zoom } };
+    };
+    if (opening) { if (wipe && !glide) wipe.cut(atGarage); else atGarage(); }
     return true;
   },
   onPlay: () => {
     beginRun();
     // Play jump cuts to the depot under the wipe, rather than easing down onto it from wherever
     // the reel had the camera: the reel is a run of cuts, and a swoop out of it reads as a new
-    // kind of move. The classic drift keeps its ease — that was always one continuous shot.
+    // kind of move. The slide (and the classic ellipse) keeps its ease — that is one continuous shot.
+    // Already beside the garage after the backstory: the approach eases in from there.
+    if (storyCam) { storyCam = null; titleReel?.clear(); return; }
     if (!titleReel) return;
     titleReel.clear();
-    // Already beside the garage after the backstory: the approach eases in from there.
-    if (storyCam) { storyCam = null; return; }
     if (wipe && opening) wipe.cut(() => opening?.cutToDoor());
     else opening?.cutToDoor();
   },
 }) : null;
-// The title's backdrop: a reel of jump cuts round the landmarks (game/titlereel.js), each a few
-// seconds with a slow drift. `?titlecam=classic` is the slow ellipse over the middle of the city
-// it replaced (2026-10-17, Tyler). Each shot is aimed at its subject's middle, at that height:
-// the players' chests, the skaters', the train's roof rail, and halfway up the burger joint's pole.
-const titleReel = title && new URLSearchParams(window.location.search).get('titlecam') !== 'classic'
+// The title's backdrop is one slow slide across the city (`panAt` in game/titlescreen.js, Tyler
+// 2026-10-22). `?titlecam=reel` is the reel of jump cuts round the landmarks it replaced
+// (game/titlereel.js), each a few seconds with a slow drift. Each shot is aimed at its subject's
+// middle, at that height: the players' chests, the skaters', the train's roof rail, and halfway up
+// the burger joint's pole.
+const titleReel = title && TITLE_CAM === 'reel'
   ? createTitleReel({
     cover: title.cover,
     still: () => window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false,
@@ -5851,6 +5859,15 @@ let storyCam = null;
 const STORY_ZOOM = 24;
 const STORY_DRIFT = 0.35;   // world units a second along screen-right
 const STORY_FROM = -3;      // where the slide starts, along screen-right of the door
+/**
+ * Seconds for the flight from the title's slide down to the story's shot. A blend of the two moving
+ * frames rather than an ease toward the second: the weight runs 0 to 1 on a smootherstep, so the
+ * camera leaves at exactly the slide's own speed and arrives at exactly the story drift's — an
+ * exponential ease (`focusOn`) does its fastest moving on the first frame, which reads as a lurch
+ * out of a shot that was barely moving. The far side of the map from the garage is ~60 units, so
+ * 3.5 s peaks near 32 units a second, about the taxi's Loco top speed.
+ */
+const STORY_GLIDE = 3.5;
 function storyFrame(dt) {
   storyCam.t += dt;
   const door = opening.doorAt();
@@ -6671,6 +6688,21 @@ function tick() {
   const locoFollows = isNarrow() || debugMode;
   if (title?.holding() && storyCam && opening) {
     const p = storyFrame(dt);
+    const u = storyCam.glide ? Math.min(storyCam.t / STORY_GLIDE, 1) : 1;
+    if (u < 1) {
+      // The slide keeps running underneath, followed the way the title branch below follows it
+      // (the camera trails the slide by the same 0.8 ease), so the blend leaves at its own speed.
+      const pan = title.pan(dt);
+      const { from } = storyCam;
+      const k = 1 - Math.exp(-dt * 0.8);
+      from.x += (pan.x - from.x) * k;
+      from.z += (pan.z - from.z) * k;
+      from.zoom += (pan.zoom - from.zoom) * k;
+      const w = u * u * u * (u * (u * 6 - 15) + 10);
+      p.x = from.x + (p.x - from.x) * w;
+      p.z = from.z + (p.z - from.z) * w;
+      p.zoom = from.zoom + (p.zoom - from.zoom) * w;
+    }
     controller.cutTo(p.x, p.z, p.zoom, 0, aspect());
   } else if (title?.holding() && titleReel) {
     const p = titleReel.frame(dt, aspect());

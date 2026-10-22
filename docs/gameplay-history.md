@@ -33,7 +33,28 @@ Grotesk instead, the same day.
 
 ## The title screen
 
-[Now](gameplay.md#the-title-screen): the menu over jump cuts between the city's landmarks.
+[Now](gameplay.md#the-title-screen): a sharp city with the menu fading in, over one slow slide.
+
+**2026-10-22: back to one shot.** Tyler asked for the old title screen back without the blur fade:
+just the menu fading in, and a single slow pan instead of the landmark tour. The pan is a slide
+along screen-right rather than the old ellipse. What it replaced, still behind `?titlecam=reel` and
+`?titleintro=blur`:
+
+> The camera cut round the landmarks (`src/game/titlereel.js`): the basketball court with its
+> players shooting around, the skatepark, the burger joint, and the L whenever a train happened to
+> be running on the island — followed down the line, cut away from before it reached the coast.
+> Each shot was `SHOT` = 5 s at `REEL_ZOOM` = 45.8 on a wide screen and `PHONE_ZOOM` = 30 on a
+> phone, with a slow drift along screen-right and a small push-in, framed clear of the menu's
+> column. Shots crossfaded over `XFADE` = 1.4 s as a still of the outgoing shot dissolving off the
+> live incoming one (one `drawImage` per cut, where a live blend would draw the city twice a frame).
+> The train was an event slotted in at the next cut whenever it had 3 s of island left. Play cut to
+> the depot door under the wipe rather than easing there.
+>
+> The way in came in three beats: the city faded up out of black slightly out of focus, the menu
+> faded in 0.25 s later (0.6 s), then the city sharpened from 0.75 s over 2.4 s — a CSS
+> `blur(6px)` on the canvas, scaled up 5% so the blur's edge fell off-screen, and taken off the
+> element entirely afterwards since a compositor blur costs a full-canvas pass every frame it is
+> set. With no startup screen the title brought a 0.6 s black veil of its own.
 
 Until 2026-10-17 the backdrop was one continuous shot: the camera drifting a slow ellipse round the
 middle of the city (`panAt` in game/titlescreen.js — a lap every two minutes at zoom 34, radii 0.3
