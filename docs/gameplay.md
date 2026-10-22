@@ -2630,7 +2630,12 @@ someone who tapped, rather than one more line on a busy screen). Tap it again an
 spot (a horn and "You're on!"), then the screen cuts to black and opens close up on the two cars side by side, window to window ("Round the flag and back."). A
 corner is marked across the island (a white waypoint ring with a chequered flag flying over it, 4-8
 blocks away and never on the ring road, which is in the fog), the camera goes to look at it and
-comes back, the count goes three, two, one, and the two cars set off together, drag-race style.
+comes back, the racer asks "Ready?" (a horn and a hop), and the tap on it, on its card or on the car,
+starts the count: three, two, one, and the two cars set off together, drag-race style. Tyler wanted
+the player to say when ("tapping that is what triggers the countdown"). Left untapped it nags once
+at `READY_NAG` (6s, "Tap me when you're ready!") and counts in on its own at `READY_MAX` (15s): the
+taxi is held and every fare's clock with it until the green, so a run must not be able to wait there
+forever. `?raceready=classic` counts in as soon as the camera is back.
 The count runs at `COUNT_STEP` (1.25s a number; Tyler: "slow the countdown a touch") and is pinned
 above the middle of the screen in 40px tabular figures, so the digits stay put rather than following
 the taxi and shifting with each glyph's width. "Head back!", "You won!" and "You lost!" are held on

@@ -95,6 +95,13 @@ const REVEAL_MAX = 6;
 export const COUNTDOWN = 3;     // three, two, one
 // Seconds per number: "slow the countdown a touch" (Tyler) from the 1s it was.
 export const COUNT_STEP = 1.25;
+// The count waits on the player (Tyler: "have the racer type out a speech bubble that says ready?
+// And then tapping that is what triggers the countdown"): after the look at the finish the racer
+// asks "Ready?" and the tap on it is the start. Untapped, it nags once at READY_NAG and counts in
+// on its own at READY_MAX — the taxi is shut in by `locked` meanwhile, so a player who has put the
+// phone down would otherwise be stuck there for good, with every fare's clock held.
+const READY_NAG = 6;
+const READY_MAX = 15;
 const RACE_MAX = 75;            // nobody home by now — the race is called off and nothing changes hands
 // The finish, choreographed (Tyler: "1. Winner returns 2. Winner stays in place 3. Cut to loser;
 // place them 1 block away 4. Loser drives to finish, pulls up next to winner (skid to stop) 5. Show
@@ -126,7 +133,7 @@ const RESULT_HOLD = 2.2;
 // during scenes"). The scenes are the phases where the racer stands for the camera: offering at a
 // light, the faceoff, the look at the finish, the count — and the finale when it has won. A
 // lowrider in a car built like a tuner, which is a mash-up, and a cartoon one is allowed it.
-const POSE_PHASES = new Set(['offer', 'faceoff', 'reveal', 'countdown']);
+const POSE_PHASES = new Set(['offer', 'faceoff', 'reveal', 'ready', 'countdown']);
 // Only standing still: a body bouncing on its rams at speed reads as a broken car.
 const POSE_STILL = 0.5;
 // The pump fires on a kick in the bass over this (the underglow's `pulse`, 0..1), and no sooner than
@@ -208,9 +215,9 @@ const LEAVE_MAX = 30;
 // big again as the rival's first one did so it reads from the far side of a phone screen.
 const FINISH_FLAG_Y = 4.5;
 const FINISH_FLAG_SCALE = 1.5;
-const ACTIVE = new Set(['cut', 'faceoff', 'reveal', 'countdown', 'racing', 'finale']);
+const ACTIVE = new Set(['cut', 'faceoff', 'reveal', 'ready', 'countdown', 'racing', 'finale']);
 // The stretch nobody can back out of: the cut to the start until the green.
-const LOCKED = new Set(['cut', 'faceoff', 'reveal', 'countdown']);
+const LOCKED = new Set(['cut', 'faceoff', 'reveal', 'ready', 'countdown']);
 
 const clamp01 = (v) => Math.max(0, Math.min(1, v));
 
@@ -470,11 +477,12 @@ function createRivalMesh() {
  *                 count, the money. This module knows a race happened, not what a run's cash is.
  * @param soon     `?race=soon`
  * @param hydraulics false for `?hydraulics=classic`: the body sits still on its wheels
+ * @param readyGate false for `?raceready=classic`: the count starts when the camera is back
  */
 export function createRace({
   rng, scene, traffic, routeTo, blocked = () => false, interrupted = () => false, canStart = () => true,
   seen = () => false, delivered = () => 0, onEvent = () => {}, soon = false, bass = () => 0,
-  hydraulics = true,
+  hydraulics = true, readyGate = true,
 }) {
   const taxi = traffic.taxi;
   // Everything the player sees off the car goes through here, so the pumps hear it first.
@@ -528,7 +536,7 @@ export function createRace({
   const pumps = { next: 0, beatWas: 0, step: 0, hops: 0, hopAt: 0 };
   function pumpOn(type, detail) {
     if (!hyd) return;
-    if (type === 'asked') hyd.kick('hop');
+    if (type === 'asked' || type === 'ready' || type === 'ready-nag') hyd.kick('hop');
     else if (type === 'accepted' || type === 'count') hyd.kick('bigPump');
     // Squat on the launch: the tail goes down as the power goes on.
     else if (type === 'go') { hyd.setRest(0); hyd.kick('tail'); }
@@ -1130,8 +1138,24 @@ export function createRace({
   }
 
   /** Start the count — called when the camera is back from the finish, or by `REVEAL_MAX`. */
+  /** The look at the finish is done: "Ready?" (or straight to the count, `?raceready=classic`). */
   function countIn() {
     if (state.phase !== 'reveal') return;
+    if (!readyGate) { startCount(); return; }
+    setPhase('ready');
+    state.nagged = false;
+    onEvent('ready', { car: state.car });
+  }
+
+  /** The tap on "Ready?": three, two, one. */
+  function ready() {
+    if (state.phase !== 'ready') return false;
+    onEvent('readied', { car: state.car });
+    startCount();
+    return true;
+  }
+
+  function startCount() {
     state.count = COUNTDOWN + 1;
     setPhase('countdown');
   }
@@ -1349,6 +1373,17 @@ export function createRace({
         }
         break;
       }
+      case 'ready': {
+        if (!car) { finish('void'); break; }
+        if (taxi.route.length > 0) holdTaxi();
+        if (interrupted()) { finish('void'); break; }
+        if (!state.nagged && state.phaseT > READY_NAG) {
+          state.nagged = true;
+          onEvent('ready-nag', { car });
+        }
+        if (state.phaseT > READY_MAX) startCount();
+        break;
+      }
       case 'countdown': {
         if (!car) { finish('void'); break; }
         if (taxi.route.length > 0) holdTaxi();
@@ -1477,8 +1512,10 @@ export function createRace({
     busy: () => ACTIVE.has(state.phase),
     /** Is anything of a race on, from the tap to the line? */
     active: () => ACTIVE.has(state.phase),
-    /** Side by side and the finish shown: count down now (main.js, once the camera is back). */
+    /** Side by side and the finish shown (main.js, once the camera is back): "Ready?", then the count. */
     countIn,
+    /** The tap on the racer's "Ready?": start the count. */
+    ready,
     /** Is the start waiting on the camera's look at the finish? */
     revealing: () => state.phase === 'reveal',
     rival,

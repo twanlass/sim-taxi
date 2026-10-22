@@ -2077,6 +2077,8 @@ race = shot || raceParam === 'classic' ? null : createRace({
   soon: raceParam === 'soon',
   // The racer's body bounces on hydraulics in the race's scenes (game/hydraulics.js).
   hydraulics: new URLSearchParams(window.location.search).get('hydraulics') !== 'classic',
+  // The racer asks "Ready?" once the camera is back from the finish, and the tap on it is the start.
+  readyGate: new URLSearchParams(window.location.search).get('raceready') !== 'classic',
   // The underglow pulses to whatever the music is doing (game/sfx.js, `bass`).
   bass: () => sfx?.bass?.() ?? 0,
   // Nothing turns up over anything that owns the run, or over a trip the taxi is already on to the
@@ -2115,7 +2117,9 @@ const raceTalk = race && raceTalkRoot ? createSpeech(raceTalkRoot, {
 // press is taken by `onEdgeTap` above and never reaches this; on a wide one, where there is no pan
 // to hand over, the edge tag still asks from where it is.
 raceTalkRoot?.addEventListener('pointerup', (e) => {
-  if (e.target.closest('.speech-tag-pin, .speech-card')) acceptRace();
+  if (!e.target.closest('.speech-tag-pin, .speech-card')) return;
+  if (race?.state.phase === 'ready') race.ready();
+  else acceptRace();
 });
 const raceTalkAt = () => {
   const at = race?.rivalAt();
@@ -2188,6 +2192,18 @@ function onRaceEvent(type, detail) {
       cameraTakenOver = false;
       race?.countIn();
     });
+  } else if (type === 'ready') {
+    // Back from the finish, side by side: the racer's "Ready?", and the tap on it starts the count.
+    haptic('snap');
+    sfx?.play('horn', { at: placeAt(detail.car.x, detail.car.z) });
+    raceTalk?.show('Street racer', '{Ready}?', raceTalkAt);
+  } else if (type === 'ready-nag') {
+    // Not tapped: once more, louder (READY_NAG), before it counts in on its own (READY_MAX).
+    sfx?.play('horn', { at: placeAt(detail.car.x, detail.car.z) });
+    raceTalk?.show('Street racer', 'Tap me when you\'re {ready}!', raceTalkAt);
+  } else if (type === 'readied') {
+    haptic('pick');
+    raceTalk?.hide();
   } else if (type === 'count') {
     raceTalk?.hide();
     popLabel(String(detail.n), 'is-count', COUNT_STEP * 1000, raceCountAt);
@@ -3099,6 +3115,8 @@ createPicker(
     // (game/race.js, `locked`); and once the racer has asked, a tap anywhere but on it (or its
     // card, which answers on its own pointerup) turns it down — "Next time, then." — and then does
     // whatever it would have done.
+    // The one tap the start takes is the racer's "Ready?" — on its card, or on the car itself.
+    if (kind === 'racer' && race?.ready()) return;
     if (race?.locked()) return;
     if (kind !== 'racer') race?.decline();
 
