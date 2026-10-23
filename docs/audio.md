@@ -237,7 +237,8 @@ It is Tyler's own recording of an elevated train going by (`raised_l_train_scree
 can be re-cut. A pass-by already carries its own swell and fade, and played as a one-shot it would
 fight the falloff that places it, so the bed is its **steady middle**: 3.0 s to 10.5 s, folded to
 mono, the 0.75 s after the cut cross-faded (equal power) back over its start so it loops without a
-seam, and raised 6.3 dB to −32 LUFS, a couple over the construction bed. The falloff (`near` 12,
+seam, and raised 6.3 dB to −32 LUFS, a couple over the construction bed. Tyler's mix (October
+2026) then puts it at +8 dB (gain 2.51) with a wider full-level zone: the falloff (`near` 19,
 `far` 60) and the train's speed make the pass-by. Both squeals in the recording are inside the
 loop, so one comes round every 7.5 s while a train is near.
 

@@ -53,7 +53,7 @@
     "dispatch2": { "file": "VO_dispatch_2", "gain": 0.7852356346100716, "rate": 1 },
     "dispatch3": { "file": "VO_dispatch_3", "gain": 0.7161434102129022, "rate": 1 },
     "dispatch4": { "file": "VO_dispatch_4", "gain": 0.5495408738576246, "rate": 1 },
-    "ltrain": { "file": "LTRAIN_AMB_pass_loop_MONO", "gain": 1, "rate": 1 }
+    "ltrain": { "file": "LTRAIN_AMB_pass_loop_MONO", "gain": 2.51188643150958, "rate": 1 }
   },
   "minGap": {
     "bump": 0.15,
@@ -97,7 +97,7 @@
     "seagulls": { "near": 8, "far": 40 },
     "court": { "near": 8, "far": 28 },
     "chirp": { "near": 15, "far": 70 },
-    "ltrain": { "near": 12, "far": 60 }
+    "ltrain": { "near": 19, "far": 60 }
   },
   "engine": {
     "idleRateLo": 0.9,
