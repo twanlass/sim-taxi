@@ -591,7 +591,7 @@ edge, and a clip filmed there came out half or wholly white. The pedal row is Lo
 again, and it shows **whose finger is on which key** (`holds` in `game/newmove.js`): a key is orange
 only while the clip holds it and a flat grey disc otherwise, and the held one dips while a ring fills
 round it over the press. So the first key fills, goes grey at the blip, and the second turns orange
-and fills through the pass. `?overtakekeys=classic` is the old row, where both keys sat orange from
+and fills through the pass. The card's "next key" pulse is off here: the only ring is on the key being pressed. `?overtakekeys=classic` is the old row, where both keys sat orange from
 the blip on. Recorded by `tools/overtakereel.mjs`.
 The blip comes late in the loop (`BLIP_ON` 1.7s of 2.8), once the taxi is on the car's bumper:
 the combo swings out the frame it arms, so an early blip had the taxi up the oncoming lane 17 units

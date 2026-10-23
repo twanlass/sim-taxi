@@ -1873,7 +1873,9 @@
       .nm-hold circle { fill: none; stroke: currentColor; stroke-width: 3; }
       .nm-hold-track { opacity: 0.18; }
       .nm-hold-fill { stroke-dasharray: 1 1; stroke-dashoffset: 1; stroke-linecap: round; }
-      .nm-combo.is-holds .nm-key::after { inset: -12px; }
+      /* No "next" ring here: the hold ring is the only ring, and only on the key being pressed (Tyler,
+         2026-10-22: the pulse round the waiting key read as that key being active). */
+      .nm-combo.is-holds .nm-key::after { display: none; }
       .nm-combo.is-holds { gap: 18px; }
 
       /* The combo over the clip (newmove.js `comboOverlay`): the HUD's meter at the top of the
