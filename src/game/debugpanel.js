@@ -983,7 +983,7 @@ export function createDebugPanel({
       opt.textContent = now.preset === fileOption ? `file: ${now.cubeName}` : 'file…';
       opt.disabled = now.preset !== fileOption;
       if (document.activeElement !== code) code.value = lookCode();
-      status.textContent = now.active ? 'Grading the frame. Double-tap a slider to zero it.' : 'Neutral — the frame is drawn as shipped.';
+      status.textContent = now.active ? 'Grading the frame. Double-tap a slider to zero it.' : 'Neutral — no grade at all, as ?grade=classic draws it.';
       drawCurve();
     };
 

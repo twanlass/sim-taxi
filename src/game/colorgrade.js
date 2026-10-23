@@ -5,8 +5,8 @@ import * as THREE from 'three';
 // A 3D lookup table and a saturation knob over the whole game view, tuned from the ⚙️ panel's
 // **Colour grade** section. The table is whatever look is picked (bundled, or a loaded `.cube`) with
 // the panel's photo-editor controls — exposure, white balance, lift/gamma/gain, split tone,
-// vibrance, curves — baked into it on the CPU, so nobody needs a grading app to make one. Neutral by
-// default: the shipped game is drawn exactly as it was until a grade is picked.
+// vibrance, curves — baked into it on the CPU, so nobody needs a grading app to make one. It ships
+// Tyler's look (`GRADE_DEFAULTS`); `?grade=classic` draws the neutral frame it replaced.
 //
 // **It is a fragment tail, not a full-screen pass.** A screen-space LUT is the textbook build — draw
 // the city into a target, then one pass over it that looks every pixel up — and it costs the things
@@ -38,14 +38,31 @@ import * as THREE from 'three';
 /** The grid every LUT is resampled to. 33 is the size most grading tools export. */
 export const LUT_SIZE = 33;
 
-/** What the panel's Reset goes back to, and what the game ships. Neutral — see the top of the file. */
-export const GRADE_DEFAULTS = { preset: 'none', strength: 1, saturation: 1, adjust: null };
+/**
+ * What the panel's Reset goes back to, and what the game ships: Tyler's look, made in the panel's
+ * editor and pasted back as its Copy look code (2026-10-23). A touch brighter, cooler shadows with a
+ * blue split tone, a hair of magenta, and a slightly lowered blue mid on the curve. `?grade=classic`
+ * draws the neutral frame the game shipped with before it.
+ */
+export const GRADE_DEFAULTS = {
+  preset: 'none',
+  strength: 1,
+  saturation: 1,
+  adjust: {
+    exposure: 0.54, contrast: 0.09, temperature: -0.11, tint: 0.13,
+    shadows: -0.07, midtones: 0.11, highlights: 0.04,
+    shadowAmount: 0.36, shadowHue: 224,
+    curve: { g: [0, 0.25, 0.501, 0.75, 1], b: [0, 0.25, 0.447, 0.75, 1] },
+  },
+};
+
+/** `?grade=classic`: the neutral frame, as the game shipped before the look above. */
+export const GRADE_NEUTRAL = { preset: 'none', strength: 1, saturation: 1, adjust: null };
 
 /**
  * The panel's photo-editor controls, at rest. Every one of them is neutral here, so a look that never
- * touched them bakes to exactly the LUT underneath. `GRADE_DEFAULTS.adjust` is null rather than a
- * copy of this so that "nothing was adjusted" stays one cheap test; a look to ship goes in there as
- * the object the panel's **Copy look** prints.
+ * touched them bakes to exactly the LUT underneath. A look to ship goes in `GRADE_DEFAULTS.adjust`
+ * as the object the panel's **Copy look** prints; anything it leaves out stays at rest here.
  *
  * The curves are five knots each, at inputs 0, ¼, ½, ¾ and 1: few enough to drag with a thumb on a
  * 250-pixel canvas, and the same five a photo app's "points" curve starts with.
@@ -513,7 +530,9 @@ function applyUniforms() {
 function save() {
   try {
     const keep = { preset: state.preset, strength: state.strength, saturation: state.saturation };
-    if (!adjustIsNeutral(state.adjust)) keep.adjust = state.adjust;
+    // Always written, neutral included: an absent `adjust` restores the shipped look, so a player
+    // who zeroed every knob would otherwise get the default back on the next load.
+    keep.adjust = state.adjust;
     if (state.preset === 'file' && state.cubeText.length <= STORE_CUBE_MAX) {
       keep.cubeName = state.cubeName;
       keep.cubeText = state.cubeText;
@@ -693,10 +712,10 @@ export function gradeSnapshot() {
   };
 }
 
-// Restore the last session's grade, or seed the neutral default. Shot mode never reads the stored
-// one, so a screenshot draws the shipped frame unless the URL asks otherwise: `?grade=<preset>` and
-// `?gradesat=<0..2>` pick a look for this load without remembering it, which is how a before/after
-// still or a shared link shows a grade.
+// Restore the last session's grade, or seed the shipped one. Shot mode never reads the stored one,
+// so a screenshot draws the shipped frame unless the URL asks otherwise: `?grade=<preset>` (over the
+// shipped adjustments), `?grade=classic` (the neutral frame) and `?gradesat=<0..2>` pick a look for
+// this load without remembering it, which is how a before/after still or a shared link shows one.
 (function restore() {
   const params = new URLSearchParams(globalThis.location?.search ?? '');
   let saved = null;
@@ -705,7 +724,9 @@ export function gradeSnapshot() {
       saved = JSON.parse(localStorage.getItem(STORE_KEY));
     }
   } catch { saved = null; }
-  if (params.has('grade') || params.has('gradesat')) {
+  if (params.get('grade') === 'classic') {
+    saved = { ...GRADE_NEUTRAL, adjust: ADJUST_DEFAULTS };
+  } else if (params.has('grade') || params.has('gradesat')) {
     const preset = params.get('grade');
     const s = Number(params.get('gradesat'));
     saved = {

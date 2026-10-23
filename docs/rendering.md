@@ -1770,9 +1770,12 @@ switches its lights on.
 
 ## Colour grade — `game/colorgrade.js`
 
-A 3D lookup table and a saturation knob over the whole game view. **Neutral by default**: the shipped
-frame is untouched until something is picked in the ⚙️ panel's **Colour grade** section (Visuals tab).
-The section is a small photo editor, built so a look can be made without a grading app:
+A 3D lookup table and a saturation knob over the whole game view. **It ships a look**: Tyler's,
+made in the editor below and pasted back as its look code (`GRADE_DEFAULTS` in `game/colorgrade.js`)
+— half a stop brighter, a touch cooler and more magenta, blue in the shadows, a lowered blue mid.
+`?grade=classic` draws the neutral frame the game shipped before it. Everything is tuned in the ⚙️
+panel's **Colour grade** section (Visuals tab), a small photo editor built so a look can be made
+without a grading app:
 
 - **Look**: a LUT dropdown (six bundled looks built in code, plus whatever `.cube` was loaded with
   **Load .cube file…**) and **LUT strength** (0–1).
@@ -1797,7 +1800,12 @@ the rest of the panel goes invisible (`#dbg-panel.dbg-scrub`), **Hold to compare
 frame, and a double-tap on a slider puts it back at rest.
 
 The choice is remembered in localStorage across reloads; `?grade=` and `?gradesat=` pick one for a
-single load without remembering it, and shot mode draws neutral unless they are given.
+single load without remembering it, and shot mode draws the shipped look unless they are given.
+**Reset grade** goes back to the shipped look; **Reset sliders and curves** zeroes the knobs.
+
+What shipping a look costs: the grade used to be off, one uniform branch a fragment. On, every
+fragment of every built-in material does one 3D texture read and a mix — small next to the lighting
+it follows, but it is paid across the whole frame including overdraw.
 
 ### A fragment tail, not a pass
 
