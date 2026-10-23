@@ -19,18 +19,22 @@ import { SUN } from '../../src/game/scene.js';
 import { VIEW_DIR } from '../../src/game/camera.js';
 import { createLocoFlame } from '../../src/game/locoflame.js';
 import { PALETTE } from '../../src/palette.js';
-import { setGlossGlobal, GLOSS_GLOBAL_DEFAULTS, setGlossCity, setPaintLook, setFlip } from '../../src/util/geo.js';
-import { getPaintLook, getFlip } from '../../src/util/shot.js';
+import { setGlossGlobal, GLOSS_GLOBAL_DEFAULTS, setGlossCity } from '../../src/util/geo.js';
+import { renderBudget, decideLooks, createRenderPath } from '../../src/game/renderpath.js';
 import { SKYLINE_CEILING } from '../../src/city/buildings.js';
 import { makeRng } from '../../src/util/rng.js';
 
-// The purple the icon has always been on — `theme_color` in public/manifest.webmanifest — as the
-// middle of a gentle diagonal: a pinker lavender in the upper left, a bluer violet in the lower
-// right, and a soft lift behind the car (Tyler, 2026-10-23: "a subtle pop"). Kept close in hue and
-// value so it still reads as the one purple at 32px.
+// The purple the icon has always been on — `theme_color` in public/manifest.webmanifest — as a
+// sunburst behind the car (Tyler, 2026-10-23: a plain two-stop gradient "looks simple and flat").
+// Three parts: a radial ramp from a pinker lavender behind the car out through the purple to a
+// deep blue-violet at the corners; hard-edged rays over it, a few percent lighter, one of them
+// running up the car's heading so the burst reads as speed; and the rays fading out toward the
+// rim so the corners stay quiet where iOS crops them. `?bg=flat` draws the plain purple instead.
 const BG = '#A46BFF';
-const BG_STOPS = [[0, '#C07CFF'], [0.5, BG], [1, '#7F5BFF']];
-const BG_GLOW = 'rgba(255, 235, 255, 0.22)';
+const BG_FLAT = new URLSearchParams(location.search).get('bg') === 'flat';
+const BG_RAMP = [[0, '#C68CFF'], [0.42, BG], [1, '#5E3FD6']];
+const RAYS = 14;
+const RAY_ALPHA = 0.09;
 // A deep violet rather than black: black on #A46BFF greys out and reads dirty.
 const SHADOW = '#3E1878';
 const SHADOW_OPACITY = 0.55;
@@ -53,6 +57,14 @@ const FILL = 0.86;
 // burns one plume from the middle of the bumper; two read as a rocket's pair of engines.
 const PIPE_SPREAD = 0.5;
 
+// The game's own render path (game/renderpath.js), as the workshop bench uses it: the look
+// decisions taken before any mesh exists, then the AO prepass every frame — which is what the rim
+// highlight finds the car's edges in. Drawn without it, the paint had no rim at all and read flat.
+const budget = renderBudget();
+// No bloom: its composite is an overlay sized for the game's frame, and over this one it washed the
+// whole car out to pastel (measured: the yellow body came out near-white).
+budget.bloom = false;
+decideLooks(budget);
 const renderer = new THREE.WebGLRenderer({
   antialias: true, stencil: true, preserveDrawingBuffer: true, alpha: false,
 });
@@ -62,30 +74,55 @@ renderer.domElement.id = 'render';
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 document.body.appendChild(renderer.domElement);
+const renderPath = createRenderPath(renderer, budget);
 
 const scene = new THREE.Scene();
 scene.background = (() => {
   const canvas = document.createElement('canvas');
   canvas.width = canvas.height = RENDER;
   const ctx = canvas.getContext('2d');
-  const linear = ctx.createLinearGradient(0, 0, RENDER, RENDER);
-  for (const [at, c] of BG_STOPS) linear.addColorStop(at, c);
-  ctx.fillStyle = linear;
-  ctx.fillRect(0, 0, RENDER, RENDER);
-  const glow = ctx.createRadialGradient(RENDER / 2, RENDER / 2, 0, RENDER / 2, RENDER / 2, RENDER * 0.55);
-  glow.addColorStop(0, BG_GLOW);
-  glow.addColorStop(1, 'rgba(255, 235, 255, 0)');
-  ctx.fillStyle = glow;
-  ctx.fillRect(0, 0, RENDER, RENDER);
+  const c = RENDER / 2;
+  if (BG_FLAT) {
+    ctx.fillStyle = BG;
+    ctx.fillRect(0, 0, RENDER, RENDER);
+  } else {
+    // Out to the corner, so the ramp's last stop is the corner itself.
+    const reach = c * Math.SQRT2;
+    const ramp = ctx.createRadialGradient(c, c, 0, c, c, reach);
+    for (const [at, col] of BG_RAMP) ramp.addColorStop(at, col);
+    ctx.fillStyle = ramp;
+    ctx.fillRect(0, 0, RENDER, RENDER);
+    // The rays, drawn on their own layer and faded toward the rim by a radial mask.
+    const rays = document.createElement('canvas');
+    rays.width = rays.height = RENDER;
+    const rctx = rays.getContext('2d');
+    rctx.fillStyle = '#fff';
+    // −45° on the canvas is up and to the right: the heading YAW points the car along.
+    const step = (2 * Math.PI) / RAYS;
+    for (let k = 0; k < RAYS; k += 2) {
+      const a = -Math.PI / 4 + k * step - step / 2;
+      rctx.beginPath();
+      rctx.moveTo(c, c);
+      rctx.lineTo(c + Math.cos(a) * reach * 1.1, c + Math.sin(a) * reach * 1.1);
+      rctx.lineTo(c + Math.cos(a + step) * reach * 1.1, c + Math.sin(a + step) * reach * 1.1);
+      rctx.closePath();
+      rctx.fill();
+    }
+    rctx.globalCompositeOperation = 'destination-in';
+    const fade = rctx.createRadialGradient(c, c, 0, c, c, reach);
+    fade.addColorStop(0, 'rgba(0,0,0,1)');
+    fade.addColorStop(0.55, 'rgba(0,0,0,0.8)');
+    fade.addColorStop(0.95, 'rgba(0,0,0,0)');
+    rctx.fillStyle = fade;
+    rctx.fillRect(0, 0, RENDER, RENDER);
+    ctx.globalAlpha = RAY_ALPHA;
+    ctx.drawImage(rays, 0, 0);
+    ctx.globalAlpha = 1;
+  }
   const texture = new THREE.CanvasTexture(canvas);
   texture.colorSpace = THREE.SRGBColorSpace;
   return texture;
 })();
-
-// The finishes as the game sets them up (game/renderpath.js): the paint look and its flip colour.
-// The rim line is left off — it reads the AO prepass's depth, which this page has no pass for.
-setPaintLook(getPaintLook());
-setFlip(getFlip());
 
 // Something for the paint and chrome to reflect. In the game that is the city's own height field
 // (main.js hands it over with setGlossCity), which is what puts a skyline sliding across the body;
@@ -183,7 +220,10 @@ const flames = [-1, 1].map((side, n) => {
 // The game's camera: orthographic, down VIEW_DIR. Centred on the *car's* projected bounds and sized
 // to hold the plumes too: centring on car plus flames put the body visibly off to one side, since
 // the plumes only ever trail one way.
-const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 200);
+// Near and far hug the car (it stands 50 out, ±10 holds the car, the plumes and the shadow): the AO
+// prepass packs depth across this range, and at 0.1..200 its steps drew as concentric rings over
+// every flat panel, this close up.
+const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 40, 60);
 camera.position.copy(VIEW_DIR).multiplyScalar(50);
 camera.lookAt(0, 0, 0);
 camera.updateMatrixWorld();
@@ -229,7 +269,8 @@ camera.updateProjectionMatrix();
 const pxPerUnit = (1024 / (2 * half)) * TAXI_SCALE;
 setGlossGlobal('flakeSize', Math.max(GLOSS_GLOBAL_DEFAULTS.flakeSize, pxPerUnit / 1.4));
 
-renderer.render(scene, camera);
+renderPath.addOverlays(scene);
+renderPath.render(scene, camera);
 
 /** Halve until the next halving would undershoot, then one last resample to the exact size. */
 function downsample(source, size) {
