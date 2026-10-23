@@ -4229,10 +4229,22 @@ doesn't fit, the overlay scrolls — centred by `margin: auto` on the content ra
 **Nothing appears at once.** The card is revealed as a sequence, because the version before this
 one wrote a single line of `innerHTML` and the whole screen arrived in one frame — which reads as
 the game stopping rather than as a scoreboard. The order is title → reason → each stat in turn →
-the initials prompt, if the run placed → the table → **Play again**, and each stat's label **scales
-down** into place as it fades up before its number rolls from zero. A number that rolls gets read; a
-number that is printed gets skipped past on the way to the button. The button is last on purpose,
+the initials prompt, if the run placed → the table → **Tap to continue**, and each stat's label
+**scales down** into place as it fades up before its value arrives. A number that moves gets read;
+a number that is printed gets skipped past on the way out. The way out is last on purpose,
 appearing only once the table has landed, so the player isn't invited to leave mid-tally.
+
+**Cash counts up and the other two type out.** Cash rolls from zero with every digit that changes
+fading up into its place; **Max combo** and **Time** don't count at all, they type out a character
+at a time, left to right, each glyph laid out from the start so the right-aligned value never slides
+(`countDigits` and `typeOut` in `game/runend.js`, `reveal: 'type'` on the stat). A combo or a clock
+counting up from zero says nothing its final figure doesn't, and three rolls in a row read as one
+animation.
+
+**There is no Play again button.** The card ends on the same pulsing "Tap to continue" as the
+review, and a tap anywhere (or Enter/Space) plays again, armed `HOLD_MS` after it appears so the tap
+that skipped the table is not the one that reloads the run. `?playagain=classic` brings the yellow
+pill back.
 
 **The stats, the prompt and the table are one slot taking turns**, not a list that grows. `#run-end
 .run-end-body` holds whichever screen is current and cross-fades to the next. Stacking them was the
@@ -4267,7 +4279,7 @@ tap *during* the count still lands the numbers, but on
 the review rather than past it, and the tap that leaves is only armed `HOLD_MS` after the last
 number lands — the thumb still on the glass when the taxi wrecked is the likeliest tap of all, and
 it should not carry through to the table. With no table to show (no scores) there is no extra
-wait: the next thing is the Play again pill, which waits for a tap of its own. Under reduced motion
+wait: the next thing is the closing "Tap to continue", which waits for a tap of its own. Under reduced motion
 the screens stack, so the review is never off screen and nothing waits.
 
 **The skip is per-beat, not a jump to the end**, and the initials prompt is why. Every other beat

@@ -72,8 +72,10 @@ const STAT_STRIDE = ROW_MS + ROW_GAP;   // start-to-start, so rows never overlap
  * watch. The classic timing above (`?statcount=classic`) faded the value in 60ms after its label
  * and rolled it in 340ms, which on a phone read as the number already being there — the label and
  * the figure arrived as one thing and the count was over before the eye got to it. Here the value
- * stays hidden until the label has settled (`lead`), then counts for `count`. Three rows come to
- * 2 * 930 + 860 = 2.72s against the classic 1.85s; a tap still lands them all at once.
+ * stays hidden until the label has settled (`lead`), then reveals over `count`: Cash counts up with
+ * each changing digit fading up (`countDigits`), and a stat marked `reveal: 'type'` (Max combo,
+ * Time) is typed out instead (`typeOut`). Three rows come to 2 * 930 + 860 = 2.72s against the
+ * classic 1.85s; a tap still lands them all at once.
  */
 const PACE_CLASSIC = { lead: COUNT_LEAD, fadeAt: 60, count: COUNT_MS, land: LAND_MS, gap: ROW_GAP };
 const PACE_COUNTED = { lead: 220, fadeAt: 220, count: 460, land: LAND_MS - 20, gap: 70 };
@@ -186,7 +188,7 @@ function scaleDownIn(node, delay) {
  * Returns a function that lands the number where it stands: the skip below calls it on every row
  * at once, and a roll that hasn't started yet drops straight to its final value.
  */
-function countUp(node, value, format, delay, countMs = COUNT_MS, landMs = LAND_MS) {
+function countUp(node, value, format, delay) {
   // Zero is the first *frame*, not the moment this was called. A WAAPI animation starts at the
   // next frame after `animate()`, so anchoring the roll to `performance.now()` here put it on a
   // different clock than the fade beside it — and the game-over frame is exactly where the page
@@ -197,7 +199,7 @@ function countUp(node, value, format, delay, countMs = COUNT_MS, landMs = LAND_M
   const step = (now) => {
     if (!live) return;
     if (t0 === null) t0 = now + delay;
-    const t = Math.min(1, Math.max(0, (now - t0) / countMs));
+    const t = Math.min(1, Math.max(0, (now - t0) / COUNT_MS));
     const eased = 1 - (1 - t) ** 3;
     node.textContent = format(Math.round(value * eased));
     if (t < 1) { requestAnimationFrame(step); return; }
@@ -205,11 +207,104 @@ function countUp(node, value, format, delay, countMs = COUNT_MS, landMs = LAND_M
     node.textContent = format(value);
     node.animate([
       { transform: 'scale(1)' }, { transform: 'scale(1.14)', offset: 0.4 }, { transform: 'scale(1)' },
-    ], { duration: landMs, easing: RISE });
+    ], { duration: LAND_MS, easing: RISE });
   };
   node.textContent = format(0);
   requestAnimationFrame(step);
   return () => { live = false; node.textContent = format(value); };
+}
+
+/**
+ * The two reveals the default pace uses (`PACE_COUNTED`), both drawn one glyph per span so a single
+ * character can move on its own. `tabular-nums` keeps every digit the same width, so swapping a
+ * span's text never shifts its neighbours.
+ */
+const GLYPH_MS = 180;          // a glyph's fade-up, on a digit that changed or a character typed
+const TYPE_STEP = 90;          // between typed characters
+
+const glyph = (char) => el('span', 'stat-glyph', char);
+
+function fadeUp(span) {
+  span.animate([
+    { opacity: 0, transform: 'translateY(0.45em)' },
+    { opacity: 1, transform: 'translateY(0)' },
+  ], { duration: GLYPH_MS, easing: RISE });
+}
+
+function landPop(node, landMs) {
+  node.animate([
+    { transform: 'scale(1)' }, { transform: 'scale(1.14)', offset: 0.4 }, { transform: 'scale(1)' },
+  ], { duration: landMs, easing: RISE });
+}
+
+/**
+ * Cash: the count-up, but every digit that changes fades up into place rather than swapping. The
+ * strings are compared from the right, because that is where a number grows from — going 9 to 10
+ * rolls the units and brings a new tens digit in, and the "$" stays put.
+ */
+function countDigits(node, value, format, delay, countMs, landMs) {
+  let shown = '';
+  const render = (text, animate) => {
+    if (text === shown) return;
+    const spans = [...node.children];
+    if (spans.length !== text.length) {
+      node.replaceChildren(...[...text].map(glyph));
+      if (animate) {
+        [...node.children].forEach((span, i) => {
+          if (shown[shown.length - (text.length - i)] !== text[i]) fadeUp(span);
+        });
+      }
+    } else {
+      spans.forEach((span, i) => {
+        if (span.textContent === text[i]) return;
+        span.textContent = text[i];
+        if (animate) fadeUp(span);
+      });
+    }
+    shown = text;
+  };
+  let t0 = null;
+  let live = true;
+  const step = (now) => {
+    if (!live) return;
+    if (t0 === null) t0 = now + delay;
+    const t = Math.min(1, Math.max(0, (now - t0) / countMs));
+    render(format(Math.round(value * (1 - (1 - t) ** 3))), t > 0);
+    if (t < 1) { requestAnimationFrame(step); return; }
+    live = false;
+    landPop(node, landMs);
+  };
+  render(format(0), false);
+  requestAnimationFrame(step);
+  return () => { live = false; render(format(value), false); };
+}
+
+/**
+ * Max combo and Time: no count, the final value typed out a character at a time, left to right.
+ * Every glyph is laid out from the start and only hidden, so the right-aligned value never slides
+ * left as it grows — each character appears in the place it ends up.
+ */
+function typeOut(node, value, format, delay, landMs) {
+  const spans = [...format(value)].map(glyph);
+  node.replaceChildren(...spans);
+  for (const span of spans) span.style.opacity = '0';
+  let t0 = null;
+  let live = true;
+  let typed = 0;
+  const step = (now) => {
+    if (!live) return;
+    if (t0 === null) t0 = now + delay;
+    while (typed < spans.length && now - t0 >= typed * TYPE_STEP) {
+      spans[typed].style.opacity = '';
+      fadeUp(spans[typed]);
+      typed += 1;
+    }
+    if (typed < spans.length) { requestAnimationFrame(step); return; }
+    live = false;
+    setTimeout(() => landPop(node, landMs), GLYPH_MS);
+  };
+  requestAnimationFrame(step);
+  return () => { live = false; for (const span of spans) span.style.opacity = ''; };
 }
 
 /**
@@ -262,7 +357,13 @@ function buildStats(stats, counted) {
         anims.push(value.animate([{ opacity: 0 }, { opacity: 1 }], {
           duration: counted ? 120 : LABEL_MS, delay: at + pace.fadeAt, easing: 'ease-out', fill: 'backwards',
         }));
-        landings.push(countUp(value, stat.value, stat.format, at + pace.lead, pace.count, pace.land));
+        if (!counted) {
+          landings.push(countUp(value, stat.value, stat.format, at + pace.lead));
+        } else if (stat.reveal === 'type') {
+          landings.push(typeOut(value, stat.value, stat.format, at + pace.lead, pace.land));
+        } else {
+          landings.push(countDigits(value, stat.value, stat.format, at + pace.lead, pace.count, pace.land));
+        }
       });
     },
   };
@@ -538,10 +639,11 @@ function buildBoard(entries, youId) {
  * `photo`, when given, is a canvas holding one frame of the ending (game/polaroid.js) and goes up
  * as a polaroid over the title. `footHint` puts "Tap to continue" at the foot of the screen rather
  * than over the retry pill's slot; `?gameover=classic` turns both off. `statCount` is the paced
- * count-up with white values (PACE_COUNTED); false is `?statcount=classic`.
+ * count-up with white values (PACE_COUNTED); false is `?statcount=classic`. `tapRetry` ends the
+ * card on a pulsing "Tap to continue" instead of the Play again pill; false is `?playagain=classic`.
  */
 export function showRunEnd(root, {
-  title, reason, stats, scores = null, onRetry, finale = null, photo = null, footHint = true, statCount = true,
+  title, reason, stats, scores = null, onRetry, finale = null, photo = null, footHint = true, statCount = true, tapRetry = true,
 }) {
   root.innerHTML = '';
   root.hidden = false;
@@ -579,6 +681,9 @@ export function showRunEnd(root, {
   // instead of silently reloading the page.
   retry.disabled = true;
   retry.style.opacity = '0';
+  // With the tap ending at the foot of the screen there is no pill, so no slot held for one either.
+  // Over the slot (`?gameover=classic`) the invisible pill stays, as the hint's anchor.
+  if (tapRetry && footHint) retry.style.display = 'none';
 
   /**
    * The current beat's fast-forward, or `null` when there is nothing to skip. Each phase installs
@@ -656,10 +761,40 @@ export function showRunEnd(root, {
   }
 
   function playRetry() {
+    if (tapRetry) { playTapRetry(); return; }
     retry.style.opacity = '';
     retry.disabled = false;
     if (still) return;
     riseIn(retry, 0, { from: 10, scale: 0.9, duration: 420 });
+  }
+
+  /**
+   * The default ending: no pill, the same pulsing "Tap to continue" the review uses, and a tap
+   * anywhere plays again (Tyler, 2026-10-23). It arms `HOLD_MS` after it appears for the reason the
+   * review does — the tap that skipped the table must not be the one that reloads the run.
+   */
+  function playTapRetry() {
+    const hint = el('span', 'run-end-continue', 'Tap to continue');
+    if (footHint) {
+      hint.classList.add('is-foot');
+      root.append(hint);
+    } else {
+      hint.style.top = `${retry.offsetTop}px`;
+      hint.style.height = `${retry.offsetHeight}px`;
+      card.append(hint);
+    }
+    // Enter and Space stand in for the tap, since there is no button left to tab to and press.
+    const onKey = (event) => {
+      if (skip !== go || (event.code !== 'Enter' && event.code !== 'Space')) return;
+      event.preventDefault();
+      go();
+    };
+    const go = () => { skip = null; window.removeEventListener('keydown', onKey); onRetry(); };
+    window.addEventListener('keydown', onKey);
+    if (still) { skip = go; return; }
+    hint.animate([{ opacity: 0 }, { opacity: 1 }],
+      { duration: HINT_MS, delay: HOLD_MS, easing: 'ease-out', fill: 'backwards' });
+    timer = setTimeout(() => { skip = go; }, HOLD_MS);
   }
 
   function playBoard(entries) {

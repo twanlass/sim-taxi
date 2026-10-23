@@ -2494,6 +2494,8 @@ let tapeImpact = false;
 const gameOverClassic = new URLSearchParams(window.location.search).get('gameover') === 'classic';
 // `?statcount=classic` is the quicker stat roll with the values in yellow beside their labels.
 const statCountClassic = new URLSearchParams(window.location.search).get('statcount') === 'classic';
+// `?playagain=classic` ends the card on the yellow Play again pill instead of "Tap to continue".
+const playAgainClassic = new URLSearchParams(window.location.search).get('playagain') === 'classic';
 const snapshot = gameOverClassic ? null : createSnapshot(renderer.domElement);
 // How far past the impact, in sim seconds, the replay's last cut is photographed: far enough for
 // the fireball to have bloomed over both cars, not so far that the smoke has swallowed them. Every
@@ -4406,8 +4408,10 @@ function updateHud(dt) {
       // the row, so the card is the same shape every time.
       stats: [
         { label: 'Cash', value: s.money, format: (n) => `$${n}` },
-        { label: 'Max combo', value: Math.round(combo.state.best * 10), format: (n) => formatMult(Math.max(1, n / 10)) },
-        { label: 'Time', value: s.elapsed, format: formatRunTime },
+        // Cash counts up; these two are typed out (Tyler, 2026-10-23) — a combo or a clock rolling
+        // up from zero says nothing the final figure doesn't.
+        { label: 'Max combo', value: Math.round(combo.state.best * 10), format: (n) => formatMult(Math.max(1, n / 10)), reveal: 'type' },
+        { label: 'Time', value: s.elapsed, format: formatRunTime, reveal: 'type' },
       ],
       // Recorded here rather than the moment the run ended, so the write happens on the frame the
       // screen is actually built — every ending holds this block for a beat, and a score saved
@@ -4421,6 +4425,7 @@ function updateHud(dt) {
       photo: snapshot?.photo() ?? null,
       footHint: !gameOverClassic,
       statCount: !statCountClassic,
+      tapRetry: !playAgainClassic,
     });
     document.body.classList.add('game-over');
     sfx?.fadeOutMusic();
@@ -8267,6 +8272,7 @@ window.__taxi = {
     onRetry: () => {},
     footHint: !gameOverClassic,
     statCount: !statCountClassic,
+    tapRetry: !playAgainClassic,
     ...opts,
   }),
   /** The polaroid's print as it stands, for tools/smoke.mjs: which grab it came from, or -1. */
