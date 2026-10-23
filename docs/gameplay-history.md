@@ -201,6 +201,13 @@ teach, and the bubble would be the loudest thing in every frame.
 
 ## New Move Unlocked: the overtake, U-turn and drift cards
 
+**The overtake's plain key row** (until 2026-10-22, `?overtakekeys=classic`): Loco, "+", Loco again,
+the first key lit from the start and the second from the blip, both orange to the end of the loop.
+Tyler: a held key did not look held, and the key not being pressed still looked active. Replaced by
+grey-unless-held keys with a filling hold ring. A one-key version with a hold/gap/hold bar under it
+was tried first and dropped: Tyler found the two keys clear. The clip's street picker also
+took the ring road until then, which put the clip inside the edge fog.
+
 How the U-turn clip's motion was made before it was recorded from the sim. Now: [New Move Unlocked: the overtake, U-turn and drift cards](gameplay.md#new-move-unlocked-the-overtake-u-turn-and-drift-cards).
 
 The motion is **the game's own U-turn, recorded**: `tools/uturnreel.mjs` drives the shipped

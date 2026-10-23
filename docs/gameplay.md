@@ -586,9 +586,14 @@ behind a car rams it unless the combo is thrown (`game/overtake.js`), so it is t
 is punished for not knowing. Its clip is two cars — the reel carries the car being passed too
 (`REEL.lead`, drawn by `game/moveclip.js`) — and its camera **follows** that car (`track` on
 `reelPlayer`) rather than standing still, because a pass takes ~80 units of road at the Loco top and
-a frame that held all of it drew both cars at a third the size. That length is also why its street
-picker accepts the ring road as well as side streets. The pedal row is Loco, then Loco again: the
-first key goes dark at the blip and the second lights. Recorded by `tools/overtakereel.mjs`.
+a frame that held all of it drew both cars at a third the size. Its street picker takes side
+streets only while the [edge fog](rendering.md) is up: the ring road runs along the fog's inner
+edge, and a clip filmed there came out half or wholly white. The pedal row is Loco, then Loco
+again, and it shows **whose finger is on which key** (`holds` in `game/newmove.js`): a key is orange
+only while the clip holds it and a flat grey disc otherwise, and the held one dips while a ring fills
+round it over the press. So the first key fills, goes grey at the blip, and the second turns orange
+and fills through the pass. The card's "next key" pulse is off here: the only ring is on the key being pressed. `?overtakekeys=classic` is the old row, where both keys sat orange from
+the blip on. Recorded by `tools/overtakereel.mjs`.
 The blip comes late in the loop (`BLIP_ON` 1.7s of 2.8), once the taxi is on the car's bumper:
 the combo swings out the frame it arms, so an early blip had the taxi up the oncoming lane 17 units
 short of the car for most of the loop, passing nothing. The recorder now rejects any take that pulls

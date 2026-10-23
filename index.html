@@ -1860,6 +1860,28 @@
         0% { opacity: 0.9; transform: scale(1); }
         100% { opacity: 0; transform: scale(1.55); }
       }
+      /* Holds (the overtake, newmove.js `holds`): a key is the button's colour only while the clip
+         holds it, a flat grey disc otherwise (not a greyscale filter, which turned the orange brown on
+         the blackout), and while held it dips and a ring fills round it. The ring is the "+"'s ink.
+         `?overtakekeys=classic` is the plain row. */
+      .nm-combo.is-holds .nm-key svg:not(.nm-hold) { transition: transform 0.07s ease-out; }
+      .nm-combo.is-holds .nm-key:not(.is-down) svg:not(.nm-hold) circle { fill: #464c5c; }
+      .nm-combo.is-holds .nm-key:not(.is-down) .pedal-letter { fill-opacity: 0.55; }
+      .nm-combo.is-holds .nm-key.is-down svg:not(.nm-hold) { transform: scale(0.88); }
+      body:not(.move-card-classic) .nm-combo.is-holds .nm-key { transform: none; }
+      .nm-hold {
+        position: absolute; inset: -8px; width: calc(100% + 16px) !important; height: calc(100% + 16px) !important;
+        pointer-events: none; color: #44497d;
+      }
+      body.new-move-after-run #new-move .nm-hold { color: #fff; }
+      .nm-hold circle { fill: none; stroke: currentColor; stroke-width: 3; }
+      .nm-hold-track { opacity: 0.18; }
+      .nm-hold-fill { stroke-dasharray: 1 1; stroke-dashoffset: 1; stroke-linecap: round; }
+      /* No "next" ring here: the hold ring is the only ring, and only on the key being pressed (Tyler,
+         2026-10-22: the pulse round the waiting key read as that key being active). */
+      .nm-combo.is-holds .nm-key::after { display: none; }
+      .nm-combo.is-holds { gap: 18px; }
+
       /* The combo over the clip (newmove.js `comboOverlay`): the HUD's meter at the top of the
          frame, where play puts it, and the purple word off the taxi's roof. A touch under the HUD's
          size, the clip being a third of the screen's width; the word keeps its own. */

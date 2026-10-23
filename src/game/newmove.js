@@ -71,9 +71,10 @@ export const MOVES = {
   // First, and on the first drop-off it can: holding Loco Mode behind a car rams it unless the combo
   // is thrown (game/overtake.js), so a player who has not been shown it is being punished for the
   // button doing what it always did.
+  // `holds`: the keys show whose finger is on them (`buildKeys`), because the overtake is two holds.
   overtake: {
     seenKey: 'simTaxi.seen.overtake', after: 1, line: 'Overtake',
-    keys: [['boost', 'boost'], ['blip', 'boost']],
+    keys: [['boost', 'boost'], ['blip', 'boost']], holds: true,
   },
   uturn: {
     seenKey: SEEN_KEY, after: AFTER_DELIVERED, line: 'U-Turn',
@@ -228,6 +229,14 @@ export function createNewMove({ viewport = null, onClose = () => {}, comboMeter 
   // the HUD's big-gas/small-brake sizing read as a hierarchy that is not in the combo. Built per
   // move, on open.
   let keys = {};
+  // Holds (Tyler, 2026-10-22): on a move made of holds, a key is in the button's colour only while
+  // the clip is pressing it, grey otherwise, and a ring fills round it for as long as it is held. The
+  // overtake's two A keys used to sit orange together from the blip to the end of the loop, so the
+  // card never said which one was down, or that the first had been let go. `?overtakekeys=classic`
+  // is that row. The fill is the clip's `hold`, 0 to 1 across each press.
+  const holdsOn = () => Boolean(move?.holds) && !document.body.classList.contains('overtake-keys-classic');
+  const HOLD_RING = '<circle class="nm-hold-track" cx="30" cy="30" r="28" />'
+    + '<circle class="nm-hold-fill" cx="30" cy="30" r="28" pathLength="1" transform="rotate(-90 30 30)" />';
   function buildKeys(row) {
     combo.replaceChildren();
     combo.hidden = !row.length;
@@ -243,9 +252,17 @@ export function createNewMove({ viewport = null, onClose = () => {}, comboMeter 
       key.className = `nm-key nm-${id}`;
       const svg = art(id);
       if (svg) key.append(svg);
+      if (holdsOn()) {
+        const ring = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+        ring.setAttribute('class', 'nm-hold');
+        ring.setAttribute('viewBox', '0 0 60 60');
+        ring.innerHTML = HOLD_RING;
+        key.append(ring);
+      }
       combo.append(key);
       keys[name] = key;
     }
+    combo.classList.toggle('is-holds', holdsOn());
   }
 
   // `pinned`: the card places itself, centred, rather than taking the docked slot the talking
@@ -284,6 +301,8 @@ export function createNewMove({ viewport = null, onClose = () => {}, comboMeter 
       if (!lit) next = false;
       key.classList.toggle('is-lit', lit);
       key.classList.toggle('is-down', state[name].down);
+      const fill = state[name].hold;
+      if (fill !== undefined) key.querySelector('.nm-hold-fill')?.style.setProperty('stroke-dashoffset', String(1 - fill));
     }
   }
 
