@@ -5587,6 +5587,12 @@ const soundTriggers = {
     grounded.reduce((a, b) => (dist(b) < dist(a) ? b : a)).takeOff();
     return null;
   },
+  ltrain: () => {
+    if (!ltrain) return 'no L train in this city';
+    if (ltrain.state.phase === 'run') return 'already running';
+    ltrain.launch();
+    return null;
+  },
   bridge: () => {
     if (!drawbridge) return 'no drawbridge in this city';
     if (drawbridge.state.phase !== 'open') return 'already cycling';
@@ -5617,8 +5623,10 @@ soundTriggers.birdsDown = soundTriggers.birdsUp;
 // taxi and the rest of the city carry on — with its sound looping and steered off it, so the
 // falloff can be tuned by driving to and from something that stays put. Held, a source is
 // `{ sound, voice, flock? }`; `heldSounds` below loops each. Holding something that is not in the
-// air sends it up first and steps it to where it can be seen.
-const holds = { plane: null, heli: null, birds: null };
+// air sends it up first and steps it to where it can be seen. The L train is the exception to the
+// looping: its sound is a bed, which `ambientLevels` already plays off the train for as long as it
+// stands mid-run, so holding it only has to stop it moving.
+const holds = { plane: null, heli: null, birds: null, ltrain: null };
 const holdOf = (key) => (key === 'birdsUp' || key === 'birdsDown' ? 'birds' : key);
 function heldAt(which) {
   if (which === 'plane') { const p = flyover.group.position; return placeAt(p.x, p.z, p.y); }
@@ -5641,7 +5649,14 @@ function setHold(key, on) {
   }
   if (held) return null;
   let flock = null;
-  if (which === 'plane') {
+  if (which === 'ltrain') {
+    if (!ltrain) return 'no L train in this city';
+    // An empty line is sent a train and stepped to the middle of its run, over the city at cruise.
+    if (ltrain.state.phase !== 'run') {
+      ltrain.launch();
+      for (let step = 0; step < 60 * 30 && ltrain.state.t < ltrain.runTime / 2; step++) ltrain.update(1 / 60);
+    }
+  } else if (which === 'plane') {
     if (!flyover.state.active) {
       flyover.launch();
       // To the middle of the run, which is over the city (`s` runs -RUN_MARGIN..RUN_MARGIN).
@@ -5683,13 +5698,13 @@ function heldSounds() {
   if (!sfx) return;
   for (const which of Object.keys(holds)) {
     const held = holds[which];
-    if (!held) continue;
+    if (!held || which === 'ltrain') continue;
     const at = heldAt(which);
     if (!held.voice || held.voice.ended) held.voice = sfx.play(held.sound, { at, steered: true, loop: true });
     else sfx.steer(held.voice, held.sound, at);
   }
 }
-const soundHolds = Object.fromEntries(['plane', 'heli', 'birdsUp', 'birdsDown'].map((key) => [key, {
+const soundHolds = Object.fromEntries(['plane', 'heli', 'birdsUp', 'birdsDown', 'ltrain'].map((key) => [key, {
   held: () => Boolean(holds[holdOf(key)]),
   set: (on) => setHold(key, on),
 }]));
@@ -5755,6 +5770,9 @@ function soundSources() {
     const p = flyover.group.position;
     out.push({ key: 'plane', x: p.x, z: p.z, y: p.y });
   }
+  // The L train, from its middle while it runs — where its bed plays from (`ambientLevels`).
+  const train = ltrain?.emitter();
+  if (train) out.push({ key: 'ltrain', x: train.x, z: train.z, y: train.y });
   return out;
 }
 
@@ -6483,7 +6501,8 @@ function tick() {
   boombox.update(dt);
   skaters.update(dt);
   if (ltrain) {
-    ltrain.update(dt);
+    // Held from the ⚙️ panel (`holds`), it stands where it is, its bed still playing.
+    if (!holds.ltrain) ltrain.update(dt);
     ltrain.setFadePoints(ltrainFadePoints());
     // Beams on in the rain, the way the cars' are, and after dark — the searchlight's night measure.
     ltrain.setBeams(Math.max(runningLightsAt(ltrain.plan.world(ltrain.state.x).x, ltrain.plan.world(ltrain.state.x).z),

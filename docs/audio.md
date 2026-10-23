@@ -241,6 +241,11 @@ seam, and raised 6.3 dB to −32 LUFS, a couple over the construction bed. The f
 `far` 60) and the train's speed make the pass-by. Both squeals in the recording are inside the
 loop, so one comes round every 7.5 s while a train is near.
 
+In audio debug the moving train carries its own 🔊 pin (from its middle, while it runs), so its
+falloff rings can be dragged like any placed sound's. The ⚙️ panel's ⚡ sends a train off now, and
+⏸ freezes one mid-run, sending it out to the middle of its run first if the line is empty. Unlike the
+plane's hold, nothing extra loops: the bed already plays off the train while it stands there.
+
 The train's wheel sparks and the garage's welding during a repair have no sound yet. Synthesised
 stand-ins were tried for them (October 2026) and turned down: Tyler, "don't ship any of the synth
 standin sounds".
