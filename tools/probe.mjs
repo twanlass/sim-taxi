@@ -15682,6 +15682,57 @@ let chopperOrder; // likewise
   setClosedLanes([]);
 }
 
+// --- The depot stays out from behind the L ---------------------------------------------------
+//
+// `behindLTrain` (city/garage.js) keeps the depot off the one column whose door faces the L's
+// median. That is arithmetic about where the deck stands, so this fires real rays from the door and
+// the forecourt — at a taxi's roofline, the drive-out the vignette and every repair watch — through
+// the built structure, and through a train standing on it opposite. Before the filter, 46 of 200
+// seeds failed this, at up to 89% of the forecourt hidden.
+{
+  const { planLTrain, createLTrain: ltrainAt, RAIL_TOP } = await import('../src/game/ltrain.js');
+  const ray = new THREE.Raycaster();
+  const failures = [];
+  let sampled = 0;
+  for (let s = 0; s < 48; s++) {
+    const cityAt = createLayout(makeRng(seed + s * 113));
+    if (!cityAt.garageBlock) continue;
+    const plan = planLTrain();
+    if (!plan) continue;
+    const site = garageSite(cityAt.garageBlock);
+    const lt = ltrainAt(new THREE.Scene(), makeRng(9), { intro: false });
+    lt.group.updateMatrixWorld(true);
+    // The train, as a box the length of the line — wherever it is when the door goes up. Only the
+    // north-south leg can be in front of a +X door; the box is skipped on an east-west line.
+    const train = plan.axis === 'z' ? new THREE.Box3(
+      new THREE.Vector3(plan.c - 0.9, RAIL_TOP, -1e3), new THREE.Vector3(plan.c + 0.9, RAIL_TOP + 1.75, 1e3),
+    ) : null;
+    let hidden = 0;
+    let n = 0;
+    for (let a = 0; a <= 6; a++) {
+      const z = site.doorZ - site.doorW / 2 + (site.doorW * a) / 6;
+      for (let b = 0; b <= 6; b++) {
+        for (const o of [
+          new THREE.Vector3(site.curtainX, KERB_H + 0.05 + ((site.doorH - 0.1) * b) / 6, z),
+          new THREE.Vector3(site.frontX + ((site.kerbX - site.frontX + 2) * b) / 6, KERB_H + 1.2, z),
+        ]) {
+          n += 1;
+          ray.set(o, VIEW_DIR);
+          if (ray.intersectObjects([lt.deck, lt.columns], false).length
+            || (train && ray.ray.intersectsBox(train))) hidden += 1;
+        }
+      }
+    }
+    lt.group.traverse((o) => o.geometry?.dispose());
+    sampled += 1;
+    if (hidden > 0) failures.push(`seed ${seed + s * 113} (${site.bi},${site.bj}): ${hidden}/${n}`);
+  }
+  check('the L never stands between the camera and the depot\'s door or forecourt',
+    sampled >= 40 && failures.length === 0,
+    failures.join(', ') || `${sampled} cities, door and drive-out clear of the deck and a passing train`);
+  createLayout(makeRng(seed));   // `createLayout` installs its network — put the probe's city back
+}
+
 // --- The taxi's garage, and the vignette that comes out of it --------------------------------
 //
 // Three separate claims, and the third is the one that could not be made any other way than here.

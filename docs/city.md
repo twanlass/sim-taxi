@@ -442,6 +442,15 @@ offset stream — so adding the depot moved no park, no arterial and no building
 is the answer, and it may be **null**: a city with nowhere to put one opens without the vignette
 rather than not opening.
 
+**Never behind the L.** The block whose +X street is the L's north-south arterial is off the list
+(`behindLTrain`): its door faces the median across one carriageway, so the sightline to the camera
+meets the deck and any train on it, and the forecourt the taxi drives out over (in the vignette and
+on every repair) went 55% behind the deck. It took the depot on 23% of seeds. One block further west
+is clear. The pick spends the same single draw on both lists, so a seed that was already clear keeps
+its depot where it was; `?garageplace=classic` (`GARAGEPLACE=classic` headless) lets it land there
+again. A fade on the deck near the door was the alternative and was passed over: a chunk of track
+dissolving in the hero shot, with the train and every repair visit needing the same treatment.
+
 ### The livery
 
 The depot is the one building the player owns, and it is painted like it. **The envelope itself is
