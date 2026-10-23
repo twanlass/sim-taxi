@@ -6,7 +6,9 @@
 iOS launch screen, the web view and the page (`html.booting`) are all `PALETTE.splashVoid` — and
 stays black while the game loads. Then **ROCKET RIDES** pops up out of the black a letter at a time
 in big white extruded letters set in the game's own Space Grotesk Bold (`game/splashlogo.js`), seen from a low side-on camera (15° up)
-and turned a little so the grey sides of the extrusion show. Once the word has stood for half a
+and turned a little so the grey sides of the extrusion show. The word sits dead centre in the frame and the road three quarters of
+the way down (`splashAim`, `logoBase`): the camera aims half a frustum above the road and the word stands as high as it takes, so
+it stands 4 units up on a phone and 1.7 on a desktop. Once the word has stood for half a
 second the taxi falls out of the sky straight down through it: the scene drops into slow motion for
 a tenth of a second on the frame the car hits the top line (sparks, a crash), the letters it struck
 are driven down and out, and the **Big Air landing** on the asphalt that has faded up beneath (the

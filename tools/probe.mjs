@@ -22672,8 +22672,9 @@ for (const viewName of ['side', 'quarter']) {
   const notAbove = [];
   for (const aspect of [390 / 844, 1, 1280 / 800]) {
     const zoom = splash.splashZoom(aspect);
+    const aim = splash.splashAim(aspect);
     const onScreen = (p) => {
-      const at = new THREE.Vector3(p.x, p.y, p.z);
+      const at = new THREE.Vector3(p.x, p.y, p.z).sub(aim);
       return Math.abs(at.dot(right)) - REACH < zoom * aspect && Math.abs(at.dot(up)) - REACH < zoom;
     };
     for (let t = splash.STAGE_IN; t <= splash.splashLength(aspect); t += 1 / 240) {
@@ -22715,19 +22716,35 @@ for (const viewName of ['side', 'quarter']) {
   const { buildLogo, createDebris } = await import('../src/game/splashlogo.js');
   splash.setSplashView('side');
   const { right, up } = splash.splashView();
-  const logo = buildLogo();
   const at = new THREE.Vector3();
   const clipped = [];
-  for (const aspect of [390 / 844, 1, 1280 / 800]) {
+  const offCentre = [];
+  const screenUp = up.clone().negate();   // the view's `up` points down the screen
+  // Portrait phones from an SE to a Pro Max, an iPad, a square window and a desktop.
+  for (const aspect of [320 / 568, 375 / 667, 390 / 844, 430 / 932, 768 / 1024, 1, 1280 / 800]) {
     const zoom = splash.splashZoom(aspect);
-    const out = logo.pieces.some((piece) => piece.hull.some((h) => {
-      at.copy(h).applyQuaternion(piece.homeQuat).add(piece.home);
+    const aim = splash.splashAim(aspect);
+    const word = buildLogo(splash.logoBase(aspect));
+    let lo = Infinity;
+    let hi = -Infinity;
+    const out = word.pieces.some((piece) => piece.hull.some((h) => {
+      at.copy(h).applyQuaternion(piece.homeQuat).add(piece.home).sub(aim);
+      lo = Math.min(lo, at.dot(screenUp));
+      hi = Math.max(hi, at.dot(screenUp));
       return Math.abs(at.dot(right)) > zoom * aspect * 0.95 || Math.abs(at.dot(up)) > zoom * 0.95;
     }));
     if (out) clipped.push(aspect.toFixed(2));
+    // The word's middle on the frame's middle, and the road (the world origin) 75% of the way down.
+    const road = 0.5 - new THREE.Vector3().sub(aim).dot(screenUp) / (2 * zoom);
+    if (Math.abs((lo + hi) / 2) > zoom * 0.02 || Math.abs(road - 0.75) > 1e-6) {
+      offCentre.push(`${aspect.toFixed(2)}: word ${(50 - (lo + hi) / (4 * zoom) * 100).toFixed(1)}%, road ${(road * 100).toFixed(1)}%`);
+    }
   }
+  const logo = buildLogo(splash.logoBase(390 / 844));
   check('splash logo: the whole word is inside the frame at every aspect', clipped.length === 0,
     clipped.length ? `clipped at ${clipped.join(', ')}` : `${logo.pieces.length} pieces in ${logo.letters.length} letters`);
+  check('splash logo: the word is centred in the frame and the road three quarters down, at every aspect',
+    offCentre.length === 0, offCentre.join('; '));
 
   // The slabs are wound by hand (`extrudeTriangles`), so the winding is checked from the triangles
   // themselves: a closed slab wound outward has a positive signed volume equal to its area times its
