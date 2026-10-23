@@ -106,8 +106,11 @@ const RACE_MAX = 75;            // nobody home by now — the race is called off
 // The finish, choreographed (Tyler: "1. Winner returns 2. Winner stays in place 3. Cut to loser;
 // place them 1 block away 4. Loser drives to finish, pulls up next to winner (skid to stop) 5. Show
 // 'You won' or 'You lost' text 6. Show money"). Seconds the winner gets to pull up before the cut —
-// enough to see it stop, short of waiting on it.
-const WINNER_HOLD = 1.0;
+// none: the screen goes to black the frame it crosses (Tyler: "as soon as the winner hits the finish
+// line waypoint cut to black"). `?racecut=classic` keeps the old second of it braking to a stop,
+// which read as the race carrying on after it had been won.
+const WINNER_HOLD = 0;
+const WINNER_HOLD_CLASSIC = 1.0;
 // How long the cut may wait on main.js's wipe before landing the arrival itself (the tools have none).
 const ARRIVAL_CUT_MAX = 1.5;
 // The loser's running start, off the far end of the block behind: a car rolling in rather than one
@@ -479,12 +482,13 @@ function createRivalMesh() {
  * @param hydraulics false for `?hydraulics=classic`: the body sits still on its wheels
  * @param readyGate false for `?raceready=classic`: the count starts when the camera is back
  * @param lateReveal false for `?racereveal=classic`: the finish is down before the camera pans to it
+ * @param snapCut false for `?racecut=classic`: the winner pulls up for WINNER_HOLD_CLASSIC before the cut
  * @param firstDue the drop-off the first racer turns up at, overriding DROPS_BETWEEN — Demo mode's 1
  */
 export function createRace({
   rng, scene, traffic, routeTo, blocked = () => false, interrupted = () => false, canStart = () => true,
   seen = () => false, delivered = () => 0, onEvent = () => {}, soon = false, bass = () => 0,
-  hydraulics = true, readyGate = true, lateReveal = true,
+  hydraulics = true, readyGate = true, lateReveal = true, snapCut = true,
   firstDue = null,
 }) {
   const taxi = traffic.taxi;
@@ -1084,7 +1088,7 @@ export function createRace({
       // The winner pulls up where it crossed: the taxi on the race's brake, the racer on its stop.
       if (taxiWon) state.brakeTaxi = true;
       else car.roadblock = Infinity;
-      if (state.stepT >= WINNER_HOLD) {
+      if (state.stepT >= (snapCut ? WINNER_HOLD : WINNER_HOLD_CLASSIC)) {
         state.step = 'cut';
         state.stepT = 0;
         onEvent('arrival-cut', { car, winner: state.winner });

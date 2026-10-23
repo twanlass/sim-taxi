@@ -2790,9 +2790,9 @@ down in 0.7s); the pumps are underdamped springs, so each one bounces two or thr
 settles. A lowrider's trick on a tuner's body, which a cartoon city can carry.
 `?hydraulics=classic` keeps the body still.
 
-**The finish is choreographed** (`updateFinale`, Tyler's six steps). The winner crosses the line
-and pulls up there (`WINNER_HOLD`, 1s; the taxi on the race's brake, `brakesTaxi`, since `parked`
-stops a car dead). Then a cut, behind the same wipe as the start: the winner is parked near the
+**The finish is choreographed** (`updateFinale`, Tyler's six steps). The screen cuts to black the
+frame the winner crosses the line (`WINNER_HOLD` is 0; Tyler: "as soon as the winner hits the finish
+line waypoint cut to black"), behind the same wipe as the start: the winner is parked near the
 front of a side street near where it finished, **facing the way they raced** (`homeDir`, the heading
 the winner crossed the line on; Tyler: "make sure both cars face the same direction"), and the loser
 is put a block back on the same street, rolling at `ARRIVAL_ROLL` (`chooseArrival`, by the start's
