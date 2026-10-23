@@ -105,6 +105,7 @@ import { skateRect } from './city/skatepark.js';
 import { createClouds } from './game/clouds.js';
 import { createCarGhosts } from './game/carghosts.js';
 import { createRoadwork } from './game/roadwork.js';
+import { createStreetProps, planStreetProps } from './game/streetprops.js';
 import { createFire } from './game/fire.js';
 import { createRace, WIN_PAY, LOSE_COST, TANK_FLOOR, COUNT_STEP, COUNTDOWN } from './game/race.js';
 import { createSpeech } from './game/speech.js';
@@ -1576,6 +1577,13 @@ const pan = shot
 const dust = createDust(scene, camera, makeRng(seed + 77));
 const spray = createSpray(scene, makeRng(seed + 78));
 
+// A post box and a hot dog cart on the kerb, which a taxi in Loco Mode swipes off it — see
+// game/streetprops.js. City seed for where they stand, after the sightline field exists (they only
+// go where the camera can see them) and clear of the rain's street lamps. Run seed for the spray.
+const streetProps = createStreetProps(scene,
+  planStreetProps(makeRng(seed + 211), layout, lamps?.spots.map((p) => ({ x: p.px, z: p.pz })) ?? []),
+  { dust, rng: makeRng(runSeed + 212) });
+
 // The city's entrance: buildings and trees rise out of the ground in a wave that spreads from the
 // taxi's spawn — the run starts where the player's car is, and the city builds itself outward from
 // them — with a puff of dust off each building's footprint as it lands. See game/cityentry.js. It
@@ -1597,7 +1605,8 @@ const cityEntry = createCityEntry({
   objects: [...(garage ? [garage.entryObject] : []), ...(burger ? [burger.entryObject] : []),
     ...(graveyard ? [graveyard.entryObject] : []),
     ...hoopers.entryObjects, ...boombox.entryObjects, ...skaters.entryObjects,
-    ...tubeMan.entryObjects, ...(roadside?.entryObjects ?? []), ...(ltrain?.entryObjects ?? [])],
+    ...tubeMan.entryObjects, ...(roadside?.entryObjects ?? []), ...(ltrain?.entryObjects ?? []),
+    ...streetProps.entryObjects],
   sites: [...city.entrySites, ...(garage ? [garage.entrySite] : []),
     ...(burger ? [burger.entrySite] : []), ...(graveyard ? [graveyard.entrySite] : []),
     ...(roadside ? [roadside.entrySite] : [])],
@@ -1947,6 +1956,16 @@ roadwork.onSmash(({ x, z }) => {
   // A proper burst. Two ordinary puffs was what a boosting taxi lays down in two frames, so the
   // impact read as exhaust rather than as hitting something. See `dust.burst`.
   dust.burst(x, z, traffic.taxi.yaw);
+});
+// A post box or a hot dog cart swiped off the kerb (game/streetprops.js). Half a step on the meter,
+// like an overtake: it happens on its own whenever Loco Mode is down on the right lane, so it is a
+// flourish rather than a move. The shake and the crash are the barricade's, turned down further —
+// a box of letters, not a trestle.
+streetProps.onSmash(({ kind }) => {
+  if (!fares.state.gameOver) landCombo(kind === 'cart' ? 'hotdog' : 'mailbox');
+  haptic('drift-kick');
+  controller.kickShake(0.7);
+  sfx?.play('crash', { gain: 0.35, rate: kind === 'cart' ? 1.35 : 1.6 });
 });
 // Touchdown, off whichever ramp — the roadworks barricade or the crest of an arched bridge under
 // Loco Mode. One handler for both, because it is one event: `traffic.onTaxiLand` fires on the frame
@@ -6504,6 +6523,9 @@ function tick() {
     traffic.taxi.x = ramShove.x + ramShove.vx * k;
     traffic.taxi.z = ramShove.z + ramShove.vz * k;
   }
+  // The kerb swipe at a post box or a hot dog cart is an offset `traffic.update` draws the taxi at,
+  // so it is set before it (game/streetprops.js).
+  streetProps.update(dt, traffic.taxi);
   traffic.update(dt);
   if (traffic.taxi.overtakes > overtakesFelt) {
     overtakesFelt = traffic.taxi.overtakes;
@@ -7516,6 +7538,22 @@ if (shot) {
     const at = manholes.userData.spots[0];
     controller.state.target.set(at.x, 0, at.z);
     controller.update(aspect());
+  }
+
+  // A post box or the hot dog cart (game/streetprops.js), standing or — with `streetPropSmash` —
+  // that many seconds after a taxi swiped it. The swipe is staged by hand with a stand-in taxi
+  // heading up the prop's lane at the Loco cruise, since nothing in a still frame drives there.
+  if (shot.atStreetProp) {
+    const prop = streetProps.props.find((p) => p.kind === shot.atStreetProp);
+    if (prop) {
+      if (shot.streetPropSmash) {
+        streetProps.smash(prop, { yaw: -Math.PI / 2, v: SPEED * 1.6, x: prop.x, z: prop.z });
+        streetProps.settle(shot.streetPropSmash);
+        for (let t = 0; t < shot.streetPropSmash; t += 1 / 60) dust.update(1 / 60);
+      }
+      controller.state.target.set(prop.x, 0, prop.z);
+      controller.update(aspect());
+    }
   }
 
   if (shot.atDepot && garage) {

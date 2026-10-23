@@ -43,6 +43,7 @@ import {
 import { createBoombox, BPM as BOOMBOX_BPM } from '../src/game/boombox.js';
 import { createTubeMan } from '../src/game/tubeman.js';
 import { createManholes, planManholes, manholeGeometry, COVER_R, COVER_COUNT, BOX_CLEAR } from '../src/city/manholes.js';
+import { createStreetProps, planStreetProps } from '../src/game/streetprops.js';
 import { createCarWash } from '../src/city/carwash.js';
 import { createGasStation } from '../src/city/gasstation.js';
 import { collectPanes, entrances, streetLamps } from '../src/game/citylights.js';
@@ -19350,6 +19351,71 @@ let chopperOrder; // likewise
   check('...landing square in its lane, still moving, short of the line ahead',
     worstYaw < 0.05 && stalled === 0 && pastLine === 0,
     `worst heading ${worstYaw.toFixed(3)} rad off the lane, ${stalled} came out under cruise, ${pastLine} past the line`);
+}
+
+// --- The post box and the hot dog cart (game/streetprops.js) ----------------------------------------
+//
+// Placed where the camera sees them and nowhere a rider stands, and — the part that is the feature —
+// a boosting taxi on the lane beside one actually swipes it: veers onto the kerb, puts its flank
+// on the prop, smashes it, and is back on its lane centre before the hold line, where the turn
+// takes over the car. A citizen driving past at cruise touches nothing.
+{
+  const plan = planStreetProps(makeRng(seed + 211), layout);
+  const corners = [];
+  for (let i = 0; i <= GRID_I; i++) for (let j = 0; j <= GRID_J; j++) corners.push(cornerFor(i, j));
+  const nearRider = plan.filter((p) => corners.some((c) => Math.hypot(c.x - p.x, c.z - p.z) < 3.5)).length;
+  const offPavement = plan.filter((p) => (p.block.type !== 'built' && p.block.type !== 'park')
+    || Math.abs(p.block.bounds.x1 - p.x - 0.5) > 0.05 || p.z < p.block.bounds.z0 || p.z > p.block.bounds.z1).length;
+  const unseen = plan.filter((p) => !sightlineClear(p.x, 0.8, p.z)).length;
+  check('street props: two post boxes and a hot dog cart on the city',
+    plan.filter((p) => p.kind === 'mailbox').length === 2 && plan.filter((p) => p.kind === 'cart').length === 1,
+    plan.map((p) => p.kind).join(', '));
+  check('street props: the cart on a park\'s walk, post boxes on built blocks',
+    plan.every((p) => p.block.type === (p.kind === 'cart' ? 'park' : 'built')),
+    plan.map((p) => `${p.kind} on ${p.block.type}`).join(', '));
+  check('street props: on a block\'s +X pavement, in sight, and 3.5+ from every rider corner',
+    offPavement === 0 && unseen === 0 && nearRider === 0,
+    `${offPavement} off the pavement, ${unseen} hidden, ${nearRider} by a rider`);
+
+  const net = cityNetwork();
+  const run = (boost) => {
+    const sTraffic = createTraffic(makeRng(seed + 213), new THREE.Scene(), 1);
+    const taxi = sTraffic.taxi;
+    const sp = createStreetProps(new THREE.Scene(), plan, { rng: makeRng(9) });
+    const hits = [];
+    sp.onSmash((h) => hits.push(h));
+    let deepest = 0;
+    let leftAtTurn = 0;
+    let flank = Infinity;
+    for (const prop of sp.props) {
+      const to = net.nodeById.get(prop.lane.to);
+      if (!placeCar(taxi, net.dirOfLane(prop.lane), to.gi, to.gj, prop.lane.length - 0.3)) continue;
+      taxi.route = [];
+      taxi.boost = boost;
+      taxi.v = boost ? SPEED * 1.6 : SPEED;
+      const before = hits.length;
+      for (let k = 0; k < 120 && taxi.lane === prop.lane && taxi.state === 'drive'; k++) {
+        sp.update(1 / 60, taxi);
+        sTraffic.update(1 / 60);
+        deepest = Math.max(deepest, -(taxi.swipeOffset ?? 0));
+        if (hits.length > before && flank === Infinity) {
+          // Across the kerb from the drawn taxi's centre to the prop's: the drawn half-width (1.0)
+          // plus the prop's own half-depth (0.31 at most) is touching.
+          flank = Math.abs(taxi.x - prop.x);
+        }
+      }
+      leftAtTurn = Math.max(leftAtTurn, Math.abs(taxi.swipeOffset ?? 0));
+    }
+    return { hits: hits.length, deepest, leftAtTurn, flank, props: sp.props.length };
+  };
+  const boosted = run(true);
+  check('street props: a boosting taxi swipes every one, flank over the prop, back in lane by the turn',
+    boosted.hits === boosted.props && boosted.flank < 1.3 && boosted.leftAtTurn < 0.01,
+    `${boosted.hits}/${boosted.props} hit, ${boosted.flank.toFixed(2)} across at the hit, deepest ${boosted.deepest.toFixed(2)}, ${boosted.leftAtTurn.toFixed(3)} still off at the turn`);
+  const cruising = run(false);
+  check('street props: at cruise the taxi drives past and touches nothing',
+    cruising.hits === 0 && cruising.deepest === 0, `${cruising.hits} hit, deepest ${cruising.deepest.toFixed(2)}`);
+  // Stepping the city's own taxi elsewhere is not this block's business: put nothing back on it.
 }
 
 // --- The drift (`driftTaxi` / `kickDrift` in sim/traffic.js, wired in main.js) -------------------

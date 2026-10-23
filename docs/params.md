@@ -51,6 +51,7 @@ doc; what the classic version was, and why it changed, is in that doc's history 
 | `?roadside=carwash` / `=gas` | Pin the roadside lot to the car wash or the gas station; by default each city seed rolls one. Headless tools take `ROADSIDE=` | | [city.md](city.md#the-roadside-lot-and-its-tube-man) |
 | `?roadside=classic` | No roadside lot: its block goes back to the towers, and the tube man goes with it | | [city.md](city.md#the-roadside-lot-and-its-tube-man) |
 | `?manholes=classic` | The streets without their manhole covers | | [city.md](city.md#manhole-covers) |
+| `?streetprops=classic` | No post boxes or hot dog cart on the kerb, and no Loco swipe | `STREETPROPS=classic` | [city.md](city.md#the-post-box-and-the-hot-dog-cart) |
 | `?roofs=classic` | Solid flat roof caps, with no lip and no sunk deck | #511 | [city.md](city.md) |
 | `?foliage=classic` | The first, louder autumn palette | #486 | [rendering.md](rendering.md) |
 | `?water=classic` | The faceted first river surface | | [river.md](river.md) |

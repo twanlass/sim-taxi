@@ -1816,7 +1816,13 @@ in `game/fares.js`).
 Every combo the taxi lands on a job steps a multiplier up, and the drop-off pays the fare at it
 (`game/combometer.js`, Tyler's idea after the Duolingo combo streak). It starts each ride at ×1: an
 overtake or a bootleg U-turn +0.5, a drift kick +0.5 per chain tier (so a full chain of three is
-+3), **Stuntman** +1, the bridge launch +2, **Crushin' It** +1, capped at ×5.
++3), **Stuntman** +1, the bridge launch +2, **Crushin' It** +1, **Return to Sender** and
+**Hot Diggity** +0.5, capped at ×5.
+
+**Return to Sender** and **Hot Diggity** are swiping a post box or the hot dog cart off the kerb
+(Tyler, 2026-10-23, "if the taxi hits either of these things ... shoot mail everywhere or hot dogs
+everywhere"). The props are in [city.md](city.md#the-post-box-and-the-hot-dog-cart); the hit is
+automatic under Loco Mode on the lane that passes one, which is why it is only worth a half.
 
 **Crushin' It** is Big Air coming down on a car (Tyler, 2026-10-20: "make the car you land on
 explode. Taxi takes no damage and continues"). It used to be a crash: the taxi lands at the kick's

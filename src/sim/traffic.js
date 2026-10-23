@@ -7398,7 +7398,9 @@ export function createTraffic(
       // field. Keeping them apart matters: the weave's yaw is eased toward its target every
       // frame, and folding a 4-unit lane change into that eased value would have the ease drag
       // the car back out of the pass.
-      const lateral = car.lateral + car.passOffset;
+      // The taxi's swipe onto the kerb at a post box or a hot dog cart (game/streetprops.js) is a
+      // third of the same kind, set from outside before this step.
+      const lateral = car.lateral + car.passOffset + (car.swipeOffset ?? 0);
       if (Math.abs(lateral) > 0.001) {
         car.x -= Math.sin(car.yaw) * lateral;
         car.z -= Math.cos(car.yaw) * lateral;
@@ -7407,7 +7409,8 @@ export function createTraffic(
       // steering input: the nose and the front wheels should both point at the
       // kerb the car is diving for.
       const steer = car.steer + (car.passSlope ? Math.atan(car.passSlope) : 0)
-        + (car.pulloverSlope ? Math.atan(car.pulloverSlope) : 0);
+        + (car.pulloverSlope ? Math.atan(car.pulloverSlope) : 0)
+        + (car.swipeSlope ? Math.atan(car.swipeSlope) : 0);
       if (steer) car.yaw += steer;
 
       // --- Front wheels point where the car is going.
