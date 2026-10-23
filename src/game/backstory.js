@@ -32,8 +32,10 @@ const NUDGE_MS = 650;
 // types; this lands after the whole line is in. Keyed by line index.
 const PUNCH = { 3: 'real' };
 const PUNCH_MS = 700;
-// Scale and tilt (degrees) through the punch: up big, three shakes settling, back to rest.
-const PUNCH_KEYS = [[1, 0], [1.45, -8], [1.38, 7], [1.4, -6], [1.3, 4], [1.15, -2], [1, 0]];
+// Scale and tilt (degrees) through the punch: up big, three shakes settling, back to rest. It grows
+// from its left edge (index.html): a transform does not push the words beside it aside, and grown
+// from its centre at 1.45 it ran over the space before it and read "areal".
+const PUNCH_KEYS = [[1, 0], [1.35, -7], [1.3, 6], [1.32, -5], [1.22, 3], [1.1, -2], [1, 0]];
 
 // Where the card's bottom edge sits, as a fraction of the screen's height.
 const STORY_CARD_BOTTOM = 0.76;
