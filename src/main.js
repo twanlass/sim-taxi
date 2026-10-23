@@ -2118,6 +2118,7 @@ race = shot || raceParam === 'classic' ? null : createRace({
   readyGate: new URLSearchParams(window.location.search).get('raceready') !== 'classic',
   // The finish goes down as the camera arrives on it, rather than before the pan.
   lateReveal: new URLSearchParams(window.location.search).get('racereveal') !== 'classic',
+  snapCut: new URLSearchParams(window.location.search).get('racecut') !== 'classic',
   // Demo mode: the first racer turns up after the first drop-off rather than the 2nd to 4th.
   firstDue: demo.on() ? 1 : null,
   // The underglow pulses to whatever the music is doing (game/sfx.js, `bass`).
@@ -2286,7 +2287,8 @@ function onRaceEvent(type, detail) {
     popLabel('Head back!', 'is-count', RACE_LABEL_MS);
     haptic('snap');
   } else if (type === 'home') {
-    // The first one is over the line, and pulls up there (game/race.js, WINNER_HOLD). Nothing on
+    // The first one is over the line, and the screen cuts to black at once (game/race.js,
+    // WINNER_HOLD; `?racecut=classic` lets it pull up first). Nothing on
     // screen says who yet: that waits for the loser to be in (Tyler's steps 1-5, `updateFinale`).
     haptic('snap');
   } else if (type === 'arrival-cut') {

@@ -1354,6 +1354,12 @@ moment the first one was home, and the camera followed the loser to the line for
 seen arriving. Tyler asked for it as a scene instead: winner pulls up, cut to the loser a block
 out, skid in beside the winner, then the word, then the money.
 
+## The winner pulling up before the cut (until October 2026, `?racecut=classic`)
+
+The winner used to cross the line and brake to a stop there for `WINNER_HOLD` (1s; the taxi on the
+race's brake, `brakesTaxi`) before the wipe. Tyler asked for the cut the moment the winner is home:
+the second of braking read as the race carrying on after it was already won.
+
 ## The street race on the clock
 
 For one build the racer turned up 15-30s into the run and stayed for the rest of it, offering again
