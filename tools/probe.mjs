@@ -19364,13 +19364,16 @@ let chopperOrder; // likewise
   const corners = [];
   for (let i = 0; i <= GRID_I; i++) for (let j = 0; j <= GRID_J; j++) corners.push(cornerFor(i, j));
   const nearRider = plan.filter((p) => corners.some((c) => Math.hypot(c.x - p.x, c.z - p.z) < 3.5)).length;
-  const offPavement = plan.filter((p) => p.block.type !== 'built'
+  const offPavement = plan.filter((p) => (p.block.type !== 'built' && p.block.type !== 'park')
     || Math.abs(p.block.bounds.x1 - p.x - 0.5) > 0.05 || p.z < p.block.bounds.z0 || p.z > p.block.bounds.z1).length;
   const unseen = plan.filter((p) => !sightlineClear(p.x, 0.8, p.z)).length;
   check('street props: two post boxes and a hot dog cart on the city',
     plan.filter((p) => p.kind === 'mailbox').length === 2 && plan.filter((p) => p.kind === 'cart').length === 1,
     plan.map((p) => p.kind).join(', '));
-  check('street props: on a built block\'s +X pavement, in sight, and 3.5+ from every rider corner',
+  check('street props: the cart on a park\'s walk, post boxes on built blocks',
+    plan.every((p) => p.block.type === (p.kind === 'cart' ? 'park' : 'built')),
+    plan.map((p) => `${p.kind} on ${p.block.type}`).join(', '));
+  check('street props: on a block\'s +X pavement, in sight, and 3.5+ from every rider corner',
     offPavement === 0 && unseen === 0 && nearRider === 0,
     `${offPavement} off the pavement, ${unseen} hidden, ${nearRider} by a rider`);
 

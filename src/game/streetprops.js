@@ -21,8 +21,8 @@ import {
 // the weave and the overtake, so the simulation's lane bookkeeping never knows. Off Loco Mode it
 // drives past like a citizen.
 //
-// **Where.** Only on the +X face of a built block, on the lane running +Z past it, `SWIPE_S`
-// along that lane. Both halves of that are forced. The camera sits off +X+Z, so a prop on a block's
+// **Where.** The cart on a park's walk, the post boxes on built blocks. Only on the +X face, on
+// the lane running +Z past it, `SWIPE_S` along that lane. Both halves of that are forced. The camera sits off +X+Z, so a prop on a block's
 // −X or −Z side has the block's own building between it and the viewer. And of the two seen faces,
 // only on the +X one is the lane's *start* at the corner the rider pins don't use — on the +Z face
 // the passing lane runs −X and starts at the block's +X+Z corner, which is exactly where
@@ -100,7 +100,7 @@ export function planStreetProps(rng, blocks, keepOut = []) {
     const z = p.z;
     const block = [...blocks].find((b) => b.bounds
       && x > b.bounds.x0 && x < b.bounds.x1 && z > b.bounds.z0 && z < b.bounds.z1);
-    if (!block || block.type !== 'built') continue;
+    if (!block || (block.type !== 'built' && block.type !== 'park')) continue;
     // The kerb line is the block's edge; anything else means this lane is not the one beside it.
     if (Math.abs(block.bounds.x1 - (x + PAVE_IN)) > 0.05) continue;
     if (!sightlineClear(x, 0.8, z)) continue;
@@ -111,14 +111,20 @@ export function planStreetProps(rng, blocks, keepOut = []) {
     const k = rng.int(0, n);
     [candidates[n], candidates[k]] = [candidates[k], candidates[n]];
   }
+  // The cart works a park's walk (Tyler, 2026-10-23: "place the hot dog cart around a park, and
+  // then the mailbox can be near anywhere") and goes first, since parks are few; the post boxes
+  // take built blocks. A city with no park spot that qualifies puts its cart on a built block
+  // rather than going without.
   const out = [];
-  const kinds = Object.entries(COUNTS).flatMap(([kind, count]) => Array(count).fill(kind));
-  for (const c of candidates) {
-    if (out.length === kinds.length) break;
-    if (out.some((o) => Math.hypot(o.x - c.x, o.z - c.z) < MIN_SEP)) continue;
-    out.push({ ...c, kind: kinds[out.length] });
-  }
-  // Post boxes are handed out first, so a city that only fits one prop gets a post box.
+  const take = (kind, pool) => {
+    const c = pool.find((p) => !out.some((o) => Math.hypot(o.x - p.x, o.z - p.z) < MIN_SEP));
+    if (c) out.push({ ...c, kind });
+    return !!c;
+  };
+  const park = candidates.filter((c) => c.block.type === 'park');
+  const built = candidates.filter((c) => c.block.type === 'built');
+  for (let n = 0; n < COUNTS.cart; n++) if (!take('cart', park)) take('cart', built);
+  for (let n = 0; n < COUNTS.mailbox; n++) take('mailbox', built);
   return out;
 }
 

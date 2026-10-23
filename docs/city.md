@@ -1314,8 +1314,11 @@ spray of letters or hot dogs. The letters flutter down (paper has a terminal vel
 dogs drop and bounce once. Everything lies there for a few seconds and sinks away, and a fresh prop
 comes back up 35s later once the taxi is out of the way.
 
-**Where.** City seed (`seed + 211`). Only on the **+X face of a built block**, 0.5 in from the
-kerb, 4.2 units along the lane that runs +Z past it. Both halves are forced. The camera sits off
+**Where.** City seed (`seed + 211`). The cart works a **park's walk** and the post boxes stand on
+**built blocks** (Tyler: "place the hot dog cart around a park, and then the mailbox can be near
+anywhere"); the cart is placed first, since parks are few, and falls back to a built block in a
+city with no park spot that qualifies (none in 20 seeds swept). Only on the **+X face**, 0.5 in from
+the kerb, 4.2 units along the lane that runs +Z past it. Both halves are forced. The camera sits off
 +X+Z, so a prop on a −X or −Z face has its own block's building in front of it. And on the +Z face
 the passing lane starts at the block's +X+Z corner, which is where `cornerFor` stands every rider,
 so a prop near that lane's start would stand beside the rider pins. The spot also has to clear the
