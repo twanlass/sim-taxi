@@ -123,7 +123,7 @@ through.
 > Dispatch to Car 9. You there?
 > City council signed that **robo-taxi** deal. They'll be on the streets by Monday.
 > Those rolling toasters brake for pigeons. I have no idea why people like 'em.
-> Let's go out there and give folks the ride of their lives.
+> Let's get out there and show people what a rocket-powered cab ride is all about.
 
 **Dispatch talks.** Each line is read out as its card comes up: Tyler's own recordings
 (`dispatch1`–`dispatch4` in `game/sfx.js`, the Dispatch group in the ⚙️ panel, levelled to about
@@ -134,11 +134,11 @@ yet (on the web, Play can be the first tap, which is what starts the decoding; t
 in the first wave and the line keeps asking for its clip for 0.6 s), the line types at the usual
 pace in silence. `?introvo=classic` keeps the story to text.
 
-Once the last line has finished typing, **lives** punches: it scales up to 1.35× from its left edge
-and shakes three times, settling over 0.7 s, in the line's own black type (`PUNCH` in
-`backstory.js`; not under reduced motion). It grows from the left because a transform does not push
-the neighbouring words aside, and grown from its centre the first version (on "real", before the
-line was rewritten) ran over the space before it. The `{word}` callout was the other way to do it, and it is the wrong one here: it
+Once the last line has finished typing, **rocket-powered** punches: it stretches up to 1.4× tall
+(only 1.03× wide) and shakes three times, settling over 0.7 s, in the line's own black type
+(`PUNCH` in `backstory.js`; not under reduced motion). It grows up rather than across because a
+transform does not push the neighbouring words aside: an even 1.35× from its left edge ran
+"rocket-powered" over "cab", and the first version, on "real", read "areal". The `{word}` callout was the other way to do it, and it is the wrong one here: it
 turns the word yellow and wiggles it the moment it is typed, where this lands after the whole line.
 
 A tap anywhere finishes the line or moves on (Enter and Space too); Escape ends it. There is no
