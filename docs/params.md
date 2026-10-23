@@ -90,6 +90,7 @@ doc; what the classic version was, and why it changed, is in that doc's history 
 | `?eject=classic` | The wrecked taxi's driver appearing full size in the air above the bonnet and fading in, instead of squeezing out through the windscreen | | [traffic.md](traffic.md) |
 | `?playagain=classic` | The run-end card ending on the yellow Play again pill instead of a pulsing "Tap to continue" (tap anywhere to play again) | | [gameplay.md](gameplay.md#the-polaroid) |
 | `?statcount=classic` | The run-end stats' old pace: each value fades in with its label and rolls in 0.34s, in yellow, instead of appearing after the label lands and counting for 0.46s in white | | [gameplay.md](gameplay.md#the-polaroid) |
+| `?runendfit=classic` | The run-end card at its old size: a bigger print and wider gaps, with no band held at the foot for "Tap to continue", which a five-row table then runs under on a phone | | [gameplay.md](gameplay.md#the-polaroid) |
 | `?gameover=classic` | The run-end card without the polaroid of the ending over its title, and with "Tap to continue" grey over the Play again slot instead of pulsing at the foot of the screen | | [gameplay.md](gameplay.md#the-polaroid) |
 | `?splashlogo=classic` | The startup screen's plain taxi drop onto the asphalt, with no ROCKET RIDES logo for it to smash through | | [gameplay.md](gameplay.md#the-startup-screen) |
 | `?splash=classic` | No startup screen: the game loads behind black and opens on the title menu, with no taxi drop first | | [gameplay.md](gameplay.md#the-startup-screen) |

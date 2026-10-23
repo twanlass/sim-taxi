@@ -2496,6 +2496,8 @@ const gameOverClassic = new URLSearchParams(window.location.search).get('gameove
 const statCountClassic = new URLSearchParams(window.location.search).get('statcount') === 'classic';
 // `?playagain=classic` ends the card on the yellow Play again pill instead of "Tap to continue".
 const playAgainClassic = new URLSearchParams(window.location.search).get('playagain') === 'classic';
+// `?runendfit=classic` is the full-size print and gaps, with nothing held back for the foot hint.
+const runEndFitClassic = new URLSearchParams(window.location.search).get('runendfit') === 'classic';
 const snapshot = gameOverClassic ? null : createSnapshot(renderer.domElement);
 // How far past the impact, in sim seconds, the replay's last cut is photographed: far enough for
 // the fireball to have bloomed over both cars, not so far that the smoke has swallowed them. Every
@@ -4426,6 +4428,7 @@ function updateHud(dt) {
       footHint: !gameOverClassic,
       statCount: !statCountClassic,
       tapRetry: !playAgainClassic,
+      fit: !runEndFitClassic,
     });
     document.body.classList.add('game-over');
     sfx?.fadeOutMusic();
@@ -8293,6 +8296,7 @@ window.__taxi = {
     footHint: !gameOverClassic,
     statCount: !statCountClassic,
     tapRetry: !playAgainClassic,
+    fit: !runEndFitClassic,
     ...opts,
   }),
   /** The polaroid's print as it stands, for tools/smoke.mjs: which grab it came from, or -1. */
