@@ -1945,6 +1945,12 @@ const roadwork = createRoadwork(makeRng(runSeed + 177), scene, camera);
 // it earns. `?stuntman=classic` keeps the smash as scenery and nothing else.
 const stuntman = new URLSearchParams(window.location.search).get('stuntman') !== 'classic';
 const STUNTMAN_FUEL = DRIFT_CHAIN.fuel[0];
+// Big Air pays a sixth of the tank back on touchdown, the stuntman's refund (Tyler, 2026-10-23: "it
+// also requires you to boost a lot to get around a corner and make a jump"). Once per landing:
+// Crushin' It is the end of the same Big Air, so a car underneath adds its combo step and no more
+// fuel. `?bigairfuel=classic` lands with nothing.
+const bigAirFuel = new URLSearchParams(window.location.search).get('bigairfuel') !== 'classic';
+const BIG_AIR_FUEL = DRIFT_CHAIN.fuel[0];
 roadwork.onSmash(({ x, z }) => {
   if (stuntman && !fares.state.gameOver) {
     flyEnergyToBoost({
@@ -2001,6 +2007,14 @@ traffic.onTaxiLand(({ x, z, yaw, v, deck, big }) => {
   // helipad's downdraft is, which is what reads as weight arriving rather than exhaust.
   if (big) {
     if (!fares.state.gameOver) landCombo('launch');
+    if (bigAirFuel && !fares.state.gameOver) {
+      flyEnergyToBoost({
+        from: taxiScreenPos,
+        to: fuelScreenPos,
+        delay: 0,
+        onArrive: () => boost.topUp(BIG_AIR_FUEL),
+      });
+    }
     // Came down on a car on the way: Crushin' It is called after the Big Air it was the end of.
     if (crushOwed) {
       crushOwed = false;

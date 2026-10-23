@@ -124,6 +124,7 @@ doc; what the classic version was, and why it changed, is in that doc's history 
 | `?barrelroll=classic` | Big Air flown level, no barrel roll | #485 | [river.md](river.md) |
 | `?bigairroute=classic` | The router stops tipping equal-length routes toward going straight on off an arched bridge (room for Big Air) | | [gameplay.md](gameplay.md#routing) |
 | `?vip=classic` | VIP riders (the purple question mark, triple pay) spawn again; off by default | | [gameplay.md](gameplay.md#vip-pickups) |
+| `?bigairfuel=classic` | A Big Air landing pays no Loco back, instead of a sixth of the tank | | [gameplay.md](gameplay.md#the-combo-meter) |
 | `?crush=classic` | Big Air coming down on a car is a hit (usually the wreck) instead of Crushin' It | | [gameplay.md](gameplay.md#the-combo-meter) |
 | `?overtake=classic` | The overtake combo judges the road before pulling out: it waits until the car is close, won't pull out round a car turning left, and only swerves round a slow car in the junction it has a clean line round. The default throws the taxi into the oncoming lane the moment the combo lands, whatever is there, or up on the kerb round the right of a car signalling left | | [traffic.md](traffic.md#overtaking) |
 | `?passturn=classic` | The taxi pulls out to overtake a car already turning left across it, and grinds along its side | #520 | [traffic.md](traffic.md) |
