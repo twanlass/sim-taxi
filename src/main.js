@@ -6353,6 +6353,8 @@ function frame(t) {
 }
 
 let edgeFogTime = 0;
+// Whether the radio is ducked under the robber's line — see `sfx.hold` in `tick`.
+let robberDucked = false;
 function tick() {
   // Read on every frame, paused or not: `getDelta` measures from its own last call, so skipping it
   // while paused would hand the first frame after a resume the whole length of the pause. The clamp
@@ -6363,9 +6365,14 @@ function tick() {
   // Paused. Nothing updates — not the traffic, not the clocks, not the sky — but the frame is still
   // drawn: with `preserveDrawingBuffer` off, a resize or a rotation with the veil up repaints the
   // canvas from an empty buffer, and the city would blink out until the player resumed.
-  // The sound stops with the world — both of the early returns below — and starts with it again.
-  sfx?.hold(Boolean(pause?.state.paused || robberLine?.isOpen() || newMove?.isOpen()
-    || inspect?.state.on));
+  // The sound stops with the world — the pause below — and starts with it again. Not under the
+  // robber's line, though it freezes the world the same way: suspending the context there cut off
+  // the cab door the robber had just opened mid-sample, a click and a ding, and took the radio
+  // with it, so the getaway opened on what sounded like the game breaking. The radio ducks under
+  // the line instead, and the city keeps its hum while the world holds still.
+  sfx?.hold(Boolean(pause?.state.paused || newMove?.isOpen() || inspect?.state.on));
+  const robberTalking = Boolean(robberLine?.isOpen());
+  if (robberTalking !== robberDucked) { robberDucked = robberTalking; sfx?.duckMusic(robberTalking); }
   // Drawn once, not every frame. Nothing in the world moves while paused, and a canvas that is not
   // drawn keeps showing its last frame — so drawing the same still sixty times a second was pure
   // heat and battery, for as long as the player left the game paused. `stillDrawn` is cleared on a
