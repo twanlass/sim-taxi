@@ -916,6 +916,7 @@ const fares = createFareSystem(makeRng(runSeed + 55), scene, {
 const parcels = parcelsEnabled
   ? createParcelSystem(makeRng(runSeed + 255), scene, {
     foodPickup: burger ? { i: burger.site.bi + 1, j: burger.site.bj + 1 } : null,
+    towardHud: towardCargoDock,
   })
   : null;
 // Seconds since the taxi's flourish was fired, or null when it is not running. See the frame loop —
@@ -3954,6 +3955,28 @@ function projectToScreen(x, y, z) {
   return {
     x: (v.x * 0.5 + 0.5) * viewport.width(),
     y: (-v.y * 0.5 + 0.5) * viewport.height(),
+  };
+}
+
+/**
+ * Which way a collected box should leave the world: from where it stands on screen toward the cargo
+ * dock's centre, in pixels with y down (game/parcels.js turns it back into a ground direction).
+ *
+ * Measured off the dock's *resting* box rather than its live one. Mid-entrance, or with the bottom
+ * row slid away (`hud-away`), the dock is translated up to 200% of its height off the bottom edge
+ * (index.html), and aiming at that would point the box at somewhere it is not going to be. The
+ * `offset*` box ignores transforms and `translate` alike, so it is where the dock rests, and for a
+ * `position: fixed` element it is measured from the viewport's origin — the same frame
+ * `projectToScreen` answers in. A dock that is not laid out at all (shot mode's `display: none`)
+ * measures 0×0 and answers null, which takes the module's own down-and-right.
+ */
+function towardCargoDock(x, y, z) {
+  const dock = document.getElementById('cargo-dock');
+  if (!dock || dock.offsetWidth === 0) return null;
+  const p = projectToScreen(x, y, z);
+  return {
+    x: dock.offsetLeft + dock.offsetWidth / 2 - p.x,
+    y: dock.offsetTop + dock.offsetHeight / 2 - p.y,
   };
 }
 
