@@ -6052,6 +6052,7 @@ const fareLoopHeld = () => parked() || Boolean(opening?.running())
 const pause = shot ? null : createPause({
   button: document.getElementById('pause'),
   veil: document.getElementById('pause-veil'),
+  demo,
   // Nothing left to hold once the run is over — and the retry screen owns the whole display then.
   // Never asked on the way out: a pause can always be lifted.
   canPause: () => !fares.state.gameOver && !title?.holding(),

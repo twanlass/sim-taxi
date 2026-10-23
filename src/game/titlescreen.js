@@ -210,19 +210,9 @@ export function createTitleScreen(root, { sound, settings, demo = null, onPlay, 
 
   // --- Settings ---------------------------------------------------------------------------------
   const settingsPage = menuPage('settings', 'Settings', () => show('menu'));
-  const settingsBody = settingsRows(settingsPage.body, { sound, settings, demo });
-  // Five quick taps on the Settings heading reveal the Demo mode row — the way in on the App Store
-  // build, which has no URL bar for `?demo` (game/progress.js).
-  if (demo) {
-    let taps = 0;
-    let last = 0;
-    settingsPage.section.querySelector('.title-header').addEventListener('click', () => {
-      const now = performance.now();
-      taps = now - last < 600 ? taps + 1 : 1;
-      last = now;
-      if (taps >= 5) { taps = 0; settingsBody.revealDemo(); }
-    });
-  }
+  // Five quick taps on the heading reveal the Demo mode row — the way in on the App Store build,
+  // which has no URL bar for `?demo` (game/progress.js, menupage.js).
+  const settingsBody = settingsRows(settingsPage.body, { sound, settings, demo, header: settingsPage.header });
 
   // --- Credits ----------------------------------------------------------------------------------
   const creditsPage = menuPage('credits', 'Credits', () => show('menu'));
