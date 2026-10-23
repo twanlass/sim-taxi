@@ -35,13 +35,14 @@ const TRACKING = 0.16;
 const LEADING = 0.22;
 /** Slab depth, in world units: about half a cap, so it reads as a block and not as a sign. */
 export const DEPTH = 0.7;
+/** The word's height, bottom line's baseline to top line's cap, in world units. */
+export const LOGO_HEIGHT = (LOGO_LINES.length + LEADING * (LOGO_LINES.length - 1)) * CAP;
 /**
- * Where it stands: the bottom line's baseline this far off the floor, so the car has the whole word
- * to come down through before it reaches the road. Turned a little on its vertical so the left-hand
- * faces of the extrusion show, in the logo light's shade against the white faces — the extruded-logo
- * look.
+ * Where it stands is the splash's call (`logoBase` in game/splash.js): high enough that the word is
+ * centred in the frame, which leaves the car the whole word to come down through before it reaches
+ * the road. Turned a little on its vertical so the left-hand faces of the extrusion show, in the logo
+ * light's shade against the white faces — the extruded-logo look.
  */
-export const LOGO_BASE = 0.9;
 export const LOGO_YAW = 0.15;
 
 /** Smallest piece kept, in square world units. */
@@ -167,8 +168,9 @@ function extrudeTriangles(tris, depth) {
  * Builds the pieces in world space: each one's geometry centred on its own middle, where it sits
  * when the word is whole, and the hull corners its floor contact is measured from.
  * Pure THREE, no materials — the splash colours them; the probe only needs where they are.
+ * `base` is the bottom line's baseline above the floor.
  */
-export function buildLogo() {
+export function buildLogo(base) {
   const turn = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), LOGO_YAW);
   const rng = makeRng(0x1060);
   const pieces = [];
@@ -181,7 +183,7 @@ export function buildLogo() {
       const glyph = LOGO_GLYPHS[ch];
       const letter = { index: letters.length, char: ch, centre: new THREE.Vector3(), pieces: [] };
       letter.centre.set((pen + glyph.w / 2) * CAP, (baseline + 0.5) * CAP, 0).applyQuaternion(turn);
-      letter.centre.y += LOGO_BASE;
+      letter.centre.y += base;
       letters.push(letter);
 
       // Two cuts through the middle of the glyph, roughly a cross but never square to the strokes,
@@ -234,7 +236,7 @@ export function buildLogo() {
           const hull = [];
           for (const p of rim) for (const zz of [-DEPTH / 2, DEPTH / 2]) hull.push(new THREE.Vector3(p.x, p.y, zz));
           const home = new THREE.Vector3((pen + middle.x) * CAP, (baseline + middle.y) * CAP, 0).applyQuaternion(turn);
-          home.y += LOGO_BASE;
+          home.y += base;
           letter.pieces.push(pieces.length);
           pieces.push({ letter: letter.index, geometry, hull, home, homeQuat: turn.clone(), area: total * CAP * CAP });
         }
