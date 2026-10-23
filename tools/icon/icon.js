@@ -18,15 +18,22 @@ import { createTaxiMesh, TAXI_SCALE } from '../../src/geometry/taxi.js';
 import { SUN } from '../../src/game/scene.js';
 import { VIEW_DIR } from '../../src/game/camera.js';
 import { createLocoFlame } from '../../src/game/locoflame.js';
-import { createGlint } from '../../src/game/glint.js';
 import { PALETTE } from '../../src/palette.js';
-import { setGlossGlobal, GLOSS_GLOBAL_DEFAULTS } from '../../src/util/geo.js';
+import { setGlossGlobal, GLOSS_GLOBAL_DEFAULTS, setGlossCity, setPaintLook, setFlip } from '../../src/util/geo.js';
+import { getPaintLook, getFlip } from '../../src/util/shot.js';
+import { SKYLINE_CEILING } from '../../src/city/buildings.js';
+import { makeRng } from '../../src/util/rng.js';
 
-// The purple the icon has always been on — `theme_color` in public/manifest.webmanifest.
+// The purple the icon has always been on — `theme_color` in public/manifest.webmanifest — as the
+// middle of a gentle diagonal: a pinker lavender in the upper left, a bluer violet in the lower
+// right, and a soft lift behind the car (Tyler, 2026-10-23: "a subtle pop"). Kept close in hue and
+// value so it still reads as the one purple at 32px.
 const BG = '#A46BFF';
+const BG_STOPS = [[0, '#C07CFF'], [0.5, BG], [1, '#7F5BFF']];
+const BG_GLOW = 'rgba(255, 235, 255, 0.22)';
 // A deep violet rather than black: black on #A46BFF greys out and reads dirty.
 const SHADOW = '#3E1878';
-const SHADOW_OPACITY = 0.5;
+const SHADOW_OPACITY = 0.55;
 
 const RENDER = 2048;
 // Every file make-icon.mjs writes, by size. 1024 is the App Store icon, 180 the iOS Home Screen,
@@ -57,7 +64,58 @@ renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 document.body.appendChild(renderer.domElement);
 
 const scene = new THREE.Scene();
-scene.background = new THREE.Color(BG);
+scene.background = (() => {
+  const canvas = document.createElement('canvas');
+  canvas.width = canvas.height = RENDER;
+  const ctx = canvas.getContext('2d');
+  const linear = ctx.createLinearGradient(0, 0, RENDER, RENDER);
+  for (const [at, c] of BG_STOPS) linear.addColorStop(at, c);
+  ctx.fillStyle = linear;
+  ctx.fillRect(0, 0, RENDER, RENDER);
+  const glow = ctx.createRadialGradient(RENDER / 2, RENDER / 2, 0, RENDER / 2, RENDER / 2, RENDER * 0.55);
+  glow.addColorStop(0, BG_GLOW);
+  glow.addColorStop(1, 'rgba(255, 235, 255, 0)');
+  ctx.fillStyle = glow;
+  ctx.fillRect(0, 0, RENDER, RENDER);
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  return texture;
+})();
+
+// The finishes as the game sets them up (game/renderpath.js): the paint look and its flip colour.
+// The rim line is left off — it reads the AO prepass's depth, which this page has no pass for.
+setPaintLook(getPaintLook());
+setFlip(getFlip());
+
+// Something for the paint and chrome to reflect. In the game that is the city's own height field
+// (main.js hands it over with setGlossCity), which is what puts a skyline sliding across the body;
+// with nothing there the reflection is bare sky and the car reads flat. So a stand-in skyline: the
+// game's 12-unit blocks on a 21-unit pitch, the car at a crossing, towers at city heights.
+{
+  const cell = 0.5;
+  const reach = 64;
+  const nx = (2 * reach) / cell;
+  const rng = makeRng(7);
+  const heights = new Float32Array(nx * nx);
+  const blockHeight = new Map();
+  for (let ci = 0; ci < nx; ci++) {
+    for (let cj = 0; cj < nx; cj++) {
+      const x = -reach + (ci + 0.5) * cell;
+      const z = -reach + (cj + 0.5) * cell;
+      // Junction at the origin: streets 9 wide centred on multiples of 21, blocks between.
+      const bx = Math.floor((x + 10.5) / 21);
+      const bz = Math.floor((z + 10.5) / 21);
+      const inX = Math.abs(x - (bx * 21)) > 4.5 && Math.abs(x - bx * 21) < 10.5;
+      const inZ = Math.abs(z - (bz * 21)) > 4.5 && Math.abs(z - bz * 21) < 10.5;
+      if (!inX || !inZ) continue;
+      // Each block split into four lots, a tower apiece.
+      const key = `${Math.floor(x / 10.5)},${Math.floor(z / 10.5)}`;
+      if (!blockHeight.has(key)) blockHeight.set(key, rng.range(5, SKYLINE_CEILING - 2));
+      heights[ci * nx + cj] = blockHeight.get(key);
+    }
+  }
+  setGlossCity({ x0: -reach, z0: -reach, nx, nz: nx, cell, heights }, SKYLINE_CEILING);
+}
 
 // The game's lights at the game's numbers (game/scene.js), minus the city-sized shadow frustum.
 scene.add(new THREE.HemisphereLight(PALETTE.hemiSky, PALETTE.hemiGround, SUN.fill));
@@ -92,21 +150,35 @@ const flames = [-1, 1].map((side, n) => {
   return flame;
 });
 
-// The glint the car leaves the garage with (game/glint.js), caught at its first star's peak: the one
-// on the front-right fender, at full size, with the two later stars not yet up. Its own `update`
-// places it, so a change to the star moves the icon's with it.
-const GLINT_CLOCK = 0.14;
-const glint = createGlint({ scene, taxiGroup: taxi.group });
-glint.fire();
-glint.update(GLINT_CLOCK);
-
-// The ground only exists as the shadow on it — the purple is the background.
-const ground = new THREE.Mesh(
-  new THREE.PlaneGeometry(40, 40).rotateX(-Math.PI / 2),
-  new THREE.ShadowMaterial({ color: SHADOW, opacity: SHADOW_OPACITY }),
-);
-ground.receiveShadow = true;
-scene.add(ground);
+// The ground only exists as a soft shadow straight under the car — the purple is the background.
+// It was the sun's cast shadow, which this camera throws off to the upper right as a hard-edged
+// second car (Tyler, 2026-10-23: "it's not working"). The sun still shadows the car on itself.
+{
+  const SIZE = 256;
+  const canvas = document.createElement('canvas');
+  canvas.width = canvas.height = SIZE;
+  const ctx = canvas.getContext('2d');
+  ctx.filter = `blur(${SIZE * 0.045}px)`;
+  ctx.fillStyle = '#fff';
+  ctx.beginPath();
+  ctx.roundRect(SIZE * 0.2, SIZE * 0.2, SIZE * 0.6, SIZE * 0.6, SIZE * 0.12);
+  ctx.fill();
+  const blob = new THREE.Mesh(
+    new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2),
+    new THREE.MeshBasicMaterial({
+      color: SHADOW, alphaMap: new THREE.CanvasTexture(canvas), transparent: true,
+      opacity: SHADOW_OPACITY, depthWrite: false,
+    }),
+  );
+  // The painted square is 0.6 of the texture, so this puts its core on the body's footprint plus
+  // the tyres' overhang, and the blur spills past it.
+  const len = (3.4 * TAXI_SCALE) / 0.6 * 0.9;
+  const wide = (1.7 * TAXI_SCALE) / 0.6 * 1.05;
+  blob.scale.set(len, 1, wide);
+  blob.rotation.y = YAW;
+  blob.position.y = 0.01;
+  scene.add(blob);
+}
 
 // The game's camera: orthographic, down VIEW_DIR. Centred on the *car's* projected bounds and sized
 // to hold the plumes too: centring on car plus flames put the body visibly off to one side, since
