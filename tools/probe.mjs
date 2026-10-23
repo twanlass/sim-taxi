@@ -1504,6 +1504,8 @@ const onGrass = (city, i, j) => {
   let awayFromCourt = 0;
   let backToCamera = 0;
   let apron = 0;
+  let baseline = 0;
+  let underBoard = 0;
   for (let s = 0; s < 40; s++) {
     const cityLayout = createLayout(makeRng(seed + s * 37));
     const plots = parkPlots(cityLayout);
@@ -1553,6 +1555,9 @@ const onGrass = (city, i, j) => {
     }
     if (fx * (court.x - box.x) + fz * (court.z - box.z) <= 0) awayFromCourt += 1;
     if (fx + fz < 0) backToCamera += 1;
+    if (!box.side) baseline += 1;
+    // Under the near hoop's board, which this camera throws up-screen onto the far sideline.
+    else if ((court.axis === 'x' ? box.x - court.x : box.z - court.z) > 0) underBoard += 1;
   }
   createLayout(makeRng(seed));     // put the probe's city back — `createLayout` installs its network
 
@@ -1562,6 +1567,10 @@ const onGrass = (city, i, j) => {
     `${apron} on the apron; ${offLawn} off its ground, ${onSlab} on the slab or the lines, `
     + `${onBench} on a bench, ${awayFromCourt} facing away`);
   check('and shows the camera its speakers', backToCamera === 0, `${backToCamera} of ${boxes} turned away`);
+  // A baseline puts the box beside a hoop's pole and under its board, with the park's trees
+  // down-screen of it — "blocked by the hoops". The far sideline's apron is always there instead.
+  check('and stands at a sideline, clear of the hoops', baseline + underBoard === 0,
+    `${baseline} of ${boxes} at a baseline, ${underBoard} under the near hoop's board`);
 }
 
 // Its notes: one a beat, every one turned to the camera, and none left in the air for good.

@@ -210,9 +210,15 @@ const BOOMBOX_GAP = 0.2;
  * moves for it (the skatepark's terms). The speakers are the whole read — the box faces the court,
  * so a box on the near side shows the camera its back. The candidates are therefore ranked by how
  * squarely the face turns toward the view (+x +z, see `VIEW_DIR` in game/camera.js): the far
- * sideline first, then the far baseline, then the far sideline's apron, the near ones last. A
- * sideline beats a baseline of the same facing, because the baseline is where the hoop's pole
- * stands and the box would be sat beside it.
+ * sideline first, then the far sideline's apron, then the far baseline, the near ones last.
+ *
+ * **The apron outranks the far baseline.** The first ranking had it the other way round, and a
+ * court with no lawn up-screen of it put the box at the far end instead — beside the hoop's pole,
+ * under its backboard, and with the park's trees, which stand down-screen of that end, between it
+ * and the camera. Reported off a phone as "blocked by the hoops". Behind the far sideline only the
+ * slab is in front of it, and a player crossing it for a moment — so long as it is the far *half*
+ * of that sideline (below). Measured over 40 seeds: 9 of 40
+ * boxes were at a baseline under the old order, 0 of 40 now (13 of them on the apron).
  *
  * Each spot has to land wholly on the lawn and clear of the benches, the statue's plaza, the pond
  * and the skatepark — the trees already keep 1.6 off the slab, further than the box ever stands.
@@ -222,7 +228,7 @@ const BOOMBOX_GAP = 0.2;
  *                   file.
  * @returns `{ x, y, z, yaw, u, v, apron, court }` — world position, `y` the surface it stands on, a
  *          yaw that turns local +Z (the face) toward the court, the same spot in the court's frame,
- *          whether that is the apron rather than the lawn, and the court.
+ *          whether that is the apron rather than the lawn, whether it is a sideline, and the court.
  */
 export function planBoombox(court, { benches = [], benchLen = 0, statue = null, statueHalf = 0,
   pond = null, skateRect = null } = {}) {
@@ -246,6 +252,9 @@ export function planBoombox(court, { benches = [], benchLen = 0, statue = null, 
     }
   }
   const o = court.toWorld(0, 0);
+  const ahead = court.toWorld(1, 0);
+  // How far +u carries a point toward the camera (+x +z) — the sign of it is all that is read.
+  const alongToCamera = ahead.x - o.x + ahead.z - o.z;
   for (const spot of spots) {
     const p = court.toWorld(spot.u, spot.v);
     const f = court.toWorld(spot.fu, spot.fv);
@@ -253,7 +262,11 @@ export function planBoombox(court, { benches = [], benchLen = 0, statue = null, 
     spot.z = p.z;
     spot.fx = f.x - o.x;
     spot.fz = f.z - o.z;
-    spot.score = spot.fx + spot.fz + (spot.side ? 0.5 : 0) - (spot.apron ? 0.8 : 0);
+    spot.score = spot.fx + spot.fz + (spot.side ? 0.5 : 0) - (spot.apron ? 0.3 : 0)
+      // And of the two along a sideline, the half further from the camera: the near hoop's board
+      // stands ~3 up, and this camera throws that ~3.3 up-screen on each axis — straight onto the
+      // far sideline's near half, which is where the first cut of this ranking put the box.
+      - 0.01 * Math.sign(spot.u * alongToCamera);
   }
   spots.sort((a, b) => b.score - a.score);
 
@@ -278,7 +291,7 @@ export function planBoombox(court, { benches = [], benchLen = 0, statue = null, 
     if (onBench) continue;
     return {
       x: spot.x, z: spot.z, y: spot.apron ? COURT_TOP_Y : GRASS_Y, yaw: Math.atan2(spot.fx, spot.fz),
-      u: spot.u, v: spot.v, apron: !!spot.apron, court,
+      u: spot.u, v: spot.v, apron: !!spot.apron, side: spot.side, court,
     };
   }
   return null;
