@@ -17,7 +17,7 @@ export const BACKSTORY_LINES = [
   'Dispatch to Car 9. You there?',
   "City council signed that {robo-taxi} deal. They'll be on the streets by Monday.",
   "Those rolling toasters brake for pigeons. I have no idea why people like 'em.",
-  "Let's go out there and give folks the ride of their lives.",
+  "Let's get out there and show people what a rocket-powered cab ride is all about.",
 ];
 
 // Tyler's recordings of the four lines (2026-10-23), one sound each in game/sfx.js, played as each
@@ -38,14 +38,18 @@ const NUDGE_MS = 650;
 
 // A word that punches once its line has finished typing: scales up and shakes, in the line's own
 // black type (Tyler, 2026-10-23). Not the `{word}` callout, which turns yellow and wiggles as it
-// types; this lands after the whole line is in. Keyed by line index. It was "real" until the line
-// lost it; "lives" ends the sentence, so it has room to grow, and it is the word the voice leans on.
-const PUNCH = { 3: 'lives' };
+// types; this lands after the whole line is in. Keyed by line index. It was "real", then "lives", as
+// the line was rewritten; "rocket-powered" is the game's own name in the line.
+const PUNCH = { 3: 'rocket-powered' };
 const PUNCH_MS = 700;
-// Scale and tilt (degrees) through the punch: up big, three shakes settling, back to rest. It grows
-// from its left edge (index.html): a transform does not push the words beside it aside, and grown
-// from its centre at 1.45 it ran over the space before it and read "areal".
-const PUNCH_KEYS = [[1, 0], [1.35, -7], [1.3, 6], [1.32, -5], [1.22, 3], [1.1, -2], [1, 0]];
+// Width, height and tilt (degrees) through the punch: up tall, three shakes settling, back to rest.
+// It grows up far more than across, from the middle of its baseline (index.html), because a
+// transform does not push the words beside it aside: a 1.35x scale from the left edge ran
+// "rocket-powered" straight over "cab", and from the centre at 1.45 "a real" read "areal". At
+// 1.05 across, a 14-letter word all but closed the spaces either side (measured at 390 px wide);
+// 1.03 leaves them open.
+const PUNCH_KEYS = [[1, 1, 0], [1.03, 1.4, -3], [1.025, 1.32, 2.5], [1.03, 1.35, -2], [1.02, 1.25, 1.5],
+  [1.01, 1.1, -1], [1, 1, 0]];
 
 // Where the card's bottom edge sits, as a fraction of the screen's height.
 const STORY_CARD_BOTTOM = 0.76;
@@ -140,7 +144,7 @@ export function tellBackstory(root, { done, lines = BACKSTORY_LINES, speak = () 
       hit.replaceWith(span);
       span.append(hit);
       span.animate(
-        PUNCH_KEYS.map(([k, deg]) => ({ transform: `scale(${k}) rotate(${deg}deg)` })),
+        PUNCH_KEYS.map(([sx, sy, deg]) => ({ transform: `scale(${sx}, ${sy}) rotate(${deg}deg)` })),
         { duration: PUNCH_MS, easing: 'ease-out' },
       );
       return;
