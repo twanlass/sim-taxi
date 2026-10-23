@@ -294,12 +294,21 @@ export function splashCovers() {
 /**
  * Whether this load gets the startup screen. Not where the title screen would not be either — shot
  * mode, `?dev`, `?title=off`, the reload "Play again" does (read, not consumed: main.js consumes
- * it) — and not on `?splash=classic`, which is the load as it was.
+ * it) — not on the reload Quit does, which goes back to the title but has already sat through the
+ * logo once this session (consumed here, since nothing else reads it), and not on
+ * `?splash=classic`, which is the load as it was.
  */
+export const SPLASH_SKIP_KEY = 'simTaxi.skipSplash';
 export function wantsSplash() {
   const params = new URLSearchParams(window.location.search);
+  let quit = false;
+  try {
+    quit = window.sessionStorage.getItem(SPLASH_SKIP_KEY) === '1';
+    window.sessionStorage.removeItem(SPLASH_SKIP_KEY);
+  } catch { /* storage refused: a fresh start */ }
   if (params.has('shot') || params.has('dev') || params.get('title') === 'off') return false;
   if (params.get('splash') === 'classic') return false;
+  if (quit) return false;
   try {
     if (window.sessionStorage.getItem('simTaxi.skipTitle') === '1') return false;
   } catch { /* storage refused: a fresh start, so play it */ }

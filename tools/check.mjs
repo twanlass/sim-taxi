@@ -27,7 +27,7 @@ const BOOT = ['../src/game/scene.js', '../src/game/debugpanel.js', '../src/geome
   '../src/game/wipe.js',
   '../src/game/chopper.js', '../src/game/policeheli.js',
   '../src/game/flames.js', '../src/game/locoflame.js', '../src/game/sparks.js',
-  '../src/game/repairfx.js',
+  '../src/game/repairfx.js', '../src/game/streetprops.js', '../src/geometry/streetprops.js',
   '../src/game/daylight.js', '../src/game/edgefog.js', '../src/game/riderfinder.js',
   '../src/game/taxifinder.js',
   '../src/game/farepointers.js', '../src/game/sirenglow.js', '../src/game/robberyglow.js',
@@ -238,7 +238,7 @@ try {
 
   // ...and the overtake's (game/overtakeclip.js): the taxi starts behind the car in its own lane, is
   // out in the far one past it, and finishes back in its own lane in front of it; and the picker
-  // finds a long enough street (side or ring) in the shipped cities.
+  // finds a long enough street in the shipped cities (side streets only under the edge fog).
   {
     const { reelAt, clipKeys, pickOvertakeStreet, CLIP_LOOP, BLIP_ON } = await import('../src/game/overtakeclip.js');
     const { REEL } = await import('../src/game/overtakeclip.js');
@@ -251,6 +251,16 @@ try {
     if (!(REEL.frames.at(-1)[0] > REEL.lead.at(-1)[0])) throw new Error('overtakeclip: does not finish in front of the car');
     const k = clipKeys(BLIP_ON + 0.2);
     if (!(k.boost.lit && k.blip.lit && k.blip.down && !k.boost.down)) throw new Error('overtakeclip: keys wrong mid-pass');
+    // Holds: one key down at a time, the first up for the blip, and each ring filling over its own press.
+    const { BLIP_OFF } = await import('../src/game/overtakeclip.js');
+    const first = clipKeys(BLIP_OFF / 2);
+    const gap = clipKeys((BLIP_OFF + BLIP_ON) / 2);
+    if (!(first.boost.down && !first.blip.down && !gap.boost.down && !gap.blip.down && !k.boost.down && k.blip.down)) {
+      throw new Error('overtakeclip: the keys are not held one at a time with a release between');
+    }
+    if (!(first.boost.hold > 0 && first.boost.hold < 1 && gap.boost.hold === 0 && k.blip.hold > 0 && k.boost.hold === 0)) {
+      throw new Error('overtakeclip: the hold rings do not fill over their own presses');
+    }
     const { createLayout } = await import('../src/city/layout.js');
     const { cityNetwork } = await import('../src/city/roadnet.js');
     const { makeRng } = await import('../src/util/rng.js');

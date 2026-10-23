@@ -201,6 +201,13 @@ teach, and the bubble would be the loudest thing in every frame.
 
 ## New Move Unlocked: the overtake, U-turn and drift cards
 
+**The overtake's plain key row** (until 2026-10-22, `?overtakekeys=classic`): Loco, "+", Loco again,
+the first key lit from the start and the second from the blip, both orange to the end of the loop.
+Tyler: a held key did not look held, and the key not being pressed still looked active. Replaced by
+grey-unless-held keys with a filling hold ring. A one-key version with a hold/gap/hold bar under it
+was tried first and dropped: Tyler found the two keys clear. The clip's street picker also
+took the ring road until then, which put the clip inside the edge fog.
+
 How the U-turn clip's motion was made before it was recorded from the sim. Now: [New Move Unlocked: the overtake, U-turn and drift cards](gameplay.md#new-move-unlocked-the-overtake-u-turn-and-drift-cards).
 
 The motion is **the game's own U-turn, recorded**: `tools/uturnreel.mjs` drives the shipped
@@ -1253,6 +1260,13 @@ Reported from play (Tyler, 2026-10-14): "hitting a cop is insta fail. That sucks
 vignette where you wanna smash through roadblocks." The getaway fills the tank and throws roadblocks
 across your route; the third rule made the second the one thing it asked of you that ended the run.
 Replaced by [getting caught](gameplay.md#getting-caught).
+
+## The street race's reveal and count, before they were staged
+
+The finish ring and flag used to go down the moment the cars lined up, so the camera panned to a
+marker that was already standing; they now go down as the camera arrives. The count stood a third
+of the way down the screen at 40px; it is now 80px just above the middle (gameplay.md). The tank was
+topped up to a third at the green; it is now filled.
 
 ## The street race's finish, head-on
 

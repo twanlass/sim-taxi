@@ -105,8 +105,9 @@ import { skateRect } from './city/skatepark.js';
 import { createClouds } from './game/clouds.js';
 import { createCarGhosts } from './game/carghosts.js';
 import { createRoadwork } from './game/roadwork.js';
+import { createStreetProps, planStreetProps } from './game/streetprops.js';
 import { createFire } from './game/fire.js';
-import { createRace, WIN_PAY, LOSE_COST, TANK_FLOOR, COUNT_STEP } from './game/race.js';
+import { createRace, WIN_PAY, LOSE_COST, TANK_FLOOR, COUNT_STEP, COUNTDOWN } from './game/race.js';
 import { createSpeech } from './game/speech.js';
 import { MARKER_BASE } from './game/faremarker.js';
 import { createFlatbed } from './game/flatbed.js';
@@ -144,12 +145,12 @@ import { createHomeScreenTip } from './game/homescreen.js';
 import { createTitleScreen, TITLE_CAM } from './game/titlescreen.js';
 import { tellBackstory, wantsBackstory } from './game/backstory.js';
 import { createTitleReel } from './game/titlereel.js';
-import { splashCovers } from './game/splash.js';
+import { splashCovers, SPLASH_SKIP_KEY } from './game/splash.js';
 import { createSettings, qualityOf } from './game/settings.js';
 import { createPause } from './game/pause.js';
 import { createInspect } from './game/inspect.js';
 import {
-  findRoute, findRouteVia, findRouteOnto, findRouteAlong, planOrigin, crossingOrigin, carryOn,
+  findRoute, findRouteVia, findRouteOnto, findRouteAlong, planOrigin, crossingOrigin, carryOn, setBigAirRoute,
 } from './game/route.js';
 import { streetAt, routeDrives, STREET_TAP_MAX_DETOUR } from './game/streettap.js';
 import { createPathDrag } from './game/pathdrag.js';
@@ -1334,6 +1335,7 @@ const patrol = {
 setSpinStyle(getUturnStyle());
 // The drift launch rolls the taxi a full turn in mid-air; `?barrelroll=classic` flies it level.
 setBarrelRoll(new URLSearchParams(window.location.search).get('barrelroll'));
+setBigAirRoute(new URLSearchParams(window.location.search).get('bigairroute'));
 // The taxi waits for a car already turning left before pulling out round it; `?passturn=classic`
 // pulls out anyway and grinds along its flank, as before.
 setPassTurnGate(new URLSearchParams(window.location.search).get('passturn'));
@@ -1576,6 +1578,13 @@ const pan = shot
 const dust = createDust(scene, camera, makeRng(seed + 77));
 const spray = createSpray(scene, makeRng(seed + 78));
 
+// A post box and a hot dog cart on the kerb, which a taxi in Loco Mode swipes off it — see
+// game/streetprops.js. City seed for where they stand, after the sightline field exists (they only
+// go where the camera can see them) and clear of the rain's street lamps. Run seed for the spray.
+const streetProps = createStreetProps(scene,
+  planStreetProps(makeRng(seed + 211), layout, lamps?.spots.map((p) => ({ x: p.px, z: p.pz })) ?? []),
+  { dust, rng: makeRng(runSeed + 212) });
+
 // The city's entrance: buildings and trees rise out of the ground in a wave that spreads from the
 // taxi's spawn — the run starts where the player's car is, and the city builds itself outward from
 // them — with a puff of dust off each building's footprint as it lands. See game/cityentry.js. It
@@ -1597,7 +1606,8 @@ const cityEntry = createCityEntry({
   objects: [...(garage ? [garage.entryObject] : []), ...(burger ? [burger.entryObject] : []),
     ...(graveyard ? [graveyard.entryObject] : []),
     ...hoopers.entryObjects, ...boombox.entryObjects, ...skaters.entryObjects,
-    ...tubeMan.entryObjects, ...(roadside?.entryObjects ?? []), ...(ltrain?.entryObjects ?? [])],
+    ...tubeMan.entryObjects, ...(roadside?.entryObjects ?? []), ...(ltrain?.entryObjects ?? []),
+    ...streetProps.entryObjects],
   sites: [...city.entrySites, ...(garage ? [garage.entrySite] : []),
     ...(burger ? [burger.entrySite] : []), ...(graveyard ? [graveyard.entrySite] : []),
     ...(roadside ? [roadside.entrySite] : [])],
@@ -1953,6 +1963,16 @@ roadwork.onSmash(({ x, z }) => {
   // impact read as exhaust rather than as hitting something. See `dust.burst`.
   dust.burst(x, z, traffic.taxi.yaw);
 });
+// A post box or a hot dog cart swiped off the kerb (game/streetprops.js). Half a step on the meter,
+// like an overtake: it happens on its own whenever Loco Mode is down on the right lane, so it is a
+// flourish rather than a move. The shake and the crash are the barricade's, turned down further —
+// a box of letters, not a trestle.
+streetProps.onSmash(({ kind }) => {
+  if (!fares.state.gameOver) landCombo(kind === 'cart' ? 'hotdog' : 'mailbox');
+  haptic('drift-kick');
+  controller.kickShake(0.7);
+  sfx?.play('crash', { gain: 0.35, rate: kind === 'cart' ? 1.35 : 1.6 });
+});
 // Touchdown, off whichever ramp — the roadworks barricade or the crest of an arched bridge under
 // Loco Mode. One handler for both, because it is one event: `traffic.onTaxiLand` fires on the frame
 // the arc ends and hands over where it landed, how fast, and how high the surface under it is.
@@ -2095,6 +2115,8 @@ race = shot || raceParam === 'classic' ? null : createRace({
   hydraulics: new URLSearchParams(window.location.search).get('hydraulics') !== 'classic',
   // The racer asks "Ready?" once the camera is back from the finish, and the tap on it is the start.
   readyGate: new URLSearchParams(window.location.search).get('raceready') !== 'classic',
+  // The finish goes down as the camera arrives on it, rather than before the pan.
+  lateReveal: new URLSearchParams(window.location.search).get('racereveal') !== 'classic',
   // Demo mode: the first racer turns up after the first drop-off rather than the 2nd to 4th.
   firstDue: demo.on() ? 1 : null,
   // The underglow pulses to whatever the music is doing (game/sfx.js, `bass`).
@@ -2174,14 +2196,13 @@ function updateBankMark(dt) {
 function onRaceEvent(type, detail) {
   if (type === 'available') {
     // In reach with an empty cab: just the talker's "!" tag until the player taps it (`race.ask`) —
-    // pointing in from the screen edge when the car is off it — and the horn to say so. Without a
+    // pointing in from the screen edge when the car is off it. No horn: the racer makes no sound of
+    // its own anywhere in the vignette (Tyler: "remove all the horn sounds"). Without a
     // tag (`?bubbles=classic`/`dock`), a card with only the dots on it.
     if (raceTalk && !raceTalk.showTag(raceTalkAt, { quest: true })) {
       raceTalkRoot?.classList.add('is-ellipsis');
       raceTalk.show('', '…', raceTalkAt);
     }
-    // The horn only for a racer in reach: one the camera merely panned across is not calling out.
-    if (detail.near) sfx?.play('horn', { at: placeAt(detail.car.x, detail.car.z) });
   } else if (type === 'asked') {
     haptic('snap');
     raceTalkRoot?.classList.remove('is-ellipsis');
@@ -2191,13 +2212,12 @@ function onRaceEvent(type, detail) {
     raceTalk?.hide();
   } else if (type === 'accepted') {
     fares.undirect();
-    // Answered on the frame of the tap, before the cut: the horn and the racer's own word. The
+    // Answered on the frame of the tap, before the cut: the racer's own word. The
     // first build only hid the bubble and started the wipe, so the first thing the player could
     // see was the next bubble half a second later (Tyler: "I tap it and then a little while later
     // I see a little chat bubble... What's the delay for?") — and on a phone browser the haptic,
     // the one thing that did land on the tap, does not exist.
     haptic('pick');
-    sfx?.play('horn', { at: placeAt(detail.car.x, detail.car.z) });
     raceTalk?.show('Street racer', "You're on!", raceTalkAt);
     // ...and then the cut to the start, once that has been heard: both cars are put side by side
     // under the black (game/race.js, `stage`). The bubble sits under the wipe, so cutting at once
@@ -2212,7 +2232,6 @@ function onRaceEvent(type, detail) {
     raceZoomHome ??= controller.state.zoom;
     controller.cutTo(detail.x, detail.z, RACE_SHOT_ZOOM, controller.state.yaw, aspect());
     raceTalk?.show('Street racer', 'Round the flag and back.', raceTalkAt);
-    sfx?.play('horn', { at: placeAt(detail.car.x, detail.car.z) });
   } else if (type === 'declined') {
     raceShot = null;
     raceTalkRoot?.classList.remove('is-ellipsis');
@@ -2231,29 +2250,36 @@ function onRaceEvent(type, detail) {
     controller.peekAt(detail.x, detail.z, () => traffic.taxi, () => {
       cameraTakenOver = false;
       race?.countIn();
-    });
+    }, { onLook: () => race?.revealFinish(), hold: RACE_PEEK_HOLD });
   } else if (type === 'ready') {
     // Back from the finish, side by side: the racer's "Ready?", and the tap on it starts the count.
     haptic('snap');
-    sfx?.play('horn', { at: placeAt(detail.car.x, detail.car.z) });
     raceTalk?.show('Street racer', '{Ready}?', raceTalkAt);
   } else if (type === 'ready-nag') {
-    // Not tapped: once more, louder (READY_NAG), before it counts in on its own (READY_MAX).
-    sfx?.play('horn', { at: placeAt(detail.car.x, detail.car.z) });
+    // Not tapped: once more (READY_NAG), before it counts in on its own (READY_MAX).
     raceTalk?.show('Street racer', 'Tap me when you\'re {ready}!', raceTalkAt);
   } else if (type === 'readied') {
     haptic('pick');
     raceTalk?.hide();
   } else if (type === 'count') {
     raceTalk?.hide();
-    popLabel(String(detail.n), 'is-count', COUNT_STEP * 1000, raceCountAt);
+    popLabel(String(detail.n), raceCountClass, COUNT_STEP * 1000, raceCountAt);
     haptic('snap');
+    // A full tank for the race, flown in on the "3" the way the getaway's is (Tyler: "fully top up
+    // the player's loco meter so it's 100% so they can at least have a fighting chance"). On the
+    // count rather than the tap so it is seen landing; the taxi is parked until the green, so none
+    // of it can be spent on the way. `?racetank=classic` keeps the old floor at the green.
+    if (raceFullTank && detail.n === COUNTDOWN) {
+      flyEnergyToBoost({ from: taxiScreenPos, to: fuelScreenPos, onArrive: () => boost.topUp(1 - boost.fraction()) });
+    }
   } else if (type === 'go') {
-    popLabel('Go!', 'is-count', LABEL_RISE_MS, raceCountAt);
+    popLabel('Go!', raceCountClass, LABEL_RISE_MS, raceCountAt);
     haptic('loco');
-    // Enough in the tank to race on — see TANK_FLOOR. Poured straight in rather than flown: the
-    // player's thumb is already on the pill.
-    if (boost.fraction() < TANK_FLOOR) boost.topUp(TANK_FLOOR - boost.fraction());
+    // Enough in the tank to race on — full, or TANK_FLOOR under `?racetank=classic`. Poured straight
+    // in rather than flown: the player's thumb is already on the pill, and anything the count's
+    // flight has not landed yet is made good here.
+    const floor = raceFullTank ? 1 : TANK_FLOOR;
+    if (boost.fraction() < floor) boost.topUp(floor - boost.fraction());
   } else if (type === 'rounded') {
     // Halfway: the flag has just jumped back to the start line, which is easy to miss on a phone.
     popLabel('Head back!', 'is-count', RACE_LABEL_MS);
@@ -2318,7 +2344,18 @@ const RACE_CUT_DELAY = 500;
 const RACE_LABEL_MS = 2800;
 // Where the three, two, one stand: one fixed point, a third of the way down the screen, rather than
 // over a taxi the camera is still easing back to — which moved each digit sideways from the last.
-const raceCountAt = () => ({ x: viewport.width() / 2, y: viewport.height() * 0.36 });
+const raceFullTank = new URLSearchParams(window.location.search).get('racetank') !== 'classic';
+const raceCountClassic = new URLSearchParams(window.location.search).get('racecount') === 'classic';
+const raceCountClass = raceCountClassic ? 'is-count' : 'is-count is-countdown';
+const raceCountAt = () => ({ x: viewport.width() / 2, y: viewport.height() * (raceCountClassic ? 0.36 : RACE_COUNT_Y) });
+// The count's height on screen, as a fraction of it. Not quite the middle Tyler asked for: the
+// camera is back on the taxi when it counts, so dead centre (0.5) put each 80px digit squarely over
+// the two cars on the line, which on a 390x844 phone stand at ~0.47-0.51. At 0.4 the digit's
+// bottom clears the roofs by ~60px and is still the middle of everything above them.
+const RACE_COUNT_Y = 0.4;
+// The look at the finish holds long enough to watch it go down: the ring's 0.3s grow (RING_GROW_TIME)
+// and then a beat over the 0.9 an ordinary peek gives a rider.
+const RACE_PEEK_HOLD = 1.4;
 // How long "Next time, then." stays up: its 16 letters type in ~0.4s (speech.js), then a beat to read.
 const RACE_DECLINE_MS = 1800;
 const RACE_SHOT_ZOOM = 22;
@@ -5981,8 +6018,12 @@ const pause = shot ? null : createPause({
   canPause: () => !fares.state.gameOver && !title?.holding(),
   sound: soundSwitch,
   settings,
-  // Quit abandons the run: a reload without the "Play again" skip flag lands back on the title.
-  onQuit: () => location.reload(),
+  // Quit abandons the run: a reload without the "Play again" skip flag lands back on the title —
+  // but not through the logo smash again, which this player already watched on the way in.
+  onQuit: () => {
+    try { window.sessionStorage.setItem(SPLASH_SKIP_KEY, '1'); } catch { /* soft: they see the logo */ }
+    location.reload();
+  },
   onChange: (paused) => {
     // A pause with the gas still down would resume into a boost the player is no longer holding —
     // the pill's own pointer never comes back up, because the veil took the release. Same reason
@@ -6094,6 +6135,11 @@ if (new URLSearchParams(window.location.search).get('movecard') === 'classic') {
 // 2026-10-21; newmove.js). `?cardcombo=classic` is the bare clip and plain keys.
 if (new URLSearchParams(window.location.search).get('cardcombo') === 'classic') {
   document.body.classList.add('card-combo-classic');
+}
+// The overtake card's keys grey unless held, with a ring filling round the held one (Tyler,
+// 2026-10-22; newmove.js `holds`). `?overtakekeys=classic` is both keys orange once pressed.
+if (new URLSearchParams(window.location.search).get('overtakekeys') === 'classic') {
+  document.body.classList.add('overtake-keys-classic');
 }
 // What a closing card hands over to — the next card of the run's queue (`showUnlockedMoves`).
 let afterNewMove = null;
@@ -6489,6 +6535,9 @@ function tick() {
     traffic.taxi.x = ramShove.x + ramShove.vx * k;
     traffic.taxi.z = ramShove.z + ramShove.vz * k;
   }
+  // The kerb swipe at a post box or a hot dog cart is an offset `traffic.update` draws the taxi at,
+  // so it is set before it (game/streetprops.js).
+  streetProps.update(dt, traffic.taxi);
   traffic.update(dt);
   if (traffic.taxi.overtakes > overtakesFelt) {
     overtakesFelt = traffic.taxi.overtakes;
@@ -7501,6 +7550,22 @@ if (shot) {
     const at = manholes.userData.spots[0];
     controller.state.target.set(at.x, 0, at.z);
     controller.update(aspect());
+  }
+
+  // A post box or the hot dog cart (game/streetprops.js), standing or — with `streetPropSmash` —
+  // that many seconds after a taxi swiped it. The swipe is staged by hand with a stand-in taxi
+  // heading up the prop's lane at the Loco cruise, since nothing in a still frame drives there.
+  if (shot.atStreetProp) {
+    const prop = streetProps.props.find((p) => p.kind === shot.atStreetProp);
+    if (prop) {
+      if (shot.streetPropSmash) {
+        streetProps.smash(prop, { yaw: -Math.PI / 2, v: SPEED * 1.6, x: prop.x, z: prop.z });
+        streetProps.settle(shot.streetPropSmash);
+        for (let t = 0; t < shot.streetPropSmash; t += 1 / 60) dust.update(1 / 60);
+      }
+      controller.state.target.set(prop.x, 0, prop.z);
+      controller.update(aspect());
+    }
   }
 
   if (shot.atDepot && garage) {

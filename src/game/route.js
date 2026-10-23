@@ -1,5 +1,6 @@
-import { GRID_I, GRID_J, rightOf, leftOf, opposite, isXAxis, dirSign } from '../city/grid.js';
+import { GRID_I, GRID_J, rightOf, leftOf, opposite, isXAxis, dirSign, riverRow } from '../city/grid.js';
 import { cityNetwork, gridNodeId } from '../city/roadnet.js';
+import { riverCrossing } from '../city/river.js';
 
 /**
  * Routing over the road network.
@@ -141,6 +142,70 @@ export function laneCost(lane) {
  */
 export const serviceLaneCost = (lane) => (roadworkLanes.has(lane.id) ? Infinity : laneCost(lane));
 
+// --- Room for Big Air ------------------------------------------------------------
+//
+// Big Air (the drift launch off an arched span, sim/traffic.js) only fires when the route goes
+// **straight on** at the far bank: the flight is 20 units and crosses that junction in the air.
+// Tyler, 2026-10-22: "about 75% of the time the next turn after the bridge is an immediate right or
+// left, which means the max air combo doesn't fire ... tip the scale a little bit when the route
+// distance is going to be the same".
+//
+// Measured over every (origin, heading, destination) across 12 cities (tools/bigair-route.mjs), of
+// the routes that cross an arched span, the share that go straight on at the far bank:
+//
+//     tilt          0     0.06    0.11    0.21    0.40
+//     straight     35%    48%     69%     74%     75%
+//     turns/trip  2.40   2.38    2.34    2.33    2.33
+//
+// Tyler's 75% was right on the nose (65% turned). Ties are the common case, not the rare one: on a
+// grid most trips have several routes of the same length, and the hierarchy weights split them by
+// 0.05 a block. The ceiling is 75% because the rest *have* to turn there — the destination is on
+// the far bank's own street, or the trip only crosses to come back along it. 0.11 takes almost all
+// of what is available while still letting an arterial's green wave outvote it once it is two
+// blocks of preference rather than one. Legs per trip did not move at any tilt (4.560), and turns
+// went *down*, because a route that goes straight on is a route with one fewer corner.
+//
+// The tilt is a discount on the one *move* "straight off an arched deck", taken off the lane past
+// it, and only for the taxi's own weights (`laneCost`): a cop has no use for the room. It is below
+// the cheapest step between two routes of different lengths — a block costs 0.90 at the least,
+// 0.45 through roadworks — so it never buys a longer trip; it only decides between routes the
+// hierarchy weights already call near enough equal. `?bigairroute=classic` takes it off.
+const BIG_AIR_TILT = 0.11;
+let bigAirTilt = BIG_AIR_TILT;
+
+/** `?bigairroute=classic` routes as before; anything else tips near-ties toward Big Air. */
+export function setBigAirRoute(name) {
+  bigAirTilt = name === 'classic' ? 0 : BIG_AIR_TILT;
+}
+
+/** The tilt itself, for tools/bigair-route.mjs to sweep. */
+export function setBigAirTilt(w) {
+  bigAirTilt = w;
+}
+
+// The arched deck lanes of the current network. Keyed on the network because `createLayout`
+// installs a new one each time it runs (see "createLayout() is not a pure function" in CLAUDE.md).
+const deckCache = new WeakMap();
+function archedDecks(net) {
+  let decks = deckCache.get(net);
+  if (decks) return decks;
+  decks = new Set();
+  const row = riverRow();
+  if (row !== null) {
+    for (const lane of net.lanes) {
+      const a = net.nodeById.get(lane.from);
+      const b = net.nodeById.get(lane.to);
+      if (!a || !b || a.gi !== b.gi || riverCrossing(a.gi) !== 'fixed') continue;
+      if (Math.min(a.gj, b.gj) === row && Math.max(a.gj, b.gj) === row + 1) decks.add(lane);
+    }
+  }
+  deckCache.set(net, decks);
+  return decks;
+}
+
+/** Whether `lane` is the deck of an arched span — the hump Big Air launches off. */
+export const isArchedDeck = (lane) => archedDecks(cityNetwork()).has(lane);
+
 /** The search's one non-lane state: "arrived at the origin junction, about to choose". */
 const START = Symbol('start');
 
@@ -185,6 +250,10 @@ function search(net, from, reached, cost) {
   // off-map — a state the probe asks about and the game never reaches — still has somewhere to
   // plan from. START is that arrival; every other state is a lane.
   const dist = new Map([[START, 0]]);
+  const tilt = cost === laneCost ? bigAirTilt : 0;
+  const decks = tilt ? archedDecks(net) : null;
+  // Already on a deck, the car's own lane is the one the START state arrived on.
+  const startLane = tilt ? net.laneByGrid(from.d, origin.gi, origin.gj) : null;
   const prev = new Map([[START, null]]);
   const open = new Set([START]);
 
@@ -209,7 +278,9 @@ function search(net, from, reached, cost) {
 
     for (const next of cur === START ? startExits(net, origin, from.d) : cur.onward) {
       if (!laneOpen(next)) continue;      // a raised bridge is not a road — see setBlockedLanes
-      const nd = curDist + cost(next);
+      let nd = curDist + cost(next);
+      const onto = cur === START ? startLane : cur;
+      if (tilt && decks.has(onto) && net.dirOfLane(next) === net.dirOfLane(onto)) nd -= tilt;
       if (nd < (dist.get(next) ?? Infinity)) {
         dist.set(next, nd);
         prev.set(next, cur);
