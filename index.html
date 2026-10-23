@@ -1693,20 +1693,29 @@
       .tag-quest .speech-tag-pin .speech-pointer {
         color: #A64DFF; clip-path: none; -webkit-backdrop-filter: none; backdrop-filter: none;
       }
-      .tag-quest .speech-tag-pin .speech-tag-body { isolation: isolate; filter: drop-shadow(0 2px 3px rgba(16, 18, 26, 0.35)); }
-      .tag-quest .speech-tag-pin .speech-tag-body::before {
+      /* The white tag wears the same outline (Tyler, 2026-10-23), and so goes opaque and unclipped
+         like the quest tag: through a 0.9 white the dark disc behind would show as a grey ring, and
+         the glass clip would cut the pointer's stroke off at the disc's edge. */
+      .speech-style-white:not(.tag-quest) .speech-tag-pin .speech-tag { background: #fff; box-shadow: none; -webkit-backdrop-filter: none; backdrop-filter: none; }
+      .speech-style-white:not(.tag-quest) .speech-tag-pin .speech-pointer {
+        color: #fff; clip-path: none; -webkit-backdrop-filter: none; backdrop-filter: none;
+      }
+      .tag-quest .speech-tag-pin .speech-tag-body, .speech-style-white .speech-tag-pin .speech-tag-body {
+        isolation: isolate; filter: drop-shadow(0 2px 3px rgba(16, 18, 26, 0.35));
+      }
+      :is(.tag-quest, .speech-style-white) .speech-tag-pin .speech-tag-body::before {
         content: ''; position: absolute; inset: -1.5px; border-radius: 50%; background: #121318; z-index: 0;
       }
-      .tag-quest .speech-tag-pin .speech-pointer { z-index: 1; }
-      .tag-quest .speech-tag-pin .speech-pointer path {
+      :is(.tag-quest, .speech-style-white) .speech-tag-pin .speech-pointer { z-index: 1; }
+      :is(.tag-quest, .speech-style-white) .speech-tag-pin .speech-pointer path {
         stroke: #121318; stroke-width: 3px; vector-effect: non-scaling-stroke; paint-order: stroke; stroke-linejoin: round;
       }
-      .tag-quest .speech-tag-pin .speech-tag { position: relative; z-index: 2; }
+      :is(.tag-quest, .speech-style-white) .speech-tag-pin .speech-tag { position: relative; z-index: 2; }
       /* The glass styles fade the disc and pointer themselves rather than the body, so the dark
          disc behind them has to fade with them or it would stand alone for the length of a fade. */
-      .speech-glass.tag-quest .speech-tag-pin .speech-tag-body::before { opacity: 0; transition: opacity 0.18s ease; }
-      .speech-glass.tag-quest.is-open .speech-tag-pin .speech-tag-body::before { opacity: 1; }
-      .speech-glass.tag-quest.is-closing .speech-tag-pin .speech-tag-body::before { opacity: 0; transition: opacity 0.2s ease; }
+      .speech-glass:is(.tag-quest, .speech-style-white) .speech-tag-pin .speech-tag-body::before { opacity: 0; transition: opacity 0.18s ease; }
+      .speech-glass:is(.tag-quest, .speech-style-white).is-open .speech-tag-pin .speech-tag-body::before { opacity: 1; }
+      .speech-glass:is(.tag-quest, .speech-style-white).is-closing .speech-tag-pin .speech-tag-body::before { opacity: 0; transition: opacity 0.2s ease; }
       .tag-quest .speech-tag i { display: none; }
       .tag-quest .speech-tag b {
         display: block; font: 700 17px/1 'Space Grotesk', system-ui, sans-serif; color: #121318;
