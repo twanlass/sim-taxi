@@ -115,6 +115,7 @@ doc; what the classic version was, and why it changed, is in that doc's history 
 | `?robberyskip=classic` | A tap (or Space/Enter) skips the bank job's cut, as it used to | | [gameplay.md](gameplay.md#the-bank-job) |
 | `?robberycam=classic` | The bank job's cut framed the first way, averaged on the cab in the ground plane, a held Loco push-in left on, and the L's deck left solid over the shove | | [gameplay.md](gameplay.md#the-cuts-framing) |
 | `?bankpickup=classic` | The bank rider is collected anywhere within `ARRIVE_RADIUS` of the bank's junction, from any side, instead of level with the steps on the bank's own street | | [gameplay.md](gameplay.md#the-bank-robbery) |
+| `?robberclock=classic` | The getaway's clock: an urgency crystal over the roof, a robber who bails when it runs out, and a $50 bonus that shrinks with it | | [gameplay.md](gameplay.md#no-clock-on-the-getaway) |
 | `?robberyodds=classic` | The bank rider's coin stays a fair 50/50 instead of loading toward a robbery with each bank ride | #522 | [gameplay.md](gameplay.md#the-bank-job) |
 | `?uturn=classic` | The first U-turn, a spin on the spot, instead of the handbrake turn | #458 | [gameplay.md](gameplay.md) |
 | `?barrelroll=classic` | Big Air flown level, no barrel roll | #485 | [river.md](river.md) |

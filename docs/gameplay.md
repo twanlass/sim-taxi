@@ -1892,7 +1892,7 @@ into it, the price punches and rolls up to the multiplied total, and that one nu
 counter. The verdict reaches the fare loop through `createFareSystem`'s `judgeRun` hook. It is read
 there rather than stamped at spawn like the rest of a price, because it is about the driving, and
 nothing shows a price before the drop-off for it to contradict. It multiplies everything the
-drop-off pays, the robbery's clock bonus included. A [package](#the-package-courier) is never
+drop-off pays, the robbery's bonus included. A [package](#the-package-courier) is never
 multiplied.
 
 `?combo=run` keeps the meter across fares instead: a drop-off pays at it and leaves it where it is,
@@ -2085,9 +2085,9 @@ with an empty cab set it off; see [history](gameplay-history.md#the-bank-robbery
 **Everything about it is the existing loop turned up.** That is a constraint rather than a
 description, and it is worth listing what is *not* new, because none of it is:
 
-- The robber is an ordinary fare that skipped the kerb. Same crystal over the roof, same ring on the
-  road, same band of paint between them, same arrival test, same payout flight to the counter. Two
-  things differ: the clock, and a bonus that reads it. What *looks* different is the figure — see
+- The robber is an ordinary fare that skipped the kerb. Same ring on the road, same band of paint
+  between them, same arrival test, same payout flight to the counter. What it lacks is the crystal
+  over the roof: [there is no clock](#no-clock-on-the-getaway). What *looks* different is the figure — see
   [the robber](#the-robber).
 - The cop cars are **ordinary cars**. They queue, indicate, stop at reds, yield and can be crashed
   into like anything else on the road — and they **come after you**, which is a route, a speed and
@@ -2116,7 +2116,7 @@ description, and it is worth listing what is *not* new, because none of it is:
   [they box you in](#they-box-you-in) — so a cop in the road is something to route round or wait
   out rather than drive through.
 
-So the whole feature is a trigger, a clock, a bonus, and some paint.
+So the whole feature is a trigger, a jackpot, and some paint.
 
 ### It is imposed, so it cannot cost the run
 
@@ -2125,8 +2125,9 @@ for it, and it can stay optional-but-hard only because missing one is never wors
 seen it. A robbery is only half taken on: the player chose the bank rider, but the coin that turns
 the ride into a getaway is one they never see.
 
-An imposed event that can end a run is the one thing a score-attack cannot have. So a robber whose
-clock runs out does exactly what a missed VIP does: gets out mid-street, swears about it
+An imposed event that can end a run is the one thing a score-attack cannot have. The getaway has
+[no clock](#no-clock-on-the-getaway) now, so nothing about it can run out; under
+`?robberclock=classic` a robber whose clock runs out does exactly what a missed VIP does: gets out mid-street, swears about it
 ([the outburst bubble](#they-leave-and-they-let-you-know)) and goes. The event costs the bonus and
 the seat it was occupying, and nothing else. The clock running out cannot end the run.
 
@@ -2144,9 +2145,7 @@ for the chase, so the choice is "boost clear", not "hope".
 the torso, the sleeves tinted to match, and a pale sack swinging off the left hand.
 
 **It is the figure that has to say this is not an ordinary fare** — that and
-[the radio call](#dispatch-breaks-in), and nothing else: a robber's crystal is on the ordinary urgency scale on purpose — the clock is the drama, and a fixed
-hue like [a VIP's](#vip-pickups) would trade that away to say something the building and the police
-cars are already saying.
+[the radio call](#dispatch-breaks-in), and nothing else. The building and the police cars are already saying it.
 
 It is **additive and switchable**, not a second person, and the reason is the pool. There is one
 figure per fare slot, built once and handed to every fare that occupies it, so a robber cannot be a
@@ -2355,36 +2354,22 @@ It is the same bubble as the tutorial's, minus everything that asks something of
   time, so a pause holds it). The next tap is on the road, routing the getaway, and a bubble that
   caught it would cost the second this event is about.
 
-### The clock, and the bonus that reads it
+### No clock on the getaway
 
-A loose clock, on purpose: the getaway is the longest drive in the game and the point of it is the
-police, so the clock is there to pay the bonus rather than to threaten the trip.
+A getaway has **no clock** (Tyler, 2026-10-23; `?robberclock=classic` keeps the old one, see
+[history](gameplay-history.md#the-getaways-clock)). No crystal rides the roof, the robber never
+bails, and the drop-off pays `ROBBER_PAYOUT` + `ROBBER_BONUS` = $150 every time, before any
+[combo multiplier](#the-combo-meter). The ring and the route band stay painted the colour of a full clock.
 
-**The queue behind it is empty.** Every ordinary rider's clock is budgeted over the whole chain the
-taxi must clear before reaching them — the rider aboard, then everyone on the kerb in urgency order
-([the clock is budgeted](#the-clock-is-budgeted)). A robber's is budgeted over its own trip and
-nothing else, because a robbery cannot start with somebody in the seat. That is the same exemption a
-VIP gets and for the same reason, and on its own it would buy a robber a *longer* clock than an
-ordinary rider on the same trip.
+It went because it was never a clock the player could read. The crystal launched from the bank door
+toward the roof, then the robber's line stopped the world, so a full green pie hung in the air beside
+the cab and read as a new rider. And it was loose on purpose — at least 60% more time than the
+driving — so it paid the bonus rather than threatened the trip. The police are the pressure; a
+second, softer one on top of them was noise.
 
-**And the pace factor is turned up on top of that.** `ROBBER_PACE_FACTOR` is 1.3, floored at 1.6,
-so a getaway always has at least 60% more clock than driving — measured on the probe's staged event,
-118s against 60.8s of driving, where an ordinary rider on the same trip would get 91s.
-
-**And the payout is the one price in this game not settled at spawn.** Every other fare is stamped
-when its trip is decided, because a meter that ticked while driving "would punish traffic and reward
-Loco Mode for the wrong reasons" ([Priced by the trip](#priced-by-the-trip)). For a getaway,
-rewarding Loco Mode is exactly the ask. So a flat `ROBBER_PAYOUT` = $100 is stamped like everybody
-else's price, and a bonus of up to `ROBBER_BONUS` = $50 is paid on the *fraction of clock left at the
-drop-off* — read once, on the frame the arrival resolves. $150 for a clean getaway, $100 on the last
-second. The event always pays, and how much is the whole of what the player is driving for.
-
-Flat, it is a jackpot worth five or six ordinary fares, and the same number every time.
-
-The bonus is folded into the fare's own `value` before anything reads it, so the pop that flies off
-the taxi, the counter it rolls into and the run-end card's "Cash" all say the same number. A second,
-smaller flight arriving from nowhere is exactly the side effect the two-phase payout exists to
-prevent.
+The fare still carries `limit` and `timeLeft` (`clockless` in `spawnRobber`, game/fares.js): they
+stay full, which is what keeps the bonus whole and the timeout branch out of reach without either
+of them learning about robbers.
 
 ### The gate that makes it fair
 
