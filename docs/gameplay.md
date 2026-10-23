@@ -141,8 +141,9 @@ the neighbouring words aside, and grown from its centre the first version (on "r
 line was rewritten) ran over the space before it. The `{word}` callout was the other way to do it, and it is the wrong one here: it
 turns the word yellow and wiggles it the moment it is typed, where this lands after the whole line.
 
-A tap anywhere finishes the line or moves on (Enter and Space too); **Skip** in the top corner, or
-Escape, ends it. A finished line left untapped for `NUDGE_AFTER` = 3 s gives the card a
+A tap anywhere finishes the line or moves on (Enter and Space too); Escape ends it. There is no
+Skip button (Tyler, 2026-10-23): it was in the top corner until then, and four taps is the whole
+story. A finished line left untapped for `NUDGE_AFTER` = 3 s gives the card a
 dock-icon bounce (a 12 px hop and a 5 px one), and again every 3 s until the tap; not under reduced
 motion. When the story starts the camera flies from the title's slide down to the garage in one
 move (`STORY_GLIDE` = 3.5 s, a smootherstep blend of the two moving shots, so it leaves and arrives
