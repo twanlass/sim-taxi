@@ -2183,6 +2183,8 @@
       /* The Demo mode row (game/progress.js): hidden until revealed, asleep while ?demo overrules it. */
       :is(#title-screen, #pause-veil) .title-row[hidden] { display: none; }
       :is(#title-screen, #pause-veil) .title-toggle.is-asleep { opacity: 0.4; }
+      :is(#title-screen, #pause-veil) .title-row.is-revealed { animation: demo-reveal 1.2s ease-out; }
+      @keyframes demo-reveal { from { color: #F5C130; } }
 
       :is(#title-screen, #pause-veil) .title-switch {
         flex: none; position: relative; width: 50px; height: 30px; border-radius: 999px;

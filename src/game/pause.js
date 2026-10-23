@@ -55,7 +55,7 @@ const stillPlease = () => window.matchMedia?.('(prefers-reduced-motion: reduce)'
  * no HUD at all), so the caller can treat "no pause button on this page" as ordinary.
  */
 export function createPause({
-  button, veil, canPause = () => true, onChange, sound, settings, onQuit,
+  button, veil, canPause = () => true, onChange, sound, settings, onQuit, demo = null,
 } = {}) {
   if (!button || !veil) return null;
   const menu = veil.querySelector('.pause-menu');
@@ -72,7 +72,7 @@ export function createPause({
   const settingsPage = sound && settings
     ? menuPage('settings', 'Settings', () => show('menu')) : null;
   const settingsBody = settingsPage
-    ? settingsRows(settingsPage.body, { sound, settings }) : null;
+    ? settingsRows(settingsPage.body, { sound, settings, demo, header: settingsPage.header }) : null;
   if (settingsPage) veil.append(settingsPage.section);
   else settingsButton?.remove();
   if (!onQuit) quitButton?.remove();

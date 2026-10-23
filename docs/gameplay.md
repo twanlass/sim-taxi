@@ -165,11 +165,18 @@ yellows and never speed, so the player wins by doing what they won't.
 
 ## Demo mode
 
-For showing the game to someone: every run plays as a first run. A switch at the bottom of the
-title screen's Settings, which is only there once revealed, by opening the game with **`?demo`**
-or by tapping the Settings heading five times (the App Store build has no URL bar). A player who
-never goes looking never sees it. `?demo` turns it on for that load without saving; `?demo=off`
-forces it off.
+For showing the game to someone: every run plays as a first run. A switch at the bottom of
+Settings, on the title screen and the pause screen alike, which is only there once revealed: by
+opening the game with **`?demo`**, or by tapping the Settings heading five times, each tap within a
+second of the last (the App Store build has no URL bar). The row then scrolls into view and flashes
+gold. A player who never goes looking never sees it. `?demo` turns it on for that load without
+saving; `?demo=off` forces it off. Switched from the pause screen, the tips and the once-ever flags
+change at once; the robbery and the racer's timing are decided at load, so they follow at the next
+run.
+
+The taps are counted on `pointerup`. The first cut counted `click` within 600ms and could not be
+made to fire on a phone: iOS only synthesises a click on what it takes for a clickable element, and
+reads a quick second tap on a plain heading as half of a double-tap.
 
 While it is on:
 
