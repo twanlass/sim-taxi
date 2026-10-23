@@ -159,6 +159,28 @@ try {
       const want = ((k / 3) % grade.LUT_SIZE) / (grade.LUT_SIZE - 1);
       if (k % 3 === 0 && Math.abs(baked.data[k] - want) > 1e-5) throw new Error('colorgrade: the neutral bake is not an identity');
     }
+    // The panel's knobs: at rest they bake nothing, a look code survives the round trip, and a
+    // curve dragged steep stays monotone (an overshoot between knots solarises every gradient).
+    if (!grade.adjustIsNeutral(grade.ADJUST_DEFAULTS) || grade.GRADE_DEFAULTS.adjust !== null) {
+      throw new Error('colorgrade: the adjustments must rest at neutral');
+    }
+    grade.setGradeAdjust('exposure', 0.5);
+    grade.setGradeAdjust('shadowAmount', 0.4);
+    grade.setGradeCurve('rgb', 1, 0.05);
+    grade.setGradeCurve('rgb', 2, 0.74);
+    if (grade.gradeUniform.w !== 1 || grade.gradeUniform.y !== 1) throw new Error('colorgrade: an adjustment did not switch the grade on');
+    const code = grade.lookCode();
+    grade.resetGrade();
+    if (grade.gradeUniform.w !== 0 || grade.lookCode() !== '{}') throw new Error('colorgrade: Reset did not return to neutral');
+    grade.setLookCode(code);
+    if (grade.lookCode() !== code) throw new Error(`colorgrade: a look code did not round-trip: ${code} vs ${grade.lookCode()}`);
+    let prev = -1;
+    for (let i = 0; i <= 200; i++) {
+      const y = grade.curveAt('rgb', i / 200);
+      if (y < prev - 1e-6) throw new Error(`colorgrade: the curve is not monotone at ${i / 200}`);
+      prev = y;
+    }
+    grade.resetGrade();
   }
 
   // The city past the edge of the map (city/horizon.js): its haze patch run against three's own

@@ -1771,11 +1771,32 @@ switches its lights on.
 ## Colour grade — `game/colorgrade.js`
 
 A 3D lookup table and a saturation knob over the whole game view. **Neutral by default**: the shipped
-frame is untouched until something is picked in the ⚙️ panel's **Colour grade** section (Visuals tab),
-which has a LUT dropdown (six bundled looks built in code, plus whatever `.cube` was loaded with
-**Load .cube file…**), **LUT strength** (0–1), **Saturation** (0–2, 1 unchanged), **Download baked
-.cube** (the LUT with both sliders folded in, for making a grade the shipped look) and **Reset**. The
-choice is remembered in localStorage across reloads; `?grade=` and `?gradesat=` pick one for a
+frame is untouched until something is picked in the ⚙️ panel's **Colour grade** section (Visuals tab).
+The section is a small photo editor, built so a look can be made without a grading app:
+
+- **Look**: a LUT dropdown (six bundled looks built in code, plus whatever `.cube` was loaded with
+  **Load .cube file…**) and **LUT strength** (0–1).
+- **Light**: Exposure (±2 stops, in linear light), Contrast (a power curve about mid grey, so it never
+  clips), Warmth and Tint (white-balance gains normalised to keep luminance).
+- **Tone**: Shadows, Midtones, Highlights — lift, gamma and gain.
+- **Colour**: Saturation (0–2, in the shader), Vibrance, and a split tone: a shadow colour and a
+  highlight colour, each a hue and an amount.
+- **Curves**: five knots per channel (RGB, R, G, B) at inputs 0, ¼, ½, ¾, 1, through a monotone cubic
+  so a steep drag cannot ripple. A knot is picked by its column, so the target is a quarter of the
+  canvas wide.
+- **Share**: **Copy look** puts the grade on the clipboard as a short JSON code (only the knobs off
+  rest), and **Apply pasted look** takes one back. That code is how a look becomes the shipped default:
+  it goes into `GRADE_DEFAULTS` as it stands, rather than a 36k-line `.cube` in the repo. A loaded
+  file cannot travel in a code; **Download baked .cube** writes everything folded into one table.
+
+Everything but saturation is **baked into the LUT on the CPU** — the shader stays one texture read
+however many knobs move. A bake is ~12 ms on a desktop core and a drag gets at most one a frame.
+
+For a phone, where the panel covers most of what it grades: while a finger is on any grade control
+the rest of the panel goes invisible (`#dbg-panel.dbg-scrub`), **Hold to compare** draws the ungraded
+frame, and a double-tap on a slider puts it back at rest.
+
+The choice is remembered in localStorage across reloads; `?grade=` and `?gradesat=` pick one for a
 single load without remembering it, and shot mode draws neutral unless they are given.
 
 ### A fragment tail, not a pass
