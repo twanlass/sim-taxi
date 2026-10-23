@@ -219,6 +219,18 @@ const CUT_FACING = Math.PI / 4;
 const CUT_SWAY = 0.38;
 /** How fast it sways, in radians of phase a second — about six seconds a swing there and back. */
 export const CUT_SWAY_RATE = 1.05;
+// The tailpipe and the painted flame out of it (`?signflames=classic` has neither). The pipe is a
+// stub through the board like the wheels, poking back past the tail's neon, just over the sill
+// tube it would otherwise sit inside.
+const PIPE_R = 0.12;
+const PIPE_Y = CUT_SILL + 0.24;
+const PIPE_OUT = 0.28;           // how far it pokes back past the tail
+// The flame is **sign paint, not fire**: a hot-rod lick cut out of board like the taxi, three
+// tongues curling up and back, red round yellow, and it does not move. An animated backfire in the
+// Loco plume's own tongue was the first cut, and it read as the game's boost effect going off on
+// the roof rather than as part of the sign. Unlit like the neon, so it holds its colour on the
+// shaded face the board's BOARD_LIFT exists for, but kept out of the bloom: it is paint.
+const FLAME_PROUD = 0.03;        // each inner layer stands this much prouder than the one under it
 
 // --- The 3D model (`?depot=model`) ---
 // The taxi sign. A size up on the player's car (drawn at TAXI_SCALE = 1.18) so that side by side
@@ -598,7 +610,7 @@ function taxiGeometry() {
  * shares a face with anything else. Every detail on it is a solid running *through* it (see
  * `CUT_PROUD`), so each shows on both faces and none is a hand-wound triangle.
  */
-function cutoutGeometry() {
+function cutoutGeometry({ flame: withFlame = true } = {}) {
   const half = CUT_L / 2;
   const lampW = 0.8;
   const lampX = -0.2;
@@ -670,6 +682,13 @@ function cutoutGeometry() {
     hub.translate(sx * CUT_WHEEL_X, CUT_SILL, 0);
     parts.push(bakeColor(hub, color('hubcap')));
   }
+  // The tailpipe: a cylinder along x through the tail, deeper than the neon for the wheels' reason.
+  if (withFlame) {
+    const pipe = new THREE.CylinderGeometry(PIPE_R, PIPE_R, PIPE_OUT + 0.3, 10);
+    pipe.rotateZ(Math.PI / 2);
+    pipe.translate(-half - PIPE_OUT / 2 + 0.15, PIPE_Y, 0);
+    parts.push(bakeColor(pipe, color('hubcap')));
+  }
   const geo = mergeGeometries(parts.map((g) => (g.index ? g.toNonIndexed() : g)), false);
   parts.forEach((g) => g.dispose());
 
@@ -708,7 +727,56 @@ function cutoutGeometry() {
   }
   const c = box.getCenter(new THREE.Vector3());
   for (const g of [geo, paint, neon]) g.translate(-c.x, -c.y, -c.z);
-  return { geo, paint, neon };
+  // The flame is left out of the centring on purpose: the pole stays under the taxi, and the flame
+  // hangs off the back of it the way a sign's flourish does — over the roof's edge, on some blocks.
+  const flame = withFlame ? flameGeometry() : null;
+  flame?.translate(-half - PIPE_OUT - c.x, PIPE_Y - c.y, -c.z);
+  return { geo, paint, neon, flame };
+}
+
+/**
+ * The painted flame, about the pipe's mouth with the licks running back along −x. Three layers of
+ * the one outline: the outer cut as board (bevelled like the taxi's), the two inner ones as solids
+ * through it, each `FLAME_PROUD` prouder than the last so no two faces share a plane — the reason
+ * `CUT_PROUD` exists, one layer further out. Inner layers are the outline scaled toward the mouth,
+ * which keeps them inside it: the shape is star-shaped about the pipe.
+ */
+function flameGeometry() {
+  const outline = (sx, sy) => {
+    const s = new THREE.Shape();
+    const p = (x, y) => [x * sx, y * sy];
+    s.moveTo(...p(0, -0.3));
+    s.quadraticCurveTo(...p(-0.9, -0.48), ...p(-1.75, -0.08));   // the low lick
+    s.quadraticCurveTo(...p(-1.15, -0.04), ...p(-0.95, 0.12));
+    s.quadraticCurveTo(...p(-1.75, 0.04), ...p(-2.4, 0.45));     // the long one
+    s.quadraticCurveTo(...p(-1.6, 0.34), ...p(-1.2, 0.5));
+    s.quadraticCurveTo(...p(-1.65, 0.62), ...p(-1.95, 1.02));    // the high one
+    s.quadraticCurveTo(...p(-0.9, 0.78), ...p(0, 0.3));
+    s.closePath();
+    return s;
+  };
+  const depth = CUT_T - 2 * CUT_BEVEL;
+  const outer = new THREE.ExtrudeGeometry(outline(1, 1), {
+    depth, curveSegments: 6, bevelEnabled: true,
+    bevelThickness: CUT_BEVEL, bevelSize: CUT_BEVEL, bevelSegments: 1,
+  });
+  outer.translate(0, 0, -depth / 2);
+  const layer = (sx, sy, through, key) => {
+    const g = new THREE.ExtrudeGeometry(outline(sx, sy), {
+      depth: through, curveSegments: 6, bevelEnabled: false,
+    });
+    g.translate(0, 0, -through / 2);
+    return bakeColor(g, color(key));
+  };
+  const parts = [
+    bakeColor(outer, color('signFlameOuter')),
+    layer(0.7, 0.62, CUT_T + 2 * FLAME_PROUD, 'signFlameMid'),
+    layer(0.42, 0.36, CUT_T + 4 * FLAME_PROUD, 'signFlameCore'),
+  ];
+  parts.forEach((g) => g.deleteAttribute('uv'));
+  const geo = mergeGeometries(parts.map((g) => (g.index ? g.toNonIndexed() : g)), false);
+  parts.forEach((g) => g.dispose());
+  return geo;
 }
 
 /**
@@ -730,7 +798,9 @@ export const LANDMARK = {
   glow: (g) => [[g.light, 'bay'], [g.neon, 'window'], [g.roofNeon, 'window']].filter(([m]) => m),
 };
 
-export function createGarage(block, rng, { sign: style = 'cutout', trim: withTrim = true } = {}) {
+export function createGarage(block, rng, {
+  sign: style = 'cutout', trim: withTrim = true, flames: withFlames = true,
+} = {}) {
   const site = garageSite(block);
   const { x0, z0, z1 } = block.bounds;
   const { frontX, curtainX, doorZ, kerbX } = site;
@@ -754,10 +824,14 @@ export function createGarage(block, rng, { sign: style = 'cutout', trim: withTri
   //
   // The sign is built first because everything about the pole depends on how much room it takes:
   // how high it has to stand to sweep clear of the roof plant, and how far in from the roof's edge.
-  const { geo: signGeo, paint: paintGeo = null, neon: neonGeo = null } = style === 'classic'
-    ? { geo: wrenchGeometry() }
-    : style === 'model' ? { geo: taxiGeometry() } : cutoutGeometry();
-  // Everything that turns with the sign, measured together.
+  const {
+    geo: signGeo, paint: paintGeo = null, neon: neonGeo = null, flame: flameGeo = null,
+  } = style === 'classic' ? { geo: wrenchGeometry() }
+    : style === 'model' ? { geo: taxiGeometry() } : cutoutGeometry({ flame: withFlames });
+  // Everything that turns with the sign, measured together. The flame rides along but is left out
+  // of the sweep below: the cutout only sways, and its tail always swings away from the curtain
+  // plane (−x), so the flame cannot reach the door's sightlines — the probe sways it and measures.
+  // Measured in, it pushed the pole a flame's length further onto the roof and into the plant.
   const signGeos = [signGeo, paintGeo, neonGeo].filter(Boolean);
   const low = Math.min(...signGeos.map((g) => {
     g.computeBoundingBox();
@@ -765,7 +839,7 @@ export function createGarage(block, rng, { sign: style = 'cutout', trim: withTri
   }));
   const clear = style === 'classic' ? WRENCH_CLEAR : TAXI_SIGN_CLEAR;
   const hub = deck + PLANT_H + clear - low;
-  for (const g of signGeos) g.translate(0, hub - KERB_H, 0);
+  for (const g of [...signGeos, flameGeo].filter(Boolean)) g.translate(0, hub - KERB_H, 0);
 
   // The radius it sweeps: the furthest any of its vertices gets from the pivot's own axis. Not
   // `boundingBox.max.x` — the box is measured in one pose and the sign **turns**, so its
@@ -996,6 +1070,14 @@ export function createGarage(block, rng, { sign: style = 'cutout', trim: withTri
     neon.name = 'garage-neon';
     signPivot.add(neon);
   }
+  // The painted flame — see FLAME_PROUD for why unlit and why not in the bloom.
+  let flame = null;
+  if (flameGeo) {
+    flame = new THREE.Mesh(flameGeo, unlitMaterial({ vertexColors: true }));
+    flame.castShadow = true;
+    flame.name = 'garage-sign-flame';
+    signPivot.add(flame);
+  }
   // The chase and the stutter. Seeded off the block like the sway, and the stutter's timing off a
   // hash of how many there have been, so a run replays the same.
   const neonColor = color('depotNeon');
@@ -1098,6 +1180,8 @@ export function createGarage(block, rng, { sign: style = 'cutout', trim: withTri
     /** The cutout's yellow board and its neon tube; null on the other two signs. */
     board,
     neon,
+    /** The cutout's painted tailpipe flame; null under `?signflames=classic` and on the other signs. */
+    signFlame: flame,
     /** The roofline neon; null under `?depotneon=classic`. */
     roofNeon,
     /** The sign's centre, in world y — where the pole stops. */

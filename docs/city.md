@@ -535,6 +535,14 @@ Three things about it are measured rather than chosen:
   colour each frame, which the bloom's copy of the material reads as well. The tyres are wider
   than the tube is deep so the length of it along the sill is buried in them.
 
+**Flames out of the tailpipe, painted on.** A chrome stub pokes out of the tail (`PIPE_*`) and a
+hot-rod flame cut from board runs back off it: three licks curling up and back, red round orange
+round lemon (`signFlame*` in palette.js), the inner two as solids through the outer each
+`FLAME_PROUD` prouder. It is static and unlit and stays out of the bloom — sign paint, not fire. An
+animated backfire in the Loco plume's own tongue was tried first and read as the player's boost
+going off on the roof. It is in the sweep the pole is placed from but not in the centring, so the
+pole stays under the taxi. `?signflames=classic` has no pipe and no flame.
+
 `?depot=model` keeps the first cut of this sign: the real taxi's 3D model (`taxiSignGeometry()` in
 geometry/taxi.js), banked on the pole and turning. It read as a car parked on the roof rather than
 as a sign. `?depot=classic` brings back the sign before that, described below:

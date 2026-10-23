@@ -567,6 +567,13 @@ export const PALETTE = {
   taxiBody: '#F5C130',
   taxiTrim: '#2B2B30',
   taxiSign: '#F2F0E8',
+  // The painted flame on the depot's cutout taxi (city/garage.js): hot-rod sign paint, red to
+  // yellow, and deliberately *not* the Loco plume's locoFlame* — that is the player's boost, and
+  // the roof is a sign. The core is a lemon rather than `taxiBody` so it does not merge into the
+  // board it sits against.
+  signFlameOuter: '#E23A22',
+  signFlameMid: '#FF8A1C',
+  signFlameCore: '#FFE14D',
   // The ghost outline traced where the taxi is hidden behind a building — see
   // geometry/ghostoutline.js. The body yellow lightened a touch: it has to say "your taxi is
   // here" while sitting on the dark side of a tower, where the body colour itself goes muddy.
