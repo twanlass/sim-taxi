@@ -16586,6 +16586,23 @@ let chopperOrder; // likewise
     check('the turning wrench stays behind the plane the door’s sightlines leave from',
       axis.x + orbit < site.curtainX,
       `orbit reaches x ${(axis.x + orbit).toFixed(2)}, curtain at ${site.curtainX.toFixed(2)}`);
+    // The cutout's painted flame is left out of that orbit (see `createGarage`) on the claim that
+    // the tail only ever sways away from the curtain. Sway it through a whole swing and see.
+    if (dg.signFlame) {
+      const fp = dg.signFlame.geometry.attributes.position;
+      const v = new THREE.Vector3();
+      let reach = -Infinity;
+      for (let t = 0; t < 8; t += 0.1) {
+        dg.update(0.1);
+        dg.signPivot.updateMatrixWorld(true);
+        for (let i = 0; i < fp.count; i += 7) {
+          reach = Math.max(reach, v.fromBufferAttribute(fp, i).applyMatrix4(dg.signFlame.matrixWorld).x);
+        }
+      }
+      check('...and the painted flame swaying off its tail stays behind it too',
+        reach < site.curtainX,
+        `flame reaches x ${reach.toFixed(2)}, curtain at ${site.curtainX.toFixed(2)}`);
+    }
     // ...and stays inside the +Z parapet, rather than swinging out over the street the door faces.
     //
     // Only that edge, and the reason is arithmetic rather than visibility: the +Z one is

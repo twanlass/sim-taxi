@@ -219,31 +219,18 @@ const CUT_FACING = Math.PI / 4;
 const CUT_SWAY = 0.38;
 /** How fast it sways, in radians of phase a second — about six seconds a swing there and back. */
 export const CUT_SWAY_RATE = 1.05;
-// The tailpipe on the cutout, and the backfire out of it (`?signflames=classic` has neither). The
-// pipe is a stub through the board like the wheels, poking back past the tail's neon so the flame
-// has something to come out of; just over the sill tube, which it would otherwise sit inside.
+// The tailpipe and the painted flame out of it (`?signflames=classic` has neither). The pipe is a
+// stub through the board like the wheels, poking back past the tail's neon, just over the sill
+// tube it would otherwise sit inside.
 const PIPE_R = 0.12;
 const PIPE_Y = CUT_SILL + 0.24;
 const PIPE_OUT = 0.28;           // how far it pokes back past the tail
-// The flame is the Loco plume's own tongue (game/locoflame.js) — orange sheath, gold, pale core,
-// the same `halfWidth` profile, sway and ruffle — drawn flat in the board's plane by a fragment
-// shader on one quad, so the sign's taxi burns exactly what the player's does. Sized off the
-// board rather than the car: 2.6 behind a 5.0 board is the plume's 3.0 behind a 4.01 taxi, a
-// shade shorter, because a sign that is a third flame stops reading as a taxi. Fatter than the
-// plume, though: the board is seen at ~50° so its length foreshortens and its height does not, and
-// at the plume's proportions (0.42 here) the pop read at phone zoom as a thin orange streak.
-const SIGN_FLAME_LEN = 2.6;
-const SIGN_FLAME_HALF_W = 0.62;
-// Backfires, not a burn. A burst of 1–3 bangs every few seconds: each bang is out in BANG_UP and
-// gone over BANG_DOWN, a beat apart. A steady flame on the roof was the first thought and is the
-// wrong one — it competes with the neon's chase for the same glance, where a pop every few seconds
-// gives the eye something to catch and then leaves the sign alone.
-const BANG_GAP = [2.5, 6];       // seconds between bursts
-const BANG_UP = 0.05;
-const BANG_DOWN = 0.22;
-const BANG_BEAT = 0.12;          // from one bang's peak dying to the next starting
-// The flipbook rate the plume uses (FLAME_FRAME_TIME), so the two flames lick at the same speed.
-const SIGN_FLAME_FPS = 16;
+// The flame is **sign paint, not fire**: a hot-rod lick cut out of board like the taxi, three
+// tongues curling up and back, red round yellow, and it does not move. An animated backfire in the
+// Loco plume's own tongue was the first cut, and it read as the game's boost effect going off on
+// the roof rather than as part of the sign. Unlit like the neon, so it holds its colour on the
+// shaded face the board's BOARD_LIFT exists for, but kept out of the bloom: it is paint.
+const FLAME_PROUD = 0.03;        // each inner layer stands this much prouder than the one under it
 
 // --- The 3D model (`?depot=model`) ---
 // The taxi sign. A size up on the player's car (drawn at TAXI_SCALE = 1.18) so that side by side
@@ -623,7 +610,7 @@ function taxiGeometry() {
  * shares a face with anything else. Every detail on it is a solid running *through* it (see
  * `CUT_PROUD`), so each shows on both faces and none is a hand-wound triangle.
  */
-function cutoutGeometry({ pipe: withPipe = true } = {}) {
+function cutoutGeometry({ flame: withFlame = true } = {}) {
   const half = CUT_L / 2;
   const lampW = 0.8;
   const lampX = -0.2;
@@ -695,9 +682,8 @@ function cutoutGeometry({ pipe: withPipe = true } = {}) {
     hub.translate(sx * CUT_WHEEL_X, CUT_SILL, 0);
     parts.push(bakeColor(hub, color('hubcap')));
   }
-  // The tailpipe: a cylinder along x through the tail, wider than the neon is deep for the wheels'
-  // reason, so the tube along the tail's edge passes into it rather than across its face.
-  if (withPipe) {
+  // The tailpipe: a cylinder along x through the tail, deeper than the neon for the wheels' reason.
+  if (withFlame) {
     const pipe = new THREE.CylinderGeometry(PIPE_R, PIPE_R, PIPE_OUT + 0.3, 10);
     pipe.rotateZ(Math.PI / 2);
     pipe.translate(-half - PIPE_OUT / 2 + 0.15, PIPE_Y, 0);
@@ -741,86 +727,56 @@ function cutoutGeometry({ pipe: withPipe = true } = {}) {
   }
   const c = box.getCenter(new THREE.Vector3());
   for (const g of [geo, paint, neon]) g.translate(-c.x, -c.y, -c.z);
-  // The pipe's mouth, in the same centred terms, for the flame to hang off.
-  const mouth = withPipe ? new THREE.Vector3(-half - PIPE_OUT - c.x, PIPE_Y - c.y, -c.z) : null;
-  return { geo, paint, neon, mouth };
+  // The flame is left out of the centring on purpose: the pole stays under the taxi, and the flame
+  // hangs off the back of it the way a sign's flourish does — over the roof's edge, on some blocks.
+  const flame = withFlame ? flameGeometry() : null;
+  flame?.translate(-half - PIPE_OUT - c.x, PIPE_Y - c.y, -c.z);
+  return { geo, paint, neon, flame };
 }
 
 /**
- * The backfire's flame: one quad in the board's plane, its right edge on the pipe's mouth, with the
- * Loco plume's three tongues drawn into it by the fragment shader and everything outside them
- * discarded. Shader rather than geometry because the shape has to whip and lick every frame; on a
- * quad that is two floats a frame, against rewriting a strip or keeping a flipbook of meshes.
- *
- * Alpha-cut and opaque rather than blended, so it sorts and depth-tests like the board it hangs
- * off. Unlit and white, with the tongue's colour multiplied into `diffuseColor`: that keeps the
- * material's `color` as the light, which is what `markEmissive` (game/bloom.js) scales into its own
- * copy — and the copy inherits this `onBeforeCompile`, so the glow is the flame's shape and not the
- * quad's. The uniforms are shared objects for the same reason: both programs read the same ones.
+ * The painted flame, about the pipe's mouth with the licks running back along −x. Three layers of
+ * the one outline: the outer cut as board (bevelled like the taxi's), the two inner ones as solids
+ * through it, each `FLAME_PROUD` prouder than the last so no two faces share a plane — the reason
+ * `CUT_PROUD` exists, one layer further out. Inner layers are the outline scaled toward the mouth,
+ * which keeps them inside it: the shape is star-shaped about the pipe.
  */
-function signFlame() {
-  const pad = 0.2;
-  const tall = SIGN_FLAME_HALF_W * 2.4;
-  const geo = new THREE.PlaneGeometry(SIGN_FLAME_LEN + pad, tall * 2);
-  geo.deleteAttribute('uv');
-  geo.deleteAttribute('normal');
-  // Mouth at x = 0, plume out along −x (the tail's way), centred on the pipe.
-  geo.translate(-(SIGN_FLAME_LEN + pad) / 2 + pad / 2, 0, 0);
-  const uniforms = {
-    uFlameHeat: { value: 0 },
-    uFlamePhase: { value: 0 },
-    uFlameOuter: { value: color('locoFlameOuter') },
-    uFlameMid: { value: color('locoFlameMid') },
-    uFlameCore: { value: color('locoFlameCore') },
+function flameGeometry() {
+  const outline = (sx, sy) => {
+    const s = new THREE.Shape();
+    const p = (x, y) => [x * sx, y * sy];
+    s.moveTo(...p(0, -0.3));
+    s.quadraticCurveTo(...p(-0.9, -0.48), ...p(-1.75, -0.08));   // the low lick
+    s.quadraticCurveTo(...p(-1.15, -0.04), ...p(-0.95, 0.12));
+    s.quadraticCurveTo(...p(-1.75, 0.04), ...p(-2.4, 0.45));     // the long one
+    s.quadraticCurveTo(...p(-1.6, 0.34), ...p(-1.2, 0.5));
+    s.quadraticCurveTo(...p(-1.65, 0.62), ...p(-1.95, 1.02));    // the high one
+    s.quadraticCurveTo(...p(-0.9, 0.78), ...p(0, 0.3));
+    s.closePath();
+    return s;
   };
-  const material = unlitMaterial({ color: 0xffffff, side: THREE.DoubleSide });
-  material.customProgramCacheKey = () => 'garage-sign-flame';
-  material.onBeforeCompile = (shader) => {
-    Object.assign(shader.uniforms, uniforms);
-    const vert = shader.vertexShader
-      .replace('#include <common>', `#include <common>
-varying vec2 vFlame;`)
-      .replace('#include <begin_vertex>', `#include <begin_vertex>
-vFlame = position.xy;`);
-    // The tongue, as game/locoflame.js draws it: halfWidth(u), the centreline's whip and each
-    // edge's ruffle on its own phase. (u runs 0 at the pipe to 1 at the tip.)
-    const frag = shader.fragmentShader
-      .replace('#include <common>', `#include <common>
-varying vec2 vFlame;
-uniform float uFlameHeat;
-uniform float uFlamePhase;
-uniform vec3 uFlameOuter;
-uniform vec3 uFlameMid;
-uniform vec3 uFlameCore;
-float flameHalf(float u) {
-  return ${SIGN_FLAME_HALF_W.toFixed(3)} * pow(1.0 - u, 0.55) * (0.62 + 0.38 * sin(PI * sqrt(u)));
-}
-bool inTongue(vec2 p, float len, float wide) {
-  float u = -p.x / (${SIGN_FLAME_LEN.toFixed(3)} * len);
-  if (u <= 0.0 || u >= 1.0) return false;
-  float c = wide * 0.30 * u * sin(u * 2.4 + uFlamePhase) * ${(SIGN_FLAME_HALF_W / 0.5).toFixed(3)};
-  float side = p.y > c ? 1.0 : -1.0;
-  float h = wide * flameHalf(u) * (1.0 + 0.16 * sin(u * 5.5 + uFlamePhase * 1.7 + side));
-  return abs(p.y - c) < h;
-}`)
-      .replace('#include <color_fragment>', `#include <color_fragment>
-{
-  vec2 p = vFlame / max(uFlameHeat, 1e-3);
-  if (!inTongue(p, 1.0, 1.0)) discard;
-  vec3 tongue = inTongue(p, 0.50, 0.44) ? uFlameCore
-    : inTongue(p, 0.72, 0.64) ? uFlameMid : uFlameOuter;
-  diffuseColor.rgb *= tongue;
-}`);
-    if (vert === shader.vertexShader || !frag.includes('inTongue(p, 1.0')) {
-      throw new Error('garage sign flame: shader hook matched nothing');
-    }
-    shader.vertexShader = vert;
-    shader.fragmentShader = frag;
+  const depth = CUT_T - 2 * CUT_BEVEL;
+  const outer = new THREE.ExtrudeGeometry(outline(1, 1), {
+    depth, curveSegments: 6, bevelEnabled: true,
+    bevelThickness: CUT_BEVEL, bevelSize: CUT_BEVEL, bevelSegments: 1,
+  });
+  outer.translate(0, 0, -depth / 2);
+  const layer = (sx, sy, through, key) => {
+    const g = new THREE.ExtrudeGeometry(outline(sx, sy), {
+      depth: through, curveSegments: 6, bevelEnabled: false,
+    });
+    g.translate(0, 0, -through / 2);
+    return bakeColor(g, color(key));
   };
-  const mesh = new THREE.Mesh(geo, material);
-  mesh.name = 'garage-sign-flame';
-  mesh.visible = false;
-  return { mesh, uniforms };
+  const parts = [
+    bakeColor(outer, color('signFlameOuter')),
+    layer(0.7, 0.62, CUT_T + 2 * FLAME_PROUD, 'signFlameMid'),
+    layer(0.42, 0.36, CUT_T + 4 * FLAME_PROUD, 'signFlameCore'),
+  ];
+  parts.forEach((g) => g.deleteAttribute('uv'));
+  const geo = mergeGeometries(parts.map((g) => (g.index ? g.toNonIndexed() : g)), false);
+  parts.forEach((g) => g.dispose());
+  return geo;
 }
 
 /**
@@ -839,8 +795,7 @@ export const LANDMARK = {
   id: 'depot',
   label: 'Taxi depot',
   create: createGarage,
-  glow: (g) => [[g.light, 'bay'], [g.neon, 'window'], [g.roofNeon, 'window'], [g.signFlame, 'flame']]
-    .filter(([m]) => m),
+  glow: (g) => [[g.light, 'bay'], [g.neon, 'window'], [g.roofNeon, 'window']].filter(([m]) => m),
 };
 
 export function createGarage(block, rng, {
@@ -869,10 +824,14 @@ export function createGarage(block, rng, {
   //
   // The sign is built first because everything about the pole depends on how much room it takes:
   // how high it has to stand to sweep clear of the roof plant, and how far in from the roof's edge.
-  const { geo: signGeo, paint: paintGeo = null, neon: neonGeo = null, mouth = null } = style === 'classic'
-    ? { geo: wrenchGeometry() }
-    : style === 'model' ? { geo: taxiGeometry() } : cutoutGeometry({ pipe: withFlames });
-  // Everything that turns with the sign, measured together.
+  const {
+    geo: signGeo, paint: paintGeo = null, neon: neonGeo = null, flame: flameGeo = null,
+  } = style === 'classic' ? { geo: wrenchGeometry() }
+    : style === 'model' ? { geo: taxiGeometry() } : cutoutGeometry({ flame: withFlames });
+  // Everything that turns with the sign, measured together. The flame rides along but is left out
+  // of the sweep below: the cutout only sways, and its tail always swings away from the curtain
+  // plane (−x), so the flame cannot reach the door's sightlines — the probe sways it and measures.
+  // Measured in, it pushed the pole a flame's length further onto the roof and into the plant.
   const signGeos = [signGeo, paintGeo, neonGeo].filter(Boolean);
   const low = Math.min(...signGeos.map((g) => {
     g.computeBoundingBox();
@@ -880,7 +839,7 @@ export function createGarage(block, rng, {
   }));
   const clear = style === 'classic' ? WRENCH_CLEAR : TAXI_SIGN_CLEAR;
   const hub = deck + PLANT_H + clear - low;
-  for (const g of signGeos) g.translate(0, hub - KERB_H, 0);
+  for (const g of [...signGeos, flameGeo].filter(Boolean)) g.translate(0, hub - KERB_H, 0);
 
   // The radius it sweeps: the furthest any of its vertices gets from the pivot's own axis. Not
   // `boundingBox.max.x` — the box is measured in one pose and the sign **turns**, so its
@@ -1111,6 +1070,14 @@ export function createGarage(block, rng, {
     neon.name = 'garage-neon';
     signPivot.add(neon);
   }
+  // The painted flame — see FLAME_PROUD for why unlit and why not in the bloom.
+  let flame = null;
+  if (flameGeo) {
+    flame = new THREE.Mesh(flameGeo, unlitMaterial({ vertexColors: true }));
+    flame.castShadow = true;
+    flame.name = 'garage-sign-flame';
+    signPivot.add(flame);
+  }
   // The chase and the stutter. Seeded off the block like the sway, and the stutter's timing off a
   // hash of how many there have been, so a run replays the same.
   const neonColor = color('depotNeon');
@@ -1148,49 +1115,6 @@ export function createGarage(block, rng, {
     col.needsUpdate = true;
   }
   if (neonGeo) runNeon(0);
-  // The backfire. Off the pipe's mouth, in the pivot's frame so it sways with the board. Timed off
-  // a hash of how many bursts there have been, like the neon's stutter, so a run replays the same.
-  let flame = null;
-  if (mouth) {
-    flame = signFlame();
-    flame.mesh.position.copy(mouth).add(new THREE.Vector3(0, hub - KERB_H, 0));
-    signPivot.add(flame.mesh);
-  }
-  let bursts = 0;
-  let burstAt = THREE.MathUtils.lerp(BANG_GAP[0], BANG_GAP[1], hash01(rand, 0.25));
-  let bangs = 0;
-  /** Fire a burst now — `__taxi`'s handle for a still or a clip that wants one in frame. */
-  const backfire = (count = 3) => { burstAt = clock; bangs = count; };
-  function runFlame() {
-    if (!flame) return;
-    const into = clock - burstAt;
-    if (into >= 0 && bangs === 0) {
-      // One bang most of the time, two often, three now and then: a cough, not a drum roll.
-      const h = hash01(bursts, rand + 0.5);
-      bangs = h < 0.45 ? 1 : h < 0.85 ? 2 : 3;
-    }
-    const bang = BANG_UP + BANG_DOWN + BANG_BEAT;
-    let heat = 0;
-    if (into >= 0) {
-      const k = Math.floor(into / bang);
-      const t = into - k * bang;
-      if (k >= bangs) {
-        bursts++;
-        bangs = 0;
-        burstAt = clock + THREE.MathUtils.lerp(BANG_GAP[0], BANG_GAP[1], hash01(bursts, rand));
-      } else {
-        // Out fast and back in on an ease, so each bang reads as a pop rather than a pulse. The
-        // first of a burst is the biggest.
-        const peak = k === 0 ? 1 : 0.8;
-        const f = 1 - (t - BANG_UP) / BANG_DOWN;
-        heat = t < BANG_UP ? peak * (t / BANG_UP) : f > 0 ? peak * f * f : 0;
-      }
-    }
-    flame.mesh.visible = heat > 0.02;
-    flame.uniforms.uFlameHeat.value = heat;
-    flame.uniforms.uFlamePhase.value = (Math.floor(clock * SIGN_FLAME_FPS) % 4) * (Math.PI / 2);
-  }
-
   // The sway's phase, seeded for the same reason the spin's start is.
   let phase = rand * Math.PI * 2;
   const swing = () => { signPivot.rotation.y = CUT_FACING + CUT_SWAY * Math.sin(phase); };
@@ -1229,7 +1153,6 @@ export function createGarage(block, rng, {
       phase += CUT_SWAY_RATE * dt;
       swing();
       runNeon(dt);
-      runFlame();
       return;
     }
     signPivot.rotation.y += spin * dt;
@@ -1257,9 +1180,8 @@ export function createGarage(block, rng, {
     /** The cutout's yellow board and its neon tube; null on the other two signs. */
     board,
     neon,
-    /** The cutout's tailpipe backfire; null under `?signflames=classic` and on the other signs. */
-    signFlame: flame?.mesh ?? null,
-    backfire,
+    /** The cutout's painted tailpipe flame; null under `?signflames=classic` and on the other signs. */
+    signFlame: flame,
     /** The roofline neon; null under `?depotneon=classic`. */
     roofNeon,
     /** The sign's centre, in world y — where the pole stops. */
