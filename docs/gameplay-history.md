@@ -1366,3 +1366,10 @@ Loco Mode was usable, and a CSS filter on an element inside an SVG is the thing 
 dependable about, so on a phone the bar may never have muted at all. Tyler asked for it grayscale;
 it is now a separate grey gradient, with a flash back to colour on the frame the pedal wakes.
 `?locogrey=classic` keeps the old look.
+
+## One glint on the way out of the garage (October 2026)
+
+The fender glint first shipped (#655) as a single star on the front-right fender corner, 0.7s long.
+Tyler asked for it amped up the next day ("show 3 sparkles one after another in slightly different
+spots and sizes"), and it became the run of three in `game/glint.js`. No classic toggle for the
+single star: it is a tuning of the same effect, and `?glint=classic` still turns the whole thing off.
