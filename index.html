@@ -792,6 +792,8 @@
       /* Tabular figures so a rolling counter doesn't jitter its own width as the digits change,
          and the column stays put while a row counts. */
       #run-end .stat-value { font-variant-numeric: tabular-nums; }
+      /* The values in white, so the yellow labels read as the headings and the figure as the answer. */
+      #run-end .is-counted .stat-value { color: #fff; }
 
       /* The slot the three screens take turns in: the stats, the initials prompt and the table.
          `runend.js` locks a min-height onto it from the stats' own rendered height, so a card

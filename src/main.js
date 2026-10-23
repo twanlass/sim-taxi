@@ -2492,6 +2492,8 @@ let tapeImpact = false;
 // The polaroid on the run-end card (game/polaroid.js), and the new card layout it comes with:
 // `?gameover=classic` is the card without a print and with "Tap to continue" over the retry slot.
 const gameOverClassic = new URLSearchParams(window.location.search).get('gameover') === 'classic';
+// `?statcount=classic` is the quicker stat roll with the values in yellow beside their labels.
+const statCountClassic = new URLSearchParams(window.location.search).get('statcount') === 'classic';
 const snapshot = gameOverClassic ? null : createSnapshot(renderer.domElement);
 // How far past the impact, in sim seconds, the replay's last cut is photographed: far enough for
 // the fireball to have bloomed over both cars, not so far that the smoke has swallowed them. Every
@@ -4418,6 +4420,7 @@ function updateHud(dt) {
       finale: showUnlockedMoves,
       photo: snapshot?.photo() ?? null,
       footHint: !gameOverClassic,
+      statCount: !statCountClassic,
     });
     document.body.classList.add('game-over');
     sfx?.fadeOutMusic();
@@ -8263,6 +8266,7 @@ window.__taxi = {
     stats: [{ label: 'Cash', value: 0, format: (n) => `$${n}` }],
     onRetry: () => {},
     footHint: !gameOverClassic,
+    statCount: !statCountClassic,
     ...opts,
   }),
   /** The polaroid's print as it stands, for tools/smoke.mjs: which grab it came from, or -1. */

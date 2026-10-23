@@ -67,6 +67,17 @@ const RETRY_GAP = 240;        // beat between the last number landing and the bu
 const ROW_MS = COUNT_LEAD + COUNT_MS + LAND_MS;
 const STAT_STRIDE = ROW_MS + ROW_GAP;   // start-to-start, so rows never overlap
 
+/**
+ * The default pacing: the label lands *before* its value shows, and the count is slow enough to
+ * watch. The classic timing above (`?statcount=classic`) faded the value in 60ms after its label
+ * and rolled it in 340ms, which on a phone read as the number already being there — the label and
+ * the figure arrived as one thing and the count was over before the eye got to it. Here the value
+ * stays hidden until the label has settled (`lead`), then counts for `count`. Three rows come to
+ * 2 * 930 + 860 = 2.72s against the classic 1.85s; a tap still lands them all at once.
+ */
+const PACE_CLASSIC = { lead: COUNT_LEAD, fadeAt: 60, count: COUNT_MS, land: LAND_MS, gap: ROW_GAP };
+const PACE_COUNTED = { lead: 220, fadeAt: 220, count: 460, land: LAND_MS - 20, gap: 70 };
+
 /** Beat after the last number lands before the review takes the tap that leaves it. */
 const HOLD_MS = 420;
 const HINT_MS = 360;          // "Tap to continue" fading up, and back out on the tap
@@ -175,7 +186,7 @@ function scaleDownIn(node, delay) {
  * Returns a function that lands the number where it stands: the skip below calls it on every row
  * at once, and a roll that hasn't started yet drops straight to its final value.
  */
-function countUp(node, value, format, delay) {
+function countUp(node, value, format, delay, countMs = COUNT_MS, landMs = LAND_MS) {
   // Zero is the first *frame*, not the moment this was called. A WAAPI animation starts at the
   // next frame after `animate()`, so anchoring the roll to `performance.now()` here put it on a
   // different clock than the fade beside it — and the game-over frame is exactly where the page
@@ -186,7 +197,7 @@ function countUp(node, value, format, delay) {
   const step = (now) => {
     if (!live) return;
     if (t0 === null) t0 = now + delay;
-    const t = Math.min(1, Math.max(0, (now - t0) / COUNT_MS));
+    const t = Math.min(1, Math.max(0, (now - t0) / countMs));
     const eased = 1 - (1 - t) ** 3;
     node.textContent = format(Math.round(value * eased));
     if (t < 1) { requestAnimationFrame(step); return; }
@@ -194,7 +205,7 @@ function countUp(node, value, format, delay) {
     node.textContent = format(value);
     node.animate([
       { transform: 'scale(1)' }, { transform: 'scale(1.14)', offset: 0.4 }, { transform: 'scale(1)' },
-    ], { duration: LAND_MS, easing: RISE });
+    ], { duration: landMs, easing: RISE });
   };
   node.textContent = format(0);
   requestAnimationFrame(step);
@@ -207,8 +218,11 @@ function countUp(node, value, format, delay) {
  * Returns the block plus a `play` that runs the count-out and resolves when the last number has
  * landed, and a `land` that drops every row onto its final value immediately.
  */
-function buildStats(stats) {
-  const column = el('div', 'run-end-stats');
+function buildStats(stats, counted) {
+  const column = el('div', counted ? 'run-end-stats is-counted' : 'run-end-stats');
+  const pace = counted ? PACE_COUNTED : PACE_CLASSIC;
+  const rowMs = pace.lead + pace.count + pace.land;
+  const stride = rowMs + pace.gap;
 
   const cells = stats.map((stat) => {
     const cell = el('div', 'stat');
@@ -235,20 +249,20 @@ function buildStats(stats) {
   return {
     node: column,
     /** Total time from the first label to the last number's pop. */
-    duration: Math.max(0, cells.length - 1) * STAT_STRIDE + ROW_MS,
+    duration: Math.max(0, cells.length - 1) * stride + rowMs,
     play(anims, landings) {
       // Same task as the entrances below, so the row is never painted between the two.
       column.style.opacity = '';
       cells.forEach(({ label, value, stat }, index) => {
-        const at = index * STAT_STRIDE;
+        const at = index * stride;
         anims.push(scaleDownIn(label, at));
         // The value shares its label's entrance — it is the same cell arriving — and starts counting
         // partway through it, so the number is already moving as the word settles. The row is over
         // COUNT_LEAD + COUNT_MS + LAND_MS later, which is exactly what the next row waits for.
         anims.push(value.animate([{ opacity: 0 }, { opacity: 1 }], {
-          duration: LABEL_MS, delay: at + 60, easing: 'ease-out', fill: 'backwards',
+          duration: counted ? 120 : LABEL_MS, delay: at + pace.fadeAt, easing: 'ease-out', fill: 'backwards',
         }));
-        landings.push(countUp(value, stat.value, stat.format, at + COUNT_LEAD));
+        landings.push(countUp(value, stat.value, stat.format, at + pace.lead, pace.count, pace.land));
       });
     },
   };
@@ -523,10 +537,11 @@ function buildBoard(entries, youId) {
 /**
  * `photo`, when given, is a canvas holding one frame of the ending (game/polaroid.js) and goes up
  * as a polaroid over the title. `footHint` puts "Tap to continue" at the foot of the screen rather
- * than over the retry pill's slot; `?gameover=classic` turns both off.
+ * than over the retry pill's slot; `?gameover=classic` turns both off. `statCount` is the paced
+ * count-up with white values (PACE_COUNTED); false is `?statcount=classic`.
  */
 export function showRunEnd(root, {
-  title, reason, stats, scores = null, onRetry, finale = null, photo = null, footHint = true,
+  title, reason, stats, scores = null, onRetry, finale = null, photo = null, footHint = true, statCount = true,
 }) {
   root.innerHTML = '';
   root.hidden = false;
@@ -542,7 +557,7 @@ export function showRunEnd(root, {
   retry.type = 'button';
   retry.addEventListener('click', onRetry);
 
-  const statsScreen = buildStats(stats);
+  const statsScreen = buildStats(stats, statCount);
   body.append(statsScreen.node);
   const polaroid = photo ? buildPolaroid(photo) : null;
   if (polaroid) card.append(polaroid.node);

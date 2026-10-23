@@ -4185,11 +4185,16 @@ driven rather than how long. A run that never landed a combo shows **1x** rather
 row, so the card is the same shape every run. History:
 [the run-end screen](gameplay-history.md#the-run-end-screen).
 
-The stats are **one row each, label and value side by side**, and both are set in the *same* size,
-weight and colour. A small grey caption over a big yellow number made the label read as chrome and
-the number as the content, when the pairing is the content; matched type makes each row one phrase
-— "Cash  $412" — and the rows read as a list being counted out, which is what the stagger is
-doing.
+The stats are **one row each, label and value side by side**, in the *same* size and weight: the
+label in yellow, the value in **white**. A small grey caption over a big yellow number made the
+label read as chrome and the number as the content, when the pairing is the content; matched type
+makes each row one phrase — "Cash  $412" — and the white value is the answer to the yellow
+question.
+
+They are **counted out one row at a time**: the label drops in and settles, *then* its value
+appears and counts up from zero (0.46s), lands with a pop, and only then does the next label
+arrive. Three rows take ~2.7s; a tap lands every number at once. `PACE_COUNTED` in
+`game/runend.js`; `?statcount=classic` is the older, quicker pace in yellow.
 
 It reads as a **ledger**: label pinned to the left edge, value to the right, on a `1fr auto` grid
 so the label column takes the slack and the values stay flush right however long the names get.
