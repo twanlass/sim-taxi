@@ -198,8 +198,8 @@ near lane.
 
 **The glint** (`game/glint.js`). When the drawn nose is 0.9 units past the curtain (`CLEAR_OUT`,
 fired through `onClear`), a four-point star pops on the front-right fender corner, just above the
-headlight, and is gone in 0.55s. That is the corner nearest the camera on the way out, and the
-camera is still at door zoom, so the star is about 60px across on a phone. It is a shader on one
+headlight, and is gone in 0.7s. That is the corner nearest the camera on the way out, and the
+camera is still at door zoom, so the star is about 25pt across on a phone. It is a shader on one
 quad rather than a highlight in the paint: at play zoom the corner is about 5×5 pixels, and a paint
 hotspot there does not read even at door zoom. It plays every time the car comes out of the door,
 including after a [repair](#repairs-at-the-depot), where the chips are already gone by then, so the

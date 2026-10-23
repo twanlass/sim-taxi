@@ -31,13 +31,15 @@ const CORNER = new THREE.Vector3(1.62, 1.12, 0.78);
 const STANDOFF = 1.5;
 
 // The whole life, in seconds, and where in it the star is at full size. Quick up, slower down:
-// a glint is a flash that catches the eye and then lingers for a beat, not a pulse.
-const LIFE = 0.55;
+// a glint is a flash that catches the eye and then lingers for a beat, not a pulse. 0.55 was over
+// before the eye found it.
+const LIFE = 0.7;
 const PEAK = 0.14;
-// Radius of the star's long arms at the peak, in world units. At DOOR_ZOOM a world unit is ~27px on
-// a phone, so this is a star about 60px across — big enough to read as the event, small against a
-// car that fills a third of the frame.
-const SIZE = 1.1;
+// Radius of the star's long arms at the peak, in world units. At 1.1 the first headless take on a
+// 390pt phone drew a star about 10pt across — a speck by the wheel arch. The arms fade over their
+// last half, so the visible star is about half the quad: this puts it at ~25pt, against a car
+// ~60pt wide in the doorway.
+const SIZE = 1.7;
 // A small turn across the life, so the arms sweep rather than sit — about 25°.
 const SPIN = 0.45;
 // Tilt at rest, so the cross is not a plus sign squared to the screen.
