@@ -1124,11 +1124,13 @@ fetched. `?shot=court` and `?shot=court-far` frame it.
 A **boom box** sits beside the court, playing to them (`planBoombox` in `city/blacktop.js`, drawn by
 `game/boombox.js`). Where it goes takes no draw from the props stream: it faces the court, and the
 spots round the court are ranked by how squarely that face turns to the camera — the speakers are
-the read, so the far sideline first, the far baseline next, the near ones last — then the first on
-the lawn and clear of benches, statue, pond and skatepark wins. A court pushed into a corner of its
-park can have a third of a unit of grass on three sides (3 courts in 40 seeds), so a **far
-sideline's apron** ranks ahead of the near lawn: the box is set down on the blacktop outside the
-lines. On each beat it hops, squashes as it lands, its woofers pump, and an orange quaver or beamed pair floats up over
+the read, so the far sideline first, then the **far sideline's apron** (set down on the blacktop
+outside the lines), the far baseline after that, the near ones last — then the first on the lawn
+and clear of benches, statue, pond and skatepark wins. The apron used to rank *behind* the far
+baseline, and a court with no lawn up-screen of it put the box beside a hoop's pole with the park's
+trees between it and the camera (9 boxes in 40 seeds); in practice the box now always stands at the
+far sideline, on the lawn or the apron (13 in 40 on the apron), and on the half of it further from
+the camera — the near hoop's backboard is thrown up-screen onto the other half. On each beat it hops, squashes as it lands, its woofers pump, and an orange quaver or beamed pair floats up over
 it; the notes are opaque and go out by shrinking, because a translucent one blends twice where its
 head, stem and flag overlap. Only the box is in the city's entrance wave; the notes follow its scale
 and visibility, because the wave also owns `visible` on what it is handed and once switched the
