@@ -51,6 +51,7 @@ doc; what the classic version was, and why it changed, is in that doc's history 
 | `?roadside=carwash` / `=gas` | Pin the roadside lot to the car wash or the gas station; by default each city seed rolls one. Headless tools take `ROADSIDE=` | | [city.md](city.md#the-roadside-lot-and-its-tube-man) |
 | `?roadside=classic` | No roadside lot: its block goes back to the towers, and the tube man goes with it | | [city.md](city.md#the-roadside-lot-and-its-tube-man) |
 | `?manholes=classic` | The streets without their manhole covers | | [city.md](city.md#manhole-covers) |
+| `?streetprops=classic` | No post boxes or hot dog cart on the kerb, and no Loco swipe | `STREETPROPS=classic` | [city.md](city.md#the-post-box-and-the-hot-dog-cart) |
 | `?roofs=classic` | Solid flat roof caps, with no lip and no sunk deck | #511 | [city.md](city.md) |
 | `?foliage=classic` | The first, louder autumn palette | #486 | [rendering.md](rendering.md) |
 | `?water=classic` | The faceted first river surface | | [river.md](river.md) |
@@ -103,6 +104,9 @@ doc; what the classic version was, and why it changed, is in that doc's history 
 | `?race=classic` | No street racers: the city before the race vignette, with no violet car tailing the empty taxi to challenge it | | [gameplay.md](gameplay.md#the-street-race) |
 | `?hydraulics=classic` | The street racer without hydraulics: its body sits still on its wheels through the offer, the start and the finish | | [gameplay.md](gameplay.md#the-street-race) |
 | `?raceready=classic` | The race's count starts as soon as the camera is back from the finish, with no "Ready?" to tap | | [gameplay.md](gameplay.md#the-street-race) |
+| `?racereveal=classic` | The race's finish ring and flag are already down when the camera pans to them, rather than going down as it arrives | | [gameplay.md](gameplay.md#the-street-race) |
+| `?racecount=classic` | The race's three, two, one at 40px a third of the way down the screen, rather than 80px just above the middle | | [gameplay.md](gameplay.md#the-street-race) |
+| `?racetank=classic` | The race tops Loco Mode up to a third of a tank at the green, rather than filling it on the "3" | | [gameplay.md](gameplay.md#the-street-race) |
 | `?robbery=classic` | The robbery with no opening cut (straight to the drive-past). Also implies `?bankfare=classic` | #475, #478 | [gameplay.md](gameplay.md) |
 | `?bankfare=classic` | The drive-past robbery instead of the bank rider fare | #499 | [gameplay.md](gameplay.md) |
 | `?robberyskip=classic` | A tap (or Space/Enter) skips the bank job's cut, as it used to | | [gameplay.md](gameplay.md#the-bank-job) |
@@ -111,6 +115,7 @@ doc; what the classic version was, and why it changed, is in that doc's history 
 | `?robberyodds=classic` | The bank rider's coin stays a fair 50/50 instead of loading toward a robbery with each bank ride | #522 | [gameplay.md](gameplay.md#the-bank-job) |
 | `?uturn=classic` | The first U-turn, a spin on the spot, instead of the handbrake turn | #458 | [gameplay.md](gameplay.md) |
 | `?barrelroll=classic` | Big Air flown level, no barrel roll | #485 | [river.md](river.md) |
+| `?bigairroute=classic` | The router stops tipping equal-length routes toward going straight on off an arched bridge (room for Big Air) | | [gameplay.md](gameplay.md#routing) |
 | `?vip=classic` | VIP riders (the purple question mark, triple pay) spawn again; off by default | | [gameplay.md](gameplay.md#vip-pickups) |
 | `?crush=classic` | Big Air coming down on a car is a hit (usually the wreck) instead of Crushin' It | | [gameplay.md](gameplay.md#the-combo-meter) |
 | `?overtake=classic` | The overtake combo judges the road before pulling out: it waits until the car is close, won't pull out round a car turning left, and only swerves round a slow car in the junction it has a clean line round. The default throws the taxi into the oncoming lane the moment the combo lands, whatever is there, or up on the kerb round the right of a car signalling left | | [traffic.md](traffic.md#overtaking) |

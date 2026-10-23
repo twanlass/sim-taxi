@@ -51,7 +51,8 @@ afterwards would sample the city's SSAO buffer at whatever pixel it stood on. Bu
 first, it is the plain car.
 
 **Where it plays.** Every cold start. Not wherever the title screen would not be either — shot mode,
-`?dev`, `?title=off`, the reload "Play again" does — and not on **`?splash=classic`**, which is the
+`?dev`, `?title=off`, the reload "Play again" does — nor on the reload the pause menu's Quit does,
+which lands on the title without the logo (a one-shot `simTaxi.skipSplash` in sessionStorage) — and not on **`?splash=classic`**, which is the
 old load: straight into the game, though the page is still black rather than sky until the city has
 drawn. The drop itself is walked in `tools/probe.mjs`: the body never dips into the road, and the
 car starts above the frame and is gone, plume included, at `exitTime` at a phone, a square and a
@@ -115,8 +116,8 @@ panel) with them: the one flag for playtesting. Shot mode never builds it.
 ## The backstory
 
 `src/game/backstory.js`. The first time a device presses **Play**, the menu goes and dispatch
-radios in before the cut to the garage door: four lines on the docked speech card, at the foot of
-the screen over the title's backdrop (there are no pedals yet for it to sit above), typed out and tapped
+radios in before the cut to the garage door: four lines on the docked speech card, its bottom edge
+76% of the way down the screen (`STORY_CARD_BOTTOM`) over the title's backdrop, typed out and tapped
 through.
 
 > Dispatch to Car 9. You there?
@@ -1174,6 +1175,15 @@ Two details are load-bearing and easy to lose:
 - **Cost is read off the lane** (`lane.klass`, `lane.withWave`), not recomputed from `(i, j, d)`.
   An editor-drawn arterial has no line index to look either up by.
 
+**Near-ties go straight off an arched bridge**, so there is room for
+[Big Air](river.md#the-drift-launch), which only fires when the route goes straight on at the far
+bank. The taxi's router knocks `BIG_AIR_TILT` (0.11) off the move "straight on past an arched deck"
+— less than any block costs, so it never lengthens a trip, only picks between routes the hierarchy
+weights already call near enough equal. Over every trip on 12 cities (`tools/bigair-route.mjs`) the
+share of bridge crossings that go straight on rose from 35% to 69%, against a ceiling of 75% (the
+rest end on, or come back along, the far bank's street); legs per trip unchanged, turns slightly
+down. Cops and other service routes don't get it. `?bigairroute=classic` takes it off.
+
 `tools/roadnet.mjs` asserts the ported router returns the *same route* — not merely a route — as
 the grid router did, over all 5,184 `(start, heading, target)` triples on three seeds.
 
@@ -1811,7 +1821,13 @@ in `game/fares.js`).
 Every combo the taxi lands on a job steps a multiplier up, and the drop-off pays the fare at it
 (`game/combometer.js`, Tyler's idea after the Duolingo combo streak). It starts each ride at ×1: an
 overtake or a bootleg U-turn +0.5, a drift kick +0.5 per chain tier (so a full chain of three is
-+3), **Stuntman** +1, the bridge launch +2, **Crushin' It** +1, capped at ×5.
++3), **Stuntman** +1, the bridge launch +2, **Crushin' It** +1, **Return to Sender** and
+**Hot Diggity** +0.5, capped at ×5.
+
+**Return to Sender** and **Hot Diggity** are swiping a post box or the hot dog cart off the kerb
+(Tyler, 2026-10-23, "if the taxi hits either of these things ... shoot mail everywhere or hot dogs
+everywhere"). The props are in [city.md](city.md#the-post-box-and-the-hot-dog-cart); the hit is
+automatic under Loco Mode on the lane that passes one, which is why it is only worth a half.
 
 **Crushin' It** is Big Air coming down on a car (Tyler, 2026-10-20: "make the car you land on
 explode. Taxi takes no damage and continues"). It used to be a crash: the taxi lands at the kick's
@@ -2694,22 +2710,29 @@ leave, and the tag goes back to the dots the moment the racer speaks. `?questmar
 dots. The "!" is up whenever the race can be taken (an
 empty cab, nothing owning the run) and the player can find the car: on the car whenever it is on
 screen, wherever the player has panned to, and pointing in from the screen edge only while the taxi
-is within `NEAR_BLOCKS` (3) of it, with a horn. Out of reach and off screen, or a rider picked up,
+is within `NEAR_BLOCKS` (3) of it. The racer makes no sound of its own anywhere in the vignette:
+the horn it gave on turning up, on the tap and at the start is gone (Tyler: "remove all the horn
+sounds"). Out of reach and off screen, or a rider picked up,
 and it goes until that changes (a block of slack on the way out of reach and two units past the
 frame, so it does not flicker on either boundary). The tag itself is a tap target. Tap it once and it asks: "Wanna race?" (Tyler wanted the question only for
 someone who tapped, rather than one more line on a busy screen). Tap it again and it answers on the
-spot (a horn and "You're on!"), then the screen cuts to black and opens close up on the two cars side by side, window to window ("Round the flag and back."). A
+spot ("You're on!"), then the screen cuts to black and opens close up on the two cars side by side, window to window ("Round the flag and back."). A
 corner is marked across the island (a white waypoint ring with a chequered flag flying over it, 4-8
 blocks away and never on the ring road, which is in the fog), the camera goes to look at it and
-comes back, the racer asks "Ready?" (a horn and a hop), and the tap on it, on its card or on the car,
+comes back, the racer asks "Ready?" (and hops), and the tap on it, on its card or on the car,
 starts the count: three, two, one, and the two cars set off together, drag-race style. Tyler wanted
 the player to say when ("tapping that is what triggers the countdown"). Left untapped it nags once
 at `READY_NAG` (6s, "Tap me when you're ready!") and counts in on its own at `READY_MAX` (15s): the
 taxi is held and every fare's clock with it until the green, so a run must not be able to wait there
 forever. `?raceready=classic` counts in as soon as the camera is back.
-The count runs at `COUNT_STEP` (1.25s a number; Tyler: "slow the countdown a touch") and is pinned
-above the middle of the screen in 40px tabular figures, so the digits stay put rather than following
-the taxi and shifting with each glyph's width. "Head back!", "You won!" and "You lost!" are held on
+The finish is not put down until the camera gets there: the ring grows in and the flag goes up on
+screen, and the look holds `RACE_PEEK_HOLD` (1.4s) so it can be watched arriving (Tyler: "wait till
+the camera pans there and then spawn the checkpoint so you can visually see where it is").
+The count runs at `COUNT_STEP` (1.25s a number; Tyler: "slow the countdown a touch") and stands in
+the middle of the screen in 80px tabular figures (Tyler: "double the size of those numbers, stick
+them in the very center"), a little above dead centre (`RACE_COUNT_Y`, 0.4) because the camera is
+back on the taxi by then and dead centre sat each digit on the two cars. The digits stay put rather than following the taxi and shifting with
+each glyph's width. "Head back!", "You won!" and "You lost!" are held on
 screen for `RACE_LABEL_MS` (2.8s) rather than popping like a fare's cash (main.js).
 
 **The race is there and back.** Each car has to come within `ARRIVE_RADIUS` of the flag's corner,
@@ -2783,9 +2806,12 @@ is a tap like every other choice in the game. Ignoring it is free: the racer jus
   (`locked`) taps on the map are ignored and the taxi stays on the line: there is no backing out
   (Tyler: "Dont allow declining after you've tapped on 'wanna race'"). Taps on the pedals are not
   map taps and decline nothing.
-- **The tank is topped up to a third at the green** (`TANK_FLOOR`, the run's own starting tank) and
-  never down. The race is decided by Loco Mode, and a player who accepted on an empty pill would
-  lose before the flag dropped.
+- **The tank is filled to the top for the race**, flown in on the "3" the way the getaway's is
+  (Tyler: "fully top up the player's loco meter so it's 100% so they can at least have a fighting
+  chance"), and made good at the green if the flight has not landed. The race is decided by Loco
+  Mode, and a player who accepted on an empty pill would lose before the flag dropped. It costs
+  the race some of its edge: the bench's full-tank row won 92-100% of races where a third of a
+  tank won 58-71%. `?racetank=classic` tops up to a third (`TANK_FLOOR`) at the green instead.
 - **Stakes are lopsided on purpose** (`WIN_PAY` $40, `LOSE_COST` $25, against a $20 median fare).
   Declining is free, so an even bet is one a sensible player never takes. A loss goes through
   `charge`, so an empty till pays what it has.

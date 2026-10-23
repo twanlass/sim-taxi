@@ -26,7 +26,7 @@ import {
 // comparison into the network agreeing with itself.
 import { SPEED, signalCycle, edgeClass } from '../src/sim/traffic.js';
 import { roadNetFromGrid, bakeNetwork, SIGNAL_DEFAULTS, gridNodeId } from '../src/city/roadnet.js';
-import { findRoute } from '../src/game/route.js';
+import { findRoute, setBigAirTilt, setBigAirRoute } from '../src/game/route.js';
 
 const TOL = 1e-9;
 const SEEDS = Number(process.argv[2] ?? 12);
@@ -563,15 +563,25 @@ for (let s = 0; s < SEEDS; s++) {
   // fares, quietly moving every arrival time and fare count downstream of it. So the reference
   // Dijkstra below is the one route.js used to run, kept here to be differenced against — its
   // successor order (straight, right, left) is the tie-break the ported router preserves.
+  //
+  // The comparison runs with the Big Air tilt off (route.js, `BIG_AIR_TILT`): that one is a
+  // deliberate change of tie-break, and what it must not do — make any route longer — is checked
+  // separately, against the same reference.
   if (s < ROUTE_SEEDS) {
     let mismatched = 0;
     let example = '';
     let compared = 0;
+    let longer = 0;
     for (const from of everyIntersection) {
       for (let d = 0; d < 4; d++) {
         for (const to of everyIntersection) {
+          setBigAirRoute(null);
+          const tilted = findRoute({ i: from.i, j: from.j, d }, to);
+          setBigAirTilt(0);
           const mine = findRoute({ i: from.i, j: from.j, d }, to);
+          setBigAirRoute(null);
           const reference = refRoute({ i: from.i, j: from.j, d }, to);
+          if (tilted && reference && tilted.length > reference.length) longer += 1;
           compared += 1;
           if (JSON.stringify(mine) === JSON.stringify(reference)) continue;
           // With the park road in, the network has a street the reference cannot see, so a
@@ -587,6 +597,7 @@ for (let s = 0; s < SEEDS; s++) {
     }
     check(`${tag} routes match the grid router`, mismatched === 0,
       `${mismatched}/${compared} differ, e.g. ${example}`);
+    check(`${tag} the Big Air tilt never lengthens a route`, longer === 0, `${longer}/${compared} longer`);
   }
 }
 

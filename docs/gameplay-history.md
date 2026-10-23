@@ -1261,6 +1261,13 @@ vignette where you wanna smash through roadblocks." The getaway fills the tank a
 across your route; the third rule made the second the one thing it asked of you that ended the run.
 Replaced by [getting caught](gameplay.md#getting-caught).
 
+## The street race's reveal and count, before they were staged
+
+The finish ring and flag used to go down the moment the cars lined up, so the camera panned to a
+marker that was already standing; they now go down as the camera arrives. The count stood a third
+of the way down the screen at 40px; it is now 80px just above the middle (gameplay.md). The tank was
+topped up to a third at the green; it is now filled.
+
 ## The street race's finish, head-on
 
 The first choreographed finish parked the winner mid-block and brought the loser down the *oncoming*

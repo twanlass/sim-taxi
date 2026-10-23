@@ -27,6 +27,9 @@ const NUDGE_AFTER = 3;
 const NUDGE_HOPS = [0, -12, 0, -5, 0];
 const NUDGE_MS = 650;
 
+// Where the card's bottom edge sits, as a fraction of the screen's height.
+const STORY_CARD_BOTTOM = 0.76;
+
 // Through progress.js, so Demo mode tells it on every Play and writes nothing.
 let seenFlag = null;
 const seen = () => (seenFlag ??= createSeenFlag({ key: 'simTaxi.backstorySeen' }));
@@ -67,9 +70,11 @@ export function tellBackstory(root, { done, lines = BACKSTORY_LINES }) {
   let at = 0;
   let over = false;
   let raf = 0;
-  // At the foot of the screen: there are no pedals up yet for the slot to sit over.
+  // Its bottom edge three quarters of the way down (Tyler, 2026-10-22: the foot of the screen sat
+  // too low), clear of the garage the camera holds in the middle. The slot adds `DOCK_LIFT` (24 px)
+  // above whatever floor it is handed, so the floor is set that far below the line.
   const bubble = createSpeech(talk, {
-    typing: true, onDismiss: () => next(), dockFloor: (vh, insets) => vh - insets.bottom - 8,
+    typing: true, onDismiss: () => next(), dockFloor: (vh) => vh * STORY_CARD_BOTTOM + 24,
   });
   // Docked, the card ignores its target; under `?bubbles=classic` it points at the lower middle.
   const below = () => ({ x: window.innerWidth / 2, y: window.innerHeight * 0.72 });
