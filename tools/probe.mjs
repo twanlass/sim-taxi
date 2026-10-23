@@ -18441,6 +18441,16 @@ let chopperOrder; // likewise
     {
       const missed = runEvent();
       const robber = missed.boarded[0];
+      // The getaway has no clock by default (`robberClock` in game/fares.js); this is the
+      // `?robberclock=classic` path, which still has to bail rather than end the run.
+      check('the robber has no clock: full seconds, no crystal, after a minute of getaway', (() => {
+        const clockless = runEvent();
+        const r = clockless.boarded[0];
+        if (!r?.clockless) return false;
+        for (let f = 0; f < 3600; f++) clockless.fares.update(1 / 60, clockless.traffic.taxi);
+        return r.timeLeft === r.limit && !r.slot.marker.group.visible;
+      })());
+      robber.clockless = false;
       robber.timeLeft = 0.001;
       let sawMiss = false;
       for (let f = 0; f < 20; f++) {
