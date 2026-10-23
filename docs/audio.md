@@ -121,7 +121,7 @@ again doesn't repeat the recording exactly:
 | `accel` | Pulling away after at least 0.35 s stood still, but not during Loco (the launch covers that) |
 | `skid` | The first frame of a boosted corner or an overtake lane swap. Once per slide, not once per rubber stamp |
 | `copSkid` | The same takes, for police in a chase: a robbery cop starting to slide (`copLaysRubber` in sim/traffic.js) or the corridor cruiser in the bust chase. Faded by distance from the taxi and silent past about a screen away; its own key so it has its own level and does not spend the taxi's `skid` gap. Its `minGap` of 1s is fleet-wide and is what keeps a chase from squealing constantly: the cops carry speed into nearly every corner (162 of 175 over the probe's six getaways) |
-| `doorOpen` → `doorClose` | Pickup (the close is `BOARD_SECONDS` later, once the rider is in). The robber boarding opens the door and slams it when their line is dismissed: the line's freeze suspends the audio context on the frame the close would start, which cut it to a blip (`robberDoorOpen` in `src/main.js`). Drop-off (the close is 0.7 s later) |
+| `doorOpen` → `doorClose` | Pickup (the close is `BOARD_SECONDS` later, once the rider is in). The robber boarding opens the door and slams it when their line is dismissed, on the first frame the world moves again (`robberDoorOpen` in `src/main.js`). Drop-off (the close is 0.7 s later) |
 | `takeoff` / `land` | `taxi.hopFrom` turning non-null / `traffic.onTaxiLand`, with the land scaled by the same `hit` that scales the shake |
 | `bump` | A survivable hit on another car (`collisions.onBump`), scaled by closing speed: 0.3 at a nudge, full at a T-bone at the Loco top. Also the taxi knocking a spilt crate on (game/boxspill.js), at 0.18 |
 | `driveThru` | The lot taking the player's taxi on a burger run (`burgerRun.holdsTaxi()` turning true), never an ambient car. The visit is timed to the clip (12.93 s, `DRIVE_THRU_SECONDS`) plus a 2 s tail (`DRIVE_THRU_TAIL`) through the taxi's two dwells in game/drivethru.js, and the probe holds the visit within half a second of that; it is faded out (`sfx.release`) on the frame the lot hands the taxi back. The radio ducks 12 dB for the length of it (`sfx.duckMusic`) |
@@ -381,9 +381,12 @@ on the next frame. Only the station goes through it: the ⚙️ panel's track pr
   else, and the radio after that while it is off the air. Each bed starts as soon as its own file
   is in. It used to be one batch of all 73 files with nothing starting until the slowest had
   finished, the city loop about 50th in the queue and the station's ~185 s ahead of it.
-- **The world stopping stops the sound.** The pause and the robber's line both call
-  `sfx.hold(true)`, which suspends the context. A door scheduled to close is on the audio clock, so
-  it waits with everything else. A hidden tab suspends it too.
+- **The pause stops the sound.** It calls `sfx.hold(true)`, which suspends the context. A door
+  scheduled to close is on the audio clock, so it waits with everything else. A hidden tab
+  suspends it too. The robber's line freezes the world the same way but **not** the sound: a
+  suspend there cut the robber's cab door off mid-sample (a click and a ding) and the radio with
+  it, which read as the game breaking. The radio ducks under the line instead (`robberDucked` in
+  `src/main.js`).
 - **Coming back from another app.** Showing the page again resumes the context, and every tap
   resumes it again while it is not running. That was not enough in the iOS app: WKWebView can hand
   back a context that never resumes, or one that says `running` with a clock that has stopped, and
