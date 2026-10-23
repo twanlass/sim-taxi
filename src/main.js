@@ -5440,10 +5440,11 @@ function ambientLevels() {
   // — and a pin for it beside the court's in `soundSources` below.
   const gulls = nearestGulls();
   if (gulls) out.seagulls = placeAt(gulls.x, gulls.z, 4);
-  // The L's rumble goes here once there is a recording for it, keyed like the gulls and swelling
-  // with the train's own speed (`ltrain.emitter()` is null while the line is empty):
-  //   const el = ltrain?.emitter();
-  //   if (el) out.ltrain = { ...placeAt(el.x, el.z, el.y), level: el.level };
+  // The L's rumble, from the middle of the train and swelling with its own speed, so it rolls in and
+  // out with the ramps at each end (`ltrain.emitter()` is null while the line is empty). Tyler's
+  // recording of a train going by, its steady middle looped, so the falloff makes the pass-by.
+  const el = ltrain?.emitter();
+  if (el) out.ltrain = { ...placeAt(el.x, el.z, el.y), level: el.level };
   // Rain is where the taxi is: the squall's cell grown by the lens's reach, so it is heard a little
   // before the drops land; the storm is the whole city at once. Not placed — it is all around.
   const rainLevel = squall ? squall.rainNear(t.x, t.z, LENS_REACH) : storm ? storm.state.rain : 0;
