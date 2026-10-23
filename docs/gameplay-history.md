@@ -716,6 +716,40 @@ different claim from the one this section was written to defend: nothing about t
 imposed* can end the run, and a player who drives the getaway has chosen to finish it. The drop-off
 fills the tank to pay for the chase, so the choice is "boost clear", not "hope".
 
+### The getaway's clock
+
+Until 2026-10-23 (`?robberclock=classic`) the robber carried an ordinary urgency crystal over the
+roof, and could bail when it ran out. Now: [No clock on the getaway](gameplay.md#no-clock-on-the-getaway).
+
+A loose clock, on purpose: the getaway is the longest drive in the game and the point of it is the
+police, so the clock is there to pay the bonus rather than to threaten the trip.
+
+**The queue behind it is empty.** Every ordinary rider's clock is budgeted over the whole chain the
+taxi must clear before reaching them — the rider aboard, then everyone on the kerb in urgency order
+([the clock is budgeted](gameplay.md#the-clock-is-budgeted)). A robber's is budgeted over its own trip and
+nothing else, because a robbery cannot start with somebody in the seat. That is the same exemption a
+VIP gets and for the same reason, and on its own it would buy a robber a *longer* clock than an
+ordinary rider on the same trip.
+
+**And the pace factor is turned up on top of that.** `ROBBER_PACE_FACTOR` is 1.3, floored at 1.6,
+so a getaway always has at least 60% more clock than driving — measured on the probe's staged event,
+118s against 60.8s of driving, where an ordinary rider on the same trip would get 91s.
+
+**And the payout is the one price in this game not settled at spawn.** Every other fare is stamped
+when its trip is decided, because a meter that ticked while driving "would punish traffic and reward
+Loco Mode for the wrong reasons" ([Priced by the trip](gameplay.md#priced-by-the-trip)). For a getaway,
+rewarding Loco Mode is exactly the ask. So a flat `ROBBER_PAYOUT` = $100 is stamped like everybody
+else's price, and a bonus of up to `ROBBER_BONUS` = $50 is paid on the *fraction of clock left at the
+drop-off* — read once, on the frame the arrival resolves. $150 for a clean getaway, $100 on the last
+second. The event always pays, and how much is the whole of what the player is driving for.
+
+Flat, it is a jackpot worth five or six ordinary fares, and the same number every time.
+
+The bonus is folded into the fare's own `value` before anything reads it, so the pop that flies off
+the taxi, the counter it rolls into and the run-end card's "Cash" all say the same number. A second,
+smaller flight arriving from nowhere is exactly the side effect the two-phase payout exists to
+prevent.
+
 ### The robber's line
 
 Now: [The robber's line](gameplay.md#the-robbers-line).
@@ -807,7 +841,7 @@ robber's line now says *who* got in; this says what it means — the police are 
 
 ### The clock, and the bonus that reads it
 
-Now: [The clock, and the bonus that reads it](gameplay.md#the-clock-and-the-bonus-that-reads-it).
+Now: [No clock on the getaway](gameplay.md#no-clock-on-the-getaway).
 
 It used to be the tightest clock in the game: 0.62 floored at 1.05, which is `work × 1.05` from the
 very first robbery since the old slack curve started at 1.7. That left no seconds to spend on a roadblock,

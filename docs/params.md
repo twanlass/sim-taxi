@@ -90,6 +90,7 @@ doc; what the classic version was, and why it changed, is in that doc's history 
 | `?eject=classic` | The wrecked taxi's driver appearing full size in the air above the bonnet and fading in, instead of squeezing out through the windscreen | | [traffic.md](traffic.md) |
 | `?playagain=classic` | The run-end card ending on the yellow Play again pill instead of a pulsing "Tap to continue" (tap anywhere to play again) | | [gameplay.md](gameplay.md#the-polaroid) |
 | `?statcount=classic` | The run-end stats' old pace: each value fades in with its label and rolls in 0.34s, in yellow, instead of appearing after the label lands and counting for 0.46s in white | | [gameplay.md](gameplay.md#the-polaroid) |
+| `?runendfit=classic` | The run-end card at its old size: a bigger print and wider gaps, with no band held at the foot for "Tap to continue", which a five-row table then runs under on a phone | | [gameplay.md](gameplay.md#the-polaroid) |
 | `?gameover=classic` | The run-end card without the polaroid of the ending over its title, and with "Tap to continue" grey over the Play again slot instead of pulsing at the foot of the screen | | [gameplay.md](gameplay.md#the-polaroid) |
 | `?splashlogo=classic` | The startup screen's plain taxi drop onto the asphalt, with no ROCKET RIDES logo for it to smash through | | [gameplay.md](gameplay.md#the-startup-screen) |
 | `?splash=classic` | No startup screen: the game loads behind black and opens on the title menu, with no taxi drop first | | [gameplay.md](gameplay.md#the-startup-screen) |
@@ -115,6 +116,7 @@ doc; what the classic version was, and why it changed, is in that doc's history 
 | `?robberyskip=classic` | A tap (or Space/Enter) skips the bank job's cut, as it used to | | [gameplay.md](gameplay.md#the-bank-job) |
 | `?robberycam=classic` | The bank job's cut framed the first way, averaged on the cab in the ground plane, a held Loco push-in left on, and the L's deck left solid over the shove | | [gameplay.md](gameplay.md#the-cuts-framing) |
 | `?bankpickup=classic` | The bank rider is collected anywhere within `ARRIVE_RADIUS` of the bank's junction, from any side, instead of level with the steps on the bank's own street | | [gameplay.md](gameplay.md#the-bank-robbery) |
+| `?robberclock=classic` | The getaway's clock: an urgency crystal over the roof, a robber who bails when it runs out, and a $50 bonus that shrinks with it | | [gameplay.md](gameplay.md#no-clock-on-the-getaway) |
 | `?robberyodds=classic` | The bank rider's coin stays a fair 50/50 instead of loading toward a robbery with each bank ride | #522 | [gameplay.md](gameplay.md#the-bank-job) |
 | `?uturn=classic` | The first U-turn, a spin on the spot, instead of the handbrake turn | #458 | [gameplay.md](gameplay.md) |
 | `?barrelroll=classic` | Big Air flown level, no barrel roll | #485 | [river.md](river.md) |

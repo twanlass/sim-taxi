@@ -131,8 +131,8 @@ const BOB = 0.03 * CARGO_SCALE;
 const FLY_MS = 460;
 // How much of the gap between the chip's slot and the box's last position it actually covers, and the
 // ceiling on that. Without the cap a package collected at the far corner of the map starts the chip
-// most of a screen away, which is the full-journey version again — and off the top-left corner, where
-// there is no screen to start from.
+// most of a screen away, which is the full-journey version again — and, from a box at the top of the
+// map, from somewhere up in the sky with nothing on screen for it to be continuous with.
 const DRIFT_FRACTION = 0.26;
 const DRIFT_MAX = 120;
 // What it grows from. Bigger than the CSS pop's 0.55 would look at this distance — the slide is doing
@@ -239,7 +239,15 @@ export function createCargoChip({ sun, hemi }) {
       // HUD that is `display: none` (shot mode, the run-end blackout) measures 0×0, and a slide aimed
       // from a rectangle at the origin comes in from off the top-left corner of the screen. Raise it
       // where it stands instead: there is nothing on screen for it to be continuous with.
-      const canFly = home.width > 0 && Number.isFinite(x) && Number.isFinite(y)
+      //
+      // Same answer, for the same reason, when the bottom row is slid off the screen (`hud-away`, or
+      // the entrance not run yet): the dock's live box is up to 200% of its height below its resting
+      // one, so a slide aimed at it plays entirely off screen. Raised in place it simply comes back
+      // up with the pedals. A dock *partway* through that slide still flies — the flight is a
+      // transform on the chip, relative to wherever the dock is, so it rides the slide home.
+      const dock = el.parentElement;
+      const away = dock ? home.top - dock.offsetTop > home.height : false;
+      const canFly = home.width > 0 && !away && Number.isFinite(x) && Number.isFinite(y)
         && !reducedMotion?.matches;
       el.classList.toggle('is-flying', canFly);
       el.classList.add('is-on');

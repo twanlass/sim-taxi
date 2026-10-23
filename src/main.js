@@ -916,6 +916,7 @@ const fares = createFareSystem(makeRng(runSeed + 55), scene, {
 const parcels = parcelsEnabled
   ? createParcelSystem(makeRng(runSeed + 255), scene, {
     foodPickup: burger ? { i: burger.site.bi + 1, j: burger.site.bj + 1 } : null,
+    towardHud: towardCargoDock,
   })
   : null;
 // Seconds since the taxi's flourish was fired, or null when it is not running. See the frame loop —
@@ -2496,6 +2497,8 @@ const gameOverClassic = new URLSearchParams(window.location.search).get('gameove
 const statCountClassic = new URLSearchParams(window.location.search).get('statcount') === 'classic';
 // `?playagain=classic` ends the card on the yellow Play again pill instead of "Tap to continue".
 const playAgainClassic = new URLSearchParams(window.location.search).get('playagain') === 'classic';
+// `?runendfit=classic` is the full-size print and gaps, with nothing held back for the foot hint.
+const runEndFitClassic = new URLSearchParams(window.location.search).get('runendfit') === 'classic';
 const snapshot = gameOverClassic ? null : createSnapshot(renderer.domElement);
 // How far past the impact, in sim seconds, the replay's last cut is photographed: far enough for
 // the fireball to have bloomed over both cars, not so far that the smoke has swallowed them. Every
@@ -3958,6 +3961,28 @@ function projectToScreen(x, y, z) {
 }
 
 /**
+ * Which way a collected box should leave the world: from where it stands on screen toward the cargo
+ * dock's centre, in pixels with y down (game/parcels.js turns it back into a ground direction).
+ *
+ * Measured off the dock's *resting* box rather than its live one. Mid-entrance, or with the bottom
+ * row slid away (`hud-away`), the dock is translated up to 200% of its height off the bottom edge
+ * (index.html), and aiming at that would point the box at somewhere it is not going to be. The
+ * `offset*` box ignores transforms and `translate` alike, so it is where the dock rests, and for a
+ * `position: fixed` element it is measured from the viewport's origin — the same frame
+ * `projectToScreen` answers in. A dock that is not laid out at all (shot mode's `display: none`)
+ * measures 0×0 and answers null, which takes the module's own down-and-right.
+ */
+function towardCargoDock(x, y, z) {
+  const dock = document.getElementById('cargo-dock');
+  if (!dock || dock.offsetWidth === 0) return null;
+  const p = projectToScreen(x, y, z);
+  return {
+    x: dock.offsetLeft + dock.offsetWidth / 2 - p.x,
+    y: dock.offsetTop + dock.offsetHeight / 2 - p.y,
+  };
+}
+
+/**
  * Could the player be looking at world point (x, z)? On screen, or within `margin` world units of its
  * edge — enough for a car's length and the light bar standing up off its roof. For anything that
  * wants to take a car off the map without being seen doing it (game/robbery.js).
@@ -4426,6 +4451,7 @@ function updateHud(dt) {
       footHint: !gameOverClassic,
       statCount: !statCountClassic,
       tapRetry: !playAgainClassic,
+      fit: !runEndFitClassic,
     });
     document.body.classList.add('game-over');
     sfx?.fadeOutMusic();
@@ -8294,6 +8320,7 @@ window.__taxi = {
     footHint: !gameOverClassic,
     statCount: !statCountClassic,
     tapRetry: !playAgainClassic,
+    fit: !runEndFitClassic,
     ...opts,
   }),
   /** The polaroid's print as it stands, for tools/smoke.mjs: which grab it came from, or -1. */
