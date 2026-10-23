@@ -288,9 +288,12 @@ playing and the next), so each change is sample-exact rather than waiting on `on
 pause stops it mid-song with the rest of the context. Each track is played for its master's true
 length (`RADIO.seconds`), the same AAC-priming guard as `loopWindow`.
 
-When the game-over screen appears the music bus fades to silence over 1.5 s (`fadeOutMusic`,
-`MUSIC_FADE_OUT`); effects carry on. It is latched, so moving the Music slider on that screen does
-not bring it back. Retry and Quit both reload the page, so the next run opens on the intro as usual.
+At game over the song plays on under the run-end card while its stats count out, and the music
+bus fades to silence over 2.5 s once the first "Tap to continue" comes up (`onStatsShown` in
+`showRunEnd`, `MUSIC_FADE_AT_HINT`); a tap that skips the count brings the fade forward with it.
+Effects carry on. `?musicfade=classic` fades over 1.5 s the moment the card appears instead
+(`MUSIC_FADE_OUT`). The fade is latched, so moving the Music slider on that screen does not bring
+it back. Retry and Quit both reload the page, so the next run opens on the intro as usual.
 
 Levels (`RADIO.gain`) bring every track to −24 LUFS at full slider. The first four were measured
 off the masters with ffmpeg's `ebur128`: they arrived at −13.5 (country), −12.3 (jazz) and −10.8

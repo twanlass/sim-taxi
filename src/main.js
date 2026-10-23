@@ -187,7 +187,7 @@ import { createGovernor } from './game/governor.js';
 import { createViewport } from './util/viewport.js';
 import { isNative } from './util/platform.js';
 import { tap as haptic, setHapticPrefs } from './util/haptics.js';
-import { createSfx, DASH } from './game/sfx.js';
+import { createSfx, DASH, MUSIC_FADE_AT_HINT } from './game/sfx.js';
 import { attachContextRecovery } from './game/recovery.js';
 import { isCityConnected, GRID_I, GRID_J, MAX_SPAN, lineX, lineZ } from './city/grid.js';
 import { cityNetwork } from './city/roadnet.js';
@@ -2517,6 +2517,9 @@ const statCountClassic = new URLSearchParams(window.location.search).get('statco
 const playAgainClassic = new URLSearchParams(window.location.search).get('playagain') === 'classic';
 // `?runendfit=classic` is the full-size print and gaps, with nothing held back for the foot hint.
 const runEndFitClassic = new URLSearchParams(window.location.search).get('runendfit') === 'classic';
+// `?musicfade=classic` fades the music as the run-end card appears, instead of letting it play
+// under the stats and fading it once "Tap to continue" comes up.
+const musicFadeClassic = new URLSearchParams(window.location.search).get('musicfade') === 'classic';
 const snapshot = gameOverClassic ? null : createSnapshot(renderer.domElement);
 // How far past the impact, in sim seconds, the replay's last cut is photographed: far enough for
 // the fireball to have bloomed over both cars, not so far that the smoke has swallowed them. Every
@@ -4470,9 +4473,13 @@ function updateHud(dt) {
       statCount: !statCountClassic,
       tapRetry: !playAgainClassic,
       fit: !runEndFitClassic,
+      // The song plays on under the stats and goes when the card starts waiting on the player
+      // (Tyler, 2026-10-23: "a little bit of music in the game over state"). A tap that skips the
+      // count brings the hint, and the fade, forward with it.
+      onStatsShown: musicFadeClassic ? null : () => sfx?.fadeOutMusic(MUSIC_FADE_AT_HINT),
     });
     document.body.classList.add('game-over');
-    sfx?.fadeOutMusic();
+    if (musicFadeClassic) sfx?.fadeOutMusic();
   }
 }
 
