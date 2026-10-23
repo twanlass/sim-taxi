@@ -15,10 +15,19 @@ import { createSeenFlag } from './progress.js';
  */
 export const BACKSTORY_LINES = [
   'Dispatch to Car 9. You there?',
-  'City council signed that {robo-taxi} deal. Cars are going to be on the streets come Monday.',
-  "Those rolling toasters brake for pigeons. No idea why people love 'em.",
-  'Go remind this town what a real cab is all about.',
+  "City council signed that {robo-taxi} deal. They'll be on the streets by Monday.",
+  "Those rolling toasters brake for pigeons. I have no idea why people like 'em.",
+  "Let's go out there and give folks the ride of their lives.",
 ];
+
+// Tyler's recordings of the four lines (2026-10-23), one sound each in game/sfx.js, played as each
+// card comes up. `?introvo=classic` tells it in text alone.
+export const BACKSTORY_VOICES = ['dispatch1', 'dispatch2', 'dispatch3', 'dispatch4'];
+// The voice lands a little after the card opens; this is how long a line keeps asking for it — on
+// the web the first tap anywhere (often Play itself) is what starts the decoding.
+const VOICE_WAIT = 0.6;
+// The typing finishes this far ahead of the voice, so the last word is on the card as it is said.
+const VOICE_TAIL = 0.3;
 
 // A finished line nobody has tapped for this long gives the card a nudge, and again every this long
 // after (Tyler, 2026-10-22): nothing else on screen says the story is waiting on a tap.
@@ -29,8 +38,9 @@ const NUDGE_MS = 650;
 
 // A word that punches once its line has finished typing: scales up and shakes, in the line's own
 // black type (Tyler, 2026-10-23). Not the `{word}` callout, which turns yellow and wiggles as it
-// types; this lands after the whole line is in. Keyed by line index.
-const PUNCH = { 3: 'real' };
+// types; this lands after the whole line is in. Keyed by line index. It was "real" until the line
+// lost it; "lives" ends the sentence, so it has room to grow, and it is the word the voice leans on.
+const PUNCH = { 3: 'lives' };
 const PUNCH_MS = 700;
 // Scale and tilt (degrees) through the punch: up big, three shakes settling, back to rest. It grows
 // from its left edge (index.html): a transform does not push the words beside it aside, and grown
@@ -43,6 +53,12 @@ const STORY_CARD_BOTTOM = 0.76;
 // Through progress.js, so Demo mode tells it on every Play and writes nothing.
 let seenFlag = null;
 const seen = () => (seenFlag ??= createSeenFlag({ key: 'simTaxi.backstorySeen' }));
+
+/** Whether the story is read out (`BACKSTORY_VOICES`); `?introvo=classic` keeps it to text. */
+export function backstoryVoiced() {
+  if (typeof window === 'undefined') return true;
+  return new URLSearchParams(window.location.search).get('introvo') !== 'classic';
+}
 
 export function backstoryMode() {
   if (typeof window === 'undefined') return 'once';
@@ -61,8 +77,12 @@ export function wantsBackstory(mode = backstoryMode()) {
  * Tell the story inside `root` (the title screen, so it sits over the city and under nothing),
  * then call `done`. A tap anywhere finishes the line typing or moves to the next; Skip, or Escape,
  * ends it. Marked seen as it starts, so quitting halfway does not bring it back.
+ *
+ * `speak(i)` starts line i's recording and answers `{ seconds, stop(), ended() }`, or null when
+ * there is nothing to play (muted, not decoded yet, no audio): the line then types at its usual
+ * pace. A line read out types at the voice's pace and is not nudged until the voice has finished.
  */
-export function tellBackstory(root, { done, lines = BACKSTORY_LINES }) {
+export function tellBackstory(root, { done, lines = BACKSTORY_LINES, speak = () => null }) {
   seen().set();
   const layer = document.createElement('div');
   layer.className = 'title-story';
@@ -92,7 +112,22 @@ export function tellBackstory(root, { done, lines = BACKSTORY_LINES }) {
   let idle = 0;
   // Whether the current line has had its punch (`PUNCH`), so it lands once per line.
   let punched = false;
-  const say = () => { idle = 0; punched = false; bubble.show('Dispatch', lines[at], below); };
+  // The current line's recording, and how long the line has been asking for one (`VOICE_WAIT`).
+  let voice = null;
+  let asked = 0;
+  const hush = () => { voice?.stop(); voice = null; };
+  const listen = () => {
+    voice = speak(at);
+    if (voice) bubble.pace(Math.max(voice.seconds - VOICE_TAIL, 0));
+  };
+  const say = () => {
+    hush();
+    idle = 0;
+    punched = false;
+    asked = 0;
+    bubble.show('Dispatch', lines[at], below);
+    listen();
+  };
   // Wraps the word in a span of its own once the line is fully typed — typing rewrites the runs'
   // text every letter, so it cannot be wrapped any sooner — and animates that span alone. An
   // inline-block so the transform takes; transforms do not move the words around it.
@@ -125,6 +160,7 @@ export function tellBackstory(root, { done, lines = BACKSTORY_LINES }) {
   function finish() {
     if (over) return;
     over = true;
+    hush();
     cancelAnimationFrame(raf);
     window.removeEventListener('keydown', onKey, true);
     bubble.hide();
@@ -149,11 +185,12 @@ export function tellBackstory(root, { done, lines = BACKSTORY_LINES }) {
     const dt = Math.min((now - last) / 1000, 0.1);
     bubble.update(dt);
     last = now;
+    if (!voice && bubble.isTyping() && asked < VOICE_WAIT) { asked += dt; listen(); }
     if (bubble.isOpen() && !bubble.isTyping() && !punched) {
       punched = true;
       if (PUNCH[at] && !still) punch(PUNCH[at]);
     }
-    if (bubble.isOpen() && !bubble.isTyping() && !still) {
+    if (bubble.isOpen() && !bubble.isTyping() && !still && !(voice && !voice.ended())) {
       idle += dt;
       if (idle >= NUDGE_AFTER) { idle = 0; nudge(); }
     }

@@ -395,6 +395,8 @@ export function createSpeech(root, { viewport = null, typing = false, onDismiss 
   let runs = [];
   let shown = 0;
   let charT = 0;
+  // Seconds a letter, `TYPE_PER_CHAR` unless the line is being spoken (`pace`).
+  let perChar = TYPE_PER_CHAR;
   let hold = 0;
   let closing = null;
   let open = false;
@@ -556,6 +558,7 @@ export function createSpeech(root, { viewport = null, typing = false, onDismiss 
       // only when it is answered, as before.
       charT = 0;
       hold = 0;
+      perChar = TYPE_PER_CHAR;
       open = true;
       root.hidden = false;
       root.classList.remove('is-closing', 'is-open');
@@ -614,6 +617,18 @@ export function createSpeech(root, { viewport = null, typing = false, onDismiss 
       onDismiss();
       return true;
     },
+    /**
+     * Type the rest of the line over `seconds`, the length of a voice reading it out (the backstory's
+     * dispatch, game/backstory.js), so the words arrive with the voice rather than racing it home at
+     * ~38 a second. Never faster than the usual pace. The pause after punctuation is kept, since the
+     * voice takes a breath there too.
+     */
+    pace(seconds) {
+      const rest = text.slice(shown);
+      if (!rest.length) return;
+      const breaths = [...rest].filter((c) => PAUSE_AFTER.has(c)).length;
+      perChar = Math.max(TYPE_PER_CHAR, (seconds - breaths * TYPE_PAUSE) / rest.length);
+    },
     /** Advance the typewriter and re-pin to the target. Call every frame the bubble might be up. */
     update(dt) {
       if (root.hidden) return;
@@ -627,8 +642,8 @@ export function createSpeech(root, { viewport = null, typing = false, onDismiss 
       if (!open || !isTyping()) return;
       if (hold > 0) { hold -= dt; return; }
       charT += dt;
-      while (charT >= TYPE_PER_CHAR && isTyping()) {
-        charT -= TYPE_PER_CHAR;
+      while (charT >= perChar && isTyping()) {
+        charT -= perChar;
         shown += 1;
         if (PAUSE_AFTER.has(text[shown - 1])) { hold = TYPE_PAUSE; break; }
       }

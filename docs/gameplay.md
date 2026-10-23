@@ -121,13 +121,24 @@ radios in before the cut to the garage door: four lines on the docked speech car
 through.
 
 > Dispatch to Car 9. You there?
-> City council signed that **robo-taxi** deal. Cars are going to be on the streets come Monday.
-> Those rolling toasters brake for pigeons. No idea why people love 'em.
-> Go remind this town what a real cab is all about.
+> City council signed that **robo-taxi** deal. They'll be on the streets by Monday.
+> Those rolling toasters brake for pigeons. I have no idea why people like 'em.
+> Let's go out there and give folks the ride of their lives.
 
-Once the last line has finished typing, **real** punches: it scales up to 1.45× and shakes three
-times, settling over 0.7 s, in the line's own black type (`PUNCH` in `backstory.js`; not under
-reduced motion). The `{word}` callout was the other way to do it, and it is the wrong one here: it
+**Dispatch talks.** Each line is read out as its card comes up: Tyler's own recordings
+(`dispatch1`–`dispatch4` in `game/sfx.js`, the Dispatch group in the ⚙️ panel, levelled to about
+−19 LUFS). The card types at the voice's pace rather than its usual ~38 letters a second, finishing
+0.3 s ahead of it (`pace` in `speech.js`, `VOICE_TAIL`), and the nudge waits until the voice has
+finished. A tap moves on mid-sentence and cuts the voice with it. Muted, or with a clip not decoded
+yet (on the web, Play can be the first tap, which is what starts the decoding; the four clips are
+in the first wave and the line keeps asking for its clip for 0.6 s), the line types at the usual
+pace in silence. `?introvo=classic` keeps the story to text.
+
+Once the last line has finished typing, **lives** punches: it scales up to 1.35× from its left edge
+and shakes three times, settling over 0.7 s, in the line's own black type (`PUNCH` in
+`backstory.js`; not under reduced motion). It grows from the left because a transform does not push
+the neighbouring words aside, and grown from its centre the first version (on "real", before the
+line was rewritten) ran over the space before it. The `{word}` callout was the other way to do it, and it is the wrong one here: it
 turns the word yellow and wiggles it the moment it is typed, where this lands after the whole line.
 
 A tap anywhere finishes the line or moves on (Enter and Space too); **Skip** in the top corner, or
