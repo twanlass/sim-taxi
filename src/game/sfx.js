@@ -1234,6 +1234,11 @@ export function createSfx({ rng, menuMusic = false, menuSongs = false, radioFade
   let generation = 0;
   // While the intro is still decoding after the cut, nothing may be scheduled ahead of it.
   let introPending = false;
+  // The intro runs once a page. On the iOS app the context runs from boot, so `start` is already
+  // part-way through its first decode when "Play again" (a reload straight past the title) runs
+  // `goOnAir` — which opens the station itself, and then `start` came back from the await, read
+  // `onAir` as true and opened it a second time: the intro started, was cut, and started over.
+  let stationOpen = false;
 
   // The track last put on the clock — `{ key, at, end, voice }` — which the next one may overlap
   // (`RADIO_FADE`). Null after a cut.
@@ -1362,7 +1367,7 @@ export function createSfx({ rng, menuMusic = false, menuSongs = false, radioFade
    * cut to the intro is not waiting on a decode.
    */
   async function startRadio() {
-    if (onAir) { openStation(); return; }
+    if (onAir) { if (!stationOpen) openStation(); return; }
     if (!menuSongs) {
       await decodeRadio(RADIO.intro);
       await Promise.all(playlist.map(decodeRadio));
@@ -1379,6 +1384,7 @@ export function createSfx({ rng, menuMusic = false, menuSongs = false, radioFade
 
   /** Cut whatever the menu is playing and open the station on its intro. */
   async function openStation() {
+    stationOpen = true;
     generation++;
     const t = ctx.currentTime;
     // The first song after the intro is never the one the menu was playing. `lastSong` alone is
