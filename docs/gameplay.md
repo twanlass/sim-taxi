@@ -2259,7 +2259,7 @@ player *sees* the robber get in.
 
 **The bank rider waits under the side-quest "!"** rather than an urgency pie (Tyler, 2026-10-21):
 they are the way into the robbery, an offer more than a fare. The pie is hidden on the kerb
-(`showAt`'s `quest` in game/faremarker.js) and the yellow tag stands where it was (`#bank-mark`,
+(`showAt`'s `quest` in game/faremarker.js) and the purple tag stands where it was (`#bank-mark`,
 `updateBankMark` in main.js); the kerb disc stays, and the pie appears at pickup to fly to the roof
 with the trip's clock. Off screen the rider's own arrow points the way, so the "!" does not wait at
 the edge as well. They still have a clock on the kerb, but with nothing showing it, running it out
@@ -2720,7 +2720,7 @@ them. After a race it drives off, and comes back the same 2 to 4 drop-offs later
 again at the same interval after a race"). Counted in deliveries rather than seconds, the next race
 is earned by driving fares, so it cannot be farmed by sitting next to the racer. It has a white stripe down
 its spine, a proud wing on the boot and cyan light pooling under it that pulses to the music, and
-over it hangs a yellow **"!"** — the [speech tag](#speech-bubbles) alone, with no card, marked as an
+over it hangs a purple **"!"** (the old mystery rider's `PALETTE.vip`) — the [speech tag](#speech-bubbles) alone, with no card, marked as an
 offer (`showTag(at, { quest: true })`; a card with only the dots under `?bubbles=classic`/`dock`).
 The "!" is the side-quest mark: the one an RPG hangs over an NPC with a quest to give (World of
 Warcraft's yellow "!", whose "?" means *hand it in*, which is why it isn't a "?"). It stays apart

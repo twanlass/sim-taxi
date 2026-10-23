@@ -199,7 +199,7 @@ const VIP_SPAWNS = typeof location !== 'undefined'
 // robberies in 30 autoplay runs (CALM_LEVEL in game/robbery.js) — and this fires only when the
 // player takes the bank rider and the coin agrees, so expect it rarer until these are tuned.
 /**
- * The bank rider waits under the yellow side-quest "!" (main.js) rather than an urgency pie — they
+ * The bank rider waits under the purple side-quest "!" (main.js) rather than an urgency pie — they
  * are the way into the robbery, an offer more than a fare (Tyler, 2026-10-21). `?questmark=classic`
  * keeps the pie. Browser-only; headless tools get the pie.
  */
