@@ -139,6 +139,10 @@ const RISE_PITCH = 0.6;
 // anyone looking at the shot saw. `TAXI_TAILPIPE_BACK` is that half-length, already exported from
 // geometry/taxi.js for the exhaust. The clearance on top of it covers the curtain's own 0.08.
 const NOSE_BEHIND = 0.25;
+// How far the drawn nose is out past the curtain when `onClear` fires: the front corner a body's
+// width into daylight, while the camera is still at DOOR_ZOOM. Later than this and the pull-back to
+// play zoom has begun under it (`frameCamera`'s 'roll' leg widens from half the driveway on).
+const CLEAR_OUT = 0.9;
 const parkedX = (site) => site.curtainX - TAXI_TAILPIPE_BACK - NOSE_BEHIND;
 // ...and where it parks nose-in on a repair visit: the same clearance off the *back* wall, which
 // puts the tail 0.64 behind the curtain rather than 0.25. Every tenth of a unit counts there — the
@@ -290,6 +294,8 @@ function chain(a, b) {
  *                    main.js owns that decision, not this module.
  * @param isBlocked   () => boolean — something in front of this is still holding the run
  * @param onDrop      fires once, on the frame the taxi's rear axle comes off the kerb
+ * @param onClear     fires once per drive-out, on the frame the drawn nose is CLEAR_OUT past the
+ *                    curtain — the glint off the fender (game/glint.js), on the opening and a repair
  * @param workshop    { start(), stop() } — game/repairfx.js, or null. Started on the frame the door
  *                    reaches REPAIR_GAP on a visit, stopped as it goes back up.
  *
@@ -297,7 +303,7 @@ function chain(a, b) {
  */
 export function createOpening({
   site, setDoor, taxi, taxiGroup, cars, controller, aspect, playZoom,
-  restFraming, isBlocked = () => false, onDrop = () => {}, workshop = null, holdReveal = () => false,
+  restFraming, isBlocked = () => false, onDrop = () => {}, onClear = () => {}, workshop = null, holdReveal = () => false,
 }) {
   const path = exitPath(site);
   const merge = path.at(path.total);
@@ -320,6 +326,7 @@ export function createOpening({
   let s = 0;                  // arc length along the exit path
   let dropped = false;        // has the nose gone over the lip yet
   let landed = false;
+  let cleared = false;        // has the nose come out past the curtain yet
   let closing = 0;            // 0 = still up, 1 = shut again behind the car
   let doorFrom = 0;           // where `door` winds up from: shut, or a visit's REPAIR_GAP
   let released = false;       // is the taxi back in the traffic model
@@ -477,6 +484,12 @@ export function createOpening({
     // What the idle bob is scaled by. Written here because the loop that maintains it is one of
     // the ones a staged car skips.
     taxi.speedFactor = taxi.v / SPEED;
+
+    // Out of the door and into the light — measured off the drawn nose, like NOSE_BEHIND.
+    if (!cleared && p.x + TAXI_TAILPIPE_BACK > site.curtainX + CLEAR_OUT) {
+      cleared = true;
+      onClear();
+    }
 
     // Down the dropped kerb, and the two shoves that make it a kerb rather than a ramp in the air.
     const drop = smoothstep((taxi.x - (site.kerbX + DROP_FROM)) / (DROP_TO - DROP_FROM));
@@ -668,6 +681,7 @@ export function createOpening({
     held = 0;
     dropped = false;
     landed = false;
+    cleared = false;
     closing = 0;
     doorFrom = 0;
     released = false;
