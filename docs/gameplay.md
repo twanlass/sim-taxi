@@ -141,8 +141,9 @@ the neighbouring words aside, and grown from its centre the first version (on "r
 line was rewritten) ran over the space before it. The `{word}` callout was the other way to do it, and it is the wrong one here: it
 turns the word yellow and wiggles it the moment it is typed, where this lands after the whole line.
 
-A tap anywhere finishes the line or moves on (Enter and Space too); **Skip** in the top corner, or
-Escape, ends it. A finished line left untapped for `NUDGE_AFTER` = 3 s gives the card a
+A tap anywhere finishes the line or moves on (Enter and Space too); Escape ends it. There is no
+Skip button (Tyler, 2026-10-23): it was in the top corner until then, and four taps is the whole
+story. A finished line left untapped for `NUDGE_AFTER` = 3 s gives the card a
 dock-icon bounce (a 12 px hop and a 5 px one), and again every 3 s until the tap; not under reduced
 motion. When the story starts the camera flies from the title's slide down to the garage in one
 move (`STORY_GLIDE` = 3.5 s, a smootherstep blend of the two moving shots, so it leaves and arrives
@@ -2259,7 +2260,7 @@ player *sees* the robber get in.
 
 **The bank rider waits under the side-quest "!"** rather than an urgency pie (Tyler, 2026-10-21):
 they are the way into the robbery, an offer more than a fare. The pie is hidden on the kerb
-(`showAt`'s `quest` in game/faremarker.js) and the yellow tag stands where it was (`#bank-mark`,
+(`showAt`'s `quest` in game/faremarker.js) and the purple tag stands where it was (`#bank-mark`,
 `updateBankMark` in main.js); the kerb disc stays, and the pie appears at pickup to fly to the roof
 with the trip's clock. Off screen the rider's own arrow points the way, so the "!" does not wait at
 the edge as well. They still have a clock on the kerb, but with nothing showing it, running it out
@@ -2720,7 +2721,7 @@ them. After a race it drives off, and comes back the same 2 to 4 drop-offs later
 again at the same interval after a race"). Counted in deliveries rather than seconds, the next race
 is earned by driving fares, so it cannot be farmed by sitting next to the racer. It has a white stripe down
 its spine, a proud wing on the boot and cyan light pooling under it that pulses to the music, and
-over it hangs a yellow **"!"** — the [speech tag](#speech-bubbles) alone, with no card, marked as an
+over it hangs a purple **"!"** (the old mystery rider's `PALETTE.vip`) — the [speech tag](#speech-bubbles) alone, with no card, marked as an
 offer (`showTag(at, { quest: true })`; a card with only the dots under `?bubbles=classic`/`dock`).
 The "!" is the side-quest mark: the one an RPG hangs over an NPC with a quest to give (World of
 Warcraft's yellow "!", whose "?" means *hand it in*, which is why it isn't a "?"). It stays apart

@@ -460,7 +460,7 @@ export function createFareMarker(scene, phase = 0) {
       diamond.setColor(openColour);
       ring.setColor(openColour);
       // One or the other, never both — see the header. Neither for a `quest` rider (the bank's):
-      // main.js stands the yellow side-quest "!" over them instead, and the crystal turns up only
+      // main.js stands the purple side-quest "!" over them instead, and the crystal turns up only
       // when it has a trip to time, at `beginTransfer`.
       diamond.mesh.visible = !vip && !quest;
       mystery.mesh.visible = vip;

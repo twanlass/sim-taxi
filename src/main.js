@@ -777,6 +777,8 @@ const garage = layout.garageBlock
     sign: depotFlag === 'classic' || depotFlag === 'model' ? depotFlag : 'cutout',
     // `?depotneon=classic`: no blue tube round the roofline.
     trim: new URLSearchParams(window.location.search).get('depotneon') !== 'classic',
+    // `?signflames=classic`: no tailpipe on the cutout and no backfire out of it.
+    flames: new URLSearchParams(window.location.search).get('signflames') !== 'classic',
   })
   : null;
 if (garage) {
@@ -2169,7 +2171,7 @@ const raceTalkAt = () => {
   return at ? projectToScreen(at.x, 2.2, at.z) : null;
 };
 
-// The yellow side-quest "!" (Tyler, 2026-10-21): the racer's offer, the garage door while the taxi
+// The purple side-quest "!" (Tyler, 2026-10-21): the racer's offer, the garage door while the taxi
 // smokes (game/depotcall.js), and the bank rider in place of the pie (game/fares.js hides it).
 // `?questmark=classic` keeps the dots and the pie.
 const questMarks = new URLSearchParams(window.location.search).get('questmark') !== 'classic';
