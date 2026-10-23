@@ -3261,7 +3261,9 @@ hands over. Details in [rendering.md](rendering.md#the-parcel--geometryparceljs)
 1. **In the city** (`parcels.js`, sim time): the kerb box is hidden and a flying copy takes over from
    the same spot — the same pose by *construction*, since the copy stands at the corner at
    `PARCEL_PAD_LIFT` and runs the same `idle` off the same clock. It rises, swells, slides away toward
-   the corner of the screen the chip lives in, and fades out. The rise eases *out* (a thing being
+   the cargo dock (right of the gas pedal) and fades out. The direction is measured per pickup, from
+   the box's screen point to the dock's resting centre (`towardCargoDock` in main.js), so a box near
+   the bottom of the screen goes up and then swoops down into it. The rise eases *out* (a thing being
    picked up); the drift eases *in*, accelerating away (a thing leaving).
 2. **In the HUD** (`cargochip.js`, wall time): near the end of that — 78% along, with the world box
    down to ~a third opacity and still moving — `'loaded'` fires carrying the point the box had reached.

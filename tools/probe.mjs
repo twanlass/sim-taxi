@@ -4086,8 +4086,9 @@ const PRESSURE_END = difficulty.getTuning().pressureEnd;
       + `${lift.position.z.toFixed(2)}) against kerb (${kerb.x.toFixed(2)}, `
       + `${PARCEL_PAD_LIFT.toFixed(2)}, ${kerb.z.toFixed(2)})`);
 
-    // Step the lift and watch it climb, swell, fade, and set off up-screen and to the left — which is
-    // world −X for this camera (see TOWARD_HUD in game/parcels.js). Nothing may cross the road to the
+    // Step the lift and watch it climb, swell, fade, and set off toward the cargo dock. With no screen
+    // to measure the dock on, that is the module's own down-and-right (DEFAULT_TOWARD_HUD in
+    // game/parcels.js), which is world +X for this camera. Nothing may cross the road to the
     // taxi, and nothing may be left on the kerb.
     let rose = 0;
     let swelled = 0;
@@ -4126,8 +4127,8 @@ const PRESSURE_END = difficulty.getTuning().pressureEnd;
         if (lift.position.y > PARCEL_PAD_LIFT + 0.5) rose += 1;
         if (lift.scale.x > 1.02) swelled += 1;
         if (boxMaterial.transparent && boxMaterial.opacity < 0.9) faded += 1;
-        // Up-screen and to the left is world −X for this view, so the box's x must only ever fall.
-        if (lift.position.x < kerb.x - 0.5) towardHud += 1;
+        // Down-screen and to the right is mostly world +X for this view, so the box's x must climb.
+        if (lift.position.x > kerb.x + 0.5) towardHud += 1;
       }
       if (parcel.slot.dropoff.ring.group.visible) {
         if (padScale() < 0.95) padGrowing += 1;
