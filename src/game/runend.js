@@ -641,12 +641,16 @@ function buildBoard(entries, youId) {
  * than over the retry pill's slot; `?gameover=classic` turns both off. `statCount` is the paced
  * count-up with white values (PACE_COUNTED); false is `?statcount=classic`. `tapRetry` ends the
  * card on a pulsing "Tap to continue" instead of the Play again pill; false is `?playagain=classic`.
+ * `fit` holds a band at the foot for that hint and sizes the print and gaps to leave the table
+ * clear of it; false is `?runendfit=classic`.
  */
 export function showRunEnd(root, {
-  title, reason, stats, scores = null, onRetry, finale = null, photo = null, footHint = true, statCount = true, tapRetry = true,
+  title, reason, stats, scores = null, onRetry, finale = null, photo = null, footHint = true, statCount = true, tapRetry = true, fit = true,
 }) {
   root.innerHTML = '';
   root.hidden = false;
+  // Only with the hint at the foot: over the retry slot it takes no band of its own to hold back.
+  root.classList.toggle('is-fit', fit && footHint);
 
   const still = stillPlease();
 

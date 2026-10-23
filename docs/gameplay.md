@@ -4155,8 +4155,15 @@ task that drew it (the canvas is not `preserveDrawingBuffer`) into a 360px 2D ca
 
 The print drops on a beat ahead of the title, tipped 4° in a cream border with the deep bottom lip a
 polaroid has, and then **develops** — washed out and grey to full colour over 1.6s. It is sized off
-the viewport height like the rest of the card (`clamp(96px, 24vh, 190px)`), so a landscape phone gets
+the viewport height like the rest of the card (`clamp(88px, 18vh, 160px)`), so a landscape phone gets
 a small print rather than a title pushed below the fold.
+
+**The foot of the screen is held for "Tap to continue."** The hint is pinned to the bottom of the
+blackout, out of the card's flow, so the card keeps a band of bottom padding the hint's height and
+centres itself in what is left above it; with five rows of table up, the last row clears the hint
+on an iPhone SE as well as a Pro Max. The list does not scroll on purpose: the whole blackout is the
+tap target, and a swipe that scrolls is also a tap that leaves. `?runendfit=classic` is the old
+layout (a 190px print, wider gaps, no band), where the table ran under the hint on a phone.
 
 It is a **full-screen blackout**, not a modal over the city: a blurred card's edges would be the
 loudest thing on the screen. Blacking the whole viewport out puts the run's numbers on nothing at

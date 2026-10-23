@@ -968,6 +968,24 @@
         background: #222;
       }
 
+      /* Room for the foot hint (the default; `?runendfit=classic` is the layout below without it).
+         The hint is `position: fixed` and out of the flow, so the card centred itself in the whole
+         blackout and, on a phone, ran its table down under the hint: on a 393×852 iPhone the fifth
+         row sat at 740–777 against a hint at 750–775. The bottom padding holds the hint's band —
+         its own offset, ~26px of line and a 16px gap — so `margin: auto` centres the card in what is
+         left above it, and anything that still does not fit scrolls rather than slides underneath.
+         Scrolling was the other way out and is the worse one here: the whole blackout is the tap
+         target, so the swipe that scrolls a list is also the tap that leaves it.
+         The space comes out of the print and the two big gaps, which were sized when the card ended
+         on a pill rather than on a table of five. Measured with all five rows up (card bottom → hint
+         top): 393×852 −27 → 30px, 375×667 (iPhone SE) −44 → 9px, 440×956 16 → 71px. */
+      #run-end.is-fit:not(.is-keyboard) {
+        padding-bottom: calc(clamp(20px, 5vh, 44px) + 42px + var(--safe-bottom));
+      }
+      #run-end.is-fit:not(.is-keyboard) .run-end-body { margin-top: clamp(14px, 4vh, 40px); }
+      #run-end.is-fit .run-end-photo { margin-bottom: clamp(12px, 2.6vh, 24px); }
+      #run-end.is-fit .run-end-shot { width: clamp(88px, 18vh, 160px); }
+
       /* The Loco Mode pill and the ⚙️ tweak toggle are gameplay controls; once the run is over
          they are noise behind the retry pill. */
       body.game-over #boost, body.game-over #boost-meter, body.game-over #brake,
