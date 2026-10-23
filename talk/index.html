@@ -12,7 +12,7 @@
       html, body {
         width: 100%; height: 100%; overflow: hidden;
         background: #ffffff; color: #121a22;
-        font-family: 'Inter Variable', system-ui, sans-serif;
+        font-family: -apple-system, BlinkMacSystemFont, system-ui, 'Segoe UI', sans-serif;
         user-select: none; -webkit-user-select: none;
       }
 
@@ -34,16 +34,44 @@
         visibility: hidden; opacity: 0; transition: opacity 0.3s ease, visibility 0s 0.3s;
       }
       .slide.on { visibility: visible; opacity: 1; transition: opacity 0.3s ease; }
-      .slide h1 {
-        font-weight: 700; font-size: clamp(40px, 6.4vw, 110px); line-height: 0.98;
-        letter-spacing: -0.02em;
+      /* Titles: the deck's Figma type style (Inter 450, 149% leading, -0.01em, #1A1A1A), at slide
+         sizes rather than the frame's 32px. Body text stays on the system font. */
+      .slide h1, .slide h2 {
+        font-family: 'Inter Variable', -apple-system, system-ui, sans-serif;
+        font-weight: 450; font-style: normal; font-variation-settings: 'slnt' 0;
+        line-height: 1.49; letter-spacing: -0.01em; color: #1A1A1A;
       }
-      .slide h2 {
-        font-weight: 700; font-size: clamp(28px, 4vw, 68px); line-height: 1.02;
-        letter-spacing: -0.02em;
+      /* Tighter than the Figma 149%: that leading is for one line, and a two-line h1 fell apart. */
+      .slide h1 { font-size: 72px; font-weight: 600; line-height: 1.05; }
+      .slide h2 { font-size: clamp(28px, 4vw, 68px); }
+      /* Subtitles: the Figma subtitle style (Inter 450, 140% leading, -0.01em, #A1A1A1). */
+      .slide p {
+        margin-top: 1vh; font-size: clamp(18px, 2.2vw, 36px);
+        font-family: 'Inter Variable', -apple-system, system-ui, sans-serif;
+        font-weight: 450; font-variation-settings: 'slnt' 0;
+        line-height: 1.4; letter-spacing: -0.01em; color: #A1A1A1;
       }
-      .slide p { margin-top: 2.2vh; font-weight: 500; font-size: clamp(18px, 2.2vw, 36px); color: #5a6672; }
       .center { display: grid; place-content: center; text-align: center; }
+      /* The title slide: words on the left over the game's own title screen (live city, no riders),
+         full-bleed — sky behind the words, the island on the right, shifted there by the camera
+         (talk.js, BG_SHIFT) rather than by moving the frame. */
+      .title {
+        display: grid; align-content: start; justify-items: start; overflow: hidden; padding-top: 18vh;
+      }
+      .title > p.byline {
+        position: absolute; left: 7vw; bottom: 5vh; margin: 0;
+        font-size: clamp(13px, 1.1vw, 18px); font-weight: 600; letter-spacing: 0; color: #1A1A1A;
+      }
+      .title > :not(.bg-game) { position: relative; z-index: 1; }
+      .bg-game {
+        position: absolute; inset: 0; width: 100%; height: 100%; border: 0;
+        pointer-events: none; opacity: 0; transition: opacity 1.2s ease;
+      }
+      .bg-game.loaded { opacity: 1; }
+      /* Once the words are drawn inside the game (src/talk/scenetext.js), the HTML keeps the layout
+         and stops drawing. Opacity, not a transparent colour: a redraw on resize reads the colour
+         back off these elements, and the first cut repainted the title in transparent ink. */
+      .title.in-scene h1, .title.in-scene .byline { opacity: 0; }
       .split { display: grid; grid-template-columns: 1.3fr 1fr; align-items: center; gap: 5vw; }
       .stack { display: grid; grid-template-rows: auto 1fr; gap: 4vh; padding-top: 8vh; padding-bottom: 8vh; }
       .row { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: 2vw; }
@@ -75,11 +103,18 @@
       }
       .vid video:not(.loaded) { visibility: hidden; }
       .vid video.loaded + .ph { display: none; }
+      /* A demo that takes the whole slide, edge to edge, like the title's backdrop. */
+      .bleed { padding: 0; }
+      .bleed .demo { position: absolute; inset: 0; display: block; }
+      .bleed .demo iframe { width: 100%; height: 100%; border-radius: 0; box-shadow: none; }
+      .bleed .demo iframe.focused { outline-offset: -4px; }
       .demo iframe.focused { outline: 4px solid #F5C130; outline-offset: 4px; }
       .demo small { font-size: 13px; font-weight: 600; color: #8a96a2; }
       /* A photo print: already tilted with a ragged edge in the file, so no box — just a shadow. */
+      /* Sized to the image itself (no letterboxing in the box), so a point in the picture —
+         the real cans, for slide 2's gag — is a point in the element. */
       .photo {
-        width: 100%; max-height: 78vh; object-fit: contain;
+        display: block; max-width: 82vw; max-height: 82vh; width: auto; height: auto;
         filter: drop-shadow(0 2vh 3vh rgba(0, 0, 0, 0.18));
       }
 
@@ -118,7 +153,13 @@
         display: none;
       }
       #cans.on { display: block; }
-      #kid { cursor: pointer; }
+      #kid .photo { cursor: pointer; max-height: 60vh; }
+      /* The TestFlight slide's QR, generated once (npx qrcode) into talk/media so it needs no network. */
+      .qr {
+        justify-self: center; width: min(36vh, 60vw); height: auto; margin-top: 4vh;
+        image-rendering: pixelated; border-radius: 12px; box-shadow: 0 2vh 4vh rgba(0, 0, 0, 0.12);
+      }
+      .slide p.qr-url { margin-top: 2vh; font-size: clamp(14px, 1.3vw, 22px); }
 
       /* The game clock: hidden on the title, pops in when the talk starts, red in the last minute,
          and counts overtime after the buzzer. */
@@ -134,6 +175,8 @@
         pointer-events: none;
       }
       #clock.on { transform: scale(1); }
+      /* On a full-bleed demo the bottom right is the demo's (the workshop's Send button). */
+      body.on-bleed #clock { right: auto; left: 24px; transform-origin: 0 100%; }
       #clock i { font-style: normal; font-size: 22px; }
       #clock.hurry { background: #d7263d; color: #fff; animation: clock-pulse 1s ease-in-out infinite; }
       #clock.over { background: #d7263d; color: #fff; animation: clock-pulse 0.5s ease-in-out infinite; }
@@ -168,14 +211,7 @@
         width: 30%; height: 3.6%; border-radius: 999px; background: #05080b;
       }
       #words { transition: opacity 0.4s ease, transform 0.6s cubic-bezier(0.65, 0, 0.35, 1); }
-      #words h1 {
-        font-weight: 700; font-size: clamp(40px, 7.4vw, 120px); line-height: 0.95;
-        letter-spacing: -0.02em; color: #121a22;
-      }
-      #words p {
-        margin-top: 2.2vh; font-weight: 500; font-size: clamp(18px, 2.4vw, 40px);
-        color: #5a6672;
-      }
+      #words p { font-size: clamp(18px, 2.4vw, 40px); }
       #words .hint {
         margin-top: 6vh; font-size: clamp(12px, 1vw, 15px); font-weight: 500;
         letter-spacing: 0.08em; text-transform: uppercase; opacity: 0.45;
@@ -198,83 +234,20 @@
     <nav id="toc" aria-label="Slides"></nav>
     <div id="clock" aria-live="off"><i>⏱</i><b>9:00</b></div>
     <!-- 1 -->
-    <section class="slide center" data-name="Making games with my kids">
+    <section class="slide title" data-name="Making games with my kids">
+      <iframe class="bg-game" data-src="/?splash=classic&titleintro=classic" tabindex="-1" aria-hidden="true"></iframe>
       <h1>Making games<br />with my kids</h1>
-      <p>@tdub</p>
+      <p class="byline">@tdub • Stripe Design Onsite 26′</p>
     </section>
     <!-- 2 -->
-    <section class="slide split" id="kid" data-name="Tyler as a kid">
+    <section class="slide center" id="kid" data-name="Tyler as a kid">
       <img class="photo" src="./media/tyler-kid.png" alt="Young Tyler at a CRT, making games" />
-      <div><h2>Me, a long time ago</h2><p>TODO</p></div>
     </section>
     <!-- 3 -->
-    <section class="slide stack">
-      <h2>AAA years</h2>
-      <div class="row">
-        <div class="ph">Shot: game 1</div>
-        <div class="ph">Shot: game 2</div>
-        <div class="ph">Shot: game 3</div>
-      </div>
+    <section class="slide bleed" data-name="The workshop">
+      <div class="demo"><iframe data-src="/workshop/" title="The model workshop"></iframe></div>
     </section>
-    <!-- 4 -->
-    <section class="slide center" data-name="AI makes it fun again">
-      <h1>AI makes it fun to<br />make games again</h1>
-      <p>Or: how I became an indie game developer again</p>
-    </section>
-    <!-- 5 -->
-    <section class="slide split">
-      <div class="demo"><iframe data-src="/talk/snake/index.html" title="Snake"></iframe>
-        <small>Click to play · Esc to give the arrows back</small></div>
-      <div><h2>Snake</h2><p>With a cowboy hat. And a pineapple.</p></div>
-    </section>
-    <!-- 6 -->
-    <section class="slide split">
-      <div class="demo"><iframe data-src="/talk/forest/index.html" title="Magical Forest"></iframe>
-        <small>Click to play · Esc to give the arrows back</small></div>
-      <div><h2>Forrest</h2><p>TODO</p></div>
-    </section>
-    <!-- 7 -->
-    <section class="slide split">
-      <div class="demo"><iframe class="wide" data-src="/talk/mystery/index.html" data-hide="#hint, #tuner" title="Mystery"></iframe>
-        <small>Click to play · Esc to go back to the slides</small></div>
-      <div><h2>Mystery</h2><p>TODO</p></div>
-    </section>
-    <!-- 8 -->
-    <section class="slide split">
-      <div class="vid"><video data-src="./media/grog.mp4" muted loop playsinline></video>
-        <div class="ph">Video: Grog — drop it at talk/media/grog.mp4</div></div>
-      <div><h2>Grog</h2><p>A real game. Play it at groghq.com</p></div>
-    </section>
-    <!-- 9 -->
-    <section class="slide split">
-      <div class="ph">Video: Rocket Rides</div>
-      <div><h2>Rocket Rides</h2><p>TODO</p></div>
-    </section>
-    <!-- 10 -->
-    <section class="slide split">
-      <div class="ph">Video: the SimCity clip</div>
-      <div><h2>How it started</h2><p>TODO</p></div>
-    </section>
-    <!-- 11 -->
-    <section class="slide stack">
-      <h2>Building it on the go</h2>
-      <div class="row">
-        <div class="ph">Photo: Pebble ring</div>
-        <div class="ph">Screenshot: commits from my phone</div>
-      </div>
-    </section>
-    <!-- 12 -->
-    <section class="slide stack">
-      <h2>Car paint lab</h2>
-      <div class="demo full"><iframe data-src="/talk/paint-lab/index.html" title="Car paint lab"></iframe>
-        <small>Click to play · Esc to go back to the slides</small></div>
-    </section>
-    <!-- 13 -->
-    <section class="slide split" data-name="Malleable software">
-      <div class="ph">/workshop/ demo · Nia video</div>
-      <div><h2>Malleable software</h2><p>TODO</p></div>
-    </section>
-    <!-- 14: the phone that opens into the live game -->
+    <!-- 4: the phone that opens into the live game -->
     <section class="slide" id="slide" data-name="Live demo">
       <div id="phone" role="button" aria-label="Play the game"></div>
       <div id="words">
@@ -283,9 +256,16 @@
         <div class="hint">Tap the phone</div>
       </div>
     </section>
-    <!-- 15 -->
+    <!-- 5 -->
     <section class="slide center">
       <h1>Thanks!</h1>
+    </section>
+    <!-- 6 -->
+    <section class="slide center" data-name="TestFlight">
+      <h2>Placeholder content here</h2>
+      <p>Here's a TestFlight link: put Rocket Rides on your iPhone</p>
+      <img class="qr" src="./media/testflight-qr.svg" alt="QR code for testflight.apple.com/join/ZMskw8Gu" />
+      <p class="qr-url">testflight.apple.com/join/ZMskw8Gu</p>
     </section>
     <button id="back" type="button">Back to the slide · Esc</button>
     <script type="module" src="/src/talk/talk.js"></script>

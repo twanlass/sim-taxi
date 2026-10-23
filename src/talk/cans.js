@@ -143,7 +143,16 @@ export function createCans() {
 
   const cans = [];
   const pending = [];
-  function spawn() {
+  /** A point on screen, in CSS pixels, to where it lands on the pile's middle plane (z = 0). */
+  function toWorld(px, py) {
+    return {
+      x: (px / window.innerWidth * 2 - 1) * halfW,
+      y: (1 - py / window.innerHeight * 2) * halfH,
+    };
+  }
+
+  /** One can. With an `origin` it bursts out of that point; without, it falls from the top. */
+  function spawn(origin) {
     if (cans.length >= MAX_CANS) {
       const old = cans.shift();
       world.removeBody(old.body);
@@ -153,13 +162,19 @@ export function createCans() {
       mass: 1, shape, linearDamping: 0.05, angularDamping: 0.45,
       sleepSpeedLimit: 0.6, sleepTimeLimit: 0.4,
     });
-    body.position.set(
-      (Math.random() * 2 - 1) * (halfW - 1.5),
-      halfH + 2 + Math.random() * 6,
-      (Math.random() * 2 - 1) * (DEPTH - 0.6));
+    const z = (Math.random() * 2 - 1) * (DEPTH - 0.6);
     body.quaternion.setFromEuler(Math.random() * 6.28, Math.random() * 6.28, Math.random() * 6.28);
-    body.angularVelocity.set((Math.random() - 0.5) * 4, (Math.random() - 0.5) * 4, (Math.random() - 0.5) * 4);
-    body.velocity.set((Math.random() - 0.5) * 1.5, -4 - Math.random() * 4, 0);
+    if (origin) {
+      // A fountain out of the photo's cans: up and outward, then gravity takes it to the pile.
+      const p = toWorld(origin.x, origin.y);
+      body.position.set(p.x, p.y, z);
+      body.velocity.set(-2 + Math.random() * 9, 8 + Math.random() * 8, 0);
+      body.angularVelocity.set((Math.random() - 0.5) * 8, (Math.random() - 0.5) * 8, (Math.random() - 0.5) * 8);
+    } else {
+      body.position.set((Math.random() * 2 - 1) * (halfW - 1.5), halfH + 2 + Math.random() * 6, z);
+      body.velocity.set((Math.random() - 0.5) * 1.5, -4 - Math.random() * 4, 0);
+      body.angularVelocity.set((Math.random() - 0.5) * 4, (Math.random() - 0.5) * 4, (Math.random() - 0.5) * 4);
+    }
     world.addBody(body);
     const mesh = new THREE.Mesh(geometry, materials);
     scene.add(mesh);
@@ -185,10 +200,10 @@ export function createCans() {
 
   return {
     /** A burst of cans, staggered so they arrive as a stream rather than one slab. */
-    drop() {
+    drop(origin) {
       if (!raf) { last = performance.now(); raf = requestAnimationFrame(frame); }
       canvas.classList.add('on');
-      for (let i = 0; i < PER_CLICK; i++) pending.push(setTimeout(spawn, i * 70));
+      for (let i = 0; i < PER_CLICK; i++) pending.push(setTimeout(() => spawn(origin), i * 70));
     },
     /** Sweep the pile away and stop drawing. */
     clear() {

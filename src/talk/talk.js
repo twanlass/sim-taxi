@@ -15,6 +15,7 @@
 // game's own in one curve. Resizing the iframe instead would resize the game's canvas on every
 // step of the animation, and a resize both empties the drawing buffer and re-frames the camera.
 
+// Inter, for the titles only (the Figma style asks for weight 450, which only the variable cut has).
 import '@fontsource-variable/inter';
 
 const REVEAL_MS = 1100;
@@ -30,8 +31,10 @@ const phone = document.getElementById('phone');
 const back = document.getElementById('back');
 document.documentElement.style.setProperty('--reveal-ms', `${REVEAL_MS}ms`);
 
-// Straight into a run: no title, no opening vignette, no tutorial bubbles.
-game.src = '/?title=off&vignette=off&tutorial=off';
+// The real game, from its main menu: the phone opens onto the title screen and everything after it
+// (Play, the opening vignette, the tutorial) is the game as a player gets it. Only the startup
+// splash is skipped, and the menu's intro, whose 3 s blur would otherwise be frozen into the still.
+game.src = '/?splash=classic&titleintro=classic';
 
 // 0 = the slide, 1 = the live game; animated between.
 let t = 0;
@@ -139,7 +142,14 @@ function go(toLive) {
   document.body.classList.toggle('live', toLive);
   // Live from the first frame of the reveal: the city starts moving as the phone opens, which is
   // the whole trick. On the way back it freezes where it stands and the phone closes over it.
-  if (toLive) { game.contentWindow.__taxi.pause?.setPaused(false); presenter.hold(false); }
+  // The title screen's camera reel cuts round the landmarks through `cutTo` every frame, which would
+  // fight the reveal's zoom out; it's held off until the phone has opened, then handed back.
+  const cam = game.contentWindow.__taxi.camera;
+  if (toLive) {
+    game.contentWindow.__taxi.pause?.setPaused(false);
+    if (!cam.heldCut) { cam.heldCut = cam.cutTo; cam.cutTo = () => {}; }
+    presenter.hold(false);
+  }
   else { presenter.hold(true); hud(false); game.blur(); takeFraming(); framing.zoom = framingZoom; }
   setClip(toLive ? 1 : 0);
 
@@ -156,7 +166,11 @@ function go(toLive) {
     if (k < 1) { requestAnimationFrame(step); return; }
     animating = false;
     document.body.classList.remove('revealing');
-    if (toLive) { hud(true); game.focus(); }
+    if (toLive) {
+      if (cam.heldCut) { cam.cutTo = cam.heldCut; delete cam.heldCut; }
+      hud(true);
+      game.focus();
+    }
   };
   requestAnimationFrame(step);
 }
@@ -181,13 +195,24 @@ const ticks = slides.map((s, k) => {
 // Slide 2's cans, loaded on the first click there and swept away whenever the slide changes.
 const kid = document.getElementById('kid');
 let cans = null;
-kid.addEventListener('click', async () => {
+// Where the real Dr Pepper cans are in the photo (bottom left, by the keyboard), as fractions of it.
+const REAL_CANS = { x: 0.11, y: 0.92 };
+kid.querySelector('.photo').addEventListener('click', async (e) => {
+  const r = e.currentTarget.getBoundingClientRect();
   cans ??= import('./cans.js').then((m) => m.createCans());
-  (await cans).drop();
+  (await cans).drop({ x: r.left + REAL_CANS.x * r.width, y: r.top + REAL_CANS.y * r.height });
 });
 // The talk's game clock: nine minutes, bottom right, started by the first step off the title. The
 // start time lives in sessionStorage so a reload mid-talk doesn't hand back the full nine; R resets.
 const TALK_MS = 9 * 60 * 1000;
+// The title slide's backdrop camera: half-height of the view in world units.
+// Set by eye with sliders (size 98, right 35vw): about 60% of the city, off the right edge.
+const BG_ZOOM = 49;
+// How far right the island sits, as a fraction of the window (it was the frame's 35vw offset).
+const BG_SHIFT = 0.35;
+// The squall's crossing clock on the backdrop: its first cell is due at 20 s and a crossing takes
+// 75 s, so 30 has one already on its way in when the slide comes up.
+const BG_SQUALL_AT = 30;
 const clock = document.getElementById('clock');
 const clockTime = clock.querySelector('b');
 let startedAt = Number(sessionStorage.getItem('talk-start')) || 0;
@@ -222,16 +247,75 @@ setInterval(tickClock, 250);
 // Playable demos (`.demo iframe[data-src]`): loaded when their slide comes up and blanked when it
 // goes, so each visit starts a fresh game and nothing keeps running off screen. A click focuses the
 // game and its keys go to it; Esc inside hands focus back to the deck.
+/**
+ * The title slide's backdrop: the game's title screen with everything over its canvas hidden and
+ * the camera pinned. The reel cuts round the landmarks, and every cut goes through the camera's
+ * `cutTo` — so answering each one with the same wide shot holds the frame dead still (no pan, no
+ * drift) while the city keeps moving under it. Fades in once the game is up and has drawn a moment.
+ */
+function pinBackdrop(f) {
+  const w = f.contentWindow;
+  const cam = w?.__taxi?.camera;
+  if (!cam || !f.getAttribute('src')) {
+    if (f.getAttribute('src')) setTimeout(() => pinBackdrop(f), 100);
+    return;
+  }
+  const style = w.document.createElement('style');
+  style.textContent = 'body > :not(canvas) { visibility: hidden !important; }';
+  w.document.head.appendChild(style);
+  const cutTo = cam.cutTo.bind(cam);
+  cam.cutTo = (x, z, zoom, yaw, aspect) => {
+    cutTo(0, 0, BG_ZOOM, yaw, aspect);
+    // `setViewOffset` slides the frame by pixels; a negative x moves what's drawn to the right.
+    const W = w.innerWidth;
+    const H = w.innerHeight;
+    cam.camera.setViewOffset(W, H, -BG_SHIFT * W, 0, W, H);
+    cam.camera.updateProjectionMatrix();
+  };
+  // Weather. The game only starts the squall once the taxi is the player's to drive, which the
+  // title screen never reaches — so start it here, part way into its first crossing.
+  const squall = w.__taxi.squall;
+  if (squall) { squall.begin(); squall.state.clock = BG_SQUALL_AT; }
+  // The handle is published seconds before the first frame shows anything — the first draws are
+  // spent compiling shaders — so a timer off it faded in bare sky. Twenty of the frame's own
+  // animation frames later, the city is on screen.
+  let frames = 0;
+  const count = () => {
+    if (++frames < 20) { w.requestAnimationFrame(count); return; }
+    f.classList.add('loaded');
+    // The words move into the game's own frame, so the lens drops bend them; the HTML copy (kept
+    // for layout) goes transparent once the frame has finished fading in over it.
+    const slide = f.closest('.slide');
+    import('./scenetext.js').then(({ paintIntoGame }) => {
+      const painted = paintIntoGame(w, [...slide.querySelectorAll('h1, .byline')]);
+      if (!painted) return;
+      setTimeout(() => slide.classList.add('in-scene'), 1300);
+      const onResize = () => { if (f.getAttribute('src')) painted.redraw(); else window.removeEventListener('resize', onResize); };
+      window.addEventListener('resize', onResize);
+    });
+  };
+  w.requestAnimationFrame(count);
+}
+
 function demos(slide, on) {
-  for (const f of slide.querySelectorAll('.demo iframe')) {
-    if (!on) { f.removeAttribute('src'); f.classList.remove('focused'); continue; }
+  for (const f of slide.querySelectorAll('.demo iframe, iframe.bg-game')) {
+    if (!on) {
+      f.removeAttribute('src');
+      f.classList.remove('focused', 'loaded');
+      slide.classList.remove('in-scene');
+      continue;
+    }
     if (f.getAttribute('src')) continue;
     f.src = f.dataset.src;
+    // A backdrop is only ever looked at, and it doesn't wait for the frame's load event: that waits
+    // on every file the game fetches (the audio among them) and fired ~9s after the city was up.
+    if (f.classList.contains('bg-game')) { pinBackdrop(f); continue; }
     f.onload = () => {
       const w = f.contentWindow;
       const style = w.document.createElement('style');
-      // Scale the game's fixed-size canvas to the frame without touching its own files.
-      style.textContent = 'canvas { width: min(96vw, 96vh * 1.5) !important; height: auto !important; }'
+      // `data-fit`: scale a game's fixed-size canvas (Snake's 600x400) to the frame without touching
+      // its own files. Opt-in — the workshop lays its canvas out itself.
+      style.textContent = ('fit' in f.dataset ? 'canvas { width: min(96vw, 96vh * 1.5) !important; height: auto !important; }' : '')
         // `data-hide`: a demo's own dev tooling (Mystery's tuner panel and hotkey strip) stays off stage.
         + (f.dataset.hide ? `${f.dataset.hide} { display: none !important; }` : '');
       w.document.head.appendChild(style);
@@ -270,6 +354,7 @@ function show(i) {
   slides.forEach((s, k) => s.classList.toggle('on', k === current));
   ticks.forEach((b, k) => b.classList.toggle('on', k === current));
   document.body.classList.toggle('on-phone', slides[current].id === 'slide');
+  document.body.classList.toggle('on-bleed', slides[current].classList.contains('bleed'));
   history.replaceState(null, '', `#${current + 1}`);
 }
 const fromHash = () => show((Number.parseInt(location.hash.slice(1), 10) || 1) - 1);
