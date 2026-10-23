@@ -90,6 +90,7 @@ import {
 import { createCollisions, TAXI_HP, bumpDamage, penetration, setCrush } from '../src/sim/collisions.js';
 import { createTaxiDamage } from '../src/game/taxidamage.js';
 import { createCarDamage } from '../src/game/cardamage.js';
+import { BODY_TOP } from '../src/geometry/damage.js';
 import { BUMPER_H as BUMPER_H_PROBE, bumperLength as bumperLengthProbe } from '../src/geometry/bumpers.js';
 import { createTaxiDoor } from '../src/game/taxidoor.js';
 import { createPolice, SPOT_RANGE, FADE_TIME } from '../src/sim/police.js';
@@ -4219,7 +4220,9 @@ const PRESSURE_END = difficulty.getTuning().pressureEnd;
       // a parcel rode the rear deck, and four while the roof sign was on.) Six meshes move for those
       // three parts: both chrome bumpers and the bumper that hangs off once it is knocked loose draw
       // on the shell's own material, so they light with it rather than needing a place in the list.
-      moved.filter(Boolean).length === 6
+      // So do the chequer plates on the shut bonnet and boot, off the shell so an opening lid can
+      // take its own with it: eight.
+      moved.filter(Boolean).length === 8
       && new Set(movedTo).size === 1
       && back.every((h, n) => h === dark[n]),
       `${moved.filter(Boolean).length} parts moved to ${new Set(movedTo).size} value(s), all restored ${back.every((h, n) => h === dark[n])}`);
@@ -12215,9 +12218,10 @@ function rideToPickup() {
     if (!node.children.some((c) => c.name === 'ghostMask')) unmasked.push(node);
   });
   // Two more for the chrome bumpers (geometry/bumpers.js), masked without a rim for the reason the
-  // damage pieces are: a 0.2 bar inside the shell's hull, too thin to carry one of its own.
-  check('every drawn taxi part is in the ghost stencil mask', unmasked.length === 0 && masks.length === 29,
-    `${unmasked.length} unmasked, ${masks.length} masks (9 outlined parts + 14 damage pieces + 4 door pieces + 2 bumpers)`);
+  // damage pieces are: a 0.2 bar inside the shell's hull, too thin to carry one of its own. The
+  // damage pieces include the chequer on the shut bonnet and boot, which go when their lid opens.
+  check('every drawn taxi part is in the ghost stencil mask', unmasked.length === 0 && masks.length === 31,
+    `${unmasked.length} unmasked, ${masks.length} masks (9 outlined parts + 16 damage pieces + 4 door pieces + 2 bumpers)`);
 
   // --- A dimming lamp must dim where it stands ---------------------------------------------------
   //
@@ -12246,6 +12250,44 @@ function rideToPickup() {
   }
   check('a dimming taxi lamp stays where it is', podDrift < 1e-9,
     `${taxi.lights.length} pods, max drift ${podDrift.toExponential(1)} over level 1 → 0`);
+
+  // --- An open bonnet or boot takes its chequer with it ---------------------------------------------
+  //
+  // The chequer plates on both lids were merged into the shell and stood 0.036 over the body's top
+  // plane, so with a lid swung up they poked clean through the 0.02 opening under it: the wreck
+  // polaroid showed the bonnet's stripe painted on the engine bay. With each lid open, no visible
+  // mesh other than the lid itself may put a vertex above the opening, inside its footprint.
+  {
+    const lidTaxi = createTaxiMesh();
+    const overOpening = (minX, maxX) => {
+      lidTaxi.group.updateMatrixWorld(true);
+      const groupInv = lidTaxi.group.matrixWorld.clone().invert();
+      const v = new THREE.Vector3();
+      let hits = 0;
+      lidTaxi.group.traverseVisible((node) => {
+        if (!node.isMesh || /^ghost/.test(node.name) || node.material?.visible === false) return;
+        if (node.parent?.isGroup && node.parent !== lidTaxi.group) return; // the lid on its hinge
+        if (node.scale.x === 0) return;
+        const pos = node.geometry.attributes.position;
+        const toGroup = groupInv.clone().multiply(node.matrixWorld);
+        for (let k = 0; k < pos.count; k++) {
+          v.fromBufferAttribute(pos, k).applyMatrix4(toGroup);
+          if (v.x > minX && v.x < maxX && Math.abs(v.z) < 0.4 && v.y > BODY_TOP + 0.021 && v.y < BODY_TOP + 0.4) hits++;
+        }
+      });
+      return hits;
+    };
+    lidTaxi.damage.setHood(0.9);
+    const bayHits = overOpening(0.75, 1.6);
+    lidTaxi.damage.setHood(null);
+    lidTaxi.damage.setBoot(0.9);
+    const bootHits = overOpening(-1.6, -1.15);
+    lidTaxi.damage.reset();
+    const shutHits = overOpening(0.75, 1.6);
+    check('an open bonnet or boot leaves no chequer standing on the opening',
+      bayHits === 0 && bootHits === 0 && shutHits > 0,
+      `${bayHits} vertices over the bay, ${bootHits} over the boot; ${shutHits} on the shut bonnet`);
+  }
 
   // --- The headlights: two lamps, clear of the indicator, each throwing its cone forward ----------
   //
