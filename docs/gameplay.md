@@ -125,6 +125,11 @@ through.
 > Those rolling toasters brake for pigeons. No idea why people love 'em.
 > Go remind this town what a real cab is all about.
 
+Once the last line has finished typing, **real** punches: it scales up to 1.45× and shakes three
+times, settling over 0.7 s, in the line's own black type (`PUNCH` in `backstory.js`; not under
+reduced motion). The `{word}` callout was the other way to do it, and it is the wrong one here: it
+turns the word yellow and wiggles it the moment it is typed, where this lands after the whole line.
+
 A tap anywhere finishes the line or moves on (Enter and Space too); **Skip** in the top corner, or
 Escape, ends it. A finished line left untapped for `NUDGE_AFTER` = 3 s gives the card a
 dock-icon bounce (a 12 px hop and a 5 px one), and again every 3 s until the tap; not under reduced

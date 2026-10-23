@@ -27,6 +27,14 @@ const NUDGE_AFTER = 3;
 const NUDGE_HOPS = [0, -12, 0, -5, 0];
 const NUDGE_MS = 650;
 
+// A word that punches once its line has finished typing: scales up and shakes, in the line's own
+// black type (Tyler, 2026-10-23). Not the `{word}` callout, which turns yellow and wiggles as it
+// types; this lands after the whole line is in. Keyed by line index.
+const PUNCH = { 3: 'real' };
+const PUNCH_MS = 700;
+// Scale and tilt (degrees) through the punch: up big, three shakes settling, back to rest.
+const PUNCH_KEYS = [[1, 0], [1.45, -8], [1.38, 7], [1.4, -6], [1.3, 4], [1.15, -2], [1, 0]];
+
 // Where the card's bottom edge sits, as a fraction of the screen's height.
 const STORY_CARD_BOTTOM = 0.76;
 
@@ -80,7 +88,31 @@ export function tellBackstory(root, { done, lines = BACKSTORY_LINES }) {
   const below = () => ({ x: window.innerWidth / 2, y: window.innerHeight * 0.72 });
   // Seconds the current line has sat finished and untapped.
   let idle = 0;
-  const say = () => { idle = 0; bubble.show('Dispatch', lines[at], below); };
+  // Whether the current line has had its punch (`PUNCH`), so it lands once per line.
+  let punched = false;
+  const say = () => { idle = 0; punched = false; bubble.show('Dispatch', lines[at], below); };
+  // Wraps the word in a span of its own once the line is fully typed — typing rewrites the runs'
+  // text every letter, so it cannot be wrapped any sooner — and animates that span alone. An
+  // inline-block so the transform takes; transforms do not move the words around it.
+  const punch = (word) => {
+    const walker = document.createTreeWalker(talk.querySelector('.speech-text'), NodeFilter.SHOW_TEXT);
+    const pattern = new RegExp(`\\b${word}\\b`);
+    for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+      const m = pattern.exec(node.data);
+      if (!m) continue;
+      const hit = node.splitText(m.index);
+      hit.splitText(word.length);
+      const span = document.createElement('span');
+      span.className = 'title-story-punch';
+      hit.replaceWith(span);
+      span.append(hit);
+      span.animate(
+        PUNCH_KEYS.map(([k, deg]) => ({ transform: `scale(${k}) rotate(${deg}deg)` })),
+        { duration: PUNCH_MS, easing: 'ease-out' },
+      );
+      return;
+    }
+  };
   const still = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
   // On the card rather than the `.speech` it sits in, whose transform speech.js writes every frame.
   const nudge = () => talk.querySelector('.speech-card')?.animate(
@@ -115,6 +147,10 @@ export function tellBackstory(root, { done, lines = BACKSTORY_LINES }) {
     const dt = Math.min((now - last) / 1000, 0.1);
     bubble.update(dt);
     last = now;
+    if (bubble.isOpen() && !bubble.isTyping() && !punched) {
+      punched = true;
+      if (PUNCH[at] && !still) punch(PUNCH[at]);
+    }
     if (bubble.isOpen() && !bubble.isTyping() && !still) {
       idle += dt;
       if (idle >= NUDGE_AFTER) { idle = 0; nudge(); }
