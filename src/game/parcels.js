@@ -5,7 +5,7 @@ import { TAXI_DECK_Y } from '../geometry/taxi.js';
 import { KERB_H } from '../city/ground.js';
 import { PARCEL_COLOR } from './urgency.js';
 import { allIntersections, findRoute } from './route.js';
-import { RIGHT as SCREEN_RIGHT, UP as SCREEN_UP } from './camera.js';
+import { RIGHT as SCREEN_RIGHT, UP as SCREEN_UP, VIEW_DIR } from './camera.js';
 import { nextIntersection } from '../city/grid.js';
 import {
   ARRIVE_RADIUS, blockDistance, cornerFor, cornerSeen, intersectionCentre,
@@ -297,20 +297,45 @@ export const FLIGHT_TIME = 0.55;
 export const LIFT_TIME = 0.45;
 
 /**
- * Which way "toward the HUD" is, in the world.
+ * Which way "toward the HUD" is on screen when nobody says: down and to the right.
  *
- * The chip sits in the **top-left** of the screen, so the box slides up-screen and to the left.
- * Derived from the camera's own screen basis rather than typed as a vector, even though it comes out
- * as exactly −X: the view never rotates — only the target and the zoom move — so one fixed world
- * direction *is* one fixed screen direction, and this is the arithmetic that would have to be redone
- * if the azimuth ever moved. (`UP − RIGHT`, normalised: screen-up-and-left across the ground plane.)
+ * The chip lives in `#cargo-dock`, right of the gas pedal on the bottom row (Tyler, 2026-10-06). It
+ * used to sit top left, and this was a fixed up-and-left for as long as it did — which kept flying
+ * every pickup to the old spot for two weeks after the dock moved. So the real direction is now
+ * *measured* per pickup, from the box's own screen point to the dock's (`towardHud`, injected by
+ * main.js, which owns the DOM and the projection), and this is only the fallback for a caller that
+ * has no screen: the probe, or a dock that measures 0×0. In screen pixels, y down.
  */
-const TOWARD_HUD = new THREE.Vector3().subVectors(SCREEN_UP, SCREEN_RIGHT).normalize();
+const DEFAULT_TOWARD_HUD = { x: Math.SQRT1_2, y: Math.SQRT1_2 };
 
-// How far the box climbs, and how far it slides toward the corner. At play zoom a world unit is about
-// 7.7px and a vertical one is foreshortened to 0.84 of that, so 3.6 up is ~23px and 5.5 along
-// `TOWARD_HUD` is ~(−30, +16) — a little over fifty pixels of travel in half a second, which is
-// enough to be a departure and not so much that the box is gone before the eye finds it.
+/**
+ * How much the camera foreshortens a step along the ground's screen-up axis: the sine of its 33°
+ * elevation, off `VIEW_DIR` rather than typed. A unit along `SCREEN_RIGHT` is a unit on screen; a unit
+ * along `SCREEN_UP` is 0.545 of one.
+ */
+const UP_FORESHORTEN = VIEW_DIR.y;
+
+/**
+ * A screen direction (pixels, y down) as a ground-plane vector that covers **one world unit of
+ * screen** whichever way it points. Without the foreshortening term a slide straight down-screen
+ * would cover half the pixels of one sideways, and down is now the usual way for it to go.
+ */
+function groundToward(dir) {
+  const len = Math.hypot(dir.x, dir.y) || 1;
+  const sx = dir.x / len;
+  const sy = -dir.y / len;
+  return new THREE.Vector3()
+    .addScaledVector(SCREEN_RIGHT, sx)
+    .addScaledVector(SCREEN_UP, sy / UP_FORESHORTEN);
+}
+
+// How far the box climbs, and how far it slides toward the dock. At play zoom a world unit is about
+// 7.7px and a vertical one is foreshortened to 0.84 of that, so 3.6 up is ~23px; the drift is 5.5
+// units *of screen* (`groundToward`), ~42px. The two ease differently (see `updateFlights`), so a box
+// headed for the dock below it goes up first and then swoops down toward it — a throw rather than a
+// slide — and at the hand-off it is still ~4px above where it started, which is the point the chip
+// then slides in from. Enough travel to be a departure, not so much that the box is gone before the
+// eye finds it.
 const LIFT_RISE = 3.6;
 const LIFT_DRIFT = 5.5;
 // And it gets *bigger* on the way out rather than shrinking. It is not going into anything, and what
@@ -449,7 +474,7 @@ function createSlot(scene, index, board = scene) {
  *                    is `main.js`'s to know. It is a plain `{i, j}` rather than a getter because a
  *                    building does not move.
  */
-export function createParcelSystem(rng, scene, { foodPickup = null } = {}) {
+export function createParcelSystem(rng, scene, { foodPickup = null, towardHud = null } = {}) {
   const state = {
     /** Live packages: on a corner (`waiting`) or aboard the taxi (`carried`). */
     parcels: [],
@@ -779,6 +804,9 @@ export function createParcelSystem(rng, scene, { foodPickup = null } = {}) {
       // `kind` is the *flight's* kind — which animation this is — and `cargo` is what is being flown.
       // Two words for two facts that were one word for as long as there was one load to fly.
       slot, kind: 'lift', cargo: kind, from: { ...from }, fromY: PARCEL_PAD_LIFT, at: null, handed: false,
+      // Measured once, at the pickup, and held: the camera follows the taxi, so re-aiming every frame
+      // would bend the box's path as the view slid under it.
+      toward: groundToward(towardHud?.(from.x, PARCEL_PAD_LIFT, from.z) ?? DEFAULT_TOWARD_HUD),
     });
   }
 
@@ -837,9 +865,9 @@ export function createParcelSystem(rng, scene, { foodPickup = null } = {}) {
         const rise = 1 - (1 - t) ** 2;
         const away = t * t;
         f.slot.flight.position.set(
-          f.from.x + TOWARD_HUD.x * LIFT_DRIFT * away,
+          f.from.x + f.toward.x * LIFT_DRIFT * away,
           f.fromY + LIFT_RISE * rise,
-          f.from.z + TOWARD_HUD.z * LIFT_DRIFT * away,
+          f.from.z + f.toward.z * LIFT_DRIFT * away,
         );
         f.slot.flight.scale.setScalar(1 + (LIFT_SWELL - 1) * rise);
         f.slot.flightBox.setOpacity(Math.min(1, (1 - t) * LIFT_FADE_LEAD));
