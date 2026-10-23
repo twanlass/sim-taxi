@@ -226,6 +226,31 @@ back the true length plus at most one frame of end padding, which `loopWindow` r
 priming at all and loops correctly. Re-running `tools/audio.mjs` on a Mac replaces them with
 afconvert's encode.
 
+## The L train
+
+The `ltrain` bed (`LTRAIN_AMB_pass_loop_MONO`) plays from the middle of the L train while it runs,
+its level the train's speed as a share of cruise, so it rolls in and out with the ramps at each end
+(`ltrain.emitter()`, `ambientLevels` in main.js). It is in the Ambience group.
+
+It is Tyler's own recording of an elevated train going by (`raised_l_train_scree_4`, 15 s,
+48 kHz / 16-bit stereo, −36.8 LUFS, October 2026), committed whole under `assets/audio-raw/` so it
+can be re-cut. A pass-by already carries its own swell and fade, and played as a one-shot it would
+fight the falloff that places it, so the bed is its **steady middle**: 3.0 s to 10.5 s, folded to
+mono, the 0.75 s after the cut cross-faded (equal power) back over its start so it loops without a
+seam, and raised 6.3 dB to −32 LUFS, a couple over the construction bed. Tyler's mix (October
+2026) then puts it at +8 dB (gain 2.51) with a wider full-level zone: the falloff (`near` 19,
+`far` 60) and the train's speed make the pass-by. Both squeals in the recording are inside the
+loop, so one comes round every 7.5 s while a train is near.
+
+In audio debug the moving train carries its own 🔊 pin (from its middle, while it runs), so its
+falloff rings can be dragged like any placed sound's. The ⚙️ panel's ⚡ sends a train off now, and
+⏸ freezes one mid-run, sending it out to the middle of its run first if the line is empty. Unlike the
+plane's hold, nothing extra loops: the bed already plays off the train while it stands there.
+
+The train's wheel sparks and the garage's welding during a repair have no sound yet. Synthesised
+stand-ins were tried for them (October 2026) and turned down: Tyler, "don't ship any of the synth
+standin sounds".
+
 ## The radio
 
 The music is a car radio, the station KPRS. The **title menu** has no music at all: the first tap (at boot, in the iOS app)
