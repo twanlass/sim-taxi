@@ -1673,21 +1673,21 @@
       .speech-tag-pin .speech-pointer { color: #fff; }
       .speech-tag b { display: none; }
       /* An offer — a side quest the player can take or leave (speech.js `showTag`, the street
-         racer): a yellow "!" in place of the dots, the mark an RPG hangs over an NPC with a quest
-         to give. The yellow is the highlighted word's (.speech-hl), so the "!" and the "{race}" it
-         turns into on a tap are one colour. Opaque rather than glass: the blur is what lets white
-         sit over a pale street, and yellow carries itself. The dark outline is the rider pie's
+         racer): a purple "!" in place of the dots, the mark an RPG hangs over an NPC with a quest
+         to give. The purple is the old mystery rider's (PALETTE.vip, #A64DFF — Tyler, 2026-10-23;
+         it was the highlighted word's yellow until then). Opaque rather than glass: the blur is
+         what lets white sit over a pale street, and the purple carries itself. The dark outline is the rider pie's
          1.5px one (MARKER_OUTLINE_PX), drawn round disc and pointer together by four hard
          drop-shadows, so the two read as one shape against the rain-grey street. The "!" hops on
          the arrows' 1.3s beat instead of the dots' typing ripple. */
-      .tag-quest .speech-tag-pin .speech-tag { background: #FFC93C; box-shadow: none; -webkit-backdrop-filter: none; backdrop-filter: none; }
+      .tag-quest .speech-tag-pin .speech-tag { background: #A64DFF; box-shadow: none; -webkit-backdrop-filter: none; backdrop-filter: none; }
       /* Unclipped: the glass clip (above) cuts the pointer off level with where the disc's edge
          meets it, and the disc curves 0.4px away from that line — a sliver the outline's
          drop-shadows then filled in dark, which drew as a little shadow across the pointer's root
-         (Tyler, 2026-10-21). Opaque yellow has no overlap to darken, so the whole pointer can sit
+         (Tyler, 2026-10-21). An opaque disc has no overlap to darken, so the whole pointer can sit
          under the disc. */
       .tag-quest .speech-tag-pin .speech-pointer {
-        color: #FFC93C; clip-path: none; -webkit-backdrop-filter: none; backdrop-filter: none;
+        color: #A64DFF; clip-path: none; -webkit-backdrop-filter: none; backdrop-filter: none;
       }
       .tag-quest .speech-tag-pin .speech-tag-body {
         filter: drop-shadow(1.5px 0 0 #121318) drop-shadow(-1.5px 0 0 #121318) drop-shadow(0 1.5px 0 #121318)
