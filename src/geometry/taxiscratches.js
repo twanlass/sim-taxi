@@ -133,7 +133,9 @@ ${CHIP_DECLS}`)
  * and any replay of it draw the same chips. Driven by game/taxidamage.js through `buildDamage`.
  */
 export function chipPaint({ shell, hood, boot }) {
-  const wear = { value: new THREE.Vector4() };
+  // All four set: a bare `Vector4()` is (0, 0, 0, 1), which is the tail-left corner fully worn on
+  // any taxi nothing has called `reset()` on yet — the app icon rendered it as a bare-steel roof.
+  const wear = { value: new THREE.Vector4(0, 0, 0, 0) };
   chip(shell, wear, new THREE.Vector3());
   chip(hood, wear, new THREE.Vector3(HOOD_HINGE_X, BODY_TOP, 0));
   chip(boot, wear, new THREE.Vector3(BOOT_HINGE_X, BODY_TOP, 0));

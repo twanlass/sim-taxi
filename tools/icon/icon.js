@@ -18,6 +18,7 @@ import { createTaxiMesh, TAXI_SCALE } from '../../src/geometry/taxi.js';
 import { SUN } from '../../src/game/scene.js';
 import { VIEW_DIR } from '../../src/game/camera.js';
 import { createLocoFlame } from '../../src/game/locoflame.js';
+import { createGlint } from '../../src/game/glint.js';
 import { PALETTE } from '../../src/palette.js';
 import { setGlossGlobal, GLOSS_GLOBAL_DEFAULTS } from '../../src/util/geo.js';
 
@@ -80,6 +81,14 @@ scene.add(taxi.group);
 const FLAME_CLOCK = 0.21;
 const flame = createLocoFlame(scene);
 flame.update(FLAME_CLOCK, { x: 0, z: 0, yaw: YAW, crashed: false }, true);
+
+// The glint the car leaves the garage with (game/glint.js), caught at its first star's peak: the one
+// on the front-right fender, at full size, with the two later stars not yet up. Its own `update`
+// places it, so a change to the star moves the icon's with it.
+const GLINT_CLOCK = 0.14;
+const glint = createGlint({ scene, taxiGroup: taxi.group });
+glint.fire();
+glint.update(GLINT_CLOCK);
 
 // The ground only exists as the shadow on it — the purple is the background.
 const ground = new THREE.Mesh(
