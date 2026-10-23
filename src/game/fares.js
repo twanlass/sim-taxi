@@ -200,7 +200,7 @@ const VIP_SPAWNS = typeof location !== 'undefined'
 // robberies in 30 autoplay runs (CALM_LEVEL in game/robbery.js) — and this fires only when the
 // player takes the bank rider and the coin agrees, so expect it rarer until these are tuned.
 /**
- * The bank rider waits under the yellow side-quest "!" (main.js) rather than an urgency pie — they
+ * The bank rider waits under the purple side-quest "!" (main.js) rather than an urgency pie — they
  * are the way into the robbery, an offer more than a fare (Tyler, 2026-10-21). `?questmark=classic`
  * keeps the pie. Browser-only; headless tools get the pie.
  */
@@ -333,6 +333,16 @@ const ROBBER_DROPOFF_SPREAD = 1;
  */
 const ROBBER_PAYOUT = 100;
 const ROBBER_BONUS = 50;
+
+/**
+ * The getaway has no clock (Tyler, 2026-10-23; `?robberclock=classic` keeps it). No crystal over the
+ * roof, no bail, and ROBBER_BONUS paid in full: the clock it read was never one the player could
+ * see clearly — the crystal launched from the bank door and then hung mid-air through the robber's
+ * line, reading as a new rider — and the police are pressure enough. The ring and the route band
+ * stay painted at full, the colour a fresh clock would give them. Headless tools get the default.
+ */
+const robberClock = () => typeof window !== 'undefined'
+  && new URLSearchParams(window.location.search).get('robberclock') === 'classic';
 
 /**
  * The getaway's checkpoints: corners the taxi has to touch on the way to the drop-off, each one
@@ -1406,6 +1416,9 @@ export function createFareSystem(rng, scene, {
       // What marks this one out in every `fare` the loop hands back. Read by the delivery branch
       // for the bonus, by the timeout branch for the miss, and by main.js for the HUD.
       robber: true,
+      // No clock — see `robberClock`. The seconds stay full, so the bonus pays in full and the
+      // timeout branch never sees them.
+      clockless: !robberClock(),
       // The checkpoints still to touch, nearest first; `target` is the first of them until the
       // last is reached, then the drop-off. `blocks` stays the bank-to-drop-off distance.
       checkpoints,
@@ -1472,7 +1485,7 @@ export function createFareSystem(rng, scene, {
     destination.ring.appear();
     // A scripted robber's crystal waits for them to be in the car: it would otherwise hang over
     // the bank's steps for the whole of a run it is not part of.
-    if (!scripted) {
+    if (!scripted && !fare.clockless) {
       marker.showAt(URGENCY_SEGMENTS, from.x, from.z, false, false);
       marker.beginTransfer();
     }
@@ -1490,6 +1503,7 @@ export function createFareSystem(rng, scene, {
     fare.scripted = false;
     fare.boarding = undefined;
     fare.slot.passenger.group.visible = false;
+    if (fare.clockless) return;
     fare.slot.marker.showAt(URGENCY_SEGMENTS, x, z, false, false);
     fare.slot.marker.beginTransfer();
   }
@@ -1995,7 +2009,7 @@ export function createFareSystem(rng, scene, {
         }
       }
 
-      if (!state.paused && !(hush && fare.stage === 'waiting')) fare.timeLeft -= dt;
+      if (!state.paused && !fare.clockless && !(hush && fare.stage === 'waiting')) fare.timeLeft -= dt;
 
       // One clock, one body, wherever the fare currently is. The seconds never reset across the
       // hand-off and neither does the marker — see beginRide.

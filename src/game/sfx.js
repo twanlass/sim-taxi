@@ -110,6 +110,12 @@ export const FILES = {
   '32_NPC_chirp_long_B': new URL('../../assets/audio/32_NPC_chirp_long_B.m4a', import.meta.url).href,
   '32_NPC_chirp_short_A': new URL('../../assets/audio/32_NPC_chirp_short_A.m4a', import.meta.url).href,
   '32_NPC_chirp_short_B': new URL('../../assets/audio/32_NPC_chirp_short_B.m4a', import.meta.url).href,
+  'VO_dispatch_1': new URL('../../assets/audio/VO_dispatch_1.m4a', import.meta.url).href,
+  'VO_dispatch_2': new URL('../../assets/audio/VO_dispatch_2.m4a', import.meta.url).href,
+  'VO_dispatch_3': new URL('../../assets/audio/VO_dispatch_3.m4a', import.meta.url).href,
+  'VO_dispatch_4': new URL('../../assets/audio/VO_dispatch_4.m4a', import.meta.url).href,
+  // Tyler's recording of an elevated train going by (October 2026), its steady middle cut to a loop.
+  'LTRAIN_AMB_pass_loop_MONO': new URL('../../assets/audio/LTRAIN_AMB_pass_loop_MONO.m4a', import.meta.url).href,
 };
 
 /**
@@ -170,6 +176,15 @@ export const SOUNDS = {
   // Two short and two long, all four drawn at random: one cop lighting up should not always sound
   // the same, and the length is part of that.
   chirp: ['32_NPC_chirp_short_A', '32_NPC_chirp_short_B', '32_NPC_chirp_long_A', '32_NPC_chirp_long_B'],
+  // The backstory read out (game/backstory.js): Tyler's recordings, delivered as MP3s (October
+  // 2026) and converted to 48 kHz WAV masters like the radio's ads. One sound a line, not four takes
+  // of one: each line is its own recording at its own level.
+  dispatch1: ['VO_dispatch_1'],
+  dispatch2: ['VO_dispatch_2'],
+  dispatch3: ['VO_dispatch_3'],
+  dispatch4: ['VO_dispatch_4'],
+  // The L train going by: Tyler's recording, looped, heard from the middle of the train.
+  ltrain: ['LTRAIN_AMB_pass_loop_MONO'],
 };
 
 /**
@@ -189,23 +204,24 @@ export const PICKED = new Set(['rain']);
  * one thing on the map the player is.
  */
 export const PLACED = new Set(['gate', 'bridge', 'construction', 'birdsUp', 'birdsDown', 'plane',
-  'heli', 'angry', 'seagulls', 'court', 'chirp']);
+  'heli', 'angry', 'seagulls', 'court', 'chirp', 'ltrain']);
 
 /** What `play()` accepts — the one-shots. A typo throws here rather than going silent. */
 export const SFX_EVENTS = new Set(['bump', 'accel', 'brake', 'locoActivate', 'locoLaunch',
   'locoBrake', 'skid', 'copSkid', 'doorOpen', 'doorClose', 'crash', 'takeoff', 'land', 'driveThru',
-  'horn', 'spawn', 'gate', 'bridge', 'birdsUp', 'birdsDown', 'plane', 'heli', 'angry', 'chirp']);
+  'horn', 'spawn', 'gate', 'bridge', 'birdsUp', 'birdsDown', 'plane', 'heli', 'angry', 'chirp',
+  'dispatch1', 'dispatch2', 'dispatch3', 'dispatch4']);
 
 /** The beds: steered by `update()`, never fired. */
 export const LOOPS = new Set(['idle', 'locoLoop', 'signal', 'siren', 'city', 'construction',
-  'seagulls', 'rain', 'court']);
+  'seagulls', 'rain', 'court', 'ltrain']);
 
 /**
  * The ambient beds — Block 2's loops. Each runs silent from the first tap and `update()` sets its
  * level from `opts.ambient[key]` every frame, `{ level, d, pan }` (any part optional), the way the
  * siren has always worked: nothing starts one, so nothing can leave one running.
  */
-export const AMBIENT = ['city', 'construction', 'seagulls', 'rain', 'court'];
+export const AMBIENT = ['city', 'construction', 'seagulls', 'rain', 'court', 'ltrain'];
 
 /**
  * The mix groups: every sound in exactly one, each group a gain node between its voices and its
@@ -226,6 +242,7 @@ export const GROUPS = [
   { key: 'ambience', label: 'Ambience', bus: 'world', sounds: AMBIENT },
   { key: 'people', label: 'People', bus: 'world', sounds: ['angry'] },
   { key: 'police', label: 'Police', bus: 'world', sounds: ['siren', 'copSkid', 'chirp'] },
+  { key: 'dispatch', label: 'Dispatch', bus: 'player', sounds: ['dispatch1', 'dispatch2', 'dispatch3', 'dispatch4'] },
 ];
 /** Which group a sound is in, by sound. */
 export const GROUP_OF = Object.fromEntries(GROUPS.flatMap((g) => g.sounds.map((s) => [s, g.key])));
@@ -276,6 +293,7 @@ const LOOP_SECONDS = {
   '25_NPC_siren_loop': 8.6875, '19_AMB_city_loop_B_ST': 21,
   '20_AMB_construction_loop_MONO': 21, '29_AMB_seagulls_loop_MONO': 21,
   '30_AMB_rain_loop_MONO': 21, '30_AMB_rain_loop_ST': 21, '31_AMB_basketball_loop_MONO': 21,
+  'LTRAIN_AMB_pass_loop_MONO': 7.5,
 };
 /** How far across the stereo field a placed sound may sit — never hard into one ear. */
 const PAN_WIDTH = 0.7;
@@ -1067,7 +1085,10 @@ export function createSfx({ rng, menuMusic = false, menuSongs = false, radioFade
     rotor = makeRotor();
     const rest = Object.keys(FILES);
     const beds = ['idle', 'siren', 'locoLoop', ...AMBIENT].map(bedFile);
-    await decodeAll([...SOUNDS.spawn, bedFile('city')]);
+    // The dispatch lines go first too: the story opens on the tap that, on the web, can be the
+    // first one, and they are ~19 s of speech, a sliver of the decoder's time.
+    await decodeAll([...SOUNDS.spawn, bedFile('city'), ...SOUNDS.dispatch1, ...SOUNDS.dispatch2,
+      ...SOUNDS.dispatch3, ...SOUNDS.dispatch4]);
     fillBeds();
     // The station's ~185 s goes behind the effects while it is off the air (the title menu); on
     // the air already (no title screen, or the menu's own songs) it waits only for the spawn and

@@ -1396,6 +1396,10 @@ export function createLTrain(scene, rng, { sparks = null, lights = true, intro =
     update,
     settle,
     setFadePoints,
+    /** Send a train off now, if the line is empty — the ⚙️ panel's ⚡ and ⏸ (main.js). */
+    launch() {
+      if (state.phase === 'wait') depart();
+    },
     /**
      * The L's own intro (bents rise, then the spans are laid), or null under `?trainintro=classic`,
      * where the entrance wave grows the whole structure from the middle of its median instead.

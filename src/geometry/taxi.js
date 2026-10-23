@@ -115,11 +115,56 @@ const FRONT_ANCHOR = wheelAnchors(CAR_LEN, CAR_W).find((anchor) => anchor.front)
 export const TAXI_FRONT_AXLE_FWD = FRONT_ANCHOR.x * TAXI_SCALE;
 export const TAXI_FRONT_TRACK = Math.abs(FRONT_ANCHOR.z) * TAXI_SCALE;
 
+// The lids' thickness: the boot lid and the bonnet are 0.06 boxes standing on the body's top plane.
+const LID_T = 0.06;
+
+// The chequer down the middle of the bonnet, the roof and the boot lid, two cells wide. Square
+// cells (DECK_CELL) so the chequer stays a chequer at any angle; the bonnet's run starts a cell clear
+// of the windscreen's foot (x = 0.65) and the boot's of the tail (-1.7), and each is whole cells so
+// no cell is cut short at the bumper. The plates sit DECK_LIFT over the body's top plane so they
+// never share it (coplanar shimmer).
+const DECK_CELL = 0.24;
+const DECK_LIFT = 0.012;
+const DECK_PLATE = 0.024;
+const DECK_BONNET = { from: 0.72, rows: 4 }; // working forward from the screen
+const DECK_BOOT = { from: -1.05 - 0.07, rows: 2, back: true }; // working back from the cabin
+// The roof's flat top runs -1.08 back to 0.23 (its front edge leans back 0.45 over the rake), so
+// five cells fit from just inside the front edge.
+const DECK_ROOF = { from: 0.175, rows: 5, back: true, top: 1.75 + CHASSIS_LIFT };
+
+/**
+ * One run of chequer plates in car-local space, standing on `top` (the body's top plane unless the
+ * run says otherwise). `finish` false leaves off `aFinish`, for merging into a lid whose geometry
+ * carries none.
+ */
+function deckChequer({ from, rows, back, top = BODY_TOP }, finish = true) {
+  const plates = [];
+  for (let row = 0; row < rows; row++) {
+    for (const col of [0, 1]) {
+      const plate = new THREE.BoxGeometry(DECK_CELL, DECK_PLATE, DECK_CELL);
+      const x = from + (back ? -1 : 1) * (row + 0.5) * DECK_CELL;
+      plate.translate(x, top + DECK_LIFT, (col - 0.5) * DECK_CELL);
+      const painted = bakeColor(plate, color((row + col) % 2 === 0 ? 'taxiTrim' : 'taxiSign'));
+      plates.push(finish ? setFinish(painted, FINISH.PAINT) : painted);
+    }
+  }
+  return plates;
+}
+
+/**
+ * The run's plates moved onto a lid hinged at (hingeX, BODY_TOP): the same cells, now standing on
+ * the lid's own top face (`LID_T` over the hinge) instead of on the body's, so a lid swung open
+ * carries its chequer up with it.
+ */
+function lidChequer(run, hingeX) {
+  return deckChequer(run, false).map((g) => g.translate(-hingeX, LID_T - BODY_TOP, 0));
+}
+
 /**
  * The parts the taxi's shell merges: body, cabin, chequer stripe and the rear wheels. Shared with
  * `taxiSignGeometry`, so the sign on the depot's roof is this car and cannot drift from it.
  */
-function shellParts() {
+function shellParts({ lids = true } = {}) {
   const parts = [];
 
   // Proportions match the ambient cars so the taxi reads as the same class of vehicle.
@@ -182,31 +227,11 @@ function shellParts() {
   // Both colours are painted rather than letting the light cells fall through to the body, since a
   // yellow-and-black band is a hazard stripe, not a taxi; the white is `taxiSign`.
 
-  // The same two colours down the middle of the bonnet and the boot lid, two cells wide, and the
-  // roof between them stays plain yellow. Square cells (DECK_CELL) so the chequer stays a chequer
-  // at any angle; the run starts a cell clear of the windscreen's foot (x = 0.65) and of the tail
-  // (-1.7), and each is whole cells so no cell is cut short at the bumper. The plates sit
-  // DECK_LIFT over the body's top plane so they never share it (coplanar shimmer).
-  const DECK_CELL = 0.24;
-  const DECK_LIFT = 0.012;
-  const deckTop = 1.18 + CHASSIS_LIFT;
-  const deckRuns = [
-    { from: 0.72, rows: 4 }, // bonnet, working forward from the screen
-    { from: -1.05 - 0.07, rows: 2, back: true }, // boot lid, working back from the cabin
-    // The roof's flat top runs -1.08 back to 0.23 (its front edge leans back 0.45 over the rake),
-    // so five cells fit from just inside the front edge.
-    { from: 0.175, rows: 5, back: true, top: 1.75 + CHASSIS_LIFT },
-  ];
-  for (const { from, rows, back, top = deckTop } of deckRuns) {
-    for (let row = 0; row < rows; row++) {
-      for (const col of [0, 1]) {
-        const plate = new THREE.BoxGeometry(DECK_CELL, 0.024, DECK_CELL);
-        const x = from + (back ? -1 : 1) * (row + 0.5) * DECK_CELL;
-        plate.translate(x, top + DECK_LIFT, (col - 0.5) * DECK_CELL);
-        parts.push(setFinish(bakeColor(plate, color((row + col) % 2 === 0 ? 'taxiTrim' : 'taxiSign')), FINISH.PAINT));
-      }
-    }
-  }
+  // The same two colours down the middle of the bonnet, the boot lid and the roof (deckChequer).
+  // The bonnet's and the boot's runs are left out of the live taxi's shell (`lids: false`): they
+  // ride meshes of their own there, so a wreck that swings a lid open can take them with it.
+  parts.push(...deckChequer(DECK_ROOF));
+  if (lids) parts.push(...deckChequer(DECK_BONNET), ...deckChequer(DECK_BOOT));
 
   // Rear wheels only — the fronts steer, so they hang off the group as their own meshes below.
   parts.push(...wheelGeometries(CAR_LEN, CAR_W));
@@ -234,7 +259,7 @@ export function createTaxiMesh() {
   const group = new THREE.Group();
   group.name = 'taxi';
 
-  const parts = shellParts();
+  const parts = shellParts({ lids: false });
   const merged = mergeGeometries(parts, false);
   parts.forEach((p) => p.dispose());
 
@@ -611,9 +636,12 @@ function buildDamage(group, lightPods, bumpers, chrome) {
   // down and is culled before it can fight anything (see the coplanar notes in CLAUDE.md).
   const bootHinge = new THREE.Group();
   bootHinge.position.set(BOOT_HINGE_X, BODY_TOP, 0);
-  const lidGeo = new THREE.BoxGeometry(BOOT_LEN, 0.06, CAR_W * 0.94);
-  lidGeo.translate(-BOOT_LEN / 2, 0.03, 0);
-  const lid = new THREE.Mesh(bakeColor(lidGeo, color('taxiBody')), propMaterial());
+  const lidGeo = new THREE.BoxGeometry(BOOT_LEN, LID_T, CAR_W * 0.94);
+  lidGeo.translate(-BOOT_LEN / 2, LID_T / 2, 0);
+  const lid = new THREE.Mesh(
+    mergeGeometries([bakeColor(lidGeo, color('taxiBody')), ...lidChequer(DECK_BOOT, BOOT_HINGE_X)]),
+    propMaterial(),
+  );
   lid.castShadow = true;
   lid.receiveShadow = true;
   lid.userData.pickable = 'taxi';
@@ -630,9 +658,12 @@ function buildDamage(group, lightPods, bumpers, chrome) {
   // windscreen, running forward to the nose, over an opening of its own.
   const hoodHinge = new THREE.Group();
   hoodHinge.position.set(HOOD_HINGE_X, BODY_TOP, 0);
-  const hoodGeo = new THREE.BoxGeometry(HOOD_LEN, 0.06, CAR_W * 0.94);
-  hoodGeo.translate(HOOD_LEN / 2, 0.03, 0);
-  const hood = new THREE.Mesh(bakeColor(hoodGeo, color('taxiBody')), propMaterial());
+  const hoodGeo = new THREE.BoxGeometry(HOOD_LEN, LID_T, CAR_W * 0.94);
+  hoodGeo.translate(HOOD_LEN / 2, LID_T / 2, 0);
+  const hood = new THREE.Mesh(
+    mergeGeometries([bakeColor(hoodGeo, color('taxiBody')), ...lidChequer(DECK_BONNET, HOOD_HINGE_X)]),
+    propMaterial(),
+  );
   hood.castShadow = true;
   hood.receiveShadow = true;
   hood.userData.pickable = 'taxi';
@@ -644,6 +675,24 @@ function buildDamage(group, lightPods, bumpers, chrome) {
   hoodHinge.scale.setScalar(0);
   bay.scale.setScalar(0);
   group.add(hoodHinge, bay);
+
+  // The chequer on the shut bonnet and boot, off the shell and on meshes of their own so a lid that
+  // opens can take its chequer with it. While they were merged into the shell they stayed put when
+  // the lid swung up, and stood 0.036 over the body's top plane — clean through the 0.02 opening
+  // laid over it, so a wreck's engine bay wore the bonnet's stripe. The lids carry the same cells
+  // (lidChequer), and each of these goes when its lid comes out. On the shell's own material.
+  const shutChequer = (run) => {
+    const plates = deckChequer(run);
+    const mesh = new THREE.Mesh(mergeGeometries(plates), chrome);
+    plates.forEach((p) => p.dispose());
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+    mesh.userData.pickable = 'taxi';
+    group.add(mesh);
+    return mesh;
+  };
+  const bonnetChequer = shutChequer(DECK_BONNET);
+  const bootChequer = shutChequer(DECK_BOOT);
 
   // Loose lamps, one per corner. Every pod hangs at one of four corners (a rear corner carries its
   // brake pod and its indicator on the same anchor), and the pods at a loose corner ride the housing
@@ -729,7 +778,7 @@ function buildDamage(group, lightPods, bumpers, chrome) {
   // wheels' rocker-panel streak again (see addGhostOutline(shell)). Mask only, no rim: a thin panel
   // cannot carry a hull (see addGhostMask), and each mask inherits its part's zero scale while the
   // part is put away, so an undamaged car stamps nothing extra.
-  for (const part of [lid, hole, hood, bay, bar, brokenScreen]) addGhostMask(part);
+  for (const part of [lid, hole, hood, bay, bar, brokenScreen, bonnetChequer, bootChequer]) addGhostMask(part);
   for (const lamp of lamps.values()) { addGhostMask(lamp.housing); addGhostMask(lamp.wire); }
 
   const tipLocal = new THREE.Vector3(0, -BUMPER_H / 2, -BUMPER_LEN);
@@ -768,6 +817,7 @@ function buildDamage(group, lightPods, bumpers, chrome) {
       const shown = angle != null;
       bootHinge.scale.setScalar(shown ? 1 : 0);
       hole.scale.setScalar(shown ? 1 : 0);
+      bootChequer.visible = !shown;
       if (shown) bootHinge.rotation.z = -angle;
     },
     /** The bonnet's opening angle in radians (free edge up), or null to put it away. */
@@ -775,6 +825,7 @@ function buildDamage(group, lightPods, bumpers, chrome) {
       const shown = angle != null;
       hoodHinge.scale.setScalar(shown ? 1 : 0);
       bay.scale.setScalar(shown ? 1 : 0);
+      bonnetChequer.visible = !shown;
       // +z lifts the free end here, where it runs forward of the hinge; the boot's runs back.
       if (shown) hoodHinge.rotation.z = angle;
     },
@@ -823,6 +874,8 @@ function buildDamage(group, lightPods, bumpers, chrome) {
       hole.scale.setScalar(0);
       hoodHinge.scale.setScalar(0);
       bay.scale.setScalar(0);
+      bonnetChequer.visible = true;
+      bootChequer.visible = true;
       bumperHinge.scale.setScalar(0);
       for (const bumper of bumpers.values()) bumper.visible = true;
       brokenScreen.scale.setScalar(0);

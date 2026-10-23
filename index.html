@@ -2,7 +2,15 @@
 <html lang="en" class="booting">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <!-- `maximum-scale=1, user-scalable=no` is for the iOS app. Its shell turns off the scroll
+         view's pinch recogniser, but WebKit still zooms the page on its own — double-tap and
+         zoom-to-focused-element do not go through that recogniser — and with pinch gone the
+         player has no gesture to zoom back out: tapping Settings on the pause screen left the
+         whole game stuck at ~1.5x, rows running off the right edge, until the app was killed.
+         WKWebView honours these limits (`ignoresViewportScaleLimits` defaults to false), so the
+         page cannot leave scale 1 at all. Safari ignores `user-scalable=no` since iOS 10, so on
+         the web a deliberate pinch still works; `maximum-scale=1` there only stops focus zoom. -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
     <title>Rocket Rides 🚕</title>
     <!-- Home-screen icon. iOS's mask is round-cornered, so the artwork is centred with a purple
          border that the mask crops into. Every size is rendered from the game's own taxi by
@@ -635,6 +643,10 @@
          because it is the one thing on screen the player should be watching. 40px (was 34, Tyler
          asked for a little bigger); tabular figures so the digits are one width. */
       .earning.is-label.is-count { font-size: 40px; font-variant-numeric: tabular-nums; }
+      /* The three, two, one and the "Go!" at twice that, in the middle of the screen (Tyler: "double
+         the size of those numbers, stick them in the very center of the screen so that you don't
+         miss it"; RACE_COUNT_Y in main.js). `?racecount=classic` keeps them at 40px. */
+      .earning.is-label.is-count.is-countdown { font-size: 80px; }
       /* The combo's words off the roof and its multiplied total at the drop-off. */
       .earning.run-combo { color: #B27CFF; }
 
@@ -780,6 +792,10 @@
       /* Tabular figures so a rolling counter doesn't jitter its own width as the digits change,
          and the column stays put while a row counts. */
       #run-end .stat-value { font-variant-numeric: tabular-nums; }
+      /* The values in white, so the yellow labels read as the headings and the figure as the answer. */
+      #run-end .is-counted .stat-value { color: #fff; }
+      /* One span per character so a digit can fade up on its own; a transform needs a box. */
+      #run-end .stat-glyph { display: inline-block; }
 
       /* The slot the three screens take turns in: the stats, the initials prompt and the table.
          `runend.js` locks a min-height onto it from the stats' own rendered height, so a card
@@ -951,6 +967,24 @@
         display: block; width: clamp(96px, 24vh, 190px); height: auto; aspect-ratio: 1;
         background: #222;
       }
+
+      /* Room for the foot hint (the default; `?runendfit=classic` is the layout below without it).
+         The hint is `position: fixed` and out of the flow, so the card centred itself in the whole
+         blackout and, on a phone, ran its table down under the hint: on a 393×852 iPhone the fifth
+         row sat at 740–777 against a hint at 750–775. The bottom padding holds the hint's band —
+         its own offset, ~26px of line and a 16px gap — so `margin: auto` centres the card in what is
+         left above it, and anything that still does not fit scrolls rather than slides underneath.
+         Scrolling was the other way out and is the worse one here: the whole blackout is the tap
+         target, so the swipe that scrolls a list is also the tap that leaves it.
+         The space comes out of the print and the two big gaps, which were sized when the card ended
+         on a pill rather than on a table of five. Measured with all five rows up (card bottom → hint
+         top): 393×852 −27 → 30px, 375×667 (iPhone SE) −44 → 9px, 440×956 16 → 71px. */
+      #run-end.is-fit:not(.is-keyboard) {
+        padding-bottom: calc(clamp(20px, 5vh, 44px) + 42px + var(--safe-bottom));
+      }
+      #run-end.is-fit:not(.is-keyboard) .run-end-body { margin-top: clamp(14px, 4vh, 40px); }
+      #run-end.is-fit .run-end-photo { margin-bottom: clamp(12px, 2.6vh, 24px); }
+      #run-end.is-fit .run-end-shot { width: clamp(88px, 18vh, 160px); }
 
       /* The Loco Mode pill and the ⚙️ tweak toggle are gameplay controls; once the run is over
          they are noise behind the retry pill. */
@@ -1523,6 +1557,8 @@
          instead of growing out of one. Wider than a pinned card, since it covers nothing it is about: most lines then fit on
          one line and the card stays a short strip. */
       .speech-docked .speech-card { max-width: min(300px, calc(100vw - 20px)); }
+      /* Its height is eased by speech.js, so a new row is revealed as the card opens onto it. */
+      .speech-docked .speech-card { overflow: hidden; }
       .speech-docked > .speech .speech-pointer { display: none; }
       .speech-docked > .speech > .speech-body { transform: translateY(14px); transform-origin: 50% 100%; }
       .speech-docked.is-open > .speech > .speech-body { transform: none; }
@@ -1637,26 +1673,49 @@
       .speech-tag-pin .speech-pointer { color: #fff; }
       .speech-tag b { display: none; }
       /* An offer — a side quest the player can take or leave (speech.js `showTag`, the street
-         racer): a yellow "!" in place of the dots, the mark an RPG hangs over an NPC with a quest
-         to give. The yellow is the highlighted word's (.speech-hl), so the "!" and the "{race}" it
-         turns into on a tap are one colour. Opaque rather than glass: the blur is what lets white
-         sit over a pale street, and yellow carries itself. The dark outline is the rider pie's
-         1.5px one (MARKER_OUTLINE_PX), drawn round disc and pointer together by four hard
-         drop-shadows, so the two read as one shape against the rain-grey street. The "!" hops on
-         the arrows' 1.3s beat instead of the dots' typing ripple. */
-      .tag-quest .speech-tag-pin .speech-tag { background: #FFC93C; box-shadow: none; -webkit-backdrop-filter: none; backdrop-filter: none; }
+         racer): a purple "!" in place of the dots, the mark an RPG hangs over an NPC with a quest
+         to give. The purple is the old mystery rider's (PALETTE.vip, #A64DFF — Tyler, 2026-10-23;
+         it was the highlighted word's yellow until then). Opaque rather than glass: the blur is
+         what lets white sit over a pale street, and the purple carries itself. The dark outline is the rider pie's
+         1.5px one (MARKER_OUTLINE_PX), drawn round disc and pointer together so the two read as
+         one shape against the rain-grey street. It is built in layers rather than as a filter: a
+         dark disc 1.5px proud of the purple one at the back, the pointer over it stroked in the
+         same dark, and the purple disc on top, which covers the pointer's sunk base and its stroke.
+         It was four hard drop-shadows on the tag body until then, and Safari left the pointer out
+         of them — the outline stopped at the disc's edge and the tail went bare (Tyler, 2026-10-23).
+         The "!" hops on the arrows' 1.3s beat instead of the dots' typing ripple. */
+      .tag-quest .speech-tag-pin .speech-tag { background: #A64DFF; box-shadow: none; -webkit-backdrop-filter: none; backdrop-filter: none; }
       /* Unclipped: the glass clip (above) cuts the pointer off level with where the disc's edge
          meets it, and the disc curves 0.4px away from that line — a sliver the outline's
          drop-shadows then filled in dark, which drew as a little shadow across the pointer's root
-         (Tyler, 2026-10-21). Opaque yellow has no overlap to darken, so the whole pointer can sit
+         (Tyler, 2026-10-21). An opaque disc has no overlap to darken, so the whole pointer can sit
          under the disc. */
       .tag-quest .speech-tag-pin .speech-pointer {
-        color: #FFC93C; clip-path: none; -webkit-backdrop-filter: none; backdrop-filter: none;
+        color: #A64DFF; clip-path: none; -webkit-backdrop-filter: none; backdrop-filter: none;
       }
-      .tag-quest .speech-tag-pin .speech-tag-body {
-        filter: drop-shadow(1.5px 0 0 #121318) drop-shadow(-1.5px 0 0 #121318) drop-shadow(0 1.5px 0 #121318)
-          drop-shadow(0 -1.5px 0 #121318) drop-shadow(0 2px 3px rgba(16, 18, 26, 0.35));
+      /* The white tag wears the same outline (Tyler, 2026-10-23), and so goes opaque and unclipped
+         like the quest tag: through a 0.9 white the dark disc behind would show as a grey ring, and
+         the glass clip would cut the pointer's stroke off at the disc's edge. */
+      .speech-style-white:not(.tag-quest) .speech-tag-pin .speech-tag { background: #fff; box-shadow: none; -webkit-backdrop-filter: none; backdrop-filter: none; }
+      .speech-style-white:not(.tag-quest) .speech-tag-pin .speech-pointer {
+        color: #fff; clip-path: none; -webkit-backdrop-filter: none; backdrop-filter: none;
       }
+      .tag-quest .speech-tag-pin .speech-tag-body, .speech-style-white .speech-tag-pin .speech-tag-body {
+        isolation: isolate; filter: drop-shadow(0 2px 3px rgba(16, 18, 26, 0.35));
+      }
+      :is(.tag-quest, .speech-style-white) .speech-tag-pin .speech-tag-body::before {
+        content: ''; position: absolute; inset: -1.5px; border-radius: 50%; background: #121318; z-index: 0;
+      }
+      :is(.tag-quest, .speech-style-white) .speech-tag-pin .speech-pointer { z-index: 1; }
+      :is(.tag-quest, .speech-style-white) .speech-tag-pin .speech-pointer path {
+        stroke: #121318; stroke-width: 3px; vector-effect: non-scaling-stroke; paint-order: stroke; stroke-linejoin: round;
+      }
+      :is(.tag-quest, .speech-style-white) .speech-tag-pin .speech-tag { position: relative; z-index: 2; }
+      /* The glass styles fade the disc and pointer themselves rather than the body, so the dark
+         disc behind them has to fade with them or it would stand alone for the length of a fade. */
+      .speech-glass:is(.tag-quest, .speech-style-white) .speech-tag-pin .speech-tag-body::before { opacity: 0; transition: opacity 0.18s ease; }
+      .speech-glass:is(.tag-quest, .speech-style-white).is-open .speech-tag-pin .speech-tag-body::before { opacity: 1; }
+      .speech-glass:is(.tag-quest, .speech-style-white).is-closing .speech-tag-pin .speech-tag-body::before { opacity: 0; transition: opacity 0.2s ease; }
       .tag-quest .speech-tag i { display: none; }
       .tag-quest .speech-tag b {
         display: block; font: 700 17px/1 'Space Grotesk', system-ui, sans-serif; color: #121318;
@@ -1846,6 +1905,28 @@
         0% { opacity: 0.9; transform: scale(1); }
         100% { opacity: 0; transform: scale(1.55); }
       }
+      /* Holds (the overtake, newmove.js `holds`): a key is the button's colour only while the clip
+         holds it, a flat grey disc otherwise (not a greyscale filter, which turned the orange brown on
+         the blackout), and while held it dips and a ring fills round it. The ring is the "+"'s ink.
+         `?overtakekeys=classic` is the plain row. */
+      .nm-combo.is-holds .nm-key svg:not(.nm-hold) { transition: transform 0.07s ease-out; }
+      .nm-combo.is-holds .nm-key:not(.is-down) svg:not(.nm-hold) circle { fill: #464c5c; }
+      .nm-combo.is-holds .nm-key:not(.is-down) .pedal-letter { fill-opacity: 0.55; }
+      .nm-combo.is-holds .nm-key.is-down svg:not(.nm-hold) { transform: scale(0.88); }
+      body:not(.move-card-classic) .nm-combo.is-holds .nm-key { transform: none; }
+      .nm-hold {
+        position: absolute; inset: -8px; width: calc(100% + 16px) !important; height: calc(100% + 16px) !important;
+        pointer-events: none; color: #44497d;
+      }
+      body.new-move-after-run #new-move .nm-hold { color: #fff; }
+      .nm-hold circle { fill: none; stroke: currentColor; stroke-width: 3; }
+      .nm-hold-track { opacity: 0.18; }
+      .nm-hold-fill { stroke-dasharray: 1 1; stroke-dashoffset: 1; stroke-linecap: round; }
+      /* No "next" ring here: the hold ring is the only ring, and only on the key being pressed (Tyler,
+         2026-10-22: the pulse round the waiting key read as that key being active). */
+      .nm-combo.is-holds .nm-key::after { display: none; }
+      .nm-combo.is-holds { gap: 18px; }
+
       /* The combo over the clip (newmove.js `comboOverlay`): the HUD's meter at the top of the
          frame, where play puts it, and the purple word off the taxi's roof. A touch under the HUD's
          size, the clip being a third of the screen's width; the word keeps its own. */
@@ -2014,15 +2095,15 @@
       #title-screen .title-cover {
         position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; pointer-events: none;
       }
-      /* The title's way in (`playIntro` in game/titlescreen.js): the city blurred and the menu out,
-         then the menu fades in and the city sharpens. The transitions live on `-go` only, so taking
+      /* The title's way in (`playIntro` in game/titlescreen.js): the menu out, then faded in over
+         the city. Under `title-blur` (`?titleintro=blur`) the city starts blurred and sharpens too. The transitions live on `-go` only, so taking
          the classes off at the end drops the filter outright instead of animating it away. The
          black under the canvas is what the blur's edge samples in from. */
-      html.title-intro body { background: #000; }
-      html.title-intro .city-canvas { filter: blur(6px); transform: scale(1.05); }
+      html.title-blur body { background: #000; }
+      html.title-blur .city-canvas { filter: blur(6px); transform: scale(1.05); }
       html.title-intro #title-screen .title-menu,
       html.title-intro #title-screen::before { opacity: 0; }
-      html.title-intro-go .city-canvas {
+      html.title-blur.title-intro-go .city-canvas {
         filter: blur(0px); transform: none;
         transition: filter var(--intro-focus) ease-in-out var(--intro-focus-at),
           transform var(--intro-focus) ease-in-out var(--intro-focus-at);
@@ -2048,6 +2129,17 @@
       }
       #title-screen[data-view="settings"] .title-scrim,
       #title-screen[data-view="credits"] .title-scrim { opacity: 1; }
+      /* The backstory (game/backstory.js): dispatch's lines on the docked speech card, over the
+         reel with the menu gone. The whole screen takes the tap that moves it on. */
+      #title-screen[data-view="story"]::before { opacity: 0; transition: opacity 0.25s ease; }
+      #title-screen .title-story { position: absolute; inset: 0; cursor: pointer; }
+      #title-screen .title-story-talk { position: absolute; inset: 0; pointer-events: none; }
+      #title-screen .title-story-talk[hidden] { display: none; }
+      /* Dispatch is a voice on the radio, with no one on screen for the tag to sit on. */
+      #title-screen .title-story-talk .speech-tag-pin { display: none; }
+      /* The word that punches once its line is typed (backstory.js `PUNCH`): its own box, so it can
+         scale and tilt about its middle. */
+      #title-screen .title-story-punch { display: inline-block; transform-origin: 50% 85%; }
 
       /* Every view is a left-aligned column, vertically centred, inset off the notch in landscape. */
       :is(#title-screen, #pause-veil) .title-view {
@@ -2074,6 +2166,15 @@
       }
       @media (hover: hover) { :is(#title-screen, #pause-veil) .title-item:hover { color: #F5C130; } }
       :is(#title-screen, #pause-veil) .title-item:active { transform: scale(0.96); }
+      /* The copyright and build line along the foot of the title menu: small and quiet, centred
+         between the safe-area insets and clear of the home indicator. */
+      #title-screen .title-legal {
+        position: absolute; margin: 0; text-align: center;
+        left: var(--safe-left); right: var(--safe-right);
+        bottom: calc(16px + var(--safe-bottom));
+        font-size: 11px; font-weight: 500; letter-spacing: 0.01em;
+        color: rgba(255, 255, 255, 0.3); pointer-events: none;
+      }
 
       /* A page: the way back above the header, smaller than it, then the header, then the body. */
       :is(#title-screen, #pause-veil) .title-back {
@@ -2100,6 +2201,8 @@
       /* The Demo mode row (game/progress.js): hidden until revealed, asleep while ?demo overrules it. */
       :is(#title-screen, #pause-veil) .title-row[hidden] { display: none; }
       :is(#title-screen, #pause-veil) .title-toggle.is-asleep { opacity: 0.4; }
+      :is(#title-screen, #pause-veil) .title-row.is-revealed { animation: demo-reveal 1.2s ease-out; }
+      @keyframes demo-reveal { from { color: #F5C130; } }
 
       :is(#title-screen, #pause-veil) .title-switch {
         flex: none; position: relative; width: 50px; height: 30px; border-radius: 999px;
@@ -2409,6 +2512,39 @@
         font: 400 10px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
       }
       body.shot-mode #dbg-toggle, body.shot-mode #dbg-panel { display: none; }
+
+      /* --- the Colour grade section's editor (src/game/debugpanel.js) ---
+         While a finger is on one of its controls the rest of the panel goes invisible, so the city
+         under it can be judged mid-drag. `visibility` rather than `opacity` because a child can turn
+         visibility back on and cannot undo a parent's opacity. */
+      #dbg-panel.dbg-scrub {
+        background: transparent; border-color: transparent; box-shadow: none;
+        -webkit-backdrop-filter: none; backdrop-filter: none;
+      }
+      #dbg-panel.dbg-scrub, #dbg-panel.dbg-scrub * { visibility: hidden; }
+      #dbg-panel.dbg-scrub .is-scrubbing, #dbg-panel.dbg-scrub .is-scrubbing * { visibility: visible; }
+      #dbg-panel.dbg-scrub .is-scrubbing {
+        background: var(--dbg-bg); border-radius: 8px; box-shadow: 0 0 0 6px var(--dbg-bg);
+      }
+      .dbg-sub {
+        margin: 12px 0 6px; color: var(--dbg-mute); font-size: 10px; font-weight: 600;
+        letter-spacing: 0.06em; text-transform: uppercase;
+      }
+      .dbg-hold { touch-action: none; -webkit-user-select: none; user-select: none; }
+      .dbg-hold span { pointer-events: none; }
+      .dbg-hold:active { background: var(--dbg-accent) !important; color: #111; }
+      .dbg-curve canvas {
+        display: block; width: 100%; aspect-ratio: 256 / 180; touch-action: none;
+        border-radius: 6px; background: rgba(255, 255, 255, 0.04); border: 1px solid var(--dbg-line);
+        box-sizing: border-box;
+      }
+      .dbg-curve-tabs { display: flex; gap: 4px; margin-bottom: 6px; }
+      .dbg-curve-tabs button {
+        flex: 1; padding: 6px 0; border: 1px solid var(--dbg-line); border-radius: 6px; cursor: pointer;
+        background: var(--dbg-fill); color: var(--ink, var(--dbg-text)); font: 600 11px/1 system-ui, sans-serif;
+      }
+      .dbg-curve-tabs button.is-active { border-color: var(--ink); background: var(--dbg-fill-hi); }
+      .dbg-curve-tabs button:last-child { flex: 1.6; color: var(--dbg-mute); font-weight: 500; }
 
       /* --- the Audio sections of the tweak panel (src/game/audiopanel.js) --- */
       #dbg-panel .aud-sound .dbg-row { grid-template-columns: 60px 1fr; }

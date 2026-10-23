@@ -2811,13 +2811,14 @@ const CABIN_Y = 1.45 + CHASSIS_LIFT;         // its centre
 /** The roof: what a light bar is bolted to. */
 export const CABIN_TOP = CABIN_Y + CABIN_H / 2;
 
-export function carGeometry({ bumpers = true } = {}) {
+export function carGeometry({ bumpers = true, wheels = true } = {}) {
   // Body is left white so the per-instance colour tints it; the glass is dark enough that the
   // same multiply leaves it dark whatever colour the car is.
   //
   // `bumpers: false` for the fleet, which draws them as instances of their own (`bumperMesh` in
   // createTraffic) so that a car the taxi has hit can wear one hanging off a corner — a bar merged
-  // into the body could not be taken away from the end it left.
+  // into the body could not be taken away from the end it left. `wheels: false` for the street
+  // racer, whose body rides on hydraulics over wheels that stay on the road (game/hydraulics.js).
   const parts = [];
 
   // Body sits clear of the wheels so they actually show below the sill, and is arched over each
@@ -2829,7 +2830,7 @@ export function carGeometry({ bumpers = true } = {}) {
   const glass = bakeColor(cabin, color('carGlass'));
   parts.push(setFinish(SMOOTH_BODY ? softenNormals(glass) : glass, FINISH.GLASS));
 
-  parts.push(...wheelGeometries(CAR_LEN, CAR_W));
+  if (wheels) parts.push(...wheelGeometries(CAR_LEN, CAR_W));
   if (bumpers) parts.push(...bumperGeometries(CAR_LEN, CAR_W));
 
   const merged = mergeGeometries(parts, false);
@@ -7397,7 +7398,9 @@ export function createTraffic(
       // field. Keeping them apart matters: the weave's yaw is eased toward its target every
       // frame, and folding a 4-unit lane change into that eased value would have the ease drag
       // the car back out of the pass.
-      const lateral = car.lateral + car.passOffset;
+      // The taxi's swipe onto the kerb at a post box or a hot dog cart (game/streetprops.js) is a
+      // third of the same kind, set from outside before this step.
+      const lateral = car.lateral + car.passOffset + (car.swipeOffset ?? 0);
       if (Math.abs(lateral) > 0.001) {
         car.x -= Math.sin(car.yaw) * lateral;
         car.z -= Math.cos(car.yaw) * lateral;
@@ -7406,7 +7409,8 @@ export function createTraffic(
       // steering input: the nose and the front wheels should both point at the
       // kerb the car is diving for.
       const steer = car.steer + (car.passSlope ? Math.atan(car.passSlope) : 0)
-        + (car.pulloverSlope ? Math.atan(car.pulloverSlope) : 0);
+        + (car.pulloverSlope ? Math.atan(car.pulloverSlope) : 0)
+        + (car.swipeSlope ? Math.atan(car.swipeSlope) : 0);
       if (steer) car.yaw += steer;
 
       // --- Front wheels point where the car is going.

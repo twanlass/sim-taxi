@@ -125,6 +125,7 @@ again doesn't repeat the recording exactly:
 | `takeoff` / `land` | `taxi.hopFrom` turning non-null / `traffic.onTaxiLand`, with the land scaled by the same `hit` that scales the shake |
 | `bump` | A survivable hit on another car (`collisions.onBump`), scaled by closing speed: 0.3 at a nudge, full at a T-bone at the Loco top. Also the taxi knocking a spilt crate on (game/boxspill.js), at 0.18 |
 | `driveThru` | The lot taking the player's taxi on a burger run (`burgerRun.holdsTaxi()` turning true), never an ambient car. The visit is timed to the clip (12.93 s, `DRIVE_THRU_SECONDS`) plus a 2 s tail (`DRIVE_THRU_TAIL`) through the taxi's two dwells in game/drivethru.js, and the probe holds the visit within half a second of that; it is faded out (`sfx.release`) on the frame the lot hands the taxi back. The radio ducks 12 dB for the length of it (`sfx.duckMusic`) |
+| `dispatch1`–`dispatch4` | The [backstory](gameplay.md#the-backstory)'s four lines, each as its card comes up (`speakBackstory` in main.js), cut short (`sfx.release`, 0.08 s) by a tap that moves on or skips. Tyler's own recordings, delivered as 44.1 kHz MP3s and converted to 48 kHz WAV masters (`VO_dispatch_N`); encoded with ffmpeg's AAC at 128 kbps rather than `tools/audio.mjs`, there being no afconvert in the cloud. In the first decode wave with the spawn, since the story opens on Play |
 | `crash` | The wreck at full volume. The roadworks smash reuses it at half volume, and a crate off the flatbed at 0.3 pitched well up |
 | `horn` | A tap on the taxi itself, with the select-pop flash. New players coming from RTS games tap their own car first, expecting to select it; this answers the tap without inventing a selection state. Not during the opening, where that tap is the skip. The master (`18_HORN_honk`, 48 kHz / 16-bit, Tyler, October 2026) arrived at −10.5 LUFS and a +0.2 dBFS peak, 11 dB hotter than a crash, so it ships at gain 0.3 (about −21 LUFS, level with the crash). It was encoded with ffmpeg's AAC rather than afconvert, from a cloud session with no Mac; re-running `tools/audio.mjs` replaces it harmlessly |
 
@@ -224,6 +225,31 @@ list rather than afconvert's 2112; a decoder that honours the edit list (ffmpeg,
 back the true length plus at most one frame of end padding, which `loopWindow` reads as no
 priming at all and loops correctly. Re-running `tools/audio.mjs` on a Mac replaces them with
 afconvert's encode.
+
+## The L train
+
+The `ltrain` bed (`LTRAIN_AMB_pass_loop_MONO`) plays from the middle of the L train while it runs,
+its level the train's speed as a share of cruise, so it rolls in and out with the ramps at each end
+(`ltrain.emitter()`, `ambientLevels` in main.js). It is in the Ambience group.
+
+It is Tyler's own recording of an elevated train going by (`raised_l_train_scree_4`, 15 s,
+48 kHz / 16-bit stereo, −36.8 LUFS, October 2026), committed whole under `assets/audio-raw/` so it
+can be re-cut. A pass-by already carries its own swell and fade, and played as a one-shot it would
+fight the falloff that places it, so the bed is its **steady middle**: 3.0 s to 10.5 s, folded to
+mono, the 0.75 s after the cut cross-faded (equal power) back over its start so it loops without a
+seam, and raised 6.3 dB to −32 LUFS, a couple over the construction bed. Tyler's mix (October
+2026) then puts it at +8 dB (gain 2.51) with a wider full-level zone: the falloff (`near` 19,
+`far` 60) and the train's speed make the pass-by. Both squeals in the recording are inside the
+loop, so one comes round every 7.5 s while a train is near.
+
+In audio debug the moving train carries its own 🔊 pin (from its middle, while it runs), so its
+falloff rings can be dragged like any placed sound's. The ⚙️ panel's ⚡ sends a train off now, and
+⏸ freezes one mid-run, sending it out to the middle of its run first if the line is empty. Unlike the
+plane's hold, nothing extra loops: the bed already plays off the train while it stands there.
+
+The train's wheel sparks and the garage's welding during a repair have no sound yet. Synthesised
+stand-ins were tried for them (October 2026) and turned down: Tyler, "don't ship any of the synth
+standin sounds".
 
 ## The radio
 

@@ -567,6 +567,13 @@ export const PALETTE = {
   taxiBody: '#F5C130',
   taxiTrim: '#2B2B30',
   taxiSign: '#F2F0E8',
+  // The painted flame on the depot's cutout taxi (city/garage.js): hot-rod sign paint, red to
+  // yellow, and deliberately *not* the Loco plume's locoFlame* — that is the player's boost, and
+  // the roof is a sign. The core is a lemon rather than `taxiBody` so it does not merge into the
+  // board it sits against.
+  signFlameOuter: '#E23A22',
+  signFlameMid: '#FF8A1C',
+  signFlameCore: '#FFE14D',
   // The ghost outline traced where the taxi is hidden behind a building — see
   // geometry/ghostoutline.js. The body yellow lightened a touch: it has to say "your taxi is
   // here" while sitting on the dark side of a tower, where the body colour itself goes muddy.
@@ -772,6 +779,10 @@ export const PALETTE = {
   // building's own paint lit up. The grit is the collar's warm grey a step darker, because it comes
   // out onto the pale forecourt asphalt low and thin rather than as a wall of smoke.
   weldFlash: '#BCD6FF',
+  // The glint off the taxi's front-right fender as it leaves the garage — game/glint.js. Warm
+  // rather than pure white: it is the sun off yellow paint, and a cold white star on a yellow car
+  // reads as a UI sticker rather than as light.
+  glint: '#FFF4D6',
   repairDust: '#B3ACA4',
   // The damaged taxi's bonnet smoke — game/taxidamage.js — walked from the first stop to the second
   // as the last third of its hit points goes. Both are set against the **road**, because that is
@@ -935,6 +946,25 @@ export const PALETTE = {
   boomboxCone: '#17191D',
   boomboxCap: '#8E939B',
   boomboxTape: '#D9A441',
+  // The post box and the hot dog cart on the kerb (geometry/streetprops.js, game/streetprops.js).
+  // The box is the US mail's blue, a shade lighter than the real one so it does not go black in a
+  // tower's shadow at play zoom; the umbrella is the red and yellow every cart in the world has.
+  mailboxBlue: '#2A5DB8',
+  mailboxTrim: '#1B2E5C',
+  mailboxSlot: '#0E1424',
+  mailboxLabel: '#EEF1F6',
+  envelope: '#F4EFE2',
+  cartSteel: '#C9CDD3',
+  cartSteelDark: '#8D939B',
+  cartBand: '#D8432F',
+  cartTrim: '#3A3D44',
+  cartTyre: '#1D1F24',
+  umbrellaA: '#E23A2C',
+  umbrellaB: '#FFB81C',
+  ketchup: '#C8281E',
+  mustard: '#F2C21B',
+  bun: '#D9A35E',
+  sausage: '#A9452C',
   musicNoteA: '#FF8F2E',
   musicNoteB: '#FFB45E',
   // The car wash (city/carwash.js): a white shed with a bright blue fascia and soap bubbles on it,

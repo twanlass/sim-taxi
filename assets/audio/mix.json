@@ -12,7 +12,8 @@
     "events": { "gain": 1 },
     "ambience": { "gain": 1 },
     "people": { "gain": 1 },
-    "police": { "gain": 1 }
+    "police": { "gain": 1 },
+    "dispatch": { "gain": 1 }
   },
   "sounds": {
     "idle": { "file": "01_ENG_idle_loop", "gain": 1, "rate": 1 },
@@ -47,7 +48,12 @@
     "seagulls": { "file": "29_AMB_seagulls_loop_MONO", "gain": 1.1885022274370185, "rate": 1 },
     "rain": { "file": "30_AMB_rain_loop_ST | MONO", "gain": 1, "rate": 1, "pick": 1 },
     "court": { "file": "31_AMB_basketball_loop_MONO", "gain": 2.2387211385683394, "rate": 1 },
-    "chirp": { "file": "32_NPC_chirp_short_A-B | long_A-B", "gain": 1, "rate": 1 }
+    "chirp": { "file": "32_NPC_chirp_short_A-B | long_A-B", "gain": 1, "rate": 1 },
+    "dispatch1": { "file": "VO_dispatch_1", "gain": 0.5011872336272722, "rate": 1 },
+    "dispatch2": { "file": "VO_dispatch_2", "gain": 0.7852356346100716, "rate": 1 },
+    "dispatch3": { "file": "VO_dispatch_3", "gain": 0.7161434102129022, "rate": 1 },
+    "dispatch4": { "file": "VO_dispatch_4", "gain": 1.9054607179632475, "rate": 1 },
+    "ltrain": { "file": "LTRAIN_AMB_pass_loop_MONO", "gain": 2.51188643150958, "rate": 1 }
   },
   "minGap": {
     "bump": 0.15,
@@ -73,7 +79,11 @@
     "plane": 0,
     "heli": 0,
     "angry": 0.3,
-    "chirp": 0.5
+    "chirp": 0.5,
+    "dispatch1": 0,
+    "dispatch2": 0,
+    "dispatch3": 0,
+    "dispatch4": 0
   },
   "place": {
     "gate": { "near": 15, "far": 70 },
@@ -86,7 +96,8 @@
     "angry": { "near": 10, "far": 55 },
     "seagulls": { "near": 8, "far": 40 },
     "court": { "near": 8, "far": 28 },
-    "chirp": { "near": 15, "far": 70 }
+    "chirp": { "near": 15, "far": 70 },
+    "ltrain": { "near": 19, "far": 60 }
   },
   "engine": {
     "idleRateLo": 0.9,

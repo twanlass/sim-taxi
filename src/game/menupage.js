@@ -13,6 +13,10 @@ import { isNative } from '../util/platform.js';
 import { QUALITIES } from './settings.js';
 import { MODES } from './difficulty.js';
 
+/** Taps on a Settings heading that reveal the Demo mode row, and the most time between two of them. */
+export const REVEAL_TAPS = 5;
+const TAP_GAP_MS = 1000;
+
 /** One element, with a class and optional text. */
 export function el(tag, className, text) {
   const node = document.createElement(tag);
@@ -32,7 +36,7 @@ export function menuPage(name, title, onBack) {
   const header = el('h2', 'title-header', title);
   const body = el('div', 'title-body');
   section.append(back, header, body);
-  return { section, back, body };
+  return { section, back, header, body };
 }
 
 /** An on/off row: the whole row is the switch, so the label is a target too. */
@@ -111,11 +115,12 @@ function choiceRow(label, options, read, write) {
  * @param {object} opts
  * @param {{ isOn: () => boolean, set: (on: boolean) => void }} opts.sound  The game's one mute.
  * @param {ReturnType<import('./settings.js').createSettings>} opts.settings
- * @param {ReturnType<import('./progress.js').createDemo>} [opts.demo]  The title screen's only: the
- *   Demo mode row, at the bottom and hidden until revealed (game/progress.js). Not on the pause
- *   screen — half of what it changes is decided when the run starts.
+ * @param {ReturnType<import('./progress.js').createDemo>} [opts.demo]  The Demo mode row, at the
+ *   bottom and hidden until revealed (game/progress.js). On both screens: from the pause screen the
+ *   tips and the once-ever flags change at once, the robbery and the race at the next run.
+ * @param {HTMLElement} [opts.header]  The page's heading: five quick taps on it reveal that row.
  */
-export function settingsRows(body, { sound, settings, demo = null }) {
+export function settingsRows(body, { sound, settings, demo = null, header = null }) {
   const soundRow = toggleRow('Sound', () => sound.isOn(), (on) => { sound.set(on); paintMuted(); });
   const musicRow = sliderRow('Music volume', () => settings.get().music, (v) => settings.set({ music: v }));
   const sfxRow = sliderRow('SFX volume', () => settings.get().effects,
@@ -169,9 +174,35 @@ export function settingsRows(body, { sound, settings, demo = null }) {
     demoRow.paint();
   };
   if (demoRow) { paintDemo(); body.append(demoRow.row); }
+  const revealDemo = () => {
+    if (!demoRow) return;
+    demo.reveal();
+    paintDemo();
+    // It lands at the foot of the page, which on a phone is below the fold: bring it up and flash
+    // it, or the five taps look like they did nothing.
+    demoRow.row.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    demoRow.row.classList.remove('is-revealed');
+    void demoRow.row.offsetWidth;
+    demoRow.row.classList.add('is-revealed');
+  };
+  // Five taps on the heading, each within TAP_GAP_MS of the last. Counted on `pointerup` rather
+  // than `click`: iOS only synthesises a click on an element it thinks is clickable, and reads a
+  // quick second tap on a plain heading as half of a double-tap. The first cut listened for
+  // `click` inside a 600ms gap, and Tyler could not get it to fire on his phone (2026-10-23).
+  if (demoRow && header) {
+    let taps = 0;
+    let last = -Infinity;
+    header.addEventListener('pointerup', (event) => {
+      if (!event.isPrimary) return;
+      const now = performance.now();
+      taps = now - last < TAP_GAP_MS ? taps + 1 : 1;
+      last = now;
+      if (taps >= REVEAL_TAPS) { taps = 0; revealDemo(); }
+    });
+  }
   return {
-    /** Show the Demo mode row, for good (the title screen's five taps on its heading). */
-    revealDemo() { demo?.reveal(); paintDemo(); },
+    /** Show the Demo mode row, for good. */
+    revealDemo,
     refresh() {
       paintDemo();
       qualityRow.paint();

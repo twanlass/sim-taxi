@@ -17,6 +17,7 @@ import { createTargetRing, RING_Y } from '../geometry/targetring.js';
 import { createRaceFlag } from '../geometry/raceflag.js';
 import { BOOST_START_FRACTION } from './boost.js';
 import { markOccluder } from './ssao.js';
+import { createHydraulics, LIFT_MIN } from './hydraulics.js';
 
 // The street race. A violet street racer with a wing on it and light under it is out in the city
 // for the whole run, a standing offer. Tap it and the screen cuts to black
@@ -94,12 +95,22 @@ const REVEAL_MAX = 6;
 export const COUNTDOWN = 3;     // three, two, one
 // Seconds per number: "slow the countdown a touch" (Tyler) from the 1s it was.
 export const COUNT_STEP = 1.25;
+// The count waits on the player (Tyler: "have the racer type out a speech bubble that says ready?
+// And then tapping that is what triggers the countdown"): after the look at the finish the racer
+// asks "Ready?" and the tap on it is the start. Untapped, it nags once at READY_NAG and counts in
+// on its own at READY_MAX — the taxi is shut in by `locked` meanwhile, so a player who has put the
+// phone down would otherwise be stuck there for good, with every fare's clock held.
+const READY_NAG = 6;
+const READY_MAX = 15;
 const RACE_MAX = 75;            // nobody home by now — the race is called off and nothing changes hands
 // The finish, choreographed (Tyler: "1. Winner returns 2. Winner stays in place 3. Cut to loser;
 // place them 1 block away 4. Loser drives to finish, pulls up next to winner (skid to stop) 5. Show
 // 'You won' or 'You lost' text 6. Show money"). Seconds the winner gets to pull up before the cut —
-// enough to see it stop, short of waiting on it.
-const WINNER_HOLD = 1.0;
+// none: the screen goes to black the frame it crosses (Tyler: "as soon as the winner hits the finish
+// line waypoint cut to black"). `?racecut=classic` keeps the old second of it braking to a stop,
+// which read as the race carrying on after it had been won.
+const WINNER_HOLD = 0;
+const WINNER_HOLD_CLASSIC = 1.0;
 // How long the cut may wait on main.js's wipe before landing the arrival itself (the tools have none).
 const ARRIVAL_CUT_MAX = 1.5;
 // The loser's running start, off the far end of the block behind: a car rolling in rather than one
@@ -120,6 +131,28 @@ const DRIVE_IN_MAX = 8;
 const ARRIVAL_CHASE = 0.4;
 // "You won" / "You lost" on screen before the money moves: held, not flashed (it was 1.1).
 const RESULT_HOLD = 2.2;
+
+// The hydraulics (game/hydraulics.js; Tyler: "give the racer some hydraulics to bounce their car
+// during scenes"). The scenes are the phases where the racer stands for the camera: offering at a
+// light, the faceoff, the look at the finish, the count — and the finale when it has won. A
+// lowrider in a car built like a tuner, which is a mash-up, and a cartoon one is allowed it.
+const POSE_PHASES = new Set(['offer', 'faceoff', 'reveal', 'ready', 'countdown']);
+// Only standing still: a body bouncing on its rams at speed reads as a broken car.
+const POSE_STILL = 0.5;
+// The pump fires on a kick in the bass over this (the underglow's `pulse`, 0..1), and no sooner than
+// PUMP_GAP after the last — ~150 bpm at most, so a busy drum track does not set it juddering.
+const BEAT_PUMP = 0.7;
+const PUMP_GAP = 0.4;
+// With the music off, a pump every PUMP_GAP + PUMP_QUIET seconds instead.
+const PUMP_QUIET = 1;
+// The dance: up, side to side, up, nose.
+const PUMP_STEPS = ['pump', 'left', 'right', 'pump', 'nose'];
+// Won: this many front hops, this far apart. Lost: slammed down on its rams, nose down, sulking.
+const WIN_HOPS = 3;
+const HOP_GAP = 0.75;
+const SULK_PITCH = -0.08;
+// The rear axle, car-local x (geometry/wheels.js puts the axles at ±0.3 of the length).
+const REAR_AXLE = -CAR_LEN * 0.3;
 // Where on its lane a car may be put for the start: the middle of the block. Short of its own hold
 // line, so it is handed to the traffic model before it has to see the signal (CLAUDE.md, on cars
 // released inside their stop line); and far enough in that the other car, level with it on the
@@ -185,9 +218,9 @@ const LEAVE_MAX = 30;
 // big again as the rival's first one did so it reads from the far side of a phone screen.
 const FINISH_FLAG_Y = 4.5;
 const FINISH_FLAG_SCALE = 1.5;
-const ACTIVE = new Set(['cut', 'faceoff', 'reveal', 'countdown', 'racing', 'finale']);
+const ACTIVE = new Set(['cut', 'faceoff', 'reveal', 'ready', 'countdown', 'racing', 'finale']);
 // The stretch nobody can back out of: the cut to the start until the green.
-const LOCKED = new Set(['cut', 'faceoff', 'reveal', 'countdown']);
+const LOCKED = new Set(['cut', 'faceoff', 'reveal', 'ready', 'countdown']);
 
 const clamp01 = (v) => Math.max(0, Math.min(1, v));
 
@@ -275,7 +308,7 @@ function rivalBodyGeometry() {
   };
   const strutH = WING_Y - DECK_TOP;
   const parts = [
-    carGeometry(),
+    carGeometry({ wheels: false }),
     // The blade, raked a touch by being deeper than it is thick.
     wing(0.5, 0.08, WING_SPAN, WING_X, WING_Y, 0),
     // End plates at the tips.
@@ -378,18 +411,25 @@ function createRivalMesh() {
   group.add(shell);
 
   const bodyGeo = rivalBodyGeometry();
+  // The hydraulics (game/hydraulics.js): `lift` pitches the whole car about its rear axle for a
+  // hop, and `rig` carries the body on its rams over wheels that stay where they are. The glow
+  // stays out of both, on the road.
+  const lift = new THREE.Group();
+  shell.add(lift);
+  const rig = new THREE.Group();
+  lift.add(rig);
   const body = new THREE.Mesh(bodyGeo, propMaterial({ gloss: { geometry: bodyGeo, floor: SILL_Y } }));
   // The body is baked white under the paint (see `carGeometry`), and the wing baked dark, so one
   // multiply paints the car and leaves the wing and the glass dark.
   body.material.color.set(color('racerBody'));
   body.castShadow = true;
   body.receiveShadow = true;
-  shell.add(body);
+  rig.add(body);
 
   const stripeGeo = stripeGeometry();
   const stripe = new THREE.Mesh(stripeGeo, propMaterial({ gloss: { geometry: stripeGeo, floor: SILL_Y } }));
   stripe.receiveShadow = true;
-  shell.add(stripe);
+  rig.add(stripe);
 
   // Additive, so it brightens whatever road it lands on rather than painting over it, and it reads
   // at night as light and by day as a tint. Never writes depth and is never in a depth pass.
@@ -406,21 +446,23 @@ function createRivalMesh() {
 
   const wheelGeo = wheelGeometry();
   const wheelMat = propMaterial({ gloss: { geometry: wheelGeo } });
-  const wheels = wheelAnchors(CAR_LEN, CAR_W)
-    .filter((anchor) => anchor.front)
-    .map((anchor) => {
-      const wheel = new THREE.Mesh(wheelGeo, wheelMat);
-      wheel.position.set(anchor.x, anchor.y, anchor.z);
-      wheel.castShadow = true;
-      shell.add(wheel);
-      return wheel;
-    });
+  // All four are their own meshes rather than the rear pair baked into the body as on every other
+  // car: a body that bounces on its rams has to leave its wheels behind on the road.
+  const allWheels = wheelAnchors(CAR_LEN, CAR_W).map((anchor) => {
+    const wheel = new THREE.Mesh(wheelGeo, wheelMat);
+    wheel.position.set(anchor.x, anchor.y, anchor.z);
+    wheel.castShadow = true;
+    wheel.userData.front = anchor.front;
+    lift.add(wheel);
+    return wheel;
+  });
+  const wheels = allWheels.filter((w) => w.userData.front);
 
   // Dissolved in and out rather than blended — the cruiser's and the engine's `alphaHash`.
   const faders = [body.material, stripe.material, wheelMat];
   for (const material of faders) material.alphaHash = true;
   shell.visible = false;
-  return { group, shell, body, wheels, glow, faders, occluders: [body, stripe, ...wheels] };
+  return { group, shell, lift, rig, body, wheels, glow, faders, occluders: [body, stripe, ...allWheels] };
 }
 
 /**
@@ -437,14 +479,25 @@ function createRivalMesh() {
  * @param onEvent  `(type, detail) => void` — everything the player sees off the car: the bubble, the
  *                 count, the money. This module knows a race happened, not what a run's cash is.
  * @param soon     `?race=soon`
+ * @param hydraulics false for `?hydraulics=classic`: the body sits still on its wheels
+ * @param readyGate false for `?raceready=classic`: the count starts when the camera is back
+ * @param lateReveal false for `?racereveal=classic`: the finish is down before the camera pans to it
+ * @param snapCut false for `?racecut=classic`: the winner pulls up for WINNER_HOLD_CLASSIC before the cut
  * @param firstDue the drop-off the first racer turns up at, overriding DROPS_BETWEEN — Demo mode's 1
  */
 export function createRace({
   rng, scene, traffic, routeTo, blocked = () => false, interrupted = () => false, canStart = () => true,
   seen = () => false, delivered = () => 0, onEvent = () => {}, soon = false, bass = () => 0,
+  hydraulics = true, readyGate = true, lateReveal = true, snapCut = true,
   firstDue = null,
 }) {
   const taxi = traffic.taxi;
+  // Everything the player sees off the car goes through here, so the pumps hear it first.
+  const tell = onEvent;
+  onEvent = (type, detail) => {
+    pumpOn(type, detail);
+    tell(type, detail);
+  };
   let rivalChase = RIVAL_CHASE;
 
   const rival = createRivalMesh();
@@ -484,6 +537,53 @@ export function createRace({
 
   const glowBeat = createPulse();
   const glowColor = new THREE.Color(color('racerGlow'));
+
+  // The hydraulics' director: when the rams fire. Only in the scenes, never on the move.
+  const hyd = hydraulics ? createHydraulics() : null;
+  const pumps = { next: 0, beatWas: 0, step: 0, hops: 0, hopAt: 0 };
+  function pumpOn(type, detail) {
+    if (!hyd) return;
+    if (type === 'asked' || type === 'ready' || type === 'ready-nag') hyd.kick('hop');
+    else if (type === 'accepted' || type === 'count') hyd.kick('bigPump');
+    // Squat on the launch: the tail goes down as the power goes on.
+    else if (type === 'go') { hyd.setRest(0); hyd.kick('tail'); }
+    else if (type === 'decided') {
+      if (detail.winner === 'taxi') hyd.setRest(LIFT_MIN, SULK_PITCH);
+      else { pumps.hops = WIN_HOPS; pumps.hopAt = state.t; }
+    }
+  }
+  /** One frame of the pumps: the beat-driven dance while the racer stands in a scene, the hops. */
+  function pumpFrame(dt) {
+    const car = state.car;
+    if (!hyd) return;
+    if (!car || car.crashed || !rival.shell.visible) { hyd.reset(); pumps.hops = 0; return; }
+    if (state.phase !== 'finale') hyd.setRest(0);
+    const racerWon = state.phase === 'finale' && state.winner !== 'taxi';
+    const posing = POSE_PHASES.has(state.phase) || racerWon;
+    if (posing && Math.abs(car.v) < POSE_STILL && pumps.hops === 0) {
+      // On the bass the underglow is already following (`glowBeat`), or on a slow clock in silence.
+      const silent = glowBeat.avg < SILENT;
+      const onBeat = !silent && glowBeat.pulse > BEAT_PUMP && pumps.beatWas <= BEAT_PUMP;
+      if (state.t >= pumps.next && (onBeat || (silent && state.t >= pumps.next + PUMP_QUIET))) {
+        hyd.kick(PUMP_STEPS[pumps.step++ % PUMP_STEPS.length]);
+        pumps.next = state.t + PUMP_GAP;
+      }
+    }
+    pumps.beatWas = glowBeat.pulse;
+    if (pumps.hops > 0 && hyd.state.hop === 0 && state.t >= pumps.hopAt) {
+      hyd.kick('hop');
+      pumps.hops -= 1;
+      pumps.hopAt = state.t + HOP_GAP;
+    }
+    hyd.update(dt);
+    const h = hyd.state;
+    // The hop pitches about the rear axle, which stays on the road: rotating about the car's origin
+    // would sink the tail into it by `REAR_AXLE · sin`.
+    rival.lift.rotation.z = h.hop;
+    rival.lift.position.set(REAR_AXLE * (1 - Math.cos(h.hop)), -REAR_AXLE * Math.sin(h.hop), 0);
+    rival.rig.position.y = h.lift;
+    rival.rig.rotation.set(h.roll, 0, h.pitch);
+  }
 
   const state = {
     // 'waiting' — nothing on; 'offer' — a racer is tailing the taxi, tappable; 'cut' —
@@ -988,7 +1088,7 @@ export function createRace({
       // The winner pulls up where it crossed: the taxi on the race's brake, the racer on its stop.
       if (taxiWon) state.brakeTaxi = true;
       else car.roadblock = Infinity;
-      if (state.stepT >= WINNER_HOLD) {
+      if (state.stepT >= (snapCut ? WINNER_HOLD : WINNER_HOLD_CLASSIC)) {
         state.step = 'cut';
         state.stepT = 0;
         onEvent('arrival-cut', { car, winner: state.winner });
@@ -1040,14 +1140,44 @@ export function createRace({
   /** The faceoff is over: show the finish, and wait for the camera's look at it (`countIn`). */
   function lineUp() {
     const goal = state.finish;
-    showFinish();
+    // The finish goes down when the camera gets there (`revealFinish`, Tyler: "wait till the camera
+    // pans there and then spawn the checkpoint so you can visually see where it is"), so its ring
+    // grows in on screen rather than being found already standing. `?racereveal=classic` puts it
+    // down here, before the pan.
+    state.finishShown = !lateReveal;
+    if (!lateReveal) showFinish();
     setPhase('reveal');
     onEvent('lined-up', { car: state.car, finish: goal, x: lineX(goal.i), z: lineZ(goal.j) });
   }
 
   /** Start the count — called when the camera is back from the finish, or by `REVEAL_MAX`. */
+  /** The look at the finish is done: "Ready?" (or straight to the count, `?raceready=classic`). */
   function countIn() {
     if (state.phase !== 'reveal') return;
+    // A swipe mid-pan drops the camera's callback, so the finish may never have been looked at.
+    revealFinish();
+    if (!readyGate) { startCount(); return; }
+    setPhase('ready');
+    state.nagged = false;
+    onEvent('ready', { car: state.car });
+  }
+
+  /** The camera has reached the finish: put it down, ring growing in, flag up. */
+  function revealFinish() {
+    if (state.phase !== 'reveal' || state.finishShown) return;
+    state.finishShown = true;
+    showFinish();
+  }
+
+  /** The tap on "Ready?": three, two, one. */
+  function ready() {
+    if (state.phase !== 'ready') return false;
+    onEvent('readied', { car: state.car });
+    startCount();
+    return true;
+  }
+
+  function startCount() {
     state.count = COUNTDOWN + 1;
     setPhase('countdown');
   }
@@ -1265,6 +1395,17 @@ export function createRace({
         }
         break;
       }
+      case 'ready': {
+        if (!car) { finish('void'); break; }
+        if (taxi.route.length > 0) holdTaxi();
+        if (interrupted()) { finish('void'); break; }
+        if (!state.nagged && state.phaseT > READY_NAG) {
+          state.nagged = true;
+          onEvent('ready-nag', { car });
+        }
+        if (state.phaseT > READY_MAX) startCount();
+        break;
+      }
       case 'countdown': {
         if (!car) { finish('void'); break; }
         if (taxi.route.length > 0) holdTaxi();
@@ -1348,6 +1489,7 @@ export function createRace({
     }
     for (const material of rival.faders) material.opacity = state.fade;
     if (rival.shell.visible) pulseStep(glowBeat, bass(), dt);
+    pumpFrame(dt);
     {
       const beat = glowBeat.avg < SILENT ? GLOW_IDLE : glowBeat.pulse;
       rival.glow.material.opacity = state.fade * (GLOW_REST + (1 - GLOW_REST) * beat);
@@ -1392,8 +1534,12 @@ export function createRace({
     busy: () => ACTIVE.has(state.phase),
     /** Is anything of a race on, from the tap to the line? */
     active: () => ACTIVE.has(state.phase),
-    /** Side by side and the finish shown: count down now (main.js, once the camera is back). */
+    /** Side by side and the finish shown (main.js, once the camera is back): "Ready?", then the count. */
     countIn,
+    /** The tap on the racer's "Ready?": start the count. */
+    ready,
+    /** main.js, as the camera lands on the finish: put it down. */
+    revealFinish,
     /** Is the start waiting on the camera's look at the finish? */
     revealing: () => state.phase === 'reveal',
     rival,

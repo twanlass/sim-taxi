@@ -43,6 +43,7 @@ import {
 import { createBoombox, BPM as BOOMBOX_BPM } from '../src/game/boombox.js';
 import { createTubeMan } from '../src/game/tubeman.js';
 import { createManholes, planManholes, manholeGeometry, COVER_R, COVER_COUNT, BOX_CLEAR } from '../src/city/manholes.js';
+import { createStreetProps, planStreetProps } from '../src/game/streetprops.js';
 import { createCarWash } from '../src/city/carwash.js';
 import { createGasStation } from '../src/city/gasstation.js';
 import { collectPanes, entrances, streetLamps } from '../src/game/citylights.js';
@@ -89,6 +90,7 @@ import {
 import { createCollisions, TAXI_HP, bumpDamage, penetration, setCrush } from '../src/sim/collisions.js';
 import { createTaxiDamage } from '../src/game/taxidamage.js';
 import { createCarDamage } from '../src/game/cardamage.js';
+import { BODY_TOP } from '../src/geometry/damage.js';
 import { BUMPER_H as BUMPER_H_PROBE, bumperLength as bumperLengthProbe } from '../src/geometry/bumpers.js';
 import { createTaxiDoor } from '../src/game/taxidoor.js';
 import { createPolice, SPOT_RANGE, FADE_TIME } from '../src/sim/police.js';
@@ -115,6 +117,7 @@ import {
 } from '../src/geometry/targetring.js';
 import { createParcelPad, PAD_R } from '../src/geometry/parcelpad.js';
 import { underglowGeometry, createPulse, pulseStep } from '../src/game/race.js';
+import { createHydraulics, LIFT_MIN, LIFT_MAX } from '../src/game/hydraulics.js';
 import { TAXI_DECK_Y, TAXI_TAILPIPE_BACK, TAXI_TAILPIPE_HEIGHT } from '../src/geometry/taxi.js';
 import { createLocoFlame } from '../src/game/locoflame.js';
 import { createParcel, PARCEL_CENTRE_Y } from '../src/geometry/parcel.js';
@@ -975,6 +978,39 @@ const onGrass = (city, i, j) => {
   check('the racer\'s underglow flares on the kick and falls between', peak > 0.9 && trough < 0.2,
     `peak ${peak.toFixed(2)}, trough ${trough.toFixed(2)}`);
   check('and rests on a flat line', rest < 0.05, `${rest.toFixed(3)} after 3s of 0.4`);
+
+  // The racer's hydraulics (game/hydraulics.js): a front hop goes up and comes down onto the road
+  // rather than through it, a pump never takes the body past its rams, and both settle — a spring
+  // that rang on would leave the car shaking through the race. Stepped at 30 fps, a dropped frame's
+  // worth, since the substeps are what keep it stable there.
+  const hyd = createHydraulics();
+  hyd.kick('hop');
+  let hopTop = 0;
+  let hopLow = 0;
+  let hopDown = null;
+  for (let f = 0; f < 60; f++) {
+    hyd.update(1 / 30);
+    hopTop = Math.max(hopTop, hyd.state.hop);
+    hopLow = Math.min(hopLow, hyd.state.hop);
+    if (hopDown === null && f > 2 && hyd.state.hop === 0) hopDown = f / 30;
+  }
+  check('the racer\'s front hop lifts the nose and lands on the road', hopTop > 0.3 && hopTop < 0.5
+    && hopLow === 0 && hopDown !== null && hopDown < 0.8,
+  `top ${hopTop.toFixed(2)} rad, lowest ${hopLow}, down after ${hopDown?.toFixed(2)}s`);
+  hyd.reset();
+  let liftLo = 0;
+  let liftHi = 0;
+  for (const kind of ['bigPump', 'bigPump', 'left', 'pump', 'tail']) {
+    hyd.kick(kind);
+    for (let f = 0; f < 4; f++) {
+      hyd.update(1 / 30);
+      liftLo = Math.min(liftLo, hyd.state.lift);
+      liftHi = Math.max(liftHi, hyd.state.lift);
+    }
+  }
+  for (let f = 0; f < 90; f++) hyd.update(1 / 30);
+  check('its pumps stay inside the rams\' stroke and settle', liftLo >= LIFT_MIN && liftHi <= LIFT_MAX && !hyd.busy(),
+    `lift ${liftLo.toFixed(2)}..${liftHi.toFixed(2)}, still moving ${hyd.busy()} after 3s`);
 }
 
 // --- The parks' grass ---------------------------------------------------------
@@ -1469,6 +1505,8 @@ const onGrass = (city, i, j) => {
   let awayFromCourt = 0;
   let backToCamera = 0;
   let apron = 0;
+  let baseline = 0;
+  let underBoard = 0;
   for (let s = 0; s < 40; s++) {
     const cityLayout = createLayout(makeRng(seed + s * 37));
     const plots = parkPlots(cityLayout);
@@ -1518,6 +1556,9 @@ const onGrass = (city, i, j) => {
     }
     if (fx * (court.x - box.x) + fz * (court.z - box.z) <= 0) awayFromCourt += 1;
     if (fx + fz < 0) backToCamera += 1;
+    if (!box.side) baseline += 1;
+    // Under the near hoop's board, which this camera throws up-screen onto the far sideline.
+    else if ((court.axis === 'x' ? box.x - court.x : box.z - court.z) > 0) underBoard += 1;
   }
   createLayout(makeRng(seed));     // put the probe's city back — `createLayout` installs its network
 
@@ -1527,6 +1568,10 @@ const onGrass = (city, i, j) => {
     `${apron} on the apron; ${offLawn} off its ground, ${onSlab} on the slab or the lines, `
     + `${onBench} on a bench, ${awayFromCourt} facing away`);
   check('and shows the camera its speakers', backToCamera === 0, `${backToCamera} of ${boxes} turned away`);
+  // A baseline puts the box beside a hoop's pole and under its board, with the park's trees
+  // down-screen of it — "blocked by the hoops". The far sideline's apron is always there instead.
+  check('and stands at a sideline, clear of the hoops', baseline + underBoard === 0,
+    `${baseline} of ${boxes} at a baseline, ${underBoard} under the near hoop's board`);
 }
 
 // Its notes: one a beat, every one turned to the camera, and none left in the air for good.
@@ -4125,8 +4170,9 @@ const PRESSURE_END = difficulty.getTuning().pressureEnd;
       + `${lift.position.z.toFixed(2)}) against kerb (${kerb.x.toFixed(2)}, `
       + `${PARCEL_PAD_LIFT.toFixed(2)}, ${kerb.z.toFixed(2)})`);
 
-    // Step the lift and watch it climb, swell, fade, and set off up-screen and to the left — which is
-    // world −X for this camera (see TOWARD_HUD in game/parcels.js). Nothing may cross the road to the
+    // Step the lift and watch it climb, swell, fade, and set off toward the cargo dock. With no screen
+    // to measure the dock on, that is the module's own down-and-right (DEFAULT_TOWARD_HUD in
+    // game/parcels.js), which is world +X for this camera. Nothing may cross the road to the
     // taxi, and nothing may be left on the kerb.
     let rose = 0;
     let swelled = 0;
@@ -4165,8 +4211,8 @@ const PRESSURE_END = difficulty.getTuning().pressureEnd;
         if (lift.position.y > PARCEL_PAD_LIFT + 0.5) rose += 1;
         if (lift.scale.x > 1.02) swelled += 1;
         if (boxMaterial.transparent && boxMaterial.opacity < 0.9) faded += 1;
-        // Up-screen and to the left is world −X for this view, so the box's x must only ever fall.
-        if (lift.position.x < kerb.x - 0.5) towardHud += 1;
+        // Down-screen and to the right is mostly world +X for this view, so the box's x must climb.
+        if (lift.position.x > kerb.x + 0.5) towardHud += 1;
       }
       if (parcel.slot.dropoff.ring.group.visible) {
         if (padScale() < 0.95) padGrowing += 1;
@@ -4258,7 +4304,9 @@ const PRESSURE_END = difficulty.getTuning().pressureEnd;
       // a parcel rode the rear deck, and four while the roof sign was on.) Six meshes move for those
       // three parts: both chrome bumpers and the bumper that hangs off once it is knocked loose draw
       // on the shell's own material, so they light with it rather than needing a place in the list.
-      moved.filter(Boolean).length === 6
+      // So do the chequer plates on the shut bonnet and boot, off the shell so an opening lid can
+      // take its own with it: eight.
+      moved.filter(Boolean).length === 8
       && new Set(movedTo).size === 1
       && back.every((h, n) => h === dark[n]),
       `${moved.filter(Boolean).length} parts moved to ${new Set(movedTo).size} value(s), all restored ${back.every((h, n) => h === dark[n])}`);
@@ -12256,9 +12304,10 @@ function rideToPickup() {
     if (!node.children.some((c) => c.name === 'ghostMask')) unmasked.push(node);
   });
   // Two more for the chrome bumpers (geometry/bumpers.js), masked without a rim for the reason the
-  // damage pieces are: a 0.2 bar inside the shell's hull, too thin to carry one of its own.
-  check('every drawn taxi part is in the ghost stencil mask', unmasked.length === 0 && masks.length === 29,
-    `${unmasked.length} unmasked, ${masks.length} masks (9 outlined parts + 14 damage pieces + 4 door pieces + 2 bumpers)`);
+  // damage pieces are: a 0.2 bar inside the shell's hull, too thin to carry one of its own. The
+  // damage pieces include the chequer on the shut bonnet and boot, which go when their lid opens.
+  check('every drawn taxi part is in the ghost stencil mask', unmasked.length === 0 && masks.length === 31,
+    `${unmasked.length} unmasked, ${masks.length} masks (9 outlined parts + 16 damage pieces + 4 door pieces + 2 bumpers)`);
 
   // --- A dimming lamp must dim where it stands ---------------------------------------------------
   //
@@ -12287,6 +12336,44 @@ function rideToPickup() {
   }
   check('a dimming taxi lamp stays where it is', podDrift < 1e-9,
     `${taxi.lights.length} pods, max drift ${podDrift.toExponential(1)} over level 1 → 0`);
+
+  // --- An open bonnet or boot takes its chequer with it ---------------------------------------------
+  //
+  // The chequer plates on both lids were merged into the shell and stood 0.036 over the body's top
+  // plane, so with a lid swung up they poked clean through the 0.02 opening under it: the wreck
+  // polaroid showed the bonnet's stripe painted on the engine bay. With each lid open, no visible
+  // mesh other than the lid itself may put a vertex above the opening, inside its footprint.
+  {
+    const lidTaxi = createTaxiMesh();
+    const overOpening = (minX, maxX) => {
+      lidTaxi.group.updateMatrixWorld(true);
+      const groupInv = lidTaxi.group.matrixWorld.clone().invert();
+      const v = new THREE.Vector3();
+      let hits = 0;
+      lidTaxi.group.traverseVisible((node) => {
+        if (!node.isMesh || /^ghost/.test(node.name) || node.material?.visible === false) return;
+        if (node.parent?.isGroup && node.parent !== lidTaxi.group) return; // the lid on its hinge
+        if (node.scale.x === 0) return;
+        const pos = node.geometry.attributes.position;
+        const toGroup = groupInv.clone().multiply(node.matrixWorld);
+        for (let k = 0; k < pos.count; k++) {
+          v.fromBufferAttribute(pos, k).applyMatrix4(toGroup);
+          if (v.x > minX && v.x < maxX && Math.abs(v.z) < 0.4 && v.y > BODY_TOP + 0.021 && v.y < BODY_TOP + 0.4) hits++;
+        }
+      });
+      return hits;
+    };
+    lidTaxi.damage.setHood(0.9);
+    const bayHits = overOpening(0.75, 1.6);
+    lidTaxi.damage.setHood(null);
+    lidTaxi.damage.setBoot(0.9);
+    const bootHits = overOpening(-1.6, -1.15);
+    lidTaxi.damage.reset();
+    const shutHits = overOpening(0.75, 1.6);
+    check('an open bonnet or boot leaves no chequer standing on the opening',
+      bayHits === 0 && bootHits === 0 && shutHits > 0,
+      `${bayHits} vertices over the bay, ${bootHits} over the boot; ${shutHits} on the shut bonnet`);
+  }
 
   // --- The headlights: two lamps, clear of the indicator, each throwing its cone forward ----------
   //
@@ -15723,6 +15810,57 @@ let chopperOrder; // likewise
   setClosedLanes([]);
 }
 
+// --- The depot stays out from behind the L ---------------------------------------------------
+//
+// `behindLTrain` (city/garage.js) keeps the depot off the one column whose door faces the L's
+// median. That is arithmetic about where the deck stands, so this fires real rays from the door and
+// the forecourt — at a taxi's roofline, the drive-out the vignette and every repair watch — through
+// the built structure, and through a train standing on it opposite. Before the filter, 46 of 200
+// seeds failed this, at up to 89% of the forecourt hidden.
+{
+  const { planLTrain, createLTrain: ltrainAt, RAIL_TOP } = await import('../src/game/ltrain.js');
+  const ray = new THREE.Raycaster();
+  const failures = [];
+  let sampled = 0;
+  for (let s = 0; s < 48; s++) {
+    const cityAt = createLayout(makeRng(seed + s * 113));
+    if (!cityAt.garageBlock) continue;
+    const plan = planLTrain();
+    if (!plan) continue;
+    const site = garageSite(cityAt.garageBlock);
+    const lt = ltrainAt(new THREE.Scene(), makeRng(9), { intro: false });
+    lt.group.updateMatrixWorld(true);
+    // The train, as a box the length of the line — wherever it is when the door goes up. Only the
+    // north-south leg can be in front of a +X door; the box is skipped on an east-west line.
+    const train = plan.axis === 'z' ? new THREE.Box3(
+      new THREE.Vector3(plan.c - 0.9, RAIL_TOP, -1e3), new THREE.Vector3(plan.c + 0.9, RAIL_TOP + 1.75, 1e3),
+    ) : null;
+    let hidden = 0;
+    let n = 0;
+    for (let a = 0; a <= 6; a++) {
+      const z = site.doorZ - site.doorW / 2 + (site.doorW * a) / 6;
+      for (let b = 0; b <= 6; b++) {
+        for (const o of [
+          new THREE.Vector3(site.curtainX, KERB_H + 0.05 + ((site.doorH - 0.1) * b) / 6, z),
+          new THREE.Vector3(site.frontX + ((site.kerbX - site.frontX + 2) * b) / 6, KERB_H + 1.2, z),
+        ]) {
+          n += 1;
+          ray.set(o, VIEW_DIR);
+          if (ray.intersectObjects([lt.deck, lt.columns], false).length
+            || (train && ray.ray.intersectsBox(train))) hidden += 1;
+        }
+      }
+    }
+    lt.group.traverse((o) => o.geometry?.dispose());
+    sampled += 1;
+    if (hidden > 0) failures.push(`seed ${seed + s * 113} (${site.bi},${site.bj}): ${hidden}/${n}`);
+  }
+  check('the L never stands between the camera and the depot\'s door or forecourt',
+    sampled >= 40 && failures.length === 0,
+    failures.join(', ') || `${sampled} cities, door and drive-out clear of the deck and a passing train`);
+  createLayout(makeRng(seed));   // `createLayout` installs its network — put the probe's city back
+}
+
 // --- The taxi's garage, and the vignette that comes out of it --------------------------------
 //
 // Three separate claims, and the third is the one that could not be made any other way than here.
@@ -16533,6 +16671,23 @@ let chopperOrder; // likewise
     check('the turning wrench stays behind the plane the door’s sightlines leave from',
       axis.x + orbit < site.curtainX,
       `orbit reaches x ${(axis.x + orbit).toFixed(2)}, curtain at ${site.curtainX.toFixed(2)}`);
+    // The cutout's painted flame is left out of that orbit (see `createGarage`) on the claim that
+    // the tail only ever sways away from the curtain. Sway it through a whole swing and see.
+    if (dg.signFlame) {
+      const fp = dg.signFlame.geometry.attributes.position;
+      const v = new THREE.Vector3();
+      let reach = -Infinity;
+      for (let t = 0; t < 8; t += 0.1) {
+        dg.update(0.1);
+        dg.signPivot.updateMatrixWorld(true);
+        for (let i = 0; i < fp.count; i += 7) {
+          reach = Math.max(reach, v.fromBufferAttribute(fp, i).applyMatrix4(dg.signFlame.matrixWorld).x);
+        }
+      }
+      check('...and the painted flame swaying off its tail stays behind it too',
+        reach < site.curtainX,
+        `flame reaches x ${reach.toFixed(2)}, curtain at ${site.curtainX.toFixed(2)}`);
+    }
     // ...and stays inside the +Z parapet, rather than swinging out over the street the door faces.
     //
     // Only that edge, and the reason is arithmetic rather than visibility: the +Z one is
@@ -18433,6 +18588,16 @@ let chopperOrder; // likewise
     {
       const missed = runEvent();
       const robber = missed.boarded[0];
+      // The getaway has no clock by default (`robberClock` in game/fares.js); this is the
+      // `?robberclock=classic` path, which still has to bail rather than end the run.
+      check('the robber has no clock: full seconds, no crystal, after a minute of getaway', (() => {
+        const clockless = runEvent();
+        const r = clockless.boarded[0];
+        if (!r?.clockless) return false;
+        for (let f = 0; f < 3600; f++) clockless.fares.update(1 / 60, clockless.traffic.taxi);
+        return r.timeLeft === r.limit && !r.slot.marker.group.visible;
+      })());
+      robber.clockless = false;
       robber.timeLeft = 0.001;
       let sawMiss = false;
       for (let f = 0; f < 20; f++) {
@@ -19403,6 +19568,71 @@ let chopperOrder; // likewise
   check('...landing square in its lane, still moving, short of the line ahead',
     worstYaw < 0.05 && stalled === 0 && pastLine === 0,
     `worst heading ${worstYaw.toFixed(3)} rad off the lane, ${stalled} came out under cruise, ${pastLine} past the line`);
+}
+
+// --- The post box and the hot dog cart (game/streetprops.js) ----------------------------------------
+//
+// Placed where the camera sees them and nowhere a rider stands, and — the part that is the feature —
+// a boosting taxi on the lane beside one actually swipes it: veers onto the kerb, puts its flank
+// on the prop, smashes it, and is back on its lane centre before the hold line, where the turn
+// takes over the car. A citizen driving past at cruise touches nothing.
+{
+  const plan = planStreetProps(makeRng(seed + 211), layout);
+  const corners = [];
+  for (let i = 0; i <= GRID_I; i++) for (let j = 0; j <= GRID_J; j++) corners.push(cornerFor(i, j));
+  const nearRider = plan.filter((p) => corners.some((c) => Math.hypot(c.x - p.x, c.z - p.z) < 3.5)).length;
+  const offPavement = plan.filter((p) => (p.block.type !== 'built' && p.block.type !== 'park')
+    || Math.abs(p.block.bounds.x1 - p.x - 0.5) > 0.05 || p.z < p.block.bounds.z0 || p.z > p.block.bounds.z1).length;
+  const unseen = plan.filter((p) => !sightlineClear(p.x, 0.8, p.z)).length;
+  check('street props: two post boxes and a hot dog cart on the city',
+    plan.filter((p) => p.kind === 'mailbox').length === 2 && plan.filter((p) => p.kind === 'cart').length === 1,
+    plan.map((p) => p.kind).join(', '));
+  check('street props: the cart on a park\'s walk, post boxes on built blocks',
+    plan.every((p) => p.block.type === (p.kind === 'cart' ? 'park' : 'built')),
+    plan.map((p) => `${p.kind} on ${p.block.type}`).join(', '));
+  check('street props: on a block\'s +X pavement, in sight, and 3.5+ from every rider corner',
+    offPavement === 0 && unseen === 0 && nearRider === 0,
+    `${offPavement} off the pavement, ${unseen} hidden, ${nearRider} by a rider`);
+
+  const net = cityNetwork();
+  const run = (boost) => {
+    const sTraffic = createTraffic(makeRng(seed + 213), new THREE.Scene(), 1);
+    const taxi = sTraffic.taxi;
+    const sp = createStreetProps(new THREE.Scene(), plan, { rng: makeRng(9) });
+    const hits = [];
+    sp.onSmash((h) => hits.push(h));
+    let deepest = 0;
+    let leftAtTurn = 0;
+    let flank = Infinity;
+    for (const prop of sp.props) {
+      const to = net.nodeById.get(prop.lane.to);
+      if (!placeCar(taxi, net.dirOfLane(prop.lane), to.gi, to.gj, prop.lane.length - 0.3)) continue;
+      taxi.route = [];
+      taxi.boost = boost;
+      taxi.v = boost ? SPEED * 1.6 : SPEED;
+      const before = hits.length;
+      for (let k = 0; k < 120 && taxi.lane === prop.lane && taxi.state === 'drive'; k++) {
+        sp.update(1 / 60, taxi);
+        sTraffic.update(1 / 60);
+        deepest = Math.max(deepest, -(taxi.swipeOffset ?? 0));
+        if (hits.length > before && flank === Infinity) {
+          // Across the kerb from the drawn taxi's centre to the prop's: the drawn half-width (1.0)
+          // plus the prop's own half-depth (0.31 at most) is touching.
+          flank = Math.abs(taxi.x - prop.x);
+        }
+      }
+      leftAtTurn = Math.max(leftAtTurn, Math.abs(taxi.swipeOffset ?? 0));
+    }
+    return { hits: hits.length, deepest, leftAtTurn, flank, props: sp.props.length };
+  };
+  const boosted = run(true);
+  check('street props: a boosting taxi swipes every one, flank over the prop, back in lane by the turn',
+    boosted.hits === boosted.props && boosted.flank < 1.3 && boosted.leftAtTurn < 0.01,
+    `${boosted.hits}/${boosted.props} hit, ${boosted.flank.toFixed(2)} across at the hit, deepest ${boosted.deepest.toFixed(2)}, ${boosted.leftAtTurn.toFixed(3)} still off at the turn`);
+  const cruising = run(false);
+  check('street props: at cruise the taxi drives past and touches nothing',
+    cruising.hits === 0 && cruising.deepest === 0, `${cruising.hits} hit, deepest ${cruising.deepest.toFixed(2)}`);
+  // Stepping the city's own taxi elsewhere is not this block's business: put nothing back on it.
 }
 
 // --- The drift (`driftTaxi` / `kickDrift` in sim/traffic.js, wired in main.js) -------------------

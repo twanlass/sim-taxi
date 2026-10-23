@@ -27,7 +27,7 @@ const BOOT = ['../src/game/scene.js', '../src/game/debugpanel.js', '../src/geome
   '../src/game/wipe.js',
   '../src/game/chopper.js', '../src/game/policeheli.js',
   '../src/game/flames.js', '../src/game/locoflame.js', '../src/game/sparks.js',
-  '../src/game/repairfx.js',
+  '../src/game/repairfx.js', '../src/game/streetprops.js', '../src/geometry/streetprops.js',
   '../src/game/daylight.js', '../src/game/edgefog.js', '../src/game/riderfinder.js',
   '../src/game/taxifinder.js',
   '../src/game/farepointers.js', '../src/game/sirenglow.js', '../src/game/robberyglow.js',
@@ -151,14 +151,39 @@ try {
       || cloned.colorGrade?.value !== grade.gradeUniform) {
       throw new Error('colorgrade: a built-in shader does not share the one LUT and uniform');
     }
-    if (grade.GRADE_DEFAULTS.preset !== 'none' || grade.GRADE_DEFAULTS.saturation !== 1 || grade.gradeUniform.w !== 0) {
-      throw new Error('colorgrade: the game must ship with a neutral grade');
+    // It ships Tyler's look (GRADE_DEFAULTS), and the neutral frame stays reachable as ?grade=classic.
+    if (grade.adjustIsNeutral(grade.GRADE_DEFAULTS.adjust) || grade.gradeUniform.w !== 1) {
+      throw new Error('colorgrade: the game must ship with the GRADE_DEFAULTS look');
     }
+    grade.setLookCode(JSON.stringify(grade.GRADE_NEUTRAL));
+    if (grade.gradeUniform.w !== 0) throw new Error('colorgrade: the neutral grade still grades the frame');
     const baked = grade.parseCube(grade.toCube(grade.bakedTable()));
     for (let k = 0; k < baked.data.length; k += 97) {
       const want = ((k / 3) % grade.LUT_SIZE) / (grade.LUT_SIZE - 1);
       if (k % 3 === 0 && Math.abs(baked.data[k] - want) > 1e-5) throw new Error('colorgrade: the neutral bake is not an identity');
     }
+    // The panel's knobs: at rest they bake nothing, a look code survives the round trip, and a
+    // curve dragged steep stays monotone (an overshoot between knots solarises every gradient).
+    if (!grade.adjustIsNeutral(grade.ADJUST_DEFAULTS)) throw new Error('colorgrade: the adjustments must rest at neutral');
+    grade.setGradeAdjust('exposure', 0.5);
+    grade.setGradeAdjust('shadowAmount', 0.4);
+    grade.setGradeCurve('rgb', 1, 0.05);
+    grade.setGradeCurve('rgb', 2, 0.74);
+    if (grade.gradeUniform.w !== 1 || grade.gradeUniform.y !== 1) throw new Error('colorgrade: an adjustment did not switch the grade on');
+    const code = grade.lookCode();
+    grade.resetGrade();
+    if (grade.lookCode() !== JSON.stringify({ adjust: grade.GRADE_DEFAULTS.adjust })) {
+      throw new Error(`colorgrade: Reset did not return to the shipped look: ${grade.lookCode()}`);
+    }
+    grade.setLookCode(code);
+    if (grade.lookCode() !== code) throw new Error(`colorgrade: a look code did not round-trip: ${code} vs ${grade.lookCode()}`);
+    let prev = -1;
+    for (let i = 0; i <= 200; i++) {
+      const y = grade.curveAt('rgb', i / 200);
+      if (y < prev - 1e-6) throw new Error(`colorgrade: the curve is not monotone at ${i / 200}`);
+      prev = y;
+    }
+    grade.resetGrade();
   }
 
   // The city past the edge of the map (city/horizon.js): its haze patch run against three's own
@@ -238,9 +263,9 @@ try {
 
   // ...and the overtake's (game/overtakeclip.js): the taxi starts behind the car in its own lane, is
   // out in the far one past it, and finishes back in its own lane in front of it; and the picker
-  // finds a long enough street (side or ring) in the shipped cities.
+  // finds a long enough street in the shipped cities (side streets only under the edge fog).
   {
-    const { reelAt, clipKeys, pickOvertakeStreet, CLIP_LOOP } = await import('../src/game/overtakeclip.js');
+    const { reelAt, clipKeys, pickOvertakeStreet, CLIP_LOOP, BLIP_ON } = await import('../src/game/overtakeclip.js');
     const { REEL } = await import('../src/game/overtakeclip.js');
     const leadAt = (t) => REEL.lead[Math.min(REEL.lead.length - 1, Math.round(t / REEL.step))];
     const start = reelAt(0);
@@ -249,8 +274,18 @@ try {
     if (!REEL.frames.some((f) => f[1] < 0)) throw new Error('overtakeclip: never pulls out');
     if (!(start.along < leadAt(0)[0] - REEL.frames[0][0] + start.along)) throw new Error('overtakeclip: does not start behind the car');
     if (!(REEL.frames.at(-1)[0] > REEL.lead.at(-1)[0])) throw new Error('overtakeclip: does not finish in front of the car');
-    const k = clipKeys(CLIP_LOOP * 0.5);
-    if (!(k.boost.lit && k.blip.lit && k.blip.down && !k.boost.down)) throw new Error('overtakeclip: keys wrong mid-loop');
+    const k = clipKeys(BLIP_ON + 0.2);
+    if (!(k.boost.lit && k.blip.lit && k.blip.down && !k.boost.down)) throw new Error('overtakeclip: keys wrong mid-pass');
+    // Holds: one key down at a time, the first up for the blip, and each ring filling over its own press.
+    const { BLIP_OFF } = await import('../src/game/overtakeclip.js');
+    const first = clipKeys(BLIP_OFF / 2);
+    const gap = clipKeys((BLIP_OFF + BLIP_ON) / 2);
+    if (!(first.boost.down && !first.blip.down && !gap.boost.down && !gap.blip.down && !k.boost.down && k.blip.down)) {
+      throw new Error('overtakeclip: the keys are not held one at a time with a release between');
+    }
+    if (!(first.boost.hold > 0 && first.boost.hold < 1 && gap.boost.hold === 0 && k.blip.hold > 0 && k.boost.hold === 0)) {
+      throw new Error('overtakeclip: the hold rings do not fill over their own presses');
+    }
     const { createLayout } = await import('../src/city/layout.js');
     const { cityNetwork } = await import('../src/city/roadnet.js');
     const { makeRng } = await import('../src/util/rng.js');

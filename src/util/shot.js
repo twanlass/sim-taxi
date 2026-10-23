@@ -276,6 +276,13 @@ export const SHOTS = [
   // A manhole cover (city/manholes.js), on the usual pair. Appended, for the index reason.
   { name: 'manhole', description: 'a manhole cover, close', target: [0, 0], zoom: 3, warmup: 12, atManhole: true },
   { name: 'manhole-far', description: 'a manhole cover at play zoom', target: [0, 0], zoom: 52, warmup: 12, atManhole: true },
+  // The post box and the hot dog cart (game/streetprops.js): close, at play zoom, and each one
+  // half a second after the taxi swiped it, mid-spray. Appended, for the index reason.
+  { name: 'mailbox', description: 'a post box on the kerb, close', target: [0, 0], zoom: 5, warmup: 12, atStreetProp: 'mailbox' },
+  { name: 'hotdogcart', description: 'the hot dog cart, close', target: [0, 0], zoom: 5, warmup: 12, atStreetProp: 'cart' },
+  { name: 'streetprops-far', description: 'the hot dog cart at play zoom', target: [0, 0], zoom: 52, warmup: 12, atStreetProp: 'cart' },
+  { name: 'mailbox-smash', description: 'a post box half a second after the swipe', target: [0, 0], zoom: 9, warmup: 12, atStreetProp: 'mailbox', streetPropSmash: 0.45 },
+  { name: 'hotdogcart-smash', description: 'the hot dog cart half a second after the swipe', target: [0, 0], zoom: 9, warmup: 12, atStreetProp: 'cart', streetPropSmash: 0.45 },
 ];
 
 export function getActiveShot() {

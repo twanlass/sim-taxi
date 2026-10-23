@@ -66,6 +66,8 @@ function film(start, gap) {
   let launchSkidT = 0;
   let lastStamp = 0;
   let pulledOut = null;
+  let pullGap = Infinity;
+  let tail = 0;       // recorded frames spent sat on the car's bumper before the pull-out
   let peak = 0;
   const frames = [];
   const lane = [];
@@ -101,7 +103,7 @@ function film(start, gap) {
     while (lead.route.length < 3) lead.route.push(lead.d);
     traffic.update(STEP);
     collisions.update(STEP);
-    if (taxi.passing && pulledOut == null) pulledOut = rolling ? frames.length : -1;
+    if (taxi.passing && pulledOut == null) { pulledOut = rolling ? frames.length : -1; pullGap = lead.x - taxi.x; }
     peak = Math.max(peak, taxi.pass);
 
     // layRubber: the launch and the overtake's own two faint dots.
@@ -117,10 +119,11 @@ function film(start, gap) {
       taxi.wheelAngle, taxi.brakeLevel, boost.isActive() ? 1 : 0,
     ]);
     lane.push([lead.x, lead.z, lead.yaw, lead.brakeLevel ?? 0]);
+    if (pulledOut == null && lead.x - taxi.x < TAILING) tail += 1;
   }
   const back = taxi.pass < 0.02;
   const ahead = taxi.x - lead.x;
-  return { arms: combo.state.arms, frames, lane, rubber, bursts, bumps, pulledOut, peak, back, ahead, crashed: taxi.crashed };
+  return { arms: combo.state.arms, frames, lane, rubber, bursts, bumps, pulledOut, pullGap, tail, peak, back, ahead, crashed: taxi.crashed };
 }
 
 // The take: no contact, the pull-out on the blip's heels, all the way out and back in again by the
@@ -129,12 +132,23 @@ function film(start, gap) {
 const AHEAD = 6;
 // The pull-out has to follow the blip within 0.4s.
 const LATE = 0.4;
+// And it has to happen *at* the car. Since the dumb overtake (#581) the taxi swings out the frame the
+// combo arms, wherever the car is inside OVERTAKE_ARM_RANGE — so a blip early in the loop put it in
+// the oncoming lane 17 units short of the car, and the card spent most of its loop on a taxi driving
+// up the wrong side of an empty road (Tyler, 2026-10-22: "isn't actually passing a car"). Centre to
+// centre, 9 is under two car lengths: nose to the other car's bumper, as the player does it.
+const PULL_GAP = 9;
+// Without sitting there: a take that caught the car early and tailgated it up to the blip reads as
+// a stall. Under 10 units counts as on its bumper; at most this long of it before the pull-out.
+const TAILING = 10;
+const MAX_TAIL = 0.4;
 let best = null;
 for (let start = 10; start < 60; start += 2) for (let gap = 8; gap <= 30; gap += 0.5) {
   const take = film(start, gap);
   if (take.crashed || take.bumps || take.pulledOut == null || take.pulledOut < 0) continue;
   if (take.peak < 0.99 || !take.back) continue;
   if ((take.pulledOut - Math.round(BLIP_ON / STEP)) * STEP > LATE) continue;
+  if (take.pullGap > PULL_GAP || take.tail * STEP > MAX_TAIL) continue;
   const off = Math.abs(take.ahead - AHEAD);
   if (!best || off < best.off) best = { start, gap, off, score: take.ahead, take };
 }
@@ -174,7 +188,7 @@ export const REEL = ${JSON.stringify(reel)};
 
 if (process.argv.includes('--write')) {
   fs.writeFileSync(OUT, source);
-  console.log(`wrote ${reel.frames.length} frames (start ${best.start}, gap ${best.gap}, ${best.score.toFixed(1)} ahead)`);
+  console.log(`wrote ${reel.frames.length} frames (start ${best.start}, gap ${best.gap}, pulls out ${best.take.pullGap.toFixed(1)} back, ${best.score.toFixed(1)} ahead)`);
   process.exit(0);
 }
 
@@ -189,6 +203,8 @@ check('the committed reel is the shipped overtake', committed === source,
   committed === source ? '' : 'the sim has changed under it; run node tools/overtakereel.mjs --write');
 check('it pulls out on the blip', (best.take.pulledOut - Math.round(BLIP_ON / STEP)) * STEP <= LATE,
   `frame ${best.take.pulledOut}`);
+check('it pulls out right behind the car, not up the road from it', best.take.pullGap <= PULL_GAP,
+  `${best.take.pullGap.toFixed(1)} units back`);
 check('goes all the way out and back without touching the car',
   best.take.peak >= 0.99 && best.take.back && best.take.bumps === 0);
 check('and ends up in front of it', best.score > 4, `${best.score.toFixed(1)} units ahead`);
