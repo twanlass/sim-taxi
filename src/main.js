@@ -890,8 +890,12 @@ const combo = createComboMeter({ scope: comboScope(new URLSearchParams(window.lo
 // The strikes read as a driver's star rating by default; `?rating=off` puts the three rings back.
 // See RATING_START in game/fares.js.
 const ratingOn = new URLSearchParams(window.location.search).get('rating') !== 'off';
+// The rush: the kerb ramps 1, 1, 2, 2, 3 riders over the first drop-offs, each step up arriving at
+// once (KERB_RAMP in game/difficulty.js). `?rush=classic` is the board as it was.
+const rushOn = new URLSearchParams(window.location.search).get('rush') !== 'classic';
 const fares = createFareSystem(makeRng(runSeed + 55), scene, {
   rating: ratingOn,
+  rush: rushOn,
   // The bank rider's coin loads with every one who rides — BANK_ROBBER_STEP in game/fares.js.
   risingOdds: new URLSearchParams(window.location.search).get('robberyodds') !== 'classic',
   // Demo mode: every bank rider is the robbery, whatever BANK_ROBBER_ALWAYS says.
@@ -7005,6 +7009,9 @@ function tick() {
       updateBankMark(0);
       continue;
     }
+    // The rush's riders have already been through 'spawned': they just appear on the map (Tyler,
+    // 2026-10-23: no pause, no pull-out).
+    if (type === 'rush') continue;
     if (type === 'pickup') {
       boardSound();
       traffic.taxi.route = [];

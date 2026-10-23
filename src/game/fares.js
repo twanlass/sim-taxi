@@ -8,6 +8,7 @@ import { createPerson } from '../geometry/person.js';
 import { taxiSideToward, taxiDoorPoint } from '../geometry/taxi.js';
 import { createCurseBubble } from '../geometry/cursebubble.js';
 import { createFareMarker } from './faremarker.js';
+import { PIE_SLICES } from '../geometry/diamond.js';
 import { sightlineClear } from './sightline.js';
 import { RING_R, RING_Y } from '../geometry/targetring.js';
 import { urgencyLevel, URGENCY_SEGMENTS, fareColor } from './urgency.js';
@@ -756,6 +757,7 @@ export const waitingTargets = (slot) => [slot.passenger.group, slot.marker.group
  */
 export function createFareSystem(rng, scene, {
   reserved = () => [], judgeRun = () => ({ runs: [], mult: 1 }), rating = true, risingOdds = true, alwaysRob = BANK_ROBBER_ALWAYS,
+  rush = true,
 } = {}) {
   const state = {
     // Active fares, newest last. At most MAX_FARES, and up to MAX_FARES - 1 of them can be
@@ -770,6 +772,9 @@ export function createFareSystem(rng, scene, {
     // bursting.
     // -Infinity so the very first spawn is unrestricted.
     lastSpawnAt: -Infinity,
+    // The kerb's step on the ramp (KERB_RAMP in difficulty.js) the run has reached. A step up is a
+    // rush; a kerb that drains below the step it is already on gets the floor's top-up instead.
+    kerbLevel: 1,
     gameOver: false,
     failTitle: 'Too Slow!',
     failReason: null,
@@ -1203,13 +1208,16 @@ export function createFareSystem(rng, scene, {
    * Computed once, at spawn, and never revisited. A clock that grew because the board got busier
    * would be incoherent — and it would mean the player could earn time by dithering.
    */
-  function budgetFor(taxiCar, pickup, dropoff, { vip = false, via = [] } = {}) {
+  function budgetFor(taxiCar, pickup, dropoff, { vip = false, via = [], ahead = [] } = {}) {
     const stops = [];
     // The rider aboard is a commitment, and a robber never has one: `spawnRobber` refuses outright
     // while the seat is full, which is the trigger's own rule (game/robbery.js).
     const riding = carrying();
     // A getaway still owes its checkpoints before its drop-off, so the chain has them too.
     if (riding) stops.push(...(riding.checkpoints ?? []), riding.dropoff);
+    // Riders on the kerb this clock is told to wait behind — only ever the rush's and the floor's,
+    // and only ever one of them (see `budgetBehind`).
+    for (const f of ahead) stops.push(f.pickup, f.dropoff);
     stops.push(pickup, ...via, dropoff);
 
     // `main.js` rerolls any city where `findRoute` fails a pair, so null is the unreachable case
@@ -1224,7 +1232,7 @@ export function createFareSystem(rng, scene, {
     return { work, limit };
   }
 
-  function spawnFare(taxiCar, near = null, vip = false, bank = false) {
+  function spawnFare(taxiCar, near = null, vip = false, bank = false, reach = null) {
     const slot = slots.find((s) => !state.fares.some((f) => f.slot === s)
       && !exits.some((e) => e.slot === s));
     if (!slot) return null;
@@ -1237,7 +1245,7 @@ export function createFareSystem(rng, scene, {
     // reads it off the target — so the taxi comes down the bank's street past the steps.
     const spot = bank
       ? { i: bankStop.junction.i, j: bankStop.junction.j, ...(bankStop.tight ? { onto: bankApproach() } : {}) }
-      : pickIntersection(taxiCar, near, isFirstEver ? FIRST_FARE_MAX_BLOCKS : null);
+      : pickIntersection(taxiCar, near, isFirstEver ? FIRST_FARE_MAX_BLOCKS : reach);
     const fare = {
       slot,
       stage: 'waiting',
@@ -1760,6 +1768,55 @@ export function createFareSystem(rng, scene, {
   };
 
   /**
+   * Re-budget a rider the rush or the floor put on the kerb as if **one** other waiting rider were
+   * served before them: the longest of `others`' trips, which is the generous end of "one ahead".
+   *
+   * Not the whole queue. Budgeting every rider behind every other one was tried and taken out
+   * (docs/difficulty.md#every-rider-is-budgeted-as-if-served-next): it made every board servable in
+   * any order and was reported as "you can pick any rider and have plenty of time". One ahead is the
+   * least that makes a kerb of two worth having on Easy — on served-next clocks the second rider of
+   * two expired behind the first more often than not, and the floor would only have been handing
+   * out strikes — while a rush of three still cannot all be made at cruise. Somebody gets let go,
+   * or the taxi goes Loco. VIPs and the bank rider keep their own clocks, and a clock pinned from
+   * the ⚙️ panel is left alone, as `spawnFare` leaves it.
+   */
+  function budgetBehind(fare, taxiCar, others) {
+    if (fare.vip || fare.bank || isFareClockPinned() || others.length === 0) return;
+    const longest = others.reduce((a, b) => (b.work > a.work ? b : a));
+    const budget = budgetFor(taxiCar, fare.pickup, fare.dropoff, { ahead: [longest] });
+    fare.work = budget.work;
+    fare.limit = Math.max(fare.limit, budget.limit);
+    fare.timeLeft = fare.limit;
+  }
+
+  const kerbCount = () => state.fares.filter((f) => f.stage === 'waiting').length;
+
+  /**
+   * Now and then a rider opens a slice down (LATE_CHANCE in difficulty.js). Last, after any
+   * re-budget, so the slice comes off the clock the rider actually got. The pie is filled on the
+   * spot rather than on the next tick, which would show the rider a full pie for the frame they
+   * appear on — and then knock a slice off in front of the player.
+   */
+  function startLate(fare) {
+    if (!rush || state.kerbLevel < 2 || fare.vip || fare.bank || fare.robber) return;
+    if (!rng.chance(difficulty.LATE_CHANCE)) return;
+    fare.timeLeft = fare.limit * (1 - 1 / PIE_SLICES);
+    fare.late = true;
+    fare.slot.marker.setFill(urgencyOf(fare));
+  }
+
+  /** The ramp has just stepped up a rider (KERB_RAMP in difficulty.js) and the kerb is short of it. */
+  const rushDue = () => rush && !concealed()
+    && difficulty.kerbFloor(state.delivered) > state.kerbLevel
+    && kerbCount() < difficulty.kerbFloor(state.delivered);
+
+  /** The kerb has run down below its step, and has been that way long enough to top it up. */
+  const floorDue = () => rush && state.kerbLevel > 1 && !concealed()
+    && kerbCount() < state.kerbLevel
+    && state.fares.length < MAX_FARES
+    && state.elapsed - state.lastSpawnAt >= difficulty.FLOOR_GAP;
+
+  /**
    * Should the board be topped up this frame?
    *
    * An empty board always refills — the ordinary one-fare loop. Beyond that, refills are gated on
@@ -1840,12 +1897,44 @@ export function createFareSystem(rng, scene, {
     // board refills at once; further slots open one at a time, staggered by difficulty.spawnGap(), so the
     // extra clocks arrive out of phase and the board turns into a prioritisation puzzle instead
     // of a single hard moment followed by a lull.
-    if (shouldRefill()) {
+    //
+    // The rush and the floor go first (see KERB_RAMP in difficulty.js). The rush is plain riders only —
+    // it is the moment the board is introduced, and a VIP's or a bank rider's own rules have no
+    // business in the middle of it — and it emits one 'rush' event after their 'spawned's, carrying
+    // the first of them, for the tools. There is no pause or camera move for it: the riders simply
+    // appear (Tyler, 2026-10-23, after trying a freeze-and-pull-out over them).
+    if (rushDue()) {
+      state.kerbLevel = difficulty.kerbFloor(state.delivered);
+      const fresh = [];
+      while (kerbCount() < state.kerbLevel && state.fares.length < MAX_FARES) {
+        // Within RUSH_REACH of the taxi, so a step up lands in or near the frame the player is
+        // already looking at rather than across town.
+        const spawned = spawnFare(taxiCar, spawnBias(taxiCar), false, false, difficulty.RUSH_REACH);
+        if (!spawned) break;
+        fresh.push(spawned);
+      }
+      const kerb = state.fares.filter((f) => f.stage === 'waiting');
+      for (const f of fresh) {
+        budgetBehind(f, taxiCar, kerb.filter((o) => o !== f));
+        startLate(f);
+      }
+      if (fresh.length) {
+        state.lastSpawnAt = state.elapsed;
+        for (const f of fresh) emit('spawned', f);
+        emit('rush', fresh[0]);
+      }
+    } else if (floorDue() || shouldRefill()) {
+      // Only the floor's top-up waits behind anyone; a rider the ordinary stagger sends is on
+      // served-next clocks as ever, so the late ramp stays the choice it was tuned to be.
+      const floor = floorDue();
       const near = spawnBias(taxiCar);
       const bank = wantsBank(taxiCar, near);
       const vip = !bank && wantsVip();
+      const others = state.fares.filter((f) => f.stage === 'waiting');
       const spawned = spawnFare(taxiCar, near, vip, bank);
       if (spawned) {
+        if (floor) budgetBehind(spawned, taxiCar, others);
+        startLate(spawned);
         state.lastSpawnAt = state.elapsed;
         if (spawned.vip) lastVipAt = state.elapsed;
         emit('spawned', spawned);

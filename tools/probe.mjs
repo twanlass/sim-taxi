@@ -3230,7 +3230,9 @@ const PRESSURE_END = difficulty.getTuning().pressureEnd;
 {
   const mScene = new THREE.Scene();
   const mTraffic = createTraffic(makeRng(seed + 44), mScene, CARS_DEFAULT);
-  const fares = createFareSystem(makeRng(seed + 55), mScene);
+  // `rush: false`: this is the stagger's test, and the rush (RUSH_AT in difficulty.js) spawns its
+  // riders in one burst on purpose. It has its own section below.
+  const fares = createFareSystem(makeRng(seed + 55), mScene, { rush: false });
   mTraffic.warmup(5);
 
   let mostAtOnce = 0;
@@ -3320,6 +3322,87 @@ const PRESSURE_END = difficulty.getTuning().pressureEnd;
   } else {
     check('a waiting rider cannot be taken while carrying', true, 'board not doubled up at exit');
   }
+}
+
+// --- The rush ------------------------------------------------------------------------------------
+//
+// KERB_RAMP in game/difficulty.js: the kerb is kept at 1, 1, 2, 2, 3 riders after each drop-off,
+// every step up arrives at once as a rush, and between steps the kerb is topped back up. Played on
+// the shipped Easy curve, the one Tyler asked it for, with the same carry-then-most-urgent policy as
+// the board test above.
+{
+  const rScene = new THREE.Scene();
+  const rTraffic = createTraffic(makeRng(seed + 44), rScene, CARS_DEFAULT);
+  const fares = createFareSystem(makeRng(seed + 55), rScene);
+  rTraffic.warmup(5);
+  const aim = () => {
+    const job = fares.carrying() ?? fares.waiting();
+    if (!job || job.directed) return;
+    const r = findRoute(planOrigin(rTraffic.taxi), job.target);
+    if (r) { rTraffic.taxi.route = r; rTraffic.taxi.routeConsumed = false; fares.markDirected(job); }
+  };
+  const kerb = () => fares.state.fares.filter((f) => f.stage === 'waiting');
+  const rushes = [];
+  let earlyExtras = 0;
+  let thinFrames = 0;
+  let thinStreak = 0;
+  let floorFrames = 0;
+  let rushClocksOk = true;
+  let spawnedLater = 0;
+  let late = 0;
+  let lateOk = true;
+  for (let t = 0; t < 900 && !fares.state.gameOver && fares.state.delivered < 8; t += 1 / 60) {
+    rTraffic.update(1 / 60);
+    for (const { type, fare } of fares.update(1 / 60, rTraffic.taxi)) {
+      if (type === 'spawned') {
+        if (fares.state.kerbLevel === 1 && fares.state.fares.length > 1) earlyExtras += 1;
+        if (fares.state.kerbLevel > 1 && !fare.vip && !fare.bank) {
+          spawnedLater += 1;
+          if (fare.late) {
+            late += 1;
+            // One slice gone, off the clock the rider actually got, and shown on the pie.
+            if (Math.abs(fare.timeLeft - fare.limit * 7 / 8) > 1e-6 || fare.slot.marker.slicesLeft() !== 7) lateOk = false;
+          }
+        }
+      }
+      if (type !== 'rush') continue;
+      rushes.push({ at: fares.state.delivered, kerb: kerb().length });
+      // Each rush rider's clock waits behind one other rider, so it is never shorter than it would
+      // have been served next.
+      for (const f of kerb()) if (!(f.limit >= f.work * difficulty.pace(fares.state.delivered) - 1e-6)) rushClocksOk = false;
+      if (!fare || fare.stage !== 'waiting') rushClocksOk = false;
+    }
+    aim();
+    if (fares.state.kerbLevel > 1) {
+      floorFrames += 1;
+      // A kerb below its step is allowed for FLOOR_GAP after a rider leaves it, plus the few frames
+      // a delivered rider's exit can still hold the free slot (EXIT_SECONDS in fares.js), and no longer.
+      const thin = kerb().length < fares.state.kerbLevel
+        && fares.state.elapsed - fares.state.lastSpawnAt > difficulty.FLOOR_GAP
+        && fares.state.fares.length < MAX_FARES;
+      thinStreak = thin ? thinStreak + 1 : 0;
+      thinFrames = Math.max(thinFrames, thinStreak);
+    }
+  }
+  const steps = difficulty.KERB_RAMP.flatMap((n, k) => (k > 0 && n > difficulty.KERB_RAMP[k - 1] ? [k] : []))
+    .filter((k) => k <= fares.state.delivered);
+  check('the kerb ramps 1, 1, 2, 2, 3 with a rush at each step up',
+    steps.length >= 2 && rushes.length === steps.length
+      && rushes.every((r, k) => r.at === steps[k] && r.kerb === difficulty.kerbFloor(r.at)),
+    `${rushes.map((r) => `${r.kerb} at drop ${r.at}`).join(', ')}; ${fares.state.delivered} delivered`);
+  check('...and nobody extra before the first on Easy', earlyExtras === 0, `${earlyExtras} extras`);
+  check('...on clocks that wait behind one rider', rushClocksOk);
+  check('after a rush the kerb is topped back up to its step', floorFrames > 0 && thinFrames < 60,
+    `longest thin stretch ${thinFrames} frames, over ${floorFrames}`);
+  check('now and then a rider opens a slice down, with the seconds really gone',
+    lateOk && late > 0 && late < spawnedLater, `${late} of ${spawnedLater}`);
+
+  // `?rush=classic` is the old board: no rush, ever.
+  const cScene = new THREE.Scene();
+  const cFares = createFareSystem(makeRng(seed + 55), cScene, { rush: false });
+  cFares.state.delivered = difficulty.RUSH_AT;
+  const cEvents = cFares.update(1 / 60, rTraffic.taxi);
+  check('...and none under ?rush=classic', !cEvents.some((e) => e.type === 'rush') && cFares.state.fares.length === 1);
 }
 
 // --- Every generator gets its own stream ---------------------------------------------------------
@@ -4474,8 +4557,10 @@ const PRESSURE_END = difficulty.getTuning().pressureEnd;
           : urgencyColor(URGENCY_SEGMENTS).getHexString();
         if (diamondHex(fare.slot.marker) !== wantOpening) wrongOpening += 1;
         // And with a full vessel: the crystal is a glass of time, and it is poured at spawn. A
-        // VIP's stays full forever rather than draining — see the fillOutOfStep loop below.
-        if (fare.slot.marker.getFill() < 0.99) drainedOpening += 1;
+        // VIP's stays full forever rather than draining — see the fillOutOfStep loop below. A late
+        // rider (LATE_CHANCE in difficulty.js) is poured a slice short on purpose, and must show it.
+        const pour = fare.late ? 7 / 8 : 1;
+        if (Math.abs(fare.slot.marker.getFill() - pour) > 0.01) drainedOpening += 1;
         if (fare.blocks !== blockDistance(fare.pickup, fare.dropoff)) wrongCount += 1;
         // Distance price, times a VIP's flat multiplier (1 for everyone else), settled at spawn.
         // The combo is not in it yet — that is applied at the drop-off, checked below.
@@ -18223,7 +18308,9 @@ let chopperOrder; // likewise
         const t8 = createTraffic(makeRng(seed + 44), s8, 10, 18);
         // `alwaysRob: false` so the coin and its ramp are still exercised while BANK_ROBBER_ALWAYS
         // has every bank rider rob for testing.
-        const f8 = createFareSystem(makeRng(seed + 900 + k), s8, { alwaysRob: false });
+        // `rush: false` too: at five deliveries a fresh board would otherwise be the rush's, which
+        // is plain riders only.
+        const f8 = createFareSystem(makeRng(seed + 900 + k), s8, { alwaysRob: false, rush: false });
         t8.warmup(1);
         f8.state.delivered = 5;
         const got = [];
