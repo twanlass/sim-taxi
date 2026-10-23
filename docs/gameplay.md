@@ -4185,11 +4185,16 @@ driven rather than how long. A run that never landed a combo shows **1x** rather
 row, so the card is the same shape every run. History:
 [the run-end screen](gameplay-history.md#the-run-end-screen).
 
-The stats are **one row each, label and value side by side**, and both are set in the *same* size,
-weight and colour. A small grey caption over a big yellow number made the label read as chrome and
-the number as the content, when the pairing is the content; matched type makes each row one phrase
-— "Cash  $412" — and the rows read as a list being counted out, which is what the stagger is
-doing.
+The stats are **one row each, label and value side by side**, in the *same* size and weight: the
+label in yellow, the value in **white**. A small grey caption over a big yellow number made the
+label read as chrome and the number as the content, when the pairing is the content; matched type
+makes each row one phrase — "Cash  $412" — and the white value is the answer to the yellow
+question.
+
+They are **counted out one row at a time**: the label drops in and settles, *then* its value
+appears and counts up from zero (0.46s), lands with a pop, and only then does the next label
+arrive. Three rows take ~2.7s; a tap lands every number at once. `PACE_COUNTED` in
+`game/runend.js`; `?statcount=classic` is the older, quicker pace in yellow.
 
 It reads as a **ledger**: label pinned to the left edge, value to the right, on a `1fr auto` grid
 so the label column takes the slack and the values stay flush right however long the names get.
@@ -4224,10 +4229,22 @@ doesn't fit, the overlay scrolls — centred by `margin: auto` on the content ra
 **Nothing appears at once.** The card is revealed as a sequence, because the version before this
 one wrote a single line of `innerHTML` and the whole screen arrived in one frame — which reads as
 the game stopping rather than as a scoreboard. The order is title → reason → each stat in turn →
-the initials prompt, if the run placed → the table → **Play again**, and each stat's label **scales
-down** into place as it fades up before its number rolls from zero. A number that rolls gets read; a
-number that is printed gets skipped past on the way to the button. The button is last on purpose,
+the initials prompt, if the run placed → the table → **Tap to continue**, and each stat's label
+**scales down** into place as it fades up before its value arrives. A number that moves gets read;
+a number that is printed gets skipped past on the way out. The way out is last on purpose,
 appearing only once the table has landed, so the player isn't invited to leave mid-tally.
+
+**Cash counts up and the other two type out.** Cash rolls from zero with every digit that changes
+fading up into its place; **Max combo** and **Time** don't count at all, they type out a character
+at a time, left to right, each glyph laid out from the start so the right-aligned value never slides
+(`countDigits` and `typeOut` in `game/runend.js`, `reveal: 'type'` on the stat). A combo or a clock
+counting up from zero says nothing its final figure doesn't, and three rolls in a row read as one
+animation.
+
+**There is no Play again button.** The card ends on the same pulsing "Tap to continue" as the
+review, and a tap anywhere (or Enter/Space) plays again, armed `HOLD_MS` after it appears so the tap
+that skipped the table is not the one that reloads the run. `?playagain=classic` brings the yellow
+pill back.
 
 **The stats, the prompt and the table are one slot taking turns**, not a list that grows. `#run-end
 .run-end-body` holds whichever screen is current and cross-fades to the next. Stacking them was the
@@ -4262,7 +4279,7 @@ tap *during* the count still lands the numbers, but on
 the review rather than past it, and the tap that leaves is only armed `HOLD_MS` after the last
 number lands — the thumb still on the glass when the taxi wrecked is the likeliest tap of all, and
 it should not carry through to the table. With no table to show (no scores) there is no extra
-wait: the next thing is the Play again pill, which waits for a tap of its own. Under reduced motion
+wait: the next thing is the closing "Tap to continue", which waits for a tap of its own. Under reduced motion
 the screens stack, so the review is never off screen and nothing waits.
 
 **The skip is per-beat, not a jump to the end**, and the initials prompt is why. Every other beat

@@ -1227,6 +1227,13 @@ fares a run carried and how far up the ramp it got both mostly restate how long 
 rows of near-synonyms buried Cash, the one number the table ranks by. Cash comes first for that
 reason.
 
+The values used to be the labels' yellow, and each faded in 60ms after its label and rolled in
+0.34s. On a phone the label and the figure arrived as one thing and the count was over before the
+eye reached it, so the stagger didn't read as counting (Tyler, 2026-10-23). `?statcount=classic`.
+
+Every value used to count up from zero; Max combo and Time type out now. The card used to end on a
+yellow **Play again** pill rather than "Tap to continue" (`?playagain=classic`).
+
 The review used to hold for 420ms and swap itself, so a run summary was something you could miss
 by glancing away.
 
