@@ -1283,6 +1283,7 @@ default city; `CITY=big npm run check` is the big one's suite.
 | `buildings.js` | towers, courtyard blocks, façades, roof furniture | One merged mesh. Height ceiling is deliberately low; tall towers hid the taxi. See [what a building is made of](#what-a-building-is-made-of). |
 | `props.js` | trees, park benches, the statue | Merged per material via `bakeColor`, so hundreds of props cost one draw call. Placement is [above](#benches-and-one-statue). |
 | `manholes.js` | four or five manhole covers | Its own mesh, wet in the rain, not brushed. [Below](#manhole-covers). |
+| `game/streetprops.js`, `geometry/streetprops.js` | two blue post boxes and a hot dog cart on the kerb | Their own meshes, since they fall over. [Below](#the-post-box-and-the-hot-dog-cart). |
 
 ### Manhole covers
 
@@ -1303,6 +1304,34 @@ the fragment shader, bending the normal; a Blinn glint added inside three's own 
 shadows. The tread fades out by `fwidth` before it can crawl. Their own mesh rather than part of the
 ground, because the ground wears the painterly road strokes and iron under a stroke reads as road;
 `rain.wetGround` still patches it, so the covers shine in a squall like the street round them.
+
+### The post box and the hot dog cart
+
+Two blue post boxes and one hot dog cart under a red-and-yellow umbrella stand on the kerb near a
+corner (`game/streetprops.js`, geometry in `geometry/streetprops.js`, `?streetprops=classic` for
+none), and a taxi in Loco Mode takes them out: dust, the prop goes over onto the pavement, and a
+spray of letters or hot dogs. The letters flutter down (paper has a terminal velocity), the hot
+dogs drop and bounce once. Everything lies there for a few seconds and sinks away, and a fresh prop
+comes back up 35s later once the taxi is out of the way.
+
+**Where.** City seed (`seed + 211`). Only on the **+X face of a built block**, 0.5 in from the
+kerb, 4.2 units along the lane that runs +Z past it. Both halves are forced. The camera sits off
++X+Z, so a prop on a −X or −Z face has its own block's building in front of it. And on the +Z face
+the passing lane starts at the block's +X+Z corner, which is where `cornerFor` stands every rider,
+so a prop near that lane's start would stand beside the rider pins. The spot also has to clear the
+sightline field (`sightlineClear`), stay off lanes shorter than 11.5 (the ones beside an arterial),
+keep 1.6 from a rain street lamp, and keep 30 from the other props.
+
+**The swipe.** The taxi can't reach the kerb on its own. Its lane centre is 2.25 off the kerb and
+the drawn body is 1.0 across from it, so there's 1.25 of road between flank and kerb at every speed.
+A hit radius big enough to cross that gap would blow up a box the car visibly missed. So under Loco
+Mode, on the lane beside a prop, the taxi veers onto the kerb at it (`swipeOffset`/`swipeSlope`, a
+render-only lateral like the weave and the overtake in `sim/traffic.js`). The veer is 1.75 at full
+depth, reached 1.2 before the prop so the flank is already at the kerb when the nose arrives, and it
+is back to zero 7.9 along the lane. That's short of the 8.6 hold line on the shortest lane allowed,
+where the turn takes over. The probe drives every planned prop: 3/3 hit with the car's centre 1.28
+across from the prop's at the hit (drawn half-width 1.0 plus the prop's own), and at cruise none
+are touched.
 
 ### What a building is made of
 
