@@ -316,10 +316,14 @@ export const DRIVE_THRU_TAIL = 2;
  * does. The rest peaks at -4 to -7.
  */
 const MUSIC_DUCK = 0.25;
-// How long the radio takes to fade out once the game-over screen appears. Long enough to read as
-// the song ending rather than being cut, short enough that it is gone before the stats finish
-// counting up.
+// How long the radio takes to fade out as the game-over screen appears (`?musicfade=classic`). Long
+// enough to read as the song ending rather than being cut, short enough that it is gone before the
+// stats finish counting up.
 const MUSIC_FADE_OUT = 1.5;
+// The default: the song plays on under the stats (~3s of them) and fades once "Tap to continue"
+// comes up. Slower than the classic fade because nothing is racing it any more — the card is just
+// waiting on the player, so the song can trail off rather than get out of the way.
+export const MUSIC_FADE_AT_HINT = 2.5;
 /**
  * The dash radio (Tyler, October 2026; `?radiointro=classic` off). From Play the station is heard
  * the way it would be from inside the taxi — a cheap AM set through one tired door speaker — and

@@ -643,9 +643,14 @@ function buildBoard(entries, youId) {
  * card on a pulsing "Tap to continue" instead of the Play again pill; false is `?playagain=classic`.
  * `fit` holds a band at the foot for that hint and sizes the print and gaps to leave the table
  * clear of it; false is `?runendfit=classic`.
+ *
+ * `onStatsShown`, when given, is called once, on the frame the first "Tap to continue" starts to
+ * show — the stats have all landed and the card is waiting on the player. main.js fades the music
+ * out there, so the ending gets a few seconds of song under it (Tyler, 2026-10-23).
  */
 export function showRunEnd(root, {
   title, reason, stats, scores = null, onRetry, finale = null, photo = null, footHint = true, statCount = true, tapRetry = true, fit = true,
+  onStatsShown = null,
 }) {
   root.innerHTML = '';
   root.hidden = false;
@@ -696,6 +701,13 @@ export function showRunEnd(root, {
    */
   let skip = null;
   let timer = 0;
+  // Fired at most once: with no table, the review is skipped and the first hint is the last one.
+  let statsShown = false;
+  const statsLanded = () => {
+    if (statsShown) return;
+    statsShown = true;
+    onStatsShown?.();
+  };
   root.addEventListener('pointerdown', () => skip?.());
 
   /**
@@ -766,6 +778,7 @@ export function showRunEnd(root, {
 
   function playRetry() {
     if (tapRetry) { playTapRetry(); return; }
+    statsLanded();
     retry.style.opacity = '';
     retry.disabled = false;
     if (still) return;
@@ -795,10 +808,10 @@ export function showRunEnd(root, {
     };
     const go = () => { skip = null; window.removeEventListener('keydown', onKey); onRetry(); };
     window.addEventListener('keydown', onKey);
-    if (still) { skip = go; return; }
+    if (still) { skip = go; statsLanded(); return; }
     hint.animate([{ opacity: 0 }, { opacity: 1 }],
       { duration: HINT_MS, delay: HOLD_MS, easing: 'ease-out', fill: 'backwards' });
-    timer = setTimeout(() => { skip = go; }, HOLD_MS);
+    timer = setTimeout(() => { skip = go; statsLanded(); }, HOLD_MS);
   }
 
   function playBoard(entries) {
@@ -839,6 +852,7 @@ export function showRunEnd(root, {
    * the card and re-centre the title under it for as long as it was up.
    */
   function awaitReview() {
+    if (still) statsLanded();
     if (still || !scores) { afterStats(); return; }
     const hint = el('span', 'run-end-continue', 'Tap to continue');
     if (footHint) {
@@ -860,7 +874,7 @@ export function showRunEnd(root, {
         { duration: SWAP_OUT_MS, easing: 'ease-in', fill: 'forwards' }).onfinish = () => hint.remove();
       afterStats();
     };
-    timer = setTimeout(() => { skip = leave; }, HOLD_MS);
+    timer = setTimeout(() => { skip = leave; statsLanded(); }, HOLD_MS);
   }
 
   function afterStats() {
