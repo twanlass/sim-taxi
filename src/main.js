@@ -143,7 +143,7 @@ import {
 import * as difficulty from './game/difficulty.js';
 import { createHomeScreenTip } from './game/homescreen.js';
 import { createTitleScreen, TITLE_CAM } from './game/titlescreen.js';
-import { tellBackstory, wantsBackstory } from './game/backstory.js';
+import { BACKSTORY_VOICES, backstoryVoiced, tellBackstory, wantsBackstory } from './game/backstory.js';
 import { createTitleReel } from './game/titlereel.js';
 import { splashCovers, SPLASH_SKIP_KEY } from './game/splash.js';
 import { createSettings, qualityOf } from './game/settings.js';
@@ -5854,6 +5854,18 @@ function consumeTitleSkip() {
     return skip;
   } catch { return false; }
 }
+// One line of the backstory read out, for `tellBackstory`: null when there is nothing to hear (muted,
+// not decoded yet, `?introvo=classic`), and the line is told in text alone.
+function speakBackstory(i) {
+  const name = BACKSTORY_VOICES[i];
+  const voice = name && backstoryVoiced() ? sfx?.play(name) : null;
+  if (!voice) return null;
+  return {
+    seconds: voice.src.buffer.duration,
+    stop: () => sfx.release(voice, 0.08),
+    ended: () => Boolean(voice.ended),
+  };
+}
 const wantsTitle = !shot && !devMode && !consumeTitleSkip()
   && new URLSearchParams(window.location.search).get('title') !== 'off';
 const title = wantsTitle ? createTitleScreen(document.getElementById('title-screen'), {
@@ -5864,7 +5876,7 @@ const title = wantsTitle ? createTitleScreen(document.getElementById('title-scre
   // see game/backstory.js. `?intro=classic` goes straight to the garage as before.
   beforePlay: (done) => {
     if (!wantsBackstory()) return false;
-    tellBackstory(document.getElementById('title-screen'), { done });
+    tellBackstory(document.getElementById('title-screen'), { done, speak: speakBackstory });
     // The camera goes to the garage and drifts there while dispatch talks (`storyFrame`) — so Play
     // then eases down onto the door from close by. Off the slide it flies there (`STORY_GLIDE`),
     // one continuous shot (Tyler, 2026-10-22); off the reel, which is all cuts, it cuts under the

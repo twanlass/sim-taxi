@@ -2092,6 +2092,9 @@
       #title-screen .title-story-talk[hidden] { display: none; }
       /* Dispatch is a voice on the radio, with no one on screen for the tag to sit on. */
       #title-screen .title-story-talk .speech-tag-pin { display: none; }
+      /* The word that punches once its line is typed (backstory.js `PUNCH`): its own box, so it can
+         scale and tilt about its middle. */
+      #title-screen .title-story-punch { display: inline-block; transform-origin: 0 70%; }
       #title-screen .title-story-skip {
         position: absolute; top: calc(16px + var(--safe-top)); right: calc(16px + var(--safe-right));
         padding: 8px 14px; font-size: 15px; font-weight: 700; color: rgba(255, 255, 255, 0.8);
