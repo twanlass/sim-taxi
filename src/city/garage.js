@@ -8,8 +8,8 @@ import { taxiSignGeometry } from '../geometry/taxi.js';
 import { KERB_H } from './ground.js';
 import { lippedCap } from './buildings.js';
 import {
-  DIR, GRID_I, GRID_J, HALF_ROAD, LANE, isArterialZ, isSegmentClosed, junctionReach, laneOffZ,
-  lineX, lineZ,
+  DIR, GRID_I, GRID_J, HALF_ROAD, LANE, LTRAIN_NS, LTRAIN_WEST, isArterialX, isArterialZ,
+  isSegmentClosed, junctionReach, laneOffZ, lineX, lineZ,
 } from './grid.js';
 
 // The taxi's garage: a single-storey depot with a roller door on the street, and the one building
@@ -296,6 +296,43 @@ function occlusionClear(blocks, bi, bj) {
   return diagonal.centrality < 0.75;
 }
 
+// Whether the depot stays out from behind the L (on by default, `?garageplace=classic` to compare).
+// Read here rather than in main.js because the layout is what decides, and the headless tools take
+// `GARAGEPLACE=classic` from the environment the way they take `CITY=big`.
+const params = typeof location !== 'undefined' ? new URLSearchParams(location.search) : null;
+const AVOID_LTRAIN = params
+  ? params.get('garageplace') !== 'classic' && params.get('ltrain') !== 'classic'
+  : globalThis.process?.env?.GARAGEPLACE !== 'classic';
+
+/**
+ * Does the elevated train stand between this block's door and the camera?
+ *
+ * Only on one column: the block whose +X street *is* the L's north-south arterial. The door faces
+ * the median across the forecourt and one carriageway, so the sightline reaches the track ~8-10
+ * units out, 7-9 up — exactly the deck (6.4) and a train on it (8.2). Measured over 200 seeds
+ * before this filter (tools/probe.mjs re-measures it): 46 put the depot there, every one of them
+ * with **55%** of the forecourt the taxi drives out over behind the deck and up to 89% once a train
+ * is passing, and the door itself under the train. One block further west is clear: the line is 21+
+ * units out by then and well over the train's roof.
+ *
+ * Mirrors `planLTrain` (game/ltrain.js) rather than calling it, because that module builds meshes
+ * and city/ must not import game/: the line is the first interior north-south arterial, and on
+ * `?city=big` it only runs north of the east-west arterial it turns west along. An east-west line
+ * hides nothing — the door faces it side-on and the sightline climbs 12 units before reaching it.
+ */
+function behindLTrain(bi, bj) {
+  if (!AVOID_LTRAIN || !LTRAIN_NS) return false;
+  let iz = null;
+  for (let i = 1; i < GRID_I; i++) if (isArterialZ(i)) { iz = i; break; }
+  if (iz === null || bi + 1 !== iz) return false;
+  if (LTRAIN_WEST) {
+    let jx = null;
+    for (let j = 0; j <= GRID_J; j++) if (isArterialX(j)) { jx = j; break; }
+    if (jx !== null && jx > 0 && jx < GRID_J) return bj < jx;
+  }
+  return true;
+}
+
 /**
  * Which block the depot takes, or null if this city has nowhere to put one.
  *
@@ -321,7 +358,19 @@ export function chooseGarageBlock(rng, blocks) {
   // to spawn near the taxi, see fares.js — out on the edge of the map with the whole city behind
   // it. Falls back to the full list rather than to nothing.
   const inner = candidates.filter((b) => b.bi > 0 && b.bj > 0 && b.bj < GRID_J - 1);
-  return rng.pick(inner.length ? inner : candidates);
+  const pool = inner.length ? inner : candidates;
+
+  // Off the column behind the L. **One draw either way**, and the same draw indexes both lists: a
+  // seed whose depot was already clear of the track keeps it exactly where it was (and so does the
+  // burger joint, drawn next from the same stream), and only the 23% that landed behind it move.
+  // Filtering `pool` before the pick would have moved the depot on most seeds that never had the
+  // problem, every pinned seed and reference screenshot with them.
+  const roll = rng.next();
+  const pick = pool[Math.floor(roll * pool.length)];
+  if (!behindLTrain(pick.bi, pick.bj)) return pick;
+  const clear = pool.filter((b) => !behindLTrain(b.bi, b.bj));
+  const fallback = clear.length ? clear : candidates.filter((b) => !behindLTrain(b.bi, b.bj));
+  return fallback.length ? fallback[Math.floor(roll * fallback.length)] : pick;
 }
 
 /**
