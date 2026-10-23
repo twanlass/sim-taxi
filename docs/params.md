@@ -193,6 +193,7 @@ doc; what the classic version was, and why it changed, is in that doc's history 
 | `?hdr` | The full HDR bloom route instead of the emissive bloom, as a comparison. Not with Crayon or Cartoon |
 | `?bloom=off` | No emissive bloom |
 | `?grade=<preset>` | Draw this load through one of the colour grade's bundled LUTs (`warm`, `cool`, `teal & orange` as `teal+%26+orange`, `faded film`, `bleach bypass`, `punchy`) without remembering it. See [rendering.md](rendering.md#colour-grade--gamecolorgradejs) |
+| `?grade=classic` | The neutral frame: no colour grade at all, as the game shipped before Tyler's look became the default. See [rendering.md](rendering.md#colour-grade--gamecolorgradejs) |
 | `?gradesat=<0..2>` | The colour grade's saturation for this load (1 is unchanged), on its own or with `?grade` |
 | `?rain` | Rain Mode: overcast, wet streets, rain on the lens |
 | `?storm` / `=0.6` / `=night` | The passing storm on a loop, pinned at a point, or the darker storm |

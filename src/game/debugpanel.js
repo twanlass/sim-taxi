@@ -12,7 +12,8 @@ import { MIN_ELEVATION } from './daylight.js';
 import { BLOOM_INTENSITY, BLOOM_KINDS } from './bloom.js';
 import {
   PRESETS as GRADE_PRESETS, colorGrade, setGradePreset, setGradeCube, setGradeStrength, setGradeSaturation,
-  resetGrade, bakedTable, toCube, gradeSnapshot,
+  resetGrade, bakedTable, toCube, gradeSnapshot, setGradeAdjust, setGradeCurve, resetGradeCurve, resetGradeAdjust,
+  setGradeBypass, curveAt, lookCode, setLookCode, CURVE_CHANNELS,
 } from './colorgrade.js';
 import { buildAudioSections } from './audiopanel.js';
 import { attachQuickTips } from './quicktips.js';
@@ -703,12 +704,76 @@ export function createDebugPanel({
   }
 
   // --- Colour grade -----------------------------------------------------------
-  // A LUT and a saturation knob over the whole frame (game/colorgrade.js). All live, and all
-  // remembered across reloads — a grade is a judgement made over several sessions of play, not one
-  // look at a slider. Neutral until something here moves.
+  // A LUT, photo-editor knobs baked into it, and a saturation knob over the whole frame
+  // (game/colorgrade.js). All live, and all remembered across reloads — a grade is a judgement made
+  // over several sessions of play, not one look at a slider. Neutral until something here moves.
+  //
+  // Built to be used on a phone, where the panel covers most of the city it is grading: while a
+  // finger is on one of these controls the rest of the panel goes invisible (`dbg-scrub`), so the
+  // frame under it can be judged as the knob moves — the way a phone's photo editor hides its chrome
+  // mid-drag. Hold to compare does the same and draws the ungraded frame.
   heading('Colour grade');
   {
     const g = colorGrade();
+    const scrubStart = (holder) => {
+      panel.classList.add('dbg-scrub');
+      holder.classList.add('is-scrubbing');
+      const end = () => {
+        panel.classList.remove('dbg-scrub');
+        holder.classList.remove('is-scrubbing');
+        window.removeEventListener('pointerup', end, true);
+        window.removeEventListener('pointercancel', end, true);
+      };
+      window.addEventListener('pointerup', end, true);
+      window.addEventListener('pointercancel', end, true);
+      return end;
+    };
+    // A second press inside 300 ms puts the knob back at rest, so a stray drag costs nothing. Timed
+    // by hand rather than on `dblclick`, which iOS does not send for a range input.
+    const scrubbable = (input, zero = null) => {
+      let last = 0;
+      input.addEventListener('pointerdown', (event) => {
+        const end = scrubStart(input.closest('.dbg-row') ?? input);
+        if (zero && event.timeStamp - last < 300) {
+          const up = () => { zero(); window.removeEventListener('pointerup', up, true); end(); };
+          window.addEventListener('pointerup', up, true);
+          last = 0;
+        } else {
+          last = event.timeStamp;
+        }
+      });
+    };
+    const sub = (text) => {
+      const el = document.createElement('p');
+      el.className = 'dbg-sub';
+      el.textContent = text;
+      panel.append(el);
+    };
+
+    const compare = document.createElement('button');
+    compare.type = 'button';
+    compare.className = 'dbg-wide dbg-hold';
+    compare.dataset.search = 'compare before after grade';
+    compare.innerHTML = '<span>Hold to compare</span>';
+    compare.addEventListener('pointerdown', (event) => {
+      event.preventDefault();
+      compare.setPointerCapture?.(event.pointerId);
+      setGradeBypass(true);
+      const end = scrubStart(compare);
+      const release = () => {
+        setGradeBypass(false);
+        end();
+        compare.removeEventListener('pointerup', release);
+        compare.removeEventListener('pointercancel', release);
+      };
+      compare.addEventListener('pointerup', release);
+      compare.addEventListener('pointercancel', release);
+    });
+    // iOS selects the label and raises the magnifier off the raw touch stream (see CLAUDE.md).
+    compare.addEventListener('touchstart', (event) => { if (event.cancelable) event.preventDefault(); }, { passive: false });
+    panel.append(compare);
+
+    sub('Look');
     const fileOption = 'file';
     const look = dropdown([...Object.keys(GRADE_PRESETS), fileOption], g.preset);
     look.querySelector(`option[value="${fileOption}"]`).textContent = g.preset === fileOption ? `file: ${g.cubeName}` : 'file…';
@@ -731,8 +796,175 @@ export function createDebugPanel({
 
     const strength = slider(0, 1, 0.01, g.strength);
     const strengthValue = row(panel, 'LUT strength', strength);
+    scrubbable(strength, () => { setGradeStrength(1); show(); });
+    panel.append(load, picker);
+
+    // One row per knob in ADJUST_RANGES that is a plain slider. The hue rows show their colour in
+    // the readout, because a number of degrees means nothing to look at.
+    const knobs = [];
+    const knob = (label, key, min, max, step, format = (v) => (v > 0 ? `+${v.toFixed(2)}` : v.toFixed(2))) => {
+      const el = slider(min, max, step, g.adjust[key]);
+      const value = row(panel, label, el);
+      scrubbable(el, key.endsWith('Hue') ? null : () => { setGradeAdjust(key, 0); show(); });
+      el.addEventListener('input', () => { setGradeAdjust(key, Number(el.value)); show(); });
+      knobs.push({ el, value, key, format });
+    };
+    const hueFormat = (v) => `${Math.round(v)}°`;
+    sub('Light');
+    knob('Exposure', 'exposure', -2, 2, 0.01, (v) => `${v > 0 ? '+' : ''}${v.toFixed(2)} stops`);
+    knob('Contrast', 'contrast', -1, 1, 0.01);
+    knob('Warmth', 'temperature', -1, 1, 0.01);
+    knob('Tint', 'tint', -1, 1, 0.01);
+    sub('Tone');
+    knob('Shadows', 'shadows', -1, 1, 0.01);
+    knob('Midtones', 'midtones', -1, 1, 0.01);
+    knob('Highlights', 'highlights', -1, 1, 0.01);
+    sub('Colour');
     const saturation = slider(0, 2, 0.01, g.saturation);
     const saturationValue = row(panel, 'Saturation', saturation);
+    scrubbable(saturation, () => { setGradeSaturation(1); show(); });
+    knob('Vibrance', 'vibrance', -1, 1, 0.01);
+    knob('Shadow colour', 'shadowHue', 0, 360, 1, hueFormat);
+    knob('Shadow amount', 'shadowAmount', 0, 1, 0.01, (v) => v.toFixed(2));
+    knob('Highlight colour', 'highlightHue', 0, 360, 1, hueFormat);
+    knob('Highlight amount', 'highlightAmount', 0, 1, 0.01, (v) => v.toFixed(2));
+
+    // --- Curves: five knots per channel on a canvas, dragged up and down with a finger. ---
+    sub('Curves');
+    const curveBox = document.createElement('div');
+    curveBox.className = 'dbg-curve';
+    curveBox.dataset.search = 'curves rgb red green blue tone';
+    const channelBar = document.createElement('div');
+    channelBar.className = 'dbg-curve-tabs';
+    const INK = { rgb: '#ececee', r: '#ff6b6b', g: '#5fd38a', b: '#6aa0ff' };
+    let channel = 'rgb';
+    const channelButtons = CURVE_CHANNELS.map((ch) => {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.textContent = ch.toUpperCase();
+      button.style.setProperty('--ink', INK[ch]);
+      button.addEventListener('click', () => { channel = ch; drawCurve(); });
+      channelBar.append(button);
+      return button;
+    });
+    const canvas = document.createElement('canvas');
+    const flatten = document.createElement('button');
+    flatten.type = 'button';
+    flatten.textContent = 'Flatten';
+    flatten.addEventListener('click', () => { resetGradeCurve(channel); show(); });
+    channelBar.append(flatten);
+    curveBox.append(channelBar, canvas);
+    panel.append(curveBox);
+
+    const CURVE_W = 256;
+    const CURVE_H = 180;
+    const PAD = 8;
+    const ctx = canvas.getContext('2d');
+    function drawCurve() {
+      const dpr = window.devicePixelRatio || 1;
+      if (canvas.width !== CURVE_W * dpr) { canvas.width = CURVE_W * dpr; canvas.height = CURVE_H * dpr; }
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      ctx.clearRect(0, 0, CURVE_W, CURVE_H);
+      const w = CURVE_W - PAD * 2;
+      const h = CURVE_H - PAD * 2;
+      const X = (x) => PAD + x * w;
+      const Y = (y) => PAD + (1 - y) * h;
+      ctx.strokeStyle = 'rgba(255,255,255,0.07)';
+      ctx.lineWidth = 1;
+      for (let q = 0; q <= 4; q++) {
+        ctx.beginPath(); ctx.moveTo(X(q / 4), Y(0)); ctx.lineTo(X(q / 4), Y(1)); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(X(0), Y(q / 4)); ctx.lineTo(X(1), Y(q / 4)); ctx.stroke();
+      }
+      ctx.setLineDash([2, 3]);
+      ctx.strokeStyle = 'rgba(255,255,255,0.2)';
+      ctx.beginPath(); ctx.moveTo(X(0), Y(0)); ctx.lineTo(X(1), Y(1)); ctx.stroke();
+      ctx.setLineDash([]);
+      const order = [...CURVE_CHANNELS.filter((ch) => ch !== channel), channel];
+      for (const ch of order) {
+        const on = ch === channel;
+        ctx.strokeStyle = INK[ch];
+        ctx.globalAlpha = on ? 1 : 0.28;
+        ctx.lineWidth = on ? 2 : 1;
+        ctx.beginPath();
+        for (let i = 0; i <= 64; i++) {
+          const x = i / 64;
+          const y = curveAt(ch, x);
+          if (i) ctx.lineTo(X(x), Y(y)); else ctx.moveTo(X(x), Y(y));
+        }
+        ctx.stroke();
+      }
+      ctx.globalAlpha = 1;
+      const ys = colorGrade().adjust.curve[channel];
+      ctx.fillStyle = INK[channel];
+      for (let i = 0; i < ys.length; i++) {
+        ctx.beginPath(); ctx.arc(X(i / 4), Y(ys[i]), 5, 0, Math.PI * 2); ctx.fill();
+      }
+      for (const b of channelButtons) b.classList.toggle('is-active', b.textContent.toLowerCase() === channel);
+    }
+    // A knot is picked by x alone — they sit on fixed inputs, so the nearest column is the one the
+    // finger meant, and the hit target is a quarter of the canvas wide rather than a 10px dot.
+    canvas.addEventListener('pointerdown', (event) => {
+      event.preventDefault();
+      canvas.setPointerCapture?.(event.pointerId);
+      const rect = canvas.getBoundingClientRect();
+      const toCurve = (e) => ({
+        x: ((e.clientX - rect.left) / rect.width * CURVE_W - PAD) / (CURVE_W - PAD * 2),
+        y: 1 - ((e.clientY - rect.top) / rect.height * CURVE_H - PAD) / (CURVE_H - PAD * 2),
+      });
+      const index = Math.max(0, Math.min(4, Math.round(toCurve(event).x * 4)));
+      const end = scrubStart(curveBox);
+      const move = (e) => { setGradeCurve(channel, index, toCurve(e).y); show(); };
+      const up = () => {
+        end();
+        canvas.removeEventListener('pointermove', move);
+        canvas.removeEventListener('pointerup', up);
+        canvas.removeEventListener('pointercancel', up);
+      };
+      move(event);
+      canvas.addEventListener('pointermove', move);
+      canvas.addEventListener('pointerup', up);
+      canvas.addEventListener('pointercancel', up);
+    });
+    canvas.addEventListener('touchstart', (event) => { if (event.cancelable) event.preventDefault(); }, { passive: false });
+
+    // --- Taking a look away: the code is what to send back to be shipped as the default. ---
+    sub('Share');
+    const code = document.createElement('textarea');
+    code.className = 'dbg-out';
+    code.rows = 3;
+    code.spellcheck = false;
+    code.dataset.search = 'look code copy paste share grade';
+    code.addEventListener('keydown', (event) => event.stopPropagation());
+    code.addEventListener('keyup', (event) => event.stopPropagation());
+    const actions = document.createElement('div');
+    actions.className = 'dbg-actions';
+    const copy = document.createElement('button');
+    copy.type = 'button';
+    copy.textContent = 'Copy look';
+    copy.addEventListener('click', async () => {
+      code.value = lookCode();
+      try {
+        await navigator.clipboard.writeText(code.value);
+        status.textContent = 'Look copied. Paste it into the chat to make it the shipped default.';
+      } catch {
+        code.select();
+        status.textContent = 'Could not reach the clipboard — the look is selected in the box above.';
+      }
+    });
+    const paste = document.createElement('button');
+    paste.type = 'button';
+    paste.textContent = 'Apply pasted look';
+    paste.addEventListener('click', () => {
+      try {
+        setLookCode(code.value);
+        show();
+        status.textContent = 'Look applied.';
+      } catch (err) {
+        status.textContent = `Couldn't apply it: ${err.message}`;
+      }
+    });
+    actions.append(copy, paste);
+    panel.append(code, actions);
 
     const show = () => {
       const now = colorGrade();
@@ -740,11 +972,19 @@ export function createDebugPanel({
       strengthValue.textContent = now.strength.toFixed(2);
       saturation.value = String(now.saturation);
       saturationValue.textContent = now.saturation.toFixed(2);
+      for (const k of knobs) {
+        const v = now.adjust[k.key];
+        k.el.value = String(v);
+        k.value.textContent = k.format(v);
+        k.value.style.color = k.key.endsWith('Hue') ? `hsl(${v}, 80%, 65%)` : '';
+      }
       look.value = now.preset;
       const opt = look.querySelector(`option[value="${fileOption}"]`);
       opt.textContent = now.preset === fileOption ? `file: ${now.cubeName}` : 'file…';
       opt.disabled = now.preset !== fileOption;
-      status.textContent = now.active ? 'Grading the frame.' : 'Neutral — the frame is drawn as shipped.';
+      if (document.activeElement !== code) code.value = lookCode();
+      status.textContent = now.active ? 'Grading the frame. Double-tap a slider to zero it.' : 'Neutral — no grade at all, as ?grade=classic draws it.';
+      drawCurve();
     };
 
     look.addEventListener('change', () => { setGradePreset(look.value); show(); });
@@ -763,8 +1003,8 @@ export function createDebugPanel({
       }
     });
 
-    // The grade with its strength and saturation folded in, as one .cube — what to hand back to
-    // be made the shipped look. The JSON export below carries the knobs as well.
+    // The grade with everything folded in, as one .cube — for a grading app, or for a loaded file
+    // the look code cannot carry.
     const download = document.createElement('button');
     download.type = 'button';
     download.className = 'dbg-wide';
@@ -778,13 +1018,19 @@ export function createDebugPanel({
       setTimeout(() => URL.revokeObjectURL(a.href), 1000);
     });
 
+    const resetKnobs = document.createElement('button');
+    resetKnobs.type = 'button';
+    resetKnobs.className = 'dbg-wide';
+    resetKnobs.textContent = 'Reset sliders and curves';
+    resetKnobs.addEventListener('click', () => { resetGradeAdjust(); show(); });
+
     const reset = document.createElement('button');
     reset.type = 'button';
     reset.className = 'dbg-wide';
     reset.textContent = 'Reset grade';
     reset.addEventListener('click', () => { resetGrade(); show(); });
 
-    panel.append(load, picker, download, reset, status);
+    panel.append(download, resetKnobs, reset, status);
     show();
   }
 

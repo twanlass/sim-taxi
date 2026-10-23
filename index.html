@@ -2490,6 +2490,39 @@
       }
       body.shot-mode #dbg-toggle, body.shot-mode #dbg-panel { display: none; }
 
+      /* --- the Colour grade section's editor (src/game/debugpanel.js) ---
+         While a finger is on one of its controls the rest of the panel goes invisible, so the city
+         under it can be judged mid-drag. `visibility` rather than `opacity` because a child can turn
+         visibility back on and cannot undo a parent's opacity. */
+      #dbg-panel.dbg-scrub {
+        background: transparent; border-color: transparent; box-shadow: none;
+        -webkit-backdrop-filter: none; backdrop-filter: none;
+      }
+      #dbg-panel.dbg-scrub, #dbg-panel.dbg-scrub * { visibility: hidden; }
+      #dbg-panel.dbg-scrub .is-scrubbing, #dbg-panel.dbg-scrub .is-scrubbing * { visibility: visible; }
+      #dbg-panel.dbg-scrub .is-scrubbing {
+        background: var(--dbg-bg); border-radius: 8px; box-shadow: 0 0 0 6px var(--dbg-bg);
+      }
+      .dbg-sub {
+        margin: 12px 0 6px; color: var(--dbg-mute); font-size: 10px; font-weight: 600;
+        letter-spacing: 0.06em; text-transform: uppercase;
+      }
+      .dbg-hold { touch-action: none; -webkit-user-select: none; user-select: none; }
+      .dbg-hold span { pointer-events: none; }
+      .dbg-hold:active { background: var(--dbg-accent) !important; color: #111; }
+      .dbg-curve canvas {
+        display: block; width: 100%; aspect-ratio: 256 / 180; touch-action: none;
+        border-radius: 6px; background: rgba(255, 255, 255, 0.04); border: 1px solid var(--dbg-line);
+        box-sizing: border-box;
+      }
+      .dbg-curve-tabs { display: flex; gap: 4px; margin-bottom: 6px; }
+      .dbg-curve-tabs button {
+        flex: 1; padding: 6px 0; border: 1px solid var(--dbg-line); border-radius: 6px; cursor: pointer;
+        background: var(--dbg-fill); color: var(--ink, var(--dbg-text)); font: 600 11px/1 system-ui, sans-serif;
+      }
+      .dbg-curve-tabs button.is-active { border-color: var(--ink); background: var(--dbg-fill-hi); }
+      .dbg-curve-tabs button:last-child { flex: 1.6; color: var(--dbg-mute); font-weight: 500; }
+
       /* --- the Audio sections of the tweak panel (src/game/audiopanel.js) --- */
       #dbg-panel .aud-sound .dbg-row { grid-template-columns: 60px 1fr; }
       .aud-sound {
