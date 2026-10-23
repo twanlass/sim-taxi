@@ -1780,8 +1780,8 @@ export function createFareSystem(rng, scene, {
   /**
    * Now and then a rider opens a slice down (LATE_CHANCE in difficulty.js). Last, after any
    * re-budget, so the slice comes off the clock the rider actually got. The pie is filled on the
-   * spot rather than on the next tick: a rush's riders are drawn under the frozen pull-out, which
-   * ticks nothing, and they would show a full pie for the whole of it.
+   * spot rather than on the next tick, which would show the rider a full pie for the frame they
+   * appear on — and then knock a slice off in front of the player.
    */
   function startLate(fare) {
     if (!rush || state.kerbLevel < 2 || fare.vip || fare.bank || fare.robber) return;
@@ -1887,13 +1887,14 @@ export function createFareSystem(rng, scene, {
     // The rush and the floor go first (see KERB_RAMP in difficulty.js). The rush is plain riders only —
     // it is the moment the board is introduced, and a VIP's or a bank rider's own rules have no
     // business in the middle of it — and it emits one 'rush' event after their 'spawned's, carrying
-    // the first of them, which is what main.js opens the camera's pull-out on.
+    // the first of them, for the tools. There is no pause or camera move for it: the riders simply
+    // appear (Tyler, 2026-10-23, after trying a freeze-and-pull-out over them).
     if (rushDue()) {
       state.kerbLevel = difficulty.kerbFloor(state.delivered);
       const fresh = [];
       while (kerbCount() < state.kerbLevel && state.fares.length < MAX_FARES) {
-        // Within RUSH_REACH of the taxi, so the camera's pull-out can hold all of them and the car
-        // at once on a phone held upright, which is under half as wide as it is tall.
+        // Within RUSH_REACH of the taxi, so a step up lands in or near the frame the player is
+        // already looking at rather than across town.
         const spawned = spawnFare(taxiCar, spawnBias(taxiCar), false, false, difficulty.RUSH_REACH);
         if (!spawned) break;
         fresh.push(spawned);

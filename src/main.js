@@ -164,7 +164,6 @@ import {
 import { createCopShout } from './game/copshout.js';
 import { createRobberLine, ROBBER_LINES } from './game/robberline.js';
 import { createBankJob } from './game/bankjob.js';
-import { createRushCut } from './game/rushcut.js';
 import { createCopLights } from './game/coplights.js';
 import { createCashTrail } from './game/cashtrail.js';
 import { setCityOccluders, sightlineClear } from './game/sightline.js';
@@ -887,7 +886,7 @@ const combo = createComboMeter({ scope: comboScope(new URLSearchParams(window.lo
 // See RATING_START in game/fares.js.
 const ratingOn = new URLSearchParams(window.location.search).get('rating') !== 'off';
 // The rush: the kerb ramps 1, 1, 2, 2, 3 riders over the first drop-offs, each step up arriving at
-// once under a camera pull-out (KERB_RAMP in game/difficulty.js). `?rush=classic` is the board as it was.
+// once (KERB_RAMP in game/difficulty.js). `?rush=classic` is the board as it was.
 const rushOn = new URLSearchParams(window.location.search).get('rush') !== 'classic';
 const fares = createFareSystem(makeRng(runSeed + 55), scene, {
   rating: ratingOn,
@@ -1466,11 +1465,6 @@ const controller = createCityCamera(aspect(), {
   zoom: shot?.zoom ?? PLAY_ZOOM,
   target: shot?.target ?? [0, 0],
 });
-// The rush's pull-out over the riders it brings (game/rushcut.js). Never in shot mode, which ticks
-// the fare loop once and has no second delivery to set one off.
-const rushCut = rushOn && !shot ? createRushCut(controller) : null;
-// A tap anywhere during the pull-out takes the camera straight home.
-window.addEventListener('pointerdown', () => rushCut?.skip(), { capture: true });
 const { camera } = controller;
 controller.update(aspect());
 
@@ -4967,7 +4961,7 @@ window.addEventListener('keydown', (event) => {
   if (parked()) return;
   // The robber's line takes Space as its own answer (game/robberline.js). Registered after this
   // one, so this has to stand down for it rather than the other way round.
-  if (robberLine?.isOpen() || newMove?.isOpen() || bankJob?.running() || rushCut?.running()) return;
+  if (robberLine?.isOpen() || newMove?.isOpen() || bankJob?.running()) return;
   // A paused run takes no input at all. `frame()` returns before `boost.update`, so a press behind
   // the veil would sit in 'active' burning nothing and then resume into a launch the player never
   // asked for — the mirror image of the release `createPause`'s `onChange` does on the way in. The
@@ -4998,7 +4992,7 @@ window.addEventListener('keydown', (event) => {
   if (event.metaKey || event.ctrlKey || event.altKey) return;
   if (keyIsSpokenFor(event.target, brakeButton)) return;
   if (parked() || pause?.state.paused || robberLine?.isOpen() || newMove?.isOpen()
-    || bankJob?.running() || rushCut?.running()) return;
+    || bankJob?.running()) return;
   event.preventDefault();
   brakeKeyHeld = true;
   holdBrake();
@@ -6169,7 +6163,7 @@ function tick() {
   // canvas from an empty buffer, and the city would blink out until the player resumed.
   // The sound stops with the world — both of the early returns below — and starts with it again.
   sfx?.hold(Boolean(pause?.state.paused || robberLine?.isOpen() || newMove?.isOpen()
-    || rushCut?.running() || inspect?.state.on));
+    || inspect?.state.on));
   // Drawn once, not every frame. Nothing in the world moves while paused, and a canvas that is not
   // drawn keeps showing its last frame — so drawing the same still sixty times a second was pure
   // heat and battery, for as long as the player left the game paused. `stillDrawn` is cleared on a
@@ -6204,13 +6198,6 @@ function tick() {
     // pins were on the frame the world stopped (`fadePoints` in game/bankjob.js). Left as they are
     // for the robber's line after it, which is about the same cab.
     if (ltrain && !classicRobberyCam) ltrain.setFadePoints(bankJob.fadePoints());
-    renderFrame();
-    return;
-  }
-  // The rush's pull-out: the same freeze, with the camera and the riders' pops on wall time. See
-  // game/rushcut.js.
-  if (rushCut?.running()) {
-    rushCut.update(dt, aspect());
     renderFrame();
     return;
   }
@@ -6796,18 +6783,9 @@ function tick() {
       robbery?.swap();
       continue;
     }
-    // The rush has just put its riders on the kerb: stop the world and pull the camera out over
-    // them. Their rings open with an entrance the frozen world would never play, so they are landed
-    // first, as shot mode lands them. The cut takes the release of anything held, as the New Move
-    // card does.
-    if (type === 'rush') {
-      const kerb = fares.state.fares.filter((f) => f.stage === 'waiting');
-      for (const f of kerb) f.slot.marker.settleRing();
-      if (rushCut?.begin(kerb, kerbFor, traffic.taxi, aspect())) {
-        boost.release(); releaseBrake(); dropPedalGesture(); bootleg.reset(); overtake.reset();
-      }
-      continue;
-    }
+    // The rush's riders have already been through 'spawned': they just appear on the map (Tyler,
+    // 2026-10-23: no pause, no pull-out).
+    if (type === 'rush') continue;
     if (type === 'pickup') {
       boardSound();
       traffic.taxi.route = [];

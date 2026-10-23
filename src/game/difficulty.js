@@ -240,9 +240,10 @@ export function maxFares(delivered) {
  * So the kerb ramps by delivery instead (Tyler, 2026-10-22: "1, 1, 2, 2, 3, 3, 3 etc"): `KERB_RAMP`
  * is how many riders are kept waiting after each drop-off, and the last entry holds for the rest of
  * the run. Three is the ceiling because the board is four (BOARD_MAX) and one seat is in the car. Each
- * step up is a **rush**: the new riders appear at once and the camera pulls out over everyone
- * waiting (game/rushcut.js). Between steps the kerb is topped back up to the ramp's number
- * `FLOOR_GAP` seconds after a rider leaves it, whatever the stagger says. Every mode, not just Easy:
+ * step up is a **rush**: the new riders appear at once, near the taxi, with no pause or camera
+ * move (a freeze-and-pull-out over them was tried and dropped, Tyler 2026-10-23). Between steps
+ * the kerb is topped back up to the ramp's number `FLOOR_GAP` seconds after a rider leaves it,
+ * whatever the stagger says. Every mode, not just Easy:
  * the harder ones already fill faster, and the floor only binds when the stagger would leave the
  * kerb thinner than this. `?rush=classic` is the board as it was.
  */
@@ -251,7 +252,7 @@ export const KERB_RAMP = [1, 1, 2, 2, 3];
 export const kerbFloor = (delivered) => KERB_RAMP[Math.min(delivered, KERB_RAMP.length - 1)];
 /** The first rush: the delivery the kerb first steps past one. */
 export const RUSH_AT = KERB_RAMP.findIndex((n) => n > 1);
-/** Blocks from the taxi the rush's riders may stand, so its pull-out fits them all on a phone. */
+/** Blocks from the taxi the rush's riders may stand, so a step up lands where the player is looking. */
 export const RUSH_REACH = 2;
 export const FLOOR_GAP = 4;
 

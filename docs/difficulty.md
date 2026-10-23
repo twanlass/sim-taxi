@@ -93,12 +93,11 @@ the shipped tuning exactly.
 The kerb ramps by delivery (Tyler, 2026-10-22: "1, 1, 2, 2, 3, 3, 3 etc"). `KERB_RAMP` is how many
 riders are kept waiting after each drop-off: one through the first two, two after the second and
 third, three from the fourth on. Three is the ceiling because the board is four and one seat is in
-the car. Each step up is a **rush**: the new riders appear within `RUSH_REACH` (2) blocks of the
-taxi, the world stops while the camera pulls out over the taxi and everyone waiting, each rider's
-mark pops in turn, then the camera comes back (game/rushcut.js, a tap skips to the way back). That
-happens twice a run, at the second and fourth drop-off. Between steps the kerb is never allowed
-below its step for longer than `FLOOR_GAP` (4s), whatever the stagger says. All in difficulty.js,
-every mode.
+the car. Each step up is a **rush**: the new riders appear at once within `RUSH_REACH` (2) blocks
+of the taxi, at the second and fourth drop-off, with no pause or camera move. A freeze with the
+camera pulling out over everyone waiting was tried first and dropped (Tyler, 2026-10-23: "it's okay
+to just add them to the map"). Between steps the kerb is never allowed below its step for longer
+than `FLOOR_GAP` (4s), whatever the stagger says. All in difficulty.js, every mode.
 
 Why it is not just more pressure: on Easy the stagger opens at 61s against a 35–44s fare, so a player
 driving well emptied the board before a second rider was ever due, and the four-fare board only showed

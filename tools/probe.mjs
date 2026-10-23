@@ -123,7 +123,6 @@ import { createCargo, CARGO_KINDS, CARGO_CENTRE_Y } from '../src/geometry/cargo.
 import * as difficulty from '../src/game/difficulty.js';
 import { BOARD_MAX } from '../src/game/difficulty.js';
 import { LOCO_PACE_SELF } from './autoplay.mjs';
-import { frameRush } from '../src/game/rushcut.js';
 import { planRun as planBankRun, cutShot as bankCutShot, frameCut as frameBankCut } from '../src/game/bankjob.js';
 import { bankFrontage } from '../src/city/bank.js';
 import { createRobbery, TRIGGER_RANGE as ROBBERY_TRIGGER_RANGE, LOST_RANGE, STAND_DOWN_TIMEOUT, STAND_DOWN_RANGE } from '../src/game/robbery.js';
@@ -3359,20 +3358,6 @@ const PRESSURE_END = difficulty.getTuning().pressureEnd;
   cFares.state.delivered = difficulty.RUSH_AT;
   const cEvents = cFares.update(1 / 60, rTraffic.taxi);
   check('...and none under ?rush=classic', !cEvents.some((e) => e.type === 'rush') && cFares.state.fares.length === 1);
-
-  // The pull-out's framing: never tighter than play zoom, and every rider inside the frame.
-  const pts = [{ x: -40, z: -30 }, { x: 35, z: 20 }, { x: 0, z: 40 }];
-  let framed = true;
-  for (const aspect of [0.46, 1, 2.1]) {
-    const f = frameRush(pts, aspect);
-    if (f.zoom < PLAY_ZOOM - 1e-9) framed = false;
-    for (const p of pts) {
-      const sx = (p.x - f.x) * RIGHT.x + (p.z - f.z) * RIGHT.z;
-      const sy = (p.x - f.x) * VIEW_UP.x + (p.z - f.z) * VIEW_UP.z;
-      if (Math.abs(sx) > f.zoom * aspect || Math.abs(sy) > f.zoom) framed = false;
-    }
-  }
-  check('the rush’s pull-out frames every rider, never tighter than play zoom', framed);
 }
 
 // --- Every generator gets its own stream ---------------------------------------------------------
