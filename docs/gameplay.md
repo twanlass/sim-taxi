@@ -1877,6 +1877,11 @@ cars and cops count. A truck is too tall to land on, and the patrol cruiser and 
 modules that run their own lives. A crushed car leaves the fleet for the rest of the run.
 `?crush=classic` charges the landing as a hit again.
 
+Big Air's touchdown also pays a sixth of the Loco tank back on the drift kick's energy bits
+(`DRIFT_CHAIN.fuel[0]`, Tyler, 2026-10-23), since getting one means burning Loco round a corner and
+over an arch. It pays once per landing, so Crushin' It adds a step and no more fuel. Like Stuntman's,
+the refund lands with or without a job. `?bigairfuel=classic` lands with nothing.
+
 Stuntman is smashing through a [roadworks](traffic.md#roadworks-a-street-closed-at-both-ends)
 barricade, at any speed (Tyler, 2026-10-14). It also pays a sixth of the Loco tank back on the
 energy bits a drift kick uses, the same refund as the first kick of a chain (`DRIFT_CHAIN.fuel[0]`).
