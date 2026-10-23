@@ -75,8 +75,8 @@ export function wantsBackstory(mode = backstoryMode()) {
 
 /**
  * Tell the story inside `root` (the title screen, so it sits over the city and under nothing),
- * then call `done`. A tap anywhere finishes the line typing or moves to the next; Skip, or Escape,
- * ends it. Marked seen as it starts, so quitting halfway does not bring it back.
+ * then call `done`. A tap anywhere finishes the line typing or moves to the next; Escape ends it.
+ * There is no Skip button (Tyler, 2026-10-23): four taps is the whole story. Marked seen as it starts, so quitting halfway does not bring it back.
  *
  * `speak(i)` starts line i's recording and answers `{ seconds, stop(), ended() }`, or null when
  * there is nothing to play (muted, not decoded yet, no audio): the line then types at its usual
@@ -90,11 +90,7 @@ export function tellBackstory(root, { done, lines = BACKSTORY_LINES, speak = () 
   talk.className = 'title-story-talk';
   talk.setAttribute('role', 'status');
   talk.setAttribute('aria-live', 'polite');
-  const skip = document.createElement('button');
-  skip.type = 'button';
-  skip.className = 'title-story-skip';
-  skip.textContent = 'Skip';
-  layer.append(talk, skip);
+  layer.append(talk);
   root.append(layer);
 
   let at = 0;
@@ -198,9 +194,7 @@ export function tellBackstory(root, { done, lines = BACKSTORY_LINES, speak = () 
   };
   raf = requestAnimationFrame(tick);
 
-  layer.addEventListener('click', (event) => {
-    if (event.target === skip) finish(); else bubble.tap();
-  });
+  layer.addEventListener('click', () => bubble.tap());
   window.addEventListener('keydown', onKey, true);
   say();
   return { finish };
