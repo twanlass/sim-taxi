@@ -33,14 +33,18 @@ const RENDER = 2048;
 // 192/512 the manifest, 16/32 the tab.
 const SIZES = [1024, 512, 192, 180, 32, 16];
 
-// Which way the car points. 0 is world +X: bonnet to the lower right, the near flank and its
-// chequer stripe facing the viewer — the three-quarter view the old icon drew. The tailpipe is then
-// at the far end, so the Loco flame shows as a tongue past the rear quarter rather than in full;
-// 30° toward profile showed all of it and was turned down for losing this view of the car.
-const YAW = 0;
-// How much of the frame the widest extent (car plus plume) fills. iOS's superellipse crops about
-// 10% off each corner, and the flame tip reaches toward the upper left one.
-const FILL = 0.7;
+// Which way the car points. π/2 is world −Z, which this camera draws as straight up and to the
+// right: the car rocketing away into the screen with its plumes trailing toward the lower left,
+// Tyler's ask (2026-10-23). The old icon had 0 (world +X, bonnet to the lower right), which left the
+// tailpipe at the far end and the flame a tongue peeking past the rear quarter.
+const YAW = Math.PI / 2;
+// How much of the frame the widest extent (car plus plumes, measured from the car's own centre)
+// fills. iOS's superellipse crops about 10% off each corner, and the plume tips reach toward the
+// lower left one.
+const FILL = 0.86;
+// Twin tailpipes, for the icon only: how far each sits off the centreline, in world units. The game
+// burns one plume from the middle of the bumper; two read as a rocket's pair of engines.
+const PIPE_SPREAD = 0.5;
 
 const renderer = new THREE.WebGLRenderer({
   antialias: true, stencil: true, preserveDrawingBuffer: true, alpha: false,
@@ -78,9 +82,15 @@ scene.add(taxi.group);
 // Loco Mode lit: the game's own tailpipe flame, driven exactly as main.js drives it. One update
 // longer than its attack brings it to full heat; FLAME_CLOCK picks the flipbook frame and the point
 // in its pulse, chosen by eye for a long tongue with a lick in the tip.
-const FLAME_CLOCK = 0.21;
-const flame = createLocoFlame(scene);
-flame.update(FLAME_CLOCK, { x: 0, z: 0, yaw: YAW, crashed: false }, true);
+// The second pipe's clock is a little further on, so the pair is not two copies of one shape.
+const FLAME_CLOCKS = [0.21, 0.29];
+const flames = [-1, 1].map((side, n) => {
+  const flame = createLocoFlame(scene);
+  flame.update(FLAME_CLOCKS[n], {
+    x: side * PIPE_SPREAD * Math.sin(YAW), z: side * PIPE_SPREAD * Math.cos(YAW), yaw: YAW, crashed: false,
+  }, true);
+  return flame;
+});
 
 // The glint the car leaves the garage with (game/glint.js), caught at its first star's peak: the one
 // on the front-right fender, at full size, with the two later stars not yet up. Its own `update`
@@ -98,23 +108,27 @@ const ground = new THREE.Mesh(
 ground.receiveShadow = true;
 scene.add(ground);
 
-// The game's camera: orthographic, down VIEW_DIR. Framed off the car's own projected bounds, so a
-// change to the mesh re-centres itself rather than drifting off the middle of the icon.
+// The game's camera: orthographic, down VIEW_DIR. Centred on the *car's* projected bounds and sized
+// to hold the plumes too: centring on car plus flames put the body visibly off to one side, since
+// the plumes only ever trail one way.
 const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 200);
 camera.position.copy(VIEW_DIR).multiplyScalar(50);
 camera.lookAt(0, 0, 0);
 camera.updateMatrixWorld();
 
 taxi.group.updateMatrixWorld(true);
-flame.group.updateMatrixWorld(true);
+for (const flame of flames) flame.group.updateMatrixWorld(true);
 const box = new THREE.Box3();
 const corner = new THREE.Vector3();
+const carView = new THREE.Box3();
 const view = new THREE.Box3();
-[taxi.group, flame.group].forEach((root) => root.traverse((obj) => {
+const isFlame = (obj) => flames.some((flame) => flame.group.getObjectById(obj.id));
+[taxi.group, ...flames.map((flame) => flame.group)].forEach((root) => root.traverse((obj) => {
   // Only what casts a shadow is the car itself: the ghost outline's hulls are far bigger than the
   // body and draw nothing here, and counting them left the taxi a speck in the middle of the frame.
   // The flame casts none, so it is let in by name — the frame has to hold the whole plume.
-  if (!obj.isMesh || !(obj.castShadow || flame.group.getObjectById(obj.id))) return;
+  const plume = isFlame(obj);
+  if (!obj.isMesh || !(obj.castShadow || plume)) return;
   if (!obj.parent.visible) return;
   // Hidden-by-scale parts (damage, the door, unlit lamps) collapse to a point and must not count.
   const e = obj.matrixWorld.elements;
@@ -123,12 +137,14 @@ const view = new THREE.Box3();
   box.copy(obj.geometry.boundingBox).applyMatrix4(obj.matrixWorld);
   for (let i = 0; i < 8; i++) {
     corner.set(i & 1 ? box.max.x : box.min.x, i & 2 ? box.max.y : box.min.y, i & 4 ? box.max.z : box.min.z);
-    view.expandByPoint(corner.applyMatrix4(camera.matrixWorldInverse));
+    corner.applyMatrix4(camera.matrixWorldInverse);
+    view.expandByPoint(corner);
+    if (!plume) carView.expandByPoint(corner);
   }
 }));
-const half = Math.max(view.max.x - view.min.x, view.max.y - view.min.y) / 2 / FILL;
-const cx = (view.min.x + view.max.x) / 2;
-const cy = (view.min.y + view.max.y) / 2;
+const cx = (carView.min.x + carView.max.x) / 2;
+const cy = (carView.min.y + carView.max.y) / 2;
+const half = Math.max(cx - view.min.x, view.max.x - cx, cy - view.min.y, view.max.y - cy) / FILL;
 Object.assign(camera, { left: cx - half, right: cx + half, top: cy + half, bottom: cy - half });
 camera.updateProjectionMatrix();
 
