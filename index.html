@@ -1677,9 +1677,13 @@
          to give. The purple is the old mystery rider's (PALETTE.vip, #A64DFF — Tyler, 2026-10-23;
          it was the highlighted word's yellow until then). Opaque rather than glass: the blur is
          what lets white sit over a pale street, and the purple carries itself. The dark outline is the rider pie's
-         1.5px one (MARKER_OUTLINE_PX), drawn round disc and pointer together by four hard
-         drop-shadows, so the two read as one shape against the rain-grey street. The "!" hops on
-         the arrows' 1.3s beat instead of the dots' typing ripple. */
+         1.5px one (MARKER_OUTLINE_PX), drawn round disc and pointer together so the two read as
+         one shape against the rain-grey street. It is built in layers rather than as a filter: a
+         dark disc 1.5px proud of the purple one at the back, the pointer over it stroked in the
+         same dark, and the purple disc on top, which covers the pointer's sunk base and its stroke.
+         It was four hard drop-shadows on the tag body until then, and Safari left the pointer out
+         of them — the outline stopped at the disc's edge and the tail went bare (Tyler, 2026-10-23).
+         The "!" hops on the arrows' 1.3s beat instead of the dots' typing ripple. */
       .tag-quest .speech-tag-pin .speech-tag { background: #A64DFF; box-shadow: none; -webkit-backdrop-filter: none; backdrop-filter: none; }
       /* Unclipped: the glass clip (above) cuts the pointer off level with where the disc's edge
          meets it, and the disc curves 0.4px away from that line — a sliver the outline's
@@ -1689,10 +1693,20 @@
       .tag-quest .speech-tag-pin .speech-pointer {
         color: #A64DFF; clip-path: none; -webkit-backdrop-filter: none; backdrop-filter: none;
       }
-      .tag-quest .speech-tag-pin .speech-tag-body {
-        filter: drop-shadow(1.5px 0 0 #121318) drop-shadow(-1.5px 0 0 #121318) drop-shadow(0 1.5px 0 #121318)
-          drop-shadow(0 -1.5px 0 #121318) drop-shadow(0 2px 3px rgba(16, 18, 26, 0.35));
+      .tag-quest .speech-tag-pin .speech-tag-body { isolation: isolate; filter: drop-shadow(0 2px 3px rgba(16, 18, 26, 0.35)); }
+      .tag-quest .speech-tag-pin .speech-tag-body::before {
+        content: ''; position: absolute; inset: -1.5px; border-radius: 50%; background: #121318; z-index: 0;
       }
+      .tag-quest .speech-tag-pin .speech-pointer { z-index: 1; }
+      .tag-quest .speech-tag-pin .speech-pointer path {
+        stroke: #121318; stroke-width: 3px; vector-effect: non-scaling-stroke; paint-order: stroke; stroke-linejoin: round;
+      }
+      .tag-quest .speech-tag-pin .speech-tag { position: relative; z-index: 2; }
+      /* The glass styles fade the disc and pointer themselves rather than the body, so the dark
+         disc behind them has to fade with them or it would stand alone for the length of a fade. */
+      .speech-glass.tag-quest .speech-tag-pin .speech-tag-body::before { opacity: 0; transition: opacity 0.18s ease; }
+      .speech-glass.tag-quest.is-open .speech-tag-pin .speech-tag-body::before { opacity: 1; }
+      .speech-glass.tag-quest.is-closing .speech-tag-pin .speech-tag-body::before { opacity: 0; transition: opacity 0.2s ease; }
       .tag-quest .speech-tag i { display: none; }
       .tag-quest .speech-tag b {
         display: block; font: 700 17px/1 'Space Grotesk', system-ui, sans-serif; color: #121318;
