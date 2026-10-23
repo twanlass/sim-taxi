@@ -2,8 +2,9 @@ import * as THREE from 'three';
 import { color } from '../palette.js';
 import { BILLBOARD, VIEW_DIR } from './camera.js';
 
-// A glint off the taxi's front-right fender as it leaves the garage: one four-point star that pops on
-// the corner by the headlight and is gone in about half a second. It plays on the way out of the
+// A glint off the taxi's front-right fender as it leaves the garage: three four-point stars, one
+// after another, starting on the corner by the headlight and catching two more spots along the car
+// as it rolls into the light (`STARS`). It plays on the way out of the
 // run's opening and on the way out of every repair, which is the point of it — the car rolling out
 // of the door looking new.
 //
@@ -22,10 +23,20 @@ import { BILLBOARD, VIEW_DIR } from './camera.js';
 //
 // `?glint=classic` builds none of it.
 
-// Where the glint sits on the car, in the taxi group's own frame (+X the nose, +Z its right; the
-// group's TAXI_SCALE is applied on top by `localToWorld`). The top of the nose at its outer corner:
-// the body's shoulder line, just above the headlight.
-const CORNER = new THREE.Vector3(1.62, 1.12, 0.78);
+// The three stars: where each sits on the car, in the taxi group's own frame (+X the nose, +Z its
+// right; the group's TAXI_SCALE is applied on top by `localToWorld`), when it starts after `fire`, and
+// its size as a share of SIZE. The first is the one Tyler asked for — the top of the nose at its outer
+// corner, the body's shoulder line just above the headlight. The other two are smaller and later, on
+// faces the camera always sees on the way out (it looks down the +X/+Z diagonal and the car leaves
+// heading +X): the bonnet's leading edge toward the middle, then back along the right-hand shoulder
+// by the windscreen. Each one further from the first and smaller, so the eye follows a light running
+// over the paint rather than three equal flashes; staggered by a third of a life so two are never at
+// full size together, which is what kept three from reading as busy.
+const STARS = [
+  { at: new THREE.Vector3(1.62, 1.12, 0.78), delay: 0, size: 1 },
+  { at: new THREE.Vector3(1.35, 1.18, 0.05), delay: 0.24, size: 0.62 },
+  { at: new THREE.Vector3(0.45, 1.2, 0.82), delay: 0.46, size: 0.8 },
+];
 // Pulled toward the camera so the quad clears the body it is sitting on. Under an orthographic
 // projection this moves nothing on screen; it only stops the bonnet's depth eating half the star.
 const STANDOFF = 1.5;
@@ -42,8 +53,10 @@ const PEAK = 0.14;
 const SIZE = 1.7;
 // A small turn across the life, so the arms sweep rather than sit — about 25°.
 const SPIN = 0.45;
-// Tilt at rest, so the cross is not a plus sign squared to the screen.
+// Tilt at rest, so the cross is not a plus sign squared to the screen. Stepped per star so the three
+// do not stamp out the same cross.
 const TILT = 0.3;
+const TILT_STEP = 0.35;
 
 const VERT = /* glsl */ `
   varying vec2 vUv;
@@ -77,68 +90,74 @@ const FRAG = /* glsl */ `
 `;
 
 /**
- * @param scene     the scene the star is drawn in
- * @param taxiGroup the player's car mesh, which the star rides
+ * @param scene     the scene the stars are drawn in
+ * @param taxiGroup the player's car mesh, which the stars ride
  */
 export function createGlint({ scene, taxiGroup }) {
-  const material = new THREE.ShaderMaterial({
-    uniforms: { uColor: { value: color('glint') }, uStrength: { value: 0 } },
-    vertexShader: VERT,
-    fragmentShader: FRAG,
-    transparent: true,
-    depthWrite: false,
-    blending: THREE.AdditiveBlending,
+  const geometry = new THREE.PlaneGeometry(2, 2);
+  // One material each, for the strength. Same source, so three compiles them to one program.
+  const stars = STARS.map((star, n) => {
+    const material = new THREE.ShaderMaterial({
+      uniforms: { uColor: { value: color('glint') }, uStrength: { value: 0 } },
+      vertexShader: VERT,
+      fragmentShader: FRAG,
+      transparent: true,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
+    });
+    const mesh = new THREE.Mesh(geometry, material);
+    mesh.name = `taxi-glint-${n}`;
+    mesh.frustumCulled = false;
+    // With the sparks and the repair glow: light, drawn over what it lands on.
+    mesh.renderOrder = 6;
+    // Hidden by material rather than by `visible`, the way bloom.js asks of anything that switches —
+    // and there is no light under it, so nothing else in the scene notices either way.
+    material.visible = false;
+    scene.add(mesh);
+    return { ...star, tilt: TILT + TILT_STEP * n, mesh, material };
   });
-  const mesh = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), material);
-  mesh.name = 'taxi-glint';
-  mesh.frustumCulled = false;
-  // With the sparks and the repair glow: light, drawn over what it lands on.
-  mesh.renderOrder = 6;
-  // Hidden by material rather than by `visible`, the way bloom.js asks of anything that switches —
-  // and there is no light under it, so nothing else in the scene notices either way.
-  material.visible = false;
-  scene.add(mesh);
+  const END = Math.max(...STARS.map((star) => star.delay)) + LIFE;
 
   const at = new THREE.Vector3();
   const spin = new THREE.Quaternion();
   const axis = new THREE.Vector3(0, 0, 1);
   let t = Infinity;
 
-  /** Play it once, from the start. */
+  /** Play the run of three once, from the start. */
   function fire() {
     t = 0;
   }
 
   function update(dt) {
-    if (t >= LIFE) {
-      material.visible = false;
+    if (t >= END) {
+      for (const star of stars) star.material.visible = false;
       return;
     }
     t += dt;
-    const k = Math.min(1, t / LIFE);
-    // Up on an ease-out to PEAK, then down on a slower ease-in to nothing.
-    const level = t < PEAK
-      ? 1 - (1 - t / PEAK) ** 2
-      : (1 - (t - PEAK) / (LIFE - PEAK)) ** 1.6;
-    if (!(level > 0)) {
-      material.visible = false;
-      return;
-    }
     taxiGroup.updateWorldMatrix(true, false);
-    at.copy(CORNER);
-    taxiGroup.localToWorld(at);
-    mesh.position.copy(at).addScaledVector(VIEW_DIR, STANDOFF);
-    mesh.quaternion.copy(BILLBOARD).multiply(spin.setFromAxisAngle(axis, TILT + SPIN * k));
-    mesh.scale.setScalar(SIZE * (0.35 + 0.65 * level));
-    material.uniforms.uStrength.value = level;
-    material.visible = true;
+    for (const star of stars) {
+      const local = t - star.delay;
+      // Up on an ease-out to PEAK, then down on a slower ease-in to nothing.
+      const level = local <= 0 || local >= LIFE ? 0
+        : local < PEAK ? 1 - (1 - local / PEAK) ** 2
+          : (1 - (local - PEAK) / (LIFE - PEAK)) ** 1.6;
+      star.material.visible = level > 0;
+      if (!(level > 0)) continue;
+      at.copy(star.at);
+      taxiGroup.localToWorld(at);
+      star.mesh.position.copy(at).addScaledVector(VIEW_DIR, STANDOFF);
+      star.mesh.quaternion.copy(BILLBOARD)
+        .multiply(spin.setFromAxisAngle(axis, star.tilt + SPIN * (local / LIFE)));
+      star.mesh.scale.setScalar(SIZE * star.size * (0.35 + 0.65 * level));
+      star.material.uniforms.uStrength.value = level;
+    }
   }
 
   return {
     fire,
     update,
-    /** True while the star is up — for the headless check. */
-    active: () => t < LIFE,
-    mesh,
+    /** True while any star is up — for the headless check. */
+    active: () => t < END,
+    meshes: stars.map((star) => star.mesh),
   };
 }

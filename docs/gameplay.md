@@ -214,10 +214,12 @@ near lane.
 | `release` | `focusOn` back to whatever framing the run would have had — the city's centre on a desktop, the taxi on a phone, where the opening follow-cam picks it up | ~1.3s, capped at 2.0 |
 
 **The glint** (`game/glint.js`). When the drawn nose is 0.9 units past the curtain (`CLEAR_OUT`,
-fired through `onClear`), a four-point star pops on the front-right fender corner, just above the
-headlight, and is gone in 0.7s. That is the corner nearest the camera on the way out, and the
-camera is still at door zoom, so the star is about 25pt across on a phone. It is a shader on one
-quad rather than a highlight in the paint: at play zoom the corner is about 5×5 pixels, and a paint
+fired through `onClear`), three four-point stars pop one after another, about a quarter second
+apart: first on the front-right fender corner just above the headlight, about 25pt across on a phone,
+then a smaller one on the bonnet's leading edge, then one back along the right-hand shoulder by the
+windscreen (`STARS`). Each lasts 0.7s, so the whole run is about 1.2s and no two are at full size
+together. The fender corner is the corner nearest the camera on the way out, and the camera is still
+at door zoom. Each star is a shader on one quad rather than a highlight in the paint: at play zoom the corner is about 5×5 pixels, and a paint
 hotspot there does not read even at door zoom. It plays every time the car comes out of the door,
 including after a [repair](#repairs-at-the-depot), where the chips are already gone by then, so the
 glint lands on clean paint. A tap that skips the vignette skips it too. `?glint=classic` turns it off.
