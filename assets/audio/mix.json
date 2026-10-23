@@ -52,7 +52,7 @@
     "dispatch1": { "file": "VO_dispatch_1", "gain": 0.5011872336272722, "rate": 1 },
     "dispatch2": { "file": "VO_dispatch_2", "gain": 0.7852356346100716, "rate": 1 },
     "dispatch3": { "file": "VO_dispatch_3", "gain": 0.7161434102129022, "rate": 1 },
-    "dispatch4": { "file": "VO_dispatch_4", "gain": 1.9054607179632475, "rate": 1 },
+    "dispatch4": { "file": "VO_dispatch_4", "gain": 0.660693448007596, "rate": 1 },
     "ltrain": { "file": "LTRAIN_AMB_pass_loop_MONO", "gain": 2.51188643150958, "rate": 1 }
   },
   "minGap": {
