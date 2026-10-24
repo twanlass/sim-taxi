@@ -757,11 +757,11 @@ export const GLOSS_UNIFORMS = {
   uGlossCeiling: { value: 1 },
   uGlossTop: { value: new THREE.Color(PALETTE.skyTop).convertSRGBToLinear() },
   uGlossHorizon: { value: new THREE.Color(PALETTE.skyBottom).convertSRGBToLinear() },
-  // One slot per finish (`FINISH`, below): six, and the same six in the GLSL arrays and `gK`'s clamp.
-  uFinishA: { value: [0, 1, 2, 3, 4, 5].map(() => new THREE.Vector4()) },
-  uFinishB: { value: [0, 1, 2, 3, 4, 5].map(() => new THREE.Vector4()) },
-  uFinishC: { value: [0, 1, 2, 3, 4, 5].map(() => new THREE.Vector4()) },
-  uFinishD: { value: [0, 1, 2, 3, 4, 5].map(() => new THREE.Vector4()) },
+  // One slot per finish (`FINISH`, below): seven, and the same seven in the GLSL arrays and `gK`'s clamp.
+  uFinishA: { value: [0, 1, 2, 3, 4, 5, 6].map(() => new THREE.Vector4()) },
+  uFinishB: { value: [0, 1, 2, 3, 4, 5, 6].map(() => new THREE.Vector4()) },
+  uFinishC: { value: [0, 1, 2, 3, 4, 5, 6].map(() => new THREE.Vector4()) },
+  uFinishD: { value: [0, 1, 2, 3, 4, 5, 6].map(() => new THREE.Vector4()) },
   // x: flake cells per unit, y: façade darkness, z: false-colour finish view (0/1).
   uGlossGlobal: { value: new THREE.Vector4() },
   // The rim look's backlight (`setRim`): rgb in linear, a = strength.
@@ -901,8 +901,14 @@ export function setGlossCity(field, ceiling) {
 // mottled sparkle, with no flop. The bank's dome wears it (city/bank.js), because METAL (a
 // darkened mirror, shared with every bumper and rim) was far too hard and PAINT (shared with every
 // car) cannot be retuned for one dome without retuning every car.
-export const FINISH = { TYRE: 0, PAINT: 1, GLASS: 2, METAL: 3, MATTE: 4, PATINA: 5 };
-export const FINISH_NAMES = ['tyre', 'paint', 'glass', 'metal', 'matte', 'patina'];
+//
+// WINDOW is a building's glazing (`glassMeshes` in city/buildings.js). Not GLASS, which is a
+// windscreen: near-black (diffuse 0.12) with a faint mirror, tuned so a car's cabin reads as a
+// dark hole. A façade wants the opposite — its base colour kept, so the faux sky gradient the panes
+// already carry still draws, and a strong flat mirror of the street opposite on top. No bends:
+// a merged city has no one centre to bend about, and a pane is flat.
+export const FINISH = { TYRE: 0, PAINT: 1, GLASS: 2, METAL: 3, MATTE: 4, PATINA: 5, WINDOW: 6 };
+export const FINISH_NAMES = ['tyre', 'paint', 'glass', 'metal', 'matte', 'patina', 'window'];
 
 // `?carbody=smooth`: the cars' bodies with rounded edges and soft normals, so a reflection has a
 // curve to slide across instead of one flat colour per panel (2026-10-17, an experiment beside the
@@ -1078,6 +1084,13 @@ export const FINISH_DEFAULTS = {
     glint: 0.35, glintSharp: 90, glintBend: 0.5, sheen: 0.55, sheenSharp: 8, flake: 0.25,
     reflect: 0.1, reflectEdge: 0.2, reflectBend: 0.5, diffuse: 1,
     flakeTilt: 0.3, flakeSharp: 120, coat: 0.2, tint: 0.9, flop: 0.1,
+  },
+  // A building's glass. Under this camera a façade sits at N·V 0.59, so the Fresnel term barely
+  // moves (graze cubed is 0.07) and `reflect` is nearly the whole of it.
+  window: {
+    glint: 0.5, glintSharp: 400, glintBend: 0, sheen: 0, sheenSharp: 1, flake: 0,
+    reflect: 0.55, reflectEdge: 0.1, reflectBend: 0, diffuse: 1,
+    flakeTilt: 0, flakeSharp: 1, coat: 0, tint: 0, flop: 0,
   },
 };
 
@@ -1280,15 +1293,16 @@ if (GLOSS_COLOR_VERTEX === THREE.ShaderChunk.color_vertex) throw new Error('glos
 // arrive as 1.9999 — the triangle never mixes finishes, but interpolation does not know that.
 const GLOSS_COLOR = /* glsl */ `
 	{
-		int gK = clamp(int(vGlossFinish + 0.5), 0, 5);
+		int gK = clamp(int(vGlossFinish + 0.5), 0, 6);
 		gFinA = uFinishA[gK];
 		gFinB = uFinishB[gK];
 		gFinC = uFinishC[gK];
 		gFinD = uFinishD[gK];
 		gIsPaint = gK == 1 ? 1.0 : 0.0;
+		gIsWindow = gK == 6 ? 1.0 : 0.0;
 		gFinishColor = gK == 0 ? vec3(0.15) : gK == 1 ? vec3(0.9, 0.2, 0.15)
 			: gK == 2 ? vec3(0.1, 0.7, 0.9) : gK == 3 ? vec3(0.95, 0.8, 0.2)
-			: gK == 4 ? vec3(0.6, 0.45, 0.85) : vec3(0.2, 0.8, 0.6);
+			: gK == 4 ? vec3(0.6, 0.45, 0.85) : gK == 5 ? vec3(0.2, 0.8, 0.6) : vec3(0.85, 0.95, 1.0);
 		diffuseColor.rgb *= gFinC.y;
 	}
 `;
@@ -1451,14 +1465,56 @@ const GLOSS_HIT_SOFT = /* glsl */ `
 				if (gOcc >= 1.0) break;
 `;
 
+// How much flatter a window's folded ray climbs than a car's. Folded at the full 33 degrees, a ray
+// off a façade clears the low-rise roofs across the street within a block and every pane in the
+// city came out one flat sky blue — a sticker, not glass. Flattened to about 13 degrees, the lower
+// floors run into the buildings opposite and the upper ones see the pale sky just over their
+// roofline, which is the look of a glass façade: a skyline silhouette with a bright band above it.
+const WINDOW_FOLD = 0.4;
+// Where a window's sky turns from horizon to deep blue, as the folded ray's y. Sits inside the
+// range a bowed pane sweeps (about 0.1 to 0.35 on a lit face), so most panes are cut by it.
+const WINDOW_SKY_LINE = 0.22;
+// How bright a reflected building is in a window, as a fraction of the horizon.
+const WINDOW_HIT = 0.3;
+// How much of the camera's pan the streaks follow. 0 pins them to the façade like paint; 1 pins
+// them to the screen like a reflection of something infinitely far away. Halfway, they drift
+// across a building as the camera follows the taxi, which is what says glass when nothing in the
+// reflection itself can move — the camera never rotates.
+const WINDOW_PAN = 0.5;
+// The streaks: two hard diagonal bands across each façade, a broad one and a thin one beside it,
+// repeating every WINDOW_STREAK_PITCH units along the diagonal. In façade coordinates (the
+// face's own horizontal tangent, and height), off the flat face normal from the derivatives so a
+// pane's bow does not bend them. Edges anti-aliased by fwidth, so they stay crisp without
+// crawling. The colour is the sky lifted toward white, as on the cars (STREAKS), so it fades with
+// the sky at night.
+const WINDOW_STREAK_PITCH = 13;
+const WINDOW_STREAKS = /* glsl */ `
+			vec3 wN = normalize(cross(dFdx(vGlossObj), dFdy(vGlossObj)));
+			vec2 wT = normalize(vec2(-wN.z, wN.x) + 1e-5);
+			float wS = dot(vGlossWorld.xz - cameraPosition.xz * ${WINDOW_PAN.toFixed(2)}, wT);
+			float wD = (wS * 0.8 + vGlossWorld.y) / ${WINDOW_STREAK_PITCH.toFixed(1)};
+			float wF = fract(wD);
+			float wW = fwidth(wD) + 1e-4;
+			float wBand = smoothstep(0.07 + wW, 0.07 - wW, abs(wF - 0.4))
+				+ 0.85 * smoothstep(0.018 + wW, 0.018 - wW, abs(wF - 0.53));
+			vec3 wCol = uGlossTop + 0.8 * vec3(dot(uGlossTop, vec3(0.2126, 0.7152, 0.0722)));
+			gEnv = mix(gEnv, wCol, clamp(wBand, 0.0, 1.0) * 0.85);`;
+
 const glossFragment = (classic) => /* glsl */ `
 	{
 		vec3 gN = inverseTransformDirection(gReflN, viewMatrix);
 		vec3 gEye = inverseTransformDirection(vec3(0.0, 0.0, 1.0), viewMatrix);
 		vec3 gR = reflect(-gEye, gN);
-		gR.y = max(abs(gR.y), 0.12);
+		gR.y = max(abs(gR.y) * mix(1.0, ${WINDOW_FOLD.toFixed(2)}, gIsWindow), 0.12);
 		gR = normalize(gR);
 		vec3 gEnv = mix(uGlossHorizon, uGlossTop, __LOOK_SKY__);
+		// A window's sky is two flat bands with a hard line between them: the pale horizon just
+		// over the roofline and a deeper blue above it. A bowed pane (city/buildings.js) sweeps its
+		// ray across the line, so each window is cut in two crisply. The first build ramped
+		// between them, and a soft ramp on an eight-pixel pane reads as a bad gradient, not glass
+		// (Tyler, 2026-10-24).
+		float gWin = gR.y;
+		gEnv = mix(gEnv, mix(uGlossHorizon, uGlossTop * 0.55, step(${WINDOW_SKY_LINE.toFixed(2)}, gWin)), gIsWindow);
 		float gGraze = 1.0 - clamp(gReflN.z, 0.0, 1.0);
 		float gMirror = (gFinB.z + gFinB.w * gGraze * gGraze * gGraze
 			+ gFinD.x * (0.04 + 0.96 * pow(min(gGraze, 0.88), 5.0)))
@@ -1475,7 +1531,14 @@ __LOOK_MIRROR__
 ${classic ? GLOSS_HIT_CLASSIC : GLOSS_HIT_SOFT}
 				gT *= 1.3;
 			}
-			gEnv = mix(gEnv, uGlossHorizon * uGlossGlobal.y * (0.7 + 0.6 * gHitY / uGlossCeiling), gOcc);
+			// ...and the skyline it reflects is a hard silhouette, in a dark slate rather than the
+			// paint's near-black, which on a dark pane is no shape at all.
+			gOcc = mix(gOcc, step(0.5, gOcc), gIsWindow);
+			gEnv = mix(gEnv, uGlossHorizon * mix(uGlossGlobal.y, ${WINDOW_HIT.toFixed(2)}, gIsWindow)
+				* (0.7 + 0.6 * gHitY / uGlossCeiling), gOcc);
+		}
+		if (gIsWindow > 0.5) {
+${WINDOW_STREAKS}
 		}
 __LOOK_FINAL__
 		outgoingLight = mix(outgoingLight, gEnv, clamp(gMirror, 0.0, 1.0));
@@ -1719,10 +1782,10 @@ uniform vec4 uGlossCityBox;
 uniform float uGlossCeiling;
 uniform vec3 uGlossTop;
 uniform vec3 uGlossHorizon;
-uniform vec4 uFinishA[6];
-uniform vec4 uFinishB[6];
-uniform vec4 uFinishC[6];
-uniform vec4 uFinishD[6];
+uniform vec4 uFinishA[7];
+uniform vec4 uFinishB[7];
+uniform vec4 uFinishC[7];
+uniform vec4 uFinishD[7];
 uniform vec4 uGlossGlobal;
 uniform float uGloss;
 uniform float uGlossMirror;
@@ -1745,6 +1808,7 @@ vec4 gFinB;
 vec4 gFinC;
 vec4 gFinD;
 float gIsPaint;
+float gIsWindow;
 vec3 gFinishColor;
 vec3 gSpecN;
 vec3 gReflN;

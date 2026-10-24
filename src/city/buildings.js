@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import { bakeColor, bakeColors, hash01, propMaterial, stampEntry } from '../util/geo.js';
+import { FINISH, bakeColor, bakeColors, hash01, propMaterial, setFinish, stampEntry } from '../util/geo.js';
 import { BUILDING_COLORS, color, jitterColor } from '../palette.js';
 import { makeRng, valueNoise2D } from '../util/rng.js';
 import { KERB_H } from './ground.js';
@@ -70,6 +70,14 @@ function shade(col, amount = 0.78) {
 export const ROOFS_CLASSIC = typeof location !== 'undefined'
   ? new URLSearchParams(location.search).get('roofs') === 'classic'
   : globalThis.process?.env?.ROOFS === 'classic';
+
+// `?windows=classic` keeps the glass in the merged building mesh as plain vertex colour: the faux
+// sky gradient below and nothing else. The default takes every pane out into a glass mesh of its own
+// on the cars' paint shader (`glassMeshes`), so it mirrors the street opposite. Headless tools take
+// `WINDOWS=classic` from the environment.
+export const WINDOWS_CLASSIC = typeof location !== 'undefined'
+  ? new URLSearchParams(location.search).get('windows') === 'classic'
+  : globalThis.process?.env?.WINDOWS === 'classic';
 
 // The parapet: how wide the lip is, and how far the deck inside it sits below its top. The lip is
 // cut *down* into the cap rather than standing up off it, so the roofline the city's occlusion
@@ -145,8 +153,6 @@ export function facadeQuads(rects, side, cx, cz, hw, hd, col, out = EPS, sky = n
   const base = col instanceof THREE.Color ? col : new THREE.Color(col);
   const positions = new Float32Array(rects.length * 18);
   const colors = new Float32Array(rects.length * 18);
-  // Vertex order within a quad, as indices into a rect's four corner weights.
-  const WIND = [0, 1, 2, 0, 2, 3];
   let p = 0;
 
   for (const { u, y, w, h, g } of rects) {
@@ -165,7 +171,9 @@ export function facadeQuads(rects, side, cx, cz, hw, hd, col, out = EPS, sky = n
       positions[p + 1] = v[1];
       positions[p + 2] = v[2];
 
-      if (sky && g) {
+      // Under the default the glass is one flat `window` colour and the shader draws every shape
+      // on it (`glaze`): a vertex ramp under crisp reflections read as a smudge.
+      if (sky && g && WINDOWS_CLASSIC) {
         const t = g[k];
         colors[p] = base.r + (sky.r - base.r) * t;
         colors[p + 1] = base.g + (sky.g - base.g) * t;
@@ -179,10 +187,98 @@ export function facadeQuads(rects, side, cx, cz, hw, hd, col, out = EPS, sky = n
     }
   }
 
-  const geo = new THREE.BufferGeometry();
-  geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-  return bakeColors(geo, colors);
+  const geo = bakeColors(new THREE.BufferGeometry()
+    .setAttribute('position', new THREE.BufferAttribute(positions, 3)), colors);
+  if (sky && !WINDOWS_CLASSIC) glaze(geo, rects, side, ox, oz);
+  return geo;
 }
+
+// --- Real reflections -------------------------------------------------------
+//
+// Under the default every pane also wears the cars' paint shader (util/geo.js, `FINISH.WINDOW`),
+// whose reflection marches the city's height field: a pane mirrors the actual buildings across the
+// street, with sky above their roofline. The camera never rotates, so what a pane shows never
+// changes — but it is the *right* skyline, not a gradient standing in for one.
+//
+// A flat façade reflects one ray direction from edge to edge, so a tower of perfectly coplanar
+// glass would show one clean roofline across its whole face, which reads as a painted band. Real
+// curtain-wall panes are never quite coplanar — each is clamped in its own frame and bows a little
+// — and the patchwork that makes of a reflection is most of what says "glass tower". So each pane
+// leans off its wall by up to `PANE_TILT` radians, keyed on its own position (a hash, no rng draw,
+// so the city a seed builds is untouched). At ~12 units to the street wall opposite, 0.08 rad moves
+// a pane's reflected roofline by about two units, against a 1.4-unit pane.
+const PANE_TILT = 0.08;
+// ...and every pane bows. Its top corners lean one way and its bottom corners the other, and the
+// smooth material interpolates between them, so the reflected ray sweeps up the pane: a flat pane
+// mirrors one ray edge to edge and draws as one flat colour — the first build's panes read as
+// pale blue stickers. Bowed, the bottom of a pane runs into the street wall opposite and the top
+// clears it into the sky, and every window carries the dark-to-light ramp that says glass. Only
+// along the pane's height, so the two triangles of a quad interpolate it exactly (see
+// `facadeQuads`). Negative because the reflected ray off a façade heads *down* and is folded back
+// up (`gR.y` in util/geo.js), so a normal tipped toward the ground sends the folded ray higher.
+const PANE_BOW = -0.22;
+// How much of the city each kind of glass mirrors (`uGlossMirror`). A punched window on masonry
+// keeps under its wall for the reason `wallCeiling` gives: a reflected sky at full strength turned
+// the dark holes in a brick wall into light patches on it.
+const GLASS_MIRROR = { curtain: 1, punched: 0.55 };
+
+/** Tag a façade's panes as building glass, each leaning a hair off the wall. */
+function glaze(geo, rects, side, ox, oz) {
+  const [nx, nz] = SIDE_OUT[side];
+  const [tx, tz] = SIDE_TAN[side];
+  const normals = geo.attributes.normal.array;
+  const n = new THREE.Vector3();
+  rects.forEach(({ u, y }, r) => {
+    const px = ox + tx * u;
+    const pz = oz + tz * u;
+    const a = (hash01(px * 1.37 + y, pz) * 2 - 1) * PANE_TILT;
+    const b = (hash01(pz * 0.71 - y, px + 3.1) * 2 - 1) * PANE_TILT;
+    for (let k = 0; k < 6; k++) {
+      const up = WIND[k] >= 2 ? PANE_BOW : -PANE_BOW;
+      n.set(nx + tx * a, b + up, nz + tz * a).normalize();
+      n.toArray(normals, (r * 6 + k) * 3);
+    }
+  });
+  setFinish(geo, FINISH.WINDOW);
+  geo.userData.glass = 'curtain';
+  return geo;
+}
+
+/**
+ * Take the glass out of a building generator's parts and mesh it on its own: one mesh per kind
+ * (`GLASS_MIRROR`), each on the glossy material. Returns the parts left over for the solid mesh.
+ * Under `?windows=classic` nothing is glass and every part stays where it was.
+ *
+ * Its own mesh rather than the merged one because that one is a plain Lambert, and putting the
+ * whole skyline on the paint shader would run its 14-step march over every wall and roof for
+ * glass that is a fraction of them. It casts no shadow (the wall a hair behind it already does)
+ * and is not an occluder: the AO prepass reads that same wall's depth.
+ */
+export function glassMeshes(parts, name) {
+  if (WINDOWS_CLASSIC) return { solid: parts, glass: [] };
+  const solid = [];
+  const kinds = {};
+  for (const part of parts) {
+    const kind = part.userData.glass;
+    if (kind) (kinds[kind] ??= []).push(part);
+    else solid.push(part);
+  }
+  const glass = Object.entries(kinds).map(([kind, list]) => {
+    const geometry = mergeGeometries(list, false);
+    list.forEach((p) => p.dispose());
+    const mesh = new THREE.Mesh(geometry, propMaterial({
+      smooth: true, gloss: { geometry, mirror: GLASS_MIRROR[kind] },
+    }));
+    mesh.receiveShadow = true;
+    mesh.name = `${name}-glass-${kind}`;
+    return mesh;
+  });
+  return { solid, glass };
+}
+
+// Vertex order within a quad, as indices into a rect's four corners: A (left, bottom), B (right,
+// bottom), E (right, top), D (left, top).
+const WIND = [0, 1, 2, 0, 2, 3];
 
 // --- Faux reflections -------------------------------------------------------
 //
@@ -359,7 +455,9 @@ function punchedWindows(parts, cx, base, cz, w, d, h, firstFloorH, windowColor, 
       }
     }
     paneSink?.({ rects, side, cx, cz, hw: w / 2, hd: d / 2, kind: 'punched' });
-    parts.push(facadeQuads(rects, side, cx, cz, w / 2, d / 2, windowColor, EPS, sky));
+    const glass = facadeQuads(rects, side, cx, cz, w / 2, d / 2, windowColor, EPS, sky);
+    if (glass.userData.glass) glass.userData.glass = 'punched';
+    parts.push(glass);
   }
 }
 
@@ -1243,8 +1341,10 @@ export function createBuildings(rng, blocks) {
     }
   }
 
-  const merged = mergeGeometries(parts, false);
-  parts.forEach((p) => p.dispose());
+  const count = parts.length;
+  const { solid, glass } = glassMeshes(parts, 'buildings');
+  const merged = mergeGeometries(solid, false);
+  solid.forEach((p) => p.dispose());
 
   // Smooth for the courtyard's crowns (`treeParts`); every wall still lights off its own face normal.
   const mesh = new THREE.Mesh(merged, propMaterial({ smooth: true }));
@@ -1257,7 +1357,10 @@ export function createBuildings(rng, blocks) {
   // puts it in the entrance wave beside `mesh`.
   const domeMesh = bank ? bankDomeMesh(bank.domeGeometry) : null;
   return {
-    mesh, domeMesh, count: parts.length, courtyards, court, pad, entrySites, rehomed,
+    // The panes, on the paint's reflection (`glassMeshes`); empty under `?windows=classic`. The
+    // caller adds them and puts them in the entrance wave beside `mesh`.
+    glass,
+    mesh, domeMesh, count, courtyards, court, pad, entrySites, rehomed,
     // Where the bank stands, or null if this city has nowhere for one. See city/bank.js — the door
     // point on it is what `game/robbery.js` measures the trigger range from, and what the robber
     // comes running out of.
