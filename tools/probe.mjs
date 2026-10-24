@@ -20185,6 +20185,34 @@ let chopperOrder; // likewise
       closest > 0.05, `nearest face stands ${closest.toFixed(3)} proud`);
   }
 
+  // --- The channel wall and the embankment's kerb box do not share the kerb band.
+  //
+  // The same tie one surface over, and it ran the length of the river: the kerb box is
+  // `EMBANK_WALK` deep, centred halfway from bank to water, so its channel-side face sits on the
+  // wall's plane facing the same way, and the wall used to run up to `KERB_H` over it. Reported
+  // from a phone as z-fighting down both banks. Asserted per triangle, off the index when the merge
+  // kept one: on either wall plane, nothing that reaches below
+  // ground may also reach above it.
+  {
+    const shell = createRiver(makeRng(seed + 12), layout).shell.geometry;
+    const p = shell.attributes.position;
+    const at = (k) => (shell.index ? shell.index.getX(k) : k);
+    const tris = shell.index ? shell.index.count : p.count;
+    let shared = 0;
+    let onPlane = 0;
+    for (let t = 0; t < tris; t += 3) {
+      const v = [at(t), at(t + 1), at(t + 2)];
+      for (const zw of [rWater.z0, rWater.z1]) {
+        if (!v.every((k) => Math.abs(p.getZ(k) - zw) < 1e-4)) continue;
+        onPlane += 1;
+        const ys = v.map((k) => p.getY(k));
+        if (Math.min(...ys) < -0.01 && Math.max(...ys) > 1e-4) shared += 1;
+      }
+    }
+    check('the channel wall stops under the embankment kerb rather than sharing its face',
+      onPlane > 0 && shared === 0, `${shared} wall triangles above ground of ${onPlane} on the planes`);
+  }
+
   // --- The route band rides the hump rather than being swallowed by it.
   //
   // This shipped broken once and the shape of the mistake is worth keeping: `deckHeightAt` was
