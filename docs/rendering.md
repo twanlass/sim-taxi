@@ -1515,6 +1515,25 @@ blue, so the asphalt reads as painted rather than flat grey. `?painterly=classic
   the tile reads are skipped wherever the fade mask, the lawn hold or the lane-paint hold is 0. So
   a tuning panel that turns the terminator or the foot back on has to rebuild the materials.
 
+## Roads and junction paving — `setJunctionPaving` in `util/geo.js`
+
+The street grid is split by **value** before hue. The asphalt is a darker, cooler `#4B525D` and the
+pavement a paler, warmer `#CDBFA6`, because the old pair (`#636972` against `#9E9C94`) came out the
+same khaki under the low warm sun and a block did not separate from its street. Every **junction
+box** is then laid in warm setts with a border course (`junctionSett`, `junctionEdge`), so a street
+reads as runs and squares rather than one sheet of tarmac. `?roads=classic` brings back all of it.
+
+- **Shader, not geometry.** The box is found in the ground's paint pass with the same grid
+  arithmetic the strokes use, reaching by the *crossing* road's half-width on each axis, and the
+  paving is a ratio over the lit asphalt, so shadows, wet sheen and reflections stay the road's.
+  The ratio is taken in display space, which is where `gl_FragColor` is by the paint pass.
+- **The border is kept near the road's value.** A ratio multiplies whatever light lands there, so a
+  border at kerb brightness (1.8× the road) outlined every junction in light under the rain's
+  reflections at night. At 1.4× it reads by day and stays a line at night.
+- **Tried and dropped:** terracotta brick (`#9A5A45` / `#7D4F43`) read as a board-game checkerboard
+  at play zoom; the junctions are 9 units square against 12-unit blocks, so a loud box competes with
+  the blocks themselves.
+
 ## Rain Mode — `game/rain.js`
 
 `?rain`. An exploration and off by default: the city on a wet afternoon. Five layers, plus one

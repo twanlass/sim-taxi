@@ -190,6 +190,7 @@ doc; what the classic version was, and why it changed, is in that doc's history 
 
 | Param | Does |
 |---|---|
+| `?roads=classic` | The roads before the grey was broken up: the lighter blue-grey asphalt, the darker pavement and kerb, and plain asphalt junction boxes instead of paved ones |
 | `?painterly=classic` | Without the painterly prototype: painted brush strokes running along the streets, each a little lighter or darker and a little red or blue, fading in and out in block-sized patches |
 | `?crayon` | Crayon Mode. Off by default |
 | `?cartoon` | Cartoon Mode. Off by default |

@@ -304,6 +304,12 @@ export const PAINT_UNIFORMS = {
   uRoadMaskScale: { value: 16 }, // world units per cell of the fade mask's coarser octave
   uRoadMaskLo: { value: 0.38 },  // mask value where the strokes are fully gone…
   uRoadMaskHi: { value: 0.58 },  // …and where they are at full strength
+  // Junction paving: the box every junction leaves between its four kerb lines, laid in setts.
+  // rgb is the paving's albedo over the asphalt's (a ratio, so the lighting stays the road's),
+  // w how much of it — 0 is the plain asphalt box. See `setJunctionPaving`.
+  uJunctionTint: { value: new THREE.Vector4(1, 1, 1, 0) },
+  uJunctionEdge: { value: new THREE.Vector4(1, 1, 1, 0.45) }, // the border course's ratio, then its width
+  uJunctionSett: { value: new THREE.Vector2(1.5, 0.1) },     // sett pitch and joint width, world units
   uBrushTile: { value: 8 },     // world units per tile repeat
   uBrushAmt: { value: 0.7 },   // value swing of a stroke (0.22 was invisible at play zoom)
 };
@@ -321,6 +327,29 @@ export function setPaintBrushes(wall, ground, road) {
   PAINT_UNIFORMS.uRoadArt.value.y = z;
   const mid = riverMidZ();
   PAINT_UNIFORMS.uRiverZ.value.set(mid ?? -1e9, mid === null ? RIVER_EXTRA / 2 : RIVER_EXTRA);
+}
+
+/**
+ * Junction paving (`?roads=classic` turns it off, with the palette's road colours). Every junction box — the square the four
+ * kerb lines leave in the middle of a crossing — is laid in setts instead of asphalt, with a pale
+ * border course round it, so the street grid reads as a rhythm of runs and squares rather than one
+ * sheet of tarmac. Applied in the ground's paint pass as a ratio over the lit asphalt, which keeps
+ * the road's own lighting, shadows and wet look; the ratio is taken in display space because that
+ * is the space `gl_FragColor` is in by the time the paint pass runs (`<colorspace_fragment>` comes
+ * before `<fog_fragment>`).
+ */
+export function setJunctionPaving(on) {
+  const srgb = (key) => {
+    const c = new THREE.Color();
+    c.setHex(parseInt(PALETTE[key].slice(1), 16), THREE.SRGBColorSpace);
+    return c.getRGB(new THREE.Color(), THREE.SRGBColorSpace);
+  };
+  const road = srgb('asphalt');
+  const sett = srgb('junctionSett');
+  const edge = srgb('junctionEdge');
+  PAINT_UNIFORMS.uJunctionTint.value.set(sett.r / road.r, sett.g / road.g, sett.b / road.b, on ? 1 : 0);
+  const e = PAINT_UNIFORMS.uJunctionEdge.value;
+  e.set(edge.r / road.r, edge.g / road.g, edge.b / road.b, e.w);
 }
 
 const PAINT_COMMON = /* glsl */ `
@@ -341,6 +370,9 @@ uniform float uLawnAmt;
 uniform float uRoadMaskScale;
 uniform float uRoadMaskLo;
 uniform float uRoadMaskHi;
+uniform vec4 uJunctionTint;
+uniform vec4 uJunctionEdge;
+uniform vec2 uJunctionSett;
 float paintHash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
 float paintNoise(vec2 p) {
 	vec2 i = floor(p), f = fract(p);
@@ -415,6 +447,23 @@ const PAINT_FRAGMENT = /* glsl */ `
 					// screen. The two road-tile reads and the junction arithmetic below are skipped
 					// there rather than computed and thrown away (perf pass, 2026-10-18).
 					float hold = (1.0 - grassy) * (1.0 - smoothstep(0.35, 0.6, lum));
+					if (uJunctionTint.w > 0.0 && vPaintWorld.y < 0.1) {
+						vec2 jp = vPaintWorld.xz - vec2(0.0, vPaintWorld.z > uRiverZ.x ? uRiverZ.y : 0.0);
+						vec2 jl = floor((jp + uRoadGrid.xy) / uRoadGrid.z + 0.5);
+						vec2 jd = abs(jp + uRoadGrid.xy - jl * uRoadGrid.z);
+						// The box reaches by the *crossing* road's half-width on each axis.
+						float hx = mix(uRoadArt.z, uRoadArt.w, mod(floor(uRoadArt.y / exp2(jl.x)), 2.0));
+						float hz = mix(uRoadArt.z, uRoadArt.w, mod(floor(uRoadArt.x / exp2(jl.y)), 2.0));
+						vec2 jin = vec2(hx, hz) - jd;  // how far inside the box, per axis
+						float jBox = smoothstep(-0.06, 0.06, min(jin.x, jin.y));
+						if (jBox > 0.0) {
+							float jEdge = 1.0 - smoothstep(uJunctionEdge.w - 0.06, uJunctionEdge.w + 0.06, min(jin.x, jin.y));
+							vec2 sq = abs(fract(jp / uJunctionSett.x) - 0.5) * uJunctionSett.x;
+							float joint = 1.0 - smoothstep(uJunctionSett.y * 0.5, uJunctionSett.y, uJunctionSett.x * 0.5 - max(sq.x, sq.y));
+							vec3 jt = mix(uJunctionTint.rgb * (1.0 - 0.18 * joint * (1.0 - jEdge)), uJunctionEdge.rgb, jEdge);
+							gl_FragColor.rgb *= mix(vec3(1.0), jt, jBox * uJunctionTint.w);
+						}
+					}
 					vec2 mq = vPaintWorld.xz / uRoadMaskScale;
 					float m = hold > 0.0 ? paintNoise(mq) * 0.65 + paintNoise(mq * 2.3 + 17.1) * 0.35 : 0.0;
 					float fade = smoothstep(uRoadMaskLo, uRoadMaskHi, m) * hold;

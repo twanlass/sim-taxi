@@ -54,7 +54,7 @@ export const PALETTE = {
   hemiSky: '#F0C79B',
   hemiGround: '#6B5A48',
 
-  asphalt: '#636972',
+  asphalt: '#4B525D',  // #636972 under `?roads=classic`, see ROADS_CLASSIC below
   // The startup screen's void (game/splash.js), and the page, the web view and the iOS launch
   // screen before it: what a cold start shows while the game loads, so it has to be the same black
   // everywhere or the hand-offs between them flash.
@@ -64,7 +64,7 @@ export const PALETTE = {
   // late-afternoon sun and the warm fill turned even pure white into cardboard tan.
   splashLogo: '#FFFFFF',
   splashLogoShade: '#4C5468',
-  asphaltEdge: '#6B717A',
+  asphaltEdge: '#535A65',
   // Tyre rubber on the road. Not black: pure black over a blue-grey asphalt read as a hole cut in
   // the road rather than something lying on it, and a touch of warm brown is what rubber smeared
   // into tarmac actually is.
@@ -88,8 +88,12 @@ export const PALETTE = {
   manholeLid: '#3B3F45',
   manholeFrame: '#8C9097',
   crosswalk: '#DAD7CB',
-  sidewalk: '#9E9C94',
-  kerb: '#8A887F',
+  // Junction paving (setJunctionPaving in util/geo.js): the setts every junction box is laid in,
+  // and the pale border course round them.
+  junctionSett: '#6E5F57',
+  junctionEdge: '#7C766B',
+  sidewalk: '#CDBFA6',
+  kerb: '#B3A994',
   park: '#6F9A5A',
   // The tips of the parks' long grass (city/grass.js); the roots are `park` itself so a tuft grows
   // out of the lawn rather than sitting on it. Lighter and warmer — sun through a blade's tip.
@@ -1391,6 +1395,18 @@ export const PALETTE = {
   claudeClay: '#D97757',
   claudeEye: '#141413',
 };
+
+// `?roads=classic`: the road look before the grey was broken up (Tyler, 2026-10-24: "We have a lot
+// of gray in the game, largely the roads"). The problem measured as value, not hue: the asphalt
+// (#636972), the pavement (#9E9C94) and the kerb sat within a few steps of each other, and under the
+// warm low sun all three came out the same khaki, so a block did not separate from its street. The
+// road went darker and cooler and the pavement paler and warmer; the junction boxes are paved
+// (`setJunctionPaving`, util/geo.js) so the grid reads as runs and squares rather than one sheet.
+const ROADS_CLASSIC = typeof location !== 'undefined'
+  && new URLSearchParams(location.search).get('roads') === 'classic';
+if (ROADS_CLASSIC) {
+  Object.assign(PALETTE, { asphalt: '#636972', asphaltEdge: '#6B717A', sidewalk: '#9E9C94', kerb: '#8A887F' });
+}
 
 export function color(value) {
   return new THREE.Color(PALETTE[value] ?? value);
