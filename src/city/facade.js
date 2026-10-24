@@ -1,5 +1,6 @@
 import * as THREE from 'three';
-import { bakeColors } from '../util/geo.js';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
+import { bakeColors, propMaterial } from '../util/geo.js';
 
 // Wall detail on the towers: a darker plinth under a string course, a lit ledge with its shadow
 // under every row of sills, a cornice at the top of each tier, and — on half the masonry — a
@@ -237,5 +238,27 @@ export function windowFrames(rects, side, cx, cz, hw, hd, col, out, tan) {
   geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(positions), 3));
   const colors = new Float32Array(positions.length);
   for (let i = 0; i < colors.length; i += 3) colors.set([col.r, col.g, col.b], i);
-  return bakeColors(geo, colors);
+  const framed = bakeColors(geo, colors);
+  framed.userData.frame = true;
+  return framed;
+}
+
+/**
+ * Take the frames out of a generator's parts into a mesh of their own, which neither casts nor
+ * receives ambient occlusion. In the merged mesh they were AO occluders, and a 0.2-unit
+ * protrusion against the SSAO's one-unit radius put a dark halo on the wall round every window
+ * ("these shaded areas behind the windows feel off", Tyler, 2026-10-24). The sun's shadow is the
+ * depth they are there for, and it stays. Returns the leftover parts and the mesh (null if none).
+ */
+export function frameMesh(parts, name) {
+  const solid = [];
+  const frames = [];
+  for (const p of parts) (p.userData.frame ? frames : solid).push(p);
+  if (!frames.length) return { solid, frames: null };
+  const mesh = new THREE.Mesh(mergeGeometries(frames, false), propMaterial({ ao: false }));
+  frames.forEach((p) => p.dispose());
+  mesh.castShadow = true;
+  mesh.receiveShadow = true;
+  mesh.name = `${name}-window-frames`;
+  return { solid, frames: mesh };
 }

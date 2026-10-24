@@ -6,7 +6,7 @@ import { makeRng, valueNoise2D } from '../util/rng.js';
 import { KERB_H } from './ground.js';
 import { plantedCrowns, treeParts, treeShape } from './props.js';
 import { buildBank, bankDomeMesh, chooseBankLot } from './bank.js';
-import { WALLS_CLASSIC, WALL_STYLE, fillWalls, patchWalls, stampWall, windowFrames } from './facade.js';
+import { WALLS_CLASSIC, WALL_STYLE, fillWalls, frameMesh, patchWalls, stampWall, windowFrames } from './facade.js';
 
 const FLOOR_H = 2.6;
 // The ground floor is its own storey height. A shopfront is taller than the flats above it, and
@@ -915,7 +915,7 @@ export function wallMaterial() {
     floorH: FLOOR_H, sill: SILL, bay: BAY, groundTop: KERB_H + GROUND_H,
   });
 }
-export { fillWalls };
+export { fillWalls, frameMesh };
 
 // --- Courtyard blocks -------------------------------------------------------
 //
@@ -1267,8 +1267,9 @@ export function createBuildings(rng, blocks) {
     }
   }
 
-  const merged = mergeGeometries(fillWalls(parts), false);
-  parts.forEach((p) => p.dispose());
+  const { solid, frames } = frameMesh(parts, 'buildings');
+  const merged = mergeGeometries(fillWalls(solid), false);
+  solid.forEach((p) => p.dispose());
 
   // Smooth for the courtyard's crowns (`treeParts`); every wall still lights off its own face normal.
   const mesh = new THREE.Mesh(merged, wallMaterial());
@@ -1281,6 +1282,9 @@ export function createBuildings(rng, blocks) {
   // puts it in the entrance wave beside `mesh`.
   const domeMesh = bank ? bankDomeMesh(bank.domeGeometry) : null;
   return {
+    // The window frames (city/facade.js), off the AO; null under `?walls=classic`. The caller adds
+    // them and puts them in the entrance wave beside `mesh`.
+    frames,
     mesh, domeMesh, count: parts.length, courtyards, court, pad, entrySites, rehomed,
     // Where the bank stands, or null if this city has nowhere for one. See city/bank.js — the door
     // point on it is what `game/robbery.js` measures the trigger range from, and what the robber

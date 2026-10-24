@@ -18,7 +18,9 @@ strength of the shipped ones (ledge 1.14/0.82, plinth 0.84): visible in a close-
 phone play zoom. The window frames came second, the same day, at Tyler's ask for "a little bit
 of geometry so that we get some shadows and some silhouette": the first cut stood 0.14 off the
 wall in a stone 10% lighter than it, which read as a white outline round each window rather than
-as depth, so they went to the wall's own colour and 0.2 deep.
+as depth, so they went to the wall's own colour and 0.2 deep. Built into the merged building mesh,
+they were also AO occluders, and each one smudged a dark halo onto the wall around its window
+("these shaded areas behind the windows feel off"); they moved to a mesh of their own, off the AO.
 
 ## Wheel wells — `archedBodyGeometries` in `geometry/wheels.js`
 

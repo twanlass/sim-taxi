@@ -104,9 +104,13 @@ wall and a deeper sill (0.28) running past them, in the wall's own colour. The c
 point; the head's shadow across the top of the pane and the lit reveals are, and they are what
 turn a dark rectangle on a wall into a hole in it. Hand-wound quads, one geometry per façade like
 the panes, with each face checked against the way it must point as it is emitted and asserted
-from the winding in `tools/probe.mjs`. 40 triangles a window, about 2k across a city (5.7k → 7.6k
-in the merged building mesh, mean of four seeds). Curtain-wall ribbons get no frame: on glass the
-glass is the wall.
+from the winding in `tools/probe.mjs`. 40 triangles a window, about 2k across a city (mean of
+four seeds). Curtain-wall ribbons get no frame: on glass the glass is the wall.
+
+**The frames are their own mesh, off the AO** (`frameMesh`, `propMaterial({ ao: false })`, not an
+occluder). In the merged mesh they were occluders, and a 0.2-unit protrusion against the SSAO's
+one-unit radius smudged a dark halo onto the wall round every window. They still cast and receive
+the sun's shadow, which is the depth they are there for.
 
 - **Structure, not texture.** At play zoom a unit is ~7.7px, so brick coursing or stucco noise
   is a shimmer. A line per storey and a base and a top are a pixel or two each on a phone, and they
