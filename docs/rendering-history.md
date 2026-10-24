@@ -33,6 +33,10 @@ single-storey boxes that were most of the city ("just freaking boring boxes").
 Curtain-wall glass bands were left unframed until late that day, then got a slim trim (0.07 wide,
 0.1 deep) on the wall's face; that still read as "glued onto the building", and the bands were set
 back into a shell instead.
+After it went live, the one-storey buildings read as noisy at play zoom ("an additional belly band
+... even though they're single story"): string course, cornice, cornice shadow and a fascia board
+over each shopfront were all stacked in the top unit of a three-unit wall. Single storeys lost all
+but the plinth, and the fascia went everywhere.
 
 ## Window glass — `city/buildings.js`
 

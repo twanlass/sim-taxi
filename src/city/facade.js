@@ -124,8 +124,14 @@ float wallBand(float x, float a, float b, float aa) {
 
 		// The ground storey: only on a tier whose first line is the ground storey's top.
 		float ground = step(abs(origin - ${f(groundTop)}), 0.01);
+		// Whether the tier has a storey above its first line at all. Most of the city is one storey
+		// under a roof, and on those the string course, the cornice and its shadow all landed in the
+		// top unit of a three-unit wall, under the roof's own lip: four stripes in about eight pixels,
+		// which read as noise at play zoom rather than as structure (Tyler, 2026-10-24). A single
+		// storey keeps its plinth and lets the roof's lip be its top.
+		float upper = step(origin + ${f(floorH)}, top - 0.35 + 1e-3);
 		m *= mix(1.0, ${f(PLINTH)}, ground * (1.0 - smoothstep(origin - ay, origin + ay, wy)));
-		m *= mix(1.0, ${f(COURSE_LIT)}, ground * wallBand(wy, origin - 0.06, origin + 0.16, ay));
+		m *= mix(1.0, ${f(COURSE_LIT)}, ground * upper * wallBand(wy, origin - 0.06, origin + 0.16, ay));
 
 		// A belt course at every floor line floorLines drew windows on, sitting on the slab rather
 		// than under the sills. Under the sills it ran straight into the window frames' own sill and
@@ -140,11 +146,12 @@ float wallBand(float x, float a, float b, float aa) {
 		m *= mix(1.0, ${f(LEDGE_SHADE)}, row * wallBand(d, -0.18, -0.02, ay));
 
 		// The cornice: a lit band at the top of the tier, its shadow under it.
-		m *= mix(1.0, ${f(CORNICE_LIT)}, wallBand(wy, top - 0.4, top + 1.0, ay));
-		m *= mix(1.0, ${f(LEDGE_SHADE)}, wallBand(wy, top - 0.56, top - 0.4, ay));
+		m *= mix(1.0, ${f(CORNICE_LIT)}, upper * wallBand(wy, top - 0.4, top + 1.0, ay));
+		m *= mix(1.0, ${f(LEDGE_SHADE)}, upper * wallBand(wy, top - 0.56, top - 0.4, ay));
 
-		// Quoins: the corners, lighter, so a mass reads as built out to its edges.
-		m *= mix(1.0, ${f(QUOIN_LIT)}, smoothstep(fw * 0.5 - 0.26 - au, fw * 0.5 - 0.26 + au, abs(u)));
+		// Quoins: the corners, lighter, so a mass reads as built out to its edges. Not on a single
+		// storey, where a corner stripe the height of the wall is just another line.
+		m *= mix(1.0, ${f(QUOIN_LIT)}, upper * smoothstep(fw * 0.5 - 0.26 - au, fw * 0.5 - 0.26 + au, abs(u)));
 		diffuseColor.rgb *= m;
 	}`);
     for (const marker of ['attribute vec4 aWall', 'vWallY = position.y']) {

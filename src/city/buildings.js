@@ -531,7 +531,8 @@ function groundFloor(parts, cx, cz, w, d, streetSides, rng, body = null) {
   }
 
   // Framed shopfronts (city/facade.js) on any building handed its body colour: bays split by
-  // mullions, a sill, a head and a fascia. The frames would run across the door, so on the door's
+  // mullions, a sill and a head. (A fascia over the head went too: on a one-storey wall it was one
+  // more stripe under the roof.) The frames would run across the door, so on the door's
   // side the glass parts round it, clear of its surround and of the frame's own overhang.
   const framed = body && !WALLS_CLASSIC;
   const sky = color('windowSky');
@@ -554,7 +555,7 @@ function groundFloor(parts, cx, cz, w, d, streetSides, rng, body = null) {
     ));
     if (framed) {
       parts.push(windowFrames(rects, s, cx, cz, w / 2, d / 2, shade(body, FRAME_TINT),
-        SIDE_OUT[s], SIDE_TAN[s], { fascia: true }));
+        SIDE_OUT[s], SIDE_TAN[s]));
     }
   }
 
