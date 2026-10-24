@@ -36,7 +36,8 @@ back into a shell instead.
 After it went live, the one-storey buildings read as noisy at play zoom ("an additional belly band
 ... even though they're single story"): string course, cornice, cornice shadow and a fascia board
 over each shopfront were all stacked in the top unit of a three-unit wall. Single storeys lost all
-but the plinth, and the fascia went everywhere.
+of it, the darker plinth included ("what about the dark color band?"), and the fascia went
+everywhere.
 
 ## Window glass — `city/buildings.js`
 

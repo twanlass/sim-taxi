@@ -135,9 +135,10 @@ Every tower wall carries the structure a real one has, drawn as value changes on
 a darker plinth under a lit string course at the top of the ground storey, a lit belt course with a strip
 of shadow under it at every floor line (on the slab, clear of the window frames' sills), a cornice band at the top of each tier, lighter
 quoins at the corners. Curtain walls get the same. A tier with no storey above its first line,
-which is most of the city, keeps only the plinth: there the string course, the cornice and its
-shadow all fell in the top unit of the wall under the roof's own lip, four stripes in about eight
-pixels at play zoom.
+which is most of the city, is plain wall: there the string course, the cornice and its shadow
+all fell in the top unit of the wall under the roof's own lip, four stripes in about eight pixels
+at play zoom, and the plinth (the whole ground storey, darker) left the strip above it reading as
+one more band.
 
 **Punched windows stand in real frames** (`windowFrames`): a head and two jambs 0.2 proud of the
 wall and a deeper sill (0.28) running past them, in the wall's own colour. The colour is not the

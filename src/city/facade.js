@@ -127,10 +127,11 @@ float wallBand(float x, float a, float b, float aa) {
 		// Whether the tier has a storey above its first line at all. Most of the city is one storey
 		// under a roof, and on those the string course, the cornice and its shadow all landed in the
 		// top unit of a three-unit wall, under the roof's own lip: four stripes in about eight pixels,
-		// which read as noise at play zoom rather than as structure (Tyler, 2026-10-24). A single
-		// storey keeps its plinth and lets the roof's lip be its top.
+		// which read as noise at play zoom rather than as structure (Tyler, 2026-10-24). The plinth
+		// goes too: it is the whole ground storey, so on one storey it left a lighter strip between
+		// the shopfront and the roof that read as a band of its own. A single storey is plain wall.
 		float upper = step(origin + ${f(floorH)}, top - 0.35 + 1e-3);
-		m *= mix(1.0, ${f(PLINTH)}, ground * (1.0 - smoothstep(origin - ay, origin + ay, wy)));
+		m *= mix(1.0, ${f(PLINTH)}, ground * upper * (1.0 - smoothstep(origin - ay, origin + ay, wy)));
 		m *= mix(1.0, ${f(COURSE_LIT)}, ground * upper * wallBand(wy, origin - 0.06, origin + 0.16, ay));
 
 		// A belt course at every floor line floorLines drew windows on, sitting on the slab rather
