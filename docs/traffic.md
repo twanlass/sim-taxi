@@ -1880,7 +1880,9 @@ nearest corner (so chips open from the corners inward). Under the wear threshold
 0.3 at the first hit and 1 at empty, the other three follow on the square of that up to 0.6. Only the
 taxi's yellow chips (the test is the vertex colour), so glass, chrome and the chequer are left
 alone. The shell and both lids share the one wear uniform, so a lid swung up, the wreck and the crash
-replay all wear the same chips. Each chip had a primer ring at first — dark grey, which read as a
+replay all wear the same chips. The wear uniform starts at explicit zeros: `new Vector4()` is
+(0, 0, 0, 1), which opens the tail-left corner fully worn until the first `setWear`, and the model
+bench never calls one. Each chip had a primer ring at first — dark grey, which read as a
 second chequer, then red oxide, which read as noise — and it came out: plain steel is the look.
 The hit that wrecks the car never reaches `hit`, so `scuff` wears its
 corner in full before the wreck takes the shell. A first cut laid the chips on as merged cell boxes;
