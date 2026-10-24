@@ -290,10 +290,20 @@ export function bridgeParts(span, rng, range = [0, 1], { capCut = false } = {}) 
       // like the arch: a car crossing it does not notice.
       const TIP_LIP = 0.18;
       const TIP_DEPTH = 0.75;
-      const box = new THREE.BoxGeometry(span.half * 2 - 2 * IN, DECK_THICK + TIP_LIP - IN, TIP_DEPTH);
-      box.translate(0, (TIP_LIP - DECK_THICK + IN) / 2,
-        end === 0 ? from * length + TIP_DEPTH / 2 : to * length - TIP_DEPTH / 2);
-      parts.push(bakeColor(box, trimCol));
+      // The outermost SEAM_W of it is near-black (Tyler, 2026-10-24: "a thin black line to the
+      // center edges"), so two lowered noses draw a ~1.5px crack down the middle of the span and a
+      // raised tip has a dark lip along its edge. Two boxes, not a strip laid on top: the line
+      // carries down the end face too, which is what a lifting leaf turns toward the camera.
+      const SEAM_W = 0.1;
+      const tip = end === 0 ? from * length : to * length;
+      const inward = end === 0 ? 1 : -1;
+      const beam = (z0, depth, col) => {
+        const box = new THREE.BoxGeometry(span.half * 2 - 2 * IN, DECK_THICK + TIP_LIP - IN, depth);
+        box.translate(0, (TIP_LIP - DECK_THICK + IN) / 2, z0 + inward * depth / 2);
+        parts.push(bakeColor(box, col));
+      };
+      beam(tip, SEAM_W, color('drawbridgeSeam'));
+      beam(tip + inward * SEAM_W, TIP_DEPTH - SEAM_W, trimCol);
     }
     for (const sign of [-1, 1]) {
       const [x0, x1] = sign > 0
