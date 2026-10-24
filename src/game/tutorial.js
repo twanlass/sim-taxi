@@ -40,7 +40,12 @@ const TAXI_BEAT = false;
 // Every line, in the order it is spoken. Kept together so the whole script is one thing to read.
 const LINES = {
   taxi: "Let's pick up some {rides} and earn some {cash}.",
-  rider: 'Pick up {rider} to start',
+  // The rider hailing the cab, in their own voice (Tyler, 2026-10-24). It no longer says "tap", and
+  // does not need to: the city is dimmed to a pool on them, the camera has just carried the player
+  // there, and the card's tag sits on their head — one lit figure calling out is the thing to press.
+  rider: 'Hey {taxi}! Over here!',
+  // `?hail=classic`: the game's own instruction, under the "Tip" title.
+  riderClassic: 'Pick up {rider} to start',
   boost: 'Hold to floor it',
   // Said instead of the line above once the player has *pressed* the pill without ever holding it —
   // see BOOST_HINT_SHOWS. Repeating "Hold to floor it" at someone who is jabbing the pill is a
@@ -48,8 +53,12 @@ const LINES = {
   // are doing wrong, which is the only new information there is to give them.
   boostAgain: "Hold it down — don't tap",
 };
-// Who is talking, in the bubble's title. Every beat is the game giving a tip, not a character.
+// Who is talking, in the bubble's title. Every beat is the game giving a tip — except the rider's,
+// which is the rider (`RIDER_TITLE`), unless `?hail=classic` keeps it a tip too.
 const TITLE = 'Tip';
+const RIDER_TITLE = 'Rider';
+const HAIL_CLASSIC = typeof location !== 'undefined'
+  && new URLSearchParams(location.search).get('hail') === 'classic';
 
 // Where the pointer touches, in world units up from the ground. A rider's crystal floats over their
 // head with its top point at ~7.4 at the peak of its bounce, so the bubble stands on that rather than
@@ -418,7 +427,8 @@ export function createTutorial({
       // screen when it starts talking about them.
       if (!controller.isGliding()) {
         state.step = 'rider';
-        bubble.show(TITLE, LINES.rider, atRider);
+        bubble.show(HAIL_CLASSIC ? TITLE : RIDER_TITLE,
+          HAIL_CLASSIC ? LINES.riderClassic : LINES.rider, atRider);
       }
       return;
     }
