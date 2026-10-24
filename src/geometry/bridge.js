@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { bakeColor } from '../util/geo.js';
-import { PALETTE, color, jitterColor } from '../palette.js';
+import { PALETTE, color, jitterColor, roadsClassic } from '../palette.js';
 import {
   archAt, ARCH_RISE, DECK_THICK, DECK_OVERHANG, WATER_Y, RAIL_H, RAIL_W, RAIL_POST_PITCH,
 } from '../city/river.js';
@@ -359,7 +359,34 @@ export function abutmentParts(span, rng, end) {
     }
     box.computeVertexNormals();
   }
-  return [bakeColor(box, trimCol)];
+  return [bakeColor(box, trimCol), ...jointParts(span, rng, end)];
+}
+
+// The seam where the road becomes a bridge: a steel expansion joint on the bank line and a concrete
+// approach slab behind it, both lying on the **road** side of the bank. The deck runs exactly bank
+// to bank (`bridgeSpan`), so nothing here sits over the deck — which also keeps the joint on the
+// ground when the drawbridge's leaf lifts. Raised a hair over the lane paint (MARK_Y 0.02 in
+// ground.js), which runs up to the bank on the same plane.
+const JOINT_W = 0.35;
+const APPROACH_W = 0.9;
+const JOINT_Y = 0.03;
+
+function jointParts(span, rng, end) {
+  if (roadsClassic()) return [];
+  const length = span.z1 - span.z0;
+  // Outward from the bank, away from the water: -z at the near bank, +z at the far one.
+  const out = end === 0 ? -1 : 1;
+  const bank = end === 0 ? 0 : length;
+  const strip = (from, width, col) => {
+    const geo = new THREE.PlaneGeometry(span.half * 2, width);
+    geo.rotateX(-Math.PI / 2);
+    geo.translate(0, JOINT_Y, bank + out * (from + width / 2));
+    return bakeColor(geo, col);
+  };
+  return [
+    strip(0, JOINT_W, jitterColor(PALETTE.bridgeJoint, rng, { l: 0.01 })),
+    strip(JOINT_W, APPROACH_W, jitterColor(PALETTE.bridgeApproach, rng, { l: 0.02 })),
+  ];
 }
 
 /**

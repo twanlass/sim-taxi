@@ -2,8 +2,8 @@ import { defineConfig } from 'vite';
 import { fileURLToPath } from 'node:url';
 import { workshopAgent } from './tools/workshop-agent.mjs';
 
-// Two pages, not one. The game is `/` and the passing lab is `/lab/` — see docs/lab.md for what
-// the lab is and why it isn't reachable from the game.
+// Three pages, not one. The game is `/`, the passing lab is `/lab/` — see docs/lab.md for what
+// the lab is and why it isn't reachable from the game — and the talk is `/talk/` (docs/talk.md).
 //
 // The dev server finds `lab/index.html` on its own; this file exists for `npm run build`, which
 // only walks `index.html` unless it is told about the others, and would otherwise ship a `dist/`
@@ -18,6 +18,7 @@ export default defineConfig({
       input: {
         main: fileURLToPath(new URL('./index.html', import.meta.url)),
         lab: fileURLToPath(new URL('./lab/index.html', import.meta.url)),
+        talk: fileURLToPath(new URL('./talk/index.html', import.meta.url)),
       },
       output: {
         // Two entries sharing three.js means Rollup extracts a common chunk whether or not it is
@@ -35,7 +36,10 @@ export default defineConfig({
         // on the road it was driving. Rollup already keeps every entry module in its own entry
         // chunk; the moment a rule here overrides that, an import turns into a boot. Anything
         // under `src/` is off limits to this function.
-        manualChunks: (id) => (id.includes('node_modules') ? 'vendor' : undefined),
+        // three.js only, by path. Everything else in node_modules is the talk's (the can physics,
+        // the Inter font, React for the forest demo), and sweeping it into `vendor` too put
+        // cannon-es in the chunk every player of the game downloads.
+        manualChunks: (id) => (id.includes('node_modules/three/') ? 'vendor' : undefined),
       },
     },
   },

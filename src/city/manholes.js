@@ -1,7 +1,9 @@
 import * as THREE from 'three';
 import { propMaterial } from '../util/geo.js';
 import { color } from '../palette.js';
-import { GRID_I, GRID_J, lineX, lineZ, halfRoadX, halfRoadZ, isSegmentClosed } from './grid.js';
+import {
+  GRID_I, GRID_J, lineX, lineZ, halfRoadX, halfRoadZ, isSegmentClosed, isArterialX, isArterialZ,
+} from './grid.js';
 import { MARK_Y } from './ground.js';
 
 // Manhole covers: a handful of cast-iron lids set into the streets, flat, with no say in anything
@@ -18,24 +20,43 @@ import { MARK_Y } from './ground.js';
 // the edge fog. And only a junction with at least three open arms, which rules out one swallowed
 // by a park (the big map's central park) while keeping the riverside T-junctions.
 //
-// **How many.** Four or five (Tyler: "4-5 max"), spread so no two land within `MIN_SEP_PITCHES`
-// blocks of each other — 1.6 rules out neighbours and diagonal neighbours, so they spread across
-// the map. The island has 20 inner junctions, which always fits five; the greedy pass below just
-// stops early on a city that cannot take the fifth.
+// **How many.** Seven or eight (Tyler, 2026-10-24: "add a few more manhole covers to the city"),
+// spread so no two land within `MIN_SEP_PITCHES` blocks of each other. It was four or five at 1.6
+// pitches (Tyler, on the first cut: "4-5 max"), and 1.6 rules out diagonal neighbours as well as
+// side-by-side ones — which on the island's 4 × 5 grid of inner junctions packs six at the very
+// most, so eight needed the spacing let down to 1.1: no two in neighbouring junctions, diagonals
+// allowed. The island has 19 or 20 inner junctions that qualify; one shuffle's greedy pass can
+// still paint itself into a corner short of eight, so it reshuffles (`TRIES`) and keeps the best.
+//
+// **Steam.** Three of them vent (game/manholesteam.js), and those three are picked *first*, from
+// the junctions of two side streets only: the L train's deck runs down the arterials' medians at
+// 6.4 units, and a plume is taller than that. Picking them first rather than out of whatever the
+// greedy pass left is what makes it three every time — 11 or 12 junctions qualify, and an
+// unconstrained draw of eight landed on as few as one of them.
+//
+// `?manholes=classic` is the city before this: four or five, 1.6 apart, none venting. The plan is
+// the same function on the old numbers, so a classic city's covers sit exactly where they did.
 
 export const COVER_R = 0.72;        // world units: a lane is 2.25 wide, a car 3.4 long
 export const COVER_Y = MARK_Y;      // the paint's level — nothing else is painted in a junction box
-export const COVER_COUNT = [4, 5];
+export const COVER_COUNT = [7, 8];
+export const STEAM_COUNT = 3;
 export const BOX_CLEAR = 0.5;       // disc edge to box edge, at the least
 const OFF_MIN = 0.8;                // off the box centre on each axis, at the least
-const MIN_SEP_PITCHES = 1.6;
+export const MIN_SEP_PITCHES = 1.1;
+const TRIES = 8;
+// `?manholes=classic`.
+export const CLASSIC = { count: [4, 5], steam: 0, sep: 1.6 };
 const SEGMENTS = 24;
 
 /**
  * Pick the covers' spots. Pure apart from reading the grid, so the probe can sweep seeds with it.
- * Returns `[{ x, z, i, j }]`: the cover's centre and the junction it sits in.
+ * Returns `[{ x, z, i, j, steam }]`: the cover's centre, the junction it sits in, and whether it vents.
  */
-export function planManholes(rng) {
+export function planManholes(rng, { classic = false } = {}) {
+  const count = classic ? CLASSIC.count : COVER_COUNT;
+  const steamCount = classic ? CLASSIC.steam : STEAM_COUNT;
+  const sep = classic ? CLASSIC.sep : MIN_SEP_PITCHES;
   const candidates = [];
   for (let i = 1; i < GRID_I; i++) {
     for (let j = 1; j < GRID_J; j++) {
@@ -51,24 +72,44 @@ export function planManholes(rng) {
       candidates.push({
         x: lineX(i) + sx * (OFF_MIN + rng.next() * (reachX - OFF_MIN)),
         z: lineZ(j) + sz * (OFF_MIN + rng.next() * (reachZ - OFF_MIN)),
-        i, j,
+        i, j, steam: false,
+        canSteam: !isArterialX(j) && !isArterialZ(i),
       });
     }
   }
 
-  // Shuffle, then take greedily whatever keeps its distance.
-  for (let n = candidates.length - 1; n > 0; n--) {
-    const m = Math.floor(rng.next() * (n + 1));
-    [candidates[n], candidates[m]] = [candidates[m], candidates[n]];
+  // Shuffle, then take greedily whatever keeps its distance: the vents first, out of the junctions
+  // that can have one, then the rest out of all of them. The classic numbers make exactly the old
+  // draws — one shuffle, no vents, the same greedy pass — so the old covers land where they did.
+  const shuffle = () => {
+    for (let n = candidates.length - 1; n > 0; n--) {
+      const m = Math.floor(rng.next() * (n + 1));
+      [candidates[n], candidates[m]] = [candidates[m], candidates[n]];
+    }
+  };
+  shuffle();
+  const want = rng.int(count[0], count[1]);
+  const minSep = sep * (lineX(1) - lineX(0));
+  const pass = () => {
+    const chosen = [];
+    const clear = (c) => chosen.every((o) => Math.hypot(o.x - c.x, o.z - c.z) >= minSep);
+    for (const c of candidates) {
+      if (chosen.length >= steamCount) break;
+      if (c.canSteam && clear(c)) chosen.push({ ...c, steam: true });
+    }
+    for (const c of candidates) {
+      if (chosen.length >= want) break;
+      if (!chosen.some((o) => o.i === c.i && o.j === c.j) && clear(c)) chosen.push({ ...c });
+    }
+    return chosen.map(({ canSteam, ...spot }) => spot);
+  };
+  let best = pass();
+  for (let t = 1; t < TRIES && !classic && best.length < want; t++) {
+    shuffle();
+    const next = pass();
+    if (next.length > best.length) best = next;
   }
-  const want = rng.int(COVER_COUNT[0], COVER_COUNT[1]);
-  const minSep = MIN_SEP_PITCHES * (lineX(1) - lineX(0));
-  const chosen = [];
-  for (const c of candidates) {
-    if (chosen.length >= want) break;
-    if (chosen.every((o) => Math.hypot(o.x - c.x, o.z - c.z) >= minSep)) chosen.push(c);
-  }
-  return chosen;
+  return best;
 }
 
 /** One flat disc per cover, wound to face up, with its local coordinates in `aCover` (unit radius). */
@@ -210,12 +251,13 @@ void RE_Direct_Cover(const in IncidentLight directLight, const in vec3 geometryP
 }
 
 /**
- * The covers as one mesh, or null under `?manholes=classic`. Not merged into the ground: the ground
+ * The covers as one mesh, or null when `enabled` is false (nothing in the game passes that now).
+ * Not merged into the ground: the ground
  * wears the painterly road strokes (`brush`), and iron under a brush stroke reads as asphalt.
  */
-export function createManholes(rng, { enabled = true } = {}) {
+export function createManholes(rng, { enabled = true, classic = false } = {}) {
   if (!enabled) return null;
-  const spots = planManholes(rng);
+  const spots = planManholes(rng, { classic });
   if (spots.length === 0) return null;
   const mesh = new THREE.Mesh(manholeGeometry(spots), patchCover(propMaterial()));
   mesh.receiveShadow = true;

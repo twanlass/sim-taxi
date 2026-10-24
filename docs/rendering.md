@@ -1553,6 +1553,39 @@ blue, so the asphalt reads as painted rather than flat grey. `?painterly=classic
   the tile reads are skipped wherever the fade mask, the lawn hold or the lane-paint hold is 0. So
   a tuning panel that turns the terminator or the foot back on has to rebuild the materials.
 
+## Roads, bridges and the paved junction
+
+The street grid is split by **value** before hue. The asphalt is a darker, cooler `#4B525D` and the
+pavement a paler, warmer `#CDBFA6`, because the old pair (`#636972` against `#9E9C94`) came out the
+same khaki under the low warm sun and a block did not separate from its street. Against that, three
+things break the run of tarmac. `?roads=classic` brings back the old road and drops all three.
+
+- **Light bridge decks.** Every crossing, fixed or lifting, wears one light pavement grey
+  (`bridgeDeck`, `drawbridgeDeck`), so the river row reads as a different material rather than as
+  more street; `bridgeTrim` went paler with it so the parapets still outline the deck.
+- **Expansion joints** (`jointParts`, geometry/bridge.js): a dark steel strip on each bank line
+  and a pale concrete approach slab behind it, on the *road* side, since the deck runs exactly bank
+  to bank. Built into `abutmentParts`, so the drawbridge's static half carries them and they stay
+  down when the leaf lifts. At `y = 0.03`, clear of the lane paint at 0.02.
+- **One brick plaza** (`setJunctionPaving`, util/geo.js): the junction nearest the middle that is a
+  full signalised crossing of two side streets, laid in running-bond brick with each brick its own
+  shade, paler mortar and a border course. Found in the ground's paint pass with the same grid
+  arithmetic the strokes use, and applied as a ratio over the lit asphalt so shadows, wet sheen and
+  reflections stay the road's. The ratio is taken in display space, which is where `gl_FragColor`
+  is by the paint pass. The border stays near the road's value: a ratio multiplies whatever light
+  lands there, and at kerb brightness (1.8x) it outlined the box in light under the rain at night.
+- **Asphalt patches** (city/asphaltpatch.js): one or two mended cuts per city, each inside one lane
+  of a side street mid-block: a rounded rectangle with a slightly wobbled edge, a fill barely off the
+  road, and a near-black crack-seal band round it that swells and thins as it goes. The contrast
+  lives in the seal, after Tyler's reference photo: a darker fill made the outline vanish into it.
+  The seal is a ring sharing the fill's edge, not a bigger shape under it, because two flat
+  surfaces 0.006 apart shimmer under this camera. Gone under night rain, like the rest of the road
+  detail. No sightline filter, so a patch can land behind a tower.
+
+**Tried and dropped:** paving *every* junction box, in plain setts and in terracotta. The boxes are
+9 units square against 12-unit blocks, so a paved box at every crossing is a checkerboard; Tyler
+read the setts as "a weird grid", not pavers, and far too many of them.
+
 ## Rain Mode — `game/rain.js`
 
 `?rain`. An exploration and off by default: the city on a wet afternoon. Five layers, plus one

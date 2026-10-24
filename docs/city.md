@@ -1301,15 +1301,18 @@ default city; `CITY=big npm run check` is the big one's suite.
 | `ground.js` | asphalt slab, road surface, kerbs (`KERB_H = 0.35`), block tops — a park's is a walk around a lawn, [above](#a-park-has-a-frontage) — crosswalks | One merged mesh, plus the edge fade as a child — alpha can't ride in the merge's 3-component colour. Crosswalks are omitted at unsignalised junctions — a crosswalk implies a signal. |
 | `buildings.js` | towers, courtyard blocks, façades, roof furniture | One merged mesh. Height ceiling is deliberately low; tall towers hid the taxi. See [what a building is made of](#what-a-building-is-made-of). |
 | `props.js` | trees, park benches, the statue | Merged per material via `bakeColor`, so hundreds of props cost one draw call. Placement is [above](#benches-and-one-statue). |
-| `manholes.js` | four or five manhole covers | Its own mesh, wet in the rain, not brushed. [Below](#manhole-covers). |
+| `manholes.js` | seven or eight manhole covers, three of them venting steam (`game/manholesteam.js`) | Its own mesh, wet in the rain, not brushed. [Below](#manhole-covers). |
 | `game/streetprops.js`, `geometry/streetprops.js` | two blue post boxes and a hot dog cart on the kerb | Their own meshes, since they fall over. [Below](#the-post-box-and-the-hot-dog-cart). |
 
 ### Manhole covers
 
-Four or five cast-iron covers per city (`city/manholes.js`, `?manholes=classic` for none), placed
+Seven or eight cast-iron covers per city (`city/manholes.js`), three of them venting steam, placed
 off the city seed in **junctions**: one per chosen junction, set off the box's centre on both axes,
-at least 1.6 blocks apart (so never in neighbouring or diagonal junctions), inner junctions only and
-only ones with three or more open roads. The junction box is the one piece of road with no paint in
+at least 1.1 blocks apart (so never in neighbouring junctions, diagonals allowed), inner junctions
+only and only ones with three or more open roads. `?manholes=classic` is the city before the steam:
+four or five, 1.6 apart, none venting, in exactly the spots they had. 1.6 was let down because it
+packs six at most into the island's 4 × 5 inner junctions; the plan reshuffles up to eight times to
+reach its count. The junction box is the one piece of road with no paint in
 it — crosswalks start just past its edge — and `BOX_CLEAR` keeps the disc half a unit inside it.
 (The first cut put them mid-block in a lane; Tyler asked for intersections.) Flat, at the paint's
 height, with no collision and no say in the traffic.
@@ -1324,12 +1327,26 @@ shadows. The tread fades out by `fwidth` before it can crawl. Their own mesh rat
 ground, because the ground wears the painterly road strokes and iron under a stroke reads as road;
 `rain.wetGround` still patches it, so the covers shine in a squall like the street round them.
 
+**The steam** (`game/manholesteam.js`). Three vents a city, picked first, from junctions of two
+side streets only, because the L train's deck runs over the arterials at 6.4 and a plume is 6.5
+tall. Each plume is **one quad and a fragment shader**: the quad stands on the lid's near edge in
+the plane of `RIGHT` and world up (fixed, since the view never turns), and the shader draws twelve
+soft puffs inside it on a staggered loop — born on the lid, rising fast and slowing, growing,
+drifting off downwind and fading, with a ragged rim — over one puff that sits on the lid. A
+continuous fbm column was tried first and read as a cone of light at the foot and grey smoke at the
+top. The vent breathes on two slow sines so the three are never in step. Mostly self-lit white
+(Lambert alone came out road-grey), dimmed after dark; transparent, so it casts no shadow and stays
+out of the AO prepass. The wind is the city's (one sign for all three, `seed + 194`). **The taxi parts
+it**: through a vent above 2 u/s, the foot tears open and the column is thrown across the screen the
+way the car was going, healing over 1.5s. Ambient cars don't, or the three would never be whole.
+Shots `steam` and `steam-far`.
+
 ### The post box and the hot dog cart
 
 Two blue post boxes and one hot dog cart under a red-and-yellow umbrella stand on the kerb near a
 corner (`game/streetprops.js`, geometry in `geometry/streetprops.js`, `?streetprops=classic` for
-none), and a taxi in Loco Mode takes them out: dust, the prop goes over onto the pavement, and a
-spray of letters or hot dogs. The letters flutter down (paper has a terminal velocity), the hot
+none), and an **overtake that carries the taxi up onto the pavement** takes them out: dust, the
+prop goes over, and a spray of letters or hot dogs. The letters flutter down (paper has a terminal velocity), the hot
 dogs drop and bounce once. Everything lies there for a few seconds and sinks away, and a fresh prop
 comes back up 35s later once the taxi is out of the way.
 
@@ -1344,7 +1361,18 @@ so a prop near that lane's start would stand beside the rider pins. The spot als
 sightline field (`sightlineClear`), stay off lanes shorter than 11.5 (the ones beside an arterial),
 keep 1.6 from a rain street lamp, and keep 30 from the other props.
 
-**The swipe.** The taxi can't reach the kerb on its own. Its lane centre is 2.25 off the kerb and
+**The hit.** Only an overtake can reach one (Tyler: "a special occurrence that if you overtake a
+car and you end up popping up on the sidewalk and hit them"). The taxi's lane centre is 2.25 off
+the kerb and the drawn body is 1.0 across from it, so ordinary driving leaves 1.25 of road between
+flank and kerb. The overtake that goes kerbward is the peek round a car signalling left, 2.61 off
+the lane centre, and a prop stands 2.75 off it, so a peek past one runs through it. The test is a
+plain overlap of the drawn taxi (2.0 by 1.0 half-extents) with the prop's footprint, asked only
+while the pass offset has the taxi more than 0.5 kerbward. Nothing steers the taxi at a prop. The
+probe slides a taxi at peek depth up each prop's lane (3/3 hit) and drives a boosting taxi past
+each without a pass (none hit). It is rare by design: it wants a left-turner ahead of you on one
+of three lanes.
+
+**The swipe (`?propsmash=classic`).** What it replaced, from #656. The taxi can't reach the kerb on its own. Its lane centre is 2.25 off the kerb and
 the drawn body is 1.0 across from it, so there's 1.25 of road between flank and kerb at every speed.
 A hit radius big enough to cross that gap would blow up a box the car visibly missed. So under Loco
 Mode, on the lane beside a prop, the taxi veers onto the kerb at it (`swipeOffset`/`swipeSlope`, a
