@@ -91,6 +91,31 @@ Four details worth keeping:
   patches on a dark one, and takes the scale cue with it. So the punched path carries a ceiling
   (0.52 on brick, 1.0 on the pale envelopes) and the curtain-wall path does not.
 
+### Wall detail — `city/facade.js`
+
+Every tower wall carries the structure a real one has, drawn as value changes on its own colour:
+a darker plinth under a lit string course at the top of the ground storey, a lit ledge with a strip
+of shadow under it beneath every row of sills, a cornice band at the top of each tier, lighter
+quoins at the corners, and on about half the masonry a lighter pilaster between each pair of bays
+over slightly darker spandrels. Curtain walls get ledges, never pilasters.
+
+- **Structure, not texture.** At play zoom a unit is ~7.7px, so brick coursing or stucco noise
+  is a shimmer. A line per storey and a base and a top are a pixel or two each on a phone, and they
+  are what was missing: each wall used to be one colour from kerb to parapet, a printed box.
+- **One attribute, one patch.** `stampWall` writes `aWall` (style, first floor line, distance
+  along the face, face width) and `aWallTop` on each tier's box; `patchWalls` reads them in the
+  fragment shader on the merged mesh (`wallMaterial()`), multiplies `diffuseColor`, and composes
+  its key onto the material's. Everything else in the mesh carries zeros (`fillWalls`). The ledges
+  sit on the same floor lines `floorLines` lays the windows on and the pilasters on the same pitch
+  as `bayLayout`, so the two agree by construction.
+- **No rng, no colour.** The pilaster choice is a hash of the lot and every term is a multiplier
+  (`PLINTH`, `LEDGE_LIT` and the rest), so the city a seed builds is unchanged and there is nothing
+  new in palette.js. Lines are anti-aliased with `fwidth`, half a pixel each side.
+- **It reads the un-animated position,** so during the entrance wave the lines ride up with the
+  wall rather than sliding over it.
+
+`?walls=classic` leaves the walls flat ([history](rendering-history.md#wall-detail--cityfacadejs)).
+
 ### Wheel wells — `archedBodyGeometries` in `geometry/wheels.js`
 
 Every road vehicle's lower body — the fleet's cars, truck chassis, the cop cars and cruiser (through
