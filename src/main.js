@@ -17,6 +17,7 @@ import {
 import { createLayout } from './city/layout.js';
 import { createGround, KERB_H } from './city/ground.js';
 import { createManholes } from './city/manholes.js';
+import { createManholeSteam } from './game/manholesteam.js';
 import { createRiver, bridgeLines, bridgeSpan, deckHeightAt } from './city/river.js';
 import { createHarbor } from './city/harbor.js';
 import { createNorthPark } from './city/northpark.js';
@@ -578,9 +579,10 @@ applyWeather();
 scene.add(markOccluder(rain.wetGround(brush(createGround(makeRng(seed + 11), layout), 2))));
 // A few manhole covers in the streets (city/manholes.js). City seed, its own stream. Wet in the rain
 // like the asphalt they sit in; not brushed, because iron under a road stroke reads as road.
-// `?manholes=classic` is the street without them.
+// Seven or eight, three of them venting steam (game/manholesteam.js); `?manholes=classic` is the
+// four or five that stood there before, with no steam.
 const manholes = createManholes(makeRng(seed + 193),
-  { enabled: new URLSearchParams(location.search).get('manholes') !== 'classic' });
+  { classic: new URLSearchParams(location.search).get('manholes') === 'classic' });
 if (manholes) scene.add(markOccluder(rain.wetGround(manholes)));
 // The ground past the coast, for the fog of war to swallow — game/edgefog.js.
 if (EDGE_FOG) scene.add(createEdgeFogFloor());
@@ -834,6 +836,9 @@ if (roadside) {
   roadside.meshes.forEach(markOccluder);
 }
 const tubeMan = createTubeMan(scene, makeRng(runSeed + 331), roadside?.site.tubeMan ?? null, roadside?.entry ?? null);
+// Steam out of three of the manhole covers (game/manholesteam.js). Which covers is the city's (the
+// plan marks them); which way the wind leans the plumes is too, on a stream of its own.
+const manholeSteam = createManholeSteam(scene, manholes?.userData.spots, makeRng(seed + 194));
 
 // Which kerb corners this camera can see, settled once now that everything permanent is standing.
 // The board consults it when it places a marker — a rider, a drop-off ring or a courier pad on a
@@ -6581,6 +6586,7 @@ function tick() {
   // The car wash's brushes and curtain, and the tube man on its corner.
   roadside?.update(dt);
   tubeMan.update(dt);
+  manholeSteam.update(dt, traffic.taxi, 1 - THREE.MathUtils.smoothstep(sun.intensity, 0.3, 2.6));
   // And the sign on the depot's roof, on the same terms — see DEPOT_SPIN in city/garage.js.
   garage?.update(dt);
   // The graveyard's ground mist, thicker after dark — the same night measure as the searchlight's.
@@ -7646,7 +7652,9 @@ if (shot) {
   // A manhole cover, the first one planned: close, does it read as iron; at play zoom, is it a
   // detail you notice or noise on the road.
   if (shot.atManhole && manholes) {
-    const at = manholes.userData.spots[0];
+    // `atManhole: 'steam'` is the first one venting instead.
+    const spots = manholes.userData.spots;
+    const at = (shot.atManhole === 'steam' && spots.find((s) => s.steam)) || spots[0];
     controller.state.target.set(at.x, 0, at.z);
     controller.update(aspect());
   }
@@ -8215,6 +8223,8 @@ window.__taxi = {
   hoopers,
   /** The boom box beside the court — `boombox.emitter` is where its music will play from. */
   boombox,
+  /** The steam out of the manhole covers — `vents` are its covers, `kick` how torn each plume is. */
+  manholeSteam,
   /** The tube man on the roadside lot's corner — `tubeMan.at` is where he stands, null with none. */
   tubeMan,
   /** The car wash or gas station (`?roadside=`), or null. */

@@ -1301,15 +1301,18 @@ default city; `CITY=big npm run check` is the big one's suite.
 | `ground.js` | asphalt slab, road surface, kerbs (`KERB_H = 0.35`), block tops — a park's is a walk around a lawn, [above](#a-park-has-a-frontage) — crosswalks | One merged mesh, plus the edge fade as a child — alpha can't ride in the merge's 3-component colour. Crosswalks are omitted at unsignalised junctions — a crosswalk implies a signal. |
 | `buildings.js` | towers, courtyard blocks, façades, roof furniture | One merged mesh. Height ceiling is deliberately low; tall towers hid the taxi. See [what a building is made of](#what-a-building-is-made-of). |
 | `props.js` | trees, park benches, the statue | Merged per material via `bakeColor`, so hundreds of props cost one draw call. Placement is [above](#benches-and-one-statue). |
-| `manholes.js` | four or five manhole covers | Its own mesh, wet in the rain, not brushed. [Below](#manhole-covers). |
+| `manholes.js` | seven or eight manhole covers, three of them venting steam (`game/manholesteam.js`) | Its own mesh, wet in the rain, not brushed. [Below](#manhole-covers). |
 | `game/streetprops.js`, `geometry/streetprops.js` | two blue post boxes and a hot dog cart on the kerb | Their own meshes, since they fall over. [Below](#the-post-box-and-the-hot-dog-cart). |
 
 ### Manhole covers
 
-Four or five cast-iron covers per city (`city/manholes.js`, `?manholes=classic` for none), placed
+Seven or eight cast-iron covers per city (`city/manholes.js`), three of them venting steam, placed
 off the city seed in **junctions**: one per chosen junction, set off the box's centre on both axes,
-at least 1.6 blocks apart (so never in neighbouring or diagonal junctions), inner junctions only and
-only ones with three or more open roads. The junction box is the one piece of road with no paint in
+at least 1.1 blocks apart (so never in neighbouring junctions, diagonals allowed), inner junctions
+only and only ones with three or more open roads. `?manholes=classic` is the city before the steam:
+four or five, 1.6 apart, none venting, in exactly the spots they had. 1.6 was let down because it
+packs six at most into the island's 4 × 5 inner junctions; the plan reshuffles up to eight times to
+reach its count. The junction box is the one piece of road with no paint in
 it — crosswalks start just past its edge — and `BOX_CLEAR` keeps the disc half a unit inside it.
 (The first cut put them mid-block in a lane; Tyler asked for intersections.) Flat, at the paint's
 height, with no collision and no say in the traffic.
@@ -1323,6 +1326,18 @@ the fragment shader, bending the normal; a Blinn glint added inside three's own 
 shadows. The tread fades out by `fwidth` before it can crawl. Their own mesh rather than part of the
 ground, because the ground wears the painterly road strokes and iron under a stroke reads as road;
 `rain.wetGround` still patches it, so the covers shine in a squall like the street round them.
+
+**The steam** (`game/manholesteam.js`). Three vents a city, picked first, from junctions of two
+side streets only, because the L train's deck runs over the arterials at 6.4 and a plume is 6.5
+tall. Each plume is **one quad and a fragment shader**: the quad stands on the cover's centre in
+the plane of `RIGHT` and world up (fixed, since the view never turns), and the shader draws a column
+inside it, leaning off downwind and swaying, widening as it climbs, filled with domain-warped fbm
+scrolling upward and breaking into wisps at the top. The vent breathes on two slow sines so the three
+are never in step. Lambert-lit, so it dims at dusk; transparent, so it casts no shadow and stays out
+of the AO prepass. The wind is the city's (one sign for all three, `seed + 194`). **The taxi parts
+it**: through a vent above 2 u/s, the foot tears open and the column is thrown across the screen the
+way the car was going, healing over 1.5s. Ambient cars don't, or the three would never be whole.
+Shots `steam` and `steam-far`.
 
 ### The post box and the hot dog cart
 
