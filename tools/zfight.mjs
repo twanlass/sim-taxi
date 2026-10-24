@@ -14,6 +14,10 @@
  *     landmark the game draws, built through the shipped builders — so an edit the workshop's chat
  *     makes is checked by the same `npm run check` as one made by hand. A vehicle is scanned at
  *     every heading, since it drives all four ways;
+ *   - **the route band**, the one overlay drawn over the city at run time that lies on a plane of its
+ *     own: it is depth-tested at `ROUTE_Y`, so anything static laid flat on a road at that height
+ *     fights it wherever a route runs over it (the bridge joints did, #692). A strip at that height
+ *     over every road stands in for it — the band can run down any of them;
  *   - and the scanner itself, on shapes built here where the answer is known — the control.
  *
  *   node tools/zfight.mjs                 the whole check
@@ -27,6 +31,7 @@
  * workshop entries instead.
  */
 import * as THREE from 'three';
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { makeRng } from '../src/util/rng.js';
 import { propMaterial } from '../src/util/geo.js';
 import { VIEW_DIR } from '../src/game/camera.js';
@@ -54,6 +59,8 @@ import { roadsideKind } from '../src/city/roadside.js';
 import { createLTrain } from '../src/game/ltrain.js';
 import { createDrawbridge } from '../src/game/drawbridge.js';
 import { CATALOG } from '../src/workshop/catalog.js';
+import { ROUTE_Y } from '../src/game/routeline.js';
+import { GRID_I, GRID_J, lineX, lineZ, halfRoadX, halfRoadZ, HALF_SPAN_X, HALF_SPAN_Z } from '../src/city/grid.js';
 
 const arg = (name) => {
   const i = process.argv.indexOf(`--${name}`);
@@ -125,7 +132,31 @@ function buildCity(seed) {
   }
   createLTrain(scene, makeRng(seed + 421), { intro: false });
   createDrawbridge(scene, makeRng(seed + 66));
+  add('route-band', routeBandStandIn());
   return scene;
+}
+
+/**
+ * The route band, everywhere it could be at once: one face-up strip at `ROUTE_Y` down the full
+ * width of every road. Its strips cross at the junctions, but they share one material, so the
+ * scanner lets those overlaps through as identical pixels. Built after the layout, which is what
+ * decides which roads are arterials and so how wide each strip is.
+ */
+function routeBandStandIn() {
+  const strips = [];
+  const strip = (x0, x1, z0, z1) => {
+    const geo = new THREE.PlaneGeometry(x1 - x0, z1 - z0).rotateX(-Math.PI / 2);
+    geo.translate((x0 + x1) / 2, ROUTE_Y, (z0 + z1) / 2);
+    strips.push(geo);
+  };
+  for (let i = 0; i <= GRID_I; i++) {
+    strip(lineX(i) - halfRoadZ(i), lineX(i) + halfRoadZ(i), -HALF_SPAN_Z, HALF_SPAN_Z);
+  }
+  for (let j = 0; j <= GRID_J; j++) {
+    strip(-HALF_SPAN_X, HALF_SPAN_X, lineZ(j) - halfRoadX(j), lineZ(j) + halfRoadX(j));
+  }
+  const mesh = new THREE.Mesh(mergeGeometries(strips), new THREE.MeshBasicMaterial({ color: 0x33ff66 }));
+  return mesh;
 }
 
 const results = [];
