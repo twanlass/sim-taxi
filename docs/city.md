@@ -1328,8 +1328,8 @@ ground, because the ground wears the painterly road strokes and iron under a str
 
 Two blue post boxes and one hot dog cart under a red-and-yellow umbrella stand on the kerb near a
 corner (`game/streetprops.js`, geometry in `geometry/streetprops.js`, `?streetprops=classic` for
-none), and a taxi in Loco Mode takes them out: dust, the prop goes over onto the pavement, and a
-spray of letters or hot dogs. The letters flutter down (paper has a terminal velocity), the hot
+none), and an **overtake that carries the taxi up onto the pavement** takes them out: dust, the
+prop goes over, and a spray of letters or hot dogs. The letters flutter down (paper has a terminal velocity), the hot
 dogs drop and bounce once. Everything lies there for a few seconds and sinks away, and a fresh prop
 comes back up 35s later once the taxi is out of the way.
 
@@ -1344,7 +1344,18 @@ so a prop near that lane's start would stand beside the rider pins. The spot als
 sightline field (`sightlineClear`), stay off lanes shorter than 11.5 (the ones beside an arterial),
 keep 1.6 from a rain street lamp, and keep 30 from the other props.
 
-**The swipe.** The taxi can't reach the kerb on its own. Its lane centre is 2.25 off the kerb and
+**The hit.** Only an overtake can reach one (Tyler: "a special occurrence that if you overtake a
+car and you end up popping up on the sidewalk and hit them"). The taxi's lane centre is 2.25 off
+the kerb and the drawn body is 1.0 across from it, so ordinary driving leaves 1.25 of road between
+flank and kerb. The overtake that goes kerbward is the peek round a car signalling left, 2.61 off
+the lane centre, and a prop stands 2.75 off it, so a peek past one runs through it. The test is a
+plain overlap of the drawn taxi (2.0 by 1.0 half-extents) with the prop's footprint, asked only
+while the pass offset has the taxi more than 0.5 kerbward. Nothing steers the taxi at a prop. The
+probe slides a taxi at peek depth up each prop's lane (3/3 hit) and drives a boosting taxi past
+each without a pass (none hit). It is rare by design: it wants a left-turner ahead of you on one
+of three lanes.
+
+**The swipe (`?propsmash=classic`).** What it replaced, from #656. The taxi can't reach the kerb on its own. Its lane centre is 2.25 off the kerb and
 the drawn body is 1.0 across from it, so there's 1.25 of road between flank and kerb at every speed.
 A hit radius big enough to cross that gap would blow up a box the car visibly missed. So under Loco
 Mode, on the lane beside a prop, the taxi veers onto the kerb at it (`swipeOffset`/`swipeSlope`, a

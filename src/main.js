@@ -1581,7 +1581,7 @@ const pan = shot
 const dust = createDust(scene, camera, makeRng(seed + 77));
 const spray = createSpray(scene, makeRng(seed + 78));
 
-// A post box and a hot dog cart on the kerb, which a taxi in Loco Mode swipes off it — see
+// A post box and a hot dog cart on the kerb, which an overtake up onto the pavement takes out — see
 // game/streetprops.js. City seed for where they stand, after the sightline field exists (they only
 // go where the camera can see them) and clear of the rain's street lamps. Run seed for the spray.
 const streetProps = createStreetProps(scene,
@@ -1972,9 +1972,9 @@ roadwork.onSmash(({ x, z }) => {
   // impact read as exhaust rather than as hitting something. See `dust.burst`.
   dust.burst(x, z, traffic.taxi.yaw);
 });
-// A post box or a hot dog cart swiped off the kerb (game/streetprops.js). Half a step on the meter,
-// like an overtake: it happens on its own whenever Loco Mode is down on the right lane, so it is a
-// flourish rather than a move. The shake and the crash are the barricade's, turned down further —
+// A post box or a hot dog cart knocked off the kerb (game/streetprops.js). Half a step on the meter,
+// on top of the overtake that carried the taxi into it: it is a lucky line through a pass rather
+// than a move of its own. The shake and the crash are the barricade's, turned down further —
 // a box of letters, not a trestle.
 streetProps.onSmash(({ kind }) => {
   if (!fares.state.gameOver) landCombo(kind === 'cart' ? 'hotdog' : 'mailbox');
