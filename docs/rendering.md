@@ -142,8 +142,15 @@ point; the head's shadow across the top of the pane and the lit reveals are, and
 turn a dark rectangle on a wall into a hole in it. Hand-wound quads, one geometry per façade like
 the panes, with each face checked against the way it must point as it is emitted and asserted
 from the winding in `tools/probe.mjs`. 40 triangles a window, about 2k across a city (mean of
-four seeds). Curtain-wall ribbons get a slimmer trim round each whole band (`trim`: 0.07 wide,
-0.1 deep, sill 0.14 with no overhang). A full-width band in the punched frame read as a balcony rail.
+four seeds).
+
+**Curtain-wall glass is set back into the wall** (`recessShell`). A tower tier with ribbon glass is
+built as a shell rather than a box: a core inset by `GLASS_RECESS` (0.14) with the glass on its
+face, a skin on the box's own planes with a hole per band, and four reveals per hole joining them.
+The head throws a shadow line across the top of the glass and the sill catches the light, and the
+silhouette is the box it replaced. A frame cannot do this, because a frame only adds: the slim trim
+it replaced still read as glass glued on. The trim survives where a band leaves too narrow a pier
+for the reveal (`RECESS_PIER`) and on courtyard wings, whose faces are only partly exposed.
 
 **The frames are their own mesh, and receive AO without casting it** (`frameMesh`, not an
 occluder). In the merged mesh they were occluders, and a 0.2-unit protrusion against the SSAO's

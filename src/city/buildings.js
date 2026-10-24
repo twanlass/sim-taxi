@@ -6,7 +6,10 @@ import { makeRng, valueNoise2D } from '../util/rng.js';
 import { KERB_H } from './ground.js';
 import { plantedCrowns, treeParts, treeShape } from './props.js';
 import { buildBank, bankDomeMesh, chooseBankLot } from './bank.js';
-import { WALLS_CLASSIC, WALL_STYLE, fillWalls, frameMesh, patchWalls, stampWall, windowFrames } from './facade.js';
+import {
+  GLASS_RECESS, RECESS_PIER, WALLS_CLASSIC, WALL_STYLE, fillWalls, frameMesh, patchWalls, recessShell, stampWall,
+  windowFrames,
+} from './facade.js';
 
 const FLOOR_H = 2.6;
 // The ground floor is its own storey height. A shopfront is taller than the flats above it, and
@@ -448,9 +451,10 @@ function punchedWindows(parts, cx, base, cz, w, d, h, firstFloorH, windowColor, 
  * dozen.
  */
 function ribbonWindows(parts, cx, base, cz, w, d, h, firstFloorH, windowColor, peak, body = null,
-  faces = fullFaces(w, d)) {
+  faces = fullFaces(w, d), { recessed = false } = {}) {
   const lines = floorLines(base, h, firstFloorH);
-  if (!lines.length) return;
+  const openings = [[], [], [], []];
+  if (!lines.length) return openings;
   const sky = color('windowSky');
 
   const bandH = Math.min(1.5, FLOOR_H - 0.9);
@@ -479,15 +483,24 @@ function ribbonWindows(parts, cx, base, cz, w, d, h, firstFloorH, windowColor, p
       }
     }
     paneSink?.({ rects, side, cx, cz, hw: w / 2, hd: d / 2, kind: 'ribbon' });
-    parts.push(facadeQuads(rects, side, cx, cz, w / 2, d / 2, windowColor, EPS, sky));
-    // A slim trim round each whole band, not each segment: the segments are only there for the
-    // streak (above) and are one pane to look at.
-    if (body && !WALLS_CLASSIC) {
-      const bands = lines.map((y) => ({ u: 0, y: y + 0.5 + bandH / 2, w: span, h: bandH }));
+    // Recessed, the glass sits on the shell's core rather than on the wall (city/facade.js).
+    parts.push(facadeQuads(rects, side, cx, cz, w / 2, d / 2, windowColor,
+      recessed ? EPS - GLASS_RECESS : EPS, sky));
+    const bands = lines.map((y) => ({ u: 0, y: y + 0.5 + bandH / 2, w: span, h: bandH }));
+    openings[side] = bands;
+    // Where it can't be recessed (a wing's ribbons), a slim trim round each whole band, not each
+    // segment: the segments are only there for the streak (above) and are one pane to look at.
+    if (body && !WALLS_CLASSIC && !recessed) {
       parts.push(windowFrames(bands, side, cx, cz, w / 2, d / 2, shade(body, FRAME_TINT),
         SIDE_OUT[side], SIDE_TAN[side], { trim: true }));
     }
   }
+  return openings;
+}
+
+/** Whether a tier's curtain wall can be set back: every band leaves a pier wider than the recess. */
+function canRecess(w, d) {
+  return !WALLS_CLASSIC && fullFaces(w, d).every((fw) => fw < 1.6 || fw * 0.08 >= RECESS_PIER);
 }
 
 /**
@@ -964,12 +977,26 @@ function buildTower(lot, block, rng, parts, stats, { height: fixed = null, famil
 
     // The wall's own detail (city/facade.js) is stamped on the tier's box, from the same floor
     // lines and bays the windows are laid out on.
-    parts.push(stampWall(box(cw, tierH, cd, cx, y, cz, tier === 0 ? body : jitterColor(body, rng, { l: 0.04 })), {
+    const tierCol = tier === 0 ? body : jitterColor(body, rng, { l: 0.04 });
+    const stamp = (geo) => stampWall(geo, {
       style: wallStyle, origin: y + firstFloorH, top: y + tierH, cx, cz, w: cw, d: cd, tangents: SIDE_TAN,
-    }));
+    });
     if (style === 'punched') {
+      parts.push(stamp(box(cw, tierH, cd, cx, y, cz, tierCol)));
       punchedWindows(parts, cx, y, cz, cw, cd, tierH, firstFloorH, windowColor, peak, body);
+    } else if (canRecess(cw, cd)) {
+      // A shell rather than a box, so the bands sit back in the wall (city/facade.js). The core
+      // stops a hair under the skin's roof, which would otherwise be the same plane as its top.
+      const openings = ribbonWindows(parts, cx, y, cz, cw, cd, tierH, firstFloorH, windowColor, peak, body,
+        fullFaces(cw, cd), { recessed: true });
+      const R2 = 2 * GLASS_RECESS;
+      parts.push(stamp(box(cw - R2, tierH - 0.01, cd - R2, cx, y, cz, tierCol)));
+      const { skin, reveals } = recessShell({
+        cx, cz, w: cw, d: cd, base: y, h: tierH, openings, col: tierCol, out: SIDE_OUT, tan: SIDE_TAN,
+      });
+      parts.push(stamp(skin), reveals);
     } else {
+      parts.push(stamp(box(cw, tierH, cd, cx, y, cz, tierCol)));
       ribbonWindows(parts, cx, y, cz, cw, cd, tierH, firstFloorH, windowColor, peak, body);
     }
     if (tier === 0 && streetSides.length) groundFloor(parts, cx, cz, cw, cd, streetSides, rng, body);

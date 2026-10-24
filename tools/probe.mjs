@@ -22,7 +22,7 @@ import { createNorthPark } from '../src/city/northpark.js';
 import {
   createGround, KERB_H, SLAB_X, SLAB_Z, SLAB_RADIUS, EDGE_FADE, PARK_EDGE, MEDIAN_EDGE,
 } from '../src/city/ground.js';
-import { FRAME_TRIS_PER_WINDOW, windowFrames } from '../src/city/facade.js';
+import { FRAME_TRIS_PER_WINDOW, GLASS_RECESS, recessShell, windowFrames } from '../src/city/facade.js';
 import {
   createBuildings, facadeQuads, pitchedRoof, wallCeiling, WINDOWS_CLASSIC, SKYLINE_CEILING, INSET as BANK_LOT_INSET,
 } from '../src/city/buildings.js';
@@ -2437,6 +2437,44 @@ const onGrass = (city, i, j) => {
     check(`window ${trim ? 'trim' : 'frames'} face out of their bars on side ${side}`, inside === 0 && pos.count === FRAME_TRIS_PER_WINDOW * 3,
       `${faces} triangles, ${inside} wound inwards`);
   }
+}
+
+// The recessed curtain wall's shell: every skin face points out of the building and every reveal
+// points into its own opening, from the winding.
+{
+  const OUT = [[1, 0], [0, 1], [-1, 0], [0, -1]];
+  const TAN = [[0, -1], [1, 0], [0, 1], [-1, 0]];
+  const band = { u: 0, y: 6, w: 4, h: 1.5 };
+  const { skin, reveals } = recessShell({
+    cx: 0, cz: 0, w: 6, d: 6, base: 0, h: 10, openings: [[band], [band], [band], [band]],
+    col: new THREE.Color(1, 1, 1), out: OUT, tan: TAN,
+  });
+  const a = new THREE.Vector3(); const b = new THREE.Vector3(); const c = new THREE.Vector3();
+  const n = new THREE.Vector3(); const m = new THREE.Vector3();
+  const each = (geo, fn) => {
+    const pos = geo.attributes.position;
+    let bad = 0;
+    for (let t = 0; t < pos.count; t += 3) {
+      a.fromBufferAttribute(pos, t); b.fromBufferAttribute(pos, t + 1); c.fromBufferAttribute(pos, t + 2);
+      n.crossVectors(b.clone().sub(a), c.clone().sub(a)).normalize();
+      m.copy(a).add(b).add(c).divideScalar(3);
+      if (!fn(n, m)) bad += 1;
+    }
+    return [pos.count / 3, bad];
+  };
+  // The skin's centre is the building's: its faces all point away from the axis (or up, the roof).
+  const [st, sBad] = each(skin, (nn, mm) => nn.y > 0.5 || nn.x * mm.x + nn.z * mm.z > 0);
+  // A reveal points toward the middle of its own band: back toward u = 0 at y = 6, at the wall.
+  const [rt, rBad] = each(reveals, (nn, mm) => {
+    const toward = new THREE.Vector3(-mm.x, 6 - mm.y, -mm.z);
+    // Drop the outward part (the band's centre is on the wall plane): what is left is in-plane.
+    const side = Math.abs(mm.x) > Math.abs(mm.z) ? new THREE.Vector3(Math.sign(mm.x), 0, 0) : new THREE.Vector3(0, 0, Math.sign(mm.z));
+    toward.addScaledVector(side, -toward.dot(side));
+    return nn.dot(toward) > 0;
+  });
+  check('the recessed shell\'s skin faces out and its reveals face into their openings',
+    sBad === 0 && rBad === 0 && rt === 4 * 4 * 2 && GLASS_RECESS > 0,
+    `${st} skin triangles (${sBad} wrong), ${rt} reveal triangles (${rBad} wrong)`);
 }
 
 // --- Window glass -----------------------------------------------------------

@@ -294,3 +294,84 @@ export function frameMesh(parts, name) {
   mesh.name = `${name}-window-frames`;
   return { solid, frames: mesh };
 }
+
+// --- Recessed glass ---------------------------------------------------------
+//
+// A curtain wall's bands set back into the wall rather than framed on its face. The trim
+// (`trim` above) still read as glass glued on ("less like the windows are glued onto the building
+// and actually built into the building", Tyler, 2026-10-24), and a frame cannot fix that, because
+// a frame only ever adds. So the tier is built as a shell instead of a box: a core inset by
+// `GLASS_RECESS` all round with the glass on its face, a skin on the original planes with a hole
+// per band, and four reveals per hole joining the two. The silhouette is the box it replaces.
+export const GLASS_RECESS = 0.14;
+// The least pier a band leaves at a corner, past the recess: any less and a jamb's reveal runs
+// out past the core's corner and opens the building up.
+export const RECESS_PIER = GLASS_RECESS + 0.04;
+
+/**
+ * The shell's skin and reveals for one tier: `openings[side]` are the bands on that face, as
+ * `{ u, y, w, h }` in the same face-local terms as `facadeQuads`. The core is the caller's
+ * (`box` at `w - 2 * GLASS_RECESS`); this returns `{ skin, reveals }`, each one geometry. The
+ * skin takes `stampWall` the way the box did; the reveals stay unstamped, since a jamb's normal
+ * would read as the face round the corner.
+ */
+export function recessShell({ cx, cz, w, d, base, h, openings, col, out, tan }) {
+  const R = GLASS_RECESS;
+  const skin = [];
+  const reveals = [];
+  const a = new THREE.Vector3();
+  const b = new THREE.Vector3();
+  const c = new THREE.Vector3();
+  const quad = (list, p, dir) => {
+    a.fromArray(p[0]);
+    b.fromArray(p[1]).sub(a);
+    c.fromArray(p[2]).sub(a);
+    const q = b.cross(c).dot(dir) < 0 ? [p[0], p[3], p[2], p[1]] : p;
+    for (const k of [0, 1, 2, 0, 2, 3]) list.push(...q[k]);
+  };
+
+  // The roof of the shell, over the core's top and the gap round it.
+  const top = base + h;
+  quad(skin, [[cx - w / 2, top, cz - d / 2], [cx + w / 2, top, cz - d / 2],
+    [cx + w / 2, top, cz + d / 2], [cx - w / 2, top, cz + d / 2]], new THREE.Vector3(0, 1, 0));
+
+  for (let side = 0; side < 4; side++) {
+    const [nx, nz] = out[side];
+    const [tx, tz] = tan[side];
+    const reach = side % 2 === 0 ? w / 2 : d / 2;
+    const half = side % 2 === 0 ? d / 2 : w / 2;
+    const at = (u, y, n) => [cx + nx * (reach + n) + tx * u, y, cz + nz * (reach + n) + tz * u];
+    const OUT = new THREE.Vector3(nx, 0, nz);
+    const ALONG = new THREE.Vector3(tx, 0, tz);
+    const panel = (u0, u1, y0, y1) => {
+      if (u1 - u0 > 1e-6 && y1 - y0 > 1e-6) quad(skin, [at(u0, y0, 0), at(u1, y0, 0), at(u1, y1, 0), at(u0, y1, 0)], OUT);
+    };
+    const holes = [...(openings[side] ?? [])].sort((p, q) => p.y - q.y);
+    let y = base;
+    for (const { u, y: cy, w: ow, h: oh } of holes) {
+      const u0 = u - ow / 2;
+      const u1 = u + ow / 2;
+      const y0 = cy - oh / 2;
+      const y1 = cy + oh / 2;
+      panel(-half, half, y, y0);
+      panel(-half, u0, y0, y1);
+      panel(u1, half, y0, y1);
+      y = y1;
+      // Head, sill and jambs, from the skin back to the glass.
+      quad(reveals, [at(u0, y1, 0), at(u1, y1, 0), at(u1, y1, -R), at(u0, y1, -R)], new THREE.Vector3(0, -1, 0));
+      quad(reveals, [at(u0, y0, 0), at(u1, y0, 0), at(u1, y0, -R), at(u0, y0, -R)], new THREE.Vector3(0, 1, 0));
+      quad(reveals, [at(u0, y0, 0), at(u0, y1, 0), at(u0, y1, -R), at(u0, y0, -R)], ALONG);
+      quad(reveals, [at(u1, y0, 0), at(u1, y1, 0), at(u1, y1, -R), at(u1, y0, -R)], ALONG.clone().negate());
+    }
+    panel(-half, half, y, top);
+  }
+
+  const geo = (list) => {
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(list), 3));
+    const colors = new Float32Array(list.length);
+    for (let i = 0; i < colors.length; i += 3) colors.set([col.r, col.g, col.b], i);
+    return bakeColors(g, colors);
+  };
+  return { skin: geo(skin), reveals: geo(reveals) };
+}
