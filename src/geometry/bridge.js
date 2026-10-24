@@ -372,12 +372,19 @@ export function abutmentParts(span, rng, end) {
 // which has no `sinkShadowCaster`, and the fixed spans, which do. A flat caster that also receives
 // shadows itself through its own shadow-map texels (CLAUDE.md, "a thin shell that both casts and
 // receives"), and on a phone the strips crawled in a pattern that read as z-fighting. Built here as
-// world-space geometry for main.js to put in a receive-only mesh, like the manholes. And at twice the
-// lane paint's height rather than a hundredth over it: the centre dashes run up to the bank under
-// the strips, and 0.02 is the gap every other mark on this road keeps from what it lies on.
+// world-space geometry for main.js to put in a receive-only mesh, like the manholes.
+//
+// **At the lane paint's height, which is the only height that works.** The strips first sat at 0.03,
+// which is exactly the route band's `Y` (game/routeline.js): the band is depth-tested, so wherever a
+// route ran onto a bridge it fought the strips frame to frame — Tyler, 2026-10-24: "it seems to be
+// when I notice it". Lifting them to 0.04 only swapped the fight for a band that vanished under them.
+// They are paint, so they sit with the paint, one layer under the band like every other mark. Nothing
+// else lies under them to fight at 0.02: the bank is the junction box's edge, the centre dashes stop
+// at the box, and no crosswalk is laid over a river gap (measured: no ground triangle within 6 units
+// of either bank on five seeds). The probe holds both heights.
 const JOINT_W = 0.35;
 const APPROACH_W = 0.9;
-export const JOINT_Y = MARK_Y * 2;
+export const JOINT_Y = MARK_Y;
 
 /** Both ends' joint and approach strips for one span, in world coordinates. Empty under `?roads=classic`. */
 export function jointParts(span, rng) {

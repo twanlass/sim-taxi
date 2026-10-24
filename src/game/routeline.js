@@ -72,6 +72,8 @@ const FADE_TAIL = 10;
 // It is also exactly the rain mirror's clip (CLIP_Y in game/rain.js), which is why main.js keeps the
 // band out of that pass: left in, it flickered in and out of every wet street's reflection.
 const Y = 0.03;
+// Exported for the probe: anything flat laid on the road has to stay a paint layer under it.
+export const ROUTE_Y = Y;
 // Exported because the drop-off's filled circle matches it: the band and the disc are the same
 // statement ("this is the job") in two places, and they have to sit at the same weight over the
 // road or one of them reads as louder than the other.
