@@ -8,10 +8,11 @@ import { findRoute, findRouteOnto, planOrigin, setHazardLanes, serviceLaneCost }
 import { sightlineClear } from './sightline.js';
 import { cornerFor } from './fares.js';
 import { GRID_I, GRID_J } from '../city/grid.js';
-import { cloneProp, hash01, propMaterial } from '../util/geo.js';
+import { cloneProp, hash01, propMaterial, unlitMaterial } from '../util/geo.js';
 import { markOccluder } from './ssao.js';
 import {
-  createGarbageTruckMesh, bagGeometry, HOPPER_MOUTH, LID_OPEN, BAG_R,
+  createGarbageTruckMesh, bagGeometry, bagStreakGeometry, HOPPER_MOUTH, LID_OPEN, BAG_R, BAG_CENTRE_Y,
+  STREAK_OPACITY,
 } from '../geometry/garbage.js';
 
 // Black bags piled on the kerb at street corners, and a garbage truck that drives round town
@@ -95,6 +96,10 @@ const TOSS_GAP = 0.3;
 const FLIGHT = 0.55;
 const LID_SLAM = 0.16;
 const SETTLE = 0.35;
+// The beacon on the cab roof flashes from the moment the truck brakes for a pile until it pulls
+// away (Tyler, 2026-10-24), five changes a second: slower than the cruiser's chase strobe, so it
+// reads as work rather than an emergency.
+const BEACON_HZ = 2.5;
 const ARC = 1.2;               // how far over the higher end of its flight a bag peaks
 
 // The slam's jolt on the chassis, a damped bounce like the flatbed's (game/flatbed.js).
@@ -196,6 +201,11 @@ export function createGarbage({ rng, scene, traffic, plan, blocked = () => false
   // --- The piles: one instanced mesh each, so the city's entrance wave can grow each as an object.
   const bagGeo = bagGeometry();
   const bagMaterial = propMaterial();
+  const streakGeo = bagStreakGeometry();
+  // Unlit and see-through: a highlight, not a surface. White at 35%, which is the whole spec.
+  const streakMaterial = unlitMaterial({
+    color: '#ffffff', transparent: true, opacity: STREAK_OPACITY, depthWrite: false,
+  });
   const zero = new THREE.Matrix4().makeScale(0, 0, 0);
   const m = new THREE.Matrix4();
   const q = new THREE.Quaternion();
@@ -213,6 +223,12 @@ export function createGarbage({ rng, scene, traffic, plan, blocked = () => false
     mesh.castShadow = true;
     mesh.receiveShadow = true;
     group.add(mesh);
+    // The bags' sheen, a child so the city's entrance wave grows it with the pile.
+    const streaks = new THREE.InstancedMesh(streakGeo, streakMaterial, MAX_BAGS);
+    streaks.name = 'trash-pile-sheen';
+    streaks.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    streaks.frustumCulled = false;
+    mesh.add(streaks);
     const count = rng.int(BAGS[0], BAGS[1]);
     // The top bag only once there are bags to stand it on.
     const slots = SLOTS.slice(0, Math.min(count, 5)).concat(count >= 6 ? [SLOTS[5]] : []);
@@ -225,7 +241,7 @@ export function createGarbage({ rng, scene, traffic, plan, blocked = () => false
       from: new THREE.Vector3(), to: new THREE.Vector3(), spin: new THREE.Vector3(),
     }));
     return {
-      ...p, mesh, bags,
+      ...p, mesh, streaks, bags,
       state: 'full',          // full | taking | empty | refilling
       refillAt: 0,
       entry: { object: mesh, x: p.x, z: p.z, rand: hash01(p.x, p.z) },
@@ -239,12 +255,29 @@ export function createGarbage({ rng, scene, traffic, plan, blocked = () => false
     return m.compose(v.set(slot.x, slot.y, slot.z), q, sc.setScalar(bag.scale));
   };
 
+  // The streak goes where the bag's middle went, at the bag's scale, but never turned with it — so
+  // it is always on the side of the bag the camera sees. The bag turns about its foot, so its
+  // middle is carried round by the turn and the streak is put there.
+  const centre = new THREE.Vector3();
+  const sm = new THREE.Matrix4();
+  const idQ = new THREE.Quaternion();
+  function streak(pile, k, matrix) {
+    if (matrix === zero) { pile.streaks.setMatrixAt(k, zero); return; }
+    matrix.decompose(v, q, sc);
+    centre.set(0, BAG_CENTRE_Y, 0).multiply(sc);
+    const lifted = centre.clone().applyQuaternion(q).sub(centre);
+    sm.compose(v.add(lifted), idQ, sc);
+    pile.streaks.setMatrixAt(k, sm);
+  }
+
   function drawPile(pile) {
     pile.bags.forEach((bag, k) => {
       if (bag.state === 'gone') {
         pile.mesh.setMatrixAt(k, zero);
+        streak(pile, k, zero);
       } else if (bag.state === 'rest') {
         pile.mesh.setMatrixAt(k, restMatrix(bag));
+        streak(pile, k, m);
       } else if (bag.state === 'plop') {
         // Dropped in from a little way up, landing with a squash.
         const u = Math.min(1, bag.t / PLOP);
@@ -254,6 +287,7 @@ export function createGarbage({ rng, scene, traffic, plan, blocked = () => false
         m.compose(v.set(bag.slot.x, bag.slot.y + fall, bag.slot.z), q,
           sc.set(bag.scale * easeOutBack(u * 1.4), bag.scale / squash, bag.scale * easeOutBack(u * 1.4)));
         pile.mesh.setMatrixAt(k, bag.t <= 0 ? zero : m);
+        streak(pile, k, bag.t <= 0 ? zero : m);
       } else {
         const u = Math.min(1, bag.t / FLIGHT);
         // A lob: the straight line from the kerb to the hopper, plus a hump over it that peaks ARC
@@ -264,9 +298,11 @@ export function createGarbage({ rng, scene, traffic, plan, blocked = () => false
         m.compose(v.set(bag.from.x + (bag.to.x - bag.from.x) * u, y, bag.from.z + (bag.to.z - bag.from.z) * u),
           q, sc.setScalar(bag.scale * (1 - 0.25 * u)));
         pile.mesh.setMatrixAt(k, m);
+        streak(pile, k, m);
       }
     });
     pile.mesh.instanceMatrix.needsUpdate = true;
+    pile.streaks.instanceMatrix.needsUpdate = true;
   }
   for (const pile of piles) drawPile(pile);
 
@@ -312,6 +348,8 @@ export function createGarbage({ rng, scene, traffic, plan, blocked = () => false
         o.material.opacity = 1;
       }
     });
+    // A wrecked truck's beacon is dark, whatever frame it was on.
+    shell.children[rig.shell.children.indexOf(rig.beacon)].visible = false;
     shell.visible = true;
     rig.group.matrixWorld.decompose(shell.position, shell.quaternion, shell.scale);
     rig.shell.visible = false;
@@ -492,6 +530,11 @@ export function createGarbage({ rng, scene, traffic, plan, blocked = () => false
     }
   }
 
+  function beacon() {
+    const working = Boolean(state.truck) && (state.phase === 'stopping' || state.phase === 'collecting');
+    rig.beacon.visible = working && Math.floor(state.clock * BEACON_HZ * 2) % 2 === 0;
+  }
+
   function update(dt) {
     state.clock += dt;
     state.t += dt;
@@ -538,6 +581,7 @@ export function createGarbage({ rng, scene, traffic, plan, blocked = () => false
     for (const material of rig.faders) material.opacity = state.fade;
     if (!state.truck && state.phase === 'off') rig.shell.visible = false;
     lidAndJolt(dt, state.truck);
+    beacon();
   }
 
   /**
@@ -567,6 +611,8 @@ export function createGarbage({ rng, scene, traffic, plan, blocked = () => false
     }
     for (const p of piles) drawPile(p);
     for (const material of rig.faders) material.opacity = state.fade;
+    // A still always catches the beacon lit.
+    rig.beacon.visible = true;
     return true;
   }
 
@@ -576,6 +622,8 @@ export function createGarbage({ rng, scene, traffic, plan, blocked = () => false
     state,
     stage,
     truckMesh: rig,
+    /** The beacon's lamp, for main.js to put in the bloom. */
+    emissiveMeshes: [rig.beacon],
     entryObjects: piles.map((p) => p.entry),
     update,
     /** Bring the truck on now, for the probe and `__taxi`. Answers whether it came. */

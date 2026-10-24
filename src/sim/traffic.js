@@ -3226,8 +3226,10 @@ function spawnCars(rng, count, into = [], accept = null, truckChance = 0, classi
     const isTruck = rng.range(0, 1) < truckChance;
     // Drawn here rather than inline in the literal below, in the order the literal drew them, so
     // the stream is byte-for-byte what it was — the classic is read off `phase` rather than given a
-    // roll of its own for the same reason (see `classicModel`).
-    const colorIndex = rng.int(0, PALETTE.carBody.length - 1);
+    // roll of its own for the same reason (see `classicModel`). A truck's barred paint is stepped
+    // past rather than re-rolled, for the same reason.
+    const rolled = rng.int(0, PALETTE.carBody.length - 1);
+    const colorIndex = isTruck ? truckPaint(rolled) : rolled;
     const phase = rng.range(0, Math.PI * 2);
 
     cars.push({
@@ -3455,6 +3457,16 @@ function spawnCars(rng, count, into = [], accept = null, truckChance = 0, classi
   }
 
   return cars;
+}
+
+/** A carBody index a box truck's cab may wear: `index`, or the next one along that is not barred. */
+export function truckPaint(index) {
+  const n = PALETTE.carBody.length;
+  for (let k = 0; k < n; k++) {
+    const at = (index + k) % n;
+    if (!PALETTE.truckCabBarred.includes(PALETTE.carBody[at])) return at;
+  }
+  return index;
 }
 
 /**
@@ -3908,6 +3920,7 @@ export function createTraffic(
     for (let k = cars.length - 1; k > 0 && short > 0; k--) {
       if (cars[k].isTruck) continue;
       cars[k].isTruck = true;
+      cars[k].colorIndex = truckPaint(cars[k].colorIndex);
       short -= 1;
     }
   }
@@ -4647,6 +4660,7 @@ export function createTraffic(
     const car = cars[cars.length - 1];
     car.guest = true;
     car.isTruck = isTruck;
+    if (isTruck) car.colorIndex = truckPaint(car.colorIndex);
     // Where it actually is, now — see `enlist` for what an unplaced mid-run spawn draws as.
     const at = car.lane.path.at(car.s);
     car.x = at.x;

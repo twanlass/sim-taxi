@@ -46,6 +46,7 @@ import { createManholes, planManholes, manholeGeometry, COVER_R, COVER_COUNT, BO
 import { createStreetProps, planStreetProps } from '../src/game/streetprops.js';
 import { createGarbage, planTrashPiles } from '../src/game/garbage.js';
 import { HOPPER_MOUTH } from '../src/geometry/garbage.js';
+import { truckPaint } from '../src/sim/traffic.js';
 import { createCarWash } from '../src/city/carwash.js';
 import { createGasStation } from '../src/city/gasstation.js';
 import { collectPanes, entrances, streetLamps } from '../src/game/citylights.js';
@@ -22010,6 +22011,14 @@ let chopperOrder; // likewise
       + `${worstLine.toFixed(2)} short of the line at worst, drifted ${parkedDrift.toFixed(3)} parked`);
   check('garbage: every bag lands in the hopper',
     inside > 0 && missed === 0 && garbage.state.bagsIn > 0, `${inside} in, ${missed} missed, ${garbage.state.bagsIn} collected of ${bagsAtStart}`);
+  // A fleet that is half trucks, with a few more promoted, so the paint has rolls to fall on.
+  const pTraffic = createTraffic(makeRng(seed + 734), new THREE.Scene(), 40, 40, 0.5, 30);
+  const greenTrucks = pTraffic.cars.filter((c) => c.isTruck
+    && PALETTE.truckCabBarred.includes(PALETTE.carBody[c.colorIndex])).length;
+  const fleetTrucks = pTraffic.cars.filter((c) => c.isTruck).length;
+  const green = PALETTE.carBody.indexOf(PALETTE.truckCabBarred[0]);
+  check('garbage: no box truck wears the garbage truck\'s green', greenTrucks === 0 && green >= 0 && truckPaint(green) !== green,
+    `${greenTrucks} of ${fleetTrucks} trucks green; a green roll paints as ${PALETTE.carBody[truckPaint(green)]}`);
   check('garbage: its lane is shut and priced up while it works, and open again once it has gone',
     closedWhileTaking && hazardWhileTaking && (garbage.state.phase === 'collecting' || leftClosed === 0),
     `closed throughout ${closedWhileTaking}, priced throughout ${hazardWhileTaking}, ${leftClosed} pile lanes left shut`);

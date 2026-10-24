@@ -1601,6 +1601,8 @@ const garbage = createGarbage({
   blocked: () => Boolean(shot) || traffic.taxi.staged,
   soon: new URLSearchParams(window.location.search).get('garbage') === 'soon',
 });
+// The beacon blooms at the cruiser's bar's strength.
+for (const mesh of garbage.emissiveMeshes ?? []) markEmissive(mesh, 'siren');
 
 // The city's entrance: buildings and trees rise out of the ground in a wave that spreads from the
 // taxi's spawn — the run starts where the player's car is, and the city builds itself outward from

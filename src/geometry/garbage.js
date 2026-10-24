@@ -1,6 +1,8 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import { bakeColor, bakeColors, propMaterial, setFinish, FINISH, BODY_EULER_ORDER } from '../util/geo.js';
+import {
+  bakeColor, bakeColors, propMaterial, unlitMaterial, setFinish, FINISH, BODY_EULER_ORDER,
+} from '../util/geo.js';
 import { PALETTE, color } from '../palette.js';
 import {
   SILL_Y, CHASSIS_LIFT, wheelAnchors, wheelGeometry, wheelGeometries, archedBodyGeometries,
@@ -51,6 +53,8 @@ const BODY_TOP = CHASSIS_TOP + BODY_H;
  * with the pile.
  */
 export const HOPPER_MOUTH = new THREE.Vector3((HOPPER_X0 + HOPPER_X1) / 2, CHASSIS_TOP + 0.75, 0);
+const BEACON = { w: 0.26, h: 0.16, d: 0.36, x: CAB_X - 0.2 };
+
 /** How far the lid swings up when the truck is taking bags, in radians. */
 export const LID_OPEN = 1.2;
 
@@ -76,8 +80,8 @@ function bodyGeometry() {
     // Glass: the windscreen proud of the cab's nose, and a side window standing out of both flanks.
     box(0.08, 0.52, W * 0.82, CAB_X + CAB_LEN / 2 + 0.02, CAB_Y + 0.22, 0, 'carGlass', FINISH.GLASS),
     box(0.8, 0.46, W * 0.96 + 0.04, CAB_X + 0.22, CAB_Y + 0.24, 0, 'carGlass', FINISH.GLASS),
-    // An amber beacon on the cab roof.
-    box(0.26, 0.16, 0.36, CAB_X - 0.2, CAB_TOP + 0.08, 0, 'trashTie'),
+    // The amber beacon's housing on the cab roof, dark; the lamp that flashes is its own mesh.
+    box(BEACON.w, BEACON.h, BEACON.d, BEACON.x, CAB_TOP + BEACON.h / 2, 0, 'garbageBeacon'),
     // The packer body.
     box(BODY_X1 - BODY_X0, BODY_H, W * 0.98, (BODY_X0 + BODY_X1) / 2, CHASSIS_TOP + BODY_H / 2, 0,
       'garbageBody'),
@@ -157,13 +161,22 @@ export function createGarbageTruckMesh() {
   hinge.add(lid);
   shell.add(hinge);
 
+  // The beacon's lit lamp, a hair proud of the housing on every side, switched by `visible` while
+  // the truck collects — never a scale (geometry/lights.js). Unlit, so it reads as a lamp in shade
+  // and at night, and main.js puts it in the bloom.
+  const beaconGeo = new THREE.BoxGeometry(BEACON.w + 0.04, BEACON.h + 0.02, BEACON.d + 0.04);
+  const beacon = new THREE.Mesh(beaconGeo, unlitMaterial({ color: PALETTE.garbageBeaconLit }));
+  beacon.position.set(BEACON.x, CAB_TOP + BEACON.h / 2 + 0.01, 0);
+  beacon.visible = false;
+  shell.add(beacon);
+
   // Dissolved in and out rather than blended — see `faders` in sim/police.js for why alphaHash.
   const faders = [body.material, wheelMat, lid.material];
   for (const material of faders) material.alphaHash = true;
   shell.visible = false;
 
   return {
-    group, shell, body, wheels, hinge, lid, faders,
+    group, shell, body, wheels, hinge, lid, beacon, faders,
     /** Every solid part, for the AO prepass. */
     occluders: [body, lid, ...wheels],
   };
@@ -182,23 +195,27 @@ const lump = (x, y, z) => {
   return s - Math.floor(s);
 };
 
+const BAG_FLOOR = -BAG_R * 0.6;   // where the ball is cut flat, before it is lifted onto y = 0
+const BAG_SQUASH = 0.82;
+/** The middle of a bag above its foot, which its sheen is laid round. */
+export const BAG_CENTRE_Y = -BAG_FLOOR;
+
 /**
- * One black bag, tied at the top: a lumpy ball squashed onto a flat bottom, a neck, and a yellow
- * drawstring across it. y = 0 is the ground it stands on.
+ * One black bag: a lumpy ball squashed onto a flat bottom, lighter toward the top. y = 0 is the
+ * ground it stands on. Its sheen is a separate streak (`bagStreakGeometry`).
  */
 export function bagGeometry() {
   const ball = new THREE.IcosahedronGeometry(BAG_R, 1);
   const pos = ball.attributes.position;
-  const floor = -BAG_R * 0.6;
   for (let k = 0; k < pos.count; k++) {
     const x = pos.getX(k);
     const y = pos.getY(k);
     const z = pos.getZ(k);
     const n = 0.88 + 0.24 * lump(x, y, z);
-    pos.setXYZ(k, x * n, Math.max(floor, y * 0.82 * n), z * n * 0.94);
+    pos.setXYZ(k, x * n, Math.max(BAG_FLOOR, y * BAG_SQUASH * n), z * n * 0.94);
   }
-  ball.translate(0, -floor, 0);
-  const top = BAG_R * 0.82 - floor;
+  ball.translate(0, -BAG_FLOOR, 0);
+  const top = BAG_R * BAG_SQUASH - BAG_FLOOR;
   // Lighter toward the top, as plastic catches the sky — a flat black ball reads as a tyre.
   const flat = ball.index ? ball.toNonIndexed() : ball;
   const fp = flat.attributes.position;
@@ -210,14 +227,55 @@ export function bagGeometry() {
     tint.copy(low).lerp(high, Math.max(0, Math.min(1, fp.getY(k) / top)) ** 2);
     colors.set([tint.r, tint.g, tint.b], k * 3);
   }
-  const neck = new THREE.ConeGeometry(0.12, 0.2, 5);
-  neck.translate(0, top + 0.03, 0);
-  const tie = new THREE.BoxGeometry(0.3, 0.07, 0.09);
-  tie.rotateY(0.5);
-  tie.translate(0, top + 0.08, 0);
-  return merge([
-    bakeColors(flat, colors),
-    bakeColor(neck, color('trashBagAlt')),
-    bakeColor(tie, color('trashTie')),
-  ]);
+  return bakeColors(flat, colors);
+}
+
+// The sheen: a white streak at 35% (Tyler, 2026-10-24: "a little white streak (35% opacity) to give
+// them a plastic sheen feel"). Painted into the bag's vertex colours first, and it did not read:
+// even at 1280 triangles a bag the lumps broke the band into blotches. So it is its own ribbon, laid
+// just proud of the bag's shoulder on the side facing the camera, and drawn **without the bag's
+// yaw** (game/garbage.js) so it is on the seen side of every bag in a pile, however each one turned.
+export const STREAK_OPACITY = 0.35;
+const STREAK_OUT = 1.18;         // off the bag's centre, in BAG_R: clear of its tallest lump (1.12)
+const STREAK_HALF_W = 0.045;
+const STREAK_ARC = 0.6;          // radians either side of the middle
+
+/** The streak, in the bag's frame (unrotated): a short curved ribbon of quads, wound outward. */
+export function bagStreakGeometry() {
+  const lift = BAG_CENTRE_Y;
+  // Its middle on the upper shoulder facing the camera, a little to the screen's left of centre
+  // (the camera looks down −X−Z, so screen-left is −X+Z); it curves round that shoulder about a
+  // near-vertical axis, the way a highlight wraps a ball.
+  const mid = new THREE.Vector3(0.15, 0.8, 0.7).normalize();
+  const axis = new THREE.Vector3(0.35, 1, -0.2).normalize();
+  axis.sub(mid.clone().multiplyScalar(axis.dot(mid))).normalize();
+  const steps = 8;
+  const at = (t, side) => {
+    // Swinging `mid` round `axis` draws the arc, so the ribbon's width runs along `axis` itself.
+    const d = mid.clone().applyAxisAngle(axis, t);
+    // Tapered toward its ends, like a highlight.
+    const w = STREAK_HALF_W * Math.cos((t / STREAK_ARC) * Math.PI / 2);
+    const p = d.multiplyScalar(BAG_R * STREAK_OUT).addScaledVector(axis, side * w);
+    return new THREE.Vector3(p.x, p.y * BAG_SQUASH + lift, p.z);
+  };
+  const verts = [];
+  for (let k = 0; k < steps; k++) {
+    const t0 = -STREAK_ARC + (2 * STREAK_ARC * k) / steps;
+    const t1 = -STREAK_ARC + (2 * STREAK_ARC * (k + 1)) / steps;
+    const a = at(t0, -1);
+    const b = at(t0, 1);
+    const c = at(t1, -1);
+    const d = at(t1, 1);
+    verts.push(a, c, b, b, c, d);
+  }
+  // Wound so the face normal points away from the bag's centre; checked here rather than trusted
+  // (CLAUDE.md: hand-written triangles need their winding asserted).
+  const centre = new THREE.Vector3(0, lift, 0);
+  const n = new THREE.Vector3().crossVectors(verts[1].clone().sub(verts[0]), verts[2].clone().sub(verts[0]));
+  if (n.dot(verts[0].clone().sub(centre)) < 0) {
+    for (let k = 0; k < verts.length; k += 3) [verts[k + 1], verts[k + 2]] = [verts[k + 2], verts[k + 1]];
+  }
+  const geo = new THREE.BufferGeometry().setFromPoints(verts);
+  geo.computeVertexNormals();
+  return geo;
 }
