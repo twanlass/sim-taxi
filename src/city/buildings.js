@@ -6,6 +6,7 @@ import { makeRng, valueNoise2D } from '../util/rng.js';
 import { KERB_H } from './ground.js';
 import { plantedCrowns, treeParts, treeShape } from './props.js';
 import { buildBank, bankDomeMesh, chooseBankLot } from './bank.js';
+import { WALL_STYLE, fillWalls, patchWalls, stampWall } from './facade.js';
 
 const FLOOR_H = 2.6;
 // The ground floor is its own storey height. A shopfront is taller than the flats above it, and
@@ -827,6 +828,10 @@ function buildTower(lot, block, rng, parts, stats, { height: fixed = null, famil
   // Sampled once per building rather than per tier, so a setback tower's reflection runs on up
   // through the steps instead of restarting at each one.
   const peak = streakPeak(cx, cz);
+  // Half the masonry is pilastered between its bays, half is ledges alone: two façade dialects
+  // rather than one. A hash of the lot, not a draw, so the city a seed builds is untouched.
+  const wallStyle = style === 'punched' && hash01(cx * 0.61 + 17.3, cz * 1.13 - 4.1) < 0.5
+    ? WALL_STYLE.PILASTERS : WALL_STYLE.LEDGES;
 
   let y = KERB_H;
   let cw = w;
@@ -840,11 +845,15 @@ function buildTower(lot, block, rng, parts, stats, { height: fixed = null, famil
       ? Math.min(remaining, remaining * rng.range(0.55, 0.8))
       : remaining;
 
-    parts.push(box(cw, tierH, cd, cx, y, cz, tier === 0 ? body : jitterColor(body, rng, { l: 0.04 })));
-
     // The ground storey only exists on the tier that meets the pavement; everything above it
     // starts its floor lines straight off the setback.
     const firstFloorH = tier === 0 ? GROUND_H : 0.4;
+
+    // The wall's own detail (city/facade.js) is stamped on the tier's box, from the same floor
+    // lines and bays the windows are laid out on.
+    parts.push(stampWall(box(cw, tierH, cd, cx, y, cz, tier === 0 ? body : jitterColor(body, rng, { l: 0.04 })), {
+      style: wallStyle, origin: y + firstFloorH, top: y + tierH, cx, cz, w: cw, d: cd, tangents: SIDE_TAN,
+    }));
     if (style === 'punched') {
       punchedWindows(parts, cx, y, cz, cw, cd, tierH, firstFloorH, windowColor, peak, body);
     } else {
@@ -892,6 +901,14 @@ export function buildHighRise(parts, lot, bounds, rng, height, families = BUILDI
 
 /** Recursive lot subdivision, exported for the high rises past the west ring road. */
 export { splitLot };
+
+/** The towers' material: `propMaterial({ smooth })` with the wall detail patched on (city/facade.js). */
+export function wallMaterial() {
+  return patchWalls(propMaterial({ smooth: true }), {
+    floorH: FLOOR_H, sill: SILL, bay: BAY, groundTop: KERB_H + GROUND_H,
+  });
+}
+export { fillWalls };
 
 // --- Courtyard blocks -------------------------------------------------------
 //
@@ -1243,11 +1260,11 @@ export function createBuildings(rng, blocks) {
     }
   }
 
-  const merged = mergeGeometries(parts, false);
+  const merged = mergeGeometries(fillWalls(parts), false);
   parts.forEach((p) => p.dispose());
 
   // Smooth for the courtyard's crowns (`treeParts`); every wall still lights off its own face normal.
-  const mesh = new THREE.Mesh(merged, propMaterial({ smooth: true }));
+  const mesh = new THREE.Mesh(merged, wallMaterial());
   mesh.castShadow = true;
   mesh.receiveShadow = true;
   mesh.name = 'buildings';

@@ -9,6 +9,14 @@ The sections follow rendering.md's order and headings, and each links back to th
 Pull-request numbers and dates are given where the git history records them — most of this
 predates the repository's first commit here (2026-10-08) and is undated.
 
+## Wall detail — `city/facade.js`
+
+[Current](rendering.md#wall-detail--cityfacadejs). Until 2026-10-24 every tower wall was one baked
+colour per face, with only the windows, the shopfront and the setback ledges on it.
+`?walls=classic` brings that back. The first pass at the detail used multipliers about half the
+strength of the shipped ones (ledge 1.14/0.82, plinth 0.84): visible in a close-up and gone at
+phone play zoom.
+
 ## Wheel wells — `archedBodyGeometries` in `geometry/wheels.js`
 
 [Current](rendering.md#wheel-wells--archedbodygeometries-in-geometrywheelsjs).

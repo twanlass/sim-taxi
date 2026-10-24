@@ -2291,6 +2291,31 @@ const onGrass = (city, i, j) => {
     ceilings.join(', '));
 }
 
+// --- Wall detail -------------------------------------------------------------
+//
+// The ledges, plinth and pilasters are a fragment patch keyed off `aWall` (city/facade.js). Two
+// things would each fail with nothing to see but a flat wall again: the stamp landing on no wall
+// (a normal test inverted, a part built through a path that skips `stampWall`), or landing on a
+// roof, which would stripe every deck in the city with storey lines. And the pilasters are a hash
+// of the lot, so the split between the two dialects is a rate — held, rather than eyeballed.
+// A wall is six vertices a face, four faces a tier: 912 on seed 1, so 300 is a dozen tiers.
+{
+  const { aWall, normal } = buildings.mesh.geometry.attributes;
+  let walls = 0; let onRoof = 0; let pilasters = 0;
+  for (let i = 0; i < aWall.count; i++) {
+    const style = aWall.getX(i);
+    if (style < 0.5) continue;
+    walls += 1;
+    if (Math.abs(normal.getY(i)) > 0.5) onRoof += 1;
+    if (style > 1.5) pilasters += 1;
+  }
+  check('tower walls carry their detail, and no roof does', walls > 300 && onRoof === 0,
+    `${walls} wall vertices, ${onRoof} on a roof`);
+  const share = walls ? pilasters / walls : 0;
+  check('some walls are pilastered and some are not', share > 0.1 && share < 0.8,
+    `${(share * 100).toFixed(0)}% pilastered`);
+}
+
 // --- Roofs, and the flight path over them -----------------------------------
 //
 // Roof furniture is the only thing in the city that can reach the aeroplane: the tallest possible
