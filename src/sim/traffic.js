@@ -346,8 +346,65 @@ const hardClosed = (id) => HARD_CLOSURES.some((source) => closedBySource.get(sou
 // fire engine round a zone (`serviceLaneCost` in game/route.js), but a route planned in the forty
 // seconds before the zone stood up still runs through it, and the patrol cruiser holding one drove
 // straight over the trestles. Same refusal, same place, for the same reason as the bridge.
-const refusesLane = (car, id) => hardClosed(id)
+//
+// The one way past a shut span is the jump (`setBridgeStunt` below): a taxi the gate let through
+// carries a pass for that lane and that lift only, so the next cycle asks again.
+const refusesLane = (car, id) => (hardClosed(id) && !stuntPass(car, id))
   || (!car.isTaxi && closedBySource.get('roadwork')?.has(id));
+
+// --- Mega Air: jumping the drawbridge -----------------------------------------------
+//
+// The split drawbridge's leaves are a ramp for the first few seconds of a lift (game/drawbridge.js,
+// STUNT_FROM/STUNT_TO). A taxi routed over the span waits at the gate; Loco sends it up the near leaf,
+// over the gap and the far bank's junction, and down in the street beyond. Same `hopFrom` arc as the
+// drift launch, and `hopBig` stays true for it, so everything that treats Big Air as airborne — the
+// boosting priority junction, the deaf brake, the collision skip above DRIFT_LAUNCH_CLEAR, the slam —
+// treats this the same way without being told. `hopKind: 'bridge'` is what differs: the length is
+// measured at the launch, the profile rides the leaf before it leaves it, and the trick is a front
+// flip, because the barrel roll is Big Air's.
+//
+// **The height is a camera number,** like DRIFT_LAUNCH_HEIGHT: 14 is ~90px at play zoom, four
+// units over Big Air's apex — the one jump in the game that is meant to look like too much.
+export const MEGA_AIR_HEIGHT = 14;
+// Past the far bank's junction, into the next street: Big Air's landing margin, for its reason —
+// clear of the box the taxi flew over, short of the next hold line.
+const MEGA_AIR_PAST = 3.25;
+// The flip, as fractions of the flight off the leaf's tip (not of the whole arc, since the ramp
+// ride in front of it is a different length on every lift). Level again in time for the slam.
+const FLIP_FROM = 0.06;
+const FLIP_TO = 0.8;
+
+let bridgeStunt = null;
+/** game/drawbridge.js's `stunt`, or null — no drawbridge, or `?bridgejump=classic`. */
+export function setBridgeStunt(stunt) {
+  bridgeStunt = stunt;
+}
+
+function stuntPass(car, id) {
+  return bridgeStunt != null && car.stuntLane === id && car.stuntCycle === bridgeStunt.cycle();
+}
+
+/** The front flip's angle, in radians (negative: nose over), `v` of the way through the flight. */
+export function megaFlipAt(v) {
+  if (v <= FLIP_FROM || v >= FLIP_TO) return 0;
+  const k = (v - FLIP_FROM) / (FLIP_TO - FLIP_FROM);
+  return -Math.PI * 2 * k * k * (3 - 2 * k);
+}
+
+/** How long `car`'s current arc is, in units of travel. */
+const hopLenOf = (car) => (car.hopKind === 'bridge' ? car.hopLen
+  : car.hopBig ? DRIFT_LAUNCH_LEN : HOP_LEN);
+
+/**
+ * How high the taxi is over the road on whatever arc it is on, for sim/collisions.js. The drift
+ * launch's is a sine of its progress; the bridge jump's has a ramp in front of it and is whatever
+ * the pose last put it at.
+ */
+export function airborneHeight(car) {
+  if (car.hopFrom == null) return 0;
+  if (car.hopKind === 'bridge') return car.stuntAir ?? 0;
+  return (car.hopBig ? DRIFT_LAUNCH_HEIGHT : HOP_HEIGHT) * Math.sin(Math.PI * hopProgress(car));
+}
 
 // --- The ramp -----------------------------------------------------------------
 //
@@ -591,7 +648,7 @@ export const onDriftLaunch = (car) => car.hopFrom != null && car.hopBig === true
 /** How far through its arc the taxi is, 0 to 1, or null on the ground. */
 export function hopProgress(car) {
   if (car.hopFrom == null) return null;
-  return Math.min(1, (car.travelled - car.hopFrom) / (car.hopBig ? DRIFT_LAUNCH_LEN : HOP_LEN));
+  return Math.min(1, (car.travelled - car.hopFrom) / hopLenOf(car));
 }
 
 // Cops standing across a street on a brake check, rebuilt each frame — `{ axis, line, s, dir }`,
@@ -4819,6 +4876,7 @@ export function createTraffic(
   const quat = new THREE.Quaternion();
   const barrelQuat = new THREE.Quaternion();
   const barrelAxis = new THREE.Vector3(1, 0, 0);
+  const flipAxis = new THREE.Vector3(0, 0, 1);
   const barrelUp = new THREE.Vector3();
   const barrelPivot = new THREE.Vector3();
   const pos = new THREE.Vector3();
@@ -5326,6 +5384,22 @@ export function createTraffic(
    * cannot disagree; a closure, a flee or a veto drops it and re-rolls under the
    * conditions that hold at the line.
    */
+  /**
+   * The drawbridge gate's say on the taxi's next turn, when that turn is onto the shut span — see
+   * MEGA_AIR_HEIGHT and `gate` in game/drawbridge.js. Null for anything else, including a span that
+   * is open, which is just a road.
+   */
+  function stuntVerdict(car) {
+    if (!bridgeStunt || car !== taxi || !car.route?.length) return null;
+    const onto = exitToward(net, car.lane, car.route[0]);
+    if (!onto || !bridgeStunt.laneIds.has(onto.outLane) || !hardClosed(onto.outLane)) return null;
+    // The far bank has to carry straight on, because the flight crosses its junction in the air.
+    const deck = net.laneById.get(onto.outLane);
+    const ahead = deck?.exits.map((id) => net.turnById.get(id)).find((tn) => tn.hand === 'straight');
+    if (!ahead) return { turn: onto, verdict: 'refuse' };
+    return { turn: onto, ahead, verdict: bridgeStunt.gate(car) };
+  }
+
   function intentFor(car) {
     if (car.route?.length) return exitToward(net, car.lane, car.route[0]);
     if (car.intentLane !== car.lane.id) {
@@ -5353,10 +5427,10 @@ export function createTraffic(
   // by anything that has not already imported the river.
   const landListeners = [];
 
-  function emitLand(car, big = false) {
+  function emitLand(car, big = false, kind = null) {
     if (!landListeners.length) return;
     const event = {
-      x: car.x, z: car.z, yaw: car.yaw, v: car.v, deck: deckHeightAt(car.x, car.z).y, big,
+      x: car.x, z: car.z, yaw: car.yaw, v: car.v, deck: deckHeightAt(car.x, car.z).y, big, kind,
     };
     for (const cb of landListeners) cb(event);
   }
@@ -6700,7 +6774,9 @@ export function createTraffic(
         // car brakes for it. Only worth asking once the line is inside braking range — outside it
         // `allowed = distToLine` is a ceiling above the speed the car is already doing, so the
         // answer cannot change anything and the scan is pure cost.
-        if (distToLine <= (car.v * car.v) / (2 * brake()) + 2 && entryRefused(car)) {
+        // The drawbridge's gate holds the taxi at the line the same way, so it brakes for it.
+        if (distToLine <= (car.v * car.v) / (2 * brake()) + 2
+          && (entryRefused(car) || (car === taxi && stuntVerdict(car)?.verdict === 'hold'))) {
           allowed = Math.min(allowed, Math.max(0, distToLine));
           stopRoom = Math.min(stopRoom, Math.max(0, distToLine));
         }
@@ -6873,6 +6949,29 @@ export function createTraffic(
             green = true;
             viaRightOnRed = false;
             viaChaseOnRed = arrive.signalised;
+          }
+
+          // The drawbridge gate (see MEGA_AIR_HEIGHT). 'hold' is a red; 'go' is a green whatever the
+          // junction says, because the boosting taxi barges anyway and the leaf will not wait;
+          // 'pass' crosses the deck as a road while the arms are still up. 'refuse' falls through to
+          // the refusal below, which drops the route.
+          const stunt = car === taxi ? stuntVerdict(car) : null;
+          if (stunt?.verdict === 'hold') {
+            green = false;
+            viaRightOnRed = false;
+            viaChaseOnRed = false;
+          } else if (stunt && (stunt.verdict === 'go' || stunt.verdict === 'pass')) {
+            car.stuntLane = stunt.turn.outLane;
+            car.stuntCycle = bridgeStunt.cycle();
+            if (stunt.verdict === 'go') {
+              green = true;
+              viaRightOnRed = false;
+              car.stuntGo = true;
+              // Straight on at the far bank whatever the route wanted there: the flight crosses it.
+              // main.js re-plans from wherever the taxi comes down.
+              car.route = [car.route[0], net.dirOfLane(net.laneById.get(stunt.ahead.outLane))];
+              bridgeStunt.knock(stunt.turn.outLane);
+            }
           }
 
           let chosen = null;
@@ -7377,6 +7476,33 @@ export function createTraffic(
       // Keyed to the lane so one crossing is one jump. Without it the car lands still inside the
       // launch window and immediately goes again, which is a taxi skipping across the river like a
       // stone.
+      // --- Up the drawbridge's leaf ----------------------------------------
+      //
+      // The gate said go (see MEGA_AIR_HEIGHT), and the taxi is on the deck lane now. The arc is
+      // measured here rather than fixed: from where the taxi is to `MEGA_AIR_PAST` into the street
+      // beyond the far bank, which differs by the junction's width. And it leaves at Loco's top
+      // speed whatever it had built up from the line — a distance-paced arc flown at a crawl is a
+      // taxi hanging over the river, and the hop's floor would land it in the channel.
+      if (car === taxi && car.stuntGo && car.state === 'drive' && car.hopFrom == null
+        && car.lane.id === car.stuntLane && bridgeStunt) {
+        car.stuntGo = false;
+        const hinge = bridgeStunt.hingeFor(car.lane.id);
+        const ahead = car.lane.exits.map((id) => net.turnById.get(id)).find((tn) => tn.hand === 'straight');
+        const beyond = ahead && net.laneById.get(ahead.outLane);
+        if (hinge && beyond) {
+          const land = beyond.path.at(0).z + hinge.dir * MEGA_AIR_PAST;
+          car.v = Math.max(car.v, overdriveTop());
+          launchHop(car, true);
+          car.hopKind = 'bridge';
+          car.hopLen = Math.abs(land - car.z);
+          car.stuntHinge = hinge.z;
+          car.stuntDir = hinge.dir;
+          car.stuntLand = land;
+          car.stuntTip = null;
+          car.archHopLane = car.lane.id;
+        }
+      }
+
       if (car.isTaxi && car.boost && car.state === 'drive' && car.hopFrom == null
         && (!hopFloorOn || car.v >= HOP_MIN_V)) {
         // `toCrest` is signed in +z and the span runs along Z, so `dirSign` turns it into a
@@ -7705,8 +7831,15 @@ export function createTraffic(
       let airY = 0;
       let airPitch = 0;
       let barrel = 0;
+      let flip = 0;
+      // Riding the drawbridge's leaf up to its tip. Kept apart from `airY`/`airPitch` because the
+      // body is *on* a surface here, like the arch's deck: the sagitta lift below is for a pitch the
+      // road under the car does not share, and the leaf does share it.
+      let rampY = 0;
+      let rampPitch = 0;
       if (car.hopFrom != null) {
         const big = car.hopBig === true;
+        const bridge = car.hopKind === 'bridge';
         // The floor (see HOP_FLOOR_V): whatever the car fell short of the floor's pace this frame is
         // taken off the launch point, so every reader of the arc — `hopProgress` included — sees
         // the same progress without knowing the floor exists.
@@ -7715,11 +7848,13 @@ export function createTraffic(
           if (short > 0) car.hopFrom -= short;
         }
         car.hopSeenAt = car.travelled;
-        const u = (car.travelled - car.hopFrom) / (big ? DRIFT_LAUNCH_LEN : HOP_LEN);
+        const u = (car.travelled - car.hopFrom) / hopLenOf(car);
         if (u >= 1) {
           car.hopFrom = null;
           car.hopBig = false;
+          car.hopKind = null;
           car.hopSeenAt = null;
+          car.stuntAir = 0;
           // Touchdown, and the only frame that can see it. Hand the landing to the bounce, load the
           // suspension, and tell anything outside the sim that it happened — see `onTaxiLand`.
           car.bounceT = 0;
@@ -7727,7 +7862,29 @@ export function createTraffic(
           car.pitchV -= BOUNCE_PITCH * car.bounceGain;
           // Where Big Air came down, for Crushin' It's window past it (sim/collisions.js `crushing`).
           if (big) car.slamAt = car.travelled;
-          if (car.isTaxi) emitLand(car, big);
+          if (car.isTaxi) emitLand(car, big, bridge ? 'bridge' : null);
+        } else if (bridge) {
+          // Horizontal distance from the leaf's hinge, live angle: the leaf is still rising.
+          const th = bridgeStunt ? bridgeStunt.angle() : 0;
+          const reach = (bridgeStunt?.leafLen ?? 0) * Math.cos(th);
+          const h = (car.z - car.stuntHinge) * car.stuntDir;
+          if (car.stuntTip == null && h < reach) {
+            rampY = Math.max(0, h) * Math.tan(th);
+            rampPitch = h > 0 ? th : 0;
+          } else {
+            // Off the tip: from its height and angle into an arc that peaks at MEGA_AIR_HEIGHT and
+            // comes down at road level past the far bank. Steeper than the leaf at the lip, which
+            // is the kick — on a 30-degree ramp the true projectile apex is ~5 units, and that is a
+            // hop over a river rather than the biggest thing the taxi does.
+            car.stuntTip ??= { h: Math.max(reach, h), y: (bridgeStunt?.leafLen ?? 0) * Math.sin(th), th };
+            const tip = car.stuntTip;
+            const span = Math.max(1e-6, (car.stuntLand - car.stuntHinge) * car.stuntDir - tip.h);
+            const v = Math.min(1, Math.max(0, (h - tip.h) / span));
+            airY = tip.y * (1 - v) + MEGA_AIR_HEIGHT * Math.sin(Math.PI * v);
+            airPitch = tip.th * Math.cos(Math.PI * v);
+            flip = megaFlipAt(v);
+          }
+          car.stuntAir = airY + rampY;
         } else {
           airY = (big ? DRIFT_LAUNCH_HEIGHT : HOP_HEIGHT) * Math.sin(Math.PI * u);
           // Nose up as it leaves the ramp, level at the apex, nose down into the landing. Positive
@@ -7769,9 +7926,9 @@ export function createTraffic(
       const ahead = CAR_LEN / 2;
       const nose = deckHeightAt(car.x + Math.cos(car.yaw) * ahead, car.z - Math.sin(car.yaw) * ahead);
       const tail = deckHeightAt(car.x - Math.cos(car.yaw) * ahead, car.z + Math.sin(car.yaw) * ahead);
-      const deckY = (nose.y + tail.y) / 2;
+      const deckY = (nose.y + tail.y) / 2 + rampY;
       // Positive is nose-up, the same sense as `locoWheelie` and the ramp's `airPitch`.
-      const deckPitch = Math.atan2(nose.y - tail.y, 2 * ahead);
+      const deckPitch = Math.atan2(nose.y - tail.y, 2 * ahead) + rampPitch;
 
       // A pothole, faked. game/flatbed.js writes these on the one truck it owns to jolt it over
       // bumps that are not in the road; render-only like everything else in this block, and 0 (or
@@ -7783,6 +7940,7 @@ export function createTraffic(
       car.shownLift = airY + deckY;
       car.shownPitch = shownPitch;
       car.shownBarrel = barrel;
+      car.shownFlip = flip;
 
       // Roll and pitch both pivot on the car's origin at road level, so tilting drives one edge
       // underground. Lifting by the sagitta of each keeps the low edge on the tarmac and reads as
@@ -7809,6 +7967,14 @@ export function createTraffic(
           // Then the position moves by however far that swung BARREL_PIVOT, so the pivot stays put.
           barrelUp.set(0, BARREL_PIVOT, 0).applyQuaternion(taxiGroup.quaternion);
           taxiGroup.quaternion.multiply(barrelQuat.setFromAxisAngle(barrelAxis, barrel));
+          barrelPivot.set(0, BARREL_PIVOT, 0).applyQuaternion(taxiGroup.quaternion);
+          taxiGroup.position.add(barrelUp).sub(barrelPivot);
+        }
+        if (flip !== 0) {
+          // The bridge jump's front flip: the same post-multiplied turn about the same pivot, about
+          // the body's own lateral axis (local Z) instead of its long one. Negative is nose over.
+          barrelUp.set(0, BARREL_PIVOT, 0).applyQuaternion(taxiGroup.quaternion);
+          taxiGroup.quaternion.multiply(barrelQuat.setFromAxisAngle(flipAxis, flip));
           barrelPivot.set(0, BARREL_PIVOT, 0).applyQuaternion(taxiGroup.quaternion);
           taxiGroup.position.add(barrelUp).sub(barrelPivot);
         }

@@ -40,6 +40,10 @@ export const COMBO_STEPS = {
   // By chain tier, 1-based.
   drift: { label: ['Drift', 'Drift ×2', 'Drift ×3'], step: [0.5, 1, 1.5] },
   launch: { label: 'Big Air', step: 2 },
+  // Jumping the drawbridge while its leaves are rising (game/drawbridge.js). A step over Big Air:
+  // it needs a fare across the river during a ~3-second slice of a lift that comes round about
+  // once a minute, so it is the rarest thing on this list and is paid like it.
+  megaair: { label: 'Mega Air', step: 3 },
   // Smashing through a roadworks barricade (game/roadwork.js). A whole step rather than a half: it
   // comes at most once or twice a run, the site is up for one stretch of it, and getting a fare's
   // route through it is the work — the smash itself is the payoff for having gone there.

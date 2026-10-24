@@ -72,6 +72,20 @@ export function setBlockedLanes(ids) {
 }
 
 /**
+ * Blocked lanes the **taxi's** router may still plan through: the drawbridge's span, from the lamps
+ * starting until the jump window closes (game/drawbridge.js, `STUNT_TO`). Everybody else's router
+ * skips them like any other blocked lane; the taxi's keeps the span so that a route across the river
+ * still runs to the gate, where the taxi waits for the leaves to start up and jumps them on Loco.
+ *
+ * Keyed off the cost function rather than a flag, because that is already how this file tells the
+ * taxi apart: every service router passes `serviceLaneCost`, and only the taxi plans on `laneCost`.
+ */
+let stuntLanes = new Set();
+export function setStuntLanes(ids) {
+  stuntLanes = new Set(ids);
+}
+
+/**
  * Lanes with something parked in them, published by game/fire.js while its truck stands in one
  * and by game/garbage.js while the garbage truck is taking a pile. Keyed by who published them, the
  * way `setClosedLanes` is, so one clearing its own does not reopen the other's.
@@ -281,7 +295,8 @@ function search(net, from, reached, cost) {
     }
 
     for (const next of cur === START ? startExits(net, origin, from.d) : cur.onward) {
-      if (!laneOpen(next)) continue;      // a raised bridge is not a road — see setBlockedLanes
+      // A raised bridge is not a road — see setBlockedLanes — except to the taxi on its way to jump it.
+      if (!laneOpen(next) && !(cost === laneCost && stuntLanes.has(next.id))) continue;
       let nd = curDist + cost(next);
       const onto = cur === START ? startLane : cur;
       if (tilt && decks.has(onto) && net.dirOfLane(next) === net.dirOfLane(onto)) nd -= tilt;

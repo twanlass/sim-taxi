@@ -8,7 +8,7 @@ import { DIR } from '../city/grid.js';
 import { KERB_H } from '../city/ground.js';
 import { createBridge, abutmentParts } from '../geometry/bridge.js';
 import { setClosedLanes } from '../sim/traffic.js';
-import { setBlockedLanes } from './route.js';
+import { setBlockedLanes, setStuntLanes } from './route.js';
 import { sinkShadowCaster } from './scene.js';
 import { markEmissive, setEmissiveScale } from './bloom.js';
 
@@ -100,6 +100,24 @@ const LAMP_H = 0.2;
  */
 const HOLD_SECONDS = 20;
 
+// --- The jump ------------------------------------------------------------------
+//
+// Tyler, 2026-10-24: "what if our drawbridge split in the middle and opened up from both sides,
+// kind of creating a ramp, and then that turned into a stunt route ... super max air". So the span
+// is a **double-leaf** bascule now, each half hinged at its own bank, and while the two halves are
+// on their way up the near one is a ramp: the taxi waits at the gate, Loco sends it up the leaf, over
+// the gap and the far junction, and down in the street beyond (`hopKind: 'bridge'`, sim/traffic.js).
+// `?bridgejump=classic` keeps the single leaf and the old re-route.
+//
+// **The window is a slice of the lift, not the leaf fully up.** At 70 degrees each half is a wall.
+// Below `STUNT_FROM` it is barely off the seat and the takeoff reads as a car leaving a flat road;
+// past `STUNT_TO` the ramp is steeper than anything a car could drive up. On the smoothstepped lift
+// those are 1.4s and 4.1s into it: about 2.7 seconds of jump per cycle, which is the whole skill.
+const STUNT_FROM = THREE.MathUtils.degToRad(8);
+const STUNT_TO = THREE.MathUtils.degToRad(45);
+// How long a gate arm the taxi went through stays knocked up before it drops back.
+const ARM_KNOCK_SECONDS = 1.6;
+
 /**
  * The cycle.
  *
@@ -164,7 +182,7 @@ function stripedBar(len, dark, light) {
   return bar;
 }
 
-export function createDrawbridge(scene, rng, { replan = null, onLand = null, wet = (mesh) => mesh } = {}) {
+export function createDrawbridge(scene, rng, { replan = null, onLand = null, wet = (mesh) => mesh, stunt = true } = {}) {
   const line = drawbridgeLine();
   if (line === null) return null;
   const span = bridgeSpan(line);
@@ -182,32 +200,45 @@ export function createDrawbridge(scene, rng, { replan = null, onLand = null, wet
   const group = new THREE.Group();
   group.name = 'drawbridge';
 
-  // --- The deck, in two pieces of one profile.
+  // --- The deck.
   //
-  // The hinge sits on the near bank, so the leaf covers the whole channel and rises away from the
-  // camera: this view looks down the -x-z diagonal, so a leaf hinged at the *far* bank would come
-  // up between the player and the water it is opening, and hide the boat it opened for.
-  const hingeU = 0;
+  // Classic: one leaf hinged on the near bank, so it covers the whole channel and rises away from
+  // the camera — this view looks down the -x-z diagonal, so a leaf hinged at the *far* bank would
+  // come up between the player and the water it is opening, and hide the boat it opened for.
+  //
+  // Split (the default since the jump): two half-leaves meeting in the middle, each hinged at its
+  // own bank. The camera-side one does now stand between the player and the channel, but at half
+  // the length it stands half as tall (~7 against 10 at 70 degrees), so it hides less of the water
+  // than the one long leaf hid of the far bank — and the boat goes through the gap between them.
   const length = span.z1 - span.z0;
-
-  const leafGeo = createBridge(span, rng, { range: [hingeU, 1], abutments: false, pivotZ: 0 });
-  const leaf = new THREE.Mesh(leafGeo, propMaterial());
-  leaf.castShadow = true;
-  leaf.receiveShadow = true;
-  // Same shell as a fixed span — flat rather than arched, and it self-shadowed just the same, in a
-  // band down the carriageway. See `sinkShadowCaster` (game/scene.js).
-  sinkShadowCaster(leaf);
-  // Wet in the rain like the road it carries (`wetGround` in game/rain.js). Flat, so it needs no
-  // deck profile: lowered, its carriageway is at road level; raised, it is a wall, and the shader's
-  // own slope test dries it.
-  wet(leaf);
-  leaf.name = 'drawbridge-leaf';
-
-  // The pivot carries the leaf; the leaf's own geometry is built with its hinge on the origin.
-  const pivot = new THREE.Group();
-  pivot.position.set(span.cx, 0, span.z0);
-  pivot.add(leaf);
-  group.add(pivot);
+  const split = stunt;
+  const leaves = [];
+  const pivots = [];
+  const halves = split ? [[0, 0.5, 0, span.z0], [0.5, 1, length, span.z1]] : [[0, 1, 0, span.z0]];
+  for (const [from, to, pivotZ, hingeZ] of halves) {
+    const geo = createBridge(span, rng, { range: [from, to], abutments: false, pivotZ });
+    const leaf = new THREE.Mesh(geo, propMaterial());
+    leaf.castShadow = true;
+    leaf.receiveShadow = true;
+    // Same shell as a fixed span — flat rather than arched, and it self-shadowed just the same, in
+    // a band down the carriageway. See `sinkShadowCaster` (game/scene.js).
+    sinkShadowCaster(leaf);
+    // Wet in the rain like the road it carries (`wetGround` in game/rain.js). Flat, so it needs no
+    // deck profile: lowered, its carriageway is at road level; raised, it is a wall, and the
+    // shader's own slope test dries it.
+    wet(leaf);
+    leaf.name = 'drawbridge-leaf';
+    // The pivot carries the leaf; the leaf's own geometry is built with its hinge on the origin.
+    const pivot = new THREE.Group();
+    pivot.position.set(span.cx, 0, hingeZ);
+    pivot.add(leaf);
+    group.add(pivot);
+    leaves.push(leaf);
+    pivots.push(pivot);
+  }
+  const leaf = leaves[0];
+  // How far each leaf reaches from its hinge: the ramp the taxi drives up.
+  const leafLen = length / leaves.length;
 
   // The abutments and the machinery house stay where they are, whatever the leaf is doing.
   const staticParts = [];
@@ -225,13 +256,17 @@ export function createDrawbridge(scene, rng, { replan = null, onLand = null, wet
   // The counterweight house on the hinge bank: the thing a bascule needs, and the thing that says
   // *this* span is the one that moves before it has ever moved. One either side of the deck, clear
   // of the leaf's swing.
-  for (const sign of [-1, 1]) {
-    const house = new THREE.BoxGeometry(1.6, 2.6, 2.2);
-    house.translate(span.cx + sign * (span.outer + 0.8), 1.3, span.z0 - 0.4);
-    staticParts.push(bakeColor(house, houseCol));
-    const cap = new THREE.BoxGeometry(1.9, 0.24, 2.5);
-    cap.translate(span.cx + sign * (span.outer + 0.8), 2.6 + 0.12, span.z0 - 0.4);
-    staticParts.push(bakeColor(cap, trimCol));
+  // Split, each bank hinges a leaf and gets a pair of its own.
+  const houseAt = split ? [[span.z0, -0.4], [span.z1, 0.4]] : [[span.z0, -0.4]];
+  for (const [hz, off] of houseAt) {
+    for (const sign of [-1, 1]) {
+      const house = new THREE.BoxGeometry(1.6, 2.6, 2.2);
+      house.translate(span.cx + sign * (span.outer + 0.8), 1.3, hz + off);
+      staticParts.push(bakeColor(house, houseCol));
+      const cap = new THREE.BoxGeometry(1.9, 0.24, 2.5);
+      cap.translate(span.cx + sign * (span.outer + 0.8), 2.6 + 0.12, hz + off);
+      staticParts.push(bakeColor(cap, trimCol));
+    }
   }
 
   const shell = new THREE.Mesh(mergeGeometries(staticParts, false), propMaterial());
@@ -302,6 +337,8 @@ export function createDrawbridge(scene, rng, { replan = null, onLand = null, wet
     barrier: 0,     // 0 up (out of the way), 1 down across the road
     requested: false,
     flash: -1,      // seconds the warning lamps have been running, or -1 while they are dark
+    cycle: 0,       // counts lifts, so a jump the gate let through belongs to one cycle only
+    knocked: [-1, -1], // seconds since the taxi went through each arm, or -1
   };
 
   const smooth = (t) => t * t * (3 - 2 * t);
@@ -312,6 +349,16 @@ export function createDrawbridge(scene, rng, { replan = null, onLand = null, wet
     return !cars.some((car) => ids.has(car.lane?.id) || ids.has(car.turn?.outLane));
   }
 
+  const angle = () => state.lift * LIFT_ANGLE;
+
+  /**
+   * Can the taxi's router still plan over the span? From the lamps starting until the leaves pass
+   * `STUNT_TO`: a route across the river runs on to the gate, and the taxi waits there for the jump.
+   */
+  const plannable = () => stunt && (state.phase === 'clearing' || state.phase === 'closing'
+    || (state.phase === 'lifting' && angle() <= STUNT_TO));
+  let wasPlannable = false;
+
   function publish() {
     // Shut to ambient traffic and impassable to the router the moment the lamps start — before the
     // barriers start down, and well before the leaf moves. `clearing` comes first, and its whole job
@@ -319,6 +366,39 @@ export function createDrawbridge(scene, rng, { replan = null, onLand = null, wet
     const shut = SHUT.has(state.phase);
     setClosedLanes(shut ? laneIds : [], 'drawbridge');
     setBlockedLanes(shut ? laneIds : []);
+    wasPlannable = plannable();
+    setStuntLanes(wasPlannable ? laneIds : []);
+  }
+
+  /**
+   * The gate's answer to a taxi whose route goes onto the shut span, asked at its hold line (and on
+   * the approach, so it brakes for a hold rather than stopping dead): sim/traffic.js `stuntVerdict`.
+   *
+   *   'pass'   the lamps are going but the arms are up: cross like a road, the deck waits for you
+   *   'hold'   wait at the line: the arms are down, the leaves not up yet, or Loco is not held
+   *   'go'     up the near leaf and over
+   *   'refuse' too late — the leaves are past a ramp. The route is dropped and re-planned round.
+   */
+  function gate(car) {
+    if (!stunt) return 'refuse';
+    switch (state.phase) {
+      case 'clearing': return 'pass';
+      case 'closing': return 'hold';
+      case 'lifting': {
+        const a = angle();
+        if (a > STUNT_TO) return 'refuse';
+        return a >= STUNT_FROM && car.boost ? 'go' : 'hold';
+      }
+      default: return 'refuse';
+    }
+  }
+
+  /** Where the leaf the taxi drives up is hinged, for a car on `laneId`. */
+  function hingeFor(laneId) {
+    const end = laneIds.indexOf(laneId);
+    if (end < 0) return null;
+    // laneIds[0] runs +z, so it climbs the leaf hinged on the z0 bank.
+    return { end, z: end === 0 ? span.z0 : span.z1, dir: end === 0 ? 1 : -1 };
   }
 
   function enter(phase) {
@@ -327,12 +407,22 @@ export function createDrawbridge(scene, rng, { replan = null, onLand = null, wet
     publish();
     // Re-plan on the way in, not on the way out. A taxi whose route crosses this span has to be
     // given a new one while it still has road to turn off on.
-    if (phase === 'clearing') replan?.();
+    if (phase === 'clearing') {
+      state.cycle += 1;
+      replan?.();
+    }
   }
 
   function pose() {
-    leaf.rotation.x = -state.lift * LIFT_ANGLE;
-    for (const arm of barriers) arm.rotation.z = BARRIER_DROP * (1 - state.barrier);
+    // The near leaf turns about -x to rise toward +z; the far one, hinged at z1, the other way.
+    leaves.forEach((one, k) => { one.rotation.x = (k === 0 ? -1 : 1) * state.lift * LIFT_ANGLE; });
+    barriers.forEach((arm, k) => {
+      // An arm the taxi went through is flung up and comes back down after ARM_KNOCK_SECONDS — the
+      // barricade smash, minus the barricade.
+      const t = state.knocked[k];
+      const knock = t < 0 ? 0 : t < 0.12 ? t / 0.12 : Math.max(0, 1 - (t - ARM_KNOCK_SECONDS) / 0.5);
+      arm.rotation.z = BARRIER_DROP * (1 - state.barrier * (1 - knock));
+    });
     // Alternating: the first lamp on each arm lights on the first half of the period and the second
     // on the other half, and both arms flash in step so the pair across the road read as one signal.
     // A hard switch rather than a fade, because a fade at this rate spends most of its time at
@@ -356,6 +446,7 @@ export function createDrawbridge(scene, rng, { replan = null, onLand = null, wet
 
   function update(dt, cars = []) {
     state.t += dt;
+    state.knocked = state.knocked.map((t) => (t < 0 || t > ARM_KNOCK_SECONDS + 0.5 ? -1 : t + dt));
     // Counted from the moment they come on, so the first lamp always lights first rather than
     // whichever one the clock happens to land on.
     state.flash = flashing() ? (state.flash < 0 ? 0 : state.flash + dt) : -1;
@@ -381,6 +472,13 @@ export function createDrawbridge(scene, rng, { replan = null, onLand = null, wet
         break;
       case 'lifting':
         state.lift = smooth(Math.min(1, state.t / LIFT_SECONDS));
+        // The jump window closing is a change to the network as far as the taxi's router is
+        // concerned: the span stops being plannable, so a taxi still routed over it — waiting at
+        // the gate, or on its way — is given the way round now rather than at the gate.
+        if (wasPlannable && !plannable()) {
+          publish();
+          replan?.();
+        }
         if (state.t >= LIFT_SECONDS) enter('up');
         break;
       case 'up':
@@ -426,12 +524,30 @@ export function createDrawbridge(scene, rng, { replan = null, onLand = null, wet
   return {
     group,
     leaf,
+    leaves,
     /** The gates' warning lamps, two per arm in arm order. Exposed for tools/probe.mjs. */
     lamps,
     state,
     line,
     span,
     laneIds,
+    /**
+     * The jump, for sim/traffic.js (`setBridgeStunt`), or null with `?bridgejump=classic`.
+     * `angle` is live: the leaf keeps rising under a taxi riding up it.
+     */
+    stunt: stunt ? {
+      laneIds: new Set(laneIds),
+      leafLen,
+      gate,
+      angle,
+      hingeFor,
+      cycle: () => state.cycle,
+      /** The taxi went through the arm at the bank it entered from. */
+      knock(laneId) {
+        const h = hingeFor(laneId);
+        if (h) state.knocked[h.end] = 0;
+      },
+    } : null,
     /** Ask for the leaf. Idempotent while a cycle is already running. */
     request() { state.requested = true; },
     /** The boat is through; come back down. */
@@ -444,6 +560,7 @@ export function createDrawbridge(scene, rng, { replan = null, onLand = null, wet
     dispose() {
       setClosedLanes([], 'drawbridge');
       setBlockedLanes([]);
+      setStuntLanes([]);
     },
   };
 }
@@ -457,4 +574,4 @@ export function createDrawbridge(scene, rng, { replan = null, onLand = null, wet
  */
 export const OPEN_SECONDS = BARRIER_SECONDS + LIFT_SECONDS;
 
-export { PHASES, LIFT_ANGLE, WATER_Y, KERB_H, RAIL_W };
+export { PHASES, LIFT_ANGLE, STUNT_FROM, STUNT_TO, WATER_Y, KERB_H, RAIL_W };

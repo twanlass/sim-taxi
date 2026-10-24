@@ -44,7 +44,7 @@ import {
   createTraffic, placeCar, TRUCK_CHANCE, CLASSIC_CHANCE, TRUCK_LEN, TRUCK_W, laysPassRubber, copLaysRubber, SPEED,
   ROAD_Y, CAR_LEN, CAR_W, wheelAnchors,
   boostCruise, locoTuning, setLocoTuning, resetLocoTuning, locoRamp, LOCO_DEFAULTS, driftTaxi, kickDrift, driftHolds, DRIFT_CHAIN,
-  onDriftLaunch, hopProgress, setSpinStyle, setBarrelRoll, setPassTurnGate, setPassPace, setHopStyle, setDodge, setOvertakeStyle,
+  onDriftLaunch, hopProgress, setSpinStyle, setBarrelRoll, setBridgeStunt, setPassTurnGate, setPassPace, setHopStyle, setDodge, setOvertakeStyle,
   configureSignals, setGrip, setRunningLights, setRunningLightsAt, runningLightsAt, isLaneClosed,
 } from './sim/traffic.js';
 import { createCollisions, TAXI_HP, setCrush } from './sim/collisions.js';
@@ -1927,8 +1927,12 @@ const leaves = fall && squall ? createLeaves(scene, makeRng(runSeed + 337), prop
 // `replan` is the callback shape `pathdrag` uses for the same reason: main.js owns `routeTo`, and
 // a module that reached in to assign `car.route` itself would skip everything else that function
 // does to a route already part-driven.
+// Split down the middle, and the leaves on their way up are a ramp the taxi can jump: Mega Air (see
+// `gate` in game/drawbridge.js). `?bridgejump=classic` is the one long leaf and the old re-route.
+const bridgeJump = new URLSearchParams(window.location.search).get('bridgejump') !== 'classic';
 const drawbridge = createDrawbridge(scene, makeRng(seed + 66), {
   wet: rain.wetGround,
+  stunt: bridgeJump,
   // The leaf coming home is the one moment in the cycle with an impact in it, and it was landing in
   // silence. A puff at each abutment, out of the same pool the roadworks smash and the boosting
   // taxi both throw — a bridge dropping a hundred tonnes onto a stone seat kicks up what a car
@@ -1951,6 +1955,7 @@ const drawbridge = createDrawbridge(scene, makeRng(seed + 66), {
   },
 });
 if (drawbridge) bindRiverDrawbridge(() => drawbridge.state.lift);
+setBridgeStunt(drawbridge?.stunt ?? null);
 
 // Traffic on the river, and the thing that asks the span to lift — see game/boats.js. Run seed,
 // unlike the bridge itself: a barge every twenty seconds or so and a tug every minute and a half
@@ -2022,7 +2027,10 @@ streetProps.onSmash(({ kind }) => {
 // At 0 it is exactly what the barricade landing has always been (14 puffs at 0.7, a 0.7 shake);
 // at 1 it is half again as much and still under the barricade *smash*'s 1.1, which is the beat it
 // must not upstage on the one ramp where the two happen a second apart.
-traffic.onTaxiLand(({ x, z, yaw, v, deck, big }) => {
+traffic.onTaxiLand(({ x, z, yaw, v, deck, big, kind }) => {
+  // Over the drawbridge the route was bent straight on at the far bank so the flight could cross
+  // it (sim/traffic.js, `stuntVerdict`). Plan the rest of the trip from where the taxi came down.
+  if (kind === 'bridge' && traffic.taxi.pendingTarget) routeTo(traffic.taxi.pendingTarget);
   // `boostCruise()` rather than a constant: the Loco top is a tunable (the ⚙️ panel moves it), and
   // a landing measured against a number that has stopped being the top speed reads wrong at both
   // ends of the slider.
@@ -2032,7 +2040,7 @@ traffic.onTaxiLand(({ x, z, yaw, v, deck, big }) => {
   // the range, a body thud under the tyres' land, and the dust thrown out in a ring the way the
   // helipad's downdraft is, which is what reads as weight arriving rather than exhaust.
   if (big) {
-    if (!fares.state.gameOver) landCombo('launch');
+    if (!fares.state.gameOver) landCombo(kind === 'bridge' ? 'megaair' : 'launch');
     if (bigAirFuel && !fares.state.gameOver) {
       flyEnergyToBoost({
         from: taxiScreenPos,
@@ -2508,7 +2516,10 @@ let slowMoMin = SLOW_MO_MIN;
 // wreck's, so it cannot outlive the flight, and full speed at both ends: the takeoff keeps its
 // punch and the slam comes down at real time, which is the half that has to hit hard.
 const LAUNCH_SLOW_MO_MIN = 0.4;
-const launchTimeScale = (u) => 1 - (1 - LAUNCH_SLOW_MO_MIN) * Math.sin(Math.PI * u) ** 2;
+// Mega Air, off the drawbridge, hangs longer: its flight is ~25 units against twenty and it has a
+// whole front flip to show, so the bottom of the curve goes lower rather than the curve going longer.
+const MEGA_SLOW_MO_MIN = 0.28;
+const launchTimeScale = (u, min = LAUNCH_SLOW_MO_MIN) => 1 - (1 - min) * Math.sin(Math.PI * u) ** 2;
 
 // The wreck's replay (game/replay.js): after the live beat, three quick cuts on the moment of
 // impact from a recording, then the retry card. The live beat is shortened to make room for it —
@@ -6507,7 +6518,8 @@ function tick() {
     const t = 1 - (slowMoUntil - nowMs) / SLOW_MO_DURATION;
     dt *= slowMoMin + (1 - slowMoMin) * t;
   } else if (onDriftLaunch(traffic.taxi)) {
-    dt *= launchTimeScale(hopProgress(traffic.taxi));
+    dt *= launchTimeScale(hopProgress(traffic.taxi),
+      traffic.taxi.hopKind === 'bridge' ? MEGA_SLOW_MO_MIN : LAUNCH_SLOW_MO_MIN);
   }
   simClock += dt;
 
@@ -8288,6 +8300,8 @@ window.__taxi = {
   pause,
   routeTo,
   findRoute,
+  // The lifting span, so a reel or a hand test can ask for a lift and stage the Mega Air jump.
+  drawbridge,
   findRouteVia,
   /** The route-band drag, for `tools/smoke.mjs`: `isGrabbing`, `didDrag`, `via`. */
   pathDrag,
