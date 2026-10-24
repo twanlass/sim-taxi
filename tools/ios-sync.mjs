@@ -51,7 +51,10 @@ const EXCLUDE = new Set(['lab', 'talk', 'sw.js']);
  * this stops matching, the silence would read exactly like success — so the report below always
  * says what went and what stayed.
  */
-const EXCLUDE_ASSET = /^(lab|talk)-[^/]*\.js$/;
+// The talk's lazy chunks and their payload ride in `assets/` beside the game's: its entry and
+// stylesheet, the Dr Pepper cans (with cannon-es inside), the in-game title text, the slide-2 photo,
+// and the Inter faces its slides are set in. The game is set in Space Grotesk and loads none of them.
+const EXCLUDE_ASSET = /^(?:(?:lab|talk|cans|scenetext|tyler-kid)-[^/]*\.(?:js|css|png)|inter-[a-z-]+-wght-normal-[^/]*\.woff2)$/;
 
 if (!existsSync(SRC)) {
   console.error('No dist/ — run `vite build` first (or use `npm run build:ios`, which does both).');

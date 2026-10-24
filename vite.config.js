@@ -36,7 +36,10 @@ export default defineConfig({
         // on the road it was driving. Rollup already keeps every entry module in its own entry
         // chunk; the moment a rule here overrides that, an import turns into a boot. Anything
         // under `src/` is off limits to this function.
-        manualChunks: (id) => (id.includes('node_modules') ? 'vendor' : undefined),
+        // three.js only, by path. Everything else in node_modules is the talk's (the can physics,
+        // the Inter font, React for the forest demo), and sweeping it into `vendor` too put
+        // cannon-es in the chunk every player of the game downloads.
+        manualChunks: (id) => (id.includes('node_modules/three/') ? 'vendor' : undefined),
       },
     },
   },
