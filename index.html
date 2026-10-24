@@ -1651,11 +1651,28 @@
         border: 1px solid transparent; padding: 12px 15px;
         background:
           linear-gradient(rgba(255, 255, 255, 0.58), rgba(255, 255, 255, 0.58)) padding-box,
+          linear-gradient(90deg, rgba(255, 255, 255, 0), rgba(255, 255, 255, 0.9), rgba(255, 255, 255, 0))
+            0 0 / 32% 1px no-repeat border-box,
           linear-gradient(135deg, rgba(255, 255, 255, 0.95) 0%, rgba(255, 255, 255, 0.2) 30%,
             rgba(255, 255, 255, 0.12) 65%, rgba(255, 255, 255, 0.55) 100%) border-box;
         -webkit-backdrop-filter: blur(20px) saturate(1.8) brightness(1.08);
         backdrop-filter: blur(20px) saturate(1.8) brightness(1.08);
         box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.45), 0 6px 20px rgba(16, 18, 26, 0.24);
+        animation: speech-rim-glint 6s ease-in-out 0.6s infinite;
+      }
+      /* A glint that slowly traces the top rim (Tyler, 2026-10-24: "really subtle but nice"): the
+         middle background layer, a 1px strip a third of the card wide, slid left to right along
+         the border's top row. It lives in the border, which the fill layer above it covers
+         everywhere else, so it can only ever light the rim, and the card's radius clips it as it
+         rounds each corner — that is the fade in and out. A background rather than a pseudo-element
+         because the docked card is `overflow: hidden`, which clips children to the padding box and
+         would cut a pseudo-element off the border. 2.6s to cross, then 3.4s of rest: a constant
+         sweep reads as a loading shimmer. Only the middle position moves; the other two layers are
+         listed because `background-position` is set for all three at once. */
+      @keyframes speech-rim-glint {
+        0% { background-position: 0 0, -60% 0, 0 0; }
+        43% { background-position: 0 0, 160% 0, 0 0; }
+        100% { background-position: 0 0, 160% 0, 0 0; }
       }
       .speech-style-white.speech-liquid .speech-title { color: rgba(16, 18, 26, 0.58); }
       /* The thing a line is about — "{garage}" in the line's source, game/speech.js `parseLine`.
@@ -1748,7 +1765,7 @@
       }
       @keyframes speech-quest-hop { 0%, 55%, 100% { transform: none; } 20% { transform: translateY(-2.5px) rotate(-6deg); } 38% { transform: translateY(0.5px) rotate(3deg); } }
       @media (prefers-reduced-motion: reduce) {
-        .speech-tag i, .speech-tag b, .speech-hl.is-said { animation: none; }
+        .speech-tag i, .speech-tag b, .speech-hl.is-said, .speech-style-white.speech-liquid .speech-card { animation: none; }
         .speech-docked > .speech > .speech-body, .speech-docked.is-open > .speech > .speech-body,
         .speech-docked.is-closing > .speech > .speech-body, .speech-tag-body { transform: none; }
       }

@@ -422,7 +422,7 @@ saying who is talking over a bold line), at the HUD's ×0.652.
 **Docked, with a tag on the talker.** The card is liquid glass: a 58% white over a heavy blur (20px,
 saturation and brightness lifted, so the city behind reads as a soft wash of colour rather than
 street), black type, a soft shadow, and a 1px rim that glints brightest at the top-left corner and a
-little at the bottom-right. The tag on the talker stays an opaque white disc with a dark outline.
+little at the bottom-right, with a faint glint that slowly traces the top rim every 6 seconds. The tag on the talker stays an opaque white disc with a dark outline.
 `?bubbleglass=classic` is the near-opaque white card it replaced. The thing a line is about — the garage, the rider, the race — is written `{garage}`
 in its source and called out in yellow type with a black outline (bare yellow on white is
 unreadable; the outline is what carries it), with one wiggle as its last letter lands.
