@@ -72,37 +72,12 @@
          and stops drawing. Opacity, not a transparent colour: a redraw on resize reads the colour
          back off these elements, and the first cut repainted the title in transparent ink. */
       .title.in-scene h1, .title.in-scene .byline { opacity: 0; }
-      .split { display: grid; grid-template-columns: 1.3fr 1fr; align-items: center; gap: 5vw; }
-      .stack { display: grid; grid-template-rows: auto 1fr; gap: 4vh; padding-top: 8vh; padding-bottom: 8vh; }
-      .row { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: 2vw; }
-      /* A stand-in for a photo or a video that hasn't been dropped in yet. */
-      .ph {
-        display: grid; place-content: center; text-align: center; padding: 2vw;
-        min-height: 30vh; height: 100%; border-radius: 1.6vw;
-        border: 2px dashed #c3ccd5; background: #f4f6f8; color: #8a96a2;
-        font-size: clamp(13px, 1.2vw, 18px); font-weight: 600;
-      }
-      .split .ph { height: 70vh; }
       /* A playable game on a slide: loaded when the slide comes up, unloaded when it goes. */
       .demo { display: grid; gap: 1.2vh; justify-items: center; }
       .demo iframe {
         width: 100%; height: 66vh; border: 0; border-radius: 1.6vw; background: #222;
         box-shadow: 0 2vh 4vh rgba(0, 0, 0, 0.18);
       }
-      /* A 16:9 scene fills the column's width at its own shape rather than letterboxing in 66vh. */
-      .demo iframe.wide { height: auto; aspect-ratio: 16 / 9; }
-      /* A whole-page tool under a slide heading: the frame takes the rest of the slide. */
-      .demo.full { grid-template-rows: 1fr auto; min-height: 0; }
-      .demo.full iframe { height: 100%; min-height: 0; }
-      /* A looping clip; the placeholder under it shows until the file exists. */
-      .vid { display: grid; }
-      .vid > * { grid-area: 1 / 1; }
-      .vid video {
-        width: 100%; max-height: 70vh; border-radius: 1.6vw; background: #000;
-        box-shadow: 0 2vh 4vh rgba(0, 0, 0, 0.18);
-      }
-      .vid video:not(.loaded) { visibility: hidden; }
-      .vid video.loaded + .ph { display: none; }
       /* Then and now: the first build (abfb86a9, prebuilt into public/talk/first/) over today's
          game, both under the same fixed camera; the first is clipped to the left of the wipe. */
       .compare { cursor: ew-resize; touch-action: none; --x: 100%; }

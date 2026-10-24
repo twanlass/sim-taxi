@@ -336,34 +336,12 @@ function demos(slide, on) {
     }
     f.onload = () => {
       const w = f.contentWindow;
-      const style = w.document.createElement('style');
-      // `data-fit`: scale a game's fixed-size canvas (Snake's 600x400) to the frame without touching
-      // its own files. Opt-in — the workshop lays its canvas out itself.
-      style.textContent = ('fit' in f.dataset ? 'canvas { width: min(96vw, 96vh * 1.5) !important; height: auto !important; }' : '')
-        // `data-hide`: a demo's own dev tooling (Mystery's tuner panel and hotkey strip) stays off stage.
-        + (f.dataset.hide ? `${f.dataset.hide} { display: none !important; }` : '');
-      w.document.head.appendChild(style);
       w.addEventListener('focus', () => f.classList.add('focused'));
       w.addEventListener('blur', () => f.classList.remove('focused'));
       w.addEventListener('keydown', (e) => {
-        // A game that spends Esc itself (Mystery closes its popup with it) keeps it while that's up.
-        if (e.key === 'Escape' && !w.document.querySelector('#modal.on')) { f.blur(); window.focus(); f.classList.remove('focused'); }
+        if (e.key === 'Escape') { f.blur(); window.focus(); f.classList.remove('focused'); }
       });
     };
-  }
-}
-
-// Slide videos (`.vid video[data-src]`): fetched the first time their slide comes up, played from
-// the top on every visit, paused on the way out.
-function videos(slide, on) {
-  for (const v of slide.querySelectorAll('.vid video')) {
-    if (!on) { v.pause(); continue; }
-    if (!v.getAttribute('src')) {
-      v.addEventListener('loadeddata', () => v.classList.add('loaded'), { once: true });
-      v.src = v.dataset.src;
-    }
-    v.currentTime = 0;
-    v.play().catch(() => {});
   }
 }
 
@@ -420,11 +398,9 @@ function show(i) {
   const next = Math.max(0, Math.min(slides.length - 1, i));
   if (slides[current] !== slides[next]) {
     demos(slides[current], false);
-    videos(slides[current], false);
     slides[current].dispatchEvent(new Event('reset-wipe'));
   }
   demos(slides[next], true);
-  videos(slides[next], true);
   if (next > 0) startClock();
   if (cans && slides[next] !== kid) cans.then((c) => c.clear());
   current = next;
