@@ -405,6 +405,11 @@ export const PALETTE = {
   // whole vehicle as one hull in one colour (carBodyGhost at the cab's index), because the outline
   // says "there is a vehicle there", not "these are its panels".
   truckBox: '#DDD4BE',
+  // carBody paints a box truck's cab may not wear. Green belongs to the garbage truck (Tyler,
+  // 2026-10-24: "make sure box trucks can't be green; we'll reserve that color for the garbage
+  // truck"), and a green box truck at play zoom is a garbage truck that never stops. A truck that
+  // rolls one takes the next carBody entry instead (`truckPaint` in sim/traffic.js).
+  truckCabBarred: ['#3F8A63'],
   // The inset rear door panel on that box: barely a shade under it, so it reads as a panel at play
   // zoom without becoming a hold-door of its own (that one is truckHold).
   truckBoxDoor: '#C9BC9C',
@@ -974,6 +979,21 @@ export const PALETTE = {
   sausage: '#A9452C',
   musicNoteA: '#FF8F2E',
   musicNoteB: '#FFB45E',
+  // The bag piles on the kerb and the garbage truck that clears them (geometry/garbage.js,
+  // game/garbage.js). The bags are a blue-black rather than black, so a pile in a tower's shadow
+  // still has a shape, with a white streak of sheen across each one so it reads as plastic. The
+  // truck is a municipal green body behind a white cab, with an amber beacon that is dark while it
+  // drives and flashes `garbageBeaconLit` while it collects.
+  trashBag: '#272B33',
+  trashBagSheen: '#5A6474',
+  garbageBeacon: '#8A6A1E',
+  garbageBeaconLit: '#FFC21A',
+  garbageBody: '#46A05A',
+  garbageHopper: '#2D6A3A',
+  garbageCab: '#EEEDE6',
+  garbageStripe: '#F3EFE6',
+  garbageMouth: '#121417',
+  garbageMetal: '#AEB4BC',
   // The car wash (city/carwash.js): a white shed with a bright blue fascia and soap bubbles on it,
   // a pale concrete lot so it reads as a different paved thing from the road, and brushes in the
   // two colours every wash in the world uses.

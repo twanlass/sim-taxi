@@ -72,7 +72,9 @@ export function setBlockedLanes(ids) {
 }
 
 /**
- * Lanes with something parked in them, published by game/fire.js while its truck stands in one.
+ * Lanes with something parked in them, published by game/fire.js while its truck stands in one
+ * and by game/garbage.js while the garbage truck is taking a pile. Keyed by who published them, the
+ * way `setClosedLanes` is, so one clearing its own does not reopen the other's.
  *
  * Soft, like the roadworks set and unlike the drawbridge's: the lane is there, the taxi can queue
  * behind the truck or boost round it, and a route that genuinely has no other way still takes it.
@@ -81,9 +83,11 @@ export function setBlockedLanes(ids) {
  * block is two legs; anything that costs more than that to avoid is cheaper to sit out.
  */
 let hazardLanes = new Set();
+const hazardBySource = new Map();
 const HAZARD_COST = 2;
-export function setHazardLanes(ids) {
-  hazardLanes = new Set(ids);
+export function setHazardLanes(ids, source = 'fire') {
+  hazardBySource.set(source, new Set(ids));
+  hazardLanes = new Set([...hazardBySource.values()].flatMap((set) => [...set]));
 }
 
 /** Whether a route may use this lane at all. */

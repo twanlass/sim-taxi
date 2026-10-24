@@ -1383,6 +1383,51 @@ where the turn takes over. The probe drives every planned prop: 3/3 hit with the
 across from the prop's at the hit (drawn half-width 1.0 plus the prop's own), and at cruise none
 are touched.
 
+### The bag piles and the garbage truck
+
+Five piles of black bags stand on the kerb at street corners, and a green garbage truck drives round
+town collecting them (`game/garbage.js`, geometry in `geometry/garbage.js`, `?garbage=classic` for
+neither, `?garbage=soon` to bring the truck on a second in). Each bag carries a white streak of
+sheen at 35% so it reads as plastic: its own translucent ribbon (`bagStreakGeometry`), drawn without
+the bag's yaw so it's on the seen side of every bag. Painted into the vertex colours first, the
+lumps broke it into blotches. It stops in its lane beside a pile, the
+amber beacon on its cab starts flashing, the hopper's lid swings up, the bags lob in over the side one at a time, the lid slams with a jolt, and
+it drives on to the next. About three seconds parked for five bags. A cleared corner fills again
+35-70s later, bag by bag, once the taxi is 26 away.
+
+**The truck is a car in traffic**, built the way the fire engine is (`enterGuest`, `wearSkin`, and
+the `roadblock` pedal to stop; see [traffic.md](traffic.md)). It obeys the signals, queues and can
+be bumped, and when it stops everything behind it stops. While it's parked the lane is shut to
+newcomers (`setClosedLanes(…, 'garbage')`) and priced up for the taxi's router
+(`setHazardLanes(…, 'garbage')`, now keyed by source so it and the fire engine don't clear each
+other's). It's routed pile to pile with `findRouteOnto`, not left to the ambient dice, which almost
+never put it on the one lane beside a pile. The next pile is the nearest full one, weighted toward
+the taxi so the player sees it work. With nothing to collect it drives to a random junction and asks
+again.
+
+**Green is the garbage truck's.** No box truck's cab is painted green (`PALETTE.truckCabBarred`,
+`truckPaint` in `sim/traffic.js`): a truck that rolls it steps on to the next paint rather than
+re-rolling, so the traffic stream is unchanged.
+
+**The bags are scenery.** The taxi never touches them: they stand on the pavement, which nothing in
+the traffic model drives onto. The post box and the cart are smashed by a swipe that's rare on
+purpose, and bags every few blocks that burst when clipped would undo that.
+
+**Where.** City seed (`seed + 733`). Only on a built block's **+X kerb**, at its −Z end, beside the
+lane running +Z, for the post box's reasons plus one more: on the +Z kerb the passing lane runs −X,
+which would park the hopper (at the truck's tail) on the block's +X+Z corner, where `cornerFor`
+stands every rider. The truck stops with its centre 4.5 along the lane (the fire engine's window:
+its length of lane behind it, a metre of slack before the hold line), so the lane has to be at least
+11.7 long and the pile goes 2.15 behind that, level with the hopper. The pile and the parked truck
+both have to clear the sightline field, and the pile keeps 6 from a street prop, 1.6 from a lamp,
+18 from the other piles and 4.5 from every rider pin. That last one only bites on the map's first
+row, where `cornerFor` flips the pin inward onto exactly this corner.
+
+**The hopper opens at the top.** A real rear-loader's mouth is in its tail, and this camera never
+sees a tail: the truck at a pile is heading +Z, so its back faces away from the view. The same
+geometry puts the truck between the camera and the pile while it works, so the pile is out of sight
+for those three seconds and what reads is the bags arcing up over the body and the lid coming down.
+
 ### What a building is made of
 
 A lot is subdivided (`splitLot`), and each parcel gets either a **tower** or, rarely, a
