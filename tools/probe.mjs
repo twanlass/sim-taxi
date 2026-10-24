@@ -19528,9 +19528,11 @@ let chopperOrder; // likewise
 // --- The post box and the hot dog cart (game/streetprops.js) ----------------------------------------
 //
 // Placed where the camera sees them and nowhere a rider stands, and — the part that is the feature —
-// a boosting taxi on the lane beside one actually swipes it: veers onto the kerb, puts its flank
-// on the prop, smashes it, and is back on its lane centre before the hold line, where the turn
-// takes over the car. A citizen driving past at cruise touches nothing.
+// only an overtake up onto the pavement knocks one over: a boosting taxi driving past on its lane
+// touches nothing, and one carried kerbward by a pass (the peek round a left-turner) through the
+// prop's spot smashes it. Under `?propsmash=classic` a boosting taxi on the lane beside one swipes
+// it instead: veers onto the kerb, puts its flank on the prop, smashes it, and is back on its lane
+// centre before the hold line, where the turn takes over the car.
 {
   const plan = planStreetProps(makeRng(seed + 211), layout);
   const corners = [];
@@ -19550,10 +19552,10 @@ let chopperOrder; // likewise
     `${offPavement} off the pavement, ${unseen} hidden, ${nearRider} by a rider`);
 
   const net = cityNetwork();
-  const run = (boost) => {
+  const run = (boost, mode = 'classic') => {
     const sTraffic = createTraffic(makeRng(seed + 213), new THREE.Scene(), 1);
     const taxi = sTraffic.taxi;
-    const sp = createStreetProps(new THREE.Scene(), plan, { rng: makeRng(9) });
+    const sp = createStreetProps(new THREE.Scene(), plan, { rng: makeRng(9), mode });
     const hits = [];
     sp.onSmash((h) => hits.push(h));
     let deepest = 0;
@@ -19581,12 +19583,40 @@ let chopperOrder; // likewise
     return { hits: hits.length, deepest, leftAtTurn, flank, props: sp.props.length };
   };
   const boosted = run(true);
-  check('street props: a boosting taxi swipes every one, flank over the prop, back in lane by the turn',
+  check('street props (classic): a boosting taxi swipes every one, flank over the prop, back in lane by the turn',
     boosted.hits === boosted.props && boosted.flank < 1.3 && boosted.leftAtTurn < 0.01,
     `${boosted.hits}/${boosted.props} hit, ${boosted.flank.toFixed(2)} across at the hit, deepest ${boosted.deepest.toFixed(2)}, ${boosted.leftAtTurn.toFixed(3)} still off at the turn`);
   const cruising = run(false);
-  check('street props: at cruise the taxi drives past and touches nothing',
+  check('street props (classic): at cruise the taxi drives past and touches nothing',
     cruising.hits === 0 && cruising.deepest === 0, `${cruising.hits} hit, deepest ${cruising.deepest.toFixed(2)}`);
+  const plain = run(true, 'overtake');
+  check('street props: a boosting taxi that is not overtaking drives past every one, never veering',
+    plain.hits === 0 && plain.deepest === 0, `${plain.hits} hit, deepest ${plain.deepest.toFixed(2)}`);
+  // The pass itself: a taxi at the peek's depth (2.61 kerbward, `peekLateral`) sliding up the lane
+  // through each prop's spot, with the pass offset that put it there. Synthetic, because staging a
+  // left-turner at every prop is a test of the overtake rather than of this.
+  {
+    const sp = createStreetProps(new THREE.Scene(), plan, { rng: makeRng(9), mode: 'overtake' });
+    let hits = 0;
+    let kerbOnly = 0;
+    sp.onSmash(() => { hits += 1; });
+    const ghost = { yaw: -Math.PI / 2, v: SPEED * 1.6, state: 'drive' };
+    for (const prop of sp.props) {
+      const lane = prop.lane;
+      const cx = lane.path.at(prop.s).x;
+      // In its lane with no pass, then on the pavement with one.
+      for (const [off, pass] of [[0, 0], [-2.61, -2.61]]) {
+        const before = hits;
+        for (let s = 0; s < lane.length; s += 0.3) {
+          Object.assign(ghost, { x: cx + off, z: lane.path.at(s).z, passOffset: pass });
+          sp.update(1 / 60, ghost);
+        }
+        if (pass === 0 && hits > before) kerbOnly += 1;
+      }
+    }
+    check('street props: an overtake up the kerb smashes every one, the same line in lane none',
+      hits === sp.props.length && kerbOnly === 0, `${hits}/${sp.props.length} hit, ${kerbOnly} in lane`);
+  }
   // Stepping the city's own taxi elsewhere is not this block's business: put nothing back on it.
 }
 
@@ -20225,6 +20255,34 @@ let chopperOrder; // likewise
     // which is the precision a phone may actually hand back. See `ABUT_WALL_CLEAR`.
     check('every abutment stands proud of the channel wall rather than on its plane',
       closest > 0.05, `nearest face stands ${closest.toFixed(3)} proud`);
+  }
+
+  // --- The channel wall and the embankment's kerb box do not share the kerb band.
+  //
+  // The same tie one surface over, and it ran the length of the river: the kerb box is
+  // `EMBANK_WALK` deep, centred halfway from bank to water, so its channel-side face sits on the
+  // wall's plane facing the same way, and the wall used to run up to `KERB_H` over it. Reported
+  // from a phone as z-fighting down both banks. Asserted per triangle, off the index when the merge
+  // kept one: on either wall plane, nothing that reaches below
+  // ground may also reach above it.
+  {
+    const shell = createRiver(makeRng(seed + 12), layout).shell.geometry;
+    const p = shell.attributes.position;
+    const at = (k) => (shell.index ? shell.index.getX(k) : k);
+    const tris = shell.index ? shell.index.count : p.count;
+    let shared = 0;
+    let onPlane = 0;
+    for (let t = 0; t < tris; t += 3) {
+      const v = [at(t), at(t + 1), at(t + 2)];
+      for (const zw of [rWater.z0, rWater.z1]) {
+        if (!v.every((k) => Math.abs(p.getZ(k) - zw) < 1e-4)) continue;
+        onPlane += 1;
+        const ys = v.map((k) => p.getY(k));
+        if (Math.min(...ys) < -0.01 && Math.max(...ys) > 1e-4) shared += 1;
+      }
+    }
+    check('the channel wall stops under the embankment kerb rather than sharing its face',
+      onPlane > 0 && shared === 0, `${shared} wall triangles above ground of ${onPlane} on the planes`);
   }
 
   // --- The route band rides the hump rather than being swallowed by it.
