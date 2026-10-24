@@ -184,6 +184,7 @@ import { createRepairClip, clipKeys as repairKeys } from './game/repairclip.js';
 import { SKYLINE_CEILING } from './city/buildings.js';
 import { popHighlight, POP_TIME } from './game/selectpop.js';
 import { createDiagnostics, describeGpu } from './game/diag.js';
+import { createHitchLogger, getHitchLogger } from './game/hitch.js';
 import { createBench } from './game/bench.js';
 import { createSoak } from './game/soak.js';
 import { createGovernor } from './game/governor.js';
@@ -6381,10 +6382,24 @@ function frame(t) {
   // flash across the screen. Headless under `?squall&fps=30`, 4 of the run's 6 resizes landed
   // that way before the move and none after.
   governor.frame(t, !pause?.state.paused && !presenterHeld && !fares.state.gameOver && !document.hidden);
+  hitch.begin(t);
   bench?.begin(t);
   tick();
   bench?.end();
+  hitch.end();
 }
+
+// `?hitch`: frames that arrive late, and what was on screen when they did — see game/hitch.js.
+const hitch = createHitchLogger(renderer, {
+  enabled: getHitchLogger(),
+  cap: frameRateCap,
+  probes: {
+    glass: () => document.querySelector('.speech-liquid.is-open:not([hidden])'),
+    speech: () => document.querySelector('.speech-glass.is-open:not([hidden])'),
+    truck: () => garbage.state.truck,
+    paused: () => pause?.state.paused,
+  },
+});
 
 let edgeFogTime = 0;
 // Whether the radio is ducked under the robber's line — see `sfx.hold` in `tick`.
