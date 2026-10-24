@@ -151,6 +151,15 @@ own wall's occlusion, which keeps them at the wall's brightness on its shaded si
 all they came out lit there, because AO scales the indirect light that is all a shaded face gets.
 They still cast and receive the sun's shadow.
 
+**Shopfronts are framed too, and the ground storey's blank sides get windows.** A shopfront is
+split into bays by mullions roughly every 1.4 units, framed like a window and capped with a fascia
+board; on the door's side the glass parts round the door rather than running behind it
+(`partRound`). The sides off the street, which used to be bare wall, get a row of punched windows
+on the ground storey (`GROUND_ROW`, tiers of 2.5 or more). Most of the city is a single storey
+under its roof, too short for `floorLines` to fit an upper row, so before this 135 of 166
+buildings (four seeds) were a shopfront on one face and three blank walls; now 51 are, and those
+are curtain walls or too narrow to take a window.
+
 - **Structure, not texture.** At play zoom a unit is ~7.7px, so brick coursing or stucco noise
   is a shimmer. A line per storey and a base and a top are a pixel or two each on a phone, and they
   are what was missing: each wall used to be one colour from kerb to parapet, a printed box.

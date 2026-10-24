@@ -27,6 +27,9 @@ The shader also painted a lighter pilaster between each pair of bays on half the
 windows had frames, those read as vertical streaks running up the building behind them, and they
 were taken out. The painted ledge first sat just under each row of sills, where it ran straight
 into the frames' real sill and read as one piece of geometry; it moved down onto the floor line.
+Shopfronts were one unframed pane per street face, and a building's other sides had no windows
+on the ground storey at all; the framed bays and the side row came last, the same day, for the
+single-storey boxes that were most of the city ("just freaking boring boxes").
 
 ## Window glass — `city/buildings.js`
 

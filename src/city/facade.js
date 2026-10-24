@@ -176,6 +176,15 @@ const FRAME_D = 0.2;          // how far the head and jambs stand off the wall
 const SILL_H = 0.11;
 const SILL_D = 0.28;          // the sill sticks out further: it is what catches the light
 const SILL_OVER = 0.1;        // ...and runs past the jambs at each end
+const MULLION_W = 0.09;
+const MULLION_D = 0.1;
+// The fascia over a shopfront. Its top has to stay under the ground storey's string course
+// (patchWalls, a band from 0.06 below GROUND_H): the shop glass tops out at 1.7 off the kerb, its
+// head at 1.83, so the fascia runs 1.89 to 2.19 against a course that starts at 2.34.
+const FASCIA_GAP = 0.06;
+const FASCIA_H = 0.3;
+const FASCIA_D = 0.12;
+const FASCIA_OVER = 0.12;
 // Five faces a bar (no back: it is against the wall), two triangles a face, four bars a window.
 export const FRAME_TRIS_PER_WINDOW = 40;
 
@@ -183,7 +192,7 @@ export const FRAME_TRIS_PER_WINDOW = 40;
  * The frames for one façade's punched windows, as one geometry. `rects` are the panes, exactly as
  * they go to `facadeQuads`; `side`, `out` and `tan` are that face's outward and along directions.
  */
-export function windowFrames(rects, side, cx, cz, hw, hd, col, out, tan) {
+export function windowFrames(rects, side, cx, cz, hw, hd, col, out, tan, { fascia = false } = {}) {
   const [nx, nz] = out;
   const [tx, tz] = tan;
   const reach = side % 2 === 0 ? hw : hd;
@@ -217,7 +226,7 @@ export function windowFrames(rects, side, cx, cz, hw, hd, col, out, tan) {
     quad([at(u0, y0, 0), at(u0, y1, 0), at(u0, y1, d), at(u0, y0, d)], BACK);
   };
 
-  for (const { u, y, w, h } of rects) {
+  for (const { u, y, w, h, panes = 1 } of rects) {
     const uL = u - w / 2;
     const uR = u + w / 2;
     const yB = y - h / 2;
@@ -226,6 +235,18 @@ export function windowFrames(rects, side, cx, cz, hw, hd, col, out, tan) {
     bar(uL - FRAME_W, uR + FRAME_W, yT, yT + FRAME_W, FRAME_D);
     bar(uL - FRAME_W, uL, yB, yT, FRAME_D);
     bar(uR, uR + FRAME_W, yB, yT, FRAME_D);
+    // A shopfront is one pane cut into bays by mullions, thinner and shallower than the jambs so
+    // the outer frame still reads as the frame.
+    for (let k = 1; k < panes; k++) {
+      const um = uL + (k * w) / panes;
+      bar(um - MULLION_W / 2, um + MULLION_W / 2, yB, yT, MULLION_D);
+    }
+    // ...and carries a fascia over its head, the sign band a shop has: a slab standing off the
+    // wall, which is a lit top edge and a shadow line at play zoom rather than any colour.
+    if (fascia) {
+      bar(uL - FRAME_W - FASCIA_OVER, uR + FRAME_W + FASCIA_OVER,
+        yT + FRAME_W + FASCIA_GAP, yT + FRAME_W + FASCIA_GAP + FASCIA_H, FASCIA_D);
+    }
   }
 
   const geo = new THREE.BufferGeometry();

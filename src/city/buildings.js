@@ -26,6 +26,10 @@ const SILL = 0.55;        // sill height above the floor line
 // How far an opening stands off the wall it is punched into. Small enough not to read as a
 // pilaster from any angle, large enough to beat depth precision at DISTANCE = 400.
 const EPS = 0.03;
+// The ground-storey row on a building's blank sides: its floor line off the kerb, so the window
+// runs 0.75 to 2.15 up, under the string course at 2.34; and the least tier it is worth cutting into.
+const GROUND_ROW = 0.2;
+const GROUND_ROW_MIN = 2.5;
 // The window surrounds' colour against their wall (city/facade.js).
 const FRAME_TINT = 1.0;
 
@@ -399,8 +403,7 @@ export function setPaneSink(fn) { paneSink = fn; }
  * rather than one long one that happens to change colour.
  */
 function punchedWindows(parts, cx, base, cz, w, d, h, firstFloorH, windowColor, peak, body,
-  faces = fullFaces(w, d)) {
-  const lines = floorLines(base, h, firstFloorH);
+  faces = fullFaces(w, d), lines = floorLines(base, h, firstFloorH)) {
   if (!lines.length) return;
   const sky = color('windowSky');
   const ceiling = wallCeiling(body, windowColor, sky);
@@ -488,39 +491,56 @@ function ribbonWindows(parts, cx, base, cz, w, d, h, firstFloorH, windowColor, p
  * window into somebody's party wall — and the difference between a building that has a front and
  * one that is glazed on all four sides is most of what makes a row of them read as a street.
  */
-function groundFloor(parts, cx, cz, w, d, streetSides, rng) {
+function groundFloor(parts, cx, cz, w, d, streetSides, rng, body = null) {
   const base = KERB_H;
   const glassH = Math.min(1.2, GROUND_H - 0.8);
   const glassY = base + 0.5 + glassH / 2;
 
+  // One entrance, on one street side. A door per face would read as four doors on a building the
+  // size of a bus, which at this scale is what most of them are. Decided before the shopfronts
+  // (which draw nothing) so a framed shopfront can part round it; the draws are the ones they were.
+  const side = rng.pick(streetSides);
+  const doorFaceW = side % 2 === 0 ? d : w;
+  let door = null;
+  if (doorFaceW >= 1.6) {
+    const { bays, pitch } = bayLayout(doorFaceW);
+    // Off-centre on a wide façade, which is what a real entrance is: dead centre reads as a
+    // symmetry the rest of the building doesn't have.
+    const bay = bays > 1 ? rng.int(0, bays - 1) : 0;
+    door = { u: (bay + 0.5 - bays / 2) * pitch, w: Math.min(1.15, pitch * 0.7) };
+  }
+
+  // Framed shopfronts (city/facade.js) on any building handed its body colour: bays split by
+  // mullions, a sill, a head and a fascia. The frames would run across the door, so on the door's
+  // side the glass parts round it, clear of its surround and of the frame's own overhang.
+  const framed = body && !WALLS_CLASSIC;
   const sky = color('windowSky');
-  for (const side of streetSides) {
-    const faceW = side % 2 === 0 ? d : w;
+  for (const s of streetSides) {
+    const faceW = s % 2 === 0 ? d : w;
     if (faceW < 1.6) continue;
     // The one place a plain top-to-bottom gradient is right: a shopfront is a single pane a metre
     // and a half tall, and what it catches is the sky over the street opposite — brightest along
     // its head, gone by the sill. No streak, because there is nothing here for one to cross.
-    const lit = FACING[side];
+    const lit = FACING[s];
     const shop = { u: 0, y: glassY, w: faceW * 0.74, h: glassH };
-    paneSink?.({ rects: [shop], side, cx, cz, hw: w / 2, hd: d / 2, kind: 'shop' });
+    let rects = [shop];
+    if (framed && door && s === side) rects = partRound(shop, door.u, door.w / 2 + DOOR_CLEAR);
+    if (framed) rects = rects.map((r) => ({ ...r, panes: Math.max(1, Math.round(r.w / SHOP_PANE)) }));
+    if (!rects.length) continue;
+    paneSink?.({ rects, side: s, cx, cz, hw: w / 2, hd: d / 2, kind: 'shop' });
     parts.push(facadeQuads(
-      [{ ...shop, g: [0, 0, 0.5 * lit, 0.5 * lit] }],
-      side, cx, cz, w / 2, d / 2, color('shopfront'), EPS, sky,
+      rects.map((r) => ({ ...r, g: [0, 0, 0.5 * lit, 0.5 * lit] })),
+      s, cx, cz, w / 2, d / 2, color('shopfront'), EPS, sky,
     ));
+    if (framed) {
+      parts.push(windowFrames(rects, s, cx, cz, w / 2, d / 2, shade(body, FRAME_TINT),
+        SIDE_OUT[s], SIDE_TAN[s], { fascia: true }));
+    }
   }
 
-  // One entrance, on one street side. A door per face would read as four doors on a building the
-  // size of a bus, which at this scale is what most of them are.
-  const side = rng.pick(streetSides);
-  const faceW = side % 2 === 0 ? d : w;
-  if (faceW < 1.6) return;
-
-  const { bays, pitch } = bayLayout(faceW);
-  // Off-centre on a wide façade, which is what a real entrance is: dead centre reads as a
-  // symmetry the rest of the building doesn't have.
-  const bay = bays > 1 ? rng.int(0, bays - 1) : 0;
-  const u = (bay + 0.5 - bays / 2) * pitch;
-  const doorW = Math.min(1.15, pitch * 0.7);
+  if (!door) return;
+  const { u } = door;
+  const doorW = door.w;
   const doorH = GROUND_H - 0.45;
   // Reported to the same sink as the panes, so Rain Mode's street lamps can keep off the doorway
   // (`entrances` in game/citylights.js). `litWindows` skips it: a door is not a window.
@@ -553,6 +573,20 @@ function groundFloor(parts, cx, cz, w, d, streetSides, rng) {
     cx + nx * reach + tx * u, base + doorH + 0.12, cz + nz * reach + tz * u,
     color('awning'),
   ));
+}
+
+// A framed shopfront's bays, and how far its glass keeps off the door: half the surround's extra
+// width (0.15), the frame's jamb and sill overhang (0.23), and a hair of wall between.
+const SHOP_PANE = 1.4;
+const DOOR_CLEAR = 0.45;
+
+/** A shopfront rect with a gap cut out of it at `u ± half`: the pieces either side worth keeping. */
+function partRound(shop, u, half) {
+  const l0 = shop.u - shop.w / 2;
+  const r1 = shop.u + shop.w / 2;
+  return [[l0, u - half], [u + half, r1]]
+    .filter(([a, b]) => b - a >= 0.6)
+    .map(([a, b]) => ({ ...shop, u: (a + b) / 2, w: b - a }));
 }
 
 // The landing circle, and how it is sized against the deck under it. The fraction and the ceiling
@@ -931,7 +965,17 @@ function buildTower(lot, block, rng, parts, stats, { height: fixed = null, famil
     } else {
       ribbonWindows(parts, cx, y, cz, cw, cd, tierH, firstFloorH, windowColor, peak);
     }
-    if (tier === 0 && streetSides.length) groundFloor(parts, cx, cz, cw, cd, streetSides, rng);
+    if (tier === 0 && streetSides.length) groundFloor(parts, cx, cz, cw, cd, streetSides, rng, body);
+    // A ground storey's blank sides — the ones off the street, with no shopfront — get a row of
+    // windows of their own. Most of the city's buildings are a single storey under a roof, too
+    // short for floorLines to fit an upper row, and without these they were a shopfront on one
+    // face and three bare walls: 135 of 166 buildings across four seeds (Tyler: "just freaking
+    // boring boxes").
+    if (tier === 0 && style === 'punched' && !WALLS_CLASSIC && tierH >= GROUND_ROW_MIN) {
+      const faces = fullFaces(cw, cd).map((fw, s) => (streetSides.includes(s) ? 0 : fw));
+      punchedWindows(parts, cx, y, cz, cw, cd, tierH, firstFloorH, windowColor, peak, body, faces,
+        [y + GROUND_ROW]);
+    }
 
     y += tierH;
     remaining -= tierH;
