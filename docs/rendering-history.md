@@ -28,6 +28,24 @@ windows had frames, those read as vertical streaks running up the building behin
 were taken out. The painted ledge first sat just under each row of sills, where it ran straight
 into the frames' real sill and read as one piece of geometry; it moved down onto the floor line.
 
+## Window glass — `city/buildings.js`
+
+[Current](rendering.md#window-glass--citybuildingsjs). Until 2026-10-24 the windows were the
+faux gradient alone: vertex colour in the merged building mesh, `window` lerped toward `windowSky`
+by height, a diagonal streak and the face's facing, with nothing actually reflected. It held up
+because the camera never moves, but every pane was a flat ramp with no sight of the street, and
+once the cars' paint was mirroring the real skyline the buildings beside them read as painted.
+`?windows=classic` brings it back exactly: the panes stay in the merged mesh and nothing is glazed.
+
+The first build of the real reflection (PR #681's first push) kept that gradient as the base and
+mixed a soft reflection over it: a smoothstep between horizon and sky, a soft skyline silhouette.
+On a pane eight pixels tall that came out as a smudged ramp on every window, "bad gradients"
+(Tyler, 2026-10-24). The second push made every shape hard-edged: a crisp skyline silhouette, a
+hard line between a pale horizon band and deeper sky that each pane crossed (the panes were bowed
+and tilted a few degrees per pane, so the reflected ray swept across them), and drifting streaks
+on top. It still read as fake on lit faces and as unlit in shadow (Tyler, 2026-10-24), so before
+merging the reflection was dropped for the stylised streaks lit by the face's own light.
+
 ## Wheel wells — `archedBodyGeometries` in `geometry/wheels.js`
 
 [Current](rendering.md#wheel-wells--archedbodygeometries-in-geometrywheelsjs).

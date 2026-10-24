@@ -55,6 +55,7 @@ doc; what the classic version was, and why it changed, is in that doc's history 
 | `?streetprops=classic` | No post boxes or hot dog cart on the kerb | `STREETPROPS=classic` | [city.md](city.md#the-post-box-and-the-hot-dog-cart) |
 | `?propsmash=classic` | Loco Mode swipes the taxi onto the kerb into every post box and hot dog cart it passes, instead of only an overtake up the kerb hitting them | `PROPSMASH=classic` | [city.md](city.md#the-post-box-and-the-hot-dog-cart) |
 | `?walls=classic` | Flat building walls: no plinth, storey ledges, cornice, and no frames round the punched windows | `WALLS=classic` | [rendering.md](rendering.md#wall-detail--cityfacadejs) |
+| `?windows=classic` | Building windows are the faux sky gradient in vertex colour again, instead of glass meshes with stylised 45° light streaks | #681 | [rendering.md](rendering.md#window-glass--citybuildingsjs) |
 | `?roofs=classic` | Solid flat roof caps, with no lip and no sunk deck | #511 | [city.md](city.md) |
 | `?foliage=classic` | The first, louder autumn palette | #486 | [rendering.md](rendering.md) |
 | `?water=classic` | The faceted first river surface | | [river.md](river.md) |

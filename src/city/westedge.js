@@ -10,7 +10,7 @@ import {
 import {
   KERB_H, PAVE_INSET, curbBox, roundedPaint, paint, SLAB_RADIUS, EDGE_FADE, FADE_RINGS,
 } from './ground.js';
-import { buildHighRise, fillWalls, frameMesh, splitLot, wallMaterial } from './buildings.js';
+import { buildHighRise, fillWalls, frameMesh, glassMeshes, splitLot, wallMaterial } from './buildings.js';
 import { barricadeParts, coneGeometry } from '../geometry/roadworks.js';
 
 // The high rises past the west ring road (`?westedge=classic` leaves the old apron).
@@ -260,14 +260,15 @@ export function createWestEdge(rng) {
   groundMesh.receiveShadow = true;
   groundMesh.name = 'west-edge-ground';
 
-  const { solid, frames } = frameMesh(towers, 'west-edge');
+  const { solid: unframed, frames } = frameMesh(towers, 'west-edge');
+  const { solid, glass } = glassMeshes(unframed, 'west-edge');
   const towerMesh = new THREE.Mesh(mergeGeometries(fillWalls(solid), false), wallMaterial());
   solid.forEach((p) => p.dispose());
   towerMesh.castShadow = true;
   towerMesh.receiveShadow = true;
   towerMesh.name = 'west-edge-towers';
 
-  return { ground: groundMesh, towers: towerMesh, frames, fade, sites, blocks, closures: westClosures() };
+  return { ground: groundMesh, towers: towerMesh, frames, glass, fade, sites, blocks, closures: westClosures() };
 }
 
 /**

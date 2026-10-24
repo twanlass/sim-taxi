@@ -24,7 +24,7 @@ import {
 } from '../src/city/ground.js';
 import { FRAME_TRIS_PER_WINDOW, windowFrames } from '../src/city/facade.js';
 import {
-  createBuildings, facadeQuads, pitchedRoof, wallCeiling, SKYLINE_CEILING, INSET as BANK_LOT_INSET,
+  createBuildings, facadeQuads, pitchedRoof, wallCeiling, WINDOWS_CLASSIC, SKYLINE_CEILING, INSET as BANK_LOT_INSET,
 } from '../src/city/buildings.js';
 import {
   createProps, parkPlots, planParkFurniture, planMedianBeds, MEDIAN_BED_ROOM,
@@ -2357,9 +2357,18 @@ const onGrass = (city, i, j) => {
   // Vertex order within a quad is [BL, BR, TR, BL, TR, TL]: 0 is a bottom corner, 2 a top one.
   const bottom = new THREE.Color(col.getX(0), col.getY(0), col.getZ(0));
   const top = new THREE.Color(col.getX(2), col.getY(2), col.getZ(2));
-  check('a pane carries a gradient rather than one flat colour',
-    bottom.getHexString() === base.getHexString() && top.getHexString() === sky.getHexString(),
-    `bottom #${bottom.getHexString()} → top #${top.getHexString()}`);
+  // Under the default the opposite holds: the glass is one flat `window` colour and the shader
+  // draws every shape on it (`glaze` in city/buildings.js), because a vertex ramp under hard-edged
+  // reflections read as a smudge.
+  if (WINDOWS_CLASSIC) {
+    check('a pane carries a gradient rather than one flat colour',
+      bottom.getHexString() === base.getHexString() && top.getHexString() === sky.getHexString(),
+      `bottom #${bottom.getHexString()} → top #${top.getHexString()}`);
+  } else {
+    check('a pane is one flat colour, its shapes left to the streaks',
+      bottom.getHexString() === base.getHexString() && top.getHexString() === base.getHexString(),
+      `bottom #${bottom.getHexString()} → top #${top.getHexString()}`);
+  }
 
   // Two: a *punched* window never outshines the wall it is cut into. `windowSky` is more luminous
   // than brick (0.25 against 0.18) and than slate, so at full strength a pane on either would come
@@ -2426,6 +2435,38 @@ const onGrass = (city, i, j) => {
     check(`window frames face out of their bars on side ${side}`, inside === 0 && pos.count === FRAME_TRIS_PER_WINDOW * 3,
       `${faces} triangles, ${inside} wound inwards`);
   }
+}
+
+// --- Window glass -----------------------------------------------------------
+//
+// The panes are their own meshes on the cars' finish (`glassMeshes` in city/buildings.js), and the
+// streaks are drawn only on `FINISH.WINDOW`. Two things would each fail silently: a pane left
+// untagged draws as tyre (matte, darkened) with no streak, and a normal facing into the wall lights
+// the pane from behind — the streaks follow the light that reaches the face, so they would go dark
+// on every lit façade and bright on every shaded one. The face normal is taken from the winding
+// (CLAUDE.md), not from the normals under test. Under `WINDOWS=classic` there is no glass.
+if (!WINDOWS_CLASSIC) {
+  const glass = buildings.glass ?? [];
+  const names = glass.map((m) => m.name).sort().join(', ');
+  check('the windows are glass meshes of their own, curtain and punched',
+    glass.length === 2 && glass.every((m) => m.material.isMeshPhongMaterial && !m.castShadow), names);
+  let untagged = 0; let inward = 0; let panes = 0;
+  const a = new THREE.Vector3(); const b = new THREE.Vector3(); const c = new THREE.Vector3();
+  const face = new THREE.Vector3(); const n = new THREE.Vector3();
+  for (const mesh of glass) {
+    const { position: pos, normal, aFinish } = mesh.geometry.attributes;
+    for (let i = 0; i < aFinish.count; i++) if (aFinish.getX(i) !== FINISH.WINDOW) untagged += 1;
+    for (let q = 0; q + 5 < pos.count; q += 6) {
+      panes += 1;
+      a.fromBufferAttribute(pos, q); b.fromBufferAttribute(pos, q + 1); c.fromBufferAttribute(pos, q + 2);
+      face.crossVectors(b.sub(a), c.sub(a)).normalize();
+      if (Math.abs(face.y) > 0.01) inward += 1;
+      for (let k = 0; k < 6; k++) if (n.fromBufferAttribute(normal, q + k).dot(face) < 0.99) { inward += 1; break; }
+    }
+  }
+  check('every pane is tagged as window glass', glass.length > 0 && untagged === 0, `${untagged} untagged`);
+  check('every pane is a vertical face whose normals agree with its winding', panes > 0 && inward === 0,
+    `${panes} panes, ${inward} wrong`);
 }
 
 // --- Roofs, and the flight path over them -----------------------------------

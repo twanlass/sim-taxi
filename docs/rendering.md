@@ -48,14 +48,52 @@ either way. So a gradient across a triangle costs nothing but the numbers: no ex
 second material, no texture, and it still merges into the same one-mesh-one-material pile as
 everything else.
 
-The window reflections are built entirely out of that.
+The windows' base colour is built out of that.
 
-### Faux window reflections — `city/buildings.js`
+### Window glass — `city/buildings.js`
 
-Glass is lerped from `window` toward `windowSky` by a weight computed per corner of every pane.
-Nothing is being reflected — it is two numbers and an exponential — but it holds up because **the
-camera never moves**. A real reflection changes when you walk past a building; this one never has
-to.
+Building windows are **stylised, not reflected**: one flat `window` colour with two hard 45° light
+streaks across each façade, a broad one and a thin one beside it, the way an illustrator draws
+glass. The panes are taken out of the merged building mesh into glass meshes of their own
+(`glassMeshes`), which wear [the cars' finish shader](#car-finishes--propmaterial-gloss--in-utilgeojs)
+as `FINISH.WINDOW`, and the streaks are drawn on that finish only (`WINDOW_STREAKS` in util/geo.js).
+`?windows=classic` is the faux gradient, below, with the panes back in the merged mesh.
+
+Two real reflections came first and both failed the same way: under a camera that never rotates a
+flat pane reflects one ray, so the most it can show is a ramp or a split, which on an eight-pixel
+pane reads as a fake gradient, or as an unlit hole on a face in shadow (Tyler, 2026-10-24;
+[history](rendering-history.md#window-glass--citybuildingsjs)).
+
+- **The streaks are lit by the face they sit on.** Their colour is the light that actually reaches
+  the fragment: three's direct plus indirect diffuse, divided back out of the pane's own colour,
+  so the shadow map, the AO and the sun's warmth are already in it. On a sunlit face a streak is
+  bright and warm, on a shaded face a dim cool sheen, and on a lit face under a tower's shadow it
+  drops with the shadow. That is what keeps a fake reflection from looking pasted on.
+- **A flat sheen covers the whole pane** (`WINDOW_SHEEN`) by the same rule, so glass between the
+  streaks reads as glass on a lit face and still goes dark in shade. It is sky blue at the light's
+  *brightness*, not in its colour: in the sun's warmth it turned the lit panes a muddy yellow-grey.
+- **45°, every 6 units** (`WINDOW_STREAK_PITCH`) along each façade, in the face's own coordinates
+  (its horizontal tangent and height) off the flat normal from the derivatives. Edges are feathered
+  over `WINDOW_STREAK_BLUR` (0.07 of the pitch, ~3px at play zoom): hard-edged, they read as
+  painted stripes. The two visible faces lean opposite ways, so a corner shows a chevron.
+- **They drift as the camera pans** (`WINDOW_PAN`, half the pan), sliding across a building as the
+  camera follows the taxi. It is the only motion a reflection can have under this camera.
+- **Masonry keeps under its wall** (`GLASS_MIRROR`, which the streaks read as their strength):
+  curtain walls and shopfronts at 1, punched windows at 0.6, for the `wallCeiling` reason below.
+- **No mirror, no glint.** The window finish's `reflect` is 0, so the city march never runs on
+  glass. The sun's half-vector is 57° off a +X façade and 48° off a +Z one, so a vertical pane could
+  never catch a glint anyway.
+- **What it costs.** No new program (the glass compiles to the cars' `prop-gloss…`) and up to four
+  more draws (curtain and punched, the island and the west edge). The glass casts no shadow and is
+  not an AO occluder, since the wall a hair behind it is both. Measured with `tools/gpucost.mjs` (seed
+  11, 390×844 at DPR 2, SwiftShader, so relative): within noise of `?windows=classic` (under 1%),
+  where the reflecting builds before it cost 2–4%.
+- **At night** the light reaching a façade is the moon's and the lamps', so the streaks go faint
+  and Rain Mode's lit windows draw over them as before.
+
+Under `?windows=classic` the glass is the faux gradient: lerped from `window` toward `windowSky` by
+a weight computed per corner of every pane. Nothing is being reflected — it is two numbers and an
+exponential — but it holds up because **the camera never moves**.
 
 Three things go into the weight:
 
@@ -3484,7 +3522,7 @@ and the flock above. That one has a life; this is scenery that moves. Where the 
 **The water is drawn as a fan about its own centre**, not as a `ShapeGeometry` like every other flat
 surface in the city, and the reason is the one vertex earcut would not give it: the middle. The open
 water is `pondWater` and the rim `pondShallow`, 17 luma darker, so the pond has depth for the price
-of a vertex colour — [a gradient across a flat-shaded triangle](#faux-window-reflections--citybuildingsjs)
+of a vertex colour — [a gradient across a flat-shaded triangle](#window-glass--citybuildingsjs)
 costs nothing but the numbers. One flat blue read as a painted disc. The shore is the other half of
 it: a ring of damp earth cut with the water as a hole in it, the same construction the walk round a
 park uses, which is also what removes the seam — both rims come off one point list, so there is no
