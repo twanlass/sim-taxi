@@ -106,10 +106,12 @@ the panes, with each face checked against the way it must point as it is emitted
 from the winding in `tools/probe.mjs`. 40 triangles a window, about 2k across a city (mean of
 four seeds). Curtain-wall ribbons get no frame: on glass the glass is the wall.
 
-**The frames are their own mesh, off the AO** (`frameMesh`, `propMaterial({ ao: false })`, not an
+**The frames are their own mesh, and receive AO without casting it** (`frameMesh`, not an
 occluder). In the merged mesh they were occluders, and a 0.2-unit protrusion against the SSAO's
-one-unit radius smudged a dark halo onto the wall round every window. They still cast and receive
-the sun's shadow, which is the depth they are there for.
+one-unit radius smudged a dark halo onto the wall round every window. Receiving, they read their
+own wall's occlusion, which keeps them at the wall's brightness on its shaded side: with no AO at
+all they came out lit there, because AO scales the indirect light that is all a shaded face gets.
+They still cast and receive the sun's shadow.
 
 - **Structure, not texture.** At play zoom a unit is ~7.7px, so brick coursing or stucco noise
   is a shimmer. A line per storey and a base and a top are a pixel or two each on a phone, and they

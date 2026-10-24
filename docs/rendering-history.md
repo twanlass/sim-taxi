@@ -20,7 +20,9 @@ of geometry so that we get some shadows and some silhouette": the first cut stoo
 wall in a stone 10% lighter than it, which read as a white outline round each window rather than
 as depth, so they went to the wall's own colour and 0.2 deep. Built into the merged building mesh,
 they were also AO occluders, and each one smudged a dark halo onto the wall around its window
-("these shaded areas behind the windows feel off"); they moved to a mesh of their own, off the AO.
+("these shaded areas behind the windows feel off"); they moved to a mesh of their own, off the AO. Fully off it, they glowed on each building's shaded
+side (AO scales the indirect light, which is all a shaded wall has, so the wall dropped and its
+frames did not); they now receive the AO and only stopped casting it.
 The shader also painted a lighter pilaster between each pair of bays on half the masonry. Once the
 windows had frames, those read as vertical streaks running up the building behind them, and they
 were taken out. The painted ledge first sat just under each row of sills, where it ran straight

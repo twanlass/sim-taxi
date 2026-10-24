@@ -238,18 +238,25 @@ export function windowFrames(rects, side, cx, cz, hw, hd, col, out, tan) {
 }
 
 /**
- * Take the frames out of a generator's parts into a mesh of their own, which neither casts nor
- * receives ambient occlusion. In the merged mesh they were AO occluders, and a 0.2-unit
+ * Take the frames out of a generator's parts into a mesh of their own, which *receives* ambient
+ * occlusion but does not cast it. In the merged mesh they were AO occluders, and a 0.2-unit
  * protrusion against the SSAO's one-unit radius put a dark halo on the wall round every window
- * ("these shaded areas behind the windows feel off", Tyler, 2026-10-24). The sun's shadow is the
- * depth they are there for, and it stays. Returns the leftover parts and the mesh (null if none).
+ * ("these shaded areas behind the windows feel off", Tyler, 2026-10-24).
+ *
+ * Receiving without casting is the thing `markOccluder` warns against — a non-occluder samples the
+ * occlusion of whatever stands behind it — and here that is exactly right, because what stands
+ * behind a frame is its own wall. Opting out of AO altogether was tried first and lit the frames
+ * on a wall's shaded side as if it were sunny: AO scales the indirect light, which is all a face
+ * turned from the sun has, so the wall went down by its AO and its frames did not. The sun's
+ * shadow is the depth they are there for, and it stays. Returns the leftover parts and the mesh
+ * (null if none).
  */
 export function frameMesh(parts, name) {
   const solid = [];
   const frames = [];
   for (const p of parts) (p.userData.frame ? frames : solid).push(p);
   if (!frames.length) return { solid, frames: null };
-  const mesh = new THREE.Mesh(mergeGeometries(frames, false), propMaterial({ ao: false }));
+  const mesh = new THREE.Mesh(mergeGeometries(frames, false), propMaterial());
   frames.forEach((p) => p.dispose());
   mesh.castShadow = true;
   mesh.receiveShadow = true;
