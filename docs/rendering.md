@@ -1537,9 +1537,12 @@ things break the run of tarmac. `?roads=classic` brings back the old road and dr
   is by the paint pass. The border stays near the road's value: a ratio multiplies whatever light
   lands there, and at kerb brightness (1.8x) it outlined the box in light under the rain at night.
 - **Asphalt patches** (city/asphaltpatch.js): one or two mended cuts per city, each inside one lane
-  of a side street mid-block, darker than the road with a near-black crack-seal frame. The frame is
-  four strips round the patch, not a bigger quad under it, because two flat surfaces 0.006 apart
-  shimmer under this camera. No sightline filter, so a patch can land behind a tower.
+  of a side street mid-block: a rounded rectangle with a slightly wobbled edge, a fill barely off the
+  road, and a near-black crack-seal band round it that swells and thins as it goes. The contrast
+  lives in the seal, after Tyler's reference photo: a darker fill made the outline vanish into it.
+  The seal is a ring sharing the fill's edge, not a bigger shape under it, because two flat
+  surfaces 0.006 apart shimmer under this camera. Gone under night rain, like the rest of the road
+  detail. No sightline filter, so a patch can land behind a tower.
 
 **Tried and dropped:** paving *every* junction box, in plain setts and in terracotta. The boxes are
 9 units square against 12-unit blocks, so a paved box at every crossing is a checkerboard; Tyler

@@ -1121,9 +1121,10 @@ export const PALETTE = {
   // tarmac to deck is a seam you can see rather than two surfaces butting.
   bridgeJoint: '#3A3D42',
   // A mended cut in a lane (city/asphaltpatch.js): newer tarmac a step darker than the road, and the
-  // crack seal poured round its edge, darker again and close to black.
-  asphaltPatch: '#40464F',
-  asphaltSeal: '#25272B',
+  // crack seal poured round its edge. Tyler's reference photo puts the contrast in the seal, not the
+  // patch: a tar line far darker than anything else on the street round a fill barely off the road.
+  asphaltPatch: '#464C54',
+  asphaltSeal: '#111214',
   bridgeApproach: '#C4C0B6',
 
   // --- Boats ----------------------------------------------------------------
