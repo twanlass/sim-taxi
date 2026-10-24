@@ -317,7 +317,7 @@ export function createTutorial({
     // A player who has pressed the pill and still not held it gets told what they are doing rather
     // than told the same thing twice. `boostUsed` is a press of any length, which is exactly the
     // gesture this line is about.
-    bubble.show(TITLE, boostUsed() ? LINES.boostAgain : LINES.boost, boostTarget);
+    bubble.show(TITLE, boostUsed() ? LINES.boostAgain : LINES.boost, boostTarget, null, { tag: false });
   }
 
   /**

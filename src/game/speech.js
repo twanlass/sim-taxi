@@ -543,10 +543,14 @@ export function createSpeech(root, { viewport = null, typing = false, onDismiss 
      * @param at      () => {x, y} | null — the point the pointer touches, viewport px, per frame
      * @param media   optional element shown under the line — the New Move card's pedal row
      *                (game/newmove.js). The card widens to fit it rather than wrapping it.
+     * @param tag     false for a tip about a HUD control (the boost hint over the Loco pedal): the
+     *                tag's dots say someone *in the city* is talking, and a button is not a talker
+     *                (Tyler, 2026-10-24). The card still docks in its slot; only the tag goes.
      */
-    show(title, line, at, media = null) {
+    show(title, line, at, media = null, { tag = true } = {}) {
       if (closing) { clearTimeout(closing); closing = null; }
       root.classList.remove('tag-only', 'tag-quest');
+      root.classList.toggle('no-tag', !tag);
       titleEl.textContent = title;
       mediaEl.replaceChildren(...(media ? [media] : []));
       mediaEl.hidden = !media;
