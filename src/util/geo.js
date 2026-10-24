@@ -1089,7 +1089,7 @@ export const FINISH_DEFAULTS = {
   // moves (graze cubed is 0.07) and `reflect` is nearly the whole of it.
   window: {
     glint: 0.5, glintSharp: 400, glintBend: 0, sheen: 0, sheenSharp: 1, flake: 0,
-    reflect: 0.32, reflectEdge: 0.1, reflectBend: 0, diffuse: 1,
+    reflect: 0.55, reflectEdge: 0.1, reflectBend: 0, diffuse: 1,
     flakeTilt: 0, flakeSharp: 1, coat: 0, tint: 0, flop: 0,
   },
 };
@@ -1471,6 +1471,34 @@ const GLOSS_HIT_SOFT = /* glsl */ `
 // floors run into the buildings opposite and the upper ones see the pale sky just over their
 // roofline, which is the look of a glass façade: a skyline silhouette with a bright band above it.
 const WINDOW_FOLD = 0.4;
+// Where a window's sky turns from horizon to deep blue, as the folded ray's y. Sits inside the
+// range a bowed pane sweeps (about 0.1 to 0.35 on a lit face), so most panes are cut by it.
+const WINDOW_SKY_LINE = 0.22;
+// How bright a reflected building is in a window, as a fraction of the horizon.
+const WINDOW_HIT = 0.3;
+// How much of the camera's pan the streaks follow. 0 pins them to the façade like paint; 1 pins
+// them to the screen like a reflection of something infinitely far away. Halfway, they drift
+// across a building as the camera follows the taxi, which is what says glass when nothing in the
+// reflection itself can move — the camera never rotates.
+const WINDOW_PAN = 0.5;
+// The streaks: two hard diagonal bands across each façade, a broad one and a thin one beside it,
+// repeating every WINDOW_STREAK_PITCH units along the diagonal. In façade coordinates (the
+// face's own horizontal tangent, and height), off the flat face normal from the derivatives so a
+// pane's bow does not bend them. Edges anti-aliased by fwidth, so they stay crisp without
+// crawling. The colour is the sky lifted toward white, as on the cars (STREAKS), so it fades with
+// the sky at night.
+const WINDOW_STREAK_PITCH = 13;
+const WINDOW_STREAKS = /* glsl */ `
+			vec3 wN = normalize(cross(dFdx(vGlossObj), dFdy(vGlossObj)));
+			vec2 wT = normalize(vec2(-wN.z, wN.x) + 1e-5);
+			float wS = dot(vGlossWorld.xz - cameraPosition.xz * ${WINDOW_PAN.toFixed(2)}, wT);
+			float wD = (wS * 0.8 + vGlossWorld.y) / ${WINDOW_STREAK_PITCH.toFixed(1)};
+			float wF = fract(wD);
+			float wW = fwidth(wD) + 1e-4;
+			float wBand = smoothstep(0.07 + wW, 0.07 - wW, abs(wF - 0.4))
+				+ 0.85 * smoothstep(0.018 + wW, 0.018 - wW, abs(wF - 0.53));
+			vec3 wCol = uGlossTop + 0.8 * vec3(dot(uGlossTop, vec3(0.2126, 0.7152, 0.0722)));
+			gEnv = mix(gEnv, wCol, clamp(wBand, 0.0, 1.0) * 0.85);`;
 
 const glossFragment = (classic) => /* glsl */ `
 	{
@@ -1480,11 +1508,13 @@ const glossFragment = (classic) => /* glsl */ `
 		gR.y = max(abs(gR.y) * mix(1.0, ${WINDOW_FOLD.toFixed(2)}, gIsWindow), 0.12);
 		gR = normalize(gR);
 		vec3 gEnv = mix(uGlossHorizon, uGlossTop, __LOOK_SKY__);
-		// A window's sky is steeper: the pale horizon in a narrow band just over the roofline and
-		// a deeper blue above it, so a bowed pane (city/buildings.js) carries a ramp the eye can
-		// read at eight pixels. The car's curve, spread over the few degrees a pane bends, came out
-		// one flat grey-blue on every window.
-		gEnv = mix(gEnv, mix(uGlossHorizon, uGlossTop * 0.55, smoothstep(0.04, 0.42, gR.y)), gIsWindow);
+		// A window's sky is two flat bands with a hard line between them: the pale horizon just
+		// over the roofline and a deeper blue above it. A bowed pane (city/buildings.js) sweeps its
+		// ray across the line, so each window is cut in two crisply. The first build ramped
+		// between them, and a soft ramp on an eight-pixel pane reads as a bad gradient, not glass
+		// (Tyler, 2026-10-24).
+		float gWin = gR.y;
+		gEnv = mix(gEnv, mix(uGlossHorizon, uGlossTop * 0.55, step(${WINDOW_SKY_LINE.toFixed(2)}, gWin)), gIsWindow);
 		float gGraze = 1.0 - clamp(gReflN.z, 0.0, 1.0);
 		float gMirror = (gFinB.z + gFinB.w * gGraze * gGraze * gGraze
 			+ gFinD.x * (0.04 + 0.96 * pow(min(gGraze, 0.88), 5.0)))
@@ -1501,7 +1531,14 @@ __LOOK_MIRROR__
 ${classic ? GLOSS_HIT_CLASSIC : GLOSS_HIT_SOFT}
 				gT *= 1.3;
 			}
-			gEnv = mix(gEnv, uGlossHorizon * uGlossGlobal.y * (0.7 + 0.6 * gHitY / uGlossCeiling), gOcc);
+			// ...and the skyline it reflects is a hard silhouette, in a dark slate rather than the
+			// paint's near-black, which on a dark pane is no shape at all.
+			gOcc = mix(gOcc, step(0.5, gOcc), gIsWindow);
+			gEnv = mix(gEnv, uGlossHorizon * mix(uGlossGlobal.y, ${WINDOW_HIT.toFixed(2)}, gIsWindow)
+				* (0.7 + 0.6 * gHitY / uGlossCeiling), gOcc);
+		}
+		if (gIsWindow > 0.5) {
+${WINDOW_STREAKS}
 		}
 __LOOK_FINAL__
 		outgoingLight = mix(outgoingLight, gEnv, clamp(gMirror, 0.0, 1.0));

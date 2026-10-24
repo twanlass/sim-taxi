@@ -171,7 +171,9 @@ export function facadeQuads(rects, side, cx, cz, hw, hd, col, out = EPS, sky = n
       positions[p + 1] = v[1];
       positions[p + 2] = v[2];
 
-      if (sky && g) {
+      // Under the default the glass is one flat `window` colour and the shader draws every shape
+      // on it (`glaze`): a vertex ramp under crisp reflections read as a smudge.
+      if (sky && g && WINDOWS_CLASSIC) {
         const t = g[k];
         colors[p] = base.r + (sky.r - base.r) * t;
         colors[p + 1] = base.g + (sky.g - base.g) * t;
@@ -203,9 +205,9 @@ export function facadeQuads(rects, side, cx, cz, hw, hd, col, out = EPS, sky = n
 // curtain-wall panes are never quite coplanar — each is clamped in its own frame and bows a little
 // — and the patchwork that makes of a reflection is most of what says "glass tower". So each pane
 // leans off its wall by up to `PANE_TILT` radians, keyed on its own position (a hash, no rng draw,
-// so the city a seed builds is untouched). At ~12 units to the street wall opposite, 0.05 rad moves
-// a pane's reflected roofline by about a unit, against a 1.4-unit pane.
-const PANE_TILT = 0.05;
+// so the city a seed builds is untouched). At ~12 units to the street wall opposite, 0.08 rad moves
+// a pane's reflected roofline by about two units, against a 1.4-unit pane.
+const PANE_TILT = 0.08;
 // ...and every pane bows. Its top corners lean one way and its bottom corners the other, and the
 // smooth material interpolates between them, so the reflected ray sweeps up the pane: a flat pane
 // mirrors one ray edge to edge and draws as one flat colour — the first build's panes read as

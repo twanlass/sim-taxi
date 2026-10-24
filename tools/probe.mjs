@@ -23,7 +23,7 @@ import {
   createGround, KERB_H, SLAB_X, SLAB_Z, SLAB_RADIUS, EDGE_FADE, PARK_EDGE, MEDIAN_EDGE,
 } from '../src/city/ground.js';
 import {
-  createBuildings, facadeQuads, pitchedRoof, wallCeiling, SKYLINE_CEILING, INSET as BANK_LOT_INSET,
+  createBuildings, facadeQuads, pitchedRoof, wallCeiling, WINDOWS_CLASSIC, SKYLINE_CEILING, INSET as BANK_LOT_INSET,
 } from '../src/city/buildings.js';
 import {
   createProps, parkPlots, planParkFurniture, planMedianBeds, MEDIAN_BED_ROOM,
@@ -2269,9 +2269,18 @@ const onGrass = (city, i, j) => {
   // Vertex order within a quad is [BL, BR, TR, BL, TR, TL]: 0 is a bottom corner, 2 a top one.
   const bottom = new THREE.Color(col.getX(0), col.getY(0), col.getZ(0));
   const top = new THREE.Color(col.getX(2), col.getY(2), col.getZ(2));
-  check('a pane carries a gradient rather than one flat colour',
-    bottom.getHexString() === base.getHexString() && top.getHexString() === sky.getHexString(),
-    `bottom #${bottom.getHexString()} → top #${top.getHexString()}`);
+  // Under the default the opposite holds: the glass is one flat `window` colour and the shader
+  // draws every shape on it (`glaze` in city/buildings.js), because a vertex ramp under hard-edged
+  // reflections read as a smudge.
+  if (WINDOWS_CLASSIC) {
+    check('a pane carries a gradient rather than one flat colour',
+      bottom.getHexString() === base.getHexString() && top.getHexString() === sky.getHexString(),
+      `bottom #${bottom.getHexString()} → top #${top.getHexString()}`);
+  } else {
+    check('a pane is one flat colour, its shapes left to the reflection',
+      bottom.getHexString() === base.getHexString() && top.getHexString() === base.getHexString(),
+      `bottom #${bottom.getHexString()} → top #${top.getHexString()}`);
+  }
 
   // Two: a *punched* window never outshines the wall it is cut into. `windowSky` is more luminous
   // than brick (0.25 against 0.18) and than slate, so at full strength a pane on either would come
@@ -2298,8 +2307,8 @@ const onGrass = (city, i, j) => {
 // than glass; a normal facing into the wall lights the pane from behind and reflects the ground;
 // and a bow with its sign flipped — or lost to `computeVertexNormals` — hands every pane one flat
 // colour again, which is the sticker look the bow is there to fix. The face normal is taken from
-// the winding (CLAUDE.md), not from the normals under test.
-{
+// the winding (CLAUDE.md), not from the normals under test. Under `WINDOWS=classic` there is no glass.
+if (!WINDOWS_CLASSIC) {
   const glass = buildings.glass ?? [];
   const names = glass.map((m) => m.name).sort().join(', ');
   check('the windows are glass meshes of their own, curtain and punched',

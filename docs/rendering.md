@@ -59,19 +59,30 @@ the buildings actually standing across the street, dark, and the sky over their 
 `?windows=classic` is the faux gradient alone, below, with the panes back in the merged mesh
 ([history](rendering-history.md#window-reflections--citybuildingsjs)).
 
+**Every shape is hard-edged.** The glass is one flat `window` colour (the faux ramp below is
+`?windows=classic` only) and the shader draws crisp shapes on it: a hard skyline silhouette, a
+hard line between a pale horizon band and deeper sky, and two diagonal streaks. The first build
+was the same reflection with soft edges, and a soft ramp on an eight-pixel pane reads as a bad
+gradient, not as glass (Tyler, 2026-10-24).
+
 - **Each pane bows** (`PANE_BOW`). A flat pane under an orthographic camera reflects one ray from
   edge to edge and draws as one flat colour: the first build's panes read as pale blue stickers.
   The glass mesh is smooth-shaded, and each pane's top and bottom corners lean opposite ways, so
-  the reflected ray sweeps up the pane: its bottom runs into the street wall opposite or the pale
-  horizon, its top into deeper sky. Along the height only, so a quad's two triangles interpolate
-  it exactly.
-- **And leans** (`PANE_TILT`, up to 0.05 rad, a hash of its position, no rng). Real curtain-wall
+  the reflected ray sweeps up the pane and crosses the horizon line (`WINDOW_SKY_LINE`) partway:
+  each window comes out cut in two, pale below and blue above, or dark where a building opposite
+  is in the way. Along the height only, so a quad's two triangles interpolate it exactly.
+- **The streaks drift as the camera pans** (`WINDOW_STREAKS`, `WINDOW_PAN`). Two hard diagonal
+  bands, broad and thin, every 13 units along each façade's diagonal, in the sky's colour lifted
+  toward white. They follow half the camera's pan, so they slide across a building as the camera
+  follows the taxi. Nothing in a reflection can move on its own under a camera that never rotates;
+  this is the motion that says glass. At play zoom they are faint; up close they are obvious.
+- **And leans** (`PANE_TILT`, up to 0.08 rad, a hash of its position, no rng). Real curtain-wall
   panes are never quite coplanar, and the patchwork that makes of a reflected roofline is most of
   what says glass tower.
 - **The window's ray is folded up flatter than a car's** (`WINDOW_FOLD`, util/geo.js), about 13°
   rather than 33°. At the car's angle a ray off a façade clears the low-rise roofs opposite within
-  a block, so no pane ever showed a building. Its sky is steeper too: the pale horizon in a narrow
-  band and the deeper blue above (`gIsWindow` in `glossFragment`).
+  a block, so no pane ever showed a building. A building it does hit is a dark slate
+  (`WINDOW_HIT`), not the paint's near-black, which on a dark pane is no shape at all.
 - **Masonry keeps under its wall** (`GLASS_MIRROR`): curtain walls and shopfronts mirror at full
   strength, punched windows at 0.55, for the `wallCeiling` reason below.
 - **No glint.** The sun's half-vector is 57° off a +X façade and 48° off a +Z one, so a vertical
@@ -82,14 +93,13 @@ the buildings actually standing across the street, dark, and the sky over their 
   casts no shadow and is not an AO occluder, since the wall a hair behind it is both. The march
   runs only on glass pixels, which is why it is its own mesh: on the merged one it would run over
   every wall and roof. Measured with `tools/gpucost.mjs` (seed 11, 390×844 at DPR 2, SwiftShader,
-  so relative): `?windows=classic` is 4% cheaper a frame, about what `shadows=1024` saves.
+  so relative): `?windows=classic` measured 2% and 4% cheaper a frame on two builds, about what `shadows=1024` saves.
 - **At night** the reflection follows the sky dome down, so unlit panes go dark with a faint sheen
   and Rain Mode's lit windows draw over them as before.
 
-The base colour under the reflection is still the faux gradient: glass is lerped from `window`
-toward `windowSky` by a weight computed per corner of every pane. Nothing is being reflected in
-that part — it is two numbers and an exponential — but it holds up because **the camera never
-moves**, and it is what keeps the streak and the height falloff under the mirror.
+Under `?windows=classic` the glass is the faux gradient: lerped from `window` toward `windowSky` by
+a weight computed per corner of every pane. Nothing is being reflected — it is two numbers and an
+exponential — but it holds up because **the camera never moves**.
 
 Three things go into the weight:
 

@@ -18,6 +18,11 @@ because the camera never moves, but every pane was a flat ramp with no sight of 
 once the cars' paint was mirroring the real skyline the buildings beside them read as painted.
 `?windows=classic` brings it back exactly: the panes stay in the merged mesh and nothing is glazed.
 
+The first build of the real reflection (PR #681's first push) kept that gradient as the base and
+mixed a soft reflection over it: a smoothstep between horizon and sky, a soft skyline silhouette.
+On a pane eight pixels tall that came out as a smudged ramp on every window, "bad gradients"
+(Tyler, 2026-10-24), and it was rebuilt with hard edges and the drifting streaks before merging.
+
 ## Wheel wells — `archedBodyGeometries` in `geometry/wheels.js`
 
 [Current](rendering.md#wheel-wells--archedbodygeometries-in-geometrywheelsjs).
