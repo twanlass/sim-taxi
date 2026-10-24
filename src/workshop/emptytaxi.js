@@ -25,6 +25,9 @@ import { ROAD_W, LANE } from '../city/grid.js';
 import { PALETTE } from '../palette.js';
 import { renderBudget, createRenderPath } from '../game/renderpath.js';
 import { createLocoFlame } from '../game/locoflame.js';
+import { createDust } from '../game/dust.js';
+import { createBlast } from '../game/blast.js';
+import { makeRng } from '../util/rng.js';
 
 const hot = import.meta.hot;
 let current = null;
@@ -37,6 +40,28 @@ const DASH = 1.6;
 const DASH_GAP = 1.4;
 const DASH_W = 0.18;
 const PAINT_LIFT = 0.02;
+
+// The hop a click on the taxi buys: a little toy of a jump, landing with the drift launch's own dust
+// and ring (main.js's `onTaxiLand`, `big`) turned down to suit a car this small in the panel.
+// Gravity rather than a sine so it hangs at the top and drops hard, which is what makes the landing
+// read as weight. The nose lifts going up and dips coming down by HOP_PITCH per u/s of climb, and a
+// short squash after touchdown sells the thump. The first cut (7.5 u/s against 17.5, 0.86s in the
+// air) read as slow and floaty; this one is up and down in half a second.
+const HOP_V = 10; // u/s straight up: peaks at HOP_V² / 2g = 1.25 units, in 0.25s
+const HOP_G = 40;
+const HOP_PITCH = 0.014;
+const LAND_DIP = 0.12; // how far the body sinks on touchdown, recovering over LAND_SETTLE
+const LAND_SETTLE = 0.22;
+// Clicking again in the air kicks it back up from wherever it is, so a fast enough clicker climbs:
+// each kick is worth another HOP_V² / 2g on top of the height it was given at. Past HOP_CEIL it
+// stalls and stops taking clicks, tips nose-down and comes down hard (CRASH_V on top of gravity),
+// landing with a bigger squash and a heavier cloud than a hop. 7 units is about two thirds of the
+// way up the panel from the road at this camera.
+const HOP_CEIL = 7;
+const CRASH_V = 6;
+const CRASH_TIP = -0.5; // radians of nose-down pitch on the way down
+const CRASH_DIP = 0.32;
+const CRASH_SETTLE = 0.45;
 
 // The strip's fade, as an alphaMap: a disc of solid road round the car that falls off to nothing,
 // so it is a patch of road under the taxi rather than a bar across the panel. The bar read as a
@@ -205,6 +230,45 @@ export function mount(host) {
   // 2.4 rad/unit and 0.045 × v/SPEED as every car in sim/traffic.js. Only the car never moves; the
   // road's dashes go by at that same v instead.
   const v = boostCruise();
+
+  // The hop. A click lands on the taxi through the picker's own hit box (invisible, but a raycast
+  // does not care), so the target is the generous one the game taps against rather than the
+  // bodywork's exact outline. A click while airborne kicks it higher (HOP_CEIL above); once it has
+  // stalled at the top, clicks do nothing until it is back on the road.
+  const dust = createDust(scene, camera, makeRng(7));
+  const blast = createBlast(scene, makeRng(11));
+  const raycaster = new THREE.Raycaster();
+  const pointer = new THREE.Vector2();
+  const hop = { y: 0, vy: 0, air: false, crash: false, settle: 0, settleLen: LAND_SETTLE, dipDepth: LAND_DIP, tip: 0 };
+  const overTaxi = (event) => {
+    const rect = renderer.domElement.getBoundingClientRect();
+    pointer.set(((event.clientX - rect.left) / rect.width) * 2 - 1, -((event.clientY - rect.top) / rect.height) * 2 + 1);
+    raycaster.setFromCamera(pointer, camera);
+    return raycaster.intersectObject(taxi, true).length > 0;
+  };
+  const onDown = (event) => {
+    if (hop.crash || !overTaxi(event)) return;
+    Object.assign(hop, { air: true, vy: HOP_V });
+  };
+  const onMove = (event) => { renderer.domElement.style.cursor = overTaxi(event) ? 'pointer' : ''; };
+  renderer.domElement.addEventListener('pointerdown', onDown);
+  renderer.domElement.addEventListener('pointermove', onMove);
+  const land = (z) => {
+    const crashed = hop.crash;
+    Object.assign(hop, {
+      y: 0, vy: 0, air: false, crash: false, tip: 0,
+      settle: crashed ? CRASH_SETTLE : LAND_SETTLE,
+      settleLen: crashed ? CRASH_SETTLE : LAND_SETTLE,
+      dipDepth: crashed ? CRASH_DIP : LAND_DIP,
+    });
+    // Thrown backwards along the road (yaw π is heading −X) at the road's own speed, so the dust
+    // stays on the tarmac it came off as the tarmac streams past, rather than keeping up with a car
+    // that in this scene never moves.
+    if (crashed) dust.burst(0, z, Math.PI, 40, 1.1, { ring: 3, linger: 1.4, carry: v * 0.6 });
+    else dust.burst(0, z, Math.PI, 18, 0.55, { ring: 1.6, linger: 0.9, carry: v * 0.6 });
+    blast.shock(0, z, { tint: PALETTE.landRing, yaw: Math.PI, speed: v });
+  };
+
   const start = performance.now();
   let last = start;
   let frame = 0;
@@ -218,12 +282,27 @@ export function mount(host) {
     const u = ((now - start) / 1000) * v;
     const wave = locoWeave(u);
     const bob = Math.sin(u * 2.4) * 0.045 * (v / SPEED);
-    pose.position.set(0, bob, wave.lateral);
+    if (hop.air) {
+      hop.vy -= HOP_G * dt;
+      hop.y += hop.vy * dt;
+      if (!hop.crash && hop.y >= HOP_CEIL) Object.assign(hop, { crash: true, vy: -CRASH_V });
+      // Eased toward the dive rather than snapped, so the stall reads as it tipping over.
+      if (hop.crash) hop.tip += (CRASH_TIP - hop.tip) * Math.min(1, dt * 8);
+      if (hop.y <= 0) land(wave.lateral);
+    }
+    hop.settle = Math.max(0, hop.settle - dt);
+    const dip = -hop.dipDepth * Math.sin((hop.settle / hop.settleLen) * Math.PI);
+    const lift = bob + hop.y + dip;
+    pose.position.set(0, lift, wave.lateral);
     // Negated: a positive yaw turns +X toward −Z, and the lateral offset here runs along +Z.
     const yaw = -Math.atan(wave.slope);
-    pose.rotation.set(0, yaw, 0, BODY_EULER_ORDER);
-    Object.assign(car, { z: wave.lateral, yaw, shownLift: bob });
+    // Pitch is the third slot of BODY_EULER_ORDER; positive turns the nose (+X) up.
+    const pitch = !hop.air ? 0 : hop.crash ? hop.tip : hop.vy * HOP_PITCH;
+    pose.rotation.set(0, yaw, pitch, BODY_EULER_ORDER);
+    Object.assign(car, { z: wave.lateral, yaw, shownLift: lift });
     flame.update(dt, car, true);
+    dust.update(dt);
+    blast.update(dt);
     layDashes(u);
     renderPath.render(scene, camera);
   };
@@ -232,6 +311,8 @@ export function mount(host) {
   function dispose() {
     cancelAnimationFrame(frame);
     observer.disconnect();
+    renderer.domElement.removeEventListener('pointerdown', onDown);
+    renderer.domElement.removeEventListener('pointermove', onMove);
     renderer.domElement.remove();
     renderPath.dispose();
     // The flame's tongue geometries are module-wide and shared with nothing else here, but they

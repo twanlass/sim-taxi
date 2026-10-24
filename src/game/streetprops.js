@@ -11,7 +11,16 @@ import {
 // umbrella, standing on the kerb near a corner (Tyler, 2026-10-23: "a blue post mailbox ... if the
 // taxi hits either of these things, dust, and shoot mail everywhere or hot dogs everywhere").
 //
-// **The taxi has to be steered into them, because it never gets there on its own.** Its lane
+// **They only go over when an overtake puts the taxi up on the pavement** (Tyler, 2026-10-24: "it
+// shouldn't be something that you just randomly hit while you're driving on the road. It should be
+// a special occurrence that if you overtake a car and you end up popping up on the sidewalk and hit
+// them"). The one overtake that does is the peek round a car signalling left (`peekLateral` in
+// sim/traffic.js), 2.61 toward the kerb — and a prop stands 2.75 off the lane centre, so a peek
+// past one runs the taxi straight through it. So the hit is a plain overlap of the drawn taxi with
+// the prop, asked only while the pass is carrying the taxi kerbward (`passOffset` past
+// PAVE_PASS). Nothing steers toward a prop any more. `?propsmash=classic` keeps the swipe below.
+//
+// **Classic: the taxi has to be steered into them, because it never gets there on its own.** Its lane
 // centre is LANE_TO_KERB (2.25) off the kerb and its drawn half-width is 1.0, so there is 1.25 of
 // road between the taxi's flank and the kerb on every street, at every speed, and a prop standing
 // on the pavement can never be touched by anything the traffic model does. A hit radius that
@@ -34,6 +43,14 @@ import {
 export const STREETPROPS_MODE = (typeof location !== 'undefined'
   ? new URLSearchParams(location.search).get('streetprops')
   : globalThis.process?.env?.STREETPROPS) === 'classic' ? 'classic' : 'on';
+
+/**
+ * `'classic'` is the Loco swipe — every boosting pass down a prop's lane veers into it —
+ * `?propsmash=classic`, `PROPSMASH=classic` headless. Otherwise only an overtake onto the kerb.
+ */
+export const PROPSMASH_MODE = (typeof location !== 'undefined'
+  ? new URLSearchParams(location.search).get('propsmash')
+  : globalThis.process?.env?.PROPSMASH) === 'classic' ? 'classic' : 'overtake';
 
 const COUNTS = { mailbox: 2, cart: 1 };
 // Drawn a quarter bigger than modelled. At 1 the cart's umbrella was a dozen pixels on a phone at
@@ -61,6 +78,13 @@ const SWIPE_DEPTH = 1.75;
 // at 2.0 on a ramp that peaked level with the prop, and the probe measured the car's centre 2.0
 // across from the prop's at the moment it went: half a car's width of air between them.
 const HIT_ALONG = 2.0;
+// The overtake hit. The drawn taxi's half-length and half-width (TAXI_SCALE on CAR_LEN, and the
+// 1.0 the swipe is measured against) plus the prop's own half-footprint is touching. PAVE_PASS is
+// how far kerbward the pass has to have carried the taxi before a touch counts: the flank is at the
+// kerb at 1.25, so 0.5 is any kerbward pass at all — the oncoming-lane pass is positive.
+const TAXI_HALF_LEN = 2.0;
+const TAXI_HALF_W = 1.0;
+const PAVE_PASS = 0.5;
 
 const FALL = 0.55;            // seconds the prop spends going over
 const LIE = 7;                // seconds it lies there before it goes
@@ -148,7 +172,7 @@ export function swipeShape(d) {
  * Build the props and their spray. `update(dt, taxi)` must run **before** `traffic.update`, which is
  * what draws the taxi at the offset this sets.
  */
-export function createStreetProps(scene, plan, { dust = null, rng } = {}) {
+export function createStreetProps(scene, plan, { dust = null, rng, mode = PROPSMASH_MODE } = {}) {
   const group = new THREE.Group();
   group.name = 'streetProps';
   const none = { props: [], entryObjects: [], update: () => {}, onSmash: () => {}, smash: () => {}, settle: () => {} };
@@ -340,11 +364,31 @@ export function createStreetProps(scene, plan, { dust = null, rng } = {}) {
     }
   }
 
-  // --- The swipe ------------------------------------------------------------
+  // --- The overtake hit -----------------------------------------------------
+  // Read off last frame's drawn position (`traffic.update` applies the offsets to `x`/`z`), which
+  // is a frame late and a fifth of a unit at the Loco top: well inside the prop's own width.
+  function bump(taxi) {
+    if (!taxi || taxi.crashed || taxi.staged) return;
+    if (!((taxi.passOffset ?? 0) < -PAVE_PASS)) return;
+    for (const p of props) {
+      if (p.state !== 'standing') continue;
+      // Every prop's lane runs +Z, so across the kerb is x and along it is z.
+      if (Math.abs(taxi.x - p.x) < TAXI_HALF_W + p.half.x * PROP_SCALE
+        && Math.abs(taxi.z - p.z) < TAXI_HALF_LEN + p.half.z * PROP_SCALE) smash(p, taxi);
+    }
+  }
+
+  // --- The swipe (classic) ---------------------------------------------------
   let target = null;
 
   function steer(taxi) {
     if (!taxi) return;
+    if (mode !== 'classic') {
+      taxi.swipeOffset = 0;
+      taxi.swipeSlope = 0;
+      bump(taxi);
+      return;
+    }
     const active = !taxi.crashed && !taxi.staged && taxi.state === 'drive';
     if (target && (!active || taxi.lane !== target.lane)) target = null;
     if (!target && active && taxi.boost && !taxi.passing && taxi.dodgeLateral == null

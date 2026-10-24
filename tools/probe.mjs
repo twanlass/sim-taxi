@@ -42,7 +42,13 @@ import {
 } from '../src/city/blacktop.js';
 import { createBoombox, BPM as BOOMBOX_BPM } from '../src/game/boombox.js';
 import { createTubeMan } from '../src/game/tubeman.js';
-import { createManholes, planManholes, manholeGeometry, COVER_R, COVER_COUNT, BOX_CLEAR } from '../src/city/manholes.js';
+import {
+  createManholes, planManholes, manholeGeometry, COVER_R, COVER_COUNT, BOX_CLEAR, MIN_SEP_PITCHES, STEAM_COUNT,
+  CLASSIC as MANHOLES_CLASSIC,
+} from '../src/city/manholes.js';
+import { createManholeSteam, steamGeometry } from '../src/game/manholesteam.js';
+import { isArterialX as gridIsArterialX } from '../src/city/grid.js';
+import { createAsphaltPatches, planPatches, patchGeometry, patchRoadHalf, PATCH_COUNT, SEAL_W } from '../src/city/asphaltpatch.js';
 import { createStreetProps, planStreetProps } from '../src/game/streetprops.js';
 import { createGarbage, planTrashPiles } from '../src/game/garbage.js';
 import { HOPPER_MOUTH } from '../src/geometry/garbage.js';
@@ -1734,14 +1740,23 @@ const onGrass = (city, i, j) => {
 
 // --- Manhole covers (city/manholes.js) ---------------------------------------------------------
 // Set dressing, so what can go wrong is where they land: out of the junction box (onto a crosswalk
-// or a kerb corner), in a junction a park swallowed, bunched together, or wound face down.
+// or a kerb corner), in a junction a park swallowed, bunched together, or wound face down. Then the
+// steam (game/manholesteam.js): three vents a city, none under the L train's deck, and quads that
+// face the camera — a reversed quad on a transparent plume is simply not there.
 {
-  let wrongCount = 0, outOfBox = 0, deadJunction = 0, bunched = 0;
-  const minSep = 1.6 * PITCH - 1e-6;
+  let wrongCount = 0, outOfBox = 0, deadJunction = 0, bunched = 0, wrongSteam = 0, steamOnArterial = 0;
+  let classicWrong = 0;
+  const minSep = MIN_SEP_PITCHES * PITCH - 1e-6;
+  const classicSep = MANHOLES_CLASSIC.sep * PITCH - 1e-6;
   for (let s = 0; s < 40; s++) {
     createLayout(makeRng(s));
     const spots = planManholes(makeRng(s + 193));
     if (spots.length < COVER_COUNT[0] || spots.length > COVER_COUNT[1]) wrongCount += 1;
+    if (spots.filter((c) => c.steam).length !== STEAM_COUNT) wrongSteam += 1;
+    for (const c of spots) if (c.steam && (gridIsArterialX(c.j) || gridIsArterialZ(c.i))) steamOnArterial += 1;
+    const old = planManholes(makeRng(s + 193), { classic: true });
+    if (old.length < MANHOLES_CLASSIC.count[0] || old.length > MANHOLES_CLASSIC.count[1] || old.some((c) => c.steam)
+      || old.some((a, n) => old.slice(n + 1).some((b) => Math.hypot(a.x - b.x, a.z - b.z) < classicSep))) classicWrong += 1;
     for (const c of spots) {
       const dx = Math.abs(c.x - lineX(c.i));
       const dz = Math.abs(c.z - lineZ(c.j));
@@ -1757,10 +1772,13 @@ const onGrass = (city, i, j) => {
     }
   }
   createLayout(makeRng(seed));
-  check('manholes: four or five per city', wrongCount === 0, `${wrongCount}/40 cities outside ${COVER_COUNT.join('-')}`);
+  check('manholes: seven or eight per city', wrongCount === 0, `${wrongCount}/40 cities outside ${COVER_COUNT.join('-')}`);
+  check('manholes: three of them vent steam', wrongSteam === 0, `${wrongSteam}/40 cities without exactly ${STEAM_COUNT}`);
+  check('manholes: steam only where two side streets cross, clear of the L train', steamOnArterial === 0, `${steamOnArterial} on an arterial`);
+  check('manholes: ?manholes=classic is the old four or five, 1.6 apart, none venting', classicWrong === 0, `${classicWrong}/40 cities`);
   check('manholes: each sits inside a junction box, clear of its crosswalks and kerbs', outOfBox === 0, `${outOfBox} reach out of the box`);
   check('manholes: only in inner junctions with three or more open roads', deadJunction === 0, `${deadJunction} misplaced`);
-  check('manholes: spread at least 1.6 blocks apart', bunched === 0, `${bunched} pairs too close`);
+  check(`manholes: spread at least ${MIN_SEP_PITCHES} blocks apart`, bunched === 0, `${bunched} pairs too close`);
 
   const geo = manholeGeometry(planManholes(makeRng(seed + 193)));
   const pos = geo.attributes.position;
@@ -1772,7 +1790,76 @@ const onGrass = (city, i, j) => {
   }
   check('manholes: every triangle wound to face up', down === 0, `${down}/${pos.count / 3} face down`);
   geo.dispose();
-  check('manholes: ?manholes=classic builds none', createManholes(makeRng(1), { enabled: false }) === null);
+  check('manholes: disabled builds none', createManholes(makeRng(1), { enabled: false }) === null);
+
+  const vents = planManholes(makeRng(seed + 193)).filter((c) => c.steam);
+  let away = 0;
+  for (const wind of [1, -1]) {
+    const sg = steamGeometry(vents, wind);
+    const sp = sg.attributes.position;
+    for (let t = 0; t < sp.count; t += 3) {
+      pa.fromBufferAttribute(sp, t); pb.fromBufferAttribute(sp, t + 1); pc.fromBufferAttribute(sp, t + 2);
+      if (pb.sub(pa).cross(pc.sub(pa)).normalize().dot(VIEW_DIR) <= 0) away += 1;
+    }
+    sg.dispose();
+  }
+  check('manhole steam: every quad wound to face the camera, either wind', away === 0, `${away} face away`);
+
+  // The taxi through a vent tears the plume, and it closes again.
+  const steamScene = new THREE.Scene();
+  const steam = createManholeSteam(steamScene, vents, makeRng(1));
+  const v0 = steam.vents[0];
+  const fakeTaxi = { x: v0.x - 6, z: v0.z };
+  let torn = 0;
+  for (let f = 0; f < 60; f++) { fakeTaxi.x += 0.2; steam.update(1 / 60, fakeTaxi); torn = Math.max(torn, steam.kick[0].amount); }
+  for (let f = 0; f < 150; f++) steam.update(1 / 60, fakeTaxi);
+  check('manhole steam: the taxi driving through tears the plume, and it heals',
+    torn === 1 && steam.kick[0].amount === 0 && steam.kick.slice(1).every((k) => k.amount === 0),
+    `torn ${torn}, after ${steam.kick[0].amount}`);
+  check('manhole steam: one plume per vent, standing on its cover', steam.mesh.geometry.attributes.position.count === 6 * vents.length
+    && steamScene.children.includes(steam.mesh), `${steam.mesh.geometry.attributes.position.count} verts`);
+  check('manhole steam: none without vents', createManholeSteam(steamScene, [], makeRng(1)).mesh === null);
+}
+
+// --- Asphalt patches (city/asphaltpatch.js) -----------------------------------------------------
+// One or two, each inside one lane: clear of the centre dashes and of the kerb, and out of every
+// junction box. Then the winding, because a patch wound face down is simply not there.
+{
+  let wrongCount = 0, offLane = 0, inBox = 0;
+  for (let s = 0; s < 40; s++) {
+    createLayout(makeRng(s));
+    const spots = planPatches(makeRng(s + 197));
+    if (spots.length < PATCH_COUNT[0] || spots.length > PATCH_COUNT[1]) wrongCount += 1;
+    for (const p of spots) {
+      const across = p.axis === 'x' ? Math.abs(p.z - lineZ(p.j)) : Math.abs(p.x - lineX(p.i));
+      const halfAcross = (p.axis === 'x' ? p.d : p.w) / 2 + SEAL_W;
+      if (across - halfAcross < 0.15 || across + halfAcross > patchRoadHalf(p) - 0.1) offLane += 1;
+      const along = p.axis === 'x' ? p.x : p.z;
+      const halfAlong = (p.axis === 'x' ? p.w : p.d) / 2 + SEAL_W;
+      const a = p.axis === 'x' ? lineX(p.i) + halfRoadZ(p.i) : lineZ(p.j) + halfRoadX(p.j);
+      const b = p.axis === 'x' ? lineX(p.i + 1) - halfRoadZ(p.i + 1) : lineZ(p.j + 1) - halfRoadX(p.j + 1);
+      if (along - halfAlong < a + 2 || along + halfAlong > b - 2) inBox += 1;
+    }
+  }
+  createLayout(makeRng(seed));
+  check('asphalt patches: one or two per city', wrongCount === 0, `${wrongCount}/40 cities outside ${PATCH_COUNT.join('-')}`);
+  check('asphalt patches: each inside one lane, clear of the dashes and the kerb', offLane === 0, `${offLane} off the lane`);
+  check('asphalt patches: mid-block, 2 units clear of either junction box', inBox === 0, `${inBox} too near a junction`);
+
+  const geo = patchGeometry(planPatches(makeRng(seed + 197)), makeRng(1));
+  const pos = geo.attributes.position;
+  const idx = geo.index;
+  let down = 0;
+  const pa = new THREE.Vector3(), pb = new THREE.Vector3(), pc = new THREE.Vector3();
+  const tri = idx ? idx.count : pos.count;
+  for (let t = 0; t < tri; t += 3) {
+    const at = (k) => (idx ? idx.getX(t + k) : t + k);
+    pa.fromBufferAttribute(pos, at(0)); pb.fromBufferAttribute(pos, at(1)); pc.fromBufferAttribute(pos, at(2));
+    if (pb.sub(pa).cross(pc.sub(pa)).y <= 0) down += 1;
+  }
+  check('asphalt patches: every triangle wound to face up', down === 0, `${down}/${tri / 3} face down`);
+  geo.dispose();
+  check('asphalt patches: disabled builds none', createAsphaltPatches(makeRng(1), { enabled: false }) === null);
 }
 
   // The gas station on the same block. Its pumps stand under a canopy, and a canopy is exactly the
@@ -19489,9 +19576,11 @@ let chopperOrder; // likewise
 // --- The post box and the hot dog cart (game/streetprops.js) ----------------------------------------
 //
 // Placed where the camera sees them and nowhere a rider stands, and — the part that is the feature —
-// a boosting taxi on the lane beside one actually swipes it: veers onto the kerb, puts its flank
-// on the prop, smashes it, and is back on its lane centre before the hold line, where the turn
-// takes over the car. A citizen driving past at cruise touches nothing.
+// only an overtake up onto the pavement knocks one over: a boosting taxi driving past on its lane
+// touches nothing, and one carried kerbward by a pass (the peek round a left-turner) through the
+// prop's spot smashes it. Under `?propsmash=classic` a boosting taxi on the lane beside one swipes
+// it instead: veers onto the kerb, puts its flank on the prop, smashes it, and is back on its lane
+// centre before the hold line, where the turn takes over the car.
 {
   const plan = planStreetProps(makeRng(seed + 211), layout);
   const corners = [];
@@ -19511,10 +19600,10 @@ let chopperOrder; // likewise
     `${offPavement} off the pavement, ${unseen} hidden, ${nearRider} by a rider`);
 
   const net = cityNetwork();
-  const run = (boost) => {
+  const run = (boost, mode = 'classic') => {
     const sTraffic = createTraffic(makeRng(seed + 213), new THREE.Scene(), 1);
     const taxi = sTraffic.taxi;
-    const sp = createStreetProps(new THREE.Scene(), plan, { rng: makeRng(9) });
+    const sp = createStreetProps(new THREE.Scene(), plan, { rng: makeRng(9), mode });
     const hits = [];
     sp.onSmash((h) => hits.push(h));
     let deepest = 0;
@@ -19542,12 +19631,40 @@ let chopperOrder; // likewise
     return { hits: hits.length, deepest, leftAtTurn, flank, props: sp.props.length };
   };
   const boosted = run(true);
-  check('street props: a boosting taxi swipes every one, flank over the prop, back in lane by the turn',
+  check('street props (classic): a boosting taxi swipes every one, flank over the prop, back in lane by the turn',
     boosted.hits === boosted.props && boosted.flank < 1.3 && boosted.leftAtTurn < 0.01,
     `${boosted.hits}/${boosted.props} hit, ${boosted.flank.toFixed(2)} across at the hit, deepest ${boosted.deepest.toFixed(2)}, ${boosted.leftAtTurn.toFixed(3)} still off at the turn`);
   const cruising = run(false);
-  check('street props: at cruise the taxi drives past and touches nothing',
+  check('street props (classic): at cruise the taxi drives past and touches nothing',
     cruising.hits === 0 && cruising.deepest === 0, `${cruising.hits} hit, deepest ${cruising.deepest.toFixed(2)}`);
+  const plain = run(true, 'overtake');
+  check('street props: a boosting taxi that is not overtaking drives past every one, never veering',
+    plain.hits === 0 && plain.deepest === 0, `${plain.hits} hit, deepest ${plain.deepest.toFixed(2)}`);
+  // The pass itself: a taxi at the peek's depth (2.61 kerbward, `peekLateral`) sliding up the lane
+  // through each prop's spot, with the pass offset that put it there. Synthetic, because staging a
+  // left-turner at every prop is a test of the overtake rather than of this.
+  {
+    const sp = createStreetProps(new THREE.Scene(), plan, { rng: makeRng(9), mode: 'overtake' });
+    let hits = 0;
+    let kerbOnly = 0;
+    sp.onSmash(() => { hits += 1; });
+    const ghost = { yaw: -Math.PI / 2, v: SPEED * 1.6, state: 'drive' };
+    for (const prop of sp.props) {
+      const lane = prop.lane;
+      const cx = lane.path.at(prop.s).x;
+      // In its lane with no pass, then on the pavement with one.
+      for (const [off, pass] of [[0, 0], [-2.61, -2.61]]) {
+        const before = hits;
+        for (let s = 0; s < lane.length; s += 0.3) {
+          Object.assign(ghost, { x: cx + off, z: lane.path.at(s).z, passOffset: pass });
+          sp.update(1 / 60, ghost);
+        }
+        if (pass === 0 && hits > before) kerbOnly += 1;
+      }
+    }
+    check('street props: an overtake up the kerb smashes every one, the same line in lane none',
+      hits === sp.props.length && kerbOnly === 0, `${hits}/${sp.props.length} hit, ${kerbOnly} in lane`);
+  }
   // Stepping the city's own taxi elsewhere is not this block's business: put nothing back on it.
 }
 
@@ -20186,6 +20303,34 @@ let chopperOrder; // likewise
     // which is the precision a phone may actually hand back. See `ABUT_WALL_CLEAR`.
     check('every abutment stands proud of the channel wall rather than on its plane',
       closest > 0.05, `nearest face stands ${closest.toFixed(3)} proud`);
+  }
+
+  // --- The channel wall and the embankment's kerb box do not share the kerb band.
+  //
+  // The same tie one surface over, and it ran the length of the river: the kerb box is
+  // `EMBANK_WALK` deep, centred halfway from bank to water, so its channel-side face sits on the
+  // wall's plane facing the same way, and the wall used to run up to `KERB_H` over it. Reported
+  // from a phone as z-fighting down both banks. Asserted per triangle, off the index when the merge
+  // kept one: on either wall plane, nothing that reaches below
+  // ground may also reach above it.
+  {
+    const shell = createRiver(makeRng(seed + 12), layout).shell.geometry;
+    const p = shell.attributes.position;
+    const at = (k) => (shell.index ? shell.index.getX(k) : k);
+    const tris = shell.index ? shell.index.count : p.count;
+    let shared = 0;
+    let onPlane = 0;
+    for (let t = 0; t < tris; t += 3) {
+      const v = [at(t), at(t + 1), at(t + 2)];
+      for (const zw of [rWater.z0, rWater.z1]) {
+        if (!v.every((k) => Math.abs(p.getZ(k) - zw) < 1e-4)) continue;
+        onPlane += 1;
+        const ys = v.map((k) => p.getY(k));
+        if (Math.min(...ys) < -0.01 && Math.max(...ys) > 1e-4) shared += 1;
+      }
+    }
+    check('the channel wall stops under the embankment kerb rather than sharing its face',
+      onPlane > 0 && shared === 0, `${shared} wall triangles above ground of ${onPlane} on the planes`);
   }
 
   // --- The route band rides the hump rather than being swallowed by it.

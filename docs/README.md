@@ -19,6 +19,7 @@ behind it that aren't obvious from the code.
 | [params.md](params.md) | Every URL parameter, including the `?<feature>=classic` toggles. `npm run check` keeps it complete | `src/util/shot.js`, `src/main.js` |
 | [testing.md](testing.md) | `npm run check`, the headless tools, screenshots, and the iteration workflow | `tools/` |
 | [lab.md](lab.md) | The passing lab at `/lab/` — one straight road with no lights, for watching Loco Mode overtake | `src/lab/`, `lab/` |
+| [talk.md](talk.md) | The talk at `/talk/` — slides that turn into the live game, and the game's `presenter` hook | `src/talk/`, `talk/` |
 | [workshop.md](workshop.md) | The model workshop at `/workshop/` — one model on a bench, hot-reloading, with a chat panel that has Claude Code edit its source | `src/workshop/`, `workshop/`, `tools/workshop-agent.mjs` |
 | [ios.md](ios.md) | The App Store build: the WKWebView shell, why a custom URL scheme rather than `file://`, the native flag | `ios/`, `src/util/platform.js` |
 
