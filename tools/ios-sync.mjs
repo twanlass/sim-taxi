@@ -34,11 +34,13 @@ const DEST = path.resolve('ios/SimTaxi/web');
  *   bundle is already local, and a cache-first worker survives an App Store update and serves the
  *   old game to someone who just installed the new one). Nothing would load it, but shipping the
  *   file anyway invites a future reader to wire it back up.
+ * - **`talk`** — the presentation (`/talk/`), excluded for the lab's reason: a page the web
+ *   deploy wants and the app has no use for.
  */
-const EXCLUDE = new Set(['lab', 'sw.js']);
+const EXCLUDE = new Set(['lab', 'talk', 'sw.js']);
 
 /**
- * The lab's *code*, which is a separate problem from the lab's page.
+ * The lab's *code* (and the talk's), which is a separate problem from the lab's page.
  *
  * Rollup gives every entry its own chunk, so excluding `lab/index.html` above leaves
  * `assets/lab-<hash>.js` behind — 9kB of unreachable developer workbench inside the App Store
@@ -49,7 +51,10 @@ const EXCLUDE = new Set(['lab', 'sw.js']);
  * this stops matching, the silence would read exactly like success — so the report below always
  * says what went and what stayed.
  */
-const EXCLUDE_ASSET = /^lab-[^/]*\.js$/;
+// The talk's lazy chunks and their payload ride in `assets/` beside the game's: its entry and
+// stylesheet, the Dr Pepper cans (with cannon-es inside), the in-game title text, the slide-2 photo,
+// and the Inter faces its slides are set in. The game is set in Space Grotesk and loads none of them.
+const EXCLUDE_ASSET = /^(?:(?:lab|talk|cans|scenetext|tyler-kid)-[^/]*\.(?:js|css|png)|inter-[a-z-]+-wght-normal-[^/]*\.woff2)$/;
 
 if (!existsSync(SRC)) {
   console.error('No dist/ — run `vite build` first (or use `npm run build:ios`, which does both).');

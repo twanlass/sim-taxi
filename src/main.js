@@ -18,6 +18,7 @@ import { createLayout } from './city/layout.js';
 import { createGround, KERB_H } from './city/ground.js';
 import { createManholes } from './city/manholes.js';
 import { createManholeSteam } from './game/manholesteam.js';
+import { createAsphaltPatches } from './city/asphaltpatch.js';
 import { createRiver, bridgeLines, bridgeSpan, deckHeightAt } from './city/river.js';
 import { createHarbor } from './city/harbor.js';
 import { createNorthPark } from './city/northpark.js';
@@ -192,7 +193,7 @@ import { createSfx, DASH, MUSIC_FADE_AT_HINT } from './game/sfx.js';
 import { attachContextRecovery } from './game/recovery.js';
 import { isCityConnected, GRID_I, GRID_J, MAX_SPAN, lineX, lineZ } from './city/grid.js';
 import { cityNetwork } from './city/roadnet.js';
-import { PALETTE, color as paletteColor } from './palette.js';
+import { PALETTE, color as paletteColor, roadsClassic } from './palette.js';
 
 // Caches the app shell so a Home Screen launch still opens with no connection — see public/sw.js.
 // Skipped under `npm run dev`: Vite's dev server rewrites module URLs on every change, and a
@@ -584,6 +585,10 @@ scene.add(markOccluder(rain.wetGround(brush(createGround(makeRng(seed + 11), lay
 const manholes = createManholes(makeRng(seed + 193),
   { classic: new URLSearchParams(location.search).get('manholes') === 'classic' });
 if (manholes) scene.add(markOccluder(rain.wetGround(manholes)));
+// One or two mended cuts in a side street's lane (city/asphaltpatch.js), its own stream. Part of
+// the road look, so `?roads=classic` leaves them out.
+const asphaltPatches = createAsphaltPatches(makeRng(seed + 197), { enabled: !roadsClassic() });
+if (asphaltPatches) scene.add(markOccluder(rain.wetGround(asphaltPatches)));
 // The ground past the coast, for the fog of war to swallow — game/edgefog.js.
 if (EDGE_FOG) scene.add(createEdgeFogFloor());
 
@@ -1586,7 +1591,7 @@ const pan = shot
 const dust = createDust(scene, camera, makeRng(seed + 77));
 const spray = createSpray(scene, makeRng(seed + 78));
 
-// A post box and a hot dog cart on the kerb, which a taxi in Loco Mode swipes off it — see
+// A post box and a hot dog cart on the kerb, which an overtake up onto the pavement takes out — see
 // game/streetprops.js. City seed for where they stand, after the sightline field exists (they only
 // go where the camera can see them) and clear of the rain's street lamps. Run seed for the spray.
 const streetProps = createStreetProps(scene,
@@ -1977,9 +1982,9 @@ roadwork.onSmash(({ x, z }) => {
   // impact read as exhaust rather than as hitting something. See `dust.burst`.
   dust.burst(x, z, traffic.taxi.yaw);
 });
-// A post box or a hot dog cart swiped off the kerb (game/streetprops.js). Half a step on the meter,
-// like an overtake: it happens on its own whenever Loco Mode is down on the right lane, so it is a
-// flourish rather than a move. The shake and the crash are the barricade's, turned down further —
+// A post box or a hot dog cart knocked off the kerb (game/streetprops.js). Half a step on the meter,
+// on top of the overtake that carried the taxi into it: it is a lucky line through a pass rather
+// than a move of its own. The shake and the crash are the barricade's, turned down further —
 // a box of letters, not a trestle.
 streetProps.onSmash(({ kind }) => {
   if (!fares.state.gameOver) landCombo(kind === 'cart' ? 'hotdog' : 'mailbox');
@@ -6333,6 +6338,8 @@ let bench = null;
 // outright — nothing is stepped or drawn — and `tick` picks up the longer gap through the clock's
 // own delta. The 4 ms of slack is so a vsync that lands a hair early is not skipped as well, which
 // would drop the rate to 20.
+// Set by the talk's `presenter.hold()` — read by the early returns in `tick` below.
+let presenterHeld = false;
 const fpsPin = Number.parseInt(new URLSearchParams(window.location.search).get('fps'), 10);
 const frameRateCap = () => (shot ? 60 : fpsPin > 0 ? fpsPin : qualityOf(settings.get()).frameRate);
 let lastFrameAt = 0;
@@ -6351,7 +6358,7 @@ function frame(t) {
   // the page's pale sky (#dcedf7) for a whole frame, two under the 30 fps cap, reported as a white
   // flash across the screen. Headless under `?squall&fps=30`, 4 of the run's 6 resizes landed
   // that way before the move and none after.
-  governor.frame(t, !pause?.state.paused && !fares.state.gameOver && !document.hidden);
+  governor.frame(t, !pause?.state.paused && !presenterHeld && !fares.state.gameOver && !document.hidden);
   bench?.begin(t);
   tick();
   bench?.end();
@@ -6370,12 +6377,13 @@ function tick() {
   // Paused. Nothing updates — not the traffic, not the clocks, not the sky — but the frame is still
   // drawn: with `preserveDrawingBuffer` off, a resize or a rotation with the veil up repaints the
   // canvas from an empty buffer, and the city would blink out until the player resumed.
-  // The sound stops with the world — the pause below — and starts with it again. Not under the
-  // robber's line, though it freezes the world the same way: suspending the context there cut off
-  // the cab door the robber had just opened mid-sample, a click and a ding, and took the radio
-  // with it, so the getaway opened on what sounded like the game breaking. The radio ducks under
-  // the line instead, and the city keeps its hum while the world holds still.
-  sfx?.hold(Boolean(pause?.state.paused || newMove?.isOpen() || inspect?.state.on));
+  // The sound stops with the world — the pause below, and the talk's presenter hold — and starts
+  // with it again. Not under the robber's line, though it freezes the world the same way:
+  // suspending the context there cut off the cab door the robber had just opened mid-sample, a
+  // click and a ding, and took the radio with it, so the getaway opened on what sounded like the
+  // game breaking. The radio ducks under the line instead, and the city keeps its hum while the
+  // world holds still.
+  sfx?.hold(Boolean(pause?.state.paused || newMove?.isOpen() || inspect?.state.on || presenterHeld));
   const robberTalking = Boolean(robberLine?.isOpen());
   if (robberTalking !== robberDucked) { robberDucked = robberTalking; sfx?.duckMusic(robberTalking); }
   // Drawn once, not every frame. Nothing in the world moves while paused, and a canvas that is not
@@ -6392,6 +6400,13 @@ function tick() {
   // camera handed to game/inspect.js — which moves it from input events, so all this has to do is
   // draw.
   if (inspect?.state.on) {
+    renderFrame();
+    return;
+  }
+  // Held by the talk at /talk/ (see the `presenter` handle on `window.__taxi`): the same freeze
+  // again, for the slide that shows the game as a still before it comes alive. Drawn every frame
+  // rather than once, because the talk moves the camera's projection under the hold.
+  if (presenterHeld) {
     renderFrame();
     return;
   }
@@ -8247,6 +8262,20 @@ window.__taxi = {
   /** The route-band drag, for `tools/smoke.mjs`: `isGrabbing`, `didDrag`, `via`. */
   pathDrag,
   camera: controller,
+  /**
+   * The talk at /talk/ (src/talk/talk.js) drives the game from outside, through a same-origin
+   * iframe. `hold(true)` freezes the world the way the pause does but with nothing drawn over it;
+   * `settle()` finishes the city's entrance at once, so the still is a whole city. Everything else
+   * the talk does — the camera's close-up, hiding the HUD — it does from its own side.
+   */
+  presenter: {
+    hold: (on) => { presenterHeld = Boolean(on); },
+    held: () => presenterHeld,
+    settle: () => {
+      if (cityEntry.running()) cityEntry.settle();
+      if (ltrain?.intro?.running()) ltrain.intro.settle();
+    },
+  },
   /**
    * A world point in viewport pixels, the kerb corner a fare's marks stand on, and the frame the
    * renderer actually draws — for `tools/smoke.mjs`, which uses the three together to work out
