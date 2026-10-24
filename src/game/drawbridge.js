@@ -216,7 +216,8 @@ export function createDrawbridge(scene, rng, { replan = null, onLand = null, wet
   const pivots = [];
   const halves = split ? [[0, 0.5, 0, span.z0], [0.5, 1, length, span.z1]] : [[0, 1, 0, span.z0]];
   for (const [from, to, pivotZ, hingeZ] of halves) {
-    const geo = createBridge(span, rng, { range: [from, to], abutments: false, pivotZ });
+    // Split, each leaf's tip is a free end and gets a cap like the span's ends (geometry/bridge.js).
+    const geo = createBridge(span, rng, { range: [from, to], abutments: false, pivotZ, capCut: split });
     const leaf = new THREE.Mesh(geo, propMaterial());
     leaf.castShadow = true;
     leaf.receiveShadow = true;
