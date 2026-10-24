@@ -484,16 +484,25 @@ export function createRiver(rng, layout) {
   const walkCol = jitterColor(PALETTE.sidewalk, rng, { l: 0.03 });
   const edges = waterEdges();
 
-  // --- The two channel walls, from the top of the embankment down past the waterline.
+  // --- The two channel walls, from ground level down past the waterline.
   //
   // Both, although only one is ever seen from the play camera: the view looks down the -x-z
   // diagonal, so the south wall shows its +Z face and the north wall is looked *over*. The unseen
   // one still has to exist, because the sun moves all day and the shadow pass is rendered from
   // wherever it happens to be.
+  //
+  // **They stop at y = 0, under the embankment's kerb box, not at its top.** The box below is
+  // `EMBANK_WALK` deep and centred halfway between the bank and the water, so its channel-side face
+  // lands on `edges.z0`/`z1` — the wall's own plane, facing the same way. With the wall running up
+  // to `KERB_H` the two shared that plane over the whole kerb band, the length of the river: the
+  // abutment's exact tie (geometry/bridge.js) again, reported the same way, as z-fighting down both
+  // banks on a phone and invisible in a headless still. Now the box owns the band and the wall
+  // meets its bottom edge, which is a seam rather than an overlap.
   const east = channelEast();
+  const wallH = -WATER_Y + WALL_FOOT;
   for (const [z, facing] of [[edges.z0, 1], [edges.z1, -1]]) {
-    const wall = new THREE.PlaneGeometry(bank + east, KERB_H - WATER_Y + WALL_FOOT);
-    wall.translate((east - bank) / 2, KERB_H - (KERB_H - WATER_Y + WALL_FOOT) / 2, 0);
+    const wall = new THREE.PlaneGeometry(bank + east, wallH);
+    wall.translate((east - bank) / 2, -wallH / 2, 0);
     if (facing < 0) wall.rotateY(Math.PI);
     wall.translate(0, 0, z);
     solid.push(bakeColor(wall, wallCol));
