@@ -48,14 +48,48 @@ either way. So a gradient across a triangle costs nothing but the numbers: no ex
 second material, no texture, and it still merges into the same one-mesh-one-material pile as
 everything else.
 
-The window reflections are built entirely out of that.
+The windows' base colour is built out of that.
 
-### Faux window reflections — `city/buildings.js`
+### Window reflections — `city/buildings.js`
 
-Glass is lerped from `window` toward `windowSky` by a weight computed per corner of every pane.
-Nothing is being reflected — it is two numbers and an exponential — but it holds up because **the
-camera never moves**. A real reflection changes when you walk past a building; this one never has
-to.
+Every pane is a real reflection: the glass is taken out of the merged building mesh into glass
+meshes of its own (`glassMeshes`), which wear [the cars' finish shader](#car-finishes--propmaterial-gloss--in-utilgeojs)
+as `FINISH.WINDOW`. Its ray marches the same city height field the paint does, so a pane mirrors
+the buildings actually standing across the street, dark, and the sky over their roofline.
+`?windows=classic` is the faux gradient alone, below, with the panes back in the merged mesh
+([history](rendering-history.md#window-reflections--citybuildingsjs)).
+
+- **Each pane bows** (`PANE_BOW`). A flat pane under an orthographic camera reflects one ray from
+  edge to edge and draws as one flat colour: the first build's panes read as pale blue stickers.
+  The glass mesh is smooth-shaded, and each pane's top and bottom corners lean opposite ways, so
+  the reflected ray sweeps up the pane: its bottom runs into the street wall opposite or the pale
+  horizon, its top into deeper sky. Along the height only, so a quad's two triangles interpolate
+  it exactly.
+- **And leans** (`PANE_TILT`, up to 0.05 rad, a hash of its position, no rng). Real curtain-wall
+  panes are never quite coplanar, and the patchwork that makes of a reflected roofline is most of
+  what says glass tower.
+- **The window's ray is folded up flatter than a car's** (`WINDOW_FOLD`, util/geo.js), about 13°
+  rather than 33°. At the car's angle a ray off a façade clears the low-rise roofs opposite within
+  a block, so no pane ever showed a building. Its sky is steeper too: the pale horizon in a narrow
+  band and the deeper blue above (`gIsWindow` in `glossFragment`).
+- **Masonry keeps under its wall** (`GLASS_MIRROR`): curtain walls and shopfronts mirror at full
+  strength, punched windows at 0.55, for the `wallCeiling` reason below.
+- **No glint.** The sun's half-vector is 57° off a +X façade and 48° off a +Z one, so a vertical
+  pane can never catch it under this sun; the glint numbers are there for the ⚙️ panel (**Car
+  finish → window**) and nothing else.
+- **What it costs.** One more program (`prop-gloss…` with smooth normals, shared by every glass
+  mesh) and up to four more draws (curtain and punched, the island and the west edge). The glass
+  casts no shadow and is not an AO occluder, since the wall a hair behind it is both. The march
+  runs only on glass pixels, which is why it is its own mesh: on the merged one it would run over
+  every wall and roof. Measured with `tools/gpucost.mjs` (seed 11, 390×844 at DPR 2, SwiftShader,
+  so relative): `?windows=classic` is 4% cheaper a frame, about what `shadows=1024` saves.
+- **At night** the reflection follows the sky dome down, so unlit panes go dark with a faint sheen
+  and Rain Mode's lit windows draw over them as before.
+
+The base colour under the reflection is still the faux gradient: glass is lerped from `window`
+toward `windowSky` by a weight computed per corner of every pane. Nothing is being reflected in
+that part — it is two numbers and an exponential — but it holds up because **the camera never
+moves**, and it is what keeps the streak and the height falloff under the mirror.
 
 Three things go into the weight:
 
@@ -3413,7 +3447,7 @@ and the flock above. That one has a life; this is scenery that moves. Where the 
 **The water is drawn as a fan about its own centre**, not as a `ShapeGeometry` like every other flat
 surface in the city, and the reason is the one vertex earcut would not give it: the middle. The open
 water is `pondWater` and the rim `pondShallow`, 17 luma darker, so the pond has depth for the price
-of a vertex colour — [a gradient across a flat-shaded triangle](#faux-window-reflections--citybuildingsjs)
+of a vertex colour — [a gradient across a flat-shaded triangle](#window-reflections--citybuildingsjs)
 costs nothing but the numbers. One flat blue read as a painted disc. The shore is the other half of
 it: a ring of damp earth cut with the water as a hole in it, the same construction the walk round a
 park uses, which is also what removes the seam — both rims come off one point list, so there is no
