@@ -142,7 +142,8 @@ point; the head's shadow across the top of the pane and the lit reveals are, and
 turn a dark rectangle on a wall into a hole in it. Hand-wound quads, one geometry per façade like
 the panes, with each face checked against the way it must point as it is emitted and asserted
 from the winding in `tools/probe.mjs`. 40 triangles a window, about 2k across a city (mean of
-four seeds). Curtain-wall ribbons get no frame: on glass the glass is the wall.
+four seeds). Curtain-wall ribbons get a slimmer trim round each whole band (`trim`: 0.07 wide,
+0.1 deep, sill 0.14 with no overhang). A full-width band in the punched frame read as a balcony rail.
 
 **The frames are their own mesh, and receive AO without casting it** (`frameMesh`, not an
 occluder). In the merged mesh they were occluders, and a 0.2-unit protrusion against the SSAO's

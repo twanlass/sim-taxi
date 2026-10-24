@@ -447,7 +447,7 @@ function punchedWindows(parts, cx, base, cz, w, d, h, firstFloorH, windowColor, 
  * tower like this genuinely is continuous, and a ribbon is one quad per face where a grid is a
  * dozen.
  */
-function ribbonWindows(parts, cx, base, cz, w, d, h, firstFloorH, windowColor, peak,
+function ribbonWindows(parts, cx, base, cz, w, d, h, firstFloorH, windowColor, peak, body = null,
   faces = fullFaces(w, d)) {
   const lines = floorLines(base, h, firstFloorH);
   if (!lines.length) return;
@@ -480,6 +480,13 @@ function ribbonWindows(parts, cx, base, cz, w, d, h, firstFloorH, windowColor, p
     }
     paneSink?.({ rects, side, cx, cz, hw: w / 2, hd: d / 2, kind: 'ribbon' });
     parts.push(facadeQuads(rects, side, cx, cz, w / 2, d / 2, windowColor, EPS, sky));
+    // A slim trim round each whole band, not each segment: the segments are only there for the
+    // streak (above) and are one pane to look at.
+    if (body && !WALLS_CLASSIC) {
+      const bands = lines.map((y) => ({ u: 0, y: y + 0.5 + bandH / 2, w: span, h: bandH }));
+      parts.push(windowFrames(bands, side, cx, cz, w / 2, d / 2, shade(body, FRAME_TINT),
+        SIDE_OUT[side], SIDE_TAN[side], { trim: true }));
+    }
   }
 }
 
@@ -963,7 +970,7 @@ function buildTower(lot, block, rng, parts, stats, { height: fixed = null, famil
     if (style === 'punched') {
       punchedWindows(parts, cx, y, cz, cw, cd, tierH, firstFloorH, windowColor, peak, body);
     } else {
-      ribbonWindows(parts, cx, y, cz, cw, cd, tierH, firstFloorH, windowColor, peak);
+      ribbonWindows(parts, cx, y, cz, cw, cd, tierH, firstFloorH, windowColor, peak, body);
     }
     if (tier === 0 && streetSides.length) groundFloor(parts, cx, cz, cw, cd, streetSides, rng, body);
     // A ground storey's blank sides — the ones off the street, with no shopfront — get a row of
@@ -1134,7 +1141,7 @@ function buildCourtyard(lot, block, rng, parts) {
       punchedWindows(parts, wx, KERB_H, wz, ww, wd, h, firstFloorH, windowColor, peak, body,
         wing.faces);
     } else {
-      ribbonWindows(parts, wx, KERB_H, wz, ww, wd, h, firstFloorH, windowColor, peak, wing.faces);
+      ribbonWindows(parts, wx, KERB_H, wz, ww, wd, h, firstFloorH, windowColor, peak, body, wing.faces);
     }
     // A cornice per wing, so the stepped heights read as four buildings in a terrace.
     const deck = lippedCap(parts, ww + 0.3, 0.26, wd + 0.3, wx, KERB_H + h, wz, shade(body));

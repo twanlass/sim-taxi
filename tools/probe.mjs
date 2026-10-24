@@ -2413,10 +2413,12 @@ const onGrass = (city, i, j) => {
   // per side of a test façade, on every side, so a sign slip in any of the four tangents shows.
   const p0 = new THREE.Vector3(); const p1 = new THREE.Vector3(); const p2 = new THREE.Vector3();
   const n = new THREE.Vector3(); const mid = new THREE.Vector3();
-  for (let side = 0; side < 4; side++) {
+  for (let k = 0; k < 8; k++) {
+    const side = k % 4;
+    const trim = k >= 4;
     const out = [[1, 0], [0, 1], [-1, 0], [0, -1]][side];
     const tan = [[0, -1], [1, 0], [0, 1], [-1, 0]][side];
-    const geo = windowFrames([{ u: 0, y: 5, w: 1, h: 1.4 }], side, 0, 0, 3, 3, new THREE.Color(1, 1, 1), out, tan);
+    const geo = windowFrames([{ u: 0, y: 5, w: 1, h: 1.4 }], side, 0, 0, 3, 3, new THREE.Color(1, 1, 1), out, tan, { trim });
     const pos = geo.attributes.position;
     let faces = 0; let inside = 0;
     for (let t = 0; t < pos.count; t += 3) {
@@ -2432,7 +2434,7 @@ const onGrass = (city, i, j) => {
       faces += 1;
       if (n.dot(centre.sub(mid)) <= 0) inside += 1;
     }
-    check(`window frames face out of their bars on side ${side}`, inside === 0 && pos.count === FRAME_TRIS_PER_WINDOW * 3,
+    check(`window ${trim ? 'trim' : 'frames'} face out of their bars on side ${side}`, inside === 0 && pos.count === FRAME_TRIS_PER_WINDOW * 3,
       `${faces} triangles, ${inside} wound inwards`);
   }
 }

@@ -30,6 +30,7 @@ into the frames' real sill and read as one piece of geometry; it moved down onto
 Shopfronts were one unframed pane per street face, and a building's other sides had no windows
 on the ground storey at all; the framed bays and the side row came last, the same day, for the
 single-storey boxes that were most of the city ("just freaking boring boxes").
+Curtain-wall glass bands were left unframed until the last pass, when they got the slim trim.
 
 ## Window glass — `city/buildings.js`
 

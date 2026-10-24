@@ -162,7 +162,7 @@ float wallBand(float x, float a, float b, float aa) {
 // the head throws a strip across the top of the pane and the jamb on the far side throws one down
 // its edge, and that is what turns a dark rectangle painted on a wall into a hole in it. The
 // reveals (the trim's inner faces) light differently from the wall too, so even a frame in shadow
-// draws its own outline. Curtain-wall ribbons get none: on glass the glass is the wall.
+// draws its own outline. Curtain-wall ribbons get a slimmer trim (`trim`, below), round the whole band.
 //
 // Hand-wound quads, batched one geometry per façade the way `facadeQuads` batches its panes —
 // a city carries a few thousand windows, and a few thousand `BoxGeometry`s are what that function
@@ -185,6 +185,13 @@ const FASCIA_GAP = 0.06;
 const FASCIA_H = 0.3;
 const FASCIA_D = 0.12;
 const FASCIA_OVER = 0.12;
+// The trim round a curtain wall's glass band (`trim: true`): the same four bars at about half the
+// size, and a sill no deeper than the rest. A band is the whole width of its face, so a punched
+// window's frame on it reads as a balcony rail; this is the thinnest edge that still throws a
+// shadow line, a shadow texel (0.123) under the head and a lit edge along the sill.
+const TRIM_W = 0.07;
+const TRIM_D = 0.1;
+const TRIM_SILL_D = 0.14;
 // Five faces a bar (no back: it is against the wall), two triangles a face, four bars a window.
 export const FRAME_TRIS_PER_WINDOW = 40;
 
@@ -192,7 +199,7 @@ export const FRAME_TRIS_PER_WINDOW = 40;
  * The frames for one façade's punched windows, as one geometry. `rects` are the panes, exactly as
  * they go to `facadeQuads`; `side`, `out` and `tan` are that face's outward and along directions.
  */
-export function windowFrames(rects, side, cx, cz, hw, hd, col, out, tan, { fascia = false } = {}) {
+export function windowFrames(rects, side, cx, cz, hw, hd, col, out, tan, { fascia = false, trim = false } = {}) {
   const [nx, nz] = out;
   const [tx, tz] = tan;
   const reach = side % 2 === 0 ? hw : hd;
@@ -226,15 +233,18 @@ export function windowFrames(rects, side, cx, cz, hw, hd, col, out, tan, { fasci
     quad([at(u0, y0, 0), at(u0, y1, 0), at(u0, y1, d), at(u0, y0, d)], BACK);
   };
 
+  const fw = trim ? TRIM_W : FRAME_W;
+  const fd = trim ? TRIM_D : FRAME_D;
+  const over = trim ? 0 : SILL_OVER;
   for (const { u, y, w, h, panes = 1 } of rects) {
     const uL = u - w / 2;
     const uR = u + w / 2;
     const yB = y - h / 2;
     const yT = y + h / 2;
-    bar(uL - FRAME_W - SILL_OVER, uR + FRAME_W + SILL_OVER, yB - SILL_H, yB, SILL_D);
-    bar(uL - FRAME_W, uR + FRAME_W, yT, yT + FRAME_W, FRAME_D);
-    bar(uL - FRAME_W, uL, yB, yT, FRAME_D);
-    bar(uR, uR + FRAME_W, yB, yT, FRAME_D);
+    bar(uL - fw - over, uR + fw + over, yB - (trim ? TRIM_W : SILL_H), yB, trim ? TRIM_SILL_D : SILL_D);
+    bar(uL - fw, uR + fw, yT, yT + fw, fd);
+    bar(uL - fw, uL, yB, yT, fd);
+    bar(uR, uR + fw, yB, yT, fd);
     // A shopfront is one pane cut into bays by mullions, thinner and shallower than the jambs so
     // the outer frame still reads as the frame.
     for (let k = 1; k < panes; k++) {
