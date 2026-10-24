@@ -47,7 +47,7 @@ import { createNorthPark } from '../src/city/northpark.js';
 import { createSouthShore } from '../src/city/southshore.js';
 import { createParkShore } from '../src/city/parkshore.js';
 import { createWestEdge } from '../src/city/westedge.js';
-import { createBridge } from '../src/geometry/bridge.js';
+import { createBridge, jointParts } from '../src/geometry/bridge.js';
 import { createBuildings } from '../src/city/buildings.js';
 import { createProps } from '../src/city/props.js';
 import { createGarage } from '../src/city/garage.js';
@@ -97,6 +97,9 @@ function buildCity(seed) {
       sinkShadowCaster(mesh);
       add(`bridge-${line}`, mesh);
     }
+    const jointRng = makeRng(seed + 58);
+    const joints = bridgeLines().flatMap((line) => jointParts(bridgeSpan(line), jointRng));
+    if (joints.length) add('bridge-joints', new THREE.Mesh(mergeGeometries(joints, false), propMaterial()));
   }
   add('harbor', createHarbor(makeRng(seed + 47))?.mesh);
   const northPark = createNorthPark(makeRng(seed + 53));
