@@ -103,6 +103,46 @@
       }
       .vid video:not(.loaded) { visibility: hidden; }
       .vid video.loaded + .ph { display: none; }
+      /* Then and now: the first build (abfb86a9, prebuilt into public/talk/first/) over today's
+         game, both under the same fixed camera; the first is clipped to the left of the wipe. */
+      .compare { cursor: ew-resize; touch-action: none; --x: 100%; }
+      .compare .cmp-old {
+        position: absolute; inset: 0; width: 100%; height: 100%; border: 0; pointer-events: none;
+        clip-path: inset(0 calc(100% - var(--x)) 0 0); opacity: 0; transition: opacity 1.2s ease;
+      }
+      .compare .cmp-old.loaded { opacity: 1; }
+      /* The divider: a black line and a black knob with white chevrons. Out of sight unless it's
+         doing something — the reveal sweep, a drag, or a pointer over it (the element is a 64px
+         hover strip; the line and the knob are drawn inside it). */
+      .compare .wipe {
+        position: absolute; top: 0; bottom: 0; left: var(--x); width: 64px; translate: -50% 0;
+        opacity: 0; transition: opacity 0.35s ease; z-index: 2;
+      }
+      .compare .wipe:hover, .compare.sweeping .wipe, .compare.dragging .wipe { opacity: 1; }
+      .compare .wipe::before {
+        content: ''; position: absolute; top: 0; bottom: 0; left: 50%; width: 3px; translate: -50% 0;
+        background: #111; box-shadow: 0 0 10px rgba(255, 255, 255, 0.25);
+      }
+      .compare .wipe span {
+        position: absolute; top: 50%; left: 50%; translate: -50% -50%; width: 48px; height: 48px;
+        border-radius: 50%; background: #111; box-shadow: 0 2px 12px rgba(0, 0, 0, 0.35);
+        display: grid; place-items: center;
+      }
+      .compare .wipe svg {
+        width: 26px; height: 26px; fill: none; stroke: #fff; stroke-width: 2.4;
+        stroke-linecap: round; stroke-linejoin: round;
+      }
+      /* Each label rides a full-screen layer clipped exactly like its own game, so the divider wipes
+         it away with its side rather than sliding over it. */
+      .compare .side { position: absolute; inset: 0; pointer-events: none; }
+      .compare .side-old { clip-path: inset(0 calc(100% - var(--x)) 0 0); }
+      .compare .side-new { clip-path: inset(0 0 0 var(--x)); }
+      .compare .tag {
+        position: absolute; top: 4vh; padding: 6px 14px; border-radius: 999px; pointer-events: none;
+        background: rgba(18, 26, 34, 0.75); color: #fff; font-size: 14px; font-weight: 600;
+      }
+      .compare .tag-old { left: 4vw; }
+      .compare .tag-new { right: 4vw; }
       /* A demo that takes the whole slide, edge to edge, like the title's backdrop. */
       .bleed { padding: 0; }
       .bleed .demo { position: absolute; inset: 0; display: block; }
@@ -175,6 +215,8 @@
         pointer-events: none;
       }
       #clock.on { transform: scale(1); }
+      /* Parked for now: the clock still runs (R resets it), it just isn't shown. Delete this line to bring it back. */
+      #clock { display: none !important; }
       /* On a full-bleed demo the bottom right is the demo's (the workshop's Send button). */
       body.on-bleed #clock { right: auto; left: 24px; transform-origin: 0 100%; }
       #clock i { font-style: normal; font-size: 22px; }
@@ -235,7 +277,7 @@
     <div id="clock" aria-live="off"><i>⏱</i><b>9:00</b></div>
     <!-- 1 -->
     <section class="slide title" data-name="Making games with my kids">
-      <iframe class="bg-game" data-src="/?splash=classic&titleintro=classic" tabindex="-1" aria-hidden="true"></iframe>
+      <iframe class="bg-game" data-src="/?splash=classic&titleintro=classic" data-squall tabindex="-1" aria-hidden="true"></iframe>
       <h1>Making games<br />with my kids</h1>
       <p class="byline">@tdub • Stripe Design Onsite 26′</p>
     </section>
@@ -244,10 +286,18 @@
       <img class="photo" src="./media/tyler-kid.png" alt="Young Tyler at a CRT, making games" />
     </section>
     <!-- 3 -->
+    <section class="slide bleed compare" data-name="Then and now">
+      <iframe class="bg-game" data-src="/?splash=classic&titleintro=classic" data-zoom="52" data-shift="0" data-squall="50" tabindex="-1" aria-hidden="true"></iframe>
+      <iframe class="cmp-old" data-src="/talk/first/index.html" tabindex="-1" aria-hidden="true"></iframe>
+      <div class="wipe"><span><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9.5 6 4 12l5.5 6M14.5 6 20 12l-5.5 6" /></svg></span></div>
+      <div class="side side-old"><span class="tag tag-old">First commit</span></div>
+      <div class="side side-new"><span class="tag tag-new">Today</span></div>
+    </section>
+    <!-- 4 -->
     <section class="slide bleed" data-name="The workshop">
       <div class="demo"><iframe data-src="/workshop/" title="The model workshop"></iframe></div>
     </section>
-    <!-- 4: the phone that opens into the live game -->
+    <!-- 5: the phone that opens into the live game -->
     <section class="slide" id="slide" data-name="Live demo">
       <div id="phone" role="button" aria-label="Play the game"></div>
       <div id="words">
@@ -256,11 +306,11 @@
         <div class="hint">Tap the phone</div>
       </div>
     </section>
-    <!-- 5 -->
+    <!-- 6 -->
     <section class="slide center">
       <h1>Thanks!</h1>
     </section>
-    <!-- 6 -->
+    <!-- 7 -->
     <section class="slide center" data-name="TestFlight">
       <h2>Placeholder content here</h2>
       <p>Here's a TestFlight link: put Rocket Rides on your iPhone</p>

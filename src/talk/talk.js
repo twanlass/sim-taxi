@@ -263,19 +263,31 @@ function pinBackdrop(f) {
   const style = w.document.createElement('style');
   style.textContent = 'body > :not(canvas) { visibility: hidden !important; }';
   w.document.head.appendChild(style);
+  // The title's framing by default; a frame can ask for its own (`data-zoom`, `data-shift`) — the
+  // old-versus-new wipe pins both games to the old version's fixed camera.
+  const slide = f.closest('.slide');
+  const zoomTo = Number(f.dataset.zoom) || BG_ZOOM;
+  const shift = f.dataset.shift !== undefined ? Number(f.dataset.shift) : BG_SHIFT;
   const cutTo = cam.cutTo.bind(cam);
   cam.cutTo = (x, z, zoom, yaw, aspect) => {
-    cutTo(0, 0, BG_ZOOM, yaw, aspect);
+    cutTo(0, 0, zoomTo, yaw, aspect);
     // `setViewOffset` slides the frame by pixels; a negative x moves what's drawn to the right.
     const W = w.innerWidth;
     const H = w.innerHeight;
-    cam.camera.setViewOffset(W, H, -BG_SHIFT * W, 0, W, H);
+    cam.camera.setViewOffset(W, H, -shift * W, 0, W, H);
     cam.camera.updateProjectionMatrix();
   };
   // Weather. The game only starts the squall once the taxi is the player's to drive, which the
   // title screen never reaches — so start it here, part way into its first crossing.
   const squall = w.__taxi.squall;
-  if (squall) { squall.begin(); squall.state.clock = BG_SQUALL_AT; }
+  // `data-squall` asks for it: the title's backdrop and the then-and-now wipe's today side.
+  // A value is the crossing clock to start from: the first cell is due at 20 s and crosses in 75 s,
+  // so 50 puts it about 40% across on load and over the middle of the city by the time the wipe
+  // has revealed it, ~8 s later.
+  if (squall && 'squall' in f.dataset) {
+    squall.begin();
+    squall.state.clock = Number(f.dataset.squall) || BG_SQUALL_AT;
+  }
   // The handle is published seconds before the first frame shows anything — the first draws are
   // spent compiling shaders — so a timer off it faded in bare sky. Twenty of the frame's own
   // animation frames later, the city is on screen.
@@ -283,9 +295,11 @@ function pinBackdrop(f) {
   const count = () => {
     if (++frames < 20) { w.requestAnimationFrame(count); return; }
     f.classList.add('loaded');
+    // The then-and-now wipe holds on the first commit until today's game is drawing, then reveals it.
+    if (slide.classList.contains('compare')) slide.dispatchEvent(new Event('today-ready'));
+    if (!slide.classList.contains('title')) return;
     // The words move into the game's own frame, so the lens drops bend them; the HTML copy (kept
     // for layout) goes transparent once the frame has finished fading in over it.
-    const slide = f.closest('.slide');
     import('./scenetext.js').then(({ paintIntoGame }) => {
       const painted = paintIntoGame(w, [...slide.querySelectorAll('h1, .byline')]);
       if (!painted) return;
@@ -298,7 +312,7 @@ function pinBackdrop(f) {
 }
 
 function demos(slide, on) {
-  for (const f of slide.querySelectorAll('.demo iframe, iframe.bg-game')) {
+  for (const f of slide.querySelectorAll('.demo iframe, iframe.bg-game, iframe.cmp-old')) {
     if (!on) {
       f.removeAttribute('src');
       f.classList.remove('focused', 'loaded');
@@ -310,6 +324,16 @@ function demos(slide, on) {
     // A backdrop is only ever looked at, and it doesn't wait for the frame's load event: that waits
     // on every file the game fetches (the audio among them) and fired ~9s after the city was up.
     if (f.classList.contains('bg-game')) { pinBackdrop(f); continue; }
+    // The first build: its camera is already fixed on the whole city, so it only loses its HUD.
+    if (f.classList.contains('cmp-old')) {
+      f.onload = () => {
+        const style = f.contentDocument.createElement('style');
+        style.textContent = 'body > :not(canvas) { visibility: hidden !important; }';
+        f.contentDocument.head.appendChild(style);
+        setTimeout(() => f.classList.add('loaded'), 800);
+      };
+      continue;
+    }
     f.onload = () => {
       const w = f.contentWindow;
       const style = w.document.createElement('style');
@@ -343,9 +367,62 @@ function videos(slide, on) {
   }
 }
 
+// The then-and-now wipe. It opens with the first commit filling the screen (the divider parked at
+// the right edge); once today's game is drawing, the divider eases to the middle as the reveal.
+// After that, drag anywhere on the slide and the divider follows the pointer.
+// Long, so the quartic ease-out's tail is a slow settle into the middle rather than a stop.
+const REVEAL_WIPE_MS = 5500;
+// A beat on the first commit alone before the sweep, to talk over what it looked like then.
+const REVEAL_HOLD_MS = 3000;
+for (const cmp of document.querySelectorAll('.compare')) {
+  let raf = 0;
+  let hold = 0;
+  const setX = (x) => cmp.style.setProperty('--x', `${(x * 100).toFixed(2)}%`);
+  const move = (e) => {
+    clearTimeout(hold);
+    cancelAnimationFrame(raf);
+    setX(Math.min(Math.max(e.clientX / window.innerWidth, 0), 1));
+  };
+  cmp.addEventListener('today-ready', () => { hold = setTimeout(sweep, REVEAL_HOLD_MS); });
+  function sweep() {
+    const start = performance.now();
+    // The divider shows for the sweep, lingers a beat, then fades until it's hovered or dragged.
+    cmp.classList.add('sweeping');
+    const step = (now) => {
+      const k = Math.min((now - start) / REVEAL_WIPE_MS, 1);
+      // Ease-out (quartic): in fast from the edge, settling slowly into the middle.
+      setX(lerp(1, 0.5, 1 - (1 - k) ** 4));
+      if (k < 1) raf = requestAnimationFrame(step);
+      else setTimeout(() => cmp.classList.remove('sweeping'), 700);
+    };
+    raf = requestAnimationFrame(step);
+  }
+  // Back to the first commit whenever the slide is left, so every visit gets the reveal.
+  cmp.addEventListener('reset-wipe', () => {
+    clearTimeout(hold);
+    cancelAnimationFrame(raf);
+    cmp.classList.remove('sweeping', 'dragging');
+    setX(1);
+  });
+  cmp.addEventListener('pointerdown', (e) => {
+    cmp.setPointerCapture(e.pointerId);
+    cmp.classList.remove('sweeping');
+    cmp.classList.add('dragging');
+    move(e);
+  });
+  for (const type of ['pointerup', 'pointercancel']) {
+    cmp.addEventListener(type, () => cmp.classList.remove('dragging'));
+  }
+  cmp.addEventListener('pointermove', (e) => { if (cmp.hasPointerCapture(e.pointerId)) move(e); });
+}
+
 function show(i) {
   const next = Math.max(0, Math.min(slides.length - 1, i));
-  if (slides[current] !== slides[next]) { demos(slides[current], false); videos(slides[current], false); }
+  if (slides[current] !== slides[next]) {
+    demos(slides[current], false);
+    videos(slides[current], false);
+    slides[current].dispatchEvent(new Event('reset-wipe'));
+  }
   demos(slides[next], true);
   videos(slides[next], true);
   if (next > 0) startClock();
