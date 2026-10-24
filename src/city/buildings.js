@@ -1,11 +1,15 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import { bakeColor, bakeColors, hash01, propMaterial, stampEntry } from '../util/geo.js';
+import { FINISH, bakeColor, bakeColors, hash01, propMaterial, setFinish, stampEntry } from '../util/geo.js';
 import { BUILDING_COLORS, color, jitterColor } from '../palette.js';
 import { makeRng, valueNoise2D } from '../util/rng.js';
 import { KERB_H } from './ground.js';
 import { plantedCrowns, treeParts, treeShape } from './props.js';
 import { buildBank, bankDomeMesh, chooseBankLot } from './bank.js';
+import {
+  GLASS_RECESS, RECESS_PIER, WALLS_CLASSIC, WALL_STYLE, fillWalls, frameMesh, patchWalls, recessShell, stampWall,
+  windowFrames,
+} from './facade.js';
 
 const FLOOR_H = 2.6;
 // The ground floor is its own storey height. A shopfront is taller than the flats above it, and
@@ -25,6 +29,12 @@ const SILL = 0.55;        // sill height above the floor line
 // How far an opening stands off the wall it is punched into. Small enough not to read as a
 // pilaster from any angle, large enough to beat depth precision at DISTANCE = 400.
 const EPS = 0.03;
+// The ground-storey row on a building's blank sides: its floor line off the kerb, so the window
+// runs 0.75 to 2.15 up, under the string course at 2.34; and the least tier it is worth cutting into.
+const GROUND_ROW = 0.2;
+const GROUND_ROW_MIN = 2.5;
+// The window surrounds' colour against their wall (city/facade.js).
+const FRAME_TINT = 1.0;
 
 /**
  * Nothing on a roof may reach past this.
@@ -70,6 +80,14 @@ function shade(col, amount = 0.78) {
 export const ROOFS_CLASSIC = typeof location !== 'undefined'
   ? new URLSearchParams(location.search).get('roofs') === 'classic'
   : globalThis.process?.env?.ROOFS === 'classic';
+
+// `?windows=classic` keeps the glass in the merged building mesh as plain vertex colour: the faux
+// sky gradient below and nothing else. The default takes every pane out into a glass mesh of its own
+// on the cars' paint shader (`glassMeshes`), so it mirrors the street opposite. Headless tools take
+// `WINDOWS=classic` from the environment.
+export const WINDOWS_CLASSIC = typeof location !== 'undefined'
+  ? new URLSearchParams(location.search).get('windows') === 'classic'
+  : globalThis.process?.env?.WINDOWS === 'classic';
 
 // The parapet: how wide the lip is, and how far the deck inside it sits below its top. The lip is
 // cut *down* into the cap rather than standing up off it, so the roofline the city's occlusion
@@ -145,8 +163,6 @@ export function facadeQuads(rects, side, cx, cz, hw, hd, col, out = EPS, sky = n
   const base = col instanceof THREE.Color ? col : new THREE.Color(col);
   const positions = new Float32Array(rects.length * 18);
   const colors = new Float32Array(rects.length * 18);
-  // Vertex order within a quad, as indices into a rect's four corner weights.
-  const WIND = [0, 1, 2, 0, 2, 3];
   let p = 0;
 
   for (const { u, y, w, h, g } of rects) {
@@ -165,7 +181,9 @@ export function facadeQuads(rects, side, cx, cz, hw, hd, col, out = EPS, sky = n
       positions[p + 1] = v[1];
       positions[p + 2] = v[2];
 
-      if (sky && g) {
+      // Under the default the glass is one flat `window` colour and the shader draws the streaks
+      // on it (`glaze`): a vertex ramp under them read as a fake gradient.
+      if (sky && g && WINDOWS_CLASSIC) {
         const t = g[k];
         colors[p] = base.r + (sky.r - base.r) * t;
         colors[p + 1] = base.g + (sky.g - base.g) * t;
@@ -179,10 +197,66 @@ export function facadeQuads(rects, side, cx, cz, hw, hd, col, out = EPS, sky = n
     }
   }
 
-  const geo = new THREE.BufferGeometry();
-  geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-  return bakeColors(geo, colors);
+  const geo = bakeColors(new THREE.BufferGeometry()
+    .setAttribute('position', new THREE.BufferAttribute(positions, 3)), colors);
+  if (sky && !WINDOWS_CLASSIC) glaze(geo);
+  return geo;
 }
+
+// --- Stylised glass ---------------------------------------------------------
+//
+// Under the default every pane is also tagged `FINISH.WINDOW` and moved into a glass mesh of its own
+// (`glassMeshes`), whose shader draws two hard 45-degree light streaks across each façade, lit by
+// whatever light actually reaches that face (WINDOW_STREAKS in util/geo.js). The pane itself is one
+// flat `window` colour.
+
+// How strong the streaks are on each kind of glass (the material's `mirror`, which WINDOW_STREAKS
+// reads). A punched window on masonry keeps under its wall for the reason `wallCeiling` gives: at
+// full strength a streak turned the dark holes in a brick wall into light patches on it.
+const GLASS_MIRROR = { curtain: 1, punched: 0.6 };
+
+/** Tag a façade's panes as building glass. */
+function glaze(geo) {
+  setFinish(geo, FINISH.WINDOW);
+  geo.userData.glass = 'curtain';
+  return geo;
+}
+
+/**
+ * Take the glass out of a building generator's parts and mesh it on its own: one mesh per kind
+ * (`GLASS_MIRROR`), each on the glossy material. Returns the parts left over for the solid mesh.
+ * Under `?windows=classic` nothing is glass and every part stays where it was.
+ *
+ * Its own mesh rather than the merged one because that one is a plain Lambert, and putting the
+ * whole skyline on the paint shader would run its 14-step march over every wall and roof for
+ * glass that is a fraction of them. It casts no shadow (the wall a hair behind it already does)
+ * and is not an occluder: the AO prepass reads that same wall's depth.
+ */
+export function glassMeshes(parts, name) {
+  if (WINDOWS_CLASSIC) return { solid: parts, glass: [] };
+  const solid = [];
+  const kinds = {};
+  for (const part of parts) {
+    const kind = part.userData.glass;
+    if (kind) (kinds[kind] ??= []).push(part);
+    else solid.push(part);
+  }
+  const glass = Object.entries(kinds).map(([kind, list]) => {
+    const geometry = mergeGeometries(list, false);
+    list.forEach((p) => p.dispose());
+    const mesh = new THREE.Mesh(geometry, propMaterial({
+      gloss: { geometry, mirror: GLASS_MIRROR[kind] },
+    }));
+    mesh.receiveShadow = true;
+    mesh.name = `${name}-glass-${kind}`;
+    return mesh;
+  });
+  return { solid, glass };
+}
+
+// Vertex order within a quad, as indices into a rect's four corners: A (left, bottom), B (right,
+// bottom), E (right, top), D (left, top).
+const WIND = [0, 1, 2, 0, 2, 3];
 
 // --- Faux reflections -------------------------------------------------------
 //
@@ -332,8 +406,7 @@ export function setPaneSink(fn) { paneSink = fn; }
  * rather than one long one that happens to change colour.
  */
 function punchedWindows(parts, cx, base, cz, w, d, h, firstFloorH, windowColor, peak, body,
-  faces = fullFaces(w, d)) {
-  const lines = floorLines(base, h, firstFloorH);
+  faces = fullFaces(w, d), lines = floorLines(base, h, firstFloorH)) {
   if (!lines.length) return;
   const sky = color('windowSky');
   const ceiling = wallCeiling(body, windowColor, sky);
@@ -359,7 +432,14 @@ function punchedWindows(parts, cx, base, cz, w, d, h, firstFloorH, windowColor, 
       }
     }
     paneSink?.({ rects, side, cx, cz, hw: w / 2, hd: d / 2, kind: 'punched' });
-    parts.push(facadeQuads(rects, side, cx, cz, w / 2, d / 2, windowColor, EPS, sky));
+    const glass = facadeQuads(rects, side, cx, cz, w / 2, d / 2, windowColor, EPS, sky);
+    if (glass.userData.glass) glass.userData.glass = 'punched';
+    parts.push(glass);
+    // The surround each window stands in (city/facade.js), in the wall's own colour, so the frame
+    // reads by its shadow on the pane and its own lit edge rather than by its colour.
+    if (!WALLS_CLASSIC) {
+      parts.push(windowFrames(rects, side, cx, cz, w / 2, d / 2, shade(body, FRAME_TINT), SIDE_OUT[side], SIDE_TAN[side]));
+    }
   }
 }
 
@@ -370,10 +450,11 @@ function punchedWindows(parts, cx, base, cz, w, d, h, firstFloorH, windowColor, 
  * tower like this genuinely is continuous, and a ribbon is one quad per face where a grid is a
  * dozen.
  */
-function ribbonWindows(parts, cx, base, cz, w, d, h, firstFloorH, windowColor, peak,
-  faces = fullFaces(w, d)) {
+function ribbonWindows(parts, cx, base, cz, w, d, h, firstFloorH, windowColor, peak, body = null,
+  faces = fullFaces(w, d), { recessed = false } = {}) {
   const lines = floorLines(base, h, firstFloorH);
-  if (!lines.length) return;
+  const openings = [[], [], [], []];
+  if (!lines.length) return openings;
   const sky = color('windowSky');
 
   const bandH = Math.min(1.5, FLOOR_H - 0.9);
@@ -402,8 +483,24 @@ function ribbonWindows(parts, cx, base, cz, w, d, h, firstFloorH, windowColor, p
       }
     }
     paneSink?.({ rects, side, cx, cz, hw: w / 2, hd: d / 2, kind: 'ribbon' });
-    parts.push(facadeQuads(rects, side, cx, cz, w / 2, d / 2, windowColor, EPS, sky));
+    // Recessed, the glass sits on the shell's core rather than on the wall (city/facade.js).
+    parts.push(facadeQuads(rects, side, cx, cz, w / 2, d / 2, windowColor,
+      recessed ? EPS - GLASS_RECESS : EPS, sky));
+    const bands = lines.map((y) => ({ u: 0, y: y + 0.5 + bandH / 2, w: span, h: bandH }));
+    openings[side] = bands;
+    // Where it can't be recessed (a wing's ribbons), a slim trim round each whole band, not each
+    // segment: the segments are only there for the streak (above) and are one pane to look at.
+    if (body && !WALLS_CLASSIC && !recessed) {
+      parts.push(windowFrames(bands, side, cx, cz, w / 2, d / 2, shade(body, FRAME_TINT),
+        SIDE_OUT[side], SIDE_TAN[side], { trim: true }));
+    }
   }
+  return openings;
+}
+
+/** Whether a tier's curtain wall can be set back: every band leaves a pier wider than the recess. */
+function canRecess(w, d) {
+  return !WALLS_CLASSIC && fullFaces(w, d).every((fw) => fw < 1.6 || fw * 0.08 >= RECESS_PIER);
 }
 
 /**
@@ -414,39 +511,56 @@ function ribbonWindows(parts, cx, base, cz, w, d, h, firstFloorH, windowColor, p
  * window into somebody's party wall — and the difference between a building that has a front and
  * one that is glazed on all four sides is most of what makes a row of them read as a street.
  */
-function groundFloor(parts, cx, cz, w, d, streetSides, rng) {
+function groundFloor(parts, cx, cz, w, d, streetSides, rng, body = null) {
   const base = KERB_H;
   const glassH = Math.min(1.2, GROUND_H - 0.8);
   const glassY = base + 0.5 + glassH / 2;
 
+  // One entrance, on one street side. A door per face would read as four doors on a building the
+  // size of a bus, which at this scale is what most of them are. Decided before the shopfronts
+  // (which draw nothing) so a framed shopfront can part round it; the draws are the ones they were.
+  const side = rng.pick(streetSides);
+  const doorFaceW = side % 2 === 0 ? d : w;
+  let door = null;
+  if (doorFaceW >= 1.6) {
+    const { bays, pitch } = bayLayout(doorFaceW);
+    // Off-centre on a wide façade, which is what a real entrance is: dead centre reads as a
+    // symmetry the rest of the building doesn't have.
+    const bay = bays > 1 ? rng.int(0, bays - 1) : 0;
+    door = { u: (bay + 0.5 - bays / 2) * pitch, w: Math.min(1.15, pitch * 0.7) };
+  }
+
+  // Framed shopfronts (city/facade.js) on any building handed its body colour: bays split by
+  // mullions, a sill, a head and a fascia. The frames would run across the door, so on the door's
+  // side the glass parts round it, clear of its surround and of the frame's own overhang.
+  const framed = body && !WALLS_CLASSIC;
   const sky = color('windowSky');
-  for (const side of streetSides) {
-    const faceW = side % 2 === 0 ? d : w;
+  for (const s of streetSides) {
+    const faceW = s % 2 === 0 ? d : w;
     if (faceW < 1.6) continue;
     // The one place a plain top-to-bottom gradient is right: a shopfront is a single pane a metre
     // and a half tall, and what it catches is the sky over the street opposite — brightest along
     // its head, gone by the sill. No streak, because there is nothing here for one to cross.
-    const lit = FACING[side];
+    const lit = FACING[s];
     const shop = { u: 0, y: glassY, w: faceW * 0.74, h: glassH };
-    paneSink?.({ rects: [shop], side, cx, cz, hw: w / 2, hd: d / 2, kind: 'shop' });
+    let rects = [shop];
+    if (framed && door && s === side) rects = partRound(shop, door.u, door.w / 2 + DOOR_CLEAR);
+    if (framed) rects = rects.map((r) => ({ ...r, panes: Math.max(1, Math.round(r.w / SHOP_PANE)) }));
+    if (!rects.length) continue;
+    paneSink?.({ rects, side: s, cx, cz, hw: w / 2, hd: d / 2, kind: 'shop' });
     parts.push(facadeQuads(
-      [{ ...shop, g: [0, 0, 0.5 * lit, 0.5 * lit] }],
-      side, cx, cz, w / 2, d / 2, color('shopfront'), EPS, sky,
+      rects.map((r) => ({ ...r, g: [0, 0, 0.5 * lit, 0.5 * lit] })),
+      s, cx, cz, w / 2, d / 2, color('shopfront'), EPS, sky,
     ));
+    if (framed) {
+      parts.push(windowFrames(rects, s, cx, cz, w / 2, d / 2, shade(body, FRAME_TINT),
+        SIDE_OUT[s], SIDE_TAN[s], { fascia: true }));
+    }
   }
 
-  // One entrance, on one street side. A door per face would read as four doors on a building the
-  // size of a bus, which at this scale is what most of them are.
-  const side = rng.pick(streetSides);
-  const faceW = side % 2 === 0 ? d : w;
-  if (faceW < 1.6) return;
-
-  const { bays, pitch } = bayLayout(faceW);
-  // Off-centre on a wide façade, which is what a real entrance is: dead centre reads as a
-  // symmetry the rest of the building doesn't have.
-  const bay = bays > 1 ? rng.int(0, bays - 1) : 0;
-  const u = (bay + 0.5 - bays / 2) * pitch;
-  const doorW = Math.min(1.15, pitch * 0.7);
+  if (!door) return;
+  const { u } = door;
+  const doorW = door.w;
   const doorH = GROUND_H - 0.45;
   // Reported to the same sink as the panes, so Rain Mode's street lamps can keep off the doorway
   // (`entrances` in game/citylights.js). `litWindows` skips it: a door is not a window.
@@ -479,6 +593,20 @@ function groundFloor(parts, cx, cz, w, d, streetSides, rng) {
     cx + nx * reach + tx * u, base + doorH + 0.12, cz + nz * reach + tz * u,
     color('awning'),
   ));
+}
+
+// A framed shopfront's bays, and how far its glass keeps off the door: half the surround's extra
+// width (0.15), the frame's jamb and sill overhang (0.23), and a hair of wall between.
+const SHOP_PANE = 1.4;
+const DOOR_CLEAR = 0.45;
+
+/** A shopfront rect with a gap cut out of it at `u ± half`: the pieces either side worth keeping. */
+function partRound(shop, u, half) {
+  const l0 = shop.u - shop.w / 2;
+  const r1 = shop.u + shop.w / 2;
+  return [[l0, u - half], [u + half, r1]]
+    .filter(([a, b]) => b - a >= 0.6)
+    .map(([a, b]) => ({ ...shop, u: (a + b) / 2, w: b - a }));
 }
 
 // The landing circle, and how it is sized against the deck under it. The fraction and the ceiling
@@ -827,6 +955,9 @@ function buildTower(lot, block, rng, parts, stats, { height: fixed = null, famil
   // Sampled once per building rather than per tier, so a setback tower's reflection runs on up
   // through the steps instead of restarting at each one.
   const peak = streakPeak(cx, cz);
+  // Painted pilasters between the bays went in with the ledges and came out once the windows had
+  // real frames: the two read as competing vertical streaks (Tyler, 2026-10-24).
+  const wallStyle = WALL_STYLE.LEDGES;
 
   let y = KERB_H;
   let cw = w;
@@ -840,17 +971,45 @@ function buildTower(lot, block, rng, parts, stats, { height: fixed = null, famil
       ? Math.min(remaining, remaining * rng.range(0.55, 0.8))
       : remaining;
 
-    parts.push(box(cw, tierH, cd, cx, y, cz, tier === 0 ? body : jitterColor(body, rng, { l: 0.04 })));
-
     // The ground storey only exists on the tier that meets the pavement; everything above it
     // starts its floor lines straight off the setback.
     const firstFloorH = tier === 0 ? GROUND_H : 0.4;
+
+    // The wall's own detail (city/facade.js) is stamped on the tier's box, from the same floor
+    // lines and bays the windows are laid out on.
+    const tierCol = tier === 0 ? body : jitterColor(body, rng, { l: 0.04 });
+    const stamp = (geo) => stampWall(geo, {
+      style: wallStyle, origin: y + firstFloorH, top: y + tierH, cx, cz, w: cw, d: cd, tangents: SIDE_TAN,
+    });
     if (style === 'punched') {
+      parts.push(stamp(box(cw, tierH, cd, cx, y, cz, tierCol)));
       punchedWindows(parts, cx, y, cz, cw, cd, tierH, firstFloorH, windowColor, peak, body);
+    } else if (canRecess(cw, cd)) {
+      // A shell rather than a box, so the bands sit back in the wall (city/facade.js). The core
+      // stops a hair under the skin's roof, which would otherwise be the same plane as its top.
+      const openings = ribbonWindows(parts, cx, y, cz, cw, cd, tierH, firstFloorH, windowColor, peak, body,
+        fullFaces(cw, cd), { recessed: true });
+      const R2 = 2 * GLASS_RECESS;
+      parts.push(stamp(box(cw - R2, tierH - 0.01, cd - R2, cx, y, cz, tierCol)));
+      const { skin, reveals } = recessShell({
+        cx, cz, w: cw, d: cd, base: y, h: tierH, openings, col: tierCol, out: SIDE_OUT, tan: SIDE_TAN,
+      });
+      parts.push(stamp(skin), reveals);
     } else {
-      ribbonWindows(parts, cx, y, cz, cw, cd, tierH, firstFloorH, windowColor, peak);
+      parts.push(stamp(box(cw, tierH, cd, cx, y, cz, tierCol)));
+      ribbonWindows(parts, cx, y, cz, cw, cd, tierH, firstFloorH, windowColor, peak, body);
     }
-    if (tier === 0 && streetSides.length) groundFloor(parts, cx, cz, cw, cd, streetSides, rng);
+    if (tier === 0 && streetSides.length) groundFloor(parts, cx, cz, cw, cd, streetSides, rng, body);
+    // A ground storey's blank sides — the ones off the street, with no shopfront — get a row of
+    // windows of their own. Most of the city's buildings are a single storey under a roof, too
+    // short for floorLines to fit an upper row, and without these they were a shopfront on one
+    // face and three bare walls: 135 of 166 buildings across four seeds (Tyler: "just freaking
+    // boring boxes").
+    if (tier === 0 && style === 'punched' && !WALLS_CLASSIC && tierH >= GROUND_ROW_MIN) {
+      const faces = fullFaces(cw, cd).map((fw, s) => (streetSides.includes(s) ? 0 : fw));
+      punchedWindows(parts, cx, y, cz, cw, cd, tierH, firstFloorH, windowColor, peak, body, faces,
+        [y + GROUND_ROW]);
+    }
 
     y += tierH;
     remaining -= tierH;
@@ -892,6 +1051,14 @@ export function buildHighRise(parts, lot, bounds, rng, height, families = BUILDI
 
 /** Recursive lot subdivision, exported for the high rises past the west ring road. */
 export { splitLot };
+
+/** The towers' material: `propMaterial({ smooth })` with the wall detail patched on (city/facade.js). */
+export function wallMaterial() {
+  return patchWalls(propMaterial({ smooth: true }), {
+    floorH: FLOOR_H, groundTop: KERB_H + GROUND_H,
+  });
+}
+export { fillWalls, frameMesh };
 
 // --- Courtyard blocks -------------------------------------------------------
 //
@@ -1001,7 +1168,7 @@ function buildCourtyard(lot, block, rng, parts) {
       punchedWindows(parts, wx, KERB_H, wz, ww, wd, h, firstFloorH, windowColor, peak, body,
         wing.faces);
     } else {
-      ribbonWindows(parts, wx, KERB_H, wz, ww, wd, h, firstFloorH, windowColor, peak, wing.faces);
+      ribbonWindows(parts, wx, KERB_H, wz, ww, wd, h, firstFloorH, windowColor, peak, body, wing.faces);
     }
     // A cornice per wing, so the stepped heights read as four buildings in a terrace.
     const deck = lippedCap(parts, ww + 0.3, 0.26, wd + 0.3, wx, KERB_H + h, wz, shade(body));
@@ -1243,11 +1410,14 @@ export function createBuildings(rng, blocks) {
     }
   }
 
-  const merged = mergeGeometries(parts, false);
-  parts.forEach((p) => p.dispose());
+  const count = parts.length;
+  const { solid: unframed, frames } = frameMesh(parts, 'buildings');
+  const { solid, glass } = glassMeshes(unframed, 'buildings');
+  const merged = mergeGeometries(fillWalls(solid), false);
+  solid.forEach((p) => p.dispose());
 
   // Smooth for the courtyard's crowns (`treeParts`); every wall still lights off its own face normal.
-  const mesh = new THREE.Mesh(merged, propMaterial({ smooth: true }));
+  const mesh = new THREE.Mesh(merged, wallMaterial());
   mesh.castShadow = true;
   mesh.receiveShadow = true;
   mesh.name = 'buildings';
@@ -1257,7 +1427,13 @@ export function createBuildings(rng, blocks) {
   // puts it in the entrance wave beside `mesh`.
   const domeMesh = bank ? bankDomeMesh(bank.domeGeometry) : null;
   return {
-    mesh, domeMesh, count: parts.length, courtyards, court, pad, entrySites, rehomed,
+    // The panes, on the paint's reflection (`glassMeshes`); empty under `?windows=classic`. The
+    // caller adds them and puts them in the entrance wave beside `mesh`.
+    glass,
+    // The window frames (city/facade.js), which receive AO but do not cast it; null under
+    // `?walls=classic`. The caller adds them and puts them in the entrance wave beside `mesh`.
+    frames,
+    mesh, domeMesh, count, courtyards, court, pad, entrySites, rehomed,
     // Where the bank stands, or null if this city has nowhere for one. See city/bank.js — the door
     // point on it is what `game/robbery.js` measures the trigger range from, and what the robber
     // comes running out of.

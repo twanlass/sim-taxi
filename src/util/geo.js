@@ -847,11 +847,11 @@ export const GLOSS_UNIFORMS = {
   uGlossCeiling: { value: 1 },
   uGlossTop: { value: new THREE.Color(PALETTE.skyTop).convertSRGBToLinear() },
   uGlossHorizon: { value: new THREE.Color(PALETTE.skyBottom).convertSRGBToLinear() },
-  // One slot per finish (`FINISH`, below): six, and the same six in the GLSL arrays and `gK`'s clamp.
-  uFinishA: { value: [0, 1, 2, 3, 4, 5].map(() => new THREE.Vector4()) },
-  uFinishB: { value: [0, 1, 2, 3, 4, 5].map(() => new THREE.Vector4()) },
-  uFinishC: { value: [0, 1, 2, 3, 4, 5].map(() => new THREE.Vector4()) },
-  uFinishD: { value: [0, 1, 2, 3, 4, 5].map(() => new THREE.Vector4()) },
+  // One slot per finish (`FINISH`, below): seven, and the same seven in the GLSL arrays and `gK`'s clamp.
+  uFinishA: { value: [0, 1, 2, 3, 4, 5, 6].map(() => new THREE.Vector4()) },
+  uFinishB: { value: [0, 1, 2, 3, 4, 5, 6].map(() => new THREE.Vector4()) },
+  uFinishC: { value: [0, 1, 2, 3, 4, 5, 6].map(() => new THREE.Vector4()) },
+  uFinishD: { value: [0, 1, 2, 3, 4, 5, 6].map(() => new THREE.Vector4()) },
   // x: flake cells per unit, y: façade darkness, z: false-colour finish view (0/1).
   uGlossGlobal: { value: new THREE.Vector4() },
   // The rim look's backlight (`setRim`): rgb in linear, a = strength.
@@ -991,8 +991,14 @@ export function setGlossCity(field, ceiling) {
 // mottled sparkle, with no flop. The bank's dome wears it (city/bank.js), because METAL (a
 // darkened mirror, shared with every bumper and rim) was far too hard and PAINT (shared with every
 // car) cannot be retuned for one dome without retuning every car.
-export const FINISH = { TYRE: 0, PAINT: 1, GLASS: 2, METAL: 3, MATTE: 4, PATINA: 5 };
-export const FINISH_NAMES = ['tyre', 'paint', 'glass', 'metal', 'matte', 'patina'];
+//
+// WINDOW is a building's glazing (`glassMeshes` in city/buildings.js). Not GLASS, which is a
+// windscreen: near-black (diffuse 0.12) with a faint mirror, tuned so a car's cabin reads as a
+// dark hole. A façade keeps its own colour (diffuse 1) and mirrors nothing: what makes it glass is
+// the stylised streaks `glossFragment` draws on WINDOW only (WINDOW_STREAKS, below). No bends: a
+// merged city has no one centre to bend about, and a pane is flat.
+export const FINISH = { TYRE: 0, PAINT: 1, GLASS: 2, METAL: 3, MATTE: 4, PATINA: 5, WINDOW: 6 };
+export const FINISH_NAMES = ['tyre', 'paint', 'glass', 'metal', 'matte', 'patina', 'window'];
 
 // `?carbody=smooth`: the cars' bodies with rounded edges and soft normals, so a reflection has a
 // curve to slide across instead of one flat colour per panel (2026-10-17, an experiment beside the
@@ -1168,6 +1174,13 @@ export const FINISH_DEFAULTS = {
     glint: 0.35, glintSharp: 90, glintBend: 0.5, sheen: 0.55, sheenSharp: 8, flake: 0.25,
     reflect: 0.1, reflectEdge: 0.2, reflectBend: 0.5, diffuse: 1,
     flakeTilt: 0.3, flakeSharp: 120, coat: 0.2, tint: 0.9, flop: 0.1,
+  },
+  // A building's glass: no mirror (so no march), no glint (the sun's half-vector is 57 degrees off
+  // a +X façade and 48 off a +Z one, so a vertical pane never catches it). The streaks are all of it.
+  window: {
+    glint: 0, glintSharp: 1, glintBend: 0, sheen: 0, sheenSharp: 1, flake: 0,
+    reflect: 0, reflectEdge: 0, reflectBend: 0, diffuse: 1,
+    flakeTilt: 0, flakeSharp: 1, coat: 0, tint: 0, flop: 0,
   },
 };
 
@@ -1370,15 +1383,16 @@ if (GLOSS_COLOR_VERTEX === THREE.ShaderChunk.color_vertex) throw new Error('glos
 // arrive as 1.9999 — the triangle never mixes finishes, but interpolation does not know that.
 const GLOSS_COLOR = /* glsl */ `
 	{
-		int gK = clamp(int(vGlossFinish + 0.5), 0, 5);
+		int gK = clamp(int(vGlossFinish + 0.5), 0, 6);
 		gFinA = uFinishA[gK];
 		gFinB = uFinishB[gK];
 		gFinC = uFinishC[gK];
 		gFinD = uFinishD[gK];
 		gIsPaint = gK == 1 ? 1.0 : 0.0;
+		gIsWindow = gK == 6 ? 1.0 : 0.0;
 		gFinishColor = gK == 0 ? vec3(0.15) : gK == 1 ? vec3(0.9, 0.2, 0.15)
 			: gK == 2 ? vec3(0.1, 0.7, 0.9) : gK == 3 ? vec3(0.95, 0.8, 0.2)
-			: gK == 4 ? vec3(0.6, 0.45, 0.85) : vec3(0.2, 0.8, 0.6);
+			: gK == 4 ? vec3(0.6, 0.45, 0.85) : gK == 5 ? vec3(0.2, 0.8, 0.6) : vec3(0.85, 0.95, 1.0);
 		diffuseColor.rgb *= gFinC.y;
 	}
 `;
@@ -1541,6 +1555,57 @@ const GLOSS_HIT_SOFT = /* glsl */ `
 				if (gOcc >= 1.0) break;
 `;
 
+// A building's windows are not a reflection at all. Two real ones were tried (PR #681): the cars'
+// march through the city height field, first soft and then hard-edged. Under a camera that never
+// rotates a flat pane reflects one ray, so the best it could do was a ramp or a split, and on an
+// eight-pixel pane both read as a fake gradient — or, on a face in shadow, as an unlit hole
+// (Tyler, 2026-10-24). So the glass is stylised: flat window colour with two hard 45-degree light
+// streaks across each façade, a broad one and a thin one beside it, the way an illustrator draws
+// glass.
+//
+// **The streaks are lit by the face they sit on.** Their colour is the light that actually reaches
+// the fragment — direct plus indirect, divided back out of the pane's own diffuse colour, so the
+// shadow map, the AO and the sun's warmth are all already in it. A streak on a sunlit face is
+// bright and warm; one on a face in shadow is a dim cool sheen; one under a tower's shadow on an
+// otherwise lit face drops with it. That is what keeps a fake reflection from looking pasted on.
+//
+// In façade coordinates — the face's own horizontal tangent, and height — off the flat face
+// normal from the derivatives, at 45 degrees (one unit up per unit along), repeating every
+// WINDOW_STREAK_PITCH. Edges are feathered over WINDOW_STREAK_BLUR either side (a fraction of the
+// pitch, centred on the edge so a streak keeps its weight), with fwidth on top so they never crawl.
+//
+// They follow WINDOW_PAN of the camera's pan: 0 pins them to the façade like paint, 1 to the screen.
+// Halfway, they drift across a building as the camera follows the taxi.
+const WINDOW_PAN = 0.5;
+const WINDOW_STREAK_PITCH = 6;
+// Round 3 shipped hard-edged (fwidth only) and read as painted stripes; 0.07 of a 6-unit pitch is
+// ~0.4 units, ~3px at play zoom, which softens the wide band to a glow and leaves the thin one a line.
+const WINDOW_STREAK_BLUR = 0.07;
+// How much of the light reaching the pane a streak gives back, and its tint (a pale sky white).
+const WINDOW_STREAK_GAIN = 0.55;
+// ...and a flat sheen over the whole pane, so glass between the streaks reads as glass on a lit face
+// rather than as a dark hole — and still goes dark in shadow, by the same rule. Sky blue at the
+// light's *brightness* rather than in its colour: taken in the sun's warmth it turned the panes on a
+// lit face a muddy yellow-grey.
+const WINDOW_SHEEN = 0.12;
+const WINDOW_STREAKS = /* glsl */ `
+		if (gIsWindow > 0.5) {
+			vec3 wN = normalize(cross(dFdx(vGlossObj), dFdy(vGlossObj)));
+			vec2 wT = normalize(vec2(-wN.z, wN.x) + 1e-5);
+			float wS = dot(vGlossWorld.xz - cameraPosition.xz * ${WINDOW_PAN.toFixed(2)}, wT);
+			float wD = (wS + vGlossWorld.y) / ${WINDOW_STREAK_PITCH.toFixed(1)};
+			float wF = fract(wD);
+			float wW = fwidth(wD) + 1e-4;
+			float wB = ${WINDOW_STREAK_BLUR.toFixed(3)} + wW;
+			float wBand = smoothstep(0.12 + wB, 0.12 - wB, abs(wF - 0.4))
+				+ 0.8 * smoothstep(0.03 + wB * 0.5, max(0.03 - wB * 0.5, 0.0), abs(wF - 0.6));
+			vec3 wIrr = (reflectedLight.directDiffuse + reflectedLight.indirectDiffuse)
+				/ max(diffuseColor.rgb, vec3(1e-3));
+			float wLum = dot(wIrr, vec3(0.2126, 0.7152, 0.0722));
+			outgoingLight += uGlossMirror * (vec3(0.55, 0.72, 0.95) * wLum * ${WINDOW_SHEEN.toFixed(2)}
+				+ vec3(0.9, 0.95, 1.0) * wIrr * clamp(wBand, 0.0, 1.0) * ${WINDOW_STREAK_GAIN.toFixed(2)});
+		}`;
+
 const glossFragment = (classic) => /* glsl */ `
 	{
 		vec3 gN = inverseTransformDirection(gReflN, viewMatrix);
@@ -1569,6 +1634,7 @@ ${classic ? GLOSS_HIT_CLASSIC : GLOSS_HIT_SOFT}
 		}
 __LOOK_FINAL__
 		outgoingLight = mix(outgoingLight, gEnv, clamp(gMirror, 0.0, 1.0));
+${WINDOW_STREAKS}
 		if (uGlossGlobal.z > 0.5) outgoingLight = gFinishColor;
 	}
 `;
@@ -1809,10 +1875,10 @@ uniform vec4 uGlossCityBox;
 uniform float uGlossCeiling;
 uniform vec3 uGlossTop;
 uniform vec3 uGlossHorizon;
-uniform vec4 uFinishA[6];
-uniform vec4 uFinishB[6];
-uniform vec4 uFinishC[6];
-uniform vec4 uFinishD[6];
+uniform vec4 uFinishA[7];
+uniform vec4 uFinishB[7];
+uniform vec4 uFinishC[7];
+uniform vec4 uFinishD[7];
 uniform vec4 uGlossGlobal;
 uniform float uGloss;
 uniform float uGlossMirror;
@@ -1835,6 +1901,7 @@ vec4 gFinB;
 vec4 gFinC;
 vec4 gFinD;
 float gIsPaint;
+float gIsWindow;
 vec3 gFinishColor;
 vec3 gSpecN;
 vec3 gReflN;

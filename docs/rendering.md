@@ -48,14 +48,52 @@ either way. So a gradient across a triangle costs nothing but the numbers: no ex
 second material, no texture, and it still merges into the same one-mesh-one-material pile as
 everything else.
 
-The window reflections are built entirely out of that.
+The windows' base colour is built out of that.
 
-### Faux window reflections — `city/buildings.js`
+### Window glass — `city/buildings.js`
 
-Glass is lerped from `window` toward `windowSky` by a weight computed per corner of every pane.
-Nothing is being reflected — it is two numbers and an exponential — but it holds up because **the
-camera never moves**. A real reflection changes when you walk past a building; this one never has
-to.
+Building windows are **stylised, not reflected**: one flat `window` colour with two hard 45° light
+streaks across each façade, a broad one and a thin one beside it, the way an illustrator draws
+glass. The panes are taken out of the merged building mesh into glass meshes of their own
+(`glassMeshes`), which wear [the cars' finish shader](#car-finishes--propmaterial-gloss--in-utilgeojs)
+as `FINISH.WINDOW`, and the streaks are drawn on that finish only (`WINDOW_STREAKS` in util/geo.js).
+`?windows=classic` is the faux gradient, below, with the panes back in the merged mesh.
+
+Two real reflections came first and both failed the same way: under a camera that never rotates a
+flat pane reflects one ray, so the most it can show is a ramp or a split, which on an eight-pixel
+pane reads as a fake gradient, or as an unlit hole on a face in shadow (Tyler, 2026-10-24;
+[history](rendering-history.md#window-glass--citybuildingsjs)).
+
+- **The streaks are lit by the face they sit on.** Their colour is the light that actually reaches
+  the fragment: three's direct plus indirect diffuse, divided back out of the pane's own colour,
+  so the shadow map, the AO and the sun's warmth are already in it. On a sunlit face a streak is
+  bright and warm, on a shaded face a dim cool sheen, and on a lit face under a tower's shadow it
+  drops with the shadow. That is what keeps a fake reflection from looking pasted on.
+- **A flat sheen covers the whole pane** (`WINDOW_SHEEN`) by the same rule, so glass between the
+  streaks reads as glass on a lit face and still goes dark in shade. It is sky blue at the light's
+  *brightness*, not in its colour: in the sun's warmth it turned the lit panes a muddy yellow-grey.
+- **45°, every 6 units** (`WINDOW_STREAK_PITCH`) along each façade, in the face's own coordinates
+  (its horizontal tangent and height) off the flat normal from the derivatives. Edges are feathered
+  over `WINDOW_STREAK_BLUR` (0.07 of the pitch, ~3px at play zoom): hard-edged, they read as
+  painted stripes. The two visible faces lean opposite ways, so a corner shows a chevron.
+- **They drift as the camera pans** (`WINDOW_PAN`, half the pan), sliding across a building as the
+  camera follows the taxi. It is the only motion a reflection can have under this camera.
+- **Masonry keeps under its wall** (`GLASS_MIRROR`, which the streaks read as their strength):
+  curtain walls and shopfronts at 1, punched windows at 0.6, for the `wallCeiling` reason below.
+- **No mirror, no glint.** The window finish's `reflect` is 0, so the city march never runs on
+  glass. The sun's half-vector is 57° off a +X façade and 48° off a +Z one, so a vertical pane could
+  never catch a glint anyway.
+- **What it costs.** No new program (the glass compiles to the cars' `prop-gloss…`) and up to four
+  more draws (curtain and punched, the island and the west edge). The glass casts no shadow and is
+  not an AO occluder, since the wall a hair behind it is both. Measured with `tools/gpucost.mjs` (seed
+  11, 390×844 at DPR 2, SwiftShader, so relative): within noise of `?windows=classic` (under 1%),
+  where the reflecting builds before it cost 2–4%.
+- **At night** the light reaching a façade is the moon's and the lamps', so the streaks go faint
+  and Rain Mode's lit windows draw over them as before.
+
+Under `?windows=classic` the glass is the faux gradient: lerped from `window` toward `windowSky` by
+a weight computed per corner of every pane. Nothing is being reflected — it is two numbers and an
+exponential — but it holds up because **the camera never moves**.
 
 Three things go into the weight:
 
@@ -90,6 +128,61 @@ Four details worth keeping:
   there. On masonry it inverts figure and ground, turning dark holes in a light wall into light
   patches on a dark one, and takes the scale cue with it. So the punched path carries a ceiling
   (0.52 on brick, 1.0 on the pale envelopes) and the curtain-wall path does not.
+
+### Wall detail — `city/facade.js`
+
+Every tower wall carries the structure a real one has, drawn as value changes on its own colour:
+a darker plinth under a lit string course at the top of the ground storey, a lit belt course with a strip
+of shadow under it at every floor line (on the slab, clear of the window frames' sills), a cornice band at the top of each tier, lighter
+quoins at the corners. Curtain walls get the same.
+
+**Punched windows stand in real frames** (`windowFrames`): a head and two jambs 0.2 proud of the
+wall and a deeper sill (0.28) running past them, in the wall's own colour. The colour is not the
+point; the head's shadow across the top of the pane and the lit reveals are, and they are what
+turn a dark rectangle on a wall into a hole in it. Hand-wound quads, one geometry per façade like
+the panes, with each face checked against the way it must point as it is emitted and asserted
+from the winding in `tools/probe.mjs`. 40 triangles a window, about 2k across a city (mean of
+four seeds).
+
+**Curtain-wall glass is set back into the wall** (`recessShell`). A tower tier with ribbon glass is
+built as a shell rather than a box: a core inset by `GLASS_RECESS` (0.14) with the glass on its
+face, a skin on the box's own planes with a hole per band, and four reveals per hole joining them.
+The head throws a shadow line across the top of the glass and the sill catches the light, and the
+silhouette is the box it replaced. A frame cannot do this, because a frame only adds: the slim trim
+it replaced still read as glass glued on. The trim survives where a band leaves too narrow a pier
+for the reveal (`RECESS_PIER`) and on courtyard wings, whose faces are only partly exposed.
+
+**The frames are their own mesh, and receive AO without casting it** (`frameMesh`, not an
+occluder). In the merged mesh they were occluders, and a 0.2-unit protrusion against the SSAO's
+one-unit radius smudged a dark halo onto the wall round every window. Receiving, they read their
+own wall's occlusion, which keeps them at the wall's brightness on its shaded side: with no AO at
+all they came out lit there, because AO scales the indirect light that is all a shaded face gets.
+They still cast and receive the sun's shadow.
+
+**Shopfronts are framed too, and the ground storey's blank sides get windows.** A shopfront is
+split into bays by mullions roughly every 1.4 units, framed like a window and capped with a fascia
+board; on the door's side the glass parts round the door rather than running behind it
+(`partRound`). The sides off the street, which used to be bare wall, get a row of punched windows
+on the ground storey (`GROUND_ROW`, tiers of 2.5 or more). Most of the city is a single storey
+under its roof, too short for `floorLines` to fit an upper row, so before this 135 of 166
+buildings (four seeds) were a shopfront on one face and three blank walls; now 51 are, and those
+are curtain walls or too narrow to take a window.
+
+- **Structure, not texture.** At play zoom a unit is ~7.7px, so brick coursing or stucco noise
+  is a shimmer. A line per storey and a base and a top are a pixel or two each on a phone, and they
+  are what was missing: each wall used to be one colour from kerb to parapet, a printed box.
+- **One attribute, one patch.** `stampWall` writes `aWall` (style, first floor line, distance
+  along the face, face width) and `aWallTop` on each tier's box; `patchWalls` reads them in the
+  fragment shader on the merged mesh (`wallMaterial()`), multiplies `diffuseColor`, and composes
+  its key onto the material's. Everything else in the mesh carries zeros (`fillWalls`). The ledges
+  sit on the same floor lines `floorLines` lays the windows on, so the two agree by construction.
+- **No rng, no colour.** Every term is a multiplier
+  (`PLINTH`, `LEDGE_LIT` and the rest), so the city a seed builds is unchanged and there is nothing
+  new in palette.js. Lines are anti-aliased with `fwidth`, half a pixel each side.
+- **It reads the un-animated position,** so during the entrance wave the lines ride up with the
+  wall rather than sliding over it.
+
+`?walls=classic` leaves the walls flat and the windows unframed ([history](rendering-history.md#wall-detail--cityfacadejs)).
 
 ### Wheel wells — `archedBodyGeometries` in `geometry/wheels.js`
 
@@ -3446,7 +3539,7 @@ and the flock above. That one has a life; this is scenery that moves. Where the 
 **The water is drawn as a fan about its own centre**, not as a `ShapeGeometry` like every other flat
 surface in the city, and the reason is the one vertex earcut would not give it: the middle. The open
 water is `pondWater` and the rim `pondShallow`, 17 luma darker, so the pond has depth for the price
-of a vertex colour — [a gradient across a flat-shaded triangle](#faux-window-reflections--citybuildingsjs)
+of a vertex colour — [a gradient across a flat-shaded triangle](#window-glass--citybuildingsjs)
 costs nothing but the numbers. One flat blue read as a painted disc. The shore is the other half of
 it: a ring of damp earth cut with the water as a hole in it, the same construction the walk round a
 park uses, which is also what removes the seam — both rims come off one point list, so there is no

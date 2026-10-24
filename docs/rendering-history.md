@@ -9,6 +9,49 @@ The sections follow rendering.md's order and headings, and each links back to th
 Pull-request numbers and dates are given where the git history records them — most of this
 predates the repository's first commit here (2026-10-08) and is undated.
 
+## Wall detail — `city/facade.js`
+
+[Current](rendering.md#wall-detail--cityfacadejs). Until 2026-10-24 every tower wall was one baked
+colour per face, with only the windows, the shopfront and the setback ledges on it.
+`?walls=classic` brings that back. The first pass at the detail used multipliers about half the
+strength of the shipped ones (ledge 1.14/0.82, plinth 0.84): visible in a close-up and gone at
+phone play zoom. The window frames came second, the same day, at Tyler's ask for "a little bit
+of geometry so that we get some shadows and some silhouette": the first cut stood 0.14 off the
+wall in a stone 10% lighter than it, which read as a white outline round each window rather than
+as depth, so they went to the wall's own colour and 0.2 deep. Built into the merged building mesh,
+they were also AO occluders, and each one smudged a dark halo onto the wall around its window
+("these shaded areas behind the windows feel off"); they moved to a mesh of their own, off the AO. Fully off it, they glowed on each building's shaded
+side (AO scales the indirect light, which is all a shaded wall has, so the wall dropped and its
+frames did not); they now receive the AO and only stopped casting it.
+The shader also painted a lighter pilaster between each pair of bays on half the masonry. Once the
+windows had frames, those read as vertical streaks running up the building behind them, and they
+were taken out. The painted ledge first sat just under each row of sills, where it ran straight
+into the frames' real sill and read as one piece of geometry; it moved down onto the floor line.
+Shopfronts were one unframed pane per street face, and a building's other sides had no windows
+on the ground storey at all; the framed bays and the side row came last, the same day, for the
+single-storey boxes that were most of the city ("just freaking boring boxes").
+Curtain-wall glass bands were left unframed until late that day, then got a slim trim (0.07 wide,
+0.1 deep) on the wall's face; that still read as "glued onto the building", and the bands were set
+back into a shell instead.
+
+## Window glass — `city/buildings.js`
+
+[Current](rendering.md#window-glass--citybuildingsjs). Until 2026-10-24 the windows were the
+faux gradient alone: vertex colour in the merged building mesh, `window` lerped toward `windowSky`
+by height, a diagonal streak and the face's facing, with nothing actually reflected. It held up
+because the camera never moves, but every pane was a flat ramp with no sight of the street, and
+once the cars' paint was mirroring the real skyline the buildings beside them read as painted.
+`?windows=classic` brings it back exactly: the panes stay in the merged mesh and nothing is glazed.
+
+The first build of the real reflection (PR #681's first push) kept that gradient as the base and
+mixed a soft reflection over it: a smoothstep between horizon and sky, a soft skyline silhouette.
+On a pane eight pixels tall that came out as a smudged ramp on every window, "bad gradients"
+(Tyler, 2026-10-24). The second push made every shape hard-edged: a crisp skyline silhouette, a
+hard line between a pale horizon band and deeper sky that each pane crossed (the panes were bowed
+and tilted a few degrees per pane, so the reflected ray swept across them), and drifting streaks
+on top. It still read as fake on lit faces and as unlit in shadow (Tyler, 2026-10-24), so before
+merging the reflection was dropped for the stylised streaks lit by the face's own light.
+
 ## Wheel wells — `archedBodyGeometries` in `geometry/wheels.js`
 
 [Current](rendering.md#wheel-wells--archedbodygeometries-in-geometrywheelsjs).

@@ -22,8 +22,9 @@ import { createNorthPark } from '../src/city/northpark.js';
 import {
   createGround, KERB_H, SLAB_X, SLAB_Z, SLAB_RADIUS, EDGE_FADE, PARK_EDGE, MEDIAN_EDGE,
 } from '../src/city/ground.js';
+import { FRAME_TRIS_PER_WINDOW, GLASS_RECESS, recessShell, windowFrames } from '../src/city/facade.js';
 import {
-  createBuildings, facadeQuads, pitchedRoof, wallCeiling, SKYLINE_CEILING, INSET as BANK_LOT_INSET,
+  createBuildings, facadeQuads, pitchedRoof, wallCeiling, WINDOWS_CLASSIC, SKYLINE_CEILING, INSET as BANK_LOT_INSET,
 } from '../src/city/buildings.js';
 import {
   createProps, parkPlots, planParkFurniture, planMedianBeds, MEDIAN_BED_ROOM,
@@ -2359,9 +2360,18 @@ const onGrass = (city, i, j) => {
   // Vertex order within a quad is [BL, BR, TR, BL, TR, TL]: 0 is a bottom corner, 2 a top one.
   const bottom = new THREE.Color(col.getX(0), col.getY(0), col.getZ(0));
   const top = new THREE.Color(col.getX(2), col.getY(2), col.getZ(2));
-  check('a pane carries a gradient rather than one flat colour',
-    bottom.getHexString() === base.getHexString() && top.getHexString() === sky.getHexString(),
-    `bottom #${bottom.getHexString()} → top #${top.getHexString()}`);
+  // Under the default the opposite holds: the glass is one flat `window` colour and the shader
+  // draws every shape on it (`glaze` in city/buildings.js), because a vertex ramp under hard-edged
+  // reflections read as a smudge.
+  if (WINDOWS_CLASSIC) {
+    check('a pane carries a gradient rather than one flat colour',
+      bottom.getHexString() === base.getHexString() && top.getHexString() === sky.getHexString(),
+      `bottom #${bottom.getHexString()} → top #${top.getHexString()}`);
+  } else {
+    check('a pane is one flat colour, its shapes left to the streaks',
+      bottom.getHexString() === base.getHexString() && top.getHexString() === base.getHexString(),
+      `bottom #${bottom.getHexString()} → top #${top.getHexString()}`);
+  }
 
   // Two: a *punched* window never outshines the wall it is cut into. `windowSky` is more luminous
   // than brick (0.25 against 0.18) and than slate, so at full strength a pane on either would come
@@ -2379,6 +2389,127 @@ const onGrass = (city, i, j) => {
   }
   check('a punched window never outshines its own wall', inverted === 0,
     ceilings.join(', '));
+}
+
+// --- Wall detail -------------------------------------------------------------
+//
+// The ledges, plinth and pilasters are a fragment patch keyed off `aWall` (city/facade.js). Two
+// things would each fail with nothing to see but a flat wall again: the stamp landing on no wall
+// (a normal test inverted, a part built through a path that skips `stampWall`), or landing on a
+// roof, which would stripe every deck in the city with storey lines.
+// A wall is six vertices a face, four faces a tier: 912 on seed 1, so 300 is a dozen tiers.
+{
+  const { aWall, normal } = buildings.mesh.geometry.attributes;
+  let walls = 0; let onRoof = 0;
+  for (let i = 0; i < aWall.count; i++) {
+    const style = aWall.getX(i);
+    if (style < 0.5) continue;
+    walls += 1;
+    if (Math.abs(normal.getY(i)) > 0.5) onRoof += 1;
+  }
+  check('tower walls carry their detail, and no roof does', walls > 300 && onRoof === 0,
+    `${walls} wall vertices, ${onRoof} on a roof`);
+
+  // The window frames are hand-wound (`windowFrames`), so every face's normal is computed from its
+  // winding and held against the way that face of the bar must point — out, up, down or along —
+  // which is read off the bar's own centre: a face facing *into* its bar is inside out. One frame
+  // per side of a test façade, on every side, so a sign slip in any of the four tangents shows.
+  const p0 = new THREE.Vector3(); const p1 = new THREE.Vector3(); const p2 = new THREE.Vector3();
+  const n = new THREE.Vector3(); const mid = new THREE.Vector3();
+  for (let k = 0; k < 8; k++) {
+    const side = k % 4;
+    const trim = k >= 4;
+    const out = [[1, 0], [0, 1], [-1, 0], [0, -1]][side];
+    const tan = [[0, -1], [1, 0], [0, 1], [-1, 0]][side];
+    const geo = windowFrames([{ u: 0, y: 5, w: 1, h: 1.4 }], side, 0, 0, 3, 3, new THREE.Color(1, 1, 1), out, tan, { trim });
+    const pos = geo.attributes.position;
+    let faces = 0; let inside = 0;
+    for (let t = 0; t < pos.count; t += 3) {
+      p0.fromBufferAttribute(pos, t); p1.fromBufferAttribute(pos, t + 1); p2.fromBufferAttribute(pos, t + 2);
+      n.crossVectors(p1.clone().sub(p0), p2.clone().sub(p0)).normalize();
+      // Two triangles a face and five faces a bar, so a bar is 30 vertices; a face's normal must
+      // point away from their mean.
+      const bar = Math.floor(t / 30) * 30;
+      mid.set(0, 0, 0);
+      for (let k = bar; k < bar + 30; k++) mid.add(p0.clone().fromBufferAttribute(pos, k));
+      mid.divideScalar(30);
+      const centre = p0.clone().add(p1).add(p2).divideScalar(3);
+      faces += 1;
+      if (n.dot(centre.sub(mid)) <= 0) inside += 1;
+    }
+    check(`window ${trim ? 'trim' : 'frames'} face out of their bars on side ${side}`, inside === 0 && pos.count === FRAME_TRIS_PER_WINDOW * 3,
+      `${faces} triangles, ${inside} wound inwards`);
+  }
+}
+
+// The recessed curtain wall's shell: every skin face points out of the building and every reveal
+// points into its own opening, from the winding.
+{
+  const OUT = [[1, 0], [0, 1], [-1, 0], [0, -1]];
+  const TAN = [[0, -1], [1, 0], [0, 1], [-1, 0]];
+  const band = { u: 0, y: 6, w: 4, h: 1.5 };
+  const { skin, reveals } = recessShell({
+    cx: 0, cz: 0, w: 6, d: 6, base: 0, h: 10, openings: [[band], [band], [band], [band]],
+    col: new THREE.Color(1, 1, 1), out: OUT, tan: TAN,
+  });
+  const a = new THREE.Vector3(); const b = new THREE.Vector3(); const c = new THREE.Vector3();
+  const n = new THREE.Vector3(); const m = new THREE.Vector3();
+  const each = (geo, fn) => {
+    const pos = geo.attributes.position;
+    let bad = 0;
+    for (let t = 0; t < pos.count; t += 3) {
+      a.fromBufferAttribute(pos, t); b.fromBufferAttribute(pos, t + 1); c.fromBufferAttribute(pos, t + 2);
+      n.crossVectors(b.clone().sub(a), c.clone().sub(a)).normalize();
+      m.copy(a).add(b).add(c).divideScalar(3);
+      if (!fn(n, m)) bad += 1;
+    }
+    return [pos.count / 3, bad];
+  };
+  // The skin's centre is the building's: its faces all point away from the axis (or up, the roof).
+  const [st, sBad] = each(skin, (nn, mm) => nn.y > 0.5 || nn.x * mm.x + nn.z * mm.z > 0);
+  // A reveal points toward the middle of its own band: back toward u = 0 at y = 6, at the wall.
+  const [rt, rBad] = each(reveals, (nn, mm) => {
+    const toward = new THREE.Vector3(-mm.x, 6 - mm.y, -mm.z);
+    // Drop the outward part (the band's centre is on the wall plane): what is left is in-plane.
+    const side = Math.abs(mm.x) > Math.abs(mm.z) ? new THREE.Vector3(Math.sign(mm.x), 0, 0) : new THREE.Vector3(0, 0, Math.sign(mm.z));
+    toward.addScaledVector(side, -toward.dot(side));
+    return nn.dot(toward) > 0;
+  });
+  check('the recessed shell\'s skin faces out and its reveals face into their openings',
+    sBad === 0 && rBad === 0 && rt === 4 * 4 * 2 && GLASS_RECESS > 0,
+    `${st} skin triangles (${sBad} wrong), ${rt} reveal triangles (${rBad} wrong)`);
+}
+
+// --- Window glass -----------------------------------------------------------
+//
+// The panes are their own meshes on the cars' finish (`glassMeshes` in city/buildings.js), and the
+// streaks are drawn only on `FINISH.WINDOW`. Two things would each fail silently: a pane left
+// untagged draws as tyre (matte, darkened) with no streak, and a normal facing into the wall lights
+// the pane from behind — the streaks follow the light that reaches the face, so they would go dark
+// on every lit façade and bright on every shaded one. The face normal is taken from the winding
+// (CLAUDE.md), not from the normals under test. Under `WINDOWS=classic` there is no glass.
+if (!WINDOWS_CLASSIC) {
+  const glass = buildings.glass ?? [];
+  const names = glass.map((m) => m.name).sort().join(', ');
+  check('the windows are glass meshes of their own, curtain and punched',
+    glass.length === 2 && glass.every((m) => m.material.isMeshPhongMaterial && !m.castShadow), names);
+  let untagged = 0; let inward = 0; let panes = 0;
+  const a = new THREE.Vector3(); const b = new THREE.Vector3(); const c = new THREE.Vector3();
+  const face = new THREE.Vector3(); const n = new THREE.Vector3();
+  for (const mesh of glass) {
+    const { position: pos, normal, aFinish } = mesh.geometry.attributes;
+    for (let i = 0; i < aFinish.count; i++) if (aFinish.getX(i) !== FINISH.WINDOW) untagged += 1;
+    for (let q = 0; q + 5 < pos.count; q += 6) {
+      panes += 1;
+      a.fromBufferAttribute(pos, q); b.fromBufferAttribute(pos, q + 1); c.fromBufferAttribute(pos, q + 2);
+      face.crossVectors(b.sub(a), c.sub(a)).normalize();
+      if (Math.abs(face.y) > 0.01) inward += 1;
+      for (let k = 0; k < 6; k++) if (n.fromBufferAttribute(normal, q + k).dot(face) < 0.99) { inward += 1; break; }
+    }
+  }
+  check('every pane is tagged as window glass', glass.length > 0 && untagged === 0, `${untagged} untagged`);
+  check('every pane is a vertical face whose normals agree with its winding', panes > 0 && inward === 0,
+    `${panes} panes, ${inward} wrong`);
 }
 
 // --- Roofs, and the flight path over them -----------------------------------

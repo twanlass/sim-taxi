@@ -661,13 +661,19 @@ const fall = getFall();
 setAutumn(fall, { classicColours: getFoliageClassic() });
 const city = createBuildings(makeRng(seed + 22), layout);
 scene.add(markOccluder(city.mesh));
+// The window frames: not occluders, on purpose (`frameMesh` in city/facade.js).
+if (city.frames) scene.add(city.frames);
 // The bank's patinated dome is a glossy mesh of its own, not part of the merged one (city/bank.js).
 if (city.domeMesh) scene.add(markOccluder(city.domeMesh));
+// The windows, on the same reflection as the cars' paint (`glassMeshes` in city/buildings.js).
+// Not occluders: the wall a hair behind each pane already is.
+for (const glass of city.glass) scene.add(glass);
 // The high rises past the west ring road, the streets carrying on to them and the barricades shutting
 // them off (city/westedge.js). Built before the panes are collected, so Rain Mode lights their windows
 // too. Its own stream. Null under `?westedge=classic`.
 const westEdge = createWestEdge(makeRng(seed + 59));
-if (westEdge) scene.add(markOccluder(brush(westEdge.ground, 2)), markOccluder(westEdge.towers));
+if (westEdge) scene.add(markOccluder(brush(westEdge.ground, 2)), markOccluder(westEdge.towers), ...westEdge.glass);
+if (westEdge?.frames) scene.add(westEdge.frames);
 // The northwest corner's asphalt skirt (`?westcorner=classic` drops the corner). Transparent, so not
 // an occluder.
 if (westEdge?.fade) scene.add(westEdge.fade);
@@ -1624,7 +1630,7 @@ for (const mesh of garbage.emissiveMeshes ?? []) markEmissive(mesh, 'siren');
 const cityEntry = createCityEntry({
   // The garage rises with everything else, shell and shutter alike — both are stamped with the one
   // anchor, so it comes up as a building rather than as a building and a door.
-  meshes: [city.mesh, ...(city.domeMesh ? [city.domeMesh] : []), ...(westEdge ? [westEdge.towers] : []), propsMesh, grass.mesh, canopyFuzz.mesh, ...(garage?.meshes ?? []),
+  meshes: [city.mesh, ...city.glass, ...(city.frames ? [city.frames] : []), ...(city.domeMesh ? [city.domeMesh] : []), ...(westEdge ? [westEdge.towers, ...westEdge.glass] : []), ...(westEdge?.frames ? [westEdge.frames] : []), propsMesh, grass.mesh, canopyFuzz.mesh, ...(garage?.meshes ?? []),
     ...(burger?.meshes ?? []), ...(graveyard?.meshes ?? []), ...(roadside?.meshes ?? []),
     ...(lamps ? [lamps.posts, lamps.heads] : []),
     ...(props.courtMesh ? [props.courtMesh] : []), ...(props.skateMesh ? [props.skateMesh] : []),
