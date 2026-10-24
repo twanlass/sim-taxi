@@ -43,6 +43,7 @@ import {
 import { createBoombox, BPM as BOOMBOX_BPM } from '../src/game/boombox.js';
 import { createTubeMan } from '../src/game/tubeman.js';
 import { createManholes, planManholes, manholeGeometry, COVER_R, COVER_COUNT, BOX_CLEAR } from '../src/city/manholes.js';
+import { createAsphaltPatches, planPatches, patchGeometry, patchRoadHalf, PATCH_COUNT, SEAL_W } from '../src/city/asphaltpatch.js';
 import { createStreetProps, planStreetProps } from '../src/game/streetprops.js';
 import { createCarWash } from '../src/city/carwash.js';
 import { createGasStation } from '../src/city/gasstation.js';
@@ -1770,6 +1771,47 @@ const onGrass = (city, i, j) => {
   check('manholes: every triangle wound to face up', down === 0, `${down}/${pos.count / 3} face down`);
   geo.dispose();
   check('manholes: ?manholes=classic builds none', createManholes(makeRng(1), { enabled: false }) === null);
+}
+
+// --- Asphalt patches (city/asphaltpatch.js) -----------------------------------------------------
+// One or two, each inside one lane: clear of the centre dashes and of the kerb, and out of every
+// junction box. Then the winding, because a patch wound face down is simply not there.
+{
+  let wrongCount = 0, offLane = 0, inBox = 0;
+  for (let s = 0; s < 40; s++) {
+    createLayout(makeRng(s));
+    const spots = planPatches(makeRng(s + 197));
+    if (spots.length < PATCH_COUNT[0] || spots.length > PATCH_COUNT[1]) wrongCount += 1;
+    for (const p of spots) {
+      const across = p.axis === 'x' ? Math.abs(p.z - lineZ(p.j)) : Math.abs(p.x - lineX(p.i));
+      const halfAcross = (p.axis === 'x' ? p.d : p.w) / 2 + SEAL_W;
+      if (across - halfAcross < 0.15 || across + halfAcross > patchRoadHalf(p) - 0.1) offLane += 1;
+      const along = p.axis === 'x' ? p.x : p.z;
+      const halfAlong = (p.axis === 'x' ? p.w : p.d) / 2 + SEAL_W;
+      const a = p.axis === 'x' ? lineX(p.i) + halfRoadZ(p.i) : lineZ(p.j) + halfRoadX(p.j);
+      const b = p.axis === 'x' ? lineX(p.i + 1) - halfRoadZ(p.i + 1) : lineZ(p.j + 1) - halfRoadX(p.j + 1);
+      if (along - halfAlong < a + 2 || along + halfAlong > b - 2) inBox += 1;
+    }
+  }
+  createLayout(makeRng(seed));
+  check('asphalt patches: one or two per city', wrongCount === 0, `${wrongCount}/40 cities outside ${PATCH_COUNT.join('-')}`);
+  check('asphalt patches: each inside one lane, clear of the dashes and the kerb', offLane === 0, `${offLane} off the lane`);
+  check('asphalt patches: mid-block, 2 units clear of either junction box', inBox === 0, `${inBox} too near a junction`);
+
+  const geo = patchGeometry(planPatches(makeRng(seed + 197)), makeRng(1));
+  const pos = geo.attributes.position;
+  const idx = geo.index;
+  let down = 0;
+  const pa = new THREE.Vector3(), pb = new THREE.Vector3(), pc = new THREE.Vector3();
+  const tri = idx ? idx.count : pos.count;
+  for (let t = 0; t < tri; t += 3) {
+    const at = (k) => (idx ? idx.getX(t + k) : t + k);
+    pa.fromBufferAttribute(pos, at(0)); pb.fromBufferAttribute(pos, at(1)); pc.fromBufferAttribute(pos, at(2));
+    if (pb.sub(pa).cross(pc.sub(pa)).y <= 0) down += 1;
+  }
+  check('asphalt patches: every triangle wound to face up', down === 0, `${down}/${tri / 3} face down`);
+  geo.dispose();
+  check('asphalt patches: disabled builds none', createAsphaltPatches(makeRng(1), { enabled: false }) === null);
 }
 
   // The gas station on the same block. Its pumps stand under a canopy, and a canopy is exactly the

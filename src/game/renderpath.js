@@ -12,7 +12,7 @@
 // has none of them.
 
 import {
-  setAmbientOcclusion, setCrayon, setCartoon, setPainterly, setPaintBrushes, setClassicPaint,
+  setAmbientOcclusion, setCrayon, setCartoon, setPainterly, setPaintBrushes, setJunctionPaving, setClassicPaint,
   setPaintLook, setRim, rimTuning, setRimTuning, setFlip, setVehiclePaint, setCloudShadows, rimPaintOn, setRimDepth,
 } from '../util/geo.js';
 import {
@@ -68,6 +68,7 @@ export function decideLooks(budget) {
   if (painterly) {
     const tiles = createBrushTiles();
     setPaintBrushes(tiles.wall, tiles.ground, tiles.road);
+    setJunctionPaving(new URLSearchParams(location.search).get('roads') !== 'classic');
   }
   setClassicPaint(getPaintClassic());
   setPaintLook(getPaintLook());
