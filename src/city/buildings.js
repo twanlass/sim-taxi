@@ -911,7 +911,7 @@ export { splitLot };
 /** The towers' material: `propMaterial({ smooth })` with the wall detail patched on (city/facade.js). */
 export function wallMaterial() {
   return patchWalls(propMaterial({ smooth: true }), {
-    floorH: FLOOR_H, sill: SILL, groundTop: KERB_H + GROUND_H,
+    floorH: FLOOR_H, groundTop: KERB_H + GROUND_H,
   });
 }
 export { fillWalls, frameMesh };

@@ -2,10 +2,9 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { bakeColors, propMaterial } from '../util/geo.js';
 
-// Wall detail on the towers: a darker plinth under a string course, a lit ledge with its shadow
-// under every row of sills, a cornice at the top of each tier and lighter quoins at the corners.
-// All of it is a fragment patch on the merged
-// building mesh, keyed off one attribute stamped on each tier's box. No geometry, no rng draw, no
+// Wall detail on the towers: a darker plinth under a string course, a lit belt course with its
+// shadow at every floor line, a cornice at the top of each tier and lighter quoins at the corners.
+// All of it is a fragment patch on the merged building mesh, keyed off one attribute stamped on each tier's box. No geometry, no rng draw, no
 // new colour: every term is a multiplier on the envelope's own vertex colour.
 //
 // Why structure rather than texture: at play zoom one unit is ~7.7px, so anything with a period
@@ -27,8 +26,12 @@ export const WALL_STYLE = { NONE: 0, LEDGES: 1 };
 // and the plinth past ~18% reads as a different building standing in front of this one.
 const PLINTH = 0.78;          // the ground storey, under the string course
 const COURSE_LIT = 1.24;      // the string course, a lit band along the top of the ground storey
-const LEDGE_LIT = 1.22;       // a sill ledge's top, catching the sun
+const LEDGE_LIT = 1.22;       // a belt course's top, catching the sun
 const LEDGE_SHADE = 0.74;     // ...and the strip of shadow it throws on the wall under it
+// The belt course's top, above its floor line. The window frames' sill starts SILL - 0.11 = 0.44
+// up (windowFrames), so this leaves 0.3 units — two to three pixels at play zoom — of plain wall
+// between the two.
+const BELT_TOP = 0.14;
 const CORNICE_LIT = 1.18;     // a tier's top band
 const QUOIN_LIT = 1.06;       // the last quarter-unit at each corner of every wall
 
@@ -79,7 +82,7 @@ const f = (x) => x.toFixed(4);
  * `?walls=classic`. The pattern reads the geometry's own `position`, not the animated one, so
  * during the entrance it rides up with the wall instead of sliding over it.
  */
-export function patchWalls(material, { floorH, sill, groundTop }) {
+export function patchWalls(material, { floorH, groundTop }) {
   if (WALLS_CLASSIC) return material;
   const prevCompile = material.onBeforeCompile;
   const prevKey = material.customProgramCacheKey;
@@ -124,12 +127,17 @@ float wallBand(float x, float a, float b, float aa) {
 		m *= mix(1.0, ${f(PLINTH)}, ground * (1.0 - smoothstep(origin - ay, origin + ay, wy)));
 		m *= mix(1.0, ${f(COURSE_LIT)}, ground * wallBand(wy, origin - 0.06, origin + 0.16, ay));
 
-		// A ledge under every row of sills, on exactly the floor lines floorLines drew windows on.
-		float k = floor((wy - origin) / ${f(floorH)});
-		float ph = wy - origin - k * ${f(floorH)};
-		float row = step(0.0, k) * step(origin + (k + 1.0) * ${f(floorH)}, top - 0.35 + 1e-3);
-		m *= mix(1.0, ${f(LEDGE_LIT)}, row * wallBand(ph, ${f(sill - 0.22)}, ${f(sill - 0.04)}, ay));
-		m *= mix(1.0, ${f(LEDGE_SHADE)}, row * wallBand(ph, ${f(sill - 0.38)}, ${f(sill - 0.22)}, ay));
+		// A belt course at every floor line floorLines drew windows on, sitting on the slab rather
+		// than under the sills. Under the sills it ran straight into the window frames' own sill and
+		// read as one piece of geometry (Tyler, 2026-10-24); on the slab it leaves BELT_GAP of bare
+		// wall between its top and the bottom of every frame. The ground storey's top line is the
+		// string course above, so the first line of a ground tier is skipped.
+		float k = floor((wy - origin) / ${f(floorH)} + 0.5);
+		float d = wy - origin - k * ${f(floorH)};
+		float row = step(0.0, k) * step(origin + (k + 1.0) * ${f(floorH)}, top - 0.35 + 1e-3)
+			* (1.0 - ground * step(k, 0.5));
+		m *= mix(1.0, ${f(LEDGE_LIT)}, row * wallBand(d, -0.02, ${f(BELT_TOP)}, ay));
+		m *= mix(1.0, ${f(LEDGE_SHADE)}, row * wallBand(d, -0.18, -0.02, ay));
 
 		// The cornice: a lit band at the top of the tier, its shadow under it.
 		m *= mix(1.0, ${f(CORNICE_LIT)}, wallBand(wy, top - 0.4, top + 1.0, ay));

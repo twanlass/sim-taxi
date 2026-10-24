@@ -23,7 +23,8 @@ they were also AO occluders, and each one smudged a dark halo onto the wall arou
 ("these shaded areas behind the windows feel off"); they moved to a mesh of their own, off the AO.
 The shader also painted a lighter pilaster between each pair of bays on half the masonry. Once the
 windows had frames, those read as vertical streaks running up the building behind them, and they
-were taken out.
+were taken out. The painted ledge first sat just under each row of sills, where it ran straight
+into the frames' real sill and read as one piece of geometry; it moved down onto the floor line.
 
 ## Wheel wells — `archedBodyGeometries` in `geometry/wheels.js`
 

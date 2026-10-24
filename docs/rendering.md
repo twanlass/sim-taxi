@@ -94,8 +94,8 @@ Four details worth keeping:
 ### Wall detail — `city/facade.js`
 
 Every tower wall carries the structure a real one has, drawn as value changes on its own colour:
-a darker plinth under a lit string course at the top of the ground storey, a lit ledge with a strip
-of shadow under it beneath every row of sills, a cornice band at the top of each tier, lighter
+a darker plinth under a lit string course at the top of the ground storey, a lit belt course with a strip
+of shadow under it at every floor line (on the slab, clear of the window frames' sills), a cornice band at the top of each tier, lighter
 quoins at the corners. Curtain walls get the same.
 
 **Punched windows stand in real frames** (`windowFrames`): a head and two jambs 0.2 proud of the
