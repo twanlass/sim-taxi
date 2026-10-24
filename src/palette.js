@@ -88,10 +88,13 @@ export const PALETTE = {
   manholeLid: '#3B3F45',
   manholeFrame: '#8C9097',
   crosswalk: '#DAD7CB',
-  // Junction paving (setJunctionPaving in util/geo.js): the setts every junction box is laid in,
-  // and the pale border course round them.
-  junctionSett: '#6E5F57',
-  junctionEdge: '#7C766B',
+  // The one paved junction (setJunctionPaving in util/geo.js): brick, the sand in its joints, and
+  // the border course round it. The border stays near the road's value on purpose: the paving is a
+  // ratio over the lit asphalt, so a border at kerb brightness (1.8x the road) was outlined in light
+  // by the rain's reflections at night.
+  junctionBrick: '#8E5443',
+  junctionMortar: '#9C9283',
+  junctionEdge: '#8A8478',
   sidewalk: '#CDBFA6',
   kerb: '#B3A994',
   park: '#6F9A5A',
@@ -1077,13 +1080,18 @@ export const PALETTE = {
   // came out looking like a hole in the map rather than a crossing over one; the deck sits inside
   // a two-unit-deep channel, so ambient occlusion is already taking a bite out of it before any
   // colour choice does.
-  bridgeDeck: '#5E656E',
+  //
+  // Light pavement grey since the roads went dark (`?roads=classic` keeps #5E656E): every crossing,
+  // fixed or lifting, now reads as one material that is plainly *not* the street, so the river row
+  // breaks the run of tarmac instead of continuing it.
+  bridgeDeck: '#A9A9A5',
   // Its edge beam and parapet: the same poured concrete as the river wall, lightened, so the deck
   // is outlined against both the water under it and the road either end of it. It is doing the
   // work the kerb does on an ordinary block — telling you where the road stops — against a drop
   // rather than a step, so it is pushed further from the surface it edges: luma 170 against the
   // deck's 108, where a block's kerb is only 32 clear of its pavement.
-  bridgeTrim: '#AFACA4',
+  // Lifted from #AFACA4 (`?roads=classic`) when the decks went light, so it still outlines them.
+  bridgeTrim: '#C9C6BD',
   // The **underside**, and it is a much bigger decision than a soffit sounds like — because when the
   // drawbridge stands up, the underside is the whole of what the camera sees. Raised to 70 degrees
   // the leaf turns its belly through the view axis, so a soffit in `bridgeTrim`'s pale concrete
@@ -1105,7 +1113,14 @@ export const PALETTE = {
   // Cool where the asphalt is warm-grey, and light where the asphalt is dark: luma 136 against
   // `bridgeDeck`'s 100 and the road's own 104, which reads as galvanised plate under this sun
   // without going pale enough to be mistaken for the concrete trim it is bolted to at 172.
-  drawbridgeDeck: '#87888C',
+  // Under the dark roads it wears the same light deck as the fixed spans (`?roads=classic`: #87888C);
+  // the counterweight houses and the gate still say which one lifts.
+  drawbridgeDeck: '#A9A9A5',
+  // Where a deck meets the road (`abutmentParts`, geometry/bridge.js): a steel expansion joint at
+  // the bank line and a pale concrete approach slab on the road side of it, so the change from
+  // tarmac to deck is a seam you can see rather than two surfaces butting.
+  bridgeJoint: '#3A3D42',
+  bridgeApproach: '#C4C0B6',
 
   // --- Boats ----------------------------------------------------------------
   //
@@ -1405,8 +1420,12 @@ export const PALETTE = {
 const ROADS_CLASSIC = typeof location !== 'undefined'
   && new URLSearchParams(location.search).get('roads') === 'classic';
 if (ROADS_CLASSIC) {
-  Object.assign(PALETTE, { asphalt: '#636972', asphaltEdge: '#6B717A', sidewalk: '#9E9C94', kerb: '#8A887F' });
+  Object.assign(PALETTE, {
+    asphalt: '#636972', asphaltEdge: '#6B717A', sidewalk: '#9E9C94', kerb: '#8A887F',
+    bridgeDeck: '#5E656E', drawbridgeDeck: '#87888C', bridgeTrim: '#AFACA4',
+  });
 }
+export const roadsClassic = () => ROADS_CLASSIC;
 
 export function color(value) {
   return new THREE.Color(PALETTE[value] ?? value);

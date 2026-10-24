@@ -1,6 +1,9 @@
 import * as THREE from 'three';
 import { PALETTE } from '../palette.js';
-import { PITCH, HALF_SPAN_X, HALF_SPAN_Z, HALF_ROAD, HALF_ARTERIAL, GRID_I, GRID_J, isArterialX, isArterialZ, RIVER_EXTRA, riverMidZ } from '../city/grid.js';
+import {
+  PITCH, HALF_SPAN_X, HALF_SPAN_Z, HALF_ROAD, HALF_ARTERIAL, GRID_I, GRID_J, isArterialX, isArterialZ, RIVER_EXTRA,
+  riverMidZ, riverRow, isUnsignalised, isSegmentClosed,
+} from '../city/grid.js';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 
 /**
@@ -304,12 +307,14 @@ export const PAINT_UNIFORMS = {
   uRoadMaskScale: { value: 16 }, // world units per cell of the fade mask's coarser octave
   uRoadMaskLo: { value: 0.38 },  // mask value where the strokes are fully gone…
   uRoadMaskHi: { value: 0.58 },  // …and where they are at full strength
-  // Junction paving: the box every junction leaves between its four kerb lines, laid in setts.
-  // rgb is the paving's albedo over the asphalt's (a ratio, so the lighting stays the road's),
-  // w how much of it — 0 is the plain asphalt box. See `setJunctionPaving`.
+  // The one paved junction: its box laid in brick between its four kerb lines. rgb is the brick's
+  // albedo over the asphalt's (a ratio, so the lighting stays the road's), w how much of it — 0 is
+  // a plain asphalt box. See `setJunctionPaving`.
   uJunctionTint: { value: new THREE.Vector4(1, 1, 1, 0) },
-  uJunctionEdge: { value: new THREE.Vector4(1, 1, 1, 0.45) }, // the border course's ratio, then its width
-  uJunctionSett: { value: new THREE.Vector2(1.5, 0.1) },     // sett pitch and joint width, world units
+  uJunctionEdge: { value: new THREE.Vector4(1, 1, 1, 0.5) }, // the border course's ratio, then its width
+  uJunctionMortar: { value: new THREE.Vector3(1, 1, 1) },    // the joints' ratio
+  uJunctionAt: { value: new THREE.Vector2(-99, -99) },       // which junction, as (i, j)
+  uJunctionBrick: { value: new THREE.Vector3(0.9, 0.45, 0.07) }, // brick length, width, joint, world units
   uBrushTile: { value: 8 },     // world units per tile repeat
   uBrushAmt: { value: 0.7 },   // value swing of a stroke (0.22 was invisible at play zoom)
 };
@@ -330,13 +335,23 @@ export function setPaintBrushes(wall, ground, road) {
 }
 
 /**
- * Junction paving (`?roads=classic` turns it off, with the palette's road colours). Every junction box — the square the four
- * kerb lines leave in the middle of a crossing — is laid in setts instead of asphalt, with a pale
- * border course round it, so the street grid reads as a rhythm of runs and squares rather than one
- * sheet of tarmac. Applied in the ground's paint pass as a ratio over the lit asphalt, which keeps
- * the road's own lighting, shadows and wet look; the ratio is taken in display space because that
- * is the space `gl_FragColor` is in by the time the paint pass runs (`<colorspace_fragment>` comes
- * before `<fog_fragment>`).
+ * The one paved junction (`?roads=classic` turns it off, with the palette's road colours). One
+ * junction box — the square the four kerb lines leave in the middle of a crossing — is laid in
+ * brick with a pale border course, a single plaza for the eye to land on. It was every junction
+ * first, in plain setts, and Tyler's read was the honest one: a weird grid, not pavers, and far too
+ * many of them (the boxes are 9 units square against 12-unit blocks, so a paved box at every
+ * crossing is a checkerboard). Hence one, and bricks that are laid: running bond, each brick its own
+ * shade, mortar paler than the brick.
+ *
+ * Applied in the ground's paint pass as a ratio over the lit asphalt, which keeps the road's own
+ * lighting, shadows and wet look; the ratio is taken in display space because that is the space
+ * `gl_FragColor` is in by the time the paint pass runs (`<colorspace_fragment>` comes before
+ * `<fog_fragment>`).
+ *
+ * Which junction: the one nearest the middle of the map that is a full four-way crossing of two
+ * side streets — signalised, every arm open, off the river's two banks — so it has a crosswalk on
+ * every side and reads as a square rather than as a stretch of main road. Read after the layout
+ * exists, like the arterials in `setPaintBrushes`.
  */
 export function setJunctionPaving(on) {
   const srgb = (key) => {
@@ -345,11 +360,25 @@ export function setJunctionPaving(on) {
     return c.getRGB(new THREE.Color(), THREE.SRGBColorSpace);
   };
   const road = srgb('asphalt');
-  const sett = srgb('junctionSett');
-  const edge = srgb('junctionEdge');
-  PAINT_UNIFORMS.uJunctionTint.value.set(sett.r / road.r, sett.g / road.g, sett.b / road.b, on ? 1 : 0);
+  const ratio = (c) => [c.r / road.r, c.g / road.g, c.b / road.b];
+  PAINT_UNIFORMS.uJunctionTint.value.set(...ratio(srgb('junctionBrick')), on ? 1 : 0);
   const e = PAINT_UNIFORMS.uJunctionEdge.value;
-  e.set(edge.r / road.r, edge.g / road.g, edge.b / road.b, e.w);
+  e.set(...ratio(srgb('junctionEdge')), e.w);
+  PAINT_UNIFORMS.uJunctionMortar.value.set(...ratio(srgb('junctionMortar')));
+
+  let best = null;
+  const row = riverRow();
+  for (let i = 1; i < GRID_I; i++) {
+    for (let j = 1; j < GRID_J; j++) {
+      if (isUnsignalised(i, j) || isArterialX(j) || isArterialZ(i)) continue;
+      if (row !== null && (j === row || j === row + 1)) continue;
+      if ([0, 1, 2, 3].some((d) => isSegmentClosed(i, j, d))) continue;
+      const d = (i - GRID_I / 2) ** 2 + (j - GRID_J / 2) ** 2;
+      if (!best || d < best.d) best = { i, j, d };
+    }
+  }
+  PAINT_UNIFORMS.uJunctionAt.value.set(best?.i ?? -99, best?.j ?? -99);
+  return best;
 }
 
 const PAINT_COMMON = /* glsl */ `
@@ -372,7 +401,9 @@ uniform float uRoadMaskLo;
 uniform float uRoadMaskHi;
 uniform vec4 uJunctionTint;
 uniform vec4 uJunctionEdge;
-uniform vec2 uJunctionSett;
+uniform vec3 uJunctionMortar;
+uniform vec2 uJunctionAt;
+uniform vec3 uJunctionBrick;
 float paintHash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
 float paintNoise(vec2 p) {
 	vec2 i = floor(p), f = fract(p);
@@ -455,12 +486,22 @@ const PAINT_FRAGMENT = /* glsl */ `
 						float hx = mix(uRoadArt.z, uRoadArt.w, mod(floor(uRoadArt.y / exp2(jl.x)), 2.0));
 						float hz = mix(uRoadArt.z, uRoadArt.w, mod(floor(uRoadArt.x / exp2(jl.y)), 2.0));
 						vec2 jin = vec2(hx, hz) - jd;  // how far inside the box, per axis
-						float jBox = smoothstep(-0.06, 0.06, min(jin.x, jin.y));
+						float jBox = smoothstep(-0.06, 0.06, min(jin.x, jin.y))
+							* step(length(jl - uJunctionAt), 0.5);
 						if (jBox > 0.0) {
-							float jEdge = 1.0 - smoothstep(uJunctionEdge.w - 0.06, uJunctionEdge.w + 0.06, min(jin.x, jin.y));
-							vec2 sq = abs(fract(jp / uJunctionSett.x) - 0.5) * uJunctionSett.x;
-							float joint = 1.0 - smoothstep(uJunctionSett.y * 0.5, uJunctionSett.y, uJunctionSett.x * 0.5 - max(sq.x, sq.y));
-							vec3 jt = mix(uJunctionTint.rgb * (1.0 - 0.18 * joint * (1.0 - jEdge)), uJunctionEdge.rgb, jEdge);
+							float jEdge = 1.0 - smoothstep(uJunctionEdge.w - 0.05, uJunctionEdge.w + 0.05, min(jin.x, jin.y));
+							// Running bond: every other course shifted half a brick, each brick its own
+							// shade, so it reads as laid units rather than a ruled grid.
+							vec2 bp = jp / uJunctionBrick.xy;
+							float course = floor(bp.y);
+							bp.x += 0.5 * mod(course, 2.0);
+							vec2 cell = vec2(floor(bp.x), course);
+							vec2 f = abs(fract(bp) - 0.5) * uJunctionBrick.xy;  // distance from the brick's centre
+							vec2 gap = uJunctionBrick.xy * 0.5 - f;
+							float mortar = 1.0 - smoothstep(uJunctionBrick.z * 0.5, uJunctionBrick.z, min(gap.x, gap.y));
+							float shade = 0.84 + 0.3 * paintHash(cell + jl * 31.0);
+							vec3 brick = uJunctionTint.rgb * shade;
+							vec3 jt = mix(mix(brick, uJunctionMortar, mortar), uJunctionEdge.rgb, jEdge);
 							gl_FragColor.rgb *= mix(vec3(1.0), jt, jBox * uJunctionTint.w);
 						}
 					}
