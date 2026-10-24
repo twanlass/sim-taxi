@@ -189,5 +189,10 @@ export function createCanopyFuzz(rng, crowns) {
   mesh.castShadow = false;
   mesh.receiveShadow = true;
   mesh.name = 'canopy-fuzz';
+  // Out of the z-fighting scan (util/zfight.js). Every card faces the camera, so all of them share
+  // one normal, and a few thousand of them scattered through the crowns put a pair on one plane now
+  // and then — measured at 0.6 u² on a whole city, a few leaf texels in the middle of a canopy's own
+  // noise, and cut out to nothing wherever the atlas is clear.
+  mesh.userData.zfight = false;
   return { mesh, cards };
 }

@@ -3,6 +3,7 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 // First, before anything builds a material: it patches three's fog chunk for every program.
 import { EDGE_FOG, createEdgeFogFloor, tickEdgeFog } from './game/edgefog.js';
 import { makeRng } from './util/rng.js';
+import { findZFighting, describeZFighting } from './util/zfight.js';
 import { createScene, sinkShadowCaster, setHazeTop, HAZE_TOP } from './game/scene.js';
 import { createRain, GRIP } from './game/rain.js';
 import { createStorm } from './game/storm.js';
@@ -8200,6 +8201,16 @@ window.__taxi = {
     open: (name = 'uturn') => openNewMove(name === 'repair' ? repairCard : moves[name]), isOpen: newMove.isOpen, close: newMove.close,
     seek: newMove.seek, seen: moves.uturn.seen, moves, wanted: newMoveWanted, calm: newMoveCalm,
     due: () => newMoveIn, next: (n) => nextMove(n)?.line ?? null, showing: () => newMove.move()?.line ?? null,
+  },
+  /**
+   * The z-fighting scan (util/zfight.js) over the live scene, down the game's own view. It is what
+   * `tools/zfight.mjs` checks headless, here over everything main.js actually added — including
+   * whatever the tool's copy of the city has not caught up with. Logs a line per tie, returns them.
+   */
+  zfight: () => {
+    const found = findZFighting(scene, { view: VIEW_DIR });
+    console.log(found.length ? describeZFighting(found, 50).join('\n') : 'no z-fighting found');
+    return found;
   },
   fares,
   /** The package courier, or null under `?parcels=0` and in shot mode. See game/parcels.js. */

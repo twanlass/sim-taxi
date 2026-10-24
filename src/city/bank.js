@@ -355,9 +355,12 @@ export function buildBank(b, lot, bounds, parts) {
     slab(COL_SIDE, COL_H, COL_SIDE, u, PLINTH_TOP, colV, columnStone);
   }
 
-  // The entablature the columns carry, running the full frontage and tying back into the mass so
-  // the portico reads as part of the building rather than as a screen standing in front of it.
-  const entabDepth = PORTICO_DEPTH - STEP_RUN + 0.3;
+  // The entablature the columns carry, running the full frontage and back to the mass so the
+  // portico reads as part of the building rather than as a screen standing in front of it. It
+  // stops *at* the mass's front face rather than tying 0.15 into it: the two are the same width, so
+  // the buried end of each side face lay on the mass's side wall — a 0.15 × 0.5 tie on the corner
+  // the camera sees (tools/zfight.mjs). Butted, the two only share an edge.
+  const entabDepth = PORTICO_DEPTH - STEP_RUN + 0.15;
   const entabV = STEP_RUN + entabDepth / 2 - 0.15;
   slab(width, ENTAB_H, entabDepth, 0, PLINTH_TOP + COL_H, entabV, columnStone);
 

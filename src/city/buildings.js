@@ -108,7 +108,38 @@ export const ROOF_SINK = 0.22;
  * shadow — because at play zoom the sink is two pixels deep and the colour step is most of what
  * says it is there.
  */
+/**
+ * How much thicker a cap has to be to keep its roof planes off every cap it overlaps.
+ *
+ * A cap oversails its walls, so wherever two masses meet — the wings of a courtyard block, two lots
+ * on one block — their caps overlap by a few tenths, and each cap has two up-facing levels: the sunk
+ * deck and the lip round it, `ROOF_SINK` apart. Heights are drawn at random and several are floors
+ * (a back wing at `centrality` 0 is exactly 5.2), so one cap's deck or lip lands on the other's now
+ * and then: a strip of tie down the corner where both levels show (tools/zfight.mjs, city 11). Grown
+ * from the top rather than lifted, so the cap still sits on its walls; no rng draw, so nothing
+ * downstream reshuffles. Remembered per `parts` array, which is one per city.
+ */
+const CAP_CLEAR = 0.02;
+const capsByParts = new WeakMap();
+function capClearance(parts, w, h, d, x, base, z) {
+  let caps = capsByParts.get(parts);
+  if (!caps) capsByParts.set(parts, caps = []);
+  const rect = { x0: x - w / 2, x1: x + w / 2, z0: z - d / 2, z1: z + d / 2 };
+  const near = caps.filter((c) => c.x0 < rect.x1 && rect.x0 < c.x1 && c.z0 < rect.z1 && rect.z0 < c.z1);
+  let grow = 0;
+  for (let pass = 0; pass < 8; pass++) {
+    const top = base + h + grow;
+    const levels = [top, top - ROOF_SINK];
+    if (!near.some((c) => c.levels.some((l) => levels.some((m) => Math.abs(l - m) < CAP_CLEAR)))) break;
+    grow += CAP_CLEAR;
+  }
+  const top = base + h + grow;
+  caps.push({ ...rect, levels: [top, top - ROOF_SINK] });
+  return grow;
+}
+
 export function lippedCap(parts, w, h, d, x, base, z, col, floorCol = shade(col, 0.86)) {
+  h += capClearance(parts, w, h, d, x, base, z);
   if (ROOFS_CLASSIC || w < 4 * LIP_W || d < 4 * LIP_W) {
     parts.push(box(w, h, d, x, base, z, col));
     return base + h;

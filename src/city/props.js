@@ -248,8 +248,14 @@ export function flowerBedParts(x, z, rng, { radius }) {
     // or four pixels a bloom occupies the two are indistinguishable. The city carries ~1,300 of
     // these, so the choice is most of the props mesh: measured at this density, 118ms and 16.4k
     // triangles against 166ms and 31.8k for the icosahedron.
+    //
+    // Each head turned about its own axis by a hashed angle. Unturned, all ~1,300 share the same
+    // eight face directions, and piled two deep a pair now and then lands with a face on the same
+    // plane as its neighbour's — a pixel or two of tie in every city (tools/zfight.mjs). Hashed off
+    // the position rather than drawn, so nothing downstream of the props stream reshuffles.
     const head = new THREE.OctahedronGeometry(r, 0);
     head.scale(1, 0.62, 1);
+    head.rotateY(hash01(x + Math.cos(angle) * reach, z + Math.sin(angle) * reach) * Math.PI / 2);
     head.translate(
       x + Math.cos(angle) * reach,
       KERB_H + dome + r * 0.45,
@@ -612,6 +618,9 @@ export function parkPlots(blocks) {
   return plots;
 }
 
+/** Two trunks nearer than this are one trunk with two trees' worth of faces fighting over it. */
+const TRUNK_GAP = 0.5;
+
 export function createProps(rng, blocks) {
   const parts = [];
 
@@ -621,8 +630,22 @@ export function createProps(rng, blocks) {
   // in createBuildings — so the planting a seed produces is untouched.
   // Every canopy lobe planted here, for the leaf cards (city/canopyfuzz.js).
   const crowns = [];
+  // Park trees are scattered at random with no spacing, so now and then two land on one spot:
+  // about one and a half a city with trunks close enough to intersect, and on city 23 two trunks
+  // 5cm apart with their faces on each other's planes (tools/zfight.mjs). The second is grown and then thrown away rather than not drawn: its
+  // `treeParts` draws still happen, so every tree after it is the tree it always was.
+  const trunks = [];
   const plant = (x, z, size) => {
+    const fromCrown = crowns.length;
+    const fromPlanted = plantedCrowns().length;
     const tree = treeParts(x, z, rng, { ...size, crowns });
+    if (trunks.some((t) => Math.hypot(t.x - x, t.z - z) < TRUNK_GAP)) {
+      crowns.length = fromCrown;
+      plantedCrowns().length = fromPlanted;
+      tree.forEach((part) => part.dispose());
+      return;
+    }
+    trunks.push({ x, z });
     const rand = hash01(x, z);
     for (const part of tree) stampEntry(part, x, z, rand);
     parts.push(...tree);

@@ -459,6 +459,17 @@ waits. The first version read all three at send time, and a note about the helic
 naming the L train, with a picture of it. A sent pin stays on the bench, dimmed, until the
 reply to its own message is done, or until its queued message is removed with its ×.
 
+## Z-fighting on the bench
+
+**Every build of the model is scanned for z-fighting** (`src/util/zfight.js`, the same scan
+`tools/zfight.mjs` runs in `npm run check`), so a tie the chat's edit (or yours) introduced shows the
+moment it hot-reloads, not when the background checks come back. Each tie gets a magenta pin
+(`PALETTE.benchZFight`) where its biggest patch is, and a banner bottom-left lists them. The scan
+looks the way the game does: down the fixed view, and at every heading for anything that drives,
+so a tie on a face the player never sees is not reported. The banner is also echoed as a
+`[zfight]` warning, which lands in `.workshop/console.log` for the agent; its prompt asks it to run
+`node tools/zfight.mjs --model <id>` after an edit, the one check it runs itself.
+
 ## Adding a model
 
 Add an entry to `CATALOG` in `src/workshop/catalog.js`: `id`, `label`, `kind` (the picker's group),

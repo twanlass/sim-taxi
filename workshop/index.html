@@ -252,6 +252,13 @@
         background: rgba(255, 255, 255, 0.08); color: inherit; font: 12px ui-monospace, Menlo, monospace;
       }
       #swatch .swatch-actions { display: flex; gap: 6px; justify-content: flex-end; }
+      #bench-zfight {
+        /* Bottom-left, under the error banner when both are up: an error means there is no model to scan. */
+        position: absolute; left: 14px; bottom: 14px; z-index: 4; max-width: min(520px, calc(100% - 28px));
+        padding: 8px 10px; border-radius: 10px; background: rgba(120, 20, 110, 0.88); color: #fff;
+        font: 11px/1.45 ui-monospace, Menlo, monospace; white-space: pre-wrap; pointer-events: none;
+      }
+      #bench-zfight[hidden] { display: none; }
       #bench-error {
         position: absolute; left: 14px; right: 14px; bottom: 14px; z-index: 5; display: none;
         padding: 10px 12px; border-radius: 10px; background: rgba(150, 30, 30, 0.9); color: #fff;
@@ -552,6 +559,7 @@
       <div id="swatch" hidden></div>
       <button type="button" id="play"><span class="glyph">▶</span><span class="label">Play</span></button>
       <div id="bench-error"></div>
+      <div id="bench-zfight" hidden></div>
     </div>
 
     <aside id="chat">

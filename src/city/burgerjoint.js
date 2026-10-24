@@ -739,8 +739,10 @@ export function createBurgerJoint(block, rng) {
     // The apron: asphalt laid over the pavement from the building's near face out to both kerbs.
     // This is what says "cars come in here" on a block that is otherwise bare paving, and it is
     // one rectangle rather than a strip following the lane because a drive-through's lot *is* a
-    // rectangle of tarmac with a lane painted on it.
-    span(apron.x0, apron.x1, APRON_Y - 0.04, APRON_Y, apron.z0, apron.z1,
+    // rectangle of tarmac with a lane painted on it. Its underside sits *on* the pavement rather
+    // than sunk into it: the apron runs out to the kerb line, and a slab reaching below `KERB_H`
+    // there laid a centimetre of its own riser on the kerb's face (tools/zfight.mjs).
+    span(apron.x0, apron.x1, PAVEMENT_Y, APRON_Y, apron.z0, apron.z1,
       jitterColor(color('asphalt'), rng, { l: 0.02 })),
 
     // The mass, the band round the top of it, and the cap on that. The band oversails the walls by

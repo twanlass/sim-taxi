@@ -92,6 +92,7 @@ export function workshopPrompt(model, { image = null, view = 'orbit', attachment
     lines.push(`They also pasted ${attachments.length === 1 ? 'an image' : `${attachments.length} images`} of their own into the message (a reference, a sketch, or a screenshot from elsewhere), at ${attachments.join(', ')}. Read ${attachments.length === 1 ? 'it' : 'them'} before acting: the message is probably about ${attachments.length === 1 ? 'it' : 'them'}.`);
   }
   lines.push(
+    'Never leave two surfaces on the same plane covering the same ground (a box face flush with a wall, a slab whose edge lands on a kerb face): that is z-fighting, and it only shows on a phone. Stand a part proud by 0.01 or more, or stop it short. The bench scans every build and pins any tie in magenta; after an edit, run node tools/zfight.mjs --model ' + model.id + ' and fix anything it lists. It takes about a second and is the one check worth running yourself; the full suite below still is not.',
     'Follow CLAUDE.md: colours live in src/palette.js, geometry constants in src/city/grid.js, trees go through treeParts, water through the shared shader, and comments carry the why.',
     'The page forwards its browser console errors and warnings to .workshop/console.log (newest last, each line stamped with the time). When they say something is missing, blank or broken, or paste an error, Read it first: it usually names the file and line.',
     'Keep the change scoped to this model unless asked otherwise. Do not commit, push, install packages, or start servers.',
