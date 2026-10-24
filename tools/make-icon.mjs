@@ -97,7 +97,8 @@ async function fetchJson(pathname, method = 'GET') {
 
 const server = await createServer({ server: { port: 0, strictPort: false }, logLevel: 'error' });
 await server.listen();
-const pageUrl = new URL('/tools/icon/', server.resolvedUrls.local[0]).href;
+// `ICON_QUERY=?bg=flat node tools/make-icon.mjs` hands the page a query string (see tools/icon/icon.js).
+const pageUrl = new URL(`/tools/icon/${process.env.ICON_QUERY ?? ''}`, server.resolvedUrls.local[0]).href;
 
 const profile = await mkdtemp(path.join(tmpdir(), 'icon-chrome-'));
 // WebGL under headless needs SwiftShader, same flags as tools/shoot.mjs.

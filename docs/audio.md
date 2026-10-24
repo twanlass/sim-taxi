@@ -121,10 +121,11 @@ again doesn't repeat the recording exactly:
 | `accel` | Pulling away after at least 0.35 s stood still, but not during Loco (the launch covers that) |
 | `skid` | The first frame of a boosted corner or an overtake lane swap. Once per slide, not once per rubber stamp |
 | `copSkid` | The same takes, for police in a chase: a robbery cop starting to slide (`copLaysRubber` in sim/traffic.js) or the corridor cruiser in the bust chase. Faded by distance from the taxi and silent past about a screen away; its own key so it has its own level and does not spend the taxi's `skid` gap. Its `minGap` of 1s is fleet-wide and is what keeps a chase from squealing constantly: the cops carry speed into nearly every corner (162 of 175 over the probe's six getaways) |
-| `doorOpen` → `doorClose` | Pickup (the close is `BOARD_SECONDS` later, once the rider is in). The robber boarding opens the door and slams it when their line is dismissed: the line's freeze suspends the audio context on the frame the close would start, which cut it to a blip (`robberDoorOpen` in `src/main.js`). Drop-off (the close is 0.7 s later) |
+| `doorOpen` → `doorClose` | Pickup (the close is `BOARD_SECONDS` later, once the rider is in). The robber boarding opens the door and slams it when their line is dismissed, on the first frame the world moves again (`robberDoorOpen` in `src/main.js`). Drop-off (the close is 0.7 s later) |
 | `takeoff` / `land` | `taxi.hopFrom` turning non-null / `traffic.onTaxiLand`, with the land scaled by the same `hit` that scales the shake |
 | `bump` | A survivable hit on another car (`collisions.onBump`), scaled by closing speed: 0.3 at a nudge, full at a T-bone at the Loco top. Also the taxi knocking a spilt crate on (game/boxspill.js), at 0.18 |
 | `driveThru` | The lot taking the player's taxi on a burger run (`burgerRun.holdsTaxi()` turning true), never an ambient car. The visit is timed to the clip (12.93 s, `DRIVE_THRU_SECONDS`) plus a 2 s tail (`DRIVE_THRU_TAIL`) through the taxi's two dwells in game/drivethru.js, and the probe holds the visit within half a second of that; it is faded out (`sfx.release`) on the frame the lot hands the taxi back. The radio ducks 12 dB for the length of it (`sfx.duckMusic`) |
+| `dispatch1`–`dispatch4` | The [backstory](gameplay.md#the-backstory)'s four lines, each as its card comes up (`speakBackstory` in main.js), cut short (`sfx.release`, 0.08 s) by a tap that moves on or skips. Tyler's own recordings, delivered as 44.1 kHz MP3s and converted to 48 kHz WAV masters (`VO_dispatch_N`); encoded with ffmpeg's AAC at 128 kbps rather than `tools/audio.mjs`, there being no afconvert in the cloud. In the first decode wave with the spawn, since the story opens on Play |
 | `crash` | The wreck at full volume. The roadworks smash reuses it at half volume, and a crate off the flatbed at 0.3 pitched well up |
 | `horn` | A tap on the taxi itself, with the select-pop flash. New players coming from RTS games tap their own car first, expecting to select it; this answers the tap without inventing a selection state. Not during the opening, where that tap is the skip. The master (`18_HORN_honk`, 48 kHz / 16-bit, Tyler, October 2026) arrived at −10.5 LUFS and a +0.2 dBFS peak, 11 dB hotter than a crash, so it ships at gain 0.3 (about −21 LUFS, level with the crash). It was encoded with ffmpeg's AAC rather than afconvert, from a cloud session with no Mac; re-running `tools/audio.mjs` replaces it harmlessly |
 
@@ -225,6 +226,31 @@ back the true length plus at most one frame of end padding, which `loopWindow` r
 priming at all and loops correctly. Re-running `tools/audio.mjs` on a Mac replaces them with
 afconvert's encode.
 
+## The L train
+
+The `ltrain` bed (`LTRAIN_AMB_pass_loop_MONO`) plays from the middle of the L train while it runs,
+its level the train's speed as a share of cruise, so it rolls in and out with the ramps at each end
+(`ltrain.emitter()`, `ambientLevels` in main.js). It is in the Ambience group.
+
+It is Tyler's own recording of an elevated train going by (`raised_l_train_scree_4`, 15 s,
+48 kHz / 16-bit stereo, −36.8 LUFS, October 2026), committed whole under `assets/audio-raw/` so it
+can be re-cut. A pass-by already carries its own swell and fade, and played as a one-shot it would
+fight the falloff that places it, so the bed is its **steady middle**: 3.0 s to 10.5 s, folded to
+mono, the 0.75 s after the cut cross-faded (equal power) back over its start so it loops without a
+seam, and raised 6.3 dB to −32 LUFS, a couple over the construction bed. Tyler's mix (October
+2026) then puts it at +8 dB (gain 2.51) with a wider full-level zone: the falloff (`near` 19,
+`far` 60) and the train's speed make the pass-by. Both squeals in the recording are inside the
+loop, so one comes round every 7.5 s while a train is near.
+
+In audio debug the moving train carries its own 🔊 pin (from its middle, while it runs), so its
+falloff rings can be dragged like any placed sound's. The ⚙️ panel's ⚡ sends a train off now, and
+⏸ freezes one mid-run, sending it out to the middle of its run first if the line is empty. Unlike the
+plane's hold, nothing extra loops: the bed already plays off the train while it stands there.
+
+The train's wheel sparks and the garage's welding during a repair have no sound yet. Synthesised
+stand-ins were tried for them (October 2026) and turned down: Tyler, "don't ship any of the synth
+standin sounds".
+
 ## The radio
 
 The music is a car radio, the station KPRS. The **title menu** has no music at all: the first tap (at boot, in the iOS app)
@@ -262,9 +288,12 @@ playing and the next), so each change is sample-exact rather than waiting on `on
 pause stops it mid-song with the rest of the context. Each track is played for its master's true
 length (`RADIO.seconds`), the same AAC-priming guard as `loopWindow`.
 
-When the game-over screen appears the music bus fades to silence over 1.5 s (`fadeOutMusic`,
-`MUSIC_FADE_OUT`); effects carry on. It is latched, so moving the Music slider on that screen does
-not bring it back. Retry and Quit both reload the page, so the next run opens on the intro as usual.
+At game over the song plays on under the run-end card while its stats count out, and the music
+bus fades to silence over 2.5 s once the first "Tap to continue" comes up (`onStatsShown` in
+`showRunEnd`, `MUSIC_FADE_AT_HINT`); a tap that skips the count brings the fade forward with it.
+Effects carry on. `?musicfade=classic` fades over 1.5 s the moment the card appears instead
+(`MUSIC_FADE_OUT`). The fade is latched, so moving the Music slider on that screen does not bring
+it back. Retry and Quit both reload the page, so the next run opens on the intro as usual.
 
 Levels (`RADIO.gain`) bring every track to −24 LUFS at full slider. The first four were measured
 off the masters with ffmpeg's `ebur128`: they arrived at −13.5 (country), −12.3 (jazz) and −10.8
@@ -352,9 +381,12 @@ on the next frame. Only the station goes through it: the ⚙️ panel's track pr
   else, and the radio after that while it is off the air. Each bed starts as soon as its own file
   is in. It used to be one batch of all 73 files with nothing starting until the slowest had
   finished, the city loop about 50th in the queue and the station's ~185 s ahead of it.
-- **The world stopping stops the sound.** The pause and the robber's line both call
-  `sfx.hold(true)`, which suspends the context. A door scheduled to close is on the audio clock, so
-  it waits with everything else. A hidden tab suspends it too.
+- **The pause stops the sound.** It calls `sfx.hold(true)`, which suspends the context. A door
+  scheduled to close is on the audio clock, so it waits with everything else. A hidden tab
+  suspends it too. The robber's line freezes the world the same way but **not** the sound: a
+  suspend there cut the robber's cab door off mid-sample (a click and a ding) and the radio with
+  it, which read as the game breaking. The radio ducks under the line instead (`robberDucked` in
+  `src/main.js`).
 - **Coming back from another app.** Showing the page again resumes the context, and every tap
   resumes it again while it is not running. That was not enough in the iOS app: WKWebView can hand
   back a context that never resumes, or one that says `running` with a clock that has stopped, and

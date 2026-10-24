@@ -249,6 +249,8 @@ is derived: from 3.25 into the deck lane it clears the rest of the deck and the 
 the far bank (8 wide, 10.67 for an arterial) and comes down 3.25 or 0.6 into the next street, five
 units clear of its hold line. So it only fires when the exit at the far bank is **straight on** —
 a turning route there gets the ordinary hop, since the arc would otherwise bend sideways in mid-air.
+The router tips near-tied routes toward going straight on there (`BIG_AIR_TILT`,
+[gameplay.md](gameplay.md#routing)), which took that from 35% of crossings to 69%.
 
 The carry is a clock and the bridge is a place, so the kick also counts for `DRIFT_LAUNCH_GRACE`
 = 12 units of travel after its carry runs out on its own (not braked, turned or crashed out of): a

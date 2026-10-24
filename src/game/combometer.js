@@ -48,6 +48,10 @@ export const COMBO_STEPS = {
   // instead of it, and only a step: where the landing falls is mostly luck, so it is the spectacle
   // that is big rather than the payout.
   crush: { label: 'Crushin\' It', step: 1 },
+  // Swiping a post box or a hot dog cart off the kerb under Loco Mode (game/streetprops.js). A
+  // half, like an overtake: the swipe is automatic once the taxi is boosting down the right lane.
+  mailbox: { label: 'Return to Sender', step: 0.5 },
+  hotdog: { label: 'Hot Diggity', step: 0.5 },
 };
 
 /** The meter's scope: 'run' when `?combo=run` asks for it, 'meter' otherwise. */

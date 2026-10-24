@@ -53,6 +53,8 @@ function race(seed, player) {
       if (type === 'go') went = true;
       // No camera here to go and look at the finish: count straight in.
       if (type === 'lined-up') race.countIn();
+      // Nor a thumb: the racer's "Ready?" is answered at once.
+      if (type === 'ready') race.ready();
       // Nor a wipe for the finale's cut to the loser: land it on the spot.
       if (type === 'arrival-cut') race.stageArrival();
       if (process.env.RACE_DEBUG && ['arrival', 'skid', 'decided'].includes(type)) { const c = race.state.car; const t = traffic.taxi; const fx = Math.cos(t.yaw), fz = -Math.sin(t.yaw);

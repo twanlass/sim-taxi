@@ -1,8 +1,9 @@
 /**
  * The title screen's backdrop as a reel of short shots: the camera jump cuts round the city's
  * landmarks — the basketball court, the skatepark, the L, the burger joint — and sits on each for
- * a few seconds with a slow drift, crossfading from one to the next. `?titlecam=classic` is the
- * slow ellipse it replaced (`panAt` in game/titlescreen.js).
+ * a few seconds with a slow drift, crossfading from one to the next. Off by default since
+ * 2026-10-22, when one slow slide (`panAt` in game/titlescreen.js) replaced it; `?titlecam=reel`
+ * brings it back.
  *
  * Like the drift, it does not move the camera itself. `frame(dt, aspect)` says where the camera is
  * this frame and main.js cuts it there, so the priority list stays the one place framing is decided.

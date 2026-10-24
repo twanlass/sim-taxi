@@ -19,7 +19,7 @@ import { createLocoFlame } from './locoflame.js';
 import { createBlast } from './blast.js';
 import { createSkidMarks } from './skidmarks.js';
 import { createSplashSound } from './splashsound.js';
-import { buildLogo, createDebris } from './splashlogo.js';
+import { buildLogo, createDebris, LOGO_HEIGHT } from './splashlogo.js';
 
 /**
  * The startup screen: ROCKET RIDES in white block letters on black (game/splashlogo.js), and the
@@ -164,6 +164,25 @@ export function splashZoom(aspect) {
   return Math.max(FIT_HALF_H, view.fitHalfW / aspect);
 }
 
+/**
+ * The road sits three quarters of the way down the frame and the word dead centre (Tyler,
+ * 2026-10-23). With the road at the middle, as it was, the word stood above it and read high: on a
+ * phone its centre was 39% of the way down. So the camera aims half a frustum above the road, and
+ * the word stands as high as it has to for its middle to land on that aim — which depends on the
+ * aspect, because a phone's frame is width-bound and taller (half-height 10.8 against 6.5 on a
+ * desktop), so the word stands 4.0 off the road there and 1.7 on a desktop.
+ */
+const ROAD_DOWN = 0.5;
+export function splashAim(aspect) {
+  // `view.up` is cross(right, dir), which points *down* the screen: everything else only takes its
+  // absolute value, so the sign is spent here.
+  return view.up.clone().multiplyScalar(-splashZoom(aspect) * ROAD_DOWN);
+}
+/** The logo's baseline above the road, for its middle to sit on `splashAim`. */
+export function logoBase(aspect) {
+  return (splashZoom(aspect) * ROAD_DOWN) / view.rise - LOGO_HEIGHT / 2;
+}
+
 /** Half the car's drawn extent across its line of travel on screen, roof and wheelie included. */
 const EXIT_SIDE = 3;
 /** From the car's origin back to the tip of its plume, with room for the flicker's stretch. */
@@ -181,9 +200,10 @@ export function exitTime(aspect) {
   const key = `${view.heading}:${aspect.toFixed(4)}`;
   if (exitCache.has(key)) return exitCache.get(key);
   const zoom = splashZoom(aspect);
+  const aim = splashAim(aspect);
   const at = new THREE.Vector3();
   const inFrame = (x, y, z) => {
-    at.set(x, y, z);
+    at.set(x, y, z).sub(aim);
     return Math.abs(at.dot(view.right)) - EXIT_SIDE < zoom * aspect && Math.abs(at.dot(view.up)) - EXIT_SIDE < zoom;
   };
   let t = IGNITE;
@@ -209,7 +229,7 @@ export function splashLength(aspect) {
 
 /** Where to drop from: clear of the top of the frame, whatever its shape. */
 export function dropHeight(aspect) {
-  return splashZoom(aspect) / view.rise + 4;
+  return splashZoom(aspect) * (1 + ROAD_DOWN) / view.rise + 4;
 }
 
 /**
@@ -294,12 +314,21 @@ export function splashCovers() {
 /**
  * Whether this load gets the startup screen. Not where the title screen would not be either — shot
  * mode, `?dev`, `?title=off`, the reload "Play again" does (read, not consumed: main.js consumes
- * it) — and not on `?splash=classic`, which is the load as it was.
+ * it) — not on the reload Quit does, which goes back to the title but has already sat through the
+ * logo once this session (consumed here, since nothing else reads it), and not on
+ * `?splash=classic`, which is the load as it was.
  */
+export const SPLASH_SKIP_KEY = 'simTaxi.skipSplash';
 export function wantsSplash() {
   const params = new URLSearchParams(window.location.search);
+  let quit = false;
+  try {
+    quit = window.sessionStorage.getItem(SPLASH_SKIP_KEY) === '1';
+    window.sessionStorage.removeItem(SPLASH_SKIP_KEY);
+  } catch { /* storage refused: a fresh start */ }
   if (params.has('shot') || params.has('dev') || params.get('title') === 'off') return false;
   if (params.get('splash') === 'classic') return false;
+  if (quit) return false;
   try {
     if (window.sessionStorage.getItem('simTaxi.skipTitle') === '1') return false;
   } catch { /* storage refused: a fresh start, so play it */ }
@@ -461,7 +490,7 @@ export function createSplash(root) {
     camera.bottom = -zoom;
     camera.updateProjectionMatrix();
     // Shaken in the screen plane: a jitter along the view axis is invisible under an ortho camera.
-    shakeAt.set(0, 0, 0);
+    shakeAt.copy(splashAim(aspect()));
     if (rng) shakeAt.addScaledVector(view.right, rng.jitter(shake)).addScaledVector(view.up, rng.jitter(shake));
     camera.position.copy(view.dir).multiplyScalar(DISTANCE).add(shakeAt);
     camera.lookAt(shakeAt);
@@ -476,7 +505,7 @@ export function createSplash(root) {
   scene.add(patch);
 
   // The logo: one material for every stroke (see `logoMaterial`).
-  const logo = LOGO ? buildLogo() : null;
+  const logo = LOGO ? buildLogo(logoBase(aspect())) : null;
   const debris = logo ? createDebris(logo) : null;
   const pieceMaterial = logo ? logoMaterial() : null;
   const pieceMeshes = logo ? logo.pieces.map((piece) => {

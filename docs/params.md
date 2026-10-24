@@ -45,12 +45,15 @@ doc; what the classic version was, and why it changed, is in that doc's history 
 | `?trainlights=classic` | The L's deck without its lamps | #489 | [city.md](city.md) |
 | `?trainintro=classic` | The L without its own intro | #494 | [city.md](city.md) |
 | `?depot=classic` / `=model` | The depot's wrench sign / a 3D taxi on its roof (default is the neon cutout) | #479 | [city.md](city.md) |
+| `?signflames=classic` | The depot's cutout taxi without its tailpipe and painted flame (default: a static hot-rod flame cut from board off the tail) | | [city.md](city.md#the-roof-sign-and-what-is-derived-from-it) |
 | `?depotneon=classic` | No blue neon tube round the depot's roofline (default traces the two visible faces under the coping, like the burger joint's) | | [city.md](city.md#the-livery) |
 | `?depotwindows=classic` | The depot's two office windows stay dark at night and under a squall (default: they light with the city's windows) | | [city.md](city.md#the-livery) |
 | `?skater=classic` / `=stiff` | The first pair of skaters / the single skater before it got a waist joint | #461, #463 | [city.md](city.md) |
 | `?roadside=carwash` / `=gas` | Pin the roadside lot to the car wash or the gas station; by default each city seed rolls one. Headless tools take `ROADSIDE=` | | [city.md](city.md#the-roadside-lot-and-its-tube-man) |
 | `?roadside=classic` | No roadside lot: its block goes back to the towers, and the tube man goes with it | | [city.md](city.md#the-roadside-lot-and-its-tube-man) |
 | `?manholes=classic` | The streets without their manhole covers | | [city.md](city.md#manhole-covers) |
+| `?streetprops=classic` | No post boxes or hot dog cart on the kerb | `STREETPROPS=classic` | [city.md](city.md#the-post-box-and-the-hot-dog-cart) |
+| `?propsmash=classic` | Loco Mode swipes the taxi onto the kerb into every post box and hot dog cart it passes, instead of only an overtake up the kerb hitting them | `PROPSMASH=classic` | [city.md](city.md#the-post-box-and-the-hot-dog-cart) |
 | `?roofs=classic` | Solid flat roof caps, with no lip and no sunk deck | #511 | [city.md](city.md) |
 | `?foliage=classic` | The first, louder autumn palette | #486 | [rendering.md](rendering.md) |
 | `?water=classic` | The faceted first river surface | | [river.md](river.md) |
@@ -78,11 +81,19 @@ doc; what the classic version was, and why it changed, is in that doc's history 
 | `?chasesiren=classic` | No 🚨 during a chase | #513 | [traffic.md](traffic.md#spotted-and-then-caught-or-lost) |
 | `?helispot=classic` | The police helicopter's first, brighter and harder-edged searchlight | | [gameplay.md](gameplay.md) |
 | `?splashcam=classic` | The startup screen from the game's 33° three-quarter view (the first cut) instead of the low side-on camera | | [gameplay.md](gameplay.md#the-startup-screen) |
-| `?titleintro=classic` | The title menu and a sharp city are both on screen the moment the black lifts, instead of the city fading up blurred, the menu fading in and the blur clearing | | [gameplay.md](gameplay.md#the-title-screen) |
-| `?titlecam=classic` | The title screen's backdrop is one slow ellipse over the middle of the city, and Play eases down onto the depot, instead of jump cuts between landmarks and a cut to the depot | | [gameplay.md](gameplay.md#the-title-screen) |
+| `?introvo=classic` | The backstory in text alone, with no recorded voice reading each line | | [gameplay.md](gameplay.md#the-backstory) |
+| `?intro=classic` | Play goes straight to the garage door, with no dispatch backstory first. `?intro=always` tells the story on every Play instead of once per device | | [gameplay.md](gameplay.md#the-backstory) |
+| `?titleintro=blur` | The title's city fades up out of black blurred, the menu fades in and then the blur clears, instead of a sharp city with only the menu fading in | | [gameplay.md](gameplay.md#the-title-screen) |
+| `?titleintro=classic` | The title menu and a sharp city are both on screen the moment the black lifts, with no fade at all | | [gameplay.md](gameplay.md#the-title-screen) |
+| `?titlecam=reel` | The title screen's backdrop jump cuts between landmarks (court, skatepark, L, burger joint) and Play cuts to the depot, instead of one slow slide across the city | | [gameplay.md](gameplay.md#the-title-screen) |
+| `?titlecam=classic` | The title screen's backdrop is one slow ellipse over the middle of the city, instead of a slide there and back along screen-right | | [gameplay.md](gameplay.md#the-title-screen) |
 | `?splashsound=classic` | The startup screen plays silent, as it first shipped, rather than with the landing, bounce and Loco sounds | | [gameplay.md](gameplay.md#the-startup-screen) |
 | `?ejectthrow=classic` | The thrown driver's arc graded only by distance (forward speed `0.7 × closing`, clamped 10-18) at one fixed height and spin, instead of height, spin and distance all scaling with how hard the hit was | | [traffic.md](traffic.md) |
 | `?eject=classic` | The wrecked taxi's driver appearing full size in the air above the bonnet and fading in, instead of squeezing out through the windscreen | | [traffic.md](traffic.md) |
+| `?playagain=classic` | The run-end card ending on the yellow Play again pill instead of a pulsing "Tap to continue" (tap anywhere to play again) | | [gameplay.md](gameplay.md#the-polaroid) |
+| `?musicfade=classic` | The music fading over 1.5s as the run-end card appears, instead of playing under the stats and fading over 2.5s once "Tap to continue" comes up | | [audio.md](audio.md) |
+| `?statcount=classic` | The run-end stats' old pace: each value fades in with its label and rolls in 0.34s, in yellow, instead of appearing after the label lands and counting for 0.46s in white | | [gameplay.md](gameplay.md#the-polaroid) |
+| `?runendfit=classic` | The run-end card at its old size: a bigger print and wider gaps, with no band held at the foot for "Tap to continue", which a five-row table then runs under on a phone | | [gameplay.md](gameplay.md#the-polaroid) |
 | `?gameover=classic` | The run-end card without the polaroid of the ending over its title, and with "Tap to continue" grey over the Play again slot instead of pulsing at the foot of the screen | | [gameplay.md](gameplay.md#the-polaroid) |
 | `?splashlogo=classic` | The startup screen's plain taxi drop onto the asphalt, with no ROCKET RIDES logo for it to smash through | | [gameplay.md](gameplay.md#the-startup-screen) |
 | `?splash=classic` | No startup screen: the game loads behind black and opens on the title menu, with no taxi drop first | | [gameplay.md](gameplay.md#the-startup-screen) |
@@ -93,20 +104,30 @@ doc; what the classic version was, and why it changed, is in that doc's history 
 | `?bubbles=classic` | Speech bubbles pinned over whatever they are about (cars, riders, the pedal), following it round the screen, instead of a card docked at the top with a small tag on the talker | | [gameplay.md](gameplay.md#speech-bubbles) |
 | `?bubblestyle=classic` | The docked speech card and tag in see-through black with white type instead of white with black type | | [gameplay.md](gameplay.md#speech-bubbles) |
 | `?bubblestyle=card` | The docked speech card as the white Figma card with its blue gradient | | [gameplay.md](gameplay.md#speech-bubbles) |
-| `?questmark=classic` | No yellow side-quest "!": the street racer's offer shows the speech tag's typing dots ("…"), the garage door has no "!" while the taxi smokes, and the bank rider waits under the urgency pie | | [gameplay.md](gameplay.md#speech-bubbles) |
+| `?questmark=classic` | No purple side-quest "!": the street racer's offer shows the speech tag's typing dots ("…"), the garage door has no "!" while the taxi smokes, and the bank rider waits under the urgency pie | | [gameplay.md](gameplay.md#speech-bubbles) |
 | `?tipfocus=classic` | A speech tag waiting at the screen edge takes no tap; the racer's still asks from where it is, and nothing pans the camera to the talker | | [gameplay.md](gameplay.md#speech-bubbles) |
+| `?hail=classic` | The first tutorial line as a "Tip" ("Pick up rider to start") rather than the rider hailing the cab ("Hey taxi! Over here!") | | [gameplay.md](gameplay.md#the-opening-tutorial) |
 | `?bubbles=dock` | The docked card with no tag on the talker | | [gameplay.md](gameplay.md#speech-bubbles) |
 | `?copchat=classic` | The cops' "pull over" and "lost the suspect" bubbles | #492 | [gameplay.md](gameplay.md) |
 | `?race=classic` | No street racers: the city before the race vignette, with no violet car tailing the empty taxi to challenge it | | [gameplay.md](gameplay.md#the-street-race) |
+| `?hydraulics=classic` | The street racer without hydraulics: its body sits still on its wheels through the offer, the start and the finish | | [gameplay.md](gameplay.md#the-street-race) |
+| `?raceready=classic` | The race's count starts as soon as the camera is back from the finish, with no "Ready?" to tap | | [gameplay.md](gameplay.md#the-street-race) |
+| `?racereveal=classic` | The race's finish ring and flag are already down when the camera pans to them, rather than going down as it arrives | | [gameplay.md](gameplay.md#the-street-race) |
+| `?racecount=classic` | The race's three, two, one at 40px a third of the way down the screen, rather than 80px just above the middle | | [gameplay.md](gameplay.md#the-street-race) |
+| `?racecut=classic` | The race's winner brakes to a stop at the line for a second before the cut to the loser, rather than the screen cutting to black the moment it crosses | | [gameplay.md](gameplay.md#the-street-race) |
+| `?racetank=classic` | The race tops Loco Mode up to a third of a tank at the green, rather than filling it on the "3" | | [gameplay.md](gameplay.md#the-street-race) |
 | `?robbery=classic` | The robbery with no opening cut (straight to the drive-past). Also implies `?bankfare=classic` | #475, #478 | [gameplay.md](gameplay.md) |
 | `?bankfare=classic` | The drive-past robbery instead of the bank rider fare | #499 | [gameplay.md](gameplay.md) |
 | `?robberyskip=classic` | A tap (or Space/Enter) skips the bank job's cut, as it used to | | [gameplay.md](gameplay.md#the-bank-job) |
 | `?robberycam=classic` | The bank job's cut framed the first way, averaged on the cab in the ground plane, a held Loco push-in left on, and the L's deck left solid over the shove | | [gameplay.md](gameplay.md#the-cuts-framing) |
 | `?bankpickup=classic` | The bank rider is collected anywhere within `ARRIVE_RADIUS` of the bank's junction, from any side, instead of level with the steps on the bank's own street | | [gameplay.md](gameplay.md#the-bank-robbery) |
+| `?robberclock=classic` | The getaway's clock: an urgency crystal over the roof, a robber who bails when it runs out, and a $50 bonus that shrinks with it | | [gameplay.md](gameplay.md#no-clock-on-the-getaway) |
 | `?robberyodds=classic` | The bank rider's coin stays a fair 50/50 instead of loading toward a robbery with each bank ride | #522 | [gameplay.md](gameplay.md#the-bank-job) |
 | `?uturn=classic` | The first U-turn, a spin on the spot, instead of the handbrake turn | #458 | [gameplay.md](gameplay.md) |
 | `?barrelroll=classic` | Big Air flown level, no barrel roll | #485 | [river.md](river.md) |
+| `?bigairroute=classic` | The router stops tipping equal-length routes toward going straight on off an arched bridge (room for Big Air) | | [gameplay.md](gameplay.md#routing) |
 | `?vip=classic` | VIP riders (the purple question mark, triple pay) spawn again; off by default | | [gameplay.md](gameplay.md#vip-pickups) |
+| `?bigairfuel=classic` | A Big Air landing pays no Loco back, instead of a sixth of the tank | | [gameplay.md](gameplay.md#the-combo-meter) |
 | `?crush=classic` | Big Air coming down on a car is a hit (usually the wreck) instead of Crushin' It | | [gameplay.md](gameplay.md#the-combo-meter) |
 | `?overtake=classic` | The overtake combo judges the road before pulling out: it waits until the car is close, won't pull out round a car turning left, and only swerves round a slow car in the junction it has a clean line round. The default throws the taxi into the oncoming lane the moment the combo lands, whatever is there, or up on the kerb round the right of a car signalling left | | [traffic.md](traffic.md#overtaking) |
 | `?passturn=classic` | The taxi pulls out to overtake a car already turning left across it, and grinds along its side | #520 | [traffic.md](traffic.md) |
@@ -118,8 +139,11 @@ doc; what the classic version was, and why it changed, is in that doc's history 
 | `?arrowpulse=classic` | The off-screen fare arrows hold still at the frame edge, with no slow swell and lean toward their mark | | [rendering.md](rendering.md#off-screen-fare-pointers) |
 | `?slicepulse=classic` | The rider's pie (and its off-screen arrow) does not knock when it loses a slice. Headless tools take `SLICEPULSE=classic` | | [rendering.md](rendering.md#the-fare-marker--gamefaremarkerjs) |
 | `?cardcombo=classic` | The New Move card without the combo meter and purple combo word over its clip, and without the ring on the key to press next | | [gameplay.md](gameplay.md#new-move-unlocked-the-overtake-u-turn-and-drift-cards) |
+| `?overtakekeys=classic` | The Overtake card's old key row: both A keys orange once pressed, instead of grey unless held with a ring filling round the held one | | [gameplay.md](gameplay.md#new-move-unlocked-the-overtake-u-turn-and-drift-cards) |
 | `?movecard=classic` | The New Move card's clip bare with rounded corners (not on polaroid paper), and its pedal keys drawn as the HUD buttons (not flat) and greyed until pressed | | [gameplay.md](gameplay.md#new-move-unlocked-the-overtake-u-turn-and-drift-cards) |
+| `?garageplace=classic` | The depot can land on the block straight behind the L (the column whose door faces the track), where the deck and a passing train hide the door and the drive-out | | [city.md](city.md#the-depot-block) |
 | `?garageroute=classic` | The depot is reached by a right turn off the near lane only, so a taxi on the far side of the road goes round the block (default: it can also turn left in, waiting for a gap) | | [gameplay.md](gameplay.md#repairs-at-the-depot) |
+| `?glint=classic` | No glint off the taxi's front-right fender as it rolls out of the garage (at the top of a run and after a repair) | | [gameplay.md](gameplay.md#the-opening-vignette) |
 | `?repairtip=classic` | The depot's repair tip as the New Move-style card with a clip of the visit, once ever, stopping the world (not a line in the speech card, once per run until the depot has been used) | | [gameplay.md](gameplay.md#the-depots-tip) |
 | `?sunrays=classic` | No sun rays in a squall's wake: the cell goes over and the sun simply comes back | | [rendering.md](rendering.md#a-squall--the-default-weather-gamesqualljs) |
 | `?squallramp=classic` | A squall's edge arriving all at once: shade, rain and city lights over the same few seconds, and the whole sky greying the moment a cell comes on | | [rendering.md](rendering.md#a-squall--the-default-weather-gamesqualljs) |
@@ -173,6 +197,7 @@ doc; what the classic version was, and why it changed, is in that doc's history 
 | `?hdr` | The full HDR bloom route instead of the emissive bloom, as a comparison. Not with Crayon or Cartoon |
 | `?bloom=off` | No emissive bloom |
 | `?grade=<preset>` | Draw this load through one of the colour grade's bundled LUTs (`warm`, `cool`, `teal & orange` as `teal+%26+orange`, `faded film`, `bleach bypass`, `punchy`) without remembering it. See [rendering.md](rendering.md#colour-grade--gamecolorgradejs) |
+| `?grade=classic` | The neutral frame: no colour grade at all, as the game shipped before Tyler's look became the default. See [rendering.md](rendering.md#colour-grade--gamecolorgradejs) |
 | `?gradesat=<0..2>` | The colour grade's saturation for this load (1 is unchanged), on its own or with `?grade` |
 | `?rain` | Rain Mode: overcast, wet streets, rain on the lens |
 | `?storm` / `=0.6` / `=night` | The passing storm on a loop, pinned at a point, or the darker storm |

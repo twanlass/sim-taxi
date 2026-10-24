@@ -442,6 +442,15 @@ offset stream — so adding the depot moved no park, no arterial and no building
 is the answer, and it may be **null**: a city with nowhere to put one opens without the vignette
 rather than not opening.
 
+**Never behind the L.** The block whose +X street is the L's north-south arterial is off the list
+(`behindLTrain`): its door faces the median across one carriageway, so the sightline to the camera
+meets the deck and any train on it, and the forecourt the taxi drives out over (in the vignette and
+on every repair) went 55% behind the deck. It took the depot on 23% of seeds. One block further west
+is clear. The pick spends the same single draw on both lists, so a seed that was already clear keeps
+its depot where it was; `?garageplace=classic` (`GARAGEPLACE=classic` headless) lets it land there
+again. A fade on the deck near the door was the alternative and was passed over: a chunk of track
+dissolving in the hero shot, with the train and every repair visit needing the same treatment.
+
 ### The livery
 
 The depot is the one building the player owns, and it is painted like it. **The envelope itself is
@@ -525,6 +534,14 @@ Three things about it are measured rather than chosen:
   them). A brighter spot chases round it and now and then it stutters, both written as vertex
   colour each frame, which the bloom's copy of the material reads as well. The tyres are wider
   than the tube is deep so the length of it along the sill is buried in them.
+
+**Flames out of the tailpipe, painted on.** A chrome stub pokes out of the tail (`PIPE_*`) and a
+hot-rod flame cut from board runs back off it: three licks curling up and back, red round orange
+round lemon (`signFlame*` in palette.js), the inner two as solids through the outer each
+`FLAME_PROUD` prouder. It is static and unlit and stays out of the bloom — sign paint, not fire. An
+animated backfire in the Loco plume's own tongue was tried first and read as the player's boost
+going off on the roof. It is in the sweep the pole is placed from but not in the centring, so the
+pole stays under the taxi. `?signflames=classic` has no pipe and no flame.
 
 `?depot=model` keeps the first cut of this sign: the real taxi's 3D model (`taxiSignGeometry()` in
 geometry/taxi.js), banked on the pole and turning. It read as a car parked on the roof rather than
@@ -1124,11 +1141,13 @@ fetched. `?shot=court` and `?shot=court-far` frame it.
 A **boom box** sits beside the court, playing to them (`planBoombox` in `city/blacktop.js`, drawn by
 `game/boombox.js`). Where it goes takes no draw from the props stream: it faces the court, and the
 spots round the court are ranked by how squarely that face turns to the camera — the speakers are
-the read, so the far sideline first, the far baseline next, the near ones last — then the first on
-the lawn and clear of benches, statue, pond and skatepark wins. A court pushed into a corner of its
-park can have a third of a unit of grass on three sides (3 courts in 40 seeds), so a **far
-sideline's apron** ranks ahead of the near lawn: the box is set down on the blacktop outside the
-lines. On each beat it hops, squashes as it lands, its woofers pump, and an orange quaver or beamed pair floats up over
+the read, so the far sideline first, then the **far sideline's apron** (set down on the blacktop
+outside the lines), the far baseline after that, the near ones last — then the first on the lawn
+and clear of benches, statue, pond and skatepark wins. The apron used to rank *behind* the far
+baseline, and a court with no lawn up-screen of it put the box beside a hoop's pole with the park's
+trees between it and the camera (9 boxes in 40 seeds); in practice the box now always stands at the
+far sideline, on the lawn or the apron (13 in 40 on the apron), and on the half of it further from
+the camera — the near hoop's backboard is thrown up-screen onto the other half. On each beat it hops, squashes as it lands, its woofers pump, and an orange quaver or beamed pair floats up over
 it; the notes are opaque and go out by shrinking, because a translucent one blends twice where its
 head, stem and flag overlap. Only the box is in the city's entrance wave; the notes follow its scale
 and visibility, because the wave also owns `visible` on what it is handed and once switched the
@@ -1283,6 +1302,7 @@ default city; `CITY=big npm run check` is the big one's suite.
 | `buildings.js` | towers, courtyard blocks, façades, roof furniture | One merged mesh. Height ceiling is deliberately low; tall towers hid the taxi. See [what a building is made of](#what-a-building-is-made-of). |
 | `props.js` | trees, park benches, the statue | Merged per material via `bakeColor`, so hundreds of props cost one draw call. Placement is [above](#benches-and-one-statue). |
 | `manholes.js` | four or five manhole covers | Its own mesh, wet in the rain, not brushed. [Below](#manhole-covers). |
+| `game/streetprops.js`, `geometry/streetprops.js` | two blue post boxes and a hot dog cart on the kerb | Their own meshes, since they fall over. [Below](#the-post-box-and-the-hot-dog-cart). |
 
 ### Manhole covers
 
@@ -1303,6 +1323,48 @@ the fragment shader, bending the normal; a Blinn glint added inside three's own 
 shadows. The tread fades out by `fwidth` before it can crawl. Their own mesh rather than part of the
 ground, because the ground wears the painterly road strokes and iron under a stroke reads as road;
 `rain.wetGround` still patches it, so the covers shine in a squall like the street round them.
+
+### The post box and the hot dog cart
+
+Two blue post boxes and one hot dog cart under a red-and-yellow umbrella stand on the kerb near a
+corner (`game/streetprops.js`, geometry in `geometry/streetprops.js`, `?streetprops=classic` for
+none), and an **overtake that carries the taxi up onto the pavement** takes them out: dust, the
+prop goes over, and a spray of letters or hot dogs. The letters flutter down (paper has a terminal velocity), the hot
+dogs drop and bounce once. Everything lies there for a few seconds and sinks away, and a fresh prop
+comes back up 35s later once the taxi is out of the way.
+
+**Where.** City seed (`seed + 211`). The cart works a **park's walk** and the post boxes stand on
+**built blocks** (Tyler: "place the hot dog cart around a park, and then the mailbox can be near
+anywhere"); the cart is placed first, since parks are few, and falls back to a built block in a
+city with no park spot that qualifies (none in 20 seeds swept). Only on the **+X face**, 0.5 in from
+the kerb, 4.2 units along the lane that runs +Z past it. Both halves are forced. The camera sits off
++X+Z, so a prop on a −X or −Z face has its own block's building in front of it. And on the +Z face
+the passing lane starts at the block's +X+Z corner, which is where `cornerFor` stands every rider,
+so a prop near that lane's start would stand beside the rider pins. The spot also has to clear the
+sightline field (`sightlineClear`), stay off lanes shorter than 11.5 (the ones beside an arterial),
+keep 1.6 from a rain street lamp, and keep 30 from the other props.
+
+**The hit.** Only an overtake can reach one (Tyler: "a special occurrence that if you overtake a
+car and you end up popping up on the sidewalk and hit them"). The taxi's lane centre is 2.25 off
+the kerb and the drawn body is 1.0 across from it, so ordinary driving leaves 1.25 of road between
+flank and kerb. The overtake that goes kerbward is the peek round a car signalling left, 2.61 off
+the lane centre, and a prop stands 2.75 off it, so a peek past one runs through it. The test is a
+plain overlap of the drawn taxi (2.0 by 1.0 half-extents) with the prop's footprint, asked only
+while the pass offset has the taxi more than 0.5 kerbward. Nothing steers the taxi at a prop. The
+probe slides a taxi at peek depth up each prop's lane (3/3 hit) and drives a boosting taxi past
+each without a pass (none hit). It is rare by design: it wants a left-turner ahead of you on one
+of three lanes.
+
+**The swipe (`?propsmash=classic`).** What it replaced, from #656. The taxi can't reach the kerb on its own. Its lane centre is 2.25 off the kerb and
+the drawn body is 1.0 across from it, so there's 1.25 of road between flank and kerb at every speed.
+A hit radius big enough to cross that gap would blow up a box the car visibly missed. So under Loco
+Mode, on the lane beside a prop, the taxi veers onto the kerb at it (`swipeOffset`/`swipeSlope`, a
+render-only lateral like the weave and the overtake in `sim/traffic.js`). The veer is 1.75 at full
+depth, reached 1.2 before the prop so the flank is already at the kerb when the nose arrives, and it
+is back to zero 7.9 along the lane. That's short of the 8.6 hold line on the shortest lane allowed,
+where the turn takes over. The probe drives every planned prop: 3/3 hit with the car's centre 1.28
+across from the prop's at the hit (drawn half-width 1.0 plus the prop's own), and at cruise none
+are touched.
 
 ### What a building is made of
 

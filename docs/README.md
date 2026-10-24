@@ -95,7 +95,7 @@ arterial and runs out through the west edge's high rises, with sparks, lamps and
   ([the burger run](gameplay.md#the-burger-run)). Ambient cars use the drive-through too.
 - The **bank**: sometimes a rider waits on its steps. Pick them up and half the time a masked robber
   shoves them over and takes the seat; four cop cars come onto the map and box you in on the way to
-  the getaway drop-off, and a clock bonus pays for beating them
+  the getaway drop-off, and a $150 jackpot pays for beating them
   ([the bank robbery](gameplay.md#the-bank-robbery)). Boosting into a cop is a full wreck.
 - The **graveyard**: two blocks and the street between them behind an iron fence, with a statue
   ([city.md](city.md#the-graveyard)).

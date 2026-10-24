@@ -75,6 +75,16 @@ const LEAN = (40 * Math.PI) / 180;
 // bubble never sits over the money.
 const EDGE = 10;
 const HUD_TOP = 60;
+// The tag's band, and it never flips (`placeSpeech`'s `tag`). The card's rule — no room above the
+// target, so hang it below with the pointer on its top edge — turned the tag into an upside-down
+// pin: a 24px "!" under the racer, pointing *up* at it (Tyler, 2026-10-22, the racer two blocks
+// up-screen of the taxi in a browser tab, where the canvas starts under the URL bar). A card that
+// flips is still a card; a tag that flips reads as a different symbol. So a tag stays above its
+// target and may rise into the HUD row to do it — it is a disc the size of the cash's glyphs, there
+// only while the talker is that near the top — and when even that runs out it comes down onto the
+// target with its pointer still underneath. Only on screen: a tag waiting at the top edge for an
+// off-screen talker stays clear of the HUD row, since it can wait there for as long as it likes.
+const TAG_TOP = EDGE;
 
 // How far the docked card's bottom edge stands over the top of the Loco Mode fuel arc, in CSS px
 // (Tyler: "24 units above the boost bar").
@@ -92,6 +102,9 @@ function readArcTop(vh) {
   // No pedals measured yet: about where the arc sits on a 390×844 phone.
   return arcTop ?? vh - 230;
 }
+// How fast a docked card's height closes on a new row, per second (an exponential ease): about
+// 0.2 s to cover most of a 21 px line.
+const GROW_RATE = 14;
 // Between two docked cards stacked in the slot.
 const DOCK_GAP = 8;
 // The tag: a disc this wide, with the pointer hanging off it.
@@ -224,10 +237,12 @@ function watchSafeInsets() {
  * Where the card goes and where its pointer sits, for a target point and a card size, in a
  * viewport. Pure, so it can be asserted on headlessly (tools/probe.mjs).
  *
+ * @param tag     a tag rather than a card: it may rise into the HUD row and never flips below its
+ *                target (see TAG_TOP)
  * @returns {left, top, px, py, angle, onScreen} — the card's top-left corner, the pointer's base
  *          relative to the card's top-left, and the pointer's heading in radians (0 = right)
  */
-export function placeSpeech(target, w, h, vw, vh, insets = safe) {
+export function placeSpeech(target, w, h, vw, vh, insets = safe, { tag = false } = {}) {
   const minX = insets.left + EDGE;
   const maxX = vw - insets.right - EDGE;
   const minY = insets.top + HUD_TOP;
@@ -249,10 +264,11 @@ export function placeSpeech(target, w, h, vw, vh, insets = safe) {
     // Above the target, slid sideways to stay on the glass. If there is no room above — a target
     // up under the HUD — below it instead, pointer on the top edge.
     cx = clamp(target.x, cx0, cx1);
+    const roof = tag ? insets.top + TAG_TOP : minY;
     let top = target.y - POINTER_GAP - h;
     side = 'bottom';
-    if (top < minY) { top = target.y + POINTER_GAP; side = 'top'; }
-    top = clamp(top, minY, Math.max(minY, maxY - h));
+    if (top < roof && !tag) { top = target.y + POINTER_GAP; side = 'top'; }
+    top = clamp(top, roof, Math.max(roof, maxY - h));
     cy = top + h / 2;
   } else {
     // Clamped along the ray from the band's middle to the target, the fare pointers' rule, in a
@@ -307,9 +323,11 @@ export function placeSpeech(target, w, h, vw, vh, insets = safe) {
  *                  whether it took the tap. Omit it and an edge tag is a decoration.
  * @param edgeTappable () => boolean — whether an edge tag takes a press *right now*, read per frame
  *                  (main.js passes `isNarrow`: above it nothing is ever off the frame to pan to)
+ * @param dockFloor (vh, insets) => number — where a docked card's slot sits, in place of the fuel
+ *                  arc's top: for a card with no pedals under it (the backstory, game/backstory.js)
  */
 export function createSpeech(root, { viewport = null, typing = false, onDismiss = () => {}, pinned = false,
-  onEdgeTap = null, edgeTappable = () => true } = {}) {
+  onEdgeTap = null, edgeTappable = () => true, dockFloor = null } = {}) {
   watchSafeInsets();
   const mode = speechMode();
   const docked = !pinned && mode !== 'classic';
@@ -377,6 +395,8 @@ export function createSpeech(root, { viewport = null, typing = false, onDismiss 
   let runs = [];
   let shown = 0;
   let charT = 0;
+  // Seconds a letter, `TYPE_PER_CHAR` unless the line is being spoken (`pace`).
+  let perChar = TYPE_PER_CHAR;
   let hold = 0;
   let closing = null;
   let open = false;
@@ -390,10 +410,20 @@ export function createSpeech(root, { viewport = null, typing = false, onDismiss 
   let floor = 0;
   // The docked card's box as it is this frame, while it types (`size` is the finished one).
   let live = { w: 0, h: 0 };
+  // The docked card's height as drawn: eased towards `live.h`, so a line that wraps onto a new row
+  // opens the card over a few frames instead of in one (Tyler, 2026-10-22). Written to the card as
+  // an explicit height, so `readLive` clears it to measure the natural one underneath.
+  let drawnH = 0;
+  const readLive = () => {
+    card.style.height = '';
+    live = { w: card.offsetWidth, h: card.offsetHeight };
+    if (drawnH > 0) card.style.height = `${drawnH}px`;
+  };
   const measure = () => {
     size = { w: card.offsetWidth, h: card.offsetHeight };
     slot.h = size.h;
-    if (docked) floor = readArcTop(viewport ? viewport.height() : window.innerHeight);
+    const vh = viewport ? viewport.height() : window.innerHeight;
+    if (docked) floor = dockFloor ? dockFloor(vh, safe) : readArcTop(vh);
   };
   window.addEventListener('resize', () => { if (open && !(docked && isTyping())) measure(); });
 
@@ -436,7 +466,7 @@ export function createSpeech(root, { viewport = null, typing = false, onDismiss 
 
   function placeTag(at, w, h) {
     if (!tagPin || !at) return;
-    const p = placeSpeech(at, TAG, TAG, w, h);
+    const p = placeSpeech(at, TAG, TAG, w, h, safe, { tag: true });
     atEdge = !p.onScreen;
     const taps = edgeTaps && atEdge && edgeTappable();
     if (taps !== edgeLive) {
@@ -461,7 +491,7 @@ export function createSpeech(root, { viewport = null, typing = false, onDismiss 
       }
       // The finished card's left edge and the card's height as it stands, so the box grows to the
       // right from where the line starts and ends centred, its bottom edge never moving.
-      const p = placeDocked(size.w, live.h, w, floor, safe, offset);
+      const p = placeDocked(size.w, drawnH || live.h, w, floor, safe, offset);
       el.style.transform = `translate(${p.left.toFixed(1)}px, ${p.top.toFixed(1)}px)`;
       placeTag(target(), w, h);
       return;
@@ -528,16 +558,21 @@ export function createSpeech(root, { viewport = null, typing = false, onDismiss 
       // only when it is answered, as before.
       charT = 0;
       hold = 0;
+      perChar = TYPE_PER_CHAR;
       open = true;
       root.hidden = false;
       root.classList.remove('is-closing', 'is-open');
       // Measured with the whole line in: a docked card types without its untyped rest laid out, so
       // the box grows letter by letter, and where it *finishes* is what fixes its left edge.
+      card.style.height = '';
+      drawnH = 0;
       finishTyping();
       measure();
       if ((typing || docked) && !prefersReducedMotion()) typeTo(0);
       live = { w: card.offsetWidth, h: card.offsetHeight };
       if (docked) {
+        drawnH = live.h;
+        card.style.height = `${drawnH}px`;
         slot.h = size.h;
         if (!dockStack.includes(slot)) dockStack.push(slot);
       }
@@ -572,24 +607,48 @@ export function createSpeech(root, { viewport = null, typing = false, onDismiss 
      */
     tap() {
       if (!typing || !open) return false;
-      if (isTyping()) { finishTyping(); return true; }
+      if (isTyping()) {
+        finishTyping();
+        // The docked slot is placed off the live height, so a line finished early by a tap has to
+        // re-read it — or a line that wraps onto a new row in its last letters hangs off the floor.
+        if (docked) readLive();
+        return true;
+      }
       onDismiss();
       return true;
+    },
+    /**
+     * Type the rest of the line over `seconds`, the length of a voice reading it out (the backstory's
+     * dispatch, game/backstory.js), so the words arrive with the voice rather than racing it home at
+     * ~38 a second. Never faster than the usual pace. The pause after punctuation is kept, since the
+     * voice takes a breath there too.
+     */
+    pace(seconds) {
+      const rest = text.slice(shown);
+      if (!rest.length) return;
+      const breaths = [...rest].filter((c) => PAUSE_AFTER.has(c)).length;
+      perChar = Math.max(TYPE_PER_CHAR, (seconds - breaths * TYPE_PAUSE) / rest.length);
     },
     /** Advance the typewriter and re-pin to the target. Call every frame the bubble might be up. */
     update(dt) {
       if (root.hidden) return;
+      if (docked && open && drawnH !== live.h) {
+        const k = prefersReducedMotion() ? 1 : 1 - Math.exp(-dt * GROW_RATE);
+        drawnH += (live.h - drawnH) * k;
+        if (Math.abs(live.h - drawnH) < 0.5) drawnH = live.h;
+        card.style.height = `${drawnH}px`;
+      }
       place();
       if (!open || !isTyping()) return;
       if (hold > 0) { hold -= dt; return; }
       charT += dt;
-      while (charT >= TYPE_PER_CHAR && isTyping()) {
-        charT -= TYPE_PER_CHAR;
+      while (charT >= perChar && isTyping()) {
+        charT -= perChar;
         shown += 1;
         if (PAUSE_AFTER.has(text[shown - 1])) { hold = TYPE_PAUSE; break; }
       }
       typeTo(shown);
-      if (docked) live = { w: card.offsetWidth, h: card.offsetHeight };
+      if (docked) readLive();
     },
   };
 }

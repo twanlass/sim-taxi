@@ -97,12 +97,16 @@ const POOL_LIFT = 0.32;
  * lands its half-brightness at 0.85 SPOT_R — where the old one's was (0.86) — so the light
  * covers the same street and only its edge has changed. The shade ring starts outside that and
  * fades over twice the distance. `?helispot=classic` keeps the first light.
+ *
+ * The daylight values were then cut by a further 20% (beam 0.45, pool 0.62, shade 0.28 before) when
+ * the pool still read too bright on a sunny street. Night is untouched: `dark` is driven off the
+ * sun's intensity, so only full sun gets the whole cut and overcast or rain gets part of it.
  */
 const LOOKS = {
   soft: {
-    beam: { day: 0.45, night: 0.24 },
-    pool: { day: 0.62, night: 0.55 },
-    shade: { day: 0.28, night: 0.08 },
+    beam: { day: 0.36, night: 0.24 },
+    pool: { day: 0.5, night: 0.55 },
+    shade: { day: 0.22, night: 0.08 },
     spread: 1.3,
     shadeScale: 2.4,
   },

@@ -21,10 +21,51 @@
  */
 
 import { HALF_SPAN_X, HALF_SPAN_Z } from '../city/grid.js';
+import { RIGHT } from './camera.js';
 import { createClaudeMark } from './creditegg.js';
 import { el, menuPage, settingsRows } from './menupage.js';
 
-/** Seconds per lap of the drift. Slow on purpose: ~1 world unit a second is a stroll, not a tour. */
+const params = new URLSearchParams(globalThis.location?.search ?? '');
+
+/**
+ * The backdrop (Tyler, 2026-10-22): one slow slide along screen-right across the middle of the
+ * city, there and back. `?titlecam=reel` is the landmark reel it replaced (game/titlereel.js, read
+ * by main.js), `?titlecam=classic` the ellipse before that (`panClassicAt`).
+ *
+ * Along screen-right because that is the one direction the whole frame moves through at once — the
+ * picture travels sideways under the menu rather than up into it — and because it is the direction
+ * the intro story's shot past the garage slides in too, so the two read as the same camera.
+ * Through the origin it crosses the river once on the way, bridges and boats included.
+ */
+export const TITLE_CAM = params.get('titlecam') === 'reel' ? 'reel'
+  : params.get('titlecam') === 'classic' ? 'classic' : 'slide';
+/** Seconds for the slide there and back. */
+export const SLIDE_PERIOD = 160;
+/**
+ * How far either side of the middle the slide reaches, in world units along screen-right. 32 puts
+ * the far ends at ±22.6 on each axis, under half of either half-span (52.5 × 64.5), so the frame
+ * stays over buildings rather than running out into the fog. Peak speed is 2π · 32 / 160 = 1.26
+ * units a second, under a centimetre of screen a second on a phone.
+ */
+export const SLIDE_REACH = 32;
+/**
+ * Where on the cosine the slide starts: 0.7 of the reach left of the middle, already moving at
+ * 0.71 of its peak. Not at an end, where a cosine is at rest — the menu would fade in over a
+ * still frame and the pan would read as starting late.
+ */
+const SLIDE_PHASE = Math.acos(0.7);
+
+/**
+ * Where the slide is at `t` seconds. A cosine, so the turn at each end is a long ease rather than a
+ * stop: at 160 s a lap, the slowest stretch either side of a turn lasts the better part of a minute
+ * and no one sitting on the menu sees it reverse.
+ */
+export function panAt(t) {
+  const along = -SLIDE_REACH * Math.cos(SLIDE_PHASE + (t / SLIDE_PERIOD) * Math.PI * 2);
+  return { x: RIGHT.x * along, z: RIGHT.z * along, zoom: PAN_ZOOM };
+}
+
+/** Seconds per lap of the classic ellipse. Slow on purpose: ~1 world unit a second is a stroll, not a tour. */
 export const PAN_PERIOD = 120;
 /**
  * How tight the backdrop is framed — the frustum's half-height, against PLAY_ZOOM's 52. Close
@@ -37,11 +78,11 @@ const PAN_RX = 0.3;
 const PAN_RZ = 0.3;
 
 /**
- * Where the drift is at `t` seconds: a slow ellipse round the middle of the city. An ellipse rather
- * than a back-and-forth so the motion never stops and turns, which reads as a camera *move*, and
- * the ratio of the radii follows the map's own (it is a block row taller than it is wide).
+ * `?titlecam=classic`: a slow ellipse round the middle of the city. An ellipse rather than a
+ * back-and-forth so the motion never stops and turns, and the ratio of the radii follows the map's
+ * own (it is a block row taller than it is wide).
  */
-export function panAt(t) {
+export function panClassicAt(t) {
   const a = (t / PAN_PERIOD) * Math.PI * 2;
   return { x: Math.cos(a) * HALF_SPAN_X * PAN_RX, z: Math.sin(a) * HALF_SPAN_Z * PAN_RZ, zoom: PAN_ZOOM };
 }
@@ -53,12 +94,20 @@ export const CREDITS = [
   ['Programming', 'Claude', 'claude'],
 ];
 
+/** The build the title menu's foot names — bump it here, it is read nowhere else. */
+export const BUILD_VERSION = '0.08';
+export const COPYRIGHT = `© 2026 48 Made, LLC. Alpha build v${BUILD_VERSION}`;
+
 const stillPlease = () => window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
 
 /**
- * The way in, in three beats (Tyler, 2026-10-21): the city fades up out of black a little out of
- * focus, the menu fades in over it, then the city sharpens. `?titleintro=classic` is the screen as
- * it was, menu and city both there the moment the black lifts.
+ * The way in (Tyler, 2026-10-22): the city is there, sharp, the moment the black lifts, and the
+ * menu fades in over it. `?titleintro=blur` is the three-beat version it replaced — the city fading
+ * up out of black a little out of focus, the menu fading in, then the city sharpening — and
+ * `?titleintro=classic` the screen before either, menu and city both there at once.
+ *
+ * Everything below about the blur and the veil is the `blur` version's; the default sets neither,
+ * and is only the menu's fade on the same timeline.
  *
  * **The blur is a CSS filter on the city's canvas, and only for the intro.** It is the cheapest
  * blur there is to get: no extra render pass and no second copy of the frame, just the compositor
@@ -87,8 +136,12 @@ export const INTRO = {
   focus: 2.4,
 };
 
-function playIntro(cold) {
+export const TITLE_INTRO = ['blur', 'classic'].includes(params.get('titleintro'))
+  ? params.get('titleintro') : 'fade';
+
+function playIntro(cold, blur) {
   const html = document.documentElement;
+  cold = cold && blur;
   const lead = cold ? INTRO.veil : 0;
   html.style.setProperty('--intro-menu-at', `${lead + INTRO.menuAt}s`);
   html.style.setProperty('--intro-focus-at', `${lead + INTRO.focusAt}s`);
@@ -96,20 +149,21 @@ function playIntro(cold) {
   html.style.setProperty('--intro-menu', `${INTRO.menu}s`);
   html.style.setProperty('--intro-focus', `${INTRO.focus}s`);
   html.classList.add('title-intro');
+  if (blur) html.classList.add('title-blur');
   if (cold) html.classList.add('title-cold');
   let timer = 0;
   let observer = null;
   const end = () => {
     clearTimeout(timer);
     observer?.disconnect();
-    html.classList.remove('title-intro', 'title-intro-go', 'title-cold');
+    html.classList.remove('title-intro', 'title-intro-go', 'title-blur', 'title-cold');
   };
   const go = () => {
     observer?.disconnect();
     // A frame on the blurred, menu-less state first, so the transitions have a start to run from.
     requestAnimationFrame(() => {
       html.classList.add('title-intro-go');
-      const length = lead + Math.max(INTRO.menuAt + INTRO.menu, INTRO.focusAt + INTRO.focus);
+      const length = lead + Math.max(INTRO.menuAt + INTRO.menu, blur ? INTRO.focusAt + INTRO.focus : 0);
       timer = setTimeout(end, length * 1000 + 50);
     });
   };
@@ -127,8 +181,11 @@ function playIntro(cold) {
  * @param {ReturnType<import('./settings.js').createSettings>} opts.settings
  * @param {ReturnType<import('./progress.js').createDemo>} [opts.demo]  Demo mode, for its Settings row.
  * @param {() => void} opts.onPlay  Fired once, on the press that starts the run.
+ * @param {(done: () => void) => boolean} [opts.beforePlay]  Asked on the press: answer true to take
+ *   the screen over first (the menu goes, the gate stays shut) and call `done` to let the run go —
+ *   the backstory's hook (game/backstory.js).
  */
-export function createTitleScreen(root, { sound, settings, demo = null, onPlay }) {
+export function createTitleScreen(root, { sound, settings, demo = null, onPlay, beforePlay = null }) {
   if (!root) return null;
 
   let holding = true;
@@ -148,23 +205,14 @@ export function createTitleScreen(root, { sound, settings, demo = null, onPlay }
   const settingsButton = el('button', 'title-item', 'Settings');
   const creditsButton = el('button', 'title-item', 'Credits');
   for (const b of [playButton, settingsButton, creditsButton]) b.type = 'button';
-  menu.append(playButton, settingsButton, creditsButton);
+  // The small print sits inside the menu so it fades in with it and goes when a page opens.
+  menu.append(playButton, settingsButton, creditsButton, el('p', 'title-legal', COPYRIGHT));
 
   // --- Settings ---------------------------------------------------------------------------------
   const settingsPage = menuPage('settings', 'Settings', () => show('menu'));
-  const settingsBody = settingsRows(settingsPage.body, { sound, settings, demo });
-  // Five quick taps on the Settings heading reveal the Demo mode row — the way in on the App Store
-  // build, which has no URL bar for `?demo` (game/progress.js).
-  if (demo) {
-    let taps = 0;
-    let last = 0;
-    settingsPage.section.querySelector('.title-header').addEventListener('click', () => {
-      const now = performance.now();
-      taps = now - last < 600 ? taps + 1 : 1;
-      last = now;
-      if (taps >= 5) { taps = 0; settingsBody.revealDemo(); }
-    });
-  }
+  // Five quick taps on the heading reveal the Demo mode row — the way in on the App Store build,
+  // which has no URL bar for `?demo` (game/progress.js, menupage.js).
+  const settingsBody = settingsRows(settingsPage.body, { sound, settings, demo, header: settingsPage.header });
 
   // --- Credits ----------------------------------------------------------------------------------
   const creditsPage = menuPage('credits', 'Credits', () => show('menu'));
@@ -216,10 +264,30 @@ export function createTitleScreen(root, { sound, settings, demo = null, onPlay }
   settingsButton.addEventListener('click', () => { show('settings'); });
   creditsButton.addEventListener('click', () => { show('credits'); });
 
+  // Between Play and the run while something `beforePlay` put up is being answered.
+  let telling = false;
   function play() {
-    if (!holding) return;
-    holding = false;
+    if (!holding || telling) return;
     endIntro?.();
+    if (beforePlay?.(go)) {
+      telling = true;
+      // The menu fades off rather than blinking out, now the camera flies under it instead of
+      // cutting under a wipe (main.js `beforePlay`).
+      if (stillPlease()) show('story');
+      else {
+        menu.style.pointerEvents = 'none';
+        const out = menu.animate([{ opacity: 1 }, { opacity: 0 }],
+          { duration: 260, easing: 'ease-in', fill: 'forwards' });
+        out.onfinish = () => { show('story'); out.cancel(); menu.style.pointerEvents = ''; };
+      }
+      return;
+    }
+    go();
+  }
+  function go() {
+    if (!holding) return;
+    telling = false;
+    holding = false;
     document.body.classList.remove('title-up');
     root.style.pointerEvents = 'none';
     onPlay?.();
@@ -232,7 +300,7 @@ export function createTitleScreen(root, { sound, settings, demo = null, onPlay }
   // Escape walks back out of a page. Registered on window, ahead of nothing: the pause key also
   // answers Escape, and it is told to stand down while this screen holds (`canPause` in main.js).
   window.addEventListener('keydown', (event) => {
-    if (!holding || event.key !== 'Escape' || view === 'menu') return;
+    if (!holding || event.key !== 'Escape' || view === 'menu' || telling) return;
     event.preventDefault();
     show('menu');
   });
@@ -240,8 +308,8 @@ export function createTitleScreen(root, { sound, settings, demo = null, onPlay }
   document.body.classList.add('title-up');
   root.hidden = false;
   show('menu');
-  const endIntro = !stillPlease() && new URLSearchParams(window.location.search).get('titleintro') !== 'classic'
-    ? playIntro(!document.getElementById('splash')) : null;
+  const endIntro = !stillPlease() && TITLE_INTRO !== 'classic'
+    ? playIntro(!document.getElementById('splash'), TITLE_INTRO === 'blur') : null;
 
   return {
     holding: () => holding,
@@ -252,7 +320,7 @@ export function createTitleScreen(root, { sound, settings, demo = null, onPlay }
     /** Advance the drift's clock and say where the camera wants to be. */
     pan(dt) {
       clock += dt;
-      return panAt(clock);
+      return TITLE_CAM === 'classic' ? panClassicAt(clock) : panAt(clock);
     },
   };
 }

@@ -33,7 +33,28 @@ Grotesk instead, the same day.
 
 ## The title screen
 
-[Now](gameplay.md#the-title-screen): the menu over jump cuts between the city's landmarks.
+[Now](gameplay.md#the-title-screen): a sharp city with the menu fading in, over one slow slide.
+
+**2026-10-22: back to one shot.** Tyler asked for the old title screen back without the blur fade:
+just the menu fading in, and a single slow pan instead of the landmark tour. The pan is a slide
+along screen-right rather than the old ellipse. What it replaced, still behind `?titlecam=reel` and
+`?titleintro=blur`:
+
+> The camera cut round the landmarks (`src/game/titlereel.js`): the basketball court with its
+> players shooting around, the skatepark, the burger joint, and the L whenever a train happened to
+> be running on the island — followed down the line, cut away from before it reached the coast.
+> Each shot was `SHOT` = 5 s at `REEL_ZOOM` = 45.8 on a wide screen and `PHONE_ZOOM` = 30 on a
+> phone, with a slow drift along screen-right and a small push-in, framed clear of the menu's
+> column. Shots crossfaded over `XFADE` = 1.4 s as a still of the outgoing shot dissolving off the
+> live incoming one (one `drawImage` per cut, where a live blend would draw the city twice a frame).
+> The train was an event slotted in at the next cut whenever it had 3 s of island left. Play cut to
+> the depot door under the wipe rather than easing there.
+>
+> The way in came in three beats: the city faded up out of black slightly out of focus, the menu
+> faded in 0.25 s later (0.6 s), then the city sharpened from 0.75 s over 2.4 s — a CSS
+> `blur(6px)` on the canvas, scaled up 5% so the blur's edge fell off-screen, and taken off the
+> element entirely afterwards since a compositor blur costs a full-canvas pass every frame it is
+> set. With no startup screen the title brought a 0.6 s black veil of its own.
 
 Until 2026-10-17 the backdrop was one continuous shot: the camera drifting a slow ellipse round the
 middle of the city (`panAt` in game/titlescreen.js — a lap every two minutes at zoom 34, radii 0.3
@@ -179,6 +200,13 @@ for free rather than hunting the board for their car.
 teach, and the bubble would be the loudest thing in every frame.
 
 ## New Move Unlocked: the overtake, U-turn and drift cards
+
+**The overtake's plain key row** (until 2026-10-22, `?overtakekeys=classic`): Loco, "+", Loco again,
+the first key lit from the start and the second from the blip, both orange to the end of the loop.
+Tyler: a held key did not look held, and the key not being pressed still looked active. Replaced by
+grey-unless-held keys with a filling hold ring. A one-key version with a hold/gap/hold bar under it
+was tried first and dropped: Tyler found the two keys clear. The clip's street picker also
+took the ring road until then, which put the clip inside the edge fog.
 
 How the U-turn clip's motion was made before it was recorded from the sim. Now: [New Move Unlocked: the overtake, U-turn and drift cards](gameplay.md#new-move-unlocked-the-overtake-u-turn-and-drift-cards).
 
@@ -688,6 +716,40 @@ different claim from the one this section was written to defend: nothing about t
 imposed* can end the run, and a player who drives the getaway has chosen to finish it. The drop-off
 fills the tank to pay for the chase, so the choice is "boost clear", not "hope".
 
+### The getaway's clock
+
+Until 2026-10-23 (`?robberclock=classic`) the robber carried an ordinary urgency crystal over the
+roof, and could bail when it ran out. Now: [No clock on the getaway](gameplay.md#no-clock-on-the-getaway).
+
+A loose clock, on purpose: the getaway is the longest drive in the game and the point of it is the
+police, so the clock is there to pay the bonus rather than to threaten the trip.
+
+**The queue behind it is empty.** Every ordinary rider's clock is budgeted over the whole chain the
+taxi must clear before reaching them — the rider aboard, then everyone on the kerb in urgency order
+([the clock is budgeted](gameplay.md#the-clock-is-budgeted)). A robber's is budgeted over its own trip and
+nothing else, because a robbery cannot start with somebody in the seat. That is the same exemption a
+VIP gets and for the same reason, and on its own it would buy a robber a *longer* clock than an
+ordinary rider on the same trip.
+
+**And the pace factor is turned up on top of that.** `ROBBER_PACE_FACTOR` is 1.3, floored at 1.6,
+so a getaway always has at least 60% more clock than driving — measured on the probe's staged event,
+118s against 60.8s of driving, where an ordinary rider on the same trip would get 91s.
+
+**And the payout is the one price in this game not settled at spawn.** Every other fare is stamped
+when its trip is decided, because a meter that ticked while driving "would punish traffic and reward
+Loco Mode for the wrong reasons" ([Priced by the trip](gameplay.md#priced-by-the-trip)). For a getaway,
+rewarding Loco Mode is exactly the ask. So a flat `ROBBER_PAYOUT` = $100 is stamped like everybody
+else's price, and a bonus of up to `ROBBER_BONUS` = $50 is paid on the *fraction of clock left at the
+drop-off* — read once, on the frame the arrival resolves. $150 for a clean getaway, $100 on the last
+second. The event always pays, and how much is the whole of what the player is driving for.
+
+Flat, it is a jackpot worth five or six ordinary fares, and the same number every time.
+
+The bonus is folded into the fare's own `value` before anything reads it, so the pop that flies off
+the taxi, the counter it rolls into and the run-end card's "Cash" all say the same number. A second,
+smaller flight arriving from nowhere is exactly the side effect the two-phase payout exists to
+prevent.
+
 ### The robber's line
 
 Now: [The robber's line](gameplay.md#the-robbers-line).
@@ -779,7 +841,7 @@ robber's line now says *who* got in; this says what it means — the police are 
 
 ### The clock, and the bonus that reads it
 
-Now: [The clock, and the bonus that reads it](gameplay.md#the-clock-and-the-bonus-that-reads-it).
+Now: [No clock on the getaway](gameplay.md#no-clock-on-the-getaway).
 
 It used to be the tightest clock in the game: 0.62 floored at 1.05, which is `work × 1.05` from the
 very first robbery since the old slack curve started at 1.7. That left no seconds to spend on a roadblock,
@@ -1199,6 +1261,13 @@ fares a run carried and how far up the ramp it got both mostly restate how long 
 rows of near-synonyms buried Cash, the one number the table ranks by. Cash comes first for that
 reason.
 
+The values used to be the labels' yellow, and each faded in 60ms after its label and rolled in
+0.34s. On a phone the label and the figure arrived as one thing and the count was over before the
+eye reached it, so the stagger didn't read as counting (Tyler, 2026-10-23). `?statcount=classic`.
+
+Every value used to count up from zero; Max combo and Time type out now. The card used to end on a
+yellow **Play again** pill rather than "Tap to continue" (`?playagain=classic`).
+
 The review used to hold for 420ms and swap itself, so a run summary was something you could miss
 by glancing away.
 
@@ -1232,6 +1301,13 @@ Reported from play (Tyler, 2026-10-14): "hitting a cop is insta fail. That sucks
 vignette where you wanna smash through roadblocks." The getaway fills the tank and throws roadblocks
 across your route; the third rule made the second the one thing it asked of you that ended the run.
 Replaced by [getting caught](gameplay.md#getting-caught).
+
+## The street race's reveal and count, before they were staged
+
+The finish ring and flag used to go down the moment the cars lined up, so the camera panned to a
+marker that was already standing; they now go down as the camera arrives. The count stood a third
+of the way down the screen at 40px; it is now 80px just above the middle (gameplay.md). The tank was
+topped up to a third at the green; it is now filled.
 
 ## The street race's finish, head-on
 
@@ -1277,6 +1353,12 @@ moment the first one was home, and the camera followed the loser to the line for
 `FINALE_MAX` (6s) before the money moved, so a loser still on its way out to the flag was never
 seen arriving. Tyler asked for it as a scene instead: winner pulls up, cut to the loser a block
 out, skid in beside the winner, then the word, then the money.
+
+## The winner pulling up before the cut (until October 2026, `?racecut=classic`)
+
+The winner used to cross the line and brake to a stop there for `WINNER_HOLD` (1s; the taxi on the
+race's brake, `brakesTaxi`) before the wipe. Tyler asked for the cut the moment the winner is home:
+the second of braking read as the race carrying on after it was already won.
 
 ## The street race on the clock
 
@@ -1324,3 +1406,10 @@ Loco Mode was usable, and a CSS filter on an element inside an SVG is the thing 
 dependable about, so on a phone the bar may never have muted at all. Tyler asked for it grayscale;
 it is now a separate grey gradient, with a flash back to colour on the frame the pedal wakes.
 `?locogrey=classic` keeps the old look.
+
+## One glint on the way out of the garage (October 2026)
+
+The fender glint first shipped (#655) as a single star on the front-right fender corner, 0.7s long.
+Tyler asked for it amped up the next day ("show 3 sparkles one after another in slightly different
+spots and sizes"), and it became the run of three in `game/glint.js`. No classic toggle for the
+single star: it is a tuning of the same effect, and `?glint=classic` still turns the whole thing off.

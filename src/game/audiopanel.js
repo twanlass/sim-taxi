@@ -30,6 +30,7 @@ const TRIGGER_TIPS = {
   birdsUp: 'Scatter the flock nearest the taxi. The landing sound follows when it settles.',
   birdsDown: 'Scatter the flock nearest the taxi; this plays when it settles again.',
   bridge: 'Raise the drawbridge now. Its cycle is about 26s.',
+  ltrain: 'Send an L train off now. Heard from its middle as it runs, so watch the line.',
   angry: 'A rider on the same kerb corner every time storms off swearing, bubble and all. The camera goes to look.',
 };
 

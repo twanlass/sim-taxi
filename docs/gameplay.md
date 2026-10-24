@@ -6,7 +6,9 @@
 iOS launch screen, the web view and the page (`html.booting`) are all `PALETTE.splashVoid` — and
 stays black while the game loads. Then **ROCKET RIDES** pops up out of the black a letter at a time
 in big white extruded letters set in the game's own Space Grotesk Bold (`game/splashlogo.js`), seen from a low side-on camera (15° up)
-and turned a little so the grey sides of the extrusion show. Once the word has stood for half a
+and turned a little so the grey sides of the extrusion show. The word sits dead centre in the frame and the road three quarters of
+the way down (`splashAim`, `logoBase`): the camera aims half a frustum above the road and the word stands as high as it takes, so
+it stands 4 units up on a phone and 1.7 on a desktop. Once the word has stood for half a
 second the taxi falls out of the sky straight down through it: the scene drops into slow motion for
 a tenth of a second on the frame the car hits the top line (sparks, a crash), the letters it struck
 are driven down and out, and the **Big Air landing** on the asphalt that has faded up beneath (the
@@ -51,7 +53,8 @@ afterwards would sample the city's SSAO buffer at whatever pixel it stood on. Bu
 first, it is the plain car.
 
 **Where it plays.** Every cold start. Not wherever the title screen would not be either — shot mode,
-`?dev`, `?title=off`, the reload "Play again" does — and not on **`?splash=classic`**, which is the
+`?dev`, `?title=off`, the reload "Play again" does — nor on the reload the pause menu's Quit does,
+which lands on the title without the logo (a one-shot `simTaxi.skipSplash` in sessionStorage) — and not on **`?splash=classic`**, which is the
 old load: straight into the game, though the page is still black rather than sky until the city has
 drawn. The drop itself is walked in `tools/probe.mjs`: the body never dips into the road, and the
 car starts above the frame and is gone, plume included, at `exitTime` at a phone, a square and a
@@ -63,44 +66,28 @@ game's own 33° three-quarter view, with the car leaving off the top right.
 `src/game/titlescreen.js`, in `#title-screen`. A load opens on **Play, Settings, Credits**, left
 aligned over the live city. The menu is the only thing on screen: no HUD, no ⏸, no riders.
 
-**It comes in in three beats** (`playIntro`): the city fades up out of black slightly out of focus,
-the menu fades in over it 0.25 s later (0.6 s), and then the city sharpens (from 0.75 s, over
-2.4 s). The startup screen's own fade is the first beat, since the city waits behind it already
-blurred; with no startup screen the title brings a 0.6 s black veil of its own. The blur is a CSS
-`blur(6px)` on the city's canvas, scaled up 5% so the blur's edge falls off-screen, and it is taken
-off the element entirely once the intro is over: a compositor blur costs a pass over the whole
-canvas on every frame it is set, so it is only ever set for those three seconds. Play mid-intro ends
-it at once. Reduced motion skips it. `?titleintro=classic` is the screen as it was, menu and sharp
-city both there when the black lifts.
+**The menu fades in over a city that is already there** (`playIntro`): sharp from the moment the
+black lifts, the menu coming up 0.25 s later over 0.6 s. Play mid-fade ends it at once; reduced
+motion skips it. `?titleintro=blur` is the three-beat version it replaced (city fading up blurred,
+then sharpening) and `?titleintro=classic` no fade at all — see
+[history](gameplay-history.md#the-title-screen).
 
-**Behind it the camera cuts round the landmarks** (`src/game/titlereel.js`): the basketball court
-with its players shooting around, the skatepark, the burger joint, and the L whenever a train
-happens to be running on the island — followed down the line, and cut away from before it reaches
-the coast. Each shot is `SHOT` = 5 s at `REEL_ZOOM` = 45.8 (halfway between play's 52 and the Loco
-Mode push-in's 39.5) on a wide screen and `PHONE_ZOOM` = 30 on a phone, with a slow drift along
-screen-right and a small push-in. It is framed clear of the menu's column: a third of the
-half-width right of centre on a wide screen, and on a phone just above or below the menu (34% or
-66% down), whichever keeps the camera nearer the middle of the map, so a landmark by the coast does
-not fill the frame with fog.
-
-**Shots crossfade over `XFADE` = 1.4 s.** It is a still of the outgoing shot dissolving off the
-live incoming one, not two live shots blended: the frame a shot ends on is copied onto a 2D canvas
-under the menu straight after it is drawn, the camera cuts under that full cover on the next frame,
-and the cover fades out. One `drawImage` per cut, where a live blend would draw the city twice a
-frame for the length of the fade. The cover never takes a tap. The landmarks rotate; the train is
-an event, slotted in at the next cut whenever it has at least 3 s of island left and was not the
-shot just played. A city missing a landmark plays the rest. Reduced motion gets hard cuts and no
-drift. **Play** cuts to the depot door under the wipe (game/wipe.js) rather than easing there, and
-the opening vignette plays from the door. `?titlecam=classic` is the reel's predecessor: one slow
-ellipse over the middle of the city (`panAt`: a lap every two minutes at zoom 34), eased down onto
-the depot on Play.
+**Behind it the camera makes one slow slide** (`panAt`): along screen-right through the middle of
+the city, crossing the river once, `SLIDE_REACH` = 32 units either side of the origin at `PAN_ZOOM`
+= 34, there and back every `SLIDE_PERIOD` = 160 s on a cosine, so it never visibly stops and turns.
+It starts already moving, 0.7 of the reach left of centre. Screen-right because the whole frame
+travels sideways under the menu rather than into it, and because the intro story's shot past the
+garage slides the same way. **Play** eases down from wherever it is onto the depot door, one
+continuous shot. `?titlecam=reel` is the landmark reel it replaced (`src/game/titlereel.js`, see
+[history](gameplay-history.md#the-title-screen)); `?titlecam=classic` the ellipse
+before that.
 
 **It parks the run the way the Home Screen tip does.** `parked()` in `main.js` is the one gate both
 answer to: the fare board is not seeded, the tutorial and the vignette are held, Space and B do
 nothing, the ⏸ refuses, and the city's entrance wave is *settled* rather than played — the menu sits
 over a finished city with its traffic running, which is the whole point of the backdrop. **Play**
 lets go of all of it at once, so what follows is exactly the run that used to start on load: down
-to the garage door, the door up, the taxi out, the tips. The drift sits at the top of the camera's
+to the garage door, the door up, the taxi out, the tips. The slide sits at the top of the camera's
 priority list while the title holds, and the vignette's approach eases from wherever it left off.
 
 **The menu has no music.** Its taps and the city's effects play, but the radio stays off until
@@ -108,7 +95,8 @@ Play opens it on the announcer, so the music is part of what starting a run give
 ([audio.md](audio.md#the-radio); `?titlemusic=classic` plays songs under the menu).
 
 **Settings** and **Credits** dim the city behind a mask; the menu only shades the left edge its
-words stand on. Settings holds four things, all remembered across visits:
+words stand on, with the copyright and build number in small type along its foot
+(`COPYRIGHT` and `BUILD_VERSION` in titlescreen.js — bump the version there). Settings holds four things, all remembered across visits:
 
 | Setting | Where it lives |
 |---|---|
@@ -127,13 +115,71 @@ the menu again, so `onRetry` sets a one-shot `sessionStorage` flag the next boot
 page but its own title check that way. **`?dev`** skips both, and turns on debug mode (the ⚙️
 panel) with them: the one flag for playtesting. Shot mode never builds it.
 
+## The backstory
+
+`src/game/backstory.js`. The first time a device presses **Play**, the menu goes and dispatch
+radios in before the cut to the garage door: four lines on the docked speech card, its bottom edge
+76% of the way down the screen (`STORY_CARD_BOTTOM`) over the title's backdrop, typed out and tapped
+through.
+
+> Dispatch to Car 9. You there?
+> City council signed that **robo-taxi** deal. They'll be on the streets by Monday.
+> Those rolling toasters brake for pigeons. I have no idea why people like 'em.
+> Let's get out there and show people what a rocket-powered cab ride is all about.
+
+**Dispatch talks.** Each line is read out as its card comes up: Tyler's own recordings
+(`dispatch1`–`dispatch4` in `game/sfx.js`, the Dispatch group in the ⚙️ panel, levelled to about
+−19 LUFS). The card types at the voice's pace rather than its usual ~38 letters a second, finishing
+0.3 s ahead of it (`pace` in `speech.js`, `VOICE_TAIL`), and the nudge waits until the voice has
+finished. A tap moves on mid-sentence and cuts the voice with it. Muted, or with a clip not decoded
+yet (on the web, Play can be the first tap, which is what starts the decoding; the four clips are
+in the first wave and the line keeps asking for its clip for 0.6 s), the line types at the usual
+pace in silence. `?introvo=classic` keeps the story to text.
+
+Once the last line has finished typing, **rocket-powered** punches: it stretches up to 1.4× tall
+(only 1.03× wide) and shakes three times, settling over 0.7 s, in the line's own black type
+(`PUNCH` in `backstory.js`; not under reduced motion). It grows up rather than across because a
+transform does not push the neighbouring words aside: an even 1.35× from its left edge ran
+"rocket-powered" over "cab", and the first version, on "real", read "areal". The `{word}` callout was the other way to do it, and it is the wrong one here: it
+turns the word yellow and wiggles it the moment it is typed, where this lands after the whole line.
+
+A tap anywhere finishes the line or moves on (Enter and Space too); Escape ends it. There is no
+Skip button (Tyler, 2026-10-23): it was in the top corner until then, and four taps is the whole
+story. A finished line left untapped for `NUDGE_AFTER` = 3 s gives the card a
+dock-icon bounce (a 12 px hop and a 5 px one), and again every 3 s until the tap; not under reduced
+motion. When the story starts the camera flies from the title's slide down to the garage in one
+move (`STORY_GLIDE` = 3.5 s, a smootherstep blend of the two moving shots, so it leaves and arrives
+at their own speeds) and slides slowly past its door (`storyFrame` in `main.js`, zoom 24, 0.35 units
+a second). Under `?titlecam=reel`, and under reduced motion, it cuts there under the wipe instead.
+Either way the last tap eases straight down onto the door rather than cutting there. Otherwise it lets the
+run go exactly as Play used to. The title screen's gate stays
+shut the whole time (`beforePlay` in `titlescreen.js`), so the fare board, the vignette and the
+radio all wait behind it, and the story drives its own typing clock because the frame loop's
+speech updates are parked with everything else.
+
+**Once per device.** It is a `createSeenFlag` (`src/game/progress.js`), marked seen as it
+*starts*, so a player who quits halfway is not told it twice, and [Demo mode](#demo-mode) tells it
+on every Play. "Play again" reloads past the title and so past this too.
+`?intro=classic` never tells it; `?intro=always` tells it on every Play.
+
+**The robo-taxis are flavour** (Tyler, 2026-10-21). Nothing in the run refers back to them yet.
+The idea the lines are built on is that the threat explains the controls: the robots stop at
+yellows and never speed, so the player wins by doing what they won't.
+
 ## Demo mode
 
-For showing the game to someone: every run plays as a first run. A switch at the bottom of the
-title screen's Settings, which is only there once revealed, by opening the game with **`?demo`**
-or by tapping the Settings heading five times (the App Store build has no URL bar). A player who
-never goes looking never sees it. `?demo` turns it on for that load without saving; `?demo=off`
-forces it off.
+For showing the game to someone: every run plays as a first run. A switch at the bottom of
+Settings, on the title screen and the pause screen alike, which is only there once revealed: by
+opening the game with **`?demo`**, or by tapping the Settings heading five times, each tap within a
+second of the last (the App Store build has no URL bar). The row then scrolls into view and flashes
+gold. A player who never goes looking never sees it. `?demo` turns it on for that load without
+saving; `?demo=off` forces it off. Switched from the pause screen, the tips and the once-ever flags
+change at once; the robbery and the racer's timing are decided at load, so they follow at the next
+run.
+
+The taps are counted on `pointerup`. The first cut counted `click` within 600ms and could not be
+made to fire on a phone: iOS only synthesises a click on what it takes for a clickable element, and
+reads a quick second tap on a plain heading as half of a double-tap.
 
 While it is on:
 
@@ -174,8 +220,19 @@ near lane.
 | `settle` | A beat on the shut door, so arriving and the door moving read as two events | 0.12s |
 | `door` | The curtain winds up on an ease-*out* — a roller door leaves fast under its counterweight and creeps the last few inches | 0.95s |
 | `reveal` | The car sitting in a lit doorway, the radio crushed through its speaker ([the dash radio](audio.md#the-dash-radio)). This is the shot | 0.35s, or until the first song has played 4s through the dash (up to 8s) |
-| `roll` | Out of the bay, across the forecourt, down the kerb, right into the lane. The zoom starts widening as the nose clears the door, so the pull-back is already under way; the **shutter starts coming back down** the moment the car reaches the kerb | ~2.7s |
+| `roll` | Out of the bay, across the forecourt, down the kerb, right into the lane. As the nose clears the curtain the front-right fender **glints** (below). The zoom starts widening as the nose clears the door, so the pull-back is already under way; the **shutter starts coming back down** the moment the car reaches the kerb | ~2.7s |
 | `release` | `focusOn` back to whatever framing the run would have had — the city's centre on a desktop, the taxi on a phone, where the opening follow-cam picks it up | ~1.3s, capped at 2.0 |
+
+**The glint** (`game/glint.js`). When the drawn nose is 0.9 units past the curtain (`CLEAR_OUT`,
+fired through `onClear`), three four-point stars pop one after another, about a quarter second
+apart: first on the front-right fender corner just above the headlight, about 25pt across on a phone,
+then a smaller one on the bonnet's leading edge, then one back along the right-hand shoulder by the
+windscreen (`STARS`). Each lasts 0.7s, so the whole run is about 1.2s and no two are at full size
+together. The fender corner is the corner nearest the camera on the way out, and the camera is still
+at door zoom. Each star is a shader on one quad rather than a highlight in the paint: at play zoom the corner is about 5×5 pixels, and a paint
+hotspot there does not read even at door zoom. It plays every time the car comes out of the door,
+including after a [repair](#repairs-at-the-depot), where the chips are already gone by then, so the
+glint lands on clean paint. A tap that skips the vignette skips it too. `?glint=classic` turns it off.
 
 The door comes down over 1.4s, slower than it went up — that is what a roller door does, leaving
 under its counterweight and returning under a motor, and it is scenery by then rather than the
@@ -329,7 +386,9 @@ of it** — though the first one is currently switched off:
    the bubble gets the run to its first *instruction* a beat sooner. The beat is intact behind the
    flag — the line, `openOnTaxi`, and the `'taxi'` step in both step sets — because the vignette is
    a prototype and this is what has to come back if it goes.
-2. **"Pick up rider to start"** The lights come down and the spotlight lands on the waiting fare as the
+2. **"Hey taxi! Over here!"** — the rider hailing the cab, titled "Rider", with the tag on their
+   head (`?hail=classic`: "Pick up rider to start" under "Tip"). The line never says to tap them;
+   the dimmed city, the pan and the tag on the one lit figure carry that. The lights come down and the spotlight lands on the waiting fare as the
    camera sets off for them, so the light is already on the rider and the pan carries the player to
    it; the bubble comes back once the camera has arrived. Tapping the rider answers it directly.
    With beat one switched off this is the beat that *lights* the pool (`spotlight-on`): whatever
@@ -566,9 +625,18 @@ behind a car rams it unless the combo is thrown (`game/overtake.js`), so it is t
 is punished for not knowing. Its clip is two cars — the reel carries the car being passed too
 (`REEL.lead`, drawn by `game/moveclip.js`) — and its camera **follows** that car (`track` on
 `reelPlayer`) rather than standing still, because a pass takes ~80 units of road at the Loco top and
-a frame that held all of it drew both cars at a third the size. That length is also why its street
-picker accepts the ring road as well as side streets. The pedal row is Loco, then Loco again: the
-first key goes dark at the blip and the second lights. Recorded by `tools/overtakereel.mjs`.
+a frame that held all of it drew both cars at a third the size. Its street picker takes side
+streets only while the [edge fog](rendering.md) is up: the ring road runs along the fog's inner
+edge, and a clip filmed there came out half or wholly white. The pedal row is Loco, then Loco
+again, and it shows **whose finger is on which key** (`holds` in `game/newmove.js`): a key is orange
+only while the clip holds it and a flat grey disc otherwise, and the held one dips while a ring fills
+round it over the press. So the first key fills, goes grey at the blip, and the second turns orange
+and fills through the pass. The card's "next key" pulse is off here: the only ring is on the key being pressed. `?overtakekeys=classic` is the old row, where both keys sat orange from
+the blip on. Recorded by `tools/overtakereel.mjs`.
+The blip comes late in the loop (`BLIP_ON` 1.7s of 2.8), once the taxi is on the car's bumper:
+the combo swings out the frame it arms, so an early blip had the taxi up the oncoming lane 17 units
+short of the car for most of the loop, passing nothing. The recorder now rejects any take that pulls
+out more than 9 units back (centre to centre) or sits tailgating for over 0.4s first.
 
 The bootleg (boost, then two quick brake taps — `game/bootleg.js`) is the one input nobody finds by
 looking, so it gets a card (`game/newmove.js`, `#new-move` in index.html). It is the tutorial's
@@ -1145,6 +1213,15 @@ Two details are load-bearing and easy to lose:
   it to the order edges happened to be created in.
 - **Cost is read off the lane** (`lane.klass`, `lane.withWave`), not recomputed from `(i, j, d)`.
   An editor-drawn arterial has no line index to look either up by.
+
+**Near-ties go straight off an arched bridge**, so there is room for
+[Big Air](river.md#the-drift-launch), which only fires when the route goes straight on at the far
+bank. The taxi's router knocks `BIG_AIR_TILT` (0.11) off the move "straight on past an arched deck"
+— less than any block costs, so it never lengthens a trip, only picks between routes the hierarchy
+weights already call near enough equal. Over every trip on 12 cities (`tools/bigair-route.mjs`) the
+share of bridge crossings that go straight on rose from 35% to 69%, against a ceiling of 75% (the
+rest end on, or come back along, the far bank's street); legs per trip unchanged, turns slightly
+down. Cops and other service routes don't get it. `?bigairroute=classic` takes it off.
 
 `tools/roadnet.mjs` asserts the ported router returns the *same route* — not merely a route — as
 the grid router did, over all 5,184 `(start, heading, target)` triples on three seeds.
@@ -1783,7 +1860,13 @@ in `game/fares.js`).
 Every combo the taxi lands on a job steps a multiplier up, and the drop-off pays the fare at it
 (`game/combometer.js`, Tyler's idea after the Duolingo combo streak). It starts each ride at ×1: an
 overtake or a bootleg U-turn +0.5, a drift kick +0.5 per chain tier (so a full chain of three is
-+3), **Stuntman** +1, the bridge launch +2, **Crushin' It** +1, capped at ×5.
++3), **Stuntman** +1, the bridge launch +2, **Crushin' It** +1, **Return to Sender** and
+**Hot Diggity** +0.5, capped at ×5.
+
+**Return to Sender** and **Hot Diggity** are swiping a post box or the hot dog cart off the kerb
+(Tyler, 2026-10-23, "if the taxi hits either of these things ... shoot mail everywhere or hot dogs
+everywhere"). The props are in [city.md](city.md#the-post-box-and-the-hot-dog-cart); the hit is
+automatic under Loco Mode on the lane that passes one, which is why it is only worth a half.
 
 **Crushin' It** is Big Air coming down on a car (Tyler, 2026-10-20: "make the car you land on
 explode. Taxi takes no damage and continues"). It used to be a crash: the taxi lands at the kick's
@@ -1797,6 +1880,11 @@ counts on the descent of the arc and for a car length past the touchdown (`crush
 cars and cops count. A truck is too tall to land on, and the patrol cruiser and the racer belong to
 modules that run their own lives. A crushed car leaves the fleet for the rest of the run.
 `?crush=classic` charges the landing as a hit again.
+
+Big Air's touchdown also pays a sixth of the Loco tank back on the drift kick's energy bits
+(`DRIFT_CHAIN.fuel[0]`, Tyler, 2026-10-23), since getting one means burning Loco round a corner and
+over an arch. It pays once per landing, so Crushin' It adds a step and no more fuel. Like Stuntman's,
+the refund lands with or without a job. `?bigairfuel=classic` lands with nothing.
 
 Stuntman is smashing through a [roadworks](traffic.md#roadworks-a-street-closed-at-both-ends)
 barricade, at any speed (Tyler, 2026-10-14). It also pays a sixth of the Loco tank back on the
@@ -1823,7 +1911,7 @@ into it, the price punches and rolls up to the multiplied total, and that one nu
 counter. The verdict reaches the fare loop through `createFareSystem`'s `judgeRun` hook. It is read
 there rather than stamped at spawn like the rest of a price, because it is about the driving, and
 nothing shows a price before the drop-off for it to contradict. It multiplies everything the
-drop-off pays, the robbery's clock bonus included. A [package](#the-package-courier) is never
+drop-off pays, the robbery's bonus included. A [package](#the-package-courier) is never
 multiplied.
 
 `?combo=run` keeps the meter across fares instead: a drop-off pays at it and leaves it where it is,
@@ -2016,9 +2104,9 @@ with an empty cab set it off; see [history](gameplay-history.md#the-bank-robbery
 **Everything about it is the existing loop turned up.** That is a constraint rather than a
 description, and it is worth listing what is *not* new, because none of it is:
 
-- The robber is an ordinary fare that skipped the kerb. Same crystal over the roof, same ring on the
-  road, same band of paint between them, same arrival test, same payout flight to the counter. Two
-  things differ: the clock, and a bonus that reads it. What *looks* different is the figure — see
+- The robber is an ordinary fare that skipped the kerb. Same ring on the road, same band of paint
+  between them, same arrival test, same payout flight to the counter. What it lacks is the crystal
+  over the roof: [there is no clock](#no-clock-on-the-getaway). What *looks* different is the figure — see
   [the robber](#the-robber).
 - The cop cars are **ordinary cars**. They queue, indicate, stop at reds, yield and can be crashed
   into like anything else on the road — and they **come after you**, which is a route, a speed and
@@ -2047,7 +2135,7 @@ description, and it is worth listing what is *not* new, because none of it is:
   [they box you in](#they-box-you-in) — so a cop in the road is something to route round or wait
   out rather than drive through.
 
-So the whole feature is a trigger, a clock, a bonus, and some paint.
+So the whole feature is a trigger, a jackpot, and some paint.
 
 ### It is imposed, so it cannot cost the run
 
@@ -2056,8 +2144,9 @@ for it, and it can stay optional-but-hard only because missing one is never wors
 seen it. A robbery is only half taken on: the player chose the bank rider, but the coin that turns
 the ride into a getaway is one they never see.
 
-An imposed event that can end a run is the one thing a score-attack cannot have. So a robber whose
-clock runs out does exactly what a missed VIP does: gets out mid-street, swears about it
+An imposed event that can end a run is the one thing a score-attack cannot have. The getaway has
+[no clock](#no-clock-on-the-getaway) now, so nothing about it can run out; under
+`?robberclock=classic` a robber whose clock runs out does exactly what a missed VIP does: gets out mid-street, swears about it
 ([the outburst bubble](#they-leave-and-they-let-you-know)) and goes. The event costs the bonus and
 the seat it was occupying, and nothing else. The clock running out cannot end the run.
 
@@ -2075,9 +2164,7 @@ for the chase, so the choice is "boost clear", not "hope".
 the torso, the sleeves tinted to match, and a pale sack swinging off the left hand.
 
 **It is the figure that has to say this is not an ordinary fare** — that and
-[the radio call](#dispatch-breaks-in), and nothing else: a robber's crystal is on the ordinary urgency scale on purpose — the clock is the drama, and a fixed
-hue like [a VIP's](#vip-pickups) would trade that away to say something the building and the police
-cars are already saying.
+[the radio call](#dispatch-breaks-in), and nothing else. The building and the police cars are already saying it.
 
 It is **additive and switchable**, not a second person, and the reason is the pool. There is one
 figure per fare slot, built once and handed to every fare that occupies it, so a robber cannot be a
@@ -2182,7 +2269,7 @@ player *sees* the robber get in.
 
 **The bank rider waits under the side-quest "!"** rather than an urgency pie (Tyler, 2026-10-21):
 they are the way into the robbery, an offer more than a fare. The pie is hidden on the kerb
-(`showAt`'s `quest` in game/faremarker.js) and the yellow tag stands where it was (`#bank-mark`,
+(`showAt`'s `quest` in game/faremarker.js) and the purple tag stands where it was (`#bank-mark`,
 `updateBankMark` in main.js); the kerb disc stays, and the pie appears at pickup to fly to the roof
 with the trip's clock. Off screen the rider's own arrow points the way, so the "!" does not wait at
 the edge as well. They still have a clock on the kerb, but with nothing showing it, running it out
@@ -2286,36 +2373,22 @@ It is the same bubble as the tutorial's, minus everything that asks something of
   time, so a pause holds it). The next tap is on the road, routing the getaway, and a bubble that
   caught it would cost the second this event is about.
 
-### The clock, and the bonus that reads it
+### No clock on the getaway
 
-A loose clock, on purpose: the getaway is the longest drive in the game and the point of it is the
-police, so the clock is there to pay the bonus rather than to threaten the trip.
+A getaway has **no clock** (Tyler, 2026-10-23; `?robberclock=classic` keeps the old one, see
+[history](gameplay-history.md#the-getaways-clock)). No crystal rides the roof, the robber never
+bails, and the drop-off pays `ROBBER_PAYOUT` + `ROBBER_BONUS` = $150 every time, before any
+[combo multiplier](#the-combo-meter). The ring and the route band stay painted the colour of a full clock.
 
-**The queue behind it is empty.** Every ordinary rider's clock is budgeted over the whole chain the
-taxi must clear before reaching them — the rider aboard, then everyone on the kerb in urgency order
-([the clock is budgeted](#the-clock-is-budgeted)). A robber's is budgeted over its own trip and
-nothing else, because a robbery cannot start with somebody in the seat. That is the same exemption a
-VIP gets and for the same reason, and on its own it would buy a robber a *longer* clock than an
-ordinary rider on the same trip.
+It went because it was never a clock the player could read. The crystal launched from the bank door
+toward the roof, then the robber's line stopped the world, so a full green pie hung in the air beside
+the cab and read as a new rider. And it was loose on purpose — at least 60% more time than the
+driving — so it paid the bonus rather than threatened the trip. The police are the pressure; a
+second, softer one on top of them was noise.
 
-**And the pace factor is turned up on top of that.** `ROBBER_PACE_FACTOR` is 1.3, floored at 1.6,
-so a getaway always has at least 60% more clock than driving — measured on the probe's staged event,
-118s against 60.8s of driving, where an ordinary rider on the same trip would get 91s.
-
-**And the payout is the one price in this game not settled at spawn.** Every other fare is stamped
-when its trip is decided, because a meter that ticked while driving "would punish traffic and reward
-Loco Mode for the wrong reasons" ([Priced by the trip](#priced-by-the-trip)). For a getaway,
-rewarding Loco Mode is exactly the ask. So a flat `ROBBER_PAYOUT` = $100 is stamped like everybody
-else's price, and a bonus of up to `ROBBER_BONUS` = $50 is paid on the *fraction of clock left at the
-drop-off* — read once, on the frame the arrival resolves. $150 for a clean getaway, $100 on the last
-second. The event always pays, and how much is the whole of what the player is driving for.
-
-Flat, it is a jackpot worth five or six ordinary fares, and the same number every time.
-
-The bonus is folded into the fare's own `value` before anything reads it, so the pop that flies off
-the taxi, the counter it rolls into and the run-end card's "Cash" all say the same number. A second,
-smaller flight arriving from nowhere is exactly the side effect the two-phase payout exists to
-prevent.
+The fare still carries `limit` and `timeLeft` (`clockless` in `spawnRobber`, game/fares.js): they
+stay full, which is what keeps the bonus whole and the timeout branch out of reach without either
+of them learning about robbers.
 
 ### The gate that makes it fair
 
@@ -2657,7 +2730,7 @@ them. After a race it drives off, and comes back the same 2 to 4 drop-offs later
 again at the same interval after a race"). Counted in deliveries rather than seconds, the next race
 is earned by driving fares, so it cannot be farmed by sitting next to the racer. It has a white stripe down
 its spine, a proud wing on the boot and cyan light pooling under it that pulses to the music, and
-over it hangs a yellow **"!"** — the [speech tag](#speech-bubbles) alone, with no card, marked as an
+over it hangs a purple **"!"** (the old mystery rider's `PALETTE.vip`) — the [speech tag](#speech-bubbles) alone, with no card, marked as an
 offer (`showTag(at, { quest: true })`; a card with only the dots under `?bubbles=classic`/`dock`).
 The "!" is the side-quest mark: the one an RPG hangs over an NPC with a quest to give (World of
 Warcraft's yellow "!", whose "?" means *hand it in*, which is why it isn't a "?"). It stays apart
@@ -2666,17 +2739,29 @@ leave, and the tag goes back to the dots the moment the racer speaks. `?questmar
 dots. The "!" is up whenever the race can be taken (an
 empty cab, nothing owning the run) and the player can find the car: on the car whenever it is on
 screen, wherever the player has panned to, and pointing in from the screen edge only while the taxi
-is within `NEAR_BLOCKS` (3) of it, with a horn. Out of reach and off screen, or a rider picked up,
+is within `NEAR_BLOCKS` (3) of it. The racer makes no sound of its own anywhere in the vignette:
+the horn it gave on turning up, on the tap and at the start is gone (Tyler: "remove all the horn
+sounds"). Out of reach and off screen, or a rider picked up,
 and it goes until that changes (a block of slack on the way out of reach and two units past the
 frame, so it does not flicker on either boundary). The tag itself is a tap target. Tap it once and it asks: "Wanna race?" (Tyler wanted the question only for
 someone who tapped, rather than one more line on a busy screen). Tap it again and it answers on the
-spot (a horn and "You're on!"), then the screen cuts to black and opens close up on the two cars side by side, window to window ("Round the flag and back."). A
+spot ("You're on!"), then the screen cuts to black and opens close up on the two cars side by side, window to window ("Round the flag and back."). A
 corner is marked across the island (a white waypoint ring with a chequered flag flying over it, 4-8
 blocks away and never on the ring road, which is in the fog), the camera goes to look at it and
-comes back, the count goes three, two, one, and the two cars set off together, drag-race style.
-The count runs at `COUNT_STEP` (1.25s a number; Tyler: "slow the countdown a touch") and is pinned
-above the middle of the screen in 40px tabular figures, so the digits stay put rather than following
-the taxi and shifting with each glyph's width. "Head back!", "You won!" and "You lost!" are held on
+comes back, the racer asks "Ready?" (and hops), and the tap on it, on its card or on the car,
+starts the count: three, two, one, and the two cars set off together, drag-race style. Tyler wanted
+the player to say when ("tapping that is what triggers the countdown"). Left untapped it nags once
+at `READY_NAG` (6s, "Tap me when you're ready!") and counts in on its own at `READY_MAX` (15s): the
+taxi is held and every fare's clock with it until the green, so a run must not be able to wait there
+forever. `?raceready=classic` counts in as soon as the camera is back.
+The finish is not put down until the camera gets there: the ring grows in and the flag goes up on
+screen, and the look holds `RACE_PEEK_HOLD` (1.4s) so it can be watched arriving (Tyler: "wait till
+the camera pans there and then spawn the checkpoint so you can visually see where it is").
+The count runs at `COUNT_STEP` (1.25s a number; Tyler: "slow the countdown a touch") and stands in
+the middle of the screen in 80px tabular figures (Tyler: "double the size of those numbers, stick
+them in the very center"), a little above dead centre (`RACE_COUNT_Y`, 0.4) because the camera is
+back on the taxi by then and dead centre sat each digit on the two cars. The digits stay put rather than following the taxi and shifting with
+each glyph's width. "Head back!", "You won!" and "You lost!" are held on
 screen for `RACE_LABEL_MS` (2.8s) rather than popping like a fare's cash (main.js).
 
 **The race is there and back.** Each car has to come within `ARRIVE_RADIUS` of the flag's corner,
@@ -2696,9 +2781,22 @@ round instead. It is rare: a racer is seldom held up, and it passed 15 times in 
 game/locoflame.js, on a second instance) whenever it is over `RACER_FLAME_SPEED` (1.5× cruise), so
 they go out as it brakes for a corner and relight down the straight.
 
-**The finish is choreographed** (`updateFinale`, Tyler's six steps). The winner crosses the line
-and pulls up there (`WINNER_HOLD`, 1s; the taxi on the race's brake, `brakesTaxi`, since `parked`
-stops a car dead). Then a cut, behind the same wipe as the start: the winner is parked near the
+**The racer's car is on hydraulics** (game/hydraulics.js; Tyler: "give the racer some hydraulics to
+bounce their car during scenes"). Its body rides on the rams over four wheels that stay on the
+road, and it works them only while it stands still in a scene: at a light while it is offering, on
+the faceoff, through the look at the finish. It pumps on the bass the underglow already follows
+(up, side to side, up, nose, no faster than every `PUMP_GAP`, 0.4s), or on a slow clock with the
+music off. It hops its front wheels off the road at "Wanna race?", pumps on "You're on!" and on each
+number of the count, and squats its tail on the green. Win, and it does `WIN_HOPS` (3) front hops
+beside the taxi; lose, and it sits slammed on its rams with its nose down until it drives off. The
+hop pitches the whole car about the rear axle and drops on a fall rather than easing (0.40 rad up,
+down in 0.7s); the pumps are underdamped springs, so each one bounces two or three times and
+settles. A lowrider's trick on a tuner's body, which a cartoon city can carry.
+`?hydraulics=classic` keeps the body still.
+
+**The finish is choreographed** (`updateFinale`, Tyler's six steps). The screen cuts to black the
+frame the winner crosses the line (`WINNER_HOLD` is 0; Tyler: "as soon as the winner hits the finish
+line waypoint cut to black"), behind the same wipe as the start: the winner is parked near the
 front of a side street near where it finished, **facing the way they raced** (`homeDir`, the heading
 the winner crossed the line on; Tyler: "make sure both cars face the same direction"), and the loser
 is put a block back on the same street, rolling at `ARRIVAL_ROLL` (`chooseArrival`, by the start's
@@ -2737,9 +2835,12 @@ is a tap like every other choice in the game. Ignoring it is free: the racer jus
   (`locked`) taps on the map are ignored and the taxi stays on the line: there is no backing out
   (Tyler: "Dont allow declining after you've tapped on 'wanna race'"). Taps on the pedals are not
   map taps and decline nothing.
-- **The tank is topped up to a third at the green** (`TANK_FLOOR`, the run's own starting tank) and
-  never down. The race is decided by Loco Mode, and a player who accepted on an empty pill would
-  lose before the flag dropped.
+- **The tank is filled to the top for the race**, flown in on the "3" the way the getaway's is
+  (Tyler: "fully top up the player's loco meter so it's 100% so they can at least have a fighting
+  chance"), and made good at the green if the flight has not landed. The race is decided by Loco
+  Mode, and a player who accepted on an empty pill would lose before the flag dropped. It costs
+  the race some of its edge: the bench's full-tank row won 92-100% of races where a third of a
+  tank won 58-71%. `?racetank=classic` tops up to a third (`TANK_FLOOR`) at the green instead.
 - **Stakes are lopsided on purpose** (`WIN_PAY` $40, `LOSE_COST` $25, against a $20 median fare).
   Declining is free, so an even bet is one a sensible player never takes. A loss goes through
   `charge`, so an empty till pays what it has.
@@ -3164,7 +3265,9 @@ hands over. Details in [rendering.md](rendering.md#the-parcel--geometryparceljs)
 1. **In the city** (`parcels.js`, sim time): the kerb box is hidden and a flying copy takes over from
    the same spot — the same pose by *construction*, since the copy stands at the corner at
    `PARCEL_PAD_LIFT` and runs the same `idle` off the same clock. It rises, swells, slides away toward
-   the corner of the screen the chip lives in, and fades out. The rise eases *out* (a thing being
+   the cargo dock (right of the gas pedal) and fades out. The direction is measured per pickup, from
+   the box's screen point to the dock's resting centre (`towardCargoDock` in main.js), so a box near
+   the bottom of the screen goes up and then swoops down into it. The rise eases *out* (a thing being
    picked up); the drift eases *in*, accelerating away (a thing leaving).
 2. **In the HUD** (`cargochip.js`, wall time): near the end of that — 78% along, with the world box
    down to ~a third opacity and still moving — `'loaded'` fires carrying the point the box had reached.
@@ -4071,8 +4174,15 @@ task that drew it (the canvas is not `preserveDrawingBuffer`) into a 360px 2D ca
 
 The print drops on a beat ahead of the title, tipped 4° in a cream border with the deep bottom lip a
 polaroid has, and then **develops** — washed out and grey to full colour over 1.6s. It is sized off
-the viewport height like the rest of the card (`clamp(96px, 24vh, 190px)`), so a landscape phone gets
+the viewport height like the rest of the card (`clamp(88px, 18vh, 160px)`), so a landscape phone gets
 a small print rather than a title pushed below the fold.
+
+**The foot of the screen is held for "Tap to continue."** The hint is pinned to the bottom of the
+blackout, out of the card's flow, so the card keeps a band of bottom padding the hint's height and
+centres itself in what is left above it; with five rows of table up, the last row clears the hint
+on an iPhone SE as well as a Pro Max. The list does not scroll on purpose: the whole blackout is the
+tap target, and a swipe that scrolls is also a tap that leaves. `?runendfit=classic` is the old
+layout (a 190px print, wider gaps, no band), where the table ran under the hint on a phone.
 
 It is a **full-screen blackout**, not a modal over the city: a blurred card's edges would be the
 loudest thing on the screen. Blacking the whole viewport out puts the run's numbers on nothing at
@@ -4088,11 +4198,16 @@ driven rather than how long. A run that never landed a combo shows **1x** rather
 row, so the card is the same shape every run. History:
 [the run-end screen](gameplay-history.md#the-run-end-screen).
 
-The stats are **one row each, label and value side by side**, and both are set in the *same* size,
-weight and colour. A small grey caption over a big yellow number made the label read as chrome and
-the number as the content, when the pairing is the content; matched type makes each row one phrase
-— "Cash  $412" — and the rows read as a list being counted out, which is what the stagger is
-doing.
+The stats are **one row each, label and value side by side**, in the *same* size and weight: the
+label in yellow, the value in **white**. A small grey caption over a big yellow number made the
+label read as chrome and the number as the content, when the pairing is the content; matched type
+makes each row one phrase — "Cash  $412" — and the white value is the answer to the yellow
+question.
+
+They are **counted out one row at a time**: the label drops in and settles, *then* its value
+appears and counts up from zero (0.46s), lands with a pop, and only then does the next label
+arrive. Three rows take ~2.7s; a tap lands every number at once. `PACE_COUNTED` in
+`game/runend.js`; `?statcount=classic` is the older, quicker pace in yellow.
 
 It reads as a **ledger**: label pinned to the left edge, value to the right, on a `1fr auto` grid
 so the label column takes the slack and the values stay flush right however long the names get.
@@ -4127,10 +4242,22 @@ doesn't fit, the overlay scrolls — centred by `margin: auto` on the content ra
 **Nothing appears at once.** The card is revealed as a sequence, because the version before this
 one wrote a single line of `innerHTML` and the whole screen arrived in one frame — which reads as
 the game stopping rather than as a scoreboard. The order is title → reason → each stat in turn →
-the initials prompt, if the run placed → the table → **Play again**, and each stat's label **scales
-down** into place as it fades up before its number rolls from zero. A number that rolls gets read; a
-number that is printed gets skipped past on the way to the button. The button is last on purpose,
+the initials prompt, if the run placed → the table → **Tap to continue**, and each stat's label
+**scales down** into place as it fades up before its value arrives. A number that moves gets read;
+a number that is printed gets skipped past on the way out. The way out is last on purpose,
 appearing only once the table has landed, so the player isn't invited to leave mid-tally.
+
+**Cash counts up and the other two type out.** Cash rolls from zero with every digit that changes
+fading up into its place; **Max combo** and **Time** don't count at all, they type out a character
+at a time, left to right, each glyph laid out from the start so the right-aligned value never slides
+(`countDigits` and `typeOut` in `game/runend.js`, `reveal: 'type'` on the stat). A combo or a clock
+counting up from zero says nothing its final figure doesn't, and three rolls in a row read as one
+animation.
+
+**There is no Play again button.** The card ends on the same pulsing "Tap to continue" as the
+review, and a tap anywhere (or Enter/Space) plays again, armed `HOLD_MS` after it appears so the tap
+that skipped the table is not the one that reloads the run. `?playagain=classic` brings the yellow
+pill back.
 
 **The stats, the prompt and the table are one slot taking turns**, not a list that grows. `#run-end
 .run-end-body` holds whichever screen is current and cross-fades to the next. Stacking them was the
@@ -4165,7 +4292,7 @@ tap *during* the count still lands the numbers, but on
 the review rather than past it, and the tap that leaves is only armed `HOLD_MS` after the last
 number lands — the thumb still on the glass when the taxi wrecked is the likeliest tap of all, and
 it should not carry through to the table. With no table to show (no scores) there is no extra
-wait: the next thing is the Play again pill, which waits for a tap of its own. Under reduced motion
+wait: the next thing is the closing "Tap to continue", which waits for a tap of its own. Under reduced motion
 the screens stack, so the review is never off screen and nothing waits.
 
 **The skip is per-beat, not a jump to the end**, and the initials prompt is why. Every other beat
