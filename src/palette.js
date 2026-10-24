@@ -1429,6 +1429,8 @@ export const PALETTE = {
   // The model workshop's bench grid (src/workshop/viewer.js), not the game. White drawn at a low
   // alpha over the asphalt pad, so it reads as a faint chalk line rather than a colour of its own.
   benchGrid: '#FFFFFF',
+  // ...and the pins it drops on a z-fight (util/zfight.js): a magenta nothing in the city wears.
+  benchZFight: '#FF2BD6',
 
   // The pixel Claude beside its name in the credits (game/titlescreen.js): Anthropic's brand Clay
   // and its near-black, so the sprite is the mascot's own colours rather than a guess at them.

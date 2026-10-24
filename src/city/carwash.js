@@ -111,8 +111,10 @@ export function createCarWash(block, rng) {
     // The lot: concrete over the whole block, a shade off the pavement round it.
     span(x0 + LOT_INSET, x1 - LOT_INSET, LOT_Y - 0.04, LOT_Y, z0 + LOT_INSET, z1 - LOT_INSET,
       jitterColor(color('carWashLot'), rng, { l: 0.02 })),
-    // The tunnel's floor, and the two guide rails a wheel runs between.
-    span(t.x0 - 0.6, t.x1 + 0.6, FLOOR_Y - 0.03, FLOOR_Y, t.z0 + WALL_T, t.z1, color('carWashFloor')),
+    // The tunnel's floor, and the two guide rails a wheel runs between. The floor's open edge stops
+    // a hair short of `t.z1`, which is where the posts' street faces stand: flush, the bottom two
+    // centimetres of every post shared a plane with the floor's edge (tools/zfight.mjs).
+    span(t.x0 - 0.6, t.x1 + 0.6, FLOOR_Y - 0.03, FLOOR_Y, t.z0 + WALL_T, t.z1 - 0.02, color('carWashFloor')),
     span(t.x0 - 0.6, t.x1 + 0.6, FLOOR_Y, FLOOR_Y + 0.08, zc + 0.85, zc + 0.95, color('carWashRail')),
     span(t.x0 - 0.6, t.x1 + 0.6, FLOOR_Y, FLOOR_Y + 0.08, zc - 0.95, zc - 0.85, color('carWashRail')),
     // The back wall, full height: the one long face the camera never sees from the front.

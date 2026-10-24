@@ -76,6 +76,7 @@ for (const file of ['src/workshop/viewer.js', 'src/workshop/chat.js', 'src/works
 const prompt = workshopPrompt(CATALOG[0], { image: '/tmp/view.png' });
 check('prompt names the model\'s source', prompt.includes(CATALOG[0].source));
 check('prompt points at the screenshot', prompt.includes('/tmp/view.png'));
+check('prompt asks for the z-fighting scan on this model', prompt.includes(`tools/zfight.mjs --model ${CATALOG[0].id}`));
 
 const passed = results.filter((r) => r.pass).length;
 console.log(`\n${passed}/${results.length} checks passed`);

@@ -69,6 +69,14 @@ make that mesh smooth; the crowns' soft normals are lost under the flat default)
 cards come for free: every lobe lands in `plantedCrowns()`, which is what the canopy fuzz is built
 from. Don't hand-build a tree, and don't wire crowns to the fuzz by hand. The probe checks both.
 
+**Two surfaces on one plane over the same ground is a z-fight, and `npm run check` finds it.**
+`tools/zfight.mjs` scans the built city and every workshop model with `src/util/zfight.js`: coplanar,
+same-facing, overlapping, different colours, visible from the game's view and not buried in a solid.
+Stand a part proud by 0.01 or stop it short; a decal that really must lie flush declares
+`polygonOffset`, and a deliberate exception sets `userData.zfight = false` with its reason beside it.
+A new static builder in `main.js` needs a line in that tool's `buildCity` to be checked;
+`__taxi.zfight()` scans the live scene, which is how to find one that was missed.
+
 **Every body of water wears the one water shader (city/riverwater.js).** The river, the sea, the
 duck pond and the north park's lake all compile the river's surface — its normal, glint, caustics,
 absorption and Fresnel — and differ only in the outline their shelf is measured from

@@ -80,6 +80,10 @@ const TOOLS = [
   // The model workshop at /workshop/, for the same reason: every model on its bench is built, so a
   // builder whose signature moved fails here rather than on the one model someone opened it for.
   { name: 'workshop', args: ['tools/workshop.mjs'],    pick: /(\d+\/\d+) checks passed/ },
+  // Z-fighting: every surface pair on one plane over one patch of ground, in the built city and in
+  // every model on the workshop's bench. Every tie shipped so far was reported from a phone and
+  // fixed with a probe of its own; this is the general version of those probes.
+  { name: 'zfight',  args: ['tools/zfight.mjs'],       pick: /(\d+\/\d+) checks passed/ },
   // The docs against the code: every URL parameter in src/ has a row in docs/params.md (and every
   // row is still read), and every relative link between the docs lands on a heading that exists.
   { name: 'docs',    args: ['tools/docs.mjs'],         pick: /(\d+\/\d+) checks passed/ },

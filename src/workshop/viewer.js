@@ -14,7 +14,8 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { createScene } from '../game/scene.js';
 import { createDaylight, DAY_SECONDS } from '../game/daylight.js';
-import { createCityCamera, aimAtHeight, PLAY_ZOOM } from '../game/camera.js';
+import { createCityCamera, aimAtHeight, PLAY_ZOOM, VIEW_DIR } from '../game/camera.js';
+import { findZFighting, describeZFighting } from '../util/zfight.js';
 import { bakeColor, propMaterial, unlitMaterial, setClassicPaint, setPaintLook, rimTuning, setRimTuning } from '../util/geo.js';
 import { markOccluder, unmarkOccluder } from '../game/ssao.js';
 import { markEmissive, unmarkEmissive } from '../game/bloom.js';
@@ -80,6 +81,7 @@ const els = {
   frame: document.getElementById('frame'),
   reloaded: document.getElementById('reloaded'),
   error: document.getElementById('bench-error'),
+  zfight: document.getElementById('bench-zfight'),
 };
 // Every listener this run adds, so the next run can take them all back off the shared DOM.
 const listening = new AbortController();
@@ -516,6 +518,7 @@ function load(id, { keepFraming = false } = {}) {
     source: entry.source, holder, update: built.update ?? null, lamps: built.lamps ?? null, box: box.clone(),
     print: fingerprint(holder),
   };
+  showZFighting(entry, built.object, holder);
   current.lamps?.(state.weather === 'day' ? 0 : 1);
   // "Diameter" as the footprint's diagonal rather than its longer side, so a long car's pad
   // clears its corners by as much as its nose.
@@ -526,6 +529,42 @@ function load(id, { keepFraming = false } = {}) {
   applyWire();
   if (!keepFraming) frame();
   syncUrl();
+}
+
+/**
+ * The z-fighting scan `npm run check` runs (tools/zfight.mjs), run on every build of the model —
+ * so an edit, the chat's or a hand's, shows its ties the moment it hot-reloads rather than when the
+ * background checks come back. Each tie gets a magenta pin where the biggest patch of it is, and a
+ * line in the banner. Echoed as a warning too, because the page forwards warnings to
+ * .workshop/console.log, which is where the chat's agent reads what went wrong.
+ */
+function showZFighting(entry, object, holder) {
+  let found = [];
+  try {
+    // Seen as the game sees it: down the fixed view, and at every heading for anything that drives.
+    found = findZFighting(object, { view: VIEW_DIR, spin: entry.kind !== 'Landmarks' });
+  } catch (error) {
+    console.error(error);
+  }
+  els.zfight.hidden = !found.length;
+  if (!found.length) return;
+  const lines = describeZFighting(found, 6);
+  els.zfight.textContent = `Z-fighting: ${found.length} pair${found.length === 1 ? '' : 's'} of surfaces share a plane\n${lines.join('\n')}`;
+  console.warn(`[zfight] ${entry.id}\n${lines.join('\n')}`);
+  const pins = new THREE.Group();
+  pins.userData.zfight = false;
+  const pinMaterial = unlitMaterial({ color: PALETTE.benchZFight, depthTest: false, transparent: true });
+  const local = holder.matrixWorld.clone().invert();
+  // Sized off the model, so a pin reads on a whole landmark as well as on a parcel.
+  const size = new THREE.Box3().setFromObject(object).getSize(new THREE.Vector3()).length();
+  const radius = Math.max(0.05, size * 0.012);
+  for (const f of found) {
+    const pin = new THREE.Mesh(new THREE.SphereGeometry(radius, 10, 6), pinMaterial);
+    pin.position.copy(f.at).applyMatrix4(local);
+    pin.renderOrder = 10;
+    pins.add(pin);
+  }
+  holder.add(pins);
 }
 
 /** Put the whole model in view, from the game's own diagonal. */
