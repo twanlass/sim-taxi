@@ -283,6 +283,11 @@ export const SHOTS = [
   { name: 'streetprops-far', description: 'the hot dog cart at play zoom', target: [0, 0], zoom: 52, warmup: 12, atStreetProp: 'cart' },
   { name: 'mailbox-smash', description: 'a post box half a second after the swipe', target: [0, 0], zoom: 9, warmup: 12, atStreetProp: 'mailbox', streetPropSmash: 0.45 },
   { name: 'hotdogcart-smash', description: 'the hot dog cart half a second after the swipe', target: [0, 0], zoom: 9, warmup: 12, atStreetProp: 'cart', streetPropSmash: 0.45 },
+  // The bag piles and the garbage truck (game/garbage.js): a pile close, the truck parked at one
+  // with the lid up and a bag in the air, and the same at play zoom. Appended, for the index reason.
+  { name: 'trash-pile', description: 'a pile of bags on the kerb, close', target: [0, 0], zoom: 5, warmup: 12, atTrashPile: true },
+  { name: 'garbage-truck', description: 'the garbage truck taking a pile, close', target: [0, 0], zoom: 9, warmup: 12, atTrashPile: true, garbageAt: 0.95 },
+  { name: 'garbage-truck-far', description: 'the garbage truck taking a pile at play zoom', target: [0, 0], zoom: 52, warmup: 12, atTrashPile: true, garbageAt: 0.95 },
 ];
 
 export function getActiveShot() {

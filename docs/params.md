@@ -53,6 +53,7 @@ doc; what the classic version was, and why it changed, is in that doc's history 
 | `?roadside=classic` | No roadside lot: its block goes back to the towers, and the tube man goes with it | | [city.md](city.md#the-roadside-lot-and-its-tube-man) |
 | `?manholes=classic` | The streets without their manhole covers | | [city.md](city.md#manhole-covers) |
 | `?streetprops=classic` | No post boxes or hot dog cart on the kerb, and no Loco swipe | `STREETPROPS=classic` | [city.md](city.md#the-post-box-and-the-hot-dog-cart) |
+| `?garbage=classic` | No bag piles on the kerb and no garbage truck | `GARBAGE=classic` | [city.md](city.md#the-bag-piles-and-the-garbage-truck) |
 | `?roofs=classic` | Solid flat roof caps, with no lip and no sunk deck | #511 | [city.md](city.md) |
 | `?foliage=classic` | The first, louder autumn palette | #486 | [rendering.md](rendering.md) |
 | `?water=classic` | The faceted first river surface | | [river.md](river.md) |
@@ -164,6 +165,7 @@ doc; what the classic version was, and why it changed, is in that doc's history 
 | `?blend=additive` | How the route band mixes with the road: `normal`, `additive`, `screen`, `multiply` | [gameplay.md](gameplay.md) |
 | `?flatbed=soon` | The flatbed starts shedding crates three seconds in | [traffic.md](traffic.md) |
 | `?fire=soon` | A building catches fire early | [traffic.md](traffic.md) |
+| `?garbage=soon` | The garbage truck comes on a second in, headed for the pile nearest the taxi | [city.md](city.md#the-bag-piles-and-the-garbage-truck) |
 | `?race=soon` | The street racer turns up a few seconds in rather than after the 2nd-4th drop-off, and comes back ~12s after each race | [gameplay.md](gameplay.md#the-street-race) |
 | `?demo` / `?demo=off` | Demo mode on (or off) for this load, overruling the Settings switch and saving nothing; also reveals that switch | [gameplay.md](gameplay.md#demo-mode) |
 | `?parcels=0` / `=1` | Packages off / forced on (they are off in shot mode by default) | [gameplay.md](gameplay.md) |

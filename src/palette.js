@@ -967,6 +967,20 @@ export const PALETTE = {
   sausage: '#A9452C',
   musicNoteA: '#FF8F2E',
   musicNoteB: '#FFB45E',
+  // The bag piles on the kerb and the garbage truck that clears them (geometry/garbage.js,
+  // game/garbage.js). The bags are a blue-black rather than black, so a pile in a tower's shadow
+  // still has a shape; the ties are the yellow drawstrings that make a bag read as a bag at play
+  // zoom. The truck is a municipal green body behind a white cab.
+  trashBag: '#272B33',
+  trashBagAlt: '#33383F',
+  trashBagSheen: '#5A6474',
+  trashTie: '#F2C94C',
+  garbageBody: '#46A05A',
+  garbageHopper: '#2D6A3A',
+  garbageCab: '#EEEDE6',
+  garbageStripe: '#F3EFE6',
+  garbageMouth: '#121417',
+  garbageMetal: '#AEB4BC',
   // The car wash (city/carwash.js): a white shed with a bright blue fascia and soap bubbles on it,
   // a pale concrete lot so it reads as a different paved thing from the road, and brushes in the
   // two colours every wash in the world uses.

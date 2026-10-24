@@ -107,6 +107,7 @@ import { createCarGhosts } from './game/carghosts.js';
 import { createRoadwork } from './game/roadwork.js';
 import { createStreetProps, planStreetProps } from './game/streetprops.js';
 import { createFire } from './game/fire.js';
+import { createGarbage, planTrashPiles, PROP_KEEP_OUT } from './game/garbage.js';
 import { createRace, WIN_PAY, LOSE_COST, TANK_FLOOR, COUNT_STEP, COUNTDOWN } from './game/race.js';
 import { createSpeech } from './game/speech.js';
 import { MARKER_BASE } from './game/faremarker.js';
@@ -1584,9 +1585,22 @@ const spray = createSpray(scene, makeRng(seed + 78));
 // A post box and a hot dog cart on the kerb, which a taxi in Loco Mode swipes off it — see
 // game/streetprops.js. City seed for where they stand, after the sightline field exists (they only
 // go where the camera can see them) and clear of the rain's street lamps. Run seed for the spray.
-const streetProps = createStreetProps(scene,
-  planStreetProps(makeRng(seed + 211), layout, lamps?.spots.map((p) => ({ x: p.px, z: p.pz })) ?? []),
-  { dust, rng: makeRng(runSeed + 212) });
+const lampSpots = lamps?.spots.map((p) => ({ x: p.px, z: p.pz })) ?? [];
+const streetPropPlan = planStreetProps(makeRng(seed + 211), layout, lampSpots);
+const streetProps = createStreetProps(scene, streetPropPlan, { dust, rng: makeRng(runSeed + 212) });
+
+// Bags piled on the kerb at street corners, and the garbage truck that drives round collecting them
+// — see game/garbage.js. City seed for where the piles stand (clear of the lamps and the street
+// props' swipe), run seed for the bags and the truck. The truck is a car in traffic like the fire
+// engine, and holds off in shot mode and through the opening vignette. `?garbage=soon` brings it on
+// a second in; `?garbage=classic` has neither.
+const garbage = createGarbage({
+  rng: makeRng(runSeed + 731), scene, traffic,
+  plan: planTrashPiles(makeRng(seed + 733), layout,
+    [...lampSpots, ...streetPropPlan.map((p) => ({ x: p.x, z: p.z, r: PROP_KEEP_OUT }))]),
+  blocked: () => Boolean(shot) || traffic.taxi.staged,
+  soon: new URLSearchParams(window.location.search).get('garbage') === 'soon',
+});
 
 // The city's entrance: buildings and trees rise out of the ground in a wave that spreads from the
 // taxi's spawn — the run starts where the player's car is, and the city builds itself outward from
@@ -1610,7 +1624,7 @@ const cityEntry = createCityEntry({
     ...(graveyard ? [graveyard.entryObject] : []),
     ...hoopers.entryObjects, ...boombox.entryObjects, ...skaters.entryObjects,
     ...tubeMan.entryObjects, ...(roadside?.entryObjects ?? []), ...(ltrain?.entryObjects ?? []),
-    ...streetProps.entryObjects],
+    ...streetProps.entryObjects, ...garbage.entryObjects],
   sites: [...city.entrySites, ...(garage ? [garage.entrySite] : []),
     ...(burger ? [burger.entrySite] : []), ...(graveyard ? [graveyard.entrySite] : []),
     ...(roadside ? [roadside.entrySite] : [])],
@@ -6807,6 +6821,8 @@ function tick() {
   // After the traffic step too: the engine's pose is written by it, and the ladder and the jet are
   // aimed off that pose.
   fire.update(dt);
+  // After the traffic step for the same reason: the bags are aimed at the hopper where it now is.
+  garbage.update(dt);
   if (fares.state.gameOver) race?.abandon();
   race?.update(dt);
   raceTalk?.update(dt);
@@ -7667,6 +7683,16 @@ if (shot) {
     }
   }
 
+  // A pile of bags (game/garbage.js) — and with `garbageAt`, the truck parked at it that many
+  // seconds into taking it. The pile nearest the city's middle, so the framing does not depend on
+  // which piles this seed drew at the coast.
+  if (shot.atTrashPile && garbage.piles.length) {
+    const pile = garbage.piles.reduce((a, b) => (Math.hypot(b.x, b.z) < Math.hypot(a.x, a.z) ? b : a));
+    if (shot.garbageAt != null) garbage.stage(pile, shot.garbageAt, () => traffic.update(1 / 60));
+    controller.state.target.set(pile.x, 0, pile.z);
+    controller.update(aspect());
+  }
+
   if (shot.atDepot && garage) {
     controller.state.target.set(garage.site.focus.x, 0, garage.site.focus.z);
     controller.update(aspect());
@@ -8230,6 +8256,8 @@ window.__taxi = {
   boxSpill,
   /** The building fire and its engine. `fire.ignite()` starts one now; `state`, `engine`. */
   fire,
+  /** The bag piles and the garbage truck. `garbage.spawn()` brings the truck on now; `piles`, `state`. */
+  garbage,
   pause,
   routeTo,
   findRoute,
