@@ -134,7 +134,11 @@ Four details worth keeping:
 Every tower wall carries the structure a real one has, drawn as value changes on its own colour:
 a darker plinth under a lit string course at the top of the ground storey, a lit belt course with a strip
 of shadow under it at every floor line (on the slab, clear of the window frames' sills), a cornice band at the top of each tier, lighter
-quoins at the corners. Curtain walls get the same.
+quoins at the corners. Curtain walls get the same. A tier with no storey above its first line,
+which is most of the city, is plain wall: there the string course, the cornice and its shadow
+all fell in the top unit of the wall under the roof's own lip, four stripes in about eight pixels
+at play zoom, and the plinth (the whole ground storey, darker) left the strip above it reading as
+one more band.
 
 **Punched windows stand in real frames** (`windowFrames`): a head and two jambs 0.2 proud of the
 wall and a deeper sill (0.28) running past them, in the wall's own colour. The colour is not the
@@ -160,8 +164,7 @@ all they came out lit there, because AO scales the indirect light that is all a 
 They still cast and receive the sun's shadow.
 
 **Shopfronts are framed too, and the ground storey's blank sides get windows.** A shopfront is
-split into bays by mullions roughly every 1.4 units, framed like a window and capped with a fascia
-board; on the door's side the glass parts round the door rather than running behind it
+split into bays by mullions roughly every 1.4 units and framed like a window; on the door's side the glass parts round the door rather than running behind it
 (`partRound`). The sides off the street, which used to be bare wall, get a row of punched windows
 on the ground storey (`GROUND_ROW`, tiers of 2.5 or more). Most of the city is a single storey
 under its roof, too short for `floorLines` to fit an upper row, so before this 135 of 166
