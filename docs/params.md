@@ -106,6 +106,7 @@ doc; what the classic version was, and why it changed, is in that doc's history 
 | `?menumusic=classic` | The radio's intro plays under the title menu on the first tap, rather than a song until Play | #519 | [audio.md](audio.md#the-radio) |
 | `?bubbles=classic` | Speech bubbles pinned over whatever they are about (cars, riders, the pedal), following it round the screen, instead of a card docked at the top with a small tag on the talker | | [gameplay.md](gameplay.md#speech-bubbles) |
 | `?bubblestyle=classic` | The docked speech card and tag in see-through black with white type instead of white with black type | | [gameplay.md](gameplay.md#speech-bubbles) |
+| `?bubbleglass=classic` | The docked speech card as the near-opaque white (90%) with a hairline ring, instead of liquid glass | | [gameplay.md](gameplay.md#speech-bubbles) |
 | `?bubblestyle=card` | The docked speech card as the white Figma card with its blue gradient | | [gameplay.md](gameplay.md#speech-bubbles) |
 | `?questmark=classic` | No purple side-quest "!": the street racer's offer shows the speech tag's typing dots ("…"), the garage door has no "!" while the taxi smokes, and the bank rider waits under the urgency pie | | [gameplay.md](gameplay.md#speech-bubbles) |
 | `?tipfocus=classic` | A speech tag waiting at the screen edge takes no tap; the racer's still asks from where it is, and nothing pans the camera to the talker | | [gameplay.md](gameplay.md#speech-bubbles) |

@@ -1634,6 +1634,48 @@
       .speech-style-white .speech-title { color: rgba(16, 18, 26, 0.5); }
       .speech-style-white .speech-text { color: #121318; }
       .speech-style-white .speech-tag i { background: #121318; }
+      /* Liquid glass, the default (Tyler, 2026-10-24: "a little glassy, like iOS liquid glass");
+         `?bubbleglass=classic` is the near-opaque white above. The white drops from 90% to 58% so
+         the city actually shows through, and the blur doubles and boosts saturation so what shows
+         is a soft wash of colour rather than legible street — at 12px the lane dashes still read
+         through the type. `brightness` lifts that wash so black type keeps its contrast over the
+         night city too. The glint is a 1px rim drawn as a second background on the border box
+         (no mask, so it needs nothing WebKit lacks): bright at the top-left corner, where the
+         light is, faint along the sides, a little back up at the bottom-right — the way a glass
+         edge catches light on both sides. Thin on purpose: no gloss sheen across the face (the
+         standing no-cartoony-shine rule). The border-box sizing everywhere (`*`) keeps the 1px
+         rim inside the card's measured size, so speech.js's height easing is untouched; the
+         padding gives the pixel back. The tag stays the opaque outlined disc below: its dark
+         outline ring would show through glass as a grey halo. */
+      .speech-style-white.speech-liquid .speech-card {
+        border: 1px solid transparent; padding: 12px 15px;
+        background:
+          linear-gradient(rgba(255, 255, 255, 0.58), rgba(255, 255, 255, 0.58)) padding-box,
+          linear-gradient(90deg, rgba(255, 255, 255, 0), rgba(255, 255, 255, 1), rgba(255, 255, 255, 0))
+            0 0 / 40% 3px no-repeat border-box,
+          linear-gradient(135deg, rgba(255, 255, 255, 0.95) 0%, rgba(255, 255, 255, 0.2) 30%,
+            rgba(255, 255, 255, 0.12) 65%, rgba(255, 255, 255, 0.55) 100%) border-box;
+        -webkit-backdrop-filter: blur(20px) saturate(1.8) brightness(1.08);
+        backdrop-filter: blur(20px) saturate(1.8) brightness(1.08);
+        box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.45), 0 6px 20px rgba(16, 18, 26, 0.24);
+        animation: speech-rim-glint 6.5s ease-in-out 0.6s infinite;
+      }
+      /* A glint that slowly traces the top rim (Tyler, 2026-10-24: "really subtle but nice"): the
+         middle background layer, a strip 40% of the card wide, slid left to right along the top.
+         Its first pixel is the border, at full strength; the two under it show through the 58%
+         fill above them as a soft glow just inside the rim, and the fill hides it everywhere else,
+         so it can only ever light the top edge. The card's radius clips it as it
+         rounds each corner — that is the fade in and out. A background rather than a pseudo-element
+         because the docked card is `overflow: hidden`, which clips children to the padding box and
+         would cut a pseudo-element off the border. 4s to cross, then 2.5s of rest (Tyler: slower,
+         brighter, a 2.5s gap; it was 2.6s and 3.4s): a constant sweep reads as a loading shimmer. Only the middle position moves; the other two layers are
+         listed because `background-position` is set for all three at once. */
+      @keyframes speech-rim-glint {
+        0% { background-position: 0 0, -60% 0, 0 0; }
+        61.5% { background-position: 0 0, 160% 0, 0 0; }
+        100% { background-position: 0 0, 160% 0, 0 0; }
+      }
+      .speech-style-white.speech-liquid .speech-title { color: rgba(16, 18, 26, 0.58); }
       /* The thing a line is about — "{garage}" in the line's source, game/speech.js `parseLine`.
          Yellow type with a black outline (Tyler, 2026-10-20), the outline painted under the fill
          (`paint-order`) so it thickens the letter outward rather than eating into the yellow: a
@@ -1724,7 +1766,7 @@
       }
       @keyframes speech-quest-hop { 0%, 55%, 100% { transform: none; } 20% { transform: translateY(-2.5px) rotate(-6deg); } 38% { transform: translateY(0.5px) rotate(3deg); } }
       @media (prefers-reduced-motion: reduce) {
-        .speech-tag i, .speech-tag b, .speech-hl.is-said { animation: none; }
+        .speech-tag i, .speech-tag b, .speech-hl.is-said, .speech-style-white.speech-liquid .speech-card { animation: none; }
         .speech-docked > .speech > .speech-body, .speech-docked.is-open > .speech > .speech-body,
         .speech-docked.is-closing > .speech > .speech-body, .speech-tag-body { transform: none; }
       }

@@ -108,6 +108,11 @@ that is the one thing that should be under way before the bubble speaks.
 
 Now: [Speech bubbles](gameplay.md#speech-bubbles).
 
+**Until 2026-10-24 the docked card was a near-opaque white (`?bubbleglass=classic`):** 90% white
+over a 12px blur, with a hairline ring for an edge. At 90% the blur was all but invisible; Tyler
+asked for something closer to iOS liquid glass, so the white came down to 58%, the blur up to 20px,
+and the ring became a glinting rim.
+
 **For an afternoon on 2026-10-20 the docked card was see-through black with white type
 (`?bubblestyle=classic`).** It was picked from a round of eight looks and inverted the same day:
 Tyler found the white type on black hard to read while it typed.

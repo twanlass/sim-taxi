@@ -145,6 +145,15 @@ function captionStyle() {
 }
 
 /**
+ * `?bubbleglass=classic`: the white card at 90% with a hairline ring, before it went to liquid glass
+ * (see-through, a heavier blur and a thin glinting rim — index.html). Browser-only.
+ */
+function liquidOff() {
+  if (typeof window === 'undefined') return false;
+  return new URLSearchParams(window.location.search).get('bubbleglass') === 'classic';
+}
+
+/**
  * A line with the thing it is about called out: `'Tap the {garage} for repairs'` is the text
  * "Tap the garage for repairs" with "garage" highlighted. Answers the plain text and its runs,
  * each `{ s, e, hl }` over that text, covering it end to end.
@@ -335,6 +344,7 @@ export function createSpeech(root, { viewport = null, typing = false, onDismiss 
   root.classList.toggle('speech-docked', docked);
   const look = docked ? captionStyle() : 'card';
   if (look !== 'card') root.classList.add(`speech-style-${look}`, 'speech-glass');
+  if (look === 'white' && !liquidOff()) root.classList.add('speech-liquid');
   root.innerHTML = `
     <div class="speech">
       <div class="speech-body">
