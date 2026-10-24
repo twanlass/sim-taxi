@@ -186,6 +186,8 @@ import { createRepairClip, clipKeys as repairKeys } from './game/repairclip.js';
 import { SKYLINE_CEILING } from './city/buildings.js';
 import { popHighlight, POP_TIME } from './game/selectpop.js';
 import { createDiagnostics, describeGpu } from './game/diag.js';
+import { createHitchLogger, getHitchLogger } from './game/hitch.js';
+import { warmFirstDraws } from './game/warmup.js';
 import { createBench } from './game/bench.js';
 import { createSoak } from './game/soak.js';
 import { createGovernor } from './game/governor.js';
@@ -6406,10 +6408,24 @@ function frame(t) {
   // flash across the screen. Headless under `?squall&fps=30`, 4 of the run's 6 resizes landed
   // that way before the move and none after.
   governor.frame(t, !pause?.state.paused && !presenterHeld && !fares.state.gameOver && !document.hidden);
+  hitch.begin(t);
   bench?.begin(t);
   tick();
   bench?.end();
+  hitch.end();
 }
+
+// `?hitch`: frames that arrive late, and what was on screen when they did — see game/hitch.js.
+const hitch = createHitchLogger(renderer, {
+  enabled: getHitchLogger(),
+  cap: frameRateCap,
+  probes: {
+    glass: () => document.querySelector('.speech-liquid.is-open:not([hidden])'),
+    speech: () => document.querySelector('.speech-glass.is-open:not([hidden])'),
+    truck: () => garbage.state.truck,
+    paused: () => pause?.state.paused,
+  },
+});
 
 let edgeFogTime = 0;
 // Whether the radio is ducked under the robber's line — see `sfx.hold` in `tick`.
@@ -8081,6 +8097,15 @@ if (shot) {
   // `tools/links.mjs`, it moves six program links out of the run and into the boot, where they are
   // behind the wipe and the vignette and nobody is being made to wait for them mid-corner.
   renderer.compile(scene, camera);
+  // ...and drawn once, because linking is not the whole of a first sight on iOS: Metal builds its
+  // pipelines and three uploads the buffers on the first *draw*, per pass. Left to the run, that
+  // was a first play that hitched every time the camera reached somewhere new and a second play
+  // that didn't (see game/warmup.js). `?warmup=classic` skips it. The second draw is so the frame
+  // left in the canvas is the real one, not the city with every pool showing.
+  if (new URLSearchParams(window.location.search).get('warmup') !== 'classic') {
+    warmFirstDraws(scene, () => renderFrame());
+    renderFrame();
+  }
   const benchHooks = {
     renderer,
     ready: () => Boolean(traffic.taxi) && !traffic.taxi.staged,
