@@ -1862,7 +1862,8 @@ in `game/fares.js`).
 Every combo the taxi lands on a job steps a multiplier up, and the drop-off pays the fare at it
 (`game/combometer.js`, Tyler's idea after the Duolingo combo streak). It starts each ride at ×1: an
 overtake or a bootleg U-turn +0.5, a drift kick +0.5 per chain tier (so a full chain of three is
-+3), **Stuntman** +1, the bridge launch +2, **Crushin' It** +1, **Return to Sender** and
++3), **Stuntman** +1, the bridge launch +2, **Mega Air** (jumping the rising drawbridge,
+[river.md](river.md#jumping-it-mega-air)) +3, **Crushin' It** +1, **Return to Sender** and
 **Hot Diggity** +0.5, capped at ×5.
 
 **Return to Sender** and **Hot Diggity** are swiping a post box or the hot dog cart off the kerb

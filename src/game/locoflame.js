@@ -312,16 +312,22 @@ export function createLocoFlame(scene, { back = TAXI_TAILPIPE_BACK, height = TAX
     const roll = car.shownBarrel ?? 0;
     const below = height - TAXI_ROLL_PIVOT;
     const side = below * Math.sin(roll);
+    // The bridge jump's front flip turns the same pivot the other way: the pipe, back and below it,
+    // swings up and over the roof. Positive `flip` is nose-up, which drops the tail.
+    const flip = car.shownFlip ?? 0;
+    const reach = back * Math.cos(flip) + below * Math.sin(flip) - back;
+    const rise = -back * Math.sin(flip) + below * (Math.cos(flip) - 1);
     group.position.set(
-      car.x - Math.cos(car.yaw) * back + Math.sin(car.yaw) * side,
-      height + (car.shownLift ?? 0) + below * (Math.cos(roll) - 1)
+      car.x - Math.cos(car.yaw) * (back + reach) + Math.sin(car.yaw) * side,
+      height + (car.shownLift ?? 0) + below * (Math.cos(roll) - 1) + rise
         - Math.sin(car.shownPitch ?? 0) * back,
-      car.z + Math.sin(car.yaw) * back + Math.cos(car.yaw) * side,
+      car.z + Math.sin(car.yaw) * (back + reach) + Math.cos(car.yaw) * side,
     );
     // Local +X is the plume's own length, and it has to lie along the car's backward direction:
     // rotating the group by yaw + π sends local +X to (−cos yaw, 0, sin yaw), which is exactly the
-    // (bx, bz) every other effect off the back of this car is written in.
-    group.rotation.y = car.yaw + Math.PI;
+    // (bx, bz) every other effect off the back of this car is written in. Through a flip it tips
+    // with the tail (local Z is across the car), so the plume keeps pointing out of the pipe.
+    group.rotation.set(0, car.yaw + Math.PI, -flip, 'YXZ');
 
     // Two beats rather than one. A single sine is a plume *breathing*; the second, faster and
     // shallower, is what stops the length and the flipbook from locking into one visible period.

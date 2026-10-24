@@ -212,7 +212,7 @@ function archRailing(x, span, rise, lift, col, from, to) {
  *               its leaf as two calls over two ranges of the same profile, so that a leaf lowered
  *               back down sits exactly on the road it came out of.
  */
-export function bridgeParts(span, rng, range = [0, 1]) {
+export function bridgeParts(span, rng, range = [0, 1], { capCut = false } = {}) {
   const length = span.z1 - span.z0;
   const rise = span.kind === 'fixed' ? ARCH_RISE : 0;
   const [from, to] = range;
@@ -265,17 +265,46 @@ export function bridgeParts(span, rng, range = [0, 1]) {
   // through the hollow slab and out to the water. A box at each end, set in by a few thousandths
   // on every side that would otherwise lie on a deck surface's plane, so it closes the hole
   // without fighting anything. Skipped at the drawbridge's hinge, which is not an end.
+  //
+  // `capCut` closes a cut that *is* an end: the split drawbridge's two leaves meet mid-channel, and
+  // raised, each tip is the edge the camera looks straight at (Tyler, 2026-10-24: "the drawbridge
+  // needs some thickness / ends geo"). Same box, at the cut rather than the bank.
   const CAP = 0.05;
   const IN = 0.003;
   for (const end of [0, 1]) {
-    if (end === 0 ? from > 1e-9 : to < 1 - 1e-9) continue;
-    const zc = end === 0 ? CAP / 2 : length - CAP / 2;
+    const atBank = end === 0 ? from <= 1e-9 : to >= 1 - 1e-9;
+    if (!atBank && !capCut) continue;
+    const zc = end === 0 ? from * length + CAP / 2 : to * length - CAP / 2;
     const cap = (x0, x1, y0, y1, col) => {
       const box = new THREE.BoxGeometry(x1 - x0, y1 - y0, CAP);
       box.translate((x0 + x1) / 2, (y0 + y1) / 2, zc);
       parts.push(bakeColor(box, col));
     };
-    cap(-span.half + IN, span.half - IN, -DECK_THICK + IN, -0.03, soffitCol);
+    if (atBank) {
+      cap(-span.half + IN, span.half - IN, -DECK_THICK + IN, -0.03, soffitCol);
+    } else {
+      // A leaf's tip is a steel nose beam rather than a flush cap: a cap seen from above is a
+      // line, and a raised leaf shows the camera its running surface, not its end. The beam stands
+      // TIP_LIP proud of the carriageway, so the tip reads as an edge with depth on the way up and,
+      // lowered, the two noses meet as a joint plate across the middle of the span. Render-only
+      // like the arch: a car crossing it does not notice.
+      const TIP_LIP = 0.18;
+      const TIP_DEPTH = 0.75;
+      // The outermost SEAM_W of it is near-black (Tyler, 2026-10-24: "a thin black line to the
+      // center edges"), so two lowered noses draw a ~1.5px crack down the middle of the span and a
+      // raised tip has a dark lip along its edge. Two boxes, not a strip laid on top: the line
+      // carries down the end face too, which is what a lifting leaf turns toward the camera.
+      const SEAM_W = 0.1;
+      const tip = end === 0 ? from * length : to * length;
+      const inward = end === 0 ? 1 : -1;
+      const beam = (z0, depth, col) => {
+        const box = new THREE.BoxGeometry(span.half * 2 - 2 * IN, DECK_THICK + TIP_LIP - IN, depth);
+        box.translate(0, (TIP_LIP - DECK_THICK + IN) / 2, z0 + inward * depth / 2);
+        parts.push(bakeColor(box, col));
+      };
+      beam(tip, SEAM_W, color('drawbridgeSeam'));
+      beam(tip + inward * SEAM_W, TIP_DEPTH - SEAM_W, trimCol);
+    }
     for (const sign of [-1, 1]) {
       const [x0, x1] = sign > 0
         ? [span.half + IN, span.outer - IN] : [-span.outer + IN, -span.half - IN];
@@ -416,8 +445,8 @@ export function jointParts(span, rng) {
  *                leaf needs its hinge at the origin so a group can turn it; everything else wants
  *                world coordinates and gets `null`.
  */
-export function createBridge(span, rng, { range = [0, 1], abutments = true, pivotZ = null } = {}) {
-  const parts = bridgeParts(span, rng, range);
+export function createBridge(span, rng, { range = [0, 1], abutments = true, pivotZ = null, capCut = false } = {}) {
+  const parts = bridgeParts(span, rng, range, { capCut });
   if (abutments) {
     if (range[0] <= 1e-9) parts.push(...abutmentParts(span, rng, 0));
     if (range[1] >= 1 - 1e-9) parts.push(...abutmentParts(span, rng, 1));

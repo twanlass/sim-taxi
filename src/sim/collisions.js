@@ -1,6 +1,6 @@
 import {
   CAR_LEN, TRUCK_LEN, CIRCLE_R, circleOffsetOf, knockCar, shoveCar,
-  onDriftLaunch, hopProgress, DRIFT_LAUNCH_HEIGHT, DRIFT_LAUNCH_CLEAR,
+  onDriftLaunch, hopProgress, DRIFT_LAUNCH_CLEAR, airborneHeight,
 } from './traffic.js';
 
 // Collision detection between the taxi and ambient cars. Deliberately narrow: only the taxi is
@@ -265,8 +265,8 @@ export function createCollisions(cars, taxi, { lethalPolice = false } = {}) {
     // Up on the drift launch the taxi is flying over the far bank's junction, and what crosses it
     // underneath is under it rather than in its way. Only the climb and the drop are low enough to
     // hit anything — see DRIFT_LAUNCH_CLEAR.
-    if (onDriftLaunch(taxi)
-      && DRIFT_LAUNCH_HEIGHT * Math.sin(Math.PI * hopProgress(taxi)) > DRIFT_LAUNCH_CLEAR) return;
+    // The bridge jump's arc is not a sine (it rides the leaf first), so ask the sim how high it is.
+    if (onDriftLaunch(taxi) && airborneHeight(taxi) > DRIFT_LAUNCH_CLEAR) return;
 
     for (const other of cars) {
       if (other === taxi) continue;

@@ -1418,3 +1418,11 @@ The fender glint first shipped (#655) as a single star on the front-right fender
 Tyler asked for it amped up the next day ("show 3 sparkles one after another in slightly different
 spots and sizes"), and it became the run of three in `game/glint.js`. No classic toggle for the
 single star: it is a tuning of the same effect, and `?glint=classic` still turns the whole thing off.
+
+## The drawbridge that re-routed at the lamps (until October 2026, `?bridgejump=classic`)
+
+The drawbridge was one long leaf hinged on the near bank, and the taxi was re-planned round it on
+the first frame of `clearing`, before the arms moved. Safe and invisible: a raised leaf was only
+ever a route that went the long way. Splitting it into two leaves for the Mega Air jump
+([river.md](river.md#jumping-it-mega-air)) moved the re-plan to the end of the jump window, so a
+route over the span now runs to the gate and waits there.

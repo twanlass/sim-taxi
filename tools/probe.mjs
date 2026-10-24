@@ -86,7 +86,7 @@ import { BOX_REAR as SPILL_BOX_REAR } from '../src/geometry/truckdoors.js';
 import { deckHeightAt as spillDeckHeight, BRIDGES_INLAND } from '../src/city/river.js';
 import { createFire } from '../src/game/fire.js';
 import { clearCityOccluders } from '../src/game/sightline.js';
-import { TRUCK_LEN, TRUCK_BOX_LEN } from '../src/sim/traffic.js';
+import { TRUCK_LEN, TRUCK_BOX_LEN, setBridgeStunt, MEGA_AIR_HEIGHT } from '../src/sim/traffic.js';
 import { archedBodyGeometries, archOutlines, archCeiling, WHEEL_W, ARCH_R } from '../src/geometry/wheels.js';
 import { CRATE, CRATE_REST_Y, CRATE_CHIP_REST_Y, DECK_TOP, DECK_REAR } from '../src/geometry/crate.js';
 import { createDust } from '../src/game/dust.js';
@@ -225,7 +225,7 @@ import {
 import { createBridge, abutmentParts, JOINT_Y } from '../src/geometry/bridge.js';
 import { createBargeMesh, createTugMesh, GULL_STAND, PERCH_CEIL } from '../src/geometry/boat.js';
 import { gullHeight, FLY_HIGH } from '../src/game/gulls.js';
-import { createDrawbridge, OPEN_SECONDS } from '../src/game/drawbridge.js';
+import { createDrawbridge, OPEN_SECONDS, LIFT_ANGLE as BRIDGE_LIFT_ANGLE, STUNT_FROM, STUNT_TO } from '../src/game/drawbridge.js';
 import { createBoats, BOAT_LANE, LANE_WANDER } from '../src/game/boats.js';
 import { FOAM_LIFE } from '../src/game/wake.js';
 import {
@@ -20736,6 +20736,81 @@ let chopperOrder; // likewise
     cCollisions.update(1 / 60);
     check('...which the same car on the road is', hits > 0 || cTaxi.hp < TAXI_HP,
       `${hits} hits, hp ${cTaxi.hp}`);
+  }
+
+  // --- Mega Air: jumping the drawbridge while its leaves are rising.
+  //
+  // A taxi routed over the span, arriving while the arms are down: it has to wait at the line, not
+  // drive onto the deck, and Loco once the leaves are a ramp sends it up the near leaf, flipping
+  // nose-over through the flight and down on its wheels past the far bank. A route that wanted to
+  // turn at the far bank flies straight on anyway. Without Loco, or under ?bridgejump=classic, it
+  // never sets a wheel on the deck.
+  {
+    const bLine = drawbridgeLine();
+    const jump = ({ press = true, classic = false } = {}) => {
+      const jScene = new THREE.Scene();
+      const bridge = createDrawbridge(jScene, makeRng(seed + 837), { stunt: !classic });
+      setBridgeStunt(bridge?.stunt ?? null);
+      const jTraffic = createTraffic(makeRng(seed + 99), jScene, 1);
+      const jTaxi = jTraffic.taxi;
+      placeCar(jTaxi, DIR.PZ, bLine, riverRow(), 10);
+      jTaxi.parked = false;
+      jTaxi.v = 8;
+      jTaxi.route = [DIR.PZ, DIR.PX, DIR.PZ];
+      jTaxi.routeConsumed = false;
+      bridge.request();
+      const deck = new Set(bridge.laneIds);
+      const out = { held: 0, early: false, kind: null, liftAt: null, peak: 0, minUp: 1, landUp: null,
+        landing: null, knocked: false, onDeck: false };
+      const up = new THREE.Vector3();
+      jTraffic.onTaxiLand((event) => { out.landing = out.landing ?? event; });
+      for (let f = 0; f < 60 * 20 && !out.landing; f++) {
+        const a = bridge.state.lift * BRIDGE_LIFT_ANGLE;
+        jTaxi.boost = press && bridge.state.phase === 'lifting' && a >= STUNT_FROM + 0.02;
+        bridge.update(1 / 60, jTraffic.cars);
+        const before = jTaxi.hopFrom;
+        jTraffic.update(1 / 60);
+        const on = deck.has(jTaxi.lane?.id) || deck.has(jTaxi.turn?.outLane);
+        if (on) out.onDeck = true;
+        if (on && !jTaxi.boost && jTaxi.hopFrom == null) out.early = true;
+        if (!on && jTaxi.v < 0.05 && bridge.closed) out.held += 1;
+        if (bridge.state.knocked[0] >= 0) out.knocked = true;
+        if (before == null && jTaxi.hopFrom != null) {
+          out.kind = jTaxi.hopKind;
+          out.liftAt = a;
+        }
+        if (jTaxi.hopFrom != null) out.peak = Math.max(out.peak, jTraffic.taxiGroup.position.y - ROAD_Y);
+        up.set(0, 1, 0).applyQuaternion(jTraffic.taxiGroup.quaternion);
+        out.minUp = Math.min(out.minUp, up.y);
+        if (out.landing) out.landUp = up.y;
+      }
+      jTraffic.dispose?.();
+      bridge.dispose();
+      setBridgeStunt(null);
+      return out;
+    };
+    if (bLine !== null) {
+      const j = jump();
+      check('a taxi routed over the drawbridge waits at the line while the arms are down',
+        j.held > 30 && !j.early, `${j.held} frames held, on the deck before Loco ${j.early}`);
+      check('Loco on the rising leaves is Mega Air, launched inside the window',
+        j.kind === 'bridge' && j.liftAt >= STUNT_FROM && j.liftAt <= STUNT_TO && j.knocked,
+        `kind ${j.kind}, leaf at ${((j.liftAt ?? 0) * 180 / Math.PI).toFixed(1)}°, arm knocked ${j.knocked}`);
+      check('...higher than Big Air, front-flipped upside down, and down on its wheels',
+        j.peak > MEGA_AIR_HEIGHT * 0.9 && j.minUp < -0.95 && j.landUp > 0.9,
+        `peak ${j.peak.toFixed(2)}, lowest up ${j.minUp.toFixed(2)}, ${j.landUp?.toFixed(2)} at touchdown`);
+      const far = riverBanks().z1;
+      check('...past the far bank, flying straight on although the route wanted to turn there',
+        j.landing && j.landing.kind === 'bridge' && j.landing.big && j.landing.z > far + 4
+        && Math.abs(j.landing.x - lineX(bLine)) < HALF_ARTERIAL + 1,
+        j.landing ? `down at (${j.landing.x.toFixed(1)}, ${j.landing.z.toFixed(1)}), far bank ${far.toFixed(1)}` : 'never landed');
+      const shy = jump({ press: false });
+      check('without Loco the taxi never drives onto the shut span', !shy.onDeck && shy.kind === null,
+        `on deck ${shy.onDeck}, kind ${shy.kind}`);
+      const old = jump({ classic: true });
+      check('?bridgejump=classic: no jump, and the taxi keeps off the span', !old.onDeck && old.kind === null,
+        `on deck ${old.onDeck}, kind ${old.kind}`);
+    }
   }
 
   // --- Crushin' It: Big Air coming down on a car wrecks the car and not the taxi.

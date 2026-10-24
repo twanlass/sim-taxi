@@ -1136,6 +1136,9 @@ export const PALETTE = {
   // Under the dark roads it wears the same light deck as the fixed spans (`?roads=classic`: #87888C);
   // the counterweight houses and the gate still say which one lifts.
   drawbridgeDeck: '#A9A9A5',
+  // The line down the middle where the two leaves of the split drawbridge meet: the last sliver of
+  // each nose beam (geometry/bridge.js), so the break reads as a crack raised or lowered.
+  drawbridgeSeam: '#151618',
   // Where a deck meets the road (`abutmentParts`, geometry/bridge.js): a steel expansion joint at
   // the bank line and a pale concrete approach slab on the road side of it, so the change from
   // tarmac to deck is a seam you can see rather than two surfaces butting.

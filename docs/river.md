@@ -507,6 +507,12 @@ player is driving it.** A park district closes a road before the run starts and 
 only ever makes one cheaper; this takes a route that was valid ten seconds ago and stops it
 existing, with a clock running in the back seat.
 
+It is a **double-leaf** bascule: two half-leaves meeting over the middle of the channel, each hinged
+at its own bank with its own pair of counterweight houses, so the boat goes through the gap between
+them. For the first few seconds of a lift the near leaf is a ramp, and the taxi can jump it — see
+[Jumping it](#jumping-it-mega-air). `?bridgejump=classic` is the single long leaf hinged on the
+near bank, with no jump.
+
 ### The cycle
 
 ```
@@ -580,10 +586,13 @@ onto a boat still four seconds short of it. It is 20 now, which is that 11.3 plu
 
 ### 70°, and what bounds it
 
-A real bascule opens to about 80. The ceiling here is what the leaf **hides**: a raised leaf spans
-the channel, so it stands 10 units up and casts a 15-unit blind spot over the far bank. Past that it
-starts hiding the road beyond — and a marker the player cannot find is exactly what `cornerSeen`
-exists to prevent, except that this one comes and goes, so no static filter can catch it.
+A real bascule opens to about 80. The ceiling here is what the leaf **hides**: the single leaf
+(`?bridgejump=classic`) spans the channel, so it stands 10 units up and casts a 15-unit blind spot
+over the far bank. Past that it starts hiding the road beyond — and a marker the player cannot find
+is exactly what `cornerSeen` exists to prevent, except that this one comes and goes, so no static
+filter can catch it. Split, each half is half that length and stands ~7 up, so the angle is kept and
+the blind spot shrinks; the price is that the camera-side half now stands between the player and
+part of the channel, which the one far-hinged leaf was placed to avoid.
 
 The soffit is a related decision and a bigger one than it sounds. Raised, the leaf turns its belly
 through the view axis, so **the underside is the whole of what the camera sees**. In the pale
@@ -597,6 +606,53 @@ map *before* anything moves. `drawbridgeDeck` is a cool luma 136 against `bridge
 road's own 104: a bascule leaf is a steel grid, the road stops being road where the machinery
 starts, and in `bridgeDeck` this span was a stripe of street lying over the water exactly like the
 other two, with a counterweight house the size of a bus shelter as its only tell.
+
+### Jumping it: Mega Air
+
+Tyler, 2026-10-24: "what if our drawbridge split in the middle and opened up from both sides, kind of
+creating a ramp, and then that turned into a stunt route ... super max air". While the leaves are
+rising through **8° to 45°** (`STUNT_FROM`/`STUNT_TO`, about 1.4s to 4.1s into the smoothstepped
+lift) the near leaf is a ramp. Below that it is barely off its seat; above it, it is a wall.
+
+**The route keeps the span until the window closes.** It used to be re-planned round the moment the
+lamps started. Now the taxi's router (and only the taxi's: `setStuntLanes` in game/route.js keys off
+`laneCost`, which no service router uses) can still plan over it through `clearing`, `closing` and
+the window, and the span is blocked and the taxi re-planned the frame the leaves pass `STUNT_TO`.
+
+**The gate decides at the hold line** (`gate` in drawbridge.js, `stuntVerdict` in sim/traffic.js):
+
+| Phase | Says |
+|---|---|
+| `clearing` | `pass` — the arms are up; cross as a road, and the deck waits for you as it would anyway |
+| `closing`, or `lifting` under 8° | `hold` — a red: the taxi brakes for it on the approach and waits at the line |
+| `lifting` 8°–45° with Loco held | `go` |
+| `lifting` 8°–45° without | `hold` |
+| anything later | `refuse` — the ordinary refusal, which drops the route |
+
+So **nothing ever falls short into the river**. Without Loco the taxi waits at the line and is
+re-routed when the window closes; the cost of not jumping is those few seconds, and the wait is also
+where the player finds out there was something to jump.
+
+On `go` the arm the taxi drives through is flung up for 1.6s, the route is bent **straight on at the
+far bank** (the flight crosses that junction in the air) and main.js re-plans from wherever the taxi
+comes down. On the deck lane it launches at Loco's top speed whatever it had built up from the line:
+the arc is distance-paced, and one flown at a crawl hangs over the river.
+
+The arc (`hopKind: 'bridge'`, sim/traffic.js) rides the leaf's surface at its live angle up to the
+tip, then flies an arc from the tip's height that peaks at `MEGA_AIR_HEIGHT` = 14 (~90px at play
+zoom, four over Big Air) and comes down `MEGA_AIR_PAST` into the street past the far bank. It is
+steeper than the leaf at the lip, deliberately: off a 30° ramp the true projectile apex is about 5,
+which is a hop over a river. `hopBig` stays true, so everything that treats Big Air as airborne — the
+priority junction, the deaf brake, the collision skip, the slam — does the same here; collisions ask
+`airborneHeight` rather than assuming a sine. The trick is a **front flip** (`megaFlipAt`), because
+the barrel roll is Big Air's, about the same pivot, and the Loco plume swings over the roof with the
+tailpipe. main.js slows the sim to 0.28 at the apex (Big Air's 0.4) for it, and the meter pays
+**Mega Air +3**.
+
+`tools/probe.mjs` drives it end to end: held at the line with the arms down, launched inside the
+window with the arm knocked, past 90% of `MEGA_AIR_HEIGHT`, upside down mid-flight and upright at
+touchdown past the far bank on a route that wanted to turn there — and, without Loco or under
+`?bridgejump=classic`, never on the deck at all.
 
 ### The three closure sets
 
