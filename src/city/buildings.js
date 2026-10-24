@@ -835,10 +835,9 @@ function buildTower(lot, block, rng, parts, stats, { height: fixed = null, famil
   // Sampled once per building rather than per tier, so a setback tower's reflection runs on up
   // through the steps instead of restarting at each one.
   const peak = streakPeak(cx, cz);
-  // Half the masonry is pilastered between its bays, half is ledges alone: two façade dialects
-  // rather than one. A hash of the lot, not a draw, so the city a seed builds is untouched.
-  const wallStyle = style === 'punched' && hash01(cx * 0.61 + 17.3, cz * 1.13 - 4.1) < 0.5
-    ? WALL_STYLE.PILASTERS : WALL_STYLE.LEDGES;
+  // Painted pilasters between the bays went in with the ledges and came out once the windows had
+  // real frames: the two read as competing vertical streaks (Tyler, 2026-10-24).
+  const wallStyle = WALL_STYLE.LEDGES;
 
   let y = KERB_H;
   let cw = w;
@@ -912,7 +911,7 @@ export { splitLot };
 /** The towers' material: `propMaterial({ smooth })` with the wall detail patched on (city/facade.js). */
 export function wallMaterial() {
   return patchWalls(propMaterial({ smooth: true }), {
-    floorH: FLOOR_H, sill: SILL, bay: BAY, groundTop: KERB_H + GROUND_H,
+    floorH: FLOOR_H, sill: SILL, groundTop: KERB_H + GROUND_H,
   });
 }
 export { fillWalls, frameMesh };

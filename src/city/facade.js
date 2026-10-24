@@ -3,8 +3,8 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { bakeColors, propMaterial } from '../util/geo.js';
 
 // Wall detail on the towers: a darker plinth under a string course, a lit ledge with its shadow
-// under every row of sills, a cornice at the top of each tier, and — on half the masonry — a
-// lighter pilaster between each pair of window bays. All of it is a fragment patch on the merged
+// under every row of sills, a cornice at the top of each tier and lighter quoins at the corners.
+// All of it is a fragment patch on the merged
 // building mesh, keyed off one attribute stamped on each tier's box. No geometry, no rng draw, no
 // new colour: every term is a multiplier on the envelope's own vertex colour.
 //
@@ -20,7 +20,7 @@ export const WALLS_CLASSIC = typeof location !== 'undefined'
   : globalThis.process?.env?.WALLS === 'classic';
 
 /** What a wall gets. 0 is nothing (roofs, caps, every part that is not a tower's wall). */
-export const WALL_STYLE = { NONE: 0, LEDGES: 1, PILASTERS: 2 };
+export const WALL_STYLE = { NONE: 0, LEDGES: 1 };
 
 // Every term, as a multiplier on the wall's own colour. Measured against the five envelope
 // families at play zoom on a 390-wide phone: below ~8% a line stops separating from the wall,
@@ -30,16 +30,13 @@ const COURSE_LIT = 1.24;      // the string course, a lit band along the top of 
 const LEDGE_LIT = 1.22;       // a sill ledge's top, catching the sun
 const LEDGE_SHADE = 0.74;     // ...and the strip of shadow it throws on the wall under it
 const CORNICE_LIT = 1.18;     // a tier's top band
-const PILASTER_LIT = 1.12;    // a pier between two bays
-const SPANDREL = 0.93;        // the wall between piers, on a pilastered building
 const QUOIN_LIT = 1.06;       // the last quarter-unit at each corner of every wall
 
 /**
  * Stamp `aWall` on a tier's box: per vertex, (style, first floor line, u along its face, face
  * width), and `aWallTop`, the tier's top. Roof and floor faces get style 0. `u` is measured from
- * the face's centre the way `facadeQuads` measures it, so the pilasters land between the windows
- * that face's `bayLayout` put there. Linear across a face on one axis, so a quad interpolates it
- * exactly.
+ * the face's centre the way `facadeQuads` measures it; the quoins read it against the face width.
+ * Linear across a face on one axis, so a quad interpolates it exactly.
  */
 export function stampWall(geo, { style, origin, top, cx, cz, w, d, tangents }) {
   const pos = geo.attributes.position;
@@ -82,7 +79,7 @@ const f = (x) => x.toFixed(4);
  * `?walls=classic`. The pattern reads the geometry's own `position`, not the animated one, so
  * during the entrance it rides up with the wall instead of sliding over it.
  */
-export function patchWalls(material, { floorH, sill, bay, groundTop }) {
+export function patchWalls(material, { floorH, sill, groundTop }) {
   if (WALLS_CLASSIC) return material;
   const prevCompile = material.onBeforeCompile;
   const prevKey = material.customProgramCacheKey;
@@ -140,17 +137,6 @@ float wallBand(float x, float a, float b, float aa) {
 
 		// Quoins: the corners, lighter, so a mass reads as built out to its edges.
 		m *= mix(1.0, ${f(QUOIN_LIT)}, smoothstep(fw * 0.5 - 0.26 - au, fw * 0.5 - 0.26 + au, abs(u)));
-
-		// Pilasters between bays, above the ground storey. Pitch from bayLayout.
-		if (vWall.x > 1.5) {
-			float bays = clamp(floor(fw / ${f(bay)} + 0.5), 1.0, 6.0);
-			float pitch = fw * 0.88 / bays;
-			float um = u / pitch + bays * 0.5;
-			float dp = abs(um - floor(um + 0.5)) * pitch;
-			float pier = 1.0 - smoothstep(0.2 - au, 0.2 + au, dp);
-			float above = smoothstep(origin + 0.16 - ay, origin + 0.16 + ay, wy) * (1.0 - step(top - 0.56, wy));
-			m *= mix(1.0, mix(${f(SPANDREL)}, ${f(PILASTER_LIT)}, pier), above);
-		}
 		diffuseColor.rgb *= m;
 	}`);
     for (const marker of ['attribute vec4 aWall', 'vWallY = position.y']) {

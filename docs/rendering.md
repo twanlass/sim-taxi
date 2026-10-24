@@ -96,8 +96,7 @@ Four details worth keeping:
 Every tower wall carries the structure a real one has, drawn as value changes on its own colour:
 a darker plinth under a lit string course at the top of the ground storey, a lit ledge with a strip
 of shadow under it beneath every row of sills, a cornice band at the top of each tier, lighter
-quoins at the corners, and on about half the masonry a lighter pilaster between each pair of bays
-over slightly darker spandrels. Curtain walls get ledges, never pilasters.
+quoins at the corners. Curtain walls get the same.
 
 **Punched windows stand in real frames** (`windowFrames`): a head and two jambs 0.2 proud of the
 wall and a deeper sill (0.28) running past them, in the wall's own colour. The colour is not the
@@ -119,9 +118,8 @@ the sun's shadow, which is the depth they are there for.
   along the face, face width) and `aWallTop` on each tier's box; `patchWalls` reads them in the
   fragment shader on the merged mesh (`wallMaterial()`), multiplies `diffuseColor`, and composes
   its key onto the material's. Everything else in the mesh carries zeros (`fillWalls`). The ledges
-  sit on the same floor lines `floorLines` lays the windows on and the pilasters on the same pitch
-  as `bayLayout`, so the two agree by construction.
-- **No rng, no colour.** The pilaster choice is a hash of the lot and every term is a multiplier
+  sit on the same floor lines `floorLines` lays the windows on, so the two agree by construction.
+- **No rng, no colour.** Every term is a multiplier
   (`PLINTH`, `LEDGE_LIT` and the rest), so the city a seed builds is unchanged and there is nothing
   new in palette.js. Lines are anti-aliased with `fwidth`, half a pixel each side.
 - **It reads the un-animated position,** so during the entrance wave the lines ride up with the

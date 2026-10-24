@@ -21,6 +21,9 @@ wall in a stone 10% lighter than it, which read as a white outline round each wi
 as depth, so they went to the wall's own colour and 0.2 deep. Built into the merged building mesh,
 they were also AO occluders, and each one smudged a dark halo onto the wall around its window
 ("these shaded areas behind the windows feel off"); they moved to a mesh of their own, off the AO.
+The shader also painted a lighter pilaster between each pair of bays on half the masonry. Once the
+windows had frames, those read as vertical streaks running up the building behind them, and they
+were taken out.
 
 ## Wheel wells — `archedBodyGeometries` in `geometry/wheels.js`
 
