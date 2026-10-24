@@ -386,7 +386,9 @@ of it** — though the first one is currently switched off:
    the bubble gets the run to its first *instruction* a beat sooner. The beat is intact behind the
    flag — the line, `openOnTaxi`, and the `'taxi'` step in both step sets — because the vignette is
    a prototype and this is what has to come back if it goes.
-2. **"Pick up rider to start"** The lights come down and the spotlight lands on the waiting fare as the
+2. **"Hey taxi! Over here!"** — the rider hailing the cab, titled "Rider", with the tag on their
+   head (`?hail=classic`: "Pick up rider to start" under "Tip"). The line never says to tap them;
+   the dimmed city, the pan and the tag on the one lit figure carry that. The lights come down and the spotlight lands on the waiting fare as the
    camera sets off for them, so the light is already on the rider and the pan carries the player to
    it; the bubble comes back once the camera has arrived. Tapping the rider answers it directly.
    With beat one switched off this is the beat that *lights* the pool (`spotlight-on`): whatever
