@@ -1329,12 +1329,14 @@ ground, because the ground wears the painterly road strokes and iron under a str
 
 **The steam** (`game/manholesteam.js`). Three vents a city, picked first, from junctions of two
 side streets only, because the L train's deck runs over the arterials at 6.4 and a plume is 6.5
-tall. Each plume is **one quad and a fragment shader**: the quad stands on the cover's centre in
-the plane of `RIGHT` and world up (fixed, since the view never turns), and the shader draws a column
-inside it, leaning off downwind and swaying, widening as it climbs, filled with domain-warped fbm
-scrolling upward and breaking into wisps at the top. The vent breathes on two slow sines so the three
-are never in step. Lambert-lit, so it dims at dusk; transparent, so it casts no shadow and stays out
-of the AO prepass. The wind is the city's (one sign for all three, `seed + 194`). **The taxi parts
+tall. Each plume is **one quad and a fragment shader**: the quad stands on the lid's near edge in
+the plane of `RIGHT` and world up (fixed, since the view never turns), and the shader draws twelve
+soft puffs inside it on a staggered loop — born on the lid, rising fast and slowing, growing,
+drifting off downwind and fading, with a ragged rim — over one puff that sits on the lid. A
+continuous fbm column was tried first and read as a cone of light at the foot and grey smoke at the
+top. The vent breathes on two slow sines so the three are never in step. Mostly self-lit white
+(Lambert alone came out road-grey), dimmed after dark; transparent, so it casts no shadow and stays
+out of the AO prepass. The wind is the city's (one sign for all three, `seed + 194`). **The taxi parts
 it**: through a vent above 2 u/s, the foot tears open and the column is thrown across the screen the
 way the car was going, healing over 1.5s. Ambient cars don't, or the three would never be whole.
 Shots `steam` and `steam-far`.
