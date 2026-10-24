@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { bakeColors } from '../util/geo.js';
 
 // Wall detail on the towers: a darker plinth under a string course, a lit ledge with its shadow
 // under every row of sills, a cornice at the top of each tier, and — on half the masonry — a
@@ -157,4 +158,84 @@ float wallBand(float x, float a, float b, float aa) {
     if (!shader.fragmentShader.includes('diffuseColor.rgb *= m;')) throw new Error('walls: fragment hook missed');
   };
   return material;
+}
+
+// --- Window frames --------------------------------------------------------------
+//
+// Every punched window gets a real surround: a head and two jambs standing proud of the wall and
+// a deeper sill under them. The point is not the trim's colour but the *shadow* — under this sun
+// the head throws a strip across the top of the pane and the jamb on the far side throws one down
+// its edge, and that is what turns a dark rectangle painted on a wall into a hole in it. The
+// reveals (the trim's inner faces) light differently from the wall too, so even a frame in shadow
+// draws its own outline. Curtain-wall ribbons get none: on glass the glass is the wall.
+//
+// Hand-wound quads, batched one geometry per façade the way `facadeQuads` batches its panes —
+// a city carries a few thousand windows, and a few thousand `BoxGeometry`s are what that function
+// exists to avoid. Each face is wound from its corners and then *checked* against the outward
+// direction it is meant to have, so a slip in the corner order flips itself rather than shipping
+// an inside-out frame (the roadworks ramp); `tools/probe.mjs` asserts the result from the winding.
+// Measured in units off the wall. Deep enough that the head's shadow is a couple of shadow-map
+// texels (0.123 each), shallow enough that the frame never reads as a balcony at play zoom.
+const FRAME_W = 0.13;         // width of a jamb or the head
+const FRAME_D = 0.2;          // how far the head and jambs stand off the wall
+const SILL_H = 0.11;
+const SILL_D = 0.28;          // the sill sticks out further: it is what catches the light
+const SILL_OVER = 0.1;        // ...and runs past the jambs at each end
+// Five faces a bar (no back: it is against the wall), two triangles a face, four bars a window.
+export const FRAME_TRIS_PER_WINDOW = 40;
+
+/**
+ * The frames for one façade's punched windows, as one geometry. `rects` are the panes, exactly as
+ * they go to `facadeQuads`; `side`, `out` and `tan` are that face's outward and along directions.
+ */
+export function windowFrames(rects, side, cx, cz, hw, hd, col, out, tan) {
+  const [nx, nz] = out;
+  const [tx, tz] = tan;
+  const reach = side % 2 === 0 ? hw : hd;
+  const ox = cx + nx * reach;
+  const oz = cz + nz * reach;
+  const at = (u, y, n) => [ox + tx * u + nx * n, y, oz + tz * u + nz * n];
+
+  const positions = [];
+  const a = new THREE.Vector3();
+  const b = new THREE.Vector3();
+  const c = new THREE.Vector3();
+  // One quad, its corners in order, and the world direction it must face.
+  const quad = (p, dir) => {
+    a.fromArray(p[0]);
+    b.fromArray(p[1]).sub(a);
+    c.fromArray(p[2]).sub(a);
+    const q = b.cross(c).dot(dir) < 0 ? [p[0], p[3], p[2], p[1]] : p;
+    for (const k of [0, 1, 2, 0, 2, 3]) positions.push(...q[k]);
+  };
+  const OUT = new THREE.Vector3(nx, 0, nz);
+  const UP = new THREE.Vector3(0, 1, 0);
+  const DOWN = new THREE.Vector3(0, -1, 0);
+  const ALONG = new THREE.Vector3(tx, 0, tz);
+  const BACK = ALONG.clone().negate();
+  // A bar from (u0, y0) to (u1, y1), standing `d` off the wall.
+  const bar = (u0, u1, y0, y1, d) => {
+    quad([at(u0, y0, d), at(u1, y0, d), at(u1, y1, d), at(u0, y1, d)], OUT);
+    quad([at(u0, y1, 0), at(u1, y1, 0), at(u1, y1, d), at(u0, y1, d)], UP);
+    quad([at(u0, y0, 0), at(u1, y0, 0), at(u1, y0, d), at(u0, y0, d)], DOWN);
+    quad([at(u1, y0, 0), at(u1, y1, 0), at(u1, y1, d), at(u1, y0, d)], ALONG);
+    quad([at(u0, y0, 0), at(u0, y1, 0), at(u0, y1, d), at(u0, y0, d)], BACK);
+  };
+
+  for (const { u, y, w, h } of rects) {
+    const uL = u - w / 2;
+    const uR = u + w / 2;
+    const yB = y - h / 2;
+    const yT = y + h / 2;
+    bar(uL - FRAME_W - SILL_OVER, uR + FRAME_W + SILL_OVER, yB - SILL_H, yB, SILL_D);
+    bar(uL - FRAME_W, uR + FRAME_W, yT, yT + FRAME_W, FRAME_D);
+    bar(uL - FRAME_W, uL, yB, yT, FRAME_D);
+    bar(uR, uR + FRAME_W, yB, yT, FRAME_D);
+  }
+
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(positions), 3));
+  const colors = new Float32Array(positions.length);
+  for (let i = 0; i < colors.length; i += 3) colors.set([col.r, col.g, col.b], i);
+  return bakeColors(geo, colors);
 }

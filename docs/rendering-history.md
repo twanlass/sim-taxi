@@ -15,7 +15,10 @@ predates the repository's first commit here (2026-10-08) and is undated.
 colour per face, with only the windows, the shopfront and the setback ledges on it.
 `?walls=classic` brings that back. The first pass at the detail used multipliers about half the
 strength of the shipped ones (ledge 1.14/0.82, plinth 0.84): visible in a close-up and gone at
-phone play zoom.
+phone play zoom. The window frames came second, the same day, at Tyler's ask for "a little bit
+of geometry so that we get some shadows and some silhouette": the first cut stood 0.14 off the
+wall in a stone 10% lighter than it, which read as a white outline round each window rather than
+as depth, so they went to the wall's own colour and 0.2 deep.
 
 ## Wheel wells — `archedBodyGeometries` in `geometry/wheels.js`
 

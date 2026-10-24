@@ -99,6 +99,15 @@ of shadow under it beneath every row of sills, a cornice band at the top of each
 quoins at the corners, and on about half the masonry a lighter pilaster between each pair of bays
 over slightly darker spandrels. Curtain walls get ledges, never pilasters.
 
+**Punched windows stand in real frames** (`windowFrames`): a head and two jambs 0.2 proud of the
+wall and a deeper sill (0.28) running past them, in the wall's own colour. The colour is not the
+point; the head's shadow across the top of the pane and the lit reveals are, and they are what
+turn a dark rectangle on a wall into a hole in it. Hand-wound quads, one geometry per façade like
+the panes, with each face checked against the way it must point as it is emitted and asserted
+from the winding in `tools/probe.mjs`. 40 triangles a window, about 2k across a city (5.7k → 7.6k
+in the merged building mesh, mean of four seeds). Curtain-wall ribbons get no frame: on glass the
+glass is the wall.
+
 - **Structure, not texture.** At play zoom a unit is ~7.7px, so brick coursing or stucco noise
   is a shimmer. A line per storey and a base and a top are a pixel or two each on a phone, and they
   are what was missing: each wall used to be one colour from kerb to parapet, a printed box.
@@ -114,7 +123,7 @@ over slightly darker spandrels. Curtain walls get ledges, never pilasters.
 - **It reads the un-animated position,** so during the entrance wave the lines ride up with the
   wall rather than sliding over it.
 
-`?walls=classic` leaves the walls flat ([history](rendering-history.md#wall-detail--cityfacadejs)).
+`?walls=classic` leaves the walls flat and the windows unframed ([history](rendering-history.md#wall-detail--cityfacadejs)).
 
 ### Wheel wells — `archedBodyGeometries` in `geometry/wheels.js`
 

@@ -6,7 +6,7 @@ import { makeRng, valueNoise2D } from '../util/rng.js';
 import { KERB_H } from './ground.js';
 import { plantedCrowns, treeParts, treeShape } from './props.js';
 import { buildBank, bankDomeMesh, chooseBankLot } from './bank.js';
-import { WALL_STYLE, fillWalls, patchWalls, stampWall } from './facade.js';
+import { WALLS_CLASSIC, WALL_STYLE, fillWalls, patchWalls, stampWall, windowFrames } from './facade.js';
 
 const FLOOR_H = 2.6;
 // The ground floor is its own storey height. A shopfront is taller than the flats above it, and
@@ -26,6 +26,8 @@ const SILL = 0.55;        // sill height above the floor line
 // How far an opening stands off the wall it is punched into. Small enough not to read as a
 // pilaster from any angle, large enough to beat depth precision at DISTANCE = 400.
 const EPS = 0.03;
+// The window surrounds' colour against their wall (city/facade.js).
+const FRAME_TINT = 1.0;
 
 /**
  * Nothing on a roof may reach past this.
@@ -361,6 +363,11 @@ function punchedWindows(parts, cx, base, cz, w, d, h, firstFloorH, windowColor, 
     }
     paneSink?.({ rects, side, cx, cz, hw: w / 2, hd: d / 2, kind: 'punched' });
     parts.push(facadeQuads(rects, side, cx, cz, w / 2, d / 2, windowColor, EPS, sky));
+    // The surround each window stands in (city/facade.js): stone a touch lighter than the wall,
+    // so the frame reads by its shadow on the pane and its own lit edge rather than by its colour.
+    if (!WALLS_CLASSIC) {
+      parts.push(windowFrames(rects, side, cx, cz, w / 2, d / 2, shade(body, FRAME_TINT), SIDE_OUT[side], SIDE_TAN[side]));
+    }
   }
 }
 

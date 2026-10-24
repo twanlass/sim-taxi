@@ -22,6 +22,7 @@ import { createNorthPark } from '../src/city/northpark.js';
 import {
   createGround, KERB_H, SLAB_X, SLAB_Z, SLAB_RADIUS, EDGE_FADE, PARK_EDGE, MEDIAN_EDGE,
 } from '../src/city/ground.js';
+import { FRAME_TRIS_PER_WINDOW, windowFrames } from '../src/city/facade.js';
 import {
   createBuildings, facadeQuads, pitchedRoof, wallCeiling, SKYLINE_CEILING, INSET as BANK_LOT_INSET,
 } from '../src/city/buildings.js';
@@ -2314,6 +2315,35 @@ const onGrass = (city, i, j) => {
   const share = walls ? pilasters / walls : 0;
   check('some walls are pilastered and some are not', share > 0.1 && share < 0.8,
     `${(share * 100).toFixed(0)}% pilastered`);
+
+  // The window frames are hand-wound (`windowFrames`), so every face's normal is computed from its
+  // winding and held against the way that face of the bar must point — out, up, down or along —
+  // which is read off the bar's own centre: a face facing *into* its bar is inside out. One frame
+  // per side of a test façade, on every side, so a sign slip in any of the four tangents shows.
+  const p0 = new THREE.Vector3(); const p1 = new THREE.Vector3(); const p2 = new THREE.Vector3();
+  const n = new THREE.Vector3(); const mid = new THREE.Vector3();
+  for (let side = 0; side < 4; side++) {
+    const out = [[1, 0], [0, 1], [-1, 0], [0, -1]][side];
+    const tan = [[0, -1], [1, 0], [0, 1], [-1, 0]][side];
+    const geo = windowFrames([{ u: 0, y: 5, w: 1, h: 1.4 }], side, 0, 0, 3, 3, new THREE.Color(1, 1, 1), out, tan);
+    const pos = geo.attributes.position;
+    let faces = 0; let inside = 0;
+    for (let t = 0; t < pos.count; t += 3) {
+      p0.fromBufferAttribute(pos, t); p1.fromBufferAttribute(pos, t + 1); p2.fromBufferAttribute(pos, t + 2);
+      n.crossVectors(p1.clone().sub(p0), p2.clone().sub(p0)).normalize();
+      // Two triangles a face and five faces a bar, so a bar is 30 vertices; a face's normal must
+      // point away from their mean.
+      const bar = Math.floor(t / 30) * 30;
+      mid.set(0, 0, 0);
+      for (let k = bar; k < bar + 30; k++) mid.add(p0.clone().fromBufferAttribute(pos, k));
+      mid.divideScalar(30);
+      const centre = p0.clone().add(p1).add(p2).divideScalar(3);
+      faces += 1;
+      if (n.dot(centre.sub(mid)) <= 0) inside += 1;
+    }
+    check(`window frames face out of their bars on side ${side}`, inside === 0 && pos.count === FRAME_TRIS_PER_WINDOW * 3,
+      `${faces} triangles, ${inside} wound inwards`);
+  }
 }
 
 // --- Roofs, and the flight path over them -----------------------------------
