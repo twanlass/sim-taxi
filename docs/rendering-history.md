@@ -9,9 +9,9 @@ The sections follow rendering.md's order and headings, and each links back to th
 Pull-request numbers and dates are given where the git history records them — most of this
 predates the repository's first commit here (2026-10-08) and is undated.
 
-## Window reflections — `city/buildings.js`
+## Window glass — `city/buildings.js`
 
-[Current](rendering.md#window-reflections--citybuildingsjs). Until 2026-10-24 the windows were the
+[Current](rendering.md#window-glass--citybuildingsjs). Until 2026-10-24 the windows were the
 faux gradient alone: vertex colour in the merged building mesh, `window` lerped toward `windowSky`
 by height, a diagonal streak and the face's facing, with nothing actually reflected. It held up
 because the camera never moves, but every pane was a flat ramp with no sight of the street, and
@@ -21,7 +21,11 @@ once the cars' paint was mirroring the real skyline the buildings beside them re
 The first build of the real reflection (PR #681's first push) kept that gradient as the base and
 mixed a soft reflection over it: a smoothstep between horizon and sky, a soft skyline silhouette.
 On a pane eight pixels tall that came out as a smudged ramp on every window, "bad gradients"
-(Tyler, 2026-10-24), and it was rebuilt with hard edges and the drifting streaks before merging.
+(Tyler, 2026-10-24). The second push made every shape hard-edged: a crisp skyline silhouette, a
+hard line between a pale horizon band and deeper sky that each pane crossed (the panes were bowed
+and tilted a few degrees per pane, so the reflected ray swept across them), and drifting streaks
+on top. It still read as fake on lit faces and as unlit in shadow (Tyler, 2026-10-24), so before
+merging the reflection was dropped for the stylised streaks lit by the face's own light.
 
 ## Wheel wells — `archedBodyGeometries` in `geometry/wheels.js`
 

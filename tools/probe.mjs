@@ -2277,7 +2277,7 @@ const onGrass = (city, i, j) => {
       bottom.getHexString() === base.getHexString() && top.getHexString() === sky.getHexString(),
       `bottom #${bottom.getHexString()} → top #${top.getHexString()}`);
   } else {
-    check('a pane is one flat colour, its shapes left to the reflection',
+    check('a pane is one flat colour, its shapes left to the streaks',
       bottom.getHexString() === base.getHexString() && top.getHexString() === base.getHexString(),
       `bottom #${bottom.getHexString()} → top #${top.getHexString()}`);
   }
@@ -2300,40 +2300,36 @@ const onGrass = (city, i, j) => {
     ceilings.join(', '));
 }
 
-// --- Window reflections -----------------------------------------------------
+// --- Window glass -----------------------------------------------------------
 //
-// The panes are their own meshes on the cars' finish (`glassMeshes` in city/buildings.js). Three
-// things would each fail silently: a pane left untagged draws as tyre (matte, darkened) rather
-// than glass; a normal facing into the wall lights the pane from behind and reflects the ground;
-// and a bow with its sign flipped — or lost to `computeVertexNormals` — hands every pane one flat
-// colour again, which is the sticker look the bow is there to fix. The face normal is taken from
-// the winding (CLAUDE.md), not from the normals under test. Under `WINDOWS=classic` there is no glass.
+// The panes are their own meshes on the cars' finish (`glassMeshes` in city/buildings.js), and the
+// streaks are drawn only on `FINISH.WINDOW`. Two things would each fail silently: a pane left
+// untagged draws as tyre (matte, darkened) with no streak, and a normal facing into the wall lights
+// the pane from behind — the streaks follow the light that reaches the face, so they would go dark
+// on every lit façade and bright on every shaded one. The face normal is taken from the winding
+// (CLAUDE.md), not from the normals under test. Under `WINDOWS=classic` there is no glass.
 if (!WINDOWS_CLASSIC) {
   const glass = buildings.glass ?? [];
   const names = glass.map((m) => m.name).sort().join(', ');
   check('the windows are glass meshes of their own, curtain and punched',
     glass.length === 2 && glass.every((m) => m.material.isMeshPhongMaterial && !m.castShadow), names);
-  let untagged = 0; let inward = 0; let flat = 0; let wrongBow = 0; let panes = 0;
+  let untagged = 0; let inward = 0; let panes = 0;
   const a = new THREE.Vector3(); const b = new THREE.Vector3(); const c = new THREE.Vector3();
-  const face = new THREE.Vector3(); const nBot = new THREE.Vector3(); const nTop = new THREE.Vector3();
+  const face = new THREE.Vector3(); const n = new THREE.Vector3();
   for (const mesh of glass) {
     const { position: pos, normal, aFinish } = mesh.geometry.attributes;
     for (let i = 0; i < aFinish.count; i++) if (aFinish.getX(i) !== FINISH.WINDOW) untagged += 1;
-    // Six vertices a pane, [BL, BR, TR, BL, TR, TL] (`WIND`).
     for (let q = 0; q + 5 < pos.count; q += 6) {
       panes += 1;
       a.fromBufferAttribute(pos, q); b.fromBufferAttribute(pos, q + 1); c.fromBufferAttribute(pos, q + 2);
       face.crossVectors(b.sub(a), c.sub(a)).normalize();
-      nBot.fromBufferAttribute(normal, q);
-      nTop.fromBufferAttribute(normal, q + 2);
-      if (nBot.dot(face) < 0.9 || nTop.dot(face) < 0.9) inward += 1;
-      if (Math.abs(nBot.y - nTop.y) < 0.2) flat += 1;
-      else if (nBot.y < nTop.y) wrongBow += 1;
+      if (Math.abs(face.y) > 0.01) inward += 1;
+      for (let k = 0; k < 6; k++) if (n.fromBufferAttribute(normal, q + k).dot(face) < 0.99) { inward += 1; break; }
     }
   }
   check('every pane is tagged as window glass', glass.length > 0 && untagged === 0, `${untagged} untagged`);
-  check('every pane faces out of its wall, bowed bottom-up', panes > 0 && inward + flat + wrongBow === 0,
-    `${panes} panes: ${inward} facing in, ${flat} flat, ${wrongBow} bowed the wrong way`);
+  check('every pane is a vertical face whose normals agree with its winding', panes > 0 && inward === 0,
+    `${panes} panes, ${inward} wrong`);
 }
 
 // --- Roofs, and the flight path over them -----------------------------------

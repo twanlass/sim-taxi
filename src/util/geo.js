@@ -904,9 +904,9 @@ export function setGlossCity(field, ceiling) {
 //
 // WINDOW is a building's glazing (`glassMeshes` in city/buildings.js). Not GLASS, which is a
 // windscreen: near-black (diffuse 0.12) with a faint mirror, tuned so a car's cabin reads as a
-// dark hole. A façade wants the opposite — its base colour kept, so the faux sky gradient the panes
-// already carry still draws, and a strong flat mirror of the street opposite on top. No bends:
-// a merged city has no one centre to bend about, and a pane is flat.
+// dark hole. A façade keeps its own colour (diffuse 1) and mirrors nothing: what makes it glass is
+// the stylised streaks `glossFragment` draws on WINDOW only (WINDOW_STREAKS, below). No bends: a
+// merged city has no one centre to bend about, and a pane is flat.
 export const FINISH = { TYRE: 0, PAINT: 1, GLASS: 2, METAL: 3, MATTE: 4, PATINA: 5, WINDOW: 6 };
 export const FINISH_NAMES = ['tyre', 'paint', 'glass', 'metal', 'matte', 'patina', 'window'];
 
@@ -1085,11 +1085,11 @@ export const FINISH_DEFAULTS = {
     reflect: 0.1, reflectEdge: 0.2, reflectBend: 0.5, diffuse: 1,
     flakeTilt: 0.3, flakeSharp: 120, coat: 0.2, tint: 0.9, flop: 0.1,
   },
-  // A building's glass. Under this camera a façade sits at N·V 0.59, so the Fresnel term barely
-  // moves (graze cubed is 0.07) and `reflect` is nearly the whole of it.
+  // A building's glass: no mirror (so no march), no glint (the sun's half-vector is 57 degrees off
+  // a +X façade and 48 off a +Z one, so a vertical pane never catches it). The streaks are all of it.
   window: {
-    glint: 0.5, glintSharp: 400, glintBend: 0, sheen: 0, sheenSharp: 1, flake: 0,
-    reflect: 0.55, reflectEdge: 0.1, reflectBend: 0, diffuse: 1,
+    glint: 0, glintSharp: 1, glintBend: 0, sheen: 0, sheenSharp: 1, flake: 0,
+    reflect: 0, reflectEdge: 0, reflectBend: 0, diffuse: 1,
     flakeTilt: 0, flakeSharp: 1, coat: 0, tint: 0, flop: 0,
   },
 };
@@ -1465,56 +1465,60 @@ const GLOSS_HIT_SOFT = /* glsl */ `
 				if (gOcc >= 1.0) break;
 `;
 
-// How much flatter a window's folded ray climbs than a car's. Folded at the full 33 degrees, a ray
-// off a façade clears the low-rise roofs across the street within a block and every pane in the
-// city came out one flat sky blue — a sticker, not glass. Flattened to about 13 degrees, the lower
-// floors run into the buildings opposite and the upper ones see the pale sky just over their
-// roofline, which is the look of a glass façade: a skyline silhouette with a bright band above it.
-const WINDOW_FOLD = 0.4;
-// Where a window's sky turns from horizon to deep blue, as the folded ray's y. Sits inside the
-// range a bowed pane sweeps (about 0.1 to 0.35 on a lit face), so most panes are cut by it.
-const WINDOW_SKY_LINE = 0.22;
-// How bright a reflected building is in a window, as a fraction of the horizon.
-const WINDOW_HIT = 0.3;
-// How much of the camera's pan the streaks follow. 0 pins them to the façade like paint; 1 pins
-// them to the screen like a reflection of something infinitely far away. Halfway, they drift
-// across a building as the camera follows the taxi, which is what says glass when nothing in the
-// reflection itself can move — the camera never rotates.
+// A building's windows are not a reflection at all. Two real ones were tried (PR #681): the cars'
+// march through the city height field, first soft and then hard-edged. Under a camera that never
+// rotates a flat pane reflects one ray, so the best it could do was a ramp or a split, and on an
+// eight-pixel pane both read as a fake gradient — or, on a face in shadow, as an unlit hole
+// (Tyler, 2026-10-24). So the glass is stylised: flat window colour with two hard 45-degree light
+// streaks across each façade, a broad one and a thin one beside it, the way an illustrator draws
+// glass.
+//
+// **The streaks are lit by the face they sit on.** Their colour is the light that actually reaches
+// the fragment — direct plus indirect, divided back out of the pane's own diffuse colour, so the
+// shadow map, the AO and the sun's warmth are all already in it. A streak on a sunlit face is
+// bright and warm; one on a face in shadow is a dim cool sheen; one under a tower's shadow on an
+// otherwise lit face drops with it. That is what keeps a fake reflection from looking pasted on.
+//
+// In façade coordinates — the face's own horizontal tangent, and height — off the flat face
+// normal from the derivatives, at 45 degrees (one unit up per unit along), repeating every
+// WINDOW_STREAK_PITCH. Edges anti-aliased by fwidth, so they stay crisp without crawling.
+//
+// They follow WINDOW_PAN of the camera's pan: 0 pins them to the façade like paint, 1 to the screen.
+// Halfway, they drift across a building as the camera follows the taxi.
 const WINDOW_PAN = 0.5;
-// The streaks: two hard diagonal bands across each façade, a broad one and a thin one beside it,
-// repeating every WINDOW_STREAK_PITCH units along the diagonal. In façade coordinates (the
-// face's own horizontal tangent, and height), off the flat face normal from the derivatives so a
-// pane's bow does not bend them. Edges anti-aliased by fwidth, so they stay crisp without
-// crawling. The colour is the sky lifted toward white, as on the cars (STREAKS), so it fades with
-// the sky at night.
-const WINDOW_STREAK_PITCH = 13;
+const WINDOW_STREAK_PITCH = 6;
+// How much of the light reaching the pane a streak gives back, and its tint (a pale sky white).
+const WINDOW_STREAK_GAIN = 0.55;
+// ...and a flat sheen over the whole pane, so glass between the streaks reads as glass on a lit face
+// rather than as a dark hole — and still goes dark in shadow, by the same rule. Sky blue at the
+// light's *brightness* rather than in its colour: taken in the sun's warmth it turned the panes on a
+// lit face a muddy yellow-grey.
+const WINDOW_SHEEN = 0.12;
 const WINDOW_STREAKS = /* glsl */ `
+		if (gIsWindow > 0.5) {
 			vec3 wN = normalize(cross(dFdx(vGlossObj), dFdy(vGlossObj)));
 			vec2 wT = normalize(vec2(-wN.z, wN.x) + 1e-5);
 			float wS = dot(vGlossWorld.xz - cameraPosition.xz * ${WINDOW_PAN.toFixed(2)}, wT);
-			float wD = (wS * 0.8 + vGlossWorld.y) / ${WINDOW_STREAK_PITCH.toFixed(1)};
+			float wD = (wS + vGlossWorld.y) / ${WINDOW_STREAK_PITCH.toFixed(1)};
 			float wF = fract(wD);
 			float wW = fwidth(wD) + 1e-4;
-			float wBand = smoothstep(0.07 + wW, 0.07 - wW, abs(wF - 0.4))
-				+ 0.85 * smoothstep(0.018 + wW, 0.018 - wW, abs(wF - 0.53));
-			vec3 wCol = uGlossTop + 0.8 * vec3(dot(uGlossTop, vec3(0.2126, 0.7152, 0.0722)));
-			gEnv = mix(gEnv, wCol, clamp(wBand, 0.0, 1.0) * 0.85);`;
+			float wBand = smoothstep(0.12 + wW, 0.12 - wW, abs(wF - 0.4))
+				+ 0.8 * smoothstep(0.03 + wW, 0.03 - wW, abs(wF - 0.6));
+			vec3 wIrr = (reflectedLight.directDiffuse + reflectedLight.indirectDiffuse)
+				/ max(diffuseColor.rgb, vec3(1e-3));
+			float wLum = dot(wIrr, vec3(0.2126, 0.7152, 0.0722));
+			outgoingLight += uGlossMirror * (vec3(0.55, 0.72, 0.95) * wLum * ${WINDOW_SHEEN.toFixed(2)}
+				+ vec3(0.9, 0.95, 1.0) * wIrr * clamp(wBand, 0.0, 1.0) * ${WINDOW_STREAK_GAIN.toFixed(2)});
+		}`;
 
 const glossFragment = (classic) => /* glsl */ `
 	{
 		vec3 gN = inverseTransformDirection(gReflN, viewMatrix);
 		vec3 gEye = inverseTransformDirection(vec3(0.0, 0.0, 1.0), viewMatrix);
 		vec3 gR = reflect(-gEye, gN);
-		gR.y = max(abs(gR.y) * mix(1.0, ${WINDOW_FOLD.toFixed(2)}, gIsWindow), 0.12);
+		gR.y = max(abs(gR.y), 0.12);
 		gR = normalize(gR);
 		vec3 gEnv = mix(uGlossHorizon, uGlossTop, __LOOK_SKY__);
-		// A window's sky is two flat bands with a hard line between them: the pale horizon just
-		// over the roofline and a deeper blue above it. A bowed pane (city/buildings.js) sweeps its
-		// ray across the line, so each window is cut in two crisply. The first build ramped
-		// between them, and a soft ramp on an eight-pixel pane reads as a bad gradient, not glass
-		// (Tyler, 2026-10-24).
-		float gWin = gR.y;
-		gEnv = mix(gEnv, mix(uGlossHorizon, uGlossTop * 0.55, step(${WINDOW_SKY_LINE.toFixed(2)}, gWin)), gIsWindow);
 		float gGraze = 1.0 - clamp(gReflN.z, 0.0, 1.0);
 		float gMirror = (gFinB.z + gFinB.w * gGraze * gGraze * gGraze
 			+ gFinD.x * (0.04 + 0.96 * pow(min(gGraze, 0.88), 5.0)))
@@ -1531,17 +1535,11 @@ __LOOK_MIRROR__
 ${classic ? GLOSS_HIT_CLASSIC : GLOSS_HIT_SOFT}
 				gT *= 1.3;
 			}
-			// ...and the skyline it reflects is a hard silhouette, in a dark slate rather than the
-			// paint's near-black, which on a dark pane is no shape at all.
-			gOcc = mix(gOcc, step(0.5, gOcc), gIsWindow);
-			gEnv = mix(gEnv, uGlossHorizon * mix(uGlossGlobal.y, ${WINDOW_HIT.toFixed(2)}, gIsWindow)
-				* (0.7 + 0.6 * gHitY / uGlossCeiling), gOcc);
-		}
-		if (gIsWindow > 0.5) {
-${WINDOW_STREAKS}
+			gEnv = mix(gEnv, uGlossHorizon * uGlossGlobal.y * (0.7 + 0.6 * gHitY / uGlossCeiling), gOcc);
 		}
 __LOOK_FINAL__
 		outgoingLight = mix(outgoingLight, gEnv, clamp(gMirror, 0.0, 1.0));
+${WINDOW_STREAKS}
 		if (uGlossGlobal.z > 0.5) outgoingLight = gFinishColor;
 	}
 `;

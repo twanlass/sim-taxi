@@ -50,51 +50,44 @@ everything else.
 
 The windows' base colour is built out of that.
 
-### Window reflections — `city/buildings.js`
+### Window glass — `city/buildings.js`
 
-Every pane is a real reflection: the glass is taken out of the merged building mesh into glass
-meshes of its own (`glassMeshes`), which wear [the cars' finish shader](#car-finishes--propmaterial-gloss--in-utilgeojs)
-as `FINISH.WINDOW`. Its ray marches the same city height field the paint does, so a pane mirrors
-the buildings actually standing across the street, dark, and the sky over their roofline.
-`?windows=classic` is the faux gradient alone, below, with the panes back in the merged mesh
-([history](rendering-history.md#window-reflections--citybuildingsjs)).
+Building windows are **stylised, not reflected**: one flat `window` colour with two hard 45° light
+streaks across each façade, a broad one and a thin one beside it, the way an illustrator draws
+glass. The panes are taken out of the merged building mesh into glass meshes of their own
+(`glassMeshes`), which wear [the cars' finish shader](#car-finishes--propmaterial-gloss--in-utilgeojs)
+as `FINISH.WINDOW`, and the streaks are drawn on that finish only (`WINDOW_STREAKS` in util/geo.js).
+`?windows=classic` is the faux gradient, below, with the panes back in the merged mesh.
 
-**Every shape is hard-edged.** The glass is one flat `window` colour (the faux ramp below is
-`?windows=classic` only) and the shader draws crisp shapes on it: a hard skyline silhouette, a
-hard line between a pale horizon band and deeper sky, and two diagonal streaks. The first build
-was the same reflection with soft edges, and a soft ramp on an eight-pixel pane reads as a bad
-gradient, not as glass (Tyler, 2026-10-24).
+Two real reflections came first and both failed the same way: under a camera that never rotates a
+flat pane reflects one ray, so the most it can show is a ramp or a split, which on an eight-pixel
+pane reads as a fake gradient, or as an unlit hole on a face in shadow (Tyler, 2026-10-24;
+[history](rendering-history.md#window-glass--citybuildingsjs)).
 
-- **Each pane bows** (`PANE_BOW`). A flat pane under an orthographic camera reflects one ray from
-  edge to edge and draws as one flat colour: the first build's panes read as pale blue stickers.
-  The glass mesh is smooth-shaded, and each pane's top and bottom corners lean opposite ways, so
-  the reflected ray sweeps up the pane and crosses the horizon line (`WINDOW_SKY_LINE`) partway:
-  each window comes out cut in two, pale below and blue above, or dark where a building opposite
-  is in the way. Along the height only, so a quad's two triangles interpolate it exactly.
-- **The streaks drift as the camera pans** (`WINDOW_STREAKS`, `WINDOW_PAN`). Two hard diagonal
-  bands, broad and thin, every 13 units along each façade's diagonal, in the sky's colour lifted
-  toward white. They follow half the camera's pan, so they slide across a building as the camera
-  follows the taxi. Nothing in a reflection can move on its own under a camera that never rotates;
-  this is the motion that says glass. At play zoom they are faint; up close they are obvious.
-- **And leans** (`PANE_TILT`, up to 0.08 rad, a hash of its position, no rng). Real curtain-wall
-  panes are never quite coplanar, and the patchwork that makes of a reflected roofline is most of
-  what says glass tower.
-- **The window's ray is folded up flatter than a car's** (`WINDOW_FOLD`, util/geo.js), about 13°
-  rather than 33°. At the car's angle a ray off a façade clears the low-rise roofs opposite within
-  a block, so no pane ever showed a building. A building it does hit is a dark slate
-  (`WINDOW_HIT`), not the paint's near-black, which on a dark pane is no shape at all.
-- **Masonry keeps under its wall** (`GLASS_MIRROR`): curtain walls and shopfronts mirror at full
-  strength, punched windows at 0.55, for the `wallCeiling` reason below.
-- **No glint.** The sun's half-vector is 57° off a +X façade and 48° off a +Z one, so a vertical
-  pane can never catch it under this sun; the glint numbers are there for the ⚙️ panel (**Car
-  finish → window**) and nothing else.
-- **What it costs.** One more program (`prop-gloss…` with smooth normals, shared by every glass
-  mesh) and up to four more draws (curtain and punched, the island and the west edge). The glass
-  casts no shadow and is not an AO occluder, since the wall a hair behind it is both. The march
-  runs only on glass pixels, which is why it is its own mesh: on the merged one it would run over
-  every wall and roof. Measured with `tools/gpucost.mjs` (seed 11, 390×844 at DPR 2, SwiftShader,
-  so relative): `?windows=classic` measured 2% and 4% cheaper a frame on two builds, about what `shadows=1024` saves.
-- **At night** the reflection follows the sky dome down, so unlit panes go dark with a faint sheen
+- **The streaks are lit by the face they sit on.** Their colour is the light that actually reaches
+  the fragment: three's direct plus indirect diffuse, divided back out of the pane's own colour,
+  so the shadow map, the AO and the sun's warmth are already in it. On a sunlit face a streak is
+  bright and warm, on a shaded face a dim cool sheen, and on a lit face under a tower's shadow it
+  drops with the shadow. That is what keeps a fake reflection from looking pasted on.
+- **A flat sheen covers the whole pane** (`WINDOW_SHEEN`) by the same rule, so glass between the
+  streaks reads as glass on a lit face and still goes dark in shade. It is sky blue at the light's
+  *brightness*, not in its colour: in the sun's warmth it turned the lit panes a muddy yellow-grey.
+- **45°, every 6 units** (`WINDOW_STREAK_PITCH`) along each façade, in the face's own coordinates
+  (its horizontal tangent and height) off the flat normal from the derivatives, edges anti-aliased
+  by `fwidth`. The two visible faces lean opposite ways, so a corner shows a chevron.
+- **They drift as the camera pans** (`WINDOW_PAN`, half the pan), sliding across a building as the
+  camera follows the taxi. It is the only motion a reflection can have under this camera.
+- **Masonry keeps under its wall** (`GLASS_MIRROR`, which the streaks read as their strength):
+  curtain walls and shopfronts at 1, punched windows at 0.6, for the `wallCeiling` reason below.
+- **No mirror, no glint.** The window finish's `reflect` is 0, so the city march never runs on
+  glass. The sun's half-vector is 57° off a +X façade and 48° off a +Z one, so a vertical pane could
+  never catch a glint anyway.
+- **What it costs.** No new program (the glass compiles to the cars' `prop-gloss…`) and up to four
+  more draws (curtain and punched, the island and the west edge). The glass casts no shadow and is
+  not an AO occluder, since the wall a hair behind it is both. Measured with `tools/gpucost.mjs` (seed
+  11, 390×844 at DPR 2, SwiftShader, so relative): within noise of `?windows=classic` (under 1%),
+  where the reflecting builds before it cost 2–4%.
+- **At night** the light reaching a façade is the moon's and the lamps', so the streaks go faint
   and Rain Mode's lit windows draw over them as before.
 
 Under `?windows=classic` the glass is the faux gradient: lerped from `window` toward `windowSky` by
@@ -3457,7 +3450,7 @@ and the flock above. That one has a life; this is scenery that moves. Where the 
 **The water is drawn as a fan about its own centre**, not as a `ShapeGeometry` like every other flat
 surface in the city, and the reason is the one vertex earcut would not give it: the middle. The open
 water is `pondWater` and the rim `pondShallow`, 17 luma darker, so the pond has depth for the price
-of a vertex colour — [a gradient across a flat-shaded triangle](#window-reflections--citybuildingsjs)
+of a vertex colour — [a gradient across a flat-shaded triangle](#window-glass--citybuildingsjs)
 costs nothing but the numbers. One flat blue read as a painted disc. The shore is the other half of
 it: a ring of damp earth cut with the water as a hole in it, the same construction the walk round a
 park uses, which is also what removes the seam — both rims come off one point list, so there is no
