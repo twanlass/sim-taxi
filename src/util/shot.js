@@ -287,6 +287,11 @@ export const SHOTS = [
   // index reason.
   { name: 'steam', description: 'a steaming manhole cover, close', target: [0, 0], zoom: 12, warmup: 12, atManhole: 'steam' },
   { name: 'steam-far', description: 'a steaming manhole cover at play zoom', target: [0, 0], zoom: 52, warmup: 12, atManhole: 'steam' },
+  // The bag piles and the garbage truck (game/garbage.js): a pile close, the truck parked at one
+  // with the lid up and a bag in the air, and the same at play zoom. Appended, for the index reason.
+  { name: 'trash-pile', description: 'a pile of bags on the kerb, close', target: [0, 0], zoom: 5, warmup: 12, atTrashPile: true },
+  { name: 'garbage-truck', description: 'the garbage truck taking a pile, close', target: [0, 0], zoom: 9, warmup: 12, atTrashPile: true, garbageAt: 0.95 },
+  { name: 'garbage-truck-far', description: 'the garbage truck taking a pile at play zoom', target: [0, 0], zoom: 52, warmup: 12, atTrashPile: true, garbageAt: 0.95 },
 ];
 
 export function getActiveShot() {

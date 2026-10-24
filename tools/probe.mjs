@@ -51,6 +51,9 @@ import { createManholeSteam, steamGeometry } from '../src/game/manholesteam.js';
 import { isArterialX as gridIsArterialX } from '../src/city/grid.js';
 import { createAsphaltPatches, planPatches, patchGeometry, patchRoadHalf, PATCH_COUNT, SEAL_W } from '../src/city/asphaltpatch.js';
 import { createStreetProps, planStreetProps } from '../src/game/streetprops.js';
+import { createGarbage, planTrashPiles } from '../src/game/garbage.js';
+import { HOPPER_MOUTH } from '../src/geometry/garbage.js';
+import { truckPaint } from '../src/sim/traffic.js';
 import { createCarWash } from '../src/city/carwash.js';
 import { createGasStation } from '../src/city/gasstation.js';
 import { collectPanes, entrances, streetLamps } from '../src/game/citylights.js';
@@ -22205,6 +22208,99 @@ let chopperOrder; // likewise
   check('no fire can break out on the depot or the burger joint',
     cities > 0 && sites > 0 && onDepot === 0 && onBurger === 0,
     `${sites} candidate sites over ${cities} cities with a depot, ${onDepot} on it, ${onBurger} on the joint`);
+}
+
+// --- The bag piles and the garbage truck (game/garbage.js) --------------------------------------
+// Piles where the camera sees them and nowhere a rider stands; and the truck, a car in traffic,
+// actually going round them — stopping in its lane with the hopper level with the bags, short of
+// its hold line, with the lane shut behind it while it works and open again once it has gone. A
+// closure left behind would look like nothing at all, just traffic avoiding a street forever.
+{
+  createLayout(makeRng(seed));   // the probe's network, in case a sweep above replaced it
+  setClosedLanes([]);
+  setClosedLanes([], 'garbage');
+  setCityOccluders(buildings.mesh);
+  const plan = planTrashPiles(makeRng(seed + 733), layout);
+  const corners = [];
+  for (let i = 0; i <= GRID_I; i++) for (let j = 0; j <= GRID_J; j++) corners.push(cornerFor(i, j));
+  const nearRider = plan.filter((p) => corners.some((c) => Math.hypot(c.x - p.x, c.z - p.z) < 4.5)).length;
+  const offPavement = plan.filter((p) => p.block.type !== 'built'
+    || Math.abs(p.block.bounds.x1 - p.x - 0.4) > 0.05 || p.z - 2 < p.block.bounds.z0 || p.z + 2 > p.block.bounds.z1).length;
+  const unseen = plan.filter((p) => !sightlineClear(p.x, 0.4, p.z)).length;
+  check('garbage: five bag piles on built blocks\' +X pavement, in sight, 4.5+ from every rider corner',
+    plan.length === 5 && offPavement === 0 && unseen === 0 && nearRider === 0,
+    `${plan.length} piles, ${offPavement} off the pavement, ${unseen} hidden, ${nearRider} by a rider`);
+
+  const gScene = new THREE.Scene();
+  const gTraffic = createTraffic(makeRng(seed + 730), gScene, 24, 24);
+  for (let step = 0; step < 120; step++) gTraffic.update(1 / 60);
+  const garbage = createGarbage({ rng: makeRng(seed + 731), scene: gScene, traffic: gTraffic, plan, soon: true });
+  const bagsAtStart = garbage.bagsOnKerb();
+  let stops = 0;
+  let worstAlong = 0;
+  let worstLine = Infinity;
+  let closedWhileTaking = true;
+  let hazardWhileTaking = true;
+  let inside = 0;
+  let missed = 0;
+  let parkedDrift = 0;
+  let parkedAt = null;
+  const mouth = new THREE.Vector3();
+  for (let step = 0; step < 60 * 240; step++) {
+    gTraffic.update(1 / 60);
+    garbage.update(1 / 60);
+    const st = garbage.state;
+    const truck = st.truck;
+    if (st.phase === 'collecting' && truck) {
+      const pile = st.target;
+      if (!parkedAt) {
+        parkedAt = { x: truck.x, z: truck.z };
+        stops += 1;
+        // Along the lane from the hopper's middle to the pile's: the bags go in over the side.
+        const fx = Math.cos(truck.yaw);
+        const fz = -Math.sin(truck.yaw);
+        const hx = truck.x + fx * HOPPER_MOUTH.x;
+        const hz = truck.z + fz * HOPPER_MOUTH.x;
+        worstAlong = Math.max(worstAlong, Math.abs((pile.x - hx) * fx + (pile.z - hz) * fz));
+        worstLine = Math.min(worstLine, truck.lane.length - STOP_SETBACK - truck.s);
+      }
+      parkedDrift = Math.max(parkedDrift, Math.hypot(truck.x - parkedAt.x, truck.z - parkedAt.z));
+      closedWhileTaking &&= isLaneClosed(pile.lane.id);
+      hazardWhileTaking &&= laneCost(pile.lane) > 2;
+      // Every bag in the air lands inside the hopper's walls, in the truck's own frame.
+      for (const bag of pile.bags) {
+        if (bag.state !== 'flying' || bag.t + 1 / 60 < 0.55) continue;
+        garbage.truckMesh.group.updateMatrixWorld(true);
+        mouth.copy(bag.to).add(pile.mesh.position);
+        garbage.truckMesh.group.worldToLocal(mouth);
+        const ok = mouth.x > -2.8 + 0.12 && mouth.x < -1.5 && Math.abs(mouth.z) < 1 - 0.12 && mouth.y < 2.4;
+        if (ok) inside += 1; else missed += 1;
+      }
+    } else {
+      parkedAt = null;
+    }
+  }
+  const leftClosed = plan.filter((p) => isLaneClosed(p.lane.id) || laneCost(p.lane) > 2).length;
+  check('garbage: the truck goes pile to pile and stops with its hopper level with the bags, short of its line',
+    stops >= 3 && garbage.state.collected >= 3 && worstAlong < 0.5 && worstLine > 1.5 && parkedDrift < 0.05,
+    `${stops} stops, ${garbage.state.collected} piles cleared, hopper ${worstAlong.toFixed(2)} off the pile along the lane, `
+      + `${worstLine.toFixed(2)} short of the line at worst, drifted ${parkedDrift.toFixed(3)} parked`);
+  check('garbage: every bag lands in the hopper',
+    inside > 0 && missed === 0 && garbage.state.bagsIn > 0, `${inside} in, ${missed} missed, ${garbage.state.bagsIn} collected of ${bagsAtStart}`);
+  // A fleet that is half trucks, with a few more promoted, so the paint has rolls to fall on.
+  const pTraffic = createTraffic(makeRng(seed + 734), new THREE.Scene(), 40, 40, 0.5, 30);
+  const greenTrucks = pTraffic.cars.filter((c) => c.isTruck
+    && PALETTE.truckCabBarred.includes(PALETTE.carBody[c.colorIndex])).length;
+  const fleetTrucks = pTraffic.cars.filter((c) => c.isTruck).length;
+  const green = PALETTE.carBody.indexOf(PALETTE.truckCabBarred[0]);
+  check('garbage: no box truck wears the garbage truck\'s green', greenTrucks === 0 && green >= 0 && truckPaint(green) !== green,
+    `${greenTrucks} of ${fleetTrucks} trucks green; a green roll paints as ${PALETTE.carBody[truckPaint(green)]}`);
+  check('garbage: its lane is shut and priced up while it works, and open again once it has gone',
+    closedWhileTaking && hazardWhileTaking && (garbage.state.phase === 'collecting' || leftClosed === 0),
+    `closed throughout ${closedWhileTaking}, priced throughout ${hazardWhileTaking}, ${leftClosed} pile lanes left shut`);
+  setClosedLanes([], 'garbage');
+  setHazardLanes([], 'garbage');
+  clearCityOccluders();
 }
 
 // --- The combo meter ------------------------------------------------------------
