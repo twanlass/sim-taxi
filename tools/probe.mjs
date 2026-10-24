@@ -42,7 +42,12 @@ import {
 } from '../src/city/blacktop.js';
 import { createBoombox, BPM as BOOMBOX_BPM } from '../src/game/boombox.js';
 import { createTubeMan } from '../src/game/tubeman.js';
-import { createManholes, planManholes, manholeGeometry, COVER_R, COVER_COUNT, BOX_CLEAR } from '../src/city/manholes.js';
+import {
+  createManholes, planManholes, manholeGeometry, COVER_R, COVER_COUNT, BOX_CLEAR, MIN_SEP_PITCHES, STEAM_COUNT,
+  CLASSIC as MANHOLES_CLASSIC,
+} from '../src/city/manholes.js';
+import { createManholeSteam, steamGeometry } from '../src/game/manholesteam.js';
+import { isArterialX as gridIsArterialX } from '../src/city/grid.js';
 import { createAsphaltPatches, planPatches, patchGeometry, patchRoadHalf, PATCH_COUNT, SEAL_W } from '../src/city/asphaltpatch.js';
 import { createStreetProps, planStreetProps } from '../src/game/streetprops.js';
 import { createCarWash } from '../src/city/carwash.js';
@@ -1732,14 +1737,23 @@ const onGrass = (city, i, j) => {
 
 // --- Manhole covers (city/manholes.js) ---------------------------------------------------------
 // Set dressing, so what can go wrong is where they land: out of the junction box (onto a crosswalk
-// or a kerb corner), in a junction a park swallowed, bunched together, or wound face down.
+// or a kerb corner), in a junction a park swallowed, bunched together, or wound face down. Then the
+// steam (game/manholesteam.js): three vents a city, none under the L train's deck, and quads that
+// face the camera — a reversed quad on a transparent plume is simply not there.
 {
-  let wrongCount = 0, outOfBox = 0, deadJunction = 0, bunched = 0;
-  const minSep = 1.6 * PITCH - 1e-6;
+  let wrongCount = 0, outOfBox = 0, deadJunction = 0, bunched = 0, wrongSteam = 0, steamOnArterial = 0;
+  let classicWrong = 0;
+  const minSep = MIN_SEP_PITCHES * PITCH - 1e-6;
+  const classicSep = MANHOLES_CLASSIC.sep * PITCH - 1e-6;
   for (let s = 0; s < 40; s++) {
     createLayout(makeRng(s));
     const spots = planManholes(makeRng(s + 193));
     if (spots.length < COVER_COUNT[0] || spots.length > COVER_COUNT[1]) wrongCount += 1;
+    if (spots.filter((c) => c.steam).length !== STEAM_COUNT) wrongSteam += 1;
+    for (const c of spots) if (c.steam && (gridIsArterialX(c.j) || gridIsArterialZ(c.i))) steamOnArterial += 1;
+    const old = planManholes(makeRng(s + 193), { classic: true });
+    if (old.length < MANHOLES_CLASSIC.count[0] || old.length > MANHOLES_CLASSIC.count[1] || old.some((c) => c.steam)
+      || old.some((a, n) => old.slice(n + 1).some((b) => Math.hypot(a.x - b.x, a.z - b.z) < classicSep))) classicWrong += 1;
     for (const c of spots) {
       const dx = Math.abs(c.x - lineX(c.i));
       const dz = Math.abs(c.z - lineZ(c.j));
@@ -1755,10 +1769,13 @@ const onGrass = (city, i, j) => {
     }
   }
   createLayout(makeRng(seed));
-  check('manholes: four or five per city', wrongCount === 0, `${wrongCount}/40 cities outside ${COVER_COUNT.join('-')}`);
+  check('manholes: seven or eight per city', wrongCount === 0, `${wrongCount}/40 cities outside ${COVER_COUNT.join('-')}`);
+  check('manholes: three of them vent steam', wrongSteam === 0, `${wrongSteam}/40 cities without exactly ${STEAM_COUNT}`);
+  check('manholes: steam only where two side streets cross, clear of the L train', steamOnArterial === 0, `${steamOnArterial} on an arterial`);
+  check('manholes: ?manholes=classic is the old four or five, 1.6 apart, none venting', classicWrong === 0, `${classicWrong}/40 cities`);
   check('manholes: each sits inside a junction box, clear of its crosswalks and kerbs', outOfBox === 0, `${outOfBox} reach out of the box`);
   check('manholes: only in inner junctions with three or more open roads', deadJunction === 0, `${deadJunction} misplaced`);
-  check('manholes: spread at least 1.6 blocks apart', bunched === 0, `${bunched} pairs too close`);
+  check(`manholes: spread at least ${MIN_SEP_PITCHES} blocks apart`, bunched === 0, `${bunched} pairs too close`);
 
   const geo = manholeGeometry(planManholes(makeRng(seed + 193)));
   const pos = geo.attributes.position;
@@ -1770,7 +1787,35 @@ const onGrass = (city, i, j) => {
   }
   check('manholes: every triangle wound to face up', down === 0, `${down}/${pos.count / 3} face down`);
   geo.dispose();
-  check('manholes: ?manholes=classic builds none', createManholes(makeRng(1), { enabled: false }) === null);
+  check('manholes: disabled builds none', createManholes(makeRng(1), { enabled: false }) === null);
+
+  const vents = planManholes(makeRng(seed + 193)).filter((c) => c.steam);
+  let away = 0;
+  for (const wind of [1, -1]) {
+    const sg = steamGeometry(vents, wind);
+    const sp = sg.attributes.position;
+    for (let t = 0; t < sp.count; t += 3) {
+      pa.fromBufferAttribute(sp, t); pb.fromBufferAttribute(sp, t + 1); pc.fromBufferAttribute(sp, t + 2);
+      if (pb.sub(pa).cross(pc.sub(pa)).normalize().dot(VIEW_DIR) <= 0) away += 1;
+    }
+    sg.dispose();
+  }
+  check('manhole steam: every quad wound to face the camera, either wind', away === 0, `${away} face away`);
+
+  // The taxi through a vent tears the plume, and it closes again.
+  const steamScene = new THREE.Scene();
+  const steam = createManholeSteam(steamScene, vents, makeRng(1));
+  const v0 = steam.vents[0];
+  const fakeTaxi = { x: v0.x - 6, z: v0.z };
+  let torn = 0;
+  for (let f = 0; f < 60; f++) { fakeTaxi.x += 0.2; steam.update(1 / 60, fakeTaxi); torn = Math.max(torn, steam.kick[0].amount); }
+  for (let f = 0; f < 150; f++) steam.update(1 / 60, fakeTaxi);
+  check('manhole steam: the taxi driving through tears the plume, and it heals',
+    torn === 1 && steam.kick[0].amount === 0 && steam.kick.slice(1).every((k) => k.amount === 0),
+    `torn ${torn}, after ${steam.kick[0].amount}`);
+  check('manhole steam: one plume per vent, standing on its cover', steam.mesh.geometry.attributes.position.count === 6 * vents.length
+    && steamScene.children.includes(steam.mesh), `${steam.mesh.geometry.attributes.position.count} verts`);
+  check('manhole steam: none without vents', createManholeSteam(steamScene, [], makeRng(1)).mesh === null);
 }
 
 // --- Asphalt patches (city/asphaltpatch.js) -----------------------------------------------------

@@ -283,6 +283,10 @@ export const SHOTS = [
   { name: 'streetprops-far', description: 'the hot dog cart at play zoom', target: [0, 0], zoom: 52, warmup: 12, atStreetProp: 'cart' },
   { name: 'mailbox-smash', description: 'a post box half a second after the swipe', target: [0, 0], zoom: 9, warmup: 12, atStreetProp: 'mailbox', streetPropSmash: 0.45 },
   { name: 'hotdogcart-smash', description: 'the hot dog cart half a second after the swipe', target: [0, 0], zoom: 9, warmup: 12, atStreetProp: 'cart', streetPropSmash: 0.45 },
+  // Steam out of a manhole cover (game/manholesteam.js): close, and at play zoom. Appended, for the
+  // index reason.
+  { name: 'steam', description: 'a steaming manhole cover, close', target: [0, 0], zoom: 12, warmup: 12, atManhole: 'steam' },
+  { name: 'steam-far', description: 'a steaming manhole cover at play zoom', target: [0, 0], zoom: 52, warmup: 12, atManhole: 'steam' },
 ];
 
 export function getActiveShot() {
