@@ -1123,8 +1123,8 @@ export const PALETTE = {
   // A mended cut in a lane (city/asphaltpatch.js): newer tarmac a step darker than the road, and the
   // crack seal poured round its edge. Tyler's reference photo puts the contrast in the seal, not the
   // patch: a tar line far darker than anything else on the street round a fill barely off the road.
-  asphaltPatch: '#464C54',
-  asphaltSeal: '#111214',
+  asphaltPatch: '#3B4047',
+  asphaltSeal: '#050506',
   bridgeApproach: '#C4C0B6',
 
   // --- Boats ----------------------------------------------------------------
