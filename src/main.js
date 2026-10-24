@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 // First, before anything builds a material: it patches three's fog chunk for every program.
 import { EDGE_FOG, createEdgeFogFloor, tickEdgeFog } from './game/edgefog.js';
 import { makeRng } from './util/rng.js';
@@ -30,7 +31,7 @@ import { tickRiverWater, bindRiverDrawbridge, setWaterStyle } from './city/river
 import { createDrawbridge } from './game/drawbridge.js';
 import { createBoats } from './game/boats.js';
 import { createHarborShips } from './game/harborships.js';
-import { createBridge } from './geometry/bridge.js';
+import { createBridge, jointParts } from './geometry/bridge.js';
 import { createBuildings } from './city/buildings.js';
 import { createProps, parkPlots, setAutumn } from './city/props.js';
 import { createLeaves } from './game/leaves.js';
@@ -624,6 +625,18 @@ if (river) {
     // reads as road two metres up — see `wetGround`.
     rain.wetGround(mesh, { deck: (x, z) => deckHeightAt(x, z).y });
     scene.add(markOccluder(mesh));
+  }
+
+  // The joints where every bridge, the drawbridge included, meets the road (`jointParts` in
+  // geometry/bridge.js). Road paint, so it receives shadows and never casts them. Its own stream.
+  const jointRng = makeRng(seed + 58);
+  const joints = bridgeLines().flatMap((line) => jointParts(bridgeSpan(line), jointRng));
+  if (joints.length) {
+    const jointMesh = new THREE.Mesh(mergeGeometries(joints, false), propMaterial());
+    joints.forEach((part) => part.dispose());
+    jointMesh.receiveShadow = true;
+    jointMesh.name = 'bridge-joints';
+    scene.add(markOccluder(rain.wetGround(jointMesh)));
   }
 }
 // The harbor at the river's east mouth: quays, yards, cranes and a moored ship, all outside the ring

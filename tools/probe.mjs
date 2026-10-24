@@ -222,7 +222,7 @@ import {
   waterEdges, bridgeSpan, bridgeLines, riverCrossing, drawbridgeLine, archAt, deckHeightAt, createRiver, waterHeightAt,
   WATER_Y, FLAT_SOFFIT, ARCH_SOFFIT, BARGE_AIR, TUG_AIR, ARCH_RISE, DECK_THICK,
 } from '../src/city/river.js';
-import { createBridge, abutmentParts } from '../src/geometry/bridge.js';
+import { createBridge, abutmentParts, JOINT_Y } from '../src/geometry/bridge.js';
 import { createBargeMesh, createTugMesh, GULL_STAND, PERCH_CEIL } from '../src/geometry/boat.js';
 import { gullHeight, FLY_HIGH } from '../src/game/gulls.js';
 import { createDrawbridge, OPEN_SECONDS } from '../src/game/drawbridge.js';
@@ -232,7 +232,7 @@ import {
   halfRoadX, halfRoadZ, laneOffX, laneOffZ, laneOffsetFor, medianRuns, MEDIAN_W, LANE_TO_KERB,
 } from '../src/city/grid.js';
 import { cityNetwork } from '../src/city/roadnet.js';
-import { routePath, nearestOnPath, HEAD_GAP, ROUTE_OPACITY, ONWARD_LEN } from '../src/game/routeline.js';
+import { routePath, nearestOnPath, HEAD_GAP, ROUTE_OPACITY, ONWARD_LEN, ROUTE_Y } from '../src/game/routeline.js';
 import {
   findRoute, findRouteVia, findRouteOnto, findRouteAlong, MAX_VIA_DETOUR, allIntersections, carryOn,
 } from '../src/game/route.js';
@@ -20329,6 +20329,15 @@ let chopperOrder; // likewise
       FLY_HIGH - 0.5 > -WATER_Y + ARCH_RISE + 2.6,
       `${(FLY_HIGH - 0.5).toFixed(2)} at the lowest wingtip against ${(-WATER_Y + ARCH_RISE + 2.6).toFixed(2)}`);
   }
+
+  // --- The bridge joints sit under the route band.
+  //
+  // The band is depth-tested and lies on the road at ROUTE_Y, so a flat strip at or above it fights
+  // it (or swallows it) wherever a route runs onto a bridge. The joints are paint: they belong at the
+  // lane paint's height, one 0.01 layer under the band, like every other mark on the road.
+  check('the bridge joints sit a paint layer under the route band',
+    JOINT_Y <= ROUTE_Y - 0.0099 && JOINT_Y > 0,
+    `joints at ${JOINT_Y} against the band at ${ROUTE_Y}`);
 
   // --- The deck profile.
   //

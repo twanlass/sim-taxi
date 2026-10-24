@@ -5,7 +5,7 @@ import { PALETTE, color, jitterColor, roadsClassic } from '../palette.js';
 import {
   archAt, ARCH_RISE, DECK_THICK, DECK_OVERHANG, WATER_Y, RAIL_H, RAIL_W, RAIL_POST_PITCH,
 } from '../city/river.js';
-import { KERB_H } from '../city/ground.js';
+import { KERB_H, MARK_Y } from '../city/ground.js';
 
 // A bridge across the river: deck, edge beams, parapets, abutments and the paint down the middle.
 //
@@ -359,34 +359,51 @@ export function abutmentParts(span, rng, end) {
     }
     box.computeVertexNormals();
   }
-  return [bakeColor(box, trimCol), ...jointParts(span, rng, end)];
+  return [bakeColor(box, trimCol)];
 }
 
 // The seam where the road becomes a bridge: a steel expansion joint on the bank line and a concrete
 // approach slab behind it, both lying on the **road** side of the bank. The deck runs exactly bank
 // to bank (`bridgeSpan`), so nothing here sits over the deck — which also keeps the joint on the
-// ground when the drawbridge's leaf lifts. Raised a hair over the lane paint (MARK_Y 0.02 in
-// ground.js), which runs up to the bank on the same plane.
+// ground when the drawbridge's leaf lifts.
+//
+// **Paint, so its own mesh, and one that does not cast.** These first rode in `abutmentParts`, which
+// put a pair of flat strips 0.03 off the road inside two shadow casters: the drawbridge's shell,
+// which has no `sinkShadowCaster`, and the fixed spans, which do. A flat caster that also receives
+// shadows itself through its own shadow-map texels (CLAUDE.md, "a thin shell that both casts and
+// receives"), and on a phone the strips crawled in a pattern that read as z-fighting. Built here as
+// world-space geometry for main.js to put in a receive-only mesh, like the manholes.
+//
+// **At the lane paint's height, which is the only height that works.** The strips first sat at 0.03,
+// which is exactly the route band's `Y` (game/routeline.js): the band is depth-tested, so wherever a
+// route ran onto a bridge it fought the strips frame to frame — Tyler, 2026-10-24: "it seems to be
+// when I notice it". Lifting them to 0.04 only swapped the fight for a band that vanished under them.
+// They are paint, so they sit with the paint, one layer under the band like every other mark. Nothing
+// else lies under them to fight at 0.02: the bank is the junction box's edge, the centre dashes stop
+// at the box, and no crosswalk is laid over a river gap (measured: no ground triangle within 6 units
+// of either bank on five seeds). The probe holds both heights.
 const JOINT_W = 0.35;
 const APPROACH_W = 0.9;
-const JOINT_Y = 0.03;
+export const JOINT_Y = MARK_Y;
 
-function jointParts(span, rng, end) {
+/** Both ends' joint and approach strips for one span, in world coordinates. Empty under `?roads=classic`. */
+export function jointParts(span, rng) {
   if (roadsClassic()) return [];
-  const length = span.z1 - span.z0;
-  // Outward from the bank, away from the water: -z at the near bank, +z at the far one.
-  const out = end === 0 ? -1 : 1;
-  const bank = end === 0 ? 0 : length;
-  const strip = (from, width, col) => {
-    const geo = new THREE.PlaneGeometry(span.half * 2, width);
-    geo.rotateX(-Math.PI / 2);
-    geo.translate(0, JOINT_Y, bank + out * (from + width / 2));
-    return bakeColor(geo, col);
-  };
-  return [
-    strip(0, JOINT_W, jitterColor(PALETTE.bridgeJoint, rng, { l: 0.01 })),
-    strip(JOINT_W, APPROACH_W, jitterColor(PALETTE.bridgeApproach, rng, { l: 0.02 })),
-  ];
+  const parts = [];
+  for (const [bank, out] of [[span.z0, -1], [span.z1, 1]]) {
+    // Outward from the bank, away from the water: -z at the near bank, +z at the far one.
+    const strip = (from, width, col) => {
+      const geo = new THREE.PlaneGeometry(span.half * 2, width);
+      geo.rotateX(-Math.PI / 2);
+      geo.translate(span.cx, JOINT_Y, bank + out * (from + width / 2));
+      return bakeColor(geo, col);
+    };
+    parts.push(
+      strip(0, JOINT_W, jitterColor(PALETTE.bridgeJoint, rng, { l: 0.01 })),
+      strip(JOINT_W, APPROACH_W, jitterColor(PALETTE.bridgeApproach, rng, { l: 0.02 })),
+    );
+  }
+  return parts;
 }
 
 /**
