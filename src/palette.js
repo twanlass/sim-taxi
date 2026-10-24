@@ -1120,6 +1120,10 @@ export const PALETTE = {
   // the bank line and a pale concrete approach slab on the road side of it, so the change from
   // tarmac to deck is a seam you can see rather than two surfaces butting.
   bridgeJoint: '#3A3D42',
+  // A mended cut in a lane (city/asphaltpatch.js): newer tarmac a step darker than the road, and the
+  // crack seal poured round its edge, darker again and close to black.
+  asphaltPatch: '#40464F',
+  asphaltSeal: '#25272B',
   bridgeApproach: '#C4C0B6',
 
   // --- Boats ----------------------------------------------------------------

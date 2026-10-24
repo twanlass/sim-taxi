@@ -17,6 +17,7 @@ import {
 import { createLayout } from './city/layout.js';
 import { createGround, KERB_H } from './city/ground.js';
 import { createManholes } from './city/manholes.js';
+import { createAsphaltPatches } from './city/asphaltpatch.js';
 import { createRiver, bridgeLines, bridgeSpan, deckHeightAt } from './city/river.js';
 import { createHarbor } from './city/harbor.js';
 import { createNorthPark } from './city/northpark.js';
@@ -191,7 +192,7 @@ import { createSfx, DASH, MUSIC_FADE_AT_HINT } from './game/sfx.js';
 import { attachContextRecovery } from './game/recovery.js';
 import { isCityConnected, GRID_I, GRID_J, MAX_SPAN, lineX, lineZ } from './city/grid.js';
 import { cityNetwork } from './city/roadnet.js';
-import { PALETTE, color as paletteColor } from './palette.js';
+import { PALETTE, color as paletteColor, roadsClassic } from './palette.js';
 
 // Caches the app shell so a Home Screen launch still opens with no connection — see public/sw.js.
 // Skipped under `npm run dev`: Vite's dev server rewrites module URLs on every change, and a
@@ -582,6 +583,10 @@ scene.add(markOccluder(rain.wetGround(brush(createGround(makeRng(seed + 11), lay
 const manholes = createManholes(makeRng(seed + 193),
   { enabled: new URLSearchParams(location.search).get('manholes') !== 'classic' });
 if (manholes) scene.add(markOccluder(rain.wetGround(manholes)));
+// One or two mended cuts in a side street's lane (city/asphaltpatch.js), its own stream. Part of
+// the road look, so `?roads=classic` leaves them out.
+const asphaltPatches = createAsphaltPatches(makeRng(seed + 197), { enabled: !roadsClassic() });
+if (asphaltPatches) scene.add(markOccluder(rain.wetGround(asphaltPatches)));
 // The ground past the coast, for the fog of war to swallow — game/edgefog.js.
 if (EDGE_FOG) scene.add(createEdgeFogFloor());
 
