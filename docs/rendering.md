@@ -73,8 +73,9 @@ pane reads as a fake gradient, or as an unlit hole on a face in shadow (Tyler, 2
   streaks reads as glass on a lit face and still goes dark in shade. It is sky blue at the light's
   *brightness*, not in its colour: in the sun's warmth it turned the lit panes a muddy yellow-grey.
 - **45°, every 6 units** (`WINDOW_STREAK_PITCH`) along each façade, in the face's own coordinates
-  (its horizontal tangent and height) off the flat normal from the derivatives, edges anti-aliased
-  by `fwidth`. The two visible faces lean opposite ways, so a corner shows a chevron.
+  (its horizontal tangent and height) off the flat normal from the derivatives. Edges are feathered
+  over `WINDOW_STREAK_BLUR` (0.07 of the pitch, ~3px at play zoom): hard-edged, they read as
+  painted stripes. The two visible faces lean opposite ways, so a corner shows a chevron.
 - **They drift as the camera pans** (`WINDOW_PAN`, half the pan), sliding across a building as the
   camera follows the taxi. It is the only motion a reflection can have under this camera.
 - **Masonry keeps under its wall** (`GLASS_MIRROR`, which the streaks read as their strength):

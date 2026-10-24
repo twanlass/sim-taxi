@@ -1481,12 +1481,16 @@ const GLOSS_HIT_SOFT = /* glsl */ `
 //
 // In façade coordinates — the face's own horizontal tangent, and height — off the flat face
 // normal from the derivatives, at 45 degrees (one unit up per unit along), repeating every
-// WINDOW_STREAK_PITCH. Edges anti-aliased by fwidth, so they stay crisp without crawling.
+// WINDOW_STREAK_PITCH. Edges are feathered over WINDOW_STREAK_BLUR either side (a fraction of the
+// pitch, centred on the edge so a streak keeps its weight), with fwidth on top so they never crawl.
 //
 // They follow WINDOW_PAN of the camera's pan: 0 pins them to the façade like paint, 1 to the screen.
 // Halfway, they drift across a building as the camera follows the taxi.
 const WINDOW_PAN = 0.5;
 const WINDOW_STREAK_PITCH = 6;
+// Round 3 shipped hard-edged (fwidth only) and read as painted stripes; 0.07 of a 6-unit pitch is
+// ~0.4 units, ~3px at play zoom, which softens the wide band to a glow and leaves the thin one a line.
+const WINDOW_STREAK_BLUR = 0.07;
 // How much of the light reaching the pane a streak gives back, and its tint (a pale sky white).
 const WINDOW_STREAK_GAIN = 0.55;
 // ...and a flat sheen over the whole pane, so glass between the streaks reads as glass on a lit face
@@ -1502,8 +1506,9 @@ const WINDOW_STREAKS = /* glsl */ `
 			float wD = (wS + vGlossWorld.y) / ${WINDOW_STREAK_PITCH.toFixed(1)};
 			float wF = fract(wD);
 			float wW = fwidth(wD) + 1e-4;
-			float wBand = smoothstep(0.12 + wW, 0.12 - wW, abs(wF - 0.4))
-				+ 0.8 * smoothstep(0.03 + wW, 0.03 - wW, abs(wF - 0.6));
+			float wB = ${WINDOW_STREAK_BLUR.toFixed(3)} + wW;
+			float wBand = smoothstep(0.12 + wB, 0.12 - wB, abs(wF - 0.4))
+				+ 0.8 * smoothstep(0.03 + wB * 0.5, max(0.03 - wB * 0.5, 0.0), abs(wF - 0.6));
 			vec3 wIrr = (reflectedLight.directDiffuse + reflectedLight.indirectDiffuse)
 				/ max(diffuseColor.rgb, vec3(1e-3));
 			float wLum = dot(wIrr, vec3(0.2126, 0.7152, 0.0722));
