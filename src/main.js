@@ -143,7 +143,7 @@ import { markOccluder } from './game/ssao.js';
 import { markEmissive } from './game/bloom.js';
 import { renderBudget, decideLooks, createRenderPath } from './game/renderpath.js';
 import {
-  propMaterial, setGlossCity, setGlossGlobal,
+  propMaterial, setGlossCity, setGlossGlobal, PAINT_UNIFORMS,
 } from './util/geo.js';
 import * as difficulty from './game/difficulty.js';
 import { createHomeScreenTip } from './game/homescreen.js';
@@ -7750,6 +7750,15 @@ if (shot) {
     const at = (shot.atManhole === 'steam' && spots.find((s) => s.steam)) || spots[0];
     controller.state.target.set(at.x, 0, at.z);
     controller.update(aspect());
+  }
+
+  // The one paved junction: which one it is lives in the paint uniforms, as (i, j).
+  if (shot.atPlaza) {
+    const at = PAINT_UNIFORMS.uJunctionAt.value;
+    if (at.x >= 0) {
+      controller.state.target.set(lineX(at.x), 0, lineZ(at.y));
+      controller.update(aspect());
+    }
   }
 
   // A post box or the hot dog cart (game/streetprops.js), standing or — with `streetPropSmash` —

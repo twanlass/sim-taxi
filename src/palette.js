@@ -88,13 +88,7 @@ export const PALETTE = {
   manholeLid: '#3B3F45',
   manholeFrame: '#8C9097',
   crosswalk: '#DAD7CB',
-  // The one paved junction (setJunctionPaving in util/geo.js): brick, the sand in its joints, and
-  // the border course round it. The border stays near the road's value on purpose: the paving is a
-  // ratio over the lit asphalt, so a border at kerb brightness (1.8x the road) was outlined in light
-  // by the rain's reflections at night.
-  junctionBrick: '#8E5443',
-  junctionMortar: '#9C9283',
-  junctionEdge: '#8A8478',
+  // The one paved junction's colours are a look of their own, PLAZA_LOOKS below.
   sidewalk: '#CDBFA6',
   kerb: '#B3A994',
   park: '#6F9A5A',
@@ -1456,6 +1450,31 @@ if (ROADS_CLASSIC) {
   });
 }
 export const roadsClassic = () => ROADS_CLASSIC;
+
+// The one paved junction (`setJunctionPaving` in util/geo.js), one look per `?plaza=`. Each is the
+// field's units, the joints between them, the soldier course framing the field, and the outer band
+// of kerb stone the course butts against. The band stays well under kerb brightness on purpose:
+// the paving is a ratio over the lit asphalt, so a band at kerb value (1.8x the road) was outlined
+// in light by the rain's reflections at night.
+//
+// `classic` is the first plaza (#683): red brick with a faint border course at the road's value.
+// It went because it clashed (Tyler, 2026-10-25): the town's commonest wall is `brick` (#A06A57),
+// so a red plaza beside a red building read as one smear, and with no edge it stopped where the
+// colour did rather than at a frame.
+export const PLAZA_LOOKS = {
+  granite: { field: '#8E887E', mortar: '#A39C90', soldier: '#4E4C49', band: '#8C867B', style: 1 },
+  tan: { field: '#A08865', mortar: '#B5A68C', soldier: '#6C5B48', band: '#8C867B', style: 1 },
+  charcoal: { field: '#59585A', mortar: '#6F6D6A', soldier: '#A39C90', band: '#7A756C', style: 1 },
+  classic: { field: '#8E5443', mortar: '#9C9283', soldier: '#8A8478', band: '#8A8478', style: 0 },
+};
+// Charcoal setts in a pale frame, because the frame is the thing asked for and it reads best as the
+// lighter of the two; granite and tan both put a dark frame round a light field, which at play zoom
+// is a grey (or a beige beside the beige walls) with a smudge round it.
+export const PLAZA_DEFAULT = 'charcoal';
+export function plazaLook() {
+  const key = typeof location !== 'undefined' ? new URLSearchParams(location.search).get('plaza') : null;
+  return PLAZA_LOOKS[key] ?? PLAZA_LOOKS[PLAZA_DEFAULT];
+}
 
 export function color(value) {
   return new THREE.Color(PALETTE[value] ?? value);

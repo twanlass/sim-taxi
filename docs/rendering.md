@@ -1625,13 +1625,18 @@ things break the run of tarmac. `?roads=classic` brings back the old road and dr
   and a pale concrete approach slab behind it, on the *road* side, since the deck runs exactly bank
   to bank. Built into `abutmentParts`, so the drawbridge's static half carries them and they stay
   down when the leaf lifts. At `y = 0.03`, clear of the lane paint at 0.02.
-- **One brick plaza** (`setJunctionPaving`, util/geo.js): the junction nearest the middle that is a
-  full signalised crossing of two side streets, laid in running-bond brick with each brick its own
-  shade, paler mortar and a border course. Found in the ground's paint pass with the same grid
+- **One paved plaza** (`setJunctionPaving`, util/geo.js): the junction nearest the middle that is a
+  full signalised crossing of two side streets, laid in charcoal setts (running bond, each unit its
+  own shade, paler joints) inside a frame: a band of kerb stone on the outside, then a pale soldier
+  course, one unit laid end-on to the edge it runs along, mitred at the corners. The frame is what
+  makes it read as a laid square at play zoom; the field only has to be a different stone. `?plaza=`
+  swaps the colours (`PLAZA_LOOKS`, palette.js): `granite` and `tan` are a light field in a dark
+  frame, `classic` the first red brick. Found in the ground's paint pass with the same grid
   arithmetic the strokes use, and applied as a ratio over the lit asphalt so shadows, wet sheen and
   reflections stay the road's. The ratio is taken in display space, which is where `gl_FragColor`
-  is by the paint pass. The border stays near the road's value: a ratio multiplies whatever light
-  lands there, and at kerb brightness (1.8x) it outlined the box in light under the rain at night.
+  is by the paint pass. A ratio multiplies every light that lands there, so it is eased out where
+  the asphalt is already bright (luma 0.42 to 0.7; sunlit dry road sits under 0.42): under `?rain`
+  every look but the dark field came out as a glowing slab, and the pale frame as a lit outline.
 - **Asphalt patches** (city/asphaltpatch.js): one or two mended cuts per city, each inside one lane
   of a side street mid-block: a rounded rectangle with a slightly wobbled edge, a fill barely off the
   road, and a near-black crack-seal band round it that swells and thins as it goes. The contrast

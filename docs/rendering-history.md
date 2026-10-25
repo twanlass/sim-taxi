@@ -864,3 +864,14 @@ and both lids, 40% of the way at the first hit and the rest of the way down to e
 a quarter second. It did not read — a dulled yellow is still a yellow car, and with nothing beside it
 to compare against, the eye takes it for the light — and it was replaced by the chipped paint
 ([traffic.md](traffic.md)). `?taxidamage=classic` puts it back.
+
+## The red brick plaza (#683, `?plaza=classic`)
+
+The one paved junction was first red brick, running bond, with a 0.5-unit border course at the
+road's own value (a border at kerb brightness had been outlined in light by night rain). It clashed:
+red is the town's commonest wall colour (`brick`) and the basketball court's, so beside a red
+building the plaza and the wall read as one smear, and with the border at road value there was no
+edge to it, so it stopped where the colour stopped. Tyler (2026-10-25): "They need a border and
+might look good not in red." Replaced by charcoal setts in a band-and-soldier-course frame; see
+[rendering.md](rendering.md#roads-bridges-and-the-paved-junction).
+
