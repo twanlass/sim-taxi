@@ -1934,6 +1934,15 @@ Trucks count in the splash, though not under the landing, because the taxi never
 caught in the blast; a box truck spills its load. Cops count like any car. The patrol cruiser, the
 racer, guests and staged cars don't. `?crushsplash=classic` crushes the one car.
 
+The whole crush plays in slow motion (Tyler, 2026-10-25: "we need to do a little bit of slow mo
+there to really sell that effect"; `game/crushslowmo.js`). The clock drops straight to 0.3x on the
+frame the car goes up, with no ease in, so the slam still hits. It holds there for at least 0.28s
+and for as long as splash pops are still due (they run on sim time, so they stretch with it), up to
+1.4s, then eases back to full speed over 0.8s. A lone crush is about 1.1s on the clock; a three-car
+splash about 2.1s. It is shallower than the wreck's 0.18x, which stays the biggest moment in the
+game. Input stays live and the sound is untouched. Under the wreck or the Big Air hang it takes
+whichever clock is slower. `?crushslowmo=classic` runs the crush at full speed.
+
 Big Air's touchdown also pays a sixth of the Loco tank back on the drift kick's energy bits
 (`DRIFT_CHAIN.fuel[0]`, Tyler, 2026-10-23), since getting one means burning Loco round a corner and
 over an arch. It pays once per landing, so Crushin' It adds a step and no more fuel. Like Stuntman's,

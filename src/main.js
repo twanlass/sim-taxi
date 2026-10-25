@@ -52,6 +52,7 @@ import {
 } from './sim/traffic.js';
 import { createCollisions, TAXI_HP, setCrush, setCrushSplash } from './sim/collisions.js';
 import { createVanish } from './game/vanish.js';
+import { createCrushSlowMo } from './game/crushslowmo.js';
 import { createPolice } from './sim/police.js';
 import {
   createFareSystem, cornerFor, kerbFor, setFareSeconds, getFareSeconds, isFareClockPinned, BURGER_PRICE, REPAIR_PRICE,
@@ -2798,6 +2799,10 @@ let pileupOwed = 0;
 const crushVanish = createVanish();
 const crushShells = [];
 const crushPops = [];
+// The beat it all plays in (game/crushslowmo.js). `?crushslowmo=classic` runs it at full speed.
+const crushSlowMo = createCrushSlowMo({
+  enabled: new URLSearchParams(window.location.search).get('crushslowmo') !== 'classic',
+});
 function crushBang(car, speed, yaw, { driftX, driftZ, spin = 0, shake, gain = 0.8, rate = 1 }) {
   const paint = car.police ? PALETTE.policeBody : PALETTE.carBody[car.colorIndex];
   blast.fire(car.x, car.z, paint, yaw, speed * STRUCK_SHOVE);
@@ -2815,6 +2820,7 @@ function crushBang(car, speed, yaw, { driftX, driftZ, spin = 0, shake, gain = 0.
 collisions.onCrush(({ speed, other, airborne, splash }) => {
   if (airborne) crushOwed = true;
   else if (!fares.state.gameOver) landCombo('crush');
+  crushSlowMo.start(performance.now());
   const yaw = traffic.taxi.yaw;
   const carry = carrySpeed(speed);
   const fx = Math.cos(yaw) * carry * SHELL_CARRY * STRUCK_SHOVE;
@@ -6717,12 +6723,18 @@ function tick() {
     return;
   }
 
+  // Crushin' It's beat is read every frame so it can let go on its own clock, and under the wreck
+  // or the Big Air hang it takes whichever is slower — a crush lands on the hang's last few percent,
+  // where the hang is already back near 1.
+  const crushScale = crushSlowMo.scale(nowMs, crushPops.length > 0);
   if (nowMs < slowMoUntil) {
     const t = 1 - (slowMoUntil - nowMs) / SLOW_MO_DURATION;
-    dt *= slowMoMin + (1 - slowMoMin) * t;
+    dt *= Math.min(crushScale, slowMoMin + (1 - slowMoMin) * t);
   } else if (onDriftLaunch(traffic.taxi)) {
-    dt *= launchTimeScale(hopProgress(traffic.taxi),
-      traffic.taxi.hopKind === 'bridge' ? MEGA_SLOW_MO_MIN : LAUNCH_SLOW_MO_MIN);
+    dt *= Math.min(crushScale, launchTimeScale(hopProgress(traffic.taxi),
+      traffic.taxi.hopKind === 'bridge' ? MEGA_SLOW_MO_MIN : LAUNCH_SLOW_MO_MIN));
+  } else {
+    dt *= crushScale;
   }
   simClock += dt;
 

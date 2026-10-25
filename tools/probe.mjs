@@ -256,6 +256,7 @@ import { createSfx, SHIPPED_MIX, SFX_EVENTS, SOUNDS, LOOPS, RADIO, radioBetween,
 import MIX_FILE from '../assets/audio/mix.json' with { type: 'json' };
 import { createTitleReel, SHOT as REEL_SHOT } from '../src/game/titlereel.js';
 import { placeSpeech } from '../src/game/speech.js';
+import { createCrushSlowMo, CRUSH_SLOW_MIN, CRUSH_SLOW_HOLD, CRUSH_SLOW_HOLD_MAX, CRUSH_SLOW_OUT } from '../src/game/crushslowmo.js';
 
 const seed = Number(process.argv[2] ?? 71624);
 const CARS_DEFAULT = 7;    // low-density baseline for the fare-loop checks — keeps timing thresholds stable regardless of runtime default
@@ -21124,6 +21125,37 @@ let chopperOrder; // likewise
     const spOld = splashRun({ classic: true });
     check('?crushsplash=classic crushes only the car landed on', spOld.splash.length === 0 && !spOld.near,
       `splash ${spOld.splash.length}`);
+  }
+
+  // --- Crushin' It's slow-mo (game/crushslowmo.js): a hit-stop on the crush, held while the splash
+  // is still popping, eased out after. Driven on a fake wall clock at 60 fps.
+  {
+    const run = ({ holdFor = 0, enabled = true } = {}) => {
+      const slow = createCrushSlowMo({ enabled });
+      slow.start(1000);
+      const first = slow.scale(1000, holdFor > 0);
+      let sim = 0, t = 0, prev = 0, monotone = true, end = null;
+      for (; t < 4000; t += 1000 / 60) {
+        const k = slow.scale(1000 + t, t < holdFor);
+        if (t > CRUSH_SLOW_HOLD_MAX && k < prev - 1e-9) monotone = false;
+        prev = k;
+        sim += k / 60;
+        if (k === 1 && end === null) end = t;
+      }
+      return { first, end, sim, monotone, idle: !slow.active() };
+    };
+    const one = run();
+    check(`the crush drops straight to ${CRUSH_SLOW_MIN}x and is back to 1 within `
+      + `${((CRUSH_SLOW_HOLD + CRUSH_SLOW_OUT) / 1000).toFixed(2)}s (measured ${(one.end / 1000).toFixed(2)}s)`,
+      one.first === CRUSH_SLOW_MIN && one.end <= CRUSH_SLOW_HOLD + CRUSH_SLOW_OUT + 20 && one.idle && one.monotone,
+      `first ${one.first}, end ${one.end}`);
+    const chain = run({ holdFor: 900 });
+    check(`...a splash still popping holds the bottom longer (${(chain.end / 1000).toFixed(2)}s), `
+      + `capped at ${CRUSH_SLOW_HOLD_MAX}ms`,
+      chain.end > one.end + 500 && run({ holdFor: 10000 }).end <= CRUSH_SLOW_HOLD_MAX + CRUSH_SLOW_OUT + 20,
+      `chain ${chain.end}, single ${one.end}`);
+    const off = run({ enabled: false });
+    check('?crushslowmo=classic leaves the clock alone', off.first === 1 && off.end === 0, `first ${off.first}`);
   }
 
   // --- Nothing paints a stop bar on the bridge.
