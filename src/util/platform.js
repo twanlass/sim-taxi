@@ -31,3 +31,18 @@ export function isNative() {
   if (typeof window === 'undefined') return false;
   return window.__native === true;
 }
+
+/**
+ * The app's own version and build, as the shell read them out of its Info.plist, or null outside
+ * the shell (or a shell too old to say). `version` is Xcode's MARKETING_VERSION, set by hand per
+ * release; `build` is the build number Xcode Cloud stamps on every archive, the same one TestFlight
+ * lists. Read at call time, like `isNative()`.
+ *
+ * @returns {{ version: string, build: string } | null}
+ */
+export function nativeVersion() {
+  if (!isNative()) return null;
+  const v = window.__nativeVersion;
+  if (!v || typeof v.version !== 'string' || typeof v.build !== 'string') return null;
+  return { version: v.version, build: v.build };
+}

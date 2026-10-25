@@ -24,6 +24,7 @@ import { HALF_SPAN_X, HALF_SPAN_Z } from '../city/grid.js';
 import { RIGHT } from './camera.js';
 import { createClaudeMark } from './creditegg.js';
 import { el, menuPage, settingsRows } from './menupage.js';
+import { nativeVersion } from '../util/platform.js';
 
 const params = new URLSearchParams(globalThis.location?.search ?? '');
 
@@ -94,9 +95,19 @@ export const CREDITS = [
   ['Programming', 'Claude', 'claude'],
 ];
 
-/** The build the title menu's foot names — bump it here, it is read nowhere else. */
+/** The web build's version for the title menu's foot — bump it here by hand. */
 export const BUILD_VERSION = '1.0.0';
 export const COPYRIGHT = `© 2026 48 Made, LLC. Build v${BUILD_VERSION}`;
+
+/**
+ * The title menu's foot line. Inside the app it names the version and build the shell reports
+ * (`nativeVersion()`), so it always matches the TestFlight or App Store build it is in and nobody
+ * has to bump anything; on the web, and in a shell too old to say, it is `COPYRIGHT`.
+ */
+export function copyrightLine() {
+  const v = nativeVersion();
+  return v ? `© 2026 48 Made, LLC. Build v${v.version} (${v.build})` : COPYRIGHT;
+}
 
 const stillPlease = () => window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
 
@@ -206,7 +217,7 @@ export function createTitleScreen(root, { sound, settings, demo = null, onPlay, 
   const creditsButton = el('button', 'title-item', 'Credits');
   for (const b of [playButton, settingsButton, creditsButton]) b.type = 'button';
   // The small print sits inside the menu so it fades in with it and goes when a page opens.
-  menu.append(playButton, settingsButton, creditsButton, el('p', 'title-legal', COPYRIGHT));
+  menu.append(playButton, settingsButton, creditsButton, el('p', 'title-legal', copyrightLine()));
 
   // --- Settings ---------------------------------------------------------------------------------
   const settingsPage = menuPage('settings', 'Settings', () => show('menu'));
