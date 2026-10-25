@@ -344,6 +344,8 @@ export function wantsSplash() {
   } catch { /* storage refused: a fresh start */ }
   if (params.has('shot') || params.has('dev') || params.get('title') === 'off') return false;
   if (params.get('splash') === 'classic') return false;
+  // The marketing site's frame (game/backdrop.js) is the city alone.
+  if (params.has('backdrop')) return false;
   if (quit) return false;
   try {
     if (window.sessionStorage.getItem('simTaxi.skipTitle') === '1') return false;

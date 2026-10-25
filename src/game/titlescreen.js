@@ -24,6 +24,7 @@ import { HALF_SPAN_X, HALF_SPAN_Z } from '../city/grid.js';
 import { RIGHT } from './camera.js';
 import { createClaudeMark } from './creditegg.js';
 import { el, menuPage, settingsRows } from './menupage.js';
+import { BACKDROP, backdropZoom } from './backdrop.js';
 import { nativeVersion } from '../util/platform.js';
 
 const params = new URLSearchParams(globalThis.location?.search ?? '');
@@ -62,9 +63,14 @@ const SLIDE_PHASE = Math.acos(0.7);
  * and no one sitting on the menu sees it reverse.
  */
 export function panAt(t) {
-  const along = -SLIDE_REACH * Math.cos(SLIDE_PHASE + (t / SLIDE_PERIOD) * Math.PI * 2);
-  return { x: RIGHT.x * along, z: RIGHT.z * along, zoom: PAN_ZOOM };
+  // Under `?backdrop` the frame is wide enough that the menu's reach would run the island off it.
+  const along = -(BACKDROP ? BACKDROP_REACH : SLIDE_REACH) * Math.cos(SLIDE_PHASE + (t / SLIDE_PERIOD) * Math.PI * 2);
+  const zoom = BACKDROP ? backdropZoom(window.innerWidth / window.innerHeight) : PAN_ZOOM;
+  return { x: RIGHT.x * along, z: RIGHT.z * along, zoom };
 }
+
+/** How far the slide reaches under `?backdrop` (game/backdrop.js): the island stays centred in its wider frame. */
+const BACKDROP_REACH = 10;
 
 /** Seconds per lap of the classic ellipse. Slow on purpose: ~1 world unit a second is a stroll, not a tour. */
 export const PAN_PERIOD = 120;

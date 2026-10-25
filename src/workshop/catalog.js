@@ -42,7 +42,9 @@ import { createPerson } from '../geometry/person.js';
 import { createParcel } from '../geometry/parcel.js';
 import { createFoodOrder } from '../geometry/food.js';
 import { buildBank, bankDomeMesh } from '../city/bank.js';
-import { INSET } from '../city/buildings.js';
+import { INSET, buildLotTower } from '../city/buildings.js';
+import { chooseVetSite, createVetClinic } from '../city/vetclinic.js';
+import { makeRng } from '../util/rng.js';
 
 const shadowed = (mesh) => {
   mesh.castShadow = true;
@@ -280,6 +282,29 @@ export const CATALOG = [
       const group = new THREE.Group();
       group.add(mesh, bankDomeMesh(built.domeGeometry));
       return { object: landmark(block, group) };
+    },
+  },
+
+  {
+    // An ordinary corner shop, built by the city's own tower generator on the +X+Z quarter of the
+    // bench block, with the clinic's sign on it — the head is what this entry is for.
+    id: 'vet', label: 'Vet clinic', kind: 'Landmarks',
+    source: 'src/city/vetclinic.js · dogHeadGeometry',
+    build: () => {
+      const block = { ...benchBlock(), centrality: 0 };
+      const { x0, z0, x1, z1, cx, cz } = block.bounds;
+      const lot = { x0: cx - 1, z0: cz - 1, x1, z1 };
+      // The first shop the generator gives a flat roof (pitched ones have no deck to stand on).
+      for (let n = 0; n < 40; n++) {
+        const { tower, meshes } = buildLotTower(lot, block, makeRng(500 + n), { height: 5.5, families: ['brick'] });
+        const site = tower && chooseVetSite([tower], null);
+        if (!site) { meshes.forEach((m) => m.geometry.dispose()); continue; }
+        const vet = createVetClinic(site);
+        const group = new THREE.Group();
+        group.add(...meshes, vet.group);
+        return { object: landmark(block, group), update: (dt) => vet.update(dt), glow: [[vet.glow, 'window']] };
+      }
+      throw new Error('vet bench: no flat-roofed shop in 40 tries');
     },
   },
 
