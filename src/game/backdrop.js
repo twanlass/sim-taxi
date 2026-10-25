@@ -19,12 +19,13 @@ const params = new URLSearchParams(globalThis.location?.search ?? '');
 export const BACKDROP = params.has('backdrop');
 
 /**
- * The slide's frustum half-height under `?backdrop`, against the menu's 34. Wide enough on a tall
- * phone for the island to fill the width with the fog bank above and below it (88); a landscape
- * frame is 2.2× wider for the same height, so it needs less (52, the play zoom) to show as much.
+ * The slide's frustum half-height under `?backdrop`, against the menu's 34. Framed on the city's
+ * core with the island's ragged edge just outside the frame (Tyler, 2026-10-25: the whole island in
+ * fog read as too far out): 42 across a landscape frame, and on a tall one the same blocks across its
+ * width, near enough: 58, which crops the sides a little so the frame is not mostly fog above and below.
  */
 export function backdropZoom(aspect) {
-  return aspect < 1 ? 88 : 52;
+  return aspect < 1 ? 58 : 42;
 }
 
 /** Posted to the parent frame once the city is on screen. */
