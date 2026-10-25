@@ -39,11 +39,15 @@ export const PLUME_H = 8.5;
 export const PLUME_W = 7;     // wide enough for the lean and the widest billow
 const BASE_U = 0.35;          // where across the quad the cover sits; the rest is room for the lean
 const LEAN = 2.4;             // units the top drifts downwind
+// How high a wisp climbs before it is gone. 0.72 of PLUME_H at first (6.1), which stacked the
+// puffs into a column and read as a chimney; wisps hang about the height of a car's roof and a half.
+const WISP_RISE = 3.4;
 const PUFFS = 12;             // puffs in the air at once, per plume
 const PUFF_LIFE = 3.6;        // seconds from the lid to gone
 // 0.92 at first, and at phone play zoom it read as solid white beads standing in the street
-// (Tyler, 2026-10-25: "tone it down"). At 0.55 the road shows through the thin parts.
-const OPACITY = 0.55;
+// (Tyler, 2026-10-25: "tone it down"). The wisps are thin enough on their own that 0.55 left them
+// a grey smudge; 0.7 keeps them white where they are thick and lets the road through the rest.
+const OPACITY = 0.7;
 // Steam scatters light rather than being lit like a wall. With Lambert alone a plume out of the sun
 // came out the same grey as the road under it and all but vanished in the first render. So it is
 // mostly self-lit, at full white — the sun adds a little (`LIT`) — and the glow comes down after
@@ -149,19 +153,28 @@ ${STEAM_COMMON}`);
   // and fading, on a loop staggered so one leaves every 1/PUFFS of a cycle.
   for (int k = 0; k < ${PUFFS}; k++) {
     float fk = float(k);
-    float f = fract(t * ${(1 / PUFF_LIFE).toFixed(4)} + fk / ${PUFFS}.0 + 0.13 * steamHash(vec2(fk, vSeed)));
-    float rise = 1.0 - pow(1.0 - f, 1.7);
-    float y = 0.25 + rise * ${(PLUME_H * 0.72).toFixed(2)};
+    float cyc = t * ${(1 / PUFF_LIFE).toFixed(4)} + fk / ${PUFFS}.0 + 0.13 * steamHash(vec2(fk, vSeed));
+    float f = fract(cyc);
+    // Each time a slot comes round it draws its own strength and sideways drift, so the vent
+    // gusts: some puffs barely there, and never a steady procession up one line. A tall, regular
+    // column of round puffs is what read as a chimney (Tyler, 2026-10-25).
+    float gen = floor(cyc);
+    float gust = steamHash(vec2(fk + gen * 13.0, vSeed + 1.0));
+    float drift = steamHash(vec2(fk + gen * 7.0, vSeed + 2.0)) - 0.5;
+    // Low: wisps stay in the street rather than climbing past the second storey.
+    float rise = 1.0 - pow(1.0 - f, 1.4);
+    float y = 0.25 + rise * ${WISP_RISE.toFixed(2)};
     float h = y / ${PLUME_H.toFixed(2)};
-    float x = ${LEAN.toFixed(2)} * pow(h, 1.4)
-      + 0.3 * h * sin(fk * 2.4 + t * 0.9)
-      + vKick.x * vKick.y * 1.8 * sqrt(h);
-    float r = mix(0.6, 2.0, pow(f, 0.7)) * (1.0 + 0.3 * vKick.x);
-    vec2 d = (p - vec2(x, y)) / vec2(r, r * 0.85);
-    // A ragged rim: noise in the radius, turning with the puff so the edge churns as it climbs.
-    float rim = (steamNoise(p * 1.7 + vec2(fk * 7.3, fk * 3.1 - t * 0.8)) - 0.5) * 0.45;
-    float a = 1.0 - smoothstep(0.3, 1.0, length(d) + rim);
-    a *= smoothstep(0.0, 0.08, f) * (1.0 - smoothstep(0.3, 1.0, f)) * 0.8;
+    float x = ${LEAN.toFixed(2)} * pow(rise, 1.2) + drift * 1.6 * rise
+      + 0.5 * rise * sin(fk * 2.4 + t * 0.9)
+      + vKick.x * vKick.y * 1.8 * sqrt(rise);
+    // Flattened as they rise and spread: a wisp is a streak lying across the wind, not a ball.
+    float r = mix(0.55, 1.7, pow(f, 0.7)) * (1.0 + 0.3 * vKick.x);
+    vec2 d = (p - vec2(x, y)) / vec2(r * mix(1.0, 1.5, f), r * mix(0.8, 0.45, f));
+    // Torn edges: noise in the radius, turning with the puff so the edge churns as it climbs.
+    float rim = (steamNoise(p * 1.9 + vec2(fk * 7.3, fk * 3.1 - t * 0.8)) - 0.5) * 0.7;
+    float a = 1.0 - smoothstep(0.0, 1.0, length(d) + rim);
+    a *= smoothstep(0.0, 0.08, f) * (1.0 - smoothstep(0.1, 0.85, f)) * mix(0.35, 0.8, gust);
     // The taxi tears the low puffs away.
     a *= 1.0 - 0.9 * vKick.x * (1.0 - smoothstep(0.15, 0.55, h));
     // Lit from above: the top of a puff is the bright side, its underside a step greyer.
@@ -173,7 +186,7 @@ ${STEAM_COMMON}`);
   // Centred over the lid as the screen sees it: the lid's far edge is 2 COVER_R behind the quad,
   // which climbs to 0.78 of a unit up the quad at this camera's 33 degrees.
   vec2 dl = (p - vec2(0.0, 0.45)) / vec2(0.85, 0.55);
-  float foot = (1.0 - smoothstep(0.3, 1.0, length(dl))) * 0.65 * (1.0 - 0.9 * vKick.x);
+  float foot = (1.0 - smoothstep(0.2, 1.0, length(dl))) * 0.45 * (1.0 - 0.9 * vKick.x);
   shade += 0.8 * foot * (1.0 - cover);
   cover += foot * (1.0 - cover);
   diffuseColor.a *= cover * breath * ${OPACITY.toFixed(2)};

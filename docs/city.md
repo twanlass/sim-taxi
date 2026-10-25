@@ -1331,10 +1331,13 @@ ground, because the ground wears the painterly road strokes and iron under a str
 side streets only, because the L train's deck runs over the arterials at 6.4 and a plume is 6.5
 tall. Each plume is **one quad and a fragment shader**: the quad stands on the lid's near edge in
 the plane of `RIGHT` and world up (fixed, since the view never turns), and the shader draws twelve
-soft puffs inside it on a staggered loop — born on the lid, rising fast and slowing, growing,
-drifting off downwind and fading, with a ragged rim — over one puff that sits on the lid. A
+soft wisps inside it on a staggered loop — born on the lid, rising only about 3.4 units, spreading
+and flattening into streaks as they drift off downwind and fade, with torn edges — over a faint
+puff that sits on the lid. Each time a slot comes round it draws its own strength and sideways
+drift, so the vent gusts rather than marching puffs up one line. A
 continuous fbm column was tried first and read as a cone of light at the foot and grey smoke at the
-top. The vent breathes on two slow sines so the three are never in step. Mostly self-lit white
+top; the first puffs (#689) climbed 6 units, opaque, and read as a chimney; a thick billowing
+column (#702, never merged) read as one blown-out white blob. The vent breathes on two slow sines so the three are never in step. Mostly self-lit white
 (Lambert alone came out road-grey), dimmed after dark; transparent, so it casts no shadow and stays
 out of the AO prepass. The wind is the city's (one sign for all three, `seed + 194`). **The taxi parts
 it**: through a vent above 2 u/s, the foot tears open and the column is thrown across the screen the
