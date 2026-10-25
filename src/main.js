@@ -2181,13 +2181,18 @@ for (const mesh of fire.emissiveMeshes) markEmissive(mesh, 'siren');
 // board steps aside the way it does for a getaway (`setHold`). `?race=classic` has no racers in the
 // city; `?race=soon` brings the first one a few seconds in.
 const raceParam = new URLSearchParams(window.location.search).get('race');
+// One tap is the whole yes (Tyler: "cut this extra ready tap and the one before"): the tap on the
+// racer's "!" takes it on, and the count starts as soon as the camera is back from the finish.
+// `?racetap=classic` keeps the three — "!" asks "Wanna race?", a second tap takes it on, and the
+// count waits on a tap on "Ready?".
+const raceTapClassic = new URLSearchParams(window.location.search).get('racetap') === 'classic';
 race = shot || raceParam === 'classic' ? null : createRace({
   rng: makeRng(runSeed + 743), scene, traffic, routeTo,
   soon: raceParam === 'soon',
   // The racer's body bounces on hydraulics in the race's scenes (game/hydraulics.js).
   hydraulics: new URLSearchParams(window.location.search).get('hydraulics') !== 'classic',
-  // The racer asks "Ready?" once the camera is back from the finish, and the tap on it is the start.
-  readyGate: new URLSearchParams(window.location.search).get('raceready') !== 'classic',
+  // `?racetap=classic`: the racer asks "Ready?" once the camera is back, and the tap on it is the start.
+  readyGate: raceTapClassic,
   // The finish goes down as the camera arrives on it, rather than before the pan.
   lateReveal: new URLSearchParams(window.location.search).get('racereveal') !== 'classic',
   snapCut: new URLSearchParams(window.location.search).get('racecut') !== 'classic',
@@ -2216,13 +2221,16 @@ fares.setHold(() => Boolean(race?.holdsBoard()));
 const raceTalkRoot = document.getElementById('race-talk');
 const raceTalk = race && raceTalkRoot ? createSpeech(raceTalkRoot, {
   viewport,
-  // At the screen edge the tag rides the camera onto the car and asks — the same first tap it
-  // always was, plus the pan — so the second tap, on the racer itself, takes it on.
+  // At the screen edge the tag rides the camera onto the car and takes it on — the same tap it
+  // always was, plus the pan (`?racetap=classic`: it asks, and the second tap, on the racer, takes it on).
   onEdgeTap: () => {
     if (!race?.offering() || fares.state.gameOver) return false;
     let last = race.rivalAt();
     const rival = () => { last = race?.rivalAt() ?? last; return last; };
-    return lookAtTalker(rival, () => Boolean(race?.offering()), () => { if (!race.state.asked) race.ask(); });
+    return lookAtTalker(rival, () => Boolean(race?.offering()), () => {
+      if (!raceTapClassic) acceptRace();
+      else if (!race.state.asked) race.ask();
+    });
   },
   edgeTappable: () => isNarrow(),
 }) : null;
@@ -2269,7 +2277,7 @@ function updateBankMark(dt) {
  */
 function onRaceEvent(type, detail) {
   if (type === 'available') {
-    // In reach with an empty cab: just the talker's "!" tag until the player taps it (`race.ask`) —
+    // In reach with an empty cab: just the talker's "!" tag until the player taps it (`acceptRace`) —
     // pointing in from the screen edge when the car is off it. No horn: the racer makes no sound of
     // its own anywhere in the vignette (Tyler: "remove all the horn sounds"). Without a
     // tag (`?bubbles=classic`/`dock`), a card with only the dots on it.
@@ -2452,7 +2460,7 @@ function settleRaceWatch() {
   raceWatchTimer = setTimeout(() => { raceWatch = null; }, RACE_MONEY_MS);
 }
 
-/** A tap on the racer: the first one asks what it wants, the second takes it on. */
+/** A tap on the racer takes it on (`?racetap=classic`: the first asks what it wants, the second takes it on). */
 function acceptRace() {
   if (!race || fares.state.gameOver || !race.offering()) return;
   raceTalkRoot?.classList.remove('is-ellipsis');
@@ -2460,7 +2468,7 @@ function acceptRace() {
     raceTalk?.show('Street racer', 'Drop your fare off first.', raceTalkAt);
     return;
   }
-  if (!race.state.asked) race.ask();
+  if (raceTapClassic && !race.state.asked) race.ask();
   else race.accept();
 }
 
@@ -3279,11 +3287,11 @@ createPicker(
   (kind, hit, ray) => {
     if (fares.state.gameOver) return;
 
-    // The street race: from the second tap to the green the race is on and a tap changes nothing
+    // The street race: from the tap that takes it on to the green the race is on and a tap changes nothing
     // (game/race.js, `locked`); and once the racer has asked, a tap anywhere but on it (or its
     // card, which answers on its own pointerup) turns it down — "Next time, then." — and then does
     // whatever it would have done.
-    // The one tap the start takes is the racer's "Ready?" — on its card, or on the car itself.
+    // `?racetap=classic`: the start waits on a tap on the racer's "Ready?" — on its card, or the car.
     if (kind === 'racer' && race?.ready()) return;
     if (race?.locked()) return;
     if (kind !== 'racer') race?.decline();

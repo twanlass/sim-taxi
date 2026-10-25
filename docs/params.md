@@ -115,7 +115,7 @@ doc; what the classic version was, and why it changed, is in that doc's history 
 | `?copchat=classic` | The cops' "pull over" and "lost the suspect" bubbles | #492 | [gameplay.md](gameplay.md) |
 | `?race=classic` | No street racers: the city before the race vignette, with no violet car tailing the empty taxi to challenge it | | [gameplay.md](gameplay.md#the-street-race) |
 | `?hydraulics=classic` | The street racer without hydraulics: its body sits still on its wheels through the offer, the start and the finish | | [gameplay.md](gameplay.md#the-street-race) |
-| `?raceready=classic` | The race's count starts as soon as the camera is back from the finish, with no "Ready?" to tap | | [gameplay.md](gameplay.md#the-street-race) |
+| `?racetap=classic` | Taking a racer on is three taps again: its "!" asks "Wanna race?", a second tap takes it on, and the count waits on a tap on "Ready?" | | [gameplay.md](gameplay.md#the-street-race) |
 | `?racereveal=classic` | The race's finish ring and flag are already down when the camera pans to them, rather than going down as it arrives | | [gameplay.md](gameplay.md#the-street-race) |
 | `?racecount=classic` | The race's three, two, one at 40px a third of the way down the screen, rather than 80px just above the middle | | [gameplay.md](gameplay.md#the-street-race) |
 | `?racecut=classic` | The race's winner brakes to a stop at the line for a second before the cut to the loser, rather than the screen cutting to black the moment it crosses | | [gameplay.md](gameplay.md#the-street-race) |

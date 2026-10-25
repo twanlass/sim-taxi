@@ -1426,3 +1426,15 @@ the first frame of `clearing`, before the arms moved. Safe and invisible: a rais
 ever a route that went the long way. Splitting it into two leaves for the Mega Air jump
 ([river.md](river.md#jumping-it-mega-air)) moved the re-plan to the end of the jump window, so a
 route over the span now runs to the gate and waits there.
+
+## The street race's three taps (until October 2026, `?racetap=classic`)
+
+Taking a racer on used to cost three taps. The first, on its "!", made it ask "Wanna race?" (Tyler
+wanted the question put only to someone who tapped, rather than one more line on a busy screen); the
+second, on that card or the car, took it on, and a tap anywhere else turned it down ("Next time,
+then."). Then, back from the look at the finish, the racer asked "Ready?" and the count waited on a
+third tap (Tyler: "tapping that is what triggers the countdown"), nagging once at `READY_NAG` (6s,
+"Tap me when you're ready!") and counting in on its own at `READY_MAX` (15s), since the taxi and
+every fare's clock are held until the green. Tyler cut the second and third ("cut this extra ready
+tap and the one before"): the "!" is the yes and the count starts when the camera is home. The old
+`?raceready=classic`, which dropped only the "Ready?", went with it.

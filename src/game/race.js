@@ -480,7 +480,8 @@ function createRivalMesh() {
  *                 count, the money. This module knows a race happened, not what a run's cash is.
  * @param soon     `?race=soon`
  * @param hydraulics false for `?hydraulics=classic`: the body sits still on its wheels
- * @param readyGate false for `?raceready=classic`: the count starts when the camera is back
+ * @param readyGate true for `?racetap=classic`: the count waits on a tap on "Ready?" (by default it
+ *                 starts when the camera is back)
  * @param lateReveal false for `?racereveal=classic`: the finish is down before the camera pans to it
  * @param snapCut false for `?racecut=classic`: the winner pulls up for WINNER_HOLD_CLASSIC before the cut
  * @param firstDue the drop-off the first racer turns up at, overriding DROPS_BETWEEN — Demo mode's 1
@@ -828,7 +829,7 @@ export function createRace({
     return true;
   }
 
-  /** Back on the line: a route given to the parked taxi from the second tap to the green is dropped. */
+  /** Back on the line: a route given to the parked taxi from the tap that takes it on to the green is dropped. */
   function holdTaxi() {
     taxi.route = [];
     taxi.pendingTarget = null;
@@ -836,7 +837,7 @@ export function createRace({
   }
 
   /**
-   * The second tap on the racer. Answers whether the race is on: the screen is about to cut (main.js runs
+   * The tap that takes the racer on (the second, `?racetap=classic`). Answers whether the race is on: the screen is about to cut (main.js runs
    * the wipe and calls `stage` under the black), and the taxi drops whatever it was heading for —
    * an empty cab's only errand is a rider, and the board is about to be held.
    */
@@ -1151,7 +1152,7 @@ export function createRace({
   }
 
   /** Start the count — called when the camera is back from the finish, or by `REVEAL_MAX`. */
-  /** The look at the finish is done: "Ready?" (or straight to the count, `?raceready=classic`). */
+  /** The look at the finish is done: straight to the count (or "Ready?", `?racetap=classic`). */
   function countIn() {
     if (state.phase !== 'reveal') return;
     // A swipe mid-pan drops the camera's callback, so the finish may never have been looked at.
@@ -1384,7 +1385,7 @@ export function createRace({
       case 'reveal': {
         if (!car) { finish('void'); break; }
         // Taken on is taken on (Tyler: "Dont allow declining after you've tapped on 'wanna race'"):
-        // main.js ignores taps from the second tap to the green (`locked`), and anything else that
+        // main.js ignores taps from the tap that takes it on to the green (`locked`), and anything else that
         // routes the taxi meanwhile is undone rather than calling the race off.
         if (taxi.route.length > 0) holdTaxi();
         if (interrupted()) { finish('void'); break; }
@@ -1526,7 +1527,7 @@ export function createRace({
     offering: () => state.phase === 'offer' && state.available,
     /** Is the board held? From the tap to the line, as for a getaway. */
     holdsBoard: () => ACTIVE.has(state.phase),
-    /** From the second tap to the green: taps on the map are ignored (no backing out). */
+    /** From the tap that takes it on to the green: taps on the map are ignored (no backing out). */
     locked: () => LOCKED.has(state.phase),
     /** A tap anywhere but the "Wanna race?" card, once it has asked. */
     decline,
