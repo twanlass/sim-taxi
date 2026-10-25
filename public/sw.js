@@ -22,7 +22,7 @@
 //     manifest gained a 192.
 // v5: the manifest's `background_color` went from the sky to black, with the startup screen.
 // v6: icons re-rendered with today's taxi — deck chequer, no roof sign, the garage glint.
-const CACHE_NAME = 'sim-taxi-v6';
+const CACHE_NAME = 'sim-taxi-v7';
 
 const PRECACHE_URLS = [
   '/',
