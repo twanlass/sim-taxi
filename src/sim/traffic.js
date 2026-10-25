@@ -360,8 +360,8 @@ const refusesLane = (car, id) => (hardClosed(id) && !stuntPass(car, id))
 // drift launch, and `hopBig` stays true for it, so everything that treats Big Air as airborne — the
 // boosting priority junction, the deaf brake, the collision skip above DRIFT_LAUNCH_CLEAR, the slam —
 // treats this the same way without being told. `hopKind: 'bridge'` is what differs: the length is
-// measured at the launch, the profile rides the leaf before it leaves it, and the trick is a front
-// flip, because the barrel roll is Big Air's.
+// measured at the launch, the profile rides the leaf before it leaves it, and the trick is a double
+// front flip, because the barrel roll is Big Air's.
 //
 // **The height is a camera number,** like DRIFT_LAUNCH_HEIGHT: 14 is ~90px at play zoom, four
 // units over Big Air's apex — the one jump in the game that is meant to look like too much.
@@ -372,7 +372,22 @@ const MEGA_AIR_PAST = 3.25;
 // The flip, as fractions of the flight off the leaf's tip (not of the whole arc, since the ramp
 // ride in front of it is a different length on every lift). Level again in time for the slam.
 const FLIP_FROM = 0.06;
-const FLIP_TO = 0.8;
+// Two turns, ending a little later than the one did (0.8) to give the second room. Measured under
+// main.js's slow-mo, the window is 1.08-1.22s of wall clock and two turns peak at 2.6-3.0 rev/s at
+// the apex (one turn: 1.2-1.4): fast enough to read as a stunt, slow enough that each turn is seen.
+// The smoothstep ends it at zero spin with ~0.1s of wall clock level before the slam (one: ~0.14).
+// `?megaflip=classic` is the single turn over the old window.
+const FLIP_TO = 0.86;
+const FLIP_TURNS = 2;
+const CLASSIC_FLIP_TO = 0.8;
+let flipTurns = FLIP_TURNS;
+let flipTo = FLIP_TO;
+/** `?megaflip=classic` puts the single front flip back; anything else flips twice. */
+export function setMegaFlip(name) {
+  const classic = name === 'classic';
+  flipTurns = classic ? 1 : FLIP_TURNS;
+  flipTo = classic ? CLASSIC_FLIP_TO : FLIP_TO;
+}
 
 let bridgeStunt = null;
 /** game/drawbridge.js's `stunt`, or null — no drawbridge, or `?bridgejump=classic`. */
@@ -386,9 +401,9 @@ function stuntPass(car, id) {
 
 /** The front flip's angle, in radians (negative: nose over), `v` of the way through the flight. */
 export function megaFlipAt(v) {
-  if (v <= FLIP_FROM || v >= FLIP_TO) return 0;
-  const k = (v - FLIP_FROM) / (FLIP_TO - FLIP_FROM);
-  return -Math.PI * 2 * k * k * (3 - 2 * k);
+  if (v <= FLIP_FROM || v >= flipTo) return 0;
+  const k = (v - FLIP_FROM) / (flipTo - FLIP_FROM);
+  return -Math.PI * 2 * flipTurns * k * k * (3 - 2 * k);
 }
 
 /** How long `car`'s current arc is, in units of travel. */
