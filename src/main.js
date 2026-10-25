@@ -4273,10 +4273,14 @@ function popEarning(amount, to = null) {
  * "Stuntman" on top of each other, since both start at the taxi on the same frame). One that
  * arrives while another is up waits until that one has been readable for LABEL_HOLD_MS, then
  * clears it with a quick fade and takes its place, so a pile-up reads in order without the last
- * word turning up seconds after the move. A lone label still plays its whole 1.4s.
+ * word turning up seconds after the move. A lone label still plays its whole 1.9s.
+ *
+ * Both were 1400/700 until Tyler, 2026-10-25: "shown just a little too fast". The pop and the fade
+ * are fixed at 420ms and 350ms, so the extra half second all goes on the steady hold between them:
+ * a lone label now sits still and readable for 1130ms rather than 630ms.
  */
-const LABEL_RISE_MS = 1400;
-const LABEL_HOLD_MS = 700;   // past the rise's peak (0.3 of 1400ms), long enough to read two words
+const LABEL_RISE_MS = 1900;
+const LABEL_HOLD_MS = 1000;  // well past the pop's 420ms peak, long enough to read "Crushin' It 4x"
 const LABEL_CLEAR_MS = 140;
 const labelQueue = [];
 let labelUp = null;          // { el, rise, at } — the one on screen
@@ -4325,7 +4329,7 @@ function showLabel({ text, cls, ms = LABEL_RISE_MS, at = null }) {
   document.body.append(el);
   const rise = el.animate([
     { opacity: 0, transform: 'translate(-50%, -50%) translateY(4px)   scale(0.8)' },
-    // The pop and the fade keep their 1.4s timings (420ms up, 350ms out) whatever `ms` is, so a
+    // The pop and the fade keep fixed timings (420ms up, 350ms out) whatever `ms` is, so a
     // label held longer holds rather than rising in slow motion.
     { opacity: 1, transform: 'translate(-50%, -50%) translateY(-26px) scale(1.06)', offset: 420 / ms },
     { opacity: 1, transform: 'translate(-50%, -50%) translateY(-34px) scale(1)', offset: 1 - 350 / ms },
