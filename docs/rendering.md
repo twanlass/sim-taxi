@@ -1656,8 +1656,10 @@ things break the run of tarmac. `?roads=classic` brings back the old road and dr
   expansion joints that used to sit there (`jointParts`, geometry/bridge.js) read as a chunky
   crossing band at play zoom and are off by default; `?bridgemarks=classic` brings them back
   ([history](rendering-history.md#bridge-expansion-joints)).
-- **One paved plaza** (`setJunctionPaving`, util/geo.js): the junction nearest the middle that is a
-  full signalised crossing of two side streets, laid in charcoal setts (running bond, each unit its
+- **One paved plaza** (`setJunctionPaving`, util/geo.js): a random full signalised crossing of two
+  side streets, drawn per city off its own stream and only where the camera sees the whole box
+  (`placeJunctionPaving`, after the occluders exist). It was the one nearest the middle until
+  2026-10-25, which put it beside the garage in most cities; `?plazaspot=classic` keeps that. Laid in charcoal setts (running bond, each unit its
   own shade, paler joints) inside a frame: a band of kerb stone on the outside, then a pale soldier
   course, one unit laid end-on to the edge it runs along, mitred at the corners. The frame is what
   makes it read as a laid square at play zoom; the field only has to be a different stone. `?plaza=`

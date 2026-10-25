@@ -155,6 +155,7 @@ import {
 import { createDestinationPin, createPassengerPin } from '../src/geometry/marker.js';
 import { createPicker, choosePick } from '../src/game/pick.js';
 import { setCityOccluders, sightlineClear, groundLineClear } from '../src/game/sightline.js';
+import { setJunctionPaving, placeJunctionPaving } from '../src/util/geo.js';
 import {
   createDiamond,
   bounceOffset, KICK_SCALE, KICK_HOP, RIM_SCALE, RIM_OFFSET, EMISSIVE, HIGHLIGHT_EMISSIVE,
@@ -1928,6 +1929,29 @@ const onGrass = (city, i, j) => {
   check('asphalt patches: every triangle wound to face up', down === 0, `${down}/${tri / 3} face down`);
   geo.dispose();
   check('asphalt patches: disabled builds none', createAsphaltPatches(makeRng(1), { enabled: false }) === null);
+}
+
+// --- The paved plaza's junction (placeJunctionPaving, util/geo.js) ------------------------------
+// A random qualifying junction per city, never one with a building in front of its box, and not the
+// same square every time (it was always the middle one, beside the garage).
+{
+  let hidden = 0, none = 0;
+  const spots = new Set();
+  setJunctionPaving(true);
+  for (let s = 0; s < 20; s++) {
+    const sLayout = createLayout(makeRng(s));
+    setCityOccluders(createBuildings(makeRng(s + 22), sLayout).mesh, createProps(makeRng(s + 33), sLayout).mesh);
+    const pick = placeJunctionPaving(makeRng(s + 198), (x, z) => sightlineClear(x, 0.05, z));
+    if (!pick) { none += 1; continue; }
+    spots.add(`${pick.i},${pick.j}`);
+    if (pick.seen < 4) hidden += 1;
+  }
+  setCityOccluders();
+  setJunctionPaving(false);
+  createLayout(makeRng(seed));
+  check('plaza: a junction found in every city', none === 0, `${none}/20 with none`);
+  check('plaza: at most one corner of its box behind a building', hidden === 0, `${hidden} more hidden`);
+  check('plaza: moves between cities', spots.size >= 5, `${spots.size} distinct junctions over 20 cities`);
 }
 
   // The gas station on the same block. Its pumps stand under a canopy, and a canopy is exactly the
