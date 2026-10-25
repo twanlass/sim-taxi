@@ -105,9 +105,11 @@ words stand on, with the copyright and build number in small type along its foot
 Settings shows a player three rows: **Sound, Music volume and SFX volume** (Tyler, 2026-10-25). The
 rest are there but hidden until the same five taps on the Settings heading that reveal
 [Demo mode](#demo-mode): Tutorial tips, Always show intro story, Haptics (iOS app only), Quality,
-Antialiasing, Difficulty and Demo mode itself, in that order. The reveal is remembered on the
-device (`simTaxi.demo.row`), so whoever unlocked it does not tap again every launch; a player who
-never goes looking keeps the defaults. `?settings=classic` shows every row as before, with only
+Antialiasing, Difficulty and Demo mode itself, in that order. Five more taps hide them again and
+leave Demo mode as it was, so a presenter can set up a demo and put it all away before the audience
+sees the screen. Either way it is remembered on the device (`simTaxi.demo.row`, '1' or '0'), and
+hidden outranks Demo mode or `?demo` revealing the rows; a player who never goes looking keeps the
+defaults. `?settings=classic` shows every row as before, with only
 Demo mode held back (`settingsLayout` in menupage.js). Everything is remembered across visits:
 
 | Setting | Where it lives |

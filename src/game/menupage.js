@@ -13,7 +13,8 @@ import { isNative } from '../util/platform.js';
 import { QUALITIES } from './settings.js';
 import { MODES } from './difficulty.js';
 
-/** Taps on a Settings heading that reveal the hidden rows, and the most time between two of them. */
+/** Taps on a Settings heading that reveal the hidden rows (or hide them again), and the most time
+ *  between two of them. */
 export const REVEAL_TAPS = 5;
 const TAP_GAP_MS = 1000;
 
@@ -21,7 +22,9 @@ const TAP_GAP_MS = 1000;
  * Settings shows only the sound rows until it has been revealed (Tyler, 2026-10-25): Sound, Music
  * volume and SFX volume. The same five taps that used to reveal the Demo mode row alone now reveal
  * every other row with it — tips, the intro story, haptics, quality, antialiasing, difficulty and
- * Demo mode. `?settings=classic` shows them all as before, with only the Demo mode row held back.
+ * Demo mode. Five more hide them again, Demo mode left as it was, so a presenter can set up and
+ * then put it all away. `?settings=classic` shows them all as before, with only the Demo mode row
+ * held back.
  */
 export const settingsLayout = (search = typeof window !== 'undefined' ? window.location.search : '') =>
   (new URLSearchParams(search).get('settings') === 'classic' ? 'classic' : 'sound');
@@ -193,8 +196,7 @@ export function settingsRows(body, { sound, settings, demo = null, header = null
   if (demoRow) { paintDemo(); body.append(demoRow.row); }
   const revealDemo = () => {
     if (!demoRow) return;
-    const hidden = [...extraRows, demoRow].filter((r) => r.row.hidden);
-    const shown = hidden.length ? hidden : [demoRow];
+    const shown = [...extraRows, demoRow].filter((r) => r.row.hidden);
     demo.reveal();
     paintDemo();
     // Under the classic layout the one row lands at the foot of the page, which on a phone is below
@@ -211,6 +213,10 @@ export function settingsRows(body, { sound, settings, demo = null, header = null
   // than `click`: iOS only synthesises a click on an element it thinks is clickable, and reads a
   // quick second tap on a plain heading as half of a double-tap. The first cut listened for
   // `click` inside a 600ms gap, and Tyler could not get it to fire on his phone (2026-10-23).
+  const concealDemo = () => {
+    demo.conceal();
+    paintDemo();
+  };
   if (demoRow && header) {
     let taps = 0;
     let last = -Infinity;
@@ -219,11 +225,11 @@ export function settingsRows(body, { sound, settings, demo = null, header = null
       const now = performance.now();
       taps = now - last < TAP_GAP_MS ? taps + 1 : 1;
       last = now;
-      if (taps >= REVEAL_TAPS) { taps = 0; revealDemo(); }
+      if (taps >= REVEAL_TAPS) { taps = 0; if (demo.revealed()) concealDemo(); else revealDemo(); }
     });
   }
   return {
-    /** Show the hidden rows, Demo mode's among them, for good. */
+    /** Show the hidden rows, Demo mode's among them, until five more taps hide them. */
     revealDemo,
     refresh() {
       paintDemo();

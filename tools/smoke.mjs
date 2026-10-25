@@ -368,15 +368,19 @@ try {
         const header = page.querySelector('.title-header');
         for (let i = 0; i < 5; i++) header.dispatchEvent(new PointerEvent('pointerup', { isPrimary: true, bubbles: true }));
         const after = shown();
+        for (let i = 0; i < 5; i++) header.dispatchEvent(new PointerEvent('pointerup', { isPrimary: true, bubbles: true }));
+        const again = shown();
         page.querySelector('.title-back').click();
         localStorage.removeItem('simTaxi.demo.row');
-        return JSON.stringify({ before, after });
+        return JSON.stringify({ before, after, again });
       })()`));
       check('Settings opens on Sound, Music and SFX alone',
         layout.before.join(',') === 'Sound,Music volume,SFX volume', layout.before.join(','));
       check('...and five taps on its heading reveal the rest, intro story under the tips',
         layout.after.join(',').startsWith('Sound,Music volume,SFX volume,Tutorial tips,Always show intro story,')
         && layout.after.at(-1) === 'Demo mode', layout.after.join(','));
+      check('...and five more hide them again', layout.again.join(',') === 'Sound,Music volume,SFX volume',
+        layout.again.join(','));
 
       // Settings: the tips off and the effects slider to 40%, through the controls themselves.
       const wrote = JSON.parse(await tEval(`(() => {
