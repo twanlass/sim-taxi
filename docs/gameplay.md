@@ -3,13 +3,13 @@
 ## The startup screen
 
 `src/game/splash.js`, entered from `src/boot.js`. A cold start is black from its first frame — the
-iOS launch screen, the web view and the page (`html.booting`) are all `PALETTE.splashVoid` — and
-stays black while the game loads. Then **ROCKET RIDES** pops up out of the black a letter at a time
-in big white extruded letters set in the game's own Space Grotesk Bold (`game/splashlogo.js`), seen from a low side-on camera (15° up)
+iOS launch screen, the web view and the page (`html.booting`) are all `PALETTE.splashVoid` — until
+the splash's own small module has loaded, and then **ROCKET RIDES** stands in the black, whole, for
+as long as the game takes to load (`WAIT_LOGO`; on an iPhone that was ~5 s of plain black), in big white extruded letters set in the game's own Space Grotesk Bold (`game/splashlogo.js`), seen from a low side-on camera (15° up)
 and turned a little so the grey sides of the extrusion show. The word sits dead centre in the frame and the road three quarters of
 the way down (`splashAim`, `logoBase`): the camera aims half a frustum above the road and the word stands as high as it takes, so
-it stands 4 units up on a phone and 1.7 on a desktop. Once the word has stood for half a
-second the taxi falls out of the sky straight down through it: the scene drops into slow motion for
+it stands 4 units up on a phone and 1.7 on a desktop. Once the game is up the word stands a beat
+longer (0.3 s, `WAIT_START`) and the taxi falls out of the sky straight down through it: the scene drops into slow motion for
 a tenth of a second on the frame the car hits the top line (sparks, a crash), the letters it struck
 are driven down and out, and the **Big Air landing** on the asphalt that has faded up beneath (the
 dust ring, the pale shockwave, sparks off all four wheels, a hard shake) blasts away the rest. The
@@ -40,8 +40,12 @@ Chrome only on a site the player already uses a lot. `?splashsound=classic` is t
 
 **It covers the load without animating during it.** `main.js` builds the city in one synchronous
 task (13 s of one long task under headless SwiftShader, nothing in between), so nothing on the page
-can move while it runs. `boot.js` builds the splash first — its renderer, its scene and the effect
-pools it borrows from the game — then imports the game behind the black. When the game is up, the
+can move while it runs — but a canvas keeps its last presented frame however long the page is
+busy, so a *still* can cover it. `boot.js` builds the splash first — its renderer, its scene and the
+effect pools it borrows from the game — draws the whole word once, waits two animation frames for
+that frame to reach the screen, and only then imports the game behind it. `?splashwait=classic` is
+the load as it first shipped: black throughout, then the letters popping up out of it one at a
+time once the game is in. When the game is up, the
 city draws a few frames behind it (`WARM_FRAMES`) so its first-frame shader links land where they
 cannot stutter anything, and then the drop plays with the city skipping its frames
 (`splashCovers()`, read at the top of `frame` in main.js). The fade reveals the last of those warm

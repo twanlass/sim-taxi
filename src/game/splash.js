@@ -59,6 +59,17 @@ import { buildLogo, createDebris, LOGO_HEIGHT } from './splashlogo.js';
  */
 export const LOGO = typeof window === 'undefined'
   || new URLSearchParams(window.location.search).get('splashlogo') !== 'classic';
+/**
+ * The word stands on screen *through* the load (Tyler, 2026-10-25: a cold start on iOS was ~5s of
+ * black). `createSplash` draws the whole word once, before `boot.js` imports the game, and that
+ * frame is what stays on screen while main.js blocks the page — the compositor keeps a canvas's
+ * last presented frame whatever the main thread is doing. The run then picks up the timeline at
+ * `WAIT_START`, past the pop-in, so the word that was already standing is the word the car comes
+ * down through: no cut, and no second entrance. `?splashwait=classic` is the black load and the
+ * letters popping up afterwards, as it first shipped.
+ */
+export const WAIT_LOGO = typeof window === 'undefined'
+  || new URLSearchParams(window.location.search).get('splashwait') !== 'classic';
 /** The letters popping up out of the black one after another, left to right and down the lines. */
 const LOGO_POP_FROM = 0.12;
 const LOGO_POP_STAGGER = 0.045;
@@ -68,6 +79,11 @@ const LOGO_POP = 0.3;
  * half a second after the last letter lands. Without the logo, the asphalt fading up first.
  */
 export const STAGE_IN = LOGO ? 1.35 : 0.3;
+/**
+ * Where the run's clock starts. With the word already up through the load it has been read, so the
+ * car falls after a short beat (0.3s) rather than the half second after the last pop.
+ */
+export const WAIT_START = LOGO && WAIT_LOGO ? STAGE_IN - 0.3 : 0;
 /** Falling, from above the top of the frame to the road. Fast: it is a slam, not a descent. */
 export const FALL = 0.42;
 /**
@@ -541,8 +557,10 @@ export function createSplash(root) {
   taxi.group.position.set(0, 0, 0);
   renderer.compile(scene, camera);
   taxi.group.visible = false;
-  // Hidden until each letter's pop: compiled above, but the first frames of the run are black.
-  for (const mesh of pieceMeshes) mesh.visible = false;
+  // Hidden until each letter's pop, unless the word stands through the load (`WAIT_LOGO`): then
+  // this render is the frame on screen until the game has loaded, and the pieces already sit at
+  // home, at scale 1, which is where the pop leaves them.
+  for (const mesh of pieceMeshes) mesh.visible = WAIT_LOGO;
   renderer.render(scene, camera);
 
   const car = { x: 0, z: 0, yaw: view.heading, crashed: false, shownPitch: 0, shownLift: 0, shownBarrel: 0 };
@@ -774,13 +792,13 @@ export function createSplash(root) {
           if (++warm < WARM_FRAMES) { requestAnimationFrame(wait); return; }
           ready = true;
           if (skipped || stillPlease()) {
-            clock = 0;
+            clock = WAIT_START;
             raf = requestAnimationFrame(step);
             beginFade(SKIP_FADE);
             return;
           }
           covering = true;
-          clock = 0;
+          clock = WAIT_START;
           raf = requestAnimationFrame(step);
         };
         requestAnimationFrame(wait);
