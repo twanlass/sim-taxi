@@ -151,6 +151,7 @@ import { createTitleScreen, TITLE_CAM } from './game/titlescreen.js';
 import { BACKSTORY_VOICES, backstoryVoiced, tellBackstory, wantsBackstory } from './game/backstory.js';
 import { createTitleReel } from './game/titlereel.js';
 import { splashCovers, SPLASH_SKIP_KEY } from './game/splash.js';
+import { BACKDROP } from './game/backdrop.js';
 import { createSettings, qualityOf } from './game/settings.js';
 import { createPause } from './game/pause.js';
 import { createInspect } from './game/inspect.js';
@@ -1238,7 +1239,8 @@ function boardSound() {
 // (`goOnAir` in `beginRun`); with no title screen, `beginRun` runs at boot and the radio opens on
 // the intro as ever. The menu itself is effects only; `?titlemusic=classic` plays songs under it
 // until Play cuts them. `?menumusic=classic` opens on the intro under the menu instead.
-const sfx = shot ? null : createSfx({
+// No sound at all under `?backdrop` (game/backdrop.js), so none of it is fetched.
+const sfx = shot || BACKDROP ? null : createSfx({
   rng: makeRng(runSeed + 811),
   menuMusic: new URLSearchParams(window.location.search).get('menumusic') !== 'classic',
   menuSongs: new URLSearchParams(window.location.search).get('titlemusic') === 'classic',

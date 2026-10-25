@@ -101,6 +101,10 @@
          behind the page; game/splash.js (or src/boot.js, without the startup screen) takes it off
          once the city is on screen, and the sky underlay is back for the rest of the session. */
       html.booting, html.booting body { background: #000; }
+      /* `?backdrop` (game/backdrop.js): the marketing site's frame. The city canvas and nothing else,
+         and no input — the site's page is what takes the taps. */
+      html.backdrop body > :not(.city-canvas) { display: none !important; }
+      html.backdrop, html.backdrop * { pointer-events: none !important; }
       /* The startup screen (game/splash.js): over everything, the menu included, until it fades. */
       #splash {
         position: fixed; inset: 0; width: 100vw; height: 100vh; z-index: 100;

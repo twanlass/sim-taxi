@@ -14,6 +14,9 @@
  * the city has drawn.
  */
 import { createSplash, wantsSplash, WAIT_LOGO } from './game/splash.js';
+import { BACKDROP, announceReady } from './game/backdrop.js';
+
+if (BACKDROP) document.documentElement.classList.add('backdrop');
 
 const splash = wantsSplash() ? createSplash(document.getElementById('splash')) : null;
 if (!splash) document.getElementById('splash')?.remove();
@@ -28,6 +31,6 @@ if (splash) {
   splash.run(loading);
 } else {
   const unblack = () => requestAnimationFrame(() => requestAnimationFrame(
-    () => document.documentElement.classList.remove('booting')));
+    () => { document.documentElement.classList.remove('booting'); announceReady(); }));
   loading.then(unblack, unblack);
 }
