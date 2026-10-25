@@ -40,6 +40,7 @@ import { createGrass } from './city/grass.js';
 import { createCanopyFuzz } from './city/canopyfuzz.js';
 import { createGarage, LANDMARK as GARAGE_LANDMARK } from './city/garage.js';
 import { createBurgerJoint, SIGN_SPIN, LANDMARK as BURGER_LANDMARK } from './city/burgerjoint.js';
+import { createVetClinic, VET_CLASSIC } from './city/vetclinic.js';
 import { createGraveyard, LANDMARK as GRAVEYARD_LANDMARK } from './city/graveyard.js';
 import { plantedCrowns } from './city/props.js';
 import {
@@ -859,6 +860,14 @@ if (burger) {
   // mass is the one version that can never cover a marker the player can see past it.
   burger.group.userData.pickable = 'burger';
 }
+// The vet clinic: an ordinary shop `createBuildings` built and then picked out, with a dog's head on
+// its roof and an OPEN sign in its window (city/vetclinic.js). Scenery only. Null on `?vet=classic`
+// or a city with no shop that fits.
+const vet = city.vet && !VET_CLASSIC ? createVetClinic(city.vet) : null;
+if (vet) {
+  scene.add(vet.group);
+  markOccluder(vet.shell);
+}
 // The roadside business — the fourth block `createLayout` took from the towers, a car wash or a gas
 // station as the city seed rolls it (`?roadside=carwash` / `=gas` pins one) — and the inflatable tube man flailing on its corner, which is what
 // it is there for. Scenery only: not tappable, nothing routes into it. `null` on
@@ -885,6 +894,7 @@ const manholeSteam = createManholeSteam(scene, manholes?.userData.spots, makeRng
 const occluders = setCityOccluders(
   city.mesh, ...(city.domeMesh ? [city.domeMesh] : []), propsMesh, ...(garage?.meshes ?? []),
   ...(burger?.meshes ?? []), ...(graveyard?.meshes ?? []), ...(roadside?.meshes ?? []),
+  ...(vet ? [vet.shell] : []),
 );
 // The same field is what the cars' paint reflects (`propMaterial({ gloss })`, util/geo.js).
 setGlossCity(occluders, SKYLINE_CEILING);
@@ -1485,6 +1495,8 @@ for (const [built, landmark] of [
   if (built) for (const [mesh, kind] of landmark.glow(built)) markEmissive(mesh, kind);
 }
 if (depotPanes) markEmissive(depotPanes, 'window');
+// The vet's OPEN sign, at the strength the depot's and the burger joint's neon bloom at.
+if (vet) markEmissive(vet.glow, 'window');
 // The riders. They receive AO through `propMaterial()` either way, so leaving them out of the
 // prepass would paint the kerb's own contact line across whoever is standing in front of it.
 // Only the figure is taken — `markOccluder` filters out the translucent target disc under them.
@@ -1662,6 +1674,7 @@ const cityEntry = createCityEntry({
   // anchor, so it comes up as a building rather than as a building and a door.
   meshes: [city.mesh, ...city.glass, ...(city.frames ? [city.frames] : []), ...(city.domeMesh ? [city.domeMesh] : []), ...(westEdge ? [westEdge.towers, ...westEdge.glass] : []), ...(westEdge?.frames ? [westEdge.frames] : []), propsMesh, grass.mesh, canopyFuzz.mesh, ...(garage?.meshes ?? []),
     ...(burger?.meshes ?? []), ...(graveyard?.meshes ?? []), ...(roadside?.meshes ?? []),
+    ...(vet?.meshes ?? []),
     ...(lamps ? [lamps.posts, lamps.heads] : []),
     ...(props.courtMesh ? [props.courtMesh] : []), ...(props.skateMesh ? [props.skateMesh] : []),
     ...(props.pondMesh ? [props.pondMesh] : [])],
@@ -1669,6 +1682,7 @@ const cityEntry = createCityEntry({
   // depot's sign and the burger over the drive-through. See the `objects` note in
   // game/cityentry.js.
   objects: [...(garage ? [garage.entryObject] : []), ...(burger ? [burger.entryObject] : []),
+    ...(vet ? [vet.entryObject] : []),
     ...(graveyard ? [graveyard.entryObject] : []),
     ...hoopers.entryObjects, ...boombox.entryObjects, ...skaters.entryObjects,
     ...tubeMan.entryObjects, ...(roadside?.entryObjects ?? []), ...(ltrain?.entryObjects ?? []),
@@ -6804,6 +6818,7 @@ function tick() {
   // The burger turning on its pole. Scenery in the same sense the flock and the flyover are, and
   // paused with them: `frame()` has already returned by here on a paused frame.
   burger?.update(dt, SIGN_SPIN);
+  vet?.update(dt);
   // The car wash's brushes and curtain, and the tube man on its corner.
   roadside?.update(dt);
   tubeMan.update(dt);

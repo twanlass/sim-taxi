@@ -914,6 +914,39 @@ corner honestly and cost the board a junction, and a low wide bank is what the s
 anyway. Everything at the front is then sized down to stay under the roof behind it, because a
 pediment poking above its own roofline is a gable rather than a portico.
 
+## The vet clinic
+
+One ordinary corner shop per city is a vet's (`city/vetclinic.js`): a giant cartoon dog's head on a
+pole over its roof — golden fur, brown floppy ears, a big pink tongue that pants, a blue collar —
+and a small neon OPEN sign in its shop window. The building itself is untouched. `buildTower`
+hands back a record of every tower it built, and once the whole skyline exists `chooseVetSite`
+picks one by hash, so no draw moves and the city a seed builds is the city it always built.
+`?vet=classic` leaves the two additions off.
+
+**Which shop.** A one-tier masonry shop with a flat roof (not the helipad's), on the **+X+Z corner
+lot** of its block — the corner that faces this camera, with its shopfront on both visible faces.
+Then a sightline: rays towards the camera from the OPEN sign and from under the head, marched
+through every other tower's box (taken 2.6 taller than its walls, for what stands on its roof).
+That is what keeps the clinic off the downtown corners, where a tower across the street hides the
+window. 30 seeds out of 30 get one.
+
+**The head** (`dogHeadGeometry`, `HEAD_R = 1.75`, about 32px across at play zoom) is squashed
+spheres at twelve segments, a toy the way the burger is, turned 0.5 rad off the camera's bearing
+so the muzzle and tongue show in profile — square on, the snout foreshortens away. It cocks slowly
+side to side and the tongue (its own mesh, scaled about its root) pants. The head moves, so it is
+grown by `createCityEntry`'s `objects` list like the burger, not the shader wave. The pole stands
+in the middle of the deck unless the plant room is there, and its footprint goes into the deck's
+`keep` so the roosting birds walk round it.
+
+**The OPEN sign** is unlit (it is a light), blooms as a `window`, and sits in the middle pane of the
+shopfront 0.065 off the wall: in front of the glass (0.03), behind the mullions' face (0.1). The
+default is a blue rounded frame with **one red bar** in it; `?vetopen=word` spells OPEN in the
+roadside pixel font instead. The bar is the default because at play zoom a letter pixel is 0.06
+units, under half a screen pixel, so the word lands as the same red smudge the bar does.
+
+The model workshop has it as **Vet clinic**: the city's own tower generator building a shop on
+the bench block, with the sign on it.
+
 ## The roadside lot, and its tube man
 
 The fourth block taken from the tower generator (`city/roadside.js`, `?roadside=classic` to give it

@@ -1030,6 +1030,21 @@ export const PALETTE = {
   cinemaPosterB: '#F08A3F',
   cinemaPosterC: '#8DD36B',
   cinemaGlow: '#FFE9B0',
+  // The vet clinic (city/vetclinic.js): a golden cartoon dog's head on a pole over an ordinary shop,
+  // with brown ears, a cream muzzle, a pink tongue, and a collar in the OPEN sign's neon blue. The
+  // blue is deeper than `depotNeon` so the two signs don't read as one chain's; the red is the
+  // sign's one stroke of warm colour, and at 8px it is too small to be read as a fare's clock.
+  dogFur: '#E0A24E',
+  dogMuzzle: '#F6E2BF',
+  dogEar: '#8B4F26',
+  dogNose: '#1E1A1C',
+  dogEye: '#FFFFFF',
+  dogMouth: '#5A1E24',
+  dogTongue: '#FF6F8E',
+  dogCollar: '#2F7BFF',
+  dogTag: '#F2C14E',
+  vetNeonBlue: '#3D8BFF',
+  vetNeonRed: '#FF3348',
   // The tube man at the car wash (game/tubeman.js), off the photo Tyler sent: a fire-engine
   // red tube, a shock of yellow streamers for hair and the same yellow on the cuffs, a white
   // cartoon face, and a dark blower box under him.
