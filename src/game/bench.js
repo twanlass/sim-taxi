@@ -58,6 +58,7 @@ export const BENCH_STEPS = [
   { label: 'shadows off', params: { shadows: 'off' } },
   { label: 'ao off', params: { ao: 'off' } },
   { label: 'bloom off', params: { bloom: 'off' } },
+  { label: 'crt off', params: { crt: 'classic' } },
   // The default toon paint against the layered one and the one before both (util/geo.js). Cars
   // are a few percent of the frame at play zoom, so these rows are expected to sit inside the
   // drift between the two baselines.

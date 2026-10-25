@@ -805,6 +805,16 @@ export function getDiagnostics() {
   return !isOff(params.get('diag'));
 }
 
+/**
+ * The CRT screen (game/crt.js) — on by default, `?crt=classic` (or `off`) for the clean frame. The
+ * game's own: the workshop's bench never asks, because a model on a bench is not on a screen.
+ */
+export function getCrt(fallback = true) {
+  const raw = new URLSearchParams(window.location.search).get('crt');
+  if (raw === null) return fallback;
+  return raw !== 'classic' && !isOff(raw);
+}
+
 /** `off` / `0` / `false` — the spelling every switch above takes. */
 function isOff(raw) {
   return raw === 'off' || raw === '0' || raw === 'false';

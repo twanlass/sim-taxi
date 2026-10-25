@@ -161,7 +161,7 @@ import { streetAt, routeDrives, STREET_TAP_MAX_DETOUR } from './game/streettap.j
 import { createPathDrag } from './game/pathdrag.js';
 import { getActiveShot, getSeed, getRunSeed, getCarCount, getDifficultyPin, getDifficultyMode,
   getSafeMode, safeModeSource, getPixelRatioCap,
-  getDiagnostics, getParcelsPin, getRain, getStorm, getSquall, getSquallRampClassic, getSunRaysClassic, getWetTyres, getWreckStyle, getFall, getFoliageClassic, getWater, getUturnStyle } from './util/shot.js';
+  getDiagnostics, getParcelsPin, getRain, getStorm, getSquall, getSquallRampClassic, getSunRaysClassic, getWetTyres, getWreckStyle, getFall, getFoliageClassic, getWater, getUturnStyle, getCrt } from './util/shot.js';
 import { createParcelSystem, TAP_MAX_DETOUR } from './game/parcels.js';
 import { createRobbery } from './game/robbery.js';
 import { createRadio, LOST_CALL, ROBBERY_CALL } from './game/radio.js';
@@ -281,6 +281,8 @@ const budget = {
   pixelRatioCap: getPixelRatioCap(getSafeMode() ? 1 : shot ? 2 : qualityOf(settings.get()).resolution),
   // msaa, shadowMapSize, ao, crayon, cartoon, hdr, bloom: the shared render path's (game/renderpath.js).
   ...renderBudget(),
+  // The CRT screen (game/crt.js) — the game's alone, so not in the shared `renderBudget`.
+  crt: getCrt(),
 };
 // The Antialiasing setting, as it stood at launch (MSAA is a context attribute). `?msaa=` beats it,
 // as `?dpr=` beats Quality, and shot mode keeps MSAA so screenshots don't depend on a saved setting.
@@ -333,8 +335,10 @@ const renderPath = createRenderPath(renderer, budget, {
   // *during construction*, and reaching a `const` declared thirty lines further down is a
   // temporal-dead-zone throw that takes the whole page with it.
   onNotice: (text) => { declined.push(text); },
+  // Shot mode pins the CRT's flicker, so a still does not depend on when it was taken.
+  still: Boolean(shot),
 });
-const { ao, bloom, crayon, cartoon, hdr } = renderPath;
+const { ao, bloom, crayon, cartoon, hdr, crt } = renderPath;
 // The weather. `?storm` runs a storm across the afternoon and back on a loop (game/storm.js);
 // `?rain` is the same storm pinned at its peak. Either way the whole wet city is built up front —
 // see game/rain.js — and `applyWeather` below turns each part of it up and down with the clock.
@@ -8153,6 +8157,7 @@ if (!shot && wantsDebugPanel) {
     cartoon,
     bloom,
     hdr,
+    crt,
     scores: { load: loadScores, clear: clearScores },
     clouds,
     inspect,
@@ -8177,6 +8182,8 @@ if (!shot && wantsDebugPanel) {
 
 window.__taxi = {
   traffic,
+  // The CRT screen's `{ state, set, preset }` — see game/crt.js.
+  crt,
   locoFlame,
   // The city camera — `state.punch` is how a browser test stages a cut opening on a held Loco push-in.
   controller,
