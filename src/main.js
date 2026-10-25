@@ -49,7 +49,7 @@ import {
   onDriftLaunch, hopProgress, setSpinStyle, setBarrelRoll, setBridgeStunt, setPassTurnGate, setPassPace, setHopStyle, setDodge, setOvertakeStyle, setPeek, setTaxiScatter,
   configureSignals, setGrip, setRunningLights, setRunningLightsAt, runningLightsAt, isLaneClosed,
 } from './sim/traffic.js';
-import { createCollisions, TAXI_HP, setCrush } from './sim/collisions.js';
+import { createCollisions, TAXI_HP, setCrush, setCrushSplash } from './sim/collisions.js';
 import { createVanish } from './game/vanish.js';
 import { createPolice } from './sim/police.js';
 import {
@@ -2089,6 +2089,11 @@ traffic.onTaxiLand(({ x, z, yaw, v, deck, big, kind }) => {
     if (crushOwed) {
       crushOwed = false;
       if (!fares.state.gameOver) landCombo('crush');
+      // ...and the cars it took with it, if they have all gone up already.
+      if (pileupOwed) {
+        if (!fares.state.gameOver) landCombo('pileup', pileupOwed);
+        pileupOwed = 0;
+      }
     }
     controller.kickShake(1.6);
     sfx?.play('land', { gain: 1 });
@@ -2749,30 +2754,85 @@ collisions.onBump(({ x, z, closing, nx, nz, speed, rearEnd, other, taxiStruck, d
 //
 // Landed before the touchdown, the combo waits for it so the labels read "Big Air", then
 // "Crushin' It".
+//
+// The splash (`CRUSH_SPLASH` in sim/collisions.js): every car near the one landed on goes up after
+// it, nearest first, one pop every CRUSH_POP_GAP, so it reads as a chain running out from the
+// landing rather than one bigger bang. Each pop is the crush's own bang, its shell thrown *away
+// from* the car the taxi landed on and spun, and each one shakes harder than the last, up to the
+// wreck's 2.4 — the run-ending crash is the one thing it must not outdo. "Pile-Up" lands after the
+// last pop, a half per car (game/combometer.js). The pops run on sim time (`updateCrushShells`), so
+// they hold under pause and stretch with the crash slow-mo like the rest of the debris.
 setCrush(new URLSearchParams(window.location.search).get('crush'));
+setCrushSplash(new URLSearchParams(window.location.search).get('crushsplash'));
+const CRUSH_POP_FIRST = 0.14;  // s after the crush; a beat for its fireball to open first
+const CRUSH_POP_GAP = 0.12;    // s between pops — long enough that three read as three
+const CRUSH_POP_THROW = 7;     // u/s outward on the carry curve, on top of the taxi's momentum
+const CRUSH_POP_SPIN = 3;      // rad/s
 let crushOwed = false;
+let pileupOwed = 0;
 const crushVanish = createVanish();
 const crushShells = [];
-collisions.onCrush(({ speed, other, airborne }) => {
+const crushPops = [];
+function crushBang(car, speed, yaw, { driftX, driftZ, spin = 0, shake, gain = 0.8, rate = 1 }) {
+  const paint = car.police ? PALETTE.policeBody : PALETTE.carBody[car.colorIndex];
+  blast.fire(car.x, car.z, paint, yaw, speed * STRUCK_SHOVE);
+  if (blast.wantsCollar()) dust.wreckSmoke(car.x, car.z, yaw, speed);
+  struckGlass.fire({ x: car.x, z: car.z, yaw, scale: 0.6, ahead: 0, drop: 0.15 });
+  // A box truck in the blast throws out its load like a wrecked one does.
+  if (car.isTruck) boxSpill.wreck(car, speed);
+  controller.kickShake(shake);
+  sfx?.play('crash', { gain, rate });
+  haptic('perfect');
+  const shell = traffic.wreckShell(car);
+  crushShells.push(shell);
+  crushVanish.take(shell, { driftX, driftZ, spin });
+}
+collisions.onCrush(({ speed, other, airborne, splash }) => {
   if (airborne) crushOwed = true;
   else if (!fares.state.gameOver) landCombo('crush');
   const yaw = traffic.taxi.yaw;
-  const paint = other.police ? PALETTE.policeBody : PALETTE.carBody[other.colorIndex];
-  blast.fire(other.x, other.z, paint, yaw, speed * STRUCK_SHOVE);
-  if (blast.wantsCollar()) dust.wreckSmoke(other.x, other.z, yaw, speed);
-  struckGlass.fire({ x: other.x, z: other.z, yaw, scale: 0.6, ahead: 0, drop: 0.15 });
-  controller.kickShake(1.8);
-  sfx?.play('crash', { gain: 0.8 });
-  haptic('perfect');
   const carry = carrySpeed(speed);
-  const shell = traffic.wreckShell(other);
-  crushShells.push(shell);
-  crushVanish.take(shell, {
-    driftX: Math.cos(yaw) * carry * SHELL_CARRY * STRUCK_SHOVE,
-    driftZ: -Math.sin(yaw) * carry * SHELL_CARRY * STRUCK_SHOVE,
+  const fx = Math.cos(yaw) * carry * SHELL_CARRY * STRUCK_SHOVE;
+  const fz = -Math.sin(yaw) * carry * SHELL_CARRY * STRUCK_SHOVE;
+  crushBang(other, speed, yaw, { driftX: fx, driftZ: fz, shake: splash.length ? 2 : 1.8 });
+  splash.forEach(({ car, dist }, k) => {
+    // Straight out from the car underneath, plus half the taxi's own carry: the blast throws them
+    // clear, and the chain still leans the way the taxi was going.
+    const ux = dist > 1e-3 ? (car.x - other.x) / dist : Math.cos(yaw);
+    const uz = dist > 1e-3 ? (car.z - other.z) / dist : -Math.sin(yaw);
+    const side = Math.sign(Math.cos(yaw) * uz + Math.sin(yaw) * ux) || 1;
+    crushPops.push({
+      car,
+      at: CRUSH_POP_FIRST + k * CRUSH_POP_GAP,
+      last: k === splash.length - 1,
+      count: splash.length,
+      speed,
+      yaw,
+      opts: {
+        driftX: ux * CRUSH_POP_THROW + fx * 0.5,
+        driftZ: uz * CRUSH_POP_THROW + fz * 0.5,
+        spin: side * CRUSH_POP_SPIN,
+        shake: Math.min(2.4, 2.1 + 0.15 * k),
+        gain: 0.7,
+        // Each one a touch lower than the last, so the chain sounds like it is getting bigger.
+        rate: Math.max(0.75, 1.05 - 0.08 * k),
+      },
+    });
   });
 });
+function landPileup(count) {
+  if (crushOwed) { pileupOwed = count; return; }
+  if (!fares.state.gameOver) landCombo('pileup', count);
+}
 function updateCrushShells(dt) {
+  for (let k = crushPops.length - 1; k >= 0; k--) {
+    const pop = crushPops[k];
+    pop.at -= dt;
+    if (pop.at > 0) continue;
+    crushPops.splice(k, 1);
+    crushBang(pop.car, pop.speed, pop.yaw, pop.opts);
+    if (pop.last) landPileup(pop.count);
+  }
   if (!crushShells.length) return;
   crushVanish.update(dt);
   for (let k = crushShells.length - 1; k >= 0; k--) {

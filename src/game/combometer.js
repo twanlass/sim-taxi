@@ -52,6 +52,14 @@ export const COMBO_STEPS = {
   // instead of it, and only a step: where the landing falls is mostly luck, so it is the spectacle
   // that is big rather than the payout.
   crush: { label: 'Crushin\' It', step: 1 },
+  // The rest of the cars the crush took with it (sim/collisions.js `CRUSH_SPLASH`), by how many:
+  // a half each, landed once after the last of them goes up. Half rather than the crush's whole
+  // step for the same reason the crush is only one — a car parked beside the landing is luck — and
+  // because three cars at a red would otherwise be +4 on one touchdown and the meter caps at 5.
+  pileup: {
+    label: ['Pile-Up', 'Pile-Up ×2', 'Pile-Up ×3', 'Pile-Up ×4', 'Pile-Up ×5'],
+    step: [0.5, 1, 1.5, 2, 2.5],
+  },
   // Swiping a post box or a hot dog cart off the kerb under Loco Mode (game/streetprops.js). A
   // half, like an overtake: the swipe is automatic once the taxi is boosting down the right lane.
   mailbox: { label: 'Return to Sender', step: 0.5 },

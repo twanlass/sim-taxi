@@ -1897,7 +1897,7 @@ Every combo the taxi lands on a job steps a multiplier up, and the drop-off pays
 (`game/combometer.js`, Tyler's idea after the Duolingo combo streak). It starts each ride at ×1: an
 overtake or a bootleg U-turn +0.5, a drift kick +0.5 per chain tier (so a full chain of three is
 +3), **Stuntman** +1, the bridge launch +2, **Mega Air** (jumping the rising drawbridge,
-[river.md](river.md#jumping-it-mega-air)) +3, **Crushin' It** +1, **Return to Sender** and
+[river.md](river.md#jumping-it-mega-air)) +3, **Crushin' It** +1 and **Pile-Up** +0.5 a car, **Return to Sender** and
 **Hot Diggity** +0.5, capped at ×5.
 
 **Return to Sender** and **Hot Diggity** are swiping a post box or the hot dog cart off the kerb
@@ -1917,6 +1917,21 @@ counts on the descent of the arc and for a car length past the touchdown (`crush
 cars and cops count. A truck is too tall to land on, and the patrol cruiser and the racer belong to
 modules that run their own lives. A crushed car leaves the fleet for the rest of the run.
 `?crush=classic` charges the landing as a hit again.
+
+The crush splashes (Tyler, 2026-10-25: "if there is a car within ... a taxi's length-and-a-half
+distance in either direction, it also blows up those cars as well. Just make it super extra and
+fun"). Every car whose centre is within one and a half drawn taxi lengths (6.0 units,
+`CRUSH_SPLASH` in `sim/collisions.js`) of the car landed on goes up too, in any direction. That
+reaches the car queued behind at a red and the one alongside on a side street, but not the one
+behind that, and not across an arterial's median. The cars stop dead on the frame of the crush and
+pop one at a time, nearest first, 0.14s after the crush and 0.12s apart (`CRUSH_POP_*` in
+`main.js`). Each pop is the crush's own bang, its shell thrown out away from the landing and spun,
+and each shakes harder than the last, up to the wreck's 2.4. After the last pop, **Pile-Up** lands
+on the meter at +0.5 a car, labelled "Pile-Up ×N". It's one ring, not a chain where each car sets
+off its neighbours: that would take a whole queue at a red, and every car it takes leaves the fleet.
+Trucks count in the splash, though not under the landing, because the taxi never touches a truck
+caught in the blast; a box truck spills its load. Cops count like any car. The patrol cruiser, the
+racer, guests and staged cars don't. `?crushsplash=classic` crushes the one car.
 
 Big Air's touchdown also pays a sixth of the Loco tank back on the drift kick's energy bits
 (`DRIFT_CHAIN.fuel[0]`, Tyler, 2026-10-23), since getting one means burning Loco round a corner and
