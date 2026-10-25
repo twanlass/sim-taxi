@@ -883,3 +883,11 @@ and out in block-sized patches, so the road read as painted rather than flat gre
 (2026-10-25): "Let's toggle off the street streaks / texture." The strokes are dialled to 0 rather
 than removed, so the paved junction, which lives in the same pass, keeps drawing; see
 [rendering.md](rendering.md#painted-streets--gamebrushtilesjs-paint_-in-utilgeojs).
+
+## Bridge expansion joints
+
+From the roads rework (#683, 2026-10-24) until 2026-10-25, every bridge end carried a dark steel
+strip on the bank line and a pale concrete approach slab behind it, on the road side, as
+receive-only paint at the lane-marking height (`jointParts`, geometry/bridge.js). Removed because at
+play zoom the pair read as a thick crossing band rather than a seam (Tyler: "I don't think they're
+reading very well. They look too chunky as well"). `?bridgemarks=classic` restores them.

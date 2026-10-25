@@ -411,13 +411,20 @@ export function abutmentParts(span, rng, end) {
 // else lies under them to fight at 0.02: the bank is the junction box's edge, the centre dashes stop
 // at the box, and no crosswalk is laid over a river gap (measured: no ground triangle within 6 units
 // of either bank on five seeds). The probe holds both heights.
+//
+// **Off by default since 2026-10-25** (Tyler: "I don't think they're reading very well. They look too
+// chunky as well"). At play zoom the dark joint and the pale slab beside it read as a heavy crossing
+// band laid across the road at each bank, not as a seam, so the road now runs straight onto the deck.
+// `?bridgemarks=classic` brings them back.
 const JOINT_W = 0.35;
 const APPROACH_W = 0.9;
 export const JOINT_Y = MARK_Y;
+const BRIDGEMARKS_CLASSIC = typeof location !== 'undefined'
+  && new URLSearchParams(location.search).get('bridgemarks') === 'classic';
 
-/** Both ends' joint and approach strips for one span, in world coordinates. Empty under `?roads=classic`. */
+/** Both ends' joint and approach strips for one span, in world coordinates. Empty unless `?bridgemarks=classic`, and under `?roads=classic`. */
 export function jointParts(span, rng) {
-  if (roadsClassic()) return [];
+  if (!BRIDGEMARKS_CLASSIC || roadsClassic()) return [];
   const parts = [];
   for (const [bank, out] of [[span.z0, -1], [span.z1, 1]]) {
     // Outward from the bank, away from the water: -z at the near bank, +z at the far one.
