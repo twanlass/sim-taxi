@@ -1085,9 +1085,34 @@ bench ([workshop.md](workshop.md#the-bench)). `renderBudget()` reads the URL's r
 the paint look, the rim, cloud shadows), and must run before any mesh exists. `createRenderPath()`
 builds the passes below and settles `?hdr` against `?bloom`. Its `render(scene, cam)` runs one
 frame in order: crayon sizing, empty-pool culling, the rain's mirror, the AO prepass, the rim's
-depth, the bloom, the river's fog sync, then the frame (or the HDR composer) and the rain on the
-lens. The game's weather and `?diag` ride in as optional extras. A change to how a frame is drawn
+depth, the bloom, the river's fog sync, then the frame (or the HDR composer), the rain on the
+lens and the CRT screen over all of it. The game's weather and `?diag` ride in as optional extras. A change to how a frame is drawn
 goes here, never into `main.js`'s `renderFrame`, or the bench stops showing what the game shows.
+
+## The CRT screen — `game/crt.js`
+
+The finished frame goes out through a CRT: a slightly curved screen, scanlines, an RGB aperture
+grille, a vignette, a little chromatic aberration toward the edges and a slow 1.3 Hz flicker. It is
+Grog's post effect (twanlass/grog, `crtPostEffect.js`) at Grog's shipped mix, under a `Strength`
+master over all six that Grog does not have, shipped at 0.6: at full strength the scanlines stripe
+the white sky round the island grey at play zoom. The scanline make-up gain gives back all the light
+the lines take (Grog's gives back half, which dimmed the whole frame 15%). `?crt=classic` turns it off; ⚙️ Visuals > CRT has it
+live, with Grog's Subtle / Classic / Heavy presets.
+
+- **A copy and one triangle, not a composer** — the rain lens's shape. The main render keeps the
+  default framebuffer, its MSAA and its stencil, and the display-space seams Crayon, Cartoon and the
+  colour grade are built on do not move. It runs last, after the lens: the glass is in front of the
+  drops.
+- **Only the canvas wears it.** The HUD, speech cards and menus are DOM, so small type stays sharp.
+  Taps are picked on the un-curved frame; at curvature 0.10 the warp is zero on both centre lines
+  and 1% of the half-screen at a corner (~2pt on a phone).
+- **Lines are in CSS pixels.** Grog keys them to the drawing buffer, which here moves under a
+  running game (Quality's 2x/3x, the heat governor). One line pair every 2 CSS px is Grog's own
+  pitch on a 2x screen, and stays put when the ratio steps.
+- **It carries alpha through** rather than writing Grog's 1, because the canvas is see-through.
+- Shot mode pins the flicker at its midpoint, so stills are repeatable.
+- **Cost:** one full-frame copy and a full-frame pass with three texture reads a pixel. `?bench` has
+  a `crt off` row for the number on a phone.
 
 ## Ambient occlusion — `game/ssao.js`
 

@@ -10,6 +10,7 @@ import {
 } from '../util/geo.js';
 import { MIN_ELEVATION } from './daylight.js';
 import { BLOOM_INTENSITY, BLOOM_KINDS } from './bloom.js';
+import { CRT_SLIDERS, CRT_PRESETS } from './crt.js';
 import {
   PRESETS as GRADE_PRESETS, colorGrade, setGradePreset, setGradeCube, setGradeStrength, setGradeSaturation,
   resetGrade, bakedTable, toCube, gradeSnapshot, setGradeAdjust, setGradeCurve, resetGradeCurve, resetGradeAdjust,
@@ -92,6 +93,9 @@ export function createDebugPanel({
   bloom = { state: { enabled: false }, set: () => {} },
   // ...and the HDR comparison's, over game/hdr.js. Only one of the two is ever enabled.
   hdr = { state: { enabled: false }, set: () => {} },
+  // The CRT screen's — `{ state, set, preset }` over game/crt.js. Off under `?crt=classic`, which
+  // allocates nothing, so the section is left out rather than drawn dead.
+  crt = { state: { enabled: false }, set: () => {}, preset: () => {} },
   // The scene's haze (game/scene.js). Defaulted to null for the same reason `scores` is defaulted:
   // the `npm run check` boot pass builds this panel against nothing.
   fog = null,
@@ -701,6 +705,37 @@ export function createDebugPanel({
     hdrRow('Strength', 'strength', 0, 2, 0.05);
     hdrRow('Radius', 'radius', 0, 1, 0.05);
     hdrRow('Threshold', 'threshold', 0, 1.5, 0.05);
+  }
+
+  // --- CRT ----------------------------------------------------------------------
+  // The CRT screen (game/crt.js). All live: it is a pass over the finished frame, so nothing here
+  // recompiles. `Strength` is a master over the six below it; the presets are Grog's.
+  if (crt.state.enabled) {
+    heading('CRT');
+    const on = document.createElement('input');
+    on.type = 'checkbox';
+    on.checked = crt.state.enabled;
+    row(panel, 'CRT screen', on);
+    on.addEventListener('change', () => crt.set('enabled', on.checked));
+    const syncs = [];
+    for (const [key, label, min, max, digits] of CRT_SLIDERS) {
+      const input = slider(min, max, 10 ** -digits, crt.state[key]);
+      const value = row(panel, label, input);
+      const show = () => { input.value = String(crt.state[key]); value.textContent = crt.state[key].toFixed(digits); };
+      input.addEventListener('input', () => { crt.set(key, Number(input.value)); show(); });
+      show();
+      syncs.push(show);
+    }
+    const presets = document.createElement('div');
+    presets.className = 'dbg-wide';
+    for (const name of ['Default', ...Object.keys(CRT_PRESETS)]) {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.textContent = name;
+      b.addEventListener('click', () => { crt.preset(name); syncs.forEach((s) => s()); });
+      presets.append(b);
+    }
+    panel.append(presets);
   }
 
   // --- Colour grade -----------------------------------------------------------
@@ -1680,7 +1715,7 @@ const TAB_KEY = 'dbg-tab';
  */
 const TABS = [
   ['Audio', ['Audio', 'Engine sound', 'Sounds', 'Music', 'Audio export']],
-  ['Visuals', ['Light', 'Crayon', 'Cartoon', 'Car finish', 'Bloom', 'HDR', 'Colour grade', 'Haze', 'Clouds', 'City entrance']],
+  ['Visuals', ['Light', 'Crayon', 'Cartoon', 'Car finish', 'Bloom', 'HDR', 'CRT', 'Colour grade', 'Haze', 'Clouds', 'City entrance']],
   ['Game', ['Game', 'Loco Mode', 'Loco weave', 'Restart to apply', 'Scores', 'Export']],
 ];
 const tabOf = (title) => TABS.find(([, titles]) => titles.includes(title))?.[0] ?? 'Game';

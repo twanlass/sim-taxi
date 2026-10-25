@@ -25,6 +25,7 @@ import { createBloom } from './bloom.js';
 import { createHdr } from './hdr.js';
 import { createCrayon } from './crayon.js';
 import { createCartoon } from './cartoon.js';
+import { createCrt } from './crt.js';
 import { cullEmptyPools } from '../util/emptypools.js';
 import { syncRiverWater } from '../city/riverwater.js';
 import { installColorGrade } from './colorgrade.js';
@@ -90,7 +91,7 @@ export function decideLooks(budget) {
  * panel reports the budget the page actually got, and `?hdr&crayon` is a request that was refused
  * rather than one that was honoured. `onNotice` hears about a refusal.
  */
-export function createRenderPath(renderer, budget, { onNotice = () => {} } = {}) {
+export function createRenderPath(renderer, budget, { onNotice = () => {}, still = false } = {}) {
   // The comparison route first, because whether it can run at all is what decides the other one.
   // `?hdr` takes the whole frame through a composer with tone mapping on — see game/hdr.js — and
   // declines itself outright when a look mode is on or the GPU has no renderable float target.
@@ -120,9 +121,12 @@ export function createRenderPath(renderer, budget, { onNotice = () => {} } = {})
   });
   const crayon = createCrayon(renderer, { enabled: budget.crayon });
   const cartoon = createCartoon({ enabled: budget.cartoon });
+  // The CRT screen over the finished frame — see game/crt.js. Only the game's budget carries
+  // `crt`; the workshop's bench leaves it undefined and gets the clean frame.
+  const crt = createCrt(renderer, { enabled: Boolean(budget.crt), still });
 
   return {
-    ao, bloom, crayon, cartoon, hdr,
+    ao, bloom, crayon, cartoon, hdr, crt,
 
     /**
      * The page (crayon) and the bloom composite: ordinary objects in the main scene at
@@ -167,12 +171,14 @@ export function createRenderPath(renderer, budget, { onNotice = () => {} } = {})
       if (!hdr.render(scene, cam)) renderer.render(scene, cam);
       // Drops on the glass, over the finished frame.
       rain?.renderLens();
+      // The glass, in front of the drops on it.
+      crt.render();
       // After everything has drawn, so its counters and centre pixel are the frame on screen.
       diag?.update();
     },
 
     dispose() {
-      [ao, bloom, crayon, cartoon, hdr].forEach((pass) => pass.dispose());
+      [ao, bloom, crayon, cartoon, hdr, crt].forEach((pass) => pass.dispose());
     },
   };
 }
