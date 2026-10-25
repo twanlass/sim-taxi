@@ -8032,6 +8032,9 @@ if (shot) {
   garage?.setDoor(0);
   renderFrame();
   if (wreckStep) window.__wreckStep = (frames = 1) => { wreckStep(frames); renderFrame(); };
+  // A still cannot say whether steam billows, and shot mode never draws a second frame: this steps
+  // the plumes on and redraws, for filming them (shots `steam` and `steam-far`).
+  window.__steamStep = (dt = 1 / 30) => { manholeSteam.update(dt, null); renderFrame(); };
   document.body.dataset.shotReady = 'true';
 } else {
   traffic.warmup(10);
