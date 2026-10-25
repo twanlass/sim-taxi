@@ -313,6 +313,7 @@ export const PAINT_UNIFORMS = {
   uJunctionTint: { value: new THREE.Vector4(1, 1, 1, 0) },
   uJunctionEdge: { value: new THREE.Vector4(1, 1, 1, 0.5) }, // the border course's ratio, then its width
   uJunctionBand: { value: new THREE.Vector4(1, 1, 1, 0.18) }, // the kerb-stone band outside it, the same way
+  uJunctionReach: { value: 0 },                              // how far past the box, out along every arm
   uJunctionStyle: { value: 1 },                              // 0: the first plaza's flat border; 1: band + soldier course
   uJunctionMortar: { value: new THREE.Vector3(1, 1, 1) },    // the joints' ratio
   uJunctionAt: { value: new THREE.Vector2(-99, -99) },       // which junction, as (i, j)
@@ -378,6 +379,7 @@ export function setJunctionPaving(on) {
   PAINT_UNIFORMS.uJunctionBand.value.set(...ratio(srgb(look.band)), PAINT_UNIFORMS.uJunctionBand.value.w);
   PAINT_UNIFORMS.uJunctionMortar.value.set(...ratio(srgb(look.mortar)));
   PAINT_UNIFORMS.uJunctionStyle.value = look.style;
+  PAINT_UNIFORMS.uJunctionReach.value = look.reach;
 
   let best = null;
   const row = riverRow();
@@ -416,6 +418,7 @@ uniform vec4 uJunctionTint;
 uniform vec4 uJunctionEdge;
 uniform vec4 uJunctionBand;
 uniform float uJunctionStyle;
+uniform float uJunctionReach;
 uniform vec3 uJunctionMortar;
 uniform vec2 uJunctionAt;
 uniform vec3 uJunctionBrick;
@@ -493,14 +496,18 @@ const PAINT_FRAGMENT = /* glsl */ `
 					// screen. The two road-tile reads and the junction arithmetic below are skipped
 					// there rather than computed and thrown away (perf pass, 2026-10-18).
 					float hold = (1.0 - grassy) * (1.0 - smoothstep(0.35, 0.6, lum));
-					if (uJunctionTint.w > 0.0 && vPaintWorld.y < 0.1) {
+					// Under 0.01 rather than the kerb: the asphalt is at 0 and the crosswalk bars at
+					// MARK_Y (0.02), and paving under a bar tinted the paint itself.
+					if (uJunctionTint.w > 0.0 && vPaintWorld.y < 0.01) {
 						vec2 jp = vPaintWorld.xz - vec2(0.0, vPaintWorld.z > uRiverZ.x ? uRiverZ.y : 0.0);
 						vec2 jl = floor((jp + uRoadGrid.xy) / uRoadGrid.z + 0.5);
 						vec2 jd = abs(jp + uRoadGrid.xy - jl * uRoadGrid.z);
 						// The box reaches by the *crossing* road's half-width on each axis.
 						float hx = mix(uRoadArt.z, uRoadArt.w, mod(floor(uRoadArt.y / exp2(jl.x)), 2.0));
 						float hz = mix(uRoadArt.z, uRoadArt.w, mod(floor(uRoadArt.x / exp2(jl.y)), 2.0));
-						vec2 jin = vec2(hx, hz) - jd;  // how far inside the box, per axis
+						// Grown out along the arms by uJunctionReach; the pavement corners it would
+						// also cover sit above the y test, so what is paved is the box and four stubs.
+						vec2 jin = vec2(hx, hz) + uJunctionReach - jd;  // how far inside, per axis
 						float jBox = smoothstep(-0.06, 0.06, min(jin.x, jin.y))
 							* step(length(jl - uJunctionAt), 0.5);
 						if (jBox > 0.0) {

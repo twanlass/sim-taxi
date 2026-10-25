@@ -1628,7 +1628,10 @@ things break the run of tarmac. `?roads=classic` brings back the old road and dr
 - **One paved plaza** (`setJunctionPaving`, util/geo.js): the junction nearest the middle that is a
   full signalised crossing of two side streets, laid in charcoal setts (running bond, each unit its
   own shade, paler joints) inside a frame: a band of kerb stone on the outside, then a pale soldier
-  course, one unit laid end-on to the edge it runs along, mitred at the corners. The frame is what
+  course, one unit laid end-on to the edge it runs along, mitred at the corners. It reaches 2.8
+  past the box along every arm (`PLAZA_REACH`), so the crosswalks lie inside it and the frame lands
+  just outside their bars; the pavement corners that square also covers sit above the shader's
+  height test, and so do the bars (MARK_Y), so neither is tinted. The frame is what
   makes it read as a laid square at play zoom; the field only has to be a different stone. `?plaza=`
   swaps the colours (`PLAZA_LOOKS`, palette.js): `granite` and `tan` are a light field in a dark
   frame, `classic` the first red brick. Found in the ground's paint pass with the same grid
