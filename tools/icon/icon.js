@@ -14,11 +14,12 @@
  * noise, where repeated halving averages every one of them.
  */
 import * as THREE from 'three';
-import { createTaxiMesh, TAXI_SCALE } from '../../src/geometry/taxi.js';
+import { createTaxiMesh, TAXI_SCALE, TAXI_REAR_AXLE_BACK, TAXI_REAR_TRACK } from '../../src/geometry/taxi.js';
+import { WHEEL_W } from '../../src/geometry/wheels.js';
 import { SUN } from '../../src/game/scene.js';
 import { VIEW_DIR } from '../../src/game/camera.js';
 import { createLocoFlame } from '../../src/game/locoflame.js';
-import { PALETTE } from '../../src/palette.js';
+import { PALETTE, color } from '../../src/palette.js';
 import { setGlossGlobal, GLOSS_GLOBAL_DEFAULTS, setGlossCity } from '../../src/util/geo.js';
 import { renderBudget, decideLooks, createRenderPath } from '../../src/game/renderpath.js';
 import { SKYLINE_CEILING } from '../../src/city/buildings.js';
@@ -49,10 +50,13 @@ const SIZES = [1024, 512, 192, 180, 32, 16];
 // Tyler's ask (2026-10-23). The old icon had 0 (world +X, bonnet to the lower right), which left the
 // tailpipe at the far end and the flame a tongue peeking past the rear quarter.
 const YAW = Math.PI / 2;
-// How much of the frame the widest extent (car plus plumes, measured from the car's own centre)
-// fills. iOS's superellipse crops about 10% off each corner, and the plume tips reach toward the
-// lower left one.
-const FILL = 0.86;
+// How much of the frame the car's own widest extent fills — the plumes and skids are left out and
+// allowed to run off the lower-left edge. It was 0.86 of car *plus* plumes, which centred on the car
+// left it covering half the icon with the right side empty; Tyler picked 0.68 over 0.62 and 0.74
+// (2026-10-25). Past ~0.8 a wheel and the roof sign reach iOS's superellipse crop.
+const CAR_FILL = 0.68;
+// Slides the car this fraction of the frame toward the upper right, so the plumes get the room.
+const SHIFT = 0.04;
 // Twin tailpipes, for the icon only: how far each sits off the centreline, in world units. The game
 // burns one plume from the middle of the bumper; two read as a rocket's pair of engines.
 const PIPE_SPREAD = 0.5;
@@ -66,7 +70,7 @@ const budget = renderBudget();
 budget.bloom = false;
 decideLooks(budget);
 const renderer = new THREE.WebGLRenderer({
-  antialias: true, stencil: true, preserveDrawingBuffer: true, alpha: false,
+  antialias: true, stencil: true, preserveDrawingBuffer: true, alpha: true,
 });
 renderer.setPixelRatio(1);
 renderer.setSize(RENDER, RENDER, false);
@@ -77,7 +81,11 @@ document.body.appendChild(renderer.domElement);
 const renderPath = createRenderPath(renderer, budget);
 
 const scene = new THREE.Scene();
-scene.background = (() => {
+// The backdrop is a 2D canvas composited *under* the finished render (see the end of the file),
+// not `scene.background`. As a scene background it was in the frame the render path's own passes
+// read, and the rays' edges came through on the paint as faint lines across the body.
+renderer.setClearColor(0x000000, 0);
+const backdrop = (() => {
   const canvas = document.createElement('canvas');
   canvas.width = canvas.height = RENDER;
   const ctx = canvas.getContext('2d');
@@ -119,9 +127,7 @@ scene.background = (() => {
     ctx.drawImage(rays, 0, 0);
     ctx.globalAlpha = 1;
   }
-  const texture = new THREE.CanvasTexture(canvas);
-  texture.colorSpace = THREE.SRGBColorSpace;
-  return texture;
+  return canvas;
 })();
 
 // Something for the paint and chrome to reflect. In the game that is the city's own height field
@@ -179,12 +185,10 @@ scene.add(taxi.group);
 // in its pulse, chosen by eye for a long tongue with a lick in the tip.
 // The second pipe's clock is a little further on, so the pair is not two copies of one shape.
 const FLAME_CLOCKS = [0.21, 0.29];
-const flames = [-1, 1].map((side, n) => {
-  const flame = createLocoFlame(scene);
-  flame.update(FLAME_CLOCKS[n], {
+[-1, 1].forEach((side, n) => {
+  createLocoFlame(scene).update(FLAME_CLOCKS[n], {
     x: side * PIPE_SPREAD * Math.sin(YAW), z: side * PIPE_SPREAD * Math.cos(YAW), yaw: YAW, crashed: false,
   }, true);
-  return flame;
 });
 
 // The ground only exists as a soft shadow straight under the car — the purple is the background.
@@ -217,9 +221,43 @@ const flames = [-1, 1].map((side, n) => {
   scene.add(blob);
 }
 
-// The game's camera: orthographic, down VIEW_DIR. Centred on the *car's* projected bounds and sized
-// to hold the plumes too: centring on car plus flames put the body visibly off to one side, since
-// the plumes only ever trail one way.
+// Two rubber streaks laid down behind the rear tyres, as if the car has just launched (Tyler,
+// 2026-10-25). `?skids=0` leaves them off.
+// The game's own rubber colour, one strip per tyre at the tread's width, fading out away from the
+// car the way game/skidmarks.js eases a streak in.
+if (new URLSearchParams(location.search).get('skids') !== '0') {
+  const LEN = 5;
+  const canvas = document.createElement('canvas');
+  canvas.width = 256; canvas.height = 16;
+  const ctx = canvas.getContext('2d');
+  const ramp = ctx.createLinearGradient(0, 0, 256, 0);
+  // An alphaMap reads the green channel, not alpha, so the ramp is painted in greys on black.
+  ramp.addColorStop(0.05, 'rgb(0,0,0)');
+  ramp.addColorStop(0.55, 'rgb(215,215,215)');
+  ramp.addColorStop(1, 'rgb(235,235,235)');
+  ctx.fillStyle = '#000';
+  ctx.fillRect(0, 0, 256, 16);
+  ctx.fillStyle = ramp;
+  ctx.fillRect(0, 0, 256, 16);
+  const alphaMap = new THREE.CanvasTexture(canvas);
+  const fwd = new THREE.Vector3(Math.cos(YAW), 0, -Math.sin(YAW));
+  const side = new THREE.Vector3(Math.sin(YAW), 0, Math.cos(YAW));
+  for (const s of [-1, 1]) {
+    const mark = new THREE.Mesh(
+      new THREE.PlaneGeometry(LEN, WHEEL_W * TAXI_SCALE * 0.9).rotateX(-Math.PI / 2),
+      new THREE.MeshBasicMaterial({ color: color('skidRubber'), alphaMap, transparent: true, depthWrite: false }),
+    );
+    mark.rotation.y = YAW;
+    // Starts under the tyre's contact patch and runs back from it.
+    mark.position.copy(fwd).multiplyScalar(-TAXI_REAR_AXLE_BACK - LEN / 2 + 0.2)
+      .addScaledVector(side, s * TAXI_REAR_TRACK);
+    mark.position.y = 0.02;
+    scene.add(mark);
+  }
+}
+
+// The game's camera: orthographic, down VIEW_DIR, framed on the *car's* projected bounds alone
+// (CAR_FILL, SHIFT); the plumes and skids run off the lower-left edge.
 // Near and far hug the car (it stands 50 out, ±10 holds the car, the plumes and the shadow): the AO
 // prepass packs depth across this range, and at 0.1..200 its steps drew as concentric rings over
 // every flat panel, this close up.
@@ -229,18 +267,13 @@ camera.lookAt(0, 0, 0);
 camera.updateMatrixWorld();
 
 taxi.group.updateMatrixWorld(true);
-for (const flame of flames) flame.group.updateMatrixWorld(true);
 const box = new THREE.Box3();
 const corner = new THREE.Vector3();
 const carView = new THREE.Box3();
-const view = new THREE.Box3();
-const isFlame = (obj) => flames.some((flame) => flame.group.getObjectById(obj.id));
-[taxi.group, ...flames.map((flame) => flame.group)].forEach((root) => root.traverse((obj) => {
+taxi.group.traverse((obj) => {
   // Only what casts a shadow is the car itself: the ghost outline's hulls are far bigger than the
   // body and draw nothing here, and counting them left the taxi a speck in the middle of the frame.
-  // The flame casts none, so it is let in by name — the frame has to hold the whole plume.
-  const plume = isFlame(obj);
-  if (!obj.isMesh || !(obj.castShadow || plume)) return;
+  if (!obj.isMesh || !obj.castShadow) return;
   if (!obj.parent.visible) return;
   // Hidden-by-scale parts (damage, the door, unlit lamps) collapse to a point and must not count.
   const e = obj.matrixWorld.elements;
@@ -250,13 +283,16 @@ const isFlame = (obj) => flames.some((flame) => flame.group.getObjectById(obj.id
   for (let i = 0; i < 8; i++) {
     corner.set(i & 1 ? box.max.x : box.min.x, i & 2 ? box.max.y : box.min.y, i & 4 ? box.max.z : box.min.z);
     corner.applyMatrix4(camera.matrixWorldInverse);
-    view.expandByPoint(corner);
-    if (!plume) carView.expandByPoint(corner);
+    carView.expandByPoint(corner);
   }
-}));
-const cx = (carView.min.x + carView.max.x) / 2;
-const cy = (carView.min.y + carView.max.y) / 2;
-const half = Math.max(cx - view.min.x, view.max.x - cx, cy - view.min.y, view.max.y - cy) / FILL;
+});
+// `?car=` and `?shift=` override the two framing numbers, for trying sizes without an edit.
+const params = new URLSearchParams(location.search);
+const carFill = Number(params.get('car')) || CAR_FILL;
+const shift = params.has('shift') ? Number(params.get('shift')) : SHIFT;
+const half = Math.max(carView.max.x - carView.min.x, carView.max.y - carView.min.y) / 2 / carFill;
+const cx = (carView.min.x + carView.max.x) / 2 - shift * 2 * half;
+const cy = (carView.min.y + carView.max.y) / 2 - shift * 2 * half;
 Object.assign(camera, { left: cx - half, right: cx + half, top: cy + half, bottom: cy - half });
 camera.updateProjectionMatrix();
 
@@ -299,8 +335,7 @@ function downsample(source, size) {
 const frame = document.createElement('canvas');
 frame.width = frame.height = RENDER;
 const fctx = frame.getContext('2d', { alpha: false });
-fctx.fillStyle = BG;
-fctx.fillRect(0, 0, RENDER, RENDER);
+fctx.drawImage(backdrop, 0, 0);
 fctx.drawImage(renderer.domElement, 0, 0);
 
 // make-icon.mjs captures each size with a CDP screenshot rather than reading `toDataURL` back: a
