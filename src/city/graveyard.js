@@ -50,20 +50,21 @@ export const GRAVE_TREE = typeof location !== 'undefined'
   : globalThis.process?.env?.GRAVETREE === 'classic';
 
 /**
- * What stands round the lot: `'railing'` (the default), `'wall'`, or `'classic'` —
+ * What stands round the lot: `'wall'` (the default), `'railing'`, or `'classic'` —
  * `?fence=` in the browser, `FENCE=` for the headless tools.
  *
  * Classic is the first fence: 0.07 pickets on a 0.3 pitch, with 0.05 rails. At play zoom on a phone
  * (~15 device pixels to the unit at 2x) that is a one-pixel picket every 4.6 pixels and a rail under
  * a pixel thick, so MSAA has nothing to resolve but a stair and the run crawls whenever the camera
- * moves (Tyler, 2026-10-25). The railing is the same idea at twice the gauge and half the count;
- * the wall drops the iron for a low stone wall with a coping.
+ * moves (Tyler, 2026-10-25). The wall drops the iron for a low stone wall with a coping, which has
+ * nothing fine enough to alias; Tyler picked it over `'railing'`, the same railing at twice the
+ * gauge and half the count, which still has a regular pattern a few pixels apart.
  */
 export const FENCE_MODE = (() => {
   const raw = typeof location !== 'undefined'
     ? new URLSearchParams(location.search).get('fence')
     : globalThis.process?.env?.FENCE;
-  return raw === 'classic' || raw === 'wall' ? raw : 'railing';
+  return raw === 'classic' || raw === 'railing' ? raw : 'wall';
 })();
 
 /** What ground.js lays the lawn at — the park's own level, since it is the park's own surface. */
@@ -72,9 +73,9 @@ export const GRAVE_GRASS_Y = KERB_H + 0.01;
 const FOOT = GRAVE_GRASS_Y - 0.03;
 
 // --- The fence ----------------------------------------------------------------
-// On the lawn's edge, a quarter unit in from where the walk stops. A knee-high stone plinth with
-// iron railings on it: the railings are what say "cemetery" rather than "park" from across the map,
-// and they are see-through, so a fence round a low lot hides nothing behind it.
+// On the lawn's edge, a quarter unit in from where the walk stops. By default a low stone wall
+// (`FENCE_MODE`); the railing modes put iron on a knee-high plinth instead, see-through so the
+// fence hides nothing behind it — which the wall pays for with about 1.3 units of lawn.
 const FENCE_IN = PARK_EDGE + 0.25;
 const PLINTH_H = 0.28;
 const PLINTH_W = 0.3;
@@ -83,10 +84,10 @@ const PICKET = 0.07;
 const PICKET_PITCH = 0.3;
 const PIER = 0.42;          // the stone piers at the corners and every few units along
 const PIER_H = PLINTH_H + RAIL_H + 0.12;
-// The default railing: every piece at least two device pixels across at play zoom, and the gaps
+// `?fence=railing`: every piece at least two device pixels across at play zoom, and the gaps
 // between them wider than the bars. 0.6 pitch puts 11 pickets in a 6.4 run against classic's 22.
 const RAILING = { picket: 0.14, pitch: 0.6, rail: 0.1, spikeR: 0.11, spikeH: 0.22 };
-// `?fence=wall`: knee-to-waist-high stone with a coping over it. The camera looks down 33°, so a
+// The default wall: knee-to-waist-high stone with a coping over it. The camera looks down 33°, so a
 // wall this tall hides about 1.3 units of lawn behind it — a stone's clearance and a little more.
 const WALL_H = 0.78;
 const WALL_W = 0.36;
@@ -95,6 +96,15 @@ const COPE_H = 0.1;
 // Wider than the coping, so a corner's two copings meet inside the pier and not on show.
 const WALL_PIER = 0.56;
 const WALL_PIER_H = WALL_H + COPE_H + 0.32;
+// The wall is laid in courses of blocks rather than poured as one box, each block a shade off its
+// neighbours, and a few stand proud of the face in a different stone. Two courses, so a block is
+// ~0.39 tall: about six device pixels at play zoom on a phone, which is the smallest a joint
+// between two tones can be and still read as a stone rather than as noise.
+const WALL_COURSES = 2;
+const STONE_LEN = [0.7, 1.3];
+/** How far a proud stone stands out of the face, and the share of stones that do. */
+const STONE_PROUD = 0.04;
+const PROUD_CHANCE = 0.28;
 // Was 3.2 until 2026-10-17: Tyler found the piers along the plinth read as more headstones from
 // across the map, so there are half as many, in a warmer stone than the graves (`gravePier`).
 const PIER_PITCH = 6.4;
@@ -245,9 +255,7 @@ function fenceRun(ax, az, bx, bz, stone, iron, parts, cap) {
   const len = alongX ? bx - ax : bz - az;
   const mid = (a, b) => (a + b) / 2;
   if (FENCE_MODE === 'wall') {
-    parts.push(alongX
-      ? box(len, WALL_H, WALL_W, mid(ax, bx), FOOT, az, stone)
-      : box(WALL_W, WALL_H, len, ax, FOOT, mid(az, bz), stone));
+    wallStones(ax, az, bx, bz, stone, parts);
     parts.push(alongX
       ? box(len, COPE_H, COPE_W, mid(ax, bx), FOOT + WALL_H, az, cap)
       : box(COPE_W, COPE_H, len, ax, FOOT + WALL_H, mid(az, bz), cap));
@@ -278,6 +286,44 @@ function fenceRun(ax, az, bx, bz, stone, iron, parts, cap) {
     spike.rotateY(Math.PI / 4);
     spike.translate(x, top + g.spikeH / 2, z);
     parts.push(bakeColor(spike, iron));
+  }
+}
+
+/**
+ * One run of wall as courses of blocks. Drawn off `hash01` on each block's position rather than the
+ * lot's rng, so laying stones moves no headstone.
+ */
+function wallStones(ax, az, bx, bz, stone, parts) {
+  const alongX = az === bz;
+  const a0 = alongX ? ax : az;
+  const a1 = alongX ? bx : bz;
+  const across = alongX ? az : ax;
+  const h = WALL_H / WALL_COURSES;
+  const dark = color('graveWallDark');
+  const warm = color('graveWallWarm');
+  for (let c = 0; c < WALL_COURSES; c++) {
+    // Each course starts half a stone in from the last, so the joints stagger like laid stone.
+    let s = a0;
+    let first = c % 2 === 1;
+    while (s < a1 - 1e-6) {
+      const r = hash01(s * 3.1 + across * 0.7, c * 17.3 + across);
+      let l = (first ? 0.5 : 1) * (STONE_LEN[0] + (STONE_LEN[1] - STONE_LEN[0]) * r);
+      first = false;
+      // Never leave a sliver at the end of a run: the last stone takes up whatever is left.
+      if (a1 - (s + l) < STONE_LEN[0] * 0.5) l = a1 - s;
+      const r2 = hash01(s * 5.7 + c, across * 1.9 + 11.1);
+      const proud = r2 < PROUD_CHANCE;
+      const tone = proud
+        ? (r2 < PROUD_CHANCE / 2 ? dark : warm).clone()
+        : stone.clone().offsetHSL(0, 0, (r2 - 0.5) * 0.16);
+      // Proud on both faces, and a hair inside the coping's 0.05 overhang so the two never share a plane.
+      const w = WALL_W + (proud ? 2 * STONE_PROUD : 0);
+      const m = s + l / 2;
+      parts.push(alongX
+        ? box(l, h, w, m, FOOT + c * h, across, tone)
+        : box(w, h, l, across, FOOT + c * h, m, tone));
+      s += l;
+    }
   }
 }
 

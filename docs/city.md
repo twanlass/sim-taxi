@@ -807,12 +807,12 @@ probe's sweep), never downtown, and never across an arterial — closing a main 
 green wave.
 
 It is scenery only. Nothing routes into it, nothing on it can be tapped, and the fare loop doesn't
-know it exists. An iron railing on a stone plinth runs round the lawn, with a gate in the middle of
-the +Z fence. The railing is built at a deliberately heavy gauge — 0.14 pickets on a 0.6 pitch, 0.1
-rails — because the first one (0.07 pickets every 0.3, `?fence=classic`) put a one-pixel picket
-every 4.6 pixels on a phone at play zoom, and MSAA cannot resolve a pattern that fine: the run
-crawled whenever the camera moved. `?fence=wall` swaps the iron for a low stone wall with a coping,
-which cannot shimmer at all; only the gates keep their ironwork.
+know it exists. A low stone wall with a coping runs round the lawn, with an iron gate in the middle
+of the +Z fence. It replaced an iron railing on a stone plinth (`?fence=classic`) whose 0.07 pickets
+every 0.3 put a one-pixel picket every 4.6 pixels on a phone at play zoom: MSAA cannot resolve a
+pattern that fine, and the run crawled whenever the camera moved. `?fence=railing` is the middle
+road that was tried beside it — the same railing at 0.14 on a 0.6 pitch — which still carries a
+regular pattern a few pixels apart; the wall has nothing fine enough to alias.
 Headstones stand in rows either side of a gravel path that runs gate to gate (one gate in each
 end), one of the parks' statues (`statueParts`) stands on its plaza in the −X half for some
 asymmetry, and long grass grows between the rows (see [Long grass](#long-grass)). The fence's piers

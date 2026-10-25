@@ -1418,6 +1418,10 @@ export const PALETTE = {
   // The fence's plinth and piers: a touch brown, so a pier is masonry and not one more headstone.
   gravePier: '#9C8F7E',
   gravePierCap: '#C4B8A6',
+  // The odd stone in the wall (`?fence=` default): one darker and greyer, one warmer and redder, so
+  // the wall reads as laid stone rather than one poured slab.
+  graveWallDark: '#6B645B',
+  graveWallWarm: '#B5876A',
   // The graveyard's one tree (`?gravetree=classic`): a dark plum crown, off every colour the season paints the parks.
   graveTree: '#5E3448',
   graveLantern: '#FFC46A',
