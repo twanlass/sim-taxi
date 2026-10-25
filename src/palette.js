@@ -1461,17 +1461,11 @@ export const roadsClassic = () => ROADS_CLASSIC;
 // It went because it clashed (Tyler, 2026-10-25): the town's commonest wall is `brick` (#A06A57),
 // so a red plaza beside a red building read as one smear, and with no edge it stopped where the
 // colour did rather than at a frame.
-// How far the paving runs out past the junction box along each arm (Tyler, 2026-10-25: "a touch
-// bigger to encompass the crosswalks"). A crossing's bars end 1.65 past the box (ground.js: 0.15
-// clear, 1.5 long), and the frame is 1.08 deep (band + a brick-length soldier course), so 2.8 lands
-// the frame just outside the bars rather than under them, where the stripes over the soldier
-// course read as clutter at play zoom.
-const PLAZA_REACH = 2.8;
 export const PLAZA_LOOKS = {
-  granite: { field: '#8E887E', mortar: '#A39C90', soldier: '#4E4C49', band: '#8C867B', style: 1, reach: PLAZA_REACH },
-  tan: { field: '#A08865', mortar: '#B5A68C', soldier: '#6C5B48', band: '#8C867B', style: 1, reach: PLAZA_REACH },
-  charcoal: { field: '#59585A', mortar: '#6F6D6A', soldier: '#A39C90', band: '#7A756C', style: 1, reach: PLAZA_REACH },
-  classic: { field: '#8E5443', mortar: '#9C9283', soldier: '#8A8478', band: '#8A8478', style: 0, reach: 0 },
+  granite: { field: '#8E887E', mortar: '#A39C90', soldier: '#4E4C49', band: '#8C867B', style: 1 },
+  tan: { field: '#A08865', mortar: '#B5A68C', soldier: '#6C5B48', band: '#8C867B', style: 1 },
+  charcoal: { field: '#59585A', mortar: '#6F6D6A', soldier: '#A39C90', band: '#7A756C', style: 1 },
+  classic: { field: '#8E5443', mortar: '#9C9283', soldier: '#8A8478', band: '#8A8478', style: 0 },
 };
 // Charcoal setts in a pale frame, because the frame is the thing asked for and it reads best as the
 // lighter of the two; granite and tan both put a dark frame round a light field, which at play zoom
