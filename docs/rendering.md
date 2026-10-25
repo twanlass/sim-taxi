@@ -1608,8 +1608,14 @@ only distinction being made.
 
 ## Painted streets — `game/brushtiles.js`, `PAINT_*` in `util/geo.js`
 
+The streets are plain asphalt by default: the painted strokes below were turned off on 2026-10-25
+(`uRoadAmt` 0, `setRoadStrokes`), and `?roadstrokes=classic` brings them back. The painterly pass
+itself stays on, because the paved junction is drawn in it; at 0 it skips the stroke path's noises
+and tile reads. `?painterly=classic` drops the pass, plaza and all. What follows describes the
+strokes as they draw under `?roadstrokes=classic`.
+
 The road surface carries dry-brush strokes, each a little lighter or darker and a little red or
-blue, so the asphalt reads as painted rather than flat grey. `?painterly=classic` turns it off.
+blue, so the asphalt reads as painted rather than flat grey.
 
 - **The strokes** are a 256² tile painted in code at boot (`paintRoad`), every dab drawn at its
   eight wrapped neighbours so the tile is seamless, all on one heading. The ground's fragment

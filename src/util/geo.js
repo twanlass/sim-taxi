@@ -302,7 +302,7 @@ export const PAINT_UNIFORMS = {
   uRiverZ: { value: new THREE.Vector2(-1e9, RIVER_EXTRA / 2) },
   uRoadArt: { value: new THREE.Vector4(0, 0, HALF_ROAD, HALF_ARTERIAL) }, // arterial lines as bitmasks (j, i), then the two half-widths
   uRoadTile: { value: 12 },     // a bigger repeat on the road: it is the largest flat surface on screen
-  uRoadAmt: { value: 0.5 },     // value-and-hue swing of a road stroke
+  uRoadAmt: { value: 0 },       // value-and-hue swing of a road stroke: 0.5 under `?roadstrokes=classic`, off by default
   uLawnAmt: { value: 0 },       // lawn strokes (0.7 earlier; off for streets-only)
   uRoadMaskScale: { value: 16 }, // world units per cell of the fade mask's coarser octave
   uRoadMaskLo: { value: 0.38 },  // mask value where the strokes are fully gone…
@@ -334,6 +334,15 @@ export function setPaintBrushes(wall, ground, road) {
   PAINT_UNIFORMS.uRoadArt.value.y = z;
   const mid = riverMidZ();
   PAINT_UNIFORMS.uRiverZ.value.set(mid ?? -1e9, mid === null ? RIVER_EXTRA / 2 : RIVER_EXTRA);
+}
+
+/**
+ * The painted strokes along the streets, off by default (Tyler, 2026-10-25: "toggle off the street
+ * streaks"); `?roadstrokes=classic` puts them back at their old 0.5. At 0 the shader skips the fade
+ * mask's two noises and both road-tile reads, so the plaza is all that is left of the road path.
+ */
+export function setRoadStrokes(on) {
+  PAINT_UNIFORMS.uRoadAmt.value = on ? 0.5 : 0;
 }
 
 /**
@@ -546,7 +555,7 @@ const PAINT_FRAGMENT = /* glsl */ `
 						}
 					}
 					vec2 mq = vPaintWorld.xz / uRoadMaskScale;
-					float m = hold > 0.0 ? paintNoise(mq) * 0.65 + paintNoise(mq * 2.3 + 17.1) * 0.35 : 0.0;
+					float m = hold > 0.0 && uRoadAmt > 0.0 ? paintNoise(mq) * 0.65 + paintNoise(mq * 2.3 + 17.1) * 0.35 : 0.0;
 					float fade = smoothstep(uRoadMaskLo, uRoadMaskHi, m) * hold;
 					if (fade > 0.0) {
 					// The road tile's strokes all run along its u axis, so it is read as (x, z) on an
