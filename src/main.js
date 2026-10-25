@@ -931,8 +931,9 @@ const fares = createFareSystem(makeRng(runSeed + 55), scene, {
   rating: ratingOn,
   // The bank rider's coin loads with every one who rides — BANK_ROBBER_STEP in game/fares.js.
   risingOdds: new URLSearchParams(window.location.search).get('robberyodds') !== 'classic',
-  // Demo mode: every bank rider is the robbery, whatever BANK_ROBBER_ALWAYS says.
-  ...(demo.on() && { alwaysRob: true }),
+  // Demo mode: every bank rider is the robbery, whatever BANK_ROBBER_ALWAYS says. Read live, since
+  // the switch is in Settings and flips mid-session.
+  forceRob: () => demo.on(),
   reserved: () => parcels?.occupiedSpots() ?? [],
   judgeRun: () => combo.judge(),
 });
@@ -1157,6 +1158,8 @@ const robbery = city.bank && !shot
     holdAlarm: true,
     // ...and the robbery waits for a patrol chase to be over — see `busy` in game/robbery.js.
     busy: () => patrol.busy(),
+    // Demo mode waives the fairness gates, so the bank rider is the robbery every time.
+    forced: () => demo.on(),
     // Never take a cop off the map where the player can see it — see `inShot` in game/robbery.js.
     inShot,
     // Delivered: the nearest cop comes after the taxi as an ordinary patrol chase — caught on a
