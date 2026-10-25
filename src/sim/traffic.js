@@ -909,6 +909,58 @@ export function setOvertakeStyle(name) {
 const PEEK_MARGIN = 0.3;
 const peekLateral = () => ENVELOPE + PEEK_MARGIN;
 const peeking = (car, leader) => car.passing && car.dodgeLateral < 0 && leader && car.passTarget === leader;
+/**
+ * The peek is for a turner the taxi is about to be level with, and only for as long as it is in the
+ * way (Tyler, 2026-10-25: "it chooses a sidewalk instead of the other lane"). As first built it
+ * fired on any blinker inside the combo's 30-unit reach and then held like a pass, so it went up on
+ * the pavement on **40% of all pull-outs** and stayed there a median **33 units** — past the
+ * junction and on round the next car (`PASS_SUSTAIN`), long after the turner had gone. 17 of those
+ * 99 were round a car that then went straight on, because the lamp lingers SIGNAL_LINGER after the
+ * turn a car has just finished. Measured by `tools/overtakecases.mjs` over 60 cities × 60s.
+ *
+ * `peekOn` keeps the peek to a car right in front that is actually turning: one part way round its
+ * left whose tail is still in the taxi's lane, cop or not (Tyler, 2026-10-25). Not the blinker —
+ * a car waiting at its line is passed in the oncoming lane like any other. Anything else is the
+ * oncoming lane, and traffic does not change for it: the courtesy veto that held a passed turner
+ * at its line is off, and so is the flee (`setTaxiScatter`), so a turner turns when it would have
+ * and the player brakes or hits it (Tyler, 2026-10-25: "If traffic behaves consistently no matter
+ * what the player can learn that rule and adapt"). The peek ends the frame the turner is out of
+ * the taxi's lane (`clearOfLane`), never chaining on to the car behind it.
+ *
+ * `?peek=classic` is the first build: any blinker, held like a pass.
+ */
+let peekOn = true;
+/**
+ * Whether ambient traffic flees the boosting taxi (`clearAhead(taxi, ...)`, the scatter block in
+ * `update`). Off by default (Tyler, 2026-10-25), for the same reason as the courtesy veto: a car
+ * that speeds up and re-rolls its turn because the taxi is behind it is traffic changing for the
+ * player, and a car flagged left that then floored it straight on was the most common way a blinker
+ * lied. Cops and the fire engine still clear their lanes with the siren on. `?scatter=classic`
+ * puts the taxi's flee back.
+ */
+let taxiScatter = false;
+export function setTaxiScatter(name) {
+  taxiScatter = name === 'classic';
+}
+export function setPeek(name) {
+  peekOn = name !== 'classic';
+}
+/** Part way round a left, not just signalling one. A straight crossing is `turn` too (CLAUDE.md). */
+const turningLeft = (car) => car?.state === 'turn' && car.turn?.hand === 'left';
+/** The lateral coordinate of the centre of `car`'s own lane, on its road. */
+const laneLatOf = (car) => {
+  const end = car.lane.path.at(car.lane.length);
+  return isXAxis(car.d) ? end.z : end.x;
+};
+/** Every collision circle of `other` at least a peek's width off the centre of `car`'s lane. */
+const clearOfLane = (car, other) => {
+  const xAxis = isXAxis(car.d);
+  const lane = laneLatOf(car);
+  const off = circleOffsetOf(other);
+  const fx = Math.cos(other.yaw);
+  const fz = -Math.sin(other.yaw);
+  return [off, -off].every((c) => Math.abs((xAxis ? other.z + fz * c : other.x + fx * c) - lane) >= peekLateral());
+};
 /** How far apart two cars are across `car`'s road. */
 const sideGap = (car, other) => Math.abs(isXAxis(car.d) ? other.z - car.z : other.x - car.x);
 /**
@@ -6078,6 +6130,8 @@ export function createTraffic(
       const alongside = () => {
         const mark = taxi.passTarget;
         if (!mark || mark.crashed) return false;
+        // A peek is over once the turner is out of the taxi's lane, wherever it is along it.
+        if (peekOn && taxi.dodgeLateral < 0 && clearOfLane(taxi, mark)) return false;
         const sign = dirSign(taxi.d);
         const rel = isXAxis(taxi.d) ? (mark.x - taxi.x) * sign : (mark.z - taxi.z) * sign;
         // A truck's front circle is `truckExtra` further forward than a car's, so it is that much
@@ -6122,8 +6176,30 @@ export function createTraffic(
         // Thrown dumb (`setOvertakeStyle`), the combo pulls out the frame it arms, whatever is
         // ahead and however far, and stays out on the same terms as any pass.
         const thrown = overtakeDumb && taxi.passArmed === true;
+        // A car close ahead part way round a left (`peekOn`), with its tail still in the lane, is
+        // peeked round. Anywhere else — a block ahead, or already out of the taxi's lane — the
+        // combo goes into the oncoming lane like any other, across the turner's arc, and braking
+        // or hitting it is the player's call (Tyler, 2026-10-25: "they are in control").
+        //
+        // Asked of every car off this lane as well as the leader, because the leader bookkeeping
+        // lets go of a turner a little way into its arc, long before its tail is out of the lane.
+        // Matched on the lane each came in on: a car part way across a junction may already be
+        // carrying its exit lane as `lane`.
+        const inLane = taxi.state === 'turn' ? taxi.turn?.inLane : taxi.lane.id;
+        const turners = peekOn && thrown && !was
+          ? cars.filter((c) => c !== taxi && !c.crashed && turningLeft(c)
+            && (c === leader || c.turn.inLane === inLane))
+          : [];
+        const sign = dirSign(taxi.d);
+        const aheadOf = (c) => (isXAxis(taxi.d) ? c.x - taxi.x : c.z - taxi.z) * sign;
+        // A cop too (Tyler, 2026-10-25: "just treat all cars the same"): one part way round a left
+        // is leaving the lane like anyone else.
+        const turner = turners.find((c) => !clearOfLane(taxi, c)
+          && aheadOf(c) < PASS_TRIGGER + CAR_LEN) ?? null;
+        // And a peek stays out for its own turner only, never chaining on to the car behind it.
+        const peekingOut = peekOn && taxi.dodgeLateral < 0;
         const passes = thrown
-          ? room && (!was || near)
+          ? room && (!was || (near && !peekingOut))
           : room && near && taxi.passArmed !== false && !turningAcross(leader);
         // A dodge wants the combo itself, never the lab's holding-is-enough rule, and pulls out
         // DODGE_LEAD short of the change's own length from the blocker — see `findDodge`.
@@ -6134,17 +6210,22 @@ export function createTraffic(
         // re-read per frame: half way through a pass the taxi is *ahead* of this car in lane
         // coordinates, so `leaderOf` has already moved on to whatever is in front of them both.
         if (taxi.passing && !was) {
-          taxi.passTarget = (dodges ? dodge.car : leader ?? dodge?.car) ?? null;
+          taxi.passTarget = (dodges ? dodge.car : turner ?? leader ?? dodge?.car) ?? null;
           if (dodges) {
             taxi.dodgeLateral = dodge.lateral;
             taxi.dodges += 1;
           }
-          // Behind a car signalling left, the peek round its right instead (see `peeking`). Not
-          // behind a cop: a peek waits beside the turner's tail for it to swing away, and a cop
-          // blocking or chasing is not going anywhere it signals — the taxi sat beside one on the
-          // kerb, crawling at the cop's speed with Loco held (Tyler, 2026-10-20, a clip).
-          if (thrown && leader && taxi.passTarget === leader && leader.signalHand === 'left'
-            && !leader.police) {
+          // Round a car actually turning left, the peek round its right instead (see `peeking`).
+          // Only a car in its arc (`turner`, `peekOn`): never the blinker, which lingers
+          // SIGNAL_LINGER after a turn and promises nothing the player can check — a car waiting
+          // at its line to turn is passed in the oncoming lane like any other.
+          //
+          // `?peek=classic` is the blinker rule as first built, which left cops out: a peek waits
+          // beside the turner's tail for it to swing away, and a cop blocking or chasing is not
+          // going anywhere it signals (Tyler, 2026-10-20, a clip).
+          const blinkerPeek = !peekOn && thrown && leader && taxi.passTarget === leader
+            && leader.signalHand === 'left' && !leader.police;
+          if (turner || blinkerPeek) {
             taxi.dodgeLateral = -peekLateral();
             taxi.peeks += 1;
           }
@@ -6541,7 +6622,7 @@ export function createTraffic(
       }
     };
 
-    if (taxiActive && taxi.boost) {
+    if (taxiScatter && taxiActive && taxi.boost) {
       // Nothing scatters while the taxi is passing. Scatter's premise is "the car in front is in
       // my way", and a taxi that has committed to going round it has answered that a different
       // way. Left on it defeats the pass outright: a fleeing car runs at SCATTER_SPEED (2.0x
@@ -7114,7 +7195,13 @@ export function createTraffic(
             // Not while the taxi is peeking round its *right* (`peeking`), which is waiting on
             // exactly that left: vetoed, the turner stood at its line for good and the taxi, held
             // beside its tail, ran into it 2 of 2 times.
-            if (car === taxi.passTarget && chosen?.hand === 'left' && !(taxi.dodgeLateral < 0)) {
+            //
+            // And not at all under the dumb combo (`peekOn`; Tyler, 2026-10-25): traffic that
+            // behaves one way for everyone is a rule the player can learn, and a car that waits
+            // only when the taxi happens to be passing it is not. A car signalling left turns
+            // left; the taxi out in the oncoming lane brakes for it or hits it.
+            const courtesy = !(peekOn && overtakeDumb);
+            if (courtesy && car === taxi.passTarget && chosen?.hand === 'left' && !(taxi.dodgeLateral < 0)) {
               chosen = null;
               vetoed = true;
             }

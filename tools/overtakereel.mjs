@@ -143,7 +143,7 @@ const PULL_GAP = 9;
 const TAILING = 10;
 const MAX_TAIL = 0.4;
 let best = null;
-for (let start = 10; start < 60; start += 2) for (let gap = 8; gap <= 30; gap += 0.5) {
+for (let start = 10; start < 60; start += 2) for (let gap = 8; gap <= 60; gap += 0.5) {
   const take = film(start, gap);
   if (take.crashed || take.bumps || take.pulledOut == null || take.pulledOut < 0) continue;
   if (take.peak < 0.99 || !take.back) continue;

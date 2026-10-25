@@ -76,7 +76,7 @@ import { createBurgerRun } from '../src/game/burgerrun.js';
 import { createOvertakeCombo, OVERTAKE_BLIP_MS, OVERTAKE_GRACE } from '../src/game/overtake.js';
 import { createOpening, exitPath, entryPath, REPAIR_GAP } from '../src/game/opening.js';
 import { createDepotRun } from '../src/game/depotrun.js';
-import { spinTaxi, driftTaxi, kickDrift, DRIFT_KICK_WINDOW, DRIFT_MIN_V, DRIFT_ANGLE, DRIFT_EXIT, DRIFT_CHAIN, createTraffic, lightPhase, displayPhase, setPriorityJunction, isUnsignalised, ringAxisAt, placeCar, approachRoom, setClosedLanes, isLaneClosed, ROAD_Y, HOP_LEN, DRIFT_LAUNCH_LEN, DRIFT_LAUNCH_HEIGHT, onDriftLaunch, setBarrelRoll, setHopStyle, setDodge, setOvertakeStyle, HOP_MIN_V, STOP_SETBACK, SIGNAL_LEAD, SIGNAL_LINGER, wheelAnchors, WHEEL_R, STEER_MAX, SPEED, CAR_LEN, CAR_W, landingBounce, landingRoll, BOUNCE_DUR, TRUCK_W, SPAWN_CLEARANCE, POLICE_FLEET,
+import { spinTaxi, driftTaxi, kickDrift, DRIFT_KICK_WINDOW, DRIFT_MIN_V, DRIFT_ANGLE, DRIFT_EXIT, DRIFT_CHAIN, createTraffic, lightPhase, displayPhase, setPriorityJunction, isUnsignalised, ringAxisAt, placeCar, approachRoom, setClosedLanes, isLaneClosed, ROAD_Y, HOP_LEN, DRIFT_LAUNCH_LEN, DRIFT_LAUNCH_HEIGHT, onDriftLaunch, setBarrelRoll, setHopStyle, setDodge, setOvertakeStyle, setPeek, setTaxiScatter, HOP_MIN_V, STOP_SETBACK, SIGNAL_LEAD, SIGNAL_LINGER, wheelAnchors, WHEEL_R, STEER_MAX, SPEED, CAR_LEN, CAR_W, landingBounce, landingRoll, BOUNCE_DUR, TRUCK_W, SPAWN_CLEARANCE, POLICE_FLEET,
   LOCO_DEFAULTS, locoTuning, setLocoTuning, resetLocoTuning, locoRamp, boostCruise, overdriveTop, MPH_PER_UNIT, locoWeave, locoWeaveFade, MIN_GAP, ENVELOPE, CIRCLE_OFFSET, DODGE_MARGIN, carGeometry, CABIN_TOP, copLaysRubber, uturnWindow } from '../src/sim/traffic.js';
 import { loadLocoTuning, saveLocoTuning, clearLocoTuning } from '../src/game/locostash.js';
 import { createRoadwork, BARRIER_S, CONE_ROW } from '../src/game/roadwork.js';
@@ -5804,6 +5804,10 @@ const PRESSURE_END = difficulty.getTuning().pressureEnd;
   // had no such notion — it also, on this junction, placed the *taxi* 14 units off the western edge
   // of the map and let it drive in — so the distance went unquestioned. 12 is the near end of the
   // lane, which is as much clear road as a car on this city can actually have.
+  //
+  // Under `?scatter=classic` since the flee went off by default (`setTaxiScatter`; Tyler,
+  // 2026-10-25): the check after this one asserts the default leaves the leader alone.
+  setTaxiScatter('classic');
   const sScene = new THREE.Scene();
   const sTraffic = createTraffic(makeRng(seed + 103), sScene, 2);
   const [sTaxi, leader] = sTraffic.cars;
@@ -5866,6 +5870,22 @@ const PRESSURE_END = difficulty.getTuning().pressureEnd;
     dIn >= 0 && fleePeak > 0.9 && fleeSpeed > 1.35 && taxiFloor > 0.9 && taxiMean > 1.4,
     `leader peaked at ${fleeSpeed.toFixed(2)}x cruise, taxi never fell below ${taxiFloor.toFixed(2)}x`
     + ` and averaged ${taxiMean.toFixed(2)}x`);
+  setTaxiScatter('');
+  {
+    // The default: the same staging, and the leader never flees.
+    const dTraffic = createTraffic(makeRng(seed + 103), new THREE.Scene(), 2);
+    const [dTaxi, dLeader] = dTraffic.cars;
+    place(dTaxi, dIn, 30);
+    place(dLeader, dIn, 12);
+    let dPeak = 0;
+    for (let f = 0; f < 60 * 2; f++) {
+      dTaxi.boost = true;
+      dTraffic.update(1 / 60);
+      dPeak = Math.max(dPeak, dLeader.scatter);
+    }
+    check('by default traffic does not flee the boosting taxi', dPeak === 0,
+      `scatter envelope peaked at ${dPeak.toFixed(2)}`);
+  }
 
   // 1b. The same staging with a truck as the leader. Trucks never scatter — too big to skitter,
   // see the scatter block in traffic.js — and `car.scatter` only ever rises via the `mark` that
@@ -6140,9 +6160,11 @@ const PRESSURE_END = difficulty.getTuning().pressureEnd;
   // A car turning left ahead: the #520 gate refuses to pull out round it, and under
   // `?overtake=classic` the combo does nothing there. The default peeks round its right, up on the
   // kerb (`peeking` in traffic.js), because its blinker says it is about to swing across the
-  // oncoming lane. Blipped once on the approach with the blinker lit (`early`) and once the moment
-  // the turner crosses its hold line (`state` flips to `turn` there), which is the case the gate
-  // refuses. Staged at the first junction with a straight on and a left off it.
+  // oncoming lane — but only from close behind it, while it is still in the lane (`peekOn`).
+  // Blipped three ways: on the approach with the blinker lit from far back (`far`, the oncoming
+  // lane), the same from inside PASS_TRIGGER (`near`, the peek), and the moment the turner crosses
+  // its hold line (`turning`; `state` flips to `turn` there), which the gate refuses and the
+  // default now waits out. Staged at the first junction with a straight on and a left off it.
   let lt = null;
   for (let i = 1; i < GRID_I && !lt; i++) {
     for (let j = 1; j < GRID_J && !lt; j++) {
@@ -6155,11 +6177,14 @@ const PRESSURE_END = difficulty.getTuning().pressureEnd;
       }
     }
   }
-  const turnerStage = (overtake = '', early = false, cop = false) => {
+  const turnerStage = (overtake = '', mode = 'turning', cop = false, peek = '') => {
+    const early = mode !== 'turning';
+    setPeek(peek);
     setOvertakeStyle(overtake);
     const tTraffic = createTraffic(makeRng(seed + 127), new THREE.Scene(), 2);
     const [tTaxi, tLead] = tTraffic.cars;
-    placeCar(tTaxi, lt.d, lt.i, lt.j, 36);
+    // Near, the taxi starts a car's length behind it on the same lane.
+    placeCar(tTaxi, lt.d, lt.i, lt.j, mode === 'near' ? 12 : 36);
     tTaxi.route = [lt.d, lt.d, lt.d]; tTaxi.parked = false;
     tTaxi.hp = TAXI_HP;
     placeCar(tLead, lt.d, lt.i, lt.j, 4);
@@ -6175,9 +6200,11 @@ const PRESSURE_END = difficulty.getTuning().pressureEnd;
     let vmin = Infinity;
     let blipAt = null;
     let turning = false;
+    let kerbRoad = 0;
     const blipFrames = Math.floor((OVERTAKE_BLIP_MS / 1000) * 60 * 0.6);
     for (let f = 0; f < 60 * 3; f++) {
-      const ready = early ? tLead.signalHand === 'left' && tLead.state === 'drive' : tLead.state === 'turn';
+      const ready = (early ? tLead.signalHand === 'left' && tLead.state === 'drive' : tLead.state === 'turn')
+
       if (blipAt === null && ready && tTaxi.passGap < 30) {
         blipAt = f;
         turning = tLead.signalHand === 'left';
@@ -6192,22 +6219,45 @@ const PRESSURE_END = difficulty.getTuning().pressureEnd;
       kerbward = Math.min(kerbward, tTaxi.passOffset);
       wide = Math.max(wide, tTaxi.passOffset);
       if (tTaxi.passing && tTaxi.pass >= 1) vmin = Math.min(vmin, tTaxi.v);
+      if (tTaxi.passOffset < -1.15) kerbRoad += tTaxi.v / 60;
     }
     setOvertakeStyle('');
-    return { peak, blipAt, turning, arms: combo.state.arms, peeks: tTaxi.peeks, hits, kerbward, wide, vmin };
+    setPeek('');
+    return { peak, blipAt, turning, arms: combo.state.arms, peeks: tTaxi.peeks, hits, kerbward, wide, vmin, kerbRoad };
   };
   const turnSweep = (r) => `blip at frame ${r.blipAt} with the car ${r.turning ? '' : 'not '}signalling left,`
     + ` ${r.arms} arms, ${r.peeks} peeks, ${r.hits} bumps, pass peaked at ${r.peak.toFixed(2)},`
-    + ` ${(r.kerbward < 0 ? r.kerbward : r.wide).toFixed(2)} across, slowest ${r.vmin.toFixed(1)} u/s once out`;
-  for (const early of [true, false]) {
-    const turner = turnerStage('', early);
-    check(`the default combo goes round the right of a car ${early ? 'signalling' : 'already turning'} left, on the pavement at speed`,
-      turner.turning && turner.peeks === 1 && turner.peak > 0.95 && turner.hits === 0
-        && turner.kerbward < -2.5 && turner.wide === 0 && turner.vmin > SPEED * 1.5, turnSweep(turner));
-  }
+    + ` ${(r.kerbward < 0 ? r.kerbward : r.wide).toFixed(2)} across, slowest ${r.vmin.toFixed(1)} u/s once out,`
+    + ` ${r.kerbRoad.toFixed(1)} units up the kerb`;
+  // From close behind: round its right on the pavement at speed, and back down once it has gone —
+  // the first build stayed up there a median 33 units (`tools/overtakecases.mjs`).
+  // From further back it is the oncoming lane like any other pass. The turner is not held for it
+  // (Tyler, 2026-10-25): it turns when it would have, and the taxi brakes or hits it.
+  const farTurner = turnerStage('', 'far');
+  check('...and from further back it takes the oncoming lane',
+    farTurner.turning && farTurner.peeks === 0 && farTurner.peak > 0.95 && farTurner.hits === 0
+      && farTurner.kerbward === 0 && farTurner.wide > 2 * LANE - 0.5, turnSweep(farTurner));
+  // Already round into its arc: peeked round too, at speed, and only until its tail is out of the
+  // lane — it was ridden past the junction and on, 40 units, by the first build.
+  const goneTurner = turnerStage('', 'turning');
+  check('the default combo goes round the right of a car already turning left, and only until it is gone',
+    goneTurner.peeks === 1 && goneTurner.hits === 0 && goneTurner.kerbward < -2.5 && goneTurner.wide === 0
+      && goneTurner.vmin > SPEED * 1.5 && goneTurner.kerbRoad < 26, turnSweep(goneTurner));
+  // `?peek=classic`: any blinker, from anywhere in the combo's reach, is a peek.
+  const classicPeek = turnerStage('', 'far', false, 'classic');
+  check('?peek=classic: a car signalling left from far back is peeked round on the pavement',
+    classicPeek.turning && classicPeek.peeks === 1 && classicPeek.kerbward < -2.5 && classicPeek.hits === 0,
+    turnSweep(classicPeek));
   // Never round a cop, whose blinker is no promise to get out of the way: the taxi sat beside one
   // on the kerb at the cop's own speed with Loco held. A cop signalling left gets the ordinary pass.
-  const copTurner = turnerStage('', true, true);
+  const copTurner = turnerStage('', 'far', true);
+  // ...and one already turning is peeked round like any car (Tyler, 2026-10-25: "just treat all
+  // cars the same").
+  // Staged close behind (`near`): a cop takes its left without waiting for the light, so from 36
+  // back it is a block ahead by the time the combo lands, and that is the oncoming lane.
+  const copArc = turnerStage('', 'near', true);
+  check('a cop already turning left is peeked round like any car',
+    copArc.peeks === 1 && copArc.kerbward < -2.5 && copArc.hits === 0, turnSweep(copArc));
   check('a cop signalling left is passed the ordinary way, not peeked',
     copTurner.turning && copTurner.peeks === 0 && copTurner.peak > 0.95 && copTurner.wide > 2 * LANE - 0.5,
     turnSweep(copTurner));
@@ -6366,6 +6416,8 @@ const PRESSURE_END = difficulty.getTuning().pressureEnd;
   // test was asked on approach that was a car pinned to the line still reading 17 u/s.
   //
   // Routed rather than rolled, so the exit it takes is the blocked one every time.
+  // Under `?scatter=classic`, which is the only way a car arrives at the line that fast now.
+  setTaxiScatter('classic');
   const fScene = new THREE.Scene();
   const fTraffic = createTraffic(makeRng(seed + 149), fScene, 3);
   const [fTaxi, flee, fBlocker] = fTraffic.cars;
@@ -6407,6 +6459,7 @@ const PRESSURE_END = difficulty.getTuning().pressureEnd;
       && fleeSlid < 0.002,
     `peaked at ${fleeTop.toFixed(1)} u/s, stationary at up to ${fleeFrozen.toFixed(2)} u/s, `
     + `weave slid ${fleeSlid.toFixed(4)}/frame`);
+  setTaxiScatter('');
 
   // 4. Overtaking. A boosting taxi with a slower car in front, on a route that carries straight
   // on, pulls a full lane into the *oncoming* side, goes past, and comes back.
