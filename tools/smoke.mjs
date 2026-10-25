@@ -357,6 +357,27 @@ try {
       check('...over a city that is already built', held.building === false);
       check('...set in Space Grotesk', held.font.startsWith('"Space Grotesk"'), held.font);
 
+      // Settings shows the sound rows alone until five taps on its heading reveal the rest.
+      const layout = JSON.parse(await tEval(`(() => {
+        [...document.querySelectorAll('#title-screen .title-menu button')]
+          .find((b) => b.textContent === 'Settings').click();
+        const page = document.querySelector('#title-screen .title-settings');
+        const shown = () => [...page.querySelectorAll('.title-row')].filter((r) => !r.hidden)
+          .map((r) => r.querySelector('.title-label').textContent);
+        const before = shown();
+        const header = page.querySelector('.title-header');
+        for (let i = 0; i < 5; i++) header.dispatchEvent(new PointerEvent('pointerup', { isPrimary: true, bubbles: true }));
+        const after = shown();
+        page.querySelector('.title-back').click();
+        localStorage.removeItem('simTaxi.demo.row');
+        return JSON.stringify({ before, after });
+      })()`));
+      check('Settings opens on Sound, Music and SFX alone',
+        layout.before.join(',') === 'Sound,Music volume,SFX volume', layout.before.join(','));
+      check('...and five taps on its heading reveal the rest, intro story under the tips',
+        layout.after.join(',').startsWith('Sound,Music volume,SFX volume,Tutorial tips,Always show intro story,')
+        && layout.after.at(-1) === 'Demo mode', layout.after.join(','));
+
       // Settings: the tips off and the effects slider to 40%, through the controls themselves.
       const wrote = JSON.parse(await tEval(`(() => {
         const items = [...document.querySelectorAll('#title-screen .title-menu button')];

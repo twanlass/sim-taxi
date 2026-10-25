@@ -148,7 +148,7 @@ import {
 import * as difficulty from './game/difficulty.js';
 import { createHomeScreenTip } from './game/homescreen.js';
 import { createTitleScreen, TITLE_CAM } from './game/titlescreen.js';
-import { BACKSTORY_VOICES, backstoryVoiced, tellBackstory, wantsBackstory } from './game/backstory.js';
+import { BACKSTORY_VOICES, backstoryMode, backstoryVoiced, tellBackstory, wantsBackstory } from './game/backstory.js';
 import { createTitleReel } from './game/titlereel.js';
 import { splashCovers, SPLASH_SKIP_KEY } from './game/splash.js';
 import { createSettings, qualityOf } from './game/settings.js';
@@ -6088,7 +6088,7 @@ const title = wantsTitle ? createTitleScreen(document.getElementById('title-scre
   // The first Play on a device hears dispatch out first, over the backdrop, with the gate still shut —
   // see game/backstory.js. `?intro=classic` goes straight to the garage as before.
   beforePlay: (done) => {
-    if (!wantsBackstory()) return false;
+    if (!wantsBackstory(backstoryMode({ always: settings.get().introAlways }))) return false;
     const screen = document.getElementById('title-screen');
     if (demo.on()) { holdForPreamble(screen, () => startBackstory(screen, done)); return true; }
     startBackstory(screen, done);
