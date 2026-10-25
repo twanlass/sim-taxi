@@ -117,6 +117,10 @@ opens on the initials you last entered rather than empty, the page read the stor
 ## The native flag
 
 `GameViewController` injects a `WKUserScript` at `.atDocumentStart` setting `window.__native = true`.
+The same script sets `window.__nativeVersion` to `{ version, build }` from the app's Info.plist —
+`MARKETING_VERSION`, set by hand per release, and the build number Xcode Cloud stamps on each
+archive — which the title menu's foot shows as "Build v1.0 (52)" (`nativeVersion()` in
+`src/util/platform.js`), so the app always names the TestFlight build it is.
 
 **Not a Vite mode.** `import.meta.env` does not exist in the inline `<script>` at the bottom of
 `index.html`, which is one of the places that needs the answer, and it evaluates ahead of the module

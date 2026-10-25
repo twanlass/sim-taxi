@@ -100,7 +100,8 @@ Play opens it on the announcer, so the music is part of what starting a run give
 
 **Settings** and **Credits** dim the city behind a mask; the menu only shades the left edge its
 words stand on, with the copyright and build number in small type along its foot
-(`COPYRIGHT` and `BUILD_VERSION` in titlescreen.js — bump the version there).
+(`copyrightLine()` in titlescreen.js). In the app the version and build come from the shell, so
+they match TestFlight with nothing to bump; on the web it is `BUILD_VERSION`, bumped by hand.
 
 Settings shows a player three rows: **Sound, Music volume and SFX volume** (Tyler, 2026-10-25). The
 rest are there but hidden until the same five taps on the Settings heading that reveal

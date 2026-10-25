@@ -51,8 +51,18 @@ final class GameViewController: UIViewController {
         // context-creation failure. See `src/util/platform.js` for why this is a runtime global
         // rather than a build-time constant — the short version is that it keeps one `dist/`
         // shipping to both the web and the App Store.
+        // The version and build ride along for the title menu's foot (`nativeVersion()` in
+        // platform.js), read from Info.plist so they are whatever Xcode Cloud stamped on this
+        // archive. JSON-encoded rather than interpolated, so no value can break out of the script.
+        let info = Bundle.main.infoDictionary ?? [:]
+        let version: [String: String] = [
+            "version": info["CFBundleShortVersionString"] as? String ?? "",
+            "build": info["CFBundleVersion"] as? String ?? "",
+        ]
+        let versionJSON = (try? JSONSerialization.data(withJSONObject: version))
+            .flatMap { String(data: $0, encoding: .utf8) } ?? "null"
         let flag = WKUserScript(
-            source: "window.__native = true;",
+            source: "window.__native = true; window.__nativeVersion = \(versionJSON);",
             injectionTime: .atDocumentStart,
             forMainFrameOnly: true
         )
