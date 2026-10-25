@@ -1330,11 +1330,15 @@ ground, because the ground wears the painterly road strokes and iron under a str
 **The steam** (`game/manholesteam.js`). Three vents a city, picked first, from junctions of two
 side streets only, because the L train's deck runs over the arterials at 6.4 and a plume is 6.5
 tall. Each plume is **one quad and a fragment shader**: the quad stands on the lid's near edge in
-the plane of `RIGHT` and world up (fixed, since the view never turns), and the shader draws twelve
-soft puffs inside it on a staggered loop — born on the lid, rising fast and slowing, growing,
-drifting off downwind and fading, with a ragged rim — over one puff that sits on the lid. A
-continuous fbm column was tried first and read as a cone of light at the foot and grey smoke at the
-top. The vent breathes on two slow sines so the three are never in step. Mostly self-lit white
+the plane of `RIGHT` and world up (fixed, since the view never turns), and the shader draws one
+billowing column inside it: eighteen big lobes on a staggered loop — born on the lid, rising fast
+and slowing, swelling, scattered sideways a little each time round, drifting off downwind — over a
+two-lobe cushion on the lid. The lobes overlap so heavily that they read as one white mass with a
+lumpy outline; each rim is crisp, roughened by one shared scrolling noise, and lit brighter on top
+than underneath, and a lobe leaves by **shrinking** rather than fading, so the head comes apart
+into separate puffs that stay white to the last. Two looks came before it. A continuous fbm column
+read as a cone of light at the foot and grey smoke at the top. Twelve small soft puffs (#689,
+`?steam=classic`) read at phone play zoom as a string of beads. The vent breathes on two slow sines so the three are never in step. Mostly self-lit white
 (Lambert alone came out road-grey), dimmed after dark; transparent, so it casts no shadow and stays
 out of the AO prepass. The wind is the city's (one sign for all three, `seed + 194`). **The taxi parts
 it**: through a vent above 2 u/s, the foot tears open and the column is thrown across the screen the

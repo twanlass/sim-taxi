@@ -866,7 +866,9 @@ if (roadside) {
 const tubeMan = createTubeMan(scene, makeRng(runSeed + 331), roadside?.site.tubeMan ?? null, roadside?.entry ?? null);
 // Steam out of three of the manhole covers (game/manholesteam.js). Which covers is the city's (the
 // plan marks them); which way the wind leans the plumes is too, on a stream of its own.
-const manholeSteam = createManholeSteam(scene, manholes?.userData.spots, makeRng(seed + 194));
+// `?steam=classic` is the string of separate puffs the billow replaced.
+const manholeSteam = createManholeSteam(scene, manholes?.userData.spots, makeRng(seed + 194),
+  { classic: new URLSearchParams(location.search).get('steam') === 'classic' });
 
 // Which kerb corners this camera can see, settled once now that everything permanent is standing.
 // The board consults it when it places a marker — a rider, a drop-off ring or a courier pad on a
@@ -8019,6 +8021,9 @@ if (shot) {
   garage?.setDoor(0);
   renderFrame();
   if (wreckStep) window.__wreckStep = (frames = 1) => { wreckStep(frames); renderFrame(); };
+  // A still cannot say whether steam billows, and shot mode never draws a second frame: this steps
+  // the plumes on and redraws, for filming them (shots `steam` and `steam-far`).
+  window.__steamStep = (dt = 1 / 30) => { manholeSteam.update(dt, null); renderFrame(); };
   document.body.dataset.shotReady = 'true';
 } else {
   traffic.warmup(10);
