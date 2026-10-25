@@ -1660,8 +1660,9 @@ const GLOSS_HIT_SOFT = /* glsl */ `
 // pitch, centred on the edge so a streak keeps its weight), with fwidth on top so they never crawl.
 //
 // They follow WINDOW_PAN of the camera's pan: 0 pins them to the façade like paint, 1 to the screen.
-// Halfway, they drift across a building as the camera follows the taxi.
-const WINDOW_PAN = 0.5;
+// A quarter, they drift across a building as the camera follows the taxi. 0.5 shipped first and
+// read as too dramatic on a phone recording (Tyler, 2026-10-25), so the drift was halved.
+const WINDOW_PAN = 0.25;
 const WINDOW_STREAK_PITCH = 6;
 // Round 3 shipped hard-edged (fwidth only) and read as painted stripes; 0.07 of a 6-unit pitch is
 // ~0.4 units, ~3px at play zoom, which softens the wide band to a glow and leaves the thin one a line.

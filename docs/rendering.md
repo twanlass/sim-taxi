@@ -76,7 +76,7 @@ pane reads as a fake gradient, or as an unlit hole on a face in shadow (Tyler, 2
   (its horizontal tangent and height) off the flat normal from the derivatives. Edges are feathered
   over `WINDOW_STREAK_BLUR` (0.07 of the pitch, ~3px at play zoom): hard-edged, they read as
   painted stripes. The two visible faces lean opposite ways, so a corner shows a chevron.
-- **They drift as the camera pans** (`WINDOW_PAN`, half the pan), sliding across a building as the
+- **They drift as the camera pans** (`WINDOW_PAN`, a quarter of the pan; half read as too fast), sliding across a building as the
   camera follows the taxi. It is the only motion a reflection can have under this camera.
 - **Masonry keeps under its wall** (`GLASS_MIRROR`, which the streaks read as their strength):
   curtain walls and shopfronts at 1, punched windows at 0.6, for the `wallCeiling` reason below.
