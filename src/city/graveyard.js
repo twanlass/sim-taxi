@@ -96,15 +96,12 @@ const COPE_H = 0.1;
 // Wider than the coping, so a corner's two copings meet inside the pier and not on show.
 const WALL_PIER = 0.56;
 const WALL_PIER_H = WALL_H + COPE_H + 0.32;
-// The wall is laid in courses of blocks rather than poured as one box, each block a shade off its
-// neighbours, and a few stand proud of the face in a different stone. Two courses, so a block is
-// ~0.39 tall: about six device pixels at play zoom on a phone, which is the smallest a joint
-// between two tones can be and still read as a stone rather than as noise.
-const WALL_COURSES = 2;
-const STONE_LEN = [0.7, 1.3];
-/** How far a proud stone stands out of the face, and the share of stones that do. */
-const STONE_PROUD = 0.04;
-const PROUD_CHANCE = 0.28;
+// A few stones set into the wall's faces, each a shade off the wall (Tyler, 2026-10-25: "no
+// bricks, just a few stones"). A course of blocks read as brick; a scatter reads as rubble set in
+// render. Stones are 0.35-0.65 by 0.2-0.32: at least three device pixels tall at play zoom on a phone.
+/** Average spacing between stones along one face, and how far each stands out of it. */
+const STONE_GAP = [0.9, 2.0];
+const STONE_PROUD = 0.03;
 // Was 3.2 until 2026-10-17: Tyler found the piers along the plinth read as more headstones from
 // across the map, so there are half as many, in a warmer stone than the graves (`gravePier`).
 const PIER_PITCH = 6.4;
@@ -290,39 +287,35 @@ function fenceRun(ax, az, bx, bz, stone, iron, parts, cap) {
 }
 
 /**
- * One run of wall as courses of blocks. Drawn off `hash01` on each block's position rather than the
- * lot's rng, so laying stones moves no headstone.
+ * One run of wall: the wall itself and a few stones set into each face. Drawn off `hash01` on each
+ * stone's position rather than the lot's rng, so laying stones moves no headstone.
  */
 function wallStones(ax, az, bx, bz, stone, parts) {
   const alongX = az === bz;
   const a0 = alongX ? ax : az;
   const a1 = alongX ? bx : bz;
   const across = alongX ? az : ax;
-  const h = WALL_H / WALL_COURSES;
-  const dark = color('graveWallDark');
-  const warm = color('graveWallWarm');
-  for (let c = 0; c < WALL_COURSES; c++) {
-    // Each course starts half a stone in from the last, so the joints stagger like laid stone.
-    let s = a0;
-    let first = c % 2 === 1;
-    while (s < a1 - 1e-6) {
-      const r = hash01(s * 3.1 + across * 0.7, c * 17.3 + across);
-      let l = (first ? 0.5 : 1) * (STONE_LEN[0] + (STONE_LEN[1] - STONE_LEN[0]) * r);
-      first = false;
-      // Never leave a sliver at the end of a run: the last stone takes up whatever is left.
-      if (a1 - (s + l) < STONE_LEN[0] * 0.5) l = a1 - s;
-      const r2 = hash01(s * 5.7 + c, across * 1.9 + 11.1);
-      const proud = r2 < PROUD_CHANCE;
-      const tone = proud
-        ? (r2 < PROUD_CHANCE / 2 ? dark : warm).clone()
-        : stone.clone().offsetHSL(0, 0, (r2 - 0.5) * 0.16);
-      // Proud on both faces, and a hair inside the coping's 0.05 overhang so the two never share a plane.
-      const w = WALL_W + (proud ? 2 * STONE_PROUD : 0);
+  const mid = (a0 + a1) / 2;
+  parts.push(alongX
+    ? box(a1 - a0, WALL_H, WALL_W, mid, FOOT, across, stone)
+    : box(WALL_W, WALL_H, a1 - a0, across, FOOT, mid, stone));
+  for (const side of [-1, 1]) {
+    // Half embedded, so the stone stands STONE_PROUD out and its back is buried in the wall.
+    const at = across + side * (WALL_W / 2);
+    const d = 2 * STONE_PROUD;
+    let s = a0 + 0.3 + hash01(at, a0) * STONE_GAP[0];
+    while (s < a1 - 0.6) {
+      const r = (n) => hash01(s * 3.1 + n * 1.7, at * 2.3 + n);
+      const l = 0.35 + 0.3 * r(1);
+      const h = 0.2 + 0.12 * r(2);
+      // Clear of the ground and of the coping, so a stone never shares a plane with either.
+      const y = FOOT + 0.08 + (WALL_H - h - 0.16) * r(3);
+      // Just off the wall: a touch lighter or darker, never the same.
+      const shade = (r(4) < 0.5 ? -1 : 1) * (0.04 + 0.04 * r(5));
+      const tone = stone.clone().offsetHSL((r(6) - 0.5) * 0.01, 0, shade);
       const m = s + l / 2;
-      parts.push(alongX
-        ? box(l, h, w, m, FOOT + c * h, across, tone)
-        : box(w, h, l, across, FOOT + c * h, m, tone));
-      s += l;
+      parts.push(alongX ? box(l, h, d, m, y, at, tone) : box(d, h, l, at, y, m, tone));
+      s += l + STONE_GAP[0] + (STONE_GAP[1] - STONE_GAP[0]) * r(7);
     }
   }
 }
