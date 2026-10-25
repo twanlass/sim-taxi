@@ -755,7 +755,7 @@ export const waitingTargets = (slot) => [slot.passenger.group, slot.marker.group
  *                  Read per call, since the set moves every time a package is collected.
  */
 export function createFareSystem(rng, scene, {
-  reserved = () => [], judgeRun = () => ({ runs: [], mult: 1 }), rating = true, risingOdds = true, alwaysRob = BANK_ROBBER_ALWAYS,
+  reserved = () => [], judgeRun = () => ({ runs: [], mult: 1 }), rating = true, risingOdds = true, alwaysRob = BANK_ROBBER_ALWAYS, forceRob = () => false,
 } = {}) {
   const state = {
     // Active fares, newest last. At most MAX_FARES, and up to MAX_FARES - 1 of them can be
@@ -1120,7 +1120,7 @@ export function createFareSystem(rng, scene, {
     return Math.abs(u) <= BANK_REACH_ALONG && Math.abs(v) <= BANK_REACH_ACROSS;
   }
   /** The chance the next bank rider's coin comes up tails. See BANK_ROBBER_STEP and BANK_ROBBER_ALWAYS. */
-  const robberOdds = () => alwaysRob ? 1 : Math.min(BANK_ROBBER_MAX, BANK_ROBBER_ODDS + BANK_ROBBER_STEP * state.bankRides);
+  const robberOdds = () => alwaysRob || forceRob() ? 1 : Math.min(BANK_ROBBER_MAX, BANK_ROBBER_ODDS + BANK_ROBBER_STEP * state.bankRides);
   /** Is the next spawn the bank rider? See BANK_CHANCE. */
   function wantsBank(taxiCar, near) {
     if (!bankStop || state.delivered < BANK_MIN_DELIVERED) return false;

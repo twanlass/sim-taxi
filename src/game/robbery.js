@@ -409,10 +409,14 @@ function nearestJunction(x, z) {
  *                 taxi passes the door. `'fare'`: it never starts on its own, only when the bank
  *                 rider's coin comes up tails on arrival and `swapReady` agrees — see BANK_CHANCE in
  *                 game/fares.js — and main.js calls `swap()`.
+ * @param forced   read live; true waives the *fairness* gates in `eligible` (cooldown, delivered
+ *                 count, VIP, a rider running out) — Demo mode, where every bank rider robs. The
+ *                 gates that would break something stay: one event at a time, an empty seat, a taxi
+ *                 that is driving, and no patrol chase already running.
  */
 export function createRobbery({
   site, taxi, fares, traffic, onBoard = () => {}, holdAlarm = false, busy = () => false,
-  handOff = () => null, inShot = null, scripted = false, trigger = 'drive',
+  handOff = () => null, inShot = null, scripted = false, trigger = 'drive', forced = () => false,
 }) {
   // The junction the bank's door belongs to, worked out once: the city does not move, and this is a
   // thirty-six-cell scan.
@@ -1019,6 +1023,12 @@ export function createRobbery({
 
   function eligible() {
     if (state.active || fares.state.gameOver) return false;
+    // The seat, the wreck and the patrol chase are physical conflicts; Demo mode skips straight to
+    // them (`forced`). The rest are fairness to the player, which a demo is not asking for — with
+    // them on, a single crystal in its lower half on the kerb sent the bank rider into the cab as an
+    // ordinary fare, which read as "demo isn't spawning robbers" (Tyler, 2026-10-25).
+    if (forced()) return !fares.carrying() && !taxi.crashed && !taxi.staged && !busy()
+      && (trigger === 'fare' || range() <= TRIGGER_RANGE);
     if (state.since < COOLDOWN) return false;
     if (fares.state.delivered < MIN_DELIVERED) return false;
     // The seat. A robber gets *in*, so there has to be room — and a player mid-delivery has a clock
