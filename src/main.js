@@ -958,6 +958,9 @@ const fares = createFareSystem(makeRng(runSeed + 55), scene, {
   // Demo mode: every bank rider is the robbery, whatever BANK_ROBBER_ALWAYS says. Read live, since
   // the switch is in Settings and flips mid-session.
   forceRob: () => demo.on(),
+  // ...and the bank rider is the first spawn after BANK_MIN_DELIVERED rather than a 30% chance,
+  // so the robbery comes up inside the first four rides.
+  forceBank: () => demo.on(),
   reserved: () => parcels?.occupiedSpots() ?? [],
   judgeRun: () => combo.judge(),
 });

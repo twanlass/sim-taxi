@@ -214,6 +214,10 @@ While it is on:
   turn across runs (the card's `after` thresholds are skipped).
 - **The tutorial tips stay on**, whatever the Tutorial tips switch says.
 - **Every bank rider is the robbery**, whatever `BANK_ROBBER_ALWAYS` in game/fares.js says.
+- **The bank rider spawns right after the second drop-off**: the next rider on the board is the
+  one on the bank's steps, wherever the taxi is (no 30% roll, no spawn-radius test), so the robbery
+  is there to take as the 3rd or 4th ride. If the corner is spoken for it waits
+  a spawn; if it times out, the usual 35s cooldown applies and the next one is forced too.
 - **The first street racer turns up after the first drop-off** rather than the 2nd to 4th.
 
 High scores are not progress in this sense and are left alone. All of it lives in
