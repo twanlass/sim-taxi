@@ -73,7 +73,7 @@ import { sliceKnockScale } from './faremarker.js';
 // map — an arrow lives at the frame edge, over the canvas, and while it is inert every press on it
 // goes to `attachDragPan` and the route band as before.
 //
-// At z-index 18 it sits *under* the HUD (the pedals and the pause button are 20 and 24), so a thumb
+// At z-index 16 it sits *under* the HUD (the pedals and the pause button are 20 and 24), so a thumb
 // sliding onto the brake still gets the brake. What it does outrank is the canvas underneath it,
 // route band included: a press within ~25px of an arrow belongs to the arrow. That is the cost, and
 // it is paid twice — the band is already hardest to grab out at the frame edge, and a *swipe* that
