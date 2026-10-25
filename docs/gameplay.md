@@ -2850,8 +2850,8 @@ is a tap like every other choice in the game. Ignoring it is free: the racer jus
   countdown give the player a boost equivalent to drift level 1 when the race begins ala Mario
   Kart"). A Loco press that comes down while the "2" is up (`ROCKET_COUNT`) and is still down at the
   green launches the taxi on the drift's tier-1 kick and carry (`launchKick` in sim/traffic.js,
-  30.9 u/s for 0.6s), with the drift kick's bark of fire, shake and whoosh and a "Rocket start!"
-  label after "Go!". It pays no combo and no fuel. Only a fresh press counts: a thumb already on
+  30.9 u/s for 0.6s), with the drift kick's bark of fire, shake and whoosh and no word on screen
+  (Tyler cut the "Rocket start!" label). It pays no combo and no fuel. Only a fresh press counts: a thumb already on
   the pill from the "3" or before, a press on the "1", or a press on the "2" let go before the green
   gets a plain start. Mario Kart burns out a press that early; here it is only no reward, because
   nothing tells the player the egg exists and holding the pill through a countdown is what someone

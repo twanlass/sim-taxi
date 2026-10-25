@@ -2367,9 +2367,8 @@ function onRaceEvent(type, detail) {
     if (boost.fraction() < floor) boost.topUp(floor - boost.fraction());
   } else if (type === 'rocket-start') {
     // The pill went down on the "2" and stayed down: the taxi is already doing the drift's tier-1
-    // kick (game/race.js, ROCKET_COUNT). Said the way a drift kick says it — the bark of fire, the
-    // shake, the whoosh — plus a word, since nothing anywhere tells the player the egg exists and
-    // it has to be obvious that the press did something.
+    // kick (game/race.js, ROCKET_COUNT). Said the way a drift kick says it: the bark of fire, the
+    // shake, the whoosh. No word on screen (Tyler: "No rocket start label"): the launch says it.
     const car = traffic.taxi;
     haptic('drift-kick');
     controller.kickShake(0.5);
@@ -2381,7 +2380,6 @@ function onRaceEvent(type, detail) {
       car.z + Math.sin(car.yaw) * TAXI_TAILPIPE_BACK,
       car.yaw,
     );
-    popLabel('Rocket start!', 'is-count', RACE_LABEL_MS);
   } else if (type === 'rounded') {
     // Halfway: the flag has just jumped back to the start line, which is easy to miss on a phone.
     popLabel('Head back!', 'is-count', RACE_LABEL_MS);
