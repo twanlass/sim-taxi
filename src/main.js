@@ -4523,10 +4523,13 @@ function updateHud(dt) {
       // during that hold would be sitting in storage before the player had been told the run was
       // over.
       scores: collectScores(),
-      // "Play again" means the run, not the menu: the reload goes straight past the title screen.
-      onRetry: () => { skipTitleNextLoad(); location.reload(); },
-      // What the run unlocked, after the table and before the button.
-      finale: showUnlockedMoves,
+      onRetry: playAgain,
+      // What the run unlocked, after the table and before the button. The tap that closes the card
+      // starts the next run rather than going back to the table (Tyler, 2026-10-25: "progress to
+      // start a new game after this and not show the leaderboard again") — the table has already
+      // been read once, and the card's own "Tap to continue" is the run-end screen's. Under
+      // `?moveexit=classic` the card closes back onto the table and its Play again.
+      finale: (done) => showUnlockedMoves(moveExitClassic ? done : playAgain),
       photo: snapshot?.photo() ?? null,
       footHint: !gameOverClassic,
       statCount: !statCountClassic,
@@ -6276,6 +6279,10 @@ let depotCallSaid = false;
 // `?newmove=classic` puts the move cards back mid-run, a beat after the drop-off. The depot's card
 // is not a move and stays mid-run either way: it is about the car smoking now.
 const movesAfterRun = new URLSearchParams(window.location.search).get('newmove') !== 'classic';
+// `?moveexit=classic`: the last card closes back onto the run-end table instead of playing again.
+const moveExitClassic = new URLSearchParams(window.location.search).get('moveexit') === 'classic';
+// "Play again" means the run, not the menu: the reload goes straight past the title screen.
+function playAgain() { skipTitleNextLoad(); location.reload(); }
 // The card's clip on polaroid paper and its keys in the HUD's own colours, without the glint
 // (Tyler, 2026-10-20). `?movecard=classic` is the bare rounded clip and the greyed keys.
 if (new URLSearchParams(window.location.search).get('movecard') === 'classic') {
@@ -6350,7 +6357,9 @@ function showUnlockedMoves(done) {
     const move = queue.shift();
     if (!move) {
       afterNewMove = null;
-      document.body.classList.remove('new-move-after-run');
+      // Straight into the next run: the blackout stays up through the reload, rather than the
+      // table flashing back for the frames before the page goes.
+      if (done !== playAgain) document.body.classList.remove('new-move-after-run');
       done();
       return;
     }
