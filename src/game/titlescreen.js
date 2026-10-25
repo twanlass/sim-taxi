@@ -101,8 +101,8 @@ export const CREDITS = [
 ];
 
 /** The build the title menu's foot names — bump it here, it is read nowhere else. */
-export const BUILD_VERSION = '0.08';
-export const COPYRIGHT = `© 2026 48 Made, LLC. Alpha build v${BUILD_VERSION}`;
+export const BUILD_VERSION = '1.0.0';
+export const COPYRIGHT = `© 2026 48 Made, LLC. Build v${BUILD_VERSION}`;
 
 const stillPlease = () => window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
 

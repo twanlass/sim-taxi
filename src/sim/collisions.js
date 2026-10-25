@@ -2,6 +2,7 @@ import {
   CAR_LEN, TRUCK_LEN, CIRCLE_R, circleOffsetOf, knockCar, shoveCar,
   onDriftLaunch, hopProgress, DRIFT_LAUNCH_CLEAR, airborneHeight,
 } from './traffic.js';
+import { TAXI_TAILPIPE_BACK } from '../geometry/taxi.js';
 
 // Collision detection between the taxi and ambient cars. Deliberately narrow: only the taxi is
 // checked — ambient-vs-ambient is kept apart by the lane bookkeeping and following-distance rules,
@@ -213,10 +214,42 @@ const REHIT = 0.35;          // s
 const CRUSH_AFTER = CAR_LEN;
 let crushOn = true;
 
+// The splash (Tyler, 2026-10-25: "if there is a car within ... a taxi's length-and-a-half distance
+// in either direction, it also blows up those cars as well. Just make it super extra and fun").
+// Every car whose centre is within CRUSH_SPLASH of the crushed car's goes up with it, in any
+// direction — the car queued behind, the one alongside in the other lane, a cop waiting at the
+// light. One and a half of the *drawn* taxi (4.01 units, not CAR_LEN's 3.4; see TAXI_TAILPIPE_BACK),
+// so 6.0: the next lane over is 4 away on a side street and 3.3 + 3.3 across an arterial's median
+// is 6.7, so it reaches across a street but not across a divided road, and a queue at a red sits
+// at MIN_GAP (5.3) centre to centre, so it takes the car behind and not the one behind that.
+//
+// One ring, measured from the car the taxi landed on, rather than a chain where each car blown up
+// sets off its own neighbours: a chain of that kind takes a whole queue at a red, and every car it
+// takes leaves the fleet for the rest of the run.
+//
+// Trucks count here where they do not under the landing. What rules a truck out of being landed on
+// is the taxi meeting a 2.7-tall box; a truck caught in the blast is never touched by the taxi at
+// all. The patrol cruiser, the racer, guests and staged cars stay out for the reason they are out of
+// `crushable`: their owners would be left holding a car the sim had dropped.
+//
+// The cars are `crashed` on the frame of the crush, so they stop dead and nothing — the taxi
+// included — can hit them, and handed to the listener nearest first. When each one goes up is
+// main.js's business (the staggered pops). `?crushsplash=classic` crushes the one car.
+export const CRUSH_SPLASH = 3 * TAXI_TAILPIPE_BACK;
+let splashOn = true;
+
 /** `?crush=classic` makes a Big Air landing on a car an ordinary hit again. */
 export function setCrush(name) {
   crushOn = name !== 'classic';
 }
+
+/** `?crushsplash=classic` crushes only the car the taxi came down on. */
+export function setCrushSplash(name) {
+  splashOn = name !== 'classic';
+}
+
+/** Whether `car` is caught in a crush's splash: what `crushable` allows, plus trucks. */
+const splashable = (car) => !car.skin && !car.guest && !car.staged && !car.isTaxi && !car.crashed;
 
 /** Whether the taxi is coming down on whatever it touches, rather than driving into it. */
 export function crushing(taxi) {
@@ -393,8 +426,23 @@ export function createCollisions(cars, taxi, { lethalPolice = false } = {}) {
     other.crashed = true;
     other.v = 0;
     const airborne = onDriftLaunch(taxi);
+    // Everything in the splash, nearest first. Crashed here, so the loop in `update` skips them.
+    const splash = [];
+    if (splashOn) {
+      for (const car of cars) {
+        if (car === other || !splashable(car)) continue;
+        const dist = Math.hypot(car.x - other.x, car.z - other.z);
+        if (dist > CRUSH_SPLASH) continue;
+        splash.push({ car, dist });
+      }
+      splash.sort((a, b) => a.dist - b.dist);
+      for (const { car } of splash) {
+        car.crashed = true;
+        car.v = 0;
+      }
+    }
     for (const cb of crushListeners) {
-      cb({ x: pen.cx, z: pen.cz, speed, taxi, other, airborne });
+      cb({ x: pen.cx, z: pen.cz, speed, taxi, other, airborne, splash });
     }
   }
 

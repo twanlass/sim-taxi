@@ -1,8 +1,8 @@
 /**
  * The player's settings from the title screen, remembered across visits in `localStorage`.
  *
- * All but one live here: the two volume sliders, the tutorial tips, the haptics switch, the
- * quality and the difficulty.
+ * All but one live here: the two volume sliders, the tutorial tips, "Always show intro story", the
+ * haptics switch, the quality and the difficulty.
  * **Sound on/off is not
  * one of them** — it already had a home before this screen existed (`simTaxi.muted`, owned by
  * game/sfx.js, shared with the pause screen's pill and the M key), and a second copy of it here
@@ -26,6 +26,9 @@ export const SETTINGS_KEY = 'simTaxi.settings';
  */
 export const DEFAULT_SETTINGS = Object.freeze({
   music: 1, effects: 1, tips: true,
+  // Tell the dispatch backstory on every Play rather than once per device (game/backstory.js), the
+  // switch for `?intro=always`. Off by default (Tyler, 2026-10-25).
+  introAlways: false,
   // The phone's Taptic Engine (util/haptics.js) — a row that only appears inside the iOS app.
   // There used to be a second switch, `comboHaptics`, for A/B-ing the combo patterns against the
   // plain knocks they replaced; Tyler folded it into this one (2026-10-06). A stored
@@ -77,6 +80,7 @@ export function cleanSettings(raw) {
     music: unit(src.music, DEFAULT_SETTINGS.music),
     effects: unit(src.effects, DEFAULT_SETTINGS.effects),
     tips: typeof src.tips === 'boolean' ? src.tips : DEFAULT_SETTINGS.tips,
+    introAlways: typeof src.introAlways === 'boolean' ? src.introAlways : DEFAULT_SETTINGS.introAlways,
     haptics: typeof src.haptics === 'boolean' ? src.haptics : DEFAULT_SETTINGS.haptics,
     antialias: typeof src.antialias === 'boolean' ? src.antialias : DEFAULT_SETTINGS.antialias,
     // A stored `resolution`/`frameRate` from before the toggle is dropped: the toggle starts fresh.

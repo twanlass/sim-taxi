@@ -100,13 +100,25 @@ Play opens it on the announcer, so the music is part of what starting a run give
 
 **Settings** and **Credits** dim the city behind a mask; the menu only shades the left edge its
 words stand on, with the copyright and build number in small type along its foot
-(`COPYRIGHT` and `BUILD_VERSION` in titlescreen.js — bump the version there). Settings holds four things, all remembered across visits:
+(`COPYRIGHT` and `BUILD_VERSION` in titlescreen.js — bump the version there).
+
+Settings shows a player three rows: **Sound, Music volume and SFX volume** (Tyler, 2026-10-25). The
+rest are there but hidden until the same five taps on the Settings heading that reveal
+[Demo mode](#demo-mode): Tutorial tips, Always show intro story, Haptics (iOS app only), Quality,
+Antialiasing, Difficulty and Demo mode itself, in that order. Five more taps hide them again and
+leave Demo mode as it was, so a presenter can set up a demo and put it all away before the audience
+sees the screen. Either way it is remembered on the device (`simTaxi.demo.row`, '1' or '0'), and
+hidden outranks Demo mode or `?demo` revealing the rows; a player who never goes looking keeps the
+defaults. `?settings=classic` shows every row as before, with only
+Demo mode held back (`settingsLayout` in menupage.js). Everything is remembered across visits:
 
 | Setting | Where it lives |
 |---|---|
 | Sound on/off | The existing mute (`simTaxi.muted`, game/sfx.js), shared with the pause screen's Settings and **M** — stored once, not twice |
 | Music volume, SFX volume | `simTaxi.settings` (game/settings.js), applied through `sfx.setVolumes`. Music is the radio ([audio.md](audio.md#the-radio)) |
 | Tutorial tips | `simTaxi.settings`, on both the title and pause screens. Read on Play (`beginRun` in main.js): off drops the tutorial and lets the HUD in. Off mid-run (pause screen) does the same (`dropTutorial`); the New Move cards read it live |
+| Always show intro story | `simTaxi.settings` (`introAlways`), off by default. On, every Play tells [the backstory](#the-backstory), the switch for `?intro=always`; the URL outranks it |
+| Haptics, Quality, Antialiasing, Difficulty | `simTaxi.settings` |
 
 **Credits** sets a pixel Claude beside its name, and it is a button: tap it and a pixel taxi pulls
 up, Claude hops in, and it Loco-boosts off the right of the screen with the startup screen's Loco
@@ -164,7 +176,8 @@ speech updates are parked with everything else.
 **Once per device.** It is a `createSeenFlag` (`src/game/progress.js`), marked seen as it
 *starts*, so a player who quits halfway is not told it twice, and [Demo mode](#demo-mode) tells it
 on every Play. "Play again" reloads past the title and so past this too.
-`?intro=classic` never tells it; `?intro=always` tells it on every Play.
+`?intro=classic` never tells it; `?intro=always`, or the **Always show intro story** switch in
+Settings, tells it on every Play.
 
 **The robo-taxis are flavour** (Tyler, 2026-10-21). Nothing in the run refers back to them yet.
 The idea the lines are built on is that the threat explains the controls: the robots stop at
@@ -173,7 +186,8 @@ yellows and never speed, so the player wins by doing what they won't.
 ## Demo mode
 
 For showing the game to someone: every run plays as a first run. A switch at the bottom of
-Settings, on the title screen and the pause screen alike, which is only there once revealed: by
+Settings, on the title screen and the pause screen alike, which is only there once revealed (with
+every other row but the sound ones, see [the title screen](#the-title-screen)): by
 opening the game with **`?demo`**, or by tapping the Settings heading five times, each tap within a
 second of the last (the App Store build has no URL bar). The row then scrolls into view and flashes
 gold. A player who never goes looking never sees it. `?demo` turns it on for that load without
@@ -1883,7 +1897,7 @@ Every combo the taxi lands on a job steps a multiplier up, and the drop-off pays
 (`game/combometer.js`, Tyler's idea after the Duolingo combo streak). It starts each ride at ×1: an
 overtake or a bootleg U-turn +0.5, a drift kick +0.5 per chain tier (so a full chain of three is
 +3), **Stuntman** +1, the bridge launch +2, **Mega Air** (jumping the rising drawbridge,
-[river.md](river.md#jumping-it-mega-air)) +3, **Crushin' It** +1, **Return to Sender** and
+[river.md](river.md#jumping-it-mega-air)) +3, **Crushin' It** +1 and **Pile-Up** +0.5 a car, **Return to Sender** and
 **Hot Diggity** +0.5, capped at ×5.
 
 **Return to Sender** and **Hot Diggity** are swiping a post box or the hot dog cart off the kerb
@@ -1903,6 +1917,21 @@ counts on the descent of the arc and for a car length past the touchdown (`crush
 cars and cops count. A truck is too tall to land on, and the patrol cruiser and the racer belong to
 modules that run their own lives. A crushed car leaves the fleet for the rest of the run.
 `?crush=classic` charges the landing as a hit again.
+
+The crush splashes (Tyler, 2026-10-25: "if there is a car within ... a taxi's length-and-a-half
+distance in either direction, it also blows up those cars as well. Just make it super extra and
+fun"). Every car whose centre is within one and a half drawn taxi lengths (6.0 units,
+`CRUSH_SPLASH` in `sim/collisions.js`) of the car landed on goes up too, in any direction. That
+reaches the car queued behind at a red and the one alongside on a side street, but not the one
+behind that, and not across an arterial's median. The cars stop dead on the frame of the crush and
+pop one at a time, nearest first, 0.14s after the crush and 0.12s apart (`CRUSH_POP_*` in
+`main.js`). Each pop is the crush's own bang, its shell thrown out away from the landing and spun,
+and each shakes harder than the last, up to the wreck's 2.4. After the last pop, **Pile-Up** lands
+on the meter at +0.5 a car, labelled "Pile-Up ×N". It's one ring, not a chain where each car sets
+off its neighbours: that would take a whole queue at a red, and every car it takes leaves the fleet.
+Trucks count in the splash, though not under the landing, because the taxi never touches a truck
+caught in the blast; a box truck spills its load. Cops count like any car. The patrol cruiser, the
+racer, guests and staged cars don't. `?crushsplash=classic` crushes the one car.
 
 Big Air's touchdown also pays a sixth of the Loco tank back on the drift kick's energy bits
 (`DRIFT_CHAIN.fuel[0]`, Tyler, 2026-10-23), since getting one means burning Loco round a corner and

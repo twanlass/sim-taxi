@@ -58,6 +58,8 @@ doc; what the classic version was, and why it changed, is in that doc's history 
 | `?walls=classic` | Flat building walls: no plinth, storey ledges, cornice, and no frames round the punched windows | `WALLS=classic` | [rendering.md](rendering.md#wall-detail--cityfacadejs) |
 | `?windows=classic` | Building windows are the faux sky gradient in vertex colour again, instead of glass meshes with stylised 45° light streaks | #681 | [rendering.md](rendering.md#window-glass--citybuildingsjs) |
 | `?garbage=classic` | No bag piles on the kerb and no garbage truck | `GARBAGE=classic` | [city.md](city.md#the-bag-piles-and-the-garbage-truck) |
+| `?vet=classic` | No vet clinic: the corner shop it picks keeps a bare roof and an empty window | | [city.md](city.md#the-vet-clinic) |
+| `?vetopen=word` | The vet's OPEN sign spells the word in red neon letters inside its blue frame, instead of one red bar | | [city.md](city.md#the-vet-clinic) |
 | `?roofs=classic` | Solid flat roof caps, with no lip and no sunk deck | #511 | [city.md](city.md) |
 | `?foliage=classic` | The first, louder autumn palette | #486 | [rendering.md](rendering.md) |
 | `?water=classic` | The faceted first river surface | | [river.md](river.md) |
@@ -86,6 +88,7 @@ doc; what the classic version was, and why it changed, is in that doc's history 
 | `?helispot=classic` | The police helicopter's first, brighter and harder-edged searchlight | | [gameplay.md](gameplay.md) |
 | `?splashcam=classic` | The startup screen from the game's 33° three-quarter view (the first cut) instead of the low side-on camera | | [gameplay.md](gameplay.md#the-startup-screen) |
 | `?introvo=classic` | The backstory in text alone, with no recorded voice reading each line | | [gameplay.md](gameplay.md#the-backstory) |
+| `?settings=classic` | Settings shows every row from the start, with only Demo mode hidden until revealed, instead of Sound, Music and SFX alone until five taps on its heading | | [gameplay.md](gameplay.md#the-title-screen) |
 | `?intro=classic` | Play goes straight to the garage door, with no dispatch backstory first. `?intro=always` tells the story on every Play instead of once per device | | [gameplay.md](gameplay.md#the-backstory) |
 | `?titleintro=blur` | The title's city fades up out of black blurred, the menu fades in and then the blur clears, instead of a sharp city with only the menu fading in | | [gameplay.md](gameplay.md#the-title-screen) |
 | `?titleintro=classic` | The title menu and a sharp city are both on screen the moment the black lifts, with no fade at all | | [gameplay.md](gameplay.md#the-title-screen) |
@@ -138,6 +141,7 @@ doc; what the classic version was, and why it changed, is in that doc's history 
 | `?vip=classic` | VIP riders (the purple question mark, triple pay) spawn again; off by default | | [gameplay.md](gameplay.md#vip-pickups) |
 | `?bigairfuel=classic` | A Big Air landing pays no Loco back, instead of a sixth of the tank | | [gameplay.md](gameplay.md#the-combo-meter) |
 | `?crush=classic` | Big Air coming down on a car is a hit (usually the wreck) instead of Crushin' It | | [gameplay.md](gameplay.md#the-combo-meter) |
+| `?crushsplash=classic` | Crushin' It wrecks only the car landed on; no splash, no Pile-Up | | [gameplay.md](gameplay.md#the-combo-meter) |
 | `?overtake=classic` | The overtake combo judges the road before pulling out: it waits until the car is close, won't pull out round a car turning left, and only swerves round a slow car in the junction it has a clean line round. The default throws the taxi into the oncoming lane the moment the combo lands, whatever is there, or up on the kerb round the right of a car signalling left | | [traffic.md](traffic.md#overtaking) |
 | `?peek=classic` | The overtake's kerb peek fires on any car showing a left blinker anywhere in the combo's 30-unit reach, including one whose lamp is still lingering from the turn it just finished, and stays up on the pavement until the turner is well behind (and on round the next car). It also holds a car being passed at its line rather than letting it turn left across the taxi. The default peeks only from close behind a car already part way round its left (a cop too), never on the blinker alone, drops back the moment it is out of the lane, and leaves traffic alone | | [traffic.md](traffic.md#overtaking) |
 | `?scatter=classic` | Ambient cars in front of the boosting taxi flee it: they floor it to 2x cruise and re-roll their turn toward straight on, whatever they were signalling. The default leaves traffic alone; cops and the fire engine still clear their lane with the siren on | | [traffic.md](traffic.md#overtaking) |
@@ -207,7 +211,9 @@ doc; what the classic version was, and why it changed, is in that doc's history 
 | Param | Does |
 |---|---|
 | `?roads=classic` | The roads before the grey was broken up: the lighter blue-grey asphalt, the darker pavement and kerb, asphalt bridge decks with no joints, no brick plaza and no asphalt patches |
+| `?bridgemarks=classic` | The dark expansion joint and pale approach slab back across the road at each end of every bridge. Off by default since 2026-10-25 |
 | `?plaza=granite` / `tan` / `classic` | The one paved junction in another stone: warm grey or buff paving in a dark frame, or `classic`, the first plaza's red brick with its faint border. The default is charcoal setts in a pale frame. See `PLAZA_LOOKS` in palette.js |
+| `?bridgenormals=classic` | The arched bridge decks lit facet by facet again: ten bands of shading down the carriageway over the hump. By default (2026-10-25) the deck, footways, paint and soffit carry the arch's own smooth normals |
 | `?roadstrokes=classic` | The painted brush strokes back on the streets, each a little lighter or darker and a little red or blue, fading in and out in block-sized patches. Off by default since 2026-10-25 |
 | `?painterly=classic` | Without the painterly pass at all: no road strokes even with `?roadstrokes=classic`, and no paved junction |
 | `?crayon` | Crayon Mode. Off by default |

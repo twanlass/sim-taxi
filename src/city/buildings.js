@@ -6,6 +6,7 @@ import { makeRng, valueNoise2D } from '../util/rng.js';
 import { KERB_H } from './ground.js';
 import { plantedCrowns, treeParts, treeShape } from './props.js';
 import { buildBank, bankDomeMesh, chooseBankLot } from './bank.js';
+import { chooseVetSite } from './vetclinic.js';
 import {
   GLASS_RECESS, RECESS_PIER, WALLS_CLASSIC, WALL_STYLE, fillWalls, frameMesh, patchWalls, recessShell, stampWall,
   windowFrames,
@@ -567,6 +568,9 @@ function groundFloor(parts, cx, cz, w, d, streetSides, rng, body = null) {
   // side the glass parts round it, clear of its surround and of the frame's own overhang.
   const framed = body && !WALLS_CLASSIC;
   const sky = color('windowSky');
+  // What went where, handed back for anything that dresses a shopfront afterwards (the vet's OPEN
+  // sign, city/vetclinic.js). Recorded, not drawn: it touches no `rng`.
+  const front = { shops: [], door: door && { side, ...door } };
   for (const s of streetSides) {
     const faceW = s % 2 === 0 ? d : w;
     if (faceW < 1.6) continue;
@@ -579,6 +583,7 @@ function groundFloor(parts, cx, cz, w, d, streetSides, rng, body = null) {
     if (framed && door && s === side) rects = partRound(shop, door.u, door.w / 2 + DOOR_CLEAR);
     if (framed) rects = rects.map((r) => ({ ...r, panes: Math.max(1, Math.round(r.w / SHOP_PANE)) }));
     if (!rects.length) continue;
+    front.shops.push({ side: s, rects });
     paneSink?.({ rects, side: s, cx, cz, hw: w / 2, hd: d / 2, kind: 'shop' });
     parts.push(facadeQuads(
       rects.map((r) => ({ ...r, g: [0, 0, 0.5 * lit, 0.5 * lit] })),
@@ -590,7 +595,7 @@ function groundFloor(parts, cx, cz, w, d, streetSides, rng, body = null) {
     }
   }
 
-  if (!door) return;
+  if (!door) return front;
   const { u } = door;
   const doorW = door.w;
   const doorH = GROUND_H - 0.45;
@@ -611,7 +616,7 @@ function groundFloor(parts, cx, cz, w, d, streetSides, rng, body = null) {
     side, cx, cz, w / 2, d / 2, color('door'), EPS * 3,
   ));
 
-  if (!rng.chance(0.55)) return;
+  if (!rng.chance(0.55)) return front;
 
   // The canopy over it. Reaches 0.47 out, which is well inside the 0.85 the tower is already
   // inset into its lot — a façade that grew past that line would be a building with its awning
@@ -625,6 +630,7 @@ function groundFloor(parts, cx, cz, w, d, streetSides, rng, body = null) {
     cx + nx * reach + tx * u, base + doorH + 0.12, cz + nz * reach + tz * u,
     color('awning'),
   ));
+  return front;
 }
 
 // A framed shopfront's bays, and how far its glass keeps off the door: half the surround's extra
@@ -967,9 +973,10 @@ function buildableOf(lot) {
 
 function buildTower(lot, block, rng, parts, stats, { height: fixed = null, families = BUILDING_COLORS } = {}) {
   const { w, d, cx, cz } = buildableOf(lot);
-  if (w < 2 || d < 2) return;
+  if (w < 2 || d < 2) return null;
 
   const streetSides = streetSidesOf(lot, block.bounds);
+  let front = null;
 
   // Height is driven by how central the block is — this is what produces a downtown silhouette
   // instead of an evenly tall grid.
@@ -1031,7 +1038,7 @@ function buildTower(lot, block, rng, parts, stats, { height: fixed = null, famil
       parts.push(stamp(box(cw, tierH, cd, cx, y, cz, tierCol)));
       ribbonWindows(parts, cx, y, cz, cw, cd, tierH, firstFloorH, windowColor, peak, body);
     }
-    if (tier === 0 && streetSides.length) groundFloor(parts, cx, cz, cw, cd, streetSides, rng, body);
+    if (tier === 0 && streetSides.length) front = groundFloor(parts, cx, cz, cw, cd, streetSides, rng, body);
     // A ground storey's blank sides — the ones off the street, with no shopfront — get a row of
     // windows of their own. Most of the city's buildings are a single storey under a roof, too
     // short for floorLines to fit an upper row, and without these they were a shopfront on one
@@ -1060,12 +1067,20 @@ function buildTower(lot, block, rng, parts, stats, { height: fixed = null, famil
   // Low, masonry, and never set back — anything else keeps its flat deck. `tier === 1` is the
   // "never set back" test: the loop increments it once per tier built.
   const lowRise = tier === 1 && style === 'punched' && height <= 8 && Math.min(cw, cd) > 2;
+  let deck = null;
   if (lowRise && rng.chance(0.45)) {
     stats.pitched += 1;
     pitchedRoof(parts, cx, cz, cw, cd, y, body, rng);
   } else {
     roofKit(parts, cx, cz, cw, cd, y, style, body, rng, stats);
+    deck = stats.decks[stats.decks.length - 1];
   }
+  // What was built, for the one-per-city dressings chosen once the whole skyline exists (the vet
+  // clinic, city/vetclinic.js). Recorded, not drawn: none of it touches `rng`.
+  return {
+    x0: cx - w / 2, x1: cx + w / 2, z0: cz - d / 2, z1: cz + d / 2, cx, cz, w, d,
+    top: y, tiers: tier, style, streetSides, front, deck, block,
+  };
 }
 
 /**
@@ -1277,6 +1292,24 @@ function buildCourtyard(lot, block, rng, parts) {
   return { yard, wing: t, front, trees: planted, crowns };
 }
 
+/**
+ * One ordinary tower on one lot, built on its own and meshed the way the city meshes them — for the
+ * model workshop's vet clinic (src/workshop/catalog.js), which needs a real shop to stand its sign
+ * on. Returns the mesh and `buildTower`'s record of it, and the deck list `chooseVetSite` reads.
+ */
+export function buildLotTower(lot, block, rng, options) {
+  const parts = [];
+  const stats = { pitched: 0, helipads: 0, decks: [] };
+  const tower = buildTower(lot, block, rng, parts, stats, options);
+  const { solid: unframed, frames } = frameMesh(parts, 'bench');
+  const { solid, glass } = glassMeshes(unframed, 'bench');
+  const mesh = new THREE.Mesh(mergeGeometries(fillWalls(solid), false), wallMaterial());
+  solid.forEach((p) => p.dispose());
+  mesh.castShadow = true;
+  mesh.receiveShadow = true;
+  return { tower, meshes: [mesh, ...(frames ? [frames] : []), ...glass] };
+}
+
 export function createBuildings(rng, blocks) {
   const parts = [];
   // Counted rather than inferred. These are all rates the look depends on — one courtyard, a
@@ -1348,6 +1381,9 @@ export function createBuildings(rng, blocks) {
   // geometry-neutral: the city a seed builds is the same city with or without it. `entrySites`
   // is the same anchors handed back as a list, for the dust each building kicks up as it lands.
   const entrySites = [];
+  // Every tower that ended up in the city, as `buildTower` describes it — the thrown-away and
+  // rehomed ones left out. What `chooseVetSite` picks the vet clinic from.
+  const towers = [];
   let court = null;
   let bank = null;
   for (const entry of lots) {
@@ -1371,7 +1407,10 @@ export function createBuildings(rng, blocks) {
       const built = buildBank(buildableOf(entry.lot), entry.lot, entry.block.bounds, out);
       if (!entry.ghost) bank = built;
     }
-    else buildTower(entry.lot, entry.block, rng, moved ? scratch : out, stats);
+    else {
+      const tower = buildTower(entry.lot, entry.block, rng, moved ? scratch : out, stats);
+      if (tower && !entry.ghost && !moved) towers.push(tower);
+    }
     paneSink = sink;
     if (entry.ghost || moved) {
       // Its decks stay in the list, flagged, so the helipad's draw below sees the list it always
@@ -1442,6 +1481,11 @@ export function createBuildings(rng, blocks) {
     }
   }
 
+  // The vet clinic: one ordinary shop, left exactly as it was built, that gets a dog's head on its
+  // roof and an OPEN sign in its window (city/vetclinic.js). Chosen last and by hash, so it moves
+  // nothing; null on a city with no shop that fits.
+  const vet = chooseVetSite(towers, site);
+
   const count = parts.length;
   const { solid: unframed, frames } = frameMesh(parts, 'buildings');
   const { solid, glass } = glassMeshes(unframed, 'buildings');
@@ -1470,6 +1514,8 @@ export function createBuildings(rng, blocks) {
     // point on it is what `game/robbery.js` measures the trigger range from, and what the robber
     // comes running out of.
     bank,
+    // The shop that is the vet clinic, or null — see `chooseVetSite`. Its sign is built by main.js.
+    vet,
     // Every flat roof that is still a roof — the helipad's deck is spoken for — with the footprint
     // of what stands on it. The flocks pick their rooftop roosts from these; see `chooseRoosts` in
     // game/birds.js.

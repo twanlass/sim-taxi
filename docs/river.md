@@ -157,6 +157,19 @@ A world-Y lift of `h` moves `6.45h` px up the screen at play zoom (`SCREEN_PER_W
 **26°** on the 12-unit span and 29° on the narrow one. It opened at 1.1 (7px, 16°) and was raised
 for the sailboat's mast — see above.
 
+### Lit smooth, cut hard (`?bridgenormals=classic`)
+
+The deck is `DECK_SEGMENTS` (10) flat quads, which is a hump with no visible kinks in its outline
+at play zoom — but under the city's `flatShading` every quad also took its own face normal, so the
+sun stepped across the crest in ten bands of shade down the carriageway (Tyler, 2026-10-25). The
+surfaces that follow the profile — carriageway, footways, centre dashes and soffit — now carry the
+arch's analytic normal `(0, 1, −dy/dz)` at every vertex (`bendNormals` in geometry/bridge.js), and
+the fixed spans are drawn under `propMaterial({ smooth: true })`. Only the normal bends, along the
+span; the geometry, its winding and the shadow and AO it casts are unchanged. Everything else on the
+bridge — kerbs, edge beams, end caps, rails, abutments — keeps the face normal `bakeColor` gives it,
+so the deck's edges stay as hard as they were. The probe asserts both halves. The drawbridge's leaf
+is flat and untouched. `?bridgenormals=classic` restores the faceted deck.
+
 ### How a car gets over it
 
 **Render-only, exactly like the roadworks ramp.** `car.s`, `car.lane`, the turn decision, following

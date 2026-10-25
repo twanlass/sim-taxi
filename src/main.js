@@ -32,7 +32,7 @@ import { tickRiverWater, bindRiverDrawbridge, setWaterStyle } from './city/river
 import { createDrawbridge } from './game/drawbridge.js';
 import { createBoats } from './game/boats.js';
 import { createHarborShips } from './game/harborships.js';
-import { createBridge, jointParts } from './geometry/bridge.js';
+import { createBridge, jointParts, BRIDGE_NORMALS_CLASSIC } from './geometry/bridge.js';
 import { createBuildings } from './city/buildings.js';
 import { createProps, parkPlots, setAutumn } from './city/props.js';
 import { createLeaves } from './game/leaves.js';
@@ -40,6 +40,7 @@ import { createGrass } from './city/grass.js';
 import { createCanopyFuzz } from './city/canopyfuzz.js';
 import { createGarage, LANDMARK as GARAGE_LANDMARK } from './city/garage.js';
 import { createBurgerJoint, SIGN_SPIN, LANDMARK as BURGER_LANDMARK } from './city/burgerjoint.js';
+import { createVetClinic, VET_CLASSIC } from './city/vetclinic.js';
 import { createGraveyard, LANDMARK as GRAVEYARD_LANDMARK } from './city/graveyard.js';
 import { plantedCrowns } from './city/props.js';
 import {
@@ -49,7 +50,7 @@ import {
   onDriftLaunch, hopProgress, setSpinStyle, setBarrelRoll, setBridgeStunt, setPassTurnGate, setPassPace, setHopStyle, setDodge, setOvertakeStyle, setPeek, setTaxiScatter,
   configureSignals, setGrip, setRunningLights, setRunningLightsAt, runningLightsAt, isLaneClosed,
 } from './sim/traffic.js';
-import { createCollisions, TAXI_HP, setCrush } from './sim/collisions.js';
+import { createCollisions, TAXI_HP, setCrush, setCrushSplash } from './sim/collisions.js';
 import { createVanish } from './game/vanish.js';
 import { createPolice } from './sim/police.js';
 import {
@@ -148,7 +149,7 @@ import {
 import * as difficulty from './game/difficulty.js';
 import { createHomeScreenTip } from './game/homescreen.js';
 import { createTitleScreen, TITLE_CAM } from './game/titlescreen.js';
-import { BACKSTORY_VOICES, backstoryVoiced, tellBackstory, wantsBackstory } from './game/backstory.js';
+import { BACKSTORY_VOICES, backstoryMode, backstoryVoiced, tellBackstory, wantsBackstory } from './game/backstory.js';
 import { createTitleReel } from './game/titlereel.js';
 import { splashCovers, SPLASH_SKIP_KEY } from './game/splash.js';
 import { BACKDROP } from './game/backdrop.js';
@@ -622,7 +623,11 @@ if (river) {
     // The lifting span is `game/drawbridge.js`'s: it needs its leaf as an object it can turn, not
     // as geometry merged into a static city mesh.
     if (span.kind !== 'fixed') continue;
-    const mesh = new THREE.Mesh(createBridge(span, bridgeRng), propMaterial());
+    // Smooth so the deck lights off the arch's own normals rather than facet by facet; the parts that
+    // should stay hard carry face normals (`BRIDGE_NORMALS_CLASSIC` in geometry/bridge.js).
+    const mesh = new THREE.Mesh(
+      createBridge(span, bridgeRng), propMaterial({ smooth: !BRIDGE_NORMALS_CLASSIC }),
+    );
     mesh.castShadow = true;
     mesh.receiveShadow = true;
     // A deck is a shell a third of a unit thick that both casts and receives, which is the one
@@ -856,6 +861,14 @@ if (burger) {
   // mass is the one version that can never cover a marker the player can see past it.
   burger.group.userData.pickable = 'burger';
 }
+// The vet clinic: an ordinary shop `createBuildings` built and then picked out, with a dog's head on
+// its roof and an OPEN sign in its window (city/vetclinic.js). Scenery only. Null on `?vet=classic`
+// or a city with no shop that fits.
+const vet = city.vet && !VET_CLASSIC ? createVetClinic(city.vet) : null;
+if (vet) {
+  scene.add(vet.group);
+  markOccluder(vet.shell);
+}
 // The roadside business — the fourth block `createLayout` took from the towers, a car wash or a gas
 // station as the city seed rolls it (`?roadside=carwash` / `=gas` pins one) — and the inflatable tube man flailing on its corner, which is what
 // it is there for. Scenery only: not tappable, nothing routes into it. `null` on
@@ -882,6 +895,7 @@ const manholeSteam = createManholeSteam(scene, manholes?.userData.spots, makeRng
 const occluders = setCityOccluders(
   city.mesh, ...(city.domeMesh ? [city.domeMesh] : []), propsMesh, ...(garage?.meshes ?? []),
   ...(burger?.meshes ?? []), ...(graveyard?.meshes ?? []), ...(roadside?.meshes ?? []),
+  ...(vet ? [vet.shell] : []),
 );
 // The same field is what the cars' paint reflects (`propMaterial({ gloss })`, util/geo.js).
 setGlossCity(occluders, SKYLINE_CEILING);
@@ -1483,6 +1497,8 @@ for (const [built, landmark] of [
   if (built) for (const [mesh, kind] of landmark.glow(built)) markEmissive(mesh, kind);
 }
 if (depotPanes) markEmissive(depotPanes, 'window');
+// The vet's OPEN sign, at the strength the depot's and the burger joint's neon bloom at.
+if (vet) markEmissive(vet.glow, 'window');
 // The riders. They receive AO through `propMaterial()` either way, so leaving them out of the
 // prepass would paint the kerb's own contact line across whoever is standing in front of it.
 // Only the figure is taken — `markOccluder` filters out the translucent target disc under them.
@@ -1660,6 +1676,7 @@ const cityEntry = createCityEntry({
   // anchor, so it comes up as a building rather than as a building and a door.
   meshes: [city.mesh, ...city.glass, ...(city.frames ? [city.frames] : []), ...(city.domeMesh ? [city.domeMesh] : []), ...(westEdge ? [westEdge.towers, ...westEdge.glass] : []), ...(westEdge?.frames ? [westEdge.frames] : []), propsMesh, grass.mesh, canopyFuzz.mesh, ...(garage?.meshes ?? []),
     ...(burger?.meshes ?? []), ...(graveyard?.meshes ?? []), ...(roadside?.meshes ?? []),
+    ...(vet?.meshes ?? []),
     ...(lamps ? [lamps.posts, lamps.heads] : []),
     ...(props.courtMesh ? [props.courtMesh] : []), ...(props.skateMesh ? [props.skateMesh] : []),
     ...(props.pondMesh ? [props.pondMesh] : [])],
@@ -1667,6 +1684,7 @@ const cityEntry = createCityEntry({
   // depot's sign and the burger over the drive-through. See the `objects` note in
   // game/cityentry.js.
   objects: [...(garage ? [garage.entryObject] : []), ...(burger ? [burger.entryObject] : []),
+    ...(vet ? [vet.entryObject] : []),
     ...(graveyard ? [graveyard.entryObject] : []),
     ...hoopers.entryObjects, ...boombox.entryObjects, ...skaters.entryObjects,
     ...tubeMan.entryObjects, ...(roadside?.entryObjects ?? []), ...(ltrain?.entryObjects ?? []),
@@ -2087,6 +2105,11 @@ traffic.onTaxiLand(({ x, z, yaw, v, deck, big, kind }) => {
     if (crushOwed) {
       crushOwed = false;
       if (!fares.state.gameOver) landCombo('crush');
+      // ...and the cars it took with it, if they have all gone up already.
+      if (pileupOwed) {
+        if (!fares.state.gameOver) landCombo('pileup', pileupOwed);
+        pileupOwed = 0;
+      }
     }
     controller.kickShake(1.6);
     sfx?.play('land', { gain: 1 });
@@ -2747,30 +2770,85 @@ collisions.onBump(({ x, z, closing, nx, nz, speed, rearEnd, other, taxiStruck, d
 //
 // Landed before the touchdown, the combo waits for it so the labels read "Big Air", then
 // "Crushin' It".
+//
+// The splash (`CRUSH_SPLASH` in sim/collisions.js): every car near the one landed on goes up after
+// it, nearest first, one pop every CRUSH_POP_GAP, so it reads as a chain running out from the
+// landing rather than one bigger bang. Each pop is the crush's own bang, its shell thrown *away
+// from* the car the taxi landed on and spun, and each one shakes harder than the last, up to the
+// wreck's 2.4 — the run-ending crash is the one thing it must not outdo. "Pile-Up" lands after the
+// last pop, a half per car (game/combometer.js). The pops run on sim time (`updateCrushShells`), so
+// they hold under pause and stretch with the crash slow-mo like the rest of the debris.
 setCrush(new URLSearchParams(window.location.search).get('crush'));
+setCrushSplash(new URLSearchParams(window.location.search).get('crushsplash'));
+const CRUSH_POP_FIRST = 0.14;  // s after the crush; a beat for its fireball to open first
+const CRUSH_POP_GAP = 0.12;    // s between pops — long enough that three read as three
+const CRUSH_POP_THROW = 7;     // u/s outward on the carry curve, on top of the taxi's momentum
+const CRUSH_POP_SPIN = 3;      // rad/s
 let crushOwed = false;
+let pileupOwed = 0;
 const crushVanish = createVanish();
 const crushShells = [];
-collisions.onCrush(({ speed, other, airborne }) => {
+const crushPops = [];
+function crushBang(car, speed, yaw, { driftX, driftZ, spin = 0, shake, gain = 0.8, rate = 1 }) {
+  const paint = car.police ? PALETTE.policeBody : PALETTE.carBody[car.colorIndex];
+  blast.fire(car.x, car.z, paint, yaw, speed * STRUCK_SHOVE);
+  if (blast.wantsCollar()) dust.wreckSmoke(car.x, car.z, yaw, speed);
+  struckGlass.fire({ x: car.x, z: car.z, yaw, scale: 0.6, ahead: 0, drop: 0.15 });
+  // A box truck in the blast throws out its load like a wrecked one does.
+  if (car.isTruck) boxSpill.wreck(car, speed);
+  controller.kickShake(shake);
+  sfx?.play('crash', { gain, rate });
+  haptic('perfect');
+  const shell = traffic.wreckShell(car);
+  crushShells.push(shell);
+  crushVanish.take(shell, { driftX, driftZ, spin });
+}
+collisions.onCrush(({ speed, other, airborne, splash }) => {
   if (airborne) crushOwed = true;
   else if (!fares.state.gameOver) landCombo('crush');
   const yaw = traffic.taxi.yaw;
-  const paint = other.police ? PALETTE.policeBody : PALETTE.carBody[other.colorIndex];
-  blast.fire(other.x, other.z, paint, yaw, speed * STRUCK_SHOVE);
-  if (blast.wantsCollar()) dust.wreckSmoke(other.x, other.z, yaw, speed);
-  struckGlass.fire({ x: other.x, z: other.z, yaw, scale: 0.6, ahead: 0, drop: 0.15 });
-  controller.kickShake(1.8);
-  sfx?.play('crash', { gain: 0.8 });
-  haptic('perfect');
   const carry = carrySpeed(speed);
-  const shell = traffic.wreckShell(other);
-  crushShells.push(shell);
-  crushVanish.take(shell, {
-    driftX: Math.cos(yaw) * carry * SHELL_CARRY * STRUCK_SHOVE,
-    driftZ: -Math.sin(yaw) * carry * SHELL_CARRY * STRUCK_SHOVE,
+  const fx = Math.cos(yaw) * carry * SHELL_CARRY * STRUCK_SHOVE;
+  const fz = -Math.sin(yaw) * carry * SHELL_CARRY * STRUCK_SHOVE;
+  crushBang(other, speed, yaw, { driftX: fx, driftZ: fz, shake: splash.length ? 2 : 1.8 });
+  splash.forEach(({ car, dist }, k) => {
+    // Straight out from the car underneath, plus half the taxi's own carry: the blast throws them
+    // clear, and the chain still leans the way the taxi was going.
+    const ux = dist > 1e-3 ? (car.x - other.x) / dist : Math.cos(yaw);
+    const uz = dist > 1e-3 ? (car.z - other.z) / dist : -Math.sin(yaw);
+    const side = Math.sign(Math.cos(yaw) * uz + Math.sin(yaw) * ux) || 1;
+    crushPops.push({
+      car,
+      at: CRUSH_POP_FIRST + k * CRUSH_POP_GAP,
+      last: k === splash.length - 1,
+      count: splash.length,
+      speed,
+      yaw,
+      opts: {
+        driftX: ux * CRUSH_POP_THROW + fx * 0.5,
+        driftZ: uz * CRUSH_POP_THROW + fz * 0.5,
+        spin: side * CRUSH_POP_SPIN,
+        shake: Math.min(2.4, 2.1 + 0.15 * k),
+        gain: 0.7,
+        // Each one a touch lower than the last, so the chain sounds like it is getting bigger.
+        rate: Math.max(0.75, 1.05 - 0.08 * k),
+      },
+    });
   });
 });
+function landPileup(count) {
+  if (crushOwed) { pileupOwed = count; return; }
+  if (!fares.state.gameOver) landCombo('pileup', count);
+}
 function updateCrushShells(dt) {
+  for (let k = crushPops.length - 1; k >= 0; k--) {
+    const pop = crushPops[k];
+    pop.at -= dt;
+    if (pop.at > 0) continue;
+    crushPops.splice(k, 1);
+    crushBang(pop.car, pop.speed, pop.yaw, pop.opts);
+    if (pop.last) landPileup(pop.count);
+  }
   if (!crushShells.length) return;
   crushVanish.update(dt);
   for (let k = crushShells.length - 1; k >= 0; k--) {
@@ -6090,7 +6168,7 @@ const title = wantsTitle ? createTitleScreen(document.getElementById('title-scre
   // The first Play on a device hears dispatch out first, over the backdrop, with the gate still shut —
   // see game/backstory.js. `?intro=classic` goes straight to the garage as before.
   beforePlay: (done) => {
-    if (!wantsBackstory()) return false;
+    if (!wantsBackstory(backstoryMode({ always: settings.get().introAlways }))) return false;
     const screen = document.getElementById('title-screen');
     if (demo.on()) { holdForPreamble(screen, () => startBackstory(screen, done)); return true; }
     startBackstory(screen, done);
@@ -6742,6 +6820,7 @@ function tick() {
   // The burger turning on its pole. Scenery in the same sense the flock and the flyover are, and
   // paused with them: `frame()` has already returned by here on a paused frame.
   burger?.update(dt, SIGN_SPIN);
+  vet?.update(dt);
   // The car wash's brushes and curtain, and the tube man on its corner.
   roadside?.update(dt);
   tubeMan.update(dt);

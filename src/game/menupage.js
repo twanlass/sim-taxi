@@ -13,9 +13,21 @@ import { isNative } from '../util/platform.js';
 import { QUALITIES } from './settings.js';
 import { MODES } from './difficulty.js';
 
-/** Taps on a Settings heading that reveal the Demo mode row, and the most time between two of them. */
+/** Taps on a Settings heading that reveal the hidden rows (or hide them again), and the most time
+ *  between two of them. */
 export const REVEAL_TAPS = 5;
 const TAP_GAP_MS = 1000;
+
+/**
+ * Settings shows only the sound rows until it has been revealed (Tyler, 2026-10-25): Sound, Music
+ * volume and SFX volume. The same five taps that used to reveal the Demo mode row alone now reveal
+ * every other row with it — tips, the intro story, haptics, quality, antialiasing, difficulty and
+ * Demo mode. Five more hide them again, Demo mode left as it was, so a presenter can set up and
+ * then put it all away. `?settings=classic` shows them all as before, with only the Demo mode row
+ * held back.
+ */
+export const settingsLayout = (search = typeof window !== 'undefined' ? window.location.search : '') =>
+  (new URLSearchParams(search).get('settings') === 'classic' ? 'classic' : 'sound');
 
 /** One element, with a class and optional text. */
 export function el(tag, className, text) {
@@ -116,7 +128,7 @@ function choiceRow(label, options, read, write) {
  * @param {{ isOn: () => boolean, set: (on: boolean) => void }} opts.sound  The game's one mute.
  * @param {ReturnType<import('./settings.js').createSettings>} opts.settings
  * @param {ReturnType<import('./progress.js').createDemo>} [opts.demo]  The Demo mode row, at the
- *   bottom and hidden until revealed (game/progress.js). On both screens: from the pause screen the
+ *   bottom and hidden until revealed (game/progress.js), with every row but the sound ones. On both screens: from the pause screen the
  *   tips and the once-ever flags change at once, the robbery and the race at the next run.
  * @param {HTMLElement} [opts.header]  The page's heading: five quick taps on it reveal that row.
  */
@@ -136,6 +148,9 @@ export function settingsRows(body, { sound, settings, demo = null, header = null
   body.append(soundRow.row, musicRow.row, sfxRow.row);
   const tipsRow = toggleRow('Tutorial tips', () => settings.get().tips, (on) => settings.set({ tips: on }));
   body.append(tipsRow.row);
+  const introRow = toggleRow('Always show intro story', () => settings.get().introAlways,
+    (on) => settings.set({ introAlways: on }));
+  body.append(introRow.row);
   // Haptics only exist inside the iOS app (util/haptics.js), so on the web the row would be a
   // switch that does nothing.
   const hapticRows = [];
@@ -166,7 +181,12 @@ export function settingsRows(body, { sound, settings, demo = null, header = null
     () => settings.get().difficulty, (value) => settings.set({ difficulty: value }));
   body.append(difficultyRow.row);
   const demoRow = demo ? toggleRow('Demo mode', () => demo.on(), (on) => demo.set(on)) : null;
+  // Everything below the sound rows, hidden with Demo mode's until revealed. With no `demo` there
+  // are no taps to reveal them with, so they show.
+  const extraRows = [tipsRow, introRow, ...hapticRows, qualityRow, antialiasRow, difficultyRow];
+  const hideExtras = settingsLayout() === 'sound' && demo !== null;
   const paintDemo = () => {
+    for (const r of extraRows) r.row.hidden = hideExtras && !demo.revealed();
     if (!demoRow) return;
     demoRow.row.hidden = !demo.revealed();
     // `?demo` on the URL outranks the switch; it reads as asleep rather than as one that is ignored.
@@ -176,19 +196,27 @@ export function settingsRows(body, { sound, settings, demo = null, header = null
   if (demoRow) { paintDemo(); body.append(demoRow.row); }
   const revealDemo = () => {
     if (!demoRow) return;
+    const shown = [...extraRows, demoRow].filter((r) => r.row.hidden);
     demo.reveal();
     paintDemo();
-    // It lands at the foot of the page, which on a phone is below the fold: bring it up and flash
-    // it, or the five taps look like they did nothing.
-    demoRow.row.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
-    demoRow.row.classList.remove('is-revealed');
-    void demoRow.row.offsetWidth;
-    demoRow.row.classList.add('is-revealed');
+    // Under the classic layout the one row lands at the foot of the page, which on a phone is below
+    // the fold: bring it up and flash it, or the five taps look like they did nothing. Under the
+    // default every new row flashes, and the first of them is scrolled to.
+    shown[0]?.row.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    for (const { row } of shown) {
+      row.classList.remove('is-revealed');
+      void row.offsetWidth;
+      row.classList.add('is-revealed');
+    }
   };
   // Five taps on the heading, each within TAP_GAP_MS of the last. Counted on `pointerup` rather
   // than `click`: iOS only synthesises a click on an element it thinks is clickable, and reads a
   // quick second tap on a plain heading as half of a double-tap. The first cut listened for
   // `click` inside a 600ms gap, and Tyler could not get it to fire on his phone (2026-10-23).
+  const concealDemo = () => {
+    demo.conceal();
+    paintDemo();
+  };
   if (demoRow && header) {
     let taps = 0;
     let last = -Infinity;
@@ -197,11 +225,11 @@ export function settingsRows(body, { sound, settings, demo = null, header = null
       const now = performance.now();
       taps = now - last < TAP_GAP_MS ? taps + 1 : 1;
       last = now;
-      if (taps >= REVEAL_TAPS) { taps = 0; revealDemo(); }
+      if (taps >= REVEAL_TAPS) { taps = 0; if (demo.revealed()) concealDemo(); else revealDemo(); }
     });
   }
   return {
-    /** Show the Demo mode row, for good. */
+    /** Show the hidden rows, Demo mode's among them, until five more taps hide them. */
     revealDemo,
     refresh() {
       paintDemo();
@@ -214,6 +242,7 @@ export function settingsRows(body, { sound, settings, demo = null, header = null
       sfxRow.paint();
       paintMuted();
       tipsRow.paint();
+      introRow.paint();
       for (const r of hapticRows) r.paint();
     },
   };

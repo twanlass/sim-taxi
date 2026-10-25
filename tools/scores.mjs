@@ -248,6 +248,13 @@ const cashes = (store) => loadScores(store).map((e) => e.cash).join(',');
   const forced = createDemo({ storage: fakeStore(), session, search: '?demo' });
   check('?demo forces it on and reveals the row', forced.on() && forced.forced() && forced.revealed());
   check('?demo=off forces it off', !createDemo({ storage: store, session, search: '?demo=off' }).on());
+  const hiddenStore = fakeStore();
+  const hidden = createDemo({ storage: hiddenStore, session, search: '' });
+  hidden.set(true);
+  hidden.conceal();
+  const reloaded = createDemo({ storage: hiddenStore, session, search: '?demo' });
+  check('hiding the rows again keeps Demo mode on and outlasts a reload, ?demo too',
+    hidden.on() && !hidden.revealed() && reloaded.on() && !reloaded.revealed());
   const turns = [1, 2, 3].map(() => forced.rotate(['a', 'b'], 'test'));
   check('the cards rotate across runs', turns.join('') === 'aba', turns.join(''));
 }
