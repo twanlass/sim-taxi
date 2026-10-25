@@ -694,7 +694,9 @@ and a gradient referenced from an undisplayed SVG does not paint. History:
 - **The world stops** under it, like the robber's line, and any tap or key press clears it after a
   0.3s guard (it lands mid-run, under a thumb that may be tapping the city). After the run, where it
   sits on the run-end blackout, it ends on that screen's pulsing **"Tap to continue"** at the foot
-  (`.nm-continue`), fading up 0.8s after the card; mid-run it stays wordless. The key is swallowed,
+  (`.nm-continue`), fading up 0.8s after the card; mid-run it stays wordless. The tap that closes it
+  starts the next run, straight past the title, rather than going back to the table it followed
+  (`?moveexit=classic` goes back). The key is swallowed,
   so the Space that closes it does not also boost.
 - The tips setting, debug mode and `?tutorial=off` all turn it off. `__taxi.newMove.open()` shows
   it on demand; clear the key to see it again in play.

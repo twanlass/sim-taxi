@@ -141,6 +141,7 @@ doc; what the classic version was, and why it changed, is in that doc's history 
 | `?hop=classic` | A hop can stall in mid-air: braking (or crawling) over the hump hangs the taxi in the air | | [river.md](river.md) |
 | `?route=classic` | The route stops dead at the rider's kerb, with no stub past the pickup | #480 | [gameplay.md](gameplay.md) |
 | `?newmove=classic` | New Move cards mid-run instead of after the run | #493 | [gameplay.md](gameplay.md) |
+| `?moveexit=classic` | The after-run New Move card closes back onto the run-end table and its Play again, instead of starting the next run | | [gameplay.md](gameplay.md#new-move-unlocked-the-overtake-u-turn-and-drift-cards) |
 | `?arrowpulse=classic` | The off-screen fare arrows hold still at the frame edge, with no slow swell and lean toward their mark | | [rendering.md](rendering.md#off-screen-fare-pointers) |
 | `?slicepulse=classic` | The rider's pie (and its off-screen arrow) does not knock when it loses a slice. Headless tools take `SLICEPULSE=classic` | | [rendering.md](rendering.md#the-fare-marker--gamefaremarkerjs) |
 | `?cardcombo=classic` | The New Move card without the combo meter and purple combo word over its clip, and without the ring on the key to press next | | [gameplay.md](gameplay.md#new-move-unlocked-the-overtake-u-turn-and-drift-cards) |
