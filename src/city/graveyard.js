@@ -49,6 +49,23 @@ export const GRAVE_TREE = typeof location !== 'undefined'
   ? new URLSearchParams(location.search).get('gravetree') === 'classic'
   : globalThis.process?.env?.GRAVETREE === 'classic';
 
+/**
+ * What stands round the lot: `'railing'` (the default), `'wall'`, or `'classic'` —
+ * `?fence=` in the browser, `FENCE=` for the headless tools.
+ *
+ * Classic is the first fence: 0.07 pickets on a 0.3 pitch, with 0.05 rails. At play zoom on a phone
+ * (~15 device pixels to the unit at 2x) that is a one-pixel picket every 4.6 pixels and a rail under
+ * a pixel thick, so MSAA has nothing to resolve but a stair and the run crawls whenever the camera
+ * moves (Tyler, 2026-10-25). The railing is the same idea at twice the gauge and half the count;
+ * the wall drops the iron for a low stone wall with a coping.
+ */
+export const FENCE_MODE = (() => {
+  const raw = typeof location !== 'undefined'
+    ? new URLSearchParams(location.search).get('fence')
+    : globalThis.process?.env?.FENCE;
+  return raw === 'classic' || raw === 'wall' ? raw : 'railing';
+})();
+
 /** What ground.js lays the lawn at — the park's own level, since it is the park's own surface. */
 export const GRAVE_GRASS_Y = KERB_H + 0.01;
 /** Anything standing on the lawn starts a little under it, so no base ever shows a seam of sky. */
@@ -66,6 +83,18 @@ const PICKET = 0.07;
 const PICKET_PITCH = 0.3;
 const PIER = 0.42;          // the stone piers at the corners and every few units along
 const PIER_H = PLINTH_H + RAIL_H + 0.12;
+// The default railing: every piece at least two device pixels across at play zoom, and the gaps
+// between them wider than the bars. 0.6 pitch puts 11 pickets in a 6.4 run against classic's 22.
+const RAILING = { picket: 0.14, pitch: 0.6, rail: 0.1, spikeR: 0.11, spikeH: 0.22 };
+// `?fence=wall`: knee-to-waist-high stone with a coping over it. The camera looks down 33°, so a
+// wall this tall hides about 1.3 units of lawn behind it — a stone's clearance and a little more.
+const WALL_H = 0.78;
+const WALL_W = 0.36;
+const COPE_W = 0.46;
+const COPE_H = 0.1;
+// Wider than the coping, so a corner's two copings meet inside the pier and not on show.
+const WALL_PIER = 0.56;
+const WALL_PIER_H = WALL_H + COPE_H + 0.32;
 // Was 3.2 until 2026-10-17: Tyler found the piers along the plinth read as more headstones from
 // across the map, so there are half as many, in a warmer stone than the graves (`gravePier`).
 const PIER_PITCH = 6.4;
@@ -211,31 +240,43 @@ export function graveyardSite(block) {
 // --- The fence ------------------------------------------------------------------
 
 /** One straight run of fence from (ax, az) to (bx, bz), axis-aligned. */
-function fenceRun(ax, az, bx, bz, stone, iron, parts) {
+function fenceRun(ax, az, bx, bz, stone, iron, parts, cap) {
   const alongX = az === bz;
   const len = alongX ? bx - ax : bz - az;
   const mid = (a, b) => (a + b) / 2;
+  if (FENCE_MODE === 'wall') {
+    parts.push(alongX
+      ? box(len, WALL_H, WALL_W, mid(ax, bx), FOOT, az, stone)
+      : box(WALL_W, WALL_H, len, ax, FOOT, mid(az, bz), stone));
+    parts.push(alongX
+      ? box(len, COPE_H, COPE_W, mid(ax, bx), FOOT + WALL_H, az, cap)
+      : box(COPE_W, COPE_H, len, ax, FOOT + WALL_H, mid(az, bz), cap));
+    return;
+  }
+  const g = FENCE_MODE === 'classic'
+    ? { picket: PICKET, pitch: PICKET_PITCH, rail: 0.05, spikeR: 0.06, spikeH: 0.16 }
+    : RAILING;
   // The plinth.
   parts.push(alongX
     ? box(len, PLINTH_H + 0.03, PLINTH_W, mid(ax, bx), FOOT, az, stone)
     : box(PLINTH_W, PLINTH_H + 0.03, len, ax, FOOT, mid(az, bz), stone));
   // Two rails, one just under the spikes and one low.
   const top = FOOT + PLINTH_H + RAIL_H;
-  for (const y of [top - 0.14, FOOT + PLINTH_H + 0.18]) {
+  for (const y of [top - 0.09 - g.rail, FOOT + PLINTH_H + 0.18]) {
     parts.push(alongX
-      ? box(len, 0.05, 0.05, mid(ax, bx), y, az, iron)
-      : box(0.05, 0.05, len, ax, y, mid(az, bz), iron));
+      ? box(len, g.rail, g.rail, mid(ax, bx), y, az, iron)
+      : box(g.rail, g.rail, len, ax, y, mid(az, bz), iron));
   }
   // The pickets, each with a spike on it.
-  const n = Math.max(1, Math.round(len / PICKET_PITCH));
+  const n = Math.max(1, Math.round(len / g.pitch));
   for (let k = 0; k <= n; k++) {
     const u = k / n;
     const x = alongX ? ax + (bx - ax) * u : ax;
     const z = alongX ? az : az + (bz - az) * u;
-    parts.push(box(PICKET, RAIL_H, PICKET, x, FOOT + PLINTH_H, z, iron));
-    const spike = new THREE.ConeGeometry(0.06, 0.16, 4);
+    parts.push(box(g.picket, RAIL_H, g.picket, x, FOOT + PLINTH_H, z, iron));
+    const spike = new THREE.ConeGeometry(g.spikeR, g.spikeH, 4);
     spike.rotateY(Math.PI / 4);
-    spike.translate(x, top + 0.08, z);
+    spike.translate(x, top + g.spikeH / 2, z);
     parts.push(bakeColor(spike, iron));
   }
 }
@@ -250,6 +291,11 @@ function fenceParts(site, rng, parts) {
   const stone = jitterColor(color('gravePier'), rng, { l: 0.02 });
   const cap = color('gravePierCap');
   const iron = color('graveIron');
+  const pierW = FENCE_MODE === 'wall' ? WALL_PIER : PIER;
+  const pierH = FENCE_MODE === 'wall' ? WALL_PIER_H : PIER_H;
+  // The gate's ironwork at the railing's gauge too, or the gates alone go on shimmering.
+  const bar = FENCE_MODE === 'classic' ? 0.05 : 0.09;
+  const bars = FENCE_MODE === 'classic' ? 4 : 3;
 
   // Each side as a list of runs between piers, both ends broken by a gate on the path's line, so
   // the path runs straight through the lot from one street to the other.
@@ -268,12 +314,12 @@ function fenceParts(site, rng, parts) {
       const u0 = k / n;
       const u1 = (k + 1) / n;
       fenceRun(ax + (bx - ax) * u0, az + (bz - az) * u0, ax + (bx - ax) * u1, az + (bz - az) * u1,
-        stone, iron, parts);
-      if (k > 0) pier(ax + (bx - ax) * u0, az + (bz - az) * u0, PIER_H, PIER, stone, cap, parts);
+        stone, iron, parts, cap);
+      if (k > 0) pier(ax + (bx - ax) * u0, az + (bz - az) * u0, pierH, pierW, stone, cap, parts);
     }
   }
   for (const [x, z] of [[fence.x0, fence.z0], [fence.x1, fence.z0], [fence.x0, fence.z1], [fence.x1, fence.z1]]) {
-    pier(x, z, PIER_H, PIER, stone, cap, parts);
+    pier(x, z, pierH, pierW, stone, cap, parts);
   }
 
   // The gates, one at each end: two tall piers and an iron arch between them, with the leaves
@@ -281,22 +327,22 @@ function fenceParts(site, rng, parts) {
   for (const [z, inward] of [[fence.z1, -1], [fence.z0, 1]]) {
     for (const s of [-1, 1]) pier(gateX + s * gap, z, GATE_PIER_H, GATE_PIER, stone, cap, parts);
     // Half a torus is a ring three winds itself, so it cannot arrive inside out.
-    const arch = new THREE.TorusGeometry(ARCH_R, 0.05, 4, 14, Math.PI);
+    const arch = new THREE.TorusGeometry(ARCH_R, bar, 4, 14, Math.PI);
     arch.translate(gateX, FOOT + GATE_PIER_H - 0.25, z);
     parts.push(bakeColor(arch, iron));
     // A little cross at the crown of the arch.
     const crown = FOOT + GATE_PIER_H - 0.25 + ARCH_R;
-    parts.push(box(0.06, 0.42, 0.06, gateX, crown, z, iron));
-    parts.push(box(0.26, 0.06, 0.06, gateX, crown + 0.24, z, iron));
+    parts.push(box(bar + 0.01, 0.42, bar + 0.01, gateX, crown, z, iron));
+    parts.push(box(0.26, bar + 0.01, bar + 0.01, gateX, crown + 0.24, z, iron));
 
     // The leaves, built along +X from the hinge and turned so each points back across the opening
     // and swings `GATE_OPEN` of the way round into the lot. `rotateY(θ)` sends +X to (cos θ, −sin θ).
     for (const s of [-1, 1]) {
       const leaf = [];
       const w = GATE_HALF - 0.05;
-      leaf.push(box(w, 0.05, 0.05, w / 2, 0.25, 0, iron));
-      leaf.push(box(w, 0.05, 0.05, w / 2, 1.1, 0, iron));
-      for (let k = 0; k <= 4; k++) leaf.push(box(0.05, 1.2, 0.05, (w * k) / 4, 0.1, 0, iron));
+      leaf.push(box(w, bar, bar, w / 2, 0.25, 0, iron));
+      leaf.push(box(w, bar, bar, w / 2, 1.1, 0, iron));
+      for (let k = 0; k <= bars; k++) leaf.push(box(bar, 1.2, bar, (w * k) / bars, 0.1, 0, iron));
       const g = mergeGeometries(leaf, false);
       leaf.forEach((p) => p.dispose());
       g.rotateY(Math.atan2(-inward * Math.sin(GATE_OPEN), -s * Math.cos(GATE_OPEN)));
@@ -463,10 +509,11 @@ const STONE_GRASS_FRONT = 1.35;
  */
 export function graveGrassArea(site, { tree, statue, stones }) {
   const { fence, gateX } = site;
-  const inX0 = fence.x0 + PLINTH_W / 2 + 0.1;
-  const inX1 = fence.x1 - PLINTH_W / 2 - 0.1;
-  const inZ0 = fence.z0 + PLINTH_W / 2 + 0.1;
-  const inZ1 = fence.z1 - PLINTH_W / 2 - 0.1;
+  const edge = (FENCE_MODE === 'wall' ? COPE_W : PLINTH_W) / 2 + 0.1;
+  const inX0 = fence.x0 + edge;
+  const inX1 = fence.x1 - edge;
+  const inZ0 = fence.z0 + edge;
+  const inZ1 = fence.z1 - edge;
   return {
     bounds: { x0: inX0, x1: inX1, z0: inZ0, z1: inZ1 },
     inside: (x, z) => x > inX0 && x < inX1 && z > inZ0 && z < inZ1,

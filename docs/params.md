@@ -34,6 +34,7 @@ doc; what the classic version was, and why it changed, is in that doc's history 
 | `?pieoutline=classic` | The rider's pie with no black outline. Headless tools take `PIEOUTLINE=classic` | | [rendering.md](rendering.md#the-pie--geometrydiamondjs) |
 | `?gravetree=classic` | The graveyard's one big plum-crowned tree in the back corner. Headless tools take `GRAVETREE=classic` | | [city.md](city.md#the-graveyard) |
 | `?gravemist=classic` | The graveyard's ground mist, drifting over the lawn and thicker after dark. Headless tools take `GRAVEMIST=classic` | | [city.md](city.md#the-graveyard) |
+| `?fence=classic` / `=wall` | The graveyard's first, fine-gauge iron railing / a low stone wall instead of the chunky railing. Headless tools take `FENCE=` | | [city.md](city.md#the-graveyard) |
 | `?gravegrass=classic` | The graveyard's lawn flat, with no long grass between the stones. Headless tools take `GRAVEGRASS=classic` | | [city.md](city.md#long-grass) |
 | `?edgegrass=classic` | Flat green lawns on the north park, the park shore and the south shore, with no long grass. Headless tools take `EDGEGRASS=classic` | | [city.md](city.md#long-grass) |
 | `?parkway=twoway` | A two-lane road through the central park instead of the one-way one | #473 | [city.md](city.md) |
