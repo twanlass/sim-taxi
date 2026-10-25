@@ -920,11 +920,12 @@ const peeking = (car, leader) => car.passing && car.dodgeLateral < 0 && leader &
  *
  * `peekOn` keeps the peek to a car right in front that is really turning: one still on its lane
  * within PASS_TRIGGER that intends the left (`intendsLeft`, not the lamp), or one already in its
- * arc whose tail is still in the lane. Further back the turner will be gone by the time the taxi
- * arrives — the oncoming lane for one still on its lane (the veto in the junction holds it at its
- * line while the taxi goes by), and no pull-out at all for one already crossing the oncoming lane.
- * And the peek ends the frame the turner is out of the taxi's lane (`clearOfLane`), never chaining
- * on to the car behind it. 27% of pull-outs, a median 20 units, bumps unchanged (18% against 17%).
+ * arc whose tail is still in the lane. Anything else is the oncoming lane, and traffic does not
+ * change for it: the courtesy veto that held a passed turner at its line is off, so a turner turns
+ * when it would have and the player brakes or hits it (Tyler, 2026-10-25: "If traffic behaves
+ * consistently no matter what the player can learn that rule and adapt"). The peek ends the frame
+ * the turner is out of the taxi's lane (`clearOfLane`), never chaining on to the car behind it.
+ * 13% of pull-outs, a median 16 units; bumps 23% against 17%, which is the veto's share.
  *
  * `?peek=classic` is the first build: any blinker, held like a pass.
  */
@@ -6162,11 +6163,10 @@ export function createTraffic(
         // Thrown dumb (`setOvertakeStyle`), the combo pulls out the frame it arms, whatever is
         // ahead and however far, and stays out on the same terms as any pass.
         const thrown = overtakeDumb && taxi.passArmed === true;
-        // A car ahead part way round a left (`peekOn`) is across the very lane a pass would take:
-        // pulled out into it, the taxi bumped one on 42% of pull-outs. Close behind it, with its
-        // tail still in the lane, the peek goes round its right. Anywhere else — a block ahead, or
-        // already out of the taxi's lane — the turner will be gone by the time the taxi gets
-        // there, so the combo stays armed and the taxi keeps its lane (`across`).
+        // A car close ahead part way round a left (`peekOn`), with its tail still in the lane, is
+        // peeked round. Anywhere else — a block ahead, or already out of the taxi's lane — the
+        // combo goes into the oncoming lane like any other, across the turner's arc, and braking
+        // or hitting it is the player's call (Tyler, 2026-10-25: "they are in control").
         //
         // Asked of every car off this lane as well as the leader, because the leader bookkeeping
         // lets go of a turner a little way into its arc, long before its tail is out of the lane.
@@ -6182,11 +6182,10 @@ export function createTraffic(
         // Never a cop, as below: its blinker and its arc are no promise to get out of the way.
         const turner = turners.find((c) => !clearOfLane(taxi, c)
           && aheadOf(c) < PASS_TRIGGER + CAR_LEN) ?? null;
-        const across = !turner && turners.length > 0;
         // And a peek stays out for its own turner only, never chaining on to the car behind it.
         const peekingOut = peekOn && taxi.dodgeLateral < 0;
         const passes = thrown
-          ? room && (was ? near && !peekingOut : !across)
+          ? room && (!was || (near && !peekingOut))
           : room && near && taxi.passArmed !== false && !turningAcross(leader);
         // A dodge wants the combo itself, never the lab's holding-is-enough rule, and pulls out
         // DODGE_LEAD short of the change's own length from the blocker — see `findDodge`.
@@ -7151,13 +7150,7 @@ export function createTraffic(
               // fleeing: that collapses a whole class of weight (see `rollExit`) and can arrive
               // after the intent was rolled, so the roll has to be re-run under the conditions
               // that actually hold at the line.
-              //
-              // Except the turner the taxi is peeking round (`peekOn`), which has to turn the way it
-              // signalled: re-rolled here or after a veto (below), it went straight 8 times in 16
-              // and the taxi rode the pavement beside it the length of the next block, 44 units
-              // against 22.
-              const peekedAt = peekOn && car === taxi.passTarget && taxi.dodgeLateral < 0;
-              const intent = car.scatter > 0.5 && !peekedAt ? null : intentFor(car);
+              const intent = car.scatter > 0.5 ? null : intentFor(car);
               chosen = intent && !closedLanes.has(intent.outLane)
                 ? intent
                 : rollExit(car, options);
@@ -7187,7 +7180,13 @@ export function createTraffic(
             // Not while the taxi is peeking round its *right* (`peeking`), which is waiting on
             // exactly that left: vetoed, the turner stood at its line for good and the taxi, held
             // beside its tail, ran into it 2 of 2 times.
-            if (car === taxi.passTarget && chosen?.hand === 'left' && !(taxi.dodgeLateral < 0)) {
+            //
+            // And not at all under the dumb combo (`peekOn`; Tyler, 2026-10-25): traffic that
+            // behaves one way for everyone is a rule the player can learn, and a car that waits
+            // only when the taxi happens to be passing it is not. A car signalling left turns
+            // left; the taxi out in the oncoming lane brakes for it or hits it.
+            const courtesy = !(peekOn && overtakeDumb);
+            if (courtesy && car === taxi.passTarget && chosen?.hand === 'left' && !(taxi.dodgeLateral < 0)) {
               chosen = null;
               vetoed = true;
             }
@@ -7220,9 +7219,7 @@ export function createTraffic(
             // fleeing the boosting taxi — are re-rolled at the line anyway, by the `intentFor`
             // call in the green branch above, which drops the intent under each of them.
             car.routeConsumed = false;
-            // Not the turner the taxi is peeking round, though, which keeps its blinker's word
-            // and waits for its gap — see `peekedAt` above.
-            if (vetoed && !(peekOn && car === taxi.passTarget && taxi.dodgeLateral < 0)) car.intentLane = null;
+            if (vetoed) car.intentLane = null;
             car.s = holdS - 0.02; // hold at the line, clear of the crosswalk
             // Pinning `s` stops the car; it does not stop the *car*. Everything downstream reads
             // `v` — the wheels, the body bob, the pitch spring's nose dip, the Loco weave, which

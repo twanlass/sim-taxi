@@ -1227,9 +1227,7 @@ the envelope the leader brake lets go (`seesLeader` asks both ways), so the taxi
 16 to 23 u/s through the probe's two peeks, where the first cut on the kerb at 1.5 crawled at the
 turner's speed. The margin is for the turner's tail, which swings toward the taxi as it yaws into
 the left: at the bare envelope a taxi arriving as the turner set off clipped its back corner 3
-times in 3. The turner is allowed its left while being peeked (the courtesy veto below is for a
-taxi on its *left*), and keeps the left it signalled rather than re-rolling it when it scatters or
-is refused a gap. Nothing on the pavement is solid, so the taxi drives through street furniture.
+times in 3. Nothing on the pavement is solid, so the taxi drives through street furniture.
 
 What counts, and for how long (`peekOn`; Tyler, 2026-10-25: "it chooses a sidewalk instead of the
 other lane"):
@@ -1237,13 +1235,15 @@ other lane"):
 - **A car still on its lane** peeks only from within `PASS_TRIGGER` of it, and only if it *intends*
   the left (`intendsLeft`) rather than showing a lamp: the blinker lingers `SIGNAL_LINGER` after a
   turn, so a car that had just come round a left onto the lane was peeked round and went straight.
-  From further back the turner will have gone by the time the taxi gets there, so it is the
-  oncoming lane, and the courtesy veto holds the turner at its line while the taxi goes by.
+  From further back it is the oncoming lane.
 - **A car already in its arc** is peeked round from close behind while its tail is still in the
-  lane. A block ahead, or already out of the lane, it is across the oncoming lane instead — pulled
-  out into, it was bumped on 42% of pull-outs — so the combo stays armed and the taxi keeps its own
-  lane, which is the clear one. Looked for among every car off the lane, not just the leader: the
-  leader bookkeeping lets go of a turner a little way into its arc.
+  lane. Looked for among every car off the lane, not just the leader: the leader bookkeeping lets
+  go of a turner a little way into its arc. A block ahead, or already out of the lane, it is the
+  oncoming lane, across the turner's arc.
+- **Traffic does not change for the taxi.** The courtesy veto below, which held a car being passed
+  at its line instead of letting it turn left across the taxi, is off under the dumb combo (Tyler,
+  2026-10-25: "If traffic behaves consistently no matter what the player can learn that rule and
+  adapt"). A turner turns when it would have; the taxi out in the oncoming lane brakes or hits it.
 - **The peek ends the moment the turner is out of the lane** (`clearOfLane`), and never chains on to
   the car behind it.
 
@@ -1253,7 +1253,7 @@ Measured by `tools/overtakecases.mjs` (the combo thrown 0.35s after catching eac
 | | pull-outs | up the kerb | road on the pavement (median) | bumped |
 |---|---|---|---|---|
 | first build (`?peek=classic`) | 248 | 99 (40%), 17 round a car that then went straight on | 33 units | 17% |
-| now | 247 | 66 (27%), every one round a car that turned left | 20 units | 18% |
+| now | 248 | 31 (13%) | 16 units | 23% |
 
 It also pulls out half way across a straight-through crossing (`thrownInBox`), where classic waits
 for the far side; behind a slow truck the taxi spends much of its time in the box. Over 8 cities ×

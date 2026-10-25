@@ -6156,10 +6156,10 @@ const PRESSURE_END = difficulty.getTuning().pressureEnd;
     nearTurner.turning && nearTurner.peeks === 1 && nearTurner.peak > 0.95 && nearTurner.hits === 0
       && nearTurner.kerbward < -2.5 && nearTurner.wide === 0 && nearTurner.vmin > SPEED * 1.5
       && nearTurner.kerbRoad < 26, turnSweep(nearTurner));
-  // From further back the turner will be gone by the time the taxi gets there: the oncoming lane,
-  // and the veto at the line holds it until the taxi is by.
+  // From further back it is the oncoming lane like any other pass. The turner is not held for it
+  // (Tyler, 2026-10-25): it turns when it would have, and the taxi brakes or hits it.
   const farTurner = turnerStage('', 'far');
-  check('...and from further back it takes the oncoming lane, the turner held at its line',
+  check('...and from further back it takes the oncoming lane',
     farTurner.turning && farTurner.peeks === 0 && farTurner.peak > 0.95 && farTurner.hits === 0
       && farTurner.kerbward === 0 && farTurner.wide > 2 * LANE - 0.5, turnSweep(farTurner));
   // Already round into its arc: peeked round too, at speed, and only until its tail is out of the
