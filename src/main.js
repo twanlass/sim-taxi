@@ -5937,6 +5937,43 @@ function speakBackstory(i) {
     ended: () => Boolean(voice.ended),
   };
 }
+function startBackstory(screen, done) {
+  tellBackstory(screen, { done, speak: speakBackstory });
+  // The camera goes to the garage and drifts there while dispatch talks (`storyFrame`) — so Play
+  // then eases down onto the door from close by. Off the slide it flies there (`STORY_GLIDE`),
+  // one continuous shot (Tyler, 2026-10-22); off the reel, which is all cuts, it cuts under the
+  // wipe, and so does reduced motion.
+  const glide = !titleReel && !(window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false);
+  const atGarage = () => {
+    titleReel?.clear();
+    const { target, zoom } = controller.state;
+    storyCam = { t: 0, glide, from: { x: target.x, z: target.z, zoom } };
+  };
+  if (opening) { if (wipe && !glide) wipe.cut(atGarage); else atGarage(); }
+}
+/**
+ * Demo mode holds between Play and the story for one more tap anywhere (or Enter/Space), so the
+ * presenter can talk over the city first (Tyler, 2026-10-25). Nothing on screen says so — a prompt
+ * would be talking to the audience. The camera stays on the title's slow slide meanwhile, which is
+ * built to be watched for minutes, and the glide to the garage waits for the tap: the story's own
+ * drift moves 0.35 units a second and would have wandered ~20 units off the door over a minute's
+ * preamble.
+ */
+function holdForPreamble(screen, then) {
+  const layer = document.createElement('div');
+  layer.className = 'title-story';
+  screen.append(layer);
+  const go = (event) => {
+    if (event.type === 'keydown' && event.key !== 'Enter' && event.key !== ' ') return;
+    event.preventDefault();
+    event.stopPropagation();
+    layer.remove();
+    window.removeEventListener('keydown', go, true);
+    then();
+  };
+  layer.addEventListener('click', go);
+  window.addEventListener('keydown', go, true);
+}
 const wantsTitle = !shot && !devMode && !consumeTitleSkip()
   && new URLSearchParams(window.location.search).get('title') !== 'off';
 const title = wantsTitle ? createTitleScreen(document.getElementById('title-screen'), {
@@ -5947,18 +5984,9 @@ const title = wantsTitle ? createTitleScreen(document.getElementById('title-scre
   // see game/backstory.js. `?intro=classic` goes straight to the garage as before.
   beforePlay: (done) => {
     if (!wantsBackstory()) return false;
-    tellBackstory(document.getElementById('title-screen'), { done, speak: speakBackstory });
-    // The camera goes to the garage and drifts there while dispatch talks (`storyFrame`) — so Play
-    // then eases down onto the door from close by. Off the slide it flies there (`STORY_GLIDE`),
-    // one continuous shot (Tyler, 2026-10-22); off the reel, which is all cuts, it cuts under the
-    // wipe, and so does reduced motion.
-    const glide = !titleReel && !(window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false);
-    const atGarage = () => {
-      titleReel?.clear();
-      const { target, zoom } = controller.state;
-      storyCam = { t: 0, glide, from: { x: target.x, z: target.z, zoom } };
-    };
-    if (opening) { if (wipe && !glide) wipe.cut(atGarage); else atGarage(); }
+    const screen = document.getElementById('title-screen');
+    if (demo.on()) { holdForPreamble(screen, () => startBackstory(screen, done)); return true; }
+    startBackstory(screen, done);
     return true;
   },
   onPlay: () => {
