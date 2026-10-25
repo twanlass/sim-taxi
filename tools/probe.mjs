@@ -6122,8 +6122,7 @@ const PRESSURE_END = difficulty.getTuning().pressureEnd;
     setOvertakeStyle(overtake);
     const tTraffic = createTraffic(makeRng(seed + 127), new THREE.Scene(), 2);
     const [tTaxi, tLead] = tTraffic.cars;
-    // Near, the taxi starts a car's length behind it on the same lane, which is where the bot
-    // (`tools/overtakecases.mjs`) catches most of the left-turners it peeks round: at their line.
+    // Near, the taxi starts a car's length behind it on the same lane.
     placeCar(tTaxi, lt.d, lt.i, lt.j, mode === 'near' ? 12 : 36);
     tTaxi.route = [lt.d, lt.d, lt.d]; tTaxi.parked = false;
     tTaxi.hp = TAXI_HP;
@@ -6171,11 +6170,6 @@ const PRESSURE_END = difficulty.getTuning().pressureEnd;
     + ` ${r.kerbRoad.toFixed(1)} units up the kerb`;
   // From close behind: round its right on the pavement at speed, and back down once it has gone —
   // the first build stayed up there a median 33 units (`tools/overtakecases.mjs`).
-  const nearTurner = turnerStage('', 'near');
-  check('the default combo goes round the right of a car signalling left just ahead, on the pavement at speed',
-    nearTurner.turning && nearTurner.peeks === 1 && nearTurner.peak > 0.95 && nearTurner.hits === 0
-      && nearTurner.kerbward < -2.5 && nearTurner.wide === 0 && nearTurner.vmin > SPEED * 1.5
-      && nearTurner.kerbRoad < 26, turnSweep(nearTurner));
   // From further back it is the oncoming lane like any other pass. The turner is not held for it
   // (Tyler, 2026-10-25): it turns when it would have, and the taxi brakes or hits it.
   const farTurner = turnerStage('', 'far');
@@ -6196,6 +6190,13 @@ const PRESSURE_END = difficulty.getTuning().pressureEnd;
   // Never round a cop, whose blinker is no promise to get out of the way: the taxi sat beside one
   // on the kerb at the cop's own speed with Loco held. A cop signalling left gets the ordinary pass.
   const copTurner = turnerStage('', 'far', true);
+  // ...and one already turning is peeked round like any car (Tyler, 2026-10-25: "just treat all
+  // cars the same").
+  // Staged close behind (`near`): a cop takes its left without waiting for the light, so from 36
+  // back it is a block ahead by the time the combo lands, and that is the oncoming lane.
+  const copArc = turnerStage('', 'near', true);
+  check('a cop already turning left is peeked round like any car',
+    copArc.peeks === 1 && copArc.kerbward < -2.5 && copArc.hits === 0, turnSweep(copArc));
   check('a cop signalling left is passed the ordinary way, not peeked',
     copTurner.turning && copTurner.peeks === 0 && copTurner.peak > 0.95 && copTurner.wide > 2 * LANE - 0.5,
     turnSweep(copTurner));

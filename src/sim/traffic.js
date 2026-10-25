@@ -918,15 +918,14 @@ const peeking = (car, leader) => car.passing && car.dodgeLateral < 0 && leader &
  * 99 were round a car that then went straight on, because the lamp lingers SIGNAL_LINGER after the
  * turn a car has just finished. Measured by `tools/overtakecases.mjs` over 60 cities × 60s.
  *
- * `peekOn` keeps the peek to a car right in front that is really turning: one still on its lane
- * within PASS_TRIGGER that intends the left (`intendsLeft`, not the lamp), or one already in its
- * arc whose tail is still in the lane. Anything else is the oncoming lane, and traffic does not
- * change for it: the courtesy veto that held a passed turner at its line is off, so a turner turns
- * when it would have and the player brakes or hits it (Tyler, 2026-10-25: "If traffic behaves
- * consistently no matter what the player can learn that rule and adapt"). The peek ends the frame
- * the turner is out of the taxi's lane (`clearOfLane`), never chaining on to the car behind it.
- * With the taxi's scatter off too (`setTaxiScatter`): 8% of pull-outs, a median 17 units, every
- * one round a car that turned left; bumps 19% against 17%.
+ * `peekOn` keeps the peek to a car right in front that is actually turning: one part way round its
+ * left whose tail is still in the taxi's lane, cop or not (Tyler, 2026-10-25). Not the blinker —
+ * a car waiting at its line is passed in the oncoming lane like any other. Anything else is the
+ * oncoming lane, and traffic does not change for it: the courtesy veto that held a passed turner
+ * at its line is off, and so is the flee (`setTaxiScatter`), so a turner turns when it would have
+ * and the player brakes or hits it (Tyler, 2026-10-25: "If traffic behaves consistently no matter
+ * what the player can learn that rule and adapt"). The peek ends the frame the turner is out of
+ * the taxi's lane (`clearOfLane`), never chaining on to the car behind it.
  *
  * `?peek=classic` is the first build: any blinker, held like a pass.
  */
@@ -5453,15 +5452,6 @@ export function createTraffic(
     return { turn: onto, ahead, verdict: bridgeStunt.gate(car) };
   }
 
-  /** Is `car` going to turn left at the end of this lane — its intent, not a lingering lamp? */
-  function intendsLeft(car) {
-    if (car.state !== 'drive') return false;
-    if (car.route?.length) return exitToward(net, car.lane, car.route[0])?.hand === 'left';
-    // Only an intent already rolled for this lane: rolling one here would draw the dice early.
-    if (car.intentLane !== car.lane.id || !car.intentTurn) return false;
-    return net.turnById.get(car.intentTurn)?.hand === 'left';
-  }
-
   function intentFor(car) {
     if (car.route?.length) return exitToward(net, car.lane, car.route[0]);
     if (car.intentLane !== car.lane.id) {
@@ -6187,12 +6177,13 @@ export function createTraffic(
         // carrying its exit lane as `lane`.
         const inLane = taxi.state === 'turn' ? taxi.turn?.inLane : taxi.lane.id;
         const turners = peekOn && thrown && !was
-          ? cars.filter((c) => c !== taxi && !c.crashed && !c.police && turningLeft(c)
+          ? cars.filter((c) => c !== taxi && !c.crashed && turningLeft(c)
             && (c === leader || c.turn.inLane === inLane))
           : [];
         const sign = dirSign(taxi.d);
         const aheadOf = (c) => (isXAxis(taxi.d) ? c.x - taxi.x : c.z - taxi.z) * sign;
-        // Never a cop, as below: its blinker and its arc are no promise to get out of the way.
+        // A cop too (Tyler, 2026-10-25: "just treat all cars the same"): one part way round a left
+        // is leaving the lane like anyone else.
         const turner = turners.find((c) => !clearOfLane(taxi, c)
           && aheadOf(c) < PASS_TRIGGER + CAR_LEN) ?? null;
         // And a peek stays out for its own turner only, never chaining on to the car behind it.
@@ -6214,16 +6205,17 @@ export function createTraffic(
             taxi.dodgeLateral = dodge.lateral;
             taxi.dodges += 1;
           }
-          // Behind a car signalling left, the peek round its right instead (see `peeking`). The
-          // lamp alone is not enough (`peekOn`): it lingers SIGNAL_LINGER after a turn, so a car
-          // that had just come round a left onto this lane, or dropped one at the line, was still
-          // showing it — 6 of 17 peeks were round a car that then went straight on. Not
-          // behind a cop: a peek waits beside the turner's tail for it to swing away, and a cop
-          // blocking or chasing is not going anywhere it signals — the taxi sat beside one on the
-          // kerb, crawling at the cop's speed with Loco held (Tyler, 2026-10-20, a clip).
-          if (turner || (thrown && leader && taxi.passTarget === leader && leader.signalHand === 'left'
-            && !leader.police
-            && (!peekOn || (leader.state === 'drive' && gap < PASS_TRIGGER && intendsLeft(leader))))) {
+          // Round a car actually turning left, the peek round its right instead (see `peeking`).
+          // Only a car in its arc (`turner`, `peekOn`): never the blinker, which lingers
+          // SIGNAL_LINGER after a turn and promises nothing the player can check — a car waiting
+          // at its line to turn is passed in the oncoming lane like any other.
+          //
+          // `?peek=classic` is the blinker rule as first built, which left cops out: a peek waits
+          // beside the turner's tail for it to swing away, and a cop blocking or chasing is not
+          // going anywhere it signals (Tyler, 2026-10-20, a clip).
+          const blinkerPeek = !peekOn && thrown && leader && taxi.passTarget === leader
+            && leader.signalHand === 'left' && !leader.police;
+          if (turner || blinkerPeek) {
             taxi.dodgeLateral = -peekLateral();
             taxi.peeks += 1;
           }
