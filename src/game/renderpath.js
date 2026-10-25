@@ -12,7 +12,8 @@
 // has none of them.
 
 import {
-  setAmbientOcclusion, setCrayon, setCartoon, setPainterly, setPaintBrushes, setJunctionPaving, setClassicPaint,
+  setAmbientOcclusion, setCrayon, setCartoon, setPainterly, setPaintBrushes, setJunctionPaving, setRoadStrokes,
+  setClassicPaint,
   setPaintLook, setRim, rimTuning, setRimTuning, setFlip, setVehiclePaint, setCloudShadows, rimPaintOn, setRimDepth,
 } from '../util/geo.js';
 import {
@@ -60,15 +61,19 @@ export function decideLooks(budget) {
   setAmbientOcclusion(budget.ao);
   // Crayon Mode, the same kind of decision: see `game/crayon.js` for its three layers.
   setCrayon(budget.crayon);
-  // Prototype painterly look (PAINT_* in util/geo.js, game/brushtiles.js): painted strokes on the
-  // streets only, fading out in block-sized patches. The shadow edge, wall fade and wall/roof/lawn
-  // strokes are still in, dialled to 0. `?painterly=classic` is the old look.
-  const painterly = new URLSearchParams(location.search).get('painterly') !== 'classic';
+  // The painterly pass (PAINT_* in util/geo.js, game/brushtiles.js) on the ground. It carries the
+  // paved junction, and once carried painted strokes along the streets; those are off by default
+  // since 2026-10-25 (Tyler: "toggle off the street streaks") and `?roadstrokes=classic` brings
+  // them back. The shadow edge, wall fade and wall/roof/lawn strokes are still in, dialled to 0.
+  // `?painterly=classic` drops the whole pass, plaza included.
+  const params = new URLSearchParams(location.search);
+  const painterly = params.get('painterly') !== 'classic';
   setPainterly(painterly);
   if (painterly) {
     const tiles = createBrushTiles();
     setPaintBrushes(tiles.wall, tiles.ground, tiles.road);
-    setJunctionPaving(new URLSearchParams(location.search).get('roads') !== 'classic');
+    setJunctionPaving(params.get('roads') !== 'classic');
+    setRoadStrokes(params.get('roadstrokes') === 'classic');
   }
   setClassicPaint(getPaintClassic());
   setPaintLook(getPaintLook());

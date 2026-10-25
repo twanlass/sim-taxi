@@ -875,3 +875,11 @@ edge to it, so it stopped where the colour stopped. Tyler (2026-10-25): "They ne
 might look good not in red." Replaced by charcoal setts in a band-and-soldier-course frame; see
 [rendering.md](rendering.md#roads-bridges-and-the-paved-junction).
 
+
+## Painted street strokes (#539 until 2026-10-25, `?roadstrokes=classic`)
+
+From #539 the asphalt carried dry-brush strokes, lighter or darker and a hair red or blue, fading in
+and out in block-sized patches, so the road read as painted rather than flat grey. Tyler
+(2026-10-25): "Let's toggle off the street streaks / texture." The strokes are dialled to 0 rather
+than removed, so the paved junction, which lives in the same pass, keeps drawing; see
+[rendering.md](rendering.md#painted-streets--gamebrushtilesjs-paint_-in-utilgeojs).
