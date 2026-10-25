@@ -480,7 +480,8 @@ function createRivalMesh() {
  *                 count, the money. This module knows a race happened, not what a run's cash is.
  * @param soon     `?race=soon`
  * @param hydraulics false for `?hydraulics=classic`: the body sits still on its wheels
- * @param readyGate false for `?raceready=classic`: the count starts when the camera is back
+ * @param readyGate true for `?racetap=classic`: the count waits on a tap on "Ready?" (by default it
+ *                 starts when the camera is back)
  * @param lateReveal false for `?racereveal=classic`: the finish is down before the camera pans to it
  * @param snapCut false for `?racecut=classic`: the winner pulls up for WINNER_HOLD_CLASSIC before the cut
  * @param firstDue the drop-off the first racer turns up at, overriding DROPS_BETWEEN — Demo mode's 1
@@ -1151,7 +1152,7 @@ export function createRace({
   }
 
   /** Start the count — called when the camera is back from the finish, or by `REVEAL_MAX`. */
-  /** The look at the finish is done: "Ready?" (or straight to the count, `?raceready=classic`). */
+  /** The look at the finish is done: straight to the count (or "Ready?", `?racetap=classic`). */
   function countIn() {
     if (state.phase !== 'reveal') return;
     // A swipe mid-pan drops the camera's callback, so the finish may never have been looked at.

@@ -2181,13 +2181,16 @@ for (const mesh of fire.emissiveMeshes) markEmissive(mesh, 'siren');
 // board steps aside the way it does for a getaway (`setHold`). `?race=classic` has no racers in the
 // city; `?race=soon` brings the first one a few seconds in.
 const raceParam = new URLSearchParams(window.location.search).get('race');
+// No "Ready?" to tap (Tyler cut it): the count starts as soon as the camera is back from the
+// finish. `?racetap=classic` keeps it — the count waits on a tap on the racer's "Ready?".
+const raceTapClassic = new URLSearchParams(window.location.search).get('racetap') === 'classic';
 race = shot || raceParam === 'classic' ? null : createRace({
   rng: makeRng(runSeed + 743), scene, traffic, routeTo,
   soon: raceParam === 'soon',
   // The racer's body bounces on hydraulics in the race's scenes (game/hydraulics.js).
   hydraulics: new URLSearchParams(window.location.search).get('hydraulics') !== 'classic',
-  // The racer asks "Ready?" once the camera is back from the finish, and the tap on it is the start.
-  readyGate: new URLSearchParams(window.location.search).get('raceready') !== 'classic',
+  // `?racetap=classic`: the racer asks "Ready?" once the camera is back, and the tap on it is the start.
+  readyGate: raceTapClassic,
   // The finish goes down as the camera arrives on it, rather than before the pan.
   lateReveal: new URLSearchParams(window.location.search).get('racereveal') !== 'classic',
   snapCut: new URLSearchParams(window.location.search).get('racecut') !== 'classic',
@@ -3283,7 +3286,7 @@ createPicker(
     // (game/race.js, `locked`); and once the racer has asked, a tap anywhere but on it (or its
     // card, which answers on its own pointerup) turns it down — "Next time, then." — and then does
     // whatever it would have done.
-    // The one tap the start takes is the racer's "Ready?" — on its card, or on the car itself.
+    // `?racetap=classic`: the start waits on a tap on the racer's "Ready?" — on its card, or the car.
     if (kind === 'racer' && race?.ready()) return;
     if (race?.locked()) return;
     if (kind !== 'racer') race?.decline();

@@ -2755,12 +2755,10 @@ someone who tapped, rather than one more line on a busy screen). Tap it again an
 spot ("You're on!"), then the screen cuts to black and opens close up on the two cars side by side, window to window ("Round the flag and back."). A
 corner is marked across the island (a white waypoint ring with a chequered flag flying over it, 4-8
 blocks away and never on the ring road, which is in the fog), the camera goes to look at it and
-comes back, the racer asks "Ready?" (and hops), and the tap on it, on its card or on the car,
-starts the count: three, two, one, and the two cars set off together, drag-race style. Tyler wanted
-the player to say when ("tapping that is what triggers the countdown"). Left untapped it nags once
-at `READY_NAG` (6s, "Tap me when you're ready!") and counts in on its own at `READY_MAX` (15s): the
-taxi is held and every fare's clock with it until the green, so a run must not be able to wait there
-forever. `?raceready=classic` counts in as soon as the camera is back.
+comes back, and the count starts: three, two, one, and the two cars set off together, drag-race
+style. There used to be one more tap, on a "Ready?" before the count; Tyler cut it, and
+`?racetap=classic` puts it back — see
+[gameplay-history.md](gameplay-history.md#the-street-races-ready-tap-until-october-2026-racetapclassic).
 The finish is not put down until the camera gets there: the ring grows in and the flag goes up on
 screen, and the look holds `RACE_PEEK_HOLD` (1.4s) so it can be watched arriving (Tyler: "wait till
 the camera pans there and then spawn the checkpoint so you can visually see where it is").
