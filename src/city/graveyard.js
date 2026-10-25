@@ -96,12 +96,6 @@ const COPE_H = 0.1;
 // Wider than the coping, so a corner's two copings meet inside the pier and not on show.
 const WALL_PIER = 0.56;
 const WALL_PIER_H = WALL_H + COPE_H + 0.32;
-// A few stones set into the wall's faces, each a shade off the wall (Tyler, 2026-10-25: "no
-// bricks, just a few stones"). A course of blocks read as brick; a scatter reads as rubble set in
-// render. Stones are 0.35-0.65 by 0.2-0.32: at least three device pixels tall at play zoom on a phone.
-/** Average spacing between stones along one face, and how far each stands out of it. */
-const STONE_GAP = [0.9, 2.0];
-const STONE_PROUD = 0.03;
 // Was 3.2 until 2026-10-17: Tyler found the piers along the plinth read as more headstones from
 // across the map, so there are half as many, in a warmer stone than the graves (`gravePier`).
 const PIER_PITCH = 6.4;
@@ -252,7 +246,9 @@ function fenceRun(ax, az, bx, bz, stone, iron, parts, cap) {
   const len = alongX ? bx - ax : bz - az;
   const mid = (a, b) => (a + b) / 2;
   if (FENCE_MODE === 'wall') {
-    wallStones(ax, az, bx, bz, stone, parts);
+    parts.push(alongX
+      ? box(len, WALL_H, WALL_W, mid(ax, bx), FOOT, az, stone)
+      : box(WALL_W, WALL_H, len, ax, FOOT, mid(az, bz), stone));
     parts.push(alongX
       ? box(len, COPE_H, COPE_W, mid(ax, bx), FOOT + WALL_H, az, cap)
       : box(COPE_W, COPE_H, len, ax, FOOT + WALL_H, mid(az, bz), cap));
@@ -286,40 +282,6 @@ function fenceRun(ax, az, bx, bz, stone, iron, parts, cap) {
   }
 }
 
-/**
- * One run of wall: the wall itself and a few stones set into each face. Drawn off `hash01` on each
- * stone's position rather than the lot's rng, so laying stones moves no headstone.
- */
-function wallStones(ax, az, bx, bz, stone, parts) {
-  const alongX = az === bz;
-  const a0 = alongX ? ax : az;
-  const a1 = alongX ? bx : bz;
-  const across = alongX ? az : ax;
-  const mid = (a0 + a1) / 2;
-  parts.push(alongX
-    ? box(a1 - a0, WALL_H, WALL_W, mid, FOOT, across, stone)
-    : box(WALL_W, WALL_H, a1 - a0, across, FOOT, mid, stone));
-  for (const side of [-1, 1]) {
-    // Half embedded, so the stone stands STONE_PROUD out and its back is buried in the wall.
-    const at = across + side * (WALL_W / 2);
-    const d = 2 * STONE_PROUD;
-    let s = a0 + 0.3 + hash01(at, a0) * STONE_GAP[0];
-    while (s < a1 - 0.6) {
-      const r = (n) => hash01(s * 3.1 + n * 1.7, at * 2.3 + n);
-      const l = 0.35 + 0.3 * r(1);
-      const h = 0.2 + 0.12 * r(2);
-      // Clear of the ground and of the coping, so a stone never shares a plane with either.
-      const y = FOOT + 0.08 + (WALL_H - h - 0.16) * r(3);
-      // Just off the wall: a touch lighter or darker, never the same.
-      const shade = (r(4) < 0.5 ? -1 : 1) * (0.04 + 0.04 * r(5));
-      const tone = stone.clone().offsetHSL((r(6) - 0.5) * 0.01, 0, shade);
-      const m = s + l / 2;
-      parts.push(alongX ? box(l, h, d, m, y, at, tone) : box(d, h, l, at, y, m, tone));
-      s += l + STONE_GAP[0] + (STONE_GAP[1] - STONE_GAP[0]) * r(7);
-    }
-  }
-}
-
 function pier(x, z, h, w, stone, cap, parts) {
   parts.push(box(w, h, w, x, FOOT, z, stone));
   parts.push(box(w + 0.12, 0.1, w + 0.12, x, FOOT + h, z, cap));
@@ -327,8 +289,9 @@ function pier(x, z, h, w, stone, cap, parts) {
 
 function fenceParts(site, rng, parts) {
   const { fence, gateX } = site;
-  const stone = jitterColor(color('gravePier'), rng, { l: 0.02 });
-  const cap = color('gravePierCap');
+  const wall = FENCE_MODE === 'wall';
+  const stone = jitterColor(color(wall ? 'graveWall' : 'gravePier'), rng, { l: 0.02 });
+  const cap = color(wall ? 'graveWallCap' : 'gravePierCap');
   const iron = color('graveIron');
   const pierW = FENCE_MODE === 'wall' ? WALL_PIER : PIER;
   const pierH = FENCE_MODE === 'wall' ? WALL_PIER_H : PIER_H;

@@ -808,7 +808,7 @@ green wave.
 
 It is scenery only. Nothing routes into it, nothing on it can be tapped, and the fare loop doesn't
 know it exists. A low stone wall with a coping runs round the lawn, with an iron gate in the middle
-of the +Z fence. A few stones set into its faces stand 0.03 proud, each a shade off the wall. It replaced an iron railing on a stone plinth (`?fence=classic`) whose 0.07 pickets
+of the +Z fence, in concrete a shade darker and a touch bluer than the sidewalk (`graveWall`). It replaced an iron railing on a stone plinth (`?fence=classic`) whose 0.07 pickets
 every 0.3 put a one-pixel picket every 4.6 pixels on a phone at play zoom: MSAA cannot resolve a
 pattern that fine, and the run crawled whenever the camera moved. `?fence=railing` is the middle
 road that was tried beside it — the same railing at 0.14 on a 0.6 pitch — which still carries a
