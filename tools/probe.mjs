@@ -18585,6 +18585,21 @@ let chopperOrder; // likewise
         check('...but not under ?robberyodds=classic', flat.robberOdds() === 0.5 && flat.state.bankRides === 0);
         const always = createFareSystem(makeRng(seed + 901), new THREE.Scene(), { alwaysRob: true });
         check('...and under BANK_ROBBER_ALWAYS every bank rider is the robbery', always.robberOdds() === 1);
+        const demoFares = createFareSystem(makeRng(seed + 902), new THREE.Scene(), { alwaysRob: false, forceRob: () => true });
+        check('...and so under Demo mode, read live', demoFares.robberOdds() === 1);
+        // `forced` in game/robbery.js: Demo mode waives the fairness gates, so a VIP or a rider
+        // running out on the kerb no longer sends the bank rider into the cab as an ordinary fare.
+        const gated = (forced) => {
+          const fx = createFareSystem(makeRng(seed + 903), new THREE.Scene());
+          fx.state.delivered = 0;
+          fx.state.fares.push({ stage: 'waiting', vip: true, timeLeft: 1, limit: 100 });
+          const tx = createTraffic(makeRng(seed + 44), new THREE.Scene(), 10, 18);
+          const rx = createRobbery({ site: bank, taxi: tx.taxi, fares: fx, traffic: tx, trigger: 'fare', forced: () => forced });
+          rx.state.since = 0;
+          return rx.swapReady();
+        };
+        check('...and Demo mode robs past the fairness gates (cooldown, count, VIP, a rider running out)',
+          gated(true) && !gated(false));
       }
       // BANK_REACH_ALONG: by default the bank rider is collected level with the steps, on the bank's
       // own street, and routed down it. The junction's ARRIVE_RADIUS fired from round the corner —
