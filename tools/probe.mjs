@@ -97,7 +97,7 @@ import { barricadeParts, spoilParts, RAMP_RUN, RAMP_H, WORKS_Y, TRENCH_Y, SPLINT
 import {
   findRoute as planRoute, setRoadworkLanes, setBlockedLanes, setHazardLanes, laneCost, serviceLaneCost,
 } from '../src/game/route.js';
-import { createCollisions, TAXI_HP, bumpDamage, penetration, setCrush } from '../src/sim/collisions.js';
+import { createCollisions, TAXI_HP, bumpDamage, penetration, setCrush, setCrushSplash, CRUSH_SPLASH } from '../src/sim/collisions.js';
 import { createTaxiDamage } from '../src/game/taxidamage.js';
 import { createCarDamage } from '../src/game/cardamage.js';
 import { BODY_TOP } from '../src/geometry/damage.js';
@@ -20996,6 +20996,65 @@ let chopperOrder; // likewise
     const classic = crushRun({ classic: true });
     check('?crush=classic charges the landing as a hit again', classic.crush === 0 && classic.hp < TAXI_HP,
       `crush ${classic.crush}, hp ${classic.hp}`);
+
+    // The splash: two more cars parked further down the same lane past the one landed on, `near`
+    // and `far` units on from it, centre to centre. Nothing else moves them, so the only way either
+    // is crashed is the splash. The lane is short (10.7 on the probe's city), and `placeCar` clamps
+    // a `back` longer than it to the lane's start, which is where the taxi and the first car sit.
+    const splashRun = ({ near = 4, far = 6.6, truck = false, classic = false } = {}) => {
+      setCrush(null);
+      setCrushSplash(classic ? 'classic' : null);
+      const pTraffic = createTraffic(makeRng(seed + 97), new THREE.Scene(), 4);
+      const out0 = {};
+      const pTaxi = pTraffic.taxi;
+      const [other, nearCar, farCar] = pTraffic.cars.filter((c) => c !== pTaxi);
+      if (truck) nearCar.isTruck = true;
+      const d = [DIR.PX, DIR.NX, DIR.PZ, DIR.NZ].find((dd) => placeCar(pTaxi, dd, 2, 2, 14));
+      const start = pTaxi.lane.length;
+      placeCar(other, d, 2, 2, start);
+      placeCar(nearCar, d, 2, 2, start - near);
+      placeCar(farCar, d, 2, 2, start - far);
+      for (const c of [other, nearCar, farCar]) c.v = 0;
+      pTaxi.parked = false;
+      pTaxi.boost = true;
+      pTaxi.hp = TAXI_HP;
+      pTaxi.v = 31;
+      pTaxi.hopFrom = pTaxi.travelled - DRIFT_LAUNCH_LEN * 0.9;
+      pTaxi.hopBig = true;
+      const pCollisions = createCollisions(pTraffic.cars, pTaxi);
+      const out = { splash: [], bumps: 0, wrecks: 0, ...out0 };
+      pCollisions.onCrush(({ splash }) => { out.splash = splash.map((s) => s.car); });
+      pCollisions.onBump(() => { out.bumps += 1; });
+      pCollisions.onImpact(() => { out.wrecks += 1; });
+      for (let f = 0; f < 60; f++) {
+        pTraffic.update(1 / 60);
+        // Where they stand, read once the sim has turned the lane positions into x/z.
+        if (f === 0) {
+          out.gap = Math.hypot(nearCar.x - other.x, nearCar.z - other.z);
+          out.farGap = Math.hypot(farCar.x - other.x, farCar.z - other.z);
+        }
+        pCollisions.update(1 / 60);
+      }
+      out.near = out.splash.includes(nearCar) && nearCar.crashed === true;
+      out.far = farCar.crashed === true || out.splash.includes(farCar);
+      out.hp = pTaxi.hp;
+      pTraffic.dispose?.();
+      setCrushSplash(null);
+      return out;
+    };
+    const sp = splashRun();
+    check(`the crush splashes: a car ${sp.gap.toFixed(1)} on from the one landed on goes up with it, `
+      + `one ${sp.farGap.toFixed(1)} on does not (splash ${CRUSH_SPLASH.toFixed(2)})`,
+      sp.near && !sp.far && sp.splash.length === 1 && sp.gap < CRUSH_SPLASH && sp.farGap > CRUSH_SPLASH,
+      `near ${sp.near}, far ${sp.far}, splash ${sp.splash.length}`);
+    // Further on than the car was: a truck's tail reaches 2.8 back from its centre, and one parked
+    // 4 on from the car landed on is touching the taxi already, which is a hit.
+    const spTruck = splashRun({ truck: true, near: 5.5 });
+    check('...a truck caught in the splash goes up too', spTruck.near,
+      `near ${spTruck.near}, splash ${spTruck.splash.length}, gap ${spTruck.gap.toFixed(1)}`);
+    const spOld = splashRun({ classic: true });
+    check('?crushsplash=classic crushes only the car landed on', spOld.splash.length === 0 && !spOld.near,
+      `splash ${spOld.splash.length}`);
   }
 
   // --- Nothing paints a stop bar on the bridge.
