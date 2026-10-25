@@ -2200,6 +2200,10 @@ race = shot || raceParam === 'classic' ? null : createRace({
   snapCut: new URLSearchParams(window.location.search).get('racecut') !== 'classic',
   // Demo mode: the first racer turns up after the first drop-off rather than the 2nd to 4th.
   firstDue: demo.on() ? 1 : null,
+  // The rocket start: Loco pressed on the count's "2" and held to the green launches on the drift's
+  // tier-1 kick. `?rocketstart=classic` has no such thing.
+  loco: () => boost.state.held,
+  rocketStart: new URLSearchParams(window.location.search).get('rocketstart') !== 'classic',
   // The underglow pulses to whatever the music is doing (game/sfx.js, `bass`).
   bass: () => sfx?.bass?.() ?? 0,
   // Nothing turns up over anything that owns the run, or over a trip the taxi is already on to the
@@ -2361,6 +2365,23 @@ function onRaceEvent(type, detail) {
     // flight has not landed yet is made good here.
     const floor = raceFullTank ? 1 : TANK_FLOOR;
     if (boost.fraction() < floor) boost.topUp(floor - boost.fraction());
+  } else if (type === 'rocket-start') {
+    // The pill went down on the "2" and stayed down: the taxi is already doing the drift's tier-1
+    // kick (game/race.js, ROCKET_COUNT). Said the way a drift kick says it — the bark of fire, the
+    // shake, the whoosh — plus a word, since nothing anywhere tells the player the egg exists and
+    // it has to be obvious that the press did something.
+    const car = traffic.taxi;
+    haptic('drift-kick');
+    controller.kickShake(0.5);
+    sfx?.locoOn();
+    stampAllRubber(car);
+    flames.burst(
+      car.x - Math.cos(car.yaw) * TAXI_TAILPIPE_BACK,
+      TAXI_TAILPIPE_HEIGHT,
+      car.z + Math.sin(car.yaw) * TAXI_TAILPIPE_BACK,
+      car.yaw,
+    );
+    popLabel('Rocket start!', 'is-count', RACE_LABEL_MS);
   } else if (type === 'rounded') {
     // Halfway: the flag has just jumped back to the start line, which is easy to miss on a phone.
     popLabel('Head back!', 'is-count', RACE_LABEL_MS);

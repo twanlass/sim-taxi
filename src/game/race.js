@@ -4,7 +4,7 @@ import { GRID_I, GRID_J, lineX, lineZ, riverBanks, rightOf } from '../city/grid.
 import { cityNetwork } from '../city/roadnet.js';
 import {
   carGeometry, setClosedLanes, isLaneClosed, stageCar, releaseCar, STOP_SETBACK, CAR_LEN, CAR_W,
-  CABIN_X, CABIN_TOP, SPAWN_CLEARANCE, ROAD_Y, stopDistance,
+  CABIN_X, CABIN_TOP, SPAWN_CLEARANCE, ROAD_Y, stopDistance, launchKick,
 } from '../sim/traffic.js';
 import { findRoute, planOrigin, estimateSeconds, laneCost } from './route.js';
 import { BILLBOARD, VIEW_UP } from './camera.js';
@@ -95,6 +95,14 @@ const REVEAL_MAX = 6;
 export const COUNTDOWN = 3;     // three, two, one
 // Seconds per number: "slow the countdown a touch" (Tyler) from the 1s it was.
 export const COUNT_STEP = 1.25;
+// The rocket start (Tyler: "if you hold boost when the #2 is shown during the countdown give the
+// player a boost equivalent to drift level 1 when the race begins ala Mario Kart"). The number the
+// press has to come down on. Only a fresh press on it counts, and only if it is still down at the
+// green: a thumb already on the pill from the "3" (or from before the count) gets a plain start,
+// and so does one that comes off again during the "1". Mario Kart burns out a press that early;
+// here it is only no reward, because nobody is told the egg exists and holding the pill ready
+// through a countdown is what a player who has never heard of it does anyway.
+export const ROCKET_COUNT = 2;
 // The count waits on the player (Tyler: "have the racer type out a speech bubble that says ready?
 // And then tapping that is what triggers the countdown"): after the look at the finish the racer
 // asks "Ready?" and the tap on it is the start. Untapped, it nags once at READY_NAG and counts in
@@ -485,12 +493,15 @@ function createRivalMesh() {
  * @param lateReveal false for `?racereveal=classic`: the finish is down before the camera pans to it
  * @param snapCut false for `?racecut=classic`: the winner pulls up for WINNER_HOLD_CLASSIC before the cut
  * @param firstDue the drop-off the first racer turns up at, overriding DROPS_BETWEEN — Demo mode's 1
+ * @param loco     `() => boolean` — is the Loco pill down right now; read through the count for the
+ *                 rocket start
+ * @param rocketStart false for `?rocketstart=classic`: the pill on the "2" is no different at the green
  */
 export function createRace({
   rng, scene, traffic, routeTo, blocked = () => false, interrupted = () => false, canStart = () => true,
   seen = () => false, delivered = () => 0, onEvent = () => {}, soon = false, bass = () => 0,
   hydraulics = true, readyGate = true, lateReveal = true, snapCut = true,
-  firstDue = null,
+  firstDue = null, loco = () => false, rocketStart = true,
 }) {
   const taxi = traffic.taxi;
   // Everything the player sees off the car goes through here, so the pumps hear it first.
@@ -608,6 +619,10 @@ export function createRace({
     fading: 0,
     /** The last whole second the countdown announced, so each is said once. */
     count: 0,
+    /** The rocket start: was the pill down last frame, and did a press come down on ROCKET_COUNT? */
+    locoWas: false,
+    rocketArmed: false,
+    rocketStarts: 0,
     // What happened, for the tools.
     offers: 0,
     // Has the player tapped the racer once, and been asked (`ask`)?
@@ -1180,6 +1195,9 @@ export function createRace({
 
   function startCount() {
     state.count = COUNTDOWN + 1;
+    // A thumb already on the pill as the count begins is not a press on the "2".
+    state.locoWas = loco();
+    state.rocketArmed = false;
     setPhase('countdown');
   }
 
@@ -1205,6 +1223,13 @@ export function createRace({
     steerToFinish(car);
     routeTo(state.finish);
     onEvent('go', { car });
+    // After the route, so the taxi is off its park when the kick goes on.
+    if (rocketStart && state.rocketArmed && loco() && !taxi.crashed && taxi.lane) {
+      launchKick(taxi);
+      state.rocketStarts += 1;
+      onEvent('rocket-start', { car });
+    }
+    state.rocketArmed = false;
   }
 
   function finish(result) {
@@ -1415,6 +1440,12 @@ export function createRace({
           state.count = left;
           onEvent('count', { n: left });
         }
+        // The rocket start: armed by a press that comes down while ROCKET_COUNT is up, disarmed by
+        // letting go. A press on any other number arms nothing.
+        const held = loco();
+        if (held && !state.locoWas) state.rocketArmed = state.count === ROCKET_COUNT;
+        if (!held) state.rocketArmed = false;
+        state.locoWas = held;
         if (state.phaseT >= COUNTDOWN * COUNT_STEP) go();
         break;
       }
