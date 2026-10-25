@@ -200,6 +200,7 @@ doc; what the classic version was, and why it changed, is in that doc's history 
 | Param | Does |
 |---|---|
 | `?roads=classic` | The roads before the grey was broken up: the lighter blue-grey asphalt, the darker pavement and kerb, asphalt bridge decks with no joints, no brick plaza and no asphalt patches |
+| `?plaza=granite` / `tan` / `classic` | The one paved junction in another stone: warm grey or buff paving in a dark frame, or `classic`, the first plaza's red brick with its faint border. The default is charcoal setts in a pale frame. See `PLAZA_LOOKS` in palette.js |
 | `?painterly=classic` | Without the painterly prototype: painted brush strokes running along the streets, each a little lighter or darker and a little red or blue, fading in and out in block-sized patches |
 | `?crayon` | Crayon Mode. Off by default |
 | `?cartoon` | Cartoon Mode. Off by default |

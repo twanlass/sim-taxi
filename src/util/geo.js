@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { PALETTE } from '../palette.js';
+import { PALETTE, plazaLook } from '../palette.js';
 import {
   PITCH, HALF_SPAN_X, HALF_SPAN_Z, HALF_ROAD, HALF_ARTERIAL, GRID_I, GRID_J, isArterialX, isArterialZ, RIVER_EXTRA,
   riverMidZ, riverRow, isUnsignalised, isSegmentClosed,
@@ -312,6 +312,8 @@ export const PAINT_UNIFORMS = {
   // a plain asphalt box. See `setJunctionPaving`.
   uJunctionTint: { value: new THREE.Vector4(1, 1, 1, 0) },
   uJunctionEdge: { value: new THREE.Vector4(1, 1, 1, 0.5) }, // the border course's ratio, then its width
+  uJunctionBand: { value: new THREE.Vector4(1, 1, 1, 0.18) }, // the kerb-stone band outside it, the same way
+  uJunctionStyle: { value: 1 },                              // 0: the first plaza's flat border; 1: band + soldier course
   uJunctionMortar: { value: new THREE.Vector3(1, 1, 1) },    // the joints' ratio
   uJunctionAt: { value: new THREE.Vector2(-99, -99) },       // which junction, as (i, j)
   uJunctionBrick: { value: new THREE.Vector3(0.9, 0.45, 0.07) }, // brick length, width, joint, world units
@@ -337,11 +339,17 @@ export function setPaintBrushes(wall, ground, road) {
 /**
  * The one paved junction (`?roads=classic` turns it off, with the palette's road colours). One
  * junction box — the square the four kerb lines leave in the middle of a crossing — is laid in
- * brick with a pale border course, a single plaza for the eye to land on. It was every junction
+ * paving inside a frame, a single plaza for the eye to land on. It was every junction
  * first, in plain setts, and Tyler's read was the honest one: a weird grid, not pavers, and far too
  * many of them (the boxes are 9 units square against 12-unit blocks, so a paved box at every
  * crossing is a checkerboard). Hence one, and bricks that are laid: running bond, each brick its own
  * shade, mortar paler than the brick.
+ *
+ * It was red brick with a faint border at first, and that clashed: red is the town's commonest wall
+ * (`brick`) and the basketball court's surface, so a red square beside a red building read as one
+ * smear, and with no edge to it the plaza stopped where its colour did. Now the field is charcoal
+ * setts inside a band of kerb stone and a soldier course — one unit laid end-on to the edge — and
+ * `?plaza=` swaps the colours (`PLAZA_LOOKS` in palette.js; `classic` is the red brick).
  *
  * Applied in the ground's paint pass as a ratio over the lit asphalt, which keeps the road's own
  * lighting, shadows and wet look; the ratio is taken in display space because that is the space
@@ -354,17 +362,22 @@ export function setPaintBrushes(wall, ground, road) {
  * exists, like the arterials in `setPaintBrushes`.
  */
 export function setJunctionPaving(on) {
-  const srgb = (key) => {
+  const srgb = (hex) => {
     const c = new THREE.Color();
-    c.setHex(parseInt(PALETTE[key].slice(1), 16), THREE.SRGBColorSpace);
+    c.setHex(parseInt((PALETTE[hex] ?? hex).slice(1), 16), THREE.SRGBColorSpace);
     return c.getRGB(new THREE.Color(), THREE.SRGBColorSpace);
   };
   const road = srgb('asphalt');
   const ratio = (c) => [c.r / road.r, c.g / road.g, c.b / road.b];
-  PAINT_UNIFORMS.uJunctionTint.value.set(...ratio(srgb('junctionBrick')), on ? 1 : 0);
-  const e = PAINT_UNIFORMS.uJunctionEdge.value;
-  e.set(...ratio(srgb('junctionEdge')), e.w);
-  PAINT_UNIFORMS.uJunctionMortar.value.set(...ratio(srgb('junctionMortar')));
+  const look = plazaLook();
+  PAINT_UNIFORMS.uJunctionTint.value.set(...ratio(srgb(look.field)), on ? 1 : 0);
+  // A soldier course is one unit laid end-on, so it is a brick length deep; the classic border was a
+  // flat 0.5 band of one colour.
+  PAINT_UNIFORMS.uJunctionEdge.value.set(...ratio(srgb(look.soldier)),
+    look.style ? PAINT_UNIFORMS.uJunctionBrick.value.x : 0.5);
+  PAINT_UNIFORMS.uJunctionBand.value.set(...ratio(srgb(look.band)), PAINT_UNIFORMS.uJunctionBand.value.w);
+  PAINT_UNIFORMS.uJunctionMortar.value.set(...ratio(srgb(look.mortar)));
+  PAINT_UNIFORMS.uJunctionStyle.value = look.style;
 
   let best = null;
   const row = riverRow();
@@ -401,6 +414,8 @@ uniform float uRoadMaskLo;
 uniform float uRoadMaskHi;
 uniform vec4 uJunctionTint;
 uniform vec4 uJunctionEdge;
+uniform vec4 uJunctionBand;
+uniform float uJunctionStyle;
 uniform vec3 uJunctionMortar;
 uniform vec2 uJunctionAt;
 uniform vec3 uJunctionBrick;
@@ -489,7 +504,8 @@ const PAINT_FRAGMENT = /* glsl */ `
 						float jBox = smoothstep(-0.06, 0.06, min(jin.x, jin.y))
 							* step(length(jl - uJunctionAt), 0.5);
 						if (jBox > 0.0) {
-							float jEdge = 1.0 - smoothstep(uJunctionEdge.w - 0.05, uJunctionEdge.w + 0.05, min(jin.x, jin.y));
+							float jn = min(jin.x, jin.y);  // how far in from the box's nearest edge
+							float jEdge = 1.0 - smoothstep(uJunctionEdge.w - 0.05, uJunctionEdge.w + 0.05, jn);
 							// Running bond: every other course shifted half a brick, each brick its own
 							// shade, so it reads as laid units rather than a ruled grid.
 							vec2 bp = jp / uJunctionBrick.xy;
@@ -501,8 +517,32 @@ const PAINT_FRAGMENT = /* glsl */ `
 							float mortar = 1.0 - smoothstep(uJunctionBrick.z * 0.5, uJunctionBrick.z, min(gap.x, gap.y));
 							float shade = 0.84 + 0.3 * paintHash(cell + jl * 31.0);
 							vec3 brick = uJunctionTint.rgb * shade;
-							vec3 jt = mix(mix(brick, uJunctionMortar, mortar), uJunctionEdge.rgb, jEdge);
-							gl_FragColor.rgb *= mix(vec3(1.0), jt, jBox * uJunctionTint.w);
+							vec3 field = mix(brick, uJunctionMortar, mortar);
+							vec3 jt = mix(field, uJunctionEdge.rgb, jEdge);
+							if (uJunctionStyle > 0.5 && jn < uJunctionBand.w + uJunctionEdge.w + 0.05) {
+								// The frame: a band of kerb stone on the outside, then a soldier course —
+								// one unit laid end-on to the edge it runs along, so the field reads as
+								// laid inside a border rather than cut off where the colour stops. The
+								// nearer edge decides which way a unit runs, which mitres the corners.
+								float t = jin.x < jin.y ? jp.y : jp.x;
+								float sn = jn - uJunctionBand.w;
+								float sa = abs(fract(t / uJunctionBrick.y) - 0.5) * uJunctionBrick.y;
+								float sGap = min(uJunctionBrick.y * 0.5 - sa, min(sn, uJunctionEdge.w - sn));
+								float sMortar = 1.0 - smoothstep(uJunctionBrick.z * 0.5, uJunctionBrick.z, sGap);
+								float sShade = 0.9 + 0.2 * paintHash(vec2(floor(t / uJunctionBrick.y), jin.x < jin.y ? 1.0 : 2.0) + jl * 31.0);
+								// Its joints are kept faint: at full mortar strength a dark course ruled every
+								// half unit read as a ladder (or a rail track) round the square at play zoom.
+								vec3 soldier = mix(uJunctionEdge.rgb * sShade, uJunctionMortar, sMortar * 0.35);
+								float inBand = 1.0 - smoothstep(-0.02, 0.02, sn);
+								float inField = smoothstep(uJunctionEdge.w - 0.02, uJunctionEdge.w + 0.02, sn);
+								jt = mix(mix(soldier, uJunctionBand.rgb, inBand), field, inField);
+							}
+							// A ratio multiplies every light that lands here, sheen included, so the lift
+							// is taken off where the asphalt is already bright: under night rain the
+							// reflections ran ~1.8x into a glowing slab, the pale frame a lit outline.
+							// Sunlit dry asphalt sits under 0.42 and keeps the whole ratio.
+							float jWet = 1.0 - smoothstep(0.42, 0.7, lum);
+							gl_FragColor.rgb *= mix(vec3(1.0), jt, jBox * uJunctionTint.w * jWet);
 						}
 					}
 					vec2 mq = vPaintWorld.xz / uRoadMaskScale;

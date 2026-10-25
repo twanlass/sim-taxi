@@ -292,6 +292,10 @@ export const SHOTS = [
   { name: 'trash-pile', description: 'a pile of bags on the kerb, close', target: [0, 0], zoom: 5, warmup: 12, atTrashPile: true },
   { name: 'garbage-truck', description: 'the garbage truck taking a pile, close', target: [0, 0], zoom: 9, warmup: 12, atTrashPile: true, garbageAt: 0.95 },
   { name: 'garbage-truck-far', description: 'the garbage truck taking a pile at play zoom', target: [0, 0], zoom: 52, warmup: 12, atTrashPile: true, garbageAt: 0.95 },
+  // The one paved junction (`setJunctionPaving`, util/geo.js): close, and at play zoom. `?plaza=`
+  // picks the look. Appended, for the index reason.
+  { name: 'plaza', description: 'the brick plaza junction, close', target: [0, 0], zoom: 14, warmup: 12, atPlaza: true },
+  { name: 'plaza-far', description: 'the brick plaza junction at play zoom', target: [0, 0], zoom: 52, warmup: 12, atPlaza: true },
 ];
 
 export function getActiveShot() {
