@@ -6305,6 +6305,11 @@ if (new URLSearchParams(window.location.search).get('cardcombo') === 'classic') 
 if (new URLSearchParams(window.location.search).get('overtakekeys') === 'classic') {
   document.body.classList.add('overtake-keys-classic');
 }
+// Every flying price and rising word wears the speech card's dark outline (Tyler, 2026-10-25; the
+// `.earning` rule in index.html). `?poptext=classic` is the soft drop shadow they had before.
+if (new URLSearchParams(window.location.search).get('poptext') === 'classic') {
+  document.body.classList.add('poptext-classic');
+}
 // What a closing card hands over to — the next card of the run's queue (`showUnlockedMoves`).
 let afterNewMove = null;
 const newMove = shot ? null : createNewMove({

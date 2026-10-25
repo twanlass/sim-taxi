@@ -649,6 +649,19 @@
       .earning.is-label.is-count.is-countdown { font-size: 80px; }
       /* The combo's words off the roof and its multiplied total at the drop-off. */
       .earning.run-combo { color: #B27CFF; }
+      /* Every pop wears the speech card's highlight outline (`.speech-hl`: a dark stroke painted
+         under the fill), so a price or a move name reads over pale asphalt, white roofs and a squall
+         alike rather than leaning on a soft shadow that vanishes against the bright half of the map
+         (Tyler, 2026-10-25). Each keeps its own colour — green is cash, red a charge, purple the
+         combo — since yellow already means boost in this game. The stroke scales with the type so a
+         80px "3" gets as heavy a line as the card's 15.5px word does in proportion (3.5px there is
+         0.23em; 0.18em here, because the pops are bolder), with a floor so the 16px card word keeps
+         the card's own line and a ceiling so the count does not turn into a blob. The soft shadow
+         goes: under a hard outline it only greys the edge. `?poptext=classic` keeps the shadow alone. */
+      body:not(.poptext-classic) .earning {
+        -webkit-text-stroke: clamp(3.5px, 0.18em, 10px) #121318; paint-order: stroke fill;
+        text-shadow: none;
+      }
 
       /* The boost half of a drop-off's payout — see src/game/energybits.js. Small, bright and
          round, so it reads as *energy* against the flying "$20"'s green text: the two currencies
