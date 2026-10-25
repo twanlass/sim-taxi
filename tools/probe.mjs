@@ -18583,14 +18583,14 @@ let chopperOrder; // likewise
     {
       const stand = planBankRun(bank, { x: 0, z: 0, yaw: 0 }).home;
       const bankAway = bankFrontage(bank).along;
-      const bankRig = (k, { stop = true, tight = false } = {}) => {
+      const bankRig = (k, { stop = true, tight = false, force = false, delivered = 5, far = false } = {}) => {
         const s8 = new THREE.Scene();
         const t8 = createTraffic(makeRng(seed + 44), s8, 10, 18);
         // `alwaysRob: false` so the coin and its ramp are still exercised while BANK_ROBBER_ALWAYS
         // has every bank rider rob for testing.
-        const f8 = createFareSystem(makeRng(seed + 900 + k), s8, { alwaysRob: false });
+        const f8 = createFareSystem(makeRng(seed + 900 + k), s8, { alwaysRob: false, forceBank: () => force });
         t8.warmup(1);
-        f8.state.delivered = 5;
+        f8.state.delivered = delivered;
         const got = [];
         const rob8 = createRobbery({
           site: bank, taxi: t8.taxi, fares: f8, traffic: t8, onBoard: (fare) => got.push(fare), trigger: 'fare',
@@ -18603,8 +18603,8 @@ let chopperOrder; // likewise
           });
         }
         const J = rob8.junction;
-        t8.taxi.i = J.i > 0 ? J.i - 1 : J.i + 1;
-        t8.taxi.j = J.j;
+        t8.taxi.i = far ? (J.i * 2 > GRID_I ? 0 : GRID_I) : J.i > 0 ? J.i - 1 : J.i + 1;
+        t8.taxi.j = far ? (J.j * 2 > GRID_J ? 0 : GRID_J) : J.j;
         // Off every corner, so nothing resolves until a test drives it there.
         t8.taxi.x = 1e4; t8.taxi.z = 1e4;
         f8.update(1 / 60, t8.taxi);
@@ -18624,6 +18624,17 @@ let chopperOrder; // likewise
         `${heads.length} heads, ${tails.length} tails`);
       check('...and never without the bank rider switched on',
         !Array.from({ length: 20 }, (_, k) => bankRig(k, { stop: false })).some((d) => d.bankFare));
+      // Demo mode (`forceBank`): the first spawn after BANK_MIN_DELIVERED is the bank rider, every
+      // time and from anywhere on the map, so the robbery is on the board inside the first four rides.
+      {
+        const forced = Array.from({ length: 20 }, (_, k) => bankRig(k, { force: true, delivered: 2, far: true }));
+        const J = forced[0].rob8.junction;
+        const spread = Math.max(Math.abs(forced[0].t8.taxi.i - J.i), Math.abs(forced[0].t8.taxi.j - J.j));
+        check('Demo mode: the bank rider is the first spawn after the second drop-off, from across the map',
+          forced.every((d) => d.bankFare), `${forced.filter((d) => d.bankFare).length} of 20, taxi ${spread} junctions off`);
+        check('...but not before it',
+          !Array.from({ length: 20 }, (_, k) => bankRig(k, { force: true, delivered: 1 })).some((d) => d.bankFare));
+      }
       check('the drive-past no longer starts one when the bank rider is the trigger', (() => {
         const d = bankRig(0, { stop: false });
         d.t8.taxi.x = bank.door.x; d.t8.taxi.z = bank.door.z;
