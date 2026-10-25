@@ -2748,15 +2748,15 @@ is within `NEAR_BLOCKS` (3) of it. The racer makes no sound of its own anywhere 
 the horn it gave on turning up, on the tap and at the start is gone (Tyler: "remove all the horn
 sounds"). Out of reach and off screen, or a rider picked up,
 and it goes until that changes (a block of slack on the way out of reach and two units past the
-frame, so it does not flicker on either boundary). The tag itself is a tap target, and one tap on it is the whole yes: the racer answers on the
+frame, so it does not flicker on either boundary). The tag itself is a tap target. Tap it once and it asks: "Wanna race?" (Tyler wanted the question only for
+someone who tapped, rather than one more line on a busy screen). Tap it again and it answers on the
 spot ("You're on!"), then the screen cuts to black and opens close up on the two cars side by side, window to window ("Round the flag and back."). A
 corner is marked across the island (a white waypoint ring with a chequered flag flying over it, 4-8
 blocks away and never on the ring road, which is in the fog), the camera goes to look at it and
 comes back, and the count starts: three, two, one, and the two cars set off together, drag-race
-style. There used to be two more taps on the way (a "Wanna race?" to answer and a "Ready?" before
-the count); Tyler cut both ("cut this extra ready tap and the one before"), and
-`?racetap=classic` puts them back — see
-[gameplay-history.md](gameplay-history.md#the-street-races-three-taps-until-october-2026-racetapclassic).
+style. There used to be one more tap, on a "Ready?" before the count; Tyler cut it, and
+`?racetap=classic` puts it back — see
+[gameplay-history.md](gameplay-history.md#the-street-races-ready-tap-until-october-2026-racetapclassic).
 The finish is not put down until the camera gets there: the ring grows in and the flag goes up on
 screen, and the look holds `RACE_PEEK_HOLD` (1.4s) so it can be watched arriving (Tyler: "wait till
 the camera pans there and then spawn the checkpoint so you can visually see where it is").
@@ -2832,9 +2832,9 @@ is a tap like every other choice in the game. Ignoring it is free: the racer jus
 - **The board steps aside from the tap to the line**, exactly as for a getaway: riders hidden,
   their clocks held, no spawns, the courier's pads off the map (`setHold` in game/fares.js, read by
   `concealed`).
-- **No is not tapping; yes is final.** Ignoring the "!" costs nothing. (Under `?racetap=classic`,
-  once it has asked, a tap on the map anywhere but the racer or its card turns it down — "Next
-  time, then.", `decline` — and the racer offers again after `REST_TIME`.) From the tap to the green
+- **No is a tap anywhere else; yes is final.** Once it has asked, a tap on the map anywhere but the
+  racer or its card turns it down ("Next time, then.", `decline`) and then does what it would have
+  done; the racer stays and offers again after `REST_TIME`. From the second tap to the green
   (`locked`) taps on the map are ignored and the taxi stays on the line: there is no backing out
   (Tyler: "Dont allow declining after you've tapped on 'wanna race'"). Taps on the pedals are not
   map taps and decline nothing.
