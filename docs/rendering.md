@@ -1668,13 +1668,16 @@ things break the run of tarmac. `?roads=classic` brings back the old road and dr
   is by the paint pass. A ratio multiplies every light that lands there, so it is eased out where
   the asphalt is already bright (luma 0.42 to 0.7; sunlit dry road sits under 0.42): under `?rain`
   every look but the dark field came out as a glowing slab, and the pale frame as a lit outline.
-- **Asphalt patches** (city/asphaltpatch.js): one or two mended cuts per city, each inside one lane
+- **Asphalt patches** (city/asphaltpatch.js): five to seven mended cuts per city, each inside one lane
   of a side street mid-block: a rounded rectangle with a slightly wobbled edge, a fill barely off the
   road, and a near-black crack-seal band round it that swells and thins as it goes. The contrast
   lives in the seal, after Tyler's reference photo: a darker fill made the outline vanish into it.
   The seal is a ring sharing the fill's edge, not a bigger shape under it, because two flat
   surfaces 0.006 apart shimmer under this camera. Gone under night rain, like the rest of the road
-  detail. No sightline filter, so a patch can land behind a tower.
+  detail. Each is placed only where the camera sees its whole outline (`sightlineClear`, after the
+  city's occluders exist), with up to four placements tried per run. It shipped at one or two with
+  no sightline filter and a 0.16-0.28 seal; the one in seed 71624 sat half behind the gas station's
+  sign and Tyler read them as gone (2026-10-25). The seal is now 0.24-0.4, ~2-3 px on a phone.
 
 **Tried and dropped:** paving *every* junction box, in plain setts and in terracotta. The boxes are
 9 units square against 12-unit blocks, so a paved box at every crossing is a checkerboard; Tyler

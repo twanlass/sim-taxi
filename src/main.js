@@ -596,10 +596,6 @@ scene.add(markOccluder(rain.wetGround(brush(createGround(makeRng(seed + 11), lay
 const manholes = createManholes(makeRng(seed + 193),
   { classic: new URLSearchParams(location.search).get('manholes') === 'classic' });
 if (manholes) scene.add(markOccluder(rain.wetGround(manholes)));
-// One or two mended cuts in a side street's lane (city/asphaltpatch.js), its own stream. Part of
-// the road look, so `?roads=classic` leaves them out.
-const asphaltPatches = createAsphaltPatches(makeRng(seed + 197), { enabled: !roadsClassic() });
-if (asphaltPatches) scene.add(markOccluder(rain.wetGround(asphaltPatches)));
 // The ground past the coast, for the fog of war to swallow — game/edgefog.js.
 if (EDGE_FOG) scene.add(createEdgeFogFloor());
 
@@ -899,6 +895,13 @@ const occluders = setCityOccluders(
 );
 // The same field is what the cars' paint reflects (`propMaterial({ gloss })`, util/geo.js).
 setGlossCity(occluders, SKYLINE_CEILING);
+// Five to seven mended cuts in a side street's lane (city/asphaltpatch.js), its own stream, each one
+// where the camera can see all of it — hence here, after the sightline field. Part of the road look,
+// so `?roads=classic` leaves them out.
+const asphaltPatches = createAsphaltPatches(makeRng(seed + 197), {
+  enabled: !roadsClassic(), visible: (x, z) => sightlineClear(x, 0.05, z),
+});
+if (asphaltPatches) scene.add(markOccluder(rain.wetGround(asphaltPatches)));
 
 // Density is on the difficulty curve, so the run opens at its bottom and the instanced meshes are
 // sized for its top — an InstancedMesh cannot be resized once built. An explicit `?cars=N` beats
