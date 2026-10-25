@@ -187,6 +187,9 @@ reads a quick second tap on a plain heading as half of a double-tap.
 
 While it is on:
 
+- **Play waits for one more tap before the story.** The menu fades and the camera stays on the
+  title's slow slide until a tap anywhere (or Enter/Space), so whoever is presenting can talk over
+  the city first; then the camera glides to the garage and dispatch starts. No prompt is shown.
 - **Every "once ever" flag reads unseen** at the start of each run, and **nothing is written**: the
   New Move cards, the depot's repair line (which otherwise stops once the taxi has been in for
   repairs), and anything later built on `createSeenFlag`. A card shown is not shown again the
