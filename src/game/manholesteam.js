@@ -9,26 +9,13 @@ import { COVER_Y, COVER_R } from '../city/manholes.js';
 //
 // **One quad per plume, and the plume is all shader** (Tyler prefers an effect drawn in a shader to
 // one built out of geometry). Each vent is one quad standing on its cover, and the fragment shader
-// draws the steam inside it as one **billowing column**: `BILLOWS` big round lobes on a staggered
-// loop, each born on the lid, rising fast and slowing, swelling, scattered a little sideways each
-// time round and drifting off downwind, over a two-lobe cushion on the lid. Each lobe has a crisp
-// rim roughened by one noise field they all share, and they overlap so heavily that the column
-// reads as a single white mass with a lumpy outline, the way a cumulus does. Each is lit a step
-// brighter on top than underneath, which is what gives the mass its pillowed relief.
-//
-// Summing the lobes into one density field and thresholding it (metaballs) was tried on the way
-// and was worse: the sum of that many overlapping lobes is one smooth capsule, and it came out a
-// flat white sheet ghost with no billow in it at all. The lumps are the lobes' own rims.
-//
-// Two looks came before it. The first cut was a continuous column of domain-warped fbm, and it did
-// not read as steam in this game: the smooth foot looked like a cone of light standing on the lid,
-// and the wisps at the top, half transparent over a dark road, came out the grey of smoke. The
-// second (#689, `?steam=classic`) was twelve separate soft puffs layered over each other, small and
-// far enough apart that at phone play zoom it read as a string of beads (Tyler, 2026-10-25: the
-// screenshot with it circled). The billow keeps what the puffs fixed and fixes the beads: its foot
-// is lobes, not a smooth taper, so there is no cone; and a lobe leaves by **shrinking** — its weight
-// in the field falls until it drops under the threshold — rather than by going see-through, so the
-// top of the plume stays white to its last lobe instead of fading to grey over the road.
+// draws the steam inside it as `PUFFS` soft round puffs on a staggered loop: each born on the lid,
+// rising fast and slowing, growing, drifting off downwind and fading, with a noisy rim that churns
+// as it climbs, lit a step brighter on top than underneath. Plus a constant puff sitting on the lid.
+// The first cut was a continuous column of domain-warped fbm instead, and it did not read as steam
+// in this game: the smooth foot looked like a cone of light standing on the lid, and the wisps at
+// the top, half transparent over a dark road, came out the grey of smoke. Puffs are the game's own
+// language for smoke and dust (game/fire.js, game/dust.js), and a round white blob reads at 40pt.
 //
 // **The quad stands in the plane of `RIGHT` and world up.** The view never rotates, so the quad is
 // fixed rather than turned to face the camera every frame; it is 33° off the screen plane (the
@@ -49,23 +36,19 @@ import { COVER_Y, COVER_R } from '../city/manholes.js';
 // that); 8.5 tall puts the plume up past the second storey of the building beside it, which is
 // what a New York vent looks like. Taller than the L's deck at 6.4, which is why vents avoid it.
 export const PLUME_H = 8.5;
-// Wide enough for the lean, the widest lobe and the taxi's kick either way: a lobe 2.4 across at
-// the top of a 2.4 lean is 4.8 downwind of the cover, and a kick throws the column 1.8 upwind.
-export const PLUME_W = 9.5;
-const BASE_U = 0.4;           // where across the quad the cover sits; the rest is room for the lean
+export const PLUME_W = 7;     // wide enough for the lean and the widest billow
+const BASE_U = 0.35;          // where across the quad the cover sits; the rest is room for the lean
 const LEAN = 2.4;             // units the top drifts downwind
-// 18 lobes over 4.2s leave the lid every 0.23s, and at the lid one rises 0.6 units in that time
-// against a radius of 1 — so neighbours always overlap and the column never breaks into beads.
-const BILLOWS = 18;
-const BILLOW_LIFE = 4.2;      // seconds from the lid to gone
-const OPACITY = 0.95;
-// The classic look (#689): twelve separate puffs in a narrower quad.
-const CLASSIC = { width: 7, base: 0.35, puffs: 12, life: 3.6, opacity: 0.92 };
+const PUFFS = 12;             // puffs in the air at once, per plume
+const PUFF_LIFE = 3.6;        // seconds from the lid to gone
+// 0.92 at first, and at phone play zoom it read as solid white beads standing in the street
+// (Tyler, 2026-10-25: "tone it down"). At 0.55 the road shows through the thin parts.
+const OPACITY = 0.55;
 // Steam scatters light rather than being lit like a wall. With Lambert alone a plume out of the sun
 // came out the same grey as the road under it and all but vanished in the first render. So it is
 // mostly self-lit, at full white — the sun adds a little (`LIT`) — and the glow comes down after
 // dark (`update`'s `dark`), or three white plumes would stand in a night street like lamps.
-const GLOW = 1.1;
+const GLOW = 0.8;   // 1.1 at first: blown out to flat white in the sun
 const GLOW_NIGHT = 0.5;
 const LIT = 0.5;
 // The taxi: how close counts as through the plume, how fast it has to be going, and how long the
@@ -80,7 +63,7 @@ const KICK_HEAL = 1.5;
 const TOWARD_CAMERA = new THREE.Vector3(1, 0, 1).normalize();
 
 /** One quad per venting spot, wound to face the camera. Exported for the probe's winding check. */
-export function steamGeometry(spots, wind = 1, { width = PLUME_W, base = BASE_U } = {}) {
+export function steamGeometry(spots, wind = 1) {
   const pos = [], uv = [], seed = [], kick = [];
   const up = new THREE.Vector3(0, 1, 0);
   const corner = new THREE.Vector3();
@@ -88,7 +71,7 @@ export function steamGeometry(spots, wind = 1, { width = PLUME_W, base = BASE_U 
     const at = (u, v) => {
       corner.set(s.x, COVER_Y + 0.01, s.z)
         .addScaledVector(TOWARD_CAMERA, COVER_R)
-        .addScaledVector(RIGHT, wind * (u - base) * width)
+        .addScaledVector(RIGHT, wind * (u - BASE_U) * PLUME_W)
         .addScaledVector(up, v * PLUME_H);
       pos.push(corner.x, corner.y, corner.z);
       uv.push(u, v);
@@ -132,82 +115,41 @@ float steamNoise(vec2 p) {
 float steamShade;
 `;
 
-// The plume today: one billowing column of big, overlapping, crisp-rimmed lobes.
-function billow() {
-  return /* glsl */ `
+function patchSteam(material, uniforms) {
+  material.customProgramCacheKey = () => 'manhole-steam';
+  material.onBeforeCompile = (shader) => {
+    Object.assign(shader.uniforms, uniforms);
+    const inject = (source, chunk, replacement) => {
+      if (!source.includes(chunk)) throw new Error(`manholesteam: no ${chunk} in the shader`);
+      return source.replace(chunk, replacement);
+    };
+    shader.vertexShader = inject(shader.vertexShader, '#include <common>', `#include <common>
+attribute vec2 aPlume;
+attribute float aSeed;
+attribute vec2 aKick;
+varying vec2 vPlume;
+varying float vSeed;
+varying vec2 vKick;`);
+    shader.vertexShader = inject(shader.vertexShader, '#include <begin_vertex>', `#include <begin_vertex>
+vPlume = aPlume;
+vSeed = aSeed;
+vKick = aKick;`);
+    shader.fragmentShader = inject(shader.fragmentShader, '#include <common>', `#include <common>
+${STEAM_COMMON}`);
+    shader.fragmentShader = inject(shader.fragmentShader, '#include <alphamap_fragment>', `#include <alphamap_fragment>
+{
   float t = uSteamTime + vSeed * 37.0;
   // In world units: x across the quad from the cover's centre (downwind positive), y up.
   vec2 p = vec2((vPlume.x - ${BASE_U.toFixed(3)}) * ${PLUME_W.toFixed(2)}, vPlume.y * ${PLUME_H.toFixed(2)});
-  // The vent breathes: a slow swell and a quicker flutter in how hard it pushes.
-  float breath = 0.9 + 0.07 * sin(t * 0.55) + 0.03 * sin(t * 1.7 + 1.3);
-  // One noise field scrolling up with the steam, shared by every lobe: it roughens each rim, and
-  // because neighbouring lobes read the same noise their rims agree where they meet.
-  float churn = steamNoise(p * 1.3 + vec2(0.0, -t * 1.1)) * 0.65
-    + steamNoise(p * 2.9 + vec2(t * 0.5, -t * 1.9)) * 0.35 - 0.5;
-  float cover = 0.0;   // how much of the pixel the plume covers, 0..1
-  float shade = 0.0;   // ...and how lit, weighted by that cover
-  for (int k = 0; k < ${BILLOWS + 2}; k++) {
-    float fk = float(k);
-    vec2 c;
-    float r, w, f;
-    if (k < ${BILLOWS}) {
-      float cyc = t * ${(1 / BILLOW_LIFE).toFixed(4)} + fk / ${BILLOWS}.0 + 0.1 * steamHash(vec2(fk, vSeed));
-      f = fract(cyc);
-      // A fresh scatter every time the slot comes round, so the column is never the same twice.
-      float j = steamHash(vec2(fk + floor(cyc) * 17.0, vSeed)) - 0.5;
-      float rise = 1.0 - pow(1.0 - f, 1.3);
-      float y = 0.8 + rise * ${(PLUME_H * 0.7).toFixed(2)};
-      float h = y / ${PLUME_H.toFixed(2)};
-      r = mix(0.8, 2.1, pow(f, 0.6)) * (1.0 + 0.3 * vKick.x);
-      c = vec2(${LEAN.toFixed(2)} * pow(h, 1.4) + j * r * 0.9 + 0.3 * h * sin(fk * 2.4 + t * 0.7)
-        + vKick.x * vKick.y * 1.8 * sqrt(h), y);
-      // In fast, and out by shrinking rather than by fading: the weight eats the lobe from its rim
-      // inward, so what is left of an old lobe is still white and never a grey veil over the road.
-      w = smoothstep(0.0, 0.06, f) * (1.0 - smoothstep(0.35, 1.0, f));
-      // The taxi tears the low lobes away.
-      w *= 1.0 - 0.95 * vKick.x * (1.0 - smoothstep(0.15, 0.55, h));
-    } else {
-      // The thick of it sitting on the lid, which is what says it is coming out of the cover: two
-      // lobes side by side, wider than the lid, so the foot is a cushion and never a point. Centred
-      // over the lid as the screen sees it: the lid's far edge is 2 COVER_R behind the quad, which
-      // climbs to 0.78 of a unit up the quad at this camera's 33 degrees.
-      float side = fk - ${BILLOWS}.0 - 0.5;
-      f = 0.2;
-      r = 0.85;
-      c = vec2(side * 1.1 + 0.12 * sin(t * 1.3 + side * 3.0), 0.8);
-      w = 1.0 - 0.95 * vKick.x;
-    }
-    w *= breath;
-    vec2 d = (p - c) / vec2(r, r * 0.86);
-    // A rounded rim, a fifth of the radius soft, pulled in as the weight falls.
-    float edge = 1.0 - length(d) + churn * 0.35 - (1.0 - w) * 0.8;
-    float a = smoothstep(0.0, 0.22, edge);
-    // Lit from above: the top of each lobe is the bright side, its underside a step greyer, and
-    // laid over the lobes behind it — which is what gives the column its pillowed relief.
-    float lit = clamp(0.4 + 0.75 * d.y, 0.0, 1.0);
-    shade += lit * a * (1.0 - cover);
-    cover += a * (1.0 - cover);
-  }
-  diffuseColor.a *= cover * ${OPACITY.toFixed(2)};
-  steamShade = mix(0.55, 1.0, shade / max(cover, 1e-3));
-  diffuseColor.rgb *= steamShade;`;
-}
-
-// `?steam=classic` (#689): twelve separate puffs layered over each other, and a puff on the lid.
-function classicPuffs() {
-  return /* glsl */ `
-  float t = uSteamTime + vSeed * 37.0;
-  // In world units: x across the quad from the cover's centre (downwind positive), y up.
-  vec2 p = vec2((vPlume.x - ${CLASSIC.base.toFixed(3)}) * ${CLASSIC.width.toFixed(2)}, vPlume.y * ${PLUME_H.toFixed(2)});
   // The vent breathes: a slow swell and a quicker flutter, never below 0.6.
   float breath = 0.8 + 0.12 * sin(t * 0.55) + 0.08 * sin(t * 1.7 + 1.3);
   float cover = 0.0;   // how much of the pixel the plume covers, 0..1
   float shade = 0.0;   // ...and how lit, weighted by that cover
   // The puffs: each one born on the lid, rising fast and slowing, growing, drifting off downwind
   // and fading, on a loop staggered so one leaves every 1/PUFFS of a cycle.
-  for (int k = 0; k < ${CLASSIC.puffs}; k++) {
+  for (int k = 0; k < ${PUFFS}; k++) {
     float fk = float(k);
-    float f = fract(t * ${(1 / CLASSIC.life).toFixed(4)} + fk / ${CLASSIC.puffs}.0 + 0.13 * steamHash(vec2(fk, vSeed)));
+    float f = fract(t * ${(1 / PUFF_LIFE).toFixed(4)} + fk / ${PUFFS}.0 + 0.13 * steamHash(vec2(fk, vSeed)));
     float rise = 1.0 - pow(1.0 - f, 1.7);
     float y = 0.25 + rise * ${(PLUME_H * 0.72).toFixed(2)};
     float h = y / ${PLUME_H.toFixed(2)};
@@ -234,35 +176,9 @@ function classicPuffs() {
   float foot = (1.0 - smoothstep(0.3, 1.0, length(dl))) * 0.65 * (1.0 - 0.9 * vKick.x);
   shade += 0.8 * foot * (1.0 - cover);
   cover += foot * (1.0 - cover);
-  diffuseColor.a *= cover * breath * ${CLASSIC.opacity.toFixed(2)};
+  diffuseColor.a *= cover * breath * ${OPACITY.toFixed(2)};
   steamShade = mix(0.78, 1.0, shade / max(cover, 1e-3));
-  diffuseColor.rgb *= steamShade;`;
-}
-
-function patchSteam(material, uniforms, classic = false) {
-  material.customProgramCacheKey = () => (classic ? 'manhole-steam-classic' : 'manhole-steam');
-  material.onBeforeCompile = (shader) => {
-    Object.assign(shader.uniforms, uniforms);
-    const inject = (source, chunk, replacement) => {
-      if (!source.includes(chunk)) throw new Error(`manholesteam: no ${chunk} in the shader`);
-      return source.replace(chunk, replacement);
-    };
-    shader.vertexShader = inject(shader.vertexShader, '#include <common>', `#include <common>
-attribute vec2 aPlume;
-attribute float aSeed;
-attribute vec2 aKick;
-varying vec2 vPlume;
-varying float vSeed;
-varying vec2 vKick;`);
-    shader.vertexShader = inject(shader.vertexShader, '#include <begin_vertex>', `#include <begin_vertex>
-vPlume = aPlume;
-vSeed = aSeed;
-vKick = aKick;`);
-    shader.fragmentShader = inject(shader.fragmentShader, '#include <common>', `#include <common>
-${STEAM_COMMON}`);
-    shader.fragmentShader = inject(shader.fragmentShader, '#include <alphamap_fragment>', `#include <alphamap_fragment>
-{
-${classic ? classicPuffs() : billow()}
+  diffuseColor.rgb *= steamShade;
 }`);
     // The glow is most of the colour, so it takes the shading too.
     shader.fragmentShader = inject(shader.fragmentShader, '#include <emissivemap_fragment>', `#include <emissivemap_fragment>
@@ -276,19 +192,18 @@ totalEmissiveRadiance *= steamShade;`);
  * @param scene  where the plumes go
  * @param spots  the cover plan (`manholes.userData.spots`); only those with `steam` vent
  * @param rng    its own stream: which way the wind leans them
- * @param opts   `classic`: the separate puffs of #689 instead of the billow (`?steam=classic`)
  */
-export function createManholeSteam(scene, spots, rng, { classic = false } = {}) {
+export function createManholeSteam(scene, spots, rng) {
   const vents = (spots ?? []).filter((s) => s.steam);
   if (vents.length === 0) return { mesh: null, vents, update: () => {} };
   const wind = rng.chance(0.5) ? 1 : -1;
   const uniforms = { uSteamTime: { value: rng.next() * 100 } };
-  const geo = steamGeometry(vents, wind, classic ? CLASSIC : undefined);
+  const geo = steamGeometry(vents, wind);
   const steamColor = color('steam');
   const material = patchSteam(new THREE.MeshLambertMaterial({
     color: color('steam').multiplyScalar(LIT), emissive: color('steam').multiplyScalar(GLOW),
     transparent: true, depthWrite: false,
-  }), uniforms, classic);
+  }), uniforms);
   const mesh = new THREE.Mesh(geo, material);
   mesh.name = 'manhole-steam';
   mesh.renderOrder = 5;
