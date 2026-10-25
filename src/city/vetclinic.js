@@ -190,7 +190,9 @@ export function openSignParts(style = OPEN_STYLE, w = SIGN_W) {
     word.forEach((g) => g.translate(0, 0, -TUBE_R / 2));
     parts.push(...word);
   } else {
-    const bar = new THREE.CapsuleGeometry(TUBE_R * 1.15, w * 0.56, 3, 6);
+    // Twice the frame's tube: a bar the same weight as the frame read as a hairline at play zoom
+    // (Tyler, 2026-10-25), and the bar is the one stroke that says "this is a sign".
+    const bar = new THREE.CapsuleGeometry(TUBE_R * 2, w * 0.5, 3, 6);
     bar.rotateZ(Math.PI / 2);
     parts.push(bakeColor(bar, red));
   }
