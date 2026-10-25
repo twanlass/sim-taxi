@@ -93,6 +93,7 @@ doc; what the classic version was, and why it changed, is in that doc's history 
 | `?splashsound=classic` | The startup screen plays silent, as it first shipped, rather than with the landing, bounce and Loco sounds | | [gameplay.md](gameplay.md#the-startup-screen) |
 | `?ejectthrow=classic` | The thrown driver's arc graded only by distance (forward speed `0.7 × closing`, clamped 10-18) at one fixed height and spin, instead of height, spin and distance all scaling with how hard the hit was | | [traffic.md](traffic.md) |
 | `?eject=classic` | The wrecked taxi's driver appearing full size in the air above the bonnet and fading in, instead of squeezing out through the windscreen | | [traffic.md](traffic.md) |
+| `?poptext=classic` | The flying prices, combo words, checkpoints and race count with their old soft drop shadow instead of the speech card's dark outline | | [gameplay.md](gameplay.md#economy) |
 | `?playagain=classic` | The run-end card ending on the yellow Play again pill instead of a pulsing "Tap to continue" (tap anywhere to play again) | | [gameplay.md](gameplay.md#the-polaroid) |
 | `?musicfade=classic` | The music fading over 1.5s as the run-end card appears, instead of playing under the stats and fading over 2.5s once "Tap to continue" comes up | | [audio.md](audio.md) |
 | `?statcount=classic` | The run-end stats' old pace: each value fades in with its label and rolls in 0.34s, in yellow, instead of appearing after the label lands and counting for 0.46s in white | | [gameplay.md](gameplay.md#the-polaroid) |

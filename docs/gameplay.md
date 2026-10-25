@@ -1865,6 +1865,15 @@ deliberately — a number flying from the counter *to* the taxi would read as th
 something. `rollMoneyTo()` tweens either way, and the total never goes below zero (see `charge()`
 in `game/fares.js`).
 
+**Every pop is outlined.** The prices, the combo's words off the roof, the getaway's checkpoints
+and the race's count all share the `.earning` rule, and since 2026-10-25 it wears the speech card's
+highlight treatment: a dark stroke painted under the fill (`-webkit-text-stroke` with
+`paint-order: stroke fill`), scaled at 0.18em between 3.5px and 10px. The soft drop shadow they wore
+before only separated them from the dark half of the map, and the money flies over the pale asphalt
+as often as not. Colour stays per kind (green cash, red charge, purple combo, white words) rather
+than going yellow like the card's highlight, because yellow already means boost. The HUD is not
+touched. `?poptext=classic` puts the shadow back.
+
 ### The combo meter
 
 Every combo the taxi lands on a job steps a multiplier up, and the drop-off pays the fare at it
