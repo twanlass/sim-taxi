@@ -129,6 +129,7 @@ export const createSeenFlag = ({ storage, key = SEEN_KEY, demo } = {}) => seenFl
 // The card's words: the tutorial bubble's title slot carries the eyebrow, its line the move's name.
 // Nothing else — the clip and the pedal row are the instruction (Tyler, 2026-10-04: no caption, no "tap to
 // continue"; every tutorial bubble is answered by a tap and this one is no different).
+// After the run it does say "Tap to continue", at the foot of the screen (`hint` below).
 const TITLE = 'New Move Unlocked';
 
 // Pixels from the clip's top the combo word may start at: the meter (~26px tall at the card's 0.8)
@@ -268,6 +269,15 @@ export function createNewMove({ viewport = null, onClose = () => {}, comboMeter 
   // `pinned`: the card places itself, centred, rather than taking the docked slot the talking
   // bubbles use (game/speech.js).
   const bubble = createSpeech(root, { viewport, typing: false, pinned: true });
+  // "Tap to continue" at the foot of the screen, the run-end screen's own (Tyler, 2026-10-25: "this
+  // screen needs a tap to continue"). Only over the run-end blackout (index.html shows it under
+  // `body.new-move-after-run`): there the card follows a screen that asks for a tap in those words,
+  // and stopping short of them read as stuck. Mid-run the card stays a tip, answered without being
+  // asked (Tyler, 2026-10-04, below).
+  const hint = document.createElement('span');
+  hint.className = 'nm-continue';
+  hint.textContent = 'Tap to continue';
+  root.append(hint);
   // Centred on the screen. The speech card stands *above* its target, so the target is the middle
   // of the screen pushed down by half the card's own height (measured live: the clip sizes itself
   // to the viewport's width).
