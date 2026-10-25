@@ -1884,15 +1884,19 @@ const onGrass = (city, i, j) => {
 }
 
 // --- Asphalt patches (city/asphaltpatch.js) -----------------------------------------------------
-// One or two, each inside one lane: clear of the centre dashes and of the kerb, and out of every
-// junction box. Then the winding, because a patch wound face down is simply not there.
+// Five to seven, each inside one lane: clear of the centre dashes and of the kerb, and out of every
+// junction box. Planned against the real buildings and props, the way main.js does, so the count is
+// the count the camera can see — and then each one re-asked of the field. Then the winding, because
+// a patch wound face down is simply not there.
 {
-  let wrongCount = 0, offLane = 0, inBox = 0;
-  for (let s = 0; s < 40; s++) {
-    createLayout(makeRng(s));
-    const spots = planPatches(makeRng(s + 197));
+  let wrongCount = 0, offLane = 0, inBox = 0, hidden = 0;
+  for (let s = 0; s < 20; s++) {
+    const sLayout = createLayout(makeRng(s));
+    setCityOccluders(createBuildings(makeRng(s + 22), sLayout).mesh, createProps(makeRng(s + 33), sLayout).mesh);
+    const spots = planPatches(makeRng(s + 197), { visible: (x, z) => sightlineClear(x, 0.05, z) });
     if (spots.length < PATCH_COUNT[0] || spots.length > PATCH_COUNT[1]) wrongCount += 1;
     for (const p of spots) {
+      if (!sightlineClear(p.x, 0.05, p.z)) hidden += 1;
       const across = p.axis === 'x' ? Math.abs(p.z - lineZ(p.j)) : Math.abs(p.x - lineX(p.i));
       const halfAcross = (p.axis === 'x' ? p.d : p.w) / 2 + SEAL_W;
       if (across - halfAcross < 0.15 || across + halfAcross > patchRoadHalf(p) - 0.1) offLane += 1;
@@ -1903,8 +1907,10 @@ const onGrass = (city, i, j) => {
       if (along - halfAlong < a + 2 || along + halfAlong > b - 2) inBox += 1;
     }
   }
+  setCityOccluders();
   createLayout(makeRng(seed));
-  check('asphalt patches: one or two per city', wrongCount === 0, `${wrongCount}/40 cities outside ${PATCH_COUNT.join('-')}`);
+  check('asphalt patches: five to seven per city, all in view', wrongCount === 0, `${wrongCount}/20 cities outside ${PATCH_COUNT.join('-')}`);
+  check('asphalt patches: none behind a building', hidden === 0, `${hidden} hidden`);
   check('asphalt patches: each inside one lane, clear of the dashes and the kerb', offLane === 0, `${offLane} off the lane`);
   check('asphalt patches: mid-block, 2 units clear of either junction box', inBox === 0, `${inBox} too near a junction`);
 

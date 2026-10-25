@@ -8,10 +8,13 @@ import {
 } from './grid.js';
 import { MARK_Y } from './ground.js';
 
-// Asphalt patches: one or two rectangles of newer, darker tarmac cut into a lane, each with the
-// black crack-seal band a crew pours round a patch's edge (Tyler, 2026-10-24: "very sparingly, like
-// maybe one or two across the map"). Set dressing with no say in anything — it is there so one
-// street somewhere has been dug up and mended, which is what makes the rest read as old road.
+// Asphalt patches: five to seven rectangles of newer, darker tarmac cut into a lane, each with the
+// black crack-seal band a crew pours round a patch's edge. Set dressing with no say in anything — it
+// is there so a few streets have been dug up and mended, which is what makes the rest read as old
+// road. It was one or two at first (Tyler, 2026-10-24: "very sparingly"), and that was too few to
+// find: with no sightline test the one in seed 71624 sat half behind the gas station's price sign,
+// and Tyler's read the next day was that they had gone. Hence more of them, and only where the
+// camera can see the whole patch (`visible`, fed `sightlineClear` from main.js).
 //
 // **Where.** Mid-block, inside one lane, on a side street. Mid-block because the junction box is the
 // manholes' and the brick plaza's, and the crosswalks and stop lines crowd both ends of a run.
@@ -22,7 +25,7 @@ import { MARK_Y } from './ground.js';
 // **Shape.** A rectangle with its edge wobbled a little and its corners rounded, outlined in a band
 // of near-black crack seal that thickens and thins as it goes — a crew pours it by hand. Tyler's
 // reference (2026-10-24) is a black tar line round a patch only a step darker than the road: the
-// outline is what carries the read, so it is wide enough to survive play zoom (~1.5px at its
+// outline is what carries the read, so it is wide enough to survive play zoom (~2px at its
 // thinnest) and far darker than anything else on the street.
 //
 // **Layering.** Under the lane paint (MARK_Y) and over the slab, and the seal is a ring round the
@@ -30,24 +33,30 @@ import { MARK_Y } from './ground.js';
 // standoff is a shimmer (CLAUDE.md, "two flat surfaces at the same height"). Fill and ring share
 // their edge, so they meet rather than overlap.
 
-export const PATCH_COUNT = [1, 2];
+export const PATCH_COUNT = [5, 7];
 export const PATCH_Y = MARK_Y / 2;
 const WOBBLE = 0.07;           // how far the edge strays either side of the rectangle
-const SEAL = [0.16, 0.28];     // the seal band's width, thinnest to thickest
+const SEAL = [0.24, 0.4];      // the seal band's width, thinnest to thickest: ~2-3 px on a phone
+// at play zoom (8.1 px a unit). 0.16-0.28 was a hairline that the haze and a building's shadow ate.
 const CORNER_R = 0.18;
 // Everything the patch can reach past its nominal rectangle: the wobble outward plus the widest
 // seal. Placement keeps this much extra clear, and the probe measures against it.
 export const SEAL_W = WOBBLE + SEAL[1];
 const ACROSS = 1.8;            // a lane is 2.25 from dash to kerb on a side street
-const ALONG = [2.2, 3.6];
+const ALONG = [2.6, 4.2];       // longer than wide, so it reads as a cut along the lane at 8 px a unit
 const END_CLEAR = 2;           // units from either junction box: past the crosswalk (0.15 + 1.5) and a bit
-const MIN_SEP = 2.5;           // pitches apart, so two never share a corner of the map
+const MIN_SEP = 1.0;           // pitches apart: never two in one run, and spread over the map
+// (2.5 when there were only two; at that spacing a 5 × 6 grid has room for about four)
+
+const TRIES = 4;               // placements tried per run before it is given up
 
 /**
  * Pick the patches. Pure apart from reading the grid, so the probe can sweep seeds with it.
- * Returns `[{ x, z, w, d }]`: the centre and the size in x and z, seal excluded.
+ * `visible(x, z)` says whether the camera can see a point on the road; a patch is kept only if its
+ * centre and all four seal corners pass. Returns `[{ x, z, w, d }]`: the centre and the size in x and
+ * z, seal excluded.
  */
-export function planPatches(rng) {
+export function planPatches(rng, { visible = () => true } = {}) {
   const candidates = [];
   for (let i = 1; i < GRID_I; i++) {
     for (let j = 1; j < GRID_J; j++) {
@@ -76,16 +85,26 @@ export function planPatches(rng) {
   const chosen = [];
   for (const k of candidates) {
     if (chosen.length >= want) break;
-    const along = ALONG[0] + rng.next() * (ALONG[1] - ALONG[0]);
-    // `a` and `b` are the two junction boxes' edges, so the slide is what is left of the run once
-    // the patch, its seal and the crosswalk clearance at each end are taken out.
-    const slide = Math.max(0, (k.b - k.a) / 2 - END_CLEAR - along / 2 - SEAL_W);
-    const s = (k.a + k.b) / 2 + rng.jitter(slide);
-    const t = k.c + (rng.chance(0.5) ? 1 : -1) * k.lane;
-    const spot = k.axis === 'x'
-      ? { x: s, z: t, w: along, d: ACROSS, axis: 'x', i: k.i, j: k.j }
-      : { x: t, z: s, w: ACROSS, d: along, axis: 'z', i: k.i, j: k.j };
-    if (chosen.every((o) => Math.hypot(o.x - spot.x, o.z - spot.z) >= MIN_SEP * pitch)) chosen.push(spot);
+    // A few goes at each run, first lane then the other, before moving on: a run is rarely hidden
+    // end to end, and with only a couple of dozen side-street runs in the city, a candidate thrown
+    // away on its first placement left 2 of 20 cities short of five (measured).
+    const side = rng.chance(0.5) ? 1 : -1;
+    for (let attempt = 0; attempt < TRIES; attempt++) {
+      const along = ALONG[0] + rng.next() * (ALONG[1] - ALONG[0]);
+      // `a` and `b` are the two junction boxes' edges, so the slide is what is left of the run once
+      // the patch, its seal and the crosswalk clearance at each end are taken out.
+      const slide = Math.max(0, (k.b - k.a) / 2 - END_CLEAR - along / 2 - SEAL_W);
+      const s = (k.a + k.b) / 2 + rng.jitter(slide);
+      const t = k.c + (attempt % 2 ? -side : side) * k.lane;
+      const spot = k.axis === 'x'
+        ? { x: s, z: t, w: along, d: ACROSS, axis: 'x', i: k.i, j: k.j }
+        : { x: t, z: s, w: ACROSS, d: along, axis: 'z', i: k.i, j: k.j };
+      if (!chosen.every((o) => Math.hypot(o.x - spot.x, o.z - spot.z) >= MIN_SEP * pitch)) continue;
+      const hx = spot.w / 2 + SEAL_W, hz = spot.d / 2 + SEAL_W;
+      const seen = [[0, 0], [hx, hz], [-hx, hz], [hx, -hz], [-hx, -hz]]
+        .every(([dx, dz]) => visible(spot.x + dx, spot.z + dz));
+      if (seen) { chosen.push(spot); break; }
+    }
   }
   return chosen;
 }
@@ -173,9 +192,9 @@ export function patchGeometry(spots, rng) {
   return merged;
 }
 
-export function createAsphaltPatches(rng, { enabled = true } = {}) {
+export function createAsphaltPatches(rng, { enabled = true, visible } = {}) {
   if (!enabled) return null;
-  const spots = planPatches(rng);
+  const spots = planPatches(rng, { visible });
   if (spots.length === 0) return null;
   const mesh = new THREE.Mesh(patchGeometry(spots, rng), propMaterial());
   mesh.receiveShadow = true;
