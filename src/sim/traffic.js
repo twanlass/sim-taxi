@@ -909,6 +909,45 @@ export function setOvertakeStyle(name) {
 const PEEK_MARGIN = 0.3;
 const peekLateral = () => ENVELOPE + PEEK_MARGIN;
 const peeking = (car, leader) => car.passing && car.dodgeLateral < 0 && leader && car.passTarget === leader;
+/**
+ * The peek is for a turner the taxi is about to be level with, and only for as long as it is in the
+ * way (Tyler, 2026-10-25: "it chooses a sidewalk instead of the other lane"). As first built it
+ * fired on any blinker inside the combo's 30-unit reach and then held like a pass, so it went up on
+ * the pavement on **40% of all pull-outs** and stayed there a median **33 units** — past the
+ * junction and on round the next car (`PASS_SUSTAIN`), long after the turner had gone. 17 of those
+ * 99 were round a car that then went straight on, because the lamp lingers SIGNAL_LINGER after the
+ * turn a car has just finished. Measured by `tools/overtakecases.mjs` over 60 cities × 60s.
+ *
+ * `peekOn` keeps the peek to a car right in front that is really turning: one still on its lane
+ * within PASS_TRIGGER that intends the left (`intendsLeft`, not the lamp), or one already in its
+ * arc whose tail is still in the lane. Further back the turner will be gone by the time the taxi
+ * arrives — the oncoming lane for one still on its lane (the veto in the junction holds it at its
+ * line while the taxi goes by), and no pull-out at all for one already crossing the oncoming lane.
+ * And the peek ends the frame the turner is out of the taxi's lane (`clearOfLane`), never chaining
+ * on to the car behind it. 27% of pull-outs, a median 20 units, bumps unchanged (18% against 17%).
+ *
+ * `?peek=classic` is the first build: any blinker, held like a pass.
+ */
+let peekOn = true;
+export function setPeek(name) {
+  peekOn = name !== 'classic';
+}
+/** Part way round a left, not just signalling one. A straight crossing is `turn` too (CLAUDE.md). */
+const turningLeft = (car) => car?.state === 'turn' && car.turn?.hand === 'left';
+/** The lateral coordinate of the centre of `car`'s own lane, on its road. */
+const laneLatOf = (car) => {
+  const end = car.lane.path.at(car.lane.length);
+  return isXAxis(car.d) ? end.z : end.x;
+};
+/** Every collision circle of `other` at least a peek's width off the centre of `car`'s lane. */
+const clearOfLane = (car, other) => {
+  const xAxis = isXAxis(car.d);
+  const lane = laneLatOf(car);
+  const off = circleOffsetOf(other);
+  const fx = Math.cos(other.yaw);
+  const fz = -Math.sin(other.yaw);
+  return [off, -off].every((c) => Math.abs((xAxis ? other.z + fz * c : other.x + fx * c) - lane) >= peekLateral());
+};
 /** How far apart two cars are across `car`'s road. */
 const sideGap = (car, other) => Math.abs(isXAxis(car.d) ? other.z - car.z : other.x - car.x);
 /**
@@ -5400,6 +5439,15 @@ export function createTraffic(
     return { turn: onto, ahead, verdict: bridgeStunt.gate(car) };
   }
 
+  /** Is `car` going to turn left at the end of this lane — its intent, not a lingering lamp? */
+  function intendsLeft(car) {
+    if (car.state !== 'drive') return false;
+    if (car.route?.length) return exitToward(net, car.lane, car.route[0])?.hand === 'left';
+    // Only an intent already rolled for this lane: rolling one here would draw the dice early.
+    if (car.intentLane !== car.lane.id || !car.intentTurn) return false;
+    return net.turnById.get(car.intentTurn)?.hand === 'left';
+  }
+
   function intentFor(car) {
     if (car.route?.length) return exitToward(net, car.lane, car.route[0]);
     if (car.intentLane !== car.lane.id) {
@@ -6068,6 +6116,8 @@ export function createTraffic(
       const alongside = () => {
         const mark = taxi.passTarget;
         if (!mark || mark.crashed) return false;
+        // A peek is over once the turner is out of the taxi's lane, wherever it is along it.
+        if (peekOn && taxi.dodgeLateral < 0 && clearOfLane(taxi, mark)) return false;
         const sign = dirSign(taxi.d);
         const rel = isXAxis(taxi.d) ? (mark.x - taxi.x) * sign : (mark.z - taxi.z) * sign;
         // A truck's front circle is `truckExtra` further forward than a car's, so it is that much
@@ -6112,8 +6162,31 @@ export function createTraffic(
         // Thrown dumb (`setOvertakeStyle`), the combo pulls out the frame it arms, whatever is
         // ahead and however far, and stays out on the same terms as any pass.
         const thrown = overtakeDumb && taxi.passArmed === true;
+        // A car ahead part way round a left (`peekOn`) is across the very lane a pass would take:
+        // pulled out into it, the taxi bumped one on 42% of pull-outs. Close behind it, with its
+        // tail still in the lane, the peek goes round its right. Anywhere else — a block ahead, or
+        // already out of the taxi's lane — the turner will be gone by the time the taxi gets
+        // there, so the combo stays armed and the taxi keeps its lane (`across`).
+        //
+        // Asked of every car off this lane as well as the leader, because the leader bookkeeping
+        // lets go of a turner a little way into its arc, long before its tail is out of the lane.
+        // Matched on the lane each came in on: a car part way across a junction may already be
+        // carrying its exit lane as `lane`.
+        const inLane = taxi.state === 'turn' ? taxi.turn?.inLane : taxi.lane.id;
+        const turners = peekOn && thrown && !was
+          ? cars.filter((c) => c !== taxi && !c.crashed && !c.police && turningLeft(c)
+            && (c === leader || c.turn.inLane === inLane))
+          : [];
+        const sign = dirSign(taxi.d);
+        const aheadOf = (c) => (isXAxis(taxi.d) ? c.x - taxi.x : c.z - taxi.z) * sign;
+        // Never a cop, as below: its blinker and its arc are no promise to get out of the way.
+        const turner = turners.find((c) => !clearOfLane(taxi, c)
+          && aheadOf(c) < PASS_TRIGGER + CAR_LEN) ?? null;
+        const across = !turner && turners.length > 0;
+        // And a peek stays out for its own turner only, never chaining on to the car behind it.
+        const peekingOut = peekOn && taxi.dodgeLateral < 0;
         const passes = thrown
-          ? room && (!was || near)
+          ? room && (was ? near && !peekingOut : !across)
           : room && near && taxi.passArmed !== false && !turningAcross(leader);
         // A dodge wants the combo itself, never the lab's holding-is-enough rule, and pulls out
         // DODGE_LEAD short of the change's own length from the blocker — see `findDodge`.
@@ -6124,17 +6197,21 @@ export function createTraffic(
         // re-read per frame: half way through a pass the taxi is *ahead* of this car in lane
         // coordinates, so `leaderOf` has already moved on to whatever is in front of them both.
         if (taxi.passing && !was) {
-          taxi.passTarget = (dodges ? dodge.car : leader ?? dodge?.car) ?? null;
+          taxi.passTarget = (dodges ? dodge.car : turner ?? leader ?? dodge?.car) ?? null;
           if (dodges) {
             taxi.dodgeLateral = dodge.lateral;
             taxi.dodges += 1;
           }
-          // Behind a car signalling left, the peek round its right instead (see `peeking`). Not
+          // Behind a car signalling left, the peek round its right instead (see `peeking`). The
+          // lamp alone is not enough (`peekOn`): it lingers SIGNAL_LINGER after a turn, so a car
+          // that had just come round a left onto this lane, or dropped one at the line, was still
+          // showing it — 6 of 17 peeks were round a car that then went straight on. Not
           // behind a cop: a peek waits beside the turner's tail for it to swing away, and a cop
           // blocking or chasing is not going anywhere it signals — the taxi sat beside one on the
           // kerb, crawling at the cop's speed with Loco held (Tyler, 2026-10-20, a clip).
-          if (thrown && leader && taxi.passTarget === leader && leader.signalHand === 'left'
-            && !leader.police) {
+          if (turner || (thrown && leader && taxi.passTarget === leader && leader.signalHand === 'left'
+            && !leader.police
+            && (!peekOn || (leader.state === 'drive' && gap < PASS_TRIGGER && intendsLeft(leader))))) {
             taxi.dodgeLateral = -peekLateral();
             taxi.peeks += 1;
           }
@@ -7074,7 +7151,13 @@ export function createTraffic(
               // fleeing: that collapses a whole class of weight (see `rollExit`) and can arrive
               // after the intent was rolled, so the roll has to be re-run under the conditions
               // that actually hold at the line.
-              const intent = car.scatter > 0.5 ? null : intentFor(car);
+              //
+              // Except the turner the taxi is peeking round (`peekOn`), which has to turn the way it
+              // signalled: re-rolled here or after a veto (below), it went straight 8 times in 16
+              // and the taxi rode the pavement beside it the length of the next block, 44 units
+              // against 22.
+              const peekedAt = peekOn && car === taxi.passTarget && taxi.dodgeLateral < 0;
+              const intent = car.scatter > 0.5 && !peekedAt ? null : intentFor(car);
               chosen = intent && !closedLanes.has(intent.outLane)
                 ? intent
                 : rollExit(car, options);
@@ -7137,7 +7220,9 @@ export function createTraffic(
             // fleeing the boosting taxi — are re-rolled at the line anyway, by the `intentFor`
             // call in the green branch above, which drops the intent under each of them.
             car.routeConsumed = false;
-            if (vetoed) car.intentLane = null;
+            // Not the turner the taxi is peeking round, though, which keeps its blinker's word
+            // and waits for its gap — see `peekedAt` above.
+            if (vetoed && !(peekOn && car === taxi.passTarget && taxi.dodgeLateral < 0)) car.intentLane = null;
             car.s = holdS - 0.02; // hold at the line, clear of the crosswalk
             // Pinning `s` stops the car; it does not stop the *car*. Everything downstream reads
             // `v` — the wheels, the body bob, the pitch spring's nose dip, the Loco weave, which

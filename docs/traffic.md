@@ -1218,18 +1218,42 @@ road on the far side of the junction (`room`). The leader brake still holds whil
 out, so it does not drive through the car it is leaving. `?overtake=classic` restores all of the
 judgement described below.
 
-**The one exception is a car signalling left** (never a cop: a cop blocking or chasing is not going
-where it signals, and the taxi crawled beside one). It is keyed on the blinker because the player can
-see it (`peeking`; Tyler, 2026-10-19: "a slight peek around on the right", then "couldn't we do a
-peek at full speed though?"). The combo then goes round the turner's right, up on the pavement:
-2.61 off the lane centre (`peekLateral`, the collision envelope plus `PEEK_MARGIN`), the whole body
-lifted by `KERB_H`. Past the envelope the leader brake lets go (`seesLeader` asks both ways), so the
-taxi keeps its speed: 16.5 to 23 u/s through the probe's two peeks, where the first cut on the kerb
-at 1.5 crawled at the turner's speed. The margin is for the turner's tail, which swings toward the
-taxi as it yaws into the left: at the bare envelope a taxi arriving as the turner set off clipped
-its back corner 3 times in 3. The turner is allowed its left while being peeked (the courtesy veto
-below is for a taxi on its *left*). Nothing on the pavement is solid, so the taxi drives through
-street furniture, and it stays lifted through the junction box (0.35 units, about 2.7px).
+**The one exception is a car turning left right in front** (never a cop: a cop blocking or chasing
+is not going where it signals, and the taxi crawled beside one). The combo then goes round the
+turner's right, up on the pavement (`peeking`; Tyler, 2026-10-19: "a slight peek around on the
+right", then "couldn't we do a peek at full speed though?"): 2.61 off the lane centre
+(`peekLateral`, the collision envelope plus `PEEK_MARGIN`), the whole body lifted by `KERB_H`. Past
+the envelope the leader brake lets go (`seesLeader` asks both ways), so the taxi keeps its speed:
+16 to 23 u/s through the probe's two peeks, where the first cut on the kerb at 1.5 crawled at the
+turner's speed. The margin is for the turner's tail, which swings toward the taxi as it yaws into
+the left: at the bare envelope a taxi arriving as the turner set off clipped its back corner 3
+times in 3. The turner is allowed its left while being peeked (the courtesy veto below is for a
+taxi on its *left*), and keeps the left it signalled rather than re-rolling it when it scatters or
+is refused a gap. Nothing on the pavement is solid, so the taxi drives through street furniture.
+
+What counts, and for how long (`peekOn`; Tyler, 2026-10-25: "it chooses a sidewalk instead of the
+other lane"):
+
+- **A car still on its lane** peeks only from within `PASS_TRIGGER` of it, and only if it *intends*
+  the left (`intendsLeft`) rather than showing a lamp: the blinker lingers `SIGNAL_LINGER` after a
+  turn, so a car that had just come round a left onto the lane was peeked round and went straight.
+  From further back the turner will have gone by the time the taxi gets there, so it is the
+  oncoming lane, and the courtesy veto holds the turner at its line while the taxi goes by.
+- **A car already in its arc** is peeked round from close behind while its tail is still in the
+  lane. A block ahead, or already out of the lane, it is across the oncoming lane instead — pulled
+  out into, it was bumped on 42% of pull-outs — so the combo stays armed and the taxi keeps its own
+  lane, which is the clear one. Looked for among every car off the lane, not just the leader: the
+  leader bookkeeping lets go of a turner a little way into its arc.
+- **The peek ends the moment the turner is out of the lane** (`clearOfLane`), and never chains on to
+  the car behind it.
+
+Measured by `tools/overtakecases.mjs` (the combo thrown 0.35s after catching each car, 60 cities ×
+60s):
+
+| | pull-outs | up the kerb | road on the pavement (median) | bumped |
+|---|---|---|---|---|
+| first build (`?peek=classic`) | 248 | 99 (40%), 17 round a car that then went straight on | 33 units | 17% |
+| now | 247 | 66 (27%), every one round a car that turned left | 20 units | 18% |
 
 It also pulls out half way across a straight-through crossing (`thrownInBox`), where classic waits
 for the far side; behind a slow truck the taxi spends much of its time in the box. Over 8 cities ×
