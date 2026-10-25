@@ -1875,6 +1875,19 @@
          haze; without the card it went murky, so the clip keeps a white backing of its own. */
       body.new-move-after-run #new-move .nm-clip { background: #fff; }
       body.new-move-after-run #new-move .nm-key:not(.is-lit) { filter: grayscale(0.85); opacity: 0.55; }
+      /* "Tap to continue" (newmove.js `hint`), set as the run-end screen's foot hint so the two read as
+         one sequence: same place, weight and pulse. It fades up a beat after the card lands, rather
+         than with it, so it reads as the screen waiting once the clip has been seen. */
+      #new-move .nm-continue { display: none; }
+      body.new-move-after-run.new-move-open #new-move .nm-continue {
+        display: block; position: fixed; left: 0; right: 0;
+        bottom: calc(clamp(20px, 5vh, 44px) + var(--safe-bottom));
+        text-align: center; color: #fff; font-family: var(--game-font);
+        font-size: clamp(14px, 2.6vh, 17px); font-weight: 600; opacity: 0.9;
+        pointer-events: none;
+        animation: nm-continue-in 0.36s ease-out 0.8s backwards, run-end-pulse 1.8s ease-in-out 1.6s infinite;
+      }
+      @keyframes nm-continue-in { from { opacity: 0; } to { opacity: 0.9; } }
       body.new-move-open #new-move {
         pointer-events: auto; cursor: pointer; touch-action: manipulation;
         background: rgba(6, 14, 22, 0.72);
