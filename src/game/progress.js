@@ -25,7 +25,12 @@
  */
 
 export const DEMO_KEY = 'simTaxi.demo';
-/** Set once the Settings row has been revealed, so it stays there on later visits. */
+/**
+ * '1' once the Settings rows have been revealed, so they stay there on later visits; '0' once they
+ * have been hidden again (the same five taps, Tyler 2026-10-25: set things up for a demo, then put
+ * them away before the audience sees the screen). Hidden outranks Demo mode being on or `?demo`,
+ * which otherwise reveal the rows by themselves.
+ */
 export const DEMO_ROW_KEY = 'simTaxi.demo.row';
 /** sessionStorage: the last card Demo mode rotated to (`demoRotate`). */
 export const DEMO_TURN_KEY = 'simTaxi.demo.turn';
@@ -53,7 +58,8 @@ export function createDemo({ storage, session, search } = {}) {
   // `?demo` (any value but off) forces it on, `?demo=off` off; neither is saved.
   const forced = param === null ? null : param !== 'off';
   let saved = read(store(), DEMO_KEY) === '1';
-  let revealed = forced !== null || saved || read(store(), DEMO_ROW_KEY) === '1';
+  const row = read(store(), DEMO_ROW_KEY);
+  let revealed = row === '1' || (row !== '0' && (forced !== null || saved));
   const listeners = new Set();
   return {
     on: () => forced ?? saved,
@@ -68,6 +74,11 @@ export function createDemo({ storage, session, search } = {}) {
     reveal() {
       revealed = true;
       write(store(), DEMO_ROW_KEY, '1');
+    },
+    /** Hide the rows again. Demo mode itself stays as it is. */
+    conceal() {
+      revealed = false;
+      write(store(), DEMO_ROW_KEY, '0');
     },
     onChange(fn) { listeners.add(fn); return () => listeners.delete(fn); },
     /**
