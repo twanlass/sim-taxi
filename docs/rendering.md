@@ -1652,10 +1652,10 @@ things break the run of tarmac. `?roads=classic` brings back the old road and dr
 - **Light bridge decks.** Every crossing, fixed or lifting, wears one light pavement grey
   (`bridgeDeck`, `drawbridgeDeck`), so the river row reads as a different material rather than as
   more street; `bridgeTrim` went paler with it so the parapets still outline the deck.
-- **Expansion joints** (`jointParts`, geometry/bridge.js): a dark steel strip on each bank line
-  and a pale concrete approach slab behind it, on the *road* side, since the deck runs exactly bank
-  to bank. Built into `abutmentParts`, so the drawbridge's static half carries them and they stay
-  down when the leaf lifts. At `y = 0.03`, clear of the lane paint at 0.02.
+- **No marks where the road meets a bridge.** The asphalt runs straight onto the light deck. The
+  expansion joints that used to sit there (`jointParts`, geometry/bridge.js) read as a chunky
+  crossing band at play zoom and are off by default; `?bridgemarks=classic` brings them back
+  ([history](rendering-history.md#bridge-expansion-joints)).
 - **One paved plaza** (`setJunctionPaving`, util/geo.js): the junction nearest the middle that is a
   full signalised crossing of two side streets, laid in charcoal setts (running bond, each unit its
   own shade, paler joints) inside a frame: a band of kerb stone on the outside, then a pale soldier
