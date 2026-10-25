@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { PALETTE, plazaLook } from '../palette.js';
 import {
   PITCH, HALF_SPAN_X, HALF_SPAN_Z, HALF_ROAD, HALF_ARTERIAL, GRID_I, GRID_J, isArterialX, isArterialZ, RIVER_EXTRA,
-  riverMidZ, riverRow, isUnsignalised, isSegmentClosed,
+  riverMidZ, riverRow, isUnsignalised, isSegmentClosed, lineX, lineZ,
 } from '../city/grid.js';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 
@@ -365,10 +365,14 @@ export function setRoadStrokes(on) {
  * `gl_FragColor` is in by the time the paint pass runs (`<colorspace_fragment>` comes before
  * `<fog_fragment>`).
  *
- * Which junction: the one nearest the middle of the map that is a full four-way crossing of two
- * side streets — signalised, every arm open, off the river's two banks — so it has a crosswalk on
- * every side and reads as a square rather than as a stretch of main road. Read after the layout
- * exists, like the arterials in `setPaintBrushes`.
+ * Which junction: a full four-way crossing of two side streets — signalised, every arm open, off
+ * the river's two banks — so it has a crosswalk on every side and reads as a square rather than as a
+ * stretch of main road. This picks the one nearest the middle of the map, read after the layout
+ * exists like the arterials in `setPaintBrushes`; `placeJunctionPaving` then moves it to a random
+ * one the camera can see once the city stands. The middle one is what `?plazaspot=classic` keeps,
+ * and it was the same square every run: the garage is drawn toward the middle too, so in most
+ * cities the plaza sat beside it (Tyler, 2026-10-25: "it should just randomly render in different
+ * places").
  */
 export function setJunctionPaving(on) {
   const srgb = (hex) => {
@@ -389,18 +393,50 @@ export function setJunctionPaving(on) {
   PAINT_UNIFORMS.uJunctionStyle.value = look.style;
 
   let best = null;
+  for (const { i, j } of plazaJunctions()) {
+    const d = (i - GRID_I / 2) ** 2 + (j - GRID_J / 2) ** 2;
+    if (!best || d < best.d) best = { i, j, d };
+  }
+  PAINT_UNIFORMS.uJunctionAt.value.set(best?.i ?? -99, best?.j ?? -99);
+  return best;
+}
+
+/** Every junction the plaza may take: a signalised side-street four-way, every arm open, off the banks. */
+export function plazaJunctions() {
+  const out = [];
   const row = riverRow();
   for (let i = 1; i < GRID_I; i++) {
     for (let j = 1; j < GRID_J; j++) {
       if (isUnsignalised(i, j) || isArterialX(j) || isArterialZ(i)) continue;
       if (row !== null && (j === row || j === row + 1)) continue;
       if ([0, 1, 2, 3].some((d) => isSegmentClosed(i, j, d))) continue;
-      const d = (i - GRID_I / 2) ** 2 + (j - GRID_J / 2) ** 2;
-      if (!best || d < best.d) best = { i, j, d };
+      out.push({ i, j });
     }
   }
-  PAINT_UNIFORMS.uJunctionAt.value.set(best?.i ?? -99, best?.j ?? -99);
-  return best;
+  return out;
+}
+
+/**
+ * Move the plaza to a random qualifying junction, drawn off the city's own stream so a pinned
+ * `?seed=` keeps its square. Prefers junctions whose whole box `visible(x, z)` passes at its centre
+ * and four corners: a paved square half behind a tower is a smudge, the way the asphalt patches
+ * were. Called once the city's occluders exist (main.js). Does nothing while the paving is off.
+ */
+export function placeJunctionPaving(rng, visible = () => true) {
+  if (PAINT_UNIFORMS.uJunctionTint.value.w === 0) return null;
+  const r = HALF_ROAD;
+  const scored = plazaJunctions().map((at) => ({
+    ...at,
+    seen: [[0, 0], [r, r], [-r, r], [r, -r], [-r, -r]]
+      .filter(([dx, dz]) => visible(lineX(at.i) + dx, lineZ(at.j) + dz)).length,
+  }));
+  if (!scored.length) return null;
+  // The best-seen ones, which is every whole box in 19 cities of 20; in the twentieth no box is
+  // wholly clear, and the least-hidden beats falling back on the middle one regardless.
+  const top = Math.max(...scored.map((c) => c.seen));
+  const pick = rng.pick(scored.filter((c) => c.seen === top));
+  PAINT_UNIFORMS.uJunctionAt.value.set(pick.i, pick.j);
+  return pick;
 }
 
 const PAINT_COMMON = /* glsl */ `

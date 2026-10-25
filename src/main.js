@@ -144,7 +144,7 @@ import { markOccluder } from './game/ssao.js';
 import { markEmissive } from './game/bloom.js';
 import { renderBudget, decideLooks, createRenderPath } from './game/renderpath.js';
 import {
-  propMaterial, setGlossCity, setGlossGlobal, PAINT_UNIFORMS,
+  propMaterial, setGlossCity, setGlossGlobal, PAINT_UNIFORMS, placeJunctionPaving,
 } from './util/geo.js';
 import * as difficulty from './game/difficulty.js';
 import { createHomeScreenTip } from './game/homescreen.js';
@@ -902,6 +902,12 @@ const asphaltPatches = createAsphaltPatches(makeRng(seed + 197), {
   enabled: !roadsClassic(), visible: (x, z) => sightlineClear(x, 0.05, z),
 });
 if (asphaltPatches) scene.add(markOccluder(rain.wetGround(asphaltPatches)));
+// The paved plaza goes to a random side-street junction the camera can see, on its own stream, now
+// that the sightline field exists (`placeJunctionPaving`, util/geo.js). `?plazaspot=classic` keeps it
+// on the one nearest the middle, which was beside the garage in most cities.
+if (new URLSearchParams(location.search).get('plazaspot') !== 'classic') {
+  placeJunctionPaving(makeRng(seed + 198), (x, z) => sightlineClear(x, 0.05, z));
+}
 
 // Density is on the difficulty curve, so the run opens at its bottom and the instanced meshes are
 // sized for its top — an InstancedMesh cannot be resized once built. An explicit `?cars=N` beats
