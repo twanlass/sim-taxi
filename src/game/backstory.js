@@ -5,7 +5,9 @@ import { createSeenFlag } from './progress.js';
  * The story before the first run: four lines from dispatch, on the docked speech card, tapped
  * through between Play and the cut to the garage door. Shown once per device — the player who has
  * heard it once goes straight to the garage — and `?intro=classic` never shows it.
- * `?intro=always` shows it on every Play, for anyone working on it.
+ * `?intro=always` shows it on every Play, for anyone working on it, and so does the "Always show
+ * intro story" switch in Settings (`introAlways` in game/settings.js) — the App Store build has no
+ * URL bar. The URL outranks the switch, so `?intro=classic` still never tells it.
  *
  * Robo-taxis are flavour for now (Tyler, 2026-10-21): nothing in the run refers back to them yet.
  * The pitch is that they explain the controls — they stop at yellows and never speed, and the
@@ -64,10 +66,12 @@ export function backstoryVoiced() {
   return new URLSearchParams(window.location.search).get('introvo') !== 'classic';
 }
 
-export function backstoryMode() {
-  if (typeof window === 'undefined') return 'once';
+/** `always` is the Settings switch: it turns the default `once` into `always`, and nothing else. */
+export function backstoryMode({ always = false } = {}) {
+  if (typeof window === 'undefined') return always ? 'always' : 'once';
   const v = new URLSearchParams(window.location.search).get('intro');
-  return v === 'classic' || v === 'always' ? v : 'once';
+  if (v === 'classic' || v === 'always') return v;
+  return always ? 'always' : 'once';
 }
 
 /** Will Play tell the story first? */

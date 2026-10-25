@@ -100,13 +100,23 @@ Play opens it on the announcer, so the music is part of what starting a run give
 
 **Settings** and **Credits** dim the city behind a mask; the menu only shades the left edge its
 words stand on, with the copyright and build number in small type along its foot
-(`COPYRIGHT` and `BUILD_VERSION` in titlescreen.js — bump the version there). Settings holds four things, all remembered across visits:
+(`COPYRIGHT` and `BUILD_VERSION` in titlescreen.js — bump the version there).
+
+Settings shows a player three rows: **Sound, Music volume and SFX volume** (Tyler, 2026-10-25). The
+rest are there but hidden until the same five taps on the Settings heading that reveal
+[Demo mode](#demo-mode): Tutorial tips, Always show intro story, Haptics (iOS app only), Quality,
+Antialiasing, Difficulty and Demo mode itself, in that order. The reveal is remembered on the
+device (`simTaxi.demo.row`), so whoever unlocked it does not tap again every launch; a player who
+never goes looking keeps the defaults. `?settings=classic` shows every row as before, with only
+Demo mode held back (`settingsLayout` in menupage.js). Everything is remembered across visits:
 
 | Setting | Where it lives |
 |---|---|
 | Sound on/off | The existing mute (`simTaxi.muted`, game/sfx.js), shared with the pause screen's Settings and **M** — stored once, not twice |
 | Music volume, SFX volume | `simTaxi.settings` (game/settings.js), applied through `sfx.setVolumes`. Music is the radio ([audio.md](audio.md#the-radio)) |
 | Tutorial tips | `simTaxi.settings`, on both the title and pause screens. Read on Play (`beginRun` in main.js): off drops the tutorial and lets the HUD in. Off mid-run (pause screen) does the same (`dropTutorial`); the New Move cards read it live |
+| Always show intro story | `simTaxi.settings` (`introAlways`), off by default. On, every Play tells [the backstory](#the-backstory), the switch for `?intro=always`; the URL outranks it |
+| Haptics, Quality, Antialiasing, Difficulty | `simTaxi.settings` |
 
 **Credits** sets a pixel Claude beside its name, and it is a button: tap it and a pixel taxi pulls
 up, Claude hops in, and it Loco-boosts off the right of the screen with the startup screen's Loco
@@ -164,7 +174,8 @@ speech updates are parked with everything else.
 **Once per device.** It is a `createSeenFlag` (`src/game/progress.js`), marked seen as it
 *starts*, so a player who quits halfway is not told it twice, and [Demo mode](#demo-mode) tells it
 on every Play. "Play again" reloads past the title and so past this too.
-`?intro=classic` never tells it; `?intro=always` tells it on every Play.
+`?intro=classic` never tells it; `?intro=always`, or the **Always show intro story** switch in
+Settings, tells it on every Play.
 
 **The robo-taxis are flavour** (Tyler, 2026-10-21). Nothing in the run refers back to them yet.
 The idea the lines are built on is that the threat explains the controls: the robots stop at
@@ -173,7 +184,8 @@ yellows and never speed, so the player wins by doing what they won't.
 ## Demo mode
 
 For showing the game to someone: every run plays as a first run. A switch at the bottom of
-Settings, on the title screen and the pause screen alike, which is only there once revealed: by
+Settings, on the title screen and the pause screen alike, which is only there once revealed (with
+every other row but the sound ones, see [the title screen](#the-title-screen)): by
 opening the game with **`?demo`**, or by tapping the Settings heading five times, each tap within a
 second of the last (the App Store build has no URL bar). The row then scrolls into view and flashes
 gold. A player who never goes looking never sees it. `?demo` turns it on for that load without
