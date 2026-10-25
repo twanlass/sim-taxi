@@ -925,11 +925,24 @@ const peeking = (car, leader) => car.passing && car.dodgeLateral < 0 && leader &
  * when it would have and the player brakes or hits it (Tyler, 2026-10-25: "If traffic behaves
  * consistently no matter what the player can learn that rule and adapt"). The peek ends the frame
  * the turner is out of the taxi's lane (`clearOfLane`), never chaining on to the car behind it.
- * 13% of pull-outs, a median 16 units; bumps 23% against 17%, which is the veto's share.
+ * With the taxi's scatter off too (`setTaxiScatter`): 8% of pull-outs, a median 17 units, every
+ * one round a car that turned left; bumps 19% against 17%.
  *
  * `?peek=classic` is the first build: any blinker, held like a pass.
  */
 let peekOn = true;
+/**
+ * Whether ambient traffic flees the boosting taxi (`clearAhead(taxi, ...)`, the scatter block in
+ * `update`). Off by default (Tyler, 2026-10-25), for the same reason as the courtesy veto: a car
+ * that speeds up and re-rolls its turn because the taxi is behind it is traffic changing for the
+ * player, and a car flagged left that then floored it straight on was the most common way a blinker
+ * lied. Cops and the fire engine still clear their lanes with the siren on. `?scatter=classic`
+ * puts the taxi's flee back.
+ */
+let taxiScatter = false;
+export function setTaxiScatter(name) {
+  taxiScatter = name === 'classic';
+}
 export function setPeek(name) {
   peekOn = name !== 'classic';
 }
@@ -6607,7 +6620,7 @@ export function createTraffic(
       }
     };
 
-    if (taxiActive && taxi.boost) {
+    if (taxiScatter && taxiActive && taxi.boost) {
       // Nothing scatters while the taxi is passing. Scatter's premise is "the car in front is in
       // my way", and a taxi that has committed to going round it has answered that a different
       // way. Left on it defeats the pass outright: a fleeing car runs at SCATTER_SPEED (2.0x

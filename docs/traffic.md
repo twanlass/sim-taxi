@@ -290,7 +290,13 @@ with it — 26 is 2.4 units short of a taxi in overdrive's own stopping distance
 appears inside that is a rear-end rather than a lift. Ambient traffic never noticed either number:
 at cruise a leader stops constraining beyond 3.3 units of clear road.
 
-The same walk drives the Loco Mode scatter, which reaches `SCATTER_RANGE = 40` — two blocks.
+The same walk drives the Loco Mode scatter, which reaches `SCATTER_RANGE = 40` — two blocks. The
+boosting taxi's own scatter is off by default (`setTaxiScatter`, `?scatter=classic`; Tyler,
+2026-10-25), so ambient cars ahead of it carry on as they were: same speed, same signalled turn.
+A siren (a chasing cop, the fire engine) still clears its lane this way. The cost is rams: a
+bot holding Loco through traffic without throwing the combo rear-ended 69 cars over 12 cities × 40s
+against 30 with the flee (`tools/overtakebot.mjs --grace=1.2`), and a combo thrown 0.35s after
+catching a car passed 81-85% of them against 90%.
 
 ### A moving leader is not a wall
 
@@ -1240,7 +1246,9 @@ other lane"):
   lane. Looked for among every car off the lane, not just the leader: the leader bookkeeping lets
   go of a turner a little way into its arc. A block ahead, or already out of the lane, it is the
   oncoming lane, across the turner's arc.
-- **Traffic does not change for the taxi.** The courtesy veto below, which held a car being passed
+- **Traffic does not change for the taxi.** Cars ahead of it no longer flee it (`?scatter=classic`,
+  [above](#a-moving-leader-is-not-a-wall)), which is what used to make a car signalling left go
+  straight on. And the courtesy veto below, which held a car being passed
   at its line instead of letting it turn left across the taxi, is off under the dumb combo (Tyler,
   2026-10-25: "If traffic behaves consistently no matter what the player can learn that rule and
   adapt"). A turner turns when it would have; the taxi out in the oncoming lane brakes or hits it.
@@ -1253,7 +1261,7 @@ Measured by `tools/overtakecases.mjs` (the combo thrown 0.35s after catching eac
 | | pull-outs | up the kerb | road on the pavement (median) | bumped |
 |---|---|---|---|---|
 | first build (`?peek=classic`) | 248 | 99 (40%), 17 round a car that then went straight on | 33 units | 17% |
-| now | 248 | 31 (13%) | 16 units | 23% |
+| now (no veto, no flee) | 263 | 22 (8%), every one round a car that turned left | 17 units | 19% |
 
 It also pulls out half way across a straight-through crossing (`thrownInBox`), where classic waits
 for the far side; behind a slow truck the taxi spends much of its time in the box. Over 8 cities ×

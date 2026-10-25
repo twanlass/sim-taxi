@@ -76,7 +76,7 @@ import { createBurgerRun } from '../src/game/burgerrun.js';
 import { createOvertakeCombo, OVERTAKE_BLIP_MS, OVERTAKE_GRACE } from '../src/game/overtake.js';
 import { createOpening, exitPath, entryPath, REPAIR_GAP } from '../src/game/opening.js';
 import { createDepotRun } from '../src/game/depotrun.js';
-import { spinTaxi, driftTaxi, kickDrift, DRIFT_KICK_WINDOW, DRIFT_MIN_V, DRIFT_ANGLE, DRIFT_EXIT, DRIFT_CHAIN, createTraffic, lightPhase, displayPhase, setPriorityJunction, isUnsignalised, ringAxisAt, placeCar, approachRoom, setClosedLanes, isLaneClosed, ROAD_Y, HOP_LEN, DRIFT_LAUNCH_LEN, DRIFT_LAUNCH_HEIGHT, onDriftLaunch, setBarrelRoll, setHopStyle, setDodge, setOvertakeStyle, setPeek, HOP_MIN_V, STOP_SETBACK, SIGNAL_LEAD, SIGNAL_LINGER, wheelAnchors, WHEEL_R, STEER_MAX, SPEED, CAR_LEN, CAR_W, landingBounce, landingRoll, BOUNCE_DUR, TRUCK_W, SPAWN_CLEARANCE, POLICE_FLEET,
+import { spinTaxi, driftTaxi, kickDrift, DRIFT_KICK_WINDOW, DRIFT_MIN_V, DRIFT_ANGLE, DRIFT_EXIT, DRIFT_CHAIN, createTraffic, lightPhase, displayPhase, setPriorityJunction, isUnsignalised, ringAxisAt, placeCar, approachRoom, setClosedLanes, isLaneClosed, ROAD_Y, HOP_LEN, DRIFT_LAUNCH_LEN, DRIFT_LAUNCH_HEIGHT, onDriftLaunch, setBarrelRoll, setHopStyle, setDodge, setOvertakeStyle, setPeek, setTaxiScatter, HOP_MIN_V, STOP_SETBACK, SIGNAL_LEAD, SIGNAL_LINGER, wheelAnchors, WHEEL_R, STEER_MAX, SPEED, CAR_LEN, CAR_W, landingBounce, landingRoll, BOUNCE_DUR, TRUCK_W, SPAWN_CLEARANCE, POLICE_FLEET,
   LOCO_DEFAULTS, locoTuning, setLocoTuning, resetLocoTuning, locoRamp, boostCruise, overdriveTop, MPH_PER_UNIT, locoWeave, locoWeaveFade, MIN_GAP, ENVELOPE, CIRCLE_OFFSET, DODGE_MARGIN, carGeometry, CABIN_TOP, copLaysRubber, uturnWindow } from '../src/sim/traffic.js';
 import { loadLocoTuning, saveLocoTuning, clearLocoTuning } from '../src/game/locostash.js';
 import { createRoadwork, BARRIER_S, CONE_ROW } from '../src/game/roadwork.js';
@@ -5743,6 +5743,10 @@ const PRESSURE_END = difficulty.getTuning().pressureEnd;
   // had no such notion — it also, on this junction, placed the *taxi* 14 units off the western edge
   // of the map and let it drive in — so the distance went unquestioned. 12 is the near end of the
   // lane, which is as much clear road as a car on this city can actually have.
+  //
+  // Under `?scatter=classic` since the flee went off by default (`setTaxiScatter`; Tyler,
+  // 2026-10-25): the check after this one asserts the default leaves the leader alone.
+  setTaxiScatter('classic');
   const sScene = new THREE.Scene();
   const sTraffic = createTraffic(makeRng(seed + 103), sScene, 2);
   const [sTaxi, leader] = sTraffic.cars;
@@ -5805,6 +5809,22 @@ const PRESSURE_END = difficulty.getTuning().pressureEnd;
     dIn >= 0 && fleePeak > 0.9 && fleeSpeed > 1.35 && taxiFloor > 0.9 && taxiMean > 1.4,
     `leader peaked at ${fleeSpeed.toFixed(2)}x cruise, taxi never fell below ${taxiFloor.toFixed(2)}x`
     + ` and averaged ${taxiMean.toFixed(2)}x`);
+  setTaxiScatter('');
+  {
+    // The default: the same staging, and the leader never flees.
+    const dTraffic = createTraffic(makeRng(seed + 103), new THREE.Scene(), 2);
+    const [dTaxi, dLeader] = dTraffic.cars;
+    place(dTaxi, dIn, 30);
+    place(dLeader, dIn, 12);
+    let dPeak = 0;
+    for (let f = 0; f < 60 * 2; f++) {
+      dTaxi.boost = true;
+      dTraffic.update(1 / 60);
+      dPeak = Math.max(dPeak, dLeader.scatter);
+    }
+    check('by default traffic does not flee the boosting taxi', dPeak === 0,
+      `scatter envelope peaked at ${dPeak.toFixed(2)}`);
+  }
 
   // 1b. The same staging with a truck as the leader. Trucks never scatter — too big to skitter,
   // see the scatter block in traffic.js — and `car.scatter` only ever rises via the `mark` that
@@ -6334,6 +6354,8 @@ const PRESSURE_END = difficulty.getTuning().pressureEnd;
   // test was asked on approach that was a car pinned to the line still reading 17 u/s.
   //
   // Routed rather than rolled, so the exit it takes is the blocked one every time.
+  // Under `?scatter=classic`, which is the only way a car arrives at the line that fast now.
+  setTaxiScatter('classic');
   const fScene = new THREE.Scene();
   const fTraffic = createTraffic(makeRng(seed + 149), fScene, 3);
   const [fTaxi, flee, fBlocker] = fTraffic.cars;
@@ -6375,6 +6397,7 @@ const PRESSURE_END = difficulty.getTuning().pressureEnd;
       && fleeSlid < 0.002,
     `peaked at ${fleeTop.toFixed(1)} u/s, stationary at up to ${fleeFrozen.toFixed(2)} u/s, `
     + `weave slid ${fleeSlid.toFixed(4)}/frame`);
+  setTaxiScatter('');
 
   // 4. Overtaking. A boosting taxi with a slower car in front, on a route that carries straight
   // on, pulls a full lane into the *oncoming* side, goes past, and comes back.
