@@ -20505,6 +20505,45 @@ let chopperOrder; // likewise
     check('the deck faces the sky', upward > 100, `${upward} up-facing triangles`);
   }
 
+  // The arch is lit off its own normals rather than facet by facet (`bendNormals` in
+  // geometry/bridge.js): every up-facing deck vertex carries the profile's analytic normal, so two
+  // facets meeting at a station agree there — and every vertical face (kerbs, beams) keeps its own
+  // horizontal one, so the deck's edges stay hard under the smooth material.
+  {
+    let worst = 0;
+    let sides = 0;
+    let bentSides = 0;
+    const want = new THREE.Vector3();
+    for (const i of bridgeLines()) {
+      const span = bridgeSpan(i);
+      if (span.kind !== 'fixed') continue;
+      const len = span.z1 - span.z0;
+      const geo = createBridge(span, makeRng(seed + 820 + i), { abutments: false, pivotZ: 0 });
+      const p = geo.attributes.position;
+      const nrm = geo.attributes.normal;
+      for (let k = 0; k < p.count; k++) {
+        const ny = nrm.getY(k);
+        if (Math.abs(nrm.getX(k)) > 0.5) {
+          sides += 1;
+          if (Math.abs(ny) > 1e-6 || Math.abs(nrm.getZ(k)) > 1e-6) bentSides += 1;
+          continue;
+        }
+        if (Math.abs(ny) < 0.05) continue;
+        // Lofted surfaces only — carriageway, paint, footways, soffit — picked out by lying on the
+        // profile at one of their lifts. The rails, posts and end caps are boxes with faces of their
+        // own, and none of them sits on those heights.
+        const at = archAt(p.getZ(k) / len, len);
+        const lift = p.getY(k) - at.y;
+        if (![0, 0.02, KERB_H, -DECK_THICK].some((h) => Math.abs(lift - h) < 1e-4)) continue;
+        want.set(0, 1, -at.slope).normalize().multiplyScalar(Math.sign(ny));
+        worst = Math.max(worst, want.distanceTo(new THREE.Vector3().fromBufferAttribute(nrm, k)));
+      }
+    }
+    check('the arched decks carry the arch\'s normals, and their sides stay square',
+      worst < 1e-5 && sides > 0 && bentSides === 0,
+      `worst normal off the profile ${worst.toExponential(1)}, ${bentSides} of ${sides} side normals tilted`);
+  }
+
   // ...and every vertical face of the deck faces the side it is on: the edge beams **out**, the kerb
   // faces **in** toward the carriageway. Both shipped wound the other way round, so a span had no
   // visible side from outside and the camera saw straight under its footways to the water — a slot

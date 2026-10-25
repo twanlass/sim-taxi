@@ -26,6 +26,20 @@ import { KERB_H, MARK_Y } from '../city/ground.js';
  */
 export const DECK_SEGMENTS = 10;
 
+/**
+ * `?bridgenormals=classic`: the arched decks lit facet by facet again.
+ *
+ * Ten segments is a hump you cannot see the *silhouette* facets of, but you can see the shading
+ * ones: under `flatShading` every quad takes its own face normal, so the sun steps from one band to
+ * the next across the crest, ten stripes down the carriageway (Tyler, 2026-10-25). By default the
+ * surfaces that follow the profile — carriageway, footways, paint and soffit — carry the arch's
+ * analytic normal instead (`bendNormals`), and the fixed spans are drawn under a smooth
+ * `propMaterial`. Everything else on the bridge keeps the face normal `bakeColor` gives it, so the
+ * kerbs, beams, caps and rails stay hard-edged under the smooth material exactly as they were.
+ */
+export const BRIDGE_NORMALS_CLASSIC = typeof location !== 'undefined'
+  && new URLSearchParams(location.search).get('bridgenormals') === 'classic';
+
 
 /** How far the abutment carries down past the waterline. Nothing is seen below it. */
 const ABUT_FOOT = 1.0;
@@ -98,6 +112,26 @@ function loftedStrip(x0, x1, span, rise, lift, from = 0, to = 1) {
   const geo = new THREE.BufferGeometry();
   geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(pos), 3));
   geo.computeVertexNormals();
+  return geo;
+}
+
+/**
+ * Replace a profile-following surface's normals with the arch's own: `(0, 1, -dy/dz)` for one
+ * facing up, its negation for the soffit. Along the span only — the deck has no cross-fall, so the
+ * normal is constant across x and the edges where it meets a kerb or a beam stay as hard as before.
+ *
+ * Has to run *after* `bakeColor`, which recomputes face normals; the winding is untouched, so the
+ * probe's from-the-winding checks read exactly what they read before.
+ */
+function bendNormals(geo, span, rise, facing) {
+  const p = geo.attributes.position;
+  const n = geo.attributes.normal;
+  for (let k = 0; k < p.count; k++) {
+    const slope = archAt(p.getZ(k) / span, span, rise).slope;
+    const len = Math.hypot(1, slope);
+    n.setXYZ(k, 0, facing / len, (-facing * slope) / len);
+  }
+  n.needsUpdate = true;
   return geo;
 }
 
@@ -229,11 +263,18 @@ export function bridgeParts(span, rng, range = [0, 1], { capCut = false } = {}) 
   const markCol = color('laneMark');
 
   const soffitCol = jitterColor(PALETTE.bridgeSoffit, rng, { l: 0.02 });
+  // A surface that follows the profile, coloured and given the arch's normals (`bendNormals`). A
+  // flat leaf's face normals are already the answer.
+  const bend = rise > 0 && !BRIDGE_NORMALS_CLASSIC;
+  const profiled = (geo, col, facing = 1) => {
+    const baked = bakeColor(geo, col);
+    return bend ? bendNormals(baked, length, rise, facing) : baked;
+  };
 
   // Running surface, and the soffit under the whole deck.
-  parts.push(bakeColor(loftedStrip(-span.half, span.half, length, rise, 0, from, to), deckCol));
-  parts.push(bakeColor(
-    soffitStrip(-span.outer, span.outer, length, rise, DECK_THICK, from, to), soffitCol,
+  parts.push(profiled(loftedStrip(-span.half, span.half, length, rise, 0, from, to), deckCol));
+  parts.push(profiled(
+    soffitStrip(-span.outer, span.outer, length, rise, DECK_THICK, from, to), soffitCol, -1,
   ));
 
   for (const sign of [-1, 1]) {
@@ -241,7 +282,7 @@ export function bridgeParts(span, rng, range = [0, 1], { capCut = false } = {}) 
     // `KERB_H` every block in the city stands its own at, so the walk running down the embankment
     // arrives at the bridge at the height it left — and a car on the deck has a kerb beside it
     // rather than a painted line.
-    parts.push(bakeColor(
+    parts.push(profiled(
       loftedStrip(sign * span.half, sign * span.outer, length, rise, KERB_H, from, to), walkCol,
     ));
     // Its kerb face, turned in toward the carriageway where the driver sees it.
@@ -318,7 +359,7 @@ export function bridgeParts(span, rng, range = [0, 1], { capCut = false } = {}) 
     const u0 = s / length;
     const u1 = (s + DASH) / length;
     if (u0 < from || u1 > to) continue;
-    parts.push(bakeColor(
+    parts.push(profiled(
       loftedStrip(-DASH_W / 2, DASH_W / 2, length, rise, PAINT_LIFT, u0, u1), markCol,
     ));
   }

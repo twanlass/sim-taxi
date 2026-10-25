@@ -32,7 +32,7 @@ import { tickRiverWater, bindRiverDrawbridge, setWaterStyle } from './city/river
 import { createDrawbridge } from './game/drawbridge.js';
 import { createBoats } from './game/boats.js';
 import { createHarborShips } from './game/harborships.js';
-import { createBridge, jointParts } from './geometry/bridge.js';
+import { createBridge, jointParts, BRIDGE_NORMALS_CLASSIC } from './geometry/bridge.js';
 import { createBuildings } from './city/buildings.js';
 import { createProps, parkPlots, setAutumn } from './city/props.js';
 import { createLeaves } from './game/leaves.js';
@@ -621,7 +621,11 @@ if (river) {
     // The lifting span is `game/drawbridge.js`'s: it needs its leaf as an object it can turn, not
     // as geometry merged into a static city mesh.
     if (span.kind !== 'fixed') continue;
-    const mesh = new THREE.Mesh(createBridge(span, bridgeRng), propMaterial());
+    // Smooth so the deck lights off the arch's own normals rather than facet by facet; the parts that
+    // should stay hard carry face normals (`BRIDGE_NORMALS_CLASSIC` in geometry/bridge.js).
+    const mesh = new THREE.Mesh(
+      createBridge(span, bridgeRng), propMaterial({ smooth: !BRIDGE_NORMALS_CLASSIC }),
+    );
     mesh.castShadow = true;
     mesh.receiveShadow = true;
     // A deck is a shell a third of a unit thick that both casts and receives, which is the one
