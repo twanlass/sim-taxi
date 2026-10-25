@@ -126,7 +126,7 @@ import {
   createTargetRing, ringGrowScale, ringShrinkScale, RING_R, RING_Y,
 } from '../src/geometry/targetring.js';
 import { createParcelPad, PAD_R } from '../src/geometry/parcelpad.js';
-import { underglowGeometry, createPulse, pulseStep } from '../src/game/race.js';
+import { underglowGeometry, createPulse, pulseStep, createRace, COUNT_STEP as RACE_COUNT_STEP, ROCKET_COUNT, COUNTDOWN as RACE_COUNTDOWN } from '../src/game/race.js';
 import { createHydraulics, LIFT_MIN, LIFT_MAX } from '../src/game/hydraulics.js';
 import { TAXI_DECK_Y, TAXI_TAILPIPE_BACK, TAXI_TAILPIPE_HEIGHT } from '../src/geometry/taxi.js';
 import { createLocoFlame } from '../src/game/locoflame.js';
@@ -945,6 +945,67 @@ const onGrass = (city, i, j) => {
   check('every face of the pond points at the sky', !!pondPlan && faces > 0 && downward === 0,
     `${faces - downward}/${faces} facing up`);
   check('and the water lies level', offLevel === 0, `${offLevel} sloping triangles`);
+}
+
+// The race's rocket start (game/race.js, ROCKET_COUNT): Loco pressed on the "2" and held to the
+// green launches on the drift's tier-1 kick; a thumb on the pill from the "3", from before the
+// count, or only from the "1" gets a plain start, and so does a press on the "2" let go on the "1".
+// Driven as main.js drives it: the pill through `createBoost`, `taxi.boost` off it every frame.
+{
+  const rocketRun = (pattern) => {
+    for (let s = 0; s < 8; s++) {
+      const rTraffic = createTraffic(makeRng(seed + 7100 + s), new THREE.Scene(), 40);
+      const rTaxi = rTraffic.taxi;
+      rTraffic.warmup(10);
+      const rRouteTo = (target) => {
+        const from = planOrigin(rTaxi);
+        const route = target.onto != null ? findRouteOnto(from, target, target.onto) : findRoute(from, target);
+        if (!route) return false;
+        Object.assign(rTaxi, { route, routeConsumed: false, pendingTarget: target, parked: false });
+        return true;
+      };
+      const pill = createBoost(undefined, 1);
+      const r = createRace({
+        rng: makeRng(seed + 7200 + s), scene: new THREE.Scene(), traffic: rTraffic, routeTo: rRouteTo,
+        loco: () => pill.state.held, readyGate: false,
+        onEvent: (type) => { if (type === 'lined-up') r.countIn(); },
+      });
+      if (!r.summon() || !r.accept() || !r.stage()) continue;
+      // Which number is up at `ct` seconds into the count: 3, 2, 1.
+      const showing = (ct) => RACE_COUNTDOWN - Math.floor(ct / RACE_COUNT_STEP);
+      let goAt = null;
+      let v = null;
+      for (let f = 0, t = 0; f < 60 * 30 && v === null; f++, t += 1 / 60) {
+        const st = r.state;
+        const ct = st.phase === 'countdown' ? st.phaseT + 0.3 / 60 : null;
+        const n = ct === null ? null : showing(ct);
+        const down = st.phase === 'racing' || (ct === null ? pattern === 'before'
+          : pattern === 'before' || pattern === 'from3' ? true
+            : pattern === 'on2' ? n <= ROCKET_COUNT
+              : pattern === 'on2-off1' ? n === ROCKET_COUNT
+                : pattern === 'on1' ? n < ROCKET_COUNT : false);
+        if (down && !pill.state.held) pill.press();
+        if (!down && pill.state.held) pill.release();
+        pill.update(1 / 60);
+        rTaxi.boost = pill.isEngaged();
+        rTaxi.braking = r.brakesTaxi();
+        rTraffic.update(1 / 60);
+        r.update(1 / 60);
+        if (st.phase === 'racing') goAt ??= t;
+        if (goAt !== null && t - goAt >= 0.25) v = rTaxi.v;
+      }
+      return { launches: r.state.rocketStarts, v };
+    }
+    return null;
+  };
+  const kicked = rocketRun('on2');
+  const plain = ['none', 'before', 'from3', 'on1', 'on2-off1'].map((p) => [p, rocketRun(p)]);
+  check('a Loco press on the race count\'s "2", held to the green, launches on the drift\'s tier-1 kick',
+    kicked?.launches === 1 && kicked.v > boostCruise() * DRIFT_EXIT * 0.85,
+    kicked ? `${kicked.launches} launch, ${kicked.v?.toFixed(1)} u/s 0.25s after the green against a ${(boostCruise() * DRIFT_EXIT).toFixed(1)} kick` : 'no race staged');
+  check('...and a press on any other number, or let go before the green, is a plain start',
+    plain.every(([, x]) => x && x.launches === 0 && x.v < boostCruise() * DRIFT_EXIT * 0.7),
+    plain.map(([p, x]) => `${p} ${x ? `${x.launches}/${x.v?.toFixed(1)}` : 'unstaged'}`).join(', '));
 }
 
 // The street racer's underglow: a hand-wound pad of light on the road, under an unlit material —

@@ -2126,11 +2126,21 @@ function handbrakeAlong(sp, t) {
   return { along, v: rate / time };
 }
 
-/** Out of a handbrake turn on the drift's own tier-1 kick and carry. */
-function powerOut(car) {
+/**
+ * The drift's tier-1 kick and carry, put on in one frame without a drift before it: a car that was
+ * sitting still is doing 30.9 u/s on the next. The handbrake turn powers out on it, and so does the
+ * street race's rocket start (game/race.js). Nothing is chained and nothing is paid — `drifts` is
+ * what main.js pays a drift off, and this leaves it alone.
+ */
+export function launchKick(car) {
   const v = boostCruise() * DRIFT_EXIT;
   car.drift = { phase: 'carry', lane: car.lane.id, v, t: 0, carry: DRIFT_CHAIN.carry[0], kicked: true };
   car.v = Math.max(car.v, v);
+}
+
+/** Out of a handbrake turn on the drift's own tier-1 kick and carry. */
+function powerOut(car) {
+  launchKick(car);
   car.spinKicks = (car.spinKicks ?? 0) + 1;
 }
 

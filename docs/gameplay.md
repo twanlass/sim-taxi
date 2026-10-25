@@ -2850,6 +2850,19 @@ is a tap like every other choice in the game. Ignoring it is free: the racer jus
   Mode, and a player who accepted on an empty pill would lose before the flag dropped. It costs
   the race some of its edge: the bench's full-tank row won 92-100% of races where a third of a
   tank won 58-71%. `?racetank=classic` tops up to a third (`TANK_FLOOR`) at the green instead.
+- **The rocket start is an Easter egg** (Tyler: "if you hold boost when the #2 is shown during the
+  countdown give the player a boost equivalent to drift level 1 when the race begins ala Mario
+  Kart"). A Loco press that comes down while the "2" is up (`ROCKET_COUNT`) and is still down at the
+  green launches the taxi on the drift's tier-1 kick and carry (`launchKick` in sim/traffic.js,
+  30.9 u/s for 0.6s), with the drift kick's bark of fire, shake and whoosh and no word on screen
+  (Tyler cut the "Rocket start!" label). It pays no combo and no fuel. Only a fresh press counts: a thumb already on
+  the pill from the "3" or before, a press on the "1", or a press on the "2" let go before the green
+  gets a plain start. Mario Kart burns out a press that early; here it is only no reward, because
+  nothing tells the player the egg exists and holding the pill through a countdown is what someone
+  who has never heard of it does anyway. A hold from the "3" already starts slower than a press on
+  the green, as it is: Loco's own `BOOST_KICK` goes on with the press, and that press was spent on a
+  parked car (measured headless, 6.4 u/s 0.25s after the green against 16.6, and 27.4 for the rocket
+  start). `?rocketstart=classic` turns it off.
 - **Stakes are lopsided on purpose** (`WIN_PAY` $40, `LOSE_COST` $25, against a $20 median fare).
   Declining is free, so an even bet is one a sensible player never takes. A loss goes through
   `charge`, so an empty till pays what it has.
