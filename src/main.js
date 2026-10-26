@@ -1307,16 +1307,18 @@ window.addEventListener('keydown', (event) => {
 });
 
 // The patrol cruiser's look (sim/police.js) and its life (game/patrol.js): a police car that
-// crosses town edge to edge with its bar swinging red and blue, and comes after you if you boost in
+// crosses town edge to edge with its bar dark, and comes after you, lights going, if you boost in
 // front of it. "Pull over!" goes up over its roof the moment it does (game/copshout.js).
-const police = createPolice(scene);
+// Its bar stays dark on patrol and lights only for a chase; `?coplights=classic` swings it on patrol.
+const patrolLights = new URLSearchParams(window.location.search).get('coplights') === 'classic';
+const police = createPolice(scene, { patrolLights });
 // ...and the extra cruisers the harder Difficulty modes put on patrol (`extraPatrols` in
 // game/difficulty.js), one per patrol the hardest mode can have. All built up front, so a mode
 // switched from the pause screen has its cars ready; until one wears a car it is a hidden shell and
 // costs no draw. No lamps on these: see `createPolice`.
 const cruisers = [police, ...Array.from(
   { length: Math.max(...Object.values(difficulty.MODES).map((m) => m.tuning.extraPatrols ?? 0)) },
-  () => createPolice(scene, { lamps: false }),
+  () => createPolice(scene, { lamps: false, patrolLights }),
 )];
 // The cops no longer talk during a chase — no "pull over" on spotting, no "lost the suspect" when
 // they give up (Tyler, 2026-10-13): the bar, the strobe and the chirp already say both. The bubbles

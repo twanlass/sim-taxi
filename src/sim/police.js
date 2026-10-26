@@ -23,8 +23,8 @@ import {
 //
 // So the cruiser is an ordinary car in traffic now, for the whole of its patrol — the same kind of
 // car a bank robbery brings (see "Cop cars in ambient traffic" in docs/traffic.md). It queues, stops
-// at reds and can be rammed, and its bar swings gently red and blue until the taxi boosts near it,
-// when it strobes hard. The swing is the telegraph — see `setBar`.
+// at reds and can be rammed, and its bar is dark until the taxi boosts near it, when it strobes
+// hard — the lights coming on *is* the chase starting. See `setBar`.
 // game/patrol.js owns the car: when it comes onto the map, where it goes, when it gives chase and
 // how the chase ends. What this module does is **wear** that car: the traffic model poses it
 // through `car.skin`, and this draws the cruiser's own mesh there instead of the instance. It is the
@@ -178,8 +178,10 @@ function lightBar(shell, carrier, lamps) {
  * @param {boolean} [opts.lamps]  Hang the two point lights. The extra patrol cruisers the harder
  *   Difficulty modes add (main.js) go without: every point light in the scene is paid for by every
  *   lit fragment in the city whether it is lit or not, and their bars still glow and bloom.
+ * @param {boolean} [opts.patrolLights]  Swing the bar red and blue while on patrol, as it did
+ *   before the lights were saved for the chase (`?coplights=classic`). See `setBar`.
  */
-export function createPolice(scene, { lamps = true } = {}) {
+export function createPolice(scene, { lamps = true, patrolLights = false } = {}) {
   const group = new THREE.Group();
   /**
    * Everything the cruiser *draws*, one level in from the group that carries it.
@@ -304,7 +306,10 @@ export function createPolice(scene, { lamps = true } = {}) {
   }
 
   /**
-   * What the bar is doing. **Patrol**: a slow, soft swing from red to blue (`patrolSwing`), which is
+   * What the bar is doing. **Patrol**: dark by default — the bar is saved for the chase, so the
+   * lights coming on is the one thing that says this cop is now after you (Tyler, 2026-10-26). The
+   * unlit housing and its painted lenses stay on the roof, which is what still says police. Under
+   * `patrolLights` (`?coplights=classic`), the old patrol: a slow, soft swing from red to blue (`patrolSwing`), which is
    * the telegraph — a playtest of the first dark-bar patrol found the cop hard to spot until it had
    * already spotted you, and a steady bar after it announced the car without looking alive. So the
    * patrol announces itself, gently, without looking like it is after anybody. **Strobe** once it
@@ -364,7 +369,10 @@ export function createPolice(scene, { lamps = true } = {}) {
     lights.housing.castShadow = casting;
     for (const wheel of wheels) wheel.castShadow = casting;
 
-    state.lit = Boolean(state.cop || state.loose) && state.bar !== 'off';
+    // A dark patrol is unlit all the way through, edge wash included (game/sirenglow.js reads `lit`):
+    // a bar that is off has nothing to throw on the road or the frame.
+    const shown = state.bar === 'patrol' && !patrolLights ? 'off' : state.bar;
+    state.lit = Boolean(state.cop || state.loose) && shown !== 'off';
     state.chasing = state.lit && state.bar === 'strobe';
     // The pods' bloom does not fade with them (game/bloom.js draws its own material), so a bar on a
     // car still dissolving in stays dark until the car is mostly there.
