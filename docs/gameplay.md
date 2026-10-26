@@ -184,7 +184,7 @@ Settings, tells it on every Play.
 story that the taxi is out of its garage (`roll` onward in [the vignette](#the-opening-vignette), or
 straight away after a skip) the speech card says **"♪ ♫ (turns up the radio)"**, the two notes hopping on a loop half a beat apart (each its own
 `{…}` callout, animated by `#radio-cue .speech-hl` in `index.html`), titled *Car 9*
-after dispatch's name for it, with the speech card's "…" tag on the taxi's roof and the card itself in the story card's slot (`storyDockFloor`) rather than over the pedals. No tap; it goes the moment the pedals slide in (so it never sits over them), or after 3.6 s of game time if that is sooner
+after dispatch's name for it, with the speech card's "…" tag on the taxi's roof and the card itself in the story card's slot (`storyDockFloor`) rather than over the pedals. No tap; it goes as the pedals are due, and the pedals and the HUD hold 0.2 s behind it (`RADIO_CUE_LEAD`) so the card has sunk out before they rise in, or after 3.6 s of game time if that is sooner
 (`game/radiocue.js`). It lands on the same frame the station opens out of the dash speakers
 ([the dash radio](audio.md#the-dash-radio)), which is the point: dispatch's voice hands over to the
 car's own music, and the line says the driver did it. "Turns up" rather than "starts playing",

@@ -11,7 +11,9 @@ import { storyDockFloor } from './backstory.js';
 // card (game/speech.js) usually docks over the pedals, and on this frame the pedals are about to
 // slide in under it, so it went unseen; pinned over the taxi it read as a one-off. So it docks where
 // the backstory's card sat a moment ago (`storyDockFloor`), and it goes the moment the pedals come
-// in (`hide` from main.js, beside `revealPedals`) so it never sits over them.
+// in (`hide` from main.js, beside `revealPedals`) so it never sits over them. It leaves first: the
+// pedals and the HUD hold for RADIO_CUE_LEAD after it starts its exit (Tyler, 2026-10-26), so the
+// card is sinking out as they rise in rather than the two crossing.
 //
 // "Turns up" rather than "starts playing": the station is already on, crushed through the dash, from
 // Play and through the doorway shot (`holdReveal` waits for the first song), so the thing that
@@ -36,6 +38,13 @@ export const RADIO_CUE_LINE = '{♪} {♫} (turns up the radio)';
  * out to the lane is usually shorter, so it is the pedals arriving that takes it down.
  */
 export const RADIO_CUE_SECONDS = 3.6;
+
+/**
+ * Seconds between the card starting its exit and the pedals starting theirs, when the pedals are what
+ * takes it down. The card's own exit is CLOSE_MS (200 ms) in game/speech.js, so it is gone as they
+ * begin to rise.
+ */
+export const RADIO_CUE_LEAD = 0.2;
 
 // Where the tag touches: just over the taxi's roof sign.
 const TIP_Y = 2.2;

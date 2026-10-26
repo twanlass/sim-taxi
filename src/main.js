@@ -168,7 +168,7 @@ import { getActiveShot, getSeed, getRunSeed, getCarCount, getDifficultyPin, getD
 import { createParcelSystem, TAP_MAX_DETOUR } from './game/parcels.js';
 import { createRobbery } from './game/robbery.js';
 import { createRadio, LOST_CALL, ROBBERY_CALL } from './game/radio.js';
-import { createRadioCue } from './game/radiocue.js';
+import { createRadioCue, RADIO_CUE_LEAD } from './game/radiocue.js';
 import { createDepotCall } from './game/depotcall.js';
 import {
   createPatrol, createPin, holdArrest, ramOf, ESCAPE_HOLD, SIGHT_HOLD,
@@ -1126,6 +1126,9 @@ const radioCue = !shot && new URLSearchParams(window.location.search).get('radio
 // Set when the backstory is told; the cue goes up on the first frame after Play that the taxi is out
 // of its garage (the same test as the dash radio's `openDash`), and clears.
 let radioCueDue = false;
+// Seconds the pedals and the HUD wait after the cue starts to leave, so it is on its way out before
+// they rise in under it (`RADIO_CUE_LEAD`); 0 otherwise.
+let radioCueLeaving = 0;
 // The depot's repair tip: a line in the speech card with its tag on the garage door, the first time
 // the taxi smokes in a run, until the player has once sent it in. `?repairtip=classic` is the New
 // Move-style card with the clip that it replaced. See game/depotcall.js.
@@ -6977,12 +6980,15 @@ function tick() {
   // standing in front of. A press during the rider beat ends it, by design (`holdLocoMode`).
   // The squall's crossings count from here too: its first cell is `FIRST` seconds of driving away,
   // not of title menu and garage door (game/squall.js).
-  if (!pedalsShown && pedalsDue()) { pedalsShown = true; revealPedals(); squall?.begin(); radioCue?.hide(); }
+  // The radio cue, if it is still up, goes first and the pedals follow `RADIO_CUE_LEAD` behind it.
+  if (!pedalsShown && pedalsDue() && radioCue?.state.open) { radioCue.hide(); radioCueLeaving = RADIO_CUE_LEAD; }
+  if (radioCueLeaving > 0) radioCueLeaving = Math.max(0, radioCueLeaving - dt);
+  if (!pedalsShown && pedalsDue() && radioCueLeaving <= 0) { pedalsShown = true; revealPedals(); squall?.begin(); }
   // ...and the HUD steps off its edges whenever the taxi is in the garage: the opening before the
   // car is out of the door, and a repair visit from the turn-in until it is back on the lane. The
   // same `release` the pedals wait on, so a run's first arrival and every return from the depot
   // are one beat. See the HUD exit block in index.html.
-  setHudAway(!pedalsLive());
+  setHudAway(!pedalsLive() || radioCueLeaving > 0);
   // ...and the drive-through is the same claim about somebody else's car: while one is in the lot
   // this is its physics, so it has to have written the position before the render pass reads it.
   driveThru?.update(dt);
