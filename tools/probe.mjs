@@ -9971,7 +9971,8 @@ function rideToPickup() {
 
   const pScene = new THREE.Scene();
   const pTraffic = createTraffic(makeRng(seed + 44), pScene, CARS_DEFAULT);
-  const pPolice = createPolice(pScene);
+  // The swinging bar is `?coplights=classic` now; the default dark patrol is checked on qPolice below.
+  const pPolice = createPolice(pScene, { patrolLights: true });
   const taxi = pTraffic.taxi;
   let spotted = 0;
   const pPatrol = createPatrol({
@@ -10053,7 +10054,7 @@ function rideToPickup() {
   exitingFrom = retiredAt;
   check('it dissolves in rather than appearing', fadeAtArrival < 0.1 && fadedInBy !== null
     && fadedInBy <= FADE_TIME + 0.1, `fade ${fadeAtArrival.toFixed(2)} on arrival, whole by ${fadedInBy?.toFixed(2)}s`);
-  check('on patrol its bar swings red and blue, never strobing', swinging > 0,
+  check('under ?coplights=classic its bar swings red and blue on patrol, never strobing', swinging > 0,
     `${swinging} swinging frames`);
   // One cycle a second: over a crossing, both sides get a long share each.
   check('...both sides taking a turn', redSide > 60 && blueSide > 60,
@@ -10093,7 +10094,14 @@ function rideToPickup() {
   for (let step = 0; step < 60 * 60 && qPatrol.state.phase !== 'patrol'; step++) {
     qTraffic.update(1 / 60); qPatrol.update(1 / 60); qPolice.update(1 / 60);
   }
-  for (let step = 0; step < 60; step++) { qTraffic.update(1 / 60); qPatrol.update(1 / 60); qPolice.update(1 / 60); }
+  let qLitFrames = 0;
+  for (let step = 0; step < 60; step++) {
+    qTraffic.update(1 / 60); qPatrol.update(1 / 60); qPolice.update(1 / 60);
+    const [red, blue] = qPolice.emissiveMeshes;
+    if (qPolice.state.lit || red.visible || blue.visible) qLitFrames += 1;
+  }
+  check('on patrol its bar is dark, pods and wash off', qPatrol.state.phase === 'patrol'
+    && qPolice.state.bar === 'patrol' && qLitFrames === 0, `${qLitFrames} lit frames of 60`);
   const qCop = qPatrol.state.cop;
   const qTaxi = qTraffic.taxi;
   const saved = { x: qTaxi.x, z: qTaxi.z };

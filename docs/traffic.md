@@ -3319,8 +3319,10 @@ two blinking out of step on the same street.
 ## The patrol cruiser
 
 `game/patrol.js` for its life, `sim/police.js` for its look. A police car crosses town edge to edge
-past the taxi, its bar swinging gently red and blue, and comes after you — strobing hard, driving
-faster — if you boost within a block of it.
+past the taxi with its bar dark, and comes after you — lights on and strobing hard, driving faster —
+if you boost within a block of it. The bar lighting up is the chase starting (Tyler, 2026-10-26):
+on patrol only the unlit housing and painted lenses on the roof say police, and there are no lamps
+or edge wash. `?coplights=classic` keeps the swing below.
 
 It went through three shapes, and the two it left behind are the reasons for the one it has:
 
@@ -3336,8 +3338,10 @@ It went through three shapes, and the two it left behind are the reasons for the
    looks like. It was dark at first, and a playtest found the problem with that at once: the siren
    run had at least announced itself, flashing and washing the screen edge, and a dark patrol was
    hard to spot until it had already spotted you. Then steady, which announced it without looking
-   alive. Now a slow swing (`patrolSwing` in geometry/lights.js, one cycle a second, lamps and edge
-   wash at about half a chase's strength) is the telegraph, and the hard strobe is the change.
+   alive. Then a slow swing (`patrolSwing` in geometry/lights.js, one cycle a second, lamps and edge
+   wash at about half a chase's strength) as the telegraph, with the hard strobe as the change —
+   now `?coplights=classic`. The bar is dark on patrol again by Tyler's call, trading that early
+   warning for a chase that starts with the lights coming on.
    It also used to come in as a robbery's cop does, off screen as near the taxi as possible — which
    is anywhere a street runs just outside the frame, and was reported as it "popping out mid city".
    It crosses the map now.
@@ -3368,7 +3372,7 @@ only a shell one level in is hidden, so the two lamps stay in the scene's light 
 | Phase | What it is doing |
 |---|---|
 | `off` | a cooldown off the difficulty ramp (`policeCooldown`, 16–30s falling to 8–14s) |
-| `patrol` | crossing: in at one edge, through a corner within `PATROL_REACH` (1 block) of the taxi (`PATROL_TIME`, 25s, caps that leg), out at the opposite edge; bar swinging |
+| `patrol` | crossing: in at one edge, through a corner within `PATROL_REACH` (1 block) of the taxi (`PATROL_TIME`, 25s, caps that leg), out at the opposite edge; bar dark (swinging under `?coplights=classic`) |
 | `exiting` | out of traffic, driving straight off the island (`police.release`), dissolving past the slab's edge, then retired |
 | `chase` | it spotted you — bar strobing at the hunting rate, driving at you; lost, it goes back to `patrol` |
 | `leaving` | a robbery started (or it lost you, under `?standdown=classic`): bar dark, routed to the far corner, retired by `retirePolice` once out of sight |
@@ -3385,7 +3389,7 @@ it fades.
 exit, pointed off the island (`findRouteOnto`), and the frame the car sets off from that hold line —
 the ring is give-way, so that is the frame the ring has been judged clear — it leaves the fleet
 through `retirePolice` and `police.release` carries the mesh straight on by itself, across the ring
-and over the asphalt, bar still swinging. The dissolve starts only once it crosses the slab's edge
+and over the asphalt, bar as it was. The dissolve starts only once it crosses the slab's edge
 (`SLAB_X/2`), so it happens over the fade skirt rather than on a road. It used to dissolve *at* the
 exit junction, which is on the ring and in frame whenever the camera is near that side of town, and
 was reported as the patrol "fading out mid city". The probe measures ~4s off-network. The cost: for
@@ -3407,7 +3411,8 @@ with 1.5s of grace before a touch counts. A cruiser still driving off from befor
 retired to make room: there is one cruiser mesh. See
 [gameplay.md](gameplay.md#the-drop-off-the-arrest-and-the-tail).
 
-**Lose it and it goes back on patrol** (`resumePatrol`): bar swinging again, chase flags off, and
+**Lose it and it goes back on patrol** (`resumePatrol`): bar dark again (swinging under
+`?coplights=classic`), chase flags off, and
 on the out leg of a crossing to an exit re-picked on the far side of town from the taxi — carrying
 on away from you along whichever axis it is further off, so it is not driving straight back to the
 taxi it just lost. It can still spot you on the way out. Ducking into the depot ends a chase the same

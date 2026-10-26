@@ -73,7 +73,8 @@ doc; what the classic version was, and why it changed, is in that doc's history 
 | `?damage=classic` | The taxi's damage ladder before the first-hit flash, grime and steam | #456 | [gameplay.md](gameplay.md) |
 | `?wreck=flat` / `=classic` / `=quick` | The unlit ring of fire that was the default until 2026-10-20, the original fireball, or the quick cut. The default is `burn`: shaded fire, firelight on the road, the wrecks left burning | #398 | [rendering.md](rendering.md#wreck--gameblastjs-gamewreckagejs) |
 | `?capture=classic` | The old police rules: any patrol touch is "Busted!", a boosted hit on any cop is a full wreck, a getaway's cops never arrest. Default: hitting a cop costs HP like any car, and "Busted!" is being pinned by a chasing cop | #527 | [gameplay.md](gameplay.md#getting-caught) |
-| `?standdown=classic` | A patrol cop that loses you goes dark and drives off the map, instead of going back on patrol with its bar swinging | | [traffic.md](traffic.md#the-life-of-a-patrol) |
+| `?coplights=classic` | The patrol cop's bar swings red and blue while it patrols, instead of staying dark until it gives chase | | [traffic.md](traffic.md#the-patrol-cruiser) |
+| `?standdown=classic` | A patrol cop that loses you goes dark and drives off the map, instead of going back on patrol | | [traffic.md](traffic.md#the-life-of-a-patrol) |
 | `?cop=classic` | With `?capture=classic`: boosting into a cop is a bump rather than a full wreck | #466 | [gameplay.md](gameplay.md) |
 | `?stuntman=classic` | Smashing a roadworks barricade is scenery: no Stuntman combo step, no Loco refund | | [gameplay.md](gameplay.md#the-combo-meter) |
 | `?taxifinder=classic` | The "back to the taxi" chip above the brake corner, which comes up while the taxi is completely off-frame. Off by default since 2026-10-20, since the camera rides home on its own after 1.5s | | [rendering.md](rendering.md#getting-back-to-the-taxi) |
