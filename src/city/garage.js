@@ -865,10 +865,8 @@ export function createGarage(block, rng, {
 
   const wall = jitterColor(color('garageWall'), rng, { l: 0.03 });
   // Drawn here, after the wall, to keep the depot's rng stream in the order it has always been in.
-  // The block's own `sidewalk` by default, so the drive is just more pavement (Tyler, 2026-10-26:
-  // "just make this all the same sidewalk color"); `?driveway=classic` is the asphalt.
-  const apronCol = jitterColor(color(driveway === 'classic' ? 'asphalt' : 'sidewalk'), rng,
-    { l: 0.02 });
+  // Drawn whether or not it is used, so the stream stays put: only `?driveway=classic` lays it.
+  const apronCol = jitterColor(color('asphalt'), rng, { l: 0.02 });
   const trim = color('garageTrim');
   const bay = color('garageBay');
 
@@ -914,8 +912,12 @@ export function createGarage(block, rng, {
     // The forecourt: a slab laid over the pavement from under the door out to the top of the
     // dropped kerb (`apronCol`: pavement by default, asphalt under `?driveway=classic`). It runs
     // back to where the bay floor stops, so the threshold is continuous.
-    span(curtainX - 0.12, kerbX - KERB_RUN, PAVEMENT_Y - 0.01, APRON_Y, dz0 - 0.5, dz1 + 0.5,
-      apronCol),
+    //
+    // Only under `?driveway=classic` now. Paved in `sidewalk` it still showed as seams: a slab a
+    // centimetre proud of the pavement in a jittered shade of it draws its own edges and an AO
+    // crease along them (Tyler, 2026-10-26). The block's own pavement *is* the drive by default.
+    ...(driveway === 'classic' ? [span(curtainX - 0.12, kerbX - KERB_RUN, PAVEMENT_Y - 0.01,
+      APRON_Y, dz0 - 0.5, dz1 + 0.5, apronCol)] : []),
 
     // The other elevation. `+Z` is the second of the two faces this camera can ever see, and on a
     // one-storey box it is 8 × 5 units of nothing — which at the vignette's zoom is a quarter of
@@ -949,8 +951,7 @@ export function createGarage(block, rng, {
       return driveway === 'classic'
         ? [span(kerbX - KERB_RUN, kerbX, PAVEMENT_Y - 0.01, APRON_Y, dz0 - 0.5, dz1 + 0.5, apronCol),
           dropKerb(kerbX, doorZ, kerbCol, PAVEMENT_Y + 0.02)]
-        : [span(kerbX - KERB_RUN, kerbX, PAVEMENT_Y - 0.01, APRON_Y, dz0 - 0.5, dz1 + 0.5, apronCol),
-          dropKerb(kerbX, doorZ, kerbCol, PAVEMENT_Y - 0.02)];
+        : [dropKerb(kerbX, doorZ, kerbCol, PAVEMENT_Y - 0.02)];
     })(),
 
     // The forecourt's own paint: two guide lines out of the bay, the way any yard marks the way out
