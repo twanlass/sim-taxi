@@ -56,7 +56,7 @@ import { HOPPER_MOUTH } from '../src/geometry/garbage.js';
 import { truckPaint } from '../src/sim/traffic.js';
 import { createCarWash } from '../src/city/carwash.js';
 import { createGasStation } from '../src/city/gasstation.js';
-import { collectPanes, entrances, streetLamps } from '../src/game/citylights.js';
+import { collectPanes, entrances, lampKeepOff, streetLamps } from '../src/game/citylights.js';
 import { LOT_Y, ROADSIDE_MODE, roadsideKind } from '../src/city/roadside.js';
 import { onLawn } from '../src/city/ground.js';
 import { createHoopers } from '../src/game/hoopers.js';
@@ -18042,6 +18042,34 @@ let chopperOrder; // likewise
   check('no street lamp stands in front of a doorway or the bank’s steps',
     near === 0 && blind > 0 && placed > 0,
     `${near} of ${placed} posts on a doorway (${blind} placed blind)`);
+}
+
+// ...and off the parks' court, skatepark and pond, any of which can run right up to the walk a
+// park's lamp stands on — a pole once stood in the middle of a basketball court. Measured against
+// the furniture's own footprint rather than through `lampKeepOff`, and against lamps placed blind.
+{
+  const onFurniture = (lamps, props) => lamps.spots.filter(({ px, pz }) => {
+    const inRect = (r) => px > r.x0 && px < r.x1 && pz > r.z0 && pz < r.z1;
+    return (props.court && inRect(courtRect(props.court)))
+      || (props.skatepark && inRect(skateRect(props.skatepark)))
+      || (props.pond && Math.hypot(px - props.pond.x, pz - props.pond.z) < props.pond.r);
+  }).length;
+  let placed = 0;
+  let on = 0;
+  let blind = 0;
+  for (let n = 0; n < 30; n++) {
+    const s = seed + n * 613;
+    const sweepLayout = createLayout(makeRng(s));
+    const sweepProps = createProps(makeRng(s + 33), sweepLayout);
+    const lamps = streetLamps(makeRng(s + 392), sweepLayout, [], lampKeepOff(sweepProps));
+    placed += lamps.spots.length;
+    on += onFurniture(lamps, sweepProps);
+    blind += onFurniture(streetLamps(makeRng(s + 392), sweepLayout), sweepProps);
+  }
+  createLayout(makeRng(seed));
+  check('no street lamp stands on a basketball court, a skatepark or a pond',
+    on === 0 && blind > 0 && placed > 0,
+    `${on} of ${placed} posts on park furniture (${blind} placed blind)`);
 }
 
 // --- The bank, and the robbery that comes out of it ---------------------------
