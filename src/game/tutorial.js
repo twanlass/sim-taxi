@@ -46,12 +46,9 @@ const LINES = {
   rider: 'Hey {taxi}! Over here!',
   // `?hail=classic`: the game's own instruction, under the "Tip" title.
   riderClassic: 'Pick up {rider} to start',
+  // Every showing says this, a repeat included. A second line, "Hold it down — don't tap", was
+  // said to a player who had jabbed the pill without holding it; Tyler cut it (2026-10-26).
   boost: 'Hold to floor it',
-  // Said instead of the line above once the player has *pressed* the pill without ever holding it —
-  // see BOOST_HINT_SHOWS. Repeating "Hold to floor it" at someone who is jabbing the pill is a
-  // louder version of the sentence they have already read and acted on; this one names what they
-  // are doing wrong, which is the only new information there is to give them.
-  boostAgain: "Hold it down — don't tap",
 };
 // Who is talking, in the bubble's title. Every beat is the game giving a tip — except the rider's,
 // which is the rider (`RIDER_TITLE`), unless `?hail=classic` keeps it a tip too.
@@ -177,8 +174,6 @@ const GATED_STEPS = new Set(['wait', 'taxi', 'toRider', 'rider']);
  * @param boostHeld     () => boolean — has Loco Mode been *held* (LOCO_HINT_HOLD) at least once. This
  *                      is what answers the third beat: it never appears if this is already true, and
  *                      it stops repeating the moment it becomes true
- * @param boostUsed     () => boolean — has the pill been pressed at all, hold or jab. Chooses which
- *                      line a repeat showing says, and nothing else: a press is not an answer
  * @param isOver        () => boolean — run ended under the tutorial (a wreck, say); drop everything
  * @param isBlocked     () => boolean — something else is holding the run in front of this, so say
  *                      nothing and take no taps until it lets go
@@ -194,7 +189,7 @@ export function createTutorial({
   controller, aspect, isNarrow, taxi, viewport = null, project, pixelsPerUnit,
   boostTarget = () => null,
   waitingFare, fareLocation, isDispatched, hasDelivered = () => false,
-  boostHeld = () => false, boostUsed = () => false,
+  boostHeld = () => false,
   isOver = () => false, isBlocked = () => false, isQuiet = () => false,
   shouldIgnoreTap = () => false,
   onRunning = () => {},
@@ -314,10 +309,7 @@ export function createTutorial({
     // Pulses the pill itself, so the bubble is not the only thing saying which control it means.
     // No spotlight here — see BOOST_HINT_SHOWS.
     document.body.classList.add('coach-boost');
-    // A player who has pressed the pill and still not held it gets told what they are doing rather
-    // than told the same thing twice. `boostUsed` is a press of any length, which is exactly the
-    // gesture this line is about.
-    bubble.show(TITLE, boostUsed() ? LINES.boostAgain : LINES.boost, boostTarget, null, { tag: false });
+    bubble.show(TITLE, LINES.boost, boostTarget, null, { tag: false });
   }
 
   /**

@@ -73,7 +73,8 @@ doc; what the classic version was, and why it changed, is in that doc's history 
 | `?damage=classic` | The taxi's damage ladder before the first-hit flash, grime and steam | #456 | [gameplay.md](gameplay.md) |
 | `?wreck=flat` / `=classic` / `=quick` | The unlit ring of fire that was the default until 2026-10-20, the original fireball, or the quick cut. The default is `burn`: shaded fire, firelight on the road, the wrecks left burning | #398 | [rendering.md](rendering.md#wreck--gameblastjs-gamewreckagejs) |
 | `?capture=classic` | The old police rules: any patrol touch is "Busted!", a boosted hit on any cop is a full wreck, a getaway's cops never arrest. Default: hitting a cop costs HP like any car, and "Busted!" is being pinned by a chasing cop | #527 | [gameplay.md](gameplay.md#getting-caught) |
-| `?standdown=classic` | A patrol cop that loses you goes dark and drives off the map, instead of going back on patrol with its bar swinging | | [traffic.md](traffic.md#the-life-of-a-patrol) |
+| `?coplights=classic` | The patrol cop's bar swings red and blue while it patrols, instead of staying dark until it gives chase | | [traffic.md](traffic.md#the-patrol-cruiser) |
+| `?standdown=classic` | A patrol cop that loses you goes dark and drives off the map, instead of going back on patrol | | [traffic.md](traffic.md#the-life-of-a-patrol) |
 | `?cop=classic` | With `?capture=classic`: boosting into a cop is a bump rather than a full wreck | #466 | [gameplay.md](gameplay.md) |
 | `?stuntman=classic` | Smashing a roadworks barricade is scenery: no Stuntman combo step, no Loco refund | | [gameplay.md](gameplay.md#the-combo-meter) |
 | `?taxifinder=classic` | The "back to the taxi" chip above the brake corner, which comes up while the taxi is completely off-frame. Off by default since 2026-10-20, since the camera rides home on its own after 1.5s | | [rendering.md](rendering.md#getting-back-to-the-taxi) |
@@ -127,6 +128,9 @@ doc; what the classic version was, and why it changed, is in that doc's history 
 | `?racecount=classic` | The race's three, two, one at 40px a third of the way down the screen, rather than 80px just above the middle | | [gameplay.md](gameplay.md#the-street-race) |
 | `?racecut=classic` | The race's winner brakes to a stop at the line for a second before the cut to the loser, rather than the screen cutting to black the moment it crosses | | [gameplay.md](gameplay.md#the-street-race) |
 | `?rocketstart=classic` | No rocket start: Loco pressed on the race count's "2" and held to the green is an ordinary start, with no drift-kick launch | | [gameplay.md](gameplay.md#the-street-race) |
+| `?racefishtail=classic` | No fishtail: Loco held from the race count's "3" (or from before it) to the green is an ordinary start | | [gameplay.md](gameplay.md#the-street-race) |
+| `?raceburnout=classic` | No burnout on the line: Loco held through the race count lights the tailpipe plume only, with no tyre smoke, rubber, squeal or body shake | | [gameplay.md](gameplay.md#the-street-race) |
+| `?raceflag=classic` | The race's chequered flag flies over the turnaround as well as the finish line, rather than the turnaround being the ring alone | | [gameplay.md](gameplay.md#the-street-race) |
 | `?racetank=classic` | The race tops Loco Mode up to a third of a tank at the green, rather than filling it on the "3" | | [gameplay.md](gameplay.md#the-street-race) |
 | `?robbery=classic` | The robbery with no opening cut (straight to the drive-past). Also implies `?bankfare=classic` | #475, #478 | [gameplay.md](gameplay.md) |
 | `?bankfare=classic` | The drive-past robbery instead of the bank rider fare | #499 | [gameplay.md](gameplay.md) |
@@ -214,6 +218,7 @@ doc; what the classic version was, and why it changed, is in that doc's history 
 | Param | Does |
 |---|---|
 | `?roads=classic` | The roads before the grey was broken up: the lighter blue-grey asphalt, the darker pavement and kerb, asphalt bridge decks with no joints, no brick plaza and no asphalt patches |
+| `?seamstripes=classic` | The split drawbridge's noses plain concrete with only the black seam line, without the black and yellow hazard stripes either side of it. Striped by default since 2026-10-26 |
 | `?bridgemarks=classic` | The dark expansion joint and pale approach slab back across the road at each end of every bridge. Off by default since 2026-10-25 |
 | `?plazaspot=classic` | The paved plaza on the side-street four-way nearest the middle of the map (beside the garage in most cities) rather than a random one the camera can see. See `placeJunctionPaving` in util/geo.js |
 | `?plaza=granite` / `tan` / `classic` | The one paved junction in another stone: warm grey or buff paving in a dark frame, or `classic`, the first plaza's red brick with its faint border. The default is charcoal setts in a pale frame. See `PLAZA_LOOKS` in palette.js |

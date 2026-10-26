@@ -48,7 +48,7 @@ import {
   ROAD_Y, CAR_LEN, CAR_W, wheelAnchors,
   boostCruise, locoTuning, setLocoTuning, resetLocoTuning, locoRamp, LOCO_DEFAULTS, driftTaxi, kickDrift, driftHolds, DRIFT_CHAIN,
   onDriftLaunch, hopProgress, setSpinStyle, setBarrelRoll, setMegaFlip, setBridgeStunt, setPassTurnGate, setPassPace, setHopStyle, setDodge, setOvertakeStyle, setPeek, setTaxiScatter,
-  configureSignals, setGrip, setRunningLights, setRunningLightsAt, runningLightsAt, isLaneClosed,
+  configureSignals, setGrip, setRunningLights, setRunningLightsAt, runningLightsAt, isLaneClosed, FISHTAIL_TIME,
 } from './sim/traffic.js';
 import { createCollisions, TAXI_HP, setCrush, setCrushSplash } from './sim/collisions.js';
 import { createVanish } from './game/vanish.js';
@@ -1307,16 +1307,18 @@ window.addEventListener('keydown', (event) => {
 });
 
 // The patrol cruiser's look (sim/police.js) and its life (game/patrol.js): a police car that
-// crosses town edge to edge with its bar swinging red and blue, and comes after you if you boost in
+// crosses town edge to edge with its bar dark, and comes after you, lights going, if you boost in
 // front of it. "Pull over!" goes up over its roof the moment it does (game/copshout.js).
-const police = createPolice(scene);
+// Its bar stays dark on patrol and lights only for a chase; `?coplights=classic` swings it on patrol.
+const patrolLights = new URLSearchParams(window.location.search).get('coplights') === 'classic';
+const police = createPolice(scene, { patrolLights });
 // ...and the extra cruisers the harder Difficulty modes put on patrol (`extraPatrols` in
 // game/difficulty.js), one per patrol the hardest mode can have. All built up front, so a mode
 // switched from the pause screen has its cars ready; until one wears a car it is a hidden shell and
 // costs no draw. No lamps on these: see `createPolice`.
 const cruisers = [police, ...Array.from(
   { length: Math.max(...Object.values(difficulty.MODES).map((m) => m.tuning.extraPatrols ?? 0)) },
-  () => createPolice(scene, { lamps: false }),
+  () => createPolice(scene, { lamps: false, patrolLights }),
 )];
 // The cops no longer talk during a chase — no "pull over" on spotting, no "lost the suspect" when
 // they give up (Tyler, 2026-10-13): the bar, the strobe and the chirp already say both. The bubbles
@@ -1772,7 +1774,8 @@ if (bankJob && bankFare) {
     x: bankJob.home.x,
     z: bankJob.home.z,
     away: bankJob.along,
-    swapReady: () => robbery.swapReady(),
+    swapReady: (fare) => robbery.swapReady({ promised: Boolean(fare?.quest) }),
+    canOffer: () => robbery.canOffer(),
     // Collected level with the steps, routed down the bank's own street (BANK_REACH_ALONG in
     // game/fares.js). `?bankpickup=classic`: the junction's ARRIVE_RADIUS, from any side.
     tight: new URLSearchParams(window.location.search).get('bankpickup') !== 'classic',
@@ -2250,6 +2253,10 @@ race = shot || raceParam === 'classic' ? null : createRace({
   // tier-1 kick. `?rocketstart=classic` has no such thing.
   loco: () => boost.state.held,
   rocketStart: new URLSearchParams(window.location.search).get('rocketstart') !== 'classic',
+  // ...and one held from the "3" fishtails off the line instead. `?racefishtail=classic`: a plain start.
+  fishtail: new URLSearchParams(window.location.search).get('racefishtail') !== 'classic',
+  // The turnaround is the ring alone, the flag only over the finish. `?raceflag=classic` flags both.
+  midFlag: new URLSearchParams(window.location.search).get('raceflag') === 'classic',
   // The underglow pulses to whatever the music is doing (game/sfx.js, `bass`).
   bass: () => sfx?.bass?.() ?? 0,
   // Nothing turns up over anything that owns the run, or over a trip the taxi is already on to the
@@ -2308,7 +2315,7 @@ let bankMarkFare = null;
 /** The "!" over the bank rider while they wait, pointing where the pie's underside would be. */
 function updateBankMark(dt) {
   if (!bankMark) return;
-  const fare = fares.waitingAll().find((f) => f.bank && f.slot.marker.group.visible) ?? null;
+  const fare = fares.waitingAll().find((f) => f.quest && f.slot.marker.group.visible) ?? null;
   if (fare !== bankMarkFare) {
     bankMarkFare = fare;
     if (fare) {
@@ -2426,6 +2433,14 @@ function onRaceEvent(type, detail) {
       car.z + Math.sin(car.yaw) * TAXI_TAILPIPE_BACK,
       car.yaw,
     );
+  } else if (type === 'fishtail') {
+    // Held from the "3": the tail steps out and back before it goes (sim/traffic.js,
+    // `launchFishtail`). The squeal and a patch of rubber; the flame is already burning off the hold.
+    const car = traffic.taxi;
+    haptic('snap');
+    sfx?.play('skid');
+    stampRearRubber(car);
+    launchSkidT = Math.max(launchSkidT, FISHTAIL_TIME);
   } else if (type === 'rounded') {
     // Halfway: the flag has just jumped back to the start line, which is easy to miss on a phone.
     popLabel('Head back!', 'is-count', RACE_LABEL_MS);
@@ -3870,14 +3885,10 @@ const setHudAway = (away) => {
   document.body.classList.toggle('hud-away', away);
 };
 
-// Set on the first successful press of Loco Mode, and never cleared. The tutorial's third beat
-// reads it to pick which line it says — a player who has jabbed the pill is told to hold it down
-// rather than told about it again.
-let locoUsed = false;
 // Set the first time that press is *held* past LOCO_HINT_HOLD with the boost actually engaged, and
 // never cleared. This is what retires the third beat, because it is the only evidence that the
 // player has met the thing the pill does: a tap gives a flicker of boost and hands it straight back,
-// so retiring the hint on `locoUsed` closed it on the exact gesture it exists to correct.
+// so retiring the hint on the first press closed it on the exact gesture it exists to correct.
 //
 // `isEngaged` rather than `isActive` deliberately, so a hold that ran the tank dry still counts —
 // the fuel ending is not the player letting go, and the one-second cooldown tail is where a hold
@@ -3912,7 +3923,6 @@ tutorial = shot || !wantsTutorial ? null : createTutorial({
   // A player who has already *held* Loco Mode does not need the third beat pointing at it — and one
   // who has only tapped it very much does, which is the whole difference between these two.
   boostHeld: () => locoHeld,
-  boostUsed: () => locoUsed,
   isOver: () => fares.state.gameOver,
   // Not a word during a getaway — see `hushTips`. The Loco Mode beat is the one that can still be
   // waiting this late (a player who has never held the pill), and it waits a little longer.
@@ -4908,11 +4918,9 @@ function holdLocoMode() {
 // doesn't double-fire the flame). `boost.press()` returns true only on that transition, which is
 // why the whole kick is gated on it above.
 function kickLocoMode() {
-  // Fires only on the transition into Loco Mode, which makes it exactly the right place to record
-  // that the player has now *pressed* it. Only that: whether they went on to hold it is a question
-  // this function cannot answer — the press is one frame and the hold is the seconds after it — and
-  // `locoHeld` is latched in the frame loop for that reason.
-  locoUsed = true;
+  // Whether the player went on to *hold* this press is a question this function cannot answer —
+  // the press is one frame and the hold is the seconds after it — so `locoHeld` is latched in the
+  // frame loop instead.
   // Above the `crashed` bail deliberately: the press was accepted either way — `boost.press()`
   // already returned true and the fuel is already committed — so the hand should be told even when
   // the wrecked car has no wheelie left to answer with.
@@ -6076,6 +6084,79 @@ function raceRubber() {
   for (const side of [-1, 1]) {
     skids.add(car.x + (fx * COP_REAR.x + rx * side * COP_REAR.z) * k,
       car.z + (fz * COP_REAR.x + rz * side * COP_REAR.z) * k, car.yaw);
+  }
+}
+
+// The burnout on the line (Tyler: "when holding loco during the countdown have the taxi doing a
+// braked burnout (wheels spinning, smoke, fire tailpipes etc."): the pill down through the count
+// with the taxi held on `parked`. The tailpipe plume is already burning — Loco Mode is on, and
+// `locoFlame` does not ask whether the car is moving — so this is everything a held car cannot
+// produce off distance travelled: white smoke boiling off the back tyres, rubber building up under
+// them, the squeal, and the body squatting and shaking on its springs. The rear wheels are part of
+// the merged shell (geometry/taxi.js), so they cannot be turned on their own; the smoke and the
+// shake are what say they are spinning. `?raceburnout=classic` keeps a still car with the plume.
+const raceBurnoutOn = new URLSearchParams(window.location.search).get('raceburnout') !== 'classic';
+// One puff off each back tyre this often. 2 / 0.07 × LIFE (1.05s) ≈ 30 live puffs of the dust
+// pool's 200, so the rest of the city's dust is not starved.
+const BURNOUT_PUFF_EVERY = 0.07;
+const BURNOUT_PUFF_SCALE = 1.35;
+// A pair of marks every so often, so the patch darkens the longer it is held.
+const BURNOUT_RUBBER_EVERY = 0.3;
+// A squeal on the press and again while it is held. The takes are ~0.8s.
+const BURNOUT_SQUEAL_EVERY = 1.1;
+// The shake: nose up (the tail squats under power) and a fast roll and pitch shiver, in radians.
+const BURNOUT_SQUAT = 0.035;
+const BURNOUT_SHIVER = 0.018;
+const burnout = { on: false, t: 0, puff: 0, rubber: 0, squeal: 0 };
+
+function raceBurnout(dt) {
+  const car = traffic.taxi;
+  const on = raceBurnoutOn && Boolean(race?.burningOut()) && !fares.state.gameOver;
+  if (!on) {
+    if (burnout.on) {
+      burnout.on = false;
+      car.joltRoll = 0;
+      car.joltPitch = 0;
+    }
+    return;
+  }
+  if (!burnout.on) {
+    burnout.on = true;
+    burnout.t = 0;
+    burnout.puff = 0;
+    burnout.rubber = 0;
+    burnout.squeal = 0;
+  }
+  burnout.t += dt;
+  // Eased in over a fifth of a second, so it winds up rather than switching on.
+  const k = Math.min(1, burnout.t / 0.2);
+  car.joltPitch = k * (BURNOUT_SQUAT + BURNOUT_SHIVER * Math.sin(burnout.t * 47));
+  car.joltRoll = k * BURNOUT_SHIVER * Math.sin(burnout.t * 59 + 1.3);
+
+  const fx = Math.cos(car.yaw);
+  const fz = -Math.sin(car.yaw);
+  const rx = Math.sin(car.yaw);
+  const rz = Math.cos(car.yaw);
+  burnout.puff -= dt;
+  if (burnout.puff <= 0) {
+    burnout.puff += BURNOUT_PUFF_EVERY;
+    for (const side of [-1, 1]) {
+      dust.add(
+        car.x - fx * TAXI_REAR_AXLE_BACK + rx * side * TAXI_REAR_TRACK,
+        car.z - fz * TAXI_REAR_AXLE_BACK + rz * side * TAXI_REAR_TRACK,
+        car.yaw, BURNOUT_PUFF_SCALE, 0.45,
+      );
+    }
+  }
+  burnout.rubber -= dt;
+  if (burnout.rubber <= 0) {
+    burnout.rubber += BURNOUT_RUBBER_EVERY;
+    stampRearRubber(car);
+  }
+  burnout.squeal -= dt;
+  if (burnout.squeal <= 0) {
+    burnout.squeal += BURNOUT_SQUEAL_EVERY;
+    sfx?.play('skid', { gain: 0.7 });
   }
 }
 
@@ -7557,6 +7638,7 @@ function tick() {
   racerFlame.update(dt, racer ?? NO_CAR, Boolean(racer?.racer && racer.v > RACER_FLAME_SPEED));
   copRubber();
   raceRubber();
+  raceBurnout(dt);
   // `sim/` publishes where its cars are and this side owns anything that reaches into the scene
   // — the patrol cruiser's rubber included, since it is one of `traffic.policeCars` now. Off the
   // sim clock the bars strobe on

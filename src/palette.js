@@ -1148,6 +1148,11 @@ export const PALETTE = {
   // The line down the middle where the two leaves of the split drawbridge meet: the last sliver of
   // each nose beam (geometry/bridge.js), so the break reads as a crack raised or lowered.
   drawbridgeSeam: '#151618',
+  // The hazard plate on each leaf's nose either side of that seam (geometry/bridge.js). Not pure black,
+  // which goes to a hole on the shaded side, and a warm sign yellow rather than `gasStripe`'s so the
+  // band reads as a warning and not as the gas station's livery.
+  hazardDark: '#222327',
+  hazardYellow: '#F2BE1C',
   // Where a deck meets the road (`abutmentParts`, geometry/bridge.js): a steel expansion joint at
   // the bank line and a pale concrete approach slab on the road side of it, so the change from
   // tarmac to deck is a seam you can see rather than two surfaces butting.

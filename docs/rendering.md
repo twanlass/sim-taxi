@@ -3806,11 +3806,17 @@ that drift is bezier re-sampling, not motion.
 The start point is the **lane** position rather than `car.x/car.z`: the taxi weaves inside its lane
 in Loco Mode, and the band belongs to the lane, not to that manoeuvre.
 
-**Width is 0.85 of a lane, not a full one.** A right turn's lane-to-lane arc has a radius of
-`HALF_ROAD - LANE` = 2, so at a half-width of 2 the inside edge of the band collapses to a point at
-every right turn and folds over itself — and a translucent band folded on itself paints a visibly
-darker wedge. 0.85 leaves 0.3 units of inner radius and 0.3 of asphalt showing at the kerb, which
-reads as *in* the lane rather than *instead of* it.
+**Width is 0.85 of a lane, not a full one,** which reads as *in* the lane rather than *instead of*
+it.
+
+**The inside of a right turn has its fold cut out.** The turn is the car's quadratic, not a circle,
+and it is tightest at its apex at `L/√2` — 1.59 on a side street, against a band half-width of 1.91
+(2.49 with a finger on it). So the inside edge loops back over itself at every right turn, and the
+band is additive, so the loop painted twice: a speckled seam down the corner that was reported as
+z-fighting. Narrowing the band to clear it would have cost most of its width, so `cutLoops`
+(game/routeline.js) moves every point inside the loop onto the spot where the edge crosses itself,
+which is the edge a stroke of paint that wide would really leave. `tools/zfight.mjs` drives every
+legal turn in six cities at both widths and fails on any area of the band painted twice.
 
 **The head end holds off, then fades in; the tail just fades.** A hard end at the taxi reads as a
 second object butted against the car; a hard end at the destination reads as a wall across the

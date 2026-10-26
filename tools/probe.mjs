@@ -977,7 +977,11 @@ const onGrass = (city, i, j) => {
       const showing = (ct) => RACE_COUNTDOWN - Math.floor(ct / RACE_COUNT_STEP);
       let goAt = null;
       let v = null;
-      for (let f = 0, t = 0; f < 60 * 30 && v === null; f++, t += 1 / 60) {
+      let swing = 0;
+      let yawGo = null;
+      let along = null;
+      let travelled0 = 0;
+      for (let f = 0, t = 0; f < 60 * 30 && along === null; f++, t += 1 / 60) {
         const st = r.state;
         const ct = st.phase === 'countdown' ? st.phaseT + 0.3 / 60 : null;
         const n = ct === null ? null : showing(ct);
@@ -994,9 +998,18 @@ const onGrass = (city, i, j) => {
         rTraffic.update(1 / 60);
         r.update(1 / 60);
         if (st.phase === 'racing') goAt ??= t;
-        if (goAt !== null && t - goAt >= 0.25) v = rTaxi.v;
+        // The body's swing off the heading it had at the green, while still on that first lane.
+        if (goAt !== null) {
+          yawGo ??= { yaw: rTaxi.yaw, lane: rTaxi.lane };
+          if (rTaxi.lane === yawGo.lane && rTaxi.state === 'drive') {
+            swing = Math.max(swing, Math.abs(Math.atan2(Math.sin(rTaxi.yaw - yawGo.yaw), Math.cos(rTaxi.yaw - yawGo.yaw))));
+          }
+        }
+        if (goAt !== null && t - goAt >= 0.25) v ??= rTaxi.v;
+        if (goAt !== null && t - goAt >= 2) along = rTaxi.travelled - travelled0;
+        if (goAt === null) travelled0 = rTaxi.travelled;
       }
-      return { launches: r.state.rocketStarts, v };
+      return { along, launches: r.state.rocketStarts, fishtails: r.state.fishtails, swing, v };
     }
     return null;
   };
@@ -1008,6 +1021,18 @@ const onGrass = (city, i, j) => {
   check('...and a press on any other number, or let go before the green, is a plain start',
     plain.every(([, x]) => x && x.launches === 0 && x.v < boostCruise() * DRIFT_EXIT * 0.7),
     plain.map(([p, x]) => `${p} ${x ? `${x.launches}/${x.v?.toFixed(1)}` : 'unstaged'}`).join(', '));
+  // The early start (EARLY_COUNT): held from the "3" or from before the count, it fishtails off the
+  // line — the body swings off its heading and the speed is held down — and nothing else does.
+  const early = plain.filter(([p]) => p === 'before' || p === 'from3');
+  const clean = [['on2', kicked], ...plain.filter(([p]) => p !== 'before' && p !== 'from3')];
+  const onOne = plain.find(([p]) => p === 'on1')[1];
+  check('a Loco hold from the race count\'s "3" fishtails off the line, slower than a press on the "1"',
+    early.every(([, x]) => x && x.fishtails === 1 && x.swing > 0.15 && onOne && x.v < onOne.v),
+    early.map(([p, x]) => `${p} ${x ? `${x.fishtails} fishtail, swing ${x.swing.toFixed(2)} rad, ${x.v?.toFixed(1)} u/s, ${x.along?.toFixed(1)}u in 2s` : 'unstaged'}`).join(', ')
+      + (onOne ? ` against ${onOne.v?.toFixed(1)} u/s, ${onOne.along?.toFixed(1)}u on the "1"` : ''));
+  check('...and no other start fishtails or swings',
+    clean.every(([, x]) => x && x.fishtails === 0 && x.swing < 0.08),
+    clean.map(([p, x]) => `${p} ${x ? `${x.fishtails}/${x.swing.toFixed(3)}` : 'unstaged'}`).join(', '));
 }
 
 // The street racer's underglow: a hand-wound pad of light on the road, under an unlit material —
@@ -10027,7 +10052,8 @@ function rideToPickup() {
 
   const pScene = new THREE.Scene();
   const pTraffic = createTraffic(makeRng(seed + 44), pScene, CARS_DEFAULT);
-  const pPolice = createPolice(pScene);
+  // The swinging bar is `?coplights=classic` now; the default dark patrol is checked on qPolice below.
+  const pPolice = createPolice(pScene, { patrolLights: true });
   const taxi = pTraffic.taxi;
   let spotted = 0;
   const pPatrol = createPatrol({
@@ -10109,7 +10135,7 @@ function rideToPickup() {
   exitingFrom = retiredAt;
   check('it dissolves in rather than appearing', fadeAtArrival < 0.1 && fadedInBy !== null
     && fadedInBy <= FADE_TIME + 0.1, `fade ${fadeAtArrival.toFixed(2)} on arrival, whole by ${fadedInBy?.toFixed(2)}s`);
-  check('on patrol its bar swings red and blue, never strobing', swinging > 0,
+  check('under ?coplights=classic its bar swings red and blue on patrol, never strobing', swinging > 0,
     `${swinging} swinging frames`);
   // One cycle a second: over a crossing, both sides get a long share each.
   check('...both sides taking a turn', redSide > 60 && blueSide > 60,
@@ -10149,7 +10175,14 @@ function rideToPickup() {
   for (let step = 0; step < 60 * 60 && qPatrol.state.phase !== 'patrol'; step++) {
     qTraffic.update(1 / 60); qPatrol.update(1 / 60); qPolice.update(1 / 60);
   }
-  for (let step = 0; step < 60; step++) { qTraffic.update(1 / 60); qPatrol.update(1 / 60); qPolice.update(1 / 60); }
+  let qLitFrames = 0;
+  for (let step = 0; step < 60; step++) {
+    qTraffic.update(1 / 60); qPatrol.update(1 / 60); qPolice.update(1 / 60);
+    const [red, blue] = qPolice.emissiveMeshes;
+    if (qPolice.state.lit || red.visible || blue.visible) qLitFrames += 1;
+  }
+  check('on patrol its bar is dark, pods and wash off', qPatrol.state.phase === 'patrol'
+    && qPolice.state.bar === 'patrol' && qLitFrames === 0, `${qLitFrames} lit frames of 60`);
   const qCop = qPatrol.state.cop;
   const qTaxi = qTraffic.taxi;
   const saved = { x: qTaxi.x, z: qTaxi.z };
@@ -18640,23 +18673,23 @@ let chopperOrder; // likewise
     {
       const stand = planBankRun(bank, { x: 0, z: 0, yaw: 0 }).home;
       const bankAway = bankFrontage(bank).along;
-      const bankRig = (k, { stop = true, tight = false, force = false, delivered = 5, far = false } = {}) => {
+      const bankRig = (k, { stop = true, tight = false, force = false, delivered = 5, far = false, quest = false, since = 1e3 } = {}) => {
         const s8 = new THREE.Scene();
         const t8 = createTraffic(makeRng(seed + 44), s8, 10, 18);
         // `alwaysRob: false` so the coin and its ramp are still exercised while BANK_ROBBER_ALWAYS
         // has every bank rider rob for testing.
-        const f8 = createFareSystem(makeRng(seed + 900 + k), s8, { alwaysRob: false, forceBank: () => force });
+        const f8 = createFareSystem(makeRng(seed + 900 + k), s8, { alwaysRob: false, forceBank: () => force, quest: () => quest });
         t8.warmup(1);
         f8.state.delivered = delivered;
         const got = [];
         const rob8 = createRobbery({
           site: bank, taxi: t8.taxi, fares: f8, traffic: t8, onBoard: (fare) => got.push(fare), trigger: 'fare',
         });
-        rob8.state.since = 1e3;
+        rob8.state.since = since;
         if (stop) {
           f8.setBankStop({
             junction: rob8.junction, x: stand.x, z: stand.z, away: tight ? bankAway : { x: 1, z: 0 },
-            swapReady: () => rob8.swapReady(), tight,
+            swapReady: (fare) => rob8.swapReady({ promised: Boolean(fare?.quest) }), canOffer: () => rob8.canOffer(), tight,
           });
         }
         const J = rob8.junction;
@@ -18802,6 +18835,37 @@ let chopperOrder; // likewise
         const events = arrive(d);
         check('tails with the robbery’s gates shut: the rider gets in after all',
           events.includes('pickup') && !d.rob8.state.active, `events ${events.join(',')}`);
+      }
+      // The purple "!" (`quest`) promises the robbery: only tails wear it, it keeps the promise past
+      // the fairness gates, and it does not turn up while the robbery could not start.
+      {
+        const quests = Array.from({ length: 40 }, (_, k) => bankRig(k, { quest: true })).filter((d) => d.bankFare);
+        const marked = quests.filter((d) => d.bankFare.quest);
+        check('the "!" stands only over a bank rider who is the robbery',
+          marked.length > 0 && marked.length < quests.length && quests.every((d) => d.bankFare.quest === d.bankFare.robberRoll),
+          `${marked.length} of ${quests.length} marked`);
+        const d = marked[0];
+        if (d) {
+          // Inside the cooldown: the gate that used to let a "!" rider simply get in.
+          d.rob8.state.since = 0;
+          const events = arrive(d);
+          check('...and the "!" rider is the robbery past the fairness gates',
+            events.includes('swapped') && !events.includes('pickup') && d.rob8.state.active, `events ${events.join(',')}`);
+        }
+        // ...and the rest of the fairness gates — a rider on the kerb running low, a VIP, the count.
+        const gate = (promised) => {
+          const fx = createFareSystem(makeRng(seed + 904), new THREE.Scene());
+          fx.state.delivered = 0;
+          fx.state.fares.push({ stage: 'waiting', vip: true, timeLeft: 1, limit: 100 });
+          const tx = createTraffic(makeRng(seed + 44), new THREE.Scene(), 10, 18);
+          const rx = createRobbery({ site: bank, taxi: tx.taxi, fares: fx, traffic: tx, trigger: 'fare' });
+          rx.state.since = 0;
+          return rx.swapReady({ promised });
+        };
+        check('...every one of them', gate(true) && !gate(false));
+        const cooling = Array.from({ length: 40 }, (_, k) => bankRig(k, { quest: true, since: 0 }));
+        check('...and no bank rider turns up while the robbery is cooling down',
+          !cooling.some((c) => c.bankFare));
       }
     }
 
