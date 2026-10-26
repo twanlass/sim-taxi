@@ -3459,6 +3459,7 @@ function spawnCars(rng, count, into = [], accept = null, truckChance = 0, classi
       passTarget: null,   // the car currently being overtaken, latched for the whole manoeuvre
       // May a pass start? Set by the overtake combo (game/overtake.js); undefined means yes.
       passArmed: undefined,
+      passArmedFor: null, // the car the combo was armed behind (game/overtake.js)
       passGap: Infinity,  // the leader's gap as the pass block last saw it, for the combo
       passLeader: null,   // and who it is
       dodgeGap: Infinity, // road to a blocker the combo could dodge (`findDodge`)
@@ -6068,6 +6069,35 @@ export function createTraffic(
       // Published for the overtake combo, which arms only behind a car.
       taxi.passGap = gap ?? Infinity;
       taxi.passLeader = leaderOf.get(taxi) ?? null;
+      // ...and round a corner it has to see the car it is turning *towards*. For the first part of
+      // a real turn the taxi is still listed in the lane it came from (see the lane lists above),
+      // whose look past the junction runs straight on — so the leader it reports is either nothing
+      // or a car across the box it is not going to follow, and the car waiting just round the
+      // corner is invisible until the arc is 60% done. The combo checks `passGap` at the release
+      // and at the re-press, so a blip thrown on the way into a corner was dropped without a word:
+      // staged with a car or a parked truck 3-10 units round a corner, a blip at the start or the
+      // middle of the turn armed **0 of 24** times, against 15 of 12-and-12 thrown on the exit.
+      // That is the fire engine parked just round the corner (Tyler, 2026-10-26) and "it's hard to
+      // overtake a car around a corner". Only the combo's reading changes; car-following still
+      // queues on the entry lane, and the pull-out itself still waits for the lane.
+      //
+      // The same holds on the run-up, while the route turns at the junction ahead: whatever the
+      // straight-on look finds past the box is not on the taxi's way, and the car round the corner
+      // is. A car still in the lane before the box is the leader either way and keeps it.
+      const cornerTurn = taxi.state === 'turn'
+        ? (taxi.turn && taxi.turn.hand !== 'straight' && taxi.turnT < 0.6 ? taxi.turn : null)
+        : taxi.state === 'drive' && taxi.route?.length && taxi.route[0] !== taxi.d
+          && !(gap <= taxi.lane.length - taxi.s)
+          ? exitToward(net, taxi.lane, taxi.route[0])
+          : null;
+      const roundLane = cornerTurn && net.laneById.get(cornerTurn.outLane);
+      if (roundLane) {
+        // How far the taxi still has to go to reach the start of the lane it is turning onto.
+        const toCorner = taxi.state === 'turn' ? toExit(taxi) : taxi.lane.length - taxi.s + cornerTurn.length;
+        const round = ahead(roundLane, -toCorner, LOOKAHEAD).find((n) => !outOfLane(n.car));
+        taxi.passGap = round?.gap ?? Infinity;
+        taxi.passLeader = round?.car ?? null;
+      }
       const locoHeld = taxi.boost && !taxi.boostEasing;
       // A dodge (`findDodge`) latches its own swing for as long as the offset is out, because it
       // may have to go wider than the lane centre, or the other way, to clear what it is going
@@ -6110,8 +6140,18 @@ export function createTraffic(
       // lane still peels the car off its arc), and main.js re-plans from the far side
       // (`taxi.detoured`). Holding boost behind a car is the player choosing the detour.
       const turnsAhead = Boolean(taxi.route?.length) && taxi.route[0] !== taxi.d;
-      const room = Boolean(exitToward(net, taxi.lane, taxi.d))
-        && Boolean(net.laneByGrid(opposite(taxi.d), taxi.i, taxi.j));
+      // The back part of a corner is asked about the road it is turning onto, not the one it came
+      // off: `car.lane` and the grid fields stay on the entry lane for the whole turn, and by here
+      // the taxi is already listed on the exit lane and following whatever is on it (see the lane
+      // lists). This is where a car parked just round a corner stops the taxi — nose in the box,
+      // tail of the car at the start of the lane — so it is also where the combo has to be able to
+      // pull out (`cornerOut` below).
+      const cornerLane = taxi.state === 'turn' && taxi.turn && taxi.turn.hand !== 'straight'
+        && taxi.turnT >= 0.6 ? net.laneById.get(taxi.turn.outLane) : null;
+      const [roadI, roadJ] = cornerLane ? gridOf(net, cornerLane.to) : [taxi.i, taxi.j];
+      const roadD = cornerLane ? net.dirOfLane(cornerLane) : taxi.d;
+      const room = Boolean(exitToward(net, cornerLane ?? taxi.lane, roadD))
+        && Boolean(net.laneByGrid(opposite(roadD), roadI, roadJ));
       // Hysteresis: pull out when the leader starts costing speed, stay out until it is properly
       // behind. Without the second number the taxi flutters in and out around the trigger. Not
       // with a turn ahead, though: staying out for whatever is next within PASS_SUSTAIN would chain
@@ -6183,7 +6223,26 @@ export function createTraffic(
       // for the offset to peel the car off (see `crossingStraight` below), so nothing stops it.
       const thrownInBox = overtakeDumb && taxi.passArmed === true && !taxi.passing
         && taxi.state === 'turn' && taxi.turn?.hand === 'straight';
-      if (taxi.state === 'drive' || thrownInBox) {
+      // ...and on the back part of a corner, for the car parked just round it. Staged with a truck
+      // stopped 3-6 units into the lane past a left turn, the taxi came to rest at turnT ~0.8 with
+      // its nose on the truck's tail and an armed combo that could never fire, because it only
+      // decides on a lane or a straight crossing and the taxi never reached either: "unable to
+      // overtake the fire truck" (Tyler, 2026-10-26). By turnT 0.6 the heading is most of the way
+      // round, and the offset is perpendicular to it, so what it draws is a curve parallel to the
+      // arc, not a car peeled off it.
+      //
+      // Only for the car the combo was thrown at (`passArmedFor`, game/overtake.js), and only while
+      // it is actually in the way: close, and parked or creeping (DODGE_CREEP, the swerve's test
+      // for the same thing). Anything moving the taxi passes on the lane as before. Without both, a
+      // combo armed behind one car and carried into the next corner on its OVERTAKE_ARM_WINDOW fired
+      // there at whatever was ahead — a queue at the next red, mostly — and into the cars waiting at
+      // the junction in the lane it borrows: the overtake bot (tools/overtakecases.mjs, 24 cities)
+      // pulled out in 13 corners and bumped something in 6, and its bump rate went 15% to 25%.
+      const cornerLeader = leaderOf.get(taxi);
+      const cornerOut = overtakeDumb && taxi.passArmed === true && !taxi.passing && cornerLane !== null
+        && near && cornerLeader !== undefined && cornerLeader === taxi.passArmedFor
+        && cornerLeader.v < DODGE_CREEP;
+      if (taxi.state === 'drive' || thrownInBox || cornerOut) {
         const was = taxi.passing;
         // Pulling out wants the overtake combo (game/overtake.js) where main.js runs one — a blip
         // off the pill and back on behind the car. `passArmed` undefined is the old rule, holding
@@ -6263,7 +6322,12 @@ export function createTraffic(
       //
       // A straight-through crossing has no arc to peel off. Its path is a straight line and its
       // yaw is constant, so the offset composes with it exactly as it does on a lane.
-      const crossingStraight = taxi.state === 'turn' && taxi.turn?.hand === 'straight';
+      //
+      // And not through the back part of a corner the combo pulled out on (`cornerOut`), for the
+      // same reason: there the offset is a parallel curve, and freezing it would park the taxi
+      // half out behind the car it is trying to get round.
+      const crossingStraight = taxi.state === 'turn'
+        && (taxi.turn?.hand === 'straight' || (cornerLane !== null && (taxi.passing || taxi.pass > 0)));
       const rolled = (taxi.state === 'drive' || crossingStraight) ? taxi.v * dt : 0;
       const delta = (taxi.passing ? 1 : 0) - taxi.pass;
 
@@ -6303,7 +6367,8 @@ export function createTraffic(
       // on a divided arterial against ~32 on a side street), which the boost speed and the
       // straight-on gate below already give it. Read after the decision, so a dodge's first frame
       // swings by its own latched lateral rather than the lane's.
-      const passLateral = taxi.dodgeLateral ?? passLateralOn(taxi);
+      const passLateral = taxi.dodgeLateral
+        ?? (cornerLane ? 2 * laneOffsetFor(roadD, roadI, roadJ) : passLateralOn(taxi));
       const passFade = PASS_FADE * (Math.abs(passLateral) / PASS_LATERAL);
       const step = Math.sign(delta) * Math.min(Math.abs(delta), ds / passFade);
       taxi.pass += step;
