@@ -1003,6 +1003,17 @@ export const PALETTE = {
   carWashBrushB: '#F065B4',
   carWashBrushCore: '#2A2D33',
   carWashGlow: '#E9F6FF',
+  // The pink elephant over the lot — Seattle's Elephant Car Wash, the sign Tyler grew up with
+  // (2026-10-26). The pink is the photo's, a little lifted so it holds at play zoom; the letters are
+  // the photo's cream bulbs on a dark maroon edge, and the rim is its pale neon.
+  elephantPink: '#EE8CC4',
+  elephantEar: '#F7A8D3',
+  elephantEarEdge: '#C95E9E',
+  elephantRim: '#F4EEE4',
+  elephantLetter: '#FFF4DE',
+  elephantLetterEdge: '#5A1E2C',
+  elephantPupil: '#23345E',
+  elephantSpray: '#F4FAFF',
   // The gas station (city/gasstation.js), the roadside block's other business: a green canopy
   // with a yellow stripe — green rather than red so the red tube man in front of it still reads —
   // a cream brick store, white pumps, and the bright underside every forecourt canopy has at night.

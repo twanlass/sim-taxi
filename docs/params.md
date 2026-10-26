@@ -51,6 +51,7 @@ doc; what the classic version was, and why it changed, is in that doc's history 
 | `?depotwindows=classic` | The depot's two office windows stay dark at night and under a squall (default: they light with the city's windows) | | [city.md](city.md#the-livery) |
 | `?skater=classic` / `=stiff` | The first pair of skaters / the single skater before it got a waist joint | #461, #463 | [city.md](city.md) |
 | `?roadside=carwash` / `=gas` | Pin the roadside lot to the car wash or the gas station; by default each city seed rolls one. Headless tools take `ROADSIDE=` | | [city.md](city.md#the-roadside-lot-and-its-tube-man) |
+| `?washsign=classic` | The car wash's old sign: a blue pylon panel spelling WASH. The default (2026-10-26) is a pink elephant cut out of board on a pole, swaying 8° either side of the camera's diagonal — a nod to Seattle's Elephant Car Wash | | [city.md](city.md#the-roadside-lot-and-its-tube-man) |
 | `?roadside=classic` | No roadside lot: its block goes back to the towers, and the tube man goes with it | | [city.md](city.md#the-roadside-lot-and-its-tube-man) |
 | `?manholes=classic` | The old four or five manhole covers, none of them steaming, instead of seven or eight with three venting steam | | [city.md](city.md#manhole-covers) |
 | `?streetprops=classic` | No post boxes or hot dog cart on the kerb | `STREETPROPS=classic` | [city.md](city.md#the-post-box-and-the-hot-dog-cart) |

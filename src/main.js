@@ -891,7 +891,7 @@ const manholeSteam = createManholeSteam(scene, manholes?.userData.spots, makeRng
 // comes and goes, and the boards would have to be re-asked every time one moved.
 const occluders = setCityOccluders(
   city.mesh, ...(city.domeMesh ? [city.domeMesh] : []), propsMesh, ...(garage?.meshes ?? []),
-  ...(burger?.meshes ?? []), ...(graveyard?.meshes ?? []), ...(roadside?.meshes ?? []),
+  ...(burger?.meshes ?? []), ...(graveyard?.meshes ?? []), ...(roadside?.occluders ?? roadside?.meshes ?? []),
   ...(vet ? [vet.shell] : []),
 );
 // The same field is what the cars' paint reflects (`propMaterial({ gloss })`, util/geo.js).

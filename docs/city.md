@@ -957,7 +957,12 @@ had the two built side by side to compare and then picked both (2026-10-17).
 
 **The car wash** (`city/carwash.js`) is a wash tunnel against the block's −Z edge, with its long +Z side open on posts so the brushes
 turning inside it show, a blue fascia covered in soap bubbles, a concrete lot out front with two
-vacuum bays and a pay kiosk, and a pylon sign spelling WASH in a pixel face. It is scenery only for
+vacuum bays and a pay kiosk, and a pink elephant cut out of board on a pole over the lot's front
+corner, spraying water over its back with CAR WASH across its body — Seattle's Elephant Car Wash,
+at Tyler's ask (2026-10-26). It is built like the garage's taxi cutout (one extruded `Shape`, its
+pink lifted so it stays pink in shadow) and sways 8° either side of the camera's diagonal over about
+eleven seconds; its feet stand 3 over the lot so its end clears the vacuum posts as it swings.
+`?washsign=classic` puts back the blue pylon panel spelling WASH. It is scenery only for
 now: no car goes through, and nothing routes into it. Chosen last in `createLayout`, after the
 graveyard, so adding it moves nothing above; it avoids touching the other landmarks and prefers
 quiet, inner blocks, as the burger joint does.
