@@ -215,6 +215,7 @@ doc; what the classic version was, and why it changed, is in that doc's history 
 | Param | Does |
 |---|---|
 | `?roads=classic` | The roads before the grey was broken up: the lighter blue-grey asphalt, the darker pavement and kerb, asphalt bridge decks with no joints, no brick plaza and no asphalt patches |
+| `?seamstripes=classic` | The split drawbridge's noses plain concrete with only the black seam line, without the black and yellow hazard stripes either side of it. Striped by default since 2026-10-26 |
 | `?bridgemarks=classic` | The dark expansion joint and pale approach slab back across the road at each end of every bridge. Off by default since 2026-10-25 |
 | `?plazaspot=classic` | The paved plaza on the side-street four-way nearest the middle of the map (beside the garage in most cities) rather than a random one the camera can see. See `placeJunctionPaving` in util/geo.js |
 | `?plaza=granite` / `tan` / `classic` | The one paved junction in another stone: warm grey or buff paving in a dark frame, or `classic`, the first plaza's red brick with its faint border. The default is charcoal setts in a pale frame. See `PLAZA_LOOKS` in palette.js |

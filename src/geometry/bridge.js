@@ -237,6 +237,64 @@ function archRailing(x, span, rise, lift, col, from, to) {
   return parts;
 }
 
+// The split drawbridge's nose beams in black and yellow hazard stripes, slanted 45 degrees in plan.
+// `?seamstripes=classic` is the plain concrete nose with only the black seam.
+const SEAMSTRIPES_CLASSIC = typeof location !== 'undefined'
+  && new URLSearchParams(location.search).get('seamstripes') === 'classic';
+// How far each striped nose reaches back from its tip, seam included: the plain nose's own 0.75.
+// It was 1.4 first, and lowered the two bands met as one 2.6-unit stripe across the road that read
+// far too wide (Tyler, 2026-10-26: "make em half that thickness").
+const HAZARD_DEPTH = 0.75;
+// Stripe width measured along the beam (x); at 45 degrees it is 0.71 of that across the stripe.
+const HAZARD_PITCH = 0.7;
+
+/** Keep the part of a convex (x, z) polygon where `a·x + b·z <= c`. */
+function clipHalf(poly, a, b, c) {
+  const out = [];
+  for (let i = 0; i < poly.length; i++) {
+    const p = poly[i];
+    const q = poly[(i + 1) % poly.length];
+    const dp = a * p[0] + b * p[1] - c;
+    const dq = a * q[0] + b * q[1] - c;
+    if (dp <= 0) out.push(p);
+    if ((dp < 0) !== (dq < 0) && dp !== 0 && dq !== 0) {
+      const t = dp / (dp - dq);
+      out.push([p[0] + (q[0] - p[0]) * t, p[1] + (q[1] - p[1]) * t]);
+    }
+  }
+  return out;
+}
+
+/**
+ * A box from x0..x1, z0..z1, y0..y1 cut into alternating black and yellow slices along lines of
+ * constant x + z. Slices are keyed off the span's own z rather than the tip, so the two leaves'
+ * stripes line up across the seam when they are down. Each slice is an `ExtrudeGeometry` of its
+ * clipped outline rather than a sheared box (`stripedBar`): the nose is far deeper than a stripe
+ * is wide, so a sheared box's clamped corners would cross their neighbours. Extrude winds its own
+ * faces from the outline, so there is no hand-written triangle here to get backwards.
+ */
+function hazardPlate(x0, x1, z0, z1, y0, y1) {
+  const dark = color('hazardDark');
+  const light = color('hazardYellow');
+  const parts = [];
+  const rect = [[x0, z0], [x1, z0], [x1, z1], [x0, z1]];
+  const lo = Math.floor((x0 + z0) / HAZARD_PITCH);
+  const hi = Math.ceil((x1 + z1) / HAZARD_PITCH);
+  for (let k = lo; k < hi; k++) {
+    // HAZARD_PITCH * k <= x + z <= HAZARD_PITCH * (k + 1)
+    let poly = clipHalf(rect, 1, 1, HAZARD_PITCH * (k + 1));
+    poly = clipHalf(poly, -1, -1, -HAZARD_PITCH * k);
+    if (poly.length < 3) continue;
+    // Shape y is world z; a quarter turn about +X then sends the extrusion down from y = 0.
+    const shape = new THREE.Shape(poly.map(([x, z]) => new THREE.Vector2(x, z)));
+    const geo = new THREE.ExtrudeGeometry(shape, { depth: y1 - y0, bevelEnabled: false });
+    geo.rotateX(Math.PI / 2);
+    geo.translate(0, y1, 0);
+    parts.push(bakeColor(geo, ((k % 2) + 2) % 2 === 0 ? dark : light));
+  }
+  return parts;
+}
+
 /**
  * The parts of one span.
  *
@@ -344,7 +402,19 @@ export function bridgeParts(span, rng, range = [0, 1], { capCut = false } = {}) 
         parts.push(bakeColor(box, col));
       };
       beam(tip, SEAM_W, color('drawbridgeSeam'));
-      beam(tip + inward * SEAM_W, TIP_DEPTH - SEAM_W, trimCol);
+      if (SEAMSTRIPES_CLASSIC) {
+        beam(tip + inward * SEAM_W, TIP_DEPTH - SEAM_W, trimCol);
+      } else {
+        // The rest of the nose is hazard plate (Tyler, 2026-10-26: "at the seam let's add some black
+        // and yellow angled warning stripes"). Built as the beam's own solid in slices rather than
+        // painted over it, so nothing lies on anything else's plane.
+        const z0 = tip + inward * SEAM_W;
+        const z1 = tip + inward * HAZARD_DEPTH;
+        parts.push(...hazardPlate(
+          -span.half + IN, span.half - IN, Math.min(z0, z1), Math.max(z0, z1),
+          -DECK_THICK + IN, TIP_LIP,
+        ));
+      }
     }
     for (const sign of [-1, 1]) {
       const [x0, x1] = sign > 0
