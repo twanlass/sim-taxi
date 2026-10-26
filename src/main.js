@@ -1772,7 +1772,8 @@ if (bankJob && bankFare) {
     x: bankJob.home.x,
     z: bankJob.home.z,
     away: bankJob.along,
-    swapReady: () => robbery.swapReady(),
+    swapReady: (fare) => robbery.swapReady({ promised: Boolean(fare?.quest) }),
+    canOffer: () => robbery.canOffer(),
     // Collected level with the steps, routed down the bank's own street (BANK_REACH_ALONG in
     // game/fares.js). `?bankpickup=classic`: the junction's ARRIVE_RADIUS, from any side.
     tight: new URLSearchParams(window.location.search).get('bankpickup') !== 'classic',
@@ -2308,7 +2309,7 @@ let bankMarkFare = null;
 /** The "!" over the bank rider while they wait, pointing where the pie's underside would be. */
 function updateBankMark(dt) {
   if (!bankMark) return;
-  const fare = fares.waitingAll().find((f) => f.bank && f.slot.marker.group.visible) ?? null;
+  const fare = fares.waitingAll().find((f) => f.quest && f.slot.marker.group.visible) ?? null;
   if (fare !== bankMarkFare) {
     bankMarkFare = fare;
     if (fare) {

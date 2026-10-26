@@ -1021,13 +1021,14 @@ export function createRobbery({
     dismiss(cop);
   }
 
-  function eligible() {
+  function eligible(promised = false) {
     if (state.active || fares.state.gameOver) return false;
     // The seat, the wreck and the patrol chase are physical conflicts; Demo mode skips straight to
     // them (`forced`). The rest are fairness to the player, which a demo is not asking for — with
     // them on, a single crystal in its lower half on the kerb sent the bank rider into the cab as an
     // ordinary fare, which read as "demo isn't spawning robbers" (Tyler, 2026-10-25).
-    if (forced()) return !fares.carrying() && !taxi.crashed && !taxi.staged && !busy()
+    // A bank rider under the purple "!" (`promised`) is waived the same way: the mark said robbery.
+    if (forced() || promised) return !fares.carrying() && !taxi.crashed && !taxi.staged && !busy()
       && (trigger === 'fare' || range() <= TRIGGER_RANGE);
     if (state.since < COOLDOWN) return false;
     if (fares.state.delivered < MIN_DELIVERED) return false;
@@ -1319,7 +1320,13 @@ export function createRobbery({
      * drive-past had except the range. The seat is still the rider's at that point, so the one-seat
      * gate reads it as empty, which is what it is about to be.
      */
-    swapReady: () => trigger === 'fare' && eligible(),
+    swapReady: ({ promised = false } = {}) => trigger === 'fare' && eligible(promised),
+    /**
+     * May a bank rider who is the robbery turn up now? Asked at spawn, since the "!" they wear is a
+     * promise that `swapReady({ promised })` keeps on arrival: nothing running, no patrol chase, and
+     * the cooldown served (Demo mode waives that one, as it does in `eligible`).
+     */
+    canOffer: () => !state.active && !busy() && (forced() || state.since >= COOLDOWN),
     /** ...and this starts it, once the fare loop has taken the rider off the board. */
     swap() {
       if (!state.active && !fares.carrying() && !taxi.crashed) start();

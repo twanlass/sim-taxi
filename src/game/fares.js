@@ -756,6 +756,7 @@ export const waitingTargets = (slot) => [slot.passenger.group, slot.marker.group
  */
 export function createFareSystem(rng, scene, {
   reserved = () => [], judgeRun = () => ({ runs: [], mult: 1 }), rating = true, risingOdds = true, alwaysRob = BANK_ROBBER_ALWAYS, forceRob = () => false, forceBank = () => false,
+  quest = questMark,
 } = {}) {
   const state = {
     // Active fares, newest last. At most MAX_FARES, and up to MAX_FARES - 1 of them can be
@@ -1126,6 +1127,9 @@ export function createFareSystem(rng, scene, {
     if (!bankStop || state.delivered < BANK_MIN_DELIVERED) return false;
     if (state.fares.some((f) => f.bank || f.robber)) return false;
     if (state.elapsed - lastBankAt < BANK_COOLDOWN) return false;
+    // A "!" rider is a robbery promised, so none turns up while one could not start: one already
+    // running, its cooldown, or a patrol chase (`canOffer` in game/robbery.js).
+    if (bankStop.canOffer && !bankStop.canOffer()) return false;
     const { junction } = bankStop;
     // Demo mode (`forceBank`): the first spawn the bank is allowed is the bank rider, wherever the
     // taxi is, so the robbery is on the board in time to be the 3rd or 4th ride. The
@@ -1243,6 +1247,7 @@ export function createFareSystem(rng, scene, {
     const spot = bank
       ? { i: bankStop.junction.i, j: bankStop.junction.j, ...(bankStop.tight ? { onto: bankApproach() } : {}) }
       : pickIntersection(taxiCar, near, isFirstEver ? FIRST_FARE_MAX_BLOCKS : null);
+    const robberRoll = bank && rng.chance(robberOdds());
     const fare = {
       slot,
       stage: 'waiting',
@@ -1250,7 +1255,13 @@ export function createFareSystem(rng, scene, {
       // The bank rider (see BANK_CHANCE): where they stand, and the coin. `stand` goes at pickup.
       bank,
       stand: bank ? { x: bankStop.x, z: bankStop.z } : null,
-      robberRoll: bank && rng.chance(robberOdds()),
+      robberRoll,
+      // The purple "!" is a promise that this rider is the robbery, so only a rider whose coin came
+      // up tails wears it, and `swapReady` keeps the promise at the steps (`promised` in
+      // game/robbery.js). It used to stand over every bank rider and the robbery's fairness gates
+      // were read only on arrival, so a "!" rider whose robbery cooldown had not run out, or who
+      // arrived with someone else on the kerb running low, just got in (Tyler, 2026-10-26).
+      quest: robberRoll && quest(),
       target: spot,
       // Where they were picked up. `target` moves to the drop-off at `beginRide`, so without a
       // separate copy the trip distance (and its fare) can't be measured later.
@@ -1357,7 +1368,7 @@ export function createFareSystem(rng, scene, {
     // the car opens *already* stepped back rather than shrinking in front of the player
     // (game/faremarker.js). Passed here rather than set on the marker afterwards because these
     // slots are pooled and the loop does not tick a fare on the frame it spawns.
-    slot.marker.showAt(URGENCY_SEGMENTS, corner.x, corner.z, vip, Boolean(carrying()), bank && questMark());
+    slot.marker.showAt(URGENCY_SEGMENTS, corner.x, corner.z, vip, Boolean(carrying()), fare.quest);
 
     return fare;
   }
@@ -1985,7 +1996,7 @@ export function createFareSystem(rng, scene, {
         // out costs no strike — they walk off like a missed VIP. Once aboard they are an ordinary
         // fare with the crystal on the roof, and an ordinary strike. `?questmark=classic` keeps the
         // pie, and the strike with it.
-        if (fare.vip || (fare.bank && fare.stage === 'waiting' && questMark())) {
+        if (fare.vip || (fare.quest && fare.stage === 'waiting')) {
           const missed = state.fares.indexOf(fare);
           if (missed !== -1) state.fares.splice(missed, 1);
           beginBail(fare, taxiCar);

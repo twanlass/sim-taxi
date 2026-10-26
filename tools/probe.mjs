@@ -18584,23 +18584,23 @@ let chopperOrder; // likewise
     {
       const stand = planBankRun(bank, { x: 0, z: 0, yaw: 0 }).home;
       const bankAway = bankFrontage(bank).along;
-      const bankRig = (k, { stop = true, tight = false, force = false, delivered = 5, far = false } = {}) => {
+      const bankRig = (k, { stop = true, tight = false, force = false, delivered = 5, far = false, quest = false, since = 1e3 } = {}) => {
         const s8 = new THREE.Scene();
         const t8 = createTraffic(makeRng(seed + 44), s8, 10, 18);
         // `alwaysRob: false` so the coin and its ramp are still exercised while BANK_ROBBER_ALWAYS
         // has every bank rider rob for testing.
-        const f8 = createFareSystem(makeRng(seed + 900 + k), s8, { alwaysRob: false, forceBank: () => force });
+        const f8 = createFareSystem(makeRng(seed + 900 + k), s8, { alwaysRob: false, forceBank: () => force, quest: () => quest });
         t8.warmup(1);
         f8.state.delivered = delivered;
         const got = [];
         const rob8 = createRobbery({
           site: bank, taxi: t8.taxi, fares: f8, traffic: t8, onBoard: (fare) => got.push(fare), trigger: 'fare',
         });
-        rob8.state.since = 1e3;
+        rob8.state.since = since;
         if (stop) {
           f8.setBankStop({
             junction: rob8.junction, x: stand.x, z: stand.z, away: tight ? bankAway : { x: 1, z: 0 },
-            swapReady: () => rob8.swapReady(), tight,
+            swapReady: (fare) => rob8.swapReady({ promised: Boolean(fare?.quest) }), canOffer: () => rob8.canOffer(), tight,
           });
         }
         const J = rob8.junction;
@@ -18746,6 +18746,37 @@ let chopperOrder; // likewise
         const events = arrive(d);
         check('tails with the robbery’s gates shut: the rider gets in after all',
           events.includes('pickup') && !d.rob8.state.active, `events ${events.join(',')}`);
+      }
+      // The purple "!" (`quest`) promises the robbery: only tails wear it, it keeps the promise past
+      // the fairness gates, and it does not turn up while the robbery could not start.
+      {
+        const quests = Array.from({ length: 40 }, (_, k) => bankRig(k, { quest: true })).filter((d) => d.bankFare);
+        const marked = quests.filter((d) => d.bankFare.quest);
+        check('the "!" stands only over a bank rider who is the robbery',
+          marked.length > 0 && marked.length < quests.length && quests.every((d) => d.bankFare.quest === d.bankFare.robberRoll),
+          `${marked.length} of ${quests.length} marked`);
+        const d = marked[0];
+        if (d) {
+          // Inside the cooldown: the gate that used to let a "!" rider simply get in.
+          d.rob8.state.since = 0;
+          const events = arrive(d);
+          check('...and the "!" rider is the robbery past the fairness gates',
+            events.includes('swapped') && !events.includes('pickup') && d.rob8.state.active, `events ${events.join(',')}`);
+        }
+        // ...and the rest of the fairness gates — a rider on the kerb running low, a VIP, the count.
+        const gate = (promised) => {
+          const fx = createFareSystem(makeRng(seed + 904), new THREE.Scene());
+          fx.state.delivered = 0;
+          fx.state.fares.push({ stage: 'waiting', vip: true, timeLeft: 1, limit: 100 });
+          const tx = createTraffic(makeRng(seed + 44), new THREE.Scene(), 10, 18);
+          const rx = createRobbery({ site: bank, taxi: tx.taxi, fares: fx, traffic: tx, trigger: 'fare' });
+          rx.state.since = 0;
+          return rx.swapReady({ promised });
+        };
+        check('...every one of them', gate(true) && !gate(false));
+        const cooling = Array.from({ length: 40 }, (_, k) => bankRig(k, { quest: true, since: 0 }));
+        check('...and no bank rider turns up while the robbery is cooling down',
+          !cooling.some((c) => c.bankFare));
       }
     }
 
