@@ -38,7 +38,8 @@ one on the depot's roof, because `roofSignGeometry` draws both. The agent usuall
 
 An entry may undo what the game does to a builder's result, when the game only shows it on an event: the
 fire engine's `shell` is hidden until it responds to a fire, so its entry sets `shell.visible = true` or the
-bench would draw an empty group.
+bench would draw an empty group. The garbage truck (hidden between collections) and the street racer
+(`createRivalMesh`, exported from `game/race.js` for the purpose) are the same.
 
 **Undo** sits under every reply that edited files, below the "Running tests" / docs status so it is
 the last thing on the reply, with the files listed under **Changes** beside it, and puts those files back the way they were before that turn. Only the latest turn's undo is live: an older turn's snapshot predates every turn

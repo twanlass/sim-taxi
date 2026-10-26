@@ -3884,8 +3884,16 @@ box. The camera looks down on the car, so the roof is most of what it sees: as a
 the empty taxi read from above as dark glass and an unlit sign with yellow trim, and got lost in a
 busy frame. The glass runs from the body's top to `ROOF_BASE` (1.62) and the roof from there to the
 cabin's old top (1.75), overhanging the glass by 0.03 each way so it reads as a lid; the roof sign
-and the broken windscreen's plates sit where they always did. The depot's sign is built from the
+and the broken windscreen's plates follow the screen's foot. The taxi's cabin front stands
+`CABIN_GROW` (0.25) ahead of the ambient cars' (x = 0.65), so the cab reads longer and the
+screen's foot lands just behind the front axle (x = 1.02); the tail stays put, and the chequer
+runs on the bonnet and roof move to match. The depot's sign is built from the
 same parts, so it wears the roof too. `?taxiroof=classic` puts the glass box back.
+
+The nose carries a small **grill**: a dark recess (`carGlass`) with three chrome bars (`bumperChrome`)
+across it, 0.7 wide and kept to the middle so the headlights and indicators (centres 0.66 off the
+centreline, inner edge ~0.53) keep the corners. It stands 0.03 proud of the nose face, the bars
+0.015 further, so neither lies flush with it.
 
 A **chrome divider** (`bumperChrome`, `FINISH.METAL`) stands on each flank at x = -0.27, splitting
 the side glass into front and back windows. It is a 0.09 × 0.04 box running from the glass's foot
@@ -3905,9 +3913,10 @@ governs the deck strip: at play zoom a cell wants ~4px to read as *chequer*, and
 into a flicker as the car turns.
 
 **The bonnet, roof and boot lid carry a second chequer: a strip two cells wide down their middle**, four
-rows on the bonnet, five on the roof and two on the boot, in the same two colours, one stripe over the
-whole car. The roof run starts 0.175 in from its front edge (the flat top runs -1.08 back to 0.23, and
-the front edge leans back 0.45 over the rake) and works back, at the roof's own height. These cells are square (0.24, `DECK_CELL`) so the strip still reads as chequer from any
+rows on the bonnet, four on the roof and two on the boot, in the same two colours, one stripe over the
+whole car. The roof run starts 0.2 in from its front edge (the flat top runs -0.78 to 0.23: the front
+edge leans back 0.45 over the rake and the back edge forward 0.3 over `BACK_RAKE`, the rear window's
+opposite lean, 0.5 per unit of height against the screen's 0.75) and works back, at the roof's own height. These cells are square (0.24, `DECK_CELL`) so the strip still reads as chequer from any
 heading, each run is whole rows so none is cut short at a bumper, and the plates sit `DECK_LIFT`
 (0.012) over the body's top plane so they never share it.
 
