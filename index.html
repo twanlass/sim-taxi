@@ -1479,11 +1479,11 @@
 
          Not `#tip`/`#intro`/`#banner`/`#popup`: those sit on ad-blocker filter lists, and one
          match takes the module graph down with ERR_BLOCKED_BY_CLIENT (CLAUDE.md). */
-      #coach, #robber-talk, #radio, #cop-shout, #depot-call, #race-talk, #bank-mark {
+      #coach, #robber-talk, #radio, #cop-shout, #depot-call, #order-talk, #race-talk, #bank-mark {
         position: fixed; inset: 0; z-index: 18;
         pointer-events: none; user-select: none; -webkit-user-select: none;
       }
-      #coach[hidden], #robber-talk[hidden], #radio[hidden], #cop-shout[hidden], #depot-call[hidden],
+      #coach[hidden], #robber-talk[hidden], #radio[hidden], #cop-shout[hidden], #depot-call[hidden], #order-talk[hidden],
       #race-talk[hidden], #bank-mark[hidden] { display: none; }
       /* Never over a screenshot, and never over the retry screen: the run is the thing then. */
       body.shot-mode #coach, body.game-over #coach,
@@ -1491,6 +1491,7 @@
       body.shot-mode #radio, body.game-over #radio,
       body.shot-mode #cop-shout, body.game-over #cop-shout,
       body.shot-mode #depot-call, body.game-over #depot-call,
+      body.shot-mode #order-talk, body.game-over #order-talk,
       body.shot-mode #race-talk, body.game-over #race-talk,
       body.shot-mode #bank-mark, body.game-over #bank-mark { display: none; }
       /* The bank rider's "!" (main.js) leaves the screen edge to the rider's own arrow, which
@@ -3134,6 +3135,7 @@
     <div id="race-talk" role="status" aria-live="polite" hidden></div>
     <div id="bank-mark" aria-hidden="true" hidden></div>
     <div id="depot-call" role="status" aria-live="polite" hidden></div>
+    <div id="order-talk" role="status" aria-live="polite" hidden></div>
     <div id="title-screen" hidden></div>
     <div id="home-tip" hidden></div>
     <div id="wipe" aria-hidden="true" hidden></div>

@@ -2854,12 +2854,14 @@ Three things the invitation changes, all of them at the mouth:
 - **There is no roll.** `ENTER_CHANCE` and `FED_COOLDOWN` are how ambient traffic decides; the tap
   is the decision, and the taxi is not put on the cooldown on the way out either. Doing laps of a
   restaurant is a choice the player is paying a fare's clock — and $10 a burger — for.
-- **It is timed to the speaker.** 2.6s at the board and 5.5s at the window, with no jitter, so the
-  visit lasts the 12.93s of the drive-through clip it plays (`driveThru`, [audio.md](audio.md)) and
-  about 2s of quiet after it before the car leaves: 6.83s of driving through the lot with the lane
-  empty, and the two stops share the rest. It used to eat faster (0.6 + 1.0, an **8.4s** visit), on
-  the grounds that the player is paying a clock; the clip is a conversation and cut short it ends
-  mid-sentence, so the visit now costs 6.5s more. `tools/probe.mjs` holds the visit within half a
+- **It is timed to the speaker.** 2.6s at the board and 2s at the window, with no jitter, so the
+  visit lasts the 9.25s of the drive-through clip it plays (`driveThru`, [audio.md](audio.md)) and
+  about 2s of quiet after it before the car leaves: 7.0s of driving through the lot with the lane
+  empty, and the two stops share the rest. The order is taken at the board, "Here ya go" is said at
+  the window, and "Later" as the car pulls off; each line also pops up as a subtitle in the speech
+  card (game/ordertalk.js). It used to eat faster (0.6 + 1.0, an **8.4s** visit), on the grounds
+  that the player is paying a clock; the clip is a conversation and cut short it ends mid-sentence,
+  so the visit now costs about 3.2s more. `tools/probe.mjs` holds the visit within half a
   second of the clip plus the tail.
 
 A wreck in the lot — the run ending while the player is at the window — stops where it is, and the

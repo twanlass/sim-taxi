@@ -124,7 +124,7 @@ again doesn't repeat the recording exactly:
 | `doorOpen` → `doorClose` | Pickup (the close is `BOARD_SECONDS` later, once the rider is in). The robber boarding opens the door and slams it when their line is dismissed, on the first frame the world moves again (`robberDoorOpen` in `src/main.js`). Drop-off (the close is 0.7 s later) |
 | `takeoff` / `land` | `taxi.hopFrom` turning non-null / `traffic.onTaxiLand`, with the land scaled by the same `hit` that scales the shake |
 | `bump` | A survivable hit on another car (`collisions.onBump`), scaled by closing speed: 0.3 at a nudge, full at a T-bone at the Loco top. Also the taxi knocking a spilt crate on (game/boxspill.js), at 0.18 |
-| `driveThru` | The lot taking the player's taxi on a burger run (`burgerRun.holdsTaxi()` turning true), never an ambient car. The visit is timed to the clip (12.93 s, `DRIVE_THRU_SECONDS`) plus a 2 s tail (`DRIVE_THRU_TAIL`) through the taxi's two dwells in game/drivethru.js, and the probe holds the visit within half a second of that; it is faded out (`sfx.release`) on the frame the lot hands the taxi back. The radio ducks 12 dB for the length of it (`sfx.duckMusic`) |
+| `driveThru` | The lot taking the player's taxi on a burger run (`burgerRun.holdsTaxi()` turning true), never an ambient car. The visit is timed to the clip (9.25 s, `DRIVE_THRU_SECONDS`) plus a 2 s tail (`DRIVE_THRU_TAIL`) through the taxi's two dwells in game/drivethru.js, and the probe holds the visit within half a second of that; it is faded out (`sfx.release`) on the frame the lot hands the taxi back. The radio ducks 12 dB for the length of it (`sfx.duckMusic`). Each line is subtitled in the speech card as it is said (`ORDER_LINES` in game/ordertalk.js, timed off the master; re-time them with any new take) |
 | `dispatch1`–`dispatch4` | The [backstory](gameplay.md#the-backstory)'s four lines, each as its card comes up (`speakBackstory` in main.js), cut short (`sfx.release`, 0.08 s) by a tap that moves on or skips. Tyler's own recordings, delivered as 44.1 kHz MP3s and converted to 48 kHz WAV masters (`VO_dispatch_N`); encoded with ffmpeg's AAC at 128 kbps rather than `tools/audio.mjs`, there being no afconvert in the cloud. In the first decode wave with the spawn, since the story opens on Play |
 | `crash` | The wreck at full volume. The roadworks smash reuses it at half volume, and a crate off the flatbed at 0.3 pitched well up |
 | `horn` | A tap on the taxi itself, with the select-pop flash. New players coming from RTS games tap their own car first, expecting to select it; this answers the tap without inventing a selection state. Not during the opening, where that tap is the skip. The master (`18_HORN_honk`, 48 kHz / 16-bit, Tyler, October 2026) arrived at −10.5 LUFS and a +0.2 dBFS peak, 11 dB hotter than a crash, so it ships at gain 0.3 (about −21 LUFS, level with the crash). It was encoded with ffmpeg's AAC rather than afconvert, from a cloud session with no Mac; re-running `tools/audio.mjs` replaces it harmlessly |
@@ -135,7 +135,11 @@ sound ships at 0 dB, as the designer recommended. The exceptions are ours: `copS
 −3.7 dB and pitched down a touch, because it is another car somewhere else on screen; and the
 drive-through speaker (October 2026, not the designer's, converted from an MP3 to a 48 kHz WAV
 master) arrived hotter than Block 1, so it is levelled to it. Measured as RMS off the master
-(ffmpeg was not to hand; RMS reads the idle at −34.3, matching its −34 LUFS), it is −22.5 dB. The
+(ffmpeg was not to hand; RMS reads the idle at −34.3, matching its −34 LUFS), it is −22.5 dB. Its
+second take (Tyler's ElevenLabs "Dub Burger" read, 2026-10-26) ships clean, only turned down 5.6 dB
+to the first take's −21.7 LUFS so the shipped gain stays put. An intercom pass on top of it
+(band-limited, bit-crushed, hiss and crackle) was tried and Tyler threw it out: "sounds horrible".
+Encoded with ffmpeg's AAC, like the horn. The
 siren was once our own stand-in too (`16_POLICE_siren_loop`, −10.1 dB, shipped at 0.18); Block 2's
 `25_NPC_siren_loop` replaced it and ships at 0 dB.
 

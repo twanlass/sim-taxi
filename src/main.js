@@ -169,6 +169,7 @@ import { createParcelSystem, TAP_MAX_DETOUR } from './game/parcels.js';
 import { createRobbery } from './game/robbery.js';
 import { createRadio, LOST_CALL, ROBBERY_CALL } from './game/radio.js';
 import { createDepotCall } from './game/depotcall.js';
+import { createOrderTalk } from './game/ordertalk.js';
 import {
   createPatrol, createPin, holdArrest, ramOf, ESCAPE_HOLD, SIGHT_HOLD,
 } from './game/patrol.js';
@@ -1131,6 +1132,11 @@ const depotCall = !shot && garage && !repairTipClassic
     }),
     edgeTappable: () => isNarrow(),
   }) : null;
+// The drive-through's conversation as subtitles, line by line with the speaker clip — started and
+// stopped beside it in `driveThruSpeaker`. See game/ordertalk.js.
+const orderTalk = !shot && burger
+  ? createOrderTalk({ project: projectToScreen, viewport, site: burger.site })
+  : null;
 // Seconds of game time until dispatch breaks in, once the robber's line has been cleared; 0 when
 // nothing is pending. A beat after the police come on rather than with them, so the tap that
 // clears the robber's bubble does not also land a second bubble on the same frame.
@@ -6069,10 +6075,12 @@ function driveThruSpeaker() {
   if (inLot && driveThruVoice == null) {
     driveThruVoice = sfx?.play('driveThru') ?? false;
     sfx?.duckMusic(true);
+    orderTalk?.start();
   }
   if (!inLot && driveThruVoice != null) {
     if (driveThruVoice) sfx.release(driveThruVoice, 0.4);
     sfx?.duckMusic(false);
+    orderTalk?.stop();
     driveThruVoice = null;
   }
 }
@@ -7338,6 +7346,7 @@ function tick() {
   if (!fareLoopHeld()) robbery?.update(dt);
   radio?.update(dt, { over: fares.state.gameOver });
   copShout?.update(dt, { over: fares.state.gameOver });
+  orderTalk?.update(dt, { over: fares.state.gameOver });
   hitCue?.update(dt, traffic.taxi);
   // The depot's card: SHOW_DELAY after the car starts smoking, so the hit that did it has landed
   // first. A beat that is not calm — a getaway, a chase, the taxi already on its way in for repairs —
@@ -8615,6 +8624,8 @@ window.__taxi = {
    * without having to land a synthesised click on a building.
    */
   burgerRun,
+  /** The drive-through's subtitles — `start()` plays the cards without the visit. See game/ordertalk.js. */
+  orderTalk,
   /**
    * The street race, or null under `?race=classic` and in shot mode — `state.phase`, `summon()` to
    * bring a racer now if the taxi is free. See game/race.js.
