@@ -45,10 +45,15 @@ import { GRADE_UNIFORMS } from './colorgrade.js';
 
 // The taxi drives one lane, so the band covers one lane: ROAD_W is both lanes.
 //
-// Not the full 4 units, though. A right turn's lane-to-lane arc has a radius of HALF_ROAD − LANE =
-// 2, so at half-width 2 the inside edge of the band collapses to a point at every right turn and
-// folds over itself — a translucent band folded on itself paints a visibly darker wedge. 0.85 of a
-// lane leaves 0.3 units of inner radius, and reads as "in the lane" rather than "the whole lane".
+// Not the full lane, though: 0.85 of one reads as "in the lane" rather than "the whole lane".
+//
+// That width does *not* clear the inside of a right turn, whatever this comment used to say. The
+// arc is the car's quadratic, not a circle, and a quadratic with two equal legs L is tightest at its
+// apex at L/√2: 1.59 on a side street against a half-width of 1.91 (2.49 under a grab), and
+// tighter still where an arterial meets a side street and the legs are unequal. The inside edge folded over itself at every right turn in
+// the city, and since the band is additive, the two layers of the fold read as a speckled seam
+// down the corner — reported as z-fighting. `cutLoops` takes the fold out of the inside edge, and
+// `tools/zfight.mjs` checks every turn for one.
 const WIDTH = (ROAD_W / 2) * 0.85;
 const HALF_WIDTH = WIDTH / 2;
 
@@ -545,6 +550,108 @@ export function pointAlongPath(path, fraction) {
 }
 
 /**
+ * How far along the path, in multiples of the band's half-width, an edge can run before it comes
+ * back across itself. A fold on the inside of a bend spans at most the bend's own length, about
+ * π half-widths for one that is tight enough to fold at all; past that, two stretches of edge that
+ * cross are a route lapping its own street, which is two passes of paint and has to stay that way.
+ */
+const LOOP_REACH = 4;
+
+/** Where segments pq and rs cross, strictly inside both; null if they do not. */
+function crossing(p, q, r, s) {
+  const dx1 = q.x - p.x;
+  const dz1 = q.z - p.z;
+  const dx2 = s.x - r.x;
+  const dz2 = s.z - r.z;
+  const den = dx1 * dz2 - dz1 * dx2;
+  if (Math.abs(den) < 1e-12) return null;
+  const t = ((r.x - p.x) * dz2 - (r.z - p.z) * dx2) / den;
+  const u = ((r.x - p.x) * dz1 - (r.z - p.z) * dx1) / den;
+  if (t <= 1e-9 || t >= 1 - 1e-9 || u <= 1e-9 || u >= 1 - 1e-9) return null;
+  return { x: p.x + dx1 * t, z: p.z + dz1 * t };
+}
+
+/**
+ * Cut the loop out of one edge where it runs back over itself, in place.
+ *
+ * An offset curve tighter than its offset distance does not just pinch, it turns inside out: the
+ * edge runs backwards round a small loop (a swallowtail) before coming out the far side, and every
+ * quad in that loop lies over its neighbours. The edge a stroke of paint that wide would really
+ * leave is the offset with the loop cut away at the point it crosses itself — so every point inside
+ * the loop is moved onto that crossing. The quads there become fans off one point, with nothing
+ * left to overlap, and the outside edge is untouched.
+ */
+function cutLoops(path, offs, along, halfWidth) {
+  const n = path.length;
+  const at = (k) => ({ x: path[k].x + offs[k].x, z: path[k].z + offs[k].z });
+  for (let a = 0; a < n - 2; a++) {
+    let b = a + 2;
+    while (b < n - 1 && along[b] - along[a + 1] < LOOP_REACH * halfWidth) b++;
+    // The furthest crossing first, so one cut takes the whole loop.
+    for (b -= 1; b > a + 1; b--) {
+      const x = crossing(at(a), at(a + 1), at(b), at(b + 1));
+      if (!x) continue;
+      for (let k = a + 1; k <= b; k++) offs[k] = { x: x.x - path[k].x, z: x.z - path[k].z };
+      a = b - 1;
+      break;
+    }
+  }
+}
+
+/**
+ * The band's two edges at each path point, as offsets from it: `pos` on the side of the outgoing
+ * segment's left normal, `neg` on the other.
+ *
+ * Both start along the mitre of the two adjacent segments, so the band keeps a constant width
+ * around a bend instead of gapping on the outside of every join. On the inside of a bend tighter
+ * than the half-width that edge loops back over itself (see `WIDTH`), and `cutLoops` takes the loop
+ * out.
+ */
+function bandOffsets(path, halfWidth) {
+  const mitres = mitreOffsets(path, halfWidth);
+  const pos = mitres.map((m) => ({ x: m.x, z: m.z }));
+  const neg = mitres.map((m) => ({ x: -m.x, z: -m.z }));
+  const along = [0];
+  for (let k = 1; k < path.length; k++) {
+    along.push(along[k - 1] + Math.hypot(path[k].x - path[k - 1].x, path[k].z - path[k - 1].z));
+  }
+  cutLoops(path, pos, along, halfWidth);
+  cutLoops(path, neg, along, halfWidth);
+  return pos.map((p, k) => ({ pos: p, neg: neg[k] }));
+}
+
+/**
+ * The band as triangles: two per path segment, each corner `{ k, o }` — the path point it hangs
+ * off and its offset from it.
+ *
+ * Each segment is a quad between two rungs, and which diagonal splits it is chosen per quad. Where
+ * a loop has been cut out of the inside edge (`cutLoops`), the edge turns a sharp corner, and the
+ * quad on that corner can be concave: split across its reflex corner, its two triangles overlap,
+ * which is a fold in all but name. The other diagonal splits it into two that do not.
+ *
+ * Exported for `tools/zfight.mjs`, which builds the band through every turn in the city and fails
+ * on any two of these triangles overlapping — so it tests the triangles that actually draw.
+ */
+export function bandTriangles(path, halfWidth) {
+  const offsets = bandOffsets(path, halfWidth);
+  const at = (k, o) => ({ x: path[k].x + o.x, z: path[k].z + o.z });
+  const area = (p, q, r) => (q.x - p.x) * (r.z - p.z) - (q.z - p.z) * (r.x - p.x);
+  const tris = [];
+  for (let k = 0; k < path.length - 1; k++) {
+    const A = { k, o: offsets[k].pos };
+    const B = { k: k + 1, o: offsets[k + 1].pos };
+    const C = { k: k + 1, o: offsets[k + 1].neg };
+    const D = { k, o: offsets[k].neg };
+    const [a, b, c, d] = [A, B, C, D].map((v) => at(v.k, v.o));
+    // Split along AC when both halves agree in sign — the quad is convex there — and along BD
+    // otherwise.
+    if (area(a, b, c) * area(a, c, d) >= 0) tris.push([A, B, C], [A, C, D]);
+    else tris.push([A, B, D], [B, C, D]);
+  }
+  return tris;
+}
+
+/**
  * Half-width offset at each path point, along the mitre of its two adjacent segments, so the
  * band keeps a constant width around a bend instead of gapping on the outside of every join.
  */
@@ -639,6 +746,8 @@ const GRAB_LIFT = 0.30;
 const GRAB_FOCUS = 0.50;
 const GRAB_GLOW = 11;
 const GRAB_WIDEN = 0.30;
+// Both widths the band is ever drawn at, for the fold check in `tools/zfight.mjs`.
+export const BAND_HALF_WIDTHS = [HALF_WIDTH, HALF_WIDTH * (1 + GRAB_WIDEN)];
 // How far the bloom pushes toward white. Measured down from 0.45: at that value the core went
 // fully white over an additive blend and the band lost its colour exactly where the player was
 // looking — that colour is the fare's clock (see `setColor`), and washing it out at the point of
@@ -931,7 +1040,7 @@ export function createRouteLine(scene) {
     // at 90° corners because the corner was the notch, but obvious across a ten-step arc.
     // Thickens under a grab. Rebuilt every frame anyway, so this costs nothing beyond the multiply
     // — and the mitre keeps the swell even around a bend, which a fixed offset would not.
-    const offsets = mitreOffsets(path, HALF_WIDTH * (1 + GRAB_WIDEN * grab));
+    const tris = bandTriangles(path, HALF_WIDTH * (1 + GRAB_WIDEN * grab));
 
     let v = 0;
     let n = 0;
@@ -953,15 +1062,8 @@ export function createRouteLine(scene) {
       dists[n++] = dist;
     };
 
-    for (let k = 0; k < path.length - 1; k++) {
-      const a = path[k];
-      const b = path[k + 1];
-      const oa = offsets[k];
-      const ob = offsets[k + 1];
-      const neg = (o) => ({ x: -o.x, z: -o.z });
-
-      push(a, oa, s[k]);      push(b, ob, s[k + 1]);      push(b, neg(ob), s[k + 1]);
-      push(a, oa, s[k]);      push(b, neg(ob), s[k + 1]); push(a, neg(oa), s[k]);
+    for (const tri of tris) {
+      for (const { k, o } of tri) push(path[k], o, s[k]);
     }
 
     geometry.setDrawRange(0, n);

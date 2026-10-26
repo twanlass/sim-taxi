@@ -60,8 +60,11 @@ import { roadsideKind } from '../src/city/roadside.js';
 import { createLTrain } from '../src/game/ltrain.js';
 import { createDrawbridge } from '../src/game/drawbridge.js';
 import { CATALOG } from '../src/workshop/catalog.js';
-import { ROUTE_Y } from '../src/game/routeline.js';
-import { GRID_I, GRID_J, lineX, lineZ, halfRoadX, halfRoadZ, HALF_SPAN_X, HALF_SPAN_Z } from '../src/city/grid.js';
+import { ROUTE_Y, routePath, bandTriangles, BAND_HALF_WIDTHS } from '../src/game/routeline.js';
+import {
+  GRID_I, GRID_J, DIR, lineX, lineZ, halfRoadX, halfRoadZ, HALF_SPAN_X, HALF_SPAN_Z, legalExits,
+} from '../src/city/grid.js';
+import { cityNetwork } from '../src/city/roadnet.js';
 
 const arg = (name) => {
   const i = process.argv.indexOf(`--${name}`);
@@ -171,6 +174,84 @@ const check = (name, pass, detail = '') => {
 };
 const listing = (lines) => (lines.length ? `\n        ${lines.join('\n        ')}` : '');
 
+/**
+ * The route band never lies over itself.
+ *
+ * The scanner above cannot see this: the band is one mesh in one material, so where it folds the
+ * two layers are "identical pixels" to it. They are not on screen — the band is additive and does
+ * not write depth, so a fold paints twice, and the folded slivers read as a speckled seam down the
+ * corner. Every right turn in the city did it (`WIDTH` in game/routeline.js), and it was reported
+ * as z-fighting. So: drive a route through every legal turn at every junction, at both widths the
+ * band is drawn at, and measure how much of the band's area is covered by two of its own triangles.
+ * Area, not winding: the first fix flipped no triangle and still left a wedge painted twice.
+ */
+function overlapArea(t1, t2) {
+  // Sutherland–Hodgman: clip t1 by each edge of t2. Both are triangles, so both are convex.
+  const side = (a, b, p) => (b.x - a.x) * (p.z - a.z) - (b.z - a.z) * (p.x - a.x);
+  const wind = Math.sign(side(t2[0], t2[1], t2[2]));
+  if (!wind) return 0;
+  let poly = t1;
+  for (let e = 0; e < 3 && poly.length; e++) {
+    const a = t2[e];
+    const b = t2[(e + 1) % 3];
+    const out = [];
+    for (let k = 0; k < poly.length; k++) {
+      const p = poly[k];
+      const q = poly[(k + 1) % poly.length];
+      const sp = side(a, b, p) * wind;
+      const sq = side(a, b, q) * wind;
+      if (sp >= 0) out.push(p);
+      if ((sp >= 0) !== (sq >= 0)) {
+        const t = sp / (sp - sq);
+        out.push({ x: p.x + (q.x - p.x) * t, z: p.z + (q.z - p.z) * t });
+      }
+    }
+    poly = out;
+  }
+  let area = 0;
+  for (let k = 0; k < poly.length; k++) {
+    const p = poly[k];
+    const q = poly[(k + 1) % poly.length];
+    area += p.x * q.z - q.x * p.z;
+  }
+  return Math.abs(area) / 2;
+}
+
+function checkRouteBandFolds(seed) {
+  createLayout(makeRng(seed));
+  const net = cityNetwork();
+  let turns = 0;
+  let worst = 0;
+  const folds = [];
+  for (let i = 0; i <= GRID_I; i++) {
+    for (let j = 0; j <= GRID_J; j++) {
+      for (const d of Object.values(DIR)) {
+        const lane = net.laneByGrid(d, i, j);
+        if (!lane || lane.degenerate) continue;
+        for (const dOut of legalExits(d, i, j)) {
+          if (dOut === d) continue;
+          const car = { state: 'drive', lane, s: lane.length / 2, i, j, d };
+          const path = routePath(car, [dOut], { onward: false });
+          turns += 1;
+          for (const half of BAND_HALF_WIDTHS) {
+            const tris = bandTriangles(path, half)
+              .map((tri) => tri.map(({ k, o }) => ({ x: path[k].x + o.x, z: path[k].z + o.z })));
+            let twice = 0;
+            for (let a = 0; a < tris.length; a++) {
+              for (let b = a + 1; b < tris.length; b++) twice += overlapArea(tris[a], tris[b]);
+            }
+            worst = Math.max(worst, twice);
+            // A thousandth of a square unit is well under a pixel at play zoom (1 unit ≈ 7.7px).
+            if (twice > 1e-3) folds.push(`(${i}, ${j}) dir ${d} -> ${dOut} at half-width ${half.toFixed(2)}: ${twice.toFixed(3)} u² twice`);
+          }
+        }
+      }
+    }
+  }
+  check(`city ${seed}: the route band never paints over itself through a turn`, turns > 0 && folds.length === 0,
+    `${folds.length} of ${turns * BAND_HALF_WIDTHS.length} folded, worst ${worst.toFixed(4)} u²${listing(folds.slice(0, 4))}`);
+}
+
 const box = (w, h, d, x, y, z, color = 0x808080, options = {}) => {
   const geo = new THREE.BoxGeometry(w, h, d);
   geo.translate(x, y + h / 2, z);
@@ -247,6 +328,7 @@ if (model) {
 } else {
   selfTest();
   for (const s of SEEDS) scanCity(s, false);
+  for (const s of SEEDS) checkRouteBandFolds(s);
   for (const entry of CATALOG) scanModel(entry, false);
 }
 
