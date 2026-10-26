@@ -864,6 +864,24 @@ space the rays *are* the Z axis and one `mvPosition.z -=` needs no uniform to tr
 It applies to the three fixed spans (`main.js`) and the drawbridge's leaf (`game/drawbridge.js`).
 Nothing else should reach for it without redoing the trade — see the note on the function.
 
+### Light under walls — why the bias is as low as it is
+
+Every unit of `sun.shadow.bias` is a strip of sunlight at the foot of a wall: the bias slides each
+receiver toward the sun before the depth compare, so the ground right beside a building reads as lit
+for as far as the bias reaches, and PCF smears that edge across its kernel. At the old −0.0006 every
+building stood in a sunlit fringe on the pavement it should have been shading; the depot's pale
+forecourt is where it got noticed. It is −0.0002 now (`normalBias` 0.045).
+
+The bias was that high because flat roofs were thin shells as well. A lipped roof's deck floor is
+0.04–0.12 deep over an underside buried on the walls, and the helipad was a 0.1 slab on the deck,
+and below −0.0004 both acned in stripes. The shadow map records the faces turned *away* from the
+sun, so the fix is to remove those undersides rather than to bias past them: `dropBottom` strips the
+bottom face off the deck floor and the lip (city/buildings.js), and `PAD_ROOT` sinks the pad and its
+H half a unit into the deck. Measured across the shot set at golden hour, 07:12 and 17:36:
+−0.0002 closes the leak; a `normalBias` under 0.045 brings roof acne back and one over 0.06 widens
+the leak again. What is left is the coping's outer face at a very low morning sun, which acned the
+same way before.
+
 ### The shadow tint — `SHADOW_UNIFORMS` in `util/geo.js`
 
 `Shadow colour` and `Shadow tint` push everything the sun doesn't reach toward one hue — a cool blue

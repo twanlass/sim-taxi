@@ -146,13 +146,35 @@ export function lippedCap(parts, w, h, d, x, base, z, col, floorCol = shade(col,
     return base + h;
   }
   const deck = base + h - ROOF_SINK;
-  parts.push(box(w, deck - base, d, x, base, z, floorCol));
+  parts.push(dropBottom(box(w, deck - base, d, x, base, z, floorCol)));
   const inner = d - 2 * LIP_W;
-  parts.push(box(w, ROOF_SINK, LIP_W, x, deck, z - (d - LIP_W) / 2, col));
-  parts.push(box(w, ROOF_SINK, LIP_W, x, deck, z + (d - LIP_W) / 2, col));
-  parts.push(box(LIP_W, ROOF_SINK, inner, x - (w - LIP_W) / 2, deck, z, col));
-  parts.push(box(LIP_W, ROOF_SINK, inner, x + (w - LIP_W) / 2, deck, z, col));
+  parts.push(dropBottom(box(w, ROOF_SINK, LIP_W, x, deck, z - (d - LIP_W) / 2, col)));
+  parts.push(dropBottom(box(w, ROOF_SINK, LIP_W, x, deck, z + (d - LIP_W) / 2, col)));
+  parts.push(dropBottom(box(LIP_W, ROOF_SINK, inner, x - (w - LIP_W) / 2, deck, z, col)));
+  parts.push(dropBottom(box(LIP_W, ROOF_SINK, inner, x + (w - LIP_W) / 2, deck, z, col)));
   return deck;
+}
+
+/**
+ * A box with no bottom face, for a slab that sits on something and so has its underside buried.
+ *
+ * Nothing ever sees that face — the camera looks down — except the sun's shadow map, which records
+ * the faces turned *away* from the light, and a roof deck 0.04 units over its own underside is the
+ * thinnest shell in the city: it shadowed itself in stripes at any bias under 0.0004, and that
+ * floor is what was holding `sun.shadow.bias` high enough to leak light under every wall
+ * (game/scene.js). With the face gone the next back face down the ray is the building's far wall.
+ * A box from `box()` is non-indexed with its faces in BoxGeometry's order (+x, -x, +y, -y, +z,
+ * -z), six vertices each, so -y is vertices 18-23.
+ */
+function dropBottom(geo) {
+  const keep = (a) => {
+    const out = new Float32Array(a.array.length - 6 * a.itemSize);
+    out.set(a.array.subarray(0, 18 * a.itemSize));
+    out.set(a.array.subarray(24 * a.itemSize), 18 * a.itemSize);
+    return new THREE.BufferAttribute(out, a.itemSize);
+  };
+  for (const name of Object.keys(geo.attributes)) geo.setAttribute(name, keep(geo.attributes[name]));
+  return geo;
 }
 
 function box(w, h, d, x, base, z, col) {
@@ -659,6 +681,12 @@ const PAD_MAX_R = 2.4;
 // helicopter's skids rest on, so it is exported rather than re-derived at the far end.
 export const PAD_SURFACE = 0.1;
 
+// How far the pad and its H reach down into the deck. Both used to be slabs a few hundredths thick
+// sitting on the roof, and a slab that thin shadows itself in stripes once `sun.shadow.bias` is
+// low enough not to leak light under walls (game/scene.js). Rooted half a unit down, their
+// undersides are buried in the building rather than just under their own tops.
+const PAD_ROOT = 0.5;
+
 /**
  * A landing circle with an H on it. Returns the radius it settled on, which is what
  * `game/chopper.js` sizes its rotor wash against.
@@ -671,8 +699,8 @@ export const PAD_SURFACE = 0.1;
  */
 function helipad(parts, cx, cz, radius, deck) {
   const r = THREE.MathUtils.clamp(radius, PAD_MIN_R, PAD_MAX_R);
-  const pad = new THREE.CylinderGeometry(r, r, 0.1, 12);
-  pad.translate(cx, deck + 0.05, cz);
+  const pad = new THREE.CylinderGeometry(r, r, PAD_ROOT + 0.1, 12);
+  pad.translate(cx, deck + 0.1 - (PAD_ROOT + 0.1) / 2, cz);
   parts.push(bakeColor(pad, color('roof')));
 
   // The H, as three bars. Drawn as flat boxes standing 0.04 off the deck rather than as quads,
@@ -681,9 +709,9 @@ function helipad(parts, cx, cz, radius, deck) {
   const bar = r * 0.16;
   const leg = r * 0.9;
   for (const dx of [-r * 0.3, r * 0.3]) {
-    parts.push(box(bar, 0.04, leg, cx + dx, deck + 0.1, cz, color('laneMark')));
+    parts.push(box(bar, PAD_ROOT + 0.04, leg, cx + dx, deck + 0.1 - PAD_ROOT, cz, color('laneMark')));
   }
-  parts.push(box(r * 0.6, 0.04, bar, cx, deck + 0.1, cz, color('laneMark')));
+  parts.push(box(r * 0.6, PAD_ROOT + 0.04, bar, cx, deck + 0.1 - PAD_ROOT, cz, color('laneMark')));
   return r;
 }
 
