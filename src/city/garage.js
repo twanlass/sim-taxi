@@ -908,10 +908,11 @@ export function createGarage(block, rng, {
     // nothing needs hiding — but it is the one part that says *roller* rather than *shutter*.
     span(curtainX - 0.25, frontX + 0.15, head - 0.08, head + 0.62, dz0 - 0.25, dz1 + 0.25, trim),
 
-    // The forecourt: asphalt laid over the pavement from under the door out to the kerb, which is
-    // what says "cars come out of here" on a block that is otherwise bare paving. It runs back to
-    // where the bay floor stops, so the threshold is continuous.
-    span(curtainX - 0.12, kerbX, PAVEMENT_Y - 0.01, APRON_Y, dz0 - 0.5, dz1 + 0.5, apronCol),
+    // The forecourt: asphalt laid over the pavement from under the door out to the top of the
+    // dropped kerb, which is what says "cars come out of here" on a block that is otherwise bare
+    // paving. It runs back to where the bay floor stops, so the threshold is continuous.
+    span(curtainX - 0.12, kerbX - KERB_RUN, PAVEMENT_Y - 0.01, APRON_Y, dz0 - 0.5, dz1 + 0.5,
+      apronCol),
 
     // The other elevation. `+Z` is the second of the two faces this camera can ever see, and on a
     // one-storey box it is 8 × 5 units of nothing — which at the vignette's zoom is a quarter of
@@ -933,9 +934,23 @@ export function createGarage(block, rng, {
     box(1.6, 0.55, 1.2, bx0 + 1.4, deck, bz0 + 1.3, color('rooftop')),
     box(1.0, 0.42, 1.0, bx0 + 1.2, deck, bz0 + 3.4, color('rooftopIron')),
 
-    // The dropped kerb, in pale `kerb` stone against the dark drive so the ramp down to the road
-    // is visible (Tyler, 2026-10-26: an asphalt ramp melted into the forecourt).
-    dropKerb(kerbX, doorZ, jitterColor(color('kerb'), rng, { l: 0.02 })),
+    // The dropped kerb, and a band of the same pale `kerb` stone over its run so it reads as one.
+    //
+    // The ramp itself cannot show: the pavement is a solid kerb block 0.36 tall, so a slope from
+    // its top to the road is inside that block for its whole run, and all that ever surfaced was
+    // the ramp's top edge — a hairline across the drive where it poked 0.01 through the asphalt
+    // (Tyler, 2026-10-26: "a strange line across it"). So the forecourt asphalt now stops at the
+    // top of the run and the band paints the rest, which is what a dropped kerb looks like from
+    // above anyway: a strip of kerb stone between the drive and the road. The ramp stays for its
+    // lip, the sliver that runs out past the kerb face onto the road.
+    ...(() => {
+      const kerbCol = jitterColor(color('kerb'), rng, { l: 0.02 });
+      return driveway === 'classic'
+        ? [span(kerbX - KERB_RUN, kerbX, PAVEMENT_Y - 0.01, APRON_Y, dz0 - 0.5, dz1 + 0.5, apronCol),
+          dropKerb(kerbX, doorZ, kerbCol, PAVEMENT_Y + 0.02)]
+        : [span(kerbX - KERB_RUN, kerbX, PAVEMENT_Y - 0.01, APRON_Y, dz0 - 0.5, dz1 + 0.5, kerbCol),
+          dropKerb(kerbX, doorZ, kerbCol, PAVEMENT_Y - 0.02)];
+    })(),
 
     // The forecourt's own paint: two guide lines out of the bay, the way any yard marks the way out
     // of a shed. Laid *on* the asphalt rather than in it — see PAINT_Y, which exists so this cannot
@@ -1216,11 +1231,11 @@ export function createGarage(block, rng, {
  * backwards by rotating it. The bulk of the box sinks under the road slab, which is opaque, so
  * only the sloped top and the two sides show.
  */
-function dropKerb(kerbX, doorZ, col) {
-  // The slope, by its two endpoints: from a hair over the pavement KERB_RUN back from the lip, to a
+function dropKerb(kerbX, doorZ, col, ay) {
+  // The slope, by its two endpoints: from height `ay` KERB_RUN back from the lip (a hair over the
+  // pavement under `?driveway=classic`, a hair under the kerb band that paints it otherwise), to a
   // hair under the road just past it.
   const ax = kerbX - KERB_RUN;
-  const ay = PAVEMENT_Y + 0.02;
   const bx = kerbX + 0.1;
   const by = -0.02;
   const theta = Math.atan2(ay - by, bx - ax);

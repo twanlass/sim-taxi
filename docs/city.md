@@ -503,8 +503,10 @@ the bloom (kind `window`), like the sign. `?depotneon=classic` leaves it off.
 it fades on. Their thresholds sit at 0.1–0.22, early, with the shops. Only a city with weather has
 the switch, so they exist only when `rain.enabled`. `?depotwindows=classic` leaves them dark.
 
-The forecourt is plain asphalt, with its dropped kerb in pale `kerb` stone so the ramp down to the
-road shows against it. `?driveway=classic` adds back the **two guide lines** out of the bay in
+The forecourt is plain asphalt, stopping `KERB_RUN` short of the lip, where a band of pale `kerb`
+stone paints the dropped kerb. The ramp under it cannot show for itself — the pavement is a solid
+0.36 block, so a slope from its top to the road is buried in it for its whole run, and all that
+surfaced was its top edge as a hairline across the drive. `?driveway=classic` adds back the **two guide lines** out of the bay in
 `garageSign`, `taxiBody`'s own hex. The levels are a third
 storey on the block: `PAVEMENT_Y` is the paving, `APRON_Y` the forecourt slab on it, `PAINT_Y` the
 classic lines on that, named off each other the
