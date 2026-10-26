@@ -816,6 +816,8 @@ const garage = layout.garageBlock
     trim: new URLSearchParams(window.location.search).get('depotneon') !== 'classic',
     // `?signflames=classic`: no tailpipe on the cutout and no backfire out of it.
     flames: new URLSearchParams(window.location.search).get('signflames') !== 'classic',
+    // `?driveway=classic`: the forecourt in road asphalt with no NO PARKING on it.
+    driveway: new URLSearchParams(window.location.search).get('driveway') === 'classic' ? 'classic' : 'paved',
   })
   : null;
 if (garage) {
@@ -840,7 +842,10 @@ if (depotPanes) {
 // the one building in the city with something on it that moves. `null` on a city with nowhere to
 // put one, exactly as the depot is, and handled the same way all the way down: no joint, no
 // drive-through, and nothing else notices. See city/burgerjoint.js.
-const burger = layout.burgerBlock ? createBurgerJoint(layout.burgerBlock, makeRng(seed + 111)) : null;
+// `?driveway=classic` lays the drive-through's lot (and the depot's forecourt) in asphalt.
+const burger = layout.burgerBlock ? createBurgerJoint(layout.burgerBlock, makeRng(seed + 111), {
+  driveway: new URLSearchParams(window.location.search).get('driveway') === 'classic' ? 'classic' : 'paved',
+}) : null;
 if (burger) {
   scene.add(burger.group);
   // The shell and the lit windows, not the sign: `markOccluder` is the AO prepass, and a burger
