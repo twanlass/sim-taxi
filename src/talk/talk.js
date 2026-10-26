@@ -17,6 +17,9 @@
 
 // Inter, for the titles only (the Figma style asks for weight 450, which only the variable cut has).
 import '@fontsource-variable/inter';
+import { mountSelect } from './select.js';
+import { createSnake } from './snake.js';
+import { flattenScene } from './flatten.js';
 
 const REVEAL_MS = 1100;
 // How far the still is pushed in. At 1 a landscape window shows the whole city, which inside a
@@ -202,14 +205,27 @@ kid.querySelector('.photo').addEventListener('click', async (e) => {
   cans ??= import('./cans.js').then((m) => m.createCans());
   (await cans).drop({ x: r.left + REAL_CANS.x * r.width, y: r.top + REAL_CANS.y * r.height });
 });
+// Slide 4's snake: each click (or →) is the next beat — the snake, then the pineapple in the hat,
+// the dragon fruit, the bomb — and leaving the slide clears it. Once the game is on, `playing`
+// sends the photo back behind it (talk/index.html).
+const snakeSlide = document.getElementById('snake');
+let snake = null;
+snakeSlide.advance = () => {
+  snakeSlide.classList.add('playing');
+  return (snake ??= createSnake(snakeSlide)).advance();
+};
+snakeSlide.addEventListener('click', () => snakeSlide.advance());
+snakeSlide.addEventListener('leave', () => { snakeSlide.classList.remove('playing'); snake?.stop(); });
 // The talk's game clock: nine minutes, bottom right, started by the first step off the title. The
 // start time lives in sessionStorage so a reload mid-talk doesn't hand back the full nine; R resets.
 const TALK_MS = 9 * 60 * 1000;
 // The title slide's backdrop camera: half-height of the view in world units.
-// Set by eye with sliders (size 98, right 35vw): about 60% of the city, off the right edge.
-const BG_ZOOM = 49;
+// Set by eye with sliders (Tyler, 2026-10-26): a held view of the city's middle, off the right edge.
+const BG_ZOOM = 40;
 // How far right the island sits, as a fraction of the window (it was the frame's 35vw offset).
 const BG_SHIFT = 0.35;
+// How far down it sits, as a fraction of the window's height: clear of the title's words above.
+const BG_SHIFT_Y = 0.14;
 // The squall's crossing clock on the backdrop: its first cell is due at 20 s and a crossing takes
 // 75 s, so 30 has one already on its way in when the slide comes up.
 const BG_SQUALL_AT = 30;
@@ -268,15 +284,20 @@ function pinBackdrop(f) {
   const slide = f.closest('.slide');
   const zoomTo = Number(f.dataset.zoom) || BG_ZOOM;
   const shift = f.dataset.shift !== undefined ? Number(f.dataset.shift) : BG_SHIFT;
+  const shiftY = f.dataset.shiftY !== undefined ? Number(f.dataset.shiftY) : BG_SHIFT_Y;
   const cutTo = cam.cutTo.bind(cam);
-  cam.cutTo = (x, z, zoom, yaw, aspect) => {
-    cutTo(0, 0, zoomTo, yaw, aspect);
+  const pin = (aspect) => {
+    cutTo(0, 0, zoomTo, 0, aspect);
     // `setViewOffset` slides the frame by pixels; a negative x moves what's drawn to the right.
     const W = w.innerWidth;
     const H = w.innerHeight;
-    cam.camera.setViewOffset(W, H, -shift * W, 0, W, H);
+    cam.camera.setViewOffset(W, H, -shift * W, -shiftY * H, W, H);
     cam.camera.updateProjectionMatrix();
   };
+  // The title's slide cuts to its first frame and then eases along with `focusOn` (main.js), so
+  // both have to answer with the same fixed shot or the backdrop drifts across the city.
+  cam.cutTo = (x, z, zoom, yaw, aspect) => pin(aspect);
+  cam.focusOn = (x, z, zoom, dt, aspect) => pin(aspect);
   // Weather. The game only starts the squall once the taxi is the player's to drive, which the
   // title screen never reaches — so start it here, part way into its first crossing.
   const squall = w.__taxi.squall;
@@ -301,7 +322,7 @@ function pinBackdrop(f) {
     // The words move into the game's own frame, so the lens drops bend them; the HTML copy (kept
     // for layout) goes transparent once the frame has finished fading in over it.
     import('./scenetext.js').then(({ paintIntoGame }) => {
-      const painted = paintIntoGame(w, [...slide.querySelectorAll('h1, .byline')]);
+      const painted = paintIntoGame(w, [...slide.querySelectorAll('h1, .kicker img, .kicker span, .handle')]);
       if (!painted) return;
       setTimeout(() => slide.classList.add('in-scene'), 1300);
       const onResize = () => { if (f.getAttribute('src')) painted.redraw(); else window.removeEventListener('resize', onResize); };
@@ -324,12 +345,15 @@ function demos(slide, on) {
     // A backdrop is only ever looked at, and it doesn't wait for the frame's load event: that waits
     // on every file the game fetches (the audio among them) and fired ~9s after the city was up.
     if (f.classList.contains('bg-game')) { pinBackdrop(f); continue; }
-    // The first build: its camera is already fixed on the whole city, so it only loses its HUD.
+    // The first build: its camera is already fixed on the whole city, so it only loses its HUD —
+    // and its lighting, drawn flat (flatten.js) before it fades in.
     if (f.classList.contains('cmp-old')) {
       f.onload = () => {
         const style = f.contentDocument.createElement('style');
         style.textContent = 'body > :not(canvas) { visibility: hidden !important; }';
         f.contentDocument.head.appendChild(style);
+        const flatten = () => { if (f.getAttribute('src') && !flattenScene(f.contentWindow)) setTimeout(flatten, 100); };
+        flatten();
         setTimeout(() => f.classList.add('loaded'), 800);
       };
       continue;
@@ -399,6 +423,7 @@ function show(i) {
   if (slides[current] !== slides[next]) {
     demos(slides[current], false);
     slides[current].dispatchEvent(new Event('reset-wipe'));
+    slides[current].dispatchEvent(new Event('leave'));
   }
   demos(slides[next], true);
   if (next > 0) startClock();
@@ -410,6 +435,7 @@ function show(i) {
   document.body.classList.toggle('on-bleed', slides[current].classList.contains('bleed'));
   history.replaceState(null, '', `#${current + 1}`);
 }
+mountSelect(document.getElementById('select'), { start: () => show(current + 1) });
 const fromHash = () => show((Number.parseInt(location.hash.slice(1), 10) || 1) - 1);
 fromHash();
 window.addEventListener('hashchange', fromHash);
@@ -417,7 +443,8 @@ window.addEventListener('hashchange', fromHash);
 window.addEventListener('keydown', (e) => {
   if (e.key === 'Escape') { go(false); return; }
   if (live) return;
-  if (e.key === 'ArrowRight' || e.key === 'PageDown') show(current + 1);
+  // A slide with steps of its own (the character select's tags) takes → until it has none left.
+  if (e.key === 'ArrowRight' || e.key === 'PageDown') { if (!slides[current].advance?.()) show(current + 1); }
   else if (e.key === 'ArrowLeft' || e.key === 'PageUp') show(current - 1);
   else if (e.key === 'r' || e.key === 'R') { resetClock(); show(0); }
   else if (e.key === 'Enter' && document.body.classList.contains('on-phone')) go(true);
