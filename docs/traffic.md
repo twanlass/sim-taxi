@@ -3379,6 +3379,13 @@ since `carGeometry()` is every ambient car's cabin. `game/coplights.js` skips a 
 reason: it brings its own lamps. The unlit bar (housing and painted lenses) stays on the roof when
 the bar goes dark as the car drives off, so it still reads as police.
 
+Its brake, blinker and head lamps are the traffic car's own, not the cruiser's. Collapsing the
+instance used to take those with the body, so the patrol drove the whole city without once braking
+or signalling while a robbery's cop — the same car, as an instance — did both (Tyler, 2026-10-26).
+The render pass now writes a skinned car's lamp pods through `car.skinPose` at `car.skinLamps`
+(0..1, default 0 so other skins are unchanged); `sim/police.js` sets it to the cruiser's fade, so
+they dissolve in and out with the body. The drive off the island after `release` goes without them.
+
 The shell trick is unchanged and still load-bearing: the group stays visible for the whole run and
 only a shell one level in is hidden, so the two lamps stay in the scene's light count at
 `intensity = 0` and no lit program relinks when the cruiser comes and goes (see CLAUDE.md).

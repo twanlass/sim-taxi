@@ -3612,6 +3612,9 @@ function spawnCars(rng, count, into = [], accept = null, truckChance = 0, classi
       // through `wearSkin`, never by hand, because the group it draws into has to be on the crash
       // replay's tape (see `drawnRoots`).
       skin: null,
+      // 0..1: how much of this car's own lamps to draw while a skin draws its body. 0 hides them
+      // with the body; the patrol cruiser sets its fade here (sim/police.js).
+      skinLamps: 0,
       // ...the group that skin draws, which is what the tape records.
       skinRoot: null,
       // ...and the pose it was last handed, because the instance it would otherwise be read back
@@ -4857,6 +4860,7 @@ export function createTraffic(
     if (!root?.isObject3D) throw new Error('wearSkin: a skin needs the group it draws into');
     car.skin = draw;
     car.skinRoot = root;
+    car.skinLamps = 0;
     drawnRoots.add(root);
   }
 
@@ -5246,6 +5250,26 @@ export function createTraffic(
   }
 
   /**
+   * The car's brake, turn-signal and head lamps (and the cones they throw), through `matrix`, with
+   * every level scaled by `k` — 1 for an instance, a skin's `skinLamps` for a car drawn by someone
+   * else (see the skin branch in the render pass).
+   */
+  function writeLamps(car, k) {
+    // brakeLevel/turnLeftLevel/turnRightLevel are 0..1 set once per frame, above ("Rocking" for the
+    // eased brake level, the turn-signal block right after it for the un-eased blink levels) — this
+    // just renders them. A level of exactly 0 collapses the pod the same way ZERO_MATRIX used to.
+    const brakeInst = car.isTruck ? truckBrakeMesh : brakeMesh;
+    const turnLeftInst = car.isTruck ? truckTurnLeftMesh : turnLeftMesh;
+    const turnRightInst = car.isTruck ? truckTurnRightMesh : turnRightMesh;
+    const running = runningFor(car);
+    writeLight(brakeInst, car, k * Math.max(car.brakeLevel, running * TAIL_FLOOR));
+    writeLight(car.isTruck ? truckHeadMesh : headMesh, car, k * running);
+    writeLight(car.isTruck ? truckConeMesh : coneMesh, car, k * running);
+    writeLight(turnLeftInst, car, k * car.turnLeftLevel);
+    writeLight(turnRightInst, car, k * car.turnRightLevel);
+  }
+
+  /**
    * Write one ambient car's body matrix, the two front wheels hanging off it, and its brake/turn
    * lights. The wheels are composed *through* the body matrix rather than in world space, so they
    * inherit the bob, the corner lean and the pitch rock for free and stay bolted to the arches
@@ -5283,18 +5307,7 @@ export function createTraffic(
       wheelInst.setMatrixAt(car.instanceIndex * front.length + w, wheelMatrix);
     }
 
-    // brakeLevel/turnLeftLevel/turnRightLevel are 0..1 set once per frame, above ("Rocking" for the
-    // eased brake level, the turn-signal block right after it for the un-eased blink levels) — this
-    // just renders them. A level of exactly 0 collapses the pod the same way ZERO_MATRIX used to.
-    const brakeInst = car.isTruck ? truckBrakeMesh : brakeMesh;
-    const turnLeftInst = car.isTruck ? truckTurnLeftMesh : turnLeftMesh;
-    const turnRightInst = car.isTruck ? truckTurnRightMesh : turnRightMesh;
-    const running = runningFor(car);
-    writeLight(brakeInst, car, Math.max(car.brakeLevel, running * TAIL_FLOOR));
-    writeLight(car.isTruck ? truckHeadMesh : headMesh, car, running);
-    writeLight(car.isTruck ? truckConeMesh : coneMesh, car, running);
-    writeLight(turnLeftInst, car, car.turnLeftLevel);
-    writeLight(turnRightInst, car, car.turnRightLevel);
+    writeLamps(car, 1);
 
     // The bumpers, each at its end — or, for one the taxi has knocked loose (`car.wear.bumper`,
     // game/cardamage.js), hanging by a corner with its free end on the road. The same bar either
@@ -8243,6 +8256,15 @@ export function createTraffic(
         matrix.copy(ZERO_MATRIX);
       }
       writeAmbient(car);
+      // ...except its lamps, for a skin that asks for them (`skinLamps`, 0..1). The patrol cruiser
+      // has no brake, blinker or head lamps of its own, and collapsing the instance took these
+      // with it: a cop car that cruised the whole city without once signalling or braking, beside
+      // a robbery's cop car — the same car, as an instance — that did both (Tyler, 2026-10-26).
+      // The skin sets the level to its own fade, so the pods dissolve in and out with the body.
+      if (car.skin && car.skinLamps > 0) {
+        matrix.copy(car.skinPose);
+        writeLamps(car, car.skinLamps);
+      }
     }
     mesh.instanceMatrix.needsUpdate = true;
     wheelMesh.instanceMatrix.needsUpdate = true;
