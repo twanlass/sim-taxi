@@ -16887,7 +16887,7 @@ let chopperOrder; // likewise
     // so these two checks read that build, and a third asserts the default has none.
     let lowYellow = 0;
     for (let i = 0; i < pos.count; i++) if (at(i) === YELLOW && pos.getY(i) < KERB_H + 0.1) lowYellow++;
-    check('the default forecourt is plain asphalt, with no guide lines on it', lowYellow === 0,
+    check('the default forecourt has no guide lines on it', lowYellow === 0,
       `${lowYellow} yellow vertices at forecourt height`);
     const lined = createGarage(layout.garageBlock, makeRng(seed + 99), { driveway: 'classic' });
     const lpos = lined.shell.geometry.attributes.position;

@@ -865,7 +865,10 @@ export function createGarage(block, rng, {
 
   const wall = jitterColor(color('garageWall'), rng, { l: 0.03 });
   // Drawn here, after the wall, to keep the depot's rng stream in the order it has always been in.
-  const apronCol = jitterColor(color('asphalt'), rng, { l: 0.02 });
+  // The block's own `sidewalk` by default, so the drive is just more pavement (Tyler, 2026-10-26:
+  // "just make this all the same sidewalk color"); `?driveway=classic` is the asphalt.
+  const apronCol = jitterColor(color(driveway === 'classic' ? 'asphalt' : 'sidewalk'), rng,
+    { l: 0.02 });
   const trim = color('garageTrim');
   const bay = color('garageBay');
 
@@ -908,9 +911,9 @@ export function createGarage(block, rng, {
     // nothing needs hiding — but it is the one part that says *roller* rather than *shutter*.
     span(curtainX - 0.25, frontX + 0.15, head - 0.08, head + 0.62, dz0 - 0.25, dz1 + 0.25, trim),
 
-    // The forecourt: asphalt laid over the pavement from under the door out to the top of the
-    // dropped kerb, which is what says "cars come out of here" on a block that is otherwise bare
-    // paving. It runs back to where the bay floor stops, so the threshold is continuous.
+    // The forecourt: a slab laid over the pavement from under the door out to the top of the
+    // dropped kerb (`apronCol`: pavement by default, asphalt under `?driveway=classic`). It runs
+    // back to where the bay floor stops, so the threshold is continuous.
     span(curtainX - 0.12, kerbX - KERB_RUN, PAVEMENT_Y - 0.01, APRON_Y, dz0 - 0.5, dz1 + 0.5,
       apronCol),
 
@@ -934,21 +937,19 @@ export function createGarage(block, rng, {
     box(1.6, 0.55, 1.2, bx0 + 1.4, deck, bz0 + 1.3, color('rooftop')),
     box(1.0, 0.42, 1.0, bx0 + 1.2, deck, bz0 + 3.4, color('rooftopIron')),
 
-    // The dropped kerb, and a band of the same pale `kerb` stone over its run so it reads as one.
+    // The dropped kerb, and the rest of the forecourt over its run.
     //
     // The ramp itself cannot show: the pavement is a solid kerb block 0.36 tall, so a slope from
     // its top to the road is inside that block for its whole run, and all that ever surfaced was
-    // the ramp's top edge — a hairline across the drive where it poked 0.01 through the asphalt
-    // (Tyler, 2026-10-26: "a strange line across it"). So the forecourt asphalt now stops at the
-    // top of the run and the band paints the rest, which is what a dropped kerb looks like from
-    // above anyway: a strip of kerb stone between the drive and the road. The ramp stays for its
-    // lip, the sliver that runs out past the kerb face onto the road.
+    // the ramp's top edge — a hairline across the drive where it poked 0.01 through the slab
+    // (Tyler, 2026-10-26: "a strange line across it"). So by default the ramp's high end is sunk
+    // under the slab, and it stays only for its lip: the sliver past the kerb face onto the road.
     ...(() => {
       const kerbCol = jitterColor(color('kerb'), rng, { l: 0.02 });
       return driveway === 'classic'
         ? [span(kerbX - KERB_RUN, kerbX, PAVEMENT_Y - 0.01, APRON_Y, dz0 - 0.5, dz1 + 0.5, apronCol),
           dropKerb(kerbX, doorZ, kerbCol, PAVEMENT_Y + 0.02)]
-        : [span(kerbX - KERB_RUN, kerbX, PAVEMENT_Y - 0.01, APRON_Y, dz0 - 0.5, dz1 + 0.5, kerbCol),
+        : [span(kerbX - KERB_RUN, kerbX, PAVEMENT_Y - 0.01, APRON_Y, dz0 - 0.5, dz1 + 0.5, apronCol),
           dropKerb(kerbX, doorZ, kerbCol, PAVEMENT_Y - 0.02)];
     })(),
 

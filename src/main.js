@@ -816,7 +816,7 @@ const garage = layout.garageBlock
     trim: new URLSearchParams(window.location.search).get('depotneon') !== 'classic',
     // `?signflames=classic`: no tailpipe on the cutout and no backfire out of it.
     flames: new URLSearchParams(window.location.search).get('signflames') !== 'classic',
-    // `?driveway=classic`: the forecourt's yellow guide lines.
+    // `?driveway=classic`: the forecourt in asphalt with its yellow guide lines.
     driveway: new URLSearchParams(window.location.search).get('driveway') === 'classic' ? 'classic' : 'paved',
   })
   : null;

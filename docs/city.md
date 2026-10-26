@@ -425,7 +425,7 @@ extra width out of the blocks either side of it and `blockBounds` cannot answer 
 `city/garage.js`. One block per city is `type: 'garage'` instead of `'built'`, which takes it out
 of the tower generator's hands (`createBuildings` only walks `'built'` blocks) and leaves it for the
 taxi's own depot: a single-storey shed at the back of the block with a roller door on the street, a
-3-unit asphalt forecourt, and a dropped kerb the taxi comes off in
+3-unit forecourt paved like the pavement around it, and a dropped kerb the taxi comes off in
 [the opening vignette](gameplay.md#the-opening-vignette). It is painted in the cab company's own
 colours and carries a neon taxi sign on its roof — see [the livery](#the-livery) and
 [the sign](#the-roof-sign-and-what-is-derived-from-it) below.
@@ -503,10 +503,10 @@ the bloom (kind `window`), like the sign. `?depotneon=classic` leaves it off.
 it fades on. Their thresholds sit at 0.1–0.22, early, with the shops. Only a city with weather has
 the switch, so they exist only when `rain.enabled`. `?depotwindows=classic` leaves them dark.
 
-The forecourt is plain asphalt, stopping `KERB_RUN` short of the lip, where a band of pale `kerb`
-stone paints the dropped kerb. The ramp under it cannot show for itself — the pavement is a solid
-0.36 block, so a slope from its top to the road is buried in it for its whole run, and all that
-surfaced was its top edge as a hairline across the drive. `?driveway=classic` adds back the **two guide lines** out of the bay in
+The forecourt is paved in the block's own `sidewalk`, unmarked. The dropped kerb under it cannot
+show for itself — the pavement is a solid 0.36 block, so a slope from its top to the road is buried
+in it for its whole run, and when its high end sat above the slab all that surfaced was its top
+edge as a hairline across the drive. It is sunk under the slab now and shows only as its lip. `?driveway=classic` is the asphalt forecourt, with the **two guide lines** out of the bay in
 `garageSign`, `taxiBody`'s own hex. The levels are a third
 storey on the block: `PAVEMENT_Y` is the paving, `APRON_Y` the forecourt slab on it, `PAINT_Y` the
 classic lines on that, named off each other the
