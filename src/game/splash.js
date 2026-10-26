@@ -364,7 +364,6 @@ function asphaltPatch() {
     uniforms: {
       uAsphalt: { value: color('asphalt') },
       uLine: { value: color('laneMark') },
-      uRubber: { value: color('skidRubber') },
       uOpacity: { value: 0 },
       uR: { value: DISC_R },
       // The car's forward and right on the ground, so the line runs the way it leaves.
@@ -382,7 +381,6 @@ function asphaltPatch() {
     fragmentShader: /* glsl */ `
       uniform vec3 uAsphalt;
       uniform vec3 uLine;
-      uniform vec3 uRubber;
       uniform float uOpacity;
       uniform float uR;
       uniform vec2 uFwd;
@@ -399,9 +397,6 @@ function asphaltPatch() {
         float dash = step(0.5, fract(a / 4.0));
         float line = (1.0 - smoothstep(0.11, 0.15, abs(b + 2.1))) * dash;
         c = mix(c, uLine, line * 0.9);
-        // A tar seam across it, slightly darker, so the line is not the only thing on it.
-        float seam = 1.0 - smoothstep(0.04, 0.09, abs(a + b * 0.18 + 2.6));
-        c = mix(c, uRubber, seam * 0.35);
         float d = length(vXZ) / uR;
         float fade = 1.0 - smoothstep(0.28, 1.0, d);
         gl_FragColor = vec4(c * fade * fade * uOpacity, 1.0);
