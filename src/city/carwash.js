@@ -61,21 +61,21 @@ export const WASH_SIGN_CLASSIC = typeof location !== 'undefined'
   && new URLSearchParams(location.search).get('washsign') === 'classic';
 
 /**
- * The outline's whole scale. Authored about 4.9 by 4.5 and drawn at 0.85: 4.2 across is 32px at
- * play zoom, the vet's dog head — a sign over the lot rather than a statue on it.
+ * The silhouette's whole scale. Authored 6.3 by 3.7, trunk to tail, and drawn at 0.75: 4.7 across
+ * is 36px at play zoom, a little under the burger's 40 — a sign over the lot rather than a statue.
  */
-const ELE_SCALE = 0.85;
+const ELE_SCALE = 0.75;
 /** The feet's height over the lot. Clear of the vacuum posts (2.5) the board's end swings over. */
 const ELE_FOOT = 3.0;
 // Board thickness and chamfer, as the taxi cutout's.
 const ELE_T = 0.3;
 const ELE_BEVEL = 0.05;
 /** How far the pale rim stands out round the board's edge — the photo's neon, as paint. */
-const ELE_RIM = 0.2;
-/** What is stuck on the front face stands this proud of it; the letters twice that. */
+const ELE_RIM = 0.1;
+/** How much thinner each overlapping piece of the board is than the one before (`elephantGeometry`). */
+const ELE_STEP = 0.008;
+/** What is stuck on the front face stands this proud of it; the pupil twice that. */
 const ELE_PROUD = 0.04;
-/** The letters' pixel, in authored units — `wordParts` would use 0.2. */
-const ELE_PIXEL = 0.15;
 // How much of the board's own pink it gives off, for the cutout's reason (`BOARD_LIFT` in
 // city/garage.js): a face turned from the sun goes lilac under the shadow tint without it.
 const ELE_LIFT = 0.35;
@@ -87,54 +87,79 @@ const ELE_SWAY = 0.14;
 export const ELE_SWAY_RATE = 0.55;
 
 /**
- * The outline, side-on, facing −x as the photo's does (screen left, once turned to the camera):
- * two legs under a round body, the trunk raised off the forehead and arched back over it so its tip
- * hangs over the back, and the ear scalloped down the front of the head.
- *
- * Counter-clockwise from the front foot. The trunk's tip never meets the back — the gap between
- * them is open sky, and the spray (`elephantGeometry`) fills it the way the photo's does.
+ * A stroke as a closed outline: a Catmull-Rom through `pts`, `w0` wide at its start tapering to
+ * `w1`, with a round end. The trunk and the tail.
  */
-function elephantShape() {
-  const s = new THREE.Shape();
-  s.moveTo(-1.75, 0);
-  s.lineTo(-0.95, 0);
-  // The arch between the legs.
-  s.lineTo(-0.95, 0.3);
-  s.quadraticCurveTo(0.12, 0.6, 1.2, 0.3);
-  s.lineTo(1.2, 0);
-  s.lineTo(2.0, 0);
-  // The rump and the back.
-  s.quadraticCurveTo(2.7, 0.5, 2.65, 1.5);
-  s.quadraticCurveTo(2.55, 2.6, 1.4, 2.8);
-  s.lineTo(0.25, 2.8);
-  // Up the trunk's underside to the tip, and back over its top to the forehead. The trunk stands a
-  // full unit clear of the back at its tip: the first cut left 0.4, the spray filled it, and at play
-  // zoom the trunk merged into the head and the whole board read as a pink cloud.
-  s.quadraticCurveTo(0.35, 3.75, 1.35, 3.85);
-  s.lineTo(1.62, 3.66);
-  s.quadraticCurveTo(1.2, 4.6, 0.0, 4.3);
-  // The dome of the head, the face's smooth front, and the jaw tucking in to the front leg. The
-  // photo's scalloped front was tried first and is what made it a cloud.
-  s.quadraticCurveTo(-0.9, 4.75, -1.6, 4.0);
-  s.quadraticCurveTo(-2.2, 3.4, -2.0, 2.4);
-  s.quadraticCurveTo(-1.9, 1.4, -1.75, 1.2);
-  s.lineTo(-1.75, 0);
-  return s;
+function strokeShape(pts, w0, w1) {
+  const curve = new THREE.SplineCurve(pts.map(([x, y]) => new THREE.Vector2(x, y)));
+  const n = 24;
+  const left = [];
+  const right = [];
+  for (let k = 0; k <= n; k++) {
+    const u = k / n;
+    const p = curve.getPoint(u);
+    const t = curve.getTangent(u);
+    const w = (w0 + (w1 - w0) * u) / 2;
+    left.push(new THREE.Vector2(p.x - t.y * w, p.y + t.x * w));
+    right.push(new THREE.Vector2(p.x + t.y * w, p.y - t.x * w));
+  }
+  // The round end: a half circle from the left edge to the right one, round the tip.
+  const tip = curve.getPoint(1);
+  const end = curve.getTangent(1);
+  const a0 = Math.atan2(end.x, -end.y);
+  const cap = [];
+  for (let k = 1; k < 8; k++) {
+    const a = a0 - (k / 8) * Math.PI;
+    cap.push(new THREE.Vector2(tip.x + Math.cos(a) * w1 / 2, tip.y + Math.sin(a) * w1 / 2));
+  }
+  return new THREE.Shape([...left, ...cap, ...right.reverse()]);
+}
+
+const ellipseShape = (x, y, rx, ry) => new THREE.Shape().absellipse(x, y, rx, ry, 0, Math.PI * 2, false, 0);
+const rectShape = (x0, x1, y0, y1) => new THREE.Shape([[x0, y0], [x1, y0], [x1, y1], [x0, y1]]
+  .map(([x, y]) => new THREE.Vector2(x, y)));
+
+/**
+ * The silhouette, side-on, facing −x (screen left once turned to the camera), as the pieces it is
+ * cut from: a round body, a head set high on its front, four legs, the trunk hanging and curling up
+ * at the tip, and a tail.
+ *
+ * **A picture-book elephant, not the photo's pose.** The first cut followed the photo — one outline,
+ * the trunk raised off the forehead and arched over the back, two legs, CAR WASH across the body —
+ * and Tyler's verdict was that it did not look like an elephant at all. A real sign gets away with
+ * that pose because it is twenty feet of neon; at 32 pixels the arch merged with the head, the two
+ * legs read as a plinth, and the letters were noise. What says "elephant" at this size is the
+ * trunk hanging free of everything, the ear as its own big shape, and four legs with sky between.
+ *
+ * Pieces rather than one outline because a union of circles and a stroke is not something `Shape`
+ * can do; they overlap at one depth, and an overlap of one colour on one plane is not a fight
+ * (tools/zfight.mjs agrees: it only counts surfaces of different colours).
+ */
+function elephantPieces() {
+  return [
+    ellipseShape(0.6, 1.95, 1.85, 1.25),
+    ellipseShape(-1.35, 2.75, 0.95, 0.95),
+    // Legs with a clear 0.55 of sky between each pair: at 0.3 the rim closed the gaps and the four
+    // legs merged into one block.
+    ...[[-1.0, -0.5], [0.05, 0.45], [1.05, 1.5], [2.0, 2.4]].map(([x0, x1]) => rectShape(x0, x1, 0, 1.4)),
+    strokeShape([[-1.9, 2.5], [-2.35, 1.8], [-2.45, 1.0], [-2.7, 0.55], [-3.1, 0.65], [-3.2, 1.05]], 0.62, 0.28),
+    strokeShape([[2.4, 2.3], [2.75, 1.9], [2.85, 1.45]], 0.14, 0.14),
+  ];
 }
 
 /**
  * The elephant about its pivot: x along the board, y up from the pivot (the lot), the board's
  * faces ±z. Two geometries, because the board's pink is lifted on a material of its own and the
- * rest is not.
+ * rest is not. `body` is the cut-out alone, for the probe's winding check.
  *
  * Only the +z face carries anything. The camera never turns and the board only sways 8°, so the
  * back is never seen — the taxi cutout puts its details *through* the board because it was once
  * meant to spin.
  */
 export function elephantGeometry() {
-  const shape = elephantShape();
+  const pieces = elephantPieces();
   const front = ELE_T / 2;
-  const extrude = (sh, depth, bevel, size, segs = 6) => {
+  const extrude = (sh, depth, bevel, size, segs = 10) => {
     const geo = new THREE.ExtrudeGeometry(sh, {
       depth, curveSegments: segs, bevelEnabled: bevel > 0,
       bevelThickness: bevel, bevelSize: size, bevelSegments: 1,
@@ -143,55 +168,41 @@ export function elephantGeometry() {
     geo.translate(0, 0, -depth / 2);
     return geo;
   };
-  const body = bakeColor(extrude(shape, ELE_T - 2 * ELE_BEVEL, ELE_BEVEL, ELE_BEVEL), color('elephantPink'));
+  const merge = (geos) => {
+    const geo = mergeGeometries(geos, false);
+    geos.forEach((g) => g.dispose());
+    return geo;
+  };
+  // Each piece after the first sits 8mm thinner than the one before it. Level with
+  // each other, a piece's chamfer starts on the plane of the cap it overlaps, and every leg and the
+  // head drew a pale seam up through the body where the two tied.
+  const body = merge(pieces.map((sh, k) => bakeColor(
+    extrude(sh, ELE_T - 2 * ELE_BEVEL - 2 * ELE_STEP * k, ELE_BEVEL, ELE_BEVEL), color('elephantPink'))));
 
-  // The rim: the same outline grown by ELE_RIM and kept thinner than the board, so it shows only as
-  // a band round the edge and none of its faces shares a plane with the board's.
-  const parts = [bakeColor(extrude(shape, 0.12, 0.02, ELE_RIM), color('elephantRim'))];
+  // The rim: every piece grown by ELE_RIM and kept thinner than the board, so it shows only as a
+  // band round the silhouette — where one piece's rim falls inside another piece it is buried in
+  // that piece's board — and none of its faces shares a plane with the board's.
+  const parts = pieces.map((sh) => bakeColor(extrude(sh, 0.12, 0.02, ELE_RIM), color('elephantRim')));
   // A flat on the front face, `proud` off it.
   const flat = (sh, col, proud = ELE_PROUD) => {
-    const geo = extrude(sh, proud + 0.02, 0, 0, 10);
+    const geo = extrude(sh, proud + 0.02, 0, 0, 16);
     geo.translate(0, 0, front + (proud - 0.02) / 2);
     return bakeColor(geo, col);
   };
-  const ellipse = (x, y, rx, ry) => new THREE.Shape().absellipse(x, y, rx, ry, 0, Math.PI * 2, false, 0);
-  // The ear: a big paler flap behind the eye, ringed in a deeper pink so it stays a separate shape
-  // at play zoom. On the board's lifted material, not the trim's: ringed in cream and unlifted, the
-  // first cut went grey in shade and read as a hole in the board.
-  const board = mergeGeometries([
-    body,
-    flat(ellipse(-1.05, 2.7, 0.63, 0.88), color('elephantEarEdge'), ELE_PROUD / 2),
-    flat(ellipse(-1.05, 2.7, 0.53, 0.78), color('elephantEar')),
-  ], false);
+  // The ear: a big paler flap over the join of head and body, ringed in a deeper pink so it stays a
+  // separate shape at play zoom. On the board's lifted material, not the trim's: ringed in cream and
+  // unlifted, an earlier ear went grey in shade and read as a hole in the board.
+  const board = merge([
+    body.clone(),
+    flat(ellipseShape(-0.55, 2.5, 0.8, 1.05), color('elephantEarEdge'), ELE_PROUD / 2),
+    flat(ellipseShape(-0.55, 2.5, 0.66, 0.91), color('elephantEar')),
+  ]);
   // The eye, looking forward.
-  parts.push(flat(ellipse(-1.5, 3.72, 0.2, 0.24), color('elephantRim')));
-  parts.push(flat(ellipse(-1.58, 3.7, 0.1, 0.13), color('elephantPupil'), ELE_PROUD * 2));
-  // The smile, a pale arc under the eye like the photo's neon line.
-  const smile = new THREE.TorusGeometry(0.3, 0.05, 4, 10, Math.PI * 0.6);
-  smile.rotateZ(-Math.PI / 2 - Math.PI * 0.3);
-  smile.translate(-1.55, 3.3, front);
-  parts.push(bakeColor(smile, color('elephantRim')));
-  // The spray off the trunk's tip, fanning down onto the back.
-  const spray = new THREE.Shape([[1.5, 3.62], [1.2, 2.65], [1.95, 2.45]].map(([x, y]) => new THREE.Vector2(x, y)));
-  parts.push(flat(spray, color('elephantSpray')));
+  parts.push(flat(ellipseShape(-1.75, 3.05, 0.17, 0.2), color('elephantRim')));
+  parts.push(flat(ellipseShape(-1.8, 3.03, 0.09, 0.11), color('elephantPupil'), ELE_PROUD * 2));
   // A white plinth under the feet, as the photo's stands on.
-  parts.push(bakeColor(new THREE.BoxGeometry(4.6, 0.22, ELE_T + 0.1).translate(0.15, -0.11, 0),
+  parts.push(bakeColor(new THREE.BoxGeometry(3.9, 0.22, ELE_T + 0.1).translate(0.68, -0.11, 0),
     color('elephantRim')));
-
-  // CAR WASH across the body: cream pixels, each on a larger maroon one behind it — the photo's
-  // bulbs-in-an-outline at a size a pixel face can manage.
-  const centre = new THREE.Vector3();
-  for (const [word, x, y] of [['CAR', 0.85, 2.0], ['WASH', 0.85, 1.1]]) {
-    for (const [col, depth, grow] of [['elephantLetterEdge', ELE_PROUD, 1.7], ['elephantLetter', ELE_PROUD * 2, 1]]) {
-      for (const g of wordParts(word, depth, color(col), ELE_PIXEL)) {
-        // Grown about the pixel's own centre, so the edge pixels overlap into one outline.
-        g.computeBoundingBox();
-        g.boundingBox.getCenter(centre);
-        g.translate(-centre.x, -centre.y, 0).scale(grow, grow, 1).translate(centre.x + x, centre.y + y, front);
-        parts.push(g);
-      }
-    }
-  }
   return { board, parts, body };
 }
 
@@ -350,8 +361,8 @@ export function createCarWash(block, rng) {
   // --- The sign: the elephant on its pole, or the pylon panel turned square to the camera ---
   const sx = site.sign.x;
   const sz = site.sign.z;
-  // The elephant's pole stops inside its belly, over the arch between the legs, so the board reads
-  // as mounted on it. Static, in the shell: the board sways about it.
+  // The elephant's pole stops inside its belly, up through a front leg, so the board reads as
+  // mounted on it. Static, in the shell: the board sways about it.
   if (WASH_SIGN_CLASSIC) parts.push(...pylonSign(sx, base, sz, { trim, blue, white }));
   // 0.2 thick, inside the board's 0.26 (ELE_T at ELE_SCALE): the pylon's 0.3 poked out of both
   // faces as a dark cross over the belly.
@@ -475,7 +486,7 @@ export function createCarWash(block, rng) {
     meshes: [shell, glow],
     /**
      * What stands in front of a kerb mark: the stamped meshes and the elephant. It only sways 8°, so
-     * the field `cornerSeen` reads is as true for it as for the shell — and it is 4.2 by 4.0 of
+     * the field `cornerSeen` reads is as true for it as for the shell — and it is 4.7 by 2.8 of
      * board up where a sightline off the next road west can meet it.
      */
     occluders: [shell, glow, ...(sign ? sign.children : [])],
