@@ -168,6 +168,7 @@ import { getActiveShot, getSeed, getRunSeed, getCarCount, getDifficultyPin, getD
 import { createParcelSystem, TAP_MAX_DETOUR } from './game/parcels.js';
 import { createRobbery } from './game/robbery.js';
 import { createRadio, LOST_CALL, ROBBERY_CALL } from './game/radio.js';
+import { createRadioCue } from './game/radiocue.js';
 import { createDepotCall } from './game/depotcall.js';
 import {
   createPatrol, createPin, holdArrest, ramOf, ESCAPE_HOLD, SIGHT_HOLD,
@@ -1118,6 +1119,13 @@ const depotRun = garage && !shot
 // on the frame it happens. See game/radio.js. Built whether or not the city has a bank, because the
 // patrol cruiser's chase talks on the same channel (game/patrol.js).
 const radio = !shot ? createRadio({ project: projectToScreen, viewport }) : null;
+// The taxi's "♪ ♫ (turns up the radio)" as it first rolls out after the backstory, tying dispatch's
+// story to the station opening out of the dash. See game/radiocue.js; `?radiocue=classic` is without.
+const radioCue = !shot && new URLSearchParams(window.location.search).get('radiocue') !== 'classic'
+  ? createRadioCue({ project: projectToScreen, viewport, taxi: traffic.taxi }) : null;
+// Set when the backstory is told; the cue goes up on the first frame after Play that the taxi is out
+// of its garage (the same test as the dash radio's `openDash`), and clears.
+let radioCueDue = false;
 // The depot's repair tip: a line in the speech card with its tag on the garage door, the first time
 // the taxi smokes in a run, until the player has once sent it in. `?repairtip=classic` is the New
 // Move-style card with the clip that it replaced. See game/depotcall.js.
@@ -6229,6 +6237,7 @@ function speakBackstory(i) {
   };
 }
 function startBackstory(screen, done) {
+  if (radioCue) radioCueDue = true;
   tellBackstory(screen, { done, speak: speakBackstory });
   // The camera goes to the garage and drifts there while dispatch talks (`storyFrame`) — so Play
   // then eases down onto the door from close by. Off the slide it flies there (`STORY_GLIDE`),
@@ -6955,6 +6964,10 @@ function tick() {
   // reads them on the same frame. See game/opening.js for the staging split.
   opening?.update(dt);
   if (sfx?.state.dashRadio && !(opening?.running() && DASH_PHASES.has(opening.phase()))) sfx.openDash();
+  if (radioCueDue && runBegun && !parked() && !(opening?.running() && DASH_PHASES.has(opening.phase()))) {
+    radioCueDue = false;
+    radioCue.show();
+  }
   // The pedals arrive the moment the taxi is the player's to drive — on the lane, with the
   // vignette's pull-back still running — rather than with the rest of the HUD. They used to wait
   // for `hud-ready`, which is the *tutorial's* second beat being answered: the pull-back, a
@@ -7319,6 +7332,7 @@ function tick() {
   // each stop the world, and an event firing behind any of them is one the player never saw.
   if (!fareLoopHeld()) robbery?.update(dt);
   radio?.update(dt, { over: fares.state.gameOver });
+  radioCue?.update(dt, { over: fares.state.gameOver });
   copShout?.update(dt, { over: fares.state.gameOver });
   hitCue?.update(dt, traffic.taxi);
   // The depot's card: SHOW_DELAY after the car starts smoking, so the hit that did it has landed

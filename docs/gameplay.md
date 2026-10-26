@@ -180,6 +180,16 @@ on every Play. "Play again" reloads past the title and so past this too.
 `?intro=classic` never tells it; `?intro=always`, or the **Always show intro story** switch in
 Settings, tells it on every Play.
 
+**And the taxi answers it with the radio** (Tyler, 2026-10-26). On the first frame after a told
+story that the taxi is out of its garage (`roll` onward in [the vignette](#the-opening-vignette), or
+straight away after a skip) the speech card says **"♪ ♫ (turns up the radio)"**, titled *Car 9*
+after dispatch's name for it, with its tag on the taxi's roof, for 3.6 s of game time and no tap
+(`game/radiocue.js`). It lands on the same frame the station opens out of the dash speakers
+([the dash radio](audio.md#the-dash-radio)), which is the point: dispatch's voice hands over to the
+car's own music, and the line says the driver did it. "Turns up" rather than "starts playing",
+because the station is already on through the dash in the doorway. A run with no story never shows
+it; `?radiocue=classic` never does.
+
 **The robo-taxis are flavour** (Tyler, 2026-10-21). Nothing in the run refers back to them yet.
 The idea the lines are built on is that the threat explains the controls: the robots stop at
 yellows and never speed, so the player wins by doing what they won't.
