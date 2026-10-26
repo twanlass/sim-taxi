@@ -45,6 +45,17 @@ export const LOGO_HEIGHT = (LOGO_LINES.length + LEADING * (LOGO_LINES.length - 1
  */
 export const LOGO_YAW = 0.15;
 
+/**
+ * Where the walls stop shading round and start to crease: two walls of the outline that meet at less
+ * than this turn share a normal at their corner. Measured over the baked outlines: a flattened curve
+ * turns under 20° from facet to facet (three facets a quadratic), and the gentlest real corner is
+ * 50° (most are 90°), so 35° smooths every bowl and keeps every corner — and a break face, which
+ * meets the outline wherever its cut fell, keeps its crease unless the cut ran nearly along it. The front and back faces keep their own flat normal:
+ * smoothed into the walls as well, the whole letter shaded like a pillow and the edge between face
+ * and side, which is what reads as an extruded logo, went soft.
+ */
+const SMOOTH_COS = Math.cos(THREE.MathUtils.degToRad(35));
+
 /** Smallest piece kept, in square world units. */
 const MIN_PIECE = 0.004;
 
@@ -147,20 +158,56 @@ function extrudeTriangles(tris, depth) {
       count.set(e, (count.get(e) ?? 0) + 1);
     }
   }
-  const rim = [];
+  // The outline's edges, each with its outward normal, found from either end so a wall can look at
+  // its neighbours round the rim.
+  const walls = [];
+  for (const t of tris) {
+    for (let k = 0; k < 3; k++) {
+      const p = t[k];
+      const q = t[(k + 1) % 3];
+      if (count.get(edgeKey(p, q)) !== 1) continue;
+      walls.push({ p, q, n: new THREE.Vector2(q.y - p.y, p.x - q.x).normalize() });
+    }
+  }
+  const from = new Map();
+  const to = new Map();
+  for (const w of walls) {
+    if (!from.has(key(w.p))) from.set(key(w.p), []);
+    if (!to.has(key(w.q))) to.set(key(w.q), []);
+    from.get(key(w.p)).push(w);
+    to.get(key(w.q)).push(w);
+  }
+  // A wall's normal at one end: shared with the wall it meets there when the outline turns gently
+  // through that corner — a flattened curve, so the bowl of an R shades round — and its own when the
+  // turn is sharp, so a stem's corners and the break faces stay crisp.
+  const cornerNormal = (w, others) => {
+    let best = null;
+    for (const o of others ?? []) if (!best || o.n.dot(w.n) > best.n.dot(w.n)) best = o;
+    if (!best || best.n.dot(w.n) < SMOOTH_COS) return w.n;
+    return w.n.clone().add(best.n).normalize();
+  };
+  const nrm = [];
+  const flat = (nz, count3) => { for (let k = 0; k < count3; k++) nrm.push(0, 0, nz); };
   for (const [a, b, c] of tris) {
     push([a.x, a.y, z], [b.x, b.y, z], [c.x, c.y, z]);
+    flat(1, 3);
     push([a.x, a.y, -z], [c.x, c.y, -z], [b.x, b.y, -z]);
-    for (const [p, q] of [[a, b], [b, c], [c, a]]) {
-      if (count.get(edgeKey(p, q)) !== 1) continue;
-      push([p.x, p.y, z], [p.x, p.y, -z], [q.x, q.y, -z]);
-      push([p.x, p.y, z], [q.x, q.y, -z], [q.x, q.y, z]);
-      rim.push(p);
-    }
+    flat(-1, 3);
+  }
+  const rim = [];
+  for (const w of walls) {
+    const { p, q } = w;
+    const np = cornerNormal(w, to.get(key(p)));
+    const nq = cornerNormal(w, from.get(key(q)));
+    push([p.x, p.y, z], [p.x, p.y, -z], [q.x, q.y, -z]);
+    push([p.x, p.y, z], [q.x, q.y, -z], [q.x, q.y, z]);
+    nrm.push(np.x, np.y, 0, np.x, np.y, 0, nq.x, nq.y, 0);
+    nrm.push(np.x, np.y, 0, nq.x, nq.y, 0, nq.x, nq.y, 0);
+    rim.push(p);
   }
   const geometry = new THREE.BufferGeometry();
   geometry.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-  geometry.computeVertexNormals();
+  geometry.setAttribute('normal', new THREE.Float32BufferAttribute(nrm, 3));
   return { geometry, rim };
 }
 
