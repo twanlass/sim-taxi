@@ -2958,8 +2958,11 @@ is a tap like every other choice in the game. Ignoring it is free: the racer jus
   patrol is untouched: boost past the cruiser mid-race and it comes after you as it always does.
 
 **The dress is three meshes over the ordinary car body** (`createRivalMesh`): a wing on struts with
-end plates, standing proud of the boot so its silhouette reads at play zoom; a white stripe laid on
-the bonnet, roof and boot as its own mesh, since the paint is a multiply over a white-baked body;
+end plates, standing proud of the boot so its silhouette reads at play zoom; a raked windscreen,
+the ordinary car's cabin sheared so its top edge sits `SCREEN_RAKE` (0.36) behind its foot, which
+reads as a low fast car rather than a van; a white stripe laid on the bonnet, roof and boot as its
+own mesh (the roof strip stops short by the same rake), since the paint is a multiply over a
+white-baked body;
 and an additive underglow, an unlit quad ring whose vertex alpha runs from 1 under the sills to 0
 `GLOW_REACH` (0.65) out. Its triangles are wound to face the sky and the probe asserts it, because an
 unlit triangle wound the other way does not draw at all.

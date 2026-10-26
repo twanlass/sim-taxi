@@ -49,6 +49,11 @@ const ROOF_BASE = 1.62;
 // cabin's front edge at the roof sits 0.45 back and the bonnet gains that much visible length.
 export const SCREEN_RAKE = 0.75;
 export const SCREEN_FOOT = 1.15 + CHASSIS_LIFT;
+// The cabin's front face stands this far ahead of where the ambient cars' does (x = 0.65), so the
+// cab is longer and the screen's foot lands just behind the front axle (x = 1.02) rather than well
+// back of it; the tail stays put.
+const CABIN_GROW = 0.25;
+const CABIN_FRONT_X = -0.2 + CAR_LEN * 0.25 + CABIN_GROW;
 
 /** Lean the vertices of `geo` at or ahead of `fromX` back by SCREEN_RAKE per unit over the foot. */
 function rakeBack(geo, fromX = -Infinity, round = 0) {
@@ -65,6 +70,25 @@ function rakeBack(geo, fromX = -Infinity, round = 0) {
     if (w > 0) pos.setX(k, x - w * SCREEN_RAKE * (pos.getY(k) - SCREEN_FOOT));
   }
   // A box keeps its own vertices per face, so recomputing gives the leaning face its true normal.
+  geo.computeVertexNormals();
+  return geo;
+}
+
+// The rear window leans the opposite way: its top edge sits this far toward the nose per unit of
+// height, so cabin and roof read as a fastback taper to match the raked screen. Less than the
+// screen's lean (0.5 against 0.75) so the roof keeps room for its chequer.
+const BACK_RAKE = 0.5;
+
+/** Lean the vertices of `geo` at or behind `fromX` forward by BACK_RAKE per unit over the foot. */
+function rakeForward(geo, fromX = Infinity, round = 0) {
+  const pos = geo.attributes.position;
+  for (let k = 0; k < pos.count; k++) {
+    const x = pos.getX(k);
+    const w = round > 0
+      ? THREE.MathUtils.clamp(((fromX + round) - x) / round, 0, 1)
+      : (x <= fromX + 1e-6 ? 1 : 0);
+    if (w > 0) pos.setX(k, x + w * BACK_RAKE * (pos.getY(k) - SCREEN_FOOT));
+  }
   geo.computeVertexNormals();
   return geo;
 }
@@ -126,11 +150,11 @@ const LID_T = 0.06;
 const DECK_CELL = 0.24;
 const DECK_LIFT = 0.012;
 const DECK_PLATE = 0.024;
-const DECK_BONNET = { from: 0.72, rows: 4 }; // working forward from the screen
+const DECK_BONNET = { from: 0.97, rows: 3 }; // working forward from the screen
 const DECK_BOOT = { from: -1.05 - 0.07, rows: 2, back: true }; // working back from the cabin
-// The roof's flat top runs -1.08 back to 0.23 (its front edge leans back 0.45 over the rake), so
-// five cells fit from just inside the front edge.
-const DECK_ROOF = { from: 0.175, rows: 5, back: true, top: 1.75 + CHASSIS_LIFT };
+// The roof's flat top runs -0.78 to 0.48 (its front edge leans back 0.45 over the rake, its back
+// edge forward 0.3 over BACK_RAKE), so five cells fit from just inside the front edge.
+const DECK_ROOF = { from: 0.45, rows: 5, back: true, top: 1.75 + CHASSIS_LIFT };
 
 /**
  * One run of chequer plates in car-local space, standing on `top` (the body's top plane unless the
@@ -184,14 +208,16 @@ function shellParts({ lids = true } = {}) {
     // windscreen's plates still sit where they did; the roof overhangs the glass a hair each way
     // so it reads as a lid rather than a stripe.
     const soft = (g) => (SMOOTH_BODY ? softenNormals(g) : g);
-    const glass = bodyBox(CAR_LEN * 0.5, ROOF_BASE - 1.15, CAR_W * 0.86, 0.1);
-    glass.translate(-0.2, (1.15 + ROOF_BASE) / 2 + CHASSIS_LIFT, 0);
-    rakeBack(glass, -0.2 + CAR_LEN * 0.25, 0.1);
+    const glass = bodyBox(CAR_LEN * 0.5 + CABIN_GROW, ROOF_BASE - 1.15, CAR_W * 0.86, 0.1);
+    glass.translate(-0.2 + CABIN_GROW / 2, (1.15 + ROOF_BASE) / 2 + CHASSIS_LIFT, 0);
+    rakeBack(glass, CABIN_FRONT_X, 0.1);
+    rakeForward(glass, -0.2 - CAR_LEN * 0.25, 0.1);
     parts.push(setFinish(soft(bakeColor(glass, color('carGlass'))), FINISH.GLASS));
     // The roof's front edge carries the same lean on, so glass and lid read as one sloped face.
-    const roof = bodyBox(CAR_LEN * 0.5 + 0.06, 1.75 - ROOF_BASE, CAR_W * 0.86 + 0.06, 0.06);
-    roof.translate(-0.2, (ROOF_BASE + 1.75) / 2 + CHASSIS_LIFT, 0);
-    rakeBack(roof, -0.2 + CAR_LEN * 0.25 + 0.03, 0.06);
+    const roof = bodyBox(CAR_LEN * 0.5 + CABIN_GROW + 0.06, 1.75 - ROOF_BASE, CAR_W * 0.86 + 0.06, 0.06);
+    roof.translate(-0.2 + CABIN_GROW / 2, (ROOF_BASE + 1.75) / 2 + CHASSIS_LIFT, 0);
+    rakeBack(roof, CABIN_FRONT_X + 0.03, 0.06);
+    rakeForward(roof, -0.2 - CAR_LEN * 0.25 - 0.03, 0.06);
     parts.push(setFinish(soft(bakeColor(roof, color('taxiBody'))), FINISH.PAINT));
     // A chrome divider across each side window, splitting front glass from back. It stands just
     // proud of the glass (0.012 clear) and runs foot to roof so it reads as a pillar, not a stripe.
@@ -232,6 +258,21 @@ function shellParts({ lids = true } = {}) {
   // ride meshes of their own there, so a wreck that swings a lid open can take them with it.
   parts.push(...deckChequer(DECK_ROOF));
   if (lids) parts.push(...deckChequer(DECK_BONNET), ...deckChequer(DECK_BOOT));
+
+  // A grill in the middle of the nose: a dark recess with three chrome bars across it. Kept to the
+  // middle (0.7 wide against the headlights' centres 0.66 off the centreline, edge at ~0.53) so the
+  // lamps and indicators keep the corners. Stands 0.03 proud of the nose face, bars 0.015 more.
+  const GRILL_W = 0.7;
+  const GRILL_H = 0.22;
+  const GRILL_Y = BODY_TOP - 0.2;
+  const grill = new THREE.BoxGeometry(0.03, GRILL_H, GRILL_W);
+  grill.translate(CAR_LEN / 2 + 0.015, GRILL_Y, 0);
+  parts.push(setFinish(bakeColor(grill, color('carGlass')), FINISH.GLASS));
+  for (const dy of [-0.07, 0, 0.07]) {
+    const bar = new THREE.BoxGeometry(0.03, 0.03, GRILL_W - 0.1);
+    bar.translate(CAR_LEN / 2 + 0.03, GRILL_Y + dy, 0);
+    parts.push(setFinish(bakeColor(bar, color('bumperChrome')), FINISH.METAL));
+  }
 
   // Rear wheels only — the fronts steer, so they hang off the group as their own meshes below.
   parts.push(...wheelGeometries(CAR_LEN, CAR_W));
@@ -604,7 +645,7 @@ const BUMPER_LEN = bumperLength(CAR_W);
 // 0.6 tall about 1.45 + CHASSIS_LIFT, CAR_W * 0.86 wide). Inset from the box's edges so the plate
 // never reaches past the cabin and reads as glass in a frame rather than a lid.
 const CABIN_TOP = 1.75 + CHASSIS_LIFT;
-const SCREEN_X = -0.2 + CAR_LEN * 0.25;
+const SCREEN_X = CABIN_FRONT_X;
 const SCREEN_LOW = 1.2 + CHASSIS_LIFT;
 const SCREEN_TOP = CABIN_TOP - 0.04;
 const SCREEN_HALF_W = CAR_W * 0.43 - 0.06;
