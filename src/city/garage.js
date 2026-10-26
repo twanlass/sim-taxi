@@ -933,12 +933,9 @@ export function createGarage(block, rng, {
     box(1.6, 0.55, 1.2, bx0 + 1.4, deck, bz0 + 1.3, color('rooftop')),
     box(1.0, 0.42, 1.0, bx0 + 1.2, deck, bz0 + 3.4, color('rooftopIron')),
 
-    // The dropped kerb, in the forecourt's own asphalt by default so the drive reads as one
-    // surface running down to the road. In `kerb` stone (`?driveway=classic`) it was a pale band
-    // across the lip, which reads as the kerb a car would have to jump rather than as a ramp
-    // (Tyler, 2026-10-26).
-    dropKerb(kerbX, doorZ, driveway === 'classic'
-      ? jitterColor(color('kerb'), rng, { l: 0.02 }) : apronCol),
+    // The dropped kerb, in pale `kerb` stone against the dark drive so the ramp down to the road
+    // is visible (Tyler, 2026-10-26: an asphalt ramp melted into the forecourt).
+    dropKerb(kerbX, doorZ, jitterColor(color('kerb'), rng, { l: 0.02 })),
 
     // The forecourt's own paint: two guide lines out of the bay, the way any yard marks the way out
     // of a shed. Laid *on* the asphalt rather than in it — see PAINT_Y, which exists so this cannot
