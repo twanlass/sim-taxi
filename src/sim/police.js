@@ -359,6 +359,11 @@ export function createPolice(scene, { lamps = true, patrolLights = false } = {})
       if (loose && state.fade === 0) loose.done = true;
     }
     for (const material of faders) material.opacity = state.fade;
+    // The traffic car's own brake, blinker and head lamps, drawn through the cruiser's pose — it has
+    // none of its own, and the instance that carries them is collapsed under the skin. At the
+    // body's fade so they dissolve with it. They stay with the traffic car, so the drive off the
+    // island after `release` goes without them; it is cruising straight on by then.
+    if (state.cop) state.cop.skinLamps = state.fade;
     // The shadow pass draws with three's own depth material, which carries `alphaTest` but not
     // `alphaHash`, so a dissolving cruiser would lay a full-strength shadow under a car that is
     // mostly gone. Dropped at the same halfway mark as the lamps instead — a flag, not a define,
