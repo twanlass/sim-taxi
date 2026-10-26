@@ -10,6 +10,11 @@ import { createSpeech } from './speech.js';
 // Play and through the doorway shot (`holdReveal` waits for the first song), so the thing that
 // actually happens on this frame is the volume and the width coming up.
 //
+// **The notes dance for as long as the card is up** (Tyler, 2026-10-26): each is its own `{…}`
+// callout, so each is its own span (`parseLine` in game/speech.js) and `#radio-cue .speech-hl` in
+// index.html can hop them on a loop, the second a half-beat behind the first, instead of the one
+// wiggle every other callout gets.
+//
 // Titled "Car 9" because that is what dispatch has just been calling the taxi.
 //
 // Not answered — it times itself out, like dispatch's lines (game/radio.js) — because the taxi is
@@ -17,7 +22,7 @@ import { createSpeech } from './speech.js';
 // shows it.
 
 export const RADIO_CUE_TITLE = 'Car 9';
-export const RADIO_CUE_LINE = '{♪ ♫} (turns up the radio)';
+export const RADIO_CUE_LINE = '{♪} {♫} (turns up the radio)';
 
 /** Seconds of game time it stays up: dispatch's RADIO_LINGER and a little, as it types in. */
 export const RADIO_CUE_SECONDS = 3.6;

@@ -182,7 +182,8 @@ Settings, tells it on every Play.
 
 **And the taxi answers it with the radio** (Tyler, 2026-10-26). On the first frame after a told
 story that the taxi is out of its garage (`roll` onward in [the vignette](#the-opening-vignette), or
-straight away after a skip) the speech card says **"♪ ♫ (turns up the radio)"**, titled *Car 9*
+straight away after a skip) the speech card says **"♪ ♫ (turns up the radio)"**, the two notes hopping on a loop half a beat apart (each its own
+`{…}` callout, animated by `#radio-cue .speech-hl` in `index.html`), titled *Car 9*
 after dispatch's name for it, with its tag on the taxi's roof, for 3.6 s of game time and no tap
 (`game/radiocue.js`). It lands on the same frame the station opens out of the dash speakers
 ([the dash radio](audio.md#the-dash-radio)), which is the point: dispatch's voice hands over to the

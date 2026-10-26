@@ -1717,6 +1717,20 @@
         75% { transform: rotate(-2deg) scale(1.03); }
         100% { transform: none; }
       }
+      /* The radio cue's two notes (game/radiocue.js) bounce on a loop instead of wiggling once:
+         a hop with a tilt, a little squash on landing, the second note half a beat behind. */
+      #radio-cue .speech-hl.is-said {
+        transform-origin: 50% 100%;
+        animation: radio-note-hop 0.7s cubic-bezier(0.45, 0, 0.55, 1) infinite;
+      }
+      #radio-cue .speech-hl.is-said ~ .speech-hl.is-said { animation-delay: -0.35s; }
+      @keyframes radio-note-hop {
+        0%, 100% { transform: translateY(0) scale(1.08, 0.9); }
+        15% { transform: translateY(0) scale(1); }
+        45% { transform: translateY(-5px) rotate(-10deg); }
+        70% { transform: translateY(-1px) rotate(6deg); }
+        85% { transform: translateY(0) scale(1); }
+      }
       /* The tag: who is talking, pinned where the card used to stand. A white disc with three dots
          in it — the "someone is typing" mark — and the card's pointer, so it reads as the docked
          card's other end. Small enough (24px) that following a car costs nothing to look at. */
@@ -1789,7 +1803,7 @@
       }
       @keyframes speech-quest-hop { 0%, 55%, 100% { transform: none; } 20% { transform: translateY(-2.5px) rotate(-6deg); } 38% { transform: translateY(0.5px) rotate(3deg); } }
       @media (prefers-reduced-motion: reduce) {
-        .speech-tag i, .speech-tag b, .speech-hl.is-said, .speech-style-white.speech-liquid .speech-card { animation: none; }
+        .speech-tag i, .speech-tag b, .speech-hl.is-said, #radio-cue .speech-hl.is-said, .speech-style-white.speech-liquid .speech-card { animation: none; }
         .speech-docked > .speech > .speech-body, .speech-docked.is-open > .speech > .speech-body,
         .speech-docked.is-closing > .speech > .speech-body, .speech-tag-body { transform: none; }
       }
