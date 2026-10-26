@@ -2248,13 +2248,17 @@
       @media (hover: hover) { :is(#title-screen, #pause-veil) .title-item:hover { color: #F5C130; } }
       :is(#title-screen, #pause-veil) .title-item:active { transform: scale(0.96); }
       /* The copyright and build line along the foot of the title menu: small and quiet, centred
-         between the safe-area insets and clear of the home indicator. */
+         between the safe-area insets and clear of the home indicator. At 0.3 white it vanished
+         into the sunlit pavement, so it is 0.6 with a tight dark shadow that holds it off both
+         light roofs and dark road. No mix-blend-mode: #title-screen is a fixed, z-indexed
+         stacking context, so a blend inside it would mix with the empty screen, not the city. */
       #title-screen .title-legal {
         position: absolute; margin: 0; text-align: center;
         left: var(--safe-left); right: var(--safe-right);
         bottom: calc(16px + var(--safe-bottom));
         font-size: 11px; font-weight: 500; letter-spacing: 0.01em;
-        color: rgba(255, 255, 255, 0.3); pointer-events: none;
+        color: rgba(255, 255, 255, 0.6); pointer-events: none;
+        text-shadow: 0 1px 2px rgba(0, 0, 0, 0.55);
       }
 
       /* A page: the way back above the header, smaller than it, then the header, then the body. */
