@@ -47,7 +47,7 @@ import {
   createTraffic, placeCar, TRUCK_CHANCE, CLASSIC_CHANCE, TRUCK_LEN, TRUCK_W, laysPassRubber, copLaysRubber, SPEED,
   ROAD_Y, CAR_LEN, CAR_W, wheelAnchors,
   boostCruise, locoTuning, setLocoTuning, resetLocoTuning, locoRamp, LOCO_DEFAULTS, driftTaxi, kickDrift, driftHolds, DRIFT_CHAIN,
-  onDriftLaunch, hopProgress, setSpinStyle, setBarrelRoll, setBridgeStunt, setPassTurnGate, setPassPace, setHopStyle, setDodge, setOvertakeStyle, setPeek, setTaxiScatter,
+  onDriftLaunch, hopProgress, setSpinStyle, setBarrelRoll, setMegaFlip, setBridgeStunt, setPassTurnGate, setPassPace, setHopStyle, setDodge, setOvertakeStyle, setPeek, setTaxiScatter,
   configureSignals, setGrip, setRunningLights, setRunningLightsAt, runningLightsAt, isLaneClosed,
 } from './sim/traffic.js';
 import { createCollisions, TAXI_HP, setCrush, setCrushSplash } from './sim/collisions.js';
@@ -1407,6 +1407,8 @@ const patrol = {
 setSpinStyle(getUturnStyle());
 // The drift launch rolls the taxi a full turn in mid-air; `?barrelroll=classic` flies it level.
 setBarrelRoll(new URLSearchParams(window.location.search).get('barrelroll'));
+// Mega Air front-flips the taxi twice over the drawbridge; `?megaflip=classic` flips it once.
+setMegaFlip(new URLSearchParams(window.location.search).get('megaflip'));
 setBigAirRoute(new URLSearchParams(window.location.search).get('bigairroute'));
 // The taxi waits for a car already turning left before pulling out round it; `?passturn=classic`
 // pulls out anyway and grinds along its flank, as before.
@@ -2609,7 +2611,7 @@ let slowMoMin = SLOW_MO_MIN;
 // punch and the slam comes down at real time, which is the half that has to hit hard.
 const LAUNCH_SLOW_MO_MIN = 0.4;
 // Mega Air, off the drawbridge, hangs longer: its flight is ~25 units against twenty and it has a
-// whole front flip to show, so the bottom of the curve goes lower rather than the curve going longer.
+// double front flip to show, so the bottom of the curve goes lower rather than the curve going longer.
 const MEGA_SLOW_MO_MIN = 0.28;
 const launchTimeScale = (u, min = LAUNCH_SLOW_MO_MIN) => 1 - (1 - min) * Math.sin(Math.PI * u) ** 2;
 

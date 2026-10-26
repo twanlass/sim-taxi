@@ -86,7 +86,7 @@ import { BOX_REAR as SPILL_BOX_REAR } from '../src/geometry/truckdoors.js';
 import { deckHeightAt as spillDeckHeight, BRIDGES_INLAND } from '../src/city/river.js';
 import { createFire } from '../src/game/fire.js';
 import { clearCityOccluders } from '../src/game/sightline.js';
-import { TRUCK_LEN, TRUCK_BOX_LEN, setBridgeStunt, MEGA_AIR_HEIGHT } from '../src/sim/traffic.js';
+import { TRUCK_LEN, TRUCK_BOX_LEN, setBridgeStunt, setMegaFlip, MEGA_AIR_HEIGHT } from '../src/sim/traffic.js';
 import { archedBodyGeometries, archOutlines, archCeiling, WHEEL_W, ARCH_R } from '../src/geometry/wheels.js';
 import { CRATE, CRATE_REST_Y, CRATE_CHIP_REST_Y, DECK_TOP, DECK_REAR } from '../src/geometry/crate.js';
 import { createDust } from '../src/game/dust.js';
@@ -20957,7 +20957,8 @@ let chopperOrder; // likewise
   // never sets a wheel on the deck.
   {
     const bLine = drawbridgeLine();
-    const jump = ({ press = true, classic = false } = {}) => {
+    const jump = ({ press = true, classic = false, flip } = {}) => {
+      setMegaFlip(flip);
       const jScene = new THREE.Scene();
       const bridge = createDrawbridge(jScene, makeRng(seed + 837), { stunt: !classic });
       setBridgeStunt(bridge?.stunt ?? null);
@@ -20971,7 +20972,8 @@ let chopperOrder; // likewise
       bridge.request();
       const deck = new Set(bridge.laneIds);
       const out = { held: 0, early: false, kind: null, liftAt: null, peak: 0, minUp: 1, landUp: null,
-        landing: null, knocked: false, onDeck: false };
+        landing: null, knocked: false, onDeck: false, inverted: 0 };
+      let upright = true;
       const up = new THREE.Vector3();
       jTraffic.onTaxiLand((event) => { out.landing = out.landing ?? event; });
       for (let f = 0; f < 60 * 20 && !out.landing; f++) {
@@ -20992,11 +20994,16 @@ let chopperOrder; // likewise
         if (jTaxi.hopFrom != null) out.peak = Math.max(out.peak, jTraffic.taxiGroup.position.y - ROAD_Y);
         up.set(0, 1, 0).applyQuaternion(jTraffic.taxiGroup.quaternion);
         out.minUp = Math.min(out.minUp, up.y);
+        // Each pass through upside down, counted once: a turn of the flip is a dip under -0.9
+        // between two stretches over 0.9.
+        if (up.y < -0.9 && upright) { out.inverted += 1; upright = false; }
+        if (up.y > 0.9) upright = true;
         if (out.landing) out.landUp = up.y;
       }
       jTraffic.dispose?.();
       bridge.dispose();
       setBridgeStunt(null);
+      setMegaFlip();
       return out;
     };
     if (bLine !== null) {
@@ -21009,6 +21016,10 @@ let chopperOrder; // likewise
       check('...higher than Big Air, front-flipped upside down, and down on its wheels',
         j.peak > MEGA_AIR_HEIGHT * 0.9 && j.minUp < -0.95 && j.landUp > 0.9,
         `peak ${j.peak.toFixed(2)}, lowest up ${j.minUp.toFixed(2)}, ${j.landUp?.toFixed(2)} at touchdown`);
+      const once = jump({ flip: 'classic' });
+      check('...flipping twice, where ?megaflip=classic flips once, both landing on the wheels',
+        j.inverted === 2 && once.inverted === 1 && once.landUp > 0.9,
+        `${j.inverted} turns, classic ${once.inverted} at ${once.landUp?.toFixed(2)} on touchdown`);
       const far = riverBanks().z1;
       check('...past the far bank, flying straight on although the route wanted to turn there',
         j.landing && j.landing.kind === 'bridge' && j.landing.big && j.landing.z > far + 4
