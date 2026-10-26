@@ -556,8 +556,7 @@ later. A hint that retired on the first press therefore closed itself on the exa
 to correct — the player saw the gas pedal flicker, and nothing ever told them again. What retires it now
 is `boostHeld`: `main.js` latches `locoHeld` the frame the gas pedal has been down for `LOCO_HINT_HOLD`
 with the boost engaged, checked every frame off `boost.heldSeconds()` rather than on the press,
-because a press is not evidence of anything. `locoUsed` — the old flag, still set on the transition
-into boost — now only picks *which line* a repeat says.
+because a press is not evidence of anything.
 
 So the beat is not dismissible. Tapping anywhere leaves it up, and so does pressing the gas pedal (which
 routes through `tutorial.dismiss()` explicitly — `holdLocoMode` calls `preventDefault`, which can
@@ -566,9 +565,8 @@ and deliberately does nothing to the third). Instead it comes *back*: `BOOST_HIN
 `BOOST_HINT_REPEAT_GAP` apart, with the step falling back to `toBoost` in between so the same
 countdown serves as both the first delay and every gap after it. The budget is there because this
 beat is over a live run: three showings is 18 seconds of bubble across a whole run, and a player who has not taken it by the
-third is not going to. A repeat says `LINES.boostAgain` — "Hold it down — don't tap" — whenever
-`boostUsed` is true, since repeating the original line at someone who is jabbing the gas pedal is a
-louder version of a sentence they have already read and acted on.
+third is not going to. Every showing says the same line, "Hold to floor it"; a repeat used to switch to
+"Hold it down — don't tap" for a player who had jabbed the pedal, until Tyler cut it (2026-10-26).
 
 It is also the only one that points at a **control** rather than at the city, so it is placed
 differently: `#coach.at-boost` drops it into the gutter just above the Loco Mode
