@@ -241,8 +241,10 @@ function archRailing(x, span, rise, lift, col, from, to) {
 // `?seamstripes=classic` is the plain concrete nose with only the black seam.
 const SEAMSTRIPES_CLASSIC = typeof location !== 'undefined'
   && new URLSearchParams(location.search).get('seamstripes') === 'classic';
-// How far each striped nose reaches back from its tip, seam included.
-const HAZARD_DEPTH = 1.4;
+// How far each striped nose reaches back from its tip, seam included: the plain nose's own 0.75.
+// It was 1.4 first, and lowered the two bands met as one 2.6-unit stripe across the road that read
+// far too wide (Tyler, 2026-10-26: "make em half that thickness").
+const HAZARD_DEPTH = 0.75;
 // Stripe width measured along the beam (x); at 45 degrees it is 0.71 of that across the stripe.
 const HAZARD_PITCH = 0.7;
 
@@ -404,8 +406,7 @@ export function bridgeParts(span, rng, range = [0, 1], { capCut = false } = {}) 
         beam(tip + inward * SEAM_W, TIP_DEPTH - SEAM_W, trimCol);
       } else {
         // The rest of the nose is hazard plate (Tyler, 2026-10-26: "at the seam let's add some black
-        // and yellow angled warning stripes"), and deeper than the plain beam so the band reads at
-        // play zoom: 0.65 of it was ~5px. Built as the beam's own solid in slices rather than
+        // and yellow angled warning stripes"). Built as the beam's own solid in slices rather than
         // painted over it, so nothing lies on anything else's plane.
         const z0 = tip + inward * SEAM_W;
         const z1 = tip + inward * HAZARD_DEPTH;

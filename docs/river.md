@@ -526,7 +526,7 @@ them. For the first few seconds of a lift the near leaf is a ramp, and the taxi 
 [Jumping it](#jumping-it-mega-air). `?bridgejump=classic` is the single long leaf hinged on the
 near bank, with no jump.
 
-Each leaf's tip is a steel nose beam with a black seam line on its outer edge, and the 1.3 units
+Each leaf's tip is a steel nose beam with a black seam line on its outer edge, and the 0.65 units
 behind that are black and yellow hazard plate slanted 45° in plan (`hazardPlate` in
 geometry/bridge.js). The slices are keyed off the span's own z, so lowered, the two noses read as
 one striped band with the seam through the middle; raised, each tip shows the camera a striped
