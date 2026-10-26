@@ -320,7 +320,9 @@ export function bridgeParts(span, rng, range = [0, 1], { capCut = false } = {}) 
   const walkCol = jitterColor(PALETTE.sidewalk, rng, { l: 0.03 });
   const markCol = color('laneMark');
 
-  const soffitCol = jitterColor(PALETTE.bridgeSoffit, rng, { l: 0.02 });
+  const soffitCol = jitterColor(
+    span.kind === 'draw' ? PALETTE.drawbridgeSoffit : PALETTE.bridgeSoffit, rng, { l: 0.02 },
+  );
   // A surface that follows the profile, coloured and given the arch's normals (`bendNormals`). A
   // flat leaf's face normals are already the answer.
   const bend = rise > 0 && !BRIDGE_NORMALS_CLASSIC;
@@ -401,7 +403,10 @@ export function bridgeParts(span, rng, range = [0, 1], { capCut = false } = {}) 
         box.translate(0, (TIP_LIP - DECK_THICK + IN) / 2, z0 + inward * depth / 2);
         parts.push(bakeColor(box, col));
       };
-      beam(tip, SEAM_W, color('drawbridgeSeam'));
+      // Under the stripes the seam is concrete: raised, that sliver *is* the tip's end face, and
+      // near-black it read as a missing face (Tyler, 2026-10-26: "the ends!!"). Lowered, the dark
+      // stripes either side already mark the joint. The plain classic nose keeps its black line.
+      beam(tip, SEAM_W, SEAMSTRIPES_CLASSIC ? color('drawbridgeSeam') : trimCol);
       if (SEAMSTRIPES_CLASSIC) {
         beam(tip + inward * SEAM_W, TIP_DEPTH - SEAM_W, trimCol);
       } else {
