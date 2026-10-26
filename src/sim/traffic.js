@@ -8096,7 +8096,11 @@ export function createTraffic(
         continue;
       }
 
-      pos.set(car.x, ROAD_Y + bob + lift + mount + deckY + (car.jolt || 0), car.z);
+      // `kerbLift` is the drive-through's (game/drivethru.js): up the dropped kerb onto the joint's
+      // lot and down the other. It was only ever read on the taxi's line above, so every car in the
+      // drive-through crossed the lot at road height with its wheels sunk 0.38 into the slab —
+      // invisible against dark asphalt, obvious once the lot was paved pale (2026-10-26).
+      pos.set(car.x, ROAD_Y + bob + lift + mount + car.kerbLift + deckY + (car.jolt || 0), car.z);
       // The order is load-bearing and the default is wrong here. Three composes 'XYZ' as
       // Rx·Ry·Rz, so the roll lands *outside* the yaw and turns about the world X axis — which is
       // the car's own long axis only when the car is driving east. Head north or south and the

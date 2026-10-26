@@ -201,8 +201,7 @@ export const PALETTE = {
   // the ground under a car, where the car is about to be, are the one place in this city where
   // reading the taxi's yellow is the point.
   garageSign: '#F5C130',
-  // Paint on a forecourt paved in `sidewalk` (the depot's and the drive-through's, Tyler
-  // 2026-10-26). `garageSign` and `laneMark` both vanish there: the yellow sits at luma 192 against
+  // Paint on a lot paved in `sidewalk` (the drive-through's, Tyler 2026-10-26). `garageSign` and `laneMark` both vanish there: the yellow sits at luma 192 against
   // the pavement's 192, the white at 211, so a line on concrete was a change of hue and nothing
   // else. A deeper amber at luma ~160 keeps the hue and buys back the value step.
   drivewayPaint: '#E09A1C',

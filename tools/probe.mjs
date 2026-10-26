@@ -65,7 +65,7 @@ import {
 } from '../src/city/skatepark.js';
 import { createSkaters } from '../src/game/skaters.js';
 import { createClassicSkaters } from '../src/game/skatersclassic.js';
-import { createGarage, garageSite, NO_PARK_INK } from '../src/city/garage.js';
+import { createGarage, garageSite } from '../src/city/garage.js';
 import {
   createBurgerJoint, burgerSite, burgerGeometry, BURGER_R, SIGN_SPIN, VIEW_RISE, ROOF_Y, CAP_Y,
 } from '../src/city/burgerjoint.js';
@@ -16882,31 +16882,32 @@ let chopperOrder; // likewise
     // The forecourt's guide lines, against the asphalt they are laid on. Same rule, laid flat: two
     // horizontal surfaces at one height is the shimmer `city/burgerjoint.js` names its apron levels
     // to avoid, and the depot has the same three levels to keep apart.
-    // The NO PARKING lettering is paint too, at the same level as the lines.
-    const INK = NO_PARK_INK.getHexString();
-    const AMBER = color('drivewayPaint').getHexString();
-    const isPaint = (i) => at(i) === YELLOW || at(i) === AMBER || at(i) === INK;
+    //
+    // The lines are only drawn under `?driveway=classic` now (the default drive is plain asphalt),
+    // so these two checks read that build, and a third asserts the default has none.
+    let lowYellow = 0;
+    for (let i = 0; i < pos.count; i++) if (at(i) === YELLOW && pos.getY(i) < KERB_H + 0.1) lowYellow++;
+    check('the default forecourt is plain asphalt, with no guide lines on it', lowYellow === 0,
+      `${lowYellow} yellow vertices at forecourt height`);
+    const lined = createGarage(layout.garageBlock, makeRng(seed + 99), { driveway: 'classic' });
+    const lpos = lined.shell.geometry.attributes.position;
+    const lcol = lined.shell.geometry.attributes.color;
+    const lat = (i) => new THREE.Color(lcol.getX(i), lcol.getY(i), lcol.getZ(i)).getHexString();
     let paintTop = -Infinity;
     let paintFar = -Infinity;
     let surfaceTop = -Infinity;
-    let inkCells = 0;
-    let inkZ0 = Infinity;
-    let inkZ1 = -Infinity;
     const RAMP_FROM = site.kerbX - 1.5;
-    for (let i = 0; i < pos.count; i++) {
-      if (isPaint(i) && pos.getY(i) < KERB_H + 1) paintFar = Math.max(paintFar, pos.getX(i));
-      if (at(i) === INK) {
-        inkCells++;
-        inkZ0 = Math.min(inkZ0, pos.getZ(i));
-        inkZ1 = Math.max(inkZ1, pos.getZ(i));
-      }
+    for (let i = 0; i < lpos.count; i++) {
+      const pos = lpos;
+      const at = lat;
+      if (at(i) === YELLOW && pos.getY(i) < KERB_H + 1) paintFar = Math.max(paintFar, pos.getX(i));
       // The flat part of the forecourt: from just behind the threshold out to where the dropped
       // kerb starts falling. The ramp is outside the window on purpose — it is a slope, and what is
       // being asserted here is about two *level* surfaces meeting at one height.
       if (pos.getY(i) > KERB_H + 0.1 || pos.getX(i) < site.curtainX - 0.2
         || pos.getX(i) > RAMP_FROM - 1e-6) continue;
       // The asphalt is jittered per city, so it is identified by *not* being the paint.
-      if (isPaint(i)) paintTop = Math.max(paintTop, pos.getY(i));
+      if (at(i) === YELLOW) paintTop = Math.max(paintTop, pos.getY(i));
       else surfaceTop = Math.max(surfaceTop, pos.getY(i));
     }
     // The up-facing faces, which are the ones that can fight. The paint's *under*side lands exactly
@@ -16920,11 +16921,6 @@ let chopperOrder; // likewise
     check('...and stops at the top of the dropped kerb rather than running over it',
       paintFar < RAMP_FROM + 1e-6,
       `paint to x ${paintFar.toFixed(2)}, ramp from ${RAMP_FROM.toFixed(2)}`);
-    // The lettering sits between the two guide lines (0.63 in from each door post), not over them:
-    // overlapping paint in two colours on one plane is the shimmer the levels above exist to avoid.
-    check('the forecourt says NO PARKING between its guide lines',
-      inkCells > 0 && inkZ0 > site.doorZ - 2.7 + 0.63 && inkZ1 < site.doorZ + 2.7 - 0.63,
-      `${inkCells} vertices, z ${inkZ0.toFixed(2)}\u2192${inkZ1.toFixed(2)} about door ${site.doorZ.toFixed(2)}`);
 
     // --- The pole, and the sign on it — the taxi cutout by default, and the two `?depot=model` and
     // `?depot=classic` keep. All three, because every placement below is derived from the sign's

@@ -818,9 +818,6 @@ export function createGarage(block, rng, {
   // The coping, hollowed into a lip like every flat roof in the city (`lippedCap`). `deck` is the
   // floor inside it, which the pole and the plant stand on.
   const coping = [];
-  // The guide lines' paint: the taxi's own yellow on asphalt, a deeper amber on the paved
-  // forecourt where the yellow is the pavement's value exactly (`drivewayPaint`).
-  const linePaint = color(driveway === 'classic' ? 'garageSign' : 'drivewayPaint');
   const deck = lippedCap(coping, frontX - bx0 + 0.36, 0.34, bz1 - bz0 + 0.36,
     (bx0 + frontX) / 2, top, (bz0 + bz1) / 2, color('garageTrim'));
 
@@ -867,6 +864,8 @@ export function createGarage(block, rng, {
   const poleZ = bz1 - stand;
 
   const wall = jitterColor(color('garageWall'), rng, { l: 0.03 });
+  // Drawn here, after the wall, to keep the depot's rng stream in the order it has always been in.
+  const apronCol = jitterColor(color('asphalt'), rng, { l: 0.02 });
   const trim = color('garageTrim');
   const bay = color('garageBay');
 
@@ -909,13 +908,10 @@ export function createGarage(block, rng, {
     // nothing needs hiding — but it is the one part that says *roller* rather than *shutter*.
     span(curtainX - 0.25, frontX + 0.15, head - 0.08, head + 0.62, dz0 - 0.25, dz1 + 0.25, trim),
 
-    // The forecourt, laid over the pavement from under the door out to the kerb and back to where
-    // the bay floor stops, so the threshold is continuous. Paved in the block's own `sidewalk`
-    // (Tyler, 2026-10-26) — a slab of road-dark asphalt read as a hole in the block at play zoom —
-    // so what says "cars come out of here" is now the paint and the dropped kerb, not the surface.
-    // `?driveway=classic` is the asphalt.
-    span(curtainX - 0.12, kerbX, PAVEMENT_Y - 0.01, APRON_Y, dz0 - 0.5, dz1 + 0.5,
-      jitterColor(color(driveway === 'classic' ? 'asphalt' : 'sidewalk'), rng, { l: 0.02 })),
+    // The forecourt: asphalt laid over the pavement from under the door out to the kerb, which is
+    // what says "cars come out of here" on a block that is otherwise bare paving. It runs back to
+    // where the bay floor stops, so the threshold is continuous.
+    span(curtainX - 0.12, kerbX, PAVEMENT_Y - 0.01, APRON_Y, dz0 - 0.5, dz1 + 0.5, apronCol),
 
     // The other elevation. `+Z` is the second of the two faces this camera can ever see, and on a
     // one-storey box it is 8 × 5 units of nothing — which at the vignette's zoom is a quarter of
@@ -937,7 +933,12 @@ export function createGarage(block, rng, {
     box(1.6, 0.55, 1.2, bx0 + 1.4, deck, bz0 + 1.3, color('rooftop')),
     box(1.0, 0.42, 1.0, bx0 + 1.2, deck, bz0 + 3.4, color('rooftopIron')),
 
-    dropKerb(kerbX, doorZ, rng),
+    // The dropped kerb, in the forecourt's own asphalt by default so the drive reads as one
+    // surface running down to the road. In `kerb` stone (`?driveway=classic`) it was a pale band
+    // across the lip, which reads as the kerb a car would have to jump rather than as a ramp
+    // (Tyler, 2026-10-26).
+    dropKerb(kerbX, doorZ, driveway === 'classic'
+      ? jitterColor(color('kerb'), rng, { l: 0.02 }) : apronCol),
 
     // The forecourt's own paint: two guide lines out of the bay, the way any yard marks the way out
     // of a shed. Laid *on* the asphalt rather than in it — see PAINT_Y, which exists so this cannot
@@ -946,9 +947,12 @@ export function createGarage(block, rng, {
     // They stop at `KERB_RUN` short of the lip rather than running to it, because that is where the
     // dropped kerb starts falling away: a flat strip carried out over a ramp is buried in it at one
     // end and hanging over it at the other, and neither is a thing anybody painted.
-    span(curtainX, kerbX - KERB_RUN, APRON_Y, PAINT_Y, dz0 + 0.35, dz0 + 0.63, linePaint),
-    span(curtainX, kerbX - KERB_RUN, APRON_Y, PAINT_Y, dz1 - 0.63, dz1 - 0.35, linePaint),
-    ...(driveway === 'classic' ? [] : noParking(frontX, kerbX - KERB_RUN, doorZ)),
+    //
+    // Only under `?driveway=classic` now: Tyler asked for the plain drive (2026-10-26).
+    ...(driveway === 'classic' ? [
+      span(curtainX, kerbX - KERB_RUN, APRON_Y, PAINT_Y, dz0 + 0.35, dz0 + 0.63, color('garageSign')),
+      span(curtainX, kerbX - KERB_RUN, APRON_Y, PAINT_Y, dz1 - 0.63, dz1 - 0.35, color('garageSign')),
+    ] : []),
 
     // The pole. Static, so it rides in the shell's merge and the entrance wave lifts it with the
     // building; only the sign is excluded from that, and only because it turns.
@@ -1215,64 +1219,7 @@ export function createGarage(block, rng, {
  * backwards by rotating it. The bulk of the box sinks under the road slab, which is opaque, so
  * only the sloped top and the two sides show.
  */
-// --- NO PARKING ---------------------------------------------------------------
-// Stencilled on the forecourt between the guide lines, stacked the way road lettering is. A pixel
-// font of `NO_PARK_GLYPHS` cells, each its own flat span at PAINT_Y like the lines beside it.
-//
-// It reads *from the camera*, not from the street: a letter's up is −x (into the bay) and the line
-// runs toward −z, which is up-screen and to the right — the same diagonal the forecourt itself lies
-// on. The room is fixed by everything around it: 1.5 units of flat between the door frame and
-// where the dropped kerb falls (`KERB_RUN`), and 3.8 between the guide lines. PARKING is 33 cells
-// wide, so a cell is 0.1 across and 0.11 tall, and the two lines take 1.3 of the 1.5.
-//
-// At play zoom (7.7 px a unit) a cell is under a pixel: the word is a smudge of lettering that
-// resolves as you pinch in, which is about what worn paint on a driveway is.
-const NO_PARK_GLYPHS = {
-  N: ['X..X', 'XX.X', 'X.XX', 'X..X', 'X..X'],
-  O: ['.XX.', 'X..X', 'X..X', 'X..X', '.XX.'],
-  P: ['XXX.', 'X..X', 'XXX.', 'X...', 'X...'],
-  A: ['.XX.', 'X..X', 'XXXX', 'X..X', 'X..X'],
-  R: ['XXX.', 'X..X', 'XXX.', 'X.X.', 'X..X'],
-  K: ['X..X', 'X.X.', 'XX..', 'X.X.', 'X..X'],
-  I: ['XXX', '.X.', '.X.', '.X.', 'XXX'],
-  G: ['.XXX', 'X...', 'X.XX', 'X..X', '.XXX'],
-};
-const NO_PARK_CELL_Z = 0.1;
-const NO_PARK_CELL_X = 0.11;
-const NO_PARK_LEADING = 0.2;     // between the two lines
-// How far the paint has worn back toward the pavement it is laid on. No per-cell jitter: that
-// would draw from the depot's rng and reshuffle everything built after it.
-const NO_PARK_FADE = 0.3;
-/** The lettering's paint, exported so the probe can tell it from the paving it is laid on. */
-export const NO_PARK_INK = color('drivewayPaint').lerp(color('sidewalk'), NO_PARK_FADE);
-
-function noParking(xTop, xBottom, zMid) {
-  const ink = NO_PARK_INK;
-  const lineH = 5 * NO_PARK_CELL_X;
-  const block = 2 * lineH + NO_PARK_LEADING;
-  // Centred in the flat between the frame and the top of the ramp.
-  let rowX = (xTop + xBottom) / 2 - block / 2;
-  const parts = [];
-  for (const word of ['NO', 'PARKING']) {
-    const cells = [...word].reduce((n, ch) => n + NO_PARK_GLYPHS[ch][0].length, 0) + word.length - 1;
-    // The first letter sits at the high-z end: −z is the reading direction.
-    let z = zMid + (cells * NO_PARK_CELL_Z) / 2;
-    for (const ch of word) {
-      const glyph = NO_PARK_GLYPHS[ch];
-      glyph.forEach((row, r) => [...row].forEach((on, c) => {
-        if (on !== 'X') return;
-        const x0 = rowX + r * NO_PARK_CELL_X;
-        const z1 = z - c * NO_PARK_CELL_Z;
-        parts.push(span(x0, x0 + NO_PARK_CELL_X, APRON_Y, PAINT_Y, z1 - NO_PARK_CELL_Z, z1, ink));
-      }));
-      z -= (glyph[0].length + 1) * NO_PARK_CELL_Z;
-    }
-    rowX += lineH + NO_PARK_LEADING;
-  }
-  return parts;
-}
-
-function dropKerb(kerbX, doorZ, rng) {
+function dropKerb(kerbX, doorZ, col) {
   // The slope, by its two endpoints: from a hair over the pavement KERB_RUN back from the lip, to a
   // hair under the road just past it.
   const ax = kerbX - KERB_RUN;
@@ -1290,5 +1237,5 @@ function dropKerb(kerbX, doorZ, rng) {
   const cx = (thickness / 2) * Math.sin(theta);
   const cy = (thickness / 2) * Math.cos(theta);
   geo.translate((ax + bx) / 2 - cx, (ay + by) / 2 - cy, doorZ);
-  return bakeColor(geo, jitterColor(color('kerb'), rng, { l: 0.02 }));
+  return bakeColor(geo, col);
 }
