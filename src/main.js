@@ -850,7 +850,7 @@ if (burger) {
   scene.add(burger.group);
   // The shell and the lit windows, not the sign: `markOccluder` is the AO prepass, and a burger
   // turning three units above a roof has nothing under it to crease.
-  burger.meshes.forEach(markOccluder);
+  burger.occluders.forEach(markOccluder);
   // ...and the whole joint is tappable, which is the secret: it sends the taxi through the
   // drive-through for a splash of boost (game/burgerrun.js). Tagged on the root group, so the walk
   // up the ancestors that `createPicker` already does answers for the shell, the lit windows and

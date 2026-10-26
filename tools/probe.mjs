@@ -17381,12 +17381,16 @@ let chopperOrder; // likewise
     const CAR_TOP = KERB_H + 2.2;
     const p = joint.shell.geometry.attributes.position;
     let fouled = 0;
-    for (let i = 0; i < p.count; i++) {
-      const y = p.getY(i);
-      if (y < KERB_H + 0.1 || y > CAR_TOP) continue;
-      const z = p.getZ(i);
-      if (z < site.turnZ || z > site.kerbZ) continue;     // only alongside the straight run
-      if (Math.abs(p.getX(i) - site.laneX) < CAR_W / 2 + 0.15) fouled += 1;
+    // The canopy posts are their own mesh (kept out of the AO prepass), and they are the very
+    // thing this check once caught, so both meshes are walked.
+    for (const q of [p, joint.posts.geometry.attributes.position]) {
+      for (let i = 0; i < q.count; i++) {
+        const y = q.getY(i);
+        if (y < KERB_H + 0.1 || y > CAR_TOP) continue;
+        const z = q.getZ(i);
+        if (z < site.turnZ || z > site.kerbZ) continue;     // only alongside the straight run
+        if (Math.abs(q.getX(i) - site.laneX) < CAR_W / 2 + 0.15) fouled += 1;
+      }
     }
     check('and nothing it is made of stands in the lane at car height', fouled === 0,
       `${fouled} vertices inside the car's envelope`);
@@ -20411,7 +20415,7 @@ let chopperOrder; // likewise
   // Asserted as the overlap it actually is rather than as a number, so it stays true if either
   // draw list changes.
   const blJoint = createBurgerJoint(layout.burgerBlock, makeRng(seed + 111));
-  blJoint.meshes.forEach(markOccluder);
+  blJoint.occluders.forEach(markOccluder);
   mark(blJoint.glow, 'window');
   const selfOccluding = mine.filter((m) => occluderList().has(m));
   check('the depth bias is paid for by lamps that are their own occluders',
@@ -20420,7 +20424,7 @@ let chopperOrder; // likewise
 
   // Module state, so put back what this block added.
   mine.forEach(unmarkEmissive);
-  blJoint.meshes.forEach(unmarkOccluder);
+  blJoint.occluders.forEach(unmarkOccluder);
   check('unmarking empties what was marked',
     mine.every((m) => !emissiveList().has(m)));
 }
