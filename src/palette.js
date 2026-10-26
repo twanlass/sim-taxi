@@ -1010,6 +1010,11 @@ export const PALETTE = {
   elephantEarEdge: '#B04A88',
   elephantRim: '#F4EEE4',
   elephantPupil: '#23345E',
+  // The cutout spray off its trunk, and the blue neon bulbs on it: dark blue glass while off, and a
+  // pale electric blue lit — bright enough to bloom at night.
+  elephantSpray: '#5AA6E6',
+  elephantBulbOff: '#26507C',
+  elephantBulbOn: '#C4F4FF',
   // The gas station (city/gasstation.js), the roadside block's other business: a green canopy
   // with a yellow stripe — green rather than red so the red tube man in front of it still reads —
   // a cream brick store, white pumps, and the bright underside every forecourt canopy has at night.

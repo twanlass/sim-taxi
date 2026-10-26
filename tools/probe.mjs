@@ -1776,15 +1776,40 @@ const onGrass = (city, i, j) => {
       yawMax = Math.max(yawMax, wash.sign.rotation.y);
       if (n % 20) continue;
       wash.sign.updateMatrixWorld(true);
-      for (const m of wash.sign.children) {
+      wash.sign.traverse((m) => {
+        if (!m.isMesh) return;
         const pos = m.geometry.attributes.position;
         for (let i = 0; i < pos.count; i++) lo = Math.min(lo, p.fromBufferAttribute(pos, i).applyMatrix4(m.matrixWorld).y);
-      }
+      });
     }
     const off = Math.max(Math.abs(yawMin - Math.PI / 4), Math.abs(yawMax - Math.PI / 4)) * 180 / Math.PI;
     check('...the elephant sways a few degrees off the camera\'s diagonal and no more', off > 4 && off < 12,
       `${off.toFixed(1)}° either way`);
     check('...and clears the vacuum posts under it', lo - LOT_Y > 2.6, `lowest edge ${(lo - LOT_Y).toFixed(2)} over the lot`);
+    // The trunk bobs a few degrees, and the spray's bulbs are dark at the bottom of the bob and all
+    // lit at the top of it — read off the colours the frame actually draws, not off `bulbLevel`.
+    let bobMin = Infinity;
+    let bobMax = -Infinity;
+    let darkest = Infinity;
+    let brightest = -Infinity;
+    for (let n = 0; n < 400; n++) {
+      wash.update(1 / 60);
+      const z = wash.trunk.rotation.z;
+      bobMin = Math.min(bobMin, z);
+      bobMax = Math.max(bobMax, z);
+      const a = wash.bulbs.geometry.attributes.color.array;
+      let sum = 0;
+      for (let i = 0; i < a.length; i += 3) sum += a[i + 2];
+      const mean = sum / (a.length / 3);
+      darkest = Math.min(darkest, mean);
+      brightest = Math.max(brightest, mean);
+    }
+    const bob = (bobMax - bobMin) / 2 * 180 / Math.PI;
+    const bulbOff = new THREE.Color(color('elephantBulbOff')).b;
+    const bulbOn = new THREE.Color(color('elephantBulbOn')).b;
+    check('...its trunk bobs a few degrees, and the spray\'s bulbs run dark to fully lit with it',
+      bob > 3 && bob < 10 && Math.abs(darkest - bulbOff) < 1e-3 && Math.abs(brightest - bulbOn) < 1e-3,
+      `${bob.toFixed(1)}° either way · bulb blue ${darkest.toFixed(2)} to ${brightest.toFixed(2)}`);
     // The cut-out alone, before the ear is merged onto it: the ear's own back face is buried in the
     // board and faces −z, as it should.
     const board = elephantGeometry().body;

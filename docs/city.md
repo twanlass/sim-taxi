@@ -958,12 +958,16 @@ had the two built side by side to compare and then picked both (2026-10-17).
 **The car wash** (`city/carwash.js`) is a wash tunnel against the block's −Z edge, with its long +Z side open on posts so the brushes
 turning inside it show, a blue fascia covered in soap bubbles, a concrete lot out front with two
 vacuum bays and a pay kiosk, and a pink elephant cut out of board on a pole over the lot's front
-corner — a nod to Seattle's Elephant Car Wash, at Tyler's ask (2026-10-26). It is a picture-book
-side view (four legs, a big ear, the trunk hanging and curling up, a tail), not the photo's pose: the
-first cut followed the photo, trunk arched over the back and CAR WASH across the body, and at 32
-pixels it did not read as an elephant at all. Built like the garage's taxi cutout (extruded `Shape`s,
-its pink lifted so it stays pink in shade), it sways 8° either side of the camera's diagonal over
-about eleven seconds, and its feet stand 3 over the lot so its end clears the vacuum posts.
+corner — a nod to Seattle's Elephant Car Wash, at Tyler's ask (2026-10-26). It is a squat picture-book
+side view (stumpy legs, a big ear, a tail) with its trunk curled up and spraying two cutout jets of
+water, and the trunk bobs 6° on a pivot in the head every three seconds or so; at the top of each
+bob the blue neon bulbs down the jets chase on, outward from the trunk, and run back off as it drops
+(`bulbLevel`). Cheesy sign water, Tyler's ask, not real water. The first cut followed the photo's
+pose instead, trunk arched over the back and CAR WASH across the body, and at 32 pixels it did not
+read as an elephant at all. Built like the garage's taxi cutout (extruded `Shape`s, its pink and
+its spray lifted so they keep their colour in shade), it sways 8° either side of the camera's
+diagonal over about eleven seconds, and its feet stand 3 over the lot so its end clears the vacuum
+posts.
 `?washsign=classic` puts back the blue pylon panel spelling WASH. It is scenery only for
 now: no car goes through, and nothing routes into it. Chosen last in `createLayout`, after the
 graveyard, so adding it moves nothing above; it avoids touching the other landmarks and prefers

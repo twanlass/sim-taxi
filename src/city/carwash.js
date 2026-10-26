@@ -51,20 +51,23 @@ export const BRUSH_SPIN = 6.5;
 const FINS = 10;
 
 // --- The elephant (default) --------------------------------------------------------
-// A pink elephant cut out of board on a pole, spraying water over its own back: Seattle's Elephant
-// Car Wash, which Tyler asked for by name (2026-10-26). Built like the garage's taxi cutout — one
-// extruded `Shape`, so three winds it — and for the same reason it sways rather than turns: a board
-// edge-on is a line. `?washsign=classic` keeps the blue WASH panel it replaced.
+// A squat pink elephant cut out of board on a pole, its trunk bobbing up and down and spraying a
+// cutout jet of water with blue neon bulbs that chase on at the top of every bob: a nod to
+// Seattle's Elephant Car Wash, which Tyler asked for by name (2026-10-26) — the sign, not the water.
+// Built like the garage's taxi cutout — extruded `Shape`s, so three winds them — and for the same
+// reason it sways rather than turns: a board edge-on is a line. `?washsign=classic` keeps the blue
+// WASH panel it replaced.
 
 /** `?washsign=classic` — the blue pylon panel spelling WASH, as it was before the elephant. */
 export const WASH_SIGN_CLASSIC = typeof location !== 'undefined'
   && new URLSearchParams(location.search).get('washsign') === 'classic';
 
 /**
- * The silhouette's whole scale. Authored 6.3 by 3.7, trunk to tail, and drawn at 0.75: 4.7 across
- * is 36px at play zoom, a little under the burger's 40 — a sign over the lot rather than a statue.
+ * The silhouette's whole scale. Authored 6.9 by 4.5, spray to tail and feet to spray, and drawn at
+ * 0.72: 5.0 across is 38px at play zoom, about the burger's 40 — a sign over the lot rather than a
+ * statue on it.
  */
-const ELE_SCALE = 0.75;
+const ELE_SCALE = 0.72;
 /** The feet's height over the lot. Clear of the vacuum posts (2.5) the board's end swings over. */
 const ELE_FOOT = 3.0;
 // Board thickness and chamfer, as the taxi cutout's.
@@ -79,12 +82,26 @@ const ELE_PROUD = 0.04;
 // How much of the board's own pink it gives off, for the cutout's reason (`BOARD_LIFT` in
 // city/garage.js): a face turned from the sun goes lilac under the shadow tint without it.
 const ELE_LIFT = 0.35;
+const SPRAY_LIFT = 0.5;
 // The sway: facing the camera's diagonal and swinging a few degrees either side of it, slowly — a
 // sign turning in the wind on its bearing, not a turntable. 0.14 rad is 8°; 0.55 rad/s of phase is
 // about eleven seconds there and back.
 const ELE_FACING = Math.PI / 4;
 const ELE_SWAY = 0.14;
 export const ELE_SWAY_RATE = 0.55;
+// The trunk's bob, about its root in the head: this far up and down (0.1 rad is 6°), at this rate
+// (2.2 rad/s of phase is just under three seconds a bob). Down here so the spray reads as the trunk
+// lifting to blow, not as the sign wobbling — the sway is four times slower.
+const TRUNK_BOB = 0.1;
+export const TRUNK_BOB_RATE = 2.2;
+/** Where the trunk pivots, in authored units: inside the head, so the join never opens. */
+const TRUNK_ROOT = [-1.95, 1.8];
+// The neon bulbs down the spray: dark until the bob passes BULB_FROM of its lift, then on one at a
+// time outward along each jet across BULB_SPAN more of it, so they chase out of the trunk as it
+// tops out and run back in as it drops. A cheesy sign's water, not water.
+const BULBS_PER_JET = 5;
+const BULB_FROM = 0.5;
+const BULB_SPAN = 0.4;
 
 /**
  * A stroke as a closed outline: a Catmull-Rom through `pts`, `w0` wide at its start tapering to
@@ -137,20 +154,31 @@ const rectShape = (x0, x1, y0, y1) => new THREE.Shape([[x0, y0], [x1, y0], [x1, 
  */
 function elephantPieces() {
   return [
-    ellipseShape(0.6, 1.95, 1.85, 1.25),
-    ellipseShape(-1.35, 2.75, 0.95, 0.95),
-    // Legs with a clear 0.55 of sky between each pair: at 0.3 the rim closed the gaps and the four
-    // legs merged into one block.
-    ...[[-1.0, -0.5], [0.05, 0.45], [1.05, 1.5], [2.0, 2.4]].map(([x0, x1]) => rectShape(x0, x1, 0, 1.4)),
-    strokeShape([[-1.9, 2.5], [-2.35, 1.8], [-2.45, 1.0], [-2.7, 0.55], [-3.1, 0.65], [-3.2, 1.05]], 0.62, 0.28),
-    strokeShape([[2.4, 2.3], [2.75, 1.9], [2.85, 1.45]], 0.14, 0.14),
+    ellipseShape(0.55, 1.45, 2.0, 1.15),
+    ellipseShape(-1.4, 2.2, 0.95, 0.95),
+    // Stumpy legs: wide, and showing only 0.3 to 0.75 below the belly. The first elephant's stood
+    // 1.4 tall under a body held up off them, which read as a table more than as an animal.
+    // 0.45 of sky between each pair — at 0.3 the rim closed the gaps and they merged.
+    ...[[-1.1, -0.55], [-0.05, 0.5], [0.95, 1.5], [1.95, 2.4]].map(([x0, x1]) => rectShape(x0, x1, 0, 1.05)),
+    strokeShape([[2.5, 1.75], [2.85, 1.35], [2.9, 0.95]], 0.14, 0.14),
   ];
 }
 
+/** The trunk: out of the head, down and forward, and curling up to blow. */
+const TRUNK_PATH = [[-1.85, 1.95], [-2.45, 1.7], [-2.95, 2.05], [-3.1, 2.7], [-2.95, 3.2]];
+/** The two jets of spray off its tip: one arching back over the head, one flicking forward. */
+const JETS = [
+  [[-2.95, 3.2], [-2.75, 3.95], [-2.1, 4.35], [-1.45, 4.15]],
+  [[-2.95, 3.2], [-3.35, 3.85], [-3.8, 3.9]],
+];
+
 /**
  * The elephant about its pivot: x along the board, y up from the pivot (the lot), the board's
- * faces ±z. Two geometries, because the board's pink is lifted on a material of its own and the
- * rest is not. `body` is the cut-out alone, for the probe's winding check.
+ * faces ±z. The body and the trunk are separate, because the trunk bobs: `trunk` is built about
+ * its own root, `trunkRoot` is where that root sits. Each is two geometries — the board's pink is
+ * lifted on a material of its own and the rest is not — and the trunk carries the spray's `bulbs`,
+ * whose `bulb` attribute is each vertex's place along its jet (0 by the trunk). `body` is the
+ * body's cut-out alone, for the probe's winding check.
  *
  * Only the +z face carries anything. The camera never turns and the board only sways 8°, so the
  * back is never seen — the taxi cutout puts its details *through* the board because it was once
@@ -173,37 +201,87 @@ export function elephantGeometry() {
     geos.forEach((g) => g.dispose());
     return geo;
   };
-  // Each piece after the first sits 8mm thinner than the one before it. Level with
-  // each other, a piece's chamfer starts on the plane of the cap it overlaps, and every leg and the
-  // head drew a pale seam up through the body where the two tied.
-  const body = merge(pieces.map((sh, k) => bakeColor(
-    extrude(sh, ELE_T - 2 * ELE_BEVEL - 2 * ELE_STEP * k, ELE_BEVEL, ELE_BEVEL), color('elephantPink'))));
-
+  // Each piece after the first sits 8mm thinner than the one before it. Level with each other, a
+  // piece's chamfer starts on the plane of the cap it overlaps, and every leg and the head drew a
+  // pale seam up through the body where the two tied. The trunk and its spray come last.
+  const boardPiece = (sh, k, col) => bakeColor(
+    extrude(sh, ELE_T - 2 * ELE_BEVEL - 2 * ELE_STEP * k, ELE_BEVEL, ELE_BEVEL), color(col));
   // The rim: every piece grown by ELE_RIM and kept thinner than the board, so it shows only as a
   // band round the silhouette — where one piece's rim falls inside another piece it is buried in
   // that piece's board — and none of its faces shares a plane with the board's.
-  const parts = pieces.map((sh) => bakeColor(extrude(sh, 0.12, 0.02, ELE_RIM), color('elephantRim')));
+  const rimPiece = (sh) => bakeColor(extrude(sh, 0.12, 0.02, ELE_RIM), color('elephantRim'));
   // A flat on the front face, `proud` off it.
   const flat = (sh, col, proud = ELE_PROUD) => {
     const geo = extrude(sh, proud + 0.02, 0, 0, 16);
     geo.translate(0, 0, front + (proud - 0.02) / 2);
     return bakeColor(geo, col);
   };
+
+  const body = merge(pieces.map((sh, k) => boardPiece(sh, k, 'elephantPink')));
+  const parts = pieces.map(rimPiece);
   // The ear: a big paler flap over the join of head and body, ringed in a deeper pink so it stays a
   // separate shape at play zoom. On the board's lifted material, not the trim's: ringed in cream and
   // unlifted, an earlier ear went grey in shade and read as a hole in the board.
   const board = merge([
     body.clone(),
-    flat(ellipseShape(-0.55, 2.5, 0.8, 1.05), color('elephantEarEdge'), ELE_PROUD / 2),
-    flat(ellipseShape(-0.55, 2.5, 0.66, 0.91), color('elephantEar')),
+    flat(ellipseShape(-0.6, 2.05, 0.8, 0.98), color('elephantEarEdge'), ELE_PROUD / 2),
+    flat(ellipseShape(-0.6, 2.05, 0.66, 0.84), color('elephantEar')),
   ]);
   // The eye, looking forward.
-  parts.push(flat(ellipseShape(-1.75, 3.05, 0.17, 0.2), color('elephantRim')));
-  parts.push(flat(ellipseShape(-1.8, 3.03, 0.09, 0.11), color('elephantPupil'), ELE_PROUD * 2));
+  parts.push(flat(ellipseShape(-1.75, 2.55, 0.17, 0.2), color('elephantRim')));
+  parts.push(flat(ellipseShape(-1.8, 2.53, 0.09, 0.11), color('elephantPupil'), ELE_PROUD * 2));
   // A white plinth under the feet, as the photo's stands on.
-  parts.push(bakeColor(new THREE.BoxGeometry(3.9, 0.22, ELE_T + 0.1).translate(0.68, -0.11, 0),
+  parts.push(bakeColor(new THREE.BoxGeometry(4.0, 0.22, ELE_T + 0.1).translate(0.65, -0.11, 0),
     color('elephantRim')));
-  return { board, parts, body };
+
+  // --- The trunk and its spray, about the trunk's root ---
+  let k = pieces.length;
+  const trunkShape = strokeShape(TRUNK_PATH, 0.6, 0.32);
+  const trunkBoard = boardPiece(trunkShape, k++, 'elephantPink');
+  const trunkParts = [rimPiece(trunkShape)];
+  const sprayK = k++;
+  const bulbs = [];
+  const spray = [];
+  for (const jet of JETS) {
+    const shape = strokeShape(jet, 0.34, 0.2);
+    const [ex, ey] = jet[jet.length - 1];
+    // The splash at its end: a drop a little fatter than the jet.
+    const drop = ellipseShape(ex, ey, 0.17, 0.17);
+    for (const sh of [shape, drop]) {
+      spray.push(boardPiece(sh, sprayK, 'elephantSpray'));
+      trunkParts.push(rimPiece(sh));
+    }
+    const curve = new THREE.SplineCurve(jet.map(([x, y]) => new THREE.Vector2(x, y)));
+    for (let n = 0; n < BULBS_PER_JET; n++) {
+      const p = curve.getPoint((n + 1) / (BULBS_PER_JET + 0.5));
+      const bulb = new THREE.CylinderGeometry(0.095, 0.095, ELE_PROUD + 0.02, 8);
+      bulb.rotateX(Math.PI / 2);
+      bulb.translate(p.x, p.y, front + (ELE_PROUD - 0.02) / 2);
+      const geo = bakeColor(bulb, color('elephantBulbOff'));
+      geo.setAttribute('bulb', new THREE.BufferAttribute(
+        new Float32Array(geo.attributes.position.count).fill(n / (BULBS_PER_JET - 1)), 1));
+      bulbs.push(geo);
+    }
+  }
+  const [rx, ry] = TRUNK_ROOT;
+  const trunkTrim = merge(trunkParts);
+  const bulbGeo = merge(bulbs);
+  const sprayGeo = merge(spray);
+  for (const g of [trunkBoard, trunkTrim, bulbGeo, sprayGeo]) g.translate(-rx, -ry, 0);
+  return {
+    board, parts, body,
+    trunk: { board: trunkBoard, trim: trunkTrim, spray: sprayGeo, bulbs: bulbGeo },
+    trunkRoot: [rx, ry],
+  };
+}
+
+/**
+ * How lit each bulb is at a given lift of the trunk (−1 bottom, 1 top), by its place along its jet
+ * (0 by the trunk, 1 at the splash): off below BULB_FROM, then on in order out along the jet.
+ */
+export function bulbLevel(lift, along) {
+  const at = BULB_FROM + BULB_SPAN * along * 0.8;
+  return THREE.MathUtils.clamp((lift - at) / (BULB_SPAN * 0.2), 0, 1);
 }
 
 /** Every number about a car wash, derived from its block — so the chooser can ask before building. */
@@ -274,7 +352,8 @@ function pylonSign(sx, base, sz, { trim, blue, white }) {
 /** What the model workshop finds this landmark by (src/workshop/catalog.js, `LANDMARKS`). */
 // `glow`: what blooms, at which kind (game/bloom.js) — read by main.js and the bench alike.
 export const LANDMARK = {
-  id: 'carwash', label: 'Car wash', create: createCarWash, glow: (c) => [[c.glow, 'window']],
+  id: 'carwash', label: 'Car wash', create: createCarWash,
+  glow: (c) => [[c.glow, 'window'], [c.bulbs, 'window']].filter(([m]) => m),
 };
 
 export function createCarWash(block, rng) {
@@ -437,25 +516,59 @@ export function createCarWash(block, rng) {
   // axis. Out of the AO lookup for the garage cutout's reason — it moves, so it is not in the depth
   // prepass, and a receiver that is not an occluder samples whatever is behind it on screen.
   let sign = null;
+  let trunk = null;
+  let bulbs = null;
   if (!WASH_SIGN_CLASSIC) {
-    const { board: boardGeo, parts: trimParts, body } = elephantGeometry();
-    body.dispose();
-    const trimGeo = mergeGeometries(trimParts, false);
-    trimParts.forEach((p) => p.dispose());
-    for (const g of [boardGeo, trimGeo]) g.scale(ELE_SCALE, ELE_SCALE, ELE_SCALE).translate(0, ELE_FOOT, 0);
+    const geo = elephantGeometry();
+    geo.body.dispose();
+    const trimGeo = mergeGeometries(geo.parts, false);
+    geo.parts.forEach((p) => p.dispose());
+    const lift = (geometry, x = 0, y = ELE_FOOT) => geometry.scale(ELE_SCALE, ELE_SCALE, ELE_SCALE).translate(x, y, 0);
+    for (const g of [geo.board, trimGeo]) lift(g);
+    for (const g of Object.values(geo.trunk)) lift(g, 0, 0);
     const boardMat = propMaterial({ ao: false });
     boardMat.emissive.set(color('elephantPink')).multiplyScalar(ELE_LIFT);
-    const board = new THREE.Mesh(boardGeo, boardMat);
-    const trimMesh = new THREE.Mesh(trimGeo, propMaterial({ ao: false }));
-    board.name = 'car-wash-elephant';
-    trimMesh.name = 'car-wash-elephant-trim';
+    const trimMat = propMaterial({ ao: false });
+    const shadowed = (mesh, name) => {
+      mesh.castShadow = true;
+      mesh.name = name;
+      return mesh;
+    };
     sign = new THREE.Group();
     sign.name = 'car-wash-sign';
     sign.position.set(sx, base, sz);
-    for (const m of [board, trimMesh]) {
-      m.castShadow = true;
-      sign.add(m);
+    sign.add(shadowed(new THREE.Mesh(geo.board, boardMat), 'car-wash-elephant'),
+      shadowed(new THREE.Mesh(trimGeo, trimMat), 'car-wash-elephant-trim'));
+    // The trunk on its own pivot at its root, carrying the spray and the bulbs with it. The bulbs
+    // are unlit, so they hold their blue whatever the sun is doing, and bloom at night (LANDMARK).
+    trunk = new THREE.Group();
+    trunk.name = 'car-wash-trunk';
+    trunk.position.set(geo.trunkRoot[0] * ELE_SCALE, ELE_FOOT + geo.trunkRoot[1] * ELE_SCALE, 0);
+    bulbs = new THREE.Mesh(geo.trunk.bulbs, unlitMaterial({ vertexColors: true }));
+    bulbs.name = 'car-wash-spray-bulbs';
+    // The spray's board lifted like the pink, harder: it stands out past the head where it is in
+    // the shade of nothing but itself, and unlifted it went the grey of the road behind it.
+    const sprayMat = propMaterial({ ao: false });
+    sprayMat.emissive.set(color('elephantSpray')).multiplyScalar(SPRAY_LIFT);
+    trunk.add(shadowed(new THREE.Mesh(geo.trunk.board, boardMat), 'car-wash-trunk-board'),
+      shadowed(new THREE.Mesh(geo.trunk.trim, trimMat), 'car-wash-trunk-trim'),
+      shadowed(new THREE.Mesh(geo.trunk.spray, sprayMat), 'car-wash-spray'), bulbs);
+    sign.add(trunk);
+  }
+  const bulbOff = new THREE.Color(color('elephantBulbOff'));
+  const bulbOn = new THREE.Color(color('elephantBulbOn'));
+  const bulbTint = new THREE.Color();
+  function lightBulbs(lift) {
+    const along = bulbs.geometry.attributes.bulb.array;
+    const col = bulbs.geometry.attributes.color;
+    const a = col.array;
+    for (let i = 0; i < along.length; i++) {
+      bulbTint.lerpColors(bulbOff, bulbOn, bulbLevel(lift, along[i]));
+      a[i * 3] = bulbTint.r;
+      a[i * 3 + 1] = bulbTint.g;
+      a[i * 3 + 2] = bulbTint.b;
     }
+    col.needsUpdate = true;
   }
 
   const group = new THREE.Group();
@@ -471,11 +584,18 @@ export function createCarWash(block, rng) {
     clock += dt;
     for (const s of spinners) s.mesh.rotation[s.axis] += s.rate * dt;
     curtain.rotation.z = 0.22 * Math.sin(clock * 2.1);
-    if (sign) sign.rotation.y = ELE_FACING + ELE_SWAY * Math.sin(swayPhase + clock * ELE_SWAY_RATE);
+    if (!sign) return;
+    sign.rotation.y = ELE_FACING + ELE_SWAY * Math.sin(swayPhase + clock * ELE_SWAY_RATE);
+    // The bob: negative is up, the trunk reaching out toward −x.
+    const lift = Math.sin(swayPhase * 3 + clock * TRUNK_BOB_RATE);
+    trunk.rotation.z = -TRUNK_BOB * lift;
+    lightBulbs(lift);
   }
   update(0);
 
   const entry = { x: anchorX, z: anchorZ, rand };
+  const elephantMeshes = [];
+  sign?.traverse((o) => { if (o.isMesh) elephantMeshes.push(o); });
   return {
     site,
     group,
@@ -486,12 +606,14 @@ export function createCarWash(block, rng) {
     meshes: [shell, glow],
     /**
      * What stands in front of a kerb mark: the stamped meshes and the elephant. It only sways 8°, so
-     * the field `cornerSeen` reads is as true for it as for the shell — and it is 4.7 by 2.8 of
+     * the field `cornerSeen` reads is as true for it as for the shell — and it is 5.0 by 3.2 of
      * board up where a sightline off the next road west can meet it.
      */
-    occluders: [shell, glow, ...(sign ? sign.children : [])],
-    /** The elephant on its pivot (null on `?washsign=classic`), for the probe. */
+    occluders: [shell, glow, ...elephantMeshes],
+    /** The elephant on its pivot (null on `?washsign=classic`), its trunk and its spray's bulbs. */
     sign,
+    trunk,
+    bulbs,
     /** The brushes, the curtain and the elephant move, so the wave grows them on the CPU. */
     entryObjects: [...spinners.map((s) => s.mesh), curtain, ...(sign ? [sign] : [])]
       .map((object) => ({ object, ...entry })),
