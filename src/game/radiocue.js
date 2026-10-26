@@ -3,8 +3,13 @@ import { createSpeech } from './speech.js';
 // "♪ ♫ (turns up the radio)" — the taxi's one line, the first time it rolls out of the garage after
 // the backstory (Tyler, 2026-10-26). The story ends on dispatch talking over the radio; the run opens
 // on the station opening out of the dash speakers into the full mix (`openDash` in game/sfx.js). This
-// is the caption that ties the two together, in the shared speech card (game/speech.js) with its tag
-// on the taxi's roof, so the player reads the change in the music as something the driver did.
+// is the caption that ties the two together, so the player reads the change in the music as something
+// the driver did.
+//
+// **Standing over the taxi, not docked** (Tyler, 2026-10-26). The shared speech card (game/speech.js)
+// docks in its slot over the pedals, and on this frame the pedals are still sliding in under it, so it
+// went unseen. The card is pinned instead (`pinned` + `caption`: the docked card's look, the old
+// placement) with its pointer on the taxi's roof, where the player is looking as the car rolls out.
 //
 // "Turns up" rather than "starts playing": the station is already on, crushed through the dash, from
 // Play and through the doorway shot (`holdReveal` waits for the first song), so the thing that
@@ -24,7 +29,7 @@ import { createSpeech } from './speech.js';
 export const RADIO_CUE_TITLE = 'Car 9';
 export const RADIO_CUE_LINE = '{♪} {♫} (turns up the radio)';
 
-/** Seconds of game time it stays up: dispatch's RADIO_LINGER and a little, as it types in. */
+/** Seconds of game time it stays up: dispatch's RADIO_LINGER and a little. */
 export const RADIO_CUE_SECONDS = 3.6;
 
 // Where the tag touches: just over the taxi's roof sign.
@@ -40,7 +45,7 @@ export function createRadioCue({ project, viewport = null, taxi }) {
   const idle = { state: { open: false }, show: () => {}, hide: () => {}, update: () => {} };
   if (!root || !taxi) return idle;
 
-  const bubble = createSpeech(root, { viewport });
+  const bubble = createSpeech(root, { viewport, pinned: true, caption: true });
   const state = { open: false, left: 0 };
   const at = () => project(taxi.x, TIP_Y, taxi.z);
 
