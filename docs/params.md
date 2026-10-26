@@ -127,6 +127,9 @@ doc; what the classic version was, and why it changed, is in that doc's history 
 | `?racecount=classic` | The race's three, two, one at 40px a third of the way down the screen, rather than 80px just above the middle | | [gameplay.md](gameplay.md#the-street-race) |
 | `?racecut=classic` | The race's winner brakes to a stop at the line for a second before the cut to the loser, rather than the screen cutting to black the moment it crosses | | [gameplay.md](gameplay.md#the-street-race) |
 | `?rocketstart=classic` | No rocket start: Loco pressed on the race count's "2" and held to the green is an ordinary start, with no drift-kick launch | | [gameplay.md](gameplay.md#the-street-race) |
+| `?racefishtail=classic` | No fishtail: Loco held from the race count's "3" (or from before it) to the green is an ordinary start | | [gameplay.md](gameplay.md#the-street-race) |
+| `?raceburnout=classic` | No burnout on the line: Loco held through the race count lights the tailpipe plume only, with no tyre smoke, rubber, squeal or body shake | | [gameplay.md](gameplay.md#the-street-race) |
+| `?raceflag=classic` | The race's chequered flag flies over the turnaround as well as the finish line, rather than the turnaround being the ring alone | | [gameplay.md](gameplay.md#the-street-race) |
 | `?racetank=classic` | The race tops Loco Mode up to a third of a tank at the green, rather than filling it on the "3" | | [gameplay.md](gameplay.md#the-street-race) |
 | `?robbery=classic` | The robbery with no opening cut (straight to the drive-past). Also implies `?bankfare=classic` | #475, #478 | [gameplay.md](gameplay.md) |
 | `?bankfare=classic` | The drive-past robbery instead of the bank rider fare | #499 | [gameplay.md](gameplay.md) |

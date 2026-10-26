@@ -1435,3 +1435,15 @@ when you're ready!") and counting in on its own at `READY_MAX` (15s), since the 
 fare's clock are held until the green. Tyler cut it (briefly cutting "Wanna race?" with it, then
 keeping that): the count now starts when the camera is home. The old `?raceready=classic`, which
 was today's default, went with it.
+
+## The street race's early Loco press (until October 2026, `?racefishtail=classic`)
+
+The rocket start (`ROCKET_COUNT`) first shipped with no penalty for a press that came too early: a
+thumb on the pill from the "3", or from before the count, simply got a plain start. Mario Kart burns
+a press that early out, and the reasoning for not doing so was that nothing tells the player the egg
+exists, and holding the pill through a countdown is what someone who has never heard of it does
+anyway. It was already a little slower than a press on the green as it was: Loco's own `BOOST_KICK`
+goes on with the press, and that press was spent on a parked car (measured headless, 6.4 u/s 0.25s
+after the green against 16.6, and 27.4 for the rocket start). Tyler then asked for the Mario Kart
+version, gentler: "a little fish tail then go".
+
