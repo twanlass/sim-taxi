@@ -386,7 +386,9 @@ on the next frame. Only the station goes through it: the ⚙️ panel's track pr
   suspends it too. The robber's line freezes the world the same way but **not** the sound: a
   suspend there cut the robber's cab door off mid-sample (a click and a ding) and the radio with
   it, which read as the game breaking. The radio ducks under the line instead (`robberDucked` in
-  `src/main.js`).
+  `src/main.js`). The New Move card after a run doesn't hold it either: the run's taxi and radio
+  are already silent by then, and the city's beds come back up under the card (`cityAudio` in
+  `src/main.js`, the `city` flag on `sfx.update`). A mid-run card (`?newmove=classic`) still holds.
 - **Coming back from another app.** Showing the page again resumes the context, and every tap
   resumes it again while it is not running. That was not enough in the iOS app: WKWebView can hand
   back a context that never resumes, or one that says `running` with a clock that has stopped, and

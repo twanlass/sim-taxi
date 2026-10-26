@@ -5697,6 +5697,18 @@ function ltrainFadePoints() {
 }
 const ltrainProbe = new THREE.Vector3();
 
+/**
+ * The city's beds alone, with the run over and the taxi silent — under the New Move card after the
+ * run, which otherwise returns before `sfx.update`. The world is frozen, so the beds hold wherever
+ * they stood; the radio stays faded out (`fadeMusic`), as it is for the rest of the run's end.
+ */
+function cityAudio(dt) {
+  sfx?.update(dt, traffic.taxi, {
+    cruise: SPEED, top: boostCruise(), holding: false, over: true, city: true,
+    ambient: ambientLevels(),
+  });
+}
+
 /** The ambient beds' levels for this frame — handed to `sfx.update` as `ambient`. */
 function ambientLevels() {
   const t = traffic.taxi;
@@ -6710,7 +6722,12 @@ function tick() {
   // click and a ding, and took the radio with it, so the getaway opened on what sounded like the
   // game breaking. The radio ducks under the line instead, and the city keeps its hum while the
   // world holds still.
-  sfx?.hold(Boolean(pause?.state.paused || newMove?.isOpen() || inspect?.state.on || presenterHeld));
+  // Not under the New Move card once the run is over, though: there it is the end of the run's
+  // screens rather than a stop in the middle of one, and the city's beds play under it
+  // (`cityAudio` below; Tyler, 2026-10-26 — the card sounded like the game had gone dead).
+  const cardAfterRun = Boolean(newMove?.isOpen() && fares.state.gameOver);
+  sfx?.hold(Boolean(pause?.state.paused || (newMove?.isOpen() && !cardAfterRun) || inspect?.state.on
+    || presenterHeld));
   const robberTalking = Boolean(robberLine?.isOpen());
   if (robberTalking !== robberDucked) { robberDucked = robberTalking; sfx?.duckMusic(robberTalking); }
   // Drawn once, not every frame. Nothing in the world moves while paused, and a canvas that is not
@@ -6768,6 +6785,7 @@ function tick() {
   if (newMove?.isOpen()) {
     // With a clip, the card draws the frame itself (through the clip camera, under the still).
     if (!newMove.update(dt)) renderFrame();
+    if (cardAfterRun) cityAudio(dt);
     return;
   }
 

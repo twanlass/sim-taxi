@@ -1614,11 +1614,13 @@ export function createSfx({ rng, menuMusic = false, menuSongs = false, radioFade
    *   not the player's yet, so it makes no sound at all — the city's beds and one-shots carry on
    *   (Tyler, October 2026: the menu is effects only, and the idle under it read as the run having
    *   started). Unlike `over` it leaves the siren and the rotor alone, which are the city's.
+   * @param {boolean} [opts.city]  Keep the city's beds up through `over` — the New Move card after
+   *   the run, which films the city and sounded dead without them (Tyler, 2026-10-26).
    * @param {number} [opts.siren]  0..1, how loud the nearest running siren is from where the taxi
    *   is — main.js works it out from distance (see `sirenLevel` there). 0 is no siren on the map.
    */
   function update(dt, taxi, {
-    cruise, top, holding, over, menu = false, siren: sirenAt = 0, rotor: rotorAt = 0, ambient: places = {},
+    cruise, top, holding, over, menu = false, city = false, siren: sirenAt = 0, rotor: rotorAt = 0, ambient: places = {},
   }) {
     // Not `ready`: that waits for every file, and the beds start as their own files land (`start`).
     // Every voice below is null-checked until then.
@@ -1715,7 +1717,8 @@ export function createSfx({ rng, menuMusic = false, menuSongs = false, radioFade
       if (!bed) continue;
       bed.src.playbackRate.setTargetAtTime(mix.sounds[key].rate, t, 0.02);
       const at = places[key] ?? { level: 0 };
-      aim(bed, key, over ? { ...at, level: 0 } : at, over ? 0.6 : 0.5);
+      const quiet = over && !city;
+      aim(bed, key, quiet ? { ...at, level: 0 } : at, quiet ? 0.6 : 0.5);
     }
   }
 
