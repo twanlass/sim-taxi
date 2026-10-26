@@ -72,7 +72,7 @@ export const OVERTAKE_PRESS_GRACE = 0.5;
 
 /**
  * @param taxi   the traffic model's taxi; reads `passGap`, `dodgeGap`, `passLeader` and `passing`, writes
- *               `passArmed`, `passPending` and `passGrace`
+ *               `passArmed`, `passArmedFor`, `passPending` and `passGrace`
  * @param grace  seconds of OVERTAKE_GRACE to give a newly caught car; 0 rams on contact (the
  *               probe and the bot pass it explicitly)
  * @param pressGrace  seconds of OVERTAKE_PRESS_GRACE to give a fresh press behind a car;
@@ -112,6 +112,7 @@ export function createOvertakeCombo({ taxi, grace = 0, pressGrace = grace > 0 ? 
     graceFor = null;
     graceLeft = 0;
     taxi.passArmed = false;
+    taxi.passArmedFor = null;
     taxi.passPending = false;
     taxi.passGrace = false;
   }
@@ -127,6 +128,9 @@ export function createOvertakeCombo({ taxi, grace = 0, pressGrace = grace > 0 ? 
         state.armed = true;
         state.armLeft = OVERTAKE_ARM_WINDOW;
         state.arms += 1;
+        // Who it was thrown at — sim/traffic.js lets an arm pull out on the back half of a corner
+        // only for that car (`cornerOut`), not for one an arm carried on its window found there.
+        taxi.passArmedFor = taxi.passLeader ?? null;
       }
       blip = null;
       heldFor = 0;

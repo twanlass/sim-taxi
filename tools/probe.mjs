@@ -6355,6 +6355,62 @@ const PRESSURE_END = difficulty.getTuning().pressureEnd;
     boxed.arms === 1 && boxed.pulledIn === 'turn' && boxed.peak > 0.95,
     `${boxed.arms} arms, pulled out in state ${boxed.pulledIn}, pass peaked at ${boxed.peak.toFixed(2)}`);
 
+  // Round a corner: a truck parked 6 units into the lane past the turn (the fire engine's stop), and
+  // the combo thrown half way through the arc. The taxi used to be blind to it there — it is listed
+  // on the entry lane for the first 60% of a turn, whose look ahead runs straight on — so the blip
+  // never armed; and once it did, the taxi came to rest in the box behind the truck's tail and an
+  // armed combo that only decides on a lane could never fire (`cornerOut` in traffic.js).
+  const cornerStage = (hand) => {
+    const net = cityNetwork();
+    let st = null;
+    for (let i = 1; i < GRID_I && !st; i++) {
+      for (let j = 1; j < GRID_J && !st; j++) {
+        for (const d of [1, 3, 0, 2]) {
+          const d2 = hand === 'right' ? rightOf(d) : leftOf(d);
+          if (ringAxisAt(i, j) || approachRoom(d, i, j) < 12 || !legalExits(d, i, j).includes(d2)) continue;
+          const n = nextIntersection(d2, i, j);
+          const exit = n && net.laneByGrid(d2, n.i, n.j);
+          if (!exit || !legalExits(d2, n.i, n.j).includes(d2) || !net.laneByGrid(opposite(d2), i, j)) continue;
+          st = { i, j, d, d2, n, exit };
+          break;
+        }
+      }
+    }
+    if (!st) return null;
+    const cTraffic = createTraffic(makeRng(seed + 137), new THREE.Scene(), 2);
+    const [cTaxi, cTruck] = cTraffic.cars;
+    cTaxi.hp = TAXI_HP;
+    placeCar(cTaxi, st.d, st.i, st.j, 10);
+    cTaxi.route = [st.d2, st.d2, st.d2]; cTaxi.parked = false;
+    placeCar(cTruck, st.d2, st.n.i, st.n.j, st.exit.length - 6);
+    cTruck.route = [st.d2]; cTruck.parked = false; cTruck.isTruck = true;
+    cTruck.roadblock = Infinity; cTruck.v = 0;
+    const cCollisions = createCollisions(cTraffic.cars, cTaxi);
+    let hits = 0;
+    cCollisions.onBump(() => { hits += 1; });
+    const combo = createOvertakeCombo({ taxi: cTaxi, grace: OVERTAKE_GRACE });
+    const blipFrames = Math.floor((OVERTAKE_BLIP_MS / 1000) * 60 * 0.5);
+    let blipAt = null;
+    let peak = 0;
+    for (let f = 0; f < 60 * 4; f++) {
+      if (blipAt === null && cTaxi.state === 'turn' && cTaxi.turnT > 0.5) blipAt = f;
+      const off = blipAt !== null && f >= blipAt && f < blipAt + blipFrames;
+      cTaxi.boost = true;
+      cTaxi.boostEasing = off;
+      combo.update(1 / 60, { held: !off });
+      cTraffic.update(1 / 60);
+      cCollisions.update(1 / 60);
+      peak = Math.max(peak, cTaxi.pass);
+    }
+    return { arms: combo.state.arms, peak, hits, overtakes: cTaxi.overtakes };
+  };
+  for (const hand of ['left', 'right']) {
+    const c = cornerStage(hand);
+    check(`a combo thrown in a ${hand} turn gets round a truck parked just past the corner`,
+      c && c.arms === 1 && c.peak > 0.95 && c.hits === 0 && c.overtakes === 1,
+      c ? `${c.arms} arms, pass peaked at ${c.peak.toFixed(2)}, ${c.hits} bumps, ${c.overtakes} overtakes` : 'no corner to stage on');
+  }
+
   // 2. A boosting taxi turning left used to stop dead under a green: the oncoming lane shares its
   // axis, so it kept its green, and the left-turn yield then refused to let the taxi go — waiting
   // on a car that was itself waiting. The priority hold now denies that one direction (`block` in

@@ -1267,6 +1267,20 @@ for the far side; behind a slow truck the taxi spends much of its time in the bo
 against classic's 13 of 32, and the ones it rams are mostly cars it caught too late to blip before
 the ram.
 
+**Round a corner.** The combo sees the car round the corner the taxi is turning (or about to turn)
+into, not whatever is straight on past the box: `passGap` and `passLeader` are read off the exit
+lane for the run-up and the first 60% of the arc, where the lane lists still have the taxi in its
+entry lane. And a combo thrown at a car parked or creeping (`DODGE_CREEP`) just round the corner
+pulls out on the back half of the turn (`cornerOut`), where the taxi would otherwise come to rest in
+the box with its nose on the car's tail and an arm that only fires on a lane. This was the fire
+engine parked a few units past a corner (Tyler, 2026-10-26: "unable to overtake the fire truck").
+Staged with a car or a parked truck 3-10 units round a left or right, a blip in the middle of the
+turn passed 0 of 12 before and 12 of 12 after, one of them bumping a truck whose tail is 3 units
+into the lane. Only for the car the combo was armed behind (`passArmedFor`), or an arm carried on
+its window into the next corner fires at the queue there and into the cars waiting in the lane it
+borrows. Over 24 cities × 60s the overtake bot pulled out in 5 corners and bumped something in 4 of
+them, all cars waiting at the junction in the borrowed lane; that is the player's call, as on a lane.
+
 **Making it executable** (Tyler, 2026-10-06: "really hard to execute"). A bot playing the combo —
 Loco held, a 250ms reaction to a car within 20 units, then a release — measured where it failed:
 
