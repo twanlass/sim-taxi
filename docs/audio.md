@@ -136,10 +136,10 @@ sound ships at 0 dB, as the designer recommended. The exceptions are ours: `copS
 drive-through speaker (October 2026, not the designer's, converted from an MP3 to a 48 kHz WAV
 master) arrived hotter than Block 1, so it is levelled to it. Measured as RMS off the master
 (ffmpeg was not to hand; RMS reads the idle at −34.3, matching its −34 LUFS), it is −22.5 dB. Its
-second take (Tyler's ElevenLabs "Dub Burger" read, 2026-10-26) arrived clean, so the intercom is
-ours: band-limited to 320–3300 Hz, compressed, soft-clipped, a light bit-crush, and a pink hiss plus
-a ticking high crackle under it (a floor about 22 dB below the voice), then matched to the first
-take's −21.7 LUFS so the shipped gain stays put. Encoded with ffmpeg's AAC, like the horn. The
+second take (Tyler's ElevenLabs "Dub Burger" read, 2026-10-26) ships clean, only turned down 5.6 dB
+to the first take's −21.7 LUFS so the shipped gain stays put. An intercom pass on top of it
+(band-limited, bit-crushed, hiss and crackle) was tried and Tyler threw it out: "sounds horrible".
+Encoded with ffmpeg's AAC, like the horn. The
 siren was once our own stand-in too (`16_POLICE_siren_loop`, −10.1 dB, shipped at 0.18); Block 2's
 `25_NPC_siren_loop` replaced it and ships at 0 dB.
 
