@@ -425,7 +425,7 @@ extra width out of the blocks either side of it and `blockBounds` cannot answer 
 `city/garage.js`. One block per city is `type: 'garage'` instead of `'built'`, which takes it out
 of the tower generator's hands (`createBuildings` only walks `'built'` blocks) and leaves it for the
 taxi's own depot: a single-storey shed at the back of the block with a roller door on the street, a
-3-unit asphalt forecourt, and a dropped kerb the taxi comes off in
+3-unit forecourt that is simply the block's own pavement, and a dropped kerb the taxi comes off in
 [the opening vignette](gameplay.md#the-opening-vignette). It is painted in the cab company's own
 colours and carries a neon taxi sign on its roof — see [the livery](#the-livery) and
 [the sign](#the-roof-sign-and-what-is-derived-from-it) below.
@@ -503,10 +503,14 @@ the bloom (kind `window`), like the sign. `?depotneon=classic` leaves it off.
 it fades on. Their thresholds sit at 0.1–0.22, early, with the shops. Only a city with weather has
 the switch, so they exist only when `rain.enabled`. `?depotwindows=classic` leaves them dark.
 
-The forecourt gets **two guide lines** out of the bay — the last thing still wearing `garageSign`,
-which is `taxiBody`'s own hex, because two lines on the ground where the car is about to be are the
-one place reading the taxi's yellow is the point. They are a third level on the block: `PAVEMENT_Y`
-is the paving, `APRON_Y` the asphalt on it, `PAINT_Y` the paint on that, named off each other the
+The forecourt is the block's own pavement, with no slab of its own: a slab a centimetre proud in
+`sidewalk` still drew its edges as seams. The dropped kerb under it cannot
+show for itself — the pavement is a solid 0.36 block, so a slope from its top to the road is buried
+in it for its whole run, and when its high end sat above the slab all that surfaced was its top
+edge as a hairline across the drive. It is sunk under the slab now and shows only as its lip. `?driveway=classic` is the asphalt forecourt, with the **two guide lines** out of the bay in
+`garageSign`, `taxiBody`'s own hex. The levels are a third
+storey on the block: `PAVEMENT_Y` is the paving, `APRON_Y` the forecourt slab on it, `PAINT_Y` the
+classic lines on that, named off each other the
 way [the burger joint](#the-burger-joint-and-its-drive-through) names its apron. They also stop
 `KERB_RUN` short of the lip, where the dropped kerb starts falling away — a level strip carried out
 over a ramp is buried in it at one end and hanging over it at the other.
@@ -680,7 +684,9 @@ building, and `tools/probe.mjs` asserts the clearance rather than trusting it.
 
 ### Three flat surfaces, at three different heights
 
-The lot stacks the block's own pavement, the joint's asphalt apron, and the paint on that apron —
+The lot stacks the block's own pavement, the joint's apron (paved in the same `sidewalk` concrete,
+its lane painted in `drivewayPaint` amber since white `laneMark` is the pavement's own value;
+`?driveway=classic` is the old asphalt and white), and the paint on that apron —
 and each has to sit at a *different* height from the one under it. Coplanar is not "just touching":
 it is two polygons the depth buffer cannot separate, and it ships as the ground shimmering when the
 camera moves. The first cut of the apron put its top face at `KERB_H + 0.01`, which is exactly where

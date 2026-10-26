@@ -816,6 +816,8 @@ const garage = layout.garageBlock
     trim: new URLSearchParams(window.location.search).get('depotneon') !== 'classic',
     // `?signflames=classic`: no tailpipe on the cutout and no backfire out of it.
     flames: new URLSearchParams(window.location.search).get('signflames') !== 'classic',
+    // `?driveway=classic`: the forecourt in asphalt with its yellow guide lines.
+    driveway: new URLSearchParams(window.location.search).get('driveway') === 'classic' ? 'classic' : 'paved',
   })
   : null;
 if (garage) {
@@ -840,12 +842,15 @@ if (depotPanes) {
 // the one building in the city with something on it that moves. `null` on a city with nowhere to
 // put one, exactly as the depot is, and handled the same way all the way down: no joint, no
 // drive-through, and nothing else notices. See city/burgerjoint.js.
-const burger = layout.burgerBlock ? createBurgerJoint(layout.burgerBlock, makeRng(seed + 111)) : null;
+// `?driveway=classic` lays the drive-through's lot (and the depot's forecourt) in asphalt.
+const burger = layout.burgerBlock ? createBurgerJoint(layout.burgerBlock, makeRng(seed + 111), {
+  driveway: new URLSearchParams(window.location.search).get('driveway') === 'classic' ? 'classic' : 'paved',
+}) : null;
 if (burger) {
   scene.add(burger.group);
   // The shell and the lit windows, not the sign: `markOccluder` is the AO prepass, and a burger
   // turning three units above a roof has nothing under it to crease.
-  burger.meshes.forEach(markOccluder);
+  burger.occluders.forEach(markOccluder);
   // ...and the whole joint is tappable, which is the secret: it sends the taxi through the
   // drive-through for a splash of boost (game/burgerrun.js). Tagged on the root group, so the walk
   // up the ancestors that `createPicker` already does answers for the shell, the lit windows and

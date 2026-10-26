@@ -720,7 +720,7 @@ export const LANDMARK = {
   id: 'burger', label: 'Burger joint', create: createBurgerJoint, glow: (b) => [[b.glow, 'window']],
 };
 
-export function createBurgerJoint(block, rng) {
+export function createBurgerJoint(block, rng, { driveway = 'paved' } = {}) {
   const site = burgerSite(block);
   const { wall, apron, laneX, kerbZ, kerbX, turnZ, exitZ, orderZ, pickupZ } = site;
 
@@ -733,7 +733,9 @@ export function createBurgerJoint(block, rng) {
   const band = color('burgerBand');
   const trim = color('burgerTrim');
   const glass = color('shopfront');
-  const paint = color('laneMark');
+  // White lane paint on asphalt; on the paved lot white is the pavement's own value, so the lane
+  // goes amber (`drivewayPaint`, which explains the arithmetic).
+  const paint = color(driveway === 'classic' ? 'laneMark' : 'drivewayPaint');
 
   const parts = [
     // The apron: asphalt laid over the pavement from the building's near face out to both kerbs.
@@ -742,8 +744,11 @@ export function createBurgerJoint(block, rng) {
     // rectangle of tarmac with a lane painted on it. Its underside sits *on* the pavement rather
     // than sunk into it: the apron runs out to the kerb line, and a slab reaching below `KERB_H`
     // there laid a centimetre of its own riser on the kerb's face (tools/zfight.mjs).
+    //
+    // Paved in the block's own `sidewalk` since Tyler asked for concrete (2026-10-26), so what says
+    // "cars come in here" is the lane paint and the dropped kerbs. `?driveway=classic` is asphalt.
     span(apron.x0, apron.x1, PAVEMENT_Y, APRON_Y, apron.z0, apron.z1,
-      jitterColor(color('asphalt'), rng, { l: 0.02 })),
+      jitterColor(color(driveway === 'classic' ? 'asphalt' : 'sidewalk'), rng, { l: 0.02 })),
 
     // The mass, the band round the top of it, and the cap on that. The band oversails the walls by
     // 0.2 on every side, which is the whole read of a mansard: a lid a size too big for the box
@@ -792,8 +797,6 @@ export function createBurgerJoint(block, rng) {
     // hanging off one leg (the workshop bench, 2026-10-16). Both stand `CANOPY_POST` off the lane
     // centre, beside the car rather than ahead of it, so the front one is no more in a driver's way
     // than the back: the clearance is across the lane, and the car runs along it.
-    box(0.2, base + CANOPY_Y - 0.3, 0.2, laneX + CANOPY_POST, 0, pickupZ + 1.55, trim),
-    box(0.2, base + CANOPY_Y - 0.3, 0.2, laneX + CANOPY_POST, 0, pickupZ - 1.55, trim),
 
     // The pole the sign turns on, and the plinth it comes out of. Both part of the shell and not
     // part of the sign: a pole that turned with the burger would be a barber's pole.
@@ -826,6 +829,27 @@ export function createBurgerJoint(block, rng) {
   const anchorZ = (wall.z0 + wall.z1) / 2;
   const rand = hash01(anchorX, anchorZ);
   const stampAll = (geo) => stampEntry(geo, anchorX, anchorZ, rand);
+
+  // A post at each corner of the canopy's far edge. There was only the back one, and the canopy
+  // read as hanging off one leg (the workshop bench, 2026-10-16). Both stand `CANOPY_POST` off the
+  // lane centre, beside the car rather than ahead of it, so the front one is no more in a driver's
+  // way than the back: the clearance is across the lane, and the car runs along it.
+  //
+  // Their own mesh, kept **out of the AO prepass** and not receiving it. A 0.2-wide post is a few
+  // AO texels across, and the depth Laplacian reads one standing just in front of the ground as a
+  // crease all the way up its lower half; the half-res buffer then bleeds that onto the lot either
+  // side, a post-shaped smear under each leg. Invisible on asphalt, a dark ghost once the lot was
+  // paved pale (Tyler, 2026-10-26). The sun shadow is what grounds them.
+  const postParts = [
+    box(0.2, base + CANOPY_Y - 0.3, 0.2, laneX + CANOPY_POST, 0, pickupZ + 1.55, trim),
+    box(0.2, base + CANOPY_Y - 0.3, 0.2, laneX + CANOPY_POST, 0, pickupZ - 1.55, trim),
+  ];
+  postParts.forEach(stampAll);
+  const posts = new THREE.Mesh(mergeGeometries(postParts, false), propMaterial({ ao: false }));
+  postParts.forEach((p) => p.dispose());
+  posts.castShadow = true;
+  posts.receiveShadow = true;
+  posts.name = 'burger-posts';
 
   parts.forEach(stampAll);
   const shell = new THREE.Mesh(mergeGeometries(parts, false), propMaterial());
@@ -880,7 +904,7 @@ export function createBurgerJoint(block, rng) {
   signPivot.add(sign);
 
   const group = new THREE.Group();
-  group.add(shell, glow, signPivot);
+  group.add(shell, glow, posts, signPivot);
 
   /** Turn the sign. One rotation and no state, so a paused frame simply stops being advanced. */
   function update(dt, spin = SIGN_SPIN) {
@@ -896,8 +920,11 @@ export function createBurgerJoint(block, rng) {
     sign,
     signPivot,
     update,
-    /** Both stamped meshes, for the city's entrance wave and for the AO prepass. */
-    meshes: [shell, glow],
+    posts,
+    /** Every stamped mesh, for the city's entrance wave and its sightline field. */
+    meshes: [shell, glow, posts],
+    /** ...less the canopy posts, for the AO prepass (see `posts` above). */
+    occluders: [shell, glow],
     /**
      * ...and the sign, which the wave has to grow on the CPU instead. The **pivot** goes in, not
      * the mesh: scaling it takes the burger with it and leaves the lean alone, where scaling the

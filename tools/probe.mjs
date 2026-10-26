@@ -16971,11 +16971,24 @@ let chopperOrder; // likewise
     // The forecourt's guide lines, against the asphalt they are laid on. Same rule, laid flat: two
     // horizontal surfaces at one height is the shimmer `city/burgerjoint.js` names its apron levels
     // to avoid, and the depot has the same three levels to keep apart.
+    //
+    // The lines are only drawn under `?driveway=classic` now (the default drive is plain asphalt),
+    // so these two checks read that build, and a third asserts the default has none.
+    let lowYellow = 0;
+    for (let i = 0; i < pos.count; i++) if (at(i) === YELLOW && pos.getY(i) < KERB_H + 0.1) lowYellow++;
+    check('the default forecourt has no guide lines on it', lowYellow === 0,
+      `${lowYellow} yellow vertices at forecourt height`);
+    const lined = createGarage(layout.garageBlock, makeRng(seed + 99), { driveway: 'classic' });
+    const lpos = lined.shell.geometry.attributes.position;
+    const lcol = lined.shell.geometry.attributes.color;
+    const lat = (i) => new THREE.Color(lcol.getX(i), lcol.getY(i), lcol.getZ(i)).getHexString();
     let paintTop = -Infinity;
     let paintFar = -Infinity;
     let surfaceTop = -Infinity;
     const RAMP_FROM = site.kerbX - 1.5;
-    for (let i = 0; i < pos.count; i++) {
+    for (let i = 0; i < lpos.count; i++) {
+      const pos = lpos;
+      const at = lat;
       if (at(i) === YELLOW && pos.getY(i) < KERB_H + 1) paintFar = Math.max(paintFar, pos.getX(i));
       // The flat part of the forecourt: from just behind the threshold out to where the dropped
       // kerb starts falling. The ramp is outside the window on purpose — it is a slope, and what is
@@ -17457,12 +17470,16 @@ let chopperOrder; // likewise
     const CAR_TOP = KERB_H + 2.2;
     const p = joint.shell.geometry.attributes.position;
     let fouled = 0;
-    for (let i = 0; i < p.count; i++) {
-      const y = p.getY(i);
-      if (y < KERB_H + 0.1 || y > CAR_TOP) continue;
-      const z = p.getZ(i);
-      if (z < site.turnZ || z > site.kerbZ) continue;     // only alongside the straight run
-      if (Math.abs(p.getX(i) - site.laneX) < CAR_W / 2 + 0.15) fouled += 1;
+    // The canopy posts are their own mesh (kept out of the AO prepass), and they are the very
+    // thing this check once caught, so both meshes are walked.
+    for (const q of [p, joint.posts.geometry.attributes.position]) {
+      for (let i = 0; i < q.count; i++) {
+        const y = q.getY(i);
+        if (y < KERB_H + 0.1 || y > CAR_TOP) continue;
+        const z = q.getZ(i);
+        if (z < site.turnZ || z > site.kerbZ) continue;     // only alongside the straight run
+        if (Math.abs(q.getX(i) - site.laneX) < CAR_W / 2 + 0.15) fouled += 1;
+      }
     }
     check('and nothing it is made of stands in the lane at car height', fouled === 0,
       `${fouled} vertices inside the car's envelope`);
@@ -20518,7 +20535,7 @@ let chopperOrder; // likewise
   // Asserted as the overlap it actually is rather than as a number, so it stays true if either
   // draw list changes.
   const blJoint = createBurgerJoint(layout.burgerBlock, makeRng(seed + 111));
-  blJoint.meshes.forEach(markOccluder);
+  blJoint.occluders.forEach(markOccluder);
   mark(blJoint.glow, 'window');
   const selfOccluding = mine.filter((m) => occluderList().has(m));
   check('the depth bias is paid for by lamps that are their own occluders',
@@ -20527,7 +20544,7 @@ let chopperOrder; // likewise
 
   // Module state, so put back what this block added.
   mine.forEach(unmarkEmissive);
-  blJoint.meshes.forEach(unmarkOccluder);
+  blJoint.occluders.forEach(unmarkOccluder);
   check('unmarking empties what was marked',
     mine.every((m) => !emissiveList().has(m)));
 }
