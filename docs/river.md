@@ -615,11 +615,13 @@ the blind spot shrinks; the price is that the camera-side half now stands betwee
 part of the channel, which the one far-hinged leaf was placed to avoid.
 
 The soffit is a related decision and a bigger one than it sounds. Raised, the leaf turns its belly
-through the view axis, so **the underside is the whole of what the camera sees**. In the pale
-`bridgeTrim` it presented a blank panel the size of a block at the same value as the buildings
-behind it: the one moment in the game with a bridge standing on end read as a flat card lying on the
-skyline. `bridgeSoffit` is luma 74 — the darkest surface in the city bar a roadworks trench, which
-is right twice over.
+through the view axis, so **the underside is the whole of what the camera sees** — on the far leaf
+of the split bridge, the one hinged on the far bank. It wears its own `drawbridgeSoffit`, a poured
+concrete at luma ~150: under the deck's 169 so it reads as the shaded side, and well under
+`bridgeTrim`'s 198 so the edge beams outline it and the leaf reads as a slab with edges rather than
+a card. The fixed spans keep the dark `bridgeSoffit`, where only the water sees it. Before
+2026-10-26 the leaf was dark too, which read as a missing face rather than a moving bridge
+([rendering-history.md](rendering-history.md#drawbridge-soffit)).
 
 Its **running** surface is the opposite decision, and it is the one the player reads from across the
 map *before* anything moves. `drawbridgeDeck` is a cool luma 136 against `bridgeDeck`'s 100 and the

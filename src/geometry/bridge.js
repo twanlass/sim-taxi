@@ -320,7 +320,9 @@ export function bridgeParts(span, rng, range = [0, 1], { capCut = false } = {}) 
   const walkCol = jitterColor(PALETTE.sidewalk, rng, { l: 0.03 });
   const markCol = color('laneMark');
 
-  const soffitCol = jitterColor(PALETTE.bridgeSoffit, rng, { l: 0.02 });
+  const soffitCol = jitterColor(
+    span.kind === 'draw' ? PALETTE.drawbridgeSoffit : PALETTE.bridgeSoffit, rng, { l: 0.02 },
+  );
   // A surface that follows the profile, coloured and given the arch's normals (`bendNormals`). A
   // flat leaf's face normals are already the answer.
   const bend = rise > 0 && !BRIDGE_NORMALS_CLASSIC;

@@ -891,3 +891,14 @@ strip on the bank line and a pale concrete approach slab behind it, on the road 
 receive-only paint at the lane-marking height (`jointParts`, geometry/bridge.js). Removed because at
 play zoom the pair read as a thick crossing band rather than a seam (Tyler: "I don't think they're
 reading very well. They look too chunky as well"). `?bridgemarks=classic` restores them.
+
+## Drawbridge soffit
+
+Until 2026-10-26 the lifting leaf's underside was `bridgeSoffit` (#4A4844, luma 74), the darkest
+surface in the city bar a roadworks trench. Before that it had been `bridgeTrim`'s pale concrete,
+which raised presented a blank panel the size of a block at the same value as the buildings behind
+it and read as a flat card on the skyline; the dark soffit fixed that, and on a phone read instead
+as a black slab, a rendering bug rather than a bridge (Tyler: "the black looks like a rendering
+bug"). The current `drawbridgeSoffit` sits between the two, under the trim so the edge beams still
+outline it.
+

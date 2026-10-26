@@ -1149,6 +1149,14 @@ export const PALETTE = {
   // Under the dark roads it wears the same light deck as the fixed spans (`?roads=classic`: #87888C);
   // the counterweight houses and the gate still say which one lifts.
   drawbridgeDeck: '#A9A9A5',
+  // The **lifting** span's underside, which is what the far leaf turns to the camera when it stands
+  // up. It was `bridgeSoffit`'s luma 74 for legibility, and raised it read as a black slab — a
+  // missing face rather than a moving bridge (Tyler, 2026-10-26: "the black looks like a rendering
+  // bug"). Poured concrete instead, at luma ~150: under the deck's 169 so the belly still reads as
+  // the shaded side, and well under `bridgeTrim`'s 198 so the edge beams keep outlining it — the
+  // pale-trim belly that read as a flat card on the skyline was that 198 with no outline at all.
+  // The fixed spans and the water's soffit reflection keep `bridgeSoffit`.
+  drawbridgeSoffit: '#9A968D',
   // The line down the middle where the two leaves of the split drawbridge meet: the last sliver of
   // each nose beam (geometry/bridge.js), so the break reads as a crack raised or lowered.
   drawbridgeSeam: '#151618',
