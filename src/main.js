@@ -168,6 +168,7 @@ import { getActiveShot, getSeed, getRunSeed, getCarCount, getDifficultyPin, getD
 import { createParcelSystem, TAP_MAX_DETOUR } from './game/parcels.js';
 import { createRobbery } from './game/robbery.js';
 import { createRadio, LOST_CALL, ROBBERY_CALL } from './game/radio.js';
+import { createRadioCue, RADIO_CUE_LEAD } from './game/radiocue.js';
 import { createDepotCall } from './game/depotcall.js';
 import { createOrderTalk } from './game/ordertalk.js';
 import {
@@ -1119,6 +1120,16 @@ const depotRun = garage && !shot
 // on the frame it happens. See game/radio.js. Built whether or not the city has a bank, because the
 // patrol cruiser's chase talks on the same channel (game/patrol.js).
 const radio = !shot ? createRadio({ project: projectToScreen, viewport }) : null;
+// The taxi's "♪ ♫ (turns up the radio)" as it first rolls out after the backstory, tying dispatch's
+// story to the station opening out of the dash. See game/radiocue.js; `?radiocue=classic` is without.
+const radioCue = !shot && new URLSearchParams(window.location.search).get('radiocue') !== 'classic'
+  ? createRadioCue({ project: projectToScreen, viewport, taxi: traffic.taxi }) : null;
+// Set when the backstory is told; the cue goes up on the first frame after Play that the taxi is out
+// of its garage (the same test as the dash radio's `openDash`), and clears.
+let radioCueDue = false;
+// Seconds the pedals and the HUD wait after the cue starts to leave, so it is on its way out before
+// they rise in under it (`RADIO_CUE_LEAD`); 0 otherwise.
+let radioCueLeaving = 0;
 // The depot's repair tip: a line in the speech card with its tag on the garage door, the first time
 // the taxi smokes in a run, until the player has once sent it in. `?repairtip=classic` is the New
 // Move-style card with the clip that it replaced. See game/depotcall.js.
@@ -6249,6 +6260,7 @@ function speakBackstory(i) {
   };
 }
 function startBackstory(screen, done) {
+  if (radioCue) radioCueDue = true;
   tellBackstory(screen, { done, speak: speakBackstory });
   // The camera goes to the garage and drifts there while dispatch talks (`storyFrame`) — so Play
   // then eases down onto the door from close by. Off the slide it flies there (`STORY_GLIDE`),
@@ -6981,6 +6993,10 @@ function tick() {
   // reads them on the same frame. See game/opening.js for the staging split.
   opening?.update(dt);
   if (sfx?.state.dashRadio && !(opening?.running() && DASH_PHASES.has(opening.phase()))) sfx.openDash();
+  if (radioCueDue && runBegun && !parked() && !(opening?.running() && DASH_PHASES.has(opening.phase()))) {
+    radioCueDue = false;
+    radioCue.show();
+  }
   // The pedals arrive the moment the taxi is the player's to drive — on the lane, with the
   // vignette's pull-back still running — rather than with the rest of the HUD. They used to wait
   // for `hud-ready`, which is the *tutorial's* second beat being answered: the pull-back, a
@@ -6990,12 +7006,15 @@ function tick() {
   // standing in front of. A press during the rider beat ends it, by design (`holdLocoMode`).
   // The squall's crossings count from here too: its first cell is `FIRST` seconds of driving away,
   // not of title menu and garage door (game/squall.js).
-  if (!pedalsShown && pedalsDue()) { pedalsShown = true; revealPedals(); squall?.begin(); }
+  // The radio cue, if it is still up, goes first and the pedals follow `RADIO_CUE_LEAD` behind it.
+  if (!pedalsShown && pedalsDue() && radioCue?.state.open) { radioCue.hide(); radioCueLeaving = RADIO_CUE_LEAD; }
+  if (radioCueLeaving > 0) radioCueLeaving = Math.max(0, radioCueLeaving - dt);
+  if (!pedalsShown && pedalsDue() && radioCueLeaving <= 0) { pedalsShown = true; revealPedals(); squall?.begin(); }
   // ...and the HUD steps off its edges whenever the taxi is in the garage: the opening before the
   // car is out of the door, and a repair visit from the turn-in until it is back on the lane. The
   // same `release` the pedals wait on, so a run's first arrival and every return from the depot
   // are one beat. See the HUD exit block in index.html.
-  setHudAway(!pedalsLive());
+  setHudAway(!pedalsLive() || radioCueLeaving > 0);
   // ...and the drive-through is the same claim about somebody else's car: while one is in the lot
   // this is its physics, so it has to have written the position before the render pass reads it.
   driveThru?.update(dt);
@@ -7345,6 +7364,7 @@ function tick() {
   // each stop the world, and an event firing behind any of them is one the player never saw.
   if (!fareLoopHeld()) robbery?.update(dt);
   radio?.update(dt, { over: fares.state.gameOver });
+  radioCue?.update(dt, { over: fares.state.gameOver });
   copShout?.update(dt, { over: fares.state.gameOver });
   orderTalk?.update(dt, { over: fares.state.gameOver });
   hitCue?.update(dt, traffic.taxi);

@@ -55,6 +55,13 @@ const PUNCH_KEYS = [[1, 1, 0], [1.03, 1.4, -3], [1.025, 1.32, 2.5], [1.03, 1.35,
 
 // Where the card's bottom edge sits, as a fraction of the screen's height.
 const STORY_CARD_BOTTOM = 0.76;
+/**
+ * The story card's slot as a `dockFloor` for createSpeech (game/speech.js): its bottom edge
+ * three quarters of the way down. The slot adds `DOCK_LIFT` (24 px) above whatever floor it is
+ * handed, so the floor is set that far below the line. The taxi's radio cue (game/radiocue.js)
+ * docks here too, so the story's last line and the car's answer land in the same place.
+ */
+export const storyDockFloor = (vh) => vh * STORY_CARD_BOTTOM + 24;
 
 // Through progress.js, so Demo mode tells it on every Play and writes nothing.
 let seenFlag = null;
@@ -105,10 +112,9 @@ export function tellBackstory(root, { done, lines = BACKSTORY_LINES, speak = () 
   let over = false;
   let raf = 0;
   // Its bottom edge three quarters of the way down (Tyler, 2026-10-22: the foot of the screen sat
-  // too low), clear of the garage the camera holds in the middle. The slot adds `DOCK_LIFT` (24 px)
-  // above whatever floor it is handed, so the floor is set that far below the line.
+  // too low), clear of the garage the camera holds in the middle (`storyDockFloor`).
   const bubble = createSpeech(talk, {
-    typing: true, onDismiss: () => next(), dockFloor: (vh) => vh * STORY_CARD_BOTTOM + 24,
+    typing: true, onDismiss: () => next(), dockFloor: storyDockFloor,
   });
   // Docked, the card ignores its target; under `?bubbles=classic` it points at the lower middle.
   const below = () => ({ x: window.innerWidth / 2, y: window.innerHeight * 0.72 });
