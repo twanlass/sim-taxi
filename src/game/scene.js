@@ -264,12 +264,23 @@ export function createScene({ shadowMapSize = 2048 } = {}) {
   sun.shadow.camera.bottom = -extent;
   sun.shadow.camera.near = 1;
   sun.shadow.camera.far = MAX_SPAN * 3;
-  sun.shadow.bias = -0.0006;
-  sun.shadow.normalBias = 0.06;
+  sun.shadow.bias = -0.0002;
+  sun.shadow.normalBias = 0.045;
   // Both are the *city's* numbers: buildings are solid boxes, so the shadow map records a far
   // wall a long way behind the face being lit and there is nothing to fight. A bridge is the one
   // caster in this game that is a thin shell, and it needs `sinkShadowCaster` below rather than
   // more of these — see the arithmetic there for why raising either one is the wrong trade.
+  //
+  // **Every unit of bias is light leaking under a wall.** The bias slides a receiver toward the sun
+  // before it is compared, so the ground right at a wall's foot reads as lit for as far as the bias
+  // reaches, and PCF smears that edge across its kernel: at -0.0006 (0.215 units down the ray)
+  // every building stood in a strip of sunlight on the pavement it should have been shading —
+  // reported on the depot, whose pale forecourt shows it best. It was that high because flat roofs
+  // were thin shells too: the deck floor 0.04-0.12 deep over its own buried underside, and the
+  // helipad 0.1 over the deck, both acned at anything under 0.0004. Those undersides are gone now
+  // (`dropBottom`, `PAD_ROOT` in city/buildings.js), which is what bought the drop. Swept at
+  // -0.0003 / -0.0002 / 0 against normalBias 0 / 0.03 / 0.045 / 0.06 / 0.12: -0.0002 closes the
+  // leak; normalBias under 0.045 brings the roof acne back, and over 0.06 widens the leak again.
   scene.add(countInEveryPass(sun));
   scene.add(sun.target);
 
@@ -291,7 +302,8 @@ export function createScene({ shadowMapSize = 2048 } = {}) {
 // got reported as.
 //
 // The sweep agrees with the arithmetic, which is why the arithmetic is written down: the existing
-// constant `shadow.bias` is already worth `0.0006 * 359` = 0.215 units, 0.5 on top of it left a
+// constant `shadow.bias` was then worth `0.0006 * 359` = 0.215 units (0.072 since it dropped to
+// -0.0002, and the deck still reads clean at 1.0 — shots 14/15), 0.5 on top of it left a
 // smudge at the abutment, 0.8 left a trace, and 1.0 is clean. An arch **cannot** shadow itself
 // under this sun in the first place — the peak grade is 16 degrees against a sun at 28.6 — so
 // there is no real shadow here to protect and the margin is free.
