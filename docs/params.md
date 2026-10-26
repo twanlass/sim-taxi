@@ -107,6 +107,7 @@ doc; what the classic version was, and why it changed, is in that doc's history 
 | `?runendfit=classic` | The run-end card at its old size: a bigger print and wider gaps, with no band held at the foot for "Tap to continue", which a five-row table then runs under on a phone | | [gameplay.md](gameplay.md#the-polaroid) |
 | `?gameover=classic` | The run-end card without the polaroid of the ending over its title, and with "Tap to continue" grey over the Play again slot instead of pulsing at the foot of the screen | | [gameplay.md](gameplay.md#the-polaroid) |
 | `?splashwait=classic` | The startup screen's black load, with ROCKET RIDES popping up a letter at a time once the game has loaded, rather than the word standing on screen through the load | | [gameplay.md](gameplay.md#the-startup-screen) |
+| `?splashburnout=classic` | The startup screen's taxi sits a third of a second after its last bounce and launches, rather than holding a beat and doing a smoking burnout first | | [gameplay.md](gameplay.md#the-startup-screen) |
 | `?splashlogo=classic` | The startup screen's plain taxi drop onto the asphalt, with no ROCKET RIDES logo for it to smash through | | [gameplay.md](gameplay.md#the-startup-screen) |
 | `?splash=classic` | No startup screen: the game loads behind black and opens on the title menu, with no taxi drop first | | [gameplay.md](gameplay.md#the-startup-screen) |
 | `?radiofade=classic` | The station cuts hard between every track, instead of the DJ talking over the start and end of the songs | | [audio.md](audio.md#talking-over-the-music) |
