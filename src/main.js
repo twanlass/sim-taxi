@@ -3870,14 +3870,10 @@ const setHudAway = (away) => {
   document.body.classList.toggle('hud-away', away);
 };
 
-// Set on the first successful press of Loco Mode, and never cleared. The tutorial's third beat
-// reads it to pick which line it says — a player who has jabbed the pill is told to hold it down
-// rather than told about it again.
-let locoUsed = false;
 // Set the first time that press is *held* past LOCO_HINT_HOLD with the boost actually engaged, and
 // never cleared. This is what retires the third beat, because it is the only evidence that the
 // player has met the thing the pill does: a tap gives a flicker of boost and hands it straight back,
-// so retiring the hint on `locoUsed` closed it on the exact gesture it exists to correct.
+// so retiring the hint on the first press closed it on the exact gesture it exists to correct.
 //
 // `isEngaged` rather than `isActive` deliberately, so a hold that ran the tank dry still counts —
 // the fuel ending is not the player letting go, and the one-second cooldown tail is where a hold
@@ -3912,7 +3908,6 @@ tutorial = shot || !wantsTutorial ? null : createTutorial({
   // A player who has already *held* Loco Mode does not need the third beat pointing at it — and one
   // who has only tapped it very much does, which is the whole difference between these two.
   boostHeld: () => locoHeld,
-  boostUsed: () => locoUsed,
   isOver: () => fares.state.gameOver,
   // Not a word during a getaway — see `hushTips`. The Loco Mode beat is the one that can still be
   // waiting this late (a player who has never held the pill), and it waits a little longer.
@@ -4908,11 +4903,9 @@ function holdLocoMode() {
 // doesn't double-fire the flame). `boost.press()` returns true only on that transition, which is
 // why the whole kick is gated on it above.
 function kickLocoMode() {
-  // Fires only on the transition into Loco Mode, which makes it exactly the right place to record
-  // that the player has now *pressed* it. Only that: whether they went on to hold it is a question
-  // this function cannot answer — the press is one frame and the hold is the seconds after it — and
-  // `locoHeld` is latched in the frame loop for that reason.
-  locoUsed = true;
+  // Whether the player went on to *hold* this press is a question this function cannot answer —
+  // the press is one frame and the hold is the seconds after it — so `locoHeld` is latched in the
+  // frame loop instead.
   // Above the `crashed` bail deliberately: the press was accepted either way — `boost.press()`
   // already returned true and the fuel is already committed — so the hand should be told even when
   // the wrecked car has no wheelie left to answer with.
