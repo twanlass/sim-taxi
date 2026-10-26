@@ -299,10 +299,11 @@ const LOOP_SECONDS = {
 const PAN_WIDTH = 0.7;
 
 /**
- * The drive-through speaker's true length (afinfo on the master). The taxi's visit is timed to it —
- * see TAXI_ORDER_DWELL in game/drivethru.js, and the probe that holds the two together.
+ * The drive-through speaker's true length (ffprobe on the master). The taxi's visit is timed to it —
+ * see TAXI_ORDER_DWELL in game/drivethru.js, and the probe that holds the two together. The lines
+ * inside it are timed in game/ordertalk.js, which puts them on screen.
  */
-export const DRIVE_THRU_SECONDS = 12.93;
+export const DRIVE_THRU_SECONDS = 9.25;
 /** ...and the quiet after it, before the lot lets the taxi go. Tyler's call: about two seconds. */
 export const DRIVE_THRU_TAIL = 2;
 

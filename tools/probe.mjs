@@ -252,6 +252,7 @@ import {
 import { createBoostMeter } from '../src/game/boostmeter.js';
 import * as fuelArc from '../src/game/fuelarc.js';
 import { createComboMeter, comboScope, COMBO_MAX } from '../src/game/combometer.js';
+import { ORDER_LINES } from '../src/game/ordertalk.js';
 import { createSfx, SHIPPED_MIX, SFX_EVENTS, SOUNDS, LOOPS, RADIO, radioBetween, DRIVE_THRU_SECONDS, DRIVE_THRU_TAIL, GROUPS, BUSES, MIX_PARENT, monitorPass } from '../src/game/sfx.js';
 import MIX_FILE from '../assets/audio/mix.json' with { type: 'json' };
 import { createTitleReel, SHOT as REEL_SHOT } from '../src/game/titlereel.js';
@@ -17917,6 +17918,14 @@ let chopperOrder; // likewise
     check('...and the visit lasts the drive-through speaker\'s clip and a beat after it',
       offClip < 0.5, `visits ${visits.map((v) => v.toFixed(2)).join(', ')}s against a `
       + `${DRIVE_THRU_SECONDS}s clip + ${DRIVE_THRU_TAIL}s`);
+    // ...and its subtitles (game/ordertalk.js) are timed inside it: every line is spoken before the
+    // clip ends, in order, and each card is down before the next one opens. A new take with the old
+    // timings would type words over silence or cut a line off mid-word, and nothing else notices.
+    const lineFaults = ORDER_LINES.filter((l, i) => !(l.at < l.said && l.said <= l.end
+      && l.said <= DRIVE_THRU_SECONDS && (i === 0 || ORDER_LINES[i - 1].end <= l.at)
+      && l.end <= want)).length;
+    check('...and every subtitle line sits inside the clip, in order, one card at a time',
+      lineFaults === 0, `${lineFaults} of ${ORDER_LINES.length} lines out of place`);
     check('...and the route band ends at the driveway rather than at the junction past it',
       worstBandEnd < 1e-9,
       `band finishes ${worstBandEnd.toFixed(2)} from the mouth at its worst`);
