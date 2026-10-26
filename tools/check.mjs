@@ -21,7 +21,7 @@ const BOOT = ['../src/game/scene.js', '../src/game/debugpanel.js', '../src/geome
   '../src/game/cityentry.js', '../src/city/garage.js', '../src/game/opening.js',
   '../src/city/burgerjoint.js', '../src/game/drivethru.js',
   '../src/city/bank.js', '../src/game/robbery.js', '../src/game/radio.js', '../src/game/radiocue.js', '../src/game/race.js', '../src/geometry/raceflag.js',
-  '../src/game/robberline.js', '../src/game/bankjob.js', '../src/game/copshout.js', '../src/game/depotcall.js', '../src/game/patrol.js', '../src/game/bootleg.js', '../src/game/newmove.js', '../src/game/uturnclip.js', '../src/game/driftclip.js', '../src/game/moveclip.js', '../src/game/repairclip.js',
+  '../src/game/robberline.js', '../src/game/bankjob.js', '../src/game/copshout.js', '../src/game/depotcall.js', '../src/game/ordertalk.js', '../src/game/patrol.js', '../src/game/bootleg.js', '../src/game/newmove.js', '../src/game/uturnclip.js', '../src/game/driftclip.js', '../src/game/moveclip.js', '../src/game/repairclip.js',
   '../src/game/speech.js',
   '../src/game/coplights.js', '../src/game/cashtrail.js',
   '../src/game/wipe.js',

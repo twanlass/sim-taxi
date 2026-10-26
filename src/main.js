@@ -170,6 +170,7 @@ import { createRobbery } from './game/robbery.js';
 import { createRadio, LOST_CALL, ROBBERY_CALL } from './game/radio.js';
 import { createRadioCue, RADIO_CUE_LEAD } from './game/radiocue.js';
 import { createDepotCall } from './game/depotcall.js';
+import { createOrderTalk } from './game/ordertalk.js';
 import {
   createPatrol, createPin, holdArrest, ramOf, ESCAPE_HOLD, SIGHT_HOLD,
 } from './game/patrol.js';
@@ -1142,6 +1143,11 @@ const depotCall = !shot && garage && !repairTipClassic
     }),
     edgeTappable: () => isNarrow(),
   }) : null;
+// The drive-through's conversation as subtitles, line by line with the speaker clip — started and
+// stopped beside it in `driveThruSpeaker`. See game/ordertalk.js.
+const orderTalk = !shot && burger
+  ? createOrderTalk({ project: projectToScreen, viewport, site: burger.site })
+  : null;
 // Seconds of game time until dispatch breaks in, once the robber's line has been cleared; 0 when
 // nothing is pending. A beat after the police come on rather than with them, so the tap that
 // clears the robber's bubble does not also land a second bubble on the same frame.
@@ -5708,6 +5714,18 @@ function ltrainFadePoints() {
 }
 const ltrainProbe = new THREE.Vector3();
 
+/**
+ * The city's beds alone, with the run over and the taxi silent — under the New Move card after the
+ * run, which otherwise returns before `sfx.update`. The world is frozen, so the beds hold wherever
+ * they stood; the radio stays faded out (`fadeMusic`), as it is for the rest of the run's end.
+ */
+function cityAudio(dt) {
+  sfx?.update(dt, traffic.taxi, {
+    cruise: SPEED, top: boostCruise(), holding: false, over: true, city: true,
+    ambient: ambientLevels(),
+  });
+}
+
 /** The ambient beds' levels for this frame — handed to `sfx.update` as `ambient`. */
 function ambientLevels() {
   const t = traffic.taxi;
@@ -6068,10 +6086,12 @@ function driveThruSpeaker() {
   if (inLot && driveThruVoice == null) {
     driveThruVoice = sfx?.play('driveThru') ?? false;
     sfx?.duckMusic(true);
+    orderTalk?.start();
   }
   if (!inLot && driveThruVoice != null) {
     if (driveThruVoice) sfx.release(driveThruVoice, 0.4);
     sfx?.duckMusic(false);
+    orderTalk?.stop();
     driveThruVoice = null;
   }
 }
@@ -6722,7 +6742,12 @@ function tick() {
   // click and a ding, and took the radio with it, so the getaway opened on what sounded like the
   // game breaking. The radio ducks under the line instead, and the city keeps its hum while the
   // world holds still.
-  sfx?.hold(Boolean(pause?.state.paused || newMove?.isOpen() || inspect?.state.on || presenterHeld));
+  // Not under the New Move card once the run is over, though: there it is the end of the run's
+  // screens rather than a stop in the middle of one, and the city's beds play under it
+  // (`cityAudio` below; Tyler, 2026-10-26 — the card sounded like the game had gone dead).
+  const cardAfterRun = Boolean(newMove?.isOpen() && fares.state.gameOver);
+  sfx?.hold(Boolean(pause?.state.paused || (newMove?.isOpen() && !cardAfterRun) || inspect?.state.on
+    || presenterHeld));
   const robberTalking = Boolean(robberLine?.isOpen());
   if (robberTalking !== robberDucked) { robberDucked = robberTalking; sfx?.duckMusic(robberTalking); }
   // Drawn once, not every frame. Nothing in the world moves while paused, and a canvas that is not
@@ -6780,6 +6805,7 @@ function tick() {
   if (newMove?.isOpen()) {
     // With a clip, the card draws the frame itself (through the clip camera, under the still).
     if (!newMove.update(dt)) renderFrame();
+    if (cardAfterRun) cityAudio(dt);
     return;
   }
 
@@ -7340,6 +7366,7 @@ function tick() {
   radio?.update(dt, { over: fares.state.gameOver });
   radioCue?.update(dt, { over: fares.state.gameOver });
   copShout?.update(dt, { over: fares.state.gameOver });
+  orderTalk?.update(dt, { over: fares.state.gameOver });
   hitCue?.update(dt, traffic.taxi);
   // The depot's card: SHOW_DELAY after the car starts smoking, so the hit that did it has landed
   // first. A beat that is not calm — a getaway, a chase, the taxi already on its way in for repairs —
@@ -8617,6 +8644,8 @@ window.__taxi = {
    * without having to land a synthesised click on a building.
    */
   burgerRun,
+  /** The drive-through's subtitles — `start()` plays the cards without the visit. See game/ordertalk.js. */
+  orderTalk,
   /**
    * The street race, or null under `?race=classic` and in shot mode — `state.phase`, `summon()` to
    * bring a racer now if the taxi is free. See game/race.js.
