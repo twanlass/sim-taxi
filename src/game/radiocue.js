@@ -1,4 +1,5 @@
 import { createSpeech } from './speech.js';
+import { storyDockFloor } from './backstory.js';
 
 // "♪ ♫ (turns up the radio)" — the taxi's one line, the first time it rolls out of the garage after
 // the backstory (Tyler, 2026-10-26). The story ends on dispatch talking over the radio; the run opens
@@ -6,10 +7,11 @@ import { createSpeech } from './speech.js';
 // is the caption that ties the two together, so the player reads the change in the music as something
 // the driver did.
 //
-// **Standing over the taxi, not docked** (Tyler, 2026-10-26). The shared speech card (game/speech.js)
-// docks in its slot over the pedals, and on this frame the pedals are still sliding in under it, so it
-// went unseen. The card is pinned instead (`pinned` + `caption`: the docked card's look, the old
-// placement) with its pointer on the taxi's roof, where the player is looking as the car rolls out.
+// **In the story card's slot, with the "…" tag on the taxi** (Tyler, 2026-10-26). The shared speech
+// card (game/speech.js) usually docks over the pedals, and on this frame the pedals are about to
+// slide in under it, so it went unseen; pinned over the taxi it read as a one-off. So it docks where
+// the backstory's card sat a moment ago (`storyDockFloor`), and it goes the moment the pedals come
+// in (`hide` from main.js, beside `revealPedals`) so it never sits over them.
 //
 // "Turns up" rather than "starts playing": the station is already on, crushed through the dash, from
 // Play and through the doorway shot (`holdReveal` waits for the first song), so the thing that
@@ -29,7 +31,10 @@ import { createSpeech } from './speech.js';
 export const RADIO_CUE_TITLE = 'Car 9';
 export const RADIO_CUE_LINE = '{♪} {♫} (turns up the radio)';
 
-/** Seconds of game time it stays up: dispatch's RADIO_LINGER and a little. */
+/**
+ * The longest it stays up, in seconds of game time: dispatch's RADIO_LINGER and a little. The roll
+ * out to the lane is usually shorter, so it is the pedals arriving that takes it down.
+ */
 export const RADIO_CUE_SECONDS = 3.6;
 
 // Where the tag touches: just over the taxi's roof sign.
@@ -45,7 +50,7 @@ export function createRadioCue({ project, viewport = null, taxi }) {
   const idle = { state: { open: false }, show: () => {}, hide: () => {}, update: () => {} };
   if (!root || !taxi) return idle;
 
-  const bubble = createSpeech(root, { viewport, pinned: true, caption: true });
+  const bubble = createSpeech(root, { viewport, dockFloor: storyDockFloor });
   const state = { open: false, left: 0 };
   const at = () => project(taxi.x, TIP_Y, taxi.z);
 

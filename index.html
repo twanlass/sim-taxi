@@ -1719,11 +1719,6 @@
       }
       /* The radio cue's two notes (game/radiocue.js) bounce on a loop instead of wiggling once:
          a hop with a tilt, a little squash on landing, the second note half a beat behind. */
-      /* Pinned over the taxi in the docked card's look (speech.js `caption`), so the pointer — which
-         speech.js colours only for the Figma card — matches the glass, and the line is let run to
-         the docked card's width rather than breaking at the pinned card's 178px. */
-      #radio-cue .speech-card { max-width: min(300px, calc(100vw - 20px)); }
-      #radio-cue .speech-pointer { color: rgba(255, 255, 255, 0.82); }
       #radio-cue .speech-hl.is-said {
         transform-origin: 50% 100%;
         animation: radio-note-hop 0.7s cubic-bezier(0.45, 0, 0.55, 1) infinite;

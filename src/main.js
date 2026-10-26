@@ -6977,7 +6977,7 @@ function tick() {
   // standing in front of. A press during the rider beat ends it, by design (`holdLocoMode`).
   // The squall's crossings count from here too: its first cell is `FIRST` seconds of driving away,
   // not of title menu and garage door (game/squall.js).
-  if (!pedalsShown && pedalsDue()) { pedalsShown = true; revealPedals(); squall?.begin(); }
+  if (!pedalsShown && pedalsDue()) { pedalsShown = true; revealPedals(); squall?.begin(); radioCue?.hide(); }
   // ...and the HUD steps off its edges whenever the taxi is in the garage: the opening before the
   // car is out of the door, and a repair visit from the turn-in until it is back on the lane. The
   // same `release` the pedals wait on, so a run's first arrival and every return from the depot

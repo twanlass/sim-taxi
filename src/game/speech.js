@@ -36,8 +36,7 @@
 // for its first build; Tyler moved it down (2026-10-20), which also lands "Hold to floor it" right
 // over the pedal it is about. `?bubbles=dock` drops the tag;
 // `?bubbles=classic` is the pinned card. A caller that places its own card (the New Move card,
-// centred) passes `pinned: true` and keeps the old placement; `caption: true` alongside it keeps the
-// docked card's look on that placement (the taxi's radio cue).
+// centred) passes `pinned: true` and keeps the old placement.
 //
 // **A tag waiting at the edge answers a tap like a rider's arrow does** (`onEdgeTap`): it rides the
 // camera to the talker, and the player then taps the thing itself — the garage, the racer. Only
@@ -337,15 +336,13 @@ export function placeSpeech(target, w, h, vw, vh, insets = safe, { tag = false }
  *                  arc's top: for a card with no pedals under it (the backstory, game/backstory.js)
  */
 export function createSpeech(root, { viewport = null, typing = false, onDismiss = () => {}, pinned = false,
-  caption = false, onEdgeTap = null, edgeTappable = () => true, dockFloor = null } = {}) {
+  onEdgeTap = null, edgeTappable = () => true, dockFloor = null } = {}) {
   watchSafeInsets();
   const mode = speechMode();
   const docked = !pinned && mode !== 'classic';
   const tagged = docked && mode === 'tag';
   root.classList.toggle('speech-docked', docked);
-  // `caption`: a pinned card that wears the docked card's look rather than the Figma card's — the
-  // taxi's radio cue (game/radiocue.js), which stands over the taxi but is otherwise the same line.
-  const look = docked || caption ? captionStyle() : 'card';
+  const look = docked ? captionStyle() : 'card';
   if (look !== 'card') root.classList.add(`speech-style-${look}`, 'speech-glass');
   if (look === 'white' && !liquidOff()) root.classList.add('speech-liquid');
   root.innerHTML = `
@@ -519,7 +516,7 @@ export function createSpeech(root, { viewport = null, typing = false, onDismiss 
     el.style.transform = `translate(${p.left.toFixed(1)}px, ${p.top.toFixed(1)}px)`;
     pointer.style.left = `${p.px.toFixed(1)}px`;
     pointer.style.top = `${p.py.toFixed(1)}px`;
-    if (look === 'card') pointer.style.color = cardColourAt(p.px, p.py, size.w, size.h);
+    pointer.style.color = cardColourAt(p.px, p.py, size.w, size.h);
     // Drawn tip-up, so a heading of 0 (right) is a quarter turn clockwise. The last translate is in
     // the pointer's own turned frame, where +y is back towards its base — into the card.
     pointer.style.transform = `translate(-50%, -100%) rotate(${(p.angle + Math.PI / 2).toFixed(3)}rad) translateY(${POINTER_SINK}px)`;
