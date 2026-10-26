@@ -2823,7 +2823,7 @@ comes back, and the count starts: three, two, one, and the two cars set off toge
 style. There used to be one more tap, on a "Ready?" before the count; Tyler cut it, and
 `?racetap=classic` puts it back — see
 [gameplay-history.md](gameplay-history.md#the-street-races-ready-tap-until-october-2026-racetapclassic).
-The finish is not put down until the camera gets there: the ring grows in and the flag goes up on
+The finish is not put down until the camera gets there: the ring grows in on
 screen, and the look holds `RACE_PEEK_HOLD` (1.4s) so it can be watched arriving (Tyler: "wait till
 the camera pans there and then spawn the checkpoint so you can visually see where it is").
 The count runs at `COUNT_STEP` (1.25s a number; Tyler: "slow the countdown a touch") and stands in
@@ -2915,14 +2915,31 @@ is a tap like every other choice in the game. Ignoring it is free: the racer jus
   Kart"). A Loco press that comes down while the "2" is up (`ROCKET_COUNT`) and is still down at the
   green launches the taxi on the drift's tier-1 kick and carry (`launchKick` in sim/traffic.js,
   30.9 u/s for 0.6s), with the drift kick's bark of fire, shake and whoosh and no word on screen
-  (Tyler cut the "Rocket start!" label). It pays no combo and no fuel. Only a fresh press counts: a thumb already on
-  the pill from the "3" or before, a press on the "1", or a press on the "2" let go before the green
-  gets a plain start. Mario Kart burns out a press that early; here it is only no reward, because
-  nothing tells the player the egg exists and holding the pill through a countdown is what someone
-  who has never heard of it does anyway. A hold from the "3" already starts slower than a press on
-  the green, as it is: Loco's own `BOOST_KICK` goes on with the press, and that press was spent on a
-  parked car (measured headless, 6.4 u/s 0.25s after the green against 16.6, and 27.4 for the rocket
-  start). `?rocketstart=classic` turns it off.
+  (Tyler cut the "Rocket start!" label). It pays no combo and no fuel. Only a fresh press counts: a
+  press on the "1", or a press on the "2" let go before the green, gets a plain start.
+  `?rocketstart=classic` turns it off.
+- **Too early fishtails** (Tyler: "if player hold loco too soon, at 3 and not 2, do a little fish
+  tail then go (ala Mario kart)"). A press that comes down on the "3" (`EARLY_COUNT`), or a thumb
+  already on the pill when the count starts, still held at the green: the tail steps out one way and
+  back across the other about the nose, twice and dying away, over `FISHTAIL_TIME` (0.9s), with the
+  speed held to a crawl that opens back up across it (`launchFishtail` in sim/traffic.js), plus a
+  squeal and a patch of rubber. That hold on the speed is the whole penalty: measured headless, 3 to
+  6 units behind a press on the "1" two seconds after the green (28.0 and 30.8 against 34.1), about
+  a fifth of a second; Mario Kart's stall is longer, and this stays mild because nothing tells
+  the player the timing exists. It used to be no penalty at all — see
+  [gameplay-history.md](gameplay-history.md#the-street-races-early-loco-press-until-october-2026-racefishtailclassic).
+  `?racefishtail=classic` puts that back.
+- **Holding Loco through the count is a burnout** (Tyler: "have the taxi doing a braked burnout
+  (wheels spinning, smoke, fire tailpipes etc."). The taxi is held on `parked`, so the pill only
+  lights the tailpipe plume; `raceBurnout` in main.js adds what a car standing still cannot make off
+  distance travelled: white smoke boiling off both rear tyres, rubber building up under them, a
+  squeal every 1.1s, and the body squatted nose-up and shivering on its springs (`joltPitch`/
+  `joltRoll`, the flatbed's pothole fields). The rear wheels are merged into the shell
+  (geometry/taxi.js) and cannot turn on their own, so the smoke and the shake do the spinning.
+  `?raceburnout=classic` keeps the still car with only the plume.
+- **The turnaround is the ring alone.** The chequered flag flies only over the finish line, going up
+  when the taxi rounds the turnaround and the ring jumps home (Tyler: "midpoint: don't show the
+  finish flag, just the white circle"). `?raceflag=classic` flies it over both.
 - **Stakes are lopsided on purpose** (`WIN_PAY` $40, `LOSE_COST` $25, against a $20 median fare).
   Declining is free, so an even bet is one a sensible player never takes. A loss goes through
   `charge`, so an empty till pays what it has.

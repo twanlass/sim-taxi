@@ -2205,6 +2205,35 @@ export function launchKick(car) {
   car.v = Math.max(car.v, v);
 }
 
+/**
+ * The street race's mis-timed start (game/race.js, EARLY_COUNT): Loco held from the "3" rather than
+ * pressed on the "2". Mario Kart burns a start that early out on the spot; this is the gentler
+ * version Tyler asked for, "a little fish tail then go" — the tail steps out one way, back across
+ * the other, and settles, over FISHTAIL_TIME, with the power held off while it does. Render-side
+ * like the rest of the pose (`car.s` and the lane carry on), except for that hold on `v`, which is
+ * the whole of the penalty: 3 to 6 units behind a plain start two seconds after the green, measured
+ * in tools/probe.mjs — about a fifth of a second.
+ */
+export function launchFishtail(car) {
+  car.fishtail = { t: 0 };
+}
+export const FISHTAIL_TIME = 0.9;
+// Peak swing of the body off its heading (~17°), out and back twice, dying away.
+const FISHTAIL_YAW = 0.3;
+const FISHTAIL_SWINGS = 2;
+// The tail swings about the nose, which stays on its line: a fishtail is the back end letting go.
+const FISHTAIL_PIVOT = CAR_LEN / 2;
+// The speed it is let have while it fishtails, from a crawl up to free again by the end.
+const FISHTAIL_CREEP = 2;
+
+/** The fishtail's swing (radians off the heading) and speed cap at `t` seconds in. */
+function fishtailAt(t) {
+  const u = Math.min(1, t / FISHTAIL_TIME);
+  const yaw = FISHTAIL_YAW * Math.sin(Math.PI * FISHTAIL_SWINGS * u) * (1 - u);
+  const cap = FISHTAIL_CREEP + (boostCruise() - FISHTAIL_CREEP) * u * u;
+  return { yaw, cap };
+}
+
 /** Out of a handbrake turn on the drift's own tier-1 kick and carry. */
 function powerOut(car) {
   launchKick(car);
@@ -7556,6 +7585,23 @@ export function createTraffic(
           } else {
             car.yaw = lerpAngle(dirYaw(car.d), dirYaw(car.dOut), t);
           }
+        }
+      }
+
+      // The race's early start (`launchFishtail`): the tail out and back about the nose, the
+      // power held off. Off on anything else taking over the pose — a U-turn, a hop, a wreck.
+      if (car.fishtail) {
+        car.fishtail.t += dt;
+        if (car.fishtail.t >= FISHTAIL_TIME || car.uturn || car.hopFrom != null || car.parked) {
+          car.fishtail = null;
+        } else {
+          const { yaw, cap } = fishtailAt(car.fishtail.t);
+          car.v = Math.min(car.v, cap);
+          const px = car.x + Math.cos(car.yaw) * FISHTAIL_PIVOT;
+          const pz = car.z - Math.sin(car.yaw) * FISHTAIL_PIVOT;
+          car.yaw += yaw;
+          car.x = px - Math.cos(car.yaw) * FISHTAIL_PIVOT;
+          car.z = pz + Math.sin(car.yaw) * FISHTAIL_PIVOT;
         }
       }
 
