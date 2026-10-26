@@ -54,7 +54,7 @@ import { createStreetProps, planStreetProps } from '../src/game/streetprops.js';
 import { createGarbage, planTrashPiles } from '../src/game/garbage.js';
 import { HOPPER_MOUTH } from '../src/geometry/garbage.js';
 import { truckPaint } from '../src/sim/traffic.js';
-import { createCarWash } from '../src/city/carwash.js';
+import { createCarWash, elephantGeometry } from '../src/city/carwash.js';
 import { createGasStation } from '../src/city/gasstation.js';
 import { collectPanes, entrances, streetLamps } from '../src/game/citylights.js';
 import { LOT_Y, ROADSIDE_MODE, roadsideKind } from '../src/city/roadside.js';
@@ -1784,8 +1784,78 @@ const onGrass = (city, i, j) => {
   const before = wash.entryObjects.map((e) => e.object.rotation.clone());
   wash.update(0.1);
   const turned = wash.entryObjects.filter((e, k) => !e.object.rotation.equals(before[k])).length;
-  check('...its brushes turn and its curtain swings', turned === wash.entryObjects.length,
+  check('...its brushes turn, its curtain swings and its elephant sways', turned === wash.entryObjects.length,
     `${turned} of ${wash.entryObjects.length} moved`);
+  // The elephant (`?washsign=classic` is the old panel): a few degrees either side of the camera's
+  // diagonal and never more, and its lowest edge clear of the vacuum posts its end swings over —
+  // swept over a whole swing rather than read at one pose. The board's winding is three's, but
+  // the check is cheap and the trap is in CLAUDE.md three times: its front face has to face +z.
+  if (wash.sign) {
+    let lo = Infinity;
+    let yawMin = Infinity;
+    let yawMax = -Infinity;
+    const p = new THREE.Vector3();
+    for (let n = 0; n < 240; n++) {
+      wash.update(0.05);
+      yawMin = Math.min(yawMin, wash.sign.rotation.y);
+      yawMax = Math.max(yawMax, wash.sign.rotation.y);
+      if (n % 20) continue;
+      wash.sign.updateMatrixWorld(true);
+      wash.sign.traverse((m) => {
+        if (!m.isMesh) return;
+        const pos = m.geometry.attributes.position;
+        for (let i = 0; i < pos.count; i++) lo = Math.min(lo, p.fromBufferAttribute(pos, i).applyMatrix4(m.matrixWorld).y);
+      });
+    }
+    const off = Math.max(Math.abs(yawMin - Math.PI / 4), Math.abs(yawMax - Math.PI / 4)) * 180 / Math.PI;
+    check('...the elephant sways a few degrees off the camera\'s diagonal and no more', off > 4 && off < 12,
+      `${off.toFixed(1)}° either way`);
+    check('...and clears the vacuum posts under it', lo - LOT_Y > 2.6, `lowest edge ${(lo - LOT_Y).toFixed(2)} over the lot`);
+    // The trunk bobs a few degrees, and the spray's bulbs are dark at the bottom of the bob and all
+    // lit at the top of it — read off the colours the frame actually draws, not off `bulbLevel`.
+    let bobMin = Infinity;
+    let bobMax = -Infinity;
+    let darkest = Infinity;
+    let brightest = -Infinity;
+    for (let n = 0; n < 400; n++) {
+      wash.update(1 / 60);
+      const z = wash.trunk.rotation.z;
+      bobMin = Math.min(bobMin, z);
+      bobMax = Math.max(bobMax, z);
+      const a = wash.bulbs.geometry.attributes.color.array;
+      let sum = 0;
+      for (let i = 0; i < a.length; i += 3) sum += a[i + 2];
+      const mean = sum / (a.length / 3);
+      darkest = Math.min(darkest, mean);
+      brightest = Math.max(brightest, mean);
+    }
+    const bob = (bobMax - bobMin) / 2 * 180 / Math.PI;
+    const bulbOff = new THREE.Color(color('elephantBulbOff')).b;
+    const bulbOn = new THREE.Color(color('elephantBulbOn')).b;
+    check('...its trunk bobs a few degrees, and the spray\'s bulbs run dark to fully lit with it',
+      bob > 3 && bob < 10 && Math.abs(darkest - bulbOff) < 1e-3 && Math.abs(brightest - bulbOn) < 1e-3,
+      `${bob.toFixed(1)}° either way · bulb blue ${darkest.toFixed(2)} to ${brightest.toFixed(2)}`);
+    // The cut-out alone, before the ear is merged onto it: the ear's own back face is buried in the
+    // board and faces −z, as it should.
+    const board = elephantGeometry().body;
+    const pos = board.attributes.position;
+    const a = new THREE.Vector3();
+    const b = new THREE.Vector3();
+    const c = new THREE.Vector3();
+    let facing = 0;
+    let frontFaces = 0;
+    for (let i = 0; i < pos.count; i += 3) {
+      a.fromBufferAttribute(pos, i);
+      b.fromBufferAttribute(pos, i + 1);
+      c.fromBufferAttribute(pos, i + 2);
+      const n = b.clone().sub(a).cross(c.clone().sub(a));
+      if (Math.min(a.z, b.z, c.z) < 0.1 || n.lengthSq() < 1e-12) continue;
+      frontFaces += 1;
+      if (n.z > 0) facing += 1;
+    }
+    check('...and the board\'s front face is wound to face the camera', frontFaces > 0 && facing === frontFaces,
+      `${facing} of ${frontFaces} front triangles face +z`);
+  }
 
   const tmScene = new THREE.Scene();
   const man = createTubeMan(tmScene, makeRng(9), wash.site.tubeMan);
