@@ -2339,7 +2339,8 @@ with 16.6% of frames late** on an unchanged scene. The phone had throttled. What
   over two seconds (the page was away). `?governor=off` holds the ratio, and `?bench` turns it off
   so its rows stay one setting each. Its moves show up in `?diag`. Why the floor is 2:
   [rendering-history.md](rendering-history.md#heat--gamegovernorjs-and-the-paused-still).
-- **Antialiasing is a Settings switch** (`antialias`, game/settings.js), on by default. Off drops
+- **Antialiasing is a Settings switch** (`antialias`, game/settings.js), off by default since
+  2026-10-26 (Tyler; it had been on). A player with a saved settings object keeps theirs. Off drops
   MSAA, which `tools/gpucost.mjs` put at 23% of a headless frame at 2x; at Ultra's 3x the stair
   steps it leaves on thin diagonals are hard to see at phone size. MSAA is a context attribute, so
   the switch applies at the next launch and its row says "(next launch)" until then. `?msaa=` beats
