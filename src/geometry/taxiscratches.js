@@ -25,6 +25,13 @@ import { BODY_TOP, HOOD_HINGE_X, BOOT_HINGE_X } from './damage.js';
 // reading like noise. Bare steel alone is the risk that ring was there for — it is about as light as
 // the yellow, so at play zoom it can pass for a glint — and the plain version is the call.
 //
+// Only the ends chip (Tyler, 2026-10-25: chips on the roof did not read as a car that had been in
+// a scrape). A voxel chips only below the deck line (BODY_TOP — the top of the wings, under the
+// lids) and only fore of the bonnet's hinge or aft of the boot's: bumpers, wings and the corners of
+// the body between them. So the roof, the doors, the bonnet and the boot lid stay painted however
+// worn the car is, and the panel seams are where the chips stop. `?taxichips=classic` lets every
+// painted voxel chip, as it did before.
+//
 // Only paint chips. The test is the vertex colour — the taxi's yellow (high red, almost no blue) —
 // so the glass, chrome, chequer cells, tyres and wheel wells that share the shell's material are
 // left alone without a flag on any of them.
@@ -44,6 +51,13 @@ const NOISE_SHARE = 0.6;
 const WEAR_REACH = 0.68;
 
 const f = (n) => n.toFixed(3);
+
+const CLASSIC_CHIPS = typeof location !== 'undefined'
+  && new URLSearchParams(location.search).get('taxichips') === 'classic';
+// Where a voxel may chip, tested at its centre in the car's own space (see above). Half a cell under
+// the deck so the top row of the wing — which shares its cells with the lids' undersides — is out.
+const CHIP_BAND = CLASSIC_CHIPS ? '1.0' : /* glsl */ `step(cCell.y, ${f(BODY_TOP - CELL / 2)})
+			* max(step(${f(HOOD_HINGE_X)}, cCell.x), step(cCell.x, ${f(BOOT_HINGE_X)}))`;
 
 const CHIP_DECLS = /* glsl */ `
 varying vec3 vChipObj;
@@ -82,7 +96,8 @@ const CHIP_FRAGMENT = /* glsl */ `
 			* ${f(WEAR_REACH)};
 		// The taxi's yellow and nothing else: high red, next to no blue.
 		float cPaint = step(0.45, vColor.r) * step(vColor.b, 0.25 * vColor.r);
-		if (cPaint > 0.5 && cScore < cW) {
+		float cBand = ${CHIP_BAND};
+		if (cPaint > 0.5 && cBand > 0.5 && cScore < cW) {
 			// Times diffuse, so a wreck's scorch (a multiply on the material colour) darkens it too.
 			diffuseColor.rgb = uChipMetal * diffuse;
 			__CHIP_FINISH__
@@ -125,7 +140,7 @@ ${CHIP_DECLS}`)
     if (!shader.fragmentShader.includes('cScore < cW')) throw new Error('chips: fragment hook missed');
   };
   // A promise about source: every chipped material compiles the same patch over its own base.
-  material.customProgramCacheKey = () => `${baseKey.call(material)}-chips`;
+  material.customProgramCacheKey = () => `${baseKey.call(material)}-chips${CLASSIC_CHIPS ? '-classic' : ''}`;
 }
 
 /**

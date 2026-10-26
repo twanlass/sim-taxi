@@ -256,6 +256,7 @@ import { createSfx, SHIPPED_MIX, SFX_EVENTS, SOUNDS, LOOPS, RADIO, radioBetween,
 import MIX_FILE from '../assets/audio/mix.json' with { type: 'json' };
 import { createTitleReel, SHOT as REEL_SHOT } from '../src/game/titlereel.js';
 import { placeSpeech } from '../src/game/speech.js';
+import { createCrushSlowMo, CRUSH_SLOW_MIN, CRUSH_SLOW_HOLD, CRUSH_SLOW_HOLD_MAX, CRUSH_SLOW_OUT } from '../src/game/crushslowmo.js';
 
 const seed = Number(process.argv[2] ?? 71624);
 const CARS_DEFAULT = 7;    // low-density baseline for the fare-loop checks — keeps timing thresholds stable regardless of runtime default
@@ -18583,14 +18584,14 @@ let chopperOrder; // likewise
     {
       const stand = planBankRun(bank, { x: 0, z: 0, yaw: 0 }).home;
       const bankAway = bankFrontage(bank).along;
-      const bankRig = (k, { stop = true, tight = false } = {}) => {
+      const bankRig = (k, { stop = true, tight = false, force = false, delivered = 5, far = false } = {}) => {
         const s8 = new THREE.Scene();
         const t8 = createTraffic(makeRng(seed + 44), s8, 10, 18);
         // `alwaysRob: false` so the coin and its ramp are still exercised while BANK_ROBBER_ALWAYS
         // has every bank rider rob for testing.
-        const f8 = createFareSystem(makeRng(seed + 900 + k), s8, { alwaysRob: false });
+        const f8 = createFareSystem(makeRng(seed + 900 + k), s8, { alwaysRob: false, forceBank: () => force });
         t8.warmup(1);
-        f8.state.delivered = 5;
+        f8.state.delivered = delivered;
         const got = [];
         const rob8 = createRobbery({
           site: bank, taxi: t8.taxi, fares: f8, traffic: t8, onBoard: (fare) => got.push(fare), trigger: 'fare',
@@ -18603,8 +18604,8 @@ let chopperOrder; // likewise
           });
         }
         const J = rob8.junction;
-        t8.taxi.i = J.i > 0 ? J.i - 1 : J.i + 1;
-        t8.taxi.j = J.j;
+        t8.taxi.i = far ? (J.i * 2 > GRID_I ? 0 : GRID_I) : J.i > 0 ? J.i - 1 : J.i + 1;
+        t8.taxi.j = far ? (J.j * 2 > GRID_J ? 0 : GRID_J) : J.j;
         // Off every corner, so nothing resolves until a test drives it there.
         t8.taxi.x = 1e4; t8.taxi.z = 1e4;
         f8.update(1 / 60, t8.taxi);
@@ -18624,6 +18625,17 @@ let chopperOrder; // likewise
         `${heads.length} heads, ${tails.length} tails`);
       check('...and never without the bank rider switched on',
         !Array.from({ length: 20 }, (_, k) => bankRig(k, { stop: false })).some((d) => d.bankFare));
+      // Demo mode (`forceBank`): the first spawn after BANK_MIN_DELIVERED is the bank rider, every
+      // time and from anywhere on the map, so the robbery is on the board inside the first four rides.
+      {
+        const forced = Array.from({ length: 20 }, (_, k) => bankRig(k, { force: true, delivered: 2, far: true }));
+        const J = forced[0].rob8.junction;
+        const spread = Math.max(Math.abs(forced[0].t8.taxi.i - J.i), Math.abs(forced[0].t8.taxi.j - J.j));
+        check('Demo mode: the bank rider is the first spawn after the second drop-off, from across the map',
+          forced.every((d) => d.bankFare), `${forced.filter((d) => d.bankFare).length} of 20, taxi ${spread} junctions off`);
+        check('...but not before it',
+          !Array.from({ length: 20 }, (_, k) => bankRig(k, { force: true, delivered: 1 })).some((d) => d.bankFare));
+      }
       check('the drive-past no longer starts one when the bank rider is the trigger', (() => {
         const d = bankRig(0, { stop: false });
         d.t8.taxi.x = bank.door.x; d.t8.taxi.z = bank.door.z;
@@ -21135,6 +21147,37 @@ let chopperOrder; // likewise
     const spOld = splashRun({ classic: true });
     check('?crushsplash=classic crushes only the car landed on', spOld.splash.length === 0 && !spOld.near,
       `splash ${spOld.splash.length}`);
+  }
+
+  // --- Crushin' It's slow-mo (game/crushslowmo.js): a hit-stop on the crush, held while the splash
+  // is still popping, eased out after. Driven on a fake wall clock at 60 fps.
+  {
+    const run = ({ holdFor = 0, enabled = true } = {}) => {
+      const slow = createCrushSlowMo({ enabled });
+      slow.start(1000);
+      const first = slow.scale(1000, holdFor > 0);
+      let sim = 0, t = 0, prev = 0, monotone = true, end = null;
+      for (; t < 4000; t += 1000 / 60) {
+        const k = slow.scale(1000 + t, t < holdFor);
+        if (t > CRUSH_SLOW_HOLD_MAX && k < prev - 1e-9) monotone = false;
+        prev = k;
+        sim += k / 60;
+        if (k === 1 && end === null) end = t;
+      }
+      return { first, end, sim, monotone, idle: !slow.active() };
+    };
+    const one = run();
+    check(`the crush drops straight to ${CRUSH_SLOW_MIN}x and is back to 1 within `
+      + `${((CRUSH_SLOW_HOLD + CRUSH_SLOW_OUT) / 1000).toFixed(2)}s (measured ${(one.end / 1000).toFixed(2)}s)`,
+      one.first === CRUSH_SLOW_MIN && one.end <= CRUSH_SLOW_HOLD + CRUSH_SLOW_OUT + 20 && one.idle && one.monotone,
+      `first ${one.first}, end ${one.end}`);
+    const chain = run({ holdFor: 900 });
+    check(`...a splash still popping holds the bottom longer (${(chain.end / 1000).toFixed(2)}s), `
+      + `capped at ${CRUSH_SLOW_HOLD_MAX}ms`,
+      chain.end > one.end + 500 && run({ holdFor: 10000 }).end <= CRUSH_SLOW_HOLD_MAX + CRUSH_SLOW_OUT + 20,
+      `chain ${chain.end}, single ${one.end}`);
+    const off = run({ enabled: false });
+    check('?crushslowmo=classic leaves the clock alone', off.first === 1 && off.end === 0, `first ${off.first}`);
   }
 
   // --- Nothing paints a stop bar on the bridge.

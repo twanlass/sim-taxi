@@ -144,7 +144,7 @@
          and the run tags can sit there while still riding #hud's slide in and out (a fixed child
          of a translated parent is placed against the parent, not the viewport). */
       #hud {
-        position: fixed; top: var(--hud-top); right: calc(var(--hud-side) + var(--safe-right));
+        position: fixed; z-index: 20; top: var(--hud-top); right: calc(var(--hud-side) + var(--safe-right));
         left: calc(var(--hud-side) + var(--safe-left));
         display: flex; flex-direction: column; align-items: flex-start;
         font: 900 14px/1.2 var(--hud-font);
@@ -597,8 +597,8 @@
          seeing the city frozen underneath is what says so — the full black belongs to #run-end,
          which is the one overlay that means the run is finished.
 
-         Under #pause (24) so the button stays lit and clickable above it, over the coach bubble
-         (22) and the spotlight (21), below the run-end blackout (30) and the Home Screen screen
+         Under #pause (24) so the button stays lit and clickable above it, over the HUD (20), the
+         coach bubble (18) and the spotlight (17), below the run-end blackout (30) and the Home Screen screen
          (26) — both of those are gates in their own right and outrank a pause. */
       /* Every full-screen overlay carries `width: 100vw; height: 100vh` on top of `inset: 0`,
          because `inset: 0` alone stops at the layout viewport — which on an installed iOS app is
@@ -683,7 +683,7 @@
          drawn on it: it exists so the vignette can be landed, and the camera thrown across the map
          to the framing the run plays at, on a frame nobody can see.
 
-         Above every overlay that can be up while it runs (the coach bubble at 22, the pause veil at
+         Above every overlay that can be up while it runs (the coach bubble at 18, the pause veil at
          23, the ⏸ itself at 24) and below the two that are gates of their own: the Home Screen
          screen at 26, which holds the vignette in `wait` and so cannot coexist with a skip, and the
          run-end blackout at 30. Opacity lives here rather than in the animation's fill, so a
@@ -1280,7 +1280,7 @@
          painted in its rider's clock, so it has to step with it. The value below is only what one
          opens on before its first colour write. */
       .fare-pointer {
-        position: fixed; left: 50%; top: 50%; z-index: 18;
+        position: fixed; left: 50%; top: 50%; z-index: 16;
         width: 35px; height: 35px; pointer-events: none; user-select: none;
         transform: translate(-50%, -50%);
         color: #3ECF5A;   /* PALETTE.urgency[4] — a full clock */
@@ -1469,13 +1469,18 @@
 
          Each layer is a full-screen, touch-through sheet; the bubble inside it sits at the
          viewport's origin and is moved by a `translate` written every frame. They share the
-         coach's z (22): under the pause veil (23), because a pause holds every bubble's clock and
-         should cover it, and over the spotlights (21), so a bubble stays lit.
+         coach's z (18): over the spotlights (17), so a bubble stays lit, and **under the whole HUD**
+         — the cash row (20), the pedals and the Loco ring (20, 19), the finders (20), the pops (25)
+         and the pause veil (23). A tag is pinned to something in the city, so it is a world marker,
+         and the UI always draws over the world (Tyler, 2026-10-25: the racer's "!" was riding over
+         the cash counter, because #hud had no z-index at all and every layer here outranked it).
+         The one exception is a layer that is catching taps (`body.robber-talk`, the bank job's
+         catcher): that is lifted to 21 for as long as it catches, so a pedal cannot take the press.
 
          Not `#tip`/`#intro`/`#banner`/`#popup`: those sit on ad-blocker filter lists, and one
          match takes the module graph down with ERR_BLOCKED_BY_CLIENT (CLAUDE.md). */
       #coach, #robber-talk, #radio, #cop-shout, #depot-call, #race-talk, #bank-mark {
-        position: fixed; inset: 0; z-index: 22;
+        position: fixed; inset: 0; z-index: 18;
         pointer-events: none; user-select: none; -webkit-user-select: none;
       }
       #coach[hidden], #robber-talk[hidden], #radio[hidden], #cop-shout[hidden], #depot-call[hidden],
@@ -1813,13 +1818,14 @@
          Position and both radii are written per frame from tutorial.js: --sx/--sy are the subject's
          projected screen position and --r0/--r1 are sized against the camera, since 1 world unit is
          only ~7.7px at play zoom and a pool measured in pixels would be a different size on every
-         viewport. Under #coach (22) so the bubble stays lit, over everything else. */
+         viewport. Under #coach (18) so the bubble stays lit, over the city and the rider arrows (16),
+         and under the HUD (19, 20) — it dims the world, not the controls. */
       /* Two layers, both centred on the same point. The warm core is what makes it read as a beam
          rather than as a hole cut in a dark sheet — the darkening alone left the subject merely
          *not dimmed*, which at this contrast is not the same as lit. It dies by --r0 so it only
          ever touches the clear centre and never washes out the falloff. */
       #spotlight, #robber-spot {
-        position: fixed; inset: 0; width: 100vw; height: 100vh; z-index: 21; pointer-events: none;
+        position: fixed; inset: 0; width: 100vw; height: 100vh; z-index: 17; pointer-events: none;
         opacity: 0; transition: opacity 0.45s ease;
         background:
           radial-gradient(circle at var(--sx, 50%) var(--sy, 50%),
@@ -1846,14 +1852,16 @@
       body.robber-talk #robber-spot { opacity: 1; }
       body.shot-mode #robber-spot, body.game-over #robber-spot { display: none; }
       body.robber-talk #coach, body.robber-talk #spotlight { visibility: hidden; }
-      body.robber-talk #robber-talk { pointer-events: auto; cursor: pointer; }
+      /* Lifted over the HUD (20) while it catches, so a press on a pedal skips the line rather than
+         driving: the layer sits under the HUD the rest of the time (see the speech bubbles' z above). */
+      body.robber-talk #robber-talk { pointer-events: auto; cursor: pointer; z-index: 21; }
 
       /* --- the bank job's cut (src/game/bankjob.js; off under `?robbery=classic`) -------------------------
          The robber running out of the bank with the world stopped. Nothing to show — the cut is in
          the city — but the same catcher as the robber's line while it plays: the tap that skips it
          must not also route the taxi. Not `#intro`, which sits on ad-blocker filter lists. */
-      #bankjob-catch { position: fixed; inset: 0; z-index: 22; pointer-events: none; }
-      body.bankjob #bankjob-catch { pointer-events: auto; }
+      #bankjob-catch { position: fixed; inset: 0; z-index: 18; pointer-events: none; }
+      body.bankjob #bankjob-catch { pointer-events: auto; z-index: 21; }
       body.bankjob #coach, body.bankjob #spotlight { visibility: hidden; }
 
       /* --- New Move Unlocked (src/game/newmove.js) ----------------------------

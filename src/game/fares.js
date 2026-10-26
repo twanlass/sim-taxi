@@ -755,7 +755,7 @@ export const waitingTargets = (slot) => [slot.passenger.group, slot.marker.group
  *                  Read per call, since the set moves every time a package is collected.
  */
 export function createFareSystem(rng, scene, {
-  reserved = () => [], judgeRun = () => ({ runs: [], mult: 1 }), rating = true, risingOdds = true, alwaysRob = BANK_ROBBER_ALWAYS, forceRob = () => false,
+  reserved = () => [], judgeRun = () => ({ runs: [], mult: 1 }), rating = true, risingOdds = true, alwaysRob = BANK_ROBBER_ALWAYS, forceRob = () => false, forceBank = () => false,
 } = {}) {
   const state = {
     // Active fares, newest last. At most MAX_FARES, and up to MAX_FARES - 1 of them can be
@@ -1127,14 +1127,19 @@ export function createFareSystem(rng, scene, {
     if (state.fares.some((f) => f.bank || f.robber)) return false;
     if (state.elapsed - lastBankAt < BANK_COOLDOWN) return false;
     const { junction } = bankStop;
+    // Demo mode (`forceBank`): the first spawn the bank is allowed is the bank rider, wherever the
+    // taxi is, so the robbery is on the board in time to be the 3rd or 4th ride. The
+    // junction tests below still hold — they keep two riders off one corner — and only ever delay
+    // it a spawn, since the board turns over.
+    const forced = forceBank();
     // Within reach, by the same box an ordinary spawn is drawn from...
-    if (Math.abs(junction.i - near.i) > SPAWN_RADIUS || Math.abs(junction.j - near.j) > SPAWN_RADIUS) return false;
+    if (!forced && (Math.abs(junction.i - near.i) > SPAWN_RADIUS || Math.abs(junction.j - near.j) > SPAWN_RADIUS)) return false;
     // ...and not on a junction another fare, the courier or the taxi's next turn has spoken for.
     // `freeCorner`'s sightline and river tests are about the kerb corner, which is not where this
     // rider stands — the bank's front faces the camera by construction (city/bank.js).
     if (spokenFor(taxiCar).some((a) => a.i === junction.i && a.j === junction.j)) return false;
     if (reserved().some((a) => (a.i === junction.i && a.j === junction.j) || onSameBlock(junction, a))) return false;
-    return rng.chance(BANK_CHANCE);
+    return forced || rng.chance(BANK_CHANCE);
   }
 
   function wantsVip() {

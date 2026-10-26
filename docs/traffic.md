@@ -1906,7 +1906,11 @@ paint keeps its colour and comes off in voxel chips, drawn by a patch on the pai
 rather than by geometry. Each fragment finds its 0.09-unit voxel in the car's space and scores it:
 value noise sampled at the voxel's centre (so whole cells go together), plus its distance to the
 nearest corner (so chips open from the corners inward). Under the wear threshold it is bare steel
-(`taxiBareMetal`). Wear is one value per corner, blended across the car: the struck corner reaches
+(`taxiBareMetal`). Only the ends chip: a voxel has to sit below the deck line (`BODY_TOP`) and fore
+of the bonnet's hinge or aft of the boot's, so the bumpers, wings and body corners take it and the
+roof, doors, bonnet and boot lid stay painted however worn the car is (Tyler, 2026-10-25: chips on the
+roof did not read as a scrape; `?taxichips=classic` lets every painted voxel chip again). The cost is
+that this camera mostly sees the car's top, so the chips read less at play zoom than they did. Wear is one value per corner, blended across the car: the struck corner reaches
 0.3 at the first hit and 1 at empty, the other three follow on the square of that up to 0.6. Only the
 taxi's yellow chips (the test is the vertex colour), so glass, chrome and the chequer are left
 alone. The shell and both lids share the one wear uniform, so a lid swung up, the wreck and the crash
