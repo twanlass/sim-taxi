@@ -1929,7 +1929,13 @@ reflected into grey asphalt read as a filter. So the rain switches the city on:
   one (`turnSignalShapes`) so the headlight beside it still reads while it blinks; at full width the
   amber swallowed the lamp next to it. Each pod throws a cone of light (`coneGeometry`): open,
   additive, toed out and tilted down, hung off the lamp through the body matrix (on the taxi, its
-  group, via `createTaxiHeadlights`) and cut by the road's depth where it meets it. It also gives
+  group, via `createTaxiHeadlights`) and cut by the road's depth where it meets it. The taxi's pods
+  stand beside the grille instead, level with it (`BODY_TOP - 0.2`, `GRILL_Y` in `geometry/taxi.js`) and
+  0.5 off the centreline: a 0.13-radius pod then clears the grille's edge at 0.35 by 0.02, and
+  clears the front indicator below it and outboard (centres 0.32 apart against radii summing 0.28).
+  Down at the fleet's height the pod's foot cut through the bumper's chrome. The taxi's front
+  indicators are lifted off the bumper separately (`FRONT_POD_Y`, off the shrunken pod's own
+  radius). The cone starts on the same anchor, so it rises with the lamp. It also gives
   every car a 0.6 floor on its brake pods, so it shows dim tail lights with a real brake still
   reading as a change. All of it is hidden while a car is a wreck. There is no pool on the road
   under the cones ([why](rendering-history.md#the-citys-lights--gamecitylightsjs-plus-setrunninglights-in-simtrafficjs)).
@@ -3908,7 +3914,13 @@ above than the glass ever did.
 ### Wing mirrors — `geometry/mirrors.js`
 
 Every car, the taxi and the box trucks wear a wing mirror each side: a housing in the body's paint
-on a short stalk off the foot of the A-pillar, with a dark glass face on its back. They are sized
+with a dark glass face on its back. The fleet's and the trucks' sit on a short stalk off the foot of
+the A-pillar; **the taxi's has no stalk** (`doorMirrorParts`): a wedge that grows straight out of the
+front door just under the shoulder, full size where it meets the door and tapering in length alone
+to 0.45 of that at its outer end (the top view shows the wedge; from the side it is the same
+thickness all the way out), with the glass on its square back. It sits at x = 0.6, a little past
+the 0.45 where the root's foot (1.24) still cleared the front wheel arch (1.19), so the root now
+stands over the arch. They are sized
 for the camera rather than for a real car, standing 0.28 clear of the flank (~2.2px at play zoom on a
 fleet car, ~2.6 on the taxi), because a true-scale mirror is a pixel and a half and flickers as the
 car turns. The fleet's and the trucks' are merged into the shared body geometry and baked white for
