@@ -5905,8 +5905,16 @@ export function createTraffic(
      * `car.boost` rather than `fullPower`, so it stays true through the cooldown tail alongside
      * every other boost-only hazard rule. Letting go does not buy a car that starts yielding
      * again any more than it buys one that stops being crashable.
+     *
+     * ...and the drift launch and Mega Air barge however the pill is held, for the reason they
+     * keep the priority hold: the far bank's junction goes by *underneath* them. Off the pill, a
+     * stranded car in that box held the taxi at its line in mid-air — the arc is distance-paced, so
+     * it hung at the apex with the hang's slow-mo at its deepest until the floor walked it down
+     * (Tyler, 2026-10-27: "I get stuck in a slow mo version at the apex"). Measured over 150 staged
+     * Mega Airs in traffic with Loco let go 0.3s in: the worst flight took 6.0s of wall clock
+     * against 1.4s held, and after this none took more than 2.4s.
      */
-    const bargesThrough = (car) => car.boost;
+    const bargesThrough = (car) => car.boost || onDriftLaunch(car);
 
     /**
      * A cop summoned to stand beside one already blocking this junction (`joinBlock`, set by
@@ -8114,8 +8122,13 @@ export function createTraffic(
             // hop over a river rather than the biggest thing the taxi does.
             car.stuntTip ??= { h: Math.max(reach, h), y: (bridgeStunt?.leafLen ?? 0) * Math.sin(th), th };
             const tip = car.stuntTip;
-            const span = Math.max(1e-6, (car.stuntLand - car.stuntHinge) * car.stuntDir - tip.h);
-            const v = Math.min(1, Math.max(0, (h - tip.h) / span));
+            const landH = (car.stuntLand - car.stuntHinge) * car.stuntDir;
+            const span = Math.max(1e-6, landH - tip.h);
+            // Paced by `u` where the taxi itself falls behind it. Read off `z` alone, the pose
+            // ignored the floor (HOP_FLOOR_V): a taxi held to nothing in the air drew at the apex
+            // while `u` walked on to touchdown, then dropped fourteen units in one frame.
+            const flown = Math.max(h, landH - car.hopLen * (1 - u));
+            const v = Math.min(1, Math.max(0, (flown - tip.h) / span));
             airY = tip.y * (1 - v) + MEGA_AIR_HEIGHT * Math.sin(Math.PI * v);
             airPitch = tip.th * Math.cos(Math.PI * v);
             flip = megaFlipAt(v);

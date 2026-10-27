@@ -21160,13 +21160,20 @@ let chopperOrder; // likewise
   // never sets a wheel on the deck.
   {
     const bLine = drawbridgeLine();
-    const jump = ({ press = true, classic = false, flip } = {}) => {
+    const jump = ({ press = true, classic = false, flip, letGo = null, stranded = false } = {}) => {
       setMegaFlip(flip);
       const jScene = new THREE.Scene();
       const bridge = createDrawbridge(jScene, makeRng(seed + 837), { stunt: !classic });
       setBridgeStunt(bridge?.stunt ?? null);
-      const jTraffic = createTraffic(makeRng(seed + 99), jScene, 1);
+      const jTraffic = createTraffic(makeRng(seed + 99), jScene, stranded ? 2 : 1);
       const jTaxi = jTraffic.taxi;
+      // A wreck left mid-turn in the far bank's box, which holds that junction for anything that
+      // does not barge (`heldAt`) — the taxi included, once Loco is let go.
+      const wreck = stranded && jTraffic.cars.find((c) => c !== jTaxi && !c.isTaxi);
+      if (wreck) {
+        placeCar(wreck, DIR.PX, bLine - 1, riverRow() + 1, 2);
+        Object.assign(wreck, { state: 'turn', turnT: 0.97, crashed: true, i: bLine, j: riverRow() + 1 });
+      }
       placeCar(jTaxi, DIR.PZ, bLine, riverRow(), 10);
       jTaxi.parked = false;
       jTaxi.v = 8;
@@ -21175,13 +21182,14 @@ let chopperOrder; // likewise
       bridge.request();
       const deck = new Set(bridge.laneIds);
       const out = { held: 0, early: false, kind: null, liftAt: null, peak: 0, minUp: 1, landUp: null,
-        landing: null, knocked: false, onDeck: false, inverted: 0 };
+        landing: null, knocked: false, onDeck: false, inverted: 0, air: 0 };
       let upright = true;
       const up = new THREE.Vector3();
       jTraffic.onTaxiLand((event) => { out.landing = out.landing ?? event; });
       for (let f = 0; f < 60 * 20 && !out.landing; f++) {
         const a = bridge.state.lift * BRIDGE_LIFT_ANGLE;
         jTaxi.boost = press && bridge.state.phase === 'lifting' && a >= STUNT_FROM + 0.02;
+        if (letGo !== null && out.air > letGo) jTaxi.boost = false;
         bridge.update(1 / 60, jTraffic.cars);
         const before = jTaxi.hopFrom;
         jTraffic.update(1 / 60);
@@ -21195,6 +21203,7 @@ let chopperOrder; // likewise
           out.liftAt = a;
         }
         if (jTaxi.hopFrom != null) out.peak = Math.max(out.peak, jTraffic.taxiGroup.position.y - ROAD_Y);
+        if (jTaxi.hopFrom != null || before != null) out.air += 1;
         up.set(0, 1, 0).applyQuaternion(jTraffic.taxiGroup.quaternion);
         out.minUp = Math.min(out.minUp, up.y);
         // Each pass through upside down, counted once: a turn of the flip is a dip under -0.9
@@ -21228,6 +21237,16 @@ let chopperOrder; // likewise
         j.landing && j.landing.kind === 'bridge' && j.landing.big && j.landing.z > far + 4
         && Math.abs(j.landing.x - lineX(bLine)) < HALF_ARTERIAL + 1,
         j.landing ? `down at (${j.landing.x.toFixed(1)}, ${j.landing.z.toFixed(1)}), far bank ${far.toFixed(1)}` : 'never landed');
+      // Tyler, 2026-10-27: "I get stuck in a slow mo version at the apex". Loco let go a few frames
+      // into the flight, over a box something is stranded in: the taxi stopped at the far bank's
+      // line in mid-air, under the hang's deepest slow-mo, for as long as the floor took to walk it
+      // down and set it on the road at the hold line (243 frames of sim against 48 held).
+      const held = jump({ stranded: true });
+      const let0 = jump({ stranded: true, letGo: 6 });
+      check('...and flies the same arc with Loco let go mid-air, over a box something is stranded in',
+        let0.landing && held.landing && let0.air <= held.air + 6 && let0.landing.z > far + 4,
+        `${let0.air} frames in the air against ${held.air} held`
+        + (let0.landing ? `, down at z ${let0.landing.z.toFixed(1)}` : ', never landed'));
       const shy = jump({ press: false });
       check('without Loco the taxi never drives onto the shut span', !shy.onDeck && shy.kind === null,
         `on deck ${shy.onDeck}, kind ${shy.kind}`);
