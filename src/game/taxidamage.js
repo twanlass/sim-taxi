@@ -1,6 +1,11 @@
 import * as THREE from 'three';
 import { color } from '../palette.js';
-import { TAXI_DECK_Y } from '../geometry/taxi.js';
+import { TAXI_DECK_Y, TAXI_SCALE } from '../geometry/taxi.js';
+import { CAR_LEN, CAR_W } from '../sim/traffic.js';
+
+// The drawn taxi's half-extents, for telling a hit on the flank from one on an end.
+const TAXI_HALF_LEN = (CAR_LEN / 2) * TAXI_SCALE;
+const TAXI_HALF_W = (CAR_W / 2) * TAXI_SCALE;
 
 // The taxi wearing its damage — four steps down its hit points, so the car itself is the gauge. See buildDamage() in geometry/taxi.js for the parts and why they are
 // what they are (silhouette, because at ~30px long nothing finer reads).
@@ -188,6 +193,8 @@ export function createTaxiDamage({
   let plumeIn = 0;
   // Loose lamps by corner key, each its own pendulum.
   const lamps = new Map();
+  // The sides whose wing mirror has been knocked off, +1 the right.
+  const mirrorsOff = new Set();
   // One spring per lid. Separate road-kick clocks, so the two do not flap in step.
   const boot = { angle: BOOT_REST, v: 0, roadIn: 0, rest: BOOT_REST };
   const hood = { angle: 0, v: 0, roadIn: 0.1, rest: HOOD_REST, open: false };
@@ -251,6 +258,19 @@ export function createTaxiDamage({
       hood.open = true;
       hood.angle = 0;
       hood.v = HOOD_POP;
+    }
+    // A hit on the flank rather than an end snaps that side's wing mirror off, with a few sparks
+    // where it was. "Flank" is the hit landing nearer the side than the end, in proportion to the
+    // car's own half-length and half-width, so a corner clip takes the mirror no more than half the
+    // time it is struck and a nose-to-tail never does.
+    const flank = Math.abs(lz) / (TAXI_HALF_W) > Math.abs(lx) / TAXI_HALF_LEN;
+    const mirrorSide = lz >= 0 ? 1 : -1;
+    if (flank && !mirrorsOff.has(mirrorSide)) {
+      mirrorsOff.add(mirrorSide);
+      damage.setMirror?.(mirrorSide, false);
+      sparks?.burst(taxi.x + Math.sin(taxi.yaw) * mirrorSide * TAXI_HALF_W,
+        roadY + TAXI_DECK_Y, taxi.z + Math.cos(taxi.yaw) * mirrorSide * TAXI_HALF_W,
+        taxi.yaw + mirrorSide * Math.PI / 2, 4, 3);
     }
     // The lamp at the struck corner comes loose — and one already loose takes the knock.
     const lamp = lamps.get(key);
@@ -392,6 +412,7 @@ export function createTaxiDamage({
   function reset() {
     hits = 0;
     lamps.clear();
+    mirrorsOff.clear();
     boot.angle = BOOT_REST;
     boot.v = 0;
     hood.open = false;

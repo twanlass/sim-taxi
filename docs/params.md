@@ -83,6 +83,7 @@ doc; what the classic version was, and why it changed, is in that doc's history 
 | `?camreturn=classic` | The camera stays where the player panned it, instead of riding back to the taxi after 1.5s with no touch on the map | #530 | [rendering.md](rendering.md#getting-back-to-the-taxi) |
 | `?taxidamage=classic` | The taxi's paint dulls toward `taxiGrime` as it takes damage, instead of chipping to bare metal at the struck corner | #632 | [traffic.md](traffic.md) |
 | `?taxichips=classic` | The taxi's paint chips anywhere on the body, roof and lids included, instead of only at the bumpers, wings and body corners | #729 | [traffic.md](traffic.md) |
+| `?mirrors=classic` | No wing mirrors on the taxi, the fleet cars or the box trucks | | [rendering.md](rendering.md#wing-mirrors--geometrymirrorsjs) |
 | `?taxiroof=classic` | The taxi's cabin is one dark glass box again, instead of a yellow roof over a band of windows | #530 | [rendering.md](rendering.md#the-taxis-roof--geometrytaxijs) |
 | `?locogrey=classic` | The fuel arc's climb out of empty in muted gold rather than grey, with no flash when Loco Mode wakes | — | [gameplay.md](gameplay.md#crazy-taxi-mode) |
 | `?locobar=classic` | The fuel arc with no tailpipe flame burning off its front | — | [gameplay.md](gameplay.md#crazy-taxi-mode) |
