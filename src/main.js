@@ -11,7 +11,7 @@ import { createComboMeter, comboScope, comboValue, formatMult } from './game/com
 import { createSquall, RAMP, RAMP_CLASSIC, CELL_EDGE } from './game/squall.js';
 import { pedalZones as growPedalZones, pedalAfterMove } from './game/pedalzones.js';
 import {
-  collectPanes, litWindows, streetLamps, entrances, switchedLights, createTaxiHeadlights, setCityLights,
+  collectPanes, litWindows, streetLamps, entrances, lampKeepOff, switchedLights, createTaxiHeadlights, setCityLights,
 } from './game/citylights.js';
 import {
   createCityCamera, attachDragPan, VIEW_DIR, PLAY_ZOOM, LOCO_PUNCH_HOLD, RIGHT,
@@ -713,10 +713,20 @@ if (horizon) scene.add(horizon.mesh);
 // streams, so switching the rain on cannot move a building.
 const paneFaces = stopPanes ? stopPanes() : null;
 const litPanes = paneFaces ? litWindows(makeRng(seed + 391), paneFaces) : null;
-const lamps = rain.enabled
-  ? streetLamps(makeRng(seed + 392), layout, entrances(paneFaces ?? [], city.bank))
-  : null;
 if (litPanes) scene.add(litPanes);
+// Held onto for the entrance animation below — the trees rise out of the parks the same way the
+// buildings rise out of their lots — and for its `pond`: exactly one park in the city has water in
+// it, and the ducks floating on it have to be told which one. Null on a city with no park big
+// enough, which the chain below handles rather than guards against. See city/pond.js.
+const props = createProps(makeRng(seed + 33), layout);
+const propsMesh = props.mesh;
+scene.add(markOccluder(propsMesh));
+// The street lamps, built after the props so they can keep off the court, the skatepark and the
+// pond — a park's lamp stands on its walk, and any of the three can run right up to it. A lamp
+// pole once stood in the middle of a basketball court.
+const lamps = rain.enabled
+  ? streetLamps(makeRng(seed + 392), layout, entrances(paneFaces ?? [], city.bank), lampKeepOff(props))
+  : null;
 if (lamps) {
   scene.add(markOccluder(lamps.posts), lamps.heads, lamps.pools);
   rain.hideInMirror(lamps.pools);
@@ -725,13 +735,6 @@ if (lamps) {
 // once the wave exists, at the bottom of the scenery; read in `renderFrame`.
 let rainLightsOn = null;
 for (const mesh of [litPanes, lamps?.pools]) if (mesh) mesh.visible = false;
-// Held onto for the entrance animation below — the trees rise out of the parks the same way the
-// buildings rise out of their lots — and for its `pond`: exactly one park in the city has water in
-// it, and the ducks floating on it have to be told which one. Null on a city with no park big
-// enough, which the chain below handles rather than guards against. See city/pond.js.
-const props = createProps(makeRng(seed + 33), layout);
-const propsMesh = props.mesh;
-scene.add(markOccluder(propsMesh));
 // The pond's water, which wears the river's surface and so rides outside the merge — and outside
 // the AO prepass, for the river water's reasons (`pondWaterMesh` in city/pond.js). Null under
 // `?water=classic`, whose flat fan is still in `propsMesh`.
