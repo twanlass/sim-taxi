@@ -1,4 +1,4 @@
-// Slide 4's snake: the old phone game, played by itself over the slide, built up a click at a time.
+// Slide 5's snake: the old phone game, played by itself over the slide, built up a click at a time.
 // The first click lets a green snake loose after red apples; each one after adds something new to
 // the board — a pineapple in a cowboy hat (eat it and the snake wears the hat), a pink dragon fruit
 // (the snake turns pink), a black bomb with a sparking fuse (half the snake goes). It steers for the

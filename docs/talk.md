@@ -18,7 +18,7 @@ npm run dev            # then open http://localhost:5173/talk/
 
 The game runs in a phone docked on the left of its slide, live on its main menu with the city going
 about its business, beside the title. Tapping the phone (or Enter) brings it to the middle of the
-window at full height, and the rest of the slide dims away behind it; the game is then the
+window at full height, and the city carries on past its bezel to the edges of the window, dimmed; the game is then the
 player's, with focus and input. Esc docks it again. The game only runs while its slide is up.
 
 ## How it reaches the game
@@ -37,8 +37,16 @@ and re-frame the camera on every step.
 
 The first version kept the iframe the size of the window and clipped it down to the phone, frozen,
 then opened the clip out to the whole window; the game laid out for a landscape window, and the
-phone disappeared on the way. A blurred, dimmed copy of the phone's screen spilling out round the
-live phone, like a video's ambient mode, was also tried and cut as disorienting.
+phone disappeared on the way.
+
+**The city round the live phone is a second copy of the game.** It loads on the same pinned `?seed=`,
+fills the window under a dark wash, is held still with nothing but its canvas showing, and has its
+camera set from the phone's every frame: the same position and world units per pixel, its frustum
+grown out from the phone's screen to the window's edges, so the streets line up across the bezel.
+Only the traffic differs, frozen out there. It loads with the slide and is blanked when the slide
+goes, so it isn't drawing a window's worth of city through the rest of the talk. (A blurred copy of
+the phone's own screen stretched out round it, like a video's ambient mode, came first and was
+disorienting; plain grey after that read as no city at all.)
 
 ## Presenting from a pinned build
 

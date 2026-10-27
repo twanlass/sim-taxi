@@ -238,16 +238,16 @@ function gridCanvas(g) {
 
 // In ms, px and px/s. Each creature comes ENTRY_GAP_MS after the last. It is scanned in from the
 // feet up over SCAN_MS, under a white band SCAN_BAND of its height deep that fades out below its
-// leading edge, and comes alive over ALIVE_MS — eyes open WAKE_MS in, a stretch.
-// Then it holds HOLD_MS, hops (up at HOP_UP, falling under GRAVITY, drifting left at HOP_DRIFT),
+// leading edge, and HOP_AT of the way through the scan it is already jumping off the page (up at
+// HOP_UP, falling under GRAVITY, drifting left at HOP_DRIFT), the scan finishing in the air. (It used
+// to finish the scan standing on the drawing, stretch awake and pause before the jump, which left
+// time to see that the pixel silhouette doesn't trace the ink exactly.) Then it
 // squashes on landing for LAND_MS, stands about until `leave`, and walks off at WALK_SPEED, a step
 // every STRIDE_MS. FLOOR is how far above the bottom of the window they stand.
 const ENTRY_GAP_MS = 750;
 const SCAN_MS = 650;
 const SCAN_BAND = 0.3;
-const ALIVE_MS = 380;
-const WAKE_MS = 140;
-const HOLD_MS = 350;
+const HOP_AT = 0.5;
 const HOP_UP = 950;
 const GRAVITY = 3200;
 const HOP_DRIFT = 160;
@@ -265,23 +265,90 @@ const BLINK_MS = 120;
 const BLINK_EVERY_MS = 2400;
 
 /**
- * Let the creatures out of `img` (the sketchbook photo, possibly tilted by CSS). Returns
- * `{ done, cancel, leave }`; they stand about until `leave()`, and `done` resolves when the last
- * one has walked off the screen.
+ * A creature's frames: `frame(step, look, shut)`, made on first use and cached (walk step × where
+ * it looks × blink); `asleep`, eyes shut, for the scan-in; and `glow`, its silhouette in white, for
+ * the scan's band.
  */
-export function escapeCreatures(img) {
+function makeSprite(c) {
+  const open = [0, 1].map((f) => c.draw(f));
+  const eyes = c.eyes.map((e) => ({ e, cells: eyeCells(open[0], e) }));
+  const cache = new Map();
+  const frame = (f, look, shut) => {
+    const key = `${f}|${shut ? 'shut' : String(look)}`;
+    if (!cache.has(key)) {
+      const gr = open[f].map((row) => [...row]);
+      drawEyes(gr, eyes, look, shut);
+      cache.set(key, gridCanvas(gr));
+    }
+    return cache.get(key);
+  };
+  const asleep = frame(0, 0, true);
+  const glow = document.createElement('canvas');
+  glow.width = asleep.width;
+  glow.height = asleep.height;
+  const gg = glow.getContext('2d');
+  gg.drawImage(asleep, 0, 0);
+  gg.globalCompositeOperation = 'source-in';
+  gg.fillStyle = '#ffffff';
+  gg.fillRect(0, 0, glow.width, glow.height);
+  return { frame, asleep, glow };
+}
+
+/**
+ * A creature part-scanned: `scan` is the height of the band's leading edge as a fraction of the
+ * sprite, from the feet. Below it the sprite, and over the band the white silhouette, strongest
+ * at the edge and fading out down its depth, a row of art pixels at a time.
+ */
+function drawScan(g, s, left, top, scan) {
+  const rows = s.asleep.height;
+  const edge = Math.round(rows * (1 - scan));
+  const from = Math.max(0, edge);
+  if (from < rows) g.drawImage(s.asleep, 0, from, s.asleep.width, rows - from, left, top + from * s.px, s.w, (rows - from) * s.px);
+  const depth = Math.max(1, Math.round(rows * SCAN_BAND));
+  for (let i = 0; i < depth; i++) {
+    const row = edge + i;
+    if (row < 0 || row >= rows) continue;
+    g.globalAlpha = (1 - i / depth) ** 1.5;
+    g.drawImage(s.glow, 0, row, s.glow.width, 1, left, top + row * s.px, s.w, s.px);
+  }
+  g.globalAlpha = 1;
+}
+
+/** The scan band's leading edge `ms` in (from below the feet to past the head), or undefined once done. */
+const scanAt = (ms) => (ms < SCAN_MS ? -SCAN_BAND + (1 + 2 * SCAN_BAND) * (ms / SCAN_MS) : undefined);
+
+/** A full-window canvas over the deck for the sprites, at device resolution. */
+function overlay() {
   const canvas = document.createElement('canvas');
   canvas.className = 'escapees';
   Object.assign(canvas.style, {
     position: 'fixed', inset: 0, width: '100vw', height: '100vh', zIndex: 4, pointerEvents: 'none',
   });
   document.body.appendChild(canvas);
+  const dpr = window.devicePixelRatio || 1;
+  canvas.width = Math.round(window.innerWidth * dpr);
+  canvas.height = Math.round(window.innerHeight * dpr);
+  return canvas;
+}
+
+/** Eyes toward `cursor` from a creature's eye line at (x, y), quantised so frames can be cached. */
+function lookToward(cursor, x, y) {
+  if (!cursor) return [0, 0];
+  const q = (v, step) => Math.round(Math.max(-1, Math.min(1, v / LOOK_REACH)) / step) * step;
+  return [q(cursor[0] - x, 0.5), q(cursor[1] - y, 1)];
+}
+
+/**
+ * Let the creatures out of `img` (the sketchbook photo, possibly tilted by CSS). Returns
+ * `{ done, cancel, leave }`; they stand about until `leave()`, and `done` resolves when the last
+ * one has walked off the screen.
+ */
+export function escapeCreatures(img) {
+  const canvas = overlay();
   const g = canvas.getContext('2d');
   const W = window.innerWidth;
   const H = window.innerHeight;
   const dpr = window.devicePixelRatio || 1;
-  canvas.width = Math.round(W * dpr);
-  canvas.height = Math.round(H * dpr);
 
   // Image pixel → screen: the layout box (the bounding rect of a tilted element is bigger than the
   // picture), turned by the element's own rotation about its centre.
@@ -298,19 +365,7 @@ export function escapeCreatures(img) {
 
   const t0 = performance.now();
   const sprites = CREATURES.map((c, i) => {
-    const open = [0, 1].map((f) => c.draw(f));
-    const eyes = c.eyes.map((e) => ({ e, cells: eyeCells(open[0], e) }));
-    // Every frame this creature can show, made on first use: walk step × where it looks × blink.
-    const cache = new Map();
-    const frame = (f, look, shut) => {
-      const key = `${f}|${shut ? 'shut' : String(look)}`;
-      if (!cache.has(key)) {
-        const gr = open[f].map((row) => [...row]);
-        drawEyes(gr, eyes, look, shut);
-        cache.set(key, gridCanvas(gr));
-      }
-      return cache.get(key);
-    };
+    const { frame, asleep, glow } = makeSprite(c);
     const first = frame(0, 0, false);
     // Scaled to the cut-out it stands for, in whole screen pixels per art pixel so every pixel is
     // the same size, and centred on it.
@@ -319,16 +374,6 @@ export function escapeCreatures(img) {
     const w = first.width * px;
     const h = first.height * px;
     const [x, y] = toScreen([(bx0 + bx1) / 2, (by0 + by1) / 2]);
-    // The scan-in: the sprite with its eyes shut, and its silhouette in white for the band.
-    const asleep = frame(0, 0, true);
-    const glow = document.createElement('canvas');
-    glow.width = asleep.width;
-    glow.height = asleep.height;
-    const gg = glow.getContext('2d');
-    gg.drawImage(asleep, 0, 0);
-    gg.globalCompositeOperation = 'source-in';
-    gg.fillStyle = '#ffffff';
-    gg.fillRect(0, 0, glow.width, glow.height);
     // Where it lands: feet on the floor, and how long the hop takes to get there.
     const floorY = H - FLOOR - h / 2;
     const drop = floorY - y;
@@ -357,33 +402,22 @@ export function escapeCreatures(img) {
   const onMove = (ev) => { cursor = [ev.clientX, ev.clientY]; };
   window.addEventListener('pointermove', onMove);
   let exitAt = null;
-  /** Where a creature standing at `x` looks to see the cursor, quantised so frames can be cached. */
-  function lookAt(s, x) {
-    if (!cursor) return [0, 0];
-    const q = (v, step) => Math.round(Math.max(-1, Math.min(1, v / LOOK_REACH)) / step) * step;
-    return [q(cursor[0] - x, 0.5), q(cursor[1] - (s.floorY - s.h / 3), 1)];
-  }
+  /** Where a creature standing at `x` looks to see the cursor. */
+  const lookAt = (s, x) => lookToward(cursor, x, s.floorY - s.h / 3);
 
   function pose(s, now) {
     let e = now - s.born;
     if (e < 0) return null;
     const blinking = (now + s.blinkPhase) % BLINK_EVERY_MS < BLINK_MS;
     const at = (o) => ({ sx: 1, sy: 1, f: 0, look: 0, shut: blinking, ...o });
-    // The band runs from below the feet to past the head, so it enters and leaves whole.
-    if (e < SCAN_MS) return at({ x: s.x, y: s.y, scan: -SCAN_BAND + (1 + 2 * SCAN_BAND) * (e / SCAN_MS) });
-    e -= SCAN_MS;
-    if (e < ALIVE_MS) {
-      // Waking up: eyes open, and a stretch up out of the page and back.
-      const q = Math.sin(Math.PI * e / ALIVE_MS);
-      return at({ x: s.x, y: s.y, sx: 1 - 0.08 * q, sy: 1 + 0.14 * q, shut: e < WAKE_MS });
-    }
-    e -= ALIVE_MS;
-    if (e < HOLD_MS) return at({ x: s.x, y: s.y, look: e < HOLD_MS / 2 ? 0 : -1 });
-    e -= HOLD_MS;
+    const takeoff = SCAN_MS * HOP_AT;
+    if (e < takeoff) return at({ x: s.x, y: s.y, scan: scanAt(e) });
+    const scan = scanAt(e);
+    e -= takeoff;
     if (e < s.hopMs) {
       const t = e / 1000;
-      // Stretched in the air, eyes wide.
-      return at({ x: s.x - HOP_DRIFT * t, y: s.y - HOP_UP * t + 0.5 * GRAVITY * t * t, sx: 0.92, sy: 1.1, f: 1, shut: false });
+      // Stretched in the air, eyes wide — once the scan has finished drawing it.
+      return at({ x: s.x - HOP_DRIFT * t, y: s.y - HOP_UP * t + 0.5 * GRAVITY * t * t, sx: 0.92, sy: 1.1, f: 1, shut: false, scan });
     }
     e -= s.hopMs;
     const landX = s.x - HOP_DRIFT * s.hopMs / 1000;
@@ -405,26 +439,6 @@ export function escapeCreatures(img) {
     return at({ x, y: s.floorY - (f ? s.px : 0), f, look: -1 });
   }
 
-  /**
-   * A creature part-scanned: `scan` is the height of the band's leading edge as a fraction of the
-   * sprite, from the feet. Below it the sprite, and over the band the white silhouette, strongest
-   * at the edge and fading out down its depth, a row of art pixels at a time.
-   */
-  function drawScan(s, left, top, scan) {
-    const rows = s.asleep.height;
-    const edge = Math.round(rows * (1 - scan));
-    const from = Math.max(0, edge);
-    if (from < rows) g.drawImage(s.asleep, 0, from, s.asleep.width, rows - from, left, top + from * s.px, s.w, (rows - from) * s.px);
-    const depth = Math.max(1, Math.round(rows * SCAN_BAND));
-    for (let i = 0; i < depth; i++) {
-      const row = edge + i;
-      if (row < 0 || row >= rows) continue;
-      g.globalAlpha = (1 - i / depth) ** 1.5;
-      g.drawImage(s.glow, 0, row, s.glow.width, 1, left, top + row * s.px, s.w, s.px);
-    }
-    g.globalAlpha = 1;
-  }
-
   const draw = (now) => {
     g.setTransform(dpr, 0, 0, dpr, 0, 0);
     g.clearRect(0, 0, W, H);
@@ -439,7 +453,7 @@ export function escapeCreatures(img) {
       const h = s.h * p.sy;
       const left = Math.round(p.x - w / 2);
       const top = Math.round(p.y + s.h / 2 - h);
-      if (p.scan !== undefined) drawScan(s, left, top, p.scan);
+      if (p.scan !== undefined) drawScan(g, s, left, top, p.scan);
       else g.drawImage(s.frame(p.f, p.look, p.shut), left, top, w, h);
     }
     if (alive) raf = requestAnimationFrame(draw);
@@ -451,5 +465,190 @@ export function escapeCreatures(img) {
     cancel: () => end(false),
     /** Walk them all off, now — or as soon as each has landed, for any still on its way down. */
     leave: () => { exitAt ??= performance.now(); },
+  };
+}
+
+// --- The encore --------------------------------------------------------------------------------
+// The thanks slide brings them back: each hops in from off the side of the screen, lands on the
+// heading's baseline, looks toward the word, walks up to it and hops up onto the letters, where it
+// idles as it did at the bottom of slide 4 — breathing, blinking, eyes on the cursor — for as long
+// as the slide is up. PERCH says, per creature, which side it comes from and where it lands (px past
+// the word's edge, negative to the left) and where along the word it settles (a fraction of its
+// width). They come PERCH_GAP_MS apart, at PERCH_PX screen pixels per art pixel; the hop in peaks
+// HOP_IN_APEX px up, they stand LOOK_MS before setting off, and the hop onto the word peaks
+// PERCH_APEX px above where it lands.
+//
+// Where it lands is worked out to the pixel (`restTop`): the word is rasterised to find the top of
+// its ink in every screen column, each sprite's lowest pixel in every one of its columns is read off
+// its art, and the creature comes to rest where the first of its pixels meets a letter — on the T's
+// bar, the shoulder of an n, the top of the k — rather than on the word's tallest letter everywhere.
+// (The first cut stood them all on the cap height, which left the ones over the lower-case letters
+// hanging in the air.)
+const PERCH = [
+  { creature: 0, from: -170, at: 0.18 },
+  { creature: 1, from: 150, at: 0.5 },
+  { creature: 2, from: 330, at: 0.84 },
+];
+const PERCH_PX = 3;
+const PERCH_GAP_MS = 450;
+const HOP_IN_APEX = 160;
+const LOOK_MS = 450;
+const PERCH_APEX = 70;
+
+/**
+ * The top of `el`'s ink in every screen column, as `surface(x)` (the baseline where there is none),
+ * plus the left and right of its line and its baseline. The text is drawn again onto a canvas in the
+ * same font, size, weight and letter spacing, and read back.
+ */
+function inkProfile(el) {
+  const range = document.createRange();
+  range.selectNodeContents(el);
+  const r = range.getBoundingClientRect();
+  const cs = getComputedStyle(el);
+  const w = Math.ceil(r.width);
+  const h = Math.ceil(r.height);
+  const canvas = document.createElement('canvas');
+  canvas.width = w;
+  canvas.height = h;
+  const g = canvas.getContext('2d', { willReadFrequently: true });
+  g.font = `${cs.fontWeight} ${cs.fontSize} ${cs.fontFamily}`;
+  g.letterSpacing = cs.letterSpacing === 'normal' ? '0px' : cs.letterSpacing;
+  // The range's box is the font's content area, so the baseline is its ascent down from the top.
+  const ascent = g.measureText(el.textContent).fontBoundingBoxAscent;
+  g.fillText(el.textContent, 0, ascent);
+  const data = g.getImageData(0, 0, w, h).data;
+  const tops = new Float32Array(w).fill(Infinity);
+  for (let x = 0; x < w; x++) {
+    for (let y = 0; y < h; y++) {
+      if (data[(y * w + x) * 4 + 3] > 127) { tops[x] = r.top + y; break; }
+    }
+  }
+  const baseline = r.top + ascent;
+  const surface = (x) => {
+    const i = Math.floor(x - r.left);
+    return i >= 0 && i < w && tops[i] < Infinity ? tops[i] : baseline;
+  };
+  return { left: r.left, right: r.right, baseline, surface };
+}
+
+/** For each column of a sprite's art, how many rows down its lowest pixel ends (0 for an empty one). */
+function feetOf(art) {
+  const { width, height } = art;
+  const data = art.getContext('2d').getImageData(0, 0, width, height).data;
+  return Array.from({ length: width }, (_, x) => {
+    for (let y = height - 1; y >= 0; y--) if (data[(y * width + x) * 4 + 3] > 127) return y + 1;
+    return 0;
+  });
+}
+
+/**
+ * Bring the creatures back onto `heading`. Returns `{ cancel }`; they stay perched until cancelled.
+ */
+export function perchCreatures(heading) {
+  const canvas = overlay();
+  const g = canvas.getContext('2d');
+  const dpr = window.devicePixelRatio || 1;
+  const W = window.innerWidth;
+  const word = inkProfile(heading);
+  const t0 = performance.now();
+  const sprites = PERCH.map((p, i) => {
+    const art = makeSprite(CREATURES[p.creature]);
+    const first = art.frame(0, 0, false);
+    const feet = feetOf(first);
+    const px = PERCH_PX;
+    const w = first.width * px;
+    const h = first.height * px;
+    // The sprite's centre y when it stands centred on x: as low as it can go before any of its
+    // pixels meets the surface under that pixel's column.
+    const restY = (x) => {
+      const left = Math.round(x - w / 2);
+      let top = Infinity;
+      feet.forEach((f, c) => {
+        if (!f) return;
+        for (let k = 0; k < px; k++) top = Math.min(top, word.surface(left + c * px + k) - f * px);
+      });
+      return top + h / 2;
+    };
+    const dir = p.from < 0 ? 1 : -1; // which way it walks: toward the word
+    const xs = p.from < 0 ? -w : W + w; // off the edge it hops in from
+    const x0 = p.from < 0 ? word.left + p.from : word.right + p.from;
+    // It walks until it is just short of the word's edge, then hops onto its perch.
+    const xt = p.from < 0 ? word.left - w / 2 - 12 : word.right + w / 2 + 12;
+    const xp = word.left + (word.right - word.left) * p.at;
+    const ground = restY(x0);
+    const perch = restY(xp);
+    const rise = ground - perch;
+    const vyIn = Math.sqrt(2 * GRAVITY * HOP_IN_APEX);
+    const vy = Math.sqrt(2 * GRAVITY * (rise + PERCH_APEX));
+    return {
+      ...art, px, w, h, dir, xs, x0, xt, xp, ground, perch, rise, vy, vyIn,
+      inMs: (2000 * vyIn) / GRAVITY,
+      walkMs: (1000 * Math.abs(xt - x0)) / WALK_SPEED,
+      hopMs: 1000 * (vy + Math.sqrt(vy * vy - 2 * GRAVITY * rise)) / GRAVITY,
+      born: t0 + i * PERCH_GAP_MS, blinkPhase: Math.random() * BLINK_EVERY_MS,
+    };
+  });
+
+  let cursor = null;
+  const onMove = (ev) => { cursor = [ev.clientX, ev.clientY]; };
+  window.addEventListener('pointermove', onMove);
+
+  const squash = (e) => { const q = Math.sin(Math.PI * e / LAND_MS); return { sx: 1 + 0.25 * q, sy: 1 - 0.25 * q }; };
+
+  // Position (the sprite's centre), squash, step and gaze at `now`.
+  function pose(s, now) {
+    let e = now - s.born;
+    if (e < 0) return null;
+    const blinking = (now + s.blinkPhase) % BLINK_EVERY_MS < BLINK_MS;
+    const at = (o) => ({ sx: 1, sy: 1, f: 0, look: s.dir, shut: blinking, ...o });
+    if (e < s.inMs) {
+      const t = e / 1000;
+      return at({ x: s.xs + (s.x0 - s.xs) * (e / s.inMs), y: s.ground - (s.vyIn * t - 0.5 * GRAVITY * t * t), sx: 0.92, sy: 1.1, f: 1, shut: false });
+    }
+    e -= s.inMs;
+    if (e < LAND_MS) return at({ x: s.x0, y: s.ground, ...squash(e), shut: true });
+    e -= LAND_MS;
+    if (e < LOOK_MS) return at({ x: s.x0, y: s.ground, look: e < LOOK_MS / 2 ? 0 : s.dir });
+    e -= LOOK_MS;
+    if (e < s.walkMs) {
+      const f = Math.floor(e / STRIDE_MS) % 2;
+      return at({ x: s.x0 + s.dir * WALK_SPEED * e / 1000, y: s.ground - (f ? s.px : 0), f });
+    }
+    e -= s.walkMs;
+    if (e < s.hopMs) {
+      const t = e / 1000;
+      const x = s.xt + (s.xp - s.xt) * (e / s.hopMs);
+      return at({ x, y: s.ground - (s.vy * t - 0.5 * GRAVITY * t * t), sx: 0.92, sy: 1.1, f: 1, shut: false });
+    }
+    e -= s.hopMs;
+    if (e < LAND_MS) return at({ x: s.xp, y: s.perch, ...squash(e), shut: true });
+    const q = Math.sin(((now + s.blinkPhase) / BREATH_MS) * Math.PI * 2);
+    return at({ x: s.xp, y: s.perch, sx: 1 - BREATH * 0.5 * q, sy: 1 + BREATH * q, look: lookToward(cursor, s.xp, s.perch - s.h / 3) });
+  }
+
+  let raf = 0;
+  const draw = (now) => {
+    raf = requestAnimationFrame(draw);
+    g.setTransform(dpr, 0, 0, dpr, 0, 0);
+    g.clearRect(0, 0, window.innerWidth, window.innerHeight);
+    g.imageSmoothingEnabled = false;
+    for (const s of sprites) {
+      const p = pose(s, now);
+      if (!p) continue;
+      // Scaled about the feet, as on slide 4.
+      const w = s.w * p.sx;
+      const h = s.h * p.sy;
+      const left = Math.round(p.x - w / 2);
+      const top = Math.round(p.y + s.h / 2 - h);
+      g.drawImage(s.frame(p.f, p.look, p.shut), left, top, w, h);
+    }
+  };
+  raf = requestAnimationFrame(draw);
+  return {
+    cancel() {
+      cancelAnimationFrame(raf);
+      window.removeEventListener('pointermove', onMove);
+      canvas.remove();
+    },
   };
 }

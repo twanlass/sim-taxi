@@ -12,6 +12,43 @@ const WISP_MS = 2200;
 const SMOKE_LIFE = 0.32;
 const PAD = 0.35;
 
+// Performance. The first cut ran at 10 fps on a 2x laptop screen: the padded canvas was 6.8M
+// device pixels, and each one evaluated procedural fbm (five octaves of four sin() hashes) about 80
+// times. Now the fbm is baked once into a tiling NOISE_SIZE² texture, so each is one lookup; the
+// canvas renders at most MAX_PIXELS (CSS upscales it; it's smoke and it's moving); and the smoke
+// gathers TAPS samples rather than 20.
+const NOISE_SIZE = 256;
+const NOISE_CELLS = 8; // lattice cells across the texture at the first octave
+const MAX_PIXELS = 2.2e6;
+const TAPS = 12;
+
+/** Tiling value-noise fbm, five octaves, as bytes — the same function the shader used to compute. */
+function bakeNoise() {
+  const n = NOISE_SIZE;
+  const out = new Float32Array(n * n);
+  let amp = 0.5;
+  for (let o = 0, cells = NOISE_CELLS; o < 5; o++, cells *= 2, amp *= 0.5) {
+    const lattice = new Float32Array(cells * cells).map(() => Math.random());
+    const at = (i, j) => lattice[(j % cells) * cells + (i % cells)];
+    for (let y = 0; y < n; y++) {
+      const fy = (y / n) * cells;
+      const j = Math.floor(fy);
+      let v = fy - j;
+      v = v * v * (3 - 2 * v);
+      for (let x = 0; x < n; x++) {
+        const fx = (x / n) * cells;
+        const i = Math.floor(fx);
+        let u = fx - i;
+        u = u * u * (3 - 2 * u);
+        const a = at(i, j) + (at(i + 1, j) - at(i, j)) * u;
+        const b = at(i, j + 1) + (at(i + 1, j + 1) - at(i, j + 1)) * u;
+        out[y * n + x] += amp * (a + (b - a) * v);
+      }
+    }
+  }
+  return Uint8Array.from(out, (f) => Math.round(f * 255));
+}
+
 const VERTEX = /* glsl */ `
   attribute vec2 corner;
   varying vec2 vUv;
@@ -28,20 +65,12 @@ const FRAGMENT = /* glsl */ `
   uniform float pad;
   uniform float aspect;
   uniform float life;
+  uniform sampler2D noiseTex;
+  uniform float noiseCells;
   varying vec2 vUv;
 
-  float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
-  float noise(vec2 p) {
-    vec2 i = floor(p), f = fract(p);
-    vec2 u = f * f * (3.0 - 2.0 * f);
-    return mix(mix(hash(i), hash(i + vec2(1.0, 0.0)), u.x),
-               mix(hash(i + vec2(0.0, 1.0)), hash(i + vec2(1.0, 1.0)), u.x), u.y);
-  }
-  float fbm(vec2 p) {
-    float s = 0.0, a = 0.5;
-    for (int i = 0; i < 5; i++) { s += a * noise(p); p *= 2.03; a *= 0.5; }
-    return s;
-  }
+  // Baked fbm (bakeNoise), one lattice cell per unit of p, tiling.
+  float fbm(vec2 p) { return texture2D(noiseTex, p / noiseCells).r; }
   bool inside(vec2 q) { return q.x >= 0.0 && q.y >= 0.0 && q.x <= 1.0 && q.y <= 1.0; }
   // When the front reaches a point of the picture: a sweep from the left, broken up by noise so it
   // eats in ragged tongues rather than a straight wipe. Ranges over about 0 to 1.
@@ -66,7 +95,7 @@ const FRAGMENT = /* glsl */ `
       col.rgb = mix(col.rgb, vec3(1.0), rim * 0.55);
       col.a *= 1.0 - rim * 0.6;
     }
-    const int TAPS = 20;
+    const int TAPS = ${TAPS};
     vec4 smoke = vec4(0.0);
     for (int k = 1; k <= TAPS; k++) {
       float age = life * float(k) / float(TAPS);
@@ -117,9 +146,9 @@ export function wispAway(img) {
   const w = img.offsetWidth * (1 + 2 * PAD);
   const h = img.offsetHeight * (1 + 2 * PAD);
   const cs = getComputedStyle(img);
-  const dpr = window.devicePixelRatio || 1;
-  canvas.width = Math.round(w * dpr);
-  canvas.height = Math.round(h * dpr);
+  const scale = Math.min(window.devicePixelRatio || 1, Math.sqrt(MAX_PIXELS / (w * h)));
+  canvas.width = Math.round(w * scale);
+  canvas.height = Math.round(h * scale);
   Object.assign(canvas.style, {
     position: 'fixed', zIndex: 3, pointerEvents: 'none',
     left: `${r.left + r.width / 2 - w / 2}px`, top: `${r.top + r.height / 2 - h / 2}px`,
@@ -137,6 +166,14 @@ export function wispAway(img) {
   const corner = gl.getAttribLocation(program, 'corner');
   gl.enableVertexAttribArray(corner);
   gl.vertexAttribPointer(corner, 2, gl.FLOAT, false, 0, 0);
+  gl.activeTexture(gl.TEXTURE1);
+  gl.bindTexture(gl.TEXTURE_2D, gl.createTexture());
+  gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.LUMINANCE, NOISE_SIZE, NOISE_SIZE, 0, gl.LUMINANCE, gl.UNSIGNED_BYTE, bakeNoise());
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.REPEAT);
+  gl.activeTexture(gl.TEXTURE0);
   gl.bindTexture(gl.TEXTURE_2D, gl.createTexture());
   gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
   gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, img);
@@ -147,6 +184,9 @@ export function wispAway(img) {
   gl.uniform1f(at('pad'), PAD / (1 + 2 * PAD));
   gl.uniform1f(at('aspect'), img.naturalWidth / img.naturalHeight);
   gl.uniform1f(at('life'), SMOKE_LIFE);
+  gl.uniform1i(at('img'), 0);
+  gl.uniform1i(at('noiseTex'), 1);
+  gl.uniform1f(at('noiseCells'), NOISE_CELLS);
   gl.viewport(0, 0, canvas.width, canvas.height);
 
   let frame = 0;

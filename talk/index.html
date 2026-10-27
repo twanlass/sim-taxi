@@ -44,13 +44,16 @@
       }
       #game.ready { opacity: 1; }
       body.live #game { pointer-events: auto; }
-      /* Round the live phone, the slide dims away so the phone has the room. (A blurred, dimmed copy
-         of the phone's own screen spilling out round it, like a video's ambient mode, was tried and
-         cut: the city moving out there, out of focus, was disorienting.) */
+      /* Round the live phone, the city carries on past its edges, dimmed: #surround is a second copy
+         of the same city, held still, with its camera locked to the phone's (talk.js), under a dark
+         wash. (A blurred copy of the phone's own screen stretched out round it, like a video's ambient
+         mode, came first and was disorienting: a city out of focus, at the wrong scale, moving.) */
       #scrim {
-        position: fixed; inset: 0; z-index: 2; pointer-events: none; background: rgba(10, 14, 20, 0.78);
+        position: fixed; inset: 0; z-index: 2; pointer-events: none; background: #0a0e14;
         opacity: 0; visibility: hidden; transition: opacity 0.6s ease, visibility 0s 0.6s;
       }
+      #scrim::after { content: ''; position: absolute; inset: 0; background: rgba(10, 14, 20, 0.6); }
+      #surround { display: block; width: 100%; height: 100%; border: 0; pointer-events: none; }
       body.live #scrim { opacity: 1; visibility: visible; transition: opacity 0.6s ease; }
 
       /* The deck: one slide on at a time. Hidden by visibility rather than display, so the phone
@@ -294,32 +297,49 @@
         display: none;
       }
       #cans.on { display: block; }
-      /* Slide 4's snake (src/talk/snake.js): the same kind of overlay as the cans. */
+      /* The snake (src/talk/snake.js): the same kind of overlay as the cans. */
       #snake-game {
         position: fixed; inset: 0; width: 100vw; height: 100vh; z-index: 4; pointer-events: none;
         display: none;
       }
       #snake-game.on { display: block; }
-      #snake { cursor: pointer; }
+      #snake, #sketch { cursor: pointer; }
       /* Slide 2's print has its tilt baked into the file; this one is a straight photo, so it gets
          its tilt here; src/talk/wisp.js copies it onto the canvas that burns it away. */
-      #snake .photo { max-height: 75vh; rotate: -3deg; }
+      #sketch .photo { max-height: 75vh; rotate: -3deg; }
       #kid .photo { cursor: pointer; max-height: 60vh; }
-      /* The TestFlight slide's QR, generated once (npx qrcode) into talk/media so it needs no network. */
-      .qr {
-        width: min(30vh, 50vw); height: auto;
+      /* "Try it out", in two columns: the pitch on the left (app icon, rounded the way the home
+         screen rounds it, over the titles), the QR on the right with the taxi parked on top of it. */
+      #try { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 6vw; padding: 0 10vw; }
+      #try .app-icon { display: block; width: 96px; height: 96px; border-radius: 22.5%; margin-bottom: 3vh; box-shadow: 0 1vh 2.5vh rgba(0, 0, 0, 0.12); }
+      #try h2 { font-size: clamp(22px, 2.4vw, 40px); line-height: 1.3; margin-top: 1.5vh; color: #6b6b6b; }
+      #try .scan { display: flex; flex-direction: column; align-items: center; width: min(40vh, 34vw); }
+      /* The QR, generated once (npx qrcode) into talk/media so it needs no network. */
+      #try .qr {
+        position: relative; width: 100%; height: auto;
         image-rendering: pixelated; border-radius: 12px; box-shadow: 0 2vh 4vh rgba(0, 0, 0, 0.12);
       }
-      /* The app icon beside the QR, the same height, rounded the way the home screen rounds it. */
-      .qr-row { display: flex; gap: 3vh; justify-content: center; align-items: center; margin-top: 4vh; }
-      .qr-row .app-icon {
-        width: min(30vh, 50vw); height: auto; border-radius: 22.5%;
-        box-shadow: 0 2vh 4vh rgba(0, 0, 0, 0.12);
+      /* Apple's own badge (developer.apple.com, unmodified), at no less than the 40px it asks for. */
+      #try .store-badge { display: block; height: max(40px, 6vh); width: auto; margin-top: 3vh; }
+      /* The marketing site's hopping taxi (src/workshop/emptytaxi.js). Tap it. Its wheels sit on the
+         QR's top edge; the road under it is masked out before it reaches the code, so it stays
+         scannable. */
+      #try .hero-taxi {
+        position: relative; z-index: 1; width: 100%; height: 22vh; margin-bottom: -6vh;
+        mask-image: linear-gradient(to bottom, #000 62%, transparent 80%);
+        pointer-events: auto;
       }
-      .slide p.qr-url { margin-top: 2vh; font-size: clamp(14px, 1.3vw, 22px); }
-      /* The marketing site's hopping taxi (src/workshop/emptytaxi.js), over the heading. Tap it. */
-      #try .hero-taxi { justify-self: center; width: min(70vw, 90vh); height: 30vh; margin: -4vh 0 -3vh; }
-      #try .hero-taxi canvas { display: block; width: 100%; height: 100%; }
+      .hero-taxi canvas { display: block; width: 100%; height: 100%; }
+      /* The title with the taxi on the same line, to its right. The road under it fades out before
+         the canvas's bottom edge. */
+      /* Big enough for the three creatures (src/talk/escape.js, perchCreatures) to stand along. */
+      #thanks h1 { font-size: clamp(96px, 12vw, 200px); }
+      #name .title-row { display: flex; align-items: center; justify-content: center; gap: 2vw; }
+      #name h1 { font-size: clamp(56px, 7vw, 120px); }
+      #name .hero-taxi {
+        width: min(36vw, 52vh); height: 30vh;
+        mask-image: linear-gradient(to bottom, #000 75%, transparent 95%);
+      }
 
       /* The game clock: hidden on the title, pops in when the talk starts, red in the last minute,
          and counts overtime after the buzzer. */
@@ -356,17 +376,13 @@
       #phone-slot { justify-self: center; height: min(82vh, 92vw * 19.5 / 9); aspect-ratio: 9 / 19.5; }
       #words { transition: opacity 0.4s ease, transform 0.6s cubic-bezier(0.65, 0, 0.35, 1); }
       #words p { font-size: clamp(18px, 2.4vw, 40px); }
-      #words .hint {
-        margin-top: 6vh; font-size: clamp(12px, 1vw, 15px); font-weight: 500;
-        letter-spacing: 0.08em; text-transform: uppercase; opacity: 0.45;
-      }
 
       body.live #words { opacity: 0; transform: translateX(6vw); }
 
     </style>
   </head>
   <body>
-    <div id="scrim"></div>
+    <div id="scrim"><iframe id="surround" tabindex="-1" aria-hidden="true"></iframe></div>
     <div id="device" role="button" aria-label="Play the game">
       <iframe id="game" title="Rocket Rides" allow="autoplay; fullscreen"></iframe>
     </div>
@@ -385,11 +401,20 @@
     </section>
     <!-- 3: the character select, built by src/talk/select.js -->
     <section class="slide" id="select" data-name="Choose your player"></section>
-    <!-- 4: a photo, then a game of snake built up a click at a time (src/talk/snake.js) -->
-    <section class="slide center" id="snake" data-name="Snake">
+    <!-- 4: the sketchbook photo; its doodles come alive and walk off, and it blows away -->
+    <section class="slide center" id="sketch" data-name="Sketchbook">
       <img class="photo" src="./media/sketchbook.jpg" alt="A kid's sketchbook with its doodles cut out and standing up around it" />
     </section>
-    <!-- 5 -->
+    <!-- 5: a game of snake built up a click at a time (src/talk/snake.js) -->
+    <section class="slide center" id="snake" data-name="Snake"></section>
+    <!-- 6: the title again, with the taxi making its entrance beside it -->
+    <section class="slide center" id="name" data-name="Rocket Rides">
+      <div class="title-row">
+        <h1>Rocket Rides</h1>
+        <div class="hero-taxi"></div>
+      </div>
+    </section>
+    <!-- 7 -->
     <section class="slide bleed compare" data-name="Then and now">
       <iframe class="bg-game" data-src="/?splash=classic&titleintro=classic" data-zoom="52" data-shift="0" data-shift-y="0" data-squall="50" tabindex="-1" aria-hidden="true"></iframe>
       <iframe class="cmp-old" data-src="/talk/first/index.html" tabindex="-1" aria-hidden="true"></iframe>
@@ -397,32 +422,33 @@
       <div class="side side-old"><span class="tag tag-old">First commit</span></div>
       <div class="side side-new"><span class="tag tag-new">Today</span></div>
     </section>
-    <!-- 6 -->
+    <!-- 8 -->
     <section class="slide bleed" data-name="The workshop">
       <div class="demo"><iframe data-src="/workshop/" title="The model workshop"></iframe></div>
     </section>
-    <!-- 7: the phone that opens into the live game -->
+    <!-- 9: the phone that opens into the live game -->
     <section class="slide" id="slide" data-name="Live demo">
       <div id="phone-slot"></div>
       <div id="words">
         <h1>Rocket Rides</h1>
         <p>Live demo 🤞</p>
-        <div class="hint">Tap the phone</div>
       </div>
     </section>
-    <!-- 8 -->
-    <section class="slide center" id="try" data-name="Try it out">
-      <div class="hero-taxi"></div>
-      <h1>Try it out</h1>
-      <h2>Play it + share feedback via TestFlight</h2>
-      <div class="qr-row">
+    <!-- 10 -->
+    <section class="slide" id="try" data-name="Try it out">
+      <div class="pitch">
         <img class="app-icon" src="/apple-touch-icon-512.png" alt="Rocket Rides app icon" />
-        <img class="qr" src="./media/testflight-qr.svg" alt="QR code for testflight.apple.com/join/ZMskw8Gu" />
+        <h1>Try it out</h1>
+        <h2>Play it + share feedback</h2>
       </div>
-      <p class="qr-url">testflight.apple.com/join/ZMskw8Gu</p>
+      <div class="scan">
+        <div class="hero-taxi"></div>
+        <img class="qr" src="./media/testflight-qr.svg" alt="QR code for testflight.apple.com/join/ZMskw8Gu" />
+        <img class="store-badge" src="./media/app-store-badge.svg" alt="Download on the App Store" />
+      </div>
     </section>
-    <!-- 9 -->
-    <section class="slide center">
+    <!-- 11 -->
+    <section class="slide center" id="thanks" data-name="Thanks">
       <h1>Thanks!</h1>
     </section>
     <script type="module" src="/src/talk/talk.js"></script>

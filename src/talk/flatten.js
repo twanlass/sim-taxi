@@ -1,4 +1,4 @@
-// Slide 5's first commit, drawn flat: every lit material in that build's scene swapped for an unlit
+// The then-and-now slide's first commit, drawn flat: every lit material in that build's scene swapped for an unlit
 // one in the same colour, so there is no shading and no shadow — not how the first build looked, but
 // simpler than it, which is the point of the slide. The build is a prebuilt bundle
 // (public/talk/first/) and can't be edited, but it publishes `window.__taxi`, which leads to its

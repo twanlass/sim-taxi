@@ -20,7 +20,7 @@ import '@fontsource-variable/inter';
 import { mountSelect } from './select.js';
 import { createSnake } from './snake.js';
 import { wispAway } from './wisp.js';
-import { escapeCreatures } from './escape.js';
+import { escapeCreatures, perchCreatures } from './escape.js';
 import { flattenScene } from './flatten.js';
 
 const REVEAL_MS = 900;
@@ -29,12 +29,16 @@ const lerp = (a, b, k) => a + (b - a) * k;
 const game = document.getElementById('game');
 const device = document.getElementById('device');
 const slot = document.getElementById('phone-slot');
+const surround = document.getElementById('surround');
+let surroundFrame = 0;
 document.documentElement.style.setProperty('--reveal-ms', `${REVEAL_MS}ms`);
 
 // The real game, from its main menu: the phone shows the title screen with the city running, and
 // everything after it (Play, the opening vignette, the tutorial) is the game as a player gets it.
 // Only the startup splash is skipped, and the menu's intro blur.
-game.src = '/?splash=classic&titleintro=classic';
+// Both copies of the game load the same city (see the surround, below), so its seed is pinned here.
+const CITY = `seed=${Math.floor(Math.random() * 1e9)}`;
+game.src = `/?splash=classic&titleintro=classic&${CITY}`;
 
 let live = false;
 
@@ -84,45 +88,72 @@ kid.querySelector('.photo').addEventListener('click', async (e) => {
   cans ??= import('./cans.js').then((m) => m.createCans());
   (await cans).drop({ x: r.left + REAL_CANS.x * r.width, y: r.top + REAL_CANS.y * r.height });
 });
-// Slide 4's snake: each click (or →) is the next beat — three doodles come out of the photo as
+// The sketchbook: each click (or →) is the next beat — three doodles come out of the photo as
 // pixel sprites and stand about at the bottom of the screen watching the cursor, then walk off
-// (src/talk/escape.js), the photo blows away into wisps
-// (src/talk/wisp.js) and the snake comes on once it has gone, then the pineapple in the hat, the
-// dragon fruit, the bomb — and leaving the slide clears it. Presses while the photo is still
-// smoking are swallowed, so a double click doesn't skip the pineapple.
+// (src/talk/escape.js), and WISP_AFTER_MS into the walk — about halfway across for the middle one,
+// with no press of its own — the photo blows away into wisps (src/talk/wisp.js), and once it has
+// gone the deck moves on to the snake by itself. Presses while the photo is still smoking are
+// swallowed; leaving the slide puts the photo back.
+const sketchSlide = document.getElementById('sketch');
+const sketchPhoto = sketchSlide.querySelector('.photo');
 const snakeSlide = document.getElementById('snake');
-const snakePhoto = snakeSlide.querySelector('.photo');
-let snake = null;
 let wisp = null;
 let escapees = null;
 let escaped = false;
-snakeSlide.advance = () => {
+let wispTimer = 0;
+const WISP_AFTER_MS = 1200;
+sketchSlide.advance = () => {
   if (!escapees) {
-    escapees = escapeCreatures(snakePhoto);
+    escapees = escapeCreatures(sketchPhoto);
     return true;
   }
   if (!escaped) {
     escaped = true;
     escapees.leave();
+    wispTimer = setTimeout(() => {
+      wisp = wispAway(sketchPhoto);
+      wisp.done.then((ok) => { if (ok) show(slides.indexOf(snakeSlide)); });
+    }, WISP_AFTER_MS);
     return true;
   }
-  if (!wisp) {
-    wisp = wispAway(snakePhoto);
-    wisp.done.then((ok) => { if (ok) (snake ??= createSnake(snakeSlide)).advance(); });
-    return true;
-  }
-  return snake ? snake.advance() : true;
+  return true;
 };
-snakeSlide.addEventListener('click', () => snakeSlide.advance());
-snakeSlide.addEventListener('leave', () => {
+sketchSlide.addEventListener('click', () => sketchSlide.advance());
+sketchSlide.addEventListener('leave', () => {
   escapees?.cancel();
   escapees = null;
   escaped = false;
+  clearTimeout(wispTimer);
   wisp?.cancel();
   wisp = null;
-  snakePhoto.style.visibility = '';
-  snake?.stop();
+  sketchPhoto.style.visibility = '';
 });
+// The thanks slide: PERCH_AFTER_MS after it comes up, slide 4's creatures come back and climb up
+// onto the word (src/talk/escape.js). Leaving takes them away again.
+const thanksSlide = document.getElementById('thanks');
+const PERCH_AFTER_MS = 900;
+let perched = null;
+let perchTimer = 0;
+thanksSlide.addEventListener('enter', () => {
+  perchTimer = setTimeout(() => {
+    document.fonts.ready.then(() => {
+      if (thanksSlide.classList.contains('on')) perched = perchCreatures(thanksSlide.querySelector('h1'));
+    });
+  }, PERCH_AFTER_MS);
+});
+thanksSlide.addEventListener('leave', () => {
+  clearTimeout(perchTimer);
+  perched?.cancel();
+  perched = null;
+});
+// The snake, a slide of its own so the talk can jump straight to it: it starts as the slide comes
+// up, and each click (or →) puts the next thing on the board — the pineapple in the hat, the dragon
+// fruit, the bomb — then moves on. Leaving the slide clears it.
+let snake = null;
+snakeSlide.addEventListener('enter', () => (snake ??= createSnake(snakeSlide)).advance());
+snakeSlide.advance = () => snake?.advance() ?? false;
+snakeSlide.addEventListener('click', () => snakeSlide.advance());
+snakeSlide.addEventListener('leave', () => snake?.stop());
 // The talk's game clock: nine minutes, bottom right, started by the first step off the title. The
 // start time lives in sessionStorage so a reload mid-talk doesn't hand back the full nine; R resets.
 const TALK_MS = 9 * 60 * 1000;
@@ -332,6 +363,7 @@ function show(i) {
     slides[current].dispatchEvent(new Event('reset-wipe'));
     slides[current].dispatchEvent(new Event('leave'));
   }
+  const arriving = slides[current] !== slides[next];
   demos(slides[next], true);
   if (next > 0) startClock();
   if (cans && slides[next] !== kid) cans.then((c) => c.clear());
@@ -340,25 +372,45 @@ function show(i) {
   ticks.forEach((b, k) => b.classList.toggle('on', k === current));
   document.body.classList.toggle('on-phone', slides[current].id === 'slide');
   if (slides[current].id !== 'slide') go(false);
+  loadSurround(slides[current].id === 'slide');
   game.contentWindow?.__taxi?.presenter?.hold(slides[current].id !== 'slide');
   document.body.classList.toggle('on-bleed', slides[current].classList.contains('bleed'));
   history.replaceState(null, '', `#${current + 1}`);
+  if (arriving) slides[current].dispatchEvent(new Event('enter'));
 }
 mountSelect(document.getElementById('select'), { start: () => show(current + 1) });
-// The "Try it out" slide's taxi: the workshop's hopping taxi, the same one the marketing site's
-// hero carries (rocket-rides-web bundles this module). Loaded the first time the slide comes up, so
-// the deck doesn't stand up a WebGL context for it before then; the looks are decided first, as
-// the workshop's own viewer does before it.
+// The hopping taxi, on the "Rocket Rides" title slide and the "Try it out" slide: the workshop's
+// taxi, the same one the marketing site's hero carries (rocket-rides-web bundles this module).
+// The module draws one taxi at a time (a second `mount` disposes the first), so the taxi moves to
+// whichever of the two slides comes up, each time it does. Loaded the first time either does, so
+// the deck doesn't stand up a WebGL context before then; the looks are decided first, as the
+// workshop's own viewer does before it.
 // Framed the way the marketing site frames it (its data-back / data-aim / data-ceil), pulled in
 // from the workshop's distant default so the car is a mark you can see from the back of a room.
 const HERO_TAXI = { back: 1.25, aimY: 1.6, ceil: 3.2 };
-const trySlide = document.getElementById('try');
+// On the title slide the taxi makes an entrance: the road waits empty until →, and then it comes
+// up through a hole in it (`entry` in emptytaxi.js). Every visit to that slide starts empty again.
 let heroTaxi = null;
-new MutationObserver(() => {
-  if (heroTaxi || !trySlide.classList.contains('on')) return;
-  heroTaxi = Promise.all([import('../game/renderpath.js'), import('../workshop/emptytaxi.js')])
-    .then(([rp, m]) => { rp.decideLooks(rp.renderBudget()); m.mount(trySlide.querySelector('.hero-taxi'), HERO_TAXI); });
-}).observe(trySlide, { attributes: true, attributeFilter: ['class'] });
+for (const host of document.querySelectorAll('.slide .hero-taxi')) {
+  const slide = host.closest('.slide');
+  const entry = slide.id === 'name';
+  let taxi = null;
+  let entered = false;
+  new MutationObserver(() => {
+    if (!slide.classList.contains('on')) { taxi = null; entered = false; return; }
+    heroTaxi ??= Promise.all([import('../game/renderpath.js'), import('../workshop/emptytaxi.js')])
+      .then(([rp, m]) => { rp.decideLooks(rp.renderBudget()); return m; });
+    taxi ??= heroTaxi.then((m) => m.mount(host, { ...HERO_TAXI, entry }));
+  }).observe(slide, { attributes: true, attributeFilter: ['class'] });
+  if (entry) {
+    slide.advance = () => {
+      if (entered || !taxi) return false;
+      entered = true;
+      taxi.then((t) => t.enter());
+      return true;
+    };
+  }
+}
 const fromHash = () => show((Number.parseInt(location.hash.slice(1), 10) || 1) - 1);
 fromHash();
 window.addEventListener('hashchange', fromHash);
@@ -379,6 +431,76 @@ game.addEventListener('load', () => {
 
 window.addEventListener('resize', dock);
 dock();
+
+// The city round the live phone: a second copy of the game on the same seed, filling the window
+// behind the scrim, held still, with nothing but its canvas showing, and its camera locked to the
+// phone's every frame — the same position and the same world units per pixel, its frustum grown
+// out from the phone's screen to the window's edges — so the streets carry on past the bezel. Only
+// the traffic differs, frozen out there. Loaded while the slide is up and blanked when it goes, so
+// it isn't rendering a whole window's worth of city through the rest of the talk.
+
+/** The phone camera's drawn frustum, with any view offset and zoom folded in (as three builds it). */
+function drawnFrustum(c) {
+  const dx = (c.right - c.left) / (2 * c.zoom);
+  const dy = (c.top - c.bottom) / (2 * c.zoom);
+  const cx = (c.right + c.left) / 2;
+  const cy = (c.top + c.bottom) / 2;
+  let l = cx - dx;
+  let t = cy + dy;
+  let w = 2 * dx;
+  let h = 2 * dy;
+  if (c.view?.enabled) {
+    const sw = w / c.view.fullWidth;
+    const sh = h / c.view.fullHeight;
+    l += sw * c.view.offsetX;
+    t -= sh * c.view.offsetY;
+    w = sw * c.view.width;
+    h = sh * c.view.height;
+  }
+  return { l, t, w, h };
+}
+
+function followPhone() {
+  surroundFrame = requestAnimationFrame(followPhone);
+  if (!live) return;
+  const from = game.contentWindow?.__taxi?.camera?.camera;
+  const to = surround.contentWindow?.__taxi?.camera?.camera;
+  if (!from || !to) return;
+  const r = game.getBoundingClientRect();
+  const { l, t, w, h } = drawnFrustum(from);
+  const sx = w / r.width;
+  const sy = h / r.height;
+  to.position.copy(from.position);
+  to.quaternion.copy(from.quaternion);
+  to.near = from.near;
+  to.far = from.far;
+  to.zoom = 1;
+  to.clearViewOffset();
+  to.left = l - sx * r.left;
+  to.right = l + sx * (window.innerWidth - r.left);
+  to.top = t + sy * r.top;
+  to.bottom = t - sy * (window.innerHeight - r.top);
+  to.updateProjectionMatrix();
+  to.updateMatrixWorld();
+}
+
+function loadSurround(on) {
+  cancelAnimationFrame(surroundFrame);
+  if (!on) { surround.removeAttribute('src'); return; }
+  if (!surround.getAttribute('src')) {
+    surround.src = `/?splash=classic&titleintro=classic&${CITY}`;
+    surround.onload = function quiet() {
+      const w = surround.contentWindow;
+      if (!w.__taxi?.presenter) { setTimeout(quiet, 100); return; }
+      w.__taxi.presenter.hold(true);
+      w.__taxi.presenter.settle();
+      const style = w.document.createElement('style');
+      style.textContent = 'body > :not(canvas) { visibility: hidden !important; }';
+      w.document.head.appendChild(style);
+    };
+  }
+  surroundFrame = requestAnimationFrame(followPhone);
+}
 
 // The game only runs while its slide is up: the presenter's hold freezes the world the way the
 // pause does, with nothing drawn over it. Its handle comes up a moment after the frame loads.
