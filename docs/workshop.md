@@ -141,6 +141,11 @@ being read. So the run lives on the server and buffers its events, the conversat
 `sessionStorage`, and a reloaded page reattaches with `?from=` and replays what it missed. Killing
 the CLI when the tab dropped its stream would have let the agent's own edit kill the agent.
 
+**Stop is a note, not an error.** The Stop handler marks the run `stopped` before it sends SIGTERM,
+and the run ends with `stopped: true` if it died by signal *or* that flag is set — the CLI can catch
+the SIGTERM and exit with a code and stderr of its own, so the flag, not the exit, says why it ended.
+The panel draws that as a "Stopped" note rather than the red error bubble a failed run gets.
+
 Each message the user sends wears an emoji reaction hanging off its bottom edge, 8px in from the right: 👀 if the
 text they typed contains a `?`, 👍 otherwise. It is deterministic on purpose, not the agent's reply
 (no model call), and it reads the typed text rather than the bubble, so a pin's label can't turn a

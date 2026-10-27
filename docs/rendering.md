@@ -3918,8 +3918,9 @@ with a dark glass face on its back. The fleet's and the trucks' sit on a short s
 the A-pillar; **the taxi's has no stalk** (`doorMirrorParts`): a wedge that grows straight out of the
 front door just under the shoulder, full size where it meets the door and tapering in length alone
 to 0.45 of that at its outer end (the top view shows the wedge; from the side it is the same
-thickness all the way out), with the glass on its square back. It sits as far forward
-as the root can go and still clear the front wheel arch. They are sized
+thickness all the way out), with the glass on its square back. It sits at x = 0.6, a little past
+the 0.45 where the root's foot (1.24) still cleared the front wheel arch (1.19), so the root now
+stands over the arch. They are sized
 for the camera rather than for a real car, standing 0.28 clear of the flank (~2.2px at play zoom on a
 fleet car, ~2.6 on the taxi), because a true-scale mirror is a pixel and a half and flickers as the
 car turns. The fleet's and the trucks' are merged into the shared body geometry and baked white for

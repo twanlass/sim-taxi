@@ -338,12 +338,12 @@ export function createTaxiMesh() {
 
   // Wing mirrors (geometry/mirrors.js), one mesh a side rather than merged into the shell, so a hit
   // on the flank can snap one off (`setMirror` in buildDamage). On the front door under the shoulder
-  // (`doorMirrorParts`), as far forward as its root can go and still clear the front wheel arch,
-  // which is up at 1.19 under the root's front edge against the root's foot at 1.24. On the shell's
-  // material.
+  // (`doorMirrorParts`), pushed forward to 0.6 at the user's request, past the point (0.45) where the
+  // root's foot (1.24) still cleared the front wheel arch (1.19), so the root now sits over the arch.
+  // On the shell's material.
   const mirrors = new Map(MIRRORS ? [1, -1].map((side) => {
     const parts = doorMirrorParts({
-      x: 0.45, top: BODY_TOP, flank: CAR_W / 2, side, paint: color('taxiBody'),
+      x: 0.6, top: BODY_TOP, flank: CAR_W / 2, side, paint: color('taxiBody'),
     });
     const mirror = new THREE.Mesh(mergeGeometries(parts, false), shell.material);
     parts.forEach((p) => p.dispose());
