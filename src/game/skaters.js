@@ -3,6 +3,7 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { bakeColor, hash01, propMaterial } from '../util/geo.js';
 import { PALETTE } from '../palette.js';
 import { createPerson } from '../geometry/person.js';
+import { VIEW_DIR } from './camera.js';
 import {
   SKATE_TOP_Y, LIP_H, TRANS_RUN, TRANS_R, RAIL_H, RAIL_R, RAIL_HALF, BOX_TOP_HALF, BOX_KICK,
   surfaceAt,
@@ -89,6 +90,36 @@ const DECK_IN = 0.42;
 const SWITCH_LANE = 0.55;
 
 /**
+ * **The push.** Half the forward passes that would come back toes-to-camera (`toeSideAway`) end
+ * in a lazy kickturn low on the transition
+ * (`PUSH_SETUP_PEAK`, against the lip's 1.57), and the pass back comes down the middle of the flat
+ * — clear of the funbox and the rail, `PUSH_LANE` — with the back foot off the board, kicking. The
+ * speed the far end was budgeted for is earned on the ground rather than handed over at the pump:
+ * each kick adds its share of the energy while the foot is planted, so the rider visibly comes in
+ * slow and leaves fast. One to three kicks, as many as fit before the far transition, then the
+ * foot goes back on and the board glides into whatever the far end draws.
+ *
+ * The foot is planted in the *world* (`planted`, pinned in `pose`) and the board rolls past it, so it never skates
+ * over the concrete: it touches down `PLANT_X` ahead of the deck's middle, beside the board on the
+ * toe side (`FOOT_Z` — the deck is 0.26 either side and the shin 0.155, so anything nearer clips
+ * the edge of the deck), and lifts at `PUSH_END_X`, about the back truck. `PUSH_DROP` is the front
+ * knee folding so the back leg reaches the floor 0.255 under the deck: the hips can sit no higher
+ * than ~0.95 over the floor for a 1.15 leg reaching 0.4 out to the side and 0.45 back.
+ */
+const PUSH_SHARE = 0.5;
+const PUSH_SETUP_PEAK = [0.22, 0.32];
+const PUSH_LANE = { v: 0, feature: 'flat' };
+const PLANT_X = 0.05;
+const PUSH_END_X = -0.65;
+const FOOT_Z = 0.44;
+const FOOT_LIFT = 0.2;
+const PUSH_REACH = 0.22;
+const PUSH_RECOVER = 0.2;
+const PUSH_RETURN = 0.28;
+const PUSH_DROP = 0.42;
+const PUSH_MAX = 3;
+
+/**
  * The body's set points. `LOOSE` is the default; `STIFF` is the pose #461 shipped with, kept behind
  * `?skater=stiff` for comparison. It read as a frozen T-pose, and the numbers say why: knees at a
  * 0.1 crouch are 0.4 rad off straight, the back never left vertical, and arms held out at a radian
@@ -133,7 +164,7 @@ function weighted(rng, table, avoid = null) {
 /**
  * @param park  the plan from city/skatepark.js, or null — a quiet no-op, as the hoopers are.
  */
-export function createSkaters(scene, rng, park, { stiff = false } = {}) {
+export function createSkaters(scene, rng, park, { stiff = false, push = true } = {}) {
   const T = stiff ? STIFF : LOOSE;
   const group = new THREE.Group();
   group.name = 'skaters';
@@ -204,6 +235,10 @@ export function createSkaters(scene, rng, park, { stiff = false } = {}) {
     spread: { x: 0.5, v: 0 },
     grab: 0,
     tuck: 0,
+    // The push in progress (`stepPush`), and whether the pass being set up ends in one.
+    push: null,
+    pushNext: false,
+    pushW: 0,
     // What `settle` is aiming each one at, set by whichever mode is running this step.
     want: null,
   };
@@ -317,13 +352,43 @@ export function createSkaters(scene, rng, park, { stiff = false } = {}) {
   /** Which way along the board the rider is travelling: +1 toward the nose, −1 riding fakie. */
   const travel = (r) => Math.sign(Math.cos(r.psi) * r.s) || r.dir;
 
+  /**
+   * Whether the rider's toes point away from the camera. The kicking foot goes down on the toe
+   * side, so a push with the toes away is a figure's back with a leg somewhere behind it — and the
+   * view never turns, so which way along the park a rider faces decides it for the whole pass. A
+   * push comes back the other way after a kickturn, so it is set up on a pass that has its toes
+   * *away*. The toe side is the stance's +Z, `fwd × normal` on the flat:
+   * cos ψ (U × Y) + sin ψ U, with U × Y = (−U.z, 0, U.x).
+   */
+  function toeSideAway(r) {
+    const c = Math.cos(r.psi);
+    const sn = Math.sin(r.psi);
+    return c * (VIEW_DIR.z * park.U.x - VIEW_DIR.x * park.U.z)
+      + sn * (VIEW_DIR.x * park.U.x + VIEW_DIR.z * park.U.z) < 0;
+  }
+
   /** On entering the flat: what happens at the far end, and the speed that peaks there for it. */
   function pump(r) {
     r.passes -= 1;
     const fakie = travel(r) < 0;
+    if (r.mid === 'push') {
+      // The energy for the far end is the push's to earn: the speed is left as it arrived.
+      r.end = weighted(rng, [['air', 0.35], ['flip', 0.2], ['air360', 0.2], ['deck180', 0.25]], r.lastEnd);
+      r.lastEnd = r.end;
+      const peak = r.end === 'air360' ? LIP_H + rng.range(SPIN360_PEAK, AIR_PEAK[1])
+        : r.end === 'deck180' ? LIP_H + rng.range(0.08, 0.14)
+          : LIP_H + rng.range(AIR_PEAK[0], AIR_PEAK[1]);
+      r.push = { phase: 'wait', E1: G * peak, base: r.E, dE: 0, n: 0, kick: 0, t: 0, plantU: 0,
+        foot: new THREE.Vector3(), deck: 1, w: 0 };
+      return;
+    }
     let end;
     if (r.passes <= 0) {
       end = 'rest';
+    } else if (push && !fakie && toeSideAway(r) && rng.chance(PUSH_SHARE)) {
+      // A lazy kickturn low on the transition, to come back slow enough to push.
+      end = 'kick';
+      r.pushNext = true;
     } else {
       // Fakie, the rider leans toward the tricks that bring them back round: a rock or a 360.
       end = weighted(rng, fakie
@@ -332,12 +397,14 @@ export function createSkaters(scene, rng, park, { stiff = false } = {}) {
       r.lastEnd);
     }
     let peak;
-    if (end === 'kick') peak = LIP_H - rng.range(KICK_SHORT[0], KICK_SHORT[1]);
+    if (r.pushNext) peak = rng.range(PUSH_SETUP_PEAK[0], PUSH_SETUP_PEAK[1]);
+    else if (end === 'kick') peak = LIP_H - rng.range(KICK_SHORT[0], KICK_SHORT[1]);
     else if (end === 'air360') peak = LIP_H + rng.range(SPIN360_PEAK, AIR_PEAK[1]);
     else if (end === 'air' || end === 'flip') peak = LIP_H + rng.range(AIR_PEAK[0], AIR_PEAK[1]);
     else peak = LIP_H + rng.range(0.08, 0.14);
     r.end = end;
     r.lastEnd = end;
+    r.peak = peak;
     r.E = G * peak;
     r.s = Math.sign(r.s) * Math.sqrt(2 * r.E);
   }
@@ -348,10 +415,19 @@ export function createSkaters(scene, rng, park, { stiff = false } = {}) {
    * will cover on it, so it is finished by the time they are back on the flat.
    */
   function planPass(r, pathLen) {
-    const next = rng.chance(SWITCH_LANE) ? lanes.find((l) => l !== r.lane) : r.lane;
+    const next = r.pushNext ? PUSH_LANE
+      : r.lane === PUSH_LANE ? rng.pick(lanes)
+        : rng.chance(SWITCH_LANE) ? lanes.find((l) => l !== r.lane) : r.lane;
     r.carve = next === r.lane && Math.abs(r.v - next.v) < 1e-6 ? null
       : { from: r.v, to: next.v, done: 0, len: Math.max(0.5, pathLen) };
     r.lane = next;
+    r.push = null;
+    if (r.pushNext) {
+      r.pushNext = false;
+      r.mid = 'push';
+      r.midDone = true;
+      return;
+    }
     r.mid = next.feature === 'rail'
       ? weighted(rng, [['5050', 0.55], ['boardslide', 0.45]])
       : weighted(rng, [['ollie', 0.3], ['kickflip', 0.25], ['shuv', 0.15], ['manual', 0.3]]);
@@ -359,9 +435,10 @@ export function createSkaters(scene, rng, park, { stiff = false } = {}) {
   }
 
   /** How much transition path a pass out to `end` covers, there and back. */
-  function outAndBack(end) {
+  function outAndBack(r, end) {
     if (end === 'kick') {
-      const peak = LIP_H - (KICK_SHORT[0] + KICK_SHORT[1]) / 2;
+      // The peak `pump` drew: a push's set-up kickturn turns well short of the others.
+      const peak = r.peak ?? LIP_H - (KICK_SHORT[0] + KICK_SHORT[1]) / 2;
       return 2 * Math.sqrt(TRANS_R * TRANS_R - (TRANS_R - peak) ** 2);
     }
     return 2 * TRANS_RUN + (end === 'air' || end === 'flip' || end === 'air360' ? 0 : 2 * DECK_IN);
@@ -517,6 +594,113 @@ export function createSkaters(scene, rng, park, { stiff = false } = {}) {
     }
   }
 
+  /** The foot down: on the floor where it now is, which `pose` pins it to from here. */
+  function plant(r, p, nose) {
+    p.phase = 'plant';
+    p.plantU = r.u + PLANT_X * nose;
+    p.planted = null;
+  }
+
+  /** The last kick done, or the flat run out: the foot back up onto the deck from where it is. */
+  function returnFoot(p) {
+    p.phase = 'return';
+    p.t = 0;
+    p.from = p.foot.clone();
+    p.deck0 = p.deck;
+    p.w0 = p.w;
+  }
+
+  /**
+   * The push, stepped while the rider rolls down the middle of the flat. `foot` is where the back
+   * foot is wanted in the stance's frame (x along the board, z out the toe side, the floor at
+   * −DECK_TOP), `deck` how much of the way back to its place on the deck it is, and `w` how far
+   * the body has gone into the push stance.
+   */
+  function stepPush(r, h, now, heading) {
+    const p = r.push;
+    const floor = -DECK_TOP;
+    // The board's +X along u, and a point on the floor in the board's x.
+    const nose = Math.sign(Math.cos(r.psi)) || 1;
+    const boardX = (u) => (u - r.u) * nose;
+    // The kickturn's spin has to be finished before a foot goes down, or it is planted on a board
+    // still turning under it.
+    // Run out of flat with kicks still to go: what is left of the energy lands at once, and the
+    // foot comes back aboard from wherever it is. Putting it back can finish up the bank — the
+    // foot is in the air by then — but a kick cannot.
+    if (p.phase !== 'return' && heading > 0 && now > park.transU - 0.1) {
+      r.E = p.E1;
+      if (p.phase === 'wait') r.push = null;
+      else returnFoot(p);
+      return;
+    }
+    if (p.phase === 'wait') {
+      if (r.spin || heading > 0) return;
+      // Come back fakie (a kickturn finishing as the pass was planned can leave it so), the back
+      // foot is the leading one and the push would run backwards: the pump's way instead.
+      if (travel(r) < 0) {
+        r.E = p.E1;
+        r.push = null;
+        return;
+      }
+      // As many kicks as fit before the far transition: the foot's swing out, then each kick's
+      // sweep under the board, and the swing back between kicks at the speed reached by then.
+      const room = park.transU - r.u * Math.sign(r.s) - 0.2;
+      const sweep = PLANT_X - PUSH_END_X;
+      const fits = (n) => {
+        let used = Math.sqrt(2 * r.E) * PUSH_REACH + n * sweep;
+        for (let k = 1; k < n; k++) used += Math.sqrt(2 * (r.E + (k * (p.E1 - r.E)) / n)) * PUSH_RECOVER;
+        return used <= room;
+      };
+      let n = PUSH_MAX;
+      while (n > 1 && !fits(n)) n -= 1;
+      p.n = n;
+      p.dE = (p.E1 - p.base) / n;
+      p.phase = 'reach';
+      p.t = 0;
+    }
+    p.t += h;
+    if (p.phase === 'reach') {
+      const k = Math.min(1, p.t / PUSH_REACH);
+      p.foot.set(PLANT_X, floor + FOOT_LIFT * hump(k), FOOT_Z);
+      p.deck = 1 - ease(k);
+      p.w = ease(k);
+      if (k >= 1) plant(r, p, nose);
+    } else if (p.phase === 'plant') {
+      // Where the foot is drawn is `pose`'s, from the point on the floor it went down on; the kick
+      // is paced off the distance rolled since.
+      const x = boardX(p.plantU);
+      p.deck = 0;
+      p.w = 1;
+      const k = clamp((PLANT_X - x) / (PLANT_X - PUSH_END_X), 0, 1);
+      // The kick: the energy rises while the foot drives back against the floor.
+      r.E = p.base + p.dE * ease(k);
+      if (k >= 1) {
+        p.base += p.dE;
+        p.kick += 1;
+        p.t = 0;
+        p.from = p.foot.clone();
+        if (p.kick < p.n) p.phase = 'recover';
+        else {
+          r.E = p.E1;
+          returnFoot(p);
+        }
+      }
+    } else if (p.phase === 'recover') {
+      // Swinging forward for the next kick, toes clear of the floor.
+      const k = Math.min(1, p.t / PUSH_RECOVER);
+      p.foot.set(PLANT_X, floor, FOOT_Z).sub(p.from).multiplyScalar(ease(k)).add(p.from);
+      p.foot.y += FOOT_LIFT * hump(k);
+      if (k >= 1) plant(r, p, nose);
+    } else if (p.phase === 'return') {
+      const k = Math.min(1, p.t / PUSH_RETURN);
+      p.foot.copy(p.from);
+      p.foot.y += FOOT_LIFT * hump(k);
+      p.deck = lerp(p.deck0, 1, ease(k));
+      p.w = p.w0 * (1 - ease(k));
+      if (k >= 1) r.push = null;
+    }
+  }
+
   /** Rolling, under gravity: the pendulum, and everything that starts from it. */
   function stepRide(r, h) {
     const was = Math.abs(r.u);
@@ -543,7 +727,7 @@ export function createSkaters(scene, rng, park, { stiff = false } = {}) {
       r.carve = null;
     }
     // Out of the flat: the next pass.
-    if (now >= park.transU && was < park.transU) planPass(r, outAndBack(r.end));
+    if (now >= park.transU && was < park.transU) planPass(r, outAndBack(r, r.end));
 
     // The middle.
     if (!r.midDone && heading < 0) {
@@ -562,6 +746,7 @@ export function createSkaters(scene, rng, park, { stiff = false } = {}) {
       }
     }
     if (now < 0.05) r.midDone = true;
+    if (r.push) stepPush(r, h, now, heading);
 
     // A kickturn, timed so the 180 straddles the moment the rider stops climbing.
     if (r.end === 'kick' && heading > 0 && now > park.transU && !r.spin) {
@@ -640,7 +825,7 @@ export function createSkaters(scene, rng, park, { stiff = false } = {}) {
       if (r.mode === 'ride' && !r.midDone && Math.abs(r.s) > 0.1 && r.mid !== 'manual') {
         const at = r.lane.feature === 'rail' ? RAIL_HALF + railRun() : BOX_TOP_HALF;
         const toGo = (Math.abs(r.u) - at) / Math.abs(r.s);
-        if (toGo > 0 && toGo < 0.22 && Math.sign(r.s) * Math.sign(r.u) < 0) crouchTo += 0.3;
+        if (toGo > 0 && toGo < 0.22 && Math.sign(r.s) * Math.sign(r.u) < 0 && r.mid !== 'push') crouchTo += 0.3;
       }
       if (r.mode === 'stall') {
         const st = r.stall;
@@ -690,6 +875,19 @@ export function createSkaters(scene, rng, park, { stiff = false } = {}) {
       leanTo = 0.1 * Math.sin(r.t * 9) + 0.06 * Math.sin(r.t * 14.3);
     }
 
+    // Pushing: down on the front knee so the back foot reaches the floor, shoulders open toward
+    // where they are going, the arms low and swinging against the leg.
+    let swingTo = -0.12 * r.lean.v + 0.1 * Math.sin(r.t * 1.7);
+    const pw = r.push && r.mode === 'ride' ? r.push.w : 0;
+    if (pw > 0) {
+      crouchTo = lerp(crouchTo, PUSH_DROP, pw);
+      leanTo = lerp(leanTo, 0.06 * dir, pw);
+      twistTo = lerp(twistTo, 0.6 * dir, pw);
+      spreadTo = lerp(spreadTo, 0.3, pw);
+      swingTo += pw * 0.45 * (r.push.phase === 'plant' ? 1 : -1);
+    }
+    r.pushW = pw;
+
     // A spin in progress — a kickturn or a turn on the deck — lifts the leading end off the back
     // truck and puts the weight back over it.
     if (r.spin) {
@@ -737,7 +935,7 @@ export function createSkaters(scene, rng, park, { stiff = false } = {}) {
     spring(r.lean, leanTo, 9, 0.45, h);
     spring(r.twist, twistTo, 6, 0.8, h);
     spring(r.spread, spreadTo, 7, 0.6, h);
-    spring(r.swing, -0.12 * r.lean.v + 0.1 * Math.sin(r.t * 1.7), 10, 0.5, h);
+    spring(r.swing, swingTo, 10, 0.5, h);
     // Tilts that never lift a wheel below the deck: a spring overshooting through zero would.
     if (r.tilt.x < 0) { r.tilt.x = 0; r.tilt.v = Math.max(0, r.tilt.v); }
     r.grab = grab;
@@ -781,10 +979,11 @@ export function createSkaters(scene, rng, park, { stiff = false } = {}) {
     person.ride({
       drop: sink,
       lean: clamp(r.lean.x, -0.4, 0.4),
-      bow: T.bow + 0.12 * clamp(sink, 0, 0.6),
+      bow: T.bow + 0.12 * clamp(sink, 0, 0.6) * (1 - r.pushW),
       // Folding at the waist with the knees: a squat with a bolt-upright back is the T-pose.
       // Capped: past ~0.45 rad on top of a deep crouch the head goes down to the board.
-      hinge: T.hinge * clamp(sink / 0.3, 0, 1.2),
+      // Pushing, the deep front knee is the leg's and not a crouch: the back stays tall over it.
+      hinge: lerp(T.hinge * clamp(sink / 0.3, 0, 1.2), 0.12, r.pushW),
       elbow: T.elbow + 0.4 * T.hinge * clamp(sink, 0, 0.6),
       twist: clamp(r.twist.x, -0.7, 0.7),
       swing: clamp(r.swing.x, -0.6, 0.6),
@@ -793,7 +992,24 @@ export function createSkaters(scene, rng, park, { stiff = false } = {}) {
       tuck: r.tuck,
       waist: !stiff,
     });
+    // The push foot, off the deck: from where `ride()` just stood it toward the floor.
+    if (r.push && r.mode === 'ride' && r.push.deck < 1) {
+      const p = r.push;
+      if (p.phase === 'plant') {
+        // Planted, the foot stays put on the floor in the world and the board rolls away from it,
+        // whatever the board does under it — a carve's last yaw settling included.
+        holder.updateMatrixWorld(true);
+        if (!p.planted) {
+          p.planted = stance.localToWorld(p.foot.clone());
+          p.planted.y = SKATE_TOP_Y;
+        }
+        stance.worldToLocal(p.foot.copy(p.planted));
+      }
+      person.footAt(deckFoot);
+      person.plantFoot(deckFoot.lerp(r.push.foot, 1 - r.push.deck));
+    }
   }
+  const deckFoot = new THREE.Vector3();
 
   function update(dt) {
     // Short steps: the transition near the lip is a 72° wall, and a long frame would step a rider

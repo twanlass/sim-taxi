@@ -19,6 +19,7 @@ import { createTaxiMesh, TAXI_ROLL_PIVOT } from '../geometry/taxi.js';
 import { convertibleGeometry, convertibleInteriorGeometry, westfaliaGeometry } from '../geometry/classics.js';
 import { bumperGeometries, bumperAt, bumperLength, BUMPER_D, BUMPER_H } from '../geometry/bumpers.js';
 import { bumperHinge, lampSocket, lampHang } from '../geometry/damage.js';
+import { mirrorGeometries, CAR_BODY_TOP } from '../geometry/mirrors.js';
 import {
   GRID_I, GRID_J, HALF_ROAD, LANE, PITCH, isXAxis, dirSign, dirYaw, leftOf, rightOf, opposite,
   ringAxisAt, isUnsignalised, lineX, lineZ, laneOffsetFor, riverBanks, halfRoadX, halfRoadZ, junctionReach,
@@ -2992,6 +2993,12 @@ export function carGeometry({ bumpers = true, wheels = true } = {}) {
   cabin.translate(CABIN_X, CABIN_Y, 0);
   const glass = bakeColor(cabin, color('carGlass'));
   parts.push(setFinish(SMOOTH_BODY ? softenNormals(glass) : glass, FINISH.GLASS));
+  // Wing mirrors (geometry/mirrors.js), white for the tint like the body: just behind the cabin's
+  // sheer front at CABIN_X + CAR_LEN / 4.
+  parts.push(...mirrorGeometries({
+    x: CABIN_X + CAR_LEN * 0.25 - 0.12, top: CAR_BODY_TOP, flank: CAR_W / 2, glass: CAR_W * 0.43,
+    paint: new THREE.Color(1, 1, 1),
+  }));
 
   if (wheels) parts.push(...wheelGeometries(CAR_LEN, CAR_W));
   if (bumpers) parts.push(...bumperGeometries(CAR_LEN, CAR_W));
@@ -3093,6 +3100,15 @@ export function truckCabGeometry({ bumpers = true } = {}) {
     TRUCK_CAB_Y - 0.05 * Math.sin(lean),
     0);
   parts.push(setFinish(bakeColor(windshield, cabDark), FINISH.GLASS));
+
+  // Wing mirrors, up at the side windows rather than down on the chassis where the cab's foot is:
+  // a truck's sit high. Set back from the cab's foot by what the rake has taken off its front by
+  // that height, so the housing stays behind the glass.
+  const mirrorTop = TRUCK_CHASSIS_TOP + 0.3;
+  parts.push(...mirrorGeometries({
+    x: TRUCK_CAB_X + TRUCK_CAB_LEN / 2 - TRUCK_RAKE * (0.3 + 0.15) / 1.1 - 0.14,
+    top: mirrorTop, flank: TRUCK_W / 2, glass: cabW / 2, paint: white,
+  }));
 
   parts.push(...wheelGeometries(TRUCK_LEN, TRUCK_W));
   if (bumpers) parts.push(...bumperGeometries(TRUCK_LEN, TRUCK_W));
@@ -3612,6 +3628,9 @@ function spawnCars(rng, count, into = [], accept = null, truckChance = 0, classi
       // through `wearSkin`, never by hand, because the group it draws into has to be on the crash
       // replay's tape (see `drawnRoots`).
       skin: null,
+      // 0..1: how much of this car's own lamps to draw while a skin draws its body. 0 hides them
+      // with the body; the patrol cruiser sets its fade here (sim/police.js).
+      skinLamps: 0,
       // ...the group that skin draws, which is what the tape records.
       skinRoot: null,
       // ...and the pose it was last handed, because the instance it would otherwise be read back
@@ -4857,6 +4876,7 @@ export function createTraffic(
     if (!root?.isObject3D) throw new Error('wearSkin: a skin needs the group it draws into');
     car.skin = draw;
     car.skinRoot = root;
+    car.skinLamps = 0;
     drawnRoots.add(root);
   }
 
@@ -5246,6 +5266,26 @@ export function createTraffic(
   }
 
   /**
+   * The car's brake, turn-signal and head lamps (and the cones they throw), through `matrix`, with
+   * every level scaled by `k` — 1 for an instance, a skin's `skinLamps` for a car drawn by someone
+   * else (see the skin branch in the render pass).
+   */
+  function writeLamps(car, k) {
+    // brakeLevel/turnLeftLevel/turnRightLevel are 0..1 set once per frame, above ("Rocking" for the
+    // eased brake level, the turn-signal block right after it for the un-eased blink levels) — this
+    // just renders them. A level of exactly 0 collapses the pod the same way ZERO_MATRIX used to.
+    const brakeInst = car.isTruck ? truckBrakeMesh : brakeMesh;
+    const turnLeftInst = car.isTruck ? truckTurnLeftMesh : turnLeftMesh;
+    const turnRightInst = car.isTruck ? truckTurnRightMesh : turnRightMesh;
+    const running = runningFor(car);
+    writeLight(brakeInst, car, k * Math.max(car.brakeLevel, running * TAIL_FLOOR));
+    writeLight(car.isTruck ? truckHeadMesh : headMesh, car, k * running);
+    writeLight(car.isTruck ? truckConeMesh : coneMesh, car, k * running);
+    writeLight(turnLeftInst, car, k * car.turnLeftLevel);
+    writeLight(turnRightInst, car, k * car.turnRightLevel);
+  }
+
+  /**
    * Write one ambient car's body matrix, the two front wheels hanging off it, and its brake/turn
    * lights. The wheels are composed *through* the body matrix rather than in world space, so they
    * inherit the bob, the corner lean and the pitch rock for free and stay bolted to the arches
@@ -5283,18 +5323,7 @@ export function createTraffic(
       wheelInst.setMatrixAt(car.instanceIndex * front.length + w, wheelMatrix);
     }
 
-    // brakeLevel/turnLeftLevel/turnRightLevel are 0..1 set once per frame, above ("Rocking" for the
-    // eased brake level, the turn-signal block right after it for the un-eased blink levels) — this
-    // just renders them. A level of exactly 0 collapses the pod the same way ZERO_MATRIX used to.
-    const brakeInst = car.isTruck ? truckBrakeMesh : brakeMesh;
-    const turnLeftInst = car.isTruck ? truckTurnLeftMesh : turnLeftMesh;
-    const turnRightInst = car.isTruck ? truckTurnRightMesh : turnRightMesh;
-    const running = runningFor(car);
-    writeLight(brakeInst, car, Math.max(car.brakeLevel, running * TAIL_FLOOR));
-    writeLight(car.isTruck ? truckHeadMesh : headMesh, car, running);
-    writeLight(car.isTruck ? truckConeMesh : coneMesh, car, running);
-    writeLight(turnLeftInst, car, car.turnLeftLevel);
-    writeLight(turnRightInst, car, car.turnRightLevel);
+    writeLamps(car, 1);
 
     // The bumpers, each at its end — or, for one the taxi has knocked loose (`car.wear.bumper`,
     // game/cardamage.js), hanging by a corner with its free end on the road. The same bar either
@@ -5892,8 +5921,16 @@ export function createTraffic(
      * `car.boost` rather than `fullPower`, so it stays true through the cooldown tail alongside
      * every other boost-only hazard rule. Letting go does not buy a car that starts yielding
      * again any more than it buys one that stops being crashable.
+     *
+     * ...and the drift launch and Mega Air barge however the pill is held, for the reason they
+     * keep the priority hold: the far bank's junction goes by *underneath* them. Off the pill, a
+     * stranded car in that box held the taxi at its line in mid-air — the arc is distance-paced, so
+     * it hung at the apex with the hang's slow-mo at its deepest until the floor walked it down
+     * (Tyler, 2026-10-27: "I get stuck in a slow mo version at the apex"). Measured over 150 staged
+     * Mega Airs in traffic with Loco let go 0.3s in: the worst flight took 6.0s of wall clock
+     * against 1.4s held, and after this none took more than 2.4s.
      */
-    const bargesThrough = (car) => car.boost;
+    const bargesThrough = (car) => car.boost || onDriftLaunch(car);
 
     /**
      * A cop summoned to stand beside one already blocking this junction (`joinBlock`, set by
@@ -8101,8 +8138,13 @@ export function createTraffic(
             // hop over a river rather than the biggest thing the taxi does.
             car.stuntTip ??= { h: Math.max(reach, h), y: (bridgeStunt?.leafLen ?? 0) * Math.sin(th), th };
             const tip = car.stuntTip;
-            const span = Math.max(1e-6, (car.stuntLand - car.stuntHinge) * car.stuntDir - tip.h);
-            const v = Math.min(1, Math.max(0, (h - tip.h) / span));
+            const landH = (car.stuntLand - car.stuntHinge) * car.stuntDir;
+            const span = Math.max(1e-6, landH - tip.h);
+            // Paced by `u` where the taxi itself falls behind it. Read off `z` alone, the pose
+            // ignored the floor (HOP_FLOOR_V): a taxi held to nothing in the air drew at the apex
+            // while `u` walked on to touchdown, then dropped fourteen units in one frame.
+            const flown = Math.max(h, landH - car.hopLen * (1 - u));
+            const v = Math.min(1, Math.max(0, (flown - tip.h) / span));
             airY = tip.y * (1 - v) + MEGA_AIR_HEIGHT * Math.sin(Math.PI * v);
             airPitch = tip.th * Math.cos(Math.PI * v);
             flip = megaFlipAt(v);
@@ -8243,6 +8285,15 @@ export function createTraffic(
         matrix.copy(ZERO_MATRIX);
       }
       writeAmbient(car);
+      // ...except its lamps, for a skin that asks for them (`skinLamps`, 0..1). The patrol cruiser
+      // has no brake, blinker or head lamps of its own, and collapsing the instance took these
+      // with it: a cop car that cruised the whole city without once signalling or braking, beside
+      // a robbery's cop car — the same car, as an instance — that did both (Tyler, 2026-10-26).
+      // The skin sets the level to its own fade, so the pods dissolve in and out with the body.
+      if (car.skin && car.skinLamps > 0) {
+        matrix.copy(car.skinPose);
+        writeLamps(car, car.skinLamps);
+      }
     }
     mesh.instanceMatrix.needsUpdate = true;
     wheelMesh.instanceMatrix.needsUpdate = true;

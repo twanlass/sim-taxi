@@ -311,6 +311,34 @@ const GLOW_ROUND = 3;
 const GLOW_SEGMENTS = 40;
 const GLOW_RINGS = 1;
 
+// How far the windscreen's top edge sits behind its foot. The shared cabin is a plain box, so the
+// racer's is raked by shearing the front half of it: the foot stays on the bonnet line and the roof
+// pulls back, which is what makes it read as a low fast car rather than a van.
+const SCREEN_RAKE = 0.36;
+
+/** Pull the cabin's front face back as it rises, normals sheared with it. */
+function rakeWindscreen(geo) {
+  const pos = geo.attributes.position;
+  const nor = geo.attributes.normal;
+  const rise = CABIN_TOP - DECK_TOP;
+  for (let i = 0; i < pos.count; i++) {
+    const y = pos.getY(i);
+    const x = pos.getX(i);
+    if (y <= DECK_TOP + 0.001 || x <= CABIN_X) continue;
+    pos.setX(i, x - SCREEN_RAKE * ((y - DECK_TOP) / rise));
+    if (nor) {
+      const k = SCREEN_RAKE / rise;
+      const nx = nor.getX(i);
+      const ny = nor.getY(i) + k * nx;
+      const len = Math.hypot(nx, ny, nor.getZ(i)) || 1;
+      nor.setXYZ(i, nx / len, ny / len, nor.getZ(i) / len);
+    }
+  }
+  pos.needsUpdate = true;
+  if (nor) nor.needsUpdate = true;
+  return geo;
+}
+
 /** The rival's body: an ordinary car's, in its own paint, with a wing on the boot. */
 function rivalBodyGeometry() {
   const wing = (w, h, d, x, y, z) => {
@@ -320,7 +348,7 @@ function rivalBodyGeometry() {
   };
   const strutH = WING_Y - DECK_TOP;
   const parts = [
-    carGeometry({ wheels: false }),
+    rakeWindscreen(carGeometry({ wheels: false })),
     // The blade, raked a touch by being deeper than it is thick.
     wing(0.5, 0.08, WING_SPAN, WING_X, WING_Y, 0),
     // End plates at the tips.
@@ -345,7 +373,7 @@ function stripeGeometry() {
   };
   const parts = [
     strip(CABIN_FRONT, CAR_LEN / 2 - EDGE_IN, DECK_TOP),
-    strip(CABIN_BACK + EDGE_IN, CABIN_FRONT - EDGE_IN, CABIN_TOP),
+    strip(CABIN_BACK + EDGE_IN, CABIN_FRONT - EDGE_IN - SCREEN_RAKE, CABIN_TOP),
     strip(-CAR_LEN / 2 + EDGE_IN, CABIN_BACK, DECK_TOP),
   ];
   const merged = mergeGeometries(parts, false);
@@ -415,7 +443,7 @@ export function underglowGeometry() {
  * count (see the hidden-light trap in CLAUDE.md — there is no light in it today, and this keeps it
  * that way if one is ever added).
  */
-function createRivalMesh() {
+export function createRivalMesh() {
   const group = new THREE.Group();
   group.name = 'race-rival';
   group.rotation.order = BODY_EULER_ORDER;

@@ -56,7 +56,7 @@ import { HOPPER_MOUTH } from '../src/geometry/garbage.js';
 import { truckPaint } from '../src/sim/traffic.js';
 import { createCarWash } from '../src/city/carwash.js';
 import { createGasStation } from '../src/city/gasstation.js';
-import { collectPanes, entrances, streetLamps } from '../src/game/citylights.js';
+import { collectPanes, entrances, lampKeepOff, streetLamps } from '../src/game/citylights.js';
 import { LOT_Y, ROADSIDE_MODE, roadsideKind } from '../src/city/roadside.js';
 import { onLawn } from '../src/city/ground.js';
 import { createHoopers } from '../src/game/hoopers.js';
@@ -128,7 +128,7 @@ import {
 import { createParcelPad, PAD_R } from '../src/geometry/parcelpad.js';
 import { underglowGeometry, createPulse, pulseStep, createRace, COUNT_STEP as RACE_COUNT_STEP, ROCKET_COUNT, COUNTDOWN as RACE_COUNTDOWN } from '../src/game/race.js';
 import { createHydraulics, LIFT_MIN, LIFT_MAX } from '../src/game/hydraulics.js';
-import { TAXI_DECK_Y, TAXI_TAILPIPE_BACK, TAXI_TAILPIPE_HEIGHT } from '../src/geometry/taxi.js';
+import { TAXI_DECK_Y, TAXI_TAILPIPE_BACK, TAXI_TAILPIPE_HEIGHT, TAXI_SCALE as TAXI_SCALE_TOP } from '../src/geometry/taxi.js';
 import { createLocoFlame } from '../src/game/locoflame.js';
 import { createParcel, PARCEL_CENTRE_Y } from '../src/geometry/parcel.js';
 import { createFoodOrder } from '../src/geometry/food.js';
@@ -2212,6 +2212,15 @@ const onGrass = (city, i, j) => {
     const lanesUsed = new Set();
     const bump = (k) => seen.set(k, (seen.get(k) ?? 0) + 1);
     let pitchJump = 0;
+    // The push: the back foot planted on the floor, staying put on it while the board rolls past,
+    // and the rider leaving the push faster than it came in.
+    const F = new THREE.Vector3();
+    let pushes = 0;
+    let kicks = 0;
+    let plantFrames = 0;
+    let footOff = 0;
+    let footSlide = 0;
+    let gainLow = Infinity;
     for (const run of [349, 350, 351, 352]) {
       const crew = createSkaters(skateScene, makeRng(seed + run), park);
       crews += 1;
@@ -2221,9 +2230,24 @@ const onGrass = (city, i, j) => {
       let wasEnd = null;
       let wasMid = null;
       let lastPitch = rd.pitch.x;
+      let wasPhase = null;
+      let plantAt = null;
+      let pushFrom = 0;
+      const shin = rd.person.meshes[5];
       for (let step = 0; step < 300 * 60; step++) {
         crew.update(1 / 60);
         crew.group.updateMatrixWorld(true);
+        const phase = rd.push?.phase ?? null;
+        if (phase === 'reach' && wasPhase !== 'reach') { pushes += 1; pushFrom = Math.abs(rd.s); }
+        if (phase === 'plant') {
+          shin.localToWorld(F.set(0, -0.575, 0));
+          plantFrames += 1;
+          footOff = Math.max(footOff, Math.abs(F.y - SKATE_TOP_Y));
+          if (wasPhase !== 'plant') { kicks += 1; plantAt = F.clone(); }
+          else footSlide = Math.max(footSlide, Math.hypot(F.x - plantAt.x, F.z - plantAt.z));
+        }
+        if (phase === null && wasPhase === 'return') gainLow = Math.min(gainLow, Math.abs(rd.s) / pushFrom);
+        wasPhase = phase;
         const hp = rd.holder.position;
         if (hp.x < r.x0 || hp.x > r.x1 || hp.z < r.z0 || hp.z > r.z1) offSlab += 1;
         if (rd.mode === 'ride' || rd.mode === 'stall') {
@@ -2255,7 +2279,8 @@ const onGrass = (city, i, j) => {
     // of knee — most of it in tricks, ~0.9 cruising — with its back held dead upright, which on a
     // 24px figure read as a T-pose on a board. Measured here: 1.54 and 0.33 against 1.19 and 0.
     const posture = (stiff) => {
-      const crew = createSkaters(skateScene, makeRng(seed + 349), park, { stiff });
+      // Without the push: its back knee is the kicking leg's, which is not the stance being measured.
+      const crew = createSkaters(skateScene, makeRng(seed + 349), park, { stiff, push: false });
       const p = crew.riders[0].person;
       let knee = 0;
       let waist = 0;
@@ -2278,8 +2303,12 @@ const onGrass = (city, i, j) => {
       `${maxRiders} riders, ${wheelsUnder} wheel-frames under (deepest ${deepest.toFixed(3)}), ${offSlab} off the slab`);
     check('the board tips over an edge rather than snapping: under 0.12 rad of pitch a frame',
       pitchJump < 0.12, `largest step ${pitchJump.toFixed(3)} rad`);
+    check('the skater pushes: the back foot planted on the floor and not sliding, and faster for it',
+      pushes >= 4 && kicks >= pushes * 1.5 && footOff < 0.06 && footSlide < 0.05 && gainLow > 1.4,
+      `${pushes} pushes, ${kicks} kicks; foot ${footOff.toFixed(3)} off the floor, slid ${footSlide.toFixed(3)}; `
+        + `slowest gain x${gainLow.toFixed(2)}`);
     check('and the rider uses both lanes and at least ten different tricks',
-      lanesUsed.size === 2 && tricks.length >= 10 && highestAir > LIP_H + 0.4,
+      lanesUsed.has('rail') && lanesUsed.has('box') && tricks.length >= 10 && highestAir > LIP_H + 0.4,
       `${tricks.map((k) => `${k} ${seen.get(k)}`).join(', ')}; highest air ${highestAir.toFixed(2)}`);
   }
 }
@@ -4561,8 +4590,9 @@ const PRESSURE_END = difficulty.getTuning().pressureEnd;
       // three parts: both chrome bumpers and the bumper that hangs off once it is knocked loose draw
       // on the shell's own material, so they light with it rather than needing a place in the list.
       // So do the chequer plates on the shut bonnet and boot, off the shell so an opening lid can
-      // take its own with it: eight.
-      moved.filter(Boolean).length === 8
+      // take its own with it: eight. And the two wing mirrors (geometry/mirrors.js), one mesh a side
+      // so a flank hit can take one: ten.
+      moved.filter(Boolean).length === 10
       && new Set(movedTo).size === 1
       && back.every((h, n) => h === dark[n]),
       `${moved.filter(Boolean).length} parts moved to ${new Set(movedTo).size} value(s), all restored ${back.every((h, n) => h === dark[n])}`);
@@ -8676,6 +8706,44 @@ function rideToPickup() {
       + `kept ${car.kept.toFixed(1)} → ${truck.kept.toFixed(1)} u/s`);
 }
 
+// --- Wing mirrors ------------------------------------------------------------
+// geometry/mirrors.js. They have to stand clear of the flank by enough to read at play zoom, sit
+// above the body's top rather than on it, and come off the taxi on a flank hit and only a flank hit:
+// a nose-corner clip or a rear-ending leaves both on, and a reset puts back what a hit took.
+{
+  const mScene = new THREE.Scene();
+  const mTraffic = createTraffic(makeRng(seed + 48), mScene, CARS_DEFAULT);
+  const mTaxi = mTraffic.taxi;
+  const mirrors = mTraffic.taxiDamage.mirrors;
+  const box = new THREE.Box3();
+  const extents = [...mirrors.values()].map((m) => box.setFromBufferAttribute(m.geometry.attributes.position).clone());
+  check('the taxi has a wing mirror each side, clear of the flank and up off the body',
+    mirrors.size === 2 && extents.every((b) => Math.max(Math.abs(b.min.z), Math.abs(b.max.z)) > CAR_W / 2 + 0.2
+      && b.min.y > TAXI_DECK_Y / TAXI_SCALE_TOP),
+    extents.map((b) => `z ${b.min.z.toFixed(2)}..${b.max.z.toFixed(2)} y ${b.min.y.toFixed(2)}`).join(' · '));
+  const fleet = carGeometry();
+  fleet.computeBoundingBox();
+  check('and so does every fleet car', fleet.boundingBox.max.z > CAR_W / 2 + 0.2
+    && fleet.boundingBox.min.z < -(CAR_W / 2 + 0.2), `±${fleet.boundingBox.max.z.toFixed(2)}`);
+  const mDamage = createTaxiDamage({
+    damage: mTraffic.taxiDamage, group: mTraffic.taxiGroup, taxi: mTaxi, maxHp: TAXI_HP, roadY: ROAD_Y,
+    sparks: { burst() {} }, dust: { add() {} }, rng: () => 0.5,
+  });
+  mTaxi.hp = TAXI_HP;
+  const mHit = (a, b, opts) => {
+    mDamage.hit(mTaxi.x + Math.cos(mTaxi.yaw) * a + Math.sin(mTaxi.yaw) * b,
+      mTaxi.z - Math.sin(mTaxi.yaw) * a + Math.cos(mTaxi.yaw) * b, opts);
+  };
+  mHit(1.5, 0.7);
+  mHit(-2, 0.1, { rearEnd: true });
+  const bothOn = mirrors.get(1).visible && mirrors.get(-1).visible;
+  mHit(0.2, -1);
+  check('a flank hit snaps that side\'s mirror off, and an end or corner hit does not',
+    bothOn && mirrors.get(1).visible && !mirrors.get(-1).visible);
+  mDamage.reset();
+  check('and a reset puts it back', mirrors.get(1).visible && mirrors.get(-1).visible);
+}
+
 // --- The taxi wearing its damage -------------------------------------------
 // Steps down the car's HP (game/taxidamage.js over buildDamage in geometry/taxi.js). The silent
 // failures: a loose lamp that leaves its pods behind at the socket, so it hangs dark while the
@@ -12677,8 +12745,8 @@ function rideToPickup() {
   // Two more for the chrome bumpers (geometry/bumpers.js), masked without a rim for the reason the
   // damage pieces are: a 0.2 bar inside the shell's hull, too thin to carry one of its own. The
   // damage pieces include the chequer on the shut bonnet and boot, which go when their lid opens.
-  check('every drawn taxi part is in the ghost stencil mask', unmasked.length === 0 && masks.length === 31,
-    `${unmasked.length} unmasked, ${masks.length} masks (9 outlined parts + 16 damage pieces + 4 door pieces + 2 bumpers)`);
+  check('every drawn taxi part is in the ghost stencil mask', unmasked.length === 0 && masks.length === 33,
+    `${unmasked.length} unmasked, ${masks.length} masks (9 outlined parts + 16 damage pieces + 4 door pieces + 2 bumpers + 2 mirrors)`);
 
   // --- A dimming lamp must dim where it stands ---------------------------------------------------
   //
@@ -18044,6 +18112,34 @@ let chopperOrder; // likewise
     `${near} of ${placed} posts on a doorway (${blind} placed blind)`);
 }
 
+// ...and off the parks' court, skatepark and pond, any of which can run right up to the walk a
+// park's lamp stands on — a pole once stood in the middle of a basketball court. Measured against
+// the furniture's own footprint rather than through `lampKeepOff`, and against lamps placed blind.
+{
+  const onFurniture = (lamps, props) => lamps.spots.filter(({ px, pz }) => {
+    const inRect = (r) => px > r.x0 && px < r.x1 && pz > r.z0 && pz < r.z1;
+    return (props.court && inRect(courtRect(props.court)))
+      || (props.skatepark && inRect(skateRect(props.skatepark)))
+      || (props.pond && Math.hypot(px - props.pond.x, pz - props.pond.z) < props.pond.r);
+  }).length;
+  let placed = 0;
+  let on = 0;
+  let blind = 0;
+  for (let n = 0; n < 30; n++) {
+    const s = seed + n * 613;
+    const sweepLayout = createLayout(makeRng(s));
+    const sweepProps = createProps(makeRng(s + 33), sweepLayout);
+    const lamps = streetLamps(makeRng(s + 392), sweepLayout, [], lampKeepOff(sweepProps));
+    placed += lamps.spots.length;
+    on += onFurniture(lamps, sweepProps);
+    blind += onFurniture(streetLamps(makeRng(s + 392), sweepLayout), sweepProps);
+  }
+  createLayout(makeRng(seed));
+  check('no street lamp stands on a basketball court, a skatepark or a pond',
+    on === 0 && blind > 0 && placed > 0,
+    `${on} of ${placed} posts on park furniture (${blind} placed blind)`);
+}
+
 // --- The bank, and the robbery that comes out of it ---------------------------
 //
 // One city block is a bank (city/bank.js) and driving past it with an empty cab starts a robbery
@@ -21103,13 +21199,20 @@ let chopperOrder; // likewise
   // never sets a wheel on the deck.
   {
     const bLine = drawbridgeLine();
-    const jump = ({ press = true, classic = false, flip } = {}) => {
+    const jump = ({ press = true, classic = false, flip, letGo = null, stranded = false } = {}) => {
       setMegaFlip(flip);
       const jScene = new THREE.Scene();
       const bridge = createDrawbridge(jScene, makeRng(seed + 837), { stunt: !classic });
       setBridgeStunt(bridge?.stunt ?? null);
-      const jTraffic = createTraffic(makeRng(seed + 99), jScene, 1);
+      const jTraffic = createTraffic(makeRng(seed + 99), jScene, stranded ? 2 : 1);
       const jTaxi = jTraffic.taxi;
+      // A wreck left mid-turn in the far bank's box, which holds that junction for anything that
+      // does not barge (`heldAt`) — the taxi included, once Loco is let go.
+      const wreck = stranded && jTraffic.cars.find((c) => c !== jTaxi && !c.isTaxi);
+      if (wreck) {
+        placeCar(wreck, DIR.PX, bLine - 1, riverRow() + 1, 2);
+        Object.assign(wreck, { state: 'turn', turnT: 0.97, crashed: true, i: bLine, j: riverRow() + 1 });
+      }
       placeCar(jTaxi, DIR.PZ, bLine, riverRow(), 10);
       jTaxi.parked = false;
       jTaxi.v = 8;
@@ -21118,13 +21221,14 @@ let chopperOrder; // likewise
       bridge.request();
       const deck = new Set(bridge.laneIds);
       const out = { held: 0, early: false, kind: null, liftAt: null, peak: 0, minUp: 1, landUp: null,
-        landing: null, knocked: false, onDeck: false, inverted: 0 };
+        landing: null, knocked: false, onDeck: false, inverted: 0, air: 0 };
       let upright = true;
       const up = new THREE.Vector3();
       jTraffic.onTaxiLand((event) => { out.landing = out.landing ?? event; });
       for (let f = 0; f < 60 * 20 && !out.landing; f++) {
         const a = bridge.state.lift * BRIDGE_LIFT_ANGLE;
         jTaxi.boost = press && bridge.state.phase === 'lifting' && a >= STUNT_FROM + 0.02;
+        if (letGo !== null && out.air > letGo) jTaxi.boost = false;
         bridge.update(1 / 60, jTraffic.cars);
         const before = jTaxi.hopFrom;
         jTraffic.update(1 / 60);
@@ -21138,6 +21242,7 @@ let chopperOrder; // likewise
           out.liftAt = a;
         }
         if (jTaxi.hopFrom != null) out.peak = Math.max(out.peak, jTraffic.taxiGroup.position.y - ROAD_Y);
+        if (jTaxi.hopFrom != null || before != null) out.air += 1;
         up.set(0, 1, 0).applyQuaternion(jTraffic.taxiGroup.quaternion);
         out.minUp = Math.min(out.minUp, up.y);
         // Each pass through upside down, counted once: a turn of the flip is a dip under -0.9
@@ -21171,6 +21276,16 @@ let chopperOrder; // likewise
         j.landing && j.landing.kind === 'bridge' && j.landing.big && j.landing.z > far + 4
         && Math.abs(j.landing.x - lineX(bLine)) < HALF_ARTERIAL + 1,
         j.landing ? `down at (${j.landing.x.toFixed(1)}, ${j.landing.z.toFixed(1)}), far bank ${far.toFixed(1)}` : 'never landed');
+      // Tyler, 2026-10-27: "I get stuck in a slow mo version at the apex". Loco let go a few frames
+      // into the flight, over a box something is stranded in: the taxi stopped at the far bank's
+      // line in mid-air, under the hang's deepest slow-mo, for as long as the floor took to walk it
+      // down and set it on the road at the hold line (243 frames of sim against 48 held).
+      const held = jump({ stranded: true });
+      const let0 = jump({ stranded: true, letGo: 6 });
+      check('...and flies the same arc with Loco let go mid-air, over a box something is stranded in',
+        let0.landing && held.landing && let0.air <= held.air + 6 && let0.landing.z > far + 4,
+        `${let0.air} frames in the air against ${held.air} held`
+        + (let0.landing ? `, down at z ${let0.landing.z.toFixed(1)}` : ', never landed'));
       const shy = jump({ press: false });
       check('without Loco the taxi never drives onto the shut span', !shy.onDeck && shy.kind === null,
         `on deck ${shy.onDeck}, kind ${shy.kind}`);

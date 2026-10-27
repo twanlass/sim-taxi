@@ -875,6 +875,50 @@ export function createPerson({
   }
 
   /**
+   * The back (−X) foot's sole, in the frame `group` hangs in — for a skater, the stance on the
+   * deck. Read after `ride()` has posed the figure: it is where `plantFoot` starts from and goes
+   * back to, so taking the foot off the board and putting it back never jumps.
+   */
+  function footAt(out) {
+    group.updateMatrix();
+    legL.updateMatrix();
+    shinL.updateMatrix();
+    return out.set(0, -SHIN_LEN, 0).applyMatrix4(shinL.matrix).applyMatrix4(legL.matrix)
+      .applyMatrix4(group.matrix);
+  }
+
+  /**
+   * Put the back foot's sole on `target` (in `footAt`'s frame) with the knee bending forward: a
+   * two-bone solve over `legL` and `shinL`, overwriting what `ride()` gave them. The skater's push
+   * (game/skaters.js). Out of reach, the leg points straight at the target and stops short.
+   *
+   * The leg lies in the plane its thigh's own X axis is normal to, and that axis is `rotation.z`
+   * tipped by `rotation.x` — so the thigh's local +Z, (0, −sin x, cos x), has no X component and the
+   * plane condition is one equation in `x` alone. `z` then falls out of the thigh's direction.
+   */
+  const ik = new THREE.Vector3();
+  const ikM = new THREE.Matrix4();
+  function plantFoot(target) {
+    group.updateMatrix();
+    ik.copy(target).applyMatrix4(ikM.copy(group.matrix).invert()).sub(legL.position);
+    const reach = (THIGH_LEN + SHIN_LEN) * 0.999;
+    const L = Math.max(0.2, Math.min(reach, ik.length()));
+    ik.setLength(L);
+    // Equal halves: the thigh sits half the knee's bend off the hip-to-foot line.
+    const knee = 2 * Math.acos(L / (THIGH_LEN + SHIN_LEN));
+    const p = THIGH_LEN + SHIN_LEN * Math.cos(knee);
+    const q = SHIN_LEN * Math.sin(knee);
+    const R = Math.max(1e-6, Math.hypot(ik.y, ik.z));
+    const x = -Math.acos(Math.max(-1, Math.min(1, -q / R))) - Math.atan2(ik.y, ik.z);
+    const tx = ik.x / p;
+    const ty = (ik.y - q * Math.sin(x)) / p;
+    const tz = (ik.z + q * Math.cos(x)) / p;
+    const z = Math.asin(Math.max(-1, Math.min(1, tx / Math.hypot(tx, ty, tz))));
+    legL.rotation.set(x, 0, z);
+    shinL.rotation.set(knee, 0, 0);
+  }
+
+  /**
    * Thrown clear of a wreck (game/ejection.js): arms windmilling and legs bicycling while airborne,
    * eased into a sprawled starfish as `limp` goes 0 → 1 once they have come to rest. Only the limbs
    * are written — the tumble itself is a rotation on whatever holds the figure, because it has to
@@ -912,6 +956,6 @@ export function createPerson({
   // the limb above them.
   return {
     group, meshes, wave, board, run, hopIn, exit, bail, rest, idle, flee, surrender, highlight, setRobber,
-    setOpacity, dribble, shoot, chase, watch, tumble, skate, ride,
+    setOpacity, dribble, shoot, chase, watch, tumble, skate, ride, footAt, plantFoot,
   };
 }

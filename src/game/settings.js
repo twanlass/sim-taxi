@@ -37,12 +37,12 @@ export const DEFAULT_SETTINGS = Object.freeze({
   haptics: true,
   // One of `QUALITIES`. Regular by default: it is the one that keeps a phone cool.
   quality: 'regular',
-  // MSAA, the back buffer's own antialiasing. On by default: it is what the game has always drawn
-  // with. Off is the cheaper frame — `tools/gpucost.mjs` put it at 23% of a headless frame at 2x —
+  // MSAA, the back buffer's own antialiasing. Off by default (Tyler, 2026-10-26); it was on until
+  // then, because it is what the game had always drawn with. Off is the cheaper frame — `tools/gpucost.mjs` put it at 23% of a headless frame at 2x —
   // and at Ultra's 3x the stair steps it leaves on thin diagonals (the L's truss, the depot's neon)
   // are hard to see at phone size; at 2x they show, and they crawl in motion (perf pass,
   // 2026-10-18). A context attribute, so it takes effect at the next launch, not live.
-  antialias: true,
+  antialias: false,
   // One of `MODES` in game/difficulty.js. Easy by default: it is the curve the game shipped with
   // before the row existed, so nobody's game changes until they pick another.
   difficulty: 'easy',

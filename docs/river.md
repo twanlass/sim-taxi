@@ -666,7 +666,8 @@ tip, then flies an arc from the tip's height that peaks at `MEGA_AIR_HEIGHT` = 1
 zoom, four over Big Air) and comes down `MEGA_AIR_PAST` into the street past the far bank. It is
 steeper than the leaf at the lip, deliberately: off a 30° ramp the true projectile apex is about 5,
 which is a hop over a river. `hopBig` stays true, so everything that treats Big Air as airborne — the
-priority junction, the deaf brake, the collision skip, the slam — does the same here; collisions ask
+priority junction, barging through the far bank's box however Loco is held, the deaf brake, the
+collision skip, the slam — does the same here; collisions ask
 `airborneHeight` rather than assuming a sine. The trick is a **double front flip** (`megaFlipAt`),
 because the barrel roll is Big Air's, about the same pivot, and the Loco plume swings over the roof
 with the tailpipe. Two turns between 6% and 86% of the flight off the tip, smoothstepped: about 1.1s
@@ -677,7 +678,9 @@ jump in the game; `?megaflip=classic` keeps it. main.js slows the sim to 0.28 at
 
 `tools/probe.mjs` drives it end to end: held at the line with the arms down, launched inside the
 window with the arm knocked, past 90% of `MEGA_AIR_HEIGHT`, upside down twice mid-flight (once under
-`?megaflip=classic`) and upright at touchdown past the far bank on a route that wanted to turn there — and, without Loco or under
+`?megaflip=classic`) and upright at touchdown past the far bank on a route that wanted to turn there,
+the same flight with Loco let go mid-air over a box something is stranded in (it once stopped at the
+far bank's line in mid-air and hung at the apex under the slow-mo) — and, without Loco or under
 `?bridgejump=classic`, never on the deck at all.
 
 ### The three closure sets

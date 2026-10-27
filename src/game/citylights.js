@@ -6,6 +6,8 @@ import {
 } from '../util/geo.js';
 import { facadeQuads, setPaneSink } from '../city/buildings.js';
 import { KERB_H } from '../city/ground.js';
+import { courtRect } from '../city/blacktop.js';
+import { skateRect } from '../city/skatepark.js';
 import { CAR_LEN, CAR_W } from '../sim/traffic.js';
 import {
   headlightGeometry, headlightAnchors, headlightMaterial, coneGeometry, coneMaterial, coneQuat,
@@ -296,13 +298,43 @@ function blocksEntrance(px, pz, nx, nz, keepOut) {
 }
 
 /**
+ * How far a post keeps off a park's furniture. The post stands `POST_BACK` in from the kerb, which
+ * on a park block is the walk — and the basketball court, the skatepark and the pond can each run
+ * right up to that walk (`COURT_SET` in city/blacktop.js is the walk plus a third of a unit). Over
+ * 60 seeds 26 lamps stood on a court, 24 on a skatepark and 9 in a pond before this.
+ */
+const AREA_CLEAR = 0.4;
+
+/** The park furniture a lamp keeps off, from `createProps`: the court, the skatepark and the pond. */
+export function lampKeepOff(props) {
+  return [
+    ...(props.court ? [courtRect(props.court)] : []),
+    ...(props.skatepark ? [skateRect(props.skatepark)] : []),
+    ...(props.pond ? [{ x: props.pond.x, z: props.pond.z, r: props.pond.r }] : []),
+  ];
+}
+
+/** True when a post at (px, pz) would stand on one of `areas`: rects `{x0, x1, z0, z1}` or discs `{x, z, r}`. */
+function onArea(px, pz, areas) {
+  for (const a of areas) {
+    if (a.r !== undefined) {
+      if (Math.hypot(px - a.x, pz - a.z) < a.r + AREA_CLEAR) return true;
+    } else if (px > a.x0 - AREA_CLEAR && px < a.x1 + AREA_CLEAR
+      && pz > a.z0 - AREA_CLEAR && pz < a.z1 + AREA_CLEAR) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
  * Street lamps on the city's blocks. Returns `{ posts, heads, pools }`: the posts are lit props
  * (so they go in the AO prepass — `markOccluder`), the heads are lamps (the bloom — `markEmissive`),
  * and the pools are additive light on the road. Posts and heads are stamped for the entrance wave
  * and belong in `createCityEntry`'s `meshes`; the pools, like the lit windows, should stay dark
  * until the wave is over — they are the city switching its lights on once it has arrived.
  */
-export function streetLamps(rng, blocks, keepOut = []) {
+export function streetLamps(rng, blocks, keepOut = [], areas = []) {
   const posts = [];
   const heads = [];
   const spots = [];
@@ -323,9 +355,9 @@ export function streetLamps(rng, blocks, keepOut = []) {
     while (chosen.size < LAMPS_PER_BLOCK) chosen.add(rng.int(0, 3));
     for (const e of chosen) {
       const edge = edges[e];
-      // Clear of the rounded corners and the crossings beside them, and of every doorway: a few
-      // fresh spots along the edge, and no lamp on it at all if they all land on one (a bank's
-      // steps take most of an edge).
+      // Clear of the rounded corners and the crossings beside them, of every doorway, and of the
+      // parks' court, skatepark and pond (`areas`): a few fresh spots along the edge, and no lamp
+      // on it at all if they all land on one (a bank's steps take most of an edge).
       let px = 0;
       let pz = 0;
       let clear = false;
@@ -333,7 +365,7 @@ export function streetLamps(rng, blocks, keepOut = []) {
         const along = edge.len * rng.range(0.25, 0.75);
         px = edge.ax + edge.tx * along - edge.nx * POST_BACK;
         pz = edge.az + edge.tz * along - edge.nz * POST_BACK;
-        clear = !blocksEntrance(px, pz, edge.nx, edge.nz, keepOut);
+        clear = !blocksEntrance(px, pz, edge.nx, edge.nz, keepOut) && !onArea(px, pz, areas);
       }
       if (!clear) continue;
       const yaw = Math.atan2(-edge.nz, edge.nx);   // local +X points out over the road

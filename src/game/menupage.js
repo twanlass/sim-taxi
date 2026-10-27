@@ -19,10 +19,10 @@ export const REVEAL_TAPS = 5;
 const TAP_GAP_MS = 1000;
 
 /**
- * Settings shows only the sound rows until it has been revealed (Tyler, 2026-10-25): Sound, Music
- * volume and SFX volume. The same five taps that used to reveal the Demo mode row alone now reveal
- * every other row with it — tips, the intro story, haptics, quality, antialiasing, difficulty and
- * Demo mode. Five more hide them again, Demo mode left as it was, so a presenter can set up and
+ * Settings shows only the sound and display rows until it has been revealed (Tyler, 2026-10-25;
+ * Quality and Antialiasing joined the visible rows 2026-10-26): Sound, Music volume, SFX volume,
+ * Quality and Antialiasing. The same five taps that used to reveal the Demo mode row alone now
+ * reveal the rest with it — tips, the intro story, haptics, difficulty and Demo mode. Five more hide them again, Demo mode left as it was, so a presenter can set up and
  * then put it all away. `?settings=classic` shows them all as before, with only the Demo mode row
  * held back.
  */
@@ -181,9 +181,9 @@ export function settingsRows(body, { sound, settings, demo = null, header = null
     () => settings.get().difficulty, (value) => settings.set({ difficulty: value }));
   body.append(difficultyRow.row);
   const demoRow = demo ? toggleRow('Demo mode', () => demo.on(), (on) => demo.set(on)) : null;
-  // Everything below the sound rows, hidden with Demo mode's until revealed. With no `demo` there
-  // are no taps to reveal them with, so they show.
-  const extraRows = [tipsRow, introRow, ...hapticRows, qualityRow, antialiasRow, difficultyRow];
+  // Everything but the sound, Quality and Antialiasing rows, hidden with Demo mode's until revealed.
+  // With no `demo` there are no taps to reveal them with, so they show.
+  const extraRows = [tipsRow, introRow, ...hapticRows, difficultyRow];
   const hideExtras = settingsLayout() === 'sound' && demo !== null;
   const paintDemo = () => {
     for (const r of extraRows) r.row.hidden = hideExtras && !demo.revealed();

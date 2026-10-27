@@ -11,6 +11,7 @@ import {
   turnSignalMaterial,
 } from './lights.js';
 import { addGhostOutline, addGhostMask } from './ghostoutline.js';
+import { mirrorParts, MIRRORS } from './mirrors.js';
 import { chipPaint } from './taxiscratches.js';
 import { bumperGeometry, bumperLength, BUMPER_D, BUMPER_H } from './bumpers.js';
 import {
@@ -49,6 +50,11 @@ const ROOF_BASE = 1.62;
 // cabin's front edge at the roof sits 0.45 back and the bonnet gains that much visible length.
 export const SCREEN_RAKE = 0.75;
 export const SCREEN_FOOT = 1.15 + CHASSIS_LIFT;
+// The cabin's front face stands this far ahead of where the ambient cars' does (x = 0.65), so the
+// cab is longer and the screen's foot lands just behind the front axle (x = 1.02) rather than well
+// back of it; the tail stays put.
+const CABIN_GROW = 0.25;
+const CABIN_FRONT_X = -0.2 + CAR_LEN * 0.25 + CABIN_GROW;
 
 /** Lean the vertices of `geo` at or ahead of `fromX` back by SCREEN_RAKE per unit over the foot. */
 function rakeBack(geo, fromX = -Infinity, round = 0) {
@@ -65,6 +71,25 @@ function rakeBack(geo, fromX = -Infinity, round = 0) {
     if (w > 0) pos.setX(k, x - w * SCREEN_RAKE * (pos.getY(k) - SCREEN_FOOT));
   }
   // A box keeps its own vertices per face, so recomputing gives the leaning face its true normal.
+  geo.computeVertexNormals();
+  return geo;
+}
+
+// The rear window leans the opposite way: its top edge sits this far toward the nose per unit of
+// height, so cabin and roof read as a fastback taper to match the raked screen. Less than the
+// screen's lean (0.5 against 0.75) so the roof keeps room for its chequer.
+const BACK_RAKE = 0.5;
+
+/** Lean the vertices of `geo` at or behind `fromX` forward by BACK_RAKE per unit over the foot. */
+function rakeForward(geo, fromX = Infinity, round = 0) {
+  const pos = geo.attributes.position;
+  for (let k = 0; k < pos.count; k++) {
+    const x = pos.getX(k);
+    const w = round > 0
+      ? THREE.MathUtils.clamp(((fromX + round) - x) / round, 0, 1)
+      : (x <= fromX + 1e-6 ? 1 : 0);
+    if (w > 0) pos.setX(k, x + w * BACK_RAKE * (pos.getY(k) - SCREEN_FOOT));
+  }
   geo.computeVertexNormals();
   return geo;
 }
@@ -126,11 +151,11 @@ const LID_T = 0.06;
 const DECK_CELL = 0.24;
 const DECK_LIFT = 0.012;
 const DECK_PLATE = 0.024;
-const DECK_BONNET = { from: 0.72, rows: 4 }; // working forward from the screen
+const DECK_BONNET = { from: 0.97, rows: 3 }; // working forward from the screen
 const DECK_BOOT = { from: -1.05 - 0.07, rows: 2, back: true }; // working back from the cabin
-// The roof's flat top runs -1.08 back to 0.23 (its front edge leans back 0.45 over the rake), so
-// five cells fit from just inside the front edge.
-const DECK_ROOF = { from: 0.175, rows: 5, back: true, top: 1.75 + CHASSIS_LIFT };
+// The roof's flat top runs -0.78 to 0.48 (its front edge leans back 0.45 over the rake, its back
+// edge forward 0.3 over BACK_RAKE), so five cells fit from just inside the front edge.
+const DECK_ROOF = { from: 0.45, rows: 5, back: true, top: 1.75 + CHASSIS_LIFT };
 
 /**
  * One run of chequer plates in car-local space, standing on `top` (the body's top plane unless the
@@ -184,14 +209,16 @@ function shellParts({ lids = true } = {}) {
     // windscreen's plates still sit where they did; the roof overhangs the glass a hair each way
     // so it reads as a lid rather than a stripe.
     const soft = (g) => (SMOOTH_BODY ? softenNormals(g) : g);
-    const glass = bodyBox(CAR_LEN * 0.5, ROOF_BASE - 1.15, CAR_W * 0.86, 0.1);
-    glass.translate(-0.2, (1.15 + ROOF_BASE) / 2 + CHASSIS_LIFT, 0);
-    rakeBack(glass, -0.2 + CAR_LEN * 0.25, 0.1);
+    const glass = bodyBox(CAR_LEN * 0.5 + CABIN_GROW, ROOF_BASE - 1.15, CAR_W * 0.86, 0.1);
+    glass.translate(-0.2 + CABIN_GROW / 2, (1.15 + ROOF_BASE) / 2 + CHASSIS_LIFT, 0);
+    rakeBack(glass, CABIN_FRONT_X, 0.1);
+    rakeForward(glass, -0.2 - CAR_LEN * 0.25, 0.1);
     parts.push(setFinish(soft(bakeColor(glass, color('carGlass'))), FINISH.GLASS));
     // The roof's front edge carries the same lean on, so glass and lid read as one sloped face.
-    const roof = bodyBox(CAR_LEN * 0.5 + 0.06, 1.75 - ROOF_BASE, CAR_W * 0.86 + 0.06, 0.06);
-    roof.translate(-0.2, (ROOF_BASE + 1.75) / 2 + CHASSIS_LIFT, 0);
-    rakeBack(roof, -0.2 + CAR_LEN * 0.25 + 0.03, 0.06);
+    const roof = bodyBox(CAR_LEN * 0.5 + CABIN_GROW + 0.06, 1.75 - ROOF_BASE, CAR_W * 0.86 + 0.06, 0.06);
+    roof.translate(-0.2 + CABIN_GROW / 2, (ROOF_BASE + 1.75) / 2 + CHASSIS_LIFT, 0);
+    rakeBack(roof, CABIN_FRONT_X + 0.03, 0.06);
+    rakeForward(roof, -0.2 - CAR_LEN * 0.25 - 0.03, 0.06);
     parts.push(setFinish(soft(bakeColor(roof, color('taxiBody'))), FINISH.PAINT));
     // A chrome divider across each side window, splitting front glass from back. It stands just
     // proud of the glass (0.012 clear) and runs foot to roof so it reads as a pillar, not a stripe.
@@ -232,6 +259,21 @@ function shellParts({ lids = true } = {}) {
   // ride meshes of their own there, so a wreck that swings a lid open can take them with it.
   parts.push(...deckChequer(DECK_ROOF));
   if (lids) parts.push(...deckChequer(DECK_BONNET), ...deckChequer(DECK_BOOT));
+
+  // A grill in the middle of the nose: a dark recess with three chrome bars across it. Kept to the
+  // middle (0.7 wide against the headlights' centres 0.66 off the centreline, edge at ~0.53) so the
+  // lamps and indicators keep the corners. Stands 0.03 proud of the nose face, bars 0.015 more.
+  const GRILL_W = 0.7;
+  const GRILL_H = 0.22;
+  const GRILL_Y = BODY_TOP - 0.2;
+  const grill = new THREE.BoxGeometry(0.03, GRILL_H, GRILL_W);
+  grill.translate(CAR_LEN / 2 + 0.015, GRILL_Y, 0);
+  parts.push(setFinish(bakeColor(grill, color('carGlass')), FINISH.GLASS));
+  for (const dy of [-0.07, 0, 0.07]) {
+    const bar = new THREE.BoxGeometry(0.03, 0.03, GRILL_W - 0.1);
+    bar.translate(CAR_LEN / 2 + 0.03, GRILL_Y + dy, 0);
+    parts.push(setFinish(bakeColor(bar, color('bumperChrome')), FINISH.METAL));
+  }
 
   // Rear wheels only — the fronts steer, so they hang off the group as their own meshes below.
   parts.push(...wheelGeometries(CAR_LEN, CAR_W));
@@ -293,6 +335,24 @@ export function createTaxiMesh() {
     group.add(bumper);
     return [end, bumper];
   }));
+
+  // Wing mirrors (geometry/mirrors.js), one mesh a side rather than merged into the shell, so a hit
+  // on the flank can snap one off (`setMirror` in buildDamage). Just behind the windscreen's foot,
+  // which the rake has carried back by about 0.15 at the housing's height. On the shell's material.
+  const mirrors = new Map(MIRRORS ? [1, -1].map((side) => {
+    const parts = mirrorParts({
+      x: CABIN_FRONT_X - 0.22, top: BODY_TOP, flank: CAR_W / 2, glass: CAR_W * 0.43, side,
+      paint: color('taxiBody'),
+    });
+    const mirror = new THREE.Mesh(mergeGeometries(parts, false), shell.material);
+    parts.forEach((p) => p.dispose());
+    mirror.castShadow = true;
+    mirror.receiveShadow = true;
+    mirror.userData.pickable = 'taxi';
+    addGhostMask(mirror);
+    group.add(mirror);
+    return [side, mirror];
+  }) : []);
 
   // Steered front wheels. One shared material, one mesh each, pivoting about their own hubs — the
   // group's transform carries them along, so nothing here has to know where the taxi is.
@@ -385,7 +445,7 @@ export function createTaxiMesh() {
     addGhostOutline(light, { rim: 0.08 });
   }
 
-  const damage = buildDamage(group, lightPods, bumpers, shell.material);
+  const damage = buildDamage(group, lightPods, bumpers, shell.material, mirrors);
   const door = buildDoors(group);
 
   // Slightly oversized against ambient traffic. The player has to find this car at a glance in a
@@ -418,7 +478,7 @@ export function createTaxiMesh() {
    * above is actually protecting.
    */
   const HIGHLIGHT = 0.32;
-  const litParts = [shell, ...steered];
+  const litParts = [shell, ...steered];  // the mirrors share the shell's material
   const setHighlight = (amount) => {
     const lift = HIGHLIGHT * amount;
     for (const part of litParts) part.material.emissive.setScalar(lift);
@@ -604,7 +664,7 @@ const BUMPER_LEN = bumperLength(CAR_W);
 // 0.6 tall about 1.45 + CHASSIS_LIFT, CAR_W * 0.86 wide). Inset from the box's edges so the plate
 // never reaches past the cabin and reads as glass in a frame rather than a lid.
 const CABIN_TOP = 1.75 + CHASSIS_LIFT;
-const SCREEN_X = -0.2 + CAR_LEN * 0.25;
+const SCREEN_X = CABIN_FRONT_X;
 const SCREEN_LOW = 1.2 + CHASSIS_LIFT;
 const SCREEN_TOP = CABIN_TOP - 0.04;
 const SCREEN_HALF_W = CAR_W * 0.43 - 0.06;
@@ -630,7 +690,7 @@ export const TAXI_DRIVER_SEAT = {
 // The damage says itself through parts that come *off* the car (sign, boot, bumper), not through the
 // car changing shape.
 
-function buildDamage(group, lightPods, bumpers, chrome) {
+function buildDamage(group, lightPods, bumpers, chrome, mirrors) {
   // The boot lid, on a hinge at the back of the cabin, over a dark opening that only shows when the
   // lid is up. The lid's underside sits exactly on the body's top face, and that is fine: it faces
   // down and is culled before it can fight anything (see the coplanar notes in CLAUDE.md).
@@ -812,6 +872,13 @@ function buildDamage(group, lightPods, bumpers, chrome) {
       lamp.wire.rotation.z = angle;
       for (const pod of lamp.pods) { pod.position.copy(lampAt); pod.rotation.z = angle; }
     },
+    /** Snap the wing mirror on `side` (+1 right, −1 left) off, or put it back with `on` true. */
+    setMirror(side, on) {
+      const mirror = mirrors.get(side);
+      if (mirror) mirror.visible = on;
+    },
+    /** For the headless check. */
+    mirrors,
     /** The boot lid's opening angle in radians, or null to put it away altogether. */
     setBoot(angle) {
       const shown = angle != null;
@@ -878,6 +945,7 @@ function buildDamage(group, lightPods, bumpers, chrome) {
       bootChequer.visible = true;
       bumperHinge.scale.setScalar(0);
       for (const bumper of bumpers.values()) bumper.visible = true;
+      for (const mirror of mirrors.values()) mirror.visible = true;
       brokenScreen.scale.setScalar(0);
     },
     /** For the headless check. */
