@@ -786,7 +786,11 @@ if (props.skateMesh) scene.add(markOccluder(props.skateMesh));
 // `?skater=stiff` is the default rider in #461's pose, before it learned to bend.
 const skaterFlag = new URLSearchParams(window.location.search).get('skater');
 const skaters = (skaterFlag === 'classic' ? createClassicSkaters : createSkaters)(
-  scene, makeRng(runSeed + 349), props.skatepark, { stiff: skaterFlag === 'stiff' });
+  scene, makeRng(runSeed + 349), props.skatepark, {
+    stiff: skaterFlag === 'stiff',
+    // `?skatepush=classic`: no pushing — the rider only ever pumps, as it did before the kick.
+    push: new URLSearchParams(window.location.search).get('skatepush') !== 'classic',
+  });
 
 // The elevated train down the north-south arterial's median and west along the east-west one's
 // (`?ltrainwest=classic`: straight on south; `?lroute=classic`: the east-west one only) — see game/ltrain.js. On by default
@@ -8338,6 +8342,8 @@ if (shot) {
   // A still cannot say whether steam billows, and shot mode never draws a second frame: this steps
   // the plumes on and redraws, for filming them (shots `steam` and `steam-far`).
   window.__steamStep = (dt = 1 / 30) => { manholeSteam.update(dt, null); renderFrame(); };
+  // The skater the same way, for filming a trick or a push (shots `skatepark` and `skatepark-far`).
+  window.__skateStep = (dt = 1 / 30) => { skaters.update(dt); renderFrame(); };
   document.body.dataset.shotReady = 'true';
 } else {
   traffic.warmup(10);

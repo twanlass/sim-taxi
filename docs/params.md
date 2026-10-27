@@ -51,6 +51,7 @@ doc; what the classic version was, and why it changed, is in that doc's history 
 | `?driveway=classic` | The drive-through's lot in road asphalt with white lane paint, and the depot's forecourt in asphalt with its yellow guide lines (default: the lot paved in the sidewalk's concrete with amber paint; the forecourt plain sidewalk) | | [city.md](city.md#the-livery) |
 | `?depotwindows=classic` | The depot's two office windows stay dark at night and under a squall (default: they light with the city's windows) | | [city.md](city.md#the-livery) |
 | `?skater=classic` / `=stiff` | The first pair of skaters / the single skater before it got a waist joint | #461, #463 | [city.md](city.md) |
+| `?skatepush=classic` | The skater never pushes: it only pumps the ramps, as before the kick-push | | [city.md](city.md#a-skatepark) |
 | `?roadside=carwash` / `=gas` | Pin the roadside lot to the car wash or the gas station; by default each city seed rolls one. Headless tools take `ROADSIDE=` | | [city.md](city.md#the-roadside-lot-and-its-tube-man) |
 | `?roadside=classic` | No roadside lot: its block goes back to the towers, and the tube man goes with it | | [city.md](city.md#the-roadside-lot-and-its-tube-man) |
 | `?manholes=classic` | The old four or five manhole covers, none of them steaming, instead of seven or eight with three venting steam | | [city.md](city.md#manhole-covers) |
