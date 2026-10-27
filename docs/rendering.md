@@ -3905,6 +3905,17 @@ Still open: in low sun the bonnet and boot come out pale silver, because the pai
 washes the yellow out of every face that points up — which costs the car more of its yellow from
 above than the glass ever did.
 
+### Wing mirrors — `geometry/mirrors.js`
+
+Every car, the taxi and the box trucks wear a wing mirror each side: a housing in the body's paint
+on a short stalk off the foot of the A-pillar, with a dark glass face on its back. They are sized
+for the camera rather than for a real car, standing 0.28 clear of the flank (~2.2px at play zoom on a
+fleet car, ~2.6 on the taxi), because a true-scale mirror is a pixel and a half and flickers as the
+car turns. The fleet's and the trucks' are merged into the shared body geometry and baked white for
+the instance tint. The taxi's are a mesh each, and a hit that lands on the flank rather than an end
+snaps that side's off with a few sparks (`game/taxidamage.js`); a repair puts it back.
+`?mirrors=classic` takes them off everything.
+
 ### The taxi's chequer — `geometry/taxi.js`
 
 The chequer lives on the bonnet, the roof and the boot lid; **the flanks are plain yellow**. The side

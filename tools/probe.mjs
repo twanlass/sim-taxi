@@ -128,7 +128,7 @@ import {
 import { createParcelPad, PAD_R } from '../src/geometry/parcelpad.js';
 import { underglowGeometry, createPulse, pulseStep, createRace, COUNT_STEP as RACE_COUNT_STEP, ROCKET_COUNT, COUNTDOWN as RACE_COUNTDOWN } from '../src/game/race.js';
 import { createHydraulics, LIFT_MIN, LIFT_MAX } from '../src/game/hydraulics.js';
-import { TAXI_DECK_Y, TAXI_TAILPIPE_BACK, TAXI_TAILPIPE_HEIGHT } from '../src/geometry/taxi.js';
+import { TAXI_DECK_Y, TAXI_TAILPIPE_BACK, TAXI_TAILPIPE_HEIGHT, TAXI_SCALE as TAXI_SCALE_TOP } from '../src/geometry/taxi.js';
 import { createLocoFlame } from '../src/game/locoflame.js';
 import { createParcel, PARCEL_CENTRE_Y } from '../src/geometry/parcel.js';
 import { createFoodOrder } from '../src/geometry/food.js';
@@ -4590,8 +4590,9 @@ const PRESSURE_END = difficulty.getTuning().pressureEnd;
       // three parts: both chrome bumpers and the bumper that hangs off once it is knocked loose draw
       // on the shell's own material, so they light with it rather than needing a place in the list.
       // So do the chequer plates on the shut bonnet and boot, off the shell so an opening lid can
-      // take its own with it: eight.
-      moved.filter(Boolean).length === 8
+      // take its own with it: eight. And the two wing mirrors (geometry/mirrors.js), one mesh a side
+      // so a flank hit can take one: ten.
+      moved.filter(Boolean).length === 10
       && new Set(movedTo).size === 1
       && back.every((h, n) => h === dark[n]),
       `${moved.filter(Boolean).length} parts moved to ${new Set(movedTo).size} value(s), all restored ${back.every((h, n) => h === dark[n])}`);
@@ -8705,6 +8706,44 @@ function rideToPickup() {
       + `kept ${car.kept.toFixed(1)} → ${truck.kept.toFixed(1)} u/s`);
 }
 
+// --- Wing mirrors ------------------------------------------------------------
+// geometry/mirrors.js. They have to stand clear of the flank by enough to read at play zoom, sit
+// above the body's top rather than on it, and come off the taxi on a flank hit and only a flank hit:
+// a nose-corner clip or a rear-ending leaves both on, and a reset puts back what a hit took.
+{
+  const mScene = new THREE.Scene();
+  const mTraffic = createTraffic(makeRng(seed + 48), mScene, CARS_DEFAULT);
+  const mTaxi = mTraffic.taxi;
+  const mirrors = mTraffic.taxiDamage.mirrors;
+  const box = new THREE.Box3();
+  const extents = [...mirrors.values()].map((m) => box.setFromBufferAttribute(m.geometry.attributes.position).clone());
+  check('the taxi has a wing mirror each side, clear of the flank and up off the body',
+    mirrors.size === 2 && extents.every((b) => Math.max(Math.abs(b.min.z), Math.abs(b.max.z)) > CAR_W / 2 + 0.2
+      && b.min.y > TAXI_DECK_Y / TAXI_SCALE_TOP),
+    extents.map((b) => `z ${b.min.z.toFixed(2)}..${b.max.z.toFixed(2)} y ${b.min.y.toFixed(2)}`).join(' · '));
+  const fleet = carGeometry();
+  fleet.computeBoundingBox();
+  check('and so does every fleet car', fleet.boundingBox.max.z > CAR_W / 2 + 0.2
+    && fleet.boundingBox.min.z < -(CAR_W / 2 + 0.2), `±${fleet.boundingBox.max.z.toFixed(2)}`);
+  const mDamage = createTaxiDamage({
+    damage: mTraffic.taxiDamage, group: mTraffic.taxiGroup, taxi: mTaxi, maxHp: TAXI_HP, roadY: ROAD_Y,
+    sparks: { burst() {} }, dust: { add() {} }, rng: () => 0.5,
+  });
+  mTaxi.hp = TAXI_HP;
+  const mHit = (a, b, opts) => {
+    mDamage.hit(mTaxi.x + Math.cos(mTaxi.yaw) * a + Math.sin(mTaxi.yaw) * b,
+      mTaxi.z - Math.sin(mTaxi.yaw) * a + Math.cos(mTaxi.yaw) * b, opts);
+  };
+  mHit(1.5, 0.7);
+  mHit(-2, 0.1, { rearEnd: true });
+  const bothOn = mirrors.get(1).visible && mirrors.get(-1).visible;
+  mHit(0.2, -1);
+  check('a flank hit snaps that side\'s mirror off, and an end or corner hit does not',
+    bothOn && mirrors.get(1).visible && !mirrors.get(-1).visible);
+  mDamage.reset();
+  check('and a reset puts it back', mirrors.get(1).visible && mirrors.get(-1).visible);
+}
+
 // --- The taxi wearing its damage -------------------------------------------
 // Steps down the car's HP (game/taxidamage.js over buildDamage in geometry/taxi.js). The silent
 // failures: a loose lamp that leaves its pods behind at the socket, so it hangs dark while the
@@ -12706,8 +12745,8 @@ function rideToPickup() {
   // Two more for the chrome bumpers (geometry/bumpers.js), masked without a rim for the reason the
   // damage pieces are: a 0.2 bar inside the shell's hull, too thin to carry one of its own. The
   // damage pieces include the chequer on the shut bonnet and boot, which go when their lid opens.
-  check('every drawn taxi part is in the ghost stencil mask', unmasked.length === 0 && masks.length === 31,
-    `${unmasked.length} unmasked, ${masks.length} masks (9 outlined parts + 16 damage pieces + 4 door pieces + 2 bumpers)`);
+  check('every drawn taxi part is in the ghost stencil mask', unmasked.length === 0 && masks.length === 33,
+    `${unmasked.length} unmasked, ${masks.length} masks (9 outlined parts + 16 damage pieces + 4 door pieces + 2 bumpers + 2 mirrors)`);
 
   // --- A dimming lamp must dim where it stands ---------------------------------------------------
   //

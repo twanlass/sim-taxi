@@ -11,6 +11,7 @@ import {
   turnSignalMaterial,
 } from './lights.js';
 import { addGhostOutline, addGhostMask } from './ghostoutline.js';
+import { mirrorParts, MIRRORS } from './mirrors.js';
 import { chipPaint } from './taxiscratches.js';
 import { bumperGeometry, bumperLength, BUMPER_D, BUMPER_H } from './bumpers.js';
 import {
@@ -335,6 +336,24 @@ export function createTaxiMesh() {
     return [end, bumper];
   }));
 
+  // Wing mirrors (geometry/mirrors.js), one mesh a side rather than merged into the shell, so a hit
+  // on the flank can snap one off (`setMirror` in buildDamage). Just behind the windscreen's foot,
+  // which the rake has carried back by about 0.15 at the housing's height. On the shell's material.
+  const mirrors = new Map(MIRRORS ? [1, -1].map((side) => {
+    const parts = mirrorParts({
+      x: CABIN_FRONT_X - 0.22, top: BODY_TOP, flank: CAR_W / 2, glass: CAR_W * 0.43, side,
+      paint: color('taxiBody'),
+    });
+    const mirror = new THREE.Mesh(mergeGeometries(parts, false), shell.material);
+    parts.forEach((p) => p.dispose());
+    mirror.castShadow = true;
+    mirror.receiveShadow = true;
+    mirror.userData.pickable = 'taxi';
+    addGhostMask(mirror);
+    group.add(mirror);
+    return [side, mirror];
+  }) : []);
+
   // Steered front wheels. One shared material, one mesh each, pivoting about their own hubs — the
   // group's transform carries them along, so nothing here has to know where the taxi is.
   const steeredGeometry = wheelGeometry();
@@ -426,7 +445,7 @@ export function createTaxiMesh() {
     addGhostOutline(light, { rim: 0.08 });
   }
 
-  const damage = buildDamage(group, lightPods, bumpers, shell.material);
+  const damage = buildDamage(group, lightPods, bumpers, shell.material, mirrors);
   const door = buildDoors(group);
 
   // Slightly oversized against ambient traffic. The player has to find this car at a glance in a
@@ -459,7 +478,7 @@ export function createTaxiMesh() {
    * above is actually protecting.
    */
   const HIGHLIGHT = 0.32;
-  const litParts = [shell, ...steered];
+  const litParts = [shell, ...steered];  // the mirrors share the shell's material
   const setHighlight = (amount) => {
     const lift = HIGHLIGHT * amount;
     for (const part of litParts) part.material.emissive.setScalar(lift);
@@ -671,7 +690,7 @@ export const TAXI_DRIVER_SEAT = {
 // The damage says itself through parts that come *off* the car (sign, boot, bumper), not through the
 // car changing shape.
 
-function buildDamage(group, lightPods, bumpers, chrome) {
+function buildDamage(group, lightPods, bumpers, chrome, mirrors) {
   // The boot lid, on a hinge at the back of the cabin, over a dark opening that only shows when the
   // lid is up. The lid's underside sits exactly on the body's top face, and that is fine: it faces
   // down and is culled before it can fight anything (see the coplanar notes in CLAUDE.md).
@@ -853,6 +872,13 @@ function buildDamage(group, lightPods, bumpers, chrome) {
       lamp.wire.rotation.z = angle;
       for (const pod of lamp.pods) { pod.position.copy(lampAt); pod.rotation.z = angle; }
     },
+    /** Snap the wing mirror on `side` (+1 right, −1 left) off, or put it back with `on` true. */
+    setMirror(side, on) {
+      const mirror = mirrors.get(side);
+      if (mirror) mirror.visible = on;
+    },
+    /** For the headless check. */
+    mirrors,
     /** The boot lid's opening angle in radians, or null to put it away altogether. */
     setBoot(angle) {
       const shown = angle != null;
@@ -919,6 +945,7 @@ function buildDamage(group, lightPods, bumpers, chrome) {
       bootChequer.visible = true;
       bumperHinge.scale.setScalar(0);
       for (const bumper of bumpers.values()) bumper.visible = true;
+      for (const mirror of mirrors.values()) mirror.visible = true;
       brokenScreen.scale.setScalar(0);
     },
     /** For the headless check. */

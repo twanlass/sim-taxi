@@ -19,6 +19,7 @@ import { createTaxiMesh, TAXI_ROLL_PIVOT } from '../geometry/taxi.js';
 import { convertibleGeometry, convertibleInteriorGeometry, westfaliaGeometry } from '../geometry/classics.js';
 import { bumperGeometries, bumperAt, bumperLength, BUMPER_D, BUMPER_H } from '../geometry/bumpers.js';
 import { bumperHinge, lampSocket, lampHang } from '../geometry/damage.js';
+import { mirrorGeometries, CAR_BODY_TOP } from '../geometry/mirrors.js';
 import {
   GRID_I, GRID_J, HALF_ROAD, LANE, PITCH, isXAxis, dirSign, dirYaw, leftOf, rightOf, opposite,
   ringAxisAt, isUnsignalised, lineX, lineZ, laneOffsetFor, riverBanks, halfRoadX, halfRoadZ, junctionReach,
@@ -2992,6 +2993,12 @@ export function carGeometry({ bumpers = true, wheels = true } = {}) {
   cabin.translate(CABIN_X, CABIN_Y, 0);
   const glass = bakeColor(cabin, color('carGlass'));
   parts.push(setFinish(SMOOTH_BODY ? softenNormals(glass) : glass, FINISH.GLASS));
+  // Wing mirrors (geometry/mirrors.js), white for the tint like the body: just behind the cabin's
+  // sheer front at CABIN_X + CAR_LEN / 4.
+  parts.push(...mirrorGeometries({
+    x: CABIN_X + CAR_LEN * 0.25 - 0.12, top: CAR_BODY_TOP, flank: CAR_W / 2, glass: CAR_W * 0.43,
+    paint: new THREE.Color(1, 1, 1),
+  }));
 
   if (wheels) parts.push(...wheelGeometries(CAR_LEN, CAR_W));
   if (bumpers) parts.push(...bumperGeometries(CAR_LEN, CAR_W));
@@ -3093,6 +3100,15 @@ export function truckCabGeometry({ bumpers = true } = {}) {
     TRUCK_CAB_Y - 0.05 * Math.sin(lean),
     0);
   parts.push(setFinish(bakeColor(windshield, cabDark), FINISH.GLASS));
+
+  // Wing mirrors, up at the side windows rather than down on the chassis where the cab's foot is:
+  // a truck's sit high. Set back from the cab's foot by what the rake has taken off its front by
+  // that height, so the housing stays behind the glass.
+  const mirrorTop = TRUCK_CHASSIS_TOP + 0.3;
+  parts.push(...mirrorGeometries({
+    x: TRUCK_CAB_X + TRUCK_CAB_LEN / 2 - TRUCK_RAKE * (0.3 + 0.15) / 1.1 - 0.14,
+    top: mirrorTop, flank: TRUCK_W / 2, glass: cabW / 2, paint: white,
+  }));
 
   parts.push(...wheelGeometries(TRUCK_LEN, TRUCK_W));
   if (bumpers) parts.push(...bumperGeometries(TRUCK_LEN, TRUCK_W));
