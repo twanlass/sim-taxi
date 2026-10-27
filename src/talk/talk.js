@@ -22,6 +22,7 @@ import { createSnake } from './snake.js';
 import { wispAway } from './wisp.js';
 import { escapeCreatures, perchCreatures } from './escape.js';
 import { flattenScene } from './flatten.js';
+import { rainOn } from './splash.js';
 
 const REVEAL_MS = 900;
 const lerp = (a, b, k) => a + (b - a) * k;
@@ -127,6 +128,18 @@ sketchSlide.addEventListener('leave', () => {
   wisp?.cancel();
   wisp = null;
   sketchPhoto.style.visibility = '';
+});
+// The title slide's rain on its heading (src/talk/splash.js), for as long as the slide is up.
+const titleSlide = document.querySelector('.slide.title');
+let rain = null;
+titleSlide.addEventListener('enter', () => {
+  document.fonts.ready.then(() => {
+    if (titleSlide.classList.contains('on')) rain ??= rainOn(titleSlide.querySelector('h1'), titleSlide);
+  });
+});
+titleSlide.addEventListener('leave', () => {
+  rain?.stop();
+  rain = null;
 });
 // The thanks slide: PERCH_AFTER_MS after it comes up, slide 4's creatures come back and climb up
 // onto the word (src/talk/escape.js). Leaving takes them away again.
@@ -356,6 +369,8 @@ for (const cmp of document.querySelectorAll('.compare')) {
   cmp.addEventListener('pointermove', (e) => { if (cmp.hasPointerCapture(e.pointerId)) move(e); });
 }
 
+// The first show is an arrival too, even onto the slide the deck starts on.
+let firstShow = true;
 function show(i) {
   const next = Math.max(0, Math.min(slides.length - 1, i));
   if (slides[current] !== slides[next]) {
@@ -363,7 +378,8 @@ function show(i) {
     slides[current].dispatchEvent(new Event('reset-wipe'));
     slides[current].dispatchEvent(new Event('leave'));
   }
-  const arriving = slides[current] !== slides[next];
+  const arriving = firstShow || slides[current] !== slides[next];
+  firstShow = false;
   demos(slides[next], true);
   if (next > 0) startClock();
   if (cans && slides[next] !== kid) cans.then((c) => c.clear());

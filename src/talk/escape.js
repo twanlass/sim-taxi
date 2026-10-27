@@ -494,6 +494,16 @@ const PERCH_GAP_MS = 450;
 const HOP_IN_APEX = 160;
 const LOOK_MS = 450;
 const PERCH_APEX = 70;
+// The easter egg: a click on a creature squashes it flat over SQUISH_MS and it bursts into BROOD
+// copies of itself at BROOD_PX, thrown up and out (BROOD_VX to either side, BROOD_VY up, give or
+// take half), which fall back onto the word — or the baseline beside it — and idle like the rest.
+// The copies can be clicked too, up to BROOD_CAP creatures on the slide.
+const SQUISH_MS = 260;
+const BROOD = 10;
+const BROOD_PX = 2;
+const BROOD_VX = 520;
+const BROOD_VY = 1200;
+const BROOD_CAP = 160;
 
 /**
  * The top of `el`'s ink in every screen column, as `surface(x)` (the baseline where there is none),
@@ -541,8 +551,16 @@ function feetOf(art) {
   });
 }
 
+/** Which art pixels of `art` are drawn, for hit-testing a click against the sprite's own shape. */
+function maskOf(art) {
+  const { width, height } = art;
+  const data = art.getContext('2d').getImageData(0, 0, width, height).data;
+  return (x, y) => x >= 0 && y >= 0 && x < width && y < height && data[(y * width + x) * 4 + 3] > 127;
+}
+
 /**
  * Bring the creatures back onto `heading`. Returns `{ cancel }`; they stay perched until cancelled.
+ * A click on one pops it into a brood of copies (BROOD above).
  */
 export function perchCreatures(heading) {
   const canvas = overlay();
@@ -551,37 +569,46 @@ export function perchCreatures(heading) {
   const W = window.innerWidth;
   const word = inkProfile(heading);
   const t0 = performance.now();
+  // Each creature's frames, feet and hit mask, made once and shared by all its copies.
+  const looks = new Map();
+  const lookOf = (ci) => {
+    if (!looks.has(ci)) {
+      const art = makeSprite(CREATURES[ci]);
+      const first = art.frame(0, 0, false);
+      looks.set(ci, { art, first, feet: feetOf(first), hit: maskOf(first) });
+    }
+    return looks.get(ci);
+  };
+  // The centre y of a sprite `w` × `h` at `px` standing centred on x: as low as it can go before any
+  // of its pixels meets the surface under that pixel's column.
+  const restY = (feet, w, h, px, x) => {
+    const left = Math.round(x - w / 2);
+    let top = Infinity;
+    feet.forEach((f, c) => {
+      if (!f) return;
+      for (let k = 0; k < px; k++) top = Math.min(top, word.surface(left + c * px + k) - f * px);
+    });
+    return top + h / 2;
+  };
   const sprites = PERCH.map((p, i) => {
-    const art = makeSprite(CREATURES[p.creature]);
-    const first = art.frame(0, 0, false);
-    const feet = feetOf(first);
+    const { art, first, feet, hit } = lookOf(p.creature);
     const px = PERCH_PX;
     const w = first.width * px;
     const h = first.height * px;
-    // The sprite's centre y when it stands centred on x: as low as it can go before any of its
-    // pixels meets the surface under that pixel's column.
-    const restY = (x) => {
-      const left = Math.round(x - w / 2);
-      let top = Infinity;
-      feet.forEach((f, c) => {
-        if (!f) return;
-        for (let k = 0; k < px; k++) top = Math.min(top, word.surface(left + c * px + k) - f * px);
-      });
-      return top + h / 2;
-    };
+    const rest = (x) => restY(feet, w, h, px, x);
     const dir = p.from < 0 ? 1 : -1; // which way it walks: toward the word
     const xs = p.from < 0 ? -w : W + w; // off the edge it hops in from
     const x0 = p.from < 0 ? word.left + p.from : word.right + p.from;
     // It walks until it is just short of the word's edge, then hops onto its perch.
     const xt = p.from < 0 ? word.left - w / 2 - 12 : word.right + w / 2 + 12;
     const xp = word.left + (word.right - word.left) * p.at;
-    const ground = restY(x0);
-    const perch = restY(xp);
+    const ground = rest(x0);
+    const perch = rest(xp);
     const rise = ground - perch;
     const vyIn = Math.sqrt(2 * GRAVITY * HOP_IN_APEX);
     const vy = Math.sqrt(2 * GRAVITY * (rise + PERCH_APEX));
     return {
-      ...art, px, w, h, dir, xs, x0, xt, xp, ground, perch, rise, vy, vyIn,
+      ...art, ci: p.creature, hit, rest, px, w, h, dir, xs, x0, xt, xp, ground, perch, rise, vy, vyIn,
       inMs: (2000 * vyIn) / GRAVITY,
       walkMs: (1000 * Math.abs(xt - x0)) / WALK_SPEED,
       hopMs: 1000 * (vy + Math.sqrt(vy * vy - 2 * GRAVITY * rise)) / GRAVITY,
@@ -590,16 +617,84 @@ export function perchCreatures(heading) {
   });
 
   let cursor = null;
-  const onMove = (ev) => { cursor = [ev.clientX, ev.clientY]; };
+  // The creature under a point, by its drawn pixels rather than its box: the topmost one drawn.
+  const under = (x, y) => {
+    for (let i = sprites.length - 1; i >= 0; i--) {
+      const s = sprites[i];
+      const d = s.drawn;
+      if (!d || s.popAt) continue;
+      const ax = Math.floor(((x - d.left) / d.w) * s.asleep.width);
+      const ay = Math.floor(((y - d.top) / d.h) * s.asleep.height);
+      if (s.hit(ax, ay)) return s;
+    }
+    return null;
+  };
+  const onMove = (ev) => {
+    cursor = [ev.clientX, ev.clientY];
+    document.body.style.cursor = under(ev.clientX, ev.clientY) ? 'pointer' : '';
+  };
+  const onDown = (ev) => {
+    const s = under(ev.clientX, ev.clientY);
+    if (s) s.popAt = performance.now();
+  };
   window.addEventListener('pointermove', onMove);
+  window.addEventListener('pointerdown', onDown);
+
+  /** A popped creature's brood: BROOD copies thrown out of where it stood, falling under gravity. */
+  function brood(s, now) {
+    const { art, first, feet, hit } = lookOf(s.ci);
+    const px = BROOD_PX;
+    const w = first.width * px;
+    const h = first.height * px;
+    const n = Math.min(BROOD, BROOD_CAP - sprites.length + 1);
+    for (let k = 0; k < n; k++) {
+      sprites.push({
+        ...art, ci: s.ci, hit, px, w, h, free: true,
+        rest: (x) => restY(feet, w, h, px, x),
+        x: s.at.x, y: s.at.y,
+        vx: (Math.random() * 2 - 1) * BROOD_VX,
+        vy: -BROOD_VY * (0.5 + Math.random()),
+        landedAt: null, born: now, blinkPhase: Math.random() * BLINK_EVERY_MS,
+      });
+    }
+  }
+
+  /** One frame of a thrown copy's flight: gravity, the screen's sides, and landing where it falls. */
+  function fly(s, now, dt) {
+    if (s.landedAt) return;
+    s.vy += GRAVITY * dt;
+    s.x += s.vx * dt;
+    s.y += s.vy * dt;
+    const W = window.innerWidth;
+    if (s.x < s.w / 2 || s.x > W - s.w / 2) { s.vx = -s.vx; s.x = Math.max(s.w / 2, Math.min(W - s.w / 2, s.x)); }
+    const ground = s.rest(s.x);
+    if (s.vy > 0 && s.y >= ground) {
+      s.y = ground;
+      s.landedAt = now;
+    }
+  }
 
   const squash = (e) => { const q = Math.sin(Math.PI * e / LAND_MS); return { sx: 1 + 0.25 * q, sy: 1 - 0.25 * q }; };
 
   // Position (the sprite's centre), squash, step and gaze at `now`.
   function pose(s, now) {
+    const blinking = (now + s.blinkPhase) % BLINK_EVERY_MS < BLINK_MS;
+    // Squashed flat, eyes screwed shut, about to go.
+    if (s.popAt) {
+      const k = Math.min(1, (now - s.popAt) / SQUISH_MS);
+      const q = k * k;
+      return { ...s.at, sx: 1 + 0.45 * q, sy: 1 - 0.6 * q, f: 0, look: 0, shut: true };
+    }
+    if (s.free) {
+      const at = (o) => ({ sx: 1, sy: 1, f: 0, look: Math.sign(s.vx), shut: blinking, x: s.x, y: s.y, ...o });
+      if (!s.landedAt) return at({ sx: 0.92, sy: 1.1, f: 1, shut: false });
+      const e = now - s.landedAt;
+      if (e < LAND_MS) return at(squash(e));
+      const q = Math.sin(((now + s.blinkPhase) / BREATH_MS) * Math.PI * 2);
+      return at({ sx: 1 - BREATH * 0.5 * q, sy: 1 + BREATH * q, look: lookToward(cursor, s.x, s.y - s.h / 3) });
+    }
     let e = now - s.born;
     if (e < 0) return null;
-    const blinking = (now + s.blinkPhase) % BLINK_EVERY_MS < BLINK_MS;
     const at = (o) => ({ sx: 1, sy: 1, f: 0, look: s.dir, shut: blinking, ...o });
     if (e < s.inMs) {
       const t = e / 1000;
@@ -627,19 +722,30 @@ export function perchCreatures(heading) {
   }
 
   let raf = 0;
+  let last = performance.now();
   const draw = (now) => {
     raf = requestAnimationFrame(draw);
+    const dt = Math.min(0.05, (now - last) / 1000);
+    last = now;
     g.setTransform(dpr, 0, 0, dpr, 0, 0);
     g.clearRect(0, 0, window.innerWidth, window.innerHeight);
     g.imageSmoothingEnabled = false;
+    // Popped ones that have finished squashing burst into their brood (appended, so drawn on top).
+    for (const s of sprites.filter((t) => t.popAt && now - t.popAt >= SQUISH_MS)) {
+      sprites.splice(sprites.indexOf(s), 1);
+      brood(s, now);
+    }
     for (const s of sprites) {
+      if (s.free) fly(s, now, dt);
       const p = pose(s, now);
-      if (!p) continue;
+      if (!p) { s.drawn = null; continue; }
+      if (!s.popAt) s.at = { x: p.x, y: p.y };
       // Scaled about the feet, as on slide 4.
       const w = s.w * p.sx;
       const h = s.h * p.sy;
       const left = Math.round(p.x - w / 2);
       const top = Math.round(p.y + s.h / 2 - h);
+      s.drawn = { left, top, w, h };
       g.drawImage(s.frame(p.f, p.look, p.shut), left, top, w, h);
     }
   };
@@ -648,6 +754,8 @@ export function perchCreatures(heading) {
     cancel() {
       cancelAnimationFrame(raf);
       window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerdown', onDown);
+      document.body.style.cursor = '';
       canvas.remove();
     },
   };

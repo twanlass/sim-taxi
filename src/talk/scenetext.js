@@ -38,6 +38,46 @@ function transformed(text, how) {
 }
 
 /**
+ * Draw `el` onto `ctx` (set up in CSS pixels) exactly where it is on screen: a block element's lines
+ * split at its <br>s, in its own font, colour, spacing and transform, or an image at its box. One
+ * still loading calls `redraw` when it lands. Exported for the title's rain (splash.js), which needs
+ * to know where the painted letters' ink is.
+ */
+export function paintElement(ctx, el, redraw = () => {}) {
+  // An image (the kicker's logo) is drawn at its box; one still loading redraws when it lands.
+  if (el.nodeName === 'IMG') {
+    const r = el.getBoundingClientRect();
+    ctx.globalAlpha = parseFloat(getComputedStyle(el).opacity);
+    if (el.complete) ctx.drawImage(el, r.left, r.top, r.width, r.height);
+    else el.addEventListener('load', redraw, { once: true });
+    return;
+  }
+  const cs = getComputedStyle(el);
+  ctx.font = `${cs.fontStyle} ${cs.fontWeight} ${cs.fontSize} ${cs.fontFamily}`;
+  const ink = inkOf(cs.color);
+  ctx.fillStyle = ink.fill;
+  ctx.globalAlpha = ink.alpha;
+  ctx.letterSpacing = cs.letterSpacing === 'normal' ? '0px' : cs.letterSpacing;
+  ctx.textBaseline = 'alphabetic';
+  const rect = el.getBoundingClientRect();
+  const lh = parseFloat(cs.lineHeight);
+  // CSS centres the font's ascent+descent in each line box; the baseline follows from that.
+  const m = ctx.measureText('Hg');
+  const asc = m.fontBoundingBoxAscent;
+  const desc = m.fontBoundingBoxDescent;
+  const lines = [];
+  let cur = '';
+  for (const node of el.childNodes) {
+    if (node.nodeName === 'BR') { lines.push(cur); cur = ''; } else cur += node.textContent;
+  }
+  lines.push(cur);
+  lines.forEach((line, i) => {
+    const text = transformed(line.replace(/\s+/g, ' ').trim(), cs.textTransform);
+    ctx.fillText(text, rect.left, rect.top + lh * i + (lh - (asc + desc)) / 2 + asc);
+  });
+}
+
+/**
  * Paint `elements` (block elements whose lines are split by <br>, or images) into the game in frame `w`.
  * An element can set `--blend` to be laid over the scene instead of on top of it: `multiply`, so the
  * frame's light and shade come through the ink; `difference`, which inverts whatever is behind each
@@ -152,39 +192,7 @@ export function paintIntoGame(w, elements) {
   }
   const layers = Object.fromEntries(['normal', ...BLENDS].map((b) => [b, layer(b)]));
 
-  function paint(ctx, el, redraw) {
-    // An image (the kicker's logo) is drawn at its box; one still loading redraws when it lands.
-    if (el.nodeName === 'IMG') {
-      const r = el.getBoundingClientRect();
-      ctx.globalAlpha = parseFloat(getComputedStyle(el).opacity);
-      if (el.complete) ctx.drawImage(el, r.left, r.top, r.width, r.height);
-      else el.addEventListener('load', redraw, { once: true });
-      return;
-    }
-    const cs = getComputedStyle(el);
-    ctx.font = `${cs.fontStyle} ${cs.fontWeight} ${cs.fontSize} ${cs.fontFamily}`;
-    const ink = inkOf(cs.color);
-    ctx.fillStyle = ink.fill;
-    ctx.globalAlpha = ink.alpha;
-    ctx.letterSpacing = cs.letterSpacing === 'normal' ? '0px' : cs.letterSpacing;
-    ctx.textBaseline = 'alphabetic';
-    const rect = el.getBoundingClientRect();
-    const lh = parseFloat(cs.lineHeight);
-    // CSS centres the font's ascent+descent in each line box; the baseline follows from that.
-    const m = ctx.measureText('Hg');
-    const asc = m.fontBoundingBoxAscent;
-    const desc = m.fontBoundingBoxDescent;
-    const lines = [];
-    let cur = '';
-    for (const node of el.childNodes) {
-      if (node.nodeName === 'BR') { lines.push(cur); cur = ''; } else cur += node.textContent;
-    }
-    lines.push(cur);
-    lines.forEach((line, i) => {
-      const text = transformed(line.replace(/\s+/g, ' ').trim(), cs.textTransform);
-      ctx.fillText(text, rect.left, rect.top + lh * i + (lh - (asc + desc)) / 2 + asc);
-    });
-  }
+  const paint = paintElement;
 
   function redraw() {
     const dpr = window.devicePixelRatio || 1;
