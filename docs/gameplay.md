@@ -107,10 +107,11 @@ words stand on, with the copyright and build number in small type along its foot
 (`copyrightLine()` in titlescreen.js). In the app the version and build come from the shell, so
 they match TestFlight with nothing to bump; on the web it is `BUILD_VERSION`, bumped by hand.
 
-Settings shows a player three rows: **Sound, Music volume and SFX volume** (Tyler, 2026-10-25). The
-rest are there but hidden until the same five taps on the Settings heading that reveal
-[Demo mode](#demo-mode): Tutorial tips, Always show intro story, Haptics (iOS app only), Quality,
-Antialiasing, Difficulty and Demo mode itself, in that order. Five more taps hide them again and
+Settings shows a player five rows: **Sound, Music volume, SFX volume, Quality and Antialiasing**
+(Tyler, 2026-10-25; the last two joined 2026-10-26). The rest are there but hidden until the same
+five taps on the Settings heading that reveal [Demo mode](#demo-mode): Tutorial tips, Always show
+intro story, Haptics (iOS app only), Difficulty and Demo mode itself. Revealed, the page reads
+Sound, Music, SFX, tips, intro story, Haptics, Quality, Antialiasing, Difficulty, Demo mode. Five more taps hide them again and
 leave Demo mode as it was, so a presenter can set up a demo and put it all away before the audience
 sees the screen. Either way it is remembered on the device (`simTaxi.demo.row`, '1' or '0'), and
 hidden outranks Demo mode or `?demo` revealing the rows; a player who never goes looking keeps the

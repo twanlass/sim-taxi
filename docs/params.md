@@ -92,7 +92,7 @@ doc; what the classic version was, and why it changed, is in that doc's history 
 | `?helispot=classic` | The police helicopter's first, brighter and harder-edged searchlight | | [gameplay.md](gameplay.md) |
 | `?splashcam=classic` | The startup screen from the game's 33° three-quarter view (the first cut) instead of the low side-on camera | | [gameplay.md](gameplay.md#the-startup-screen) |
 | `?introvo=classic` | The backstory in text alone, with no recorded voice reading each line | | [gameplay.md](gameplay.md#the-backstory) |
-| `?settings=classic` | Settings shows every row from the start, with only Demo mode hidden until revealed, instead of Sound, Music and SFX alone until five taps on its heading | | [gameplay.md](gameplay.md#the-title-screen) |
+| `?settings=classic` | Settings shows every row from the start, with only Demo mode hidden until revealed, instead of Sound, Music, SFX, Quality and Antialiasing alone until five taps on its heading | | [gameplay.md](gameplay.md#the-title-screen) |
 | `?intro=classic` | Play goes straight to the garage door, with no dispatch backstory first. `?intro=always` tells the story on every Play instead of once per device | | [gameplay.md](gameplay.md#the-backstory) |
 | `?titleintro=blur` | The title's city fades up out of black blurred, the menu fades in and then the blur clears, instead of a sharp city with only the menu fading in | | [gameplay.md](gameplay.md#the-title-screen) |
 | `?titleintro=classic` | The title menu and a sharp city are both on screen the moment the black lifts, with no fade at all | | [gameplay.md](gameplay.md#the-title-screen) |
