@@ -88,8 +88,16 @@ function fadeTexture() {
   return new THREE.CanvasTexture(canvas);
 }
 
-/** Draws the taxi into `host` until the host leaves the page or the module is replaced. */
-export function mount(host) {
+/**
+ * Draws the taxi into `host` until the host leaves the page or the module is replaced. The options
+ * pull the camera in for a host that wants the car bigger than the workshop's empty panel does —
+ * the talk's "Try it out" slide, and the marketing site, which bundles this module: `back` is the
+ * camera's standoff (as a multiple of the original 13 units), `aimY` the height it looks at, and
+ * `ceil` the hop's ceiling, which has to come down with the camera or a stalled taxi climbs out of
+ * the top of the frame.
+ */
+export function mount(host, options = {}) {
+  const { back = 4.7, aimY = 1.0, ceil = HOP_CEIL } = options;
   if (current?.host === host) return;
   current?.dispose();
 
@@ -205,14 +213,13 @@ export function mount(host) {
   const flame = createLocoFlame(scene);
   const car = { x: 0, z: 0, yaw: 0, crashed: false, shownLift: 0 };
 
-  // Side on, the car's nose (+X) to the right, stood well back (×4.7 the old 13-unit standoff) so
+  // Side on, the car's nose (+X) to the right, stood well back (by default ×4.7 the old 13-unit standoff) so
   // the car is a small mark in the empty panel, about a fifth of its width. Looking down about 22°
   // rather than the 7° it started at: at 7° the 8-unit road foreshortened to a sliver a unit tall
   // and the dashes going by could not be told from a line.
-  const BACK = 4.7;
   const camera = new THREE.PerspectiveCamera(28, 1, 0.1, 200);
-  camera.position.set(0, 1.0 + 5.2 * BACK, 13 * BACK);
-  camera.lookAt(0, 1.0, 0);
+  camera.position.set(0, aimY + 5.2 * back, 13 * back);
+  camera.lookAt(0, aimY, 0);
 
   const resize = () => {
     const w = host.clientWidth || 1;
@@ -285,7 +292,7 @@ export function mount(host) {
     if (hop.air) {
       hop.vy -= HOP_G * dt;
       hop.y += hop.vy * dt;
-      if (!hop.crash && hop.y >= HOP_CEIL) Object.assign(hop, { crash: true, vy: -CRASH_V });
+      if (!hop.crash && hop.y >= ceil) Object.assign(hop, { crash: true, vy: -CRASH_V });
       // Eased toward the dive rather than snapped, so the stall reads as it tipping over.
       if (hop.crash) hop.tip += (CRASH_TIP - hop.tip) * Math.min(1, dt * 8);
       if (hop.y <= 0) land(wave.lateral);
@@ -323,14 +330,15 @@ export function mount(host) {
     renderer.dispose();
     if (current?.dispose === dispose) current = null;
   }
-  current = { host, dispose };
+  current = { host, options, dispose };
 }
 
 if (hot) {
   hot.accept();
-  if (hot.data.host?.isConnected) mount(hot.data.host);
+  if (hot.data.host?.isConnected) mount(hot.data.host, hot.data.options);
   hot.dispose((data) => {
     data.host = current?.host;
+    data.options = current?.options;
     current?.dispose();
   });
 }

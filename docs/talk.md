@@ -11,35 +11,34 @@ npm run dev            # then open http://localhost:5173/talk/
 | File | What it is |
 |---|---|
 | `talk/index.html` | the page: the slide's layout and the reveal's CSS |
-| `src/talk/talk.js` | loads the game, freezes it into the phone, runs the reveal |
+| `src/talk/talk.js` | the deck: slides, keys, and the live-demo phone |
+| `src/talk/*.js` | one module per slide that does something (the cans, the character select, the snake and its creatures, the then-and-now flattening, the title painted into the game) |
 
-## The opening slide
+## The live demo
 
-The game sits paused inside a phone outline on the left, with the title on the right. Tapping the
-phone (or Enter, Space, →) opens it out: the outline scales up and fades, the clip around the game
-opens to the whole window, the camera pulls back from a phone's close-up to the game's own framing,
-and the world starts moving on the first frame of all that. The HUD fades in once the reveal lands.
-Esc, or the button at the top, freezes the game where it stands and closes the phone back over it.
+The game runs in a phone docked on the left of its slide, live on its main menu with the city going
+about its business, beside the title. Tapping the phone (or Enter) brings it to the middle of the
+window at full height, and the rest of the slide dims away behind it; the game is then the
+player's, with focus and input. Esc docks it again. The game only runs while its slide is up.
 
 ## How it reaches the game
 
 **The game runs in a same-origin iframe.** `src/main.js` boots the game on import and
 `createLayout()` installs its road network as *the* city, so the game cannot be a component of
-another page. Same-origin means the talk can still reach straight in:
+another page. Same-origin means the talk can still reach in: `window.__taxi.presenter.hold(on)`,
+the hook the game carries for the talk, freezes the world the way the pause does, with nothing
+drawn over it, and the talk holds it whenever the demo's slide is not the one showing.
 
-- `window.__taxi.presenter` — the only hook the game carries for the talk. `hold(on)` freezes the
-  world the way the pause does, with nothing drawn over it; `settle()` finishes the city's entrance
-  so the still is a whole city; `held()` reports the hold.
-- `window.__taxi.camera.camera` — the talk pushes the projection in with `camera.zoom` and moves the
-  taxi under the phone with `setViewOffset`, then eases both back. The game's own camera keeps
-  running underneath and honours both.
-- the iframe's `<body>` — the talk injects one stylesheet that hides the HUD while the game is a
-  still.
+**The phone is always the size it is when it's played.** The iframe is the phone's screen at full
+window height, portrait, so the game lays out exactly as it does on an iPhone: menu, HUD, pedals.
+On the slide it is shrunk into its slot with a CSS transform (`--dock`), and going live eases the
+transform away, so the canvas never resizes. A resize mid-animation would empty the drawing buffer
+and re-frame the camera on every step.
 
-**The iframe is always the size of the window.** The phone is a `clip-path` over it, so the reveal
-is the clip opening rather than the canvas growing. Resizing the iframe instead would resize the
-game's canvas on every step of the animation, which empties the drawing buffer and re-frames the
-camera each time.
+The first version kept the iframe the size of the window and clipped it down to the phone, frozen,
+then opened the clip out to the whole window; the game laid out for a landscape window, and the
+phone disappeared on the way. A blurred, dimmed copy of the phone's screen spilling out round the
+live phone, like a video's ambient mode, was also tried and cut as disorienting.
 
 ## Presenting from a pinned build
 

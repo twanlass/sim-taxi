@@ -16,16 +16,42 @@
         user-select: none; -webkit-user-select: none;
       }
 
-      /* The game itself, always the full size of the window. It never resizes: the phone is a
-         clip over it, so the reveal is the clip opening rather than the canvas growing — a canvas
-         resize mid-animation would re-frame the camera and empty the buffer on every step. */
+      /* The live demo's phone: always its playing size — full height, in the middle of the window
+         — and shrunk into the slide's slot by a transform (--dock, set by talk.js), so the game
+         inside lays out for a phone and never resizes. Going live eases the transform away. */
+      #device {
+        position: fixed; left: 50%; top: 50%; z-index: 3;
+        height: 92vh; aspect-ratio: 9 / 19.5;
+        translate: -50% -50%;
+        transform: var(--dock);
+        border-radius: 13% / 6%;
+        border: 1.3vh solid #05080b;
+        box-shadow: 0 0 0 0.3vh #3a4652, 0 3vh 8vh rgba(0, 0, 0, 0.22);
+        background: #05080b; overflow: hidden; cursor: pointer;
+        transition: transform var(--reveal-ms) cubic-bezier(0.65, 0, 0.35, 1), opacity 0.4s ease;
+      }
+      body:not(.on-phone) #device { visibility: hidden; opacity: 0; }
+      body.live #device { transform: none; cursor: auto; box-shadow: 0 0 0 0.3vh #3a4652, 0 4vh 12vh rgba(0, 0, 0, 0.6); }
+      /* The island, so the outline reads as a phone at a glance. */
+      #device::after {
+        content: ''; position: absolute; top: 1.4%; left: 50%; translate: -50% 0;
+        width: 30%; height: 3.6%; border-radius: 999px; background: #05080b; pointer-events: none;
+      }
+      /* The screen. Not clickable until it's live, so a tap on the docked phone opens it. */
       #game {
-        position: fixed; inset: 0; width: 100vw; height: 100vh; border: 0;
-        opacity: 0; transition: opacity 0.5s ease;
-        clip-path: var(--clip);
+        display: block; width: 100%; height: 100%; border: 0; border-radius: 10% / 4.6%;
+        opacity: 0; transition: opacity 0.5s ease; pointer-events: none;
       }
       #game.ready { opacity: 1; }
-      body:not(.on-phone) #game { visibility: hidden; }
+      body.live #game { pointer-events: auto; }
+      /* Round the live phone, the slide dims away so the phone has the room. (A blurred, dimmed copy
+         of the phone's own screen spilling out round it, like a video's ambient mode, was tried and
+         cut: the city moving out there, out of focus, was disorienting.) */
+      #scrim {
+        position: fixed; inset: 0; z-index: 2; pointer-events: none; background: rgba(10, 14, 20, 0.78);
+        opacity: 0; visibility: hidden; transition: opacity 0.6s ease, visibility 0s 0.6s;
+      }
+      body.live #scrim { opacity: 1; visibility: visible; transition: opacity 0.6s ease; }
 
       /* The deck: one slide on at a time. Hidden by visibility rather than display, so the phone
          slide keeps its layout box — talk.js measures the phone off it before it is ever shown. */
@@ -275,16 +301,25 @@
       }
       #snake-game.on { display: block; }
       #snake { cursor: pointer; }
-      #snake .photo { max-height: 60vh; transition: transform 0.6s cubic-bezier(0.2, 0.8, 0.2, 1), filter 0.6s ease; }
-      /* Once the snake is loose the photo steps back out of its way: smaller, tipped, out of focus. */
-      #snake.playing .photo { transform: scale(0.72) rotate(-6deg); filter: blur(6px); }
+      /* Slide 2's print has its tilt baked into the file; this one is a straight photo, so it gets
+         its tilt here; src/talk/wisp.js copies it onto the canvas that burns it away. */
+      #snake .photo { max-height: 75vh; rotate: -3deg; }
       #kid .photo { cursor: pointer; max-height: 60vh; }
       /* The TestFlight slide's QR, generated once (npx qrcode) into talk/media so it needs no network. */
       .qr {
-        justify-self: center; width: min(36vh, 60vw); height: auto; margin-top: 4vh;
+        width: min(30vh, 50vw); height: auto;
         image-rendering: pixelated; border-radius: 12px; box-shadow: 0 2vh 4vh rgba(0, 0, 0, 0.12);
       }
+      /* The app icon beside the QR, the same height, rounded the way the home screen rounds it. */
+      .qr-row { display: flex; gap: 3vh; justify-content: center; align-items: center; margin-top: 4vh; }
+      .qr-row .app-icon {
+        width: min(30vh, 50vw); height: auto; border-radius: 22.5%;
+        box-shadow: 0 2vh 4vh rgba(0, 0, 0, 0.12);
+      }
       .slide p.qr-url { margin-top: 2vh; font-size: clamp(14px, 1.3vw, 22px); }
+      /* The marketing site's hopping taxi (src/workshop/emptytaxi.js), over the heading. Tap it. */
+      #try .hero-taxi { justify-self: center; width: min(70vw, 90vh); height: 30vh; margin: -4vh 0 -3vh; }
+      #try .hero-taxi canvas { display: block; width: 100%; height: 100%; }
 
       /* The game clock: hidden on the title, pops in when the talk starts, red in the last minute,
          and counts overtime after the buzzer. */
@@ -311,32 +346,14 @@
         content: 'TIME!'; font-size: 16px; font-weight: 900; letter-spacing: 0.08em;
       }
       @keyframes clock-pulse { 50% { transform: scale(1.08); } }
-      body.revealing #game, body.revealing-back #game {
-        transition: opacity 0.5s ease, clip-path var(--reveal-ms) cubic-bezier(0.65, 0, 0.35, 1);
-      }
 
       /* The slide. Phone on the left, words on the right. */
       #slide {
         display: grid; grid-template-columns: 1fr 1.25fr; align-items: center;
         gap: 6vw; pointer-events: none;
       }
-      #phone {
-        justify-self: center;
-        height: min(82vh, 92vw * 19.5 / 9); aspect-ratio: 9 / 19.5;
-        border-radius: 13% / 6%;
-        border: 1.1vh solid #05080b;
-        box-shadow: 0 0 0 0.25vh #3a4652, 0 3vh 8vh rgba(0, 0, 0, 0.22);
-        position: relative;
-        pointer-events: auto; cursor: pointer;
-        transform-origin: 50% 50%;
-        transition: transform var(--reveal-ms) cubic-bezier(0.65, 0, 0.35, 1),
-          opacity calc(var(--reveal-ms) * 0.7) ease;
-      }
-      /* The island, so the outline reads as a phone at a glance. */
-      #phone::after {
-        content: ''; position: absolute; top: 1.4%; left: 50%; translate: -50% 0;
-        width: 30%; height: 3.6%; border-radius: 999px; background: #05080b;
-      }
+      /* Where the phone docks on the slide: an empty box the phone (#device) is shrunk onto. */
+      #phone-slot { justify-self: center; height: min(82vh, 92vw * 19.5 / 9); aspect-ratio: 9 / 19.5; }
       #words { transition: opacity 0.4s ease, transform 0.6s cubic-bezier(0.65, 0, 0.35, 1); }
       #words p { font-size: clamp(18px, 2.4vw, 40px); }
       #words .hint {
@@ -344,20 +361,15 @@
         letter-spacing: 0.08em; text-transform: uppercase; opacity: 0.45;
       }
 
-      body.live #phone { transform: scale(2.6); opacity: 0; pointer-events: none; }
       body.live #words { opacity: 0; transform: translateX(6vw); }
 
-      #back {
-        position: fixed; top: 14px; left: 50%; translate: -50% 0; z-index: 5;
-        padding: 6px 14px; border-radius: 999px; font: inherit; font-size: 13px; font-weight: 600;
-        background: rgba(18, 26, 34, 0.7); color: #eef3f7; border: 0; cursor: pointer;
-        opacity: 0; pointer-events: none; transition: opacity 0.4s ease;
-      }
-      body.live:not(.revealing) #back { opacity: 0.85; pointer-events: auto; }
     </style>
   </head>
   <body>
-    <iframe id="game" title="Rocket Rides" allow="autoplay; fullscreen"></iframe>
+    <div id="scrim"></div>
+    <div id="device" role="button" aria-label="Play the game">
+      <iframe id="game" title="Rocket Rides" allow="autoplay; fullscreen"></iframe>
+    </div>
     <nav id="toc" aria-label="Slides"></nav>
     <div id="clock" aria-live="off"><i>⏱</i><b>9:00</b></div>
     <!-- 1 -->
@@ -375,7 +387,7 @@
     <section class="slide" id="select" data-name="Choose your player"></section>
     <!-- 4: a photo, then a game of snake built up a click at a time (src/talk/snake.js) -->
     <section class="slide center" id="snake" data-name="Snake">
-      <img class="photo" src="./media/placeholder.svg" alt="Placeholder" />
+      <img class="photo" src="./media/sketchbook.jpg" alt="A kid's sketchbook with its doodles cut out and standing up around it" />
     </section>
     <!-- 5 -->
     <section class="slide bleed compare" data-name="Then and now">
@@ -391,25 +403,28 @@
     </section>
     <!-- 7: the phone that opens into the live game -->
     <section class="slide" id="slide" data-name="Live demo">
-      <div id="phone" role="button" aria-label="Play the game"></div>
+      <div id="phone-slot"></div>
       <div id="words">
         <h1>Rocket Rides</h1>
-        <p>A look at what we've built</p>
+        <p>Live demo 🤞</p>
         <div class="hint">Tap the phone</div>
       </div>
     </section>
     <!-- 8 -->
+    <section class="slide center" id="try" data-name="Try it out">
+      <div class="hero-taxi"></div>
+      <h1>Try it out</h1>
+      <h2>Play it + share feedback via TestFlight</h2>
+      <div class="qr-row">
+        <img class="app-icon" src="/apple-touch-icon-512.png" alt="Rocket Rides app icon" />
+        <img class="qr" src="./media/testflight-qr.svg" alt="QR code for testflight.apple.com/join/ZMskw8Gu" />
+      </div>
+      <p class="qr-url">testflight.apple.com/join/ZMskw8Gu</p>
+    </section>
+    <!-- 9 -->
     <section class="slide center">
       <h1>Thanks!</h1>
     </section>
-    <!-- 9 -->
-    <section class="slide center" data-name="TestFlight">
-      <h2>Placeholder content here</h2>
-      <p>Here's a TestFlight link: put Rocket Rides on your iPhone</p>
-      <img class="qr" src="./media/testflight-qr.svg" alt="QR code for testflight.apple.com/join/ZMskw8Gu" />
-      <p class="qr-url">testflight.apple.com/join/ZMskw8Gu</p>
-    </section>
-    <button id="back" type="button">Back to the slide · Esc</button>
     <script type="module" src="/src/talk/talk.js"></script>
   </body>
 </html>

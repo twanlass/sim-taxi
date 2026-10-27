@@ -1,7 +1,7 @@
-// Slide 3: a retro character select. Four little pixel people, the family, and a click (or the
-// clicker's →) drops the next player tag onto the next of them, 1P to 4P, and each one picked drops
-// into a bouncing stance of their own — and then Heather goes grey and falls off the screen, because she
-// isn't playing, and the other three close up. START shows once the team is settled. The sprites
+// Slide 3: a retro character select. Four little pixel people, the family. A click (or the
+// clicker's →) drops the player tags onto them one after another, 1P to 4P, and each one picked
+// drops into a bouncing stance of their own; the next click and Heather goes grey and falls off the
+// screen, because she isn't playing, and the other three close up. START shows once the team is settled. The sprites
 // are drawn here from character grids, the way every mesh in the game is built
 // in code; the styles are in talk/index.html.
 import '@fontsource/press-start-2p';
@@ -236,8 +236,8 @@ const STAT_CHUNKS = 5;
 const STAT_LABEL = '???';
 // The arcade's player colours: red, blue, green, yellow.
 const TAG_COLOURS = ['#ff4d4d', '#3fa9ff', '#52d16b', '#ffd23f'];
-// How long the four of them stand picked before Heather's tag comes off.
-const SIT_OUT_MS = 1400;
+// The first press picks all four, a tag landing every PICK_GAP_MS; the second drops Heather.
+const PICK_GAP_MS = 320;
 
 /**
  * One frame of a sprite as rows of cells, feet on the bottom row. A shorter player loses `short` of
@@ -284,8 +284,8 @@ function spriteSheet(p) {
 
 /**
  * Build the screen inside `slide`. `start` is called by the START button. Sets `slide.advance`,
- * which the deck calls on → before moving on: it places the next tag, or sends the one who sits out
- * off early, and answers true while there's something left to do. Everything resets when the slide
+ * which the deck calls on → before moving on: the first picks all four, the second sends the one
+ * who sits out off, and it answers true while there's something left to do. Everything resets when the slide
  * is left (`leave`).
  */
 export function mountSelect(slide, { start }) {
@@ -334,32 +334,36 @@ export function mountSelect(slide, { start }) {
   button.textContent = 'Start';
   slide.append(title, roster, button);
 
-  let placed = 0;
+  let picked = false;
   let satOut = false;
-  let timer = 0;
+  let timers = [];
   const leaver = fighters[PLAYERS.findIndex((p) => p.sitsOut)];
-  // The joke: everyone's picked, a beat, and then one of them isn't.
-  const sitOut = () => {
-    clearTimeout(timer);
-    satOut = true;
-    leaver?.classList.add('dropped');
-    slide.classList.add('ready');
-  };
+  // Two beats: one press and the tags land on all four in turn; the next and one of them isn't
+  // playing after all. (It was a press per tag, with Heather dropping on a timer — five presses of
+  // clicker for one gag.)
   const place = () => {
-    if (placed < fighters.length) {
-      fighters[placed++].classList.add('taken');
-      if (placed === fighters.length) timer = setTimeout(sitOut, SIT_OUT_MS);
+    if (!picked) {
+      picked = true;
+      timers = fighters.map((f, i) => setTimeout(() => f.classList.add('taken'), i * PICK_GAP_MS));
       return true;
     }
-    if (!satOut) { sitOut(); return true; }
+    if (!satOut) {
+      satOut = true;
+      // A press before the last tag has landed lands them all first, so she is picked before she goes.
+      timers.forEach(clearTimeout);
+      for (const f of fighters) f.classList.add('taken');
+      leaver?.classList.add('dropped');
+      slide.classList.add('ready');
+      return true;
+    }
     return false;
   };
   slide.addEventListener('click', place);
   button.addEventListener('click', (e) => { e.stopPropagation(); start(); });
   slide.advance = place;
   slide.addEventListener('leave', () => {
-    clearTimeout(timer);
-    placed = 0;
+    timers.forEach(clearTimeout);
+    picked = false;
     satOut = false;
     for (const f of fighters) f.classList.remove('taken', 'dropped');
     slide.classList.remove('ready');

@@ -1,185 +1,64 @@
-// The talk's opening slide: the game as a still inside a phone outline, and a tap that opens the
-// phone out into the whole live game. See docs/talk.md.
+// The talk's deck, and its live-demo slide: the game running on its main menu inside a phone, and a
+// tap that brings the phone to the middle of the screen, full height, to play. See docs/talk.md.
 //
 // **The game runs in a same-origin iframe, not on this page.** `src/main.js` boots the whole game
 // on import and `createLayout()` installs its road network as *the* city (CLAUDE.md), so the game
 // cannot be mounted as a component of another page. The iframe gives it a document of its own, and
-// being same-origin lets this page reach straight into it: `window.__taxi.presenter` to freeze the
-// world, `window.__taxi.camera.camera` to frame the still, and the iframe's own `<body>` to hide
-// the HUD. Nothing about the slide lives inside the game beyond that three-method handle.
+// being same-origin lets this page reach in: `window.__taxi.presenter` to stop the world while the
+// slide is off screen.
 //
-// **The phone is a clip over a full-window game, not a small game that grows.** The iframe is the
-// size of the window from the first frame to the last. While the slide is up, a `clip-path` cuts it
-// down to the phone's screen and the camera's projection is pushed in and shifted so the taxi sits
-// in the middle of that cut-out; the reveal eases the clip open and the projection back to the
-// game's own in one curve. Resizing the iframe instead would resize the game's canvas on every
-// step of the animation, and a resize both empties the drawing buffer and re-frames the camera.
+// **The phone is always the size it is when it's played, and is shrunk into the slide with a
+// transform.** The iframe is the phone's screen at that size, portrait, so the game lays out as it
+// does on an iPhone — menu, HUD, pedals — and it never resizes: going live is the transform easing
+// to none. Resizing the iframe instead would resize the game's canvas on every step of the
+// animation, and a resize both empties the drawing buffer and re-frames the camera. (The first
+// version kept the iframe the size of the window and clipped it to the phone, which made the game
+// lay out for a landscape window and opened out to it.)
 
 // Inter, for the titles only (the Figma style asks for weight 450, which only the variable cut has).
 import '@fontsource-variable/inter';
 import { mountSelect } from './select.js';
 import { createSnake } from './snake.js';
+import { wispAway } from './wisp.js';
+import { escapeCreatures } from './escape.js';
 import { flattenScene } from './flatten.js';
 
-const REVEAL_MS = 1100;
-// How far the still is pushed in. At 1 a landscape window shows the whole city, which inside a
-// phone-sized cut-out is a postage stamp; 2.4 is about what the game shows on an actual phone.
-const STILL_ZOOM = 2.4;
-// Let the settled city run this long, hidden, before freezing it: long enough for the first riders
-// to appear (the board fills on the first `fares.update`) and for traffic to look under way.
-const WARM_MS = 1200;
+const REVEAL_MS = 900;
+const lerp = (a, b, k) => a + (b - a) * k;
 
 const game = document.getElementById('game');
-const phone = document.getElementById('phone');
-const back = document.getElementById('back');
+const device = document.getElementById('device');
+const slot = document.getElementById('phone-slot');
 document.documentElement.style.setProperty('--reveal-ms', `${REVEAL_MS}ms`);
 
-// The real game, from its main menu: the phone opens onto the title screen and everything after it
-// (Play, the opening vignette, the tutorial) is the game as a player gets it. Only the startup
-// splash is skipped, and the menu's intro, whose 3 s blur would otherwise be frozen into the still.
+// The real game, from its main menu: the phone shows the title screen with the city running, and
+// everything after it (Play, the opening vignette, the tutorial) is the game as a player gets it.
+// Only the startup splash is skipped, and the menu's intro blur.
 game.src = '/?splash=classic&titleintro=classic';
 
-// 0 = the slide, 1 = the live game; animated between.
-let t = 0;
 let live = false;
-let animating = false;
 
-/**
- * The phone's screen against the window, so the clip and the camera agree. Measured off the layout
- * box, not `getBoundingClientRect`: the phone is mid-scale for the whole reveal, and the way back
- * measures it on the frame it starts shrinking — a transformed rect there clipped the game to a
- * phone two and a half times the size of the one drawn.
- */
-function phoneScreen() {
-  const border = phone.clientLeft;
-  const left = phone.offsetLeft + border;
-  const top = phone.offsetTop + border;
-  return {
-    left, top,
-    right: left + phone.clientWidth, bottom: top + phone.clientHeight,
-    radius: phone.clientWidth * 0.12,
-  };
-}
-
-const ease = (x) => (x < 0.5 ? 4 * x * x * x : 1 - (-2 * x + 2) ** 3 / 2);
-const lerp = (a, b, k) => a + (b - a) * k;
-// The game's zoom from the first still, kept so a trip back and forth does not compound.
-let framingZoom = 0;
-
-function setClip(k) {
-  const s = phoneScreen();
+/** Shrink the phone from its playing size and place into the slot the slide keeps for it. */
+function dock() {
   const W = window.innerWidth;
   const H = window.innerHeight;
-  const c = (v) => `${lerp(v, 0, k).toFixed(2)}px`;
-  document.documentElement.style.setProperty('--clip',
-    `inset(${c(s.top)} ${c(W - s.right)} ${c(H - s.bottom)} ${c(s.left)} round ${c(s.radius)})`);
-}
-
-// The game's own framing, read when the still is taken, and the taxi it pushes in on. Zoom and
-// target go through the game's camera state rather than `camera.zoom`: everything that sizes itself
-// against the frame (the haze, the AO, the markers) reads the state, and a projection zoomed behind
-// its back drew the still visibly darker than the same city at play zoom.
-let framing = null;
-
-function takeFraming() {
-  const taxi = game.contentWindow.__taxi;
-  const { state } = taxi.camera;
-  framing = {
-    zoom: state.zoom,
-    from: { x: state.target.x, z: state.target.z },
-    taxi: { x: taxi.traffic.taxi.x, z: taxi.traffic.taxi.z },
-  };
-}
-
-/** Push the game's camera in on the taxi and over the phone, by `1 - k` of the way. */
-function frameCamera(k) {
-  const taxi = game.contentWindow?.__taxi;
-  const cam = taxi?.camera?.camera;
-  if (!cam || !framing) return;
-  const s = phoneScreen();
-  const W = window.innerWidth;
-  const H = window.innerHeight;
-  const e = ease(k);
-  const { state } = taxi.camera;
-  state.zoom = lerp(framing.zoom / STILL_ZOOM, framing.zoom, e);
-  state.target.x = lerp(framing.taxi.x, framing.from.x, e);
-  state.target.z = lerp(framing.taxi.z, framing.from.z, e);
-  // The game's own loop applies the state while it runs; under the hold, nothing does.
-  if (taxi.presenter.held()) taxi.camera.update(W / H);
-  // `setViewOffset` shifts the frame by the given pixels: shifting by (centre − phone centre)
-  // lands the middle of the game's view — the taxi — in the middle of the phone.
-  const dx = lerp(W / 2 - (s.left + s.right) / 2, 0, e);
-  const dy = lerp(H / 2 - (s.top + s.bottom) / 2, 0, e);
-  if (k >= 1) cam.clearViewOffset();
-  else cam.setViewOffset(W, H, dx, dy, W, H);
-  cam.updateProjectionMatrix();
-}
-
-/** The game's HUD, hidden while it is a still and faded back in once it is live. */
-function hud(show) {
-  const doc = game.contentDocument;
-  if (!doc?.body) return;
-  if (!doc.getElementById('talk-style')) {
-    const style = doc.createElement('style');
-    style.id = 'talk-style';
-    style.textContent = `
-      body.talk-still > :not(canvas) { visibility: hidden !important; }
-      body.talk-fade > :not(canvas) { animation: talk-in 0.5s ease both; }
-      @keyframes talk-in { from { opacity: 0; } }`;
-    doc.head.appendChild(style);
-  }
-  doc.body.classList.toggle('talk-still', !show);
-  if (show) {
-    doc.body.classList.add('talk-fade');
-    setTimeout(() => doc.body.classList.remove('talk-fade'), 600);
-  }
+  const s = slot.getBoundingClientRect();
+  const scale = s.height / device.offsetHeight;
+  const dx = s.left + s.width / 2 - W / 2;
+  const dy = s.top + s.height / 2 - H / 2;
+  device.style.setProperty('--dock', `translate(${dx}px, ${dy}px) scale(${scale})`);
 }
 
 function go(toLive) {
-  if (animating || toLive === live) return;
-  const presenter = game.contentWindow?.__taxi?.presenter;
-  if (!presenter) return;
-  animating = true;
+  if (toLive === live || !document.body.classList.contains('on-phone')) return;
   live = toLive;
-  document.body.classList.add('revealing');
   document.body.classList.toggle('live', toLive);
-  // Live from the first frame of the reveal: the city starts moving as the phone opens, which is
-  // the whole trick. On the way back it freezes where it stands and the phone closes over it.
-  // The title screen's camera reel cuts round the landmarks through `cutTo` every frame, which would
-  // fight the reveal's zoom out; it's held off until the phone has opened, then handed back.
-  const cam = game.contentWindow.__taxi.camera;
-  if (toLive) {
-    game.contentWindow.__taxi.pause?.setPaused(false);
-    if (!cam.heldCut) { cam.heldCut = cam.cutTo; cam.cutTo = () => {}; }
-    presenter.hold(false);
-  }
-  else { presenter.hold(true); hud(false); game.blur(); takeFraming(); framing.zoom = framingZoom; }
-  setClip(toLive ? 1 : 0);
-
-  const from = t;
-  const to = toLive ? 1 : 0;
-  const start = performance.now();
-  const step = (now) => {
-    const k = Math.min((now - start) / REVEAL_MS, 1);
-    t = lerp(from, to, k);
-    // Leaving the game (Esc, the blur) also trips the game's own pause, and a paused game draws one
-    // frame and stops — so the push back in would never be drawn. Undo it for as long as we move.
-    if (!toLive) game.contentWindow.__taxi.pause?.setPaused(false);
-    frameCamera(t);
-    if (k < 1) { requestAnimationFrame(step); return; }
-    animating = false;
-    document.body.classList.remove('revealing');
-    if (toLive) {
-      if (cam.heldCut) { cam.cutTo = cam.heldCut; delete cam.heldCut; }
-      hud(true);
-      game.focus();
-    }
-  };
-  requestAnimationFrame(step);
+  if (toLive) game.focus();
+  else game.blur();
 }
 
-phone.addEventListener('click', () => go(true));
-back.addEventListener('click', () => go(false));
+device.addEventListener('click', () => go(true));
+
 // The deck. One `.slide` shows at a time; the hash keeps your place across a reload. The phone
 // slide is just one of them — the game iframe only shows while it is up.
 const slides = [...document.querySelectorAll('.slide')];
@@ -205,17 +84,45 @@ kid.querySelector('.photo').addEventListener('click', async (e) => {
   cans ??= import('./cans.js').then((m) => m.createCans());
   (await cans).drop({ x: r.left + REAL_CANS.x * r.width, y: r.top + REAL_CANS.y * r.height });
 });
-// Slide 4's snake: each click (or →) is the next beat — the snake, then the pineapple in the hat,
-// the dragon fruit, the bomb — and leaving the slide clears it. Once the game is on, `playing`
-// sends the photo back behind it (talk/index.html).
+// Slide 4's snake: each click (or →) is the next beat — three doodles come out of the photo as
+// pixel sprites and stand about at the bottom of the screen watching the cursor, then walk off
+// (src/talk/escape.js), the photo blows away into wisps
+// (src/talk/wisp.js) and the snake comes on once it has gone, then the pineapple in the hat, the
+// dragon fruit, the bomb — and leaving the slide clears it. Presses while the photo is still
+// smoking are swallowed, so a double click doesn't skip the pineapple.
 const snakeSlide = document.getElementById('snake');
+const snakePhoto = snakeSlide.querySelector('.photo');
 let snake = null;
+let wisp = null;
+let escapees = null;
+let escaped = false;
 snakeSlide.advance = () => {
-  snakeSlide.classList.add('playing');
-  return (snake ??= createSnake(snakeSlide)).advance();
+  if (!escapees) {
+    escapees = escapeCreatures(snakePhoto);
+    return true;
+  }
+  if (!escaped) {
+    escaped = true;
+    escapees.leave();
+    return true;
+  }
+  if (!wisp) {
+    wisp = wispAway(snakePhoto);
+    wisp.done.then((ok) => { if (ok) (snake ??= createSnake(snakeSlide)).advance(); });
+    return true;
+  }
+  return snake ? snake.advance() : true;
 };
 snakeSlide.addEventListener('click', () => snakeSlide.advance());
-snakeSlide.addEventListener('leave', () => { snakeSlide.classList.remove('playing'); snake?.stop(); });
+snakeSlide.addEventListener('leave', () => {
+  escapees?.cancel();
+  escapees = null;
+  escaped = false;
+  wisp?.cancel();
+  wisp = null;
+  snakePhoto.style.visibility = '';
+  snake?.stop();
+});
 // The talk's game clock: nine minutes, bottom right, started by the first step off the title. The
 // start time lives in sessionStorage so a reload mid-talk doesn't hand back the full nine; R resets.
 const TALK_MS = 9 * 60 * 1000;
@@ -432,10 +339,26 @@ function show(i) {
   slides.forEach((s, k) => s.classList.toggle('on', k === current));
   ticks.forEach((b, k) => b.classList.toggle('on', k === current));
   document.body.classList.toggle('on-phone', slides[current].id === 'slide');
+  if (slides[current].id !== 'slide') go(false);
+  game.contentWindow?.__taxi?.presenter?.hold(slides[current].id !== 'slide');
   document.body.classList.toggle('on-bleed', slides[current].classList.contains('bleed'));
   history.replaceState(null, '', `#${current + 1}`);
 }
 mountSelect(document.getElementById('select'), { start: () => show(current + 1) });
+// The "Try it out" slide's taxi: the workshop's hopping taxi, the same one the marketing site's
+// hero carries (rocket-rides-web bundles this module). Loaded the first time the slide comes up, so
+// the deck doesn't stand up a WebGL context for it before then; the looks are decided first, as
+// the workshop's own viewer does before it.
+// Framed the way the marketing site frames it (its data-back / data-aim / data-ceil), pulled in
+// from the workshop's distant default so the car is a mark you can see from the back of a room.
+const HERO_TAXI = { back: 1.25, aimY: 1.6, ceil: 3.2 };
+const trySlide = document.getElementById('try');
+let heroTaxi = null;
+new MutationObserver(() => {
+  if (heroTaxi || !trySlide.classList.contains('on')) return;
+  heroTaxi = Promise.all([import('../game/renderpath.js'), import('../workshop/emptytaxi.js')])
+    .then(([rp, m]) => { rp.decideLooks(rp.renderBudget()); m.mount(trySlide.querySelector('.hero-taxi'), HERO_TAXI); });
+}).observe(trySlide, { attributes: true, attributeFilter: ['class'] });
 const fromHash = () => show((Number.parseInt(location.hash.slice(1), 10) || 1) - 1);
 fromHash();
 window.addEventListener('hashchange', fromHash);
@@ -454,26 +377,15 @@ game.addEventListener('load', () => {
   game.contentWindow.addEventListener('keydown', (e) => { if (e.key === 'Escape') go(false); });
 });
 
-window.addEventListener('resize', () => {
-  setClip(live ? 1 : 0);
-  frameCamera(t);
-});
+window.addEventListener('resize', dock);
+dock();
 
-// Wait for the game to publish its handle, settle the city's entrance so the still is a whole
-// city, let it run a beat, then freeze it and show it.
-function whenReady() {
+// The game only runs while its slide is up: the presenter's hold freezes the world the way the
+// pause does, with nothing drawn over it. Its handle comes up a moment after the frame loads.
+function holdGame() {
   const presenter = game.contentWindow?.__taxi?.presenter;
-  if (!presenter) { setTimeout(whenReady, 100); return; }
-  presenter.settle();
-  hud(false);
-  setClip(0);
-  setTimeout(() => {
-    presenter.hold(true);
-    takeFraming();
-    framingZoom = framing.zoom;
-    frameCamera(0);
-    game.classList.add('ready');
-  }, WARM_MS);
+  if (!presenter) { setTimeout(holdGame, 100); return; }
+  presenter.hold(!document.body.classList.contains('on-phone'));
+  game.classList.add('ready');
 }
-setClip(0);
-whenReady();
+holdGame();

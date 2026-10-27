@@ -17,6 +17,10 @@ const STEP_MS = 120;
 const START_LENGTH = 5;
 const SHORTEST = 2;
 const DIRS = [[1, 0], [0, 1], [-1, 0], [0, -1]];
+// The board: a centred box this fraction of the window wide and tall, the presentation's safe
+// frame, so the snake and its fruit never stray where a projector or a cropped screen would lose them.
+const SAFE_W = 0.72;
+const SAFE_H = 0.66;
 
 // The snake's colours: green to start, the pineapple's yellow once it has the hat, pink after a
 // dragon fruit. Whichever it ate last wins.
@@ -37,15 +41,18 @@ const ART = {
     '.RRRRR.',
     '..R.R..',
   ],
-  // A pineapple in a cowboy hat: the hat on top, a cross-hatched yellow square under it.
+  // A pineapple in a cowboy hat: the hat on top, a cross-hatched yellow square under it. 11 × 9,
+  // overhanging its cell (ORIGIN) so the hat can be the same one the snake wears.
   pineapple: [
-    '..BBB..',
-    '.BBBBB.',
-    'BBBBBBB',
-    '.YYYYY.',
-    '.YOYOY.',
-    '.YYYYY.',
-    '.YOYOY.',
+    '....BbB....',
+    '...BBBBB...',
+    '...bbbbb...',
+    'B.BBBBBBB.B',
+    '.BBBBBBBBB.',
+    '...YYYYY...',
+    '...YOYOY...',
+    '...YYYYY...',
+    '...YOYOY...',
   ],
   dragonfruit: [
     '...G...',
@@ -66,14 +73,21 @@ const ART = {
     '.KWKKK.',
     '..KKK..',
   ],
-  // The hat the snake wears once it has eaten the pineapple, 7 × 4, sat on top of its head.
+  // The hat the snake wears once it has eaten the pineapple, 11 × 5, sat on top of its head. What
+  // makes it a cowboy hat is the silhouette, so the tells are all in it: a brim nearly twice the
+  // crown's width that curls up at both ends, a band, and a rounded crown with a crease (the dark pixel) down its top.
+  // (The first cut was a dome on a flat brim and read as a bowler; the second had a 9-wide brim
+  // and a notch in the crown, and read as a castle turret, then as antlers.)
   hat: [
-    '..BBB..',
-    '.BBBBB.',
-    '.BbbbB.',
-    'BBBBBBB',
+    '....BbB....',
+    '...BBBBB...',
+    '...bbbbb...',
+    'B.BBBBBBB.B',
+    '.BBBBBBBBB.',
   ],
 };
+// Art wider than a cell, and where it sits relative to the cell's corner, in art pixels.
+const ORIGIN = { pineapple: [-2, -2], hat: [-2, -3] };
 const INK = {
   R: '#e3342f', W: '#ffffff', k: '#6b3f1d', G: '#3cb043', B: '#8b5a2b', b: '#5e3a17',
   Y: '#ffd23f', O: '#d69a1a', P: '#ff4fa3', K: '#1a1a1a', f: '#c8b28a',
@@ -100,8 +114,12 @@ const BITE_SHAKE_PX = 7;
 const BITE_SHAKE_MS = 200;
 const RING_MS = 450;
 
-// What each later stage puts on the board, in click order.
+// What each later stage puts on the board, in click order. Each one takes the board over: one more
+// of it is added and everything already there turns into it, in a ripple TURN_GAP_MS apart, each
+// with a white pop TURN_MS long.
 const STAGES = ['pineapple', 'dragonfruit', 'bomb'];
+const TURN_GAP_MS = 110;
+const TURN_MS = 260;
 
 /** `shaken` is what the screen shake moves along with the game's canvas — the slide under it. */
 export function createSnake(shaken = null) {
@@ -133,9 +151,9 @@ export function createSnake(shaken = null) {
     canvas.width = Math.round(window.innerWidth * dpr);
     canvas.height = Math.round(window.innerHeight * dpr);
     g.setTransform(dpr, 0, 0, dpr, 0, 0);
-    cols = Math.floor(window.innerWidth / CELL);
-    rows = Math.floor(window.innerHeight / CELL);
-    // Centre the grid in the window, so the leftover sliver is shared between the edges.
+    cols = Math.floor(window.innerWidth * SAFE_W / CELL);
+    rows = Math.floor(window.innerHeight * SAFE_H / CELL);
+    // Centre the grid in the window, inside the safe frame.
     ox = (window.innerWidth - cols * CELL) / 2;
     oy = (window.innerHeight - rows * CELL) / 2;
   }
@@ -144,12 +162,13 @@ export function createSnake(shaken = null) {
   const inside = ([x, y]) => x >= 0 && y >= 0 && x < cols && y < rows;
   const same = (a, b) => a[0] === b[0] && a[1] === b[1];
 
-  function place(kind) {
+  // `turn` is when it pops into being (or into this kind from `was`), for the white pop in `draw`.
+  function place(kind, turn = 0) {
     const taken = new Set([...body, ...items.map((i) => i.at)].map(key));
     let at;
     do at = [Math.floor(Math.random() * cols), Math.floor(Math.random() * rows)];
     while (taken.has(key(at)));
-    items.push({ kind, at });
+    items.push({ kind, at, turn });
   }
 
   function reset() {
@@ -157,7 +176,8 @@ export function createSnake(shaken = null) {
     body = Array.from({ length: START_LENGTH }, (_, i) => [START_LENGTH - i, y]);
     dir = DIRS[0];
     items = [];
-    for (const kind of kinds) place(kind);
+    // As many as there are kinds, all of the latest — it has taken the board over (`advance`).
+    for (const _ of kinds) place(kinds[kinds.length - 1]);
   }
 
   // Greedy: of the moves that don't hit a wall or the snake's own body, the one that ends nearest
@@ -181,9 +201,16 @@ export function createSnake(shaken = null) {
     if (item.kind === 'pineapple') { hat = true; colours = YELLOW; }
     if (item.kind === 'dragonfruit') colours = PINK;
     if (item.kind === 'bomb') {
-      // Half the snake goes. It stays on the board, frozen, until the beat blows it off.
+      // Half the snake goes. It stays on the board, frozen, until the beat blows it off. Once the
+      // board is all bombs it bottoms out at SHORTEST, and a bite with nothing left to lose is just
+      // a bang, with no freeze.
       const keep = Math.max(SHORTEST, Math.ceil(body.length / 2));
       const now = performance.now();
+      if (keep >= body.length) {
+        rings.push({ x: cellX(item.at) + CELL / 2, y: cellY(item.at) + CELL / 2, t0: now });
+        shakes.push({ t0: now, px: BITE_SHAKE_PX, ms: BITE_SHAKE_MS });
+        return false;
+      }
       bomb = { t0: now, tail: body.slice(keep), cut: body[keep - 1], at: item.at };
       body = body.slice(0, keep);
       shakes.push({ t0: now, px: BITE_SHAKE_PX, ms: BITE_SHAKE_MS });
@@ -243,6 +270,12 @@ export function createSnake(shaken = null) {
     draw(now);
   }
 
+  /** A piece of art (by name) at a cell's corner, shifted by its ORIGIN if it overhangs the cell. */
+  function sprite(kind, x, y) {
+    const [dx, dy] = ORIGIN[kind] ?? [0, 0];
+    art(ART[kind], x + dx * PX, y + dy * PX);
+  }
+
   function art(rowsOfArt, x, y) {
     rowsOfArt.forEach((row, j) => [...row].forEach((c, i) => {
       if (c === '.') return;
@@ -274,7 +307,27 @@ export function createSnake(shaken = null) {
     g.clearRect(0, 0, W, H);
     shake(now);
     for (const item of items) {
-      art(ART[item.kind], cellX(item.at), cellY(item.at));
+      const since = now - item.turn;
+      // Not turned yet: still what it was, or (the one added) not there at all.
+      if (since < 0) { if (item.was) sprite(item.was, cellX(item.at), cellY(item.at)); continue; }
+      if (since < TURN_MS) {
+        // The pop: a white flash over the cell that shrinks away as the new thing swells past full
+        // size and settles.
+        const u = since / TURN_MS;
+        const cx = cellX(item.at) + CELL / 2;
+        const cy = cellY(item.at) + CELL / 2;
+        g.save();
+        g.translate(cx, cy);
+        g.scale(1 + 0.6 * Math.sin(Math.PI * u), 1 + 0.6 * Math.sin(Math.PI * u));
+        g.translate(-cx, -cy);
+        sprite(item.kind, cellX(item.at), cellY(item.at));
+        g.restore();
+        const f = CELL * 1.4 * (1 - u);
+        g.fillStyle = `rgba(255, 255, 255, ${(1 - u).toFixed(2)})`;
+        g.fillRect(cx - f / 2, cy - f / 2, f, f);
+        continue;
+      }
+      sprite(item.kind, cellX(item.at), cellY(item.at));
       // The fuse sparks: a few bright pixels round its tip, different every step.
       if (item.kind === 'bomb') {
         for (let k = 0; k < 3; k++) {
@@ -305,7 +358,7 @@ export function createSnake(shaken = null) {
       g.fillRect(ex, ey, PX, PX);
     }
     // The hat sits on top of the head whichever way the snake is going, brim across its middle.
-    if (hat) art(ART.hat, hx, hy - 2 * PX);
+    if (hat) sprite('hat', hx, hy);
 
     // The bangs: rings of hot pixels thrown outward, thinning as they go.
     rings = rings.filter((r) => now - r.t0 < RING_MS);
@@ -367,7 +420,12 @@ export function createSnake(shaken = null) {
       if (stage > STAGES.length) return false;
       const kind = STAGES[stage - 1];
       kinds.push(kind);
-      place(kind);
+      // Everything on the board turns, nearest the snake's head first, then one more lands.
+      const now = performance.now();
+      const [hx, hy] = body[0];
+      items.sort((a, b) => Math.hypot(a.at[0] - hx, a.at[1] - hy) - Math.hypot(b.at[0] - hx, b.at[1] - hy));
+      items.forEach((item, i) => Object.assign(item, { was: item.kind, kind, turn: now + i * TURN_GAP_MS }));
+      place(kind, now + items.length * TURN_GAP_MS);
       stage++;
       return true;
     },
