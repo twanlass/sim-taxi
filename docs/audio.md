@@ -349,6 +349,8 @@ between the two ends (`DASH` in `sfx.js`):
 - **Crushed**: driven into a tanh clip quantised to 32 levels a side (about 6 bits), then brought
   down so a song in the car sits about 4 LU under the same song open, and the open swells as well
   as brightens.
+- **Turned down**: the whole dash path, static included, sits 6 dB lower (`carLevel` 0.5), so the
+  car is about 10 LU under the open mix (worked out from the gains, not measured).
 - **Static**: six seconds of generated hiss with crackles and the odd pop, looped into the same
   speaker, about 12 dB under the music.
 
@@ -361,7 +363,10 @@ announcer signs off.
 On the `roll` beat (`DASH_PHASES` in `main.js`) `openDash` runs the reveal over 3 s: the
 filters sweep to transparent (exponentially on the frequencies, so the octaves open at an even pace;
 open is 10 Hz, Nyquist and 0 dB), the crushed mono path crossfades into the clean stereo one, and the
-static is gone in the first 1.5 s. A skip, `?vignette=off` or a city with no depot opens it
+static is gone in the first 1.5 s. The level cranks back up from −6 dB to full over the first
+1.4 s (`DASH.swell`, an exponential ramp, so an even climb in dB), so the open lands as the volume
+knob going up as well as the tone opening (Tyler, 2026-10-27; `?radioswell=classic` is without),
+with the taxi's "turns up the radio" line on screen ([the backstory](gameplay.md#the-backstory)). A skip, `?vignette=off` or a city with no depot opens it
 on the next frame. Only the station goes through it: the ⚙️ panel's track previews play past it.
 `?radiointro=classic` keeps the station full-range from Play.
 

@@ -1302,6 +1302,9 @@ const sfx = shot || BACKDROP ? null : createSfx({
   menuSongs: new URLSearchParams(window.location.search).get('titlemusic') === 'classic',
   // The DJ talks over the edges of the songs; `?radiofade=classic` cuts hard between tracks.
   radioFade: new URLSearchParams(window.location.search).get('radiofade') !== 'classic',
+  // The dash radio sits 6 dB down until the car rolls out and cranks it; `?radioswell=classic` is
+  // without (`DASH.carLevel` in game/sfx.js).
+  radioSwell: new URLSearchParams(window.location.search).get('radioswell') !== 'classic',
 });
 // The dash radio (`DASH` in game/sfx.js): Play puts the station in the taxi's own speakers, and it
 // opens out into the full mix when the car rolls out of its garage. `?radiointro=classic` keeps the

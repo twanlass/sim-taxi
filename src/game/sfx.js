@@ -343,6 +343,13 @@ export const MUSIC_FADE_AT_HINT = 2.5;
  *    so the in-car radio is under the open mix and the open swells as well as brightens: on an
  *    offline render of this graph a song in the car measures about 4 LU under the same song open
  *    (at 0.3 the crush was 8 LU *over* it — a clipper flattens the level up as well as the dynamics).
+ *  - **Turned down**: the whole dash path, static and all, sits at `carLevel` (−6 dB) until the
+ *    open, and the open cranks it back to full over `swell` seconds on an exponential ramp, an even
+ *    climb in dB (Tyler, 2026-10-27: "turn down the radio then crank to actual game volume as it
+ *    transitions"). On top of the crush's own 4 LU that puts the car about 10 LU under the open mix
+ *    (worked out from the two gains, not measured), so the open lands as the driver reaching for
+ *    the volume knob as well as the tone. Shorter than `open` so the jump in level is felt while
+ *    the filters are still sweeping. `?radioswell=classic` leaves the level alone.
  *  - **Static**: a bed of hiss with sparse crackles and the odd pop (`staticBuffer`) at
  *    `staticLevel`, played into the same speaker so it is band-limited and crushed with the music:
  *    about 12 dB under the music in RMS, with the pops reaching the music's level.
@@ -363,7 +370,7 @@ export const MUSIC_FADE_AT_HINT = 2.5;
 export const DASH = {
   lowCut: 700, highCut: 2000, peakHz: 1400, peakDb: 8, Q: 4,
   drive: 4, steps: 32, crushLevel: 0.11, staticLevel: 0.5,
-  open: 3, staticOut: 0.5, music: 4,
+  open: 3, staticOut: 0.5, music: 4, carLevel: 0.5, swell: 1.4,
 };
 const DASH_OPEN_LOW = 10;
 /**
@@ -641,7 +648,10 @@ function loopWindow(buffer, seconds) {
  * @param {boolean} [opts.radioFade]  The station talks over the edges of the songs (`RADIO_FADE`).
  *   False (`?radiofade=classic`) plays every track after the last with a hard cut.
  */
-export function createSfx({ rng, menuMusic = false, menuSongs = false, radioFade = true } = {}) {
+export function createSfx({ rng, menuMusic = false, menuSongs = false, radioFade = true,
+  radioSwell = true } = {}) {
+  // The dash radio turned down until the open cranks it (`DASH.carLevel`); false is `?radioswell=classic`.
+  const swellOn = radioSwell;
   // Every file the station can schedule, fetched and decoded up front.
   const songs = RADIO.songs;
   const playlist = [RADIO.intro, ...songs, ...RADIO.ads, RADIO.breakIn, RADIO.breakOut, RADIO.stationId];
@@ -1113,10 +1123,11 @@ export function createSfx({ rng, menuMusic = false, menuSongs = false, radioFade
   // The dash radio (`DASH`), between `radioBus` and the music bus:
   //
   //   radioBus ─┐                  ┌─ mono ─ drive ─ crush ─ crushOut ─┐
-  //   static ───┴─ highpass ─ bump ┤                                   ├─ lowpass ─ musicBus
+  //   static ───┴─ highpass ─ bump ┤                                   ├─ lowpass ─ level ─ musicBus
   //                                └─ clean ───────────────────────────┘
   //
-  // In the car `crushOut` is up and `clean` is shut; the open sweeps the filters and swaps the two.
+  // In the car `crushOut` is up, `clean` is shut and `level` is down; the open sweeps the filters,
+  // swaps the two and cranks the level.
   let dash = null;
   function buildDash() {
     const filter = (type, freq, q) => {
@@ -1143,8 +1154,9 @@ export function createSfx({ rng, menuMusic = false, menuSongs = false, radioFade
     radioBus.connect(low).connect(bump);
     bump.connect(mono).connect(drive).connect(crush).connect(crushOut).connect(high);
     bump.connect(clean).connect(high);
-    high.connect(musicBus);
-    dash = { low, bump, high, crushOut, clean, staticGain: null, staticSrc: null };
+    const level = gain(1);
+    high.connect(level).connect(musicBus);
+    dash = { low, bump, high, crushOut, clean, level, staticGain: null, staticSrc: null };
   }
   /** tanh, quantised to `DASH.steps` levels a side: the soft clip and the bit depth in one curve. */
   function crushCurve() {
@@ -1188,6 +1200,7 @@ export function createSfx({ rng, menuMusic = false, menuSongs = false, radioFade
     set(dash.high.frequency, inCar ? DASH.highCut : ctx.sampleRate / 2);
     set(dash.crushOut.gain, inCar ? DASH.crushLevel : 0);
     set(dash.clean.gain, inCar ? 0 : 1);
+    set(dash.level.gain, inCar && swellOn ? DASH.carLevel : 1);
     if (inCar && !dash.staticSrc) {
       const src = ctx.createBufferSource();
       src.buffer = staticBuffer();
@@ -1451,6 +1464,7 @@ export function createSfx({ rng, menuMusic = false, menuSongs = false, radioFade
     ramp(dash.bump.gain, 0);
     ramp(dash.crushOut.gain, 0);
     ramp(dash.clean.gain, 1);
+    ramp(dash.level.gain, 1, 'exp', t + DASH.swell);
     if (dash.staticSrc) {
       const gone = t + seconds * DASH.staticOut;
       ramp(dash.staticGain.gain, 0, 'linear', gone);
