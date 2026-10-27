@@ -2212,6 +2212,15 @@ const onGrass = (city, i, j) => {
     const lanesUsed = new Set();
     const bump = (k) => seen.set(k, (seen.get(k) ?? 0) + 1);
     let pitchJump = 0;
+    // The push: the back foot planted on the floor, staying put on it while the board rolls past,
+    // and the rider leaving the push faster than it came in.
+    const F = new THREE.Vector3();
+    let pushes = 0;
+    let kicks = 0;
+    let plantFrames = 0;
+    let footOff = 0;
+    let footSlide = 0;
+    let gainLow = Infinity;
     for (const run of [349, 350, 351, 352]) {
       const crew = createSkaters(skateScene, makeRng(seed + run), park);
       crews += 1;
@@ -2221,9 +2230,24 @@ const onGrass = (city, i, j) => {
       let wasEnd = null;
       let wasMid = null;
       let lastPitch = rd.pitch.x;
+      let wasPhase = null;
+      let plantAt = null;
+      let pushFrom = 0;
+      const shin = rd.person.meshes[5];
       for (let step = 0; step < 300 * 60; step++) {
         crew.update(1 / 60);
         crew.group.updateMatrixWorld(true);
+        const phase = rd.push?.phase ?? null;
+        if (phase === 'reach' && wasPhase !== 'reach') { pushes += 1; pushFrom = Math.abs(rd.s); }
+        if (phase === 'plant') {
+          shin.localToWorld(F.set(0, -0.575, 0));
+          plantFrames += 1;
+          footOff = Math.max(footOff, Math.abs(F.y - SKATE_TOP_Y));
+          if (wasPhase !== 'plant') { kicks += 1; plantAt = F.clone(); }
+          else footSlide = Math.max(footSlide, Math.hypot(F.x - plantAt.x, F.z - plantAt.z));
+        }
+        if (phase === null && wasPhase === 'return') gainLow = Math.min(gainLow, Math.abs(rd.s) / pushFrom);
+        wasPhase = phase;
         const hp = rd.holder.position;
         if (hp.x < r.x0 || hp.x > r.x1 || hp.z < r.z0 || hp.z > r.z1) offSlab += 1;
         if (rd.mode === 'ride' || rd.mode === 'stall') {
@@ -2255,7 +2279,8 @@ const onGrass = (city, i, j) => {
     // of knee — most of it in tricks, ~0.9 cruising — with its back held dead upright, which on a
     // 24px figure read as a T-pose on a board. Measured here: 1.54 and 0.33 against 1.19 and 0.
     const posture = (stiff) => {
-      const crew = createSkaters(skateScene, makeRng(seed + 349), park, { stiff });
+      // Without the push: its back knee is the kicking leg's, which is not the stance being measured.
+      const crew = createSkaters(skateScene, makeRng(seed + 349), park, { stiff, push: false });
       const p = crew.riders[0].person;
       let knee = 0;
       let waist = 0;
@@ -2278,8 +2303,12 @@ const onGrass = (city, i, j) => {
       `${maxRiders} riders, ${wheelsUnder} wheel-frames under (deepest ${deepest.toFixed(3)}), ${offSlab} off the slab`);
     check('the board tips over an edge rather than snapping: under 0.12 rad of pitch a frame',
       pitchJump < 0.12, `largest step ${pitchJump.toFixed(3)} rad`);
+    check('the skater pushes: the back foot planted on the floor and not sliding, and faster for it',
+      pushes >= 4 && kicks >= pushes * 1.5 && footOff < 0.06 && footSlide < 0.05 && gainLow > 1.4,
+      `${pushes} pushes, ${kicks} kicks; foot ${footOff.toFixed(3)} off the floor, slid ${footSlide.toFixed(3)}; `
+        + `slowest gain x${gainLow.toFixed(2)}`);
     check('and the rider uses both lanes and at least ten different tricks',
-      lanesUsed.size === 2 && tricks.length >= 10 && highestAir > LIP_H + 0.4,
+      lanesUsed.has('rail') && lanesUsed.has('box') && tricks.length >= 10 && highestAir > LIP_H + 0.4,
       `${tricks.map((k) => `${k} ${seen.get(k)}`).join(', ')}; highest air ${highestAir.toFixed(2)}`);
   }
 }

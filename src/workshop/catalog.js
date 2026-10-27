@@ -33,6 +33,8 @@ import {
 } from '../geometry/classics.js';
 import { createPolice } from '../sim/police.js';
 import { createFireTruckMesh } from '../geometry/firetruck.js';
+import { createGarbageTruckMesh } from '../geometry/garbage.js';
+import { createRivalMesh } from '../game/race.js';
 import { createHelicopterMesh } from '../geometry/helicopter.js';
 import { createPlaneMesh } from '../geometry/plane.js';
 import { PROP_SPIN } from '../game/flyover.js';
@@ -206,6 +208,25 @@ export const CATALOG = [
       const engine = createFireTruckMesh();
       engine.shell.visible = true;
       return { object: engine.group };
+    },
+  },
+  {
+    id: 'garbage', label: 'Garbage truck', kind: 'Vehicles',
+    source: 'src/geometry/garbage.js · createGarbageTruckMesh',
+    // Hidden between collections in the game, like the fire engine's shell.
+    build: () => {
+      const truck = createGarbageTruckMesh();
+      truck.shell.visible = true;
+      return { object: truck.group };
+    },
+  },
+  {
+    id: 'racer', label: 'Street racer', kind: 'Vehicles',
+    source: 'src/game/race.js · createRivalMesh (body: rivalBodyGeometry)',
+    build: () => {
+      const rival = createRivalMesh();
+      rival.shell.visible = true;
+      return { object: rival.group };
     },
   },
   {

@@ -1244,8 +1244,20 @@ travelling toward the tail, and a rock or a 360 is what toggles it.
   crouch, an upright back, arms a radian out) read as a frozen T-pose and are kept behind
   `?skater=stiff`.
 
+- **It pushes.** Half the forward passes end in a lazy kickturn low on the transition, and the
+  pass back comes down the clear middle of the flat with the back foot off the board, kicking
+  one to three times before it goes back on for the glide into the far end. The speed for that end
+  is earned on the ground — each kick adds its share of the energy while the foot is planted — so
+  the rider visibly comes in slow and leaves fast. The foot is planted in the world and the board
+  rolls past it, the leg is a two-bone solve (`plantFoot` in `geometry/person.js`), and the front
+  knee folds to `PUSH_DROP` so the back leg can reach the floor 0.255 under the deck. Only passes
+  that come back with the toes toward the camera push: the foot goes down on the toe side, and the
+  other way round it is hidden behind the rider's back for the whole pass.
+  `?skatepush=classic` leaves the rider pumping only.
+
 The probe runs five minutes over four runs: one rider, no wheel ever under the concrete, the board
-never more than 0.12 rad of pitch in a frame, both lanes and at least ten tricks. `?skater=classic`
+never more than 0.12 rad of pitch in a frame, both lanes and at least ten tricks, and pushes whose
+foot sits on the floor without sliding and leave the rider at least 1.4× faster. `?skater=classic`
 is the first cut (`game/skatersclassic.js`): two riders in 75% of runs, each in its own lane, airs
 and kickturns only, and it keeps its own probe check. `?shot=skatepark` and `?shot=skatepark-far` frame it.
 

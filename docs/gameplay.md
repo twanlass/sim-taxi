@@ -13,15 +13,19 @@ longer (0.3 s, `WAIT_START`) and the taxi falls out of the sky straight down thr
 a tenth of a second on the frame the car hits the top line (sparks, a crash), the letters it struck
 are driven down and out, and the **Big Air landing** on the asphalt that has faded up beneath (the
 dust ring, the pale shockwave, sparks off all four wheels, a hard shake) blasts away the rest. The
-pieces rain down and lie flat. The taxi bounces twice, sits for a beat, lights **Loco Mode** and
-leaves on its back wheels, laying rubber and bowling the wreckage in its path ahead of it, off the
+pieces rain down and lie flat. The taxi bounces twice and sits for a beat (`SETTLE`), then does a
+**burnout** (`BURNOUT`, 0.7 s): it squats on its back axle and shivers, smoke pours off the back
+tyres and rubber goes down under them — the race start's burnout at this camera's scale
+(`?splashburnout=classic` skips it). Then it lights **Loco Mode** and leaves on its back wheels, laying rubber and bowling the wreckage in its path ahead of it, off the
 right edge of the frame. Once it is fully gone, flame and all (`exitTime`), the patch holds for a
-second (`HOLD`) and then fades to the title screen. About 4.8 s on a phone; a tap anywhere skips to
+second (`HOLD`) and then fades to the title screen. About 5.4 s on a phone; a tap anywhere skips to
 a quick fade, and a player with reduced motion gets the fade alone.
 
 **The letters are the font's own outlines, cut into the pieces they break into.**
 `tools/logo-glyphs.py` bakes the shipped woff2 at weight 700 into `game/logoglyphs.js` (data, not a
-font loader, with each curve flattened to three facets). Each glyph is then cut by two straight lines
+font loader, with each curve flattened to three facets). The facets are in the silhouette only: the
+walls share a normal across any turn under 35° (`SMOOTH_COS`), so a bowl shades round, while the
+letters' corners, their break faces and the edge between face and side stay creased. Each glyph is then cut by two straight lines
 at angles of its own and every connected run of each cell is extruded as a slab — 49 pieces in 11
 letters — so the whole word and the wreckage are the same meshes, and a letter breaks along a clean
 line. The debris is a pure simulation the probe
@@ -2958,8 +2962,11 @@ is a tap like every other choice in the game. Ignoring it is free: the racer jus
   patrol is untouched: boost past the cruiser mid-race and it comes after you as it always does.
 
 **The dress is three meshes over the ordinary car body** (`createRivalMesh`): a wing on struts with
-end plates, standing proud of the boot so its silhouette reads at play zoom; a white stripe laid on
-the bonnet, roof and boot as its own mesh, since the paint is a multiply over a white-baked body;
+end plates, standing proud of the boot so its silhouette reads at play zoom; a raked windscreen,
+the ordinary car's cabin sheared so its top edge sits `SCREEN_RAKE` (0.36) behind its foot, which
+reads as a low fast car rather than a van; a white stripe laid on the bonnet, roof and boot as its
+own mesh (the roof strip stops short by the same rake), since the paint is a multiply over a
+white-baked body;
 and an additive underglow, an unlit quad ring whose vertex alpha runs from 1 under the sills to 0
 `GLOW_REACH` (0.65) out. Its triangles are wound to face the sky and the probe asserts it, because an
 unlit triangle wound the other way does not draw at all.

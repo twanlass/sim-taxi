@@ -111,8 +111,26 @@ const BOUNCE_G = 60;
 const bounceTime = (h) => 2 * Math.sqrt((2 * h) / BOUNCE_G);
 /** Every touchdown: the slam, then the end of each bounce. */
 export const TOUCHDOWNS = BOUNCES.reduce((at, h) => [...at, at.at(-1) + bounceTime(h)], [LAND]);
-/** Loco Mode lights. A beat after the last bounce, so the car is seen *sitting* before it goes. */
-export const IGNITE = TOUCHDOWNS.at(-1) + 0.32;
+/**
+ * The burnout before the launch (Tyler, 2026-10-26: "give it a hot beat ... a little burnout, like a
+ * tire spin and smoke, and then it launches off"). The car sits still for `SETTLE` after the last
+ * bounce, then squats on its back axle and shivers for `BURNOUT` with smoke pouring off the back
+ * tyres and rubber going down under them, creeping `BURN_CREEP` against the brake, and only then
+ * lights Loco Mode. The first cut sat 0.32s and went, which read as the car never stopping at all —
+ * the bounces were still settling on the frame it left. `?splashburnout=classic` is that cut.
+ * The squat and shiver are the race start's burnout (`raceBurnout` in main.js), same rates.
+ */
+export const BURNS = typeof window === 'undefined'
+  || new URLSearchParams(window.location.search).get('splashburnout') !== 'classic';
+export const SETTLE = BURNS ? 0.28 : 0.32;
+export const BURNOUT = BURNS ? 0.7 : 0;
+const BURN_SQUAT = 0.035;
+const BURN_SHIVER = 0.018;
+const BURN_CREEP = 0.35;
+/** When the back tyres start to spin. */
+export const BURN_FROM = TOUCHDOWNS.at(-1) + SETTLE;
+/** Loco Mode lights, and the car goes. */
+export const IGNITE = BURN_FROM + BURNOUT;
 /** Launch acceleration, u/s², and the wheelie it lifts into. */
 export const LAUNCH_ACCEL = 70;
 export const WHEELIE = 0.3;        // rad, ~17°
@@ -298,9 +316,22 @@ export function splashPose(t, aspect) {
     squash = 0.2 * k * Math.exp(-s * 11) * Math.max(0, Math.cos(s * 26));
   }
 
+  if (BURNOUT > 0 && t >= BURN_FROM) {
+    // Wound up over a fifth of a second; the squat holds into the launch so the wheelie starts from it,
+    // the shiver stops when the tyres bite.
+    const s = t - BURN_FROM;
+    const k = Math.min(1, s / 0.2);
+    pitch += k * BURN_SQUAT;
+    if (t < IGNITE) {
+      pitch += k * BURN_SHIVER * Math.sin(s * 47);
+      roll += k * BURN_SHIVER * Math.sin(s * 59 + 1.3);
+    }
+    along = BURN_CREEP * Math.min(1, s / BURNOUT) ** 2;
+  }
+
   if (t >= IGNITE) {
     const s = t - IGNITE;
-    along = 0.5 * LAUNCH_ACCEL * s * s;
+    along += 0.5 * LAUNCH_ACCEL * s * s;
     // Up on the back wheels and holding there, with a little overshoot as the thrust bites.
     wheelie = WHEELIE * (1 - Math.exp(-s * WHEELIE_RATE)) * (1 + 0.15 * Math.exp(-s * 4) * Math.sin(s * 14));
     pitch += wheelie;
@@ -522,7 +553,7 @@ export function createSplash(root) {
   const debris = logo ? createDebris(logo) : null;
   const pieceMaterial = logo ? logoMaterial() : null;
   const pieceMeshes = logo ? logo.pieces.map((piece) => {
-    // Extruded geometry is non-indexed with a normal per face already: flat-shaded as it comes.
+    // Flat fronts and backs, walls shaded round the curves and creased at the corners (`SMOOTH_COS`).
     const mesh = new THREE.Mesh(piece.geometry, pieceMaterial);
     mesh.position.copy(piece.home);
     mesh.quaternion.copy(piece.homeQuat);
@@ -567,6 +598,9 @@ export function createSplash(root) {
   let touched = 0;         // touchdowns already spent
   let ignited = false;
   let lastSkid = -1;
+  let burning = false;
+  let burnPuff = 0;
+  let burnRubber = 0;
   let shake = 0;
   let raf = 0;
   let last = 0;
@@ -610,6 +644,32 @@ export function createSplash(root) {
       if (n === 1) for (const w of wheelPoints(pose)) sparks.burst(w.x, 0, w.z, pose.yaw, 3, 6);
       shake = Math.max(shake, n === 1 ? 0.18 : 0.06);
       sound.play('bump', n === 1 ? 0.6 : 0.3);
+    }
+  }
+
+  /**
+   * The burnout's smoke, rubber and squeal. Puffs at the splash's scale rather than the race's — this
+   * camera is four times closer — and thickening as the tyres spin up.
+   */
+  function burn(dtl, p, t) {
+    if (!burning) {
+      burning = true;
+      sound.play('skid', 0.9);
+    }
+    const k = Math.min(1, (t - BURN_FROM) / 0.25);
+    shake = Math.max(shake, 0.05 * k);
+    burnPuff -= dtl;
+    if (burnPuff <= 0) {
+      burnPuff += 0.05;
+      for (const w of wheelPoints(p)) {
+        if (w.rear) dust.burst(w.x, w.z, p.yaw + Math.PI, 1, 0.25 + 0.2 * k, { linger: 1.1 });
+      }
+    }
+    burnRubber -= dtl;
+    if (burnRubber <= 0) {
+      burnRubber += 0.1;
+      for (const w of wheelPoints(p)) if (w.rear) skids.add(w.x, w.z, p.yaw, 1);
+      lastSkid = p.along;
     }
   }
 
@@ -697,6 +757,7 @@ export function createSplash(root) {
       touchdown(touched, splashPose(TOUCHDOWNS[touched], aspect()));
       touched += 1;
     }
+    if (BURNOUT > 0 && t >= BURN_FROM && t < IGNITE) burn(dtl, p, t);
     if (!ignited && t >= IGNITE) {
       ignited = true;
       flames.burst(

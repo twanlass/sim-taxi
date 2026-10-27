@@ -89,7 +89,7 @@ export function wheelGeometry() {
 // the body. Stands HUB_PROUD clear of the sidewall rather than on it — two flat surfaces at the
 // same depth is a shimmer (CLAUDE.md) — and its inner face is buried against the sidewall facing
 // inward, where it is culled before it can fight anything.
-const HUB_R = WHEEL_R * 0.55;
+const HUB_R = WHEEL_R * 0.44;
 const HUB_PROUD = 0.04;
 
 /** A tyre with a hubcap either side, centred on its own hub with the axle along z. */
