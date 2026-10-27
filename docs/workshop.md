@@ -358,6 +358,12 @@ falling rain (`game/rain.js`, built the first time it is chosen) and the lights 
 with the lights on, and Day or Squall hand the hour back. Wet and lens are left at 0: the bench ground is not the game's
 patched one, so a mirror pass would only draw the model twice. `weather` is omitted from the URL while it is Day.
 
+**Lamp toggles** (Headlights, Brake lights, Blinkers) sit under Wireframe and show only for a model whose catalog entry offers
+`switches` and a `setSwitch(id, on)` (the taxi). A ticked lamp is held on whatever the Weather says, and unticked it follows the
+Weather as before; ticking Blinkers lights both sides at once, the hazards, because the flash is the sim's clock and the bench
+has none to step. Which are ticked survives a rebuild (`heldSwitches` in `viewer.js`), so an edit hot-reloading the model does not
+turn them off. They are not in the URL.
+
 **Paint** (in the Model panel, under the model drop-down) picks one of the game's `?paint=` looks. The look is compiled into the shader, so picking
 one rebuilds the model. **Every slider's number is also a field** (`bindReadout` in `workshop/viewer.js`): click it to type an exact value (the Hour's takes `16:30` as well as `16.5`). A committed number goes through the range itself, so it clamps and snaps to the slider's own min, max and step and the slider's `input` handler stays the one place a change lands; Enter or leaving the field commits, Escape or anything that doesn't parse puts the readout back. **Rim light** (a collapsed section under Paint in the Model panel) is ten sliders on the paint's rim
 (`rimTuning`/`setRimTuning` in `util/geo.js`, the same rows as the game's ⚙️ panel). They are uniforms, so they move the
