@@ -14,6 +14,7 @@ it are listed below.
 | `ios/SimTaxi/GameViewController.swift` | The `WKWebView` and its configuration. Wake lock, pause-on-background, portrait lock, status bar. |
 | `ios/SimTaxi/BundleSchemeHandler.swift` | Serves `web/` over `simtaxi://`. **The load-bearing file** — see below. |
 | `ios/SimTaxi/HapticsBridge.swift` | The `haptics` message handler. Taptic Engine feedback, which the web build has no route to at all. |
+| `ios/SimTaxi/FeedbackBridge.swift` | The `feedback` message handler and the TestFlight check behind Settings' "Send beta feedback" row. See [Beta feedback](#beta-feedback). |
 | `ios/SimTaxi/ComboHaptics.swift` | Core Haptics patterns for the combos (drift, kick, U-turn, overtake, combo cashed in/lost), played through the same handler. |
 | `ios/SimTaxi/Info.plist` | Full-screen, no status bar, portrait only, export compliance. |
 | `ios/SimTaxi/LaunchScreen.storyboard` | One flat fill of black, matching `PALETTE.splashVoid` — the web view, the manifest and the page before the city draws are the same black, so a cold start is one black screen until the startup screen's ROCKET RIDES word appears and stands through the load ([gameplay.md](gameplay.md#the-startup-screen)). iOS caches launch screens per install: a change here may need the app deleted and reinstalled to show. |
@@ -128,6 +129,9 @@ bundle on purpose so it can catch a context-creation failure. More importantly a
 *second bundle*: two artefacts to keep in step and a Netlify deploy that can drift from the one in
 the app. With a runtime flag there is one `dist/`, identical on the web and inside the `.ipa`.
 
+The script also sets `window.__nativeTestFlight`, true only in a TestFlight install
+(`isTestFlight()` in `src/util/platform.js`).
+
 Three places read it:
 
 | Where | Behaviour when native |
@@ -139,6 +143,18 @@ Three places read it:
 
 The debug panel needed no change: it has been opt-in behind `?debug`/`?settings` since the gear
 button started overlapping the streak counter (`src/main.js`).
+
+## Beta feedback
+
+In a TestFlight install, Settings ends with a **Send beta feedback** row. It opens the TestFlight
+app, where Rocket Rides' page has the "Send Beta Feedback" button, and that is as close as a button
+can get: Apple has no public API that raises TestFlight's feedback form from inside an app. The form
+also comes up from a screenshot taken mid-run (the quickest route to a bug report with the bug in
+it) and from a long press on the Home Screen icon.
+
+The install is recognised by its receipt: TestFlight's is named `sandboxReceipt`, the App Store's
+`receipt`, and a build Xcode installs directly has the sandbox path with no file at it, so the row
+stays away there too (`FeedbackBridge.isTestFlight`).
 
 ## What the shell adds
 

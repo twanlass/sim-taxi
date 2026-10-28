@@ -2302,6 +2302,8 @@
       /* The Demo mode row (game/progress.js): hidden until revealed, asleep while ?demo overrules it. */
       :is(#title-screen, #pause-veil) .title-row[hidden] { display: none; }
       :is(#title-screen, #pause-veil) .title-toggle.is-asleep { opacity: 0.4; }
+      :is(#title-screen, #pause-veil) .title-link-arrow { font-size: 20px; opacity: 0.7; }
+      :is(#title-screen, #pause-veil) .title-link:active { opacity: 0.6; }
       :is(#title-screen, #pause-veil) .title-row.is-revealed { animation: demo-reveal 1.2s ease-out; }
       @keyframes demo-reveal { from { color: #F5C130; } }
 
