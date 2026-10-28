@@ -143,7 +143,10 @@ export function paintIntoGame(w, elements) {
         varying vec2 vUv;
         float lum(vec2 p) { return dot(texture2D(frame, p).rgb, vec3(0.2126, 0.7152, 0.0722)); }
         // 1 over the pale sky, 0 over the city's tarmac (about 0.9 and 0.27 in the frame's display
-        // values), from thirteen taps on a golden-angle spiral.
+        // values), from thirteen taps on a golden-angle spiral. A switch rather than a fade: ink is
+        // its own colour over sky and plain white over anything on the island. The first cut eased
+        // across 0.4 to 0.7, and the park, the wet road and the lens rain all land inside that, so
+        // the words over the city came out a mottled grey.
         float groundLight() {
           if (res.x < 2.0) return 1.0;
           vec2 uv = gl_FragCoord.xy / res;
@@ -153,7 +156,7 @@ export function paintIntoGame(w, elements) {
             float a = float(i) * 2.39996;
             l += lum(uv + vec2(cos(a), sin(a)) * r * sqrt((float(i) + 0.5) / 12.0) / res);
           }
-          return smoothstep(0.4, 0.7, l / 13.0);
+          return smoothstep(0.66, 0.7, l / 13.0);
         }
         void main() {
           vec4 c = texture2D(map, vUv);

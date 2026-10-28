@@ -32,11 +32,6 @@
       }
       body:not(.on-phone) #device { visibility: hidden; opacity: 0; }
       body.live #device { transform: none; cursor: auto; box-shadow: 0 0 0 0.3vh #3a4652, 0 4vh 12vh rgba(0, 0, 0, 0.6); }
-      /* The island, so the outline reads as a phone at a glance. */
-      #device::after {
-        content: ''; position: absolute; top: 1.4%; left: 50%; translate: -50% 0;
-        width: 30%; height: 3.6%; border-radius: 999px; background: #05080b; pointer-events: none;
-      }
       /* The screen. Not clickable until it's live, so a tap on the docked phone opens it. */
       #game {
         display: block; width: 100%; height: 100%; border: 0; border-radius: 10% / 4.6%;
@@ -52,8 +47,10 @@
         position: fixed; inset: 0; z-index: 2; pointer-events: none; background: #0a0e14;
         opacity: 0; visibility: hidden; transition: opacity 0.6s ease, visibility 0s 0.6s;
       }
-      #scrim::after { content: ''; position: absolute; inset: 0; background: rgba(10, 14, 20, 0.6); }
-      #surround { display: block; width: 100%; height: 100%; border: 0; pointer-events: none; }
+      /* The wash's opacity and the city's blur, picked by eye with temporary sliders (2026-10-27). */
+      :root { --surround-dim: 0.69; --surround-blur: 2.5px; }
+      #scrim::after { content: ''; position: absolute; inset: 0; background: rgb(10, 14, 20); opacity: var(--surround-dim); }
+      #surround { display: block; width: 100%; height: 100%; border: 0; pointer-events: none; filter: blur(var(--surround-blur)); }
       body.live #scrim { opacity: 1; visibility: visible; transition: opacity 0.6s ease; }
 
       /* The deck: one slide on at a time. Hidden by visibility rather than display, so the phone
@@ -92,23 +89,32 @@
       /* Over the title: the event, after Stripe's parallelogram (stripe.com's footer logo, as served). Under it: the handle. */
       /* Both at 80% so the title carries the slide. As a colour alpha, not `opacity`: `.in-scene`
          sets opacity to hide the HTML, and the painter (scenetext.js) reads the colour. */
-      .title > p.kicker, .title > p.handle {
+      /* The same pair on every slide: the title's own (painted into its game, so the rain bends
+         them) and #chrome's, a fixed copy over every other slide, at the same place and size. */
+      p.kicker, p.handle {
         position: absolute; left: 7vw; display: flex; align-items: center; gap: 12px; margin: 0;
         font-size: clamp(16px, 1.6vw, 26px); font-weight: 600; letter-spacing: 0; color: rgba(26, 26, 26, 0.8);
       }
       /* Capitals set smaller and tracked out, so the line weighs about what the mixed case did. The
          handle wears the same. */
-      .title > p.kicker, .title > p.handle {
+      p.kicker, p.handle {
         font-size: clamp(12px, 1.15vw, 19px); letter-spacing: 0.08em; text-transform: uppercase;
       }
-      .title > p.kicker { top: 6vh; }
+      p.kicker { top: 6vh; }
       /* The parallelogram stands exactly a capital tall: Inter's cap height is 0.727 em. */
-      .title > p.kicker img { height: 0.727em; width: auto; opacity: 0.8; }
-      .title > p.handle { bottom: 5vh; }
-      /* Bigger and heavier than the deck's h1, and inked by what's behind it (scenetext.js,
-         `contrast`): this colour over the sky, fading to white where it runs onto the city. */
+      p.kicker img { height: 0.727em; width: auto; opacity: 0.8; }
+      p.handle { bottom: 5vh; }
+      #chrome { position: fixed; inset: 0; z-index: 5; pointer-events: none; transition: opacity 0.3s ease; }
+      /* Not over the title, which wears its own, nor over the live game, which is the player's, nor
+         on a slide that opts out (`data-chrome="off"`: the workshop, whose panels sit up there). */
+      body.on-title #chrome, body.live #chrome, body.no-chrome #chrome { opacity: 0; }
+      /* Bigger and heavier than the deck's h1, centred down the slide over the city's edge, and inked
+         by what's behind it (scenetext.js, `contrast`): this colour over the sky, plain white where
+         it runs onto the city. (It spent a while up at the top in plain ink, 24px under the kicker
+         and clear of the city; centred carried the slide better.) */
       .title > h1 { font-size: clamp(64px, 7.5vw, 140px); font-weight: 800; --blend: contrast; }
       .title > :not(.bg-game) { position: relative; z-index: 1; }
+      .title > p.kicker, .title > p.handle { position: absolute; }
       .bg-game {
         position: absolute; inset: 0; width: 100%; height: 100%; border: 0;
         pointer-events: none; opacity: 0; transition: opacity 1.2s ease;
@@ -119,82 +125,84 @@
          back off these elements, and the first cut repainted the title in transparent ink. */
       .title.in-scene h1, .title.in-scene .kicker, .title.in-scene .handle { opacity: 0; }
       /* Slide 3: the character select (src/talk/select.js). A white screen like the rest of the deck,
-         the pixel font, sprites scaled up from an 18 × 29 cell with no smoothing, and the sprite
-         animations in steps so it moves like a cartridge rather than a web page. */
+         the pixel font, and sprites drawn into canvases one pixel per cell and scaled up by --u with
+         no smoothing. A fighter takes no room until they arrive (`.in`), so the roster stays centred
+         and slides over to make space as each one pops in. */
       #select {
-        display: grid; place-content: center; justify-items: center; gap: 6vh; padding: 0; overflow: hidden;
+        display: grid; place-content: center; justify-items: center; gap: 5vh; padding: 0; overflow: hidden;
         background: #fff; color: #1a1a1a; cursor: pointer;
         font-family: 'Press Start 2P', monospace; text-transform: uppercase;
+        --u: min(0.42vw, 0.8vh);
       }
-      #select h2 {
-        margin: 0; font-family: inherit; font-weight: 400; line-height: 1.2; letter-spacing: 0.04em;
-        font-size: clamp(18px, 2.6vw, 44px); color: #ff4d4d; text-shadow: 0.15em 0.15em 0 #1a1a1a;
+      /* The roster is the whole group, centred both ways. Its top padding is the 1P tag's room
+         (about 2.5 of its own font size, plus the gap it hangs at), since the tag hangs above the
+         box; START sits out of the flow below, so it doesn't push the group up while hidden. */
+      #select .roster {
+        display: flex; justify-content: center; align-items: start;
+        padding-top: calc(2.5 * clamp(12px, 1.4vw, 24px) + 1.2vh);
       }
-      /* Spaced by margins rather than a gap, so a fighter who leaves can take her share with her. */
-      #select .roster { display: flex; justify-content: center; }
+      /* Spaced by margins rather than a gap, so a fighter who isn't there takes no share. */
       #select .fighter {
-        --w: min(11vw, 23vh);
-        position: relative; display: grid; justify-items: center; gap: 2.2vh;
-        width: var(--w); margin: 0 1.8vw;
+        --w: calc(var(--cw) * var(--u));
+        display: grid; justify-items: center; align-content: start; gap: 2.2vh;
+        width: 0; margin: 0; visibility: hidden;
+        transition: width 0.4s cubic-bezier(0.3, 1.3, 0.5, 1), margin 0.4s cubic-bezier(0.3, 1.3, 0.5, 1);
       }
-      /* The sheet is three frames wide: standing, and the two halves of the ready bounce. */
-      #select .sprite {
-        position: relative; width: var(--w); aspect-ratio: 18 / 29;
-        background: no-repeat 0 0 / 300% 100%; image-rendering: pixelated;
+      #select .fighter.in { width: var(--w); margin: 0 1.6vw; visibility: visible; }
+      /* As tall as the tallest figure (Tyler, 43 cells), feet on its floor, so the names line up. */
+      #select .stage {
+        position: relative; width: var(--w); height: calc(43 * var(--u));
+        display: flex; align-items: flex-end; justify-content: center;
       }
-      /* A shadow on the floor under the feet. */
-      #select .sprite::after {
-        content: ''; position: absolute; left: 12%; right: 12%; bottom: -2%; height: 4%;
+      #select .stage::after {
+        content: ''; position: absolute; left: 18%; right: 18%; bottom: -1.5%; height: 4%;
         border-radius: 50%; background: rgba(0, 0, 0, 0.12); z-index: -1;
       }
-      #select .name { font-size: clamp(10px, 1.05vw, 18px); padding: 0.4em 0.6em; }
-      /* The stat block under the name: age, then a bar of five chunks, filled in the player's
-         colour once they're picked. */
-      #select .stats { display: grid; gap: 0.9em; justify-items: start; font-size: clamp(8px, 0.75vw, 13px); }
-      #select .bar { display: flex; align-items: center; gap: 0.3em; }
-      #select .bar span { margin-right: 0.4em; }
-      #select .bar i { width: 1em; height: 1.2em; box-shadow: inset 0 0 0 2px #1a1a1a; }
-      #select .bar i.on { background: #1a1a1a; }
-      #select .taken .bar i.on { background: var(--p); }
-      /* The tag hangs over the head, with a notch pointing down at it. `--top` is how far down the
-         cell the head starts (the kids are shorter), as a fraction of it. */
+      #select .sprite { width: var(--w); height: calc(var(--ch) * var(--u)); image-rendering: pixelated; }
+      #select .name { font-size: clamp(10px, 1.05vw, 18px); padding: 0.4em 0.6em; white-space: nowrap; }
+      #select .age { font-size: clamp(8px, 0.8vw, 13px); white-space: nowrap; }
+      /* The tag hangs just over the figure's head, with a notch pointing down at it. */
       #select .tag {
-        position: absolute; top: calc(var(--w) * 29 / 18 * var(--top, 0)); left: 50%; translate: -50% -110%;
-        z-index: 1; visibility: hidden; padding: 0.4em 0.55em; font-size: clamp(12px, 1.4vw, 24px);
+        position: absolute; bottom: calc(var(--ch) * var(--u) + 1.2vh); left: 50%; translate: -50% 0;
+        z-index: 1; padding: 0.4em 0.55em; font-size: clamp(12px, 1.4vw, 24px);
         background: var(--p); color: #fff; text-shadow: 0.12em 0.12em 0 #000; box-shadow: 0 0.25em 0 #000;
       }
       #select .tag::after {
         content: ''; position: absolute; top: 100%; left: 50%; translate: -50% 0;
         border: 0.4em solid transparent; border-top-color: var(--p);
       }
-      /* Picked: the tag drops in, the name lights up in the player's colour, and the sprite drops
-         into its ready stance and bounces there. */
-      #select .taken .tag { visibility: visible; animation: sel-drop 0.36s steps(6) both; }
-      #select .taken .sprite { animation: sel-idle 0.5s steps(1) infinite; }
-      #select .taken .name { background: var(--p); color: #fff; text-shadow: 0.12em 0.12em 0 #000; }
+      #select .fighter .name { background: var(--p); color: #fff; text-shadow: 0.12em 0.12em 0 #000; }
+      /* Arriving: the figure pops up out of its own feet, past full size and back, in steps like a
+         cartridge would; the tag drops in on top, then the name and stats. */
+      #select .fighter.in .sprite { transform-origin: 50% 100%; animation: sel-pop 0.42s steps(7) both; }
+      #select .fighter.in .tag { animation: sel-drop 0.36s steps(6) 0.18s both; }
+      #select .fighter.in .name, #select .fighter.in .age { animation: sel-fade 0.3s steps(3) 0.25s both; }
+      @keyframes sel-pop {
+        0% { transform: scale(0, 0); }
+        55% { transform: scale(1.12, 1.18); }
+        80% { transform: scale(0.96, 0.92); }
+        100% { transform: none; }
+      }
       @keyframes sel-drop {
         0% { transform: translateY(-160%) scale(1.8); opacity: 0; }
         70% { transform: translateY(12%) scale(1); opacity: 1; }
         100% { transform: none; opacity: 1; }
       }
-      @keyframes sel-idle {
-        0% { background-position: 50% 0; }
-        50% { background-position: 100% 0; }
-      }
-      /* The one who sits out: grey, back to standing, a hop and then off the bottom of the screen —
-         and once she's gone her slot closes up and the other three slide together. */
-      #select .fighter.dropped {
+      @keyframes sel-fade { from { opacity: 0; } }
+      /* The one who sits out: grey, a hop and then off the bottom of the screen — and once she's gone
+         her slot closes up and the other three slide together. */
+      #select .fighter.in.dropped {
         width: 0; margin: 0;
         transition: width 0.45s ease 0.8s, margin 0.45s ease 0.8s;
       }
-      #select .fighter.dropped > * {
+      /* `.in` as well, to outrank the arrival's own animations on the same children. */
+      #select .fighter.in.dropped > * {
         filter: grayscale(1); animation: sel-fall 0.8s cubic-bezier(0.5, -0.5, 0.9, 0.6) forwards;
       }
-      #select .fighter.dropped .sprite { background-position: 0 0; }
       @keyframes sel-fall { to { transform: translateY(110vh) rotate(20deg); } }
       /* Hidden until the team is settled: shown once she's off and the others have closed up. */
       #select .start {
-        visibility: hidden;
+        position: absolute; left: 50%; bottom: 10vh; translate: -50% 0; visibility: hidden;
         font: inherit; font-size: clamp(14px, 1.8vw, 30px); text-transform: inherit; letter-spacing: 0.1em;
         color: #ff4d4d; background: none; border: 0; padding: 0.8em 1.6em; cursor: pointer;
         animation: sel-blink 0.5s steps(1) infinite;
@@ -236,17 +244,6 @@
         width: 26px; height: 26px; fill: none; stroke: #fff; stroke-width: 2.4;
         stroke-linecap: round; stroke-linejoin: round;
       }
-      /* Each label rides a full-screen layer clipped exactly like its own game, so the divider wipes
-         it away with its side rather than sliding over it. */
-      .compare .side { position: absolute; inset: 0; pointer-events: none; }
-      .compare .side-old { clip-path: inset(0 calc(100% - var(--x)) 0 0); }
-      .compare .side-new { clip-path: inset(0 0 0 var(--x)); }
-      .compare .tag {
-        position: absolute; top: 4vh; padding: 6px 14px; border-radius: 999px; pointer-events: none;
-        background: rgba(18, 26, 34, 0.75); color: #fff; font-size: 14px; font-weight: 600;
-      }
-      .compare .tag-old { left: 4vw; }
-      .compare .tag-new { right: 4vw; }
       /* A demo that takes the whole slide, edge to edge, like the title's backdrop. */
       .bleed { padding: 0; }
       .bleed .demo { position: absolute; inset: 0; display: block; }
@@ -304,31 +301,57 @@
       }
       #snake-game.on { display: block; }
       #snake, #sketch { cursor: pointer; }
+      /* Slide 5's question, until the snake is let loose: then it fades and shrinks away behind it.
+         The clip before that lands on top of it and leaves it be. */
+      #snake h1 { transition: opacity 0.6s ease, scale 0.6s cubic-bezier(0.4, 0, 0.2, 1); }
+      #snake.playing h1 { opacity: 0; scale: 0.6; }
+      /* The clip between the question and the game: a phone recording dropped over the question,
+         tilted like the deck's other prints, with a play button on it until it plays. */
+      #snake .clip {
+        position: absolute; left: 50%; top: 50%; height: 73.6vh; aspect-ratio: 404 / 720;
+        translate: -50% -46%; rotate: 3deg; opacity: 0; pointer-events: none;
+        transition: opacity 0.5s ease, translate 0.6s cubic-bezier(0.2, 0.8, 0.2, 1);
+      }
+      #snake.clipping .clip { opacity: 1; translate: -50% -50%; pointer-events: auto; }
+      #snake .clip video {
+        display: block; width: 100%; height: 100%; object-fit: cover;
+        border-radius: 18px; box-shadow: 0 18px 50px rgba(0, 0, 0, 0.22);
+      }
+      #snake .clip .play {
+        position: absolute; left: 50%; top: 50%; translate: -50% -50%; width: 96px; height: 96px;
+        display: grid; place-items: center; padding: 0; border: 0; border-radius: 50%; cursor: pointer;
+        background: #111; box-shadow: 0 8px 28px rgba(0, 0, 0, 0.3);
+        transition: opacity 0.25s ease, scale 0.15s ease;
+      }
+      #snake .clip .play:hover { scale: 1.06; }
+      /* Optically centred: the triangle's centroid, not its box, sits on the circle's centre (the
+         path starts at x 8.4 so that (2·8.4 + 19.4) / 3 is the viewBox's 12). */
+      #snake .clip .play svg { width: 44px; height: 44px; fill: #fff; }
+      #snake .clip.is-playing .play { opacity: 0; pointer-events: none; }
       /* Slide 2's print has its tilt baked into the file; this one is a straight photo, so it gets
          its tilt here; src/talk/wisp.js copies it onto the canvas that burns it away. */
-      #sketch .photo { max-height: 75vh; rotate: -3deg; }
+      #sketch .photo { max-height: 60vh; rotate: -3deg; }
       #kid .photo { cursor: pointer; max-height: 60vh; }
       /* "Try it out", in two columns: the pitch on the left (app icon, rounded the way the home
-         screen rounds it, over the titles), the QR on the right with the taxi parked on top of it. */
-      #try { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 6vw; padding: 0 10vw; }
+         screen rounds it, over the title), lined up with the header and footer at 7vw; the QR card on
+         the right, at the safe frame's edge (20vw in), with the App Store badge inside it. */
+      #try {
+        display: grid; grid-template-columns: auto auto; justify-content: space-between; align-items: center;
+        gap: 4vw; padding: 0 20vw 0 7vw;
+      }
       #try .app-icon { display: block; width: 96px; height: 96px; border-radius: 22.5%; margin-bottom: 3vh; box-shadow: 0 1vh 2.5vh rgba(0, 0, 0, 0.12); }
       #try h2 { font-size: clamp(22px, 2.4vw, 40px); line-height: 1.3; margin-top: 1.5vh; color: #6b6b6b; }
-      #try .scan { display: flex; flex-direction: column; align-items: center; width: min(40vh, 34vw); }
+      /* The card: the QR (white with its own quiet zone) and the badge under it, on one white card
+         with a faint grey edge so it stands off the white slide. */
+      #try .scan {
+        display: flex; flex-direction: column; align-items: center; width: min(40vh, 26vw);
+        padding-bottom: 3.5vh; background: #fff; border: 1px solid #e3e3e3; border-radius: 12px;
+        box-shadow: 0 2vh 4vh rgba(0, 0, 0, 0.12); overflow: hidden;
+      }
       /* The QR, generated once (npx qrcode) into talk/media so it needs no network. */
-      #try .qr {
-        position: relative; width: 100%; height: auto;
-        image-rendering: pixelated; border-radius: 12px; box-shadow: 0 2vh 4vh rgba(0, 0, 0, 0.12);
-      }
+      #try .qr { display: block; width: 100%; height: auto; image-rendering: pixelated; }
       /* Apple's own badge (developer.apple.com, unmodified), at no less than the 40px it asks for. */
-      #try .store-badge { display: block; height: max(40px, 6vh); width: auto; margin-top: 3vh; }
-      /* The marketing site's hopping taxi (src/workshop/emptytaxi.js). Tap it. Its wheels sit on the
-         QR's top edge; the road under it is masked out before it reaches the code, so it stays
-         scannable. */
-      #try .hero-taxi {
-        position: relative; z-index: 1; width: 100%; height: 22vh; margin-bottom: -6vh;
-        mask-image: linear-gradient(to bottom, #000 62%, transparent 80%);
-        pointer-events: auto;
-      }
+      #try .store-badge { display: block; height: max(40px, 6vh); width: auto; }
       .hero-taxi canvas { display: block; width: 100%; height: 100%; }
       /* The title with the taxi on the same line, to its right. The road under it fades out before
          the canvas's bottom edge. */
@@ -336,9 +359,16 @@
       #thanks h1 { font-size: clamp(96px, 12vw, 200px); }
       #name .title-row { display: flex; align-items: center; justify-content: center; gap: 2vw; }
       #name h1 { font-size: clamp(56px, 7vw, 120px); }
+      /* Wider than its slot by SPILL each side (the negative margins keep the layout), so the dust
+         thrown back off a landing has room to drift out and fade rather than stopping dead at the
+         canvas's edge, which it did a few centimetres past the car. The camera is centred on the
+         car and the height is unchanged, so the car is the same size in the same place. */
       #name .hero-taxi {
-        width: min(36vw, 52vh); height: 30vh;
-        mask-image: linear-gradient(to bottom, #000 75%, transparent 95%);
+        --spill: 14vw;
+        width: calc(min(36vw, 52vh) + 2 * var(--spill)); height: 30vh; margin-inline: calc(-1 * var(--spill));
+        mask-image: linear-gradient(to bottom, #000 75%, transparent 95%),
+          linear-gradient(to right, transparent, #000 18%, #000 82%, transparent);
+        mask-composite: intersect;
       }
 
       /* The game clock: hidden on the title, pops in when the talk starts, red in the last minute,
@@ -367,9 +397,9 @@
       }
       @keyframes clock-pulse { 50% { transform: scale(1.08); } }
 
-      /* The slide. Phone on the left, words on the right. */
+      /* The slide. Words on the left, phone on the right. */
       #slide {
-        display: grid; grid-template-columns: 1fr 1.25fr; align-items: center;
+        display: grid; grid-template-columns: 1.25fr 1fr; align-items: center;
         gap: 6vw; pointer-events: none;
       }
       /* Where the phone docks on the slide: an empty box the phone (#device) is shrunk onto. */
@@ -377,7 +407,8 @@
       #words { transition: opacity 0.4s ease, transform 0.6s cubic-bezier(0.65, 0, 0.35, 1); }
       #words p { font-size: clamp(18px, 2.4vw, 40px); }
 
-      body.live #words { opacity: 0; transform: translateX(6vw); }
+      /* Out to the left as the phone opens, away from it. */
+      body.live #words { opacity: 0; transform: translateX(-6vw); }
 
     </style>
   </head>
@@ -385,6 +416,10 @@
     <div id="scrim"><iframe id="surround" tabindex="-1" aria-hidden="true"></iframe></div>
     <div id="device" role="button" aria-label="Play the game">
       <iframe id="game" title="Rocket Rides" allow="autoplay; fullscreen"></iframe>
+    </div>
+    <div id="chrome" aria-hidden="true">
+      <p class="kicker"><img src="./media/stripe-mark.svg" alt="" /><span>Design Onsite ’26</span></p>
+      <p class="handle">@tdub ✌️</p>
     </div>
     <nav id="toc" aria-label="Slides"></nav>
     <div id="clock" aria-live="off"><i>⏱</i><b>9:00</b></div>
@@ -400,13 +435,19 @@
       <img class="photo" src="./media/tyler-kid.png" alt="Young Tyler at a CRT, making games" />
     </section>
     <!-- 3: the character select, built by src/talk/select.js -->
-    <section class="slide" id="select" data-name="Choose your player"></section>
+    <section class="slide" id="select" data-name="The family"></section>
     <!-- 4: the sketchbook photo; its doodles come alive and walk off, and it blows away -->
     <section class="slide center" id="sketch" data-name="Sketchbook">
       <img class="photo" src="./media/sketchbook.jpg" alt="A kid's sketchbook with its doodles cut out and standing up around it" />
     </section>
     <!-- 5: a game of snake built up a click at a time (src/talk/snake.js) -->
-    <section class="slide center" id="snake" data-name="Snake"></section>
+    <section class="slide center" id="snake" data-name="Snake">
+      <h1>Let’s build snake?</h1>
+      <div class="clip">
+        <video src="./media/cursor-snake.mp4" playsinline preload="auto"></video>
+        <button class="play" type="button" aria-label="Play"><svg viewBox="0 0 24 24"><path d="M8.4 5.5v13l11-6.5z" /></svg></button>
+      </div>
+    </section>
     <!-- 6: the title again, with the taxi making its entrance beside it -->
     <section class="slide center" id="name" data-name="Rocket Rides">
       <div class="title-row">
@@ -419,30 +460,26 @@
       <iframe class="bg-game" data-src="/?splash=classic&titleintro=classic" data-zoom="52" data-shift="0" data-shift-y="0" data-squall="50" tabindex="-1" aria-hidden="true"></iframe>
       <iframe class="cmp-old" data-src="/talk/first/index.html" tabindex="-1" aria-hidden="true"></iframe>
       <div class="wipe"><span><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9.5 6 4 12l5.5 6M14.5 6 20 12l-5.5 6" /></svg></span></div>
-      <div class="side side-old"><span class="tag tag-old">First commit</span></div>
-      <div class="side side-new"><span class="tag tag-new">Today</span></div>
     </section>
     <!-- 8 -->
-    <section class="slide bleed" data-name="The workshop">
-      <div class="demo"><iframe data-src="/workshop/" title="The model workshop"></iframe></div>
+    <section class="slide bleed" data-name="The workshop" data-chrome="off">
+      <div class="demo"><iframe data-src="/workshop/" data-keep title="The model workshop"></iframe></div>
     </section>
     <!-- 9: the phone that opens into the live game -->
     <section class="slide" id="slide" data-name="Live demo">
-      <div id="phone-slot"></div>
       <div id="words">
         <h1>Rocket Rides</h1>
         <p>Live demo 🤞</p>
       </div>
+      <div id="phone-slot"></div>
     </section>
     <!-- 10 -->
     <section class="slide" id="try" data-name="Try it out">
       <div class="pitch">
         <img class="app-icon" src="/apple-touch-icon-512.png" alt="Rocket Rides app icon" />
-        <h1>Try it out</h1>
-        <h2>Play it + share feedback</h2>
+        <h1>Try it out?</h1>
       </div>
       <div class="scan">
-        <div class="hero-taxi"></div>
         <img class="qr" src="./media/testflight-qr.svg" alt="QR code for testflight.apple.com/join/ZMskw8Gu" />
         <img class="store-badge" src="./media/app-store-badge.svg" alt="Download on the App Store" />
       </div>

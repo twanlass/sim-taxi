@@ -8708,7 +8708,7 @@ function rideToPickup() {
 
 // --- Wing mirrors ------------------------------------------------------------
 // geometry/mirrors.js. They have to stand clear of the flank by enough to read at play zoom, sit
-// above the body's top rather than on it, and come off the taxi on a flank hit and only a flank hit:
+// on the taxi's door under the shoulder (`doorMirrorParts`) rather than up at the glass, and come off the taxi on a flank hit and only a flank hit:
 // a nose-corner clip or a rear-ending leaves both on, and a reset puts back what a hit took.
 {
   const mScene = new THREE.Scene();
@@ -8717,9 +8717,9 @@ function rideToPickup() {
   const mirrors = mTraffic.taxiDamage.mirrors;
   const box = new THREE.Box3();
   const extents = [...mirrors.values()].map((m) => box.setFromBufferAttribute(m.geometry.attributes.position).clone());
-  check('the taxi has a wing mirror each side, clear of the flank and up off the body',
+  check('the taxi has a wing mirror each side, clear of the flank and on the door under the shoulder',
     mirrors.size === 2 && extents.every((b) => Math.max(Math.abs(b.min.z), Math.abs(b.max.z)) > CAR_W / 2 + 0.2
-      && b.min.y > TAXI_DECK_Y / TAXI_SCALE_TOP),
+      && b.max.y < TAXI_DECK_Y / TAXI_SCALE_TOP),
     extents.map((b) => `z ${b.min.z.toFixed(2)}..${b.max.z.toFixed(2)} y ${b.min.y.toFixed(2)}`).join(' · '));
   const fleet = carGeometry();
   fleet.computeBoundingBox();

@@ -1,7 +1,7 @@
 // Slide 4's first beat: three of the cut-out doodles in the sketchbook photo come alive as SNES-style
 // pixel sprites. One after another, each is scanned in over its doodle — a bright band sweeping
 // up its silhouette from the feet, leaving the sprite behind it — and comes to life: eyes open, a
-// stretch, then a hop down to the bottom of the screen, where they stand idling, breathing and
+// stretch, then a hop onto a line a little over halfway down the screen, where they stand idling, breathing and
 // blinking, their eyes following the cursor, until the presenter's next press (`leave`) walks them
 // off to the left. (Two earlier entrances were cut: lifting a cut-out of the photo off
 // the page and pixelating it, and tracing an ink outline round it and filling it in.)
@@ -12,6 +12,10 @@
 // highlight along the ones toward it — and ringed in a ballpoint-navy outline. The grids say what
 // colour each part is; the outline and shading are worked out from them.
 
+import {
+  grid, ellipse, circle, poly, line, taper, shade, inked, eyeCells, drawEyes, gridCanvas,
+} from './pixels.js';
+
 // The outline, the blue of the biro the doodles were drawn in, and the colours the grids use.
 const INK = '#1b2266';
 const COLOURS = {
@@ -19,64 +23,6 @@ const COLOURS = {
   T: '#2fb8a6', t: '#1f7f86', l: '#7fe0cf', G: '#ffd23f', P: '#9b6bd6', p: '#6e45a8', q: '#c3a0f0',
   N: '#ff7eb6',
 };
-
-// --- Rasterising -------------------------------------------------------------------------------
-// Each shape paints `c` into every cell whose centre it covers.
-
-const grid = (w, h) => Array.from({ length: h }, () => Array(w).fill('.'));
-const each = (g, fn) => g.forEach((row, y) => row.forEach((_, x) => fn(x + 0.5, y + 0.5, x, y)));
-const ellipse = (g, cx, cy, rx, ry, c) => each(g, (px, py, x, y) => {
-  if (((px - cx) / rx) ** 2 + ((py - cy) / ry) ** 2 <= 1) g[y][x] = c;
-});
-const circle = (g, cx, cy, r, c) => ellipse(g, cx, cy, r, r, c);
-function poly(g, pts, c) {
-  each(g, (px, py, x, y) => {
-    let inside = false;
-    pts.forEach(([x1, y1], i) => {
-      const [x2, y2] = pts[(i + 1) % pts.length];
-      if ((y1 > py) !== (y2 > py) && px < x1 + ((py - y1) * (x2 - x1)) / (y2 - y1)) inside = !inside;
-    });
-    if (inside) g[y][x] = c;
-  });
-}
-function line(g, x1, y1, x2, y2, w, c) {
-  const dx = x2 - x1;
-  const dy = y2 - y1;
-  const len = dx * dx + dy * dy || 1;
-  each(g, (px, py, x, y) => {
-    const t = Math.max(0, Math.min(1, ((px - x1) * dx + (py - y1) * dy) / len));
-    if ((px - x1 - t * dx) ** 2 + (py - y1 - t * dy) ** 2 <= (w / 2) ** 2) g[y][x] = c;
-  });
-}
-/** A polyline whose width tapers from `w0` to `w1` along it: a tentacle. */
-function taper(g, pts, w0, w1, c) {
-  for (let i = 0; i < pts.length - 1; i++) line(g, ...pts[i], ...pts[i + 1], w0 + ((w1 - w0) * i) / (pts.length - 1), c);
-}
-/**
- * Light from the top left: cells of `base` within `depth` of the region's bottom-right edge go
- * `dark`, those on its top-left edge `light`. Run before anything is drawn over the region, so a
- * pupil or a nose doesn't count as an edge.
- */
-function shade(g, base, dark, light, depth = 2) {
-  const src = g.map((row) => [...row]);
-  const is = (x, y) => src[y]?.[x] === base;
-  each(g, (_, __, x, y) => {
-    if (!is(x, y)) return;
-    let edge = !is(x + depth, y);
-    for (let k = 1; k <= depth; k++) edge ||= !is(x + k, y + k);
-    if (edge) g[y][x] = dark;
-    else if (light && !is(x - 1, y - 1)) g[y][x] = light;
-  });
-}
-/** Fill a shape in `c` with a one-cell rim of ink inside its own edge: the cat's nose. */
-function inked(g, shape, c) {
-  const m = grid(g[0].length, g.length);
-  shape(m);
-  const on = (x, y) => m[y]?.[x] === '#';
-  each(g, (_, __, x, y) => {
-    if (on(x, y)) g[y][x] = on(x + 1, y) && on(x - 1, y) && on(x, y + 1) && on(x, y - 1) ? c : 'K';
-  });
-}
 
 // --- The creatures -----------------------------------------------------------------------------
 
@@ -165,75 +111,6 @@ const CREATURES = [
   },
 ];
 
-/** The cells of each eye, found once on the open grid: a flood from the seed, or the box's cells. */
-function eyeCells(g, e) {
-  if (e.box) {
-    const [x0, y0, w, h] = e.box;
-    const cells = [];
-    for (let y = y0; y < y0 + h; y++) for (let x = x0; x < x0 + w; x++) cells.push([x, y]);
-    return cells;
-  }
-  const seen = new Set();
-  const cells = [];
-  const todo = [e.seed];
-  while (todo.length) {
-    const [x, y] = todo.pop();
-    const k = `${x},${y}`;
-    if (seen.has(k) || g[y]?.[x] !== e.white) continue;
-    seen.add(k);
-    cells.push([x, y]);
-    todo.push([x + 1, y], [x - 1, y], [x, y + 1], [x, y - 1]);
-  }
-  return cells;
-}
-
-/**
- * Draw the eyes into grid `g`: pupils looking `look` — [x, y], each −1 to 1, left/up to right/down,
- * or just x — or shut.
- */
-function drawEyes(g, eyes, look, shut) {
-  const [lx, ly] = Array.isArray(look) ? look : [look, 0];
-  for (const { e, cells } of eyes) {
-    const xs = cells.map(([x]) => x);
-    const ys = cells.map(([, y]) => y);
-    const [x0, x1, y0, y1] = [Math.min(...xs), Math.max(...xs), Math.min(...ys), Math.max(...ys)];
-    const mid = Math.round((y0 + y1) / 2);
-    if (shut) {
-      for (const [x, y] of cells) g[y][x] = y === mid ? 'K' : e.lid;
-      continue;
-    }
-    // Kept a cell in from the eye's edge where there's room: a pupil on the rim of an eyeball
-    // touches the outline, which is the same ink, and the eye reads as a hole.
-    const slide = (lo, hi, size, k) => {
-      const margin = hi - lo + 1 - size >= 4 ? 1 : 0;
-      return Math.round(lo + margin + ((hi - lo + 1 - size - 2 * margin) * (k + 1)) / 2);
-    };
-    const px = slide(x0, x1, e.pw, lx);
-    const py = slide(y0, y1, e.ph, ly);
-    for (let y = py; y < py + e.ph; y++) for (let x = px; x < px + e.pw; x++) g[y][x] = e.pupil;
-  }
-}
-
-/** A grid drawn to its own canvas, one canvas pixel per cell, outlined; scaled up when drawn. */
-function gridCanvas(g) {
-  const h = g.length;
-  const w = g[0].length;
-  const c = document.createElement('canvas');
-  c.width = w + 2;
-  c.height = h + 2;
-  const ctx = c.getContext('2d');
-  const filled = (x, y) => g[y]?.[x] !== undefined && g[y][x] !== '.';
-  for (let y = -1; y <= h; y++) {
-    for (let x = -1; x <= w; x++) {
-      if (filled(x, y)) ctx.fillStyle = COLOURS[g[y][x]];
-      else if (filled(x - 1, y) || filled(x + 1, y) || filled(x, y - 1) || filled(x, y + 1)) ctx.fillStyle = INK;
-      else continue;
-      ctx.fillRect(x + 1, y + 1, 1, 1);
-    }
-  }
-  return c;
-}
-
 // --- The beat ----------------------------------------------------------------------------------
 
 // In ms, px and px/s. Each creature comes ENTRY_GAP_MS after the last. It is scanned in from the
@@ -243,7 +120,9 @@ function gridCanvas(g) {
 // to finish the scan standing on the drawing, stretch awake and pause before the jump, which left
 // time to see that the pixel silhouette doesn't trace the ink exactly.) Then it
 // squashes on landing for LAND_MS, stands about until `leave`, and walks off at WALK_SPEED, a step
-// every STRIDE_MS. FLOOR is how far above the bottom of the window they stand.
+// every STRIDE_MS. FLOOR_AT is where their feet land, as a fraction of the window's height: up in
+// the frame rather than at its foot (28px off the bottom at first), which a room can't see past the
+// heads in front. A doodle below that line hops up to it, launching harder than HOP_UP if it has to.
 const ENTRY_GAP_MS = 750;
 const SCAN_MS = 650;
 const SCAN_BAND = 0.3;
@@ -254,7 +133,7 @@ const HOP_DRIFT = 160;
 const LAND_MS = 140;
 const WALK_SPEED = 230;
 const STRIDE_MS = 150;
-const FLOOR = 28;
+const FLOOR_AT = 0.6;
 // Standing about: a breath every BREATH_MS, BREATH deep, and eyes on the cursor, turned all the way
 // once it is LOOK_REACH px off to a side (or above or below). Each creature blinks every
 // BLINK_EVERY_MS or so for BLINK_MS, on its own clock.
@@ -278,7 +157,7 @@ function makeSprite(c) {
     if (!cache.has(key)) {
       const gr = open[f].map((row) => [...row]);
       drawEyes(gr, eyes, look, shut);
-      cache.set(key, gridCanvas(gr));
+      cache.set(key, gridCanvas(gr, COLOURS, INK));
     }
     return cache.get(key);
   };
@@ -375,11 +254,13 @@ export function escapeCreatures(img) {
     const h = first.height * px;
     const [x, y] = toScreen([(bx0 + bx1) / 2, (by0 + by1) / 2]);
     // Where it lands: feet on the floor, and how long the hop takes to get there.
-    const floorY = H - FLOOR - h / 2;
+    const floorY = H * FLOOR_AT - h / 2;
     const drop = floorY - y;
-    const hopMs = 1000 * (HOP_UP + Math.sqrt(HOP_UP * HOP_UP + 2 * GRAVITY * drop)) / GRAVITY;
+    // Fast enough to peak a fifth over a landing above it, so it comes down onto the line.
+    const up = Math.max(HOP_UP, 1.1 * Math.sqrt(2 * GRAVITY * Math.max(0, -drop)));
+    const hopMs = 1000 * (up + Math.sqrt(up * up + 2 * GRAVITY * drop)) / GRAVITY;
     return {
-      frame, asleep, glow, px, x, y, w, h, floorY, hopMs,
+      frame, asleep, glow, px, x, y, w, h, floorY, hopMs, up,
       born: t0 + i * ENTRY_GAP_MS, blinkPhase: Math.random() * BLINK_EVERY_MS,
     };
   });
@@ -417,7 +298,7 @@ export function escapeCreatures(img) {
     if (e < s.hopMs) {
       const t = e / 1000;
       // Stretched in the air, eyes wide — once the scan has finished drawing it.
-      return at({ x: s.x - HOP_DRIFT * t, y: s.y - HOP_UP * t + 0.5 * GRAVITY * t * t, sx: 0.92, sy: 1.1, f: 1, shut: false, scan });
+      return at({ x: s.x - HOP_DRIFT * t, y: s.y - s.up * t + 0.5 * GRAVITY * t * t, sx: 0.92, sy: 1.1, f: 1, shut: false, scan });
     }
     e -= s.hopMs;
     const landX = s.x - HOP_DRIFT * s.hopMs / 1000;

@@ -2,7 +2,8 @@
 // crown where each one strikes and a few droplets thrown up and out that fall back and fade —
 // while the ones that find a gap between letters carry on down to the next line, or out under the
 // heading and away. The squall in the backdrop game is the weather; this is the part of it that
-// lands on the type.
+// lands on the type — so it only rains on a stretch of the heading while the squall is over it
+// (`wetAt`, asked per column and eased so a passing front doesn't flick the rain on and off).
 //
 // The words are painted into the game's frame rather than shown as HTML (scenetext.js), so there is
 // nothing in this page to collide with. Instead the heading is painted again, by the same code
@@ -28,6 +29,11 @@ const SPRAY_MS = 520;
 const CROWN_R = 13;
 const CROWN_MS = 240;
 const FALL_OUT = 60;
+// The heading is asked how wet it is at WET_SAMPLES columns, every WET_EVERY ms, and each column
+// eases toward its answer over about WET_EASE s.
+const WET_SAMPLES = 16;
+const WET_EVERY = 100;
+const WET_EASE = 0.6;
 // Water is a light core over a thin dark rim, so it reads on both halves of the heading: the sky,
 // where the ink is dark and pale water alone vanished, and the city, where the ink turns white.
 const WATER = '232, 242, 255';
@@ -55,8 +61,11 @@ function inkTops(el) {
   return { x0, x1, top: r.top, bottom: r.bottom, at: (x) => tops[Math.floor(x) - x0] ?? Infinity };
 }
 
-/** Rain on `heading`, drawn over `host` (its slide). Returns `{ stop }`. */
-export function rainOn(heading, host) {
+/**
+ * Rain on `heading`, drawn over `host` (its slide). `wetAt(x, y)` says how hard it is raining at a
+ * point on screen, 0..1; without one it rains everywhere. Returns `{ stop }`.
+ */
+export function rainOn(heading, host, wetAt = () => 1) {
   const canvas = document.createElement('canvas');
   Object.assign(canvas.style, { position: 'absolute', inset: 0, width: '100%', height: '100%', pointerEvents: 'none', zIndex: 2 });
   host.appendChild(canvas);
@@ -75,6 +84,11 @@ export function rainOn(heading, host) {
   const drops = [];   // { x, y, v }
   const spray = [];   // { x, y, vx, vy, r, t0 }
   const crowns = [];  // { x, y, t0 }
+  const wet = new Float32Array(WET_SAMPLES);
+  const wetGoal = new Float32Array(WET_SAMPLES);
+  let wetAsked = -Infinity;
+  const wetColumn = (x) => wet[Math.min(WET_SAMPLES - 1, Math.max(0,
+    Math.floor(((x - ink.x0) / (ink.x1 - ink.x0)) * WET_SAMPLES)))];
   let owed = 0;
   let last = performance.now();
   let raf = 0;
@@ -83,11 +97,24 @@ export function rainOn(heading, host) {
     raf = requestAnimationFrame(step);
     const dt = Math.min(0.05, (now - last) / 1000);
     last = now;
-    // New drops, from just above the heading so they're falling at full speed by the time they reach it.
+    // How wet each stretch of the heading is, asked at its middle height.
+    if (now - wetAsked > WET_EVERY) {
+      wetAsked = now;
+      const y = (ink.top + ink.bottom) / 2;
+      for (let k = 0; k < WET_SAMPLES; k++) {
+        wetGoal[k] = wetAt(ink.x0 + ((k + 0.5) / WET_SAMPLES) * (ink.x1 - ink.x0), y);
+      }
+    }
+    const ease = Math.min(1, dt / WET_EASE);
+    for (let k = 0; k < WET_SAMPLES; k++) wet[k] += (wetGoal[k] - wet[k]) * ease;
+    // New drops, from just above the heading so they're falling at full speed by the time they
+    // reach it — as many as a soaked heading gets, each kept as often as its column is wet.
     owed += DROPS_PER_S * dt;
     for (; owed >= 1; owed--) {
+      const x = ink.x0 + Math.random() * (ink.x1 - ink.x0);
+      if (Math.random() >= wetColumn(x)) continue;
       const v = DROP_V * (0.8 + Math.random() * 0.4);
-      drops.push({ x: ink.x0 + Math.random() * (ink.x1 - ink.x0), y: ink.top - 80 - Math.random() * 120, v });
+      drops.push({ x, y: ink.top - 80 - Math.random() * 120, v });
     }
     for (let i = drops.length - 1; i >= 0; i--) {
       const d = drops[i];

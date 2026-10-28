@@ -1,5 +1,5 @@
 // The then-and-now slide's first commit, drawn flat: every lit material in that build's scene swapped for an unlit
-// one in the same colour, so there is no shading and no shadow — not how the first build looked, but
+// one in the same colour, on a white page, so there is no shading and no shadow — not how the first build looked, but
 // simpler than it, which is the point of the slide. The build is a prebuilt bundle
 // (public/talk/first/) and can't be edited, but it publishes `window.__taxi`, which leads to its
 // scene. The replacements are made with this page's three, not the build's (it doesn't publish
@@ -50,10 +50,16 @@ export function flattenScene(w) {
   };
   const pass = () => scene.traverse((o) => {
     if (!o.isMesh) return;
+    // Its sky is a 1800-unit mesh, not the background, and drew beige behind the city.
+    if (o.name === 'sky') { o.visible = false; return; }
     o.castShadow = false;
     o.receiveShadow = false;
     o.material = Array.isArray(o.material) ? o.material.map(unlit) : unlit(o.material);
   });
+  // On white, like the rest of the deck, rather than the build's own sky; its fog fades the
+  // island's edge into the same white.
+  scene.background = new THREE.Color(0xffffff);
+  scene.fog?.color.set(0xffffff);
   pass();
   w.setInterval(pass, 500);
   return true;

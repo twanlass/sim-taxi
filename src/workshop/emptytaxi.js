@@ -68,7 +68,10 @@ const CRASH_SETTLE = 0.45;
 // below the road at ENTRY_V, clipped at the road so it rises out of the hole rather than through
 // the tarmac round it. ENTRY_V takes it ENTRY_V² / 2g − ENTRY_DEPTH = 2.1 units clear of the road,
 // under the talk's 3.2 ceiling. The hole closes over HOLE_CLOSE once the car has cleared it, and
-// the landing is an ordinary hop's. HOLE_R × HOLE_STRETCH is sized off the drawn taxi (4.0 long,
+// the landing is an ordinary hop's. The road itself isn't there until the car is: it is clear while
+// it waits and while the hole opens on bare page, and fades in over the car's flight, solid by the
+// time the wheels touch (`roadIn`) — an empty patch of road beside the title read as a stray
+// shadow. HOLE_R × HOLE_STRETCH is sized off the drawn taxi (4.0 long,
 // 2.2 wide at TAXI_SCALE), with room round it.
 const HOLE_OPEN = 0.5;
 const HOLE_CLOSE = 0.3;
@@ -308,6 +311,12 @@ export function mount(host, options = {}) {
   // knife edge of the test.
   const ground = new THREE.Plane(new THREE.Vector3(0, 1, 0), entry ? 0.05 : 1e3);
   renderer.clippingPlanes = [ground];
+  // The road's fade-in, over the time the launch takes to come back down to y = 0 from ENTRY_DEPTH
+  // below it: −d + v·t − g·t²/2 = 0, the later root.
+  const FLIGHT = (ENTRY_V + Math.sqrt(ENTRY_V * ENTRY_V - 2 * HOP_G * ENTRY_DEPTH)) / HOP_G;
+  let flown = 0;
+  const roadIn = (k) => { roadMaterial.opacity = k; dashMaterial.opacity = k; };
+  if (entry) roadIn(0);
   const enter = () => {
     if (entering !== 'waiting') return;
     entering = 'opening';
@@ -358,7 +367,12 @@ export function mount(host, options = {}) {
         entering = 'rising';
         Object.assign(hop, { air: true, y: -ENTRY_DEPTH, vy: ENTRY_V });
       }
-    } else if (entering === 'rising' && !holeClosing && hop.y > 0.6) {
+    }
+    if (entering === 'rising') {
+      flown += dt;
+      roadIn(Math.min(1, flown / FLIGHT) ** 2);
+    }
+    if (entering === 'rising' && !holeClosing && hop.y > 0.6) {
       holeClosing = true;
       holeAt = 0;
     } else if (holeClosing) {
@@ -384,6 +398,7 @@ export function mount(host, options = {}) {
         land(wave.lateral);
         if (entering === 'rising') {
           entering = null;
+          roadIn(1);
           ground.constant = 1e3;
         }
       }
