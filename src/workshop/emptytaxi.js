@@ -20,8 +20,8 @@
 import * as THREE from 'three';
 import { createTaxiMesh } from '../geometry/taxi.js';
 import { SPEED, boostCruise, locoWeave } from '../sim/traffic.js';
-import { BODY_EULER_ORDER, bakeColor, propMaterial } from '../util/geo.js';
-import { ROAD_W, LANE } from '../city/grid.js';
+import { BODY_EULER_ORDER, bakeColor, propMaterial, unlitMaterial } from '../util/geo.js';
+import { LANE } from '../city/grid.js';
 import { PALETTE } from '../palette.js';
 import { renderBudget, createRenderPath } from '../game/renderpath.js';
 import { createLocoFlame } from '../game/locoflame.js';
@@ -32,8 +32,8 @@ import { makeRng } from '../util/rng.js';
 const hot = import.meta.hot;
 let current = null;
 
-// The strip of road: long enough to run past both ends of the car with room to fade, a real
-// street's width across. The dashes match `markRoad`'s (the bridge deck copies them the same way,
+// The strip of road: long enough to run past both ends of the car with room to fade, and wide
+// enough across for the fade's whole disc (PATCH_W, below). The dashes match `markRoad`'s (the bridge deck copies them the same way,
 // geometry/bridge.js), so it is the game's own centre line going by.
 const ROAD_LEN = 26;
 const DASH = 1.6;
@@ -63,6 +63,23 @@ const CRASH_TIP = -0.5; // radians of nose-down pitch on the way down
 const CRASH_DIP = 0.32;
 const CRASH_SETTLE = 0.45;
 
+// The entrance (`entry`): the road waits empty, `enter()` opens a hole in it over HOLE_OPEN seconds
+// (from nothing, overshooting a little), and the taxi is launched up through it from ENTRY_DEPTH
+// below the road at ENTRY_V, clipped at the road so it rises out of the hole rather than through
+// the tarmac round it. ENTRY_V takes it ENTRY_V² / 2g − ENTRY_DEPTH = 2.1 units clear of the road,
+// under the talk's 3.2 ceiling. The hole closes over HOLE_CLOSE once the car has cleared it, and
+// the landing is an ordinary hop's. The road itself isn't there until the car is: it is clear while
+// it waits and while the hole opens on bare page, and fades in over the car's flight, solid by the
+// time the wheels touch (`roadIn`) — an empty patch of road beside the title read as a stray
+// shadow. HOLE_R × HOLE_STRETCH is sized off the drawn taxi (4.0 long,
+// 2.2 wide at TAXI_SCALE), with room round it.
+const HOLE_OPEN = 0.5;
+const HOLE_CLOSE = 0.3;
+const HOLE_R = 1.5;
+const HOLE_STRETCH = 1.75;
+const ENTRY_DEPTH = 2.4;
+const ENTRY_V = 18.8;
+
 // The strip's fade, as an alphaMap: a disc of solid road round the car that falls off to nothing,
 // so it is a patch of road under the taxi rather than a bar across the panel. The bar read as a
 // band with hard ends at the panel's edges. An alphaMap rather than a colour ramp because the panel
@@ -70,15 +87,34 @@ const CRASH_SETTLE = 0.45;
 const FADE_PX = 10; // canvas pixels per world unit, so the circle stays round on the strip
 const FADE_SOLID = 2.6; // world units of fully opaque road round the car
 const FADE_OUT = 6; // ... and where it has faded to nothing
+// The strip is wider than a street so the disc, centred on the car's lane rather than the road's
+// middle, fits inside it on both sides. At a street's width (ROAD_W) the near edge was HALF_ROAD - LANE = 2 units from
+// the car, inside FADE_SOLID, so the patch stopped there in a hard line wherever the camera could see
+// its near side (the talk's and the marketing site's closer framing).
+const PATCH_W = 2 * (LANE + FADE_OUT);
+/** The hole's edge: solid to most of the radius, then a short soft falloff, so it isn't a cut disc. */
+function holeTexture() {
+  const canvas = document.createElement('canvas');
+  canvas.width = canvas.height = 64;
+  const g = canvas.getContext('2d');
+  const disc = g.createRadialGradient(32, 32, 0, 32, 32, 32);
+  disc.addColorStop(0, '#fff');
+  disc.addColorStop(0.8, '#fff');
+  disc.addColorStop(1, '#000');
+  g.fillStyle = disc;
+  g.fillRect(0, 0, 64, 64);
+  return new THREE.CanvasTexture(canvas);
+}
+
 function fadeTexture() {
   const canvas = document.createElement('canvas');
   canvas.width = ROAD_LEN * FADE_PX;
-  canvas.height = ROAD_W * FADE_PX;
+  canvas.height = PATCH_W * FADE_PX;
   const g = canvas.getContext('2d');
   // Centred on the car's lane, LANE to +Z of the road's middle. The texture is flipped on upload,
   // so +Z (v near 1) is the top of the canvas.
   const cx = canvas.width / 2;
-  const cy = (0.5 - LANE / ROAD_W) * canvas.height;
+  const cy = (0.5 - LANE / PATCH_W) * canvas.height;
   const disc = g.createRadialGradient(cx, cy, 0, cx, cy, FADE_OUT * FADE_PX);
   disc.addColorStop(0, '#fff');
   disc.addColorStop(FADE_SOLID / FADE_OUT, '#fff');
@@ -88,9 +124,20 @@ function fadeTexture() {
   return new THREE.CanvasTexture(canvas);
 }
 
-/** Draws the taxi into `host` until the host leaves the page or the module is replaced. */
-export function mount(host) {
-  if (current?.host === host) return;
+/**
+ * Draws the taxi into `host` until the host leaves the page or the module is replaced. Returns
+ * `{ enter }`: with `entry: true` the road starts empty and still, and `enter()` brings the taxi up
+ * through a hole in it (the talk's "Rocket Rides" slide); otherwise the taxi is there from the
+ * start and `enter` does nothing. The other options pull the camera in for a host that wants the car bigger than the workshop's empty panel does —
+ * the talk's "Try it out" slide, and the marketing site, which bundles this module: `back` is the
+ * camera's standoff (as a multiple of the original 13 units), `aimY` the height it looks at, and
+ * `ceil` the hop's ceiling, which has to come down with the camera or a stalled taxi climbs out of
+ * the top of the frame.
+ */
+export function mount(host, options = {}) {
+  const { back = 4.7, aimY = 1.0, ceil = HOP_CEIL, entry = false } = options;
+  // An entrance always starts over, so a host shown again waits for its cue again.
+  if (current?.host === host && !entry) return current.api;
   current?.dispose();
 
   const budget = renderBudget();
@@ -133,13 +180,13 @@ export function mount(host) {
   roadMaterial.alphaMap = fade;
   roadMaterial.transparent = true;
   roadMaterial.depthWrite = false;
-  const roadGeometry = bakeColor(new THREE.PlaneGeometry(ROAD_LEN, ROAD_W).rotateX(-Math.PI / 2), PALETTE.asphalt);
+  const roadGeometry = bakeColor(new THREE.PlaneGeometry(ROAD_LEN, PATCH_W).rotateX(-Math.PI / 2), PALETTE.asphalt);
   {
     const pos = roadGeometry.attributes.position;
     const uv = new Float32Array(pos.count * 2);
     for (let k = 0; k < pos.count; k++) {
       uv[k * 2] = pos.getX(k) / ROAD_LEN + 0.5;
-      uv[k * 2 + 1] = pos.getZ(k) / ROAD_W + 0.5;
+      uv[k * 2 + 1] = pos.getZ(k) / PATCH_W + 0.5;
     }
     roadGeometry.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
   }
@@ -182,8 +229,8 @@ export function mount(host) {
   const layDashes = (driven) => {
     const slide = driven % PERIOD;
     const w = DASH_W / 2;
-    const vz0 = 0.5 - w / ROAD_W;
-    const vz1 = 0.5 + w / ROAD_W;
+    const vz0 = 0.5 - w / PATCH_W;
+    const vz1 = 0.5 + w / PATCH_W;
     for (let k = 0; k < dashCount; k++) {
       const x0 = -ROAD_LEN / 2 + k * PERIOD - slide;
       const x1 = x0 + DASH;
@@ -205,14 +252,13 @@ export function mount(host) {
   const flame = createLocoFlame(scene);
   const car = { x: 0, z: 0, yaw: 0, crashed: false, shownLift: 0 };
 
-  // Side on, the car's nose (+X) to the right, stood well back (×4.7 the old 13-unit standoff) so
+  // Side on, the car's nose (+X) to the right, stood well back (by default ×4.7 the old 13-unit standoff) so
   // the car is a small mark in the empty panel, about a fifth of its width. Looking down about 22°
   // rather than the 7° it started at: at 7° the 8-unit road foreshortened to a sliver a unit tall
   // and the dashes going by could not be told from a line.
-  const BACK = 4.7;
   const camera = new THREE.PerspectiveCamera(28, 1, 0.1, 200);
-  camera.position.set(0, 1.0 + 5.2 * BACK, 13 * BACK);
-  camera.lookAt(0, 1.0, 0);
+  camera.position.set(0, aimY + 5.2 * back, 13 * back);
+  camera.lookAt(0, aimY, 0);
 
   const resize = () => {
     const w = host.clientWidth || 1;
@@ -246,8 +292,39 @@ export function mount(host) {
     raycaster.setFromCamera(pointer, camera);
     return raycaster.intersectObject(taxi, true).length > 0;
   };
+  // The entrance's state: 'waiting' (no car, road still), 'opening' (the hole growing), 'rising' (the
+  // car on its way up and back down, clipped at the road), then null for good.
+  let entering = entry ? 'waiting' : null;
+  let holeAt = 0; // seconds into the hole's opening, then its closing
+  let holeClosing = false;
+  const holeAlpha = holeTexture();
+  const holeMaterial = unlitMaterial({ color: PALETTE.roadHole, alphaMap: holeAlpha, transparent: true, depthWrite: false });
+  const holeGeometry = new THREE.CircleGeometry(HOLE_R, 48).rotateX(-Math.PI / 2);
+  const hole = new THREE.Mesh(holeGeometry, holeMaterial);
+  hole.renderOrder = 2; // over the road and its dashes
+  hole.visible = false;
+  scene.add(hole);
+  // Everything below the road is cut away while the car comes up, so it appears out of the hole.
+  // The plane is left in place afterwards and only moved far down, so the count of clipping planes
+  // — part of every program's key — never changes and nothing recompiles when the entrance ends.
+  // It sits a hair under the road (y = −0.05) rather than on it, so the road itself is never on the
+  // knife edge of the test.
+  const ground = new THREE.Plane(new THREE.Vector3(0, 1, 0), entry ? 0.05 : 1e3);
+  renderer.clippingPlanes = [ground];
+  // The road's fade-in, over the time the launch takes to come back down to y = 0 from ENTRY_DEPTH
+  // below it: −d + v·t − g·t²/2 = 0, the later root.
+  const FLIGHT = (ENTRY_V + Math.sqrt(ENTRY_V * ENTRY_V - 2 * HOP_G * ENTRY_DEPTH)) / HOP_G;
+  let flown = 0;
+  const roadIn = (k) => { roadMaterial.opacity = k; dashMaterial.opacity = k; };
+  if (entry) roadIn(0);
+  const enter = () => {
+    if (entering !== 'waiting') return;
+    entering = 'opening';
+    holeAt = 0;
+    hole.visible = true;
+  };
   const onDown = (event) => {
-    if (hop.crash || !overTaxi(event)) return;
+    if (entering || hop.crash || !overTaxi(event)) return;
     Object.assign(hop, { air: true, vy: HOP_V });
   };
   const onMove = (event) => { renderer.domElement.style.cursor = overTaxi(event) ? 'pointer' : ''; };
@@ -269,7 +346,7 @@ export function mount(host) {
     blast.shock(0, z, { tint: PALETTE.landRing, yaw: Math.PI, speed: v });
   };
 
-  const start = performance.now();
+  let start = performance.now();
   let last = start;
   let frame = 0;
   const tick = () => {
@@ -279,16 +356,52 @@ export function mount(host) {
     // Capped so a backgrounded tab coming back does not hand the flame one enormous step.
     const dt = Math.min(0.1, (now - last) / 1000);
     last = now;
+    // Waiting for the entrance, the road stands still with no one on it.
+    if (entering === 'waiting' || entering === 'opening') start = now;
     const u = ((now - start) / 1000) * v;
     const wave = locoWeave(u);
-    const bob = Math.sin(u * 2.4) * 0.045 * (v / SPEED);
+    const bob = entering ? 0 : Math.sin(u * 2.4) * 0.045 * (v / SPEED);
+    if (entering === 'opening') {
+      holeAt += dt;
+      if (holeAt >= HOLE_OPEN) {
+        entering = 'rising';
+        Object.assign(hop, { air: true, y: -ENTRY_DEPTH, vy: ENTRY_V });
+      }
+    }
+    if (entering === 'rising') {
+      flown += dt;
+      roadIn(Math.min(1, flown / FLIGHT) ** 2);
+    }
+    if (entering === 'rising' && !holeClosing && hop.y > 0.6) {
+      holeClosing = true;
+      holeAt = 0;
+    } else if (holeClosing) {
+      holeAt += dt;
+    }
+    if (hole.visible) {
+      // Opening eases out past full and back (a back-out curve); closing simply eases in.
+      const k = holeClosing
+        ? 1 - Math.min(1, holeAt / HOLE_CLOSE) ** 2
+        : (() => { const t = Math.min(1, holeAt / HOLE_OPEN) - 1; return 1 + 2.4 * t ** 3 + 1.4 * t ** 2; })();
+      hole.scale.set(Math.max(1e-3, k * HOLE_STRETCH), 1, Math.max(1e-3, k));
+      hole.position.set(0, PAINT_LIFT * 2, wave.lateral);
+      if (holeClosing && k <= 0) hole.visible = false;
+    }
+    taxi.visible = entering !== 'waiting' && entering !== 'opening';
     if (hop.air) {
       hop.vy -= HOP_G * dt;
       hop.y += hop.vy * dt;
-      if (!hop.crash && hop.y >= HOP_CEIL) Object.assign(hop, { crash: true, vy: -CRASH_V });
+      if (!hop.crash && hop.y >= ceil) Object.assign(hop, { crash: true, vy: -CRASH_V });
       // Eased toward the dive rather than snapped, so the stall reads as it tipping over.
       if (hop.crash) hop.tip += (CRASH_TIP - hop.tip) * Math.min(1, dt * 8);
-      if (hop.y <= 0) land(wave.lateral);
+      if (hop.y <= 0 && hop.vy < 0) {
+        land(wave.lateral);
+        if (entering === 'rising') {
+          entering = null;
+          roadIn(1);
+          ground.constant = 1e3;
+        }
+      }
     }
     hop.settle = Math.max(0, hop.settle - dt);
     const dip = -hop.dipDepth * Math.sin((hop.settle / hop.settleLen) * Math.PI);
@@ -300,7 +413,7 @@ export function mount(host) {
     const pitch = !hop.air ? 0 : hop.crash ? hop.tip : hop.vy * HOP_PITCH;
     pose.rotation.set(0, yaw, pitch, BODY_EULER_ORDER);
     Object.assign(car, { z: wave.lateral, yaw, shownLift: lift });
-    flame.update(dt, car, true);
+    flame.update(dt, car, taxi.visible);
     dust.update(dt);
     blast.update(dt);
     layDashes(u);
@@ -319,18 +432,22 @@ export function mount(host) {
     // outlive this mount, so only its materials go.
     flame.materials.forEach((m) => m.dispose());
     [roadGeometry, dashGeometry].forEach((g) => g.dispose());
-    [roadMaterial, dashMaterial, fade].forEach((m) => m.dispose());
+    [roadMaterial, dashMaterial, fade, holeMaterial, holeAlpha].forEach((m) => m.dispose());
+    holeGeometry.dispose();
     renderer.dispose();
     if (current?.dispose === dispose) current = null;
   }
-  current = { host, dispose };
+  const api = { enter };
+  current = { host, options, dispose, api };
+  return api;
 }
 
 if (hot) {
   hot.accept();
-  if (hot.data.host?.isConnected) mount(hot.data.host);
+  if (hot.data.host?.isConnected) mount(hot.data.host, hot.data.options);
   hot.dispose((data) => {
     data.host = current?.host;
+    data.options = current?.options;
     current?.dispose();
   });
 }

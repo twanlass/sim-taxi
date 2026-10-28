@@ -141,6 +141,11 @@ being read. So the run lives on the server and buffers its events, the conversat
 `sessionStorage`, and a reloaded page reattaches with `?from=` and replays what it missed. Killing
 the CLI when the tab dropped its stream would have let the agent's own edit kill the agent.
 
+**Stop is a note, not an error.** The Stop handler marks the run `stopped` before it sends SIGTERM,
+and the run ends with `stopped: true` if it died by signal *or* that flag is set — the CLI can catch
+the SIGTERM and exit with a code and stderr of its own, so the flag, not the exit, says why it ended.
+The panel draws that as a "Stopped" note rather than the red error bubble a failed run gets.
+
 Each message the user sends wears an emoji reaction hanging off its bottom edge, 8px in from the right: 👀 if the
 text they typed contains a `?`, 👍 otherwise. It is deterministic on purpose, not the agent's reply
 (no model call), and it reads the typed text rather than the bubble, so a pin's label can't turn a
@@ -357,6 +362,12 @@ headlights and tail lights and a landmark uses for its `litWindows` panes). Squa
 falling rain (`game/rain.js`, built the first time it is chosen) and the lights on; Night parks the day clock at 22:00
 with the lights on, and Day or Squall hand the hour back. Wet and lens are left at 0: the bench ground is not the game's
 patched one, so a mirror pass would only draw the model twice. `weather` is omitted from the URL while it is Day.
+
+**Lamp toggles** (Headlights, Brake lights, Blinkers) sit under Wireframe and show only for a model whose catalog entry offers
+`switches` and a `setSwitch(id, on)` (the taxi). A ticked lamp is held on whatever the Weather says, and unticked it follows the
+Weather as before; ticking Blinkers lights both sides at once, the hazards, because the flash is the sim's clock and the bench
+has none to step. Which are ticked survives a rebuild (`heldSwitches` in `viewer.js`), so an edit hot-reloading the model does not
+turn them off. They are not in the URL.
 
 **Paint** (in the Model panel, under the model drop-down) picks one of the game's `?paint=` looks. The look is compiled into the shader, so picking
 one rebuilds the model. **Every slider's number is also a field** (`bindReadout` in `workshop/viewer.js`): click it to type an exact value (the Hour's takes `16:30` as well as `16.5`). A committed number goes through the range itself, so it clamps and snaps to the slider's own min, max and step and the slider's `input` handler stays the one place a change lands; Enter or leaving the field commits, Escape or anything that doesn't parse puts the readout back. **Rim light** (a collapsed section under Paint in the Model panel) is ten sliders on the paint's rim

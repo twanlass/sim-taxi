@@ -592,6 +592,10 @@ function apply(event) {
     if (chat.runAuto) {
       chat.messages.push({ role: 'note', text: event.ok ? 'Error fixed' : 'Couldn’t fix the error' });
       chat.runAuto = false;
+    } else if (event.stopped) {
+      // Pressing Stop is not a failure: the CLI dies however a killed process dies (a signal, an
+      // exit code, a line of stderr), and none of that is worth a red bubble.
+      chat.messages.push({ role: 'note', text: 'Stopped' });
     } else if (!event.ok && event.error) chat.messages.push({ role: 'error', text: event.error });
     // The test and docs status first, then Undo under it, so Undo is the last thing on the reply.
     if (event.background) {

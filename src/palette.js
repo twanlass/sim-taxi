@@ -87,6 +87,9 @@ export const PALETTE = {
   // which is what still says "metal" once the light has gone (the shader's glint goes with the sun).
   manholeLid: '#3B3F45',
   manholeFrame: '#8C9097',
+  // The hole the talk's taxi comes up out of (workshop/emptytaxi.js, its `entry`). Its own name
+  // rather than splashVoid's: a hole in the road, not the screen before the game.
+  roadHole: '#050608',
   crosswalk: '#DAD7CB',
   // The one paved junction's colours are a look of their own, PLAZA_LOOKS below.
   sidewalk: '#CDBFA6',

@@ -520,6 +520,7 @@ function load(id, { keepFraming = false } = {}) {
   };
   showZFighting(entry, built.object, holder);
   current.lamps?.(state.weather === 'day' ? 0 : 1);
+  buildLampSwitches(built);
   // "Diameter" as the footprint's diagonal rather than its longer side, so a long car's pad
   // clears its corners by as much as its nose.
   const span = Math.hypot(box.max.x - box.min.x, box.max.z - box.min.z);
@@ -616,6 +617,29 @@ function buildPicker() {
     option.textContent = name[0].toUpperCase() + name.slice(1);
     return option;
   }));
+}
+
+// Lamp toggles for a model that offers them (`switches` in its catalog entry). Which are held on
+// survives a rebuild, so an edit hot-reloading the model does not turn the lamps back off.
+const heldSwitches = new Set();
+function buildLampSwitches(built) {
+  const box = document.getElementById('lamp-switches');
+  box.replaceChildren();
+  box.hidden = !built.switches;
+  for (const { id, label } of built.switches ?? []) {
+    const wrap = document.createElement('label');
+    wrap.className = 'check';
+    const input = document.createElement('input');
+    input.type = 'checkbox';
+    input.checked = heldSwitches.has(id);
+    input.addEventListener('change', () => {
+      if (input.checked) heldSwitches.add(id); else heldSwitches.delete(id);
+      built.setSwitch(id, input.checked);
+    });
+    wrap.append(input, ` ${label}`);
+    box.append(wrap);
+    built.setSwitch(id, input.checked);
+  }
 }
 
 // The hour the day was at before night took the clock, so Day and Squall hand it back.
