@@ -92,6 +92,16 @@ goes, so it isn't drawing a window's worth of city through the rest of the talk.
 the phone's own screen stretched out round it, like a video's ambient mode, came first and was
 disorienting; plain grey after that read as no city at all.)
 
+## The workshop and the dev server
+
+**Nothing inside the talk reloads for an edit to the game.** The workshop's agent edits the game's
+source mid-talk, and the game has no hot-reload boundary, so Vite answers each edit with a
+`full-reload` to every page on the server — which reloaded the whole deck out of the live phone
+whenever the agent saved a file during the demo. `tools/talk-hold.mjs` (dev server only) drops those
+reloads in every page whose top window is the talk, unless the talk's own files set them off. The
+workshop's frame is left out: it reloads to show the edit, as it should. The games in the deck carry
+on with the code they loaded; a fresh one (a slide revisited) picks up the edits.
+
 ## Presenting from a pinned build
 
 `main` deploys on every merge, so the talk at the live URL is whatever merged last. For the day
