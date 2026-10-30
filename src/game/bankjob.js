@@ -2,8 +2,9 @@ import * as THREE from 'three';
 import { ALARM_DEPTH, ALARM_H, ALARM_W, bankFrontage } from '../city/bank.js';
 import { KERB_H } from '../city/ground.js';
 import { createPerson } from '../geometry/person.js';
-import { TAXI_TAILPIPE_BACK, TAXI_TAILPIPE_HEIGHT, taxiDoorPoint, taxiSideToward } from '../geometry/taxi.js';
+import { TAXI_SCALE, TAXI_TAILPIPE_BACK, TAXI_TAILPIPE_HEIGHT, taxiDoorPoint, taxiSideToward } from '../geometry/taxi.js';
 import { PALETTE } from '../palette.js';
+import { CAR_LEN, CAR_W, TRUCK_LEN, TRUCK_W } from '../sim/traffic.js';
 import { unlitMaterial } from '../util/geo.js';
 import { markEmissive, setEmissiveScale } from './bloom.js';
 import { RIGHT, UP, VIEW_UP } from './camera.js';
@@ -151,6 +152,14 @@ const dist = (a, b) => Math.hypot(b.x - a.x, b.z - a.z);
  */
 const ROUND_KERB = 0.3;
 const WALL_IN = 0.55;
+/**
+ * A running body's half-width, added all round a car's footprint, and the further room a corner of
+ * that footprint is turned at, so the turn is never itself on the edge it is going round.
+ */
+const BODY = 0.35;
+const CORNER_ROOM = 0.25;
+/** Cars further than this past either end of the run cannot be in its way; not worth a look. */
+const CAR_REACH = 8;
 
 /** Does the segment `a`→`b` pass through the inside of the rectangle `r`? Liang–Barsky. */
 function crosses(a, b, r) {
@@ -172,45 +181,108 @@ function crosses(a, b, r) {
 }
 
 /**
- * The way from `from` to `to` on foot without going through the bank's block: none, one or two of
- * the block's pavement corners to pass through, shortest first.
+ * Something to run round: a rectangle centred on `x, z`, `hl` along the unit `ax, az` and `hw`
+ * across it, that no leg may pass through, and the points just outside its corners to turn at.
+ */
+function obstacle(x, z, ax, az, hl, hw, corners) {
+  const local = (p) => {
+    const dx = p.x - x;
+    const dz = p.z - z;
+    return { x: dx * ax + dz * az, z: -dx * az + dz * ax };
+  };
+  const r = { x0: -hl, z0: -hw, x1: hl, z1: hw };
+  return {
+    corners,
+    blocks: (a, b) => crosses(local(a), local(b), r),
+    holds: (p) => {
+      const q = local(p);
+      return Math.abs(q.x) < hl && Math.abs(q.z) < hw;
+    },
+  };
+}
+
+/** The bank's block, as an obstacle: its walls, turned at its pavement corners. */
+function blockObstacle(block) {
+  const x = (block.x0 + block.x1) / 2;
+  const z = (block.z0 + block.z1) / 2;
+  const hx = (block.x1 - block.x0) / 2;
+  const hz = (block.z1 - block.z0) / 2;
+  const corners = [[-1, -1], [1, -1], [1, 1], [-1, 1]]
+    .map(([sx, sz]) => ({ x: x + sx * (hx - ROUND_KERB), z: z + sz * (hz - ROUND_KERB) }));
+  return obstacle(x, z, 1, 0, hx - WALL_IN, hz - WALL_IN, corners);
+}
+
+/**
+ * A car, as an obstacle: its footprint grown by a body's width all round. `yaw` is the sim's
+ * (forward is `(cos, -sin)`), and the taxi is drawn `TAXI_SCALE` up from the sim's size, so it
+ * passes its own drawn length and width.
+ */
+export function carObstacle(car) {
+  const len = car.len ?? (car.isTruck ? TRUCK_LEN : CAR_LEN);
+  const wid = car.wid ?? (car.isTruck ? TRUCK_W : CAR_W);
+  const ax = Math.cos(car.yaw);
+  const az = -Math.sin(car.yaw);
+  const hl = len / 2 + BODY;
+  const hw = wid / 2 + BODY;
+  const cl = hl + CORNER_ROOM;
+  const cw = hw + CORNER_ROOM;
+  const corners = [[-1, -1], [1, -1], [1, 1], [-1, 1]].map(([sl, sw]) => ({
+    x: car.x + ax * sl * cl - az * sw * cw,
+    z: car.z + az * sl * cl + ax * sw * cw,
+  }));
+  return obstacle(car.x, car.z, ax, az, hl, hw, corners);
+}
+
+/**
+ * The way from `from` to `to` on foot round every obstacle in the list: the corners to turn at, in
+ * order, shortest way first.
  *
  * The run used to be a straight line from the bystander to the cab's door, which is fine while the
  * cab is out front and runs straight through the building when it is not — and the trigger fires
  * anywhere within 12 units of the door, which takes in most of the side street (TRIGGER_RANGE in
  * game/robbery.js). Reported as the robber knocking the bystander over and running through the bank.
- * The block is convex, so the shortest way round it turns at one corner or at two adjacent ones;
- * trying every such route is eight segments' worth of arithmetic, once a robbery.
+ * That was fixed for the block alone (`aroundBlock`, one or two of its corners), and then the robber
+ * was reported running straight through a car stopped between the steps and the cab — the world is
+ * frozen for the cut, so every car is as fixed as the building. So it is the shortest path through
+ * the corners of all of them: a visibility graph, a few dozen nodes at most, once a robbery.
+ *
+ * An obstacle that already holds either end (a car parked across the door, say) is left out rather
+ * than making the run impossible, and if nothing gets through at all the run goes straight.
  */
-export function aroundBlock(block, from, to) {
-  const walls = {
-    x0: block.x0 + WALL_IN, z0: block.z0 + WALL_IN, x1: block.x1 - WALL_IN, z1: block.z1 - WALL_IN,
-  };
-  if (!crosses(from, to, walls)) return [];
-  // Round the kerb, anticlockwise, so neighbours in the list are neighbours on the block.
-  const corners = [
-    { x: block.x0 + ROUND_KERB, z: block.z0 + ROUND_KERB },
-    { x: block.x1 - ROUND_KERB, z: block.z0 + ROUND_KERB },
-    { x: block.x1 - ROUND_KERB, z: block.z1 - ROUND_KERB },
-    { x: block.x0 + ROUND_KERB, z: block.z1 - ROUND_KERB },
-  ];
-  let best = null;
-  let bestLength = Infinity;
-  const consider = (via) => {
-    const points = [from, ...via, to];
-    let length = 0;
-    for (let k = 1; k < points.length; k++) {
-      if (crosses(points[k - 1], points[k], walls)) return;
-      length += dist(points[k - 1], points[k]);
-    }
-    if (length < bestLength) { best = via; bestLength = length; }
-  };
-  for (let k = 0; k < 4; k++) {
-    consider([corners[k]]);
-    consider([corners[k], corners[(k + 1) % 4]]);
-    consider([corners[(k + 1) % 4], corners[k]]);
+export function wayRound(from, to, obstacles) {
+  const live = obstacles.filter((o) => !o.holds(from) && !o.holds(to));
+  const clear = (a, b) => live.every((o) => !o.blocks(a, b));
+  if (clear(from, to)) return [];
+  const nodes = [from, to];
+  for (const o of live) {
+    for (const c of o.corners) if (live.every((other) => !other.holds(c))) nodes.push(c);
   }
-  return best ?? [];
+  // Dijkstra over the visibility graph, edges tested as they are relaxed.
+  const n = nodes.length;
+  const best = new Array(n).fill(Infinity);
+  const prev = new Array(n).fill(-1);
+  const done = new Array(n).fill(false);
+  best[0] = 0;
+  for (;;) {
+    let u = -1;
+    for (let k = 0; k < n; k++) if (!done[k] && best[k] < Infinity && (u < 0 || best[k] < best[u])) u = k;
+    if (u < 0 || u === 1) break;
+    done[u] = true;
+    for (let v = 1; v < n; v++) {
+      if (done[v]) continue;
+      const d = best[u] + dist(nodes[u], nodes[v]);
+      if (d < best[v] && clear(nodes[u], nodes[v])) { best[v] = d; prev[v] = u; }
+    }
+  }
+  if (prev[1] < 0) return [];
+  const via = [];
+  for (let k = prev[1]; k > 0; k = prev[k]) via.unshift(nodes[k]);
+  return via;
+}
+
+/** The way round the bank's block alone — see `wayRound`. */
+export function aroundBlock(block, from, to) {
+  return wayRound(from, to, [blockObstacle(block)]);
 }
 
 /**
@@ -259,7 +331,7 @@ export function frameCut(points, aspect) {
  * bystander at arm's length, then to the cab's door — round the block if it has to be. Pure, so
  * tools/probe.mjs can sweep it against every lane the trigger can fire from.
  */
-export function planRun(site, taxi) {
+export function planRun(site, taxi, cars = []) {
   const f = bankFrontage(site);
   const home = f.at(f.gapU + BYSTANDER_ALONG, BYSTANDER_OUT, 0);
   const side = taxiSideToward(taxi, f.steps.x, f.steps.z);
@@ -270,8 +342,15 @@ export function planRun(site, taxi) {
   const l = Math.hypot(toBy.x, toBy.z) || 1;
   const contact = { x: home.x - (toBy.x / l) * SHOVE_GAP, z: home.z - (toBy.z / l) * SHOVE_GAP };
   // ...and from there to the cab, round the block rather than through it if the cab is round the
-  // side (see `aroundBlock`).
-  const way = [contact, ...(site.block ? aroundBlock(site.block, contact, run) : []), run];
+  // side, and round any car stopped in between — the taxi's own body included (see `wayRound`).
+  const reach = dist(contact, run) / 2 + CAR_REACH;
+  const mid = { x: (contact.x + run.x) / 2, z: (contact.z + run.z) / 2 };
+  const obstacles = [
+    ...(site.block ? [blockObstacle(site.block)] : []),
+    carObstacle({ ...taxi, len: CAR_LEN * TAXI_SCALE, wid: CAR_W * TAXI_SCALE }),
+    ...cars.filter((c) => c !== taxi && !c.isTaxi && dist(c, mid) < reach).map(carObstacle),
+  ];
+  const way = [contact, ...wayRound(contact, run, obstacles), run];
   const legs = [
     [f.doorway, f.steps],
     [f.steps, contact],
@@ -327,7 +406,7 @@ export function cutShot(site, taxi, plan = planRun(site, taxi)) {
  */
 export function createBankJob({
   scene, site, cashTrail, controller, setDoor, play = () => {}, scenery = false, skippable = false,
-  classicFraming = false,
+  classicFraming = false, cars = [],
 }) {
   const f = bankFrontage(site);
 
@@ -539,7 +618,7 @@ export function createBankJob({
    */
   function begin(fare, taxi) {
     const passenger = fare.slot.passenger;
-    const plan = planRun(site, taxi);
+    const plan = planRun(site, taxi, cars);
     const { toBy, side, run, inside, contact, legs } = plan;
     const push = shovePush(f, toBy);
     const length = legs.reduce((sum, [a, b]) => sum + dist(a, b), 0);

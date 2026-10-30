@@ -2390,9 +2390,10 @@ anyway:
 2. The robber bursts out of the portico, shedding notes out of the sack (the getaway's own cash
    trail, fed from the robber), shoves the **bank rider** clean off their feet (airborne, spun, a
    bounce and a skid, then dazed and stirring on the ground — never landing on the cab), and
-   sprints for the cab's door, which swings open as they arrive. Where the cab is round the side of
-   the block, the run turns at the block's pavement corner (`aroundBlock`, #484) rather than going
-   straight through the building.
+   sprints for the cab's door, which swings open as they arrive. The run is the shortest way round
+   whatever is in the way (`wayRound`): the bank's block where the cab is round the side of it
+   (#484), and every car stopped between the steps and the cab, the cab's own body included —
+   the world is frozen for the cut, so a car is as solid as the building.
 3. They hop in, and [the robber's line](#the-robbers-line) takes over.
 
 The shove plays in **slow motion**: from contact until just before the bystander comes down the
