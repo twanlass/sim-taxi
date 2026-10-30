@@ -206,6 +206,12 @@ teach, and the bubble would be the loudest thing in every frame.
 
 ## New Move Unlocked: the overtake, U-turn and drift cards
 
+**Overtake, U-turn, drift** (until 2026-10-30): the overtake from one drop-off, because holding
+Loco Mode behind a car rams it; the U-turn from two, robbery.js's `MIN_DELIVERED`, so it landed
+before the first chase could; the drift from four. Tyler wanted the drift first. Since the cards
+moved after the run (2026-10-13) the thresholds only pick which run's end a card shows on, so the
+U-turn's tie to the first robbery had already gone soft.
+
 **The overtake's plain key row** (until 2026-10-22, `?overtakekeys=classic`): Loco, "+", Loco again,
 the first key lit from the start and the second from the blip, both orange to the end of the loop.
 Tyler: a held key did not look held, and the key not being pressed still looked active. Replaced by

@@ -6480,7 +6480,7 @@ const pause = shot ? null : createPause({
   },
 });
 
-// "New Move Unlocked": the card that teaches the overtake, the bootleg and the drift, each once ever,
+// "New Move Unlocked": the card that teaches the drift, the overtake and the bootleg, each once ever,
 // once a run has reached that move's `after` fares (MOVES in game/newmove.js). By default it goes up
 // after the run, behind the high-score table and before Play again (`showUnlockedMoves`); under
 // `?newmove=classic`, a beat after the drop-off that unlocked it, mid-run. The world stops while it
@@ -6531,7 +6531,13 @@ const filmMove = (pick, make) => (cardCanvas) => {
   };
   return clip;
 };
+// In teaching order (MOVES): `nextMove` and the run-end queue take the first one not yet seen.
 const moves = {
+  drift: {
+    ...MOVES.drift, seen: createSeenFlag({ key: MOVES.drift.seenKey }), clipKeys: driftKeys,
+    combo: { ...comboValue('drift'), at: DRIFT_LANDS },
+    makeClip: filmMove(pickCorner, (stage, corner) => createDriftClip({ ...stage, corner })),
+  },
   overtake: {
     ...MOVES.overtake, seen: createSeenFlag({ key: MOVES.overtake.seenKey }), clipKeys: overtakeKeys,
     combo: { ...comboValue('overtake'), at: OVERTAKE_LANDS },
@@ -6541,11 +6547,6 @@ const moves = {
     ...MOVES.uturn, seen: createSeenFlag({ key: MOVES.uturn.seenKey }), clipKeys: uturnKeys,
     combo: { ...comboValue('uturn'), at: UTURN_LANDS },
     makeClip: filmMove(pickStreet, (stage, street) => createUturnClip({ ...stage, street })),
-  },
-  drift: {
-    ...MOVES.drift, seen: createSeenFlag({ key: MOVES.drift.seenKey }), clipKeys: driftKeys,
-    combo: { ...comboValue('drift'), at: DRIFT_LANDS },
-    makeClip: filmMove(pickCorner, (stage, corner) => createDriftClip({ ...stage, corner })),
   },
 };
 // The depot's card, on the same layer: once ever, a beat after the taxi first starts smoking. It
@@ -6607,7 +6608,7 @@ let newMoveIn = -1;
 let newMoveDue = null;
 /**
  * The move a drop-off at `delivered` fares would teach, or null: the first not yet seen, in order,
- * if the run is far enough in for it. In order means the drift waits for the U-turn's card, so one
+ * if the run is far enough in for it. In order means the U-turn waits for the overtake's card, so one
  * drop-off never has two to show.
  */
 function nextMove(delivered) {

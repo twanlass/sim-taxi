@@ -356,7 +356,12 @@ try {
     for (const [move, keys] of [[MOVES.uturn, uturnKeys(0)], [MOVES.drift, k]]) {
       for (const [name] of move.keys) if (!(name in keys)) throw new Error(`newmove: ${move.line} has no key ${name}`);
     }
-    if (!(MOVES.drift.after > MOVES.uturn.after)) throw new Error('newmove: the drift is taught before the U-turn');
+    // Drift first (Tyler, 2026-10-30), then the overtake, then the U-turn: in key order (main.js walks
+    // MOVES that way) and in `after`.
+    const order = Object.keys(MOVES).join();
+    if (order !== 'drift,overtake,uturn') throw new Error(`newmove: moves taught as ${order}`);
+    const afters = Object.values(MOVES).map((m) => m.after);
+    if (afters.some((a, i) => i && a <= afters[i - 1])) throw new Error('newmove: a move unlocks no later than the one before it');
     const { createLayout } = await import('../src/city/layout.js');
     const { cityNetwork } = await import('../src/city/roadnet.js');
     const { makeRng } = await import('../src/util/rng.js');
