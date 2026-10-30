@@ -226,7 +226,7 @@ While it is on:
   repairs), and anything later built on `createSeenFlag`. A card shown is not shown again the
   same run, and switching Demo mode off hands back the player's own flags exactly as they were.
 - **Every unlock reads earned** (`createUnlockFlag`), and earning one writes nothing.
-- **A move card at every run's end**, however short the run, taking Overtake, U-Turn and Drift in
+- **A move card at every run's end**, however short the run, taking Drift, Overtake and U-Turn in
   turn across runs (the card's `after` thresholds are skipped).
 - **The tutorial tips stay on**, whatever the Tutorial tips switch says.
 - **Every bank rider is the robbery**, whatever `BANK_ROBBER_ALWAYS` in game/fares.js says.
@@ -662,9 +662,13 @@ teach, and the bubble would be the loudest thing in every frame.
 
 ## New Move Unlocked: the overtake, U-turn and drift cards
 
-**The overtake comes first** (`game/overtakeclip.js`), from the first drop-off: holding Loco Mode
-behind a car rams it unless the combo is thrown (`game/overtake.js`), so it is the one move a player
-is punished for not knowing. Its clip is two cars — the reel carries the car being passed too
+**The drift comes first**, from the first drop-off (Tyler, 2026-10-30): every route has corners, so
+it is the move a new player can use on every fare. **The overtake is second**
+(`game/overtakeclip.js`), from the second: holding Loco Mode behind a car rams it unless the combo
+is thrown (`game/overtake.js`), so it is the one move a player is punished for not knowing. **The
+U-turn is third**, from the fourth. Each waits for the card before it to have been seen, and only
+one shows per run's end. The order is `MOVES` in `game/newmove.js`; it was overtake, U-turn, drift
+before ([history](gameplay-history.md#new-move-unlocked-the-overtake-u-turn-and-drift-cards)). Its clip is two cars — the reel carries the car being passed too
 (`REEL.lead`, drawn by `game/moveclip.js`) — and its camera **follows** that car (`track` on
 `reelPlayer`) rather than standing still, because a pass takes ~80 units of road at the Loco top and
 a frame that held all of it drew both cars at a third the size. Its street picker takes side
@@ -724,8 +728,9 @@ of the HUD's gradients (`nm-` ids): the HUD pedals are `display: none` behind th
 and a gradient referenced from an undisplayed SVG does not paint. History:
 [New Move cards](gameplay-history.md#new-move-unlocked-the-overtake-u-turn-and-drift-cards).
 
-- **When:** a beat (0.9s) after the drop-off that brings a run to two fares — robbery.js's
-  `MIN_DELIVERED`, the first moment a chase can happen, which is what the move is for. It waits out
+- **When:** a beat (0.9s) after the drop-off that brings a run to four fares, once the overtake's
+  card has been seen. (It was two — robbery.js's `MIN_DELIVERED`, the first moment a chase can
+  happen — until the drift took the first slot.) It waits out
   the opening tutorial's Loco Mode beat, and skips any drop-off that is not calm (a delivered robber
   hands the taxi a patrol chase, a depot visit, a wreck); the next drop-off tries again.
 - **Once, ever.** Remembered under `simTaxi.seen.uturn`, unlike the opening tutorial: a card calling
@@ -764,8 +769,7 @@ out on the kick's purple twin plume with the bark out of the pipe.
   approach and the exit both run left to right on screen, so the car draws a V down and back up.
   It needs straight road enough before and after, nothing parked within 5 of the path, stays off
   the river, and prefers corners off the ring, which put half the clip over the coast's fade.
-- **When:** a beat after the drop-off that brings a run to four fares, and only once the U-turn's
-  card has been seen, so the two never land on one drop-off and always come in order. Remembered
+- **When:** a beat after the first drop-off: the first card any player sees. Remembered
   under `simTaxi.seen.drift`. `__taxi.newMove.open('drift')` shows it on demand.
 
 ## The fare loop

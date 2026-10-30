@@ -19,21 +19,22 @@ import { createSeenFlag as seenFlag } from './progress.js';
 // a loop: each starts dimmed, and comes up to full colour as it is pressed, so the order is the
 // order things light up in.
 //
-// **When.** The U-turn: once, ever, on the drop-off that brings the run to `AFTER_DELIVERED` fares — the first
-// moment a robbery is allowed to happen (robbery.js `MIN_DELIVERED`), which is what the move exists
-// for: the cut-off cops sit in the junctions *ahead* of the taxi and a 180 puts every one of them
-// behind it. Taught any later and the first chase can arrive before it; taught earlier and it is
-// a fourth new thing landing on top of the opening tutorial's Loco Mode beat, which this
+// **When.** The drift first, from the first drop-off; then the overtake; then the U-turn, from
+// `MOVES.uturn.after`. (Until 2026-10-30 the order was overtake, U-turn, drift, and the U-turn came
+// on the drop-off that brings the run to `AFTER_DELIVERED` fares — the first moment a robbery is
+// allowed to happen (robbery.js `MIN_DELIVERED`), which is what the move exists for: the cut-off
+// cops sit in the junctions *ahead* of the taxi and a 180 puts every one of them behind it. Since
+// the cards moved after the run, that timing only decides which run's end it shows on.) Taught
+// earlier than its drop-off, a card is a fourth new thing landing on top of the opening tutorial's Loco Mode beat, which this
 // deliberately waits out (main.js gates it on the tutorial being done), because a move built on
 // Loco Mode makes no sense to someone who has not been shown Loco Mode yet. A drop-off is a calm
 // beat: nothing is chasing anyone, the seat has just emptied, and the next fare has not been
 // picked. A drop-off that *starts* something — a delivered robber hands the taxi a patrol chase —
 // is not, and main.js skips it and waits for the next one.
 //
-// The drift comes after it, from `MOVES.drift.after` deliveries and never on the same drop-off — two
-// cards back to back is a lecture, and the drift reads as the second chapter of the same idea (the
-// brake is a Loco Mode button too). It waits for the U-turn's card to have been seen, so a run whose
-// early drop-offs were all busy still shows them in order, one drop-off apart at the least.
+// Each card waits for the one before it to have been seen, and never lands on the same drop-off —
+// two cards back to back is a lecture — so a run whose early drop-offs were all busy still shows
+// them in order, one drop-off apart at the least.
 //
 // **After the run, by default** (Tyler, 2026-10-13: "show new unlocked combos after the high score
 // screen"). The thresholds above still decide what a run *unlocks*; the card itself waits until the
@@ -59,7 +60,7 @@ import { createSeenFlag as seenFlag } from './progress.js';
 
 export const SEEN_KEY = 'simTaxi.seen.uturn';
 
-/** Deliveries into a run before the card can show — robbery.js's MIN_DELIVERED; see above. */
+/** Deliveries into a run before the second card can show — robbery.js's MIN_DELIVERED; see above. */
 export const AFTER_DELIVERED = 2;
 
 /**
@@ -68,21 +69,23 @@ export const AFTER_DELIVERED = 2;
  * for (game/uturnclip.js, game/driftclip.js).
  */
 export const MOVES = {
-  // First, and on the first drop-off it can: holding Loco Mode behind a car rams it unless the combo
-  // is thrown (game/overtake.js), so a player who has not been shown it is being punished for the
-  // button doing what it always did.
+  // First, on the first drop-off (Tyler, 2026-10-30: "make drift the first combo to be unlocked").
+  // Every route has corners, so it is the move a new player can use on every fare.
+  drift: {
+    seenKey: 'simTaxi.seen.drift', after: 1, line: 'Drift',
+    keys: [['boost', 'boost'], ['brake', 'brake'], ['kick', 'boost']],
+  },
+  // Second, as soon after it as it can: holding Loco Mode behind a car rams it unless the combo is
+  // thrown (game/overtake.js), so a player who has not been shown it is being punished for the
+  // button doing what it always did. It led the order until 2026-10-30 for that reason.
   // `holds`: the keys show whose finger is on them (`buildKeys`), because the overtake is two holds.
   overtake: {
-    seenKey: 'simTaxi.seen.overtake', after: 1, line: 'Overtake',
+    seenKey: 'simTaxi.seen.overtake', after: AFTER_DELIVERED, line: 'Overtake',
     keys: [['boost', 'boost'], ['blip', 'boost']], holds: true,
   },
   uturn: {
-    seenKey: SEEN_KEY, after: AFTER_DELIVERED, line: 'U-Turn',
+    seenKey: SEEN_KEY, after: 4, line: 'U-Turn',
     keys: [['boost', 'boost'], ['brake1', 'brake'], ['brake2', 'brake']],
-  },
-  drift: {
-    seenKey: 'simTaxi.seen.drift', after: 4, line: 'Drift',
-    keys: [['boost', 'boost'], ['brake', 'brake'], ['kick', 'boost']],
   },
 };
 
