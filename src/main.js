@@ -1798,6 +1798,8 @@ const bankJob = robbery && robberyIntro
     scenery: !bankFare,
     skippable: new URLSearchParams(window.location.search).get('robberyskip') === 'classic',
     classicFraming: classicRobberyCam,
+    // Stopped with the world for the cut, so the robber runs round them (`wayRound`).
+    cars: traffic.cars,
   })
   : null;
 if (bankJob && bankFare) {

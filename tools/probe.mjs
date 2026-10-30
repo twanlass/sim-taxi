@@ -18259,6 +18259,52 @@ let chopperOrder; // likewise
     check('the robber runs round the bank’s block to the cab, never through it',
       runs > 0 && through === 0 && rounded > 0,
       `${through} of ${runs} trigger points through a wall, ${rounded} sent round a corner`);
+
+    // ...and round a car stopped in the way. The world is frozen for the cut, so a car parked
+    // between the shove and the cab is as solid as the bank — and the run went straight through one
+    // (reported 2026-10-30). Stand a car across the middle of every straight run, parallel to the
+    // cab, and sample the legs against its bare footprint — not the padded one under test.
+    const STAND_IN_LEN = 3.4;
+    const STAND_IN_W = 1.7;
+    let blocked = 0;
+    let carThrough = 0;
+    let carWall = 0;
+    for (const lane of cityNetwork().lanes) {
+      if (!lane.path) continue;
+      for (let s = 0; s <= lane.length; s += 1) {
+        const p = lane.path.at(s);
+        if (Math.hypot(p.x - bank.door.x, p.z - bank.door.z) > ROBBERY_TRIGGER_RANGE) continue;
+        const t = lane.path.tangentAt(s);
+        const cab = { x: p.x, z: p.z, yaw: Math.atan2(-t.z, t.x) };
+        const straight = planBankRun(bank, cab);
+        if (straight.legs.length !== 3) continue;
+        const [a, b] = straight.legs[2];
+        const car = { x: (a.x + b.x) / 2, z: (a.z + b.z) / 2, yaw: cab.yaw };
+        // Only where a car could be: clear of the walls and of the cab, and not on either end.
+        if (car.x > walls.x0 - 1 && car.x < walls.x1 + 1 && car.z > walls.z0 - 1 && car.z < walls.z1 + 1) continue;
+        if (Math.hypot(car.x - cab.x, car.z - cab.z) < 3) continue;
+        if (Math.hypot(b.x - a.x, b.z - a.z) < 4) continue;
+        blocked += 1;
+        const fx = Math.cos(car.yaw);
+        const fz = -Math.sin(car.yaw);
+        const onCar = (x, z) => {
+          const dx = x - car.x;
+          const dz = z - car.z;
+          return Math.abs(dx * fx + dz * fz) < STAND_IN_LEN / 2 && Math.abs(-dx * fz + dz * fx) < STAND_IN_W / 2;
+        };
+        const plan = planBankRun(bank, cab, [car]);
+        if (plan.legs.slice(1).some(throughWall)) carWall += 1;
+        if (plan.legs.slice(2).some(([u, v]) => {
+          for (let k = 0; k <= 100; k++) {
+            if (onCar(u.x + (v.x - u.x) * (k / 100), u.z + (v.z - u.z) * (k / 100))) return true;
+          }
+          return false;
+        })) carThrough += 1;
+      }
+    }
+    check('the robber runs round a car stopped between the bank and the cab, never through it',
+      blocked > 0 && carThrough === 0 && carWall === 0,
+      `${carThrough} of ${blocked} blocked runs through the car, ${carWall} through a wall`);
   }
 
   // --- Cop cars are ordinary cars ---------------------------------------------
