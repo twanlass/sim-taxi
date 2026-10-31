@@ -24,6 +24,13 @@
 
 /** Bumped if the entry shape changes. An unreadable version reads as "no scores yet", not a crash. */
 const KEY = 'simtaxi.scores.v1';
+/**
+ * Shifts keep a table of their own (game/fares.js SHIFT_SECONDS). An endless run's cash grows with
+ * its length and a shift's cannot, so on one table the old runs would sit above every shift for
+ * having lasted longer. Passed as `table` wherever a table is read or written; `KEY` is the endless
+ * run's, which is the table every score from before shifts already lives in.
+ */
+export const SHIFT_TABLE = 'simtaxi.scores.shift.v1';
 
 /** The last initials entered, so a repeat player confirms rather than retypes. See `lastName`. */
 const NAME_KEY = 'simtaxi.initials';
@@ -59,13 +66,13 @@ function defaultStore() {
   try { return globalThis.localStorage ?? null; } catch { return null; }
 }
 
-function readRaw(store) {
-  try { return store?.getItem(KEY) ?? null; } catch { return null; }
+function readRaw(store, table = KEY) {
+  try { return store?.getItem(table) ?? null; } catch { return null; }
 }
 
 /** Returns whether the write landed, so a caller can tell "saved" from "storage refused". */
-function writeRaw(store, text) {
-  try { store?.setItem(KEY, text); return true; } catch { return false; }
+function writeRaw(store, text, table = KEY) {
+  try { store?.setItem(table, text); return true; } catch { return false; }
 }
 
 /**
@@ -137,8 +144,8 @@ export function normaliseName(raw) {
 }
 
 /** The table, best first. `[]` for absent, corrupt, or unreachable storage — all the same thing. */
-export function loadScores(store = defaultStore()) {
-  const text = readRaw(store);
+export function loadScores(store = defaultStore(), table = KEY) {
+  const text = readRaw(store, table);
   if (!text) return [];
   let parsed = null;
   try { parsed = JSON.parse(text); } catch { return []; }
@@ -147,8 +154,8 @@ export function loadScores(store = defaultStore()) {
   return list.map(sanitise).filter(Boolean).sort(compare).slice(0, MAX_ENTRIES);
 }
 
-function saveScores(entries, store) {
-  return writeRaw(store, JSON.stringify({ v: 1, entries }));
+function saveScores(entries, store, table = KEY) {
+  return writeRaw(store, JSON.stringify({ v: 1, entries }), table);
 }
 
 /** The initials this device last entered, for pre-filling the prompt. `''` if there are none. */
@@ -173,12 +180,12 @@ function rememberName(name, store) {
  * the table (in which case nothing was written and `setName` is a no-op, but `entries` still holds
  * the board so the caller can show it). `id` is how the board picks out the player's own row.
  */
-export function recordRun({ cash, fares, seconds, shift = '' }, store = defaultStore()) {
+export function recordRun({ cash, fares, seconds, shift = '' }, store = defaultStore(), table = KEY) {
   const at = Date.now();
   const entry = sanitise({
     id: makeId(at), name: lastName(store) || DEFAULT_NAME, cash, fares, seconds, shift, at,
   });
-  const existing = loadScores(store);
+  const existing = loadScores(store, table);
   const missed = { rank: null, id: null, entries: existing, setName: () => existing };
   if (!entry) return missed;
 
@@ -188,7 +195,7 @@ export function recordRun({ cash, fares, seconds, shift = '' }, store = defaultS
   if (index === -1) return missed;
   // A store that refuses the write still gets a board for this screen — the run happened, it just
   // will not be there next time. Reporting the rank the player earned beats pretending they missed.
-  saveScores(ranked, store);
+  saveScores(ranked, store, table);
 
   return {
     rank: index + 1,
@@ -205,19 +212,19 @@ export function recordRun({ cash, fares, seconds, shift = '' }, store = defaultS
      * opening value would quietly undo it.
      */
     setName: (raw) => {
-      const current = loadScores(store);
+      const current = loadScores(store, table);
       const row = current.find((item) => item.id === entry.id);
       const name = normaliseName(raw) || row?.name || entry.name;
       rememberName(name, store);
       if (!row) return current;      // pushed off the table by another tab while the prompt was up
       row.name = name;
-      saveScores(current, store);
+      saveScores(current, store, table);
       return current;
     },
   };
 }
 
 /** Wipe the table. The initials are kept — they are a preference, not a score. */
-export function clearScores(store = defaultStore()) {
-  try { store?.removeItem(KEY); } catch { /* nothing to clear is the same as cleared */ }
+export function clearScores(store = defaultStore(), table = KEY) {
+  try { store?.removeItem(table); } catch { /* nothing to clear is the same as cleared */ }
 }

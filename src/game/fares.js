@@ -156,6 +156,27 @@ export const RATING_START = 5;
 export const RATING_FLOOR = RATING_START - MAX_STRIKES;
 export function ratingFor(strikes) { return RATING_START - strikes; }
 
+/**
+ * How long a shift is, in seconds of fare clock (Tyler's idea, 2026-10-19): the run is a fixed
+ * length and the score is what the taxi earns in it, so every run on the table is the same size and
+ * the cash on it is comparable. `?shift=classic` is the old endless run, ended only by the rating,
+ * a wreck or a bust; `?shift=N` pins the length for tuning.
+ *
+ * Five minutes because of where runs already end on their own. The sweep's perfect players are
+ * done around the ninth to twelfth fare (difficulty.md) and FARE_CYCLE puts a delivery at ~35s, so
+ * an unshifted run lasts five to seven minutes. A shift longer than that changes nothing for most
+ * players; at five, a player who keeps their rating finishes on the clock, and one who doesn't is
+ * fired first.
+ *
+ * **The stars stay.** A clock alone makes every rider free to drop — the optimal shift would be to
+ * grab whoever is nearest and let the rest time out — so the rating is what keeps a rider's own
+ * clock worth reading. The shift is the run; the rating can still end it early.
+ *
+ * It counts the same seconds a fare's clock does: held while the tutorial talks (`paused`), and not
+ * ticked at all while main.js holds the fare loop (the vignette, the garage, the wipe).
+ */
+export const SHIFT_SECONDS = 300;
+
 // --- VIP pickups ---------------------------------------------------------------
 //
 // A rare, cash-rich rider layered on top of the ordinary board: a fixed-purple diamond (see
@@ -757,6 +778,9 @@ export const waitingTargets = (slot) => [slot.passenger.group, slot.marker.group
 export function createFareSystem(rng, scene, {
   reserved = () => [], judgeRun = () => ({ runs: [], mult: 1 }), rating = true, risingOdds = true, alwaysRob = BANK_ROBBER_ALWAYS, forceRob = () => false, forceBank = () => false,
   quest = questMark,
+  // Seconds, or null for no shift. Null by default so the headless tools, which play long runs to
+  // measure the ramp, keep the endless loop; main.js hands in SHIFT_SECONDS.
+  shift = null,
 } = {}) {
   const state = {
     // Active fares, newest last. At most MAX_FARES, and up to MAX_FARES - 1 of them can be
@@ -767,6 +791,11 @@ export function createFareSystem(rng, scene, {
     delivered: 0,
     // Riders let go on the kerb this run. See MAX_STRIKES.
     strikes: 0,
+    // Seconds left on the shift, or null for the endless run (`?shift=classic`). See SHIFT_SECONDS.
+    shiftLeft: shift ?? null,
+    // The buzzer has gone and the last ride is being driven out: nobody new appears, and the shift
+    // ends the moment the seat is empty. See `closeShift`.
+    closing: false,
     // Time of the most recent spawn, so refills stagger by difficulty.spawnGap() rather than
     // bursting.
     // -Infinity so the very first spawn is unrestricted.
@@ -1787,6 +1816,8 @@ export function createFareSystem(rng, scene, {
    * only built once.
    */
   function shouldRefill() {
+    // The shift is over; only the rider already aboard is still being driven.
+    if (state.closing) return false;
     // Nobody new turns up while a getaway runs — see `concealed`.
     if (concealed()) return false;
     // An empty board always refills, whatever the curve says — the ordinary one-fare loop, and the
@@ -2133,8 +2164,38 @@ export function createFareSystem(rng, scene, {
       }
     }
 
+    // The shift clock, after the fares so a drop-off on the buzzer's own frame still pays.
+    if (state.shiftLeft !== null && !state.closing && !state.paused) {
+      state.shiftLeft = Math.max(0, state.shiftLeft - dt);
+      if (state.shiftLeft === 0) closeShift(emit);
+    }
+    // The seat emptied after the buzzer, by a drop-off or by a rider giving up: that was the last
+    // ride, and the shift is done.
+    if (state.closing && !state.gameOver && !carrying()) {
+      state.gameOver = true;
+      state.failTitle = 'Shift Over!';
+      state.failReason = `You drove ${state.delivered} ${state.delivered === 1 ? 'rider' : 'riders'} this shift.`;
+      emit('shift-over', null);
+    }
+
     updateExits(dt);
     return events ?? NO_EVENTS;
+  }
+
+  /**
+   * The buzzer. Everyone still on the kerb leaves without a strike — the shift ended on them, they
+   * did not give up on the driver — and nobody new turns up. A rider **aboard** keeps their seat
+   * and their own clock, and the shift ends when they are out.
+   *
+   * That last ride is the point of the rule. A shift that ended on the buzzer would make every
+   * pickup in its last half-minute worthless, so a player who could read the clock would stop
+   * playing before the game did. With the ride honoured, any rider collected before 0:00 pays,
+   * and the final seconds are a scramble for one more pickup rather than a wait for the end.
+   */
+  function closeShift(emit) {
+    state.closing = true;
+    for (const fare of [...state.fares]) { if (fare.stage === 'waiting') clear(fare); }
+    emit('shift-buzzer', carrying() ?? null);
   }
 
   /**

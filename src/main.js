@@ -56,7 +56,7 @@ import { createCrushSlowMo } from './game/crushslowmo.js';
 import { createPolice } from './sim/police.js';
 import {
   createFareSystem, cornerFor, kerbFor, setFareSeconds, getFareSeconds, isFareClockPinned, BURGER_PRICE, REPAIR_PRICE,
-  BOARD_SECONDS, MAX_STRIKES, RATING_FLOOR, ratingFor,
+  BOARD_SECONDS, MAX_STRIKES, RATING_FLOOR, ratingFor, SHIFT_SECONDS,
 } from './game/fares.js';
 import { createDebugPanel } from './game/debugpanel.js';
 import { createPhoneFrame } from './game/phoneframe.js';
@@ -121,7 +121,7 @@ import { createFlatbed } from './game/flatbed.js';
 import { createBoxSpill } from './game/boxspill.js';
 import { showRunEnd } from './game/runend.js';
 import { createSnapshot, PHOTO } from './game/polaroid.js';
-import { recordRun, lastName, clearScores, loadScores } from './game/highscores.js';
+import { recordRun, lastName, clearScores, loadScores, SHIFT_TABLE } from './game/highscores.js';
 import { loadLocoTuning, saveLocoTuning, clearLocoTuning } from './game/locostash.js';
 import {
   TAXI_TAILPIPE_BACK, TAXI_TAILPIPE_HEIGHT, TAXI_REAR_AXLE_BACK, TAXI_REAR_TRACK,
@@ -966,8 +966,24 @@ const combo = createComboMeter({ scope: comboScope(new URLSearchParams(window.lo
 // The strikes read as a driver's star rating by default; `?rating=off` puts the three rings back.
 // See RATING_START in game/fares.js.
 const ratingOn = new URLSearchParams(window.location.search).get('rating') !== 'off';
+// The run is a timed shift by default (SHIFT_SECONDS in game/fares.js); `?shift=classic` is the
+// endless run, and `?shift=N` pins the length in seconds for tuning. Shifts rank on a table of their
+// own (SHIFT_TABLE), which every read and write of the scores below goes through.
+const shiftSeconds = (() => {
+  const raw = new URLSearchParams(window.location.search).get('shift');
+  if (raw === 'classic') return null;
+  const n = Number(raw);
+  return raw && Number.isFinite(n) && n > 0 ? n : SHIFT_SECONDS;
+})();
+const scoreTable = shiftSeconds === null ? undefined : SHIFT_TABLE;
+const shiftScores = {
+  load: (store) => loadScores(store, scoreTable),
+  record: (run, store) => recordRun(run, store, scoreTable),
+  clear: (store) => clearScores(store, scoreTable),
+};
 const fares = createFareSystem(makeRng(runSeed + 55), scene, {
   rating: ratingOn,
+  shift: shiftSeconds,
   // The bank rider's coin loads with every one who rides — BANK_ROBBER_STEP in game/fares.js.
   risingOdds: new URLSearchParams(window.location.search).get('robberyodds') !== 'classic',
   // Demo mode: every bank rider is the robbery, whatever BANK_ROBBER_ALWAYS says. Read live, since
@@ -2642,6 +2658,9 @@ let ramShove = null;
 // 3000 clears it with a beat to spare. It was 2400 while the shot was a standing pin, which nothing
 // but the zoom was moving — at that number the retry screen now slides over a rider still running.
 const TIMEOUT_BANNER_DELAY = 3000;
+// The end of a shift (game/fares.js `closeShift`). Long enough for a combo payout on the last
+// drop-off to pop, punch and land on the counter before the card covers it.
+const SHIFT_BANNER_DELAY = 2600;
 const TIMEOUT_ZOOM = 30;
 const TIMEOUT_SLOW_MO_MIN = 0.4;
 
@@ -4004,8 +4023,32 @@ const hud = {
   runs: document.getElementById('runs'),
   strikes: document.getElementById('strikes'),
   rating: document.getElementById('rating'),
+  shiftClock: document.getElementById('shift-clock'),
   banner: document.getElementById('run-end'),
 };
+if (hud.shiftClock) hud.shiftClock.hidden = shiftSeconds === null;
+
+// The shift clock under the rating: whole seconds, rounded up so 0:00 is the buzzer and not the
+// second before it. Red for the last SHIFT_LOW seconds, and each of the last SHIFT_TICK of them
+// knocks, so the end of a shift is heard in the corner of the eye rather than read.
+const SHIFT_LOW = 30;
+const SHIFT_TICK = 10;
+let shiftShown = null;
+function showShiftClock(left) {
+  if (!hud.shiftClock || left === null) return;
+  const whole = Math.ceil(left);
+  if (whole === shiftShown) return;
+  shiftShown = whole;
+  const text = formatRunTime(whole);
+  hud.shiftClock.querySelector('.shift-num').textContent = text;
+  hud.shiftClock.classList.toggle('is-low', whole <= SHIFT_LOW);
+  if (whole <= SHIFT_TICK) {
+    hud.shiftClock.classList.remove('is-tick');
+    void hud.shiftClock.offsetWidth;
+    hud.shiftClock.classList.add('is-tick');
+  }
+  hud.shiftClock.setAttribute('aria-label', `Shift: ${text} left`);
+}
 
 function updateRunTags() {
   if (hud.runs) updateComboTag(hud.runs);
@@ -4635,7 +4678,9 @@ function isRankedRun() {
   // `difficulty.getPinned()` rather than `getDifficultyPin()`: the URL flag is only one of the two
   // ways the curve gets pinned, and the ⚙️ panel's slider — the one anybody actually reaches for —
   // calls `pinDifficulty` directly without touching the URL. Reading the live state catches both.
-  return !shot && pinnedCars === null && difficulty.getPinned() === null && !isFareClockPinned();
+  // A shift pinned to any length but the shipped one is a different-sized run on the same table.
+  return !shot && pinnedCars === null && difficulty.getPinned() === null && !isFareClockPinned()
+    && (shiftSeconds === null || shiftSeconds === SHIFT_SECONDS);
 }
 
 /**
@@ -4647,7 +4692,7 @@ function isRankedRun() {
 function collectScores() {
   if (!isRankedRun()) return null;
   const s = fares.state;
-  const result = recordRun({
+  const result = shiftScores.record({
     cash: s.money,
     fares: s.delivered,
     seconds: s.elapsed,
@@ -4666,6 +4711,7 @@ function collectScores() {
 function updateHud(dt) {
   const s = fares.state;
   updateRunTags();
+  showShiftClock(s.shiftLeft);
 
   if (s.gameOver && hud.banner && hud.banner.hidden) {
     // Every ending holds the banner while its own closing beat plays — CRASH_BANNER_DELAY for the
@@ -4696,7 +4742,11 @@ function updateHud(dt) {
         // Cash counts up; these two are typed out (Tyler, 2026-10-23) — a combo or a clock rolling
         // up from zero says nothing the final figure doesn't.
         { label: 'Max combo', value: Math.round(combo.state.best * 10), format: (n) => formatMult(Math.max(1, n / 10)), reveal: 'type' },
-        { label: 'Time', value: s.elapsed, format: formatRunTime, reveal: 'type' },
+        // A shift is always the same length, so Time says nothing there and the riders take its
+        // row: with the clock fixed, how many rides fit in it is the other half of how it went.
+        s.shiftLeft === null
+          ? { label: 'Time', value: s.elapsed, format: formatRunTime, reveal: 'type' }
+          : { label: 'Rides', value: s.delivered, format: (n) => `${n}`, reveal: 'type' },
       ],
       // Recorded here rather than the moment the run ended, so the write happens on the frame the
       // screen is actually built — every ending holds this block for a beat, and a score saved
@@ -7523,6 +7573,25 @@ function tick() {
       // The seat is empty from this frame on — they are getting out of it in shot — so the roof
       // sign goes back to vacant rather than holding "occupied" over a cab nobody is in.
       traffic.setTaxiOccupied(false);
+    } else if (type === 'shift-buzzer') {
+      // 0:00. The kerb has emptied (fares.js `closeShift`); a rider aboard is the last ride and is
+      // driven out, and with nobody aboard 'shift-over' lands on this same frame.
+      haptic('perfect-lost');
+      if (fare) popLabel('Last ride!');
+      else if (!traffic.taxi.crashed) {
+        traffic.taxi.route = [];
+        traffic.taxi.pendingTarget = null;
+      }
+    } else if (type === 'shift-over') {
+      // The shift is done: no impact and nobody walking out, so the beat is a gentle hold on the
+      // taxi while the last payout flies to the counter (SHIFT_BANNER_DELAY), with no slow-mo.
+      // The taxi stops for it for the same reason it does on a timeout.
+      endSpot = { x: traffic.taxi.x, z: traffic.taxi.z };
+      endZoom = TIMEOUT_ZOOM;
+      crashBannerAt = performance.now() + SHIFT_BANNER_DELAY;
+      traffic.taxi.crashed = true;
+      traffic.taxi.v = 0;
+      boost.release();
     } else if (type === 'vip-missed' || type === 'robber-missed' || type === 'missed') {
       // The rider swearing as they storm off (geometry/cursebubble.js) — out of the cab if they
       // were aboard, off their kerb if not.
@@ -8488,7 +8557,7 @@ if (!shot && wantsDebugPanel) {
     bloom,
     hdr,
     crt,
-    scores: { load: loadScores, clear: clearScores },
+    scores: { load: shiftScores.load, clear: shiftScores.clear },
     clouds,
     inspect,
     // The entrance levers. The panel's replay re-aims the wave at wherever the taxi is *now* —
@@ -8749,7 +8818,7 @@ window.__taxi = {
    * exercised. `isRanked` is exposed alongside it because "why did my run not save?" is otherwise
    * a silent answer spread over four URL flags.
    */
-  scores: { load: loadScores, record: recordRun, clear: clearScores, isRanked: isRankedRun },
+  scores: { ...shiftScores, isRanked: isRankedRun },
   /**
    * Hurt the taxi as a bump would — `damage` HP off, the hit landing on its front right corner — with
    * none of the bump's shove. Everything the car wears for it (game/taxidamage.js) and the hit cue
