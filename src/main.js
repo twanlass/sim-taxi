@@ -4068,7 +4068,7 @@ function showDayGoal(money) {
  * The shift is over, however it ended: a cleared day banks its cash and moves the week on, and
  * anything else leaves the save alone, so the next run is the same day from the top with the
  * failed shift's cash gone (Tyler, 2026-10-31). A pinned `?day=` saves nothing. Answers the line
- * the run-end card adds under its reason.
+ * the run-end card adds under its reason on a cleared day, or null.
  */
 /**
  * The day's name, big and centred (game/daycard.js), once a run, on the frame the taxi rolls off the
@@ -4086,7 +4086,8 @@ function announceDay() {
 
 function closeDay(s) {
   if (today === null) return null;
-  if (!s.cleared) return `Back to the start of ${today.name}.`;
+  // A fail says nothing extra (Tyler, 2026-10-31: cut "Back to the start of Friday.").
+  if (!s.cleared) return null;
   if (!today.pinned) clearDay(weekStore, today.index, s.money);
   const last = today.index >= DAYS.length - 1;
   return last ? 'Week cleared! The robo-taxis are rolling out.' : `${DAYS[today.index + 1].name} is next.`;
