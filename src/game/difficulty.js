@@ -191,9 +191,16 @@ let pinned = null;
 export const pinDifficulty = (v) => { pinned = v === null ? null : clamp01(v); };
 export const getPinned = () => pinned;
 
+// Where the curve starts, for a day later in the week (game/days.js `floor`): the ramp runs from
+// here to 1 over the same RAMP_FARES rather than from 0, so Monday opens about where Friday was
+// five fares in. A pin still overrides it outright.
+let floor = 0;
+export const setFloor = (v) => { floor = clamp01(v); };
+export const getFloor = () => floor;
+
 /** Where the run is on the curve: 0 at the first fare, 1 once the ramp has run its length. */
 export const difficulty = (delivered) =>
-  pinned ?? clamp01(delivered / TUNING.rampFares);
+  pinned ?? clamp01(floor + (1 - floor) * delivered / TUNING.rampFares);
 
 // --- The two dials --------------------------------------------------------------
 // Each takes the delivery count so no caller has to hold `d` itself, and each is a plain lerp

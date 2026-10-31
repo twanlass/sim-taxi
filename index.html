@@ -494,6 +494,64 @@
         #rating.is-drop .rating-star, #rating.is-drop .rating-num { animation: none; }
       }
 
+      /* The shift clock, under the rating and set like it: an icon and a number, tabular so the
+         digits don't shuffle as they count. Red for the last 30 seconds, and each of the last ten
+         knocks (`is-tick`, re-added every second by main.js). */
+      #shift-clock[hidden] { display: none; }
+      #shift-clock {
+        display: flex; align-items: center; gap: 5px; margin-top: 4px;
+        font-size: 18px; line-height: 20px; letter-spacing: 0.04em;
+        font-variant-numeric: tabular-nums;
+      }
+      #shift-clock .shift-icon {
+        width: 19px; height: 19px; flex: none; overflow: visible;
+        fill: none; stroke: #fff; stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round;
+        filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.45));
+      }
+      #shift-clock .shift-num { display: inline-block; transition: color 0.3s ease; }
+      #shift-clock.is-low .shift-num { color: #FF5A4A; }
+      #shift-clock.is-low .shift-icon { stroke: #FF5A4A; }
+      #shift-clock.is-tick .shift-num { animation: shift-tick 0.4s cubic-bezier(0.34, 1.56, 0.64, 1); }
+      @keyframes shift-tick {
+        0%   { transform: scale(1.35); }
+        100% { transform: scale(1); }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        #shift-clock.is-tick .shift-num { animation: none; }
+      }
+
+      /* The day's target, under the shift clock and set like it. The name is a quiet tag; the
+         number turns the HUD's green once the target is made. */
+      #day-goal[hidden] { display: none; }
+      #day-goal {
+        display: flex; align-items: baseline; gap: 6px; margin-top: 4px;
+        font-size: 16px; line-height: 20px; letter-spacing: 0.04em;
+        font-variant-numeric: tabular-nums;
+      }
+      #day-goal .day-name { font-size: 12px; text-transform: uppercase; opacity: 0.75; }
+      #day-goal .day-num { transition: color 0.3s ease; }
+      #day-goal.is-made .day-num { color: #6BE36B; }
+
+      /* The day's name before the run (game/daycard.js): big white type with the pop text's dark
+         stroke, dead centre, punching in and fading out. Above the title screen and the HUD. */
+      #day-card {
+        position: fixed; inset: 0; z-index: 60; display: flex; align-items: center; justify-content: center;
+        cursor: pointer; user-select: none; -webkit-user-select: none;
+      }
+      #day-card .day-card-word {
+        font: 700 clamp(40px, 12vw, 84px)/1 var(--game-font); color: #fff;
+        text-transform: uppercase; letter-spacing: 0.02em; pointer-events: none;
+        -webkit-text-stroke: clamp(6px, 0.12em, 14px) #121318; paint-order: stroke fill;
+        animation: day-card-in 0.38s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+      }
+      #day-card.is-out .day-card-word { animation: day-card-out 0.42s ease-in both; }
+      @keyframes day-card-in { from { transform: scale(1.6); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+      @keyframes day-card-out { from { transform: scale(1); opacity: 1; } to { transform: scale(0.92); opacity: 0; } }
+      @media (prefers-reduced-motion: reduce) {
+        #day-card .day-card-word { animation: none; }
+        #day-card.is-out .day-card-word { animation: day-card-out 0.42s linear both; transform: none; }
+      }
+
       /* Cargo chip — the courier box, pictured right of the gas pedal while a package is aboard.
          See src/game/cargochip.js for what is inside it. It sat under the cash total until Tyler's
          HUD shuffle (2026-10-05) gave the top-left to the cash and the top-right to the pause, and
@@ -2848,6 +2906,18 @@
       <div id="rating" role="img" aria-label="Rating 5.0 stars">
         <svg class="rating-star" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2.6l2.9 5.9 6.5.95-4.7 4.6 1.1 6.5L12 17.5l-5.8 3.05 1.1-6.5-4.7-4.6 6.5-.95z"/></svg>
         <span class="rating-num">5.0</span>
+      </div>
+      <!-- The shift clock (SHIFT_SECONDS in game/fares.js), under the rating. `showShiftClock` in
+           main.js fills it; hidden under `?shift=classic`. -->
+      <div id="shift-clock" role="timer" aria-label="Shift: 5:00 left">
+        <svg class="shift-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="13.5" r="7.5"/><path d="M12 9.5v4l2.6 2M9.5 3h5M12 3v3"/></svg>
+        <span class="shift-num">5:00</span>
+      </div>
+      <!-- The day and its target (game/days.js), under the clock: "Fri $120 / $150". `showDayGoal`
+           in main.js fills it; hidden when there is no day (`?days=classic`). -->
+      <div id="day-goal" role="status" aria-label="Day target" hidden>
+        <span class="day-name">Fri</span>
+        <span class="day-num">$0 / $150</span>
       </div>
       <!-- What the ride aboard is on course for — Loco, Perfect, Stealth. Filled by `updateRunTags`
            in main.js; empty between rides. -->

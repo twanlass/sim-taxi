@@ -3342,6 +3342,125 @@ check('no two cars occupy the same space', pairsTooClose < pairSamples / 8,
   }
 }
 
+// --- The shift --------------------------------------------------------------------
+// The run is a fixed-length shift (SHIFT_SECONDS). Two endings to get right: a buzzer with an empty
+// seat ends the shift on the spot, and one with a rider aboard lets that ride finish and pays it —
+// with nobody new turning up in between, and nobody on the kerb charged a star for the clock
+// running out on *them*.
+{
+  // An empty seat at the buzzer: the waiting rider leaves, no strike, the shift is over that frame.
+  {
+    const sScene = new THREE.Scene();
+    const sTraffic = createTraffic(makeRng(seed + 44), sScene, 24);
+    const fares = createFareSystem(makeRng(seed + 55), sScene, { shift: 4 });
+    sTraffic.warmup(5);
+    let overAt = null;
+    let pausedHeld = false;
+    for (let f = 0; f < 600 && !fares.state.gameOver; f++) {
+      // A second of tutorial in the middle: the shift is the fare clock and holds with it.
+      fares.setPaused(f >= 60 && f < 120);
+      const before = fares.state.shiftLeft;
+      sTraffic.update(1 / 60);
+      const events = fares.update(1 / 60, sTraffic.taxi);
+      if (f === 90) pausedHeld = fares.state.shiftLeft === before;
+      if (events.some((e) => e.type === 'shift-over')) overAt = f;
+    }
+    check('a shift with nobody aboard ends on the buzzer',
+      fares.state.gameOver && fares.state.failTitle === 'Shift Over!' && overAt !== null
+        && Math.abs((overAt + 1) / 60 - 5) < 0.05, `ended frame ${overAt}`);
+    check('and the rider left on the kerb costs no star', fares.state.strikes === 0
+      && fares.state.fares.length === 0);
+    check('the shift clock holds while the fare clocks do', pausedHeld);
+  }
+  // A rider aboard at the buzzer: driven out and paid, with the board shut behind them.
+  {
+    const sScene = new THREE.Scene();
+    const sTraffic = createTraffic(makeRng(seed + 44), sScene, 24);
+    const fares = createFareSystem(makeRng(seed + 55), sScene, { shift: 600 });
+    sTraffic.warmup(5);
+    const send = (fare) => {
+      const r = findRoute(planOrigin(sTraffic.taxi), fare.target);
+      if (r) { sTraffic.taxi.route = r; sTraffic.taxi.routeConsumed = false; fares.markDirected(fare); }
+    };
+    let buzzed = null;
+    let spawnedAfter = 0;
+    let paid = null;
+    let overWithDelivery = false;
+    for (let f = 0; f < 60 * 240 && !fares.state.gameOver; f++) {
+      sTraffic.update(1 / 60);
+      const events = fares.update(1 / 60, sTraffic.taxi);
+      for (const { type, fare } of events) {
+        if (type === 'spawned' && !fares.carrying() && !buzzed) send(fare);
+        if (type === 'spawned' && buzzed) spawnedAfter += 1;
+        if (type === 'pickup') { send(fare); fares.state.shiftLeft = 0.001; }
+        if (type === 'shift-buzzer') buzzed = fare;
+        if (type === 'delivered') paid = fare.value;
+        if (type === 'shift-over') overWithDelivery = paid !== null;
+      }
+    }
+    check('a rider aboard at the buzzer gets the last ride',
+      buzzed !== null && overWithDelivery && fares.state.money === paid && fares.state.delivered === 1,
+      `buzzer ${buzzed ? 'with' : 'without'} a rider, paid ${paid}, cash ${fares.state.money}`);
+    check('and nobody new turns up after the buzzer', spawnedAfter === 0, `${spawnedAfter} spawned`);
+  }
+  // The endless run is still the fare loop's default, for every tool that plays long runs.
+  check('a fare loop with no shift has no shift clock',
+    createFareSystem(makeRng(seed + 55), new THREE.Scene()).state.shiftLeft === null);
+}
+
+// --- The week ---------------------------------------------------------------------
+// A day is a shift with a target (game/days.js): the buzzer is a pass or a fail on the cash, only a
+// pass moves the save on and banks the cash, and a later day starts the ramp part way up.
+{
+  const { DAYS, loadWeek, clearDay, resetWeek, dayByKey } = await import('../src/game/days.js');
+  const buzz = (target, money) => {
+    const sScene = new THREE.Scene();
+    const sTraffic = createTraffic(makeRng(seed + 44), sScene, 24);
+    const fares = createFareSystem(makeRng(seed + 55), sScene, { shift: 2, target });
+    fares.state.money = money;
+    for (let f = 0; f < 600 && !fares.state.gameOver; f++) {
+      sTraffic.update(1 / 60);
+      fares.update(1 / 60, sTraffic.taxi);
+    }
+    return fares.state;
+  };
+  const made = buzz(100, 120);
+  const short = buzz(100, 80);
+  check('a day that makes its target is cleared at the buzzer',
+    made.gameOver && made.cleared === true && made.failTitle === 'Day Cleared!', made.failTitle);
+  check('and one that does not comes up short',
+    short.gameOver && short.cleared === false && short.failTitle === 'Came Up Short!', short.failTitle);
+  check('a shift with no target is neither', buzz(null, 0).cleared === null);
+
+  const mem = new Map();
+  const store = { getItem: (k) => mem.get(k) ?? null, setItem: (k, v) => mem.set(k, v), removeItem: (k) => mem.delete(k) };
+  const fresh = loadWeek(store);
+  const after = clearDay(store, 0, 180);
+  const reread = loadWeek(store);
+  check('the week starts on Friday with nothing banked', fresh.day === 0 && fresh.bank === 0 && DAYS[0].key === 'fri');
+  check('clearing a day banks its cash and moves the week on',
+    after.day === 1 && reread.day === 1 && reread.bank === 180, JSON.stringify(reread));
+  const last = clearDay(store, DAYS.length - 1, 10);
+  check('clearing the last day clears the week and stays on it',
+    last.day === DAYS.length - 1 && last.weeks === 1 && last.bank === 190, JSON.stringify(last));
+  resetWeek(store);
+  check('a reset week is Friday again', loadWeek(store).day === 0 && loadWeek(store).bank === 0);
+  const broken = { getItem: () => { throw new Error('SecurityError'); }, setItem: () => { throw new Error('SecurityError'); } };
+  check('a store that throws plays Friday rather than throwing', loadWeek(broken).day === 0 && clearDay(broken, 0, 5).day === 1);
+  check('every day has a clock, a target that climbs, and an event rule',
+    DAYS.every((d, i) => d.seconds > 0 && d.target > 0 && ['off', 'on', 'force'].includes(d.bank)
+      && (i === 0 || d.target > DAYS[i - 1].target && d.floor >= DAYS[i - 1].floor)));
+  check('a day key that names no day pins nothing', dayByKey('nope') === -1 && dayByKey(null) === -1 && dayByKey('mon') === 3);
+
+  const d = await import('../src/game/difficulty.js');
+  d.setFloor(0.4);
+  const opens = d.difficulty(0);
+  const tops = d.difficulty(d.getTuning().rampFares);
+  d.setFloor(0);
+  check('a day floor starts the ramp part way up and still tops out at 1',
+    Math.abs(opens - 0.4) < 1e-9 && tops === 1 && d.difficulty(0) === 0, `${opens} → ${tops}`);
+}
+
 // --- The drop-off ring drains with the rider in the car -----------------------
 // The disc at the far end of a trip is painted in the clock of whoever is aboard, and that is only
 // worth anything if it walks the scale as the clock does. The played run above asserts the ring and

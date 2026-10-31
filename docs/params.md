@@ -187,6 +187,9 @@ doc; what the classic version was, and why it changed, is in that doc's history 
 | `?combo=run` | The combo meter carries across fares instead of cashing per ride | [gameplay.md](gameplay.md) |
 | `?rating=off` | Three strike rings instead of the star rating | [difficulty.md](difficulty.md) |
 | `?stars=classic` | Show the star rating under the cash (hidden by default since 2026-10-20; the rating still fires you) | [difficulty.md](difficulty.md) |
+| `?days=classic` | The plain shift with no earnings target and no week, instead of today's day | [gameplay.md](gameplay.md#the-week) |
+| `?day=mon` / `?day=reset` | Play that day (`fri`, `sat`, `sun`, `mon`) without saving the week, or send the saved week back to Friday | [gameplay.md](gameplay.md#the-week) |
+| `?shift=classic` / `?shift=90` | The endless run instead of a five-minute shift, or a shift of that many seconds (unranked) | [gameplay.md](gameplay.md#the-shift) |
 | `?grace=1.6` | How long a newly caught car is tailgated before holding Loco rams it (default `OVERTAKE_GRACE`); `0` is the old rule | [gameplay.md](gameplay.md) |
 | `?pressgrace=classic` | No grace on a fresh Loco press behind a car: the combo's first tap from a taxi already sitting behind one can ram it | [traffic.md](traffic.md) |
 | `?hitcue=chip` / `edge` / `both` | A cue for how much a hit cost: a bar over the roof, a red edge, or both. Off by default | [gameplay.md](gameplay.md) |
