@@ -809,10 +809,12 @@ from the top and its cash is lost** — only a cleared day banks what it earned,
 not exist yet. The HUD shows the day and the cash against its target under the clock
 (`#day-goal`), green once it is made.
 
-**The day's name opens the run** (`game/daycard.js`, `#day-card`; Tyler, 2026-10-31): big white
-type with the pop text's dark stroke, dead centre, for about two seconds, ahead of the backstory.
-From the title it holds Play's hand-off until it fades; after Play again, which skips the title, it
-goes up over the start of the opening vignette instead. A tap skips it.
+**The day's name goes up as the taxi rolls out of the garage** (`game/daycard.js`, `#day-card`;
+Tyler, 2026-10-31): big white type with the pop text's dark stroke, dead centre, for about two
+seconds, on the frame the taxi comes off the garage's kerb at the end of the
+[opening vignette](#the-opening-vignette) — every run, whether it came from the title, the story or
+Play again. A skipped opening puts it up on the handover instead. A repair visit's drive-out never
+shows it. A tap skips it.
 
 | Day | Target | Floor | Events |
 |---|---|---|---|

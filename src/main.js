@@ -4070,6 +4070,20 @@ function showDayGoal(money) {
  * failed shift's cash gone (Tyler, 2026-10-31). A pinned `?day=` saves nothing. Answers the line
  * the run-end card adds under its reason.
  */
+/**
+ * The day's name, big and centred (game/daycard.js), once a run, on the frame the taxi rolls off the
+ * garage's kerb at the end of the opening (Tyler, 2026-10-31: "always show the day after the taxi
+ * rolls out of the garage") — the same beat on the first run, after the story, and after Play
+ * again. A skipped or switched-off opening never drives over the kerb, so `updateHud` puts it up
+ * the frame the opening hands over instead. Never for a repair visit's drive-out.
+ */
+let dayAnnounced = false;
+function announceDay() {
+  if (dayAnnounced || today === null) return;
+  dayAnnounced = true;
+  showDayCard(document.body, today.name);
+}
+
 function closeDay(s) {
   if (today === null) return null;
   if (!s.cleared) return `Back to the start of ${today.name}.`;
@@ -4763,6 +4777,7 @@ function updateHud(dt) {
   updateRunTags();
   showShiftClock(s.shiftLeft);
   showDayGoal(s.money);
+  if (!dayAnnounced && runBegun && !s.gameOver && (!opening || opening.phase() === 'done')) announceDay();
 
   if (s.gameOver && hud.banner && hud.banner.hidden) {
     // Every ending holds the banner while its own closing beat plays — CRASH_BANNER_DELAY for the
@@ -6419,18 +6434,11 @@ const title = wantsTitle ? createTitleScreen(document.getElementById('title-scre
   demo,
   // The first Play on a device hears dispatch out first, over the backdrop, with the gate still shut —
   // see game/backstory.js. `?intro=classic` goes straight to the garage as before.
-  // The day's name comes first, ahead of the story (game/daycard.js).
   beforePlay: (done) => {
-    const story = wantsBackstory(backstoryMode({ always: settings.get().introAlways }));
-    if (!story && !today) return false;
+    if (!wantsBackstory(backstoryMode({ always: settings.get().introAlways }))) return false;
     const screen = document.getElementById('title-screen');
-    const tell = () => {
-      if (!story) { done(); return; }
-      if (demo.on()) { holdForPreamble(screen, () => startBackstory(screen, done)); return; }
-      startBackstory(screen, done);
-    };
-    if (today) showDayCard(document.body, today.name, tell);
-    else tell();
+    if (demo.on()) { holdForPreamble(screen, () => startBackstory(screen, done)); return true; }
+    startBackstory(screen, done);
     return true;
   },
   onPlay: () => {
@@ -6524,11 +6532,7 @@ function dropTutorial() {
 // talking; on again cannot bring it back, but the New Move cards read the setting live and resume.
 // Before Play it waits for `beginRun` — dropping it under the title screen would let the HUD in.
 settings.onChange((v) => { if (runBegun && !v.tips && !demo.on()) dropTutorial(); });
-if (!title) {
-  beginRun();
-  // Play again skips the title, so the day's name goes up over the start of the opening instead.
-  if (today) showDayCard(document.body, today.name);
-}
+if (!title) beginRun();
 
 // While that screen is up the run is parked: no fare spawns, and no clock drains. The traffic keeps
 // driving behind the black — the screen sinks the city rather than replacing it, so a frozen one
@@ -8512,7 +8516,11 @@ if (shot) {
       isBlocked: () => parked() || cityEntry.running(),
       // Off the kerb. The same pool and the same call the boost trail uses, at about half a
       // barricade's power — two wheels coming off a 0.35-unit lip, not a car landing off a ramp.
-      onDrop: () => dust.burst(traffic.taxi.x, traffic.taxi.z, traffic.taxi.yaw, 7, 0.5),
+      // ...and the day's name goes up as it lands on the road (`announceDay`).
+      onDrop: () => {
+        dust.burst(traffic.taxi.x, traffic.taxi.z, traffic.taxi.yaw, 7, 0.5);
+        if (opening?.running()) announceDay();
+      },
       // The nose out into daylight: the fender catches the sun. See game/glint.js.
       onClear: () => glint?.fire(),
       // What a repair visit shows while the door is down to its gap. See game/repairfx.js.
