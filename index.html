@@ -532,6 +532,26 @@
       #day-goal .day-num { transition: color 0.3s ease; }
       #day-goal.is-made .day-num { color: #6BE36B; }
 
+      /* The day's name before the run (game/daycard.js): big white type with the pop text's dark
+         stroke, dead centre, punching in and fading out. Above the title screen and the HUD. */
+      #day-card {
+        position: fixed; inset: 0; z-index: 60; display: flex; align-items: center; justify-content: center;
+        cursor: pointer; user-select: none; -webkit-user-select: none;
+      }
+      #day-card .day-card-word {
+        font: 700 clamp(56px, 17vw, 120px)/1 var(--game-font); color: #fff;
+        text-transform: uppercase; letter-spacing: 0.02em; pointer-events: none;
+        -webkit-text-stroke: clamp(6px, 0.12em, 14px) #121318; paint-order: stroke fill;
+        animation: day-card-in 0.38s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+      }
+      #day-card.is-out .day-card-word { animation: day-card-out 0.42s ease-in both; }
+      @keyframes day-card-in { from { transform: scale(1.6); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+      @keyframes day-card-out { from { transform: scale(1); opacity: 1; } to { transform: scale(0.92); opacity: 0; } }
+      @media (prefers-reduced-motion: reduce) {
+        #day-card .day-card-word { animation: none; }
+        #day-card.is-out .day-card-word { animation: day-card-out 0.42s linear both; transform: none; }
+      }
+
       /* Cargo chip — the courier box, pictured right of the gas pedal while a package is aboard.
          See src/game/cargochip.js for what is inside it. It sat under the cash total until Tyler's
          HUD shuffle (2026-10-05) gave the top-left to the cash and the top-right to the pause, and

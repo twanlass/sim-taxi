@@ -149,6 +149,7 @@ import {
 } from './util/geo.js';
 import * as difficulty from './game/difficulty.js';
 import { DAYS, dayByKey, loadWeek, clearDay, resetWeek } from './game/days.js';
+import { showDayCard } from './game/daycard.js';
 import { createHomeScreenTip } from './game/homescreen.js';
 import { createTitleScreen, TITLE_CAM } from './game/titlescreen.js';
 import { BACKSTORY_VOICES, backstoryMode, backstoryVoiced, tellBackstory, wantsBackstory } from './game/backstory.js';
@@ -6418,11 +6419,18 @@ const title = wantsTitle ? createTitleScreen(document.getElementById('title-scre
   demo,
   // The first Play on a device hears dispatch out first, over the backdrop, with the gate still shut —
   // see game/backstory.js. `?intro=classic` goes straight to the garage as before.
+  // The day's name comes first, ahead of the story (game/daycard.js).
   beforePlay: (done) => {
-    if (!wantsBackstory(backstoryMode({ always: settings.get().introAlways }))) return false;
+    const story = wantsBackstory(backstoryMode({ always: settings.get().introAlways }));
+    if (!story && !today) return false;
     const screen = document.getElementById('title-screen');
-    if (demo.on()) { holdForPreamble(screen, () => startBackstory(screen, done)); return true; }
-    startBackstory(screen, done);
+    const tell = () => {
+      if (!story) { done(); return; }
+      if (demo.on()) { holdForPreamble(screen, () => startBackstory(screen, done)); return; }
+      startBackstory(screen, done);
+    };
+    if (today) showDayCard(document.body, today.name, tell);
+    else tell();
     return true;
   },
   onPlay: () => {
@@ -6516,7 +6524,11 @@ function dropTutorial() {
 // talking; on again cannot bring it back, but the New Move cards read the setting live and resume.
 // Before Play it waits for `beginRun` — dropping it under the title screen would let the HUD in.
 settings.onChange((v) => { if (runBegun && !v.tips && !demo.on()) dropTutorial(); });
-if (!title) beginRun();
+if (!title) {
+  beginRun();
+  // Play again skips the title, so the day's name goes up over the start of the opening instead.
+  if (today) showDayCard(document.body, today.name);
+}
 
 // While that screen is up the run is parked: no fare spawns, and no clock drains. The traffic keeps
 // driving behind the black — the screen sinks the city rather than replacing it, so a frozen one
