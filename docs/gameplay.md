@@ -823,8 +823,9 @@ shows it. A tap skips it.
 | Sunday | $300 | 0.3 | Street race; the bank is shut |
 | Monday | $400 | 0.4 | Street race; the bank robbery, guaranteed |
 
-Every clock is the shipped five minutes, so every day still ranks on the shift table; the targets
-are a first guess and **untuned**. Only the bank robbery and the street race are events. The
+Every day's clock is **2:30** (Tyler, 2026-10-31, to play it and see; the targets were guessed for
+five minutes and left as they were). A day at its own length ranks on the shift table; the targets
+are **untuned**. Only the bank robbery and the street race are events. The
 garbage truck, the drawbridge, the fire and the patrols are the world and run every day (Tyler,
 2026-10-30). Clearing Monday clears the week and replays Monday, because the robo-taxis' days are
 not built. Off in shot and demo mode. `?days=classic` is the plain shift; `?day=sat` plays a day

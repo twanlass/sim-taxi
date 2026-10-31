@@ -4745,7 +4745,7 @@ function isRankedRun() {
   // calls `pinDifficulty` directly without touching the URL. Reading the live state catches both.
   // A shift pinned to any length but the shipped one is a different-sized run on the same table.
   return !shot && pinnedCars === null && difficulty.getPinned() === null && !isFareClockPinned()
-    && (shiftSeconds === null || shiftSeconds === SHIFT_SECONDS);
+    && (shiftSeconds === null || shiftSeconds === (today?.seconds ?? SHIFT_SECONDS));
 }
 
 /**

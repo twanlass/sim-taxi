@@ -15,8 +15,9 @@
  * the fire and the patrols are the world, and run every day (Tyler, 2026-10-30).
  *
  * UNTUNED. The targets are a first guess off FARE_CYCLE (35s a delivery for a player who boosts when
- * behind, ~$25-30 a fare early on) and every clock is the shipped SHIFT_SECONDS, which keeps each day
- * ranked on the shift table. Sweep before trusting any row.
+ * behind, ~$25-30 a fare early on) for a five-minute shift. Every clock was then halved to 2:30
+ * with the targets left alone (Tyler, 2026-10-31: "cut the daytime down to 2 minutes and 30
+ * seconds... don't change the cash requirement"), to play it and see. Sweep before trusting any row.
  */
 
 /**
@@ -25,12 +26,12 @@
  * `race`: whether a racer can turn up.
  */
 export const DAYS = Object.freeze([
-  { key: 'fri', name: 'Friday', seconds: 300, target: 150, floor: 0, bank: 'off', race: false },
-  { key: 'sat', name: 'Saturday', seconds: 300, target: 250, floor: 0.15, bank: 'off', race: true },
+  { key: 'fri', name: 'Friday', seconds: 150, target: 150, floor: 0, bank: 'off', race: false },
+  { key: 'sat', name: 'Saturday', seconds: 150, target: 250, floor: 0.15, bank: 'off', race: true },
   // The bank's closed on a Sunday.
-  { key: 'sun', name: 'Sunday', seconds: 300, target: 300, floor: 0.3, bank: 'off', race: true },
+  { key: 'sun', name: 'Sunday', seconds: 150, target: 300, floor: 0.3, bank: 'off', race: true },
   // The robbery, guaranteed; the robo-taxis roll out at Monday's buzzer (not built yet).
-  { key: 'mon', name: 'Monday', seconds: 300, target: 400, floor: 0.4, bank: 'force', race: true },
+  { key: 'mon', name: 'Monday', seconds: 150, target: 400, floor: 0.4, bank: 'force', race: true },
 ]);
 
 const STORE_KEY = 'simtaxi.days';
