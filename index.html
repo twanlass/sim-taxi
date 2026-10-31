@@ -520,6 +520,18 @@
         #shift-clock.is-tick .shift-num { animation: none; }
       }
 
+      /* The day's target, under the shift clock and set like it. The name is a quiet tag; the
+         number turns the HUD's green once the target is made. */
+      #day-goal[hidden] { display: none; }
+      #day-goal {
+        display: flex; align-items: baseline; gap: 6px; margin-top: 4px;
+        font-size: 16px; line-height: 20px; letter-spacing: 0.04em;
+        font-variant-numeric: tabular-nums;
+      }
+      #day-goal .day-name { font-size: 12px; text-transform: uppercase; opacity: 0.75; }
+      #day-goal .day-num { transition: color 0.3s ease; }
+      #day-goal.is-made .day-num { color: #6BE36B; }
+
       /* Cargo chip — the courier box, pictured right of the gas pedal while a package is aboard.
          See src/game/cargochip.js for what is inside it. It sat under the cash total until Tyler's
          HUD shuffle (2026-10-05) gave the top-left to the cash and the top-right to the pause, and
@@ -2880,6 +2892,12 @@
       <div id="shift-clock" role="timer" aria-label="Shift: 5:00 left">
         <svg class="shift-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="13.5" r="7.5"/><path d="M12 9.5v4l2.6 2M9.5 3h5M12 3v3"/></svg>
         <span class="shift-num">5:00</span>
+      </div>
+      <!-- The day and its target (game/days.js), under the clock: "Fri $120 / $150". `showDayGoal`
+           in main.js fills it; hidden when there is no day (`?days=classic`). -->
+      <div id="day-goal" role="status" aria-label="Day target" hidden>
+        <span class="day-name">Fri</span>
+        <span class="day-num">$0 / $150</span>
       </div>
       <!-- What the ride aboard is on course for — Loco, Perfect, Stealth. Filled by `updateRunTags`
            in main.js; empty between rides. -->

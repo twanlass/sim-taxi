@@ -797,6 +797,33 @@ and because the taxi has one seat, all but one of those are riders waiting on th
    they get out and storm off, the taxi is freed, and the third strike ends the run.
 6. The run itself is a [shift](#the-shift): five minutes, and the score is what the taxi earns in it.
 
+## The week
+
+**The game is a week of days, and each day is one shift** (`game/days.js`, Tyler, 2026-10-31). A
+day has its own clock, an **earnings target**, a floor on [the difficulty ramp](difficulty.md)
+(`setFloor`: a later day opens where an earlier one was finishing) and the events it allows. Clear
+the day by being on the road at the buzzer with the target made; the run-end card reads **Day
+Cleared!** and names the next day. A buzzer short of the target is **Came Up Short!**, and a wreck,
+a bust or a firing fails the day the way they always ended a run. **A failed day is played again
+from the top and its cash is lost** — only a cleared day banks what it earned, for a store that does
+not exist yet. The HUD shows the day and the cash against its target under the clock
+(`#day-goal`), green once it is made.
+
+| Day | Target | Floor | Events |
+|---|---|---|---|
+| Friday | $150 | 0 | No bank rider, no racer |
+| Saturday | $250 | 0.15 | Street race |
+| Sunday | $300 | 0.3 | Street race; the bank is shut |
+| Monday | $400 | 0.4 | Street race; the bank robbery, guaranteed |
+
+Every clock is the shipped five minutes, so every day still ranks on the shift table; the targets
+are a first guess and **untuned**. Only the bank robbery and the street race are events. The
+garbage truck, the drawbridge, the fire and the patrols are the world and run every day (Tyler,
+2026-10-30). Clearing Monday clears the week and replays Monday, because the robo-taxis' days are
+not built. Off in shot and demo mode. `?days=classic` is the plain shift; `?day=sat` plays a day
+without saving; `?day=reset` sends the week back to Friday. The design and its open questions are
+in project-files `shifts/proposal.md`.
+
 ## The shift
 
 A run is a **five-minute shift** (`SHIFT_SECONDS` in `game/fares.js`, Tyler's idea, 2026-10-19), and

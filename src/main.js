@@ -148,6 +148,7 @@ import {
   propMaterial, setGlossCity, setGlossGlobal, PAINT_UNIFORMS, placeJunctionPaving,
 } from './util/geo.js';
 import * as difficulty from './game/difficulty.js';
+import { DAYS, dayByKey, loadWeek, clearDay, resetWeek } from './game/days.js';
 import { createHomeScreenTip } from './game/homescreen.js';
 import { createTitleScreen, TITLE_CAM } from './game/titlescreen.js';
 import { BACKSTORY_VOICES, backstoryMode, backstoryVoiced, tellBackstory, wantsBackstory } from './game/backstory.js';
@@ -969,12 +970,29 @@ const ratingOn = new URLSearchParams(window.location.search).get('rating') !== '
 // The run is a timed shift by default (SHIFT_SECONDS in game/fares.js); `?shift=classic` is the
 // endless run, and `?shift=N` pins the length in seconds for tuning. Shifts rank on a table of their
 // own (SHIFT_TABLE), which every read and write of the scores below goes through.
+//
+// The shift is a day of the week by default (game/days.js): its own clock, an earnings target, a
+// difficulty floor and which events it has. `?days=classic` is the plain shift with no target;
+// `?day=mon` plays that day without saving the week; `?day=reset` sends the week back to Friday.
+// Off in shot mode (a still has no week) and in demo mode (which scripts its own robbery), and
+// there is no day without a shift.
+const weekStore = (() => { try { return globalThis.localStorage ?? null; } catch { return null; } })();
+const today = (() => {
+  const dayParams = new URLSearchParams(window.location.search);
+  if (shot || demo.on() || dayParams.get('days') === 'classic' || dayParams.get('shift') === 'classic') return null;
+  if (dayParams.get('day') === 'reset') resetWeek(weekStore);
+  const pin = dayByKey(dayParams.get('day'));
+  const index = pin >= 0 ? pin : loadWeek(weekStore).day;
+  return { index, pinned: pin >= 0, ...DAYS[index] };
+})();
 const shiftSeconds = (() => {
   const raw = new URLSearchParams(window.location.search).get('shift');
   if (raw === 'classic') return null;
   const n = Number(raw);
-  return raw && Number.isFinite(n) && n > 0 ? n : SHIFT_SECONDS;
+  if (raw && Number.isFinite(n) && n > 0) return n;
+  return today?.seconds ?? SHIFT_SECONDS;
 })();
+if (today) difficulty.setFloor(today.floor);
 const scoreTable = shiftSeconds === null ? undefined : SHIFT_TABLE;
 const shiftScores = {
   load: (store) => loadScores(store, scoreTable),
@@ -984,14 +1002,16 @@ const shiftScores = {
 const fares = createFareSystem(makeRng(runSeed + 55), scene, {
   rating: ratingOn,
   shift: shiftSeconds,
+  target: today?.target ?? null,
+  bankOpen: () => today === null || today.bank !== 'off',
   // The bank rider's coin loads with every one who rides — BANK_ROBBER_STEP in game/fares.js.
   risingOdds: new URLSearchParams(window.location.search).get('robberyodds') !== 'classic',
   // Demo mode: every bank rider is the robbery, whatever BANK_ROBBER_ALWAYS says. Read live, since
   // the switch is in Settings and flips mid-session.
-  forceRob: () => demo.on(),
+  forceRob: () => demo.on() || today?.bank === 'force',
   // ...and the bank rider is the first spawn after BANK_MIN_DELIVERED rather than a 30% chance,
   // so the robbery comes up inside the first four rides.
-  forceBank: () => demo.on(),
+  forceBank: () => demo.on() || today?.bank === 'force',
   reserved: () => parcels?.occupiedSpots() ?? [],
   judgeRun: () => combo.judge(),
 });
@@ -2311,7 +2331,7 @@ race = shot || raceParam === 'classic' ? null : createRace({
   bass: () => sfx?.bass?.() ?? 0,
   // Nothing turns up over anything that owns the run, or over a trip the taxi is already on to the
   // depot or the drive-through.
-  blocked: () => traffic.taxi.staged || getaway() || patrol.busy() || fares.state.gameOver
+  blocked: () => (today !== null && !today.race) || traffic.taxi.staged || getaway() || patrol.busy() || fares.state.gameOver
     || fareLoopHeld() || tutorialTalking || Boolean(tutorial?.holdsCamera())
     || Boolean(burgerRun?.active() || depotRun?.active()),
   // ...but once one is on screen only something that owns the run outright takes it away. The tap
@@ -4024,9 +4044,38 @@ const hud = {
   strikes: document.getElementById('strikes'),
   rating: document.getElementById('rating'),
   shiftClock: document.getElementById('shift-clock'),
+  dayGoal: document.getElementById('day-goal'),
   banner: document.getElementById('run-end'),
 };
 if (hud.shiftClock) hud.shiftClock.hidden = shiftSeconds === null;
+if (hud.dayGoal) {
+  hud.dayGoal.hidden = today === null;
+  if (today) hud.dayGoal.querySelector('.day-name').textContent = today.name.slice(0, 3);
+}
+
+// The day's name and the cash against its target, under the shift clock. Green once it is made.
+let goalShown = null;
+function showDayGoal(money) {
+  if (!hud.dayGoal || today === null || money === goalShown) return;
+  goalShown = money;
+  hud.dayGoal.querySelector('.day-num').textContent = `$${money} / $${today.target}`;
+  hud.dayGoal.classList.toggle('is-made', money >= today.target);
+  hud.dayGoal.setAttribute('aria-label', `${today.name}: $${money} of $${today.target}`);
+}
+
+/**
+ * The shift is over, however it ended: a cleared day banks its cash and moves the week on, and
+ * anything else leaves the save alone, so the next run is the same day from the top with the
+ * failed shift's cash gone (Tyler, 2026-10-31). A pinned `?day=` saves nothing. Answers the line
+ * the run-end card adds under its reason.
+ */
+function closeDay(s) {
+  if (today === null) return null;
+  if (!s.cleared) return `Back to the start of ${today.name}.`;
+  if (!today.pinned) clearDay(weekStore, today.index, s.money);
+  const last = today.index >= DAYS.length - 1;
+  return last ? 'Week cleared! The robo-taxis are rolling out.' : `${DAYS[today.index + 1].name} is next.`;
+}
 
 // The shift clock under the rating: whole seconds, rounded up so 0:00 is the buzzer and not the
 // second before it. Red for the last SHIFT_LOW seconds, and each of the last SHIFT_TICK of them
@@ -4712,6 +4761,7 @@ function updateHud(dt) {
   const s = fares.state;
   updateRunTags();
   showShiftClock(s.shiftLeft);
+  showDayGoal(s.money);
 
   if (s.gameOver && hud.banner && hud.banner.hidden) {
     // Every ending holds the banner while its own closing beat plays — CRASH_BANNER_DELAY for the
@@ -4726,9 +4776,10 @@ function updateHud(dt) {
       renderFrame();
       snapshot.grab(PHOTO.END);
     }
+    const dayLine = closeDay(s);
     showRunEnd(hud.banner, {
       title: s.failTitle,
-      reason: s.failReason,
+      reason: dayLine ? `${s.failReason} ${dayLine}` : s.failReason,
       // What the run paid, which is what it is ranked on; the highest the combo meter got; and how
       // long it lasted. Fares and Shift were cut (Tyler, 2026-10-06): with every rider's clock
       // budgeted off the work it takes, both mostly restate Time, and four rows of near-synonyms

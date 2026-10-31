@@ -3408,6 +3408,59 @@ check('no two cars occupy the same space', pairsTooClose < pairSamples / 8,
     createFareSystem(makeRng(seed + 55), new THREE.Scene()).state.shiftLeft === null);
 }
 
+// --- The week ---------------------------------------------------------------------
+// A day is a shift with a target (game/days.js): the buzzer is a pass or a fail on the cash, only a
+// pass moves the save on and banks the cash, and a later day starts the ramp part way up.
+{
+  const { DAYS, loadWeek, clearDay, resetWeek, dayByKey } = await import('../src/game/days.js');
+  const buzz = (target, money) => {
+    const sScene = new THREE.Scene();
+    const sTraffic = createTraffic(makeRng(seed + 44), sScene, 24);
+    const fares = createFareSystem(makeRng(seed + 55), sScene, { shift: 2, target });
+    fares.state.money = money;
+    for (let f = 0; f < 600 && !fares.state.gameOver; f++) {
+      sTraffic.update(1 / 60);
+      fares.update(1 / 60, sTraffic.taxi);
+    }
+    return fares.state;
+  };
+  const made = buzz(100, 120);
+  const short = buzz(100, 80);
+  check('a day that makes its target is cleared at the buzzer',
+    made.gameOver && made.cleared === true && made.failTitle === 'Day Cleared!', made.failTitle);
+  check('and one that does not comes up short',
+    short.gameOver && short.cleared === false && short.failTitle === 'Came Up Short!', short.failTitle);
+  check('a shift with no target is neither', buzz(null, 0).cleared === null);
+
+  const mem = new Map();
+  const store = { getItem: (k) => mem.get(k) ?? null, setItem: (k, v) => mem.set(k, v), removeItem: (k) => mem.delete(k) };
+  const fresh = loadWeek(store);
+  const after = clearDay(store, 0, 180);
+  const reread = loadWeek(store);
+  check('the week starts on Friday with nothing banked', fresh.day === 0 && fresh.bank === 0 && DAYS[0].key === 'fri');
+  check('clearing a day banks its cash and moves the week on',
+    after.day === 1 && reread.day === 1 && reread.bank === 180, JSON.stringify(reread));
+  const last = clearDay(store, DAYS.length - 1, 10);
+  check('clearing the last day clears the week and stays on it',
+    last.day === DAYS.length - 1 && last.weeks === 1 && last.bank === 190, JSON.stringify(last));
+  resetWeek(store);
+  check('a reset week is Friday again', loadWeek(store).day === 0 && loadWeek(store).bank === 0);
+  const broken = { getItem: () => { throw new Error('SecurityError'); }, setItem: () => { throw new Error('SecurityError'); } };
+  check('a store that throws plays Friday rather than throwing', loadWeek(broken).day === 0 && clearDay(broken, 0, 5).day === 1);
+  check('every day has a clock, a target that climbs, and an event rule',
+    DAYS.every((d, i) => d.seconds > 0 && d.target > 0 && ['off', 'on', 'force'].includes(d.bank)
+      && (i === 0 || d.target > DAYS[i - 1].target && d.floor >= DAYS[i - 1].floor)));
+  check('a day key that names no day pins nothing', dayByKey('nope') === -1 && dayByKey(null) === -1 && dayByKey('mon') === 3);
+
+  const d = await import('../src/game/difficulty.js');
+  d.setFloor(0.4);
+  const opens = d.difficulty(0);
+  const tops = d.difficulty(d.getTuning().rampFares);
+  d.setFloor(0);
+  check('a day floor starts the ramp part way up and still tops out at 1',
+    Math.abs(opens - 0.4) < 1e-9 && tops === 1 && d.difficulty(0) === 0, `${opens} → ${tops}`);
+}
+
 // --- The drop-off ring drains with the rider in the car -----------------------
 // The disc at the far end of a trip is painted in the clock of whoever is aboard, and that is only
 // worth anything if it walks the scale as the clock does. The played run above asserts the ring and

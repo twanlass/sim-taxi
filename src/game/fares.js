@@ -781,6 +781,11 @@ export function createFareSystem(rng, scene, {
   // Seconds, or null for no shift. Null by default so the headless tools, which play long runs to
   // measure the ramp, keep the endless loop; main.js hands in SHIFT_SECONDS.
   shift = null,
+  // The day's earnings target (game/days.js), or null for a shift with none. The buzzer still ends
+  // the shift either way; the target decides whether that end is the day cleared or the day failed.
+  target = null,
+  // Whether a bank rider may turn up at all — false on the days the bank is shut (days.js `bank`).
+  bankOpen = () => true,
 } = {}) {
   const state = {
     // Active fares, newest last. At most MAX_FARES, and up to MAX_FARES - 1 of them can be
@@ -793,6 +798,9 @@ export function createFareSystem(rng, scene, {
     strikes: 0,
     // Seconds left on the shift, or null for the endless run (`?shift=classic`). See SHIFT_SECONDS.
     shiftLeft: shift ?? null,
+    // The day's target, and whether the shift that just ended made it (null until it ends).
+    target: shift === null ? null : target,
+    cleared: null,
     // The buzzer has gone and the last ride is being driven out: nobody new appears, and the shift
     // ends the moment the seat is empty. See `closeShift`.
     closing: false,
@@ -1153,7 +1161,7 @@ export function createFareSystem(rng, scene, {
   const robberOdds = () => alwaysRob || forceRob() ? 1 : Math.min(BANK_ROBBER_MAX, BANK_ROBBER_ODDS + BANK_ROBBER_STEP * state.bankRides);
   /** Is the next spawn the bank rider? See BANK_CHANCE. */
   function wantsBank(taxiCar, near) {
-    if (!bankStop || state.delivered < BANK_MIN_DELIVERED) return false;
+    if (!bankStop || !bankOpen() || state.delivered < BANK_MIN_DELIVERED) return false;
     if (state.fares.some((f) => f.bank || f.robber)) return false;
     if (state.elapsed - lastBankAt < BANK_COOLDOWN) return false;
     // A "!" rider is a robbery promised, so none turns up while one could not start: one already
@@ -2173,8 +2181,17 @@ export function createFareSystem(rng, scene, {
     // ride, and the shift is done.
     if (state.closing && !state.gameOver && !carrying()) {
       state.gameOver = true;
-      state.failTitle = 'Shift Over!';
-      state.failReason = `You drove ${state.delivered} ${state.delivered === 1 ? 'rider' : 'riders'} this shift.`;
+      if (state.target === null) {
+        state.failTitle = 'Shift Over!';
+        state.failReason = `You drove ${state.delivered} ${state.delivered === 1 ? 'rider' : 'riders'} this shift.`;
+      } else {
+        // A day: the buzzer is a pass or a fail on the target, and only a pass banks the cash.
+        state.cleared = state.money >= state.target;
+        state.failTitle = state.cleared ? 'Day Cleared!' : 'Came Up Short!';
+        state.failReason = state.cleared
+          ? `$${state.money} against a $${state.target} target.`
+          : `$${state.money} of the $${state.target} you needed.`;
+      }
       emit('shift-over', null);
     }
 
