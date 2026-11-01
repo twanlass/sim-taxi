@@ -3887,8 +3887,18 @@ if (new URLSearchParams(window.location.search).get('buttons') === 'classic'
   document.body.classList.add('buttons-classic');
   useClassicFuelGap();
 }
-// The 🚨 over Loco Mode while the police are after the taxi; `?chasesiren=classic` goes without.
-const chaseSiren = new URLSearchParams(window.location.search).get('chasesiren') !== 'classic'
+// The docked HUD (Tyler, 2026-11-01): the combo meter over Loco Mode on the fuel gauge's crown, the
+// shift clock top centre where the meter was, and no 🚨 for now. `?hudlayout=classic` keeps the
+// meter top centre, the clock under the cash and the siren over Loco Mode. See index.html.
+const hudDock = new URLSearchParams(window.location.search).get('hudlayout') !== 'classic';
+if (hudDock) {
+  document.body.classList.add('hud-dock');
+  const runs = document.getElementById('runs');
+  if (runs) document.getElementById('boost-meter')?.appendChild(runs);
+}
+// The 🚨 over Loco Mode while the police are after the taxi; `?chasesiren=classic` goes without,
+// and so does the docked HUD, whose meter stands where it did.
+const chaseSiren = !hudDock && new URLSearchParams(window.location.search).get('chasesiren') !== 'classic'
   ? createChaseSiren() : null;
 const farePointers = createFarePointers({
   camera,

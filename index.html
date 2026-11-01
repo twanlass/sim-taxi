@@ -308,6 +308,26 @@
         position: absolute; top: 0; left: 50%; translate: -50% 0; height: var(--hud-row);
         display: flex; flex-direction: row; align-items: center; gap: 6px;
       }
+      /* The docked HUD (Tyler, 2026-11-01; `?hudlayout=classic` undoes it, main.js): the combo
+         meter moves off the cash row to stand on the crown of the fuel gauge over Loco Mode, where
+         the 🚨 was — main.js moves #runs into #boost-meter, so it also rides the pedals' entrance and
+         hides with them — the siren is off for now, and the shift clock takes the top centre the
+         combo meter left. --arc-out matches #chase-siren's below. */
+      #boost-meter .runs {
+        --arc-out: 109;
+        position: absolute; left: 50%; translate: -50% 0; height: var(--hud-row);
+        bottom: calc(50% + var(--arc-out) * var(--gas-d) / 150 + 2px);
+        display: flex; flex-direction: row; align-items: center; white-space: nowrap;
+        font: 900 14px/1.2 var(--hud-font); color: #fff; text-shadow: var(--hud-shadow);
+      }
+      body.buttons-classic #boost-meter .runs { --arc-out: 101; }
+      body.hud-dock #hud #shift-clock {
+        position: absolute; top: 0; height: var(--hud-row); margin-top: 0;
+        left: calc(50vw - var(--hud-side) - var(--safe-left)); translate: -50% 0;
+        font-size: 22px;
+      }
+      body.hud-dock #hud #shift-clock .shift-icon { width: 22px; height: 22px; }
+
       /* The chase siren (game/chasesiren.js): a low-poly 🚨 on the cash row, level with the cash
          and just left of the pause (Tyler, 2026-10-14), for as long as the police are after the
          taxi. The canvas is 60px wide for the rays either side of a ~34px lamp (a touch smaller than

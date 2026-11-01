@@ -809,6 +809,10 @@ from the top and its cash is lost** — only a cleared day banks what it earned,
 not exist yet. The HUD shows the day and the cash against its target under the clock
 (`#day-goal`), green once it is made.
 
+**The HUD docks for the week** (Tyler, 2026-11-01): the combo meter stands over Loco Mode on the
+crown of the fuel gauge, the shift clock takes the top centre, and the 🚨 chase siren is off for
+now. `?hudlayout=classic` puts all three back.
+
 **The day's name goes up as the taxi rolls out of the garage** (`game/daycard.js`, `#day-card`;
 Tyler, 2026-10-31): big white type with the pop text's dark stroke, dead centre, for about two
 seconds, on the frame the taxi comes off the garage's kerb at the end of the

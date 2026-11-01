@@ -187,6 +187,7 @@ doc; what the classic version was, and why it changed, is in that doc's history 
 | `?combo=run` | The combo meter carries across fares instead of cashing per ride | [gameplay.md](gameplay.md) |
 | `?rating=off` | Three strike rings instead of the star rating | [difficulty.md](difficulty.md) |
 | `?stars=classic` | Show the star rating under the cash (hidden by default since 2026-10-20; the rating still fires you) | [difficulty.md](difficulty.md) |
+| `?hudlayout=classic` | The combo meter top centre, the shift clock under the cash and the 🚨 over Loco Mode, instead of the meter over Loco Mode, the clock top centre and no siren | [gameplay.md](gameplay.md#the-week) |
 | `?days=classic` | The plain shift with no earnings target and no week, instead of today's day | [gameplay.md](gameplay.md#the-week) |
 | `?day=mon` / `?day=reset` | Play that day (`fri`, `sat`, `sun`, `mon`) without saving the week, or send the saved week back to Friday | [gameplay.md](gameplay.md#the-week) |
 | `?shift=classic` / `?shift=90` | The endless run instead of a five-minute shift, or a shift of that many seconds (unranked) | [gameplay.md](gameplay.md#the-shift) |
