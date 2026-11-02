@@ -12,6 +12,7 @@ import { CAR_LEN, CAR_W } from '../sim/traffic.js';
 import {
   headlightGeometry, headlightAnchors, headlightMaterial, coneGeometry, coneMaterial, coneQuat,
 } from '../geometry/lights.js';
+import { BODY_TOP } from '../geometry/damage.js';
 
 /**
  * The city with its lights on — Rain Mode (`?rain`, game/rain.js). A wet street is mostly a
@@ -489,7 +490,15 @@ export function createTaxiHeadlights() {
   const podMaterial = headlightMaterial();
   const pods = new THREE.Group();
   const coneMaterial_ = coneMaterial();
+  // Beside the grille, level with it (GRILL_Y in geometry/taxi.js is BODY_TOP - 0.2), and so well up
+  // off the bumper bar, which the fleet's lower lamps cut into. 0.5 out from the centreline puts a
+  // 0.13-radius pod 0.02 clear of the grille's edge at 0.35, and clear of the front indicator
+  // below it and outboard (centres 0.32 apart against radii summing 0.28). The cone starts on the
+  // same anchor, so it rises with the lamp.
+  const lampY = BODY_TOP - 0.2;
   for (const anchor of headlightAnchors(CAR_LEN, CAR_W)) {
+    anchor.y = lampY;
+    anchor.z = Math.sign(anchor.z) * 0.5;
     const pod = new THREE.Mesh(headlightGeometry(), podMaterial);
     pod.position.copy(anchor);
     pods.add(pod);

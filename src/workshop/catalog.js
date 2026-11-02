@@ -154,10 +154,24 @@ export const CATALOG = [
       // (`TAIL_FLOOR` in sim/traffic.js), both thrown by the bench's Weather picker.
       const headlights = createTaxiHeadlights();
       taxi.group.add(headlights.group);
+      // The bench's lamp toggles hold a lamp on whatever the weather says; both blinkers at once is
+      // the hazards, since the flash is the sim's clock and the bench has none to step.
+      let weather = 0;
+      const held = { headlights: false, brake: false, blinkers: false };
+      const apply = () => {
+        headlights.setLevel(held.headlights ? 1 : weather);
+        taxi.setLights(held.brake ? 1 : weather * 0.6, held.blinkers ? 1 : 0, held.blinkers ? 1 : 0);
+      };
       return {
         object: taxi.group,
         glow: [...taxi.lights.map((pod) => [pod, 'pod']), [headlights.pods, 'pod']],
-        lamps: (level) => { headlights.setLevel(level); taxi.setLights(level * 0.6, 0, 0); },
+        lamps: (level) => { weather = level; apply(); },
+        switches: [
+          { id: 'headlights', label: 'Headlights' },
+          { id: 'brake', label: 'Brake lights' },
+          { id: 'blinkers', label: 'Blinkers' },
+        ],
+        setSwitch: (id, on) => { held[id] = on; apply(); },
       };
     },
   },

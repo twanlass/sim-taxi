@@ -7,13 +7,13 @@ import {
   WHEEL_R, ARCH_R, CHASSIS_LIFT, SILL_Y,
 } from './wheels.js';
 import {
-  lightPodGeometry, brakeLightAnchors, turnSignalAnchors, turnSignalShapes, brakeLightMaterial,
+  LIGHT_H, lightPodGeometry, brakeLightAnchors, turnSignalAnchors, turnSignalShapes, brakeLightMaterial,
   turnSignalMaterial,
 } from './lights.js';
 import { addGhostOutline, addGhostMask } from './ghostoutline.js';
-import { mirrorParts, MIRRORS } from './mirrors.js';
+import { doorMirrorParts, MIRRORS } from './mirrors.js';
 import { chipPaint } from './taxiscratches.js';
-import { bumperGeometry, bumperLength, BUMPER_D, BUMPER_H } from './bumpers.js';
+import { bumperGeometry, bumperLength, BUMPER_D, BUMPER_H, BUMPER_Y } from './bumpers.js';
 import {
   BOOT_HINGE_X, HOOD_HINGE_X, HOOD_LEN, BODY_TOP, BOOT_LEN, LAMP_WIRE, LAMP_SIZE, lampSocket, lampHang,
   bumperHinge as hingeTo,
@@ -337,12 +337,13 @@ export function createTaxiMesh() {
   }));
 
   // Wing mirrors (geometry/mirrors.js), one mesh a side rather than merged into the shell, so a hit
-  // on the flank can snap one off (`setMirror` in buildDamage). Just behind the windscreen's foot,
-  // which the rake has carried back by about 0.15 at the housing's height. On the shell's material.
+  // on the flank can snap one off (`setMirror` in buildDamage). On the front door under the shoulder
+  // (`doorMirrorParts`), pushed forward to 0.6 at the user's request, past the point (0.45) where the
+  // root's foot (1.24) still cleared the front wheel arch (1.19), so the root now sits over the arch.
+  // On the shell's material.
   const mirrors = new Map(MIRRORS ? [1, -1].map((side) => {
-    const parts = mirrorParts({
-      x: CABIN_FRONT_X - 0.22, top: BODY_TOP, flank: CAR_W / 2, glass: CAR_W * 0.43, side,
-      paint: color('taxiBody'),
+    const parts = doorMirrorParts({
+      x: 0.6, top: BODY_TOP, flank: CAR_W / 2, side, paint: color('taxiBody'),
     });
     const mirror = new THREE.Mesh(mergeGeometries(parts, false), shell.material);
     parts.forEach((p) => p.dispose());
@@ -430,10 +431,19 @@ export function createTaxiMesh() {
     pod.userData.shape = shapes ? shapes[n] : new THREE.Vector3(1, 1, 1);
     return pod;
   });
-  const brakeLights = podPair(brakeLightAnchors(CAR_LEN, CAR_W), brakeLightMaterial);
-  const turnLeftLight = podPair(turnSignalAnchors(CAR_LEN, CAR_W, -1), turnSignalMaterial,
+  // The rear pods ride above the bumper bar rather than at its height as the fleet's do: at LIGHT_Y a
+  // pod's lower half (radius 0.272) cuts through the chrome, whose top is at BUMPER_Y + BUMPER_H / 2.
+  // Lifted until the pod's foot clears that by 0.02. The rear indicators share the brake pod's
+  // corner, so they go up with it; the front ones are lifted the same way, below.
+  const REAR_POD_Y = BUMPER_Y + BUMPER_H / 2 + 0.02 + LIGHT_H / 2;
+  // The front indicators are the shrunken round pod (turnSignalShapes), so their own radius sets how
+  // high they go; that lands them level with the headlights (game/citylights.js) to within 0.02.
+  const FRONT_POD_Y = BUMPER_Y + BUMPER_H / 2 + 0.02 + (LIGHT_H / 2) * turnSignalShapes()[0].y;
+  const raiseRear = (anchors) => anchors.map((a) => a.setY(a.x < 0 ? REAR_POD_Y : FRONT_POD_Y));
+  const brakeLights = podPair(raiseRear(brakeLightAnchors(CAR_LEN, CAR_W)), brakeLightMaterial);
+  const turnLeftLight = podPair(raiseRear(turnSignalAnchors(CAR_LEN, CAR_W, -1)), turnSignalMaterial,
     turnSignalShapes());
-  const turnRightLight = podPair(turnSignalAnchors(CAR_LEN, CAR_W, 1), turnSignalMaterial,
+  const turnRightLight = podPair(raiseRear(turnSignalAnchors(CAR_LEN, CAR_W, 1)), turnSignalMaterial,
     turnSignalShapes());
   const lightPods = [...brakeLights, ...turnLeftLight, ...turnRightLight];
   for (const light of lightPods) {

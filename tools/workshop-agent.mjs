@@ -448,7 +448,9 @@ export function workshopAgent({ bin = process.env.CLAUDE_BIN || 'claude' } = {})
         : error.message,
     }));
     child.on('close', (code, signal) => {
-      if (signal) finish({ ok: false, error: 'Stopped.' });
+      // A stopped run can exit by signal or catch the SIGTERM and exit with a code and stderr of its
+      // own, so it is `run.stopped`, set by the Stop handler, that says why it ended.
+      if (signal || run.stopped) finish({ ok: false, stopped: true, error: 'Stopped.' });
       else if (run.result) finish(run.result);
       else finish({ ok: code === 0, error: code === 0 ? null : (stderr.trim() || `claude exited with ${code}`) });
     });
@@ -511,6 +513,7 @@ export function workshopAgent({ bin = process.env.CLAUDE_BIN || 'claude' } = {})
           const run = runs.get(runMatch[1]);
           if (!run) return json(res, 404, { error: 'no such run' });
           if (runMatch[2] === '/stop' && req.method === 'POST') {
+            run.stopped = true;
             run.child?.kill('SIGTERM');
             return json(res, 200, { ok: true });
           }
