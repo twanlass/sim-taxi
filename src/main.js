@@ -2538,7 +2538,10 @@ function onRaceEvent(type, detail) {
   } else if (type === 'decided') {
     // Step 5: pulled up beside the winner — the word. The money is RESULT_HOLD later ('won'/'lost').
     raceSkid = null;
-    popLabel(detail.winner === 'taxi' ? 'You won!' : 'You lost!', 'is-count', RACE_LABEL_MS);
+    // Centred across the screen rather than over the taxi: the camera is following the loser in by
+    // now, so the taxi stands off to one side and the word popped there sat off-centre (Tyler,
+    // 2026-11-04). Same height as the countdown, which already clears the roofs.
+    popLabel(detail.winner === 'taxi' ? 'You won!' : 'You lost!', 'is-count', RACE_LABEL_MS, raceWordAt);
     haptic(detail.winner === 'taxi' ? 'pick' : 'snap');
     raceWatch ??= detail.loser;
     raceZoomHome ??= controller.state.zoom;
@@ -2581,6 +2584,8 @@ const raceFullTank = new URLSearchParams(window.location.search).get('racetank')
 const raceCountClassic = new URLSearchParams(window.location.search).get('racecount') === 'classic';
 const raceCountClass = raceCountClassic ? 'is-count' : 'is-count is-countdown';
 const raceCountAt = () => ({ x: viewport.width() / 2, y: viewport.height() * (raceCountClassic ? 0.36 : RACE_COUNT_Y) });
+// Where "You won!" / "You lost!" stand: the middle of the screen, at the countdown's height.
+const raceWordAt = () => ({ x: viewport.width() / 2, y: viewport.height() * RACE_COUNT_Y });
 // The count's height on screen, as a fraction of it. Not quite the middle Tyler asked for: the
 // camera is back on the taxi when it counts, so dead centre (0.5) put each 80px digit squarely over
 // the two cars on the line, which on a 390x844 phone stand at ~0.47-0.51. At 0.4 the digit's
