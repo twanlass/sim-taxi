@@ -2216,11 +2216,21 @@ a build that shot every cut from behind the city showed it. See
 ## Roadworks: a street closed at both ends
 
 `src/game/roadwork.js` and `src/geometry/roadworks.js`. Once per run, about a minute in, a side
-street is closed off: a striped trestle across each end, two rows of cones, a heap of spoil beside
-the hole it came out of, and two workers standing over it. Ambient traffic routes around it. **The
+street is closed off: a striped trestle across each end, two rows of cones, a hole with a small
+single-plank sawhorse barricade standing at either end of it, and two workers standing over it.
+Ambient traffic routes around it. **The
 player's taxi is sent through it**, so the closed street is the emptiest road in the city — and
 each barricade is a ramp. Smashing through one is the **Stuntman** combo
 ([gameplay.md](gameplay.md#the-combo-meter)): a step on the meter and a sixth of the Loco tank back.
+
+The sawhorses are knocked about exactly like the cones — they share the cones' closed-form flight
+in `updatePool`, at two-thirds the throw (`HORSE_POWER`) and with a knock radius that reaches the
+ends of the plank — because the taxi comes down off its hop right where they stand. They replaced
+a heap of dug-up spoil beside the hole (2026-11-04, Tyler: "barricades instead of the dirt
+piles"); the heap was a lumpy brown blob the taxi drove straight through, and it is still there
+under `?barricades=classic`. The hole is now laid out in the road's frame (`pitParts`) so the two
+sawhorses can be measured off its real length, and it is pulled in to 0.8 of the heap's offset so
+a sawhorse's end never touches a cone row.
 
 ### The closure is soft, and that is not a shortcut
 

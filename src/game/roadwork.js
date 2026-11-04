@@ -6,14 +6,15 @@ import { PALETTE } from '../palette.js';
 import { createPerson } from '../geometry/person.js';
 import { markOccluder, unmarkOccluder } from './ssao.js';
 import {
-  coneGeometry, barricadeParts, spoilParts, mergeAll, splinterGeometry,
-  CONE_REST_Y, SPLINTER_REST_Y,
+  coneGeometry, barricadeParts, spoilParts, pitParts, sawhorseGeometry, mergeAll, splinterGeometry,
+  CONE_REST_Y, SPLINTER_REST_Y, SAWHORSE_REST_Y, SAWHORSE_HALF_W,
 } from '../geometry/roadworks.js';
 import { launchHop, setClosedLanes, HOP_LEN, STOP_SETBACK } from '../sim/traffic.js';
 import { setRoadworkLanes } from './route.js';
 
-// A street closed for roadworks: a striped trestle across each end, a scatter of cones, a heap of
-// spoil beside the hole it came out of, and two workers standing over it.
+// A street closed for roadworks: a striped trestle across each end, a scatter of cones, a hole
+// with a sawhorse barricade at either end of it, and two workers standing over it. The sawhorses
+// replaced a heap of spoil beside the hole (2026-11-04); `?barricades=classic` keeps the heap.
 //
 // **Ambient traffic routes around it; the taxi has never heard of it.** The closure is two lane
 // ids handed to `setClosedLanes` in sim/traffic.js, where they zero the weight of any turn that
@@ -26,6 +27,23 @@ import { setRoadworkLanes } from './route.js';
 // the same reason the flyover is: nothing about this is pressure. One zone per run, one cooldown,
 // and then it stays where it is. `place()` is public so shot mode and tools/probe.mjs can stage
 // one rather than wait forty seconds for it.
+
+/**
+ * `'classic'` is the spoil heap beside the hole — `?barricades=classic`, `BARRICADES=classic`
+ * headless. Otherwise the hole is fenced by two sawhorses.
+ */
+export const BARRICADES_MODE = (typeof location !== 'undefined'
+  ? new URLSearchParams(location.search).get('barricades')
+  : globalThis.process?.env?.BARRICADES) === 'classic' ? 'classic' : 'sawhorse';
+
+// Clear of the hole's end, so a foot does not stand in it.
+const HORSE_GAP = 0.45;
+// A sawhorse is long, so the taxi's knock test has to reach its ends and not just its middle — a
+// cone's KNOCK_R from the centre would let a wheel run through the last half-unit of plank.
+const HORSE_KNOCK_R = 1.2 + SAWHORSE_HALF_W;
+// Heavier than a cone, so the same hit throws it less far: two-thirds keeps a smashed one under
+// the cones' apex rather than over it.
+const HORSE_POWER = 0.65;
 
 const FIRST_WAIT = [40, 75];   // seconds. A three-to-four minute session sees exactly one.
 const RETRY_WAIT = 5;          // nothing qualified right now — the city moves, ask again shortly
@@ -212,9 +230,14 @@ export function createRoadwork(rng, scene, camera = null) {
   const workers = [];
   const barriers = [];
   const cones = [];
+  const horses = [];
   const chips = [];
 
   let coneMesh = null;
+  let horseMesh = null;
+  // The knockable pieces, each an InstancedMesh plus the entries it draws. Cones and sawhorses
+  // share every line of the flight below; what differs lives on the entry (restY, knockR, power).
+  const pools = [];
   let chipMesh = null;
   const dummy = new THREE.Object3D();
   const qTumble = new THREE.Quaternion();
@@ -361,10 +384,32 @@ export function createRoadwork(rng, scene, camera = null) {
 
     parts.push(...ramps);
 
-    // Spoil and its hole, off-centre along the block so the zone isn't symmetrical.
+    // The hole, off-centre along the block so the zone isn't symmetrical.
     const site = roadPoint(edge, rng.range(0.35, 0.6), 0);
-    const off = rng.range(-1.4, 1.4);
-    parts.push(...spoilParts(site.x + site.ax * off, site.z + site.az * off, rng));
+    let off = rng.range(-1.4, 1.4);
+    const hx = () => site.x + site.ax * off;
+    const hz = () => site.z + site.az * off;
+    let horseSpots = [];
+    if (BARRICADES_MODE === 'classic') {
+      parts.push(...spoilParts(hx(), hz(), rng));
+    } else {
+      // Pulled in toward the centreline: a sawhorse is 1.7 across, and at the heap's 1.4 its end
+      // would stand at 2.25 against a cone row at 2.6 less a 0.31 base — touching. At 0.8 of that
+      // the worst case is 1.97, a third of a unit clear.
+      off *= 0.8;
+      const { parts: pit, halfAlong } = pitParts(hx(), hz(), site.ax, site.az, rng);
+      parts.push(...pit);
+      // Along the road is the across vector turned clockwise: across = (tan.z, -tan.x).
+      const tx = -site.az;
+      const tz = site.ax;
+      const reach = halfAlong + HORSE_GAP;
+      horseSpots = [-1, 1].map((end) => ({
+        x: hx() + tx * end * reach + rng.jitter(0.1),
+        z: hz() + tz * end * reach + rng.jitter(0.1),
+        // Plank across the road, facing the traffic each end, with a crew's worth of skew.
+        yaw: Math.atan2(-site.az, site.ax) + rng.jitter(0.12),
+      }));
+    }
 
     const mesh = new THREE.Mesh(mergeAll(parts), propMaterial());
     mesh.castShadow = true;
@@ -372,7 +417,7 @@ export function createRoadwork(rng, scene, camera = null) {
     mesh.name = 'roadwork-static';
     group.add(mesh);
     materials.push(mesh.material);
-    return { mesh, site: { ...site, off } };
+    return { mesh, site: { ...site, off }, horseSpots };
   }
 
   function buildCones(edge) {
@@ -409,11 +454,34 @@ export function createRoadwork(rng, scene, camera = null) {
         z: at.z,
         y: 0,
         yaw: rng.range(0, Math.PI * 2),
+        restY: CONE_REST_Y, knockR: KNOCK_R, power: 1,
         knocked: false, age: 0, dur: 1,
         x0: 0, z0: 0, vx: 0, vy: 0, vz: 0, quat: null,
       });
     }
-    writeCones();
+    pools.push({ items: cones, mesh: coneMesh });
+    writeCones(pools[pools.length - 1]);
+  }
+
+  /** The two sawhorses at the ends of the hole. Knocked about exactly like cones. */
+  function buildHorses(spots) {
+    if (!spots.length) return;
+    horseMesh = new THREE.InstancedMesh(sawhorseGeometry(), propMaterial(), spots.length);
+    horseMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    horseMesh.frustumCulled = false;   // same reason as the cones
+    horseMesh.castShadow = true;
+    group.add(horseMesh);
+    materials.push(horseMesh.material);
+    for (const spot of spots) {
+      horses.push({
+        x: spot.x, z: spot.z, y: 0, yaw: spot.yaw,
+        restY: SAWHORSE_REST_Y, knockR: HORSE_KNOCK_R, power: HORSE_POWER,
+        knocked: false, age: 0, dur: 1,
+        x0: 0, z0: 0, vx: 0, vy: 0, vz: 0, quat: null,
+      });
+    }
+    pools.push({ items: horses, mesh: horseMesh });
+    writeCones(pools[pools.length - 1]);
   }
 
   /**
@@ -492,8 +560,9 @@ export function createRoadwork(rng, scene, camera = null) {
   function build(edge) {
     state.edge = edge;
     state.closedLaneIds = edge.lanes.map((l) => l.id);
-    const { site } = buildStatic(edge);
+    const { site, horseSpots } = buildStatic(edge);
     buildCones(edge);
+    buildHorses(horseSpots);
     buildChips();
     buildWorkers(edge, site);
     // Published from here rather than polled by main.js: it changes exactly once in a run, and
@@ -580,6 +649,7 @@ export function createRoadwork(rng, scene, camera = null) {
     // Thrown away from whatever hit it, harder the faster that thing was going. The floor on the
     // speed term is what keeps a cone nudged at walking pace from simply falling over in place.
     const kick = 0.55 + Math.min(1.6, speed / 12);
+    power *= cone.power;
     cone.vx = dx * rng.range(2.6, 6.4) * kick * power + rng.jitter(1.2 * power);
     cone.vz = dz * rng.range(2.6, 6.4) * kick * power + rng.jitter(1.2 * power);
     cone.vy = Math.min(CONE_VY_MAX, rng.range(4.2, 7.6) * kick * power);
@@ -699,9 +769,11 @@ export function createRoadwork(rng, scene, camera = null) {
     barrier.hitAt = state.t;
     state.smashed = true;
     launchHop(taxi);
-    for (const cone of cones) {
-      if (Math.hypot(cone.x - barrier.x, cone.z - barrier.z) <= SMASH_SCATTER) {
-        knock(cone, barrier.x, barrier.z, taxi.v, SMASH_POWER);
+    for (const { items } of pools) {
+      for (const cone of items) {
+        if (Math.hypot(cone.x - barrier.x, cone.z - barrier.z) <= SMASH_SCATTER) {
+          knock(cone, barrier.x, barrier.z, taxi.v, SMASH_POWER);
+        }
       }
     }
     burstChips(barrier, taxi);
@@ -715,17 +787,17 @@ export function createRoadwork(rng, scene, camera = null) {
 
   // --- Per frame --------------------------------------------------------------
 
-  function writeCones() {
-    for (let n = 0; n < cones.length; n++) {
-      const cone = cones[n];
+  function writeCones({ items, mesh }) {
+    for (let n = 0; n < items.length; n++) {
+      const cone = items[n];
       dummy.position.set(cone.x, cone.y, cone.z);
       if (cone.quat) dummy.quaternion.copy(cone.quat);
       else dummy.quaternion.setFromAxisAngle(UP, cone.yaw);
       dummy.scale.setScalar(1);
       dummy.updateMatrix();
-      coneMesh.setMatrixAt(n, dummy.matrix);
+      mesh.setMatrixAt(n, dummy.matrix);
     }
-    coneMesh.instanceMatrix.needsUpdate = true;
+    mesh.instanceMatrix.needsUpdate = true;
   }
 
   function writeChips() {
@@ -782,11 +854,21 @@ export function createRoadwork(rng, scene, camera = null) {
 
   function updateCones(dt, taxi) {
     let moving = 0;
+    for (const pool of pools) {
+      const n = updatePool(pool, dt, taxi);
+      if (n) writeCones(pool);
+      moving += n;
+    }
+    return moving;
+  }
 
-    for (const cone of cones) {
+  function updatePool({ items }, dt, taxi) {
+    let moving = 0;
+
+    for (const cone of items) {
       if (!cone.knocked) {
         if (Math.abs(taxi.v) > KNOCK_V
-          && Math.hypot(cone.x - taxi.x, cone.z - taxi.z) < KNOCK_R) {
+          && Math.hypot(cone.x - taxi.x, cone.z - taxi.z) < cone.knockR) {
           knock(cone, taxi.x, taxi.z, taxi.v);
         }
         continue;
@@ -811,8 +893,8 @@ export function createRoadwork(rng, scene, camera = null) {
         cone.z = hop.z + hop.vz * t;
         // The first flight leaves from the road, as it always did; a rebound leaves from a cone
         // already lying on its side.
-        const base = hop === cone.hops[0] ? 0 : CONE_REST_Y;
-        cone.y = Math.max(CONE_REST_Y, base + hop.vy * t - 0.5 * CONE_GRAVITY * t * t);
+        const base = hop === cone.hops[0] ? 0 : cone.restY;
+        cone.y = Math.max(cone.restY, base + hop.vy * t - 0.5 * CONE_GRAVITY * t * t);
         angle = hop.angle + hop.spin * t;
       } else {
         // Sliding to a stop on its side, decelerating at a constant rate, swinging round its own
@@ -823,7 +905,7 @@ export function createRoadwork(rng, scene, camera = null) {
         const d = sl.speed * t - 0.5 * CONE_FRICTION * t * t;
         cone.x = sl.x + sl.dx * d;
         cone.z = sl.z + sl.dz * d;
-        cone.y = CONE_REST_Y;
+        cone.y = cone.restY;
         angle = sl.angle;
         yawDrift = cone.pivot * d;
         const r = age - cone.landed;
@@ -848,7 +930,6 @@ export function createRoadwork(rng, scene, camera = null) {
       cone.quat = (cone.quat ?? new THREE.Quaternion()).copy(qTumble);
     }
 
-    if (moving) writeCones();
     return moving;
   }
 
@@ -1049,7 +1130,9 @@ export function createRoadwork(rng, scene, camera = null) {
   /** How many pieces are still in the air. Zero once everything has come to rest. */
   function active() {
     let n = 0;
-    for (const cone of cones) if (cone.knocked && cone.age < cone.dur) n += 1;
+    for (const { items } of pools) {
+      for (const cone of items) if (cone.knocked && cone.age < cone.dur) n += 1;
+    }
     for (const chip of chips) if (chip.live && chip.age < chip.dur) n += 1;
     for (const barrier of barriers) {
       if (barrier.hit && state.t - barrier.hitAt < TRESTLE_FLIGHT) n += 1;
@@ -1064,6 +1147,8 @@ export function createRoadwork(rng, scene, camera = null) {
     update,
     active,
     cones,
+    /** The sawhorses at the ends of the hole; empty under `?barricades=classic`. */
+    horses,
     chips,
     barriers,
     /** How many workers are running or have run. For tools/probe.mjs. */

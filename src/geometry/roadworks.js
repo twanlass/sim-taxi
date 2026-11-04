@@ -4,7 +4,8 @@ import { bakeColor, jitterVertices } from '../util/geo.js';
 import { PALETTE, color, jitterColor } from '../palette.js';
 
 // The furniture of a closed street: cones, a striped trestle barricade with a plywood ramp
-// propped against it, and the spoil heap from whatever hole the crew is standing over.
+// propped against it, the hole the crew is standing over, and the two sawhorses fencing its ends
+// (or, under `?barricades=classic`, the spoil heap that came out of it).
 //
 // Same idiom as `city/props.js` — every function returns an *array of baked geometries* in world
 // (or local) space rather than meshes, so the caller merges them into one draw call. The one
@@ -218,6 +219,78 @@ export function spoilParts(x, z, rng) {
   parts.push(bakeColor(hole, color('trench')));
 
   return parts;
+}
+
+// The pit's own barricades: a small single-plank sawhorse, one at each end of the hole, standing
+// where the spoil heap used to (Tyler, 2026-11-04: "barricades instead of the dirt piles";
+// `?barricades=classic` keeps the heap). One plank rather than the end trestle's two, so the pair
+// reads as the crew's furniture round the dig and not as two more road closures in the middle of
+// the street. 1.7 across is about the hole's own width — 13px at play zoom, under the 2px stripe
+// floor at five stripes — and the top at 1.0 sits just over a cone (1.02 to its tip), which is
+// what makes the three heights read as one kit.
+const HORSE_W = 1.7;
+const HORSE_PLANK_Y = 0.72;
+const HORSE_TOP = HORSE_PLANK_Y + PLANK_H;
+const HORSE_STRIPES = 5;      // odd, for the same reason as the trestle's nine
+const HORSE_FOOT = 0.7;
+export const SAWHORSE_HALF_W = HORSE_W / 2;
+
+/**
+ * A free-standing sawhorse barricade, origin at the centre of its base: **+X along the plank**,
+ * +Y up. Returned as one geometry because it is drawn as an InstancedMesh beside the cones — the
+ * taxi knocks these over the way it does a cone (game/roadwork.js), so each needs a transform of
+ * its own.
+ */
+export function sawhorseGeometry() {
+  const parts = [];
+  const half = HORSE_W / 2;
+
+  for (const side of [-1, 1]) {
+    const x = side * (half - 0.22);
+    for (const splay of [-1, 1]) {
+      const leg = new THREE.BoxGeometry(0.11, HORSE_TOP, 0.11);
+      leg.translate(x, HORSE_TOP / 2, splay * 0.2);
+      parts.push(bakeColor(leg, color('barrierBand')));
+    }
+    const foot = new THREE.BoxGeometry(0.17, 0.07, HORSE_FOOT);
+    foot.translate(x, 0.035, 0);
+    parts.push(bakeColor(foot, color('barrier')));
+  }
+
+  const seg = HORSE_W / HORSE_STRIPES;
+  for (let n = 0; n < HORSE_STRIPES; n++) {
+    const box = new THREE.BoxGeometry(seg * 1.02, PLANK_H, PLANK_T);
+    box.translate(-half + seg * (n + 0.5), HORSE_PLANK_Y + PLANK_H / 2, 0);
+    parts.push(bakeColor(box, color(n % 2 === 0 ? 'barrier' : 'barrierBand')));
+  }
+
+  return mergeAll(parts);
+}
+
+/**
+ * How high a sawhorse's origin sits once it has gone over. It lies on its face, so what holds it
+ * off the road is the feet, which stand furthest out of the plank's plane.
+ */
+export const SAWHORSE_REST_Y = HORSE_FOOT / 2;
+
+/**
+ * The hole on its own, without the heap: for the default, where the heap's place is taken by the
+ * two sawhorses. Laid out in the road's frame — `(ax, az)` is the unit vector *across* the road —
+ * so the sawhorses at its two ends can be measured off its real length. The heap's hole is drawn
+ * in world axes, which was harmless while nothing stood against its edges.
+ *
+ * Returns the geometry and the half-length along the road.
+ */
+export function pitParts(x, z, ax, az, rng) {
+  const across = rng.range(1.8, 2.3);
+  const along = rng.range(2.2, 2.8);
+  const hole = new THREE.PlaneGeometry(across, along);
+  hole.rotateX(-Math.PI / 2);
+  // PlaneGeometry's width is on X, its height on −Z after the turn; spin it so the width runs
+  // across the road. Yaw atan2(-az, ax) maps +X onto (ax, az).
+  hole.rotateY(Math.atan2(-az, ax));
+  hole.translate(x, TRENCH_Y, z);
+  return { parts: [bakeColor(hole, color('trench'))], halfAlong: along / 2 };
 }
 
 /** Merge and dispose, the closing move every builder in this project makes. */

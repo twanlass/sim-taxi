@@ -93,7 +93,10 @@ import { createDust } from '../src/game/dust.js';
 import { createSkidMarks } from '../src/game/skidmarks.js';
 import { createSparks } from '../src/game/sparks.js';
 import { createRepairFx } from '../src/game/repairfx.js';
-import { barricadeParts, spoilParts, RAMP_RUN, RAMP_H, WORKS_Y, TRENCH_Y, SPLINTER_REST_Y } from '../src/geometry/roadworks.js';
+import {
+  barricadeParts, spoilParts, RAMP_RUN, RAMP_H, WORKS_Y, TRENCH_Y, SPLINTER_REST_Y,
+  SAWHORSE_HALF_W, CONE_BASE_R,
+} from '../src/geometry/roadworks.js';
 import {
   findRoute as planRoute, setRoadworkLanes, setBlockedLanes, setHazardLanes, laneCost, serviceLaneCost,
 } from '../src/game/route.js';
@@ -15510,6 +15513,33 @@ let chopperOrder; // likewise
     outsideSpan === 0 && worstLateral < ROAD_W / 2,
     `${outsideSpan} past an end, worst offset ${worstLateral.toFixed(2)} of ${ROAD_W / 2}`);
 
+  // The sawhorses that replaced the spoil heap: one at each end of the hole, on the tarmac, plank
+  // across the road, and never standing on a cone — at the heap's full offset a sawhorse's end
+  // reached 2.25 against a cone row at 2.6 less its 0.31 base.
+  const horses = roadwork.horses;
+  let horseWorst = 0;
+  let horseOut = 0;
+  let horseCone = Infinity;
+  for (const horse of horses) {
+    const along = (horse.x - a.x) * ux + (horse.z - a.z) * uz;
+    const lateral = (horse.x - cx) * uz - (horse.z - cz) * ux;
+    horseWorst = Math.max(horseWorst, Math.abs(lateral) + SAWHORSE_HALF_W);
+    if (along < 0 || along > lane.length) horseOut += 1;
+    for (const cone of roadwork.cones) {
+      // Distance from the cone to the plank's segment, less the cone's base.
+      const px = horse.x - cone.x;
+      const pz = horse.z - cone.z;
+      const ex = Math.cos(horse.yaw);
+      const ez = -Math.sin(horse.yaw);
+      const t = Math.max(-SAWHORSE_HALF_W, Math.min(SAWHORSE_HALF_W, -(px * ex + pz * ez)));
+      horseCone = Math.min(horseCone, Math.hypot(px + ex * t, pz + ez * t) - CONE_BASE_R);
+    }
+  }
+  check('the hole has a sawhorse at each end, on the tarmac and clear of every cone',
+    horses.length === 2 && horseOut === 0 && horseWorst < ROAD_W / 2 && horseCone > 0.1,
+    `${horses.length} sawhorses, ${horseOut} past an end, outer end at ${horseWorst.toFixed(2)} `
+    + `of ${ROAD_W / 2}, nearest cone ${horseCone.toFixed(2)}`);
+
   // Two rows rather than a scatter. This was a sine zigzag that wandered across the centreline,
   // which read as cones dropped at random — the order has to be legible before the jitter on top of
   // it reads as a crew having placed them rather than as noise.
@@ -15695,6 +15725,10 @@ let chopperOrder; // likewise
     margin > 0.75,
     `lands at ${(BARRIER_S + HOP_LEN).toFixed(2)}, line at ${holdS.toFixed(2)}, `
     + `margin ${margin.toFixed(2)}`);
+
+  check('going through knocks the sawhorses over too',
+    flights.every((f) => f.runwork.horses.length === 0 || f.runwork.horses.some((h) => h.knocked)),
+    flights.map((f) => `${f.runwork.horses.filter((h) => h.knocked).length}/${f.runwork.horses.length}`).join(', '));
 
   check('going through knocks the cones over, and they come to rest',
     flights.every((f) => f.runwork.cones.filter((c) => c.knocked).length >= 4
