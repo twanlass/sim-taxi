@@ -87,19 +87,19 @@ const RELEASE = 0.16;
 // the corner. Each barrel sits this far either side of the pipe (the drawn taxi is 2.36 wide), and
 // the plume grows by up to SURGE_LEN of its length.
 //
-// The barrels run parallel, straight back, BARREL_OFFSET either side of the pipe — out near the
-// corners of the bumper, like a pair of drag pipes. That is the second time they have been
-// parallel. The first time they sat 0.6 out, and they did not read as two: each tongue is a
+// The barrels run parallel, straight back, BARREL_OFFSET either side of the pipe, like a pair of
+// real twin tailpipes. That is the second time they have been parallel. The first time they sat 0.6 out, and they did not read as two: each tongue is a
 // vertical sheet a unit tall, and under the fixed diagonal view two sheets that close project
 // almost on top of each other on most headings, so the kick drew as one fatter violet flame
 // (reported as "just a single tailpipe"). The fix then was to splay them into a V,
 // BARREL_SPLAY_CLASSIC each side of straight back (tips 3.1 units apart; 0.5 also worked and looked
-// like antlers), which Tyler found too splayed. Spreading the roots instead buys the same
-// separation without the angle: 0.95 out is 1.9 apart on the road, most of the drawn taxi's 2.36
-// width, and probe.mjs holds the gap at the tips above 1.6. `?flames=classic` puts the V back.
+// like antlers), which Tyler found too splayed. Spreading the roots instead buys the separation
+// without the angle. Measured at play zoom across three headings: 0.95 out (at the bumper's
+// corners) read clearly but not like real pipes; 0.65 out (1.3 apart) still reads as two on every
+// heading; 0.5 starts to merge on the heading facing up-screen. probe.mjs holds the tips above 1.2. `?flames=classic` puts the V back.
 // The splay is applied inside the group's non-uniform scale, which stretches local X by up to ~1.8
 // during a surge, so the classic V's angle on the road is about half of its number.
-const BARREL_OFFSET = 0.95;
+const BARREL_OFFSET = 0.65;
 const BARREL_OFFSET_CLASSIC = 0.6;
 const BARREL_SPLAY_CLASSIC = 0.32;
 let barrelOffset = BARREL_OFFSET;

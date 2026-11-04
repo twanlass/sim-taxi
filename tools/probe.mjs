@@ -9776,15 +9776,15 @@ function rideToPickup() {
     const [b0, b1] = twin.group.children;
     const purple = new THREE.Color(PALETTE.locoFlameDriftOuter);
     // ...running parallel, and far enough apart to read as two from the fixed diagonal camera:
-    // sheets 1.2 apart projected nearly on top of each other. Measured as how far apart the tips
+    // at 1.2 apart they were once reported as one flame. Measured as how far apart the tips
     // are, and as the two barrels pointing the same way.
     twin.group.updateMatrixWorld(true);
     const tip = (b) => b.localToWorld(new THREE.Vector3(3, 0, 0));
     const tipGap = tip(b0).distanceTo(tip(b1));
     const root = (b) => b.localToWorld(new THREE.Vector3(0, 0, 0));
     const parallel = Math.abs(root(b0).distanceTo(root(b1)) - tipGap) < 1e-6;
-    const split = twin.group.visible && b1.visible && b1.position.z - b0.position.z > 1.6
-      && tipGap > 1.6 && parallel && twin.group.scale.x > 1.5
+    const split = twin.group.visible && b1.visible && b1.position.z - b0.position.z > 1.2
+      && tipGap > 1.2 && parallel && twin.group.scale.x > 1.5
       && twin.materials[0].color.getHex() === purple.getHex();
     for (let step = 0; step < 30; step++) twin.update(1 / 60, still, true, false);
     check('the drift kick splits the flame into two longer violet barrels, and lets them go after',
