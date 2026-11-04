@@ -2217,20 +2217,37 @@ a build that shot every cut from behind the city showed it. See
 
 `src/game/roadwork.js` and `src/geometry/roadworks.js`. Once per run, about a minute in, a side
 street is closed off: a striped trestle across each end, two rows of cones, a hole with a small
-single-plank sawhorse barricade standing at either end of it, and two workers standing over it.
-Ambient traffic routes around it. **The
-player's taxi is sent through it**, so the closed street is the emptiest road in the city — and
-each barricade is a ramp. Smashing through one is the **Stuntman** combo
-([gameplay.md](gameplay.md#the-combo-meter)): a step on the meter and a sixth of the Loco tank back.
+single-plank sawhorse barricade at either end of it, a few low piles of broken road in the lanes,
+and two workers standing over it. Ambient traffic routes around it. **The player's taxi is sent
+through it**, so the closed street is the emptiest road in the city, and the taxi **barrels
+through it on the road**: it smashes the trestle at the mouth, bounces over the rubble, knocks the
+cones and the sawhorses flying and smashes the trestle at the far end on its way out. Smashing the
+first is the **Stuntman** combo ([gameplay.md](gameplay.md#the-combo-meter)): a step on the meter
+and a sixth of the Loco tank back, once per street (the far trestle shakes and crashes but pays
+nothing more).
 
-The sawhorses are knocked about exactly like the cones — they share the cones' closed-form flight
-in `updatePool`, at two-thirds the throw (`HORSE_POWER`) and with a knock radius that reaches the
-ends of the plank — because the taxi comes down off its hop right where they stand. They replaced
-a heap of dug-up spoil beside the hole (2026-11-04, Tyler: "barricades instead of the dirt
-piles"); the heap was a lumpy brown blob the taxi drove straight through, and it is still there
-under `?barricades=classic`. The hole is now laid out in the road's frame (`pitParts`) so the two
-sawhorses can be measured off its real length, and it is pulled in to 0.8 of the heap's offset so
-a sawhorse's end never touches a cone row.
+There is no ramp (2026-11-04, Tyler: "cut the ramps now that we have a bunch of other ways, like
+the bridge and the drawbridge you can jump off of"). The far trestle is tested where the taxi's
+**nose** meets it, `CAR_LEN / 2` short of its line, because the line itself is past the hold line
+and the taxi's own position never reaches it. The bounce is render-only, on the same `jolt` /
+`joltPitch` / `joltRoll` fields game/flatbed.js shakes its truck with (`DEBRIS_*` in
+roadwork.js): a damped bounce whose height is `|sin|`, so the car is thrown up off a pile and never
+sunk into the road, and it is written back to exactly zero when it ends. Each pile bounces the taxi
+once; the sawhorses give a smaller one and the trestles a bigger one with no `bump` sound under
+their crash. Rubble goes in the stretches the trestles and the hole leave free (`RUBBLE_CLEAR`),
+one pile per lane in each.
+
+The sawhorses share the cones' closed-form flight in `updatePool`, at two-thirds the throw
+(`HORSE_POWER`) and with a knock radius that reaches the ends of the plank. The hole is laid out in
+the road's frame (`pitParts`) so the two sawhorses can be measured off its real length, and it is
+pulled in to 0.8 of its old offset so a sawhorse's end never touches a cone row.
+
+`?roadworks=classic` brings back the zone as it was: a plywood ramp against the entry trestle that
+hops the taxi over the works (the sections on the ramp and the suspension below describe that hop,
+which the Loco arch jump and the drawbridge still use), and a heap of dug-up spoil beside the hole
+in place of the sawhorses and the rubble. The ramp went because the bridges and the drawbridge
+already give the player jumps, and the hop carried the taxi clean over the street's own contents —
+the cones, the hole and the far trestle were things it flew over rather than hit.
 
 ### The closure is soft, and that is not a shortcut
 

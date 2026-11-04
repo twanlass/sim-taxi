@@ -2086,8 +2086,11 @@ const STUNTMAN_FUEL = DRIFT_CHAIN.fuel[0];
 // fuel. `?bigairfuel=classic` lands with nothing.
 const bigAirFuel = new URLSearchParams(window.location.search).get('bigairfuel') !== 'classic';
 const BIG_AIR_FUEL = DRIFT_CHAIN.fuel[0];
-roadwork.onSmash(({ x, z }) => {
-  if (stuntman && !fares.state.gameOver) {
+roadwork.onSmash(({ x, z, exit }) => {
+  // Once per street: the trestle at the far end is smashed on the way *out* now that there is no
+  // ramp to hop it (`?roadworks=classic` has the hop), and paying the combo twice would make every
+  // closed street worth two of anything else on the meter.
+  if (stuntman && !exit && !fares.state.gameOver) {
     flyEnergyToBoost({
       from: taxiScreenPos,
       to: fuelScreenPos,
@@ -2106,6 +2109,12 @@ roadwork.onSmash(({ x, z }) => {
   // A proper burst. Two ordinary puffs was what a boosting taxi lays down in two frames, so the
   // impact read as exhaust rather than as hitting something. See `dust.burst`.
   dust.burst(x, z, traffic.taxi.yaw);
+});
+// Rubble and the sawhorses round the hole: the taxi's body bounces (game/roadwork.js), and this
+// is the sound and the nudge of camera that go with it — a kerb's worth, not a barricade's.
+roadwork.onBump(({ amp }) => {
+  controller.kickShake(0.35 * amp);
+  sfx?.play('bump', { gain: 0.35 + 0.25 * amp, rate: 0.9 + Math.random() * 0.2 });
 });
 // A post box or a hot dog cart knocked off the kerb (game/streetprops.js). Half a step on the meter,
 // on top of the overtake that carried the taxi into it: it is a lucky line through a pass rather

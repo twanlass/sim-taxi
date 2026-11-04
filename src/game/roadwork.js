@@ -6,21 +6,23 @@ import { PALETTE } from '../palette.js';
 import { createPerson } from '../geometry/person.js';
 import { markOccluder, unmarkOccluder } from './ssao.js';
 import {
-  coneGeometry, barricadeParts, spoilParts, pitParts, sawhorseGeometry, mergeAll, splinterGeometry,
+  coneGeometry, barricadeParts, spoilParts, pitParts, sawhorseGeometry, rubbleParts, mergeAll,
+  splinterGeometry,
   CONE_REST_Y, SPLINTER_REST_Y, SAWHORSE_REST_Y, SAWHORSE_HALF_W,
 } from '../geometry/roadworks.js';
-import { launchHop, setClosedLanes, HOP_LEN, STOP_SETBACK } from '../sim/traffic.js';
+import { launchHop, setClosedLanes, HOP_LEN, STOP_SETBACK, CAR_LEN } from '../sim/traffic.js';
 import { setRoadworkLanes } from './route.js';
 
 // A street closed for roadworks: a striped trestle across each end, a scatter of cones, a hole
-// with a sawhorse barricade at either end of it, and two workers standing over it. The sawhorses
-// replaced a heap of spoil beside the hole (2026-11-04); `?barricades=classic` keeps the heap.
+// with a sawhorse barricade at either end of it, rubble in the lanes, and two workers standing over
+// it. The taxi barrels through on the road (2026-11-04); `?roadworks=classic` keeps the old ramp
+// and hop, and the heap of spoil the sawhorses replaced.
 //
 // **Ambient traffic routes around it; the taxi has never heard of it.** The closure is two lane
 // ids handed to `setClosedLanes` in sim/traffic.js, where they zero the weight of any turn that
 // would enter them. The taxi's turn comes from its route, which is planned over the untouched road
 // network, so it drives straight in — and since nothing else is in there, the closed street is the
-// emptiest road in the city: a fast lane and a ramp at the end of it. Going through the ramp is
+// emptiest road in the city: a fast lane with a barricade at each end of it. Smashing the first is
 // the Stuntman combo (main.js, `roadwork.onSmash`): a step on the meter and some Loco back.
 //
 // Scheduling is modelled on game/flyover.js and is deliberately **off the difficulty curve**, for
@@ -29,12 +31,37 @@ import { setRoadworkLanes } from './route.js';
 // one rather than wait forty seconds for it.
 
 /**
- * `'classic'` is the spoil heap beside the hole — `?barricades=classic`, `BARRICADES=classic`
- * headless. Otherwise the hole is fenced by two sawhorses.
+ * `'classic'` is the zone as it was before 2026-11-04 — `?roadworks=classic`, `ROADWORKS=classic`
+ * headless: a plywood ramp against the entry trestle that hops the taxi over the works, and a heap
+ * of spoil beside the hole. The default is `'barrel'` (Tyler: "cut the ramps now that we have a
+ * bunch of other ways … as the car barrels through, it just bounces around as it's hitting piles of
+ * debris and smashes through the barricades and knocks over cones"). No ramp and no hop: the taxi
+ * stays on the road the whole way, so it smashes the trestle at *both* ends, bounces over the
+ * rubble piles in the lanes, and goes through the cones and the two sawhorses round the hole.
  */
-export const BARRICADES_MODE = (typeof location !== 'undefined'
-  ? new URLSearchParams(location.search).get('barricades')
-  : globalThis.process?.env?.BARRICADES) === 'classic' ? 'classic' : 'sawhorse';
+export const ROADWORKS_MODE = (typeof location !== 'undefined'
+  ? new URLSearchParams(location.search).get('roadworks')
+  : globalThis.process?.env?.ROADWORKS) === 'classic' ? 'classic' : 'barrel';
+const BARREL = ROADWORKS_MODE === 'barrel';
+
+// The bounce. Render-only, on the same three fields game/flatbed.js jolts its truck with
+// (`jolt`, `joltRoll`, `joltPitch`, which sim/traffic.js adds into the pose it draws), so the
+// taxi's simulated position never leaves the lane. A damped bounce whose height is the absolute
+// value of the sine — a car going over rubble is thrown *up* off it, never sunk into the road.
+// At play zoom 0.22 is under two pixels of chassis, which is why the pitch and roll carry most of it.
+const DEBRIS_Y = 0.22;
+const DEBRIS_PITCH = 0.09;
+const DEBRIS_ROLL = 0.07;
+const DEBRIS_W = 19;            // rad/s
+const DEBRIS_DECAY = 5.5;
+const DEBRIS_LIFE = 1.1;        // seconds before a bounce is written back to exactly zero
+const BUMP_RUBBLE = 1;          // relative sizes of what the taxi hits
+const BUMP_TRESTLE = 1.25;
+const BUMP_HORSE = 0.55;
+// Rubble piles: one per lane in every stretch of the street the works leave free, kept this far
+// off the trestles and the hole so a pile never sits inside either.
+const RUBBLE_CLEAR = 2.9;
+const RUBBLE_HIT_R = 1.3;       // the pile's own reach plus half a car's width
 
 // Clear of the hole's end, so a foot does not stand in it.
 const HORSE_GAP = 0.45;
@@ -149,7 +176,10 @@ const TRESTLE_THROW = 4.6;     // and how far downfield it lands
 // Splintered plank off a trestle that has just been hit. Thrown from the plank line rather than
 // from the road, in a forward fan: a trestle does not disintegrate evenly in all directions, it
 // comes apart along the axis of whatever went through it.
-const CHIPS = 16;              // per trestle, and only one trestle is ever hit at a time
+// Per trestle, and the pool holds two trestles' worth: since the ramp went, the taxi stays on the
+// road and goes through the trestle at the far end too.
+const CHIPS_PER = 16;
+const CHIPS = CHIPS_PER * 2;
 const CHIP_GRAVITY = 30;       // heavier than a cone. Wood this size drops, it does not float down
 const CHIP_SETTLE = 0.35;      // fraction of the flight spent easing flat onto the road
 const CHIP_PLANK_Y = 0.95;     // roughly the height of the upper plank, where the chips come off
@@ -231,6 +261,9 @@ export function createRoadwork(rng, scene, camera = null) {
   const barriers = [];
   const cones = [];
   const horses = [];
+  const rubble = [];
+  const bumpListeners = [];
+  const bump = { at: -Infinity, amp: 0, roll: 1, live: false };
   const chips = [];
 
   let coneMesh = null;
@@ -368,8 +401,18 @@ export function createRoadwork(rng, scene, camera = null) {
       holder.add(mesh);
       group.add(holder);
       materials.push(mesh.material);
+      // `exitLaneId`/`exitS`: the same trestle met from behind, by a taxi on the *other* lane
+      // driving out of the street. The ramp's hop used to carry it over this one; on the road it
+      // goes through it, and `dir` flips the throw so the trestle goes the way the taxi was going.
+      const other = edge.lanes.find((l) => l !== lane);
       barriers.push({
-        mesh, laneId: lane.id, s: BARRIER_S, hit: false, hitAt: 0,
+        mesh, laneId: lane.id, s: BARRIER_S, hit: false, hitAt: 0, dir: 1, exit: false,
+        // Tested where the taxi's *nose* meets it, half a car short of the trestle line, and that
+        // is not only geometry: the far trestle stands 2.1 from the junction against a hold line
+        // 3.4 back, so the taxi's own position never reaches it — the car stops being on the lane
+        // at the line, and a test on the centre never fired (0 exits of 2 in the probe).
+        exitLaneId: other?.id ?? null,
+        exitS: other ? other.length - BARRIER_S - CAR_LEN / 2 : Infinity,
         throwX: rng.jitter(0.8), twist: rng.range(-0.9, 0.9),
         x: frame.x, z: frame.z,
         // Kept so the splinters can be thrown in the trestle's own frame rather than in world
@@ -379,7 +422,8 @@ export function createRoadwork(rng, scene, camera = null) {
 
       // The ramp is bolted to the road, so it joins the static mesh — transformed into world space
       // here because that mesh has no frame of its own.
-      for (const geo of ramp) { geo.applyMatrix4(frame.matrix); ramps.push(geo); }
+      if (BARREL) for (const geo of ramp) geo.dispose();
+      else for (const geo of ramp) { geo.applyMatrix4(frame.matrix); ramps.push(geo); }
     }
 
     parts.push(...ramps);
@@ -390,7 +434,7 @@ export function createRoadwork(rng, scene, camera = null) {
     const hx = () => site.x + site.ax * off;
     const hz = () => site.z + site.az * off;
     let horseSpots = [];
-    if (BARRICADES_MODE === 'classic') {
+    if (!BARREL) {
       parts.push(...spoilParts(hx(), hz(), rng));
     } else {
       // Pulled in toward the centreline: a sawhorse is 1.7 across, and at the heap's 1.4 its end
@@ -411,6 +455,13 @@ export function createRoadwork(rng, scene, camera = null) {
       }));
     }
 
+    if (BARREL) {
+      for (const spot of rubbleSpots(edge, { ...site, off })) {
+        rubble.push(spot);
+        parts.push(...rubbleParts(spot.x, spot.z, rng));
+      }
+    }
+
     const mesh = new THREE.Mesh(mergeAll(parts), propMaterial());
     mesh.castShadow = true;
     mesh.receiveShadow = true;
@@ -418,6 +469,29 @@ export function createRoadwork(rng, scene, camera = null) {
     group.add(mesh);
     materials.push(mesh.material);
     return { mesh, site: { ...site, off }, horseSpots };
+  }
+
+  /**
+   * Where the rubble goes: the stretches of the street left free between the two trestles and the
+   * hole, one pile per lane in each, measured in units along lane 0 so the clearance means the
+   * same thing on a long street as on a short one.
+   */
+  function rubbleSpots(edge, site) {
+    const len = edge.lanes[0].length;
+    const centre = site.u * len;
+    const lo = BARRIER_S + 0.8;
+    const hi = len - BARRIER_S - 0.8;
+    const spans = [[lo, centre - RUBBLE_CLEAR], [centre + RUBBLE_CLEAR, hi]];
+    const spots = [];
+    for (const [a, b] of spans) {
+      if (b < a) continue;
+      for (const side of [-LANE, LANE]) {
+        const along = a + (b - a) * rng.range(0.25, 0.75);
+        const at = roadPoint(edge, along / len, side + rng.jitter(0.35));
+        spots.push({ x: at.x, z: at.z, hit: false });
+      }
+    }
+    return spots;
   }
 
   function buildCones(edge) {
@@ -724,6 +798,7 @@ export function createRoadwork(rng, scene, camera = null) {
 
     for (const chip of chips) {
       if (chip.live) continue;
+      if (spawned >= CHIPS_PER) break;
       spawned += 1;
 
       chip.live = true;
@@ -740,8 +815,8 @@ export function createRoadwork(rng, scene, camera = null) {
       // crowbar was swung, but what sends it *down the street* is the car.
       const along = rng.range(0.45, 1) * (2.5 + speed * 0.42);
       const spray = rng.range(-4.6, 4.6);
-      chip.vx = barrier.forward.x * along + barrier.across.x * spray;
-      chip.vz = barrier.forward.z * along + barrier.across.z * spray;
+      chip.vx = barrier.forward.x * along * barrier.dir + barrier.across.x * spray;
+      chip.vz = barrier.forward.z * along * barrier.dir + barrier.across.z * spray;
       chip.vy = rng.range(3.4, 8.2);
 
       // Fall time from the plank line to the road, out of the same quadratic the position uses —
@@ -768,7 +843,8 @@ export function createRoadwork(rng, scene, camera = null) {
     barrier.hit = true;
     barrier.hitAt = state.t;
     state.smashed = true;
-    launchHop(taxi);
+    if (!BARREL) launchHop(taxi);
+    else bumpTaxi(BUMP_TRESTLE, false);
     for (const { items } of pools) {
       for (const cone of items) {
         if (Math.hypot(cone.x - barrier.x, cone.z - barrier.z) <= SMASH_SCATTER) {
@@ -782,7 +858,52 @@ export function createRoadwork(rng, scene, camera = null) {
     // the wrong one — a worker calmly holding a shovel eight units from a trestle cartwheeling past
     // reads as a figure that has not been told what scene it is in.
     for (const worker of workers) if (worker.fleeing === 0) worker.fleeing = 1e-6;
-    emit(smashListeners, { x: barrier.x, z: barrier.z, v: taxi.v });
+    emit(smashListeners, { x: barrier.x, z: barrier.z, v: taxi.v, exit: barrier.exit });
+  }
+
+  /**
+   * Throw the taxi's body about. `quiet` is for the barricade, which has its own crash and shake
+   * from main.js and does not want a bump sound under them.
+   */
+  function bumpTaxi(amp, quiet = false) {
+    // A second hit while the first is still ringing takes over at whichever is bigger, so piles
+    // met back to back read as one rough patch rather than resetting to a smaller bounce.
+    const left = bump.live ? bump.amp * Math.exp(-DEBRIS_DECAY * (state.t - bump.at)) : 0;
+    bump.at = state.t;
+    bump.amp = Math.max(amp, left);
+    bump.roll = rng.chance(0.5) ? 1 : -1;
+    bump.live = true;
+    if (!quiet) emit(bumpListeners, { amp });
+  }
+
+  function updateBump(taxi) {
+    if (!bump.live) return;
+    const age = state.t - bump.at;
+    if (age >= DEBRIS_LIFE || taxi.crashed) {
+      bump.live = false;
+      taxi.jolt = 0;
+      taxi.joltRoll = 0;
+      taxi.joltPitch = 0;
+      return;
+    }
+    const env = bump.amp * Math.exp(-DEBRIS_DECAY * age);
+    const wave = Math.sin(DEBRIS_W * age);
+    taxi.jolt = DEBRIS_Y * env * Math.abs(wave);
+    taxi.joltPitch = DEBRIS_PITCH * env * Math.sin(DEBRIS_W * age + 0.9);
+    taxi.joltRoll = DEBRIS_ROLL * env * wave * bump.roll;
+  }
+
+  function updateRubble(taxi) {
+    // Nothing to hit from the air. The probe still throws the taxi off the barricade to test the
+    // hop, and a car over the rubble at two units up has not driven over it.
+    if (Math.abs(taxi.v) <= KNOCK_V || taxi.hopFrom != null) return;
+    for (const pile of rubble) {
+      if (pile.hit) continue;
+      if (Math.hypot(pile.x - taxi.x, pile.z - taxi.z) < RUBBLE_HIT_R) {
+        pile.hit = true;
+        bumpTaxi(BUMP_RUBBLE);
+      }
+    }
   }
 
   // --- Per frame --------------------------------------------------------------
@@ -870,6 +991,7 @@ export function createRoadwork(rng, scene, camera = null) {
         if (Math.abs(taxi.v) > KNOCK_V
           && Math.hypot(cone.x - taxi.x, cone.z - taxi.z) < cone.knockR) {
           knock(cone, taxi.x, taxi.z, taxi.v);
+          if (BARREL && cone.restY === SAWHORSE_REST_Y) bumpTaxi(BUMP_HORSE);
         }
         continue;
       }
@@ -950,7 +1072,15 @@ export function createRoadwork(rng, scene, camera = null) {
         const crossed = taxi.lane?.id === barrier.laneId
           && state.lastLaneId === barrier.laneId
           && state.lastS < barrier.s && taxi.s >= barrier.s;
+        const exited = BARREL && taxi.lane?.id === barrier.exitLaneId
+          && state.lastLaneId === barrier.exitLaneId
+          && state.lastS < barrier.exitS && taxi.s >= barrier.exitS;
         if (crossed) smash(barrier, taxi);
+        else if (exited) {
+          barrier.dir = -1;
+          barrier.exit = true;
+          smash(barrier, taxi);
+        }
         continue;
       }
 
@@ -962,11 +1092,11 @@ export function createRoadwork(rng, scene, camera = null) {
       barrier.mesh.position.set(
         barrier.throwX * ease,
         Math.sin(Math.PI * u) * 1.25,
-        TRESTLE_THROW * ease,
+        TRESTLE_THROW * ease * barrier.dir,
       );
       // Tips away down the road and lands past flat, which reads as slammed rather than as laid
       // down. Negative x swings the top toward +Z, the direction the taxi was going.
-      barrier.mesh.rotation.set(-1.95 * ease, barrier.twist * ease, 0);
+      barrier.mesh.rotation.set(-1.95 * ease * barrier.dir, barrier.twist * ease, 0);
     }
 
     return flying;
@@ -1077,6 +1207,7 @@ export function createRoadwork(rng, scene, camera = null) {
       updateChips(dt);
       updateBarriers(taxi);
       updateWorkers(dt, taxi);
+      updateBump(taxi);
       if (state.fade <= 0) teardown();
       return;
     }
@@ -1088,12 +1219,19 @@ export function createRoadwork(rng, scene, camera = null) {
       state.occluded = true;
     }
 
-    if (taxi.crashed) return;
+    if (taxi.crashed) {
+      updateBump(taxi);   // writes the bounce back to zero, so a wreck does not freeze mid-jolt
+      return;
+    }
 
     updateBarriers(taxi);
     updateCones(dt, taxi);
     updateChips(dt);
     updateWorkers(dt, taxi);
+    if (BARREL) {
+      updateRubble(taxi);
+      updateBump(taxi);
+    }
 
     // Whether the taxi is still in the air off the ramp, which the pack-up below waits on: a site
     // does not start dissolving around a car that is mid-stunt over it.
@@ -1147,7 +1285,7 @@ export function createRoadwork(rng, scene, camera = null) {
     update,
     active,
     cones,
-    /** The sawhorses at the ends of the hole; empty under `?barricades=classic`. */
+    /** The sawhorses at the ends of the hole; empty under `?roadworks=classic`. */
     horses,
     chips,
     barriers,
@@ -1159,6 +1297,11 @@ export function createRoadwork(rng, scene, camera = null) {
     workersGone: () => workers.filter((w) => w.fade <= 0).length,
     get closedLaneIds() { return state.closedLaneIds; },
     onSmash: (cb) => { smashListeners.push(cb); },
+    // The taxi going over a rubble pile or a sawhorse, with the bounce's relative size. main.js
+    // gives it the `bump` sound and a nudge of shake.
+    onBump: (cb) => { bumpListeners.push(cb); },
+    /** The rubble piles in the lanes; empty under `?roadworks=classic`. */
+    rubble,
     // Fires once, when a zone is stood up, with the two junctions it runs between. main.js uses it
     // to aim one fare's drop-off at the far end of the closed street.
     onPlaced: (cb) => { placeListeners.push(cb); },

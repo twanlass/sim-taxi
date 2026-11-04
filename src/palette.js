@@ -1353,6 +1353,9 @@ export const PALETTE = {
   // Dug-up spoil: the road base under the asphalt, not garden soil. Browner than the kerb and
   // darker than the sidewalk, so the heap has an edge against both.
   spoil: '#7C6A52',
+  // Broken-up road in the closed street's lanes, which the taxi bounces over: chunks of the asphalt
+  // a little paler than the road they came out of, so a pile has an edge against it.
+  rubble: '#6F7178',
   // The hole the spoil came out of, painted flat on the road.
   trench: '#3E3B37',
   // The ramp leaning on the barricade. It borrowed the spoil's brown at first and read as a mud

@@ -5,7 +5,7 @@ import { PALETTE, color, jitterColor } from '../palette.js';
 
 // The furniture of a closed street: cones, a striped trestle barricade with a plywood ramp
 // propped against it, the hole the crew is standing over, and the two sawhorses fencing its ends
-// (or, under `?barricades=classic`, the spoil heap that came out of it).
+// (or, under `?roadworks=classic`, the spoil heap that came out of it).
 //
 // Same idiom as `city/props.js` — every function returns an *array of baked geometries* in world
 // (or local) space rather than meshes, so the caller merges them into one draw call. The one
@@ -223,7 +223,7 @@ export function spoilParts(x, z, rng) {
 
 // The pit's own barricades: a small single-plank sawhorse, one at each end of the hole, standing
 // where the spoil heap used to (Tyler, 2026-11-04: "barricades instead of the dirt piles";
-// `?barricades=classic` keeps the heap). One plank rather than the end trestle's two, so the pair
+// `?roadworks=classic` keeps the heap). One plank rather than the end trestle's two, so the pair
 // reads as the crew's furniture round the dig and not as two more road closures in the middle of
 // the street. 1.7 across is about the hole's own width — 13px at play zoom, under the 2px stripe
 // floor at five stripes — and the top at 1.0 sits just over a cone (1.02 to its tip), which is
@@ -291,6 +291,32 @@ export function pitParts(x, z, ax, az, rng) {
   hole.rotateY(Math.atan2(-az, ax));
   hole.translate(x, TRENCH_Y, z);
   return { parts: [bakeColor(hole, color('trench'))], halfAlong: along / 2 };
+}
+
+/**
+ * A low pile of broken road for the taxi to bounce over: a handful of chunks of asphalt and spoil
+ * round (x, z), none taller than 0.3 — about two pixels of relief at play zoom, which is as much as
+ * a thing the car drives *through* can stand before it reads as driving through a wall. The bounce
+ * that sells it is on the car (`DEBRIS_*` in game/roadwork.js), not in the geometry.
+ */
+export const RUBBLE_R = 0.75;
+
+export function rubbleParts(x, z, rng) {
+  const parts = [];
+  const n = rng.int(4, 6);
+  for (let k = 0; k < n; k++) {
+    const r = rng.range(0.13, 0.24);
+    const chunk = new THREE.DodecahedronGeometry(r, 0);
+    jitterVertices(chunk, rng, r * 0.25);
+    chunk.scale(rng.range(1, 1.5), rng.range(0.55, 0.85), rng.range(1, 1.4));
+    chunk.rotateY(rng.range(0, Math.PI * 2));
+    const a = rng.range(0, Math.PI * 2);
+    const d = k === 0 ? 0 : rng.range(0.2, RUBBLE_R - r);
+    chunk.translate(x + Math.cos(a) * d, r * 0.35, z + Math.sin(a) * d);
+    const base = rng.chance(0.65) ? PALETTE.rubble : PALETTE.spoil;
+    parts.push(bakeColor(chunk, jitterColor(base, rng, { l: 0.06 })));
+  }
+  return parts;
 }
 
 /** Merge and dispose, the closing move every builder in this project makes. */
