@@ -453,6 +453,15 @@ arrays were for — one burst can't divide by another's `LIFE`. The crash moved 
 `HALF_W` was first tried at 0.62, picked against the car's 2.0 width; it cleared the tarmac by
 **0.002**, which is a coincidence and not a margin. 0.50 clears it by 0.095.
 
+**The drift kick's two plumes were first parallel at 0.6 out, then a V, now parallel at 0.95.**
+At 0.6 either side of the pipe the two sheets projected almost on top of each other under the
+diagonal view, and the kick was reported as "just a single tailpipe". The fix then was to splay
+each barrel 0.32 rad off straight back (about half that on the road, since the surge stretches the
+group along its length), putting the tips 3.1 apart; 0.5 also worked and looked like antlers. Tyler
+found the V too splayed (2026-11-04), so the barrels went back to parallel with the roots spread
+to 0.95 instead, which separates them on every heading without the angle. `?flames=classic` keeps
+the V.
+
 ### Wreck — `game/blast.js`, `game/wreckage.js`
 
 [Current](rendering.md#wreck--gameblastjs-gamewreckagejs).

@@ -2861,6 +2861,14 @@ rather than eyeballed:
   0.55 holds the body out to the midpoint and puts the taper in the last third, where a drawn flame
   has it.
 
+**The drift kick burns two plumes, parallel.** While the kick's surge is on, the one plume
+splits into a pair of longer violet barrels (blue and teal up a chain) that run straight back,
+`BARREL_OFFSET` = 0.95 either side of the pipe — 1.9 apart, out near the corners of the 2.36-wide
+bumper, like a pair of drag pipes. The spacing is the whole trick: each tongue is a vertical sheet
+a unit tall, and at 0.6 out the diagonal view laid the two sheets nearly on top of each other on
+most headings, so the kick read as one fat flame. `tools/probe.mjs` holds the tips more than 1.6
+apart. `?flames=classic` splays them into the V they burned in before (history).
+
 **Ticked after `traffic.update`,** down with the rubber and the dust rather than up with the burst's
 own pool, and for the same reason both of those are: it is pinned to the car's position *this*
 frame rather than emitted and left behind. At the Loco Mode top the taxi covers 0.57 units in a

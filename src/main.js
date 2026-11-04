@@ -83,7 +83,7 @@ import { createFlames } from './game/flames.js';
 import { createSparks } from './game/sparks.js';
 import { createRepairFx } from './game/repairfx.js';
 import {
-  createLocoFlame, tongueOutline, FLAME_FRAMES, FLAME_FRAME_TIME, FLAME_LAYER_SCALES, FLAME_LEN,
+  createLocoFlame, setFlameStyle, tongueOutline, FLAME_FRAMES, FLAME_FRAME_TIME, FLAME_LAYER_SCALES, FLAME_LEN,
 } from './game/locoflame.js';
 import { createWreckage } from './game/wreckage.js';
 import { createEjection, EJECT_CLOSING } from './game/ejection.js';
@@ -1451,6 +1451,8 @@ setPassTurnGate(new URLSearchParams(window.location.search).get('passturn'));
 // judgement about what is there; `?overtake=classic` puts the judgement back.
 setOvertakeStyle(new URLSearchParams(window.location.search).get('overtake'));
 setPeek(new URLSearchParams(window.location.search).get('peek'));
+// The drift kick's twin plumes run parallel; `?flames=classic` splays them into the old V.
+setFlameStyle(new URLSearchParams(window.location.search).get('flames'));
 // Ambient traffic no longer flees the boosting taxi; `?scatter=classic` puts the flee back.
 setTaxiScatter(new URLSearchParams(window.location.search).get('scatter'));
 // A swinging-out taxi keeps its pace instead of matching the car it is going round, and a truck it
