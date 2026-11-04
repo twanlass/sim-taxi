@@ -1514,9 +1514,9 @@ export function createBuildings(rng, blocks) {
   // roof and an OPEN sign in its window (city/vetclinic.js). Chosen last and by hash, so it moves
   // nothing; null on a city with no shop that fits.
   const vet = chooseVetSite(towers, site);
-  // The rooftop billboard (city/billboard.js): the widest flat roof left, the same way — by rule and
-  // by hash, after everything else, so it moves nothing either.
-  const billboard = chooseBillboardSite(towers, [site, vet?.roof].filter(Boolean));
+  // The rooftop billboards (city/billboard.js): the widest flat roofs left, the same way — by rule
+  // and by hash, after everything else, so they move nothing either.
+  const billboards = chooseBillboardSite(towers, [site, vet?.roof].filter(Boolean));
 
   const count = parts.length;
   const { solid: unframed, frames } = frameMesh(parts, 'buildings');
@@ -1548,8 +1548,9 @@ export function createBuildings(rng, blocks) {
     bank,
     // The shop that is the vet clinic, or null — see `chooseVetSite`. Its sign is built by main.js.
     vet,
-    // The roof that carries the billboard, or null — see `chooseBillboardSite`. Built by main.js.
-    billboard,
+    // The roofs that carry billboards, one per ad (maybe none) — see `chooseBillboardSite`. Built
+    // by main.js.
+    billboards,
     // Every flat roof that is still a roof — the helipad's deck is spoken for — with the footprint
     // of what stands on it. The flocks pick their rooftop roosts from these; see `chooseRoosts` in
     // game/birds.js.

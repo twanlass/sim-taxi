@@ -955,24 +955,31 @@ the bench block, with the sign on it.
 
 ## The rooftop billboard
 
-One flat roof per city carries an advertising hoarding (`city/billboard.js`): the robo-taxis' teaser
-ad, a huge **MONDAY.** in pixel type with a small teal "ROBO-TAXIS ARRIVE" over it and a teal rule
-under it, on two steel posts with raking braces, a catwalk and three lamps that bloom as `window`.
-The building is untouched; `chooseBillboardSite` picks a roof after the vet clinic, by rule and
-hash, so no draw moves. `?billboard=classic` leaves it off.
+Up to two flat roofs per city carry an advertising hoarding (`city/billboard.js`), one per ad: the
+robo-taxis' teaser (**MONDAY.** under a teal band with a little robo-taxi pod and "ROBO-TAXIS
+ARRIVE") and **Loco Juice**, the energy drink from the radio's ad break (a lime can on a hot
+sunburst). Each stands on dark bottle-green steel (galvanised grey matched the roof and vanished)
+with raking braces, a catwalk and three lamps, which bloom as `window` and throw a faint additive
+beam each up onto the paper. The building is untouched; `chooseBillboardSite` picks roofs after the
+vet clinic, by rule and hash, so no draw moves. `?billboard=classic` leaves both off.
 
-**Why that copy.** At play zoom a world unit is ~7.7px, so a word the width of an 8-unit board is
-about ten pixels tall: one word reads, nothing else does. The strap line is for pinching in. The
-letters are condensed (pixels 1.4 times as tall as wide) to buy the headline height.
+**The posters** are vector art painted on a canvas in Space Grotesk 700 (`city/billboardart.js`),
+used as the paper's map and, at 0.22, its emissive map, so a poster reads a step brighter than its
+roof. The lamps' light on the paper is painted into the canvas (a warm fan under each lamp) rather
+than lit, because a real light would re-resolve every program in the city. At play zoom a world
+unit is ~7.7px and the poster is ~23px tall, so each layout is built round one headline that fills
+most of it; everything smaller is for pinching in. With no canvas (the headless tools) the paper is
+plain.
 
-**Which roof.** The board stands across the deck's *diagonal*, its face square to the camera; along
-a street it would be read at 45° and lose a third of its width. So the widest flat deck wins (up to
-8 units of board, never under 5.6), the posts draw in where the deck is narrow and the ends
-cantilever up to 0.5 past the lip, and a ray from each corner of the face must reach the camera past
-every other tower (`clearOf`, shared with the vet). 30 seeds out of 30 get one, most at 8 units on
-a low warehouse roof. The steel and the poster go into the sightline field, so no fare is placed on
-a corner the board hides. The poster is its own mesh that receives but does not cast shadow: paper
-0.01 off a casting panel would shadow itself. Shots `billboard` and `billboard-far` frame it.
+**Which roofs.** A board stands across its deck's *diagonal*, face square to the camera; along a
+street it would be read at 45° and lose a third of its width. The widest decks win (up to 8 units
+of board, never under 5.6), the posts draw in where a deck is narrow and the ends cantilever up to
+0.5 past the lip, and a ray from each corner of the face has to reach the camera past every other
+tower (`clearOf`, shared with the vet). The second board has to stand 30 units from the first, so
+the two never share a view. Over 30 seeds every city gets the robo-taxi board and 19 get Loco Juice
+as well. The steel and the poster go into the sightline field, so no fare is placed on a corner a
+board hides. Shots `billboard`/`billboard-far` frame the first, `billboard-loco`/`billboard-loco-far`
+the second.
 
 ## The roadside lot, and its tube man
 

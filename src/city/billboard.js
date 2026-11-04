@@ -3,20 +3,18 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { bakeColor, hash01, propMaterial, stampEntry, unlitMaterial } from '../util/geo.js';
 import { color } from '../palette.js';
 import { clearOf } from './vetclinic.js';
+import { ADS, posterTexture } from './billboardart.js';
 
-// The rooftop billboard: one flat roof per city carries a big steel-legged advertising hoarding,
+// The rooftop billboards: up to two flat roofs per city carry a big steel-legged advertising hoarding,
 // the kind that stands over a low warehouse beside an expressway. Tyler asked for "a fun little
 // billboard on a roof top" on 2026-11-04.
 //
-// **What it says.** An ad for the other side: the robo-taxis the council approved, arriving on
-// Monday (the story the intro tells). It is a teaser, so the one thing that has to read is the
-// day — and at play zoom a world unit is ~7.7px, so a word the full width of a seven-unit board
-// lands about ten pixels tall. That is enough for one word and no more, which is why the copy is
-// one huge **MONDAY.** with a small "ROBO-TAXIS ARRIVE" over it that only reads when the player
-// pinches in. The type is the same blocky pixel face as the car wash's sign (city/roadside.js),
-// built as flat quads rather than boxes, and condensed — each pixel 1.4 times as tall as it is
-// wide — because a billboard's lettering always is, and because it buys 40% more height for the
-// one word that has to land.
+// **What they say.** Two ads, one board each, on two roofs at least `APART` from each other: the
+// robo-taxis' teaser (the council approved them; they arrive Monday, as the intro tells it) and
+// Loco Juice, the energy drink the radio advertises. The posters are vector art painted on a canvas
+// (city/billboardart.js), where the layouts and why they are sized as they are live. The steel is a
+// dark bottle green so the frame stands off the grey roof, and three lamps on the catwalk throw a
+// faint beam each up onto the paper.
 //
 // **Nothing about the building changes**, exactly as with the vet clinic: `createBuildings` builds
 // every tower, and `chooseBillboardSite` picks a roof afterwards by its own rule, spending no draw.
@@ -48,8 +46,12 @@ const LIFT = 2.0;
 const OVERHANG = 0.5;
 const LIP = 0.28;               // the roof's lip (LIP_W in buildings.js)
 const PANEL_D = 0.2;            // the panel's thickness
+/** How much of the art lights itself (`emissiveIntensity`), for the lamps on the catwalk. */
+const POSTER_GLOW = 0.22;
 const BORDER = 0.18;            // the steel frame showing round the poster
 const POST = 0.16;              // the posts' section
+/** How far apart two boards' feet have to be: about a block and a half, so they never share a view. */
+const APART = 30;
 const RAKE = 1.2;               // how far behind the board the raking braces land on the deck
 
 /** Face normal and the board's own +X, in world space: square to the camera. */
@@ -58,95 +60,42 @@ const ALONG = new THREE.Vector3(1, 0, -1).normalize();
 
 // --- The poster -------------------------------------------------------------------------------
 
-// The pixel face, five rows, top to bottom. The car wash's letters (city/roadside.js) plus the ones
-// the copy needs; kept here rather than shared because the strap line wants punctuation theirs
-// does not have, and a sign's glyphs are a sign's.
-const GLYPHS = {
-  A: ['.XX.', 'X..X', 'XXXX', 'X..X', 'X..X'],
-  B: ['XXX.', 'X..X', 'XXX.', 'X..X', 'XXX.'],
-  D: ['XXX.', 'X..X', 'X..X', 'X..X', 'XXX.'],
-  E: ['XXXX', 'X...', 'XXX.', 'X...', 'XXXX'],
-  I: ['XXX', '.X.', '.X.', '.X.', 'XXX'],
-  M: ['X...X', 'XX.XX', 'X.X.X', 'X...X', 'X...X'],
-  N: ['X..X', 'XX.X', 'X.XX', 'X..X', 'X..X'],
-  O: ['.XX.', 'X..X', 'X..X', 'X..X', '.XX.'],
-  R: ['XXX.', 'X..X', 'XXX.', 'X.X.', 'X..X'],
-  S: ['.XXX', 'X...', '.XX.', '...X', 'XXX.'],
-  T: ['XXX', '.X.', '.X.', '.X.', '.X.'],
-  V: ['X...X', 'X...X', 'X...X', '.X.X.', '..X..'],
-  X: ['X...X', '.X.X.', '..X..', '.X.X.', 'X...X'],
-  Y: ['X...X', '.X.X.', '..X..', '..X..', '..X..'],
-  '-': ['...', '...', 'XXX', '...', '...'],
-  '.': ['.', '.', '.', '.', 'X'],
-  ' ': ['..', '..', '..', '..', '..'],
-};
-
-/** A line of text's width in pixel columns, one blank column between letters. */
-function columns(text) {
-  return [...text].reduce((n, ch) => n + GLYPHS[ch][0].length + 1, -1);
+/**
+ * The poster's paper, in the board's own frame: centred at the origin, facing +Z, 0.01 proud of the
+ * panel's front at z = 0. White vertex colour under the art's texture (city/billboardart.js), and
+ * the UVs the texture needs, which `bakeColor` would strip.
+ */
+function paperGeometry(w, h) {
+  const geo = new THREE.PlaneGeometry(w - 2 * BORDER, h - 2 * BORDER).toNonIndexed();
+  geo.translate(0, 0, 0.01);
+  const n = geo.attributes.position.count;
+  geo.setAttribute('color', new THREE.BufferAttribute(new Float32Array(n * 3).fill(1), 3));
+  return geo;
 }
 
 /**
- * A line of text as flat quads facing +Z at `z`, centred on (0, `cy`), pixels `pw` wide and `ph`
- * tall. Each row's run of lit pixels is one quad rather than one per pixel: the letters are flat
- * print on paper, so there are no seams between pixels to keep.
+ * A lamp's beam: an open cone from the lamp up onto the poster, additive, bright at the lamp and
+ * gone at the far end. Where it passes behind the paper the depth test cuts it, which is exactly
+ * the shape a beam hitting a wall makes. In the board frame, apex at `from`, aimed at `to`.
  */
-function textParts(text, pw, ph, cy, z, col) {
-  const parts = [];
-  let cx = -(columns(text) * pw) / 2;
-  for (const ch of text) {
-    const rows = GLYPHS[ch];
-    rows.forEach((row, ry) => {
-      const y = cy + (2 - ry) * ph;
-      for (let rx = 0; rx < row.length;) {
-        if (row[rx] !== 'X') { rx += 1; continue; }
-        let end = rx;
-        while (row[end + 1] === 'X') end += 1;
-        const geo = new THREE.PlaneGeometry((end - rx + 1) * pw, ph);
-        geo.translate(cx + ((rx + end + 1) / 2) * pw, y, z);
-        parts.push(bakeColor(geo, col));
-        rx = end + 1;
-      }
-    });
-    cx += (rows[0].length + 1) * pw;
+function beamGeometry(from, to, radius) {
+  const len = from.distanceTo(to);
+  const geo = new THREE.CylinderGeometry(radius, 0.08, len, 14, 4, true).toNonIndexed();
+  geo.translate(0, len / 2, 0);
+  const pos = geo.attributes.position;
+  const colors = new Float32Array(pos.count * 3);
+  const c = new THREE.Color(color('billboardBeam'));
+  for (let i = 0; i < pos.count; i++) {
+    const t = pos.getY(i) / len;                       // 0 at the lamp, 1 at the far end
+    const k = (1 - t) ** 3;
+    colors.set([c.r * k, c.g * k, c.b * k], i * 3);
   }
-  return parts;
-}
-
-/** The headline and the strap line over it. */
-export const COPY = { strap: 'ROBO-TAXIS ARRIVE', head: 'MONDAY.' };
-
-/**
- * The poster, in the board's own frame: centred at the origin, facing +Z, the panel's front at
- * z = 0. Paper 0.01 proud of the panel, and the print 0.01 proud of the paper — three planes, never
- * two on one (see tools/zfight.mjs).
- */
-export function posterParts(w, h, copy = COPY) {
-  const fw = w - 2 * BORDER;
-  const fh = h - 2 * BORDER;
-  const paper = new THREE.PlaneGeometry(fw, fh);
-  paper.translate(0, 0, 0.01);
-  const parts = [bakeColor(paper, color('billboardPaper'))];
-
-  const ink = color('billboardInk');
-  const accent = color('billboardAccent');
-  // The headline as wide as the paper allows less a margin, condensed 1.4 : 1.
-  const pw = (fw * 0.88) / columns(copy.head);
-  const ph = pw * 1.4;
-  const headY = -fh * 0.08;
-  parts.push(...textParts(copy.head, pw, ph, headY, 0.02, ink));
-  // The strap line, small, over it. Only legible pinched in; at play zoom it is a teal rule.
-  const sw = Math.min(pw * 0.42, (fw * 0.8) / columns(copy.strap));
-  // Centred in the gap between the headline's top and the paper's.
-  const strapY = (headY + 2.5 * ph + fh / 2) / 2;
-  parts.push(...textParts(copy.strap, sw, sw * 1.2, strapY, 0.02, accent));
-  // A teal bar along the foot of the poster: the brand's one stroke of colour, and what still says
-  // "printed ad" rather than "sign" once the strap line is too small to see.
-  const barH = fh * 0.07;
-  const bar = new THREE.PlaneGeometry(fw * 0.88, barH);
-  bar.translate(0, -fh / 2 + fh * 0.09, 0.02);
-  parts.push(bakeColor(bar, accent));
-  return parts;
+  for (const name of Object.keys(geo.attributes)) if (name !== 'position') geo.deleteAttribute(name);
+  geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+  const dir = new THREE.Vector3().subVectors(to, from).normalize();
+  geo.applyQuaternion(new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir));
+  geo.translate(from.x, from.y, from.z);
+  return geo;
 }
 
 // --- The structure ----------------------------------------------------------------------------
@@ -177,7 +126,8 @@ function free(deck, p, r) {
 }
 
 /**
- * Pick the city's billboard roof from the towers `createBuildings` built, or null.
+ * Pick the city's billboard roofs from the towers `createBuildings` built: one per ad in `ADS`
+ * (city/billboardart.js), widest first, as many as fit — possibly none.
  *
  * `taken` is decks already spoken for: the helipad and the vet's. Ties go by hash, after
  * everything else is decided, so it spends no draw and moves nothing.
@@ -220,27 +170,35 @@ export function chooseBillboardSite(towers, taken = []) {
     if (!corners.every((p) => clearOf(towers, t, p))) continue;
     candidates.push({ tower: t, at, w, h, y0, half });
   }
-  if (!candidates.length) return null;
-  // The widest board wins; among equals (every full-block warehouse gives MAX_W) a hash picks.
-  const best = Math.max(...candidates.map((c) => c.w));
-  const pool = candidates.filter((c) => c.w > best - 0.01);
-  const sx = pool.reduce((n, c) => n + c.tower.cx, 0);
-  const sz = pool.reduce((n, c) => n + c.tower.cz, 0);
-  const { tower, at, w, h, y0, half } = pool[Math.floor(hash01(sx * 0.53, sz * 0.29) * pool.length) % pool.length];
-  // The birds roost on decks and walk round what stands on them (game/birds.js): the strip the
-  // posts and braces occupy.
-  const ends = [toWorld(at, -half, 0, 0.1), toWorld(at, half, 0, 0.1), toWorld(at, -half, 0, -RAKE),
-    toWorld(at, half, 0, -RAKE)];
-  tower.deck.keep.push({
-    x0: Math.min(...ends.map((p) => p.x)), x1: Math.max(...ends.map((p) => p.x)),
-    z0: Math.min(...ends.map((p) => p.z)), z1: Math.max(...ends.map((p) => p.z)),
+  // The widest boards win; among equals (every full-block warehouse gives MAX_W) a hash orders
+  // them. Then one per ad, each at least `APART` from the boards already placed, so the two never
+  // share a view: one is a landmark, two side by side is a hoarding.
+  const sx = candidates.reduce((n, c) => n + c.tower.cx, 0);
+  const sz = candidates.reduce((n, c) => n + c.tower.cz, 0);
+  const order = candidates.map((c, i) => ({ c, key: -c.w * 10 + hash01(sx * 0.53 + i, sz * 0.29) }))
+    .sort((a, b) => a.key - b.key).map((o) => o.c);
+  const chosen = [];
+  for (const c of order) {
+    if (chosen.length === ADS.length) break;
+    if (chosen.some((o) => Math.hypot(o.at.x - c.at.x, o.at.z - c.at.z) < APART)) continue;
+    chosen.push(c);
+  }
+  return chosen.map(({ tower, at, w, h, y0, half }, i) => {
+    // The birds roost on decks and walk round what stands on them (game/birds.js): the strip the
+    // posts and braces occupy.
+    const ends = [toWorld(at, -half, 0, 0.1), toWorld(at, half, 0, 0.1), toWorld(at, -half, 0, -RAKE),
+      toWorld(at, half, 0, -RAKE)];
+    tower.deck.keep.push({
+      x0: Math.min(...ends.map((p) => p.x)), x1: Math.max(...ends.map((p) => p.x)),
+      z0: Math.min(...ends.map((p) => p.z)), z1: Math.max(...ends.map((p) => p.z)),
+    });
+    return {
+      ad: ADS[i], at, w, h, y0, half, deck: tower.deck.deck,
+      anchor: { x: tower.cx, z: tower.cz, rand: hash01(tower.cx, tower.cz) },
+      // Where to point a camera: the middle of the face.
+      focus: toWorld(at, 0, y0 + h / 2, 0),
+    };
   });
-  return {
-    at, w, h, y0, half, deck: tower.deck.deck,
-    anchor: { x: tower.cx, z: tower.cz, rand: hash01(tower.cx, tower.cz) },
-    // Where to point a camera: the middle of the face.
-    focus: toWorld(at, 0, y0 + h / 2, 0),
-  };
 }
 
 // --- Building it ------------------------------------------------------------------------------
@@ -251,7 +209,7 @@ export function chooseBillboardSite(towers, taken = []) {
  * shadow itself, see `sinkShadowCaster` in game/scene.js), and the three lamps over it (unlit, a
  * light). All stamped for the entrance wave with the tower's own anchor so it rises with its roof.
  */
-export function createBillboard(site, { copy = COPY } = {}) {
+export function createBillboard(site) {
   const { at, w, h, y0, half, anchor } = site;
   const stamp = (geo) => stampEntry(geo, anchor.x, anchor.z, anchor.rand);
   const yaw = Math.atan2(OUT.x, OUT.z);              // local +Z onto OUT
@@ -308,11 +266,40 @@ export function createBillboard(site, { copy = COPY } = {}) {
   shell.receiveShadow = true;
   shell.name = 'billboard-steel';
 
-  const posterGeo = posterParts(w, h, copy).map((g) => stamp(place(g)));
-  const poster = new THREE.Mesh(mergeGeometries(posterGeo, false), propMaterial());
-  posterGeo.forEach((p) => p.dispose());
+  // The art as the paper's map and, faintly, as its emissive: lit from the catwalk, a poster reads
+  // a step brighter than the roof it stands on, which is most of what makes it a billboard. With
+  // no canvas (the headless tools) it is plain paper.
+  const paperMaterial = propMaterial();
+  const art = posterTexture(site.ad);
+  if (art) {
+    paperMaterial.map = art;
+    paperMaterial.emissive = new THREE.Color(0xffffff);
+    paperMaterial.emissiveMap = art;
+    paperMaterial.emissiveIntensity = POSTER_GLOW;
+  } else {
+    paperMaterial.color = new THREE.Color(color('billboardPaper'));
+  }
+  const poster = new THREE.Mesh(stamp(place(paperGeometry(w, h))), paperMaterial);
   poster.receiveShadow = true;
   poster.name = 'billboard-poster';
+
+  // The beams, one per lamp, from just under its glass up onto the poster. Not in the shadow or AO
+  // passes (`markOccluder` is for solids), and not lights: see `drawWash` in city/billboardart.js
+  // for where the light they throw is actually drawn.
+  const beamGeo = lampAt.map((u) => stamp(beamGeometry(
+    // Aimed at a point behind the paper, so the cone meets the poster about half way up and the
+    // paper hides the rest: aimed over the top edge, the first cut stood its open end in the sky.
+    toWorld(at, u, y0 + 0.5, 0.82), toWorld(at, u * 1.05, y0 + h * 0.6, -0.4), w / 8,
+  )));
+  const beams = new THREE.Mesh(mergeGeometries(beamGeo, false), unlitMaterial({
+    vertexColors: true, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
+    side: THREE.DoubleSide,
+  }));
+  beamGeo.forEach((g) => g.dispose());
+  beams.renderOrder = 1;
+  beams.name = 'billboard-beams';
+  // A beam is light in the air, not a surface; the z-fight scan has nothing to compare it with.
+  beams.userData.zfight = false;
 
   lamps.forEach(stamp);
   const glow = new THREE.Mesh(mergeGeometries(lamps, false), unlitMaterial({ vertexColors: true }));
@@ -321,10 +308,10 @@ export function createBillboard(site, { copy = COPY } = {}) {
 
   const group = new THREE.Group();
   group.name = 'billboard';
-  group.add(shell, poster, glow);
+  group.add(shell, poster, glow, beams);
   return {
-    site, group, shell, poster, glow,
-    /** Stamped meshes, for the entrance wave, the AO prepass and the sightline field. */
-    meshes: [shell, poster, glow],
+    site, group, shell, poster, glow, beams,
+    /** Stamped meshes, for the entrance wave. Shell and poster are the solids (AO, sightline). */
+    meshes: [shell, poster, glow, beams],
   };
 }
