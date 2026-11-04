@@ -972,29 +972,40 @@ const ratingOn = new URLSearchParams(window.location.search).get('rating') !== '
 // endless run, and `?shift=N` pins the length in seconds for tuning. Shifts rank on a table of their
 // own (SHIFT_TABLE), which every read and write of the scores below goes through.
 //
-// The shift is a day of the week by default (game/days.js): its own clock, an earnings target, a
-// difficulty floor and which events it has. `?days=classic` is the plain shift with no target;
-// `?day=mon` plays that day without saving the week; `?day=reset` sends the week back to Friday.
-// Off in shot mode (a still has no week) and in demo mode (which scripts its own robbery), and
-// there is no day without a shift.
+//
+// Two ways to play, picked on the title (Tyler, 2026-11-04): **Story** is the week — the shift is a
+// day (game/days.js), with its own clock, an earnings target, a difficulty floor and its events —
+// and **Arcade** is the endless run, ended only by a wreck, a bust or the rating, on the old score
+// table. The pick is remembered (`MODE_KEY`), so Play again, which skips the title, plays the same
+// mode. `?days=classic` is the plain five-minute shift in Story; `?day=mon` plays that day without
+// saving the week (and implies Story); `?day=reset` sends the week back to Friday. No day in shot
+// mode (a still has no week) or demo mode (which scripts its own robbery).
 const weekStore = (() => { try { return globalThis.localStorage ?? null; } catch { return null; } })();
-const today = (() => {
+const MODE_KEY = 'simtaxi.mode';
+function planDay(mode) {
   const dayParams = new URLSearchParams(window.location.search);
-  if (shot || demo.on() || dayParams.get('days') === 'classic' || dayParams.get('shift') === 'classic') return null;
+  if (mode === 'arcade' || shot || demo.on() || dayParams.get('days') === 'classic' || dayParams.get('shift') === 'classic') return null;
   if (dayParams.get('day') === 'reset') resetWeek(weekStore);
   const pin = dayByKey(dayParams.get('day'));
   const index = pin >= 0 ? pin : loadWeek(weekStore).day;
   return { index, pinned: pin >= 0, ...DAYS[index] };
-})();
-const shiftSeconds = (() => {
+}
+function planShift(day, mode) {
   const raw = new URLSearchParams(window.location.search).get('shift');
   if (raw === 'classic') return null;
   const n = Number(raw);
   if (raw && Number.isFinite(n) && n > 0) return n;
-  return today?.seconds ?? SHIFT_SECONDS;
+  if (mode === 'arcade') return null;
+  return day?.seconds ?? SHIFT_SECONDS;
+}
+let runMode = (() => {
+  if (new URLSearchParams(window.location.search).has('day')) return 'story';
+  try { return weekStore?.getItem(MODE_KEY) === 'arcade' ? 'arcade' : 'story'; } catch { return 'story'; }
 })();
-if (today) difficulty.setFloor(today.floor);
-const scoreTable = shiftSeconds === null ? undefined : SHIFT_TABLE;
+let today = planDay(runMode);
+let shiftSeconds = planShift(today, runMode);
+difficulty.setFloor(today?.floor ?? 0);
+let scoreTable = shiftSeconds === null ? undefined : SHIFT_TABLE;
 const shiftScores = {
   load: (store) => loadScores(store, scoreTable),
   record: (run, store) => recordRun(run, store, scoreTable),
@@ -4063,10 +4074,30 @@ const hud = {
   dayGoal: document.getElementById('day-goal'),
   banner: document.getElementById('run-end'),
 };
-if (hud.shiftClock) hud.shiftClock.hidden = shiftSeconds === null;
-if (hud.dayGoal) {
-  hud.dayGoal.hidden = today === null;
-  if (today) hud.dayGoal.querySelector('.day-name').textContent = today.name.slice(0, 3);
+function showModeHud() {
+  if (hud.shiftClock) hud.shiftClock.hidden = shiftSeconds === null;
+  if (hud.dayGoal) {
+    hud.dayGoal.hidden = today === null;
+    if (today) hud.dayGoal.querySelector('.day-name').textContent = today.name.slice(0, 3);
+  }
+}
+showModeHud();
+
+/**
+ * The title's Story or Arcade, before the run starts: re-plan the day and the shift for it, hand
+ * the fare loop its clock and target, and remember the pick for Play again.
+ */
+function chooseMode(mode) {
+  runMode = mode;
+  try { weekStore?.setItem(MODE_KEY, mode); } catch { /* the pick just isn't remembered */ }
+  today = planDay(mode);
+  shiftSeconds = planShift(today, mode);
+  scoreTable = shiftSeconds === null ? undefined : SHIFT_TABLE;
+  difficulty.setFloor(today?.floor ?? 0);
+  fares.setShift(shiftSeconds, today?.target ?? null);
+  shiftShown = null;
+  goalShown = null;
+  showModeHud();
 }
 
 // The day's name and the cash against its target, under the shift clock. Green once it is made.
@@ -6448,6 +6479,10 @@ const title = wantsTitle ? createTitleScreen(document.getElementById('title-scre
   sound: soundSwitch,
   settings,
   demo,
+  // Story or Arcade (`chooseMode`). `?modes=classic` is the one Play, playing whichever was last
+  // picked; demo mode keeps the one Play too, since it scripts a run of its own.
+  onChoose: new URLSearchParams(window.location.search).get('modes') === 'classic' || demo.on()
+    ? null : chooseMode,
   // The first Play on a device hears dispatch out first, over the backdrop, with the gate still shut —
   // see game/backstory.js. `?intro=classic` goes straight to the garage as before.
   beforePlay: (done) => {

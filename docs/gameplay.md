@@ -799,6 +799,11 @@ and because the taxi has one seat, all but one of those are riders waiting on th
 
 ## The week
 
+**The title has two ways in** (Tyler, 2026-11-04): **Story** plays the week below, and **Arcade** is
+the endless run — no clock, no target, ended only by a wreck, a bust or the rating, ranked on the
+endless score table. The pick is remembered on the device (`simtaxi.mode`), so Play again plays the
+same mode (`chooseMode` in main.js). Demo mode keeps the one Play. `?modes=classic` is the one Play.
+
 **The game is a week of days, and each day is one shift** (`game/days.js`, Tyler, 2026-10-31). A
 day has its own clock, an **earnings target**, a floor on [the difficulty ramp](difficulty.md)
 (`setFloor`: a later day opens where an earlier one was finishing) and the events it allows. Clear

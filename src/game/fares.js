@@ -2347,6 +2347,14 @@ export function createFareSystem(rng, scene, {
     /** Freeze/unfreeze every fare's countdown. See `paused` on the state above. */
     setPaused: (paused) => { state.paused = paused; },
     /**
+     * Re-plan the shift before the run starts: the title's Story and Arcade (main.js `chooseMode`)
+     * are picked after the fare loop is built. Seconds or null for the endless run, as `shift`.
+     */
+    setShift: (seconds, target = null) => {
+      state.shiftLeft = seconds ?? null;
+      state.target = seconds === null ? null : target;
+    },
+    /**
      * Add to the run's cash without a fare behind it — the package courier's payout
      * (game/parcels.js).
      *
