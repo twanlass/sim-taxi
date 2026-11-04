@@ -953,6 +953,27 @@ units, under half a screen pixel, so the word lands as the same red smudge the b
 The model workshop has it as **Vet clinic**: the city's own tower generator building a shop on
 the bench block, with the sign on it.
 
+## The rooftop billboard
+
+One flat roof per city carries an advertising hoarding (`city/billboard.js`): the robo-taxis' teaser
+ad, a huge **MONDAY.** in pixel type with a small teal "ROBO-TAXIS ARRIVE" over it and a teal rule
+under it, on two steel posts with raking braces, a catwalk and three lamps that bloom as `window`.
+The building is untouched; `chooseBillboardSite` picks a roof after the vet clinic, by rule and
+hash, so no draw moves. `?billboard=classic` leaves it off.
+
+**Why that copy.** At play zoom a world unit is ~7.7px, so a word the width of an 8-unit board is
+about ten pixels tall: one word reads, nothing else does. The strap line is for pinching in. The
+letters are condensed (pixels 1.4 times as tall as wide) to buy the headline height.
+
+**Which roof.** The board stands across the deck's *diagonal*, its face square to the camera; along
+a street it would be read at 45° and lose a third of its width. So the widest flat deck wins (up to
+8 units of board, never under 5.6), the posts draw in where the deck is narrow and the ends
+cantilever up to 0.5 past the lip, and a ray from each corner of the face must reach the camera past
+every other tower (`clearOf`, shared with the vet). 30 seeds out of 30 get one, most at 8 units on
+a low warehouse roof. The steel and the poster go into the sightline field, so no fare is placed on
+a corner the board hides. The poster is its own mesh that receives but does not cast shadow: paper
+0.01 off a casting panel would shadow itself. Shots `billboard` and `billboard-far` frame it.
+
 ## The roadside lot, and its tube man
 
 The fourth block taken from the tower generator (`city/roadside.js`, `?roadside=classic` to give it
