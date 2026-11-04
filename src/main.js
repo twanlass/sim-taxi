@@ -6738,6 +6738,11 @@ const hitch = createHitchLogger(renderer, {
     speech: () => document.querySelector('.speech-glass.is-open:not([hidden])'),
     truck: () => garbage.state.truck,
     paused: () => pause?.state.paused,
+    // The bank robbery in its three beats (2026-11-04, "frame rate drops pretty bad during bank
+    // robbery vignette"): the cut out of the bank, the robber's line, and the getaway after it.
+    cut: () => bankJob?.running(),
+    line: () => robberLine?.isOpen(),
+    getaway: () => getaway() && !robberLine?.isOpen() && !bankJob?.running(),
   },
 });
 

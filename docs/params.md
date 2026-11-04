@@ -260,7 +260,7 @@ See [rendering.md](rendering.md) for all of these.
 | `?governor=off` | Holds the resolution where the budget put it, instead of stepping down (never below 2x) when hot |
 | `?diag` | The on-screen renderer readout |
 | `?warmup=classic` | Skips the boot frame that draws every mesh once, so first draws land mid-run again ([game/warmup.js](../src/game/warmup.js)) |
-| `?hitch` | The hitch logger: late frames, how long their JS took, shader links, resizes, and hitches a minute with and without a speech card up ([game/hitch.js](../src/game/hitch.js)) |
+| `?hitch` | The hitch logger: late frames, how long their JS took, shader links, resizes, and hitches a minute and frames a second with and without each tag (a speech card up, the bank robbery's cut, line and getaway) ([game/hitch.js](../src/game/hitch.js)) |
 | `?bench` | The step-by-step GPU benchmark |
 | `?br=` | Internal to `?bench`: the rows measured so far, carried across its reloads |
 | `?soak` / `=20` | The battery and heat soak, in minutes |
