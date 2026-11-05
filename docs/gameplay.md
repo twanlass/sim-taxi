@@ -1971,7 +1971,8 @@ over an arch. It pays once per landing, so Crushin' It adds a step and no more f
 the refund lands with or without a job. `?bigairfuel=classic` lands with nothing.
 
 Stuntman is smashing through a [roadworks](traffic.md#roadworks-a-street-closed-at-both-ends)
-barricade, at any speed (Tyler, 2026-10-14). It also pays a sixth of the Loco tank back on the
+barricade, at any speed (Tyler, 2026-10-14). Once per street: since the ramp went (2026-11-04) the
+taxi drives out through the far trestle too, and that one pays nothing. It also pays a sixth of the Loco tank back on the
 energy bits a drift kick uses, the same refund as the first kick of a chain (`DRIFT_CHAIN.fuel[0]`).
 The refund lands whether or not there is a job in hand; the step, like every combo, only on one.
 The zone comes up once a run, so this is a once-a-run move; the router already prices the closed
