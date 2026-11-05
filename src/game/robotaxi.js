@@ -6,6 +6,7 @@ import { cloneProp, unlitMaterial } from '../util/geo.js';
 import { PALETTE } from '../palette.js';
 import { CAR_LEN, CAR_W, ROBO_SPEED, STOP_SETBACK, stopDistance } from '../sim/traffic.js';
 import { createRoboTaxiMesh } from '../geometry/robotaxi.js';
+import { WHEEL_R } from '../geometry/wheels.js';
 import { findRoute, planOrigin } from './route.js';
 import { BOARD_SECONDS, kerbFor } from './fares.js';
 import { markOccluder } from './ssao.js';
@@ -86,7 +87,16 @@ export function createRoboTaxis({ rng, scene, traffic, fares, blocked = () => fa
   const skinFor = (robo) => (pos, quat, car) => {
     robo.rig.group.position.copy(pos);
     robo.rig.group.quaternion.copy(quat);
-    for (const wheel of robo.rig.wheels) wheel.rotation.y = car.wheelAngle;
+    // The balls roll by the ground covered since the last frame (WHEEL_R per radian), forward
+    // being +x, which is a turn about -z. Measured off the pose rather than v·dt so a shove rolls
+    // them too, but capped so a re-placement does not spin them into a blur.
+    const moved = robo.lastPos ? Math.min(pos.distanceTo(robo.lastPos), 1) : 0;
+    robo.lastPos = (robo.lastPos ?? new THREE.Vector3()).copy(pos);
+    robo.roll = (robo.roll ?? 0) - Math.sign(car.v || 1) * moved / WHEEL_R;
+    for (const wheel of robo.rig.wheels) {
+      wheel.rotation.z = robo.roll;
+      wheel.rotation.y = wheel.userData.steers ? car.wheelAngle : 0;
+    }
   };
 
   /** The body for the wreck effects, if the taxi writes one off. */
@@ -104,6 +114,7 @@ export function createRoboTaxis({ rng, scene, traffic, fares, blocked = () => fa
     });
     // A wreck's lamps are dark.
     shell.children[rig.shell.children.indexOf(rig.glow)].visible = false;
+    shell.traverse((o) => { if (o.userData.roboLamp) o.visible = false; });
     shell.visible = true;
     rig.group.matrixWorld.decompose(shell.position, shell.quaternion, shell.scale);
     rig.shell.visible = false;
@@ -278,7 +289,7 @@ export function createRoboTaxis({ rng, scene, traffic, fares, blocked = () => fa
     state,
     update,
     /** The cyan lamps, for main.js to put in the bloom. */
-    emissiveMeshes: robos.map((r) => r.rig.glow),
+    emissiveMeshes: robos.flatMap((r) => [r.rig.glow, ...r.rig.rings]),
     /** Bring every robo-taxi on now, for the probe and `__taxi`. Answers how many are on. */
     spawnAll: () => robos.filter((r) => r.car || spawn(r)).length,
     /** The traffic cars, for the probe. */

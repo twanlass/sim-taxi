@@ -4,14 +4,15 @@ import {
   propMaterial, unlitMaterial, setFinish, srcTag, BODY_EULER_ORDER, FINISH,
 } from '../util/geo.js';
 import { PALETTE, color } from '../palette.js';
-import { SILL_Y, WHEEL_R, wheelAnchors, wheelGeometry, wheelGeometries } from './wheels.js';
+import { SILL_Y, WHEEL_R, WHEEL_W, wheelAnchors } from './wheels.js';
 
 // The robo-taxi: a pod, not a car. An elongated rounded box — a superellipsoid, square-ish in every
 // section with soft corners — whose whole upper half is one continuous piece of tinted glass, roof,
 // windscreens and side windows alike, over a brushed-silver lower body on the chrome finish. It is
-// the same at both ends: no bonnet, no boot, a cyan light bar across each end and the sensor puck in
+// the same at both ends, and it rolls on balls rather than wheels: no bonnet, no boot, a cyan light bar across each end and the sensor puck in
 // the middle of the roof, so you cannot tell which way it is about to go. (Tyler, 2026-11-05: the
-// first build was a retro bubble car with fenders and frog-eye lamps; "a little too retro".)
+// first build was a retro bubble car with fenders and frog-eye lamps; "a little too retro". The
+// balls were his next ask: futuristic, and they leave room for it to move in ways a car cannot.)
 //
 // Car-local like every vehicle: +x is the direction of travel, y is up, z is across, on the
 // ordinary car's `len` × `width` footprint and its wheels, so the traffic model's envelope, lamp
@@ -180,6 +181,57 @@ function wellGeometries(len, width) {
   return parts;
 }
 
+// The ball tyres. A sphere of the ordinary wheel's radius, so the pod rides at the height every
+// other body is built for, set in so its outer face stands where a tyre's tread did. A plain ball is
+// the same from every angle, so it cannot show that it is rolling — or steering, which on a sedan's
+// front pair is the whole reason the wheel is a separate mesh. Two cyan rings round it, at right
+// angles, both through the axle: seen side-on they read as a cross on the hub that turns as it
+// rolls, and seen from above a ring along the direction of travel turns with the steering.
+const BALL_SEGMENTS = 28;
+const BALL_RINGS = 18;
+const BALL_BAND = 0.06;    // half-width of each ring: ~1px across at play zoom
+const BALL_PROUD = 0.006;  // the ring's lift off the ball, so the two are not one surface
+const BALL_TUCK = 0.1;     // in from a tyre's outer face: a ball bulges further than a tread did
+
+function ballZ(anchor) {
+  // Outer face a little in from where a tyre's sat (wheelAnchors places a tyre by that face).
+  return Math.sign(anchor.z) * (Math.abs(anchor.z) + WHEEL_W / 2 - WHEEL_R - BALL_TUCK);
+}
+
+/** The ball, dark, and its two rings as a separate geometry for the unlit lamp material. */
+function ballGeometries() {
+  const ball = softPart(new THREE.SphereGeometry(WHEEL_R, BALL_SEGMENTS, BALL_RINGS), 'roboSensor', FINISH.TYRE);
+  // Each ring is a strip laid on the sphere between two parallel planes, built rather than cut out
+  // of a finer sphere: picking a sphere's triangles by their centres left the edges sawtoothed.
+  const pos = [];
+  const index = [];
+  const r = WHEEL_R + BALL_PROUD;
+  const SEGS = 64;
+  for (const axis of ['x', 'y']) {
+    const base = pos.length / 3;
+    for (let i = 0; i <= SEGS; i++) {
+      const phi = (i / SEGS) * Math.PI * 2;
+      for (const t of [-BALL_BAND, BALL_BAND]) {
+        const rr = Math.sqrt(r * r - t * t);
+        const u = rr * Math.cos(phi);
+        const w = rr * Math.sin(phi);
+        // axis 'x': the ring in the x = 0 plane, round (y, z); 'y': in the y = 0 plane, round (x, z).
+        if (axis === 'x') pos.push(t, u, w); else pos.push(u, t, w);
+      }
+    }
+    for (let i = 0; i < SEGS; i++) {
+      const q = base + i * 2;
+      // Wound to face out; checked by the probe, which walks the index.
+      if (axis === 'x') index.push(q, q + 2, q + 1, q + 1, q + 2, q + 3);
+      else index.push(q, q + 1, q + 2, q + 1, q + 3, q + 2);
+    }
+  }
+  const rings = new THREE.BufferGeometry();
+  rings.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  rings.setIndex(index);
+  return { ball, rings };
+}
+
 /** The sensor puck in the middle of the roof, dark, on a short stalk. */
 function sensorGeometry() {
   const parts = [];
@@ -220,6 +272,9 @@ function glowGeometry(len) {
 /** The shell and the glass laid on it, for tools/probe.mjs to check the winding of. */
 export const roboShellParts = (len) => [shellGeometry(len), ...glassGeometries(len)];
 
+/** The balls' rings (indexed, centred on the ball), for the same check. */
+export const roboBallRings = () => ballGeometries().rings;
+
 /** Everything that is paint, chrome and glass, in one geometry. */
 export function roboTaxiBodyGeometry(len, width) {
   const parts = [
@@ -227,7 +282,6 @@ export function roboTaxiBodyGeometry(len, width) {
     ...glassGeometries(len),
     ...wellGeometries(len, width),
     ...sensorGeometry(),
-    ...wheelGeometries(len, width),
   ];
   // Every part has to agree on its attributes to merge: position, normal, color, aFinish.
   for (const g of parts) {
@@ -259,27 +313,32 @@ export function createRoboTaxiMesh(len, width) {
   body.receiveShadow = true;
   shell.add(body);
 
-  const wheelGeo = wheelGeometry();
-  const wheelMat = propMaterial({ gloss: { geometry: wheelGeo } });
-  wheelMat.color.set(PALETTE.roboSilver);
-  const wheels = wheelAnchors(len, width)
-    .filter((anchor) => anchor.front)
-    .map((anchor) => {
-      const wheel = new THREE.Mesh(wheelGeo, wheelMat);
-      wheel.position.set(anchor.x, anchor.y, anchor.z);
-      wheel.castShadow = true;
-      shell.add(wheel);
-      return wheel;
-    });
-
   const glowMat = unlitMaterial({ color: PALETTE.roboGlow });
   const glow = new THREE.Mesh(glowGeometry(len), glowMat);
   shell.add(glow);
+
+  // All four balls are their own meshes: each rolls (about z, by the distance driven) and the front
+  // pair steers (about y). 'YZX' composes Ry·Rz, so the roll happens about the ball's own axle and
+  // the steer turns that axle; the default 'XYZ' would roll it about the car's axle instead.
+  const { ball: ballGeo, rings: ringGeo } = ballGeometries();
+  const wheelMat = propMaterial({ gloss: { geometry: ballGeo } });
+  const wheels = wheelAnchors(len, width).map((anchor) => {
+    const wheel = new THREE.Mesh(ballGeo, wheelMat);
+    wheel.position.set(anchor.x, anchor.y, ballZ(anchor));
+    wheel.rotation.order = 'YZX';
+    wheel.userData.steers = anchor.front;
+    wheel.castShadow = true;
+    const rings = new THREE.Mesh(ringGeo, glowMat);
+    rings.userData.roboLamp = true;
+    wheel.add(rings);
+    shell.add(wheel);
+    return wheel;
+  });
 
   // Dissolved in and out rather than blended — see `faders` in sim/police.js for why alphaHash.
   const faders = [body.material, wheelMat, glowMat];
   for (const material of faders) material.alphaHash = true;
   shell.visible = false;
 
-  return { group, shell, body, wheels, glow, faders, occluders: [body, ...wheels] };
+  return { group, shell, body, wheels, rings: wheels.map((w) => w.children[0]), glow, faders, occluders: [body, ...wheels] };
 }

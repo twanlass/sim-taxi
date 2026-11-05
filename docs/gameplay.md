@@ -2047,7 +2047,8 @@ off; `?robotaxi=soon` brings them on from the start.
 **What one is.** A guest car in traffic wearing a pod with no front or back: an elongated box with
 domed ends and rounded sides, the same shape both ways, so you cannot tell which way it is about to
 go. Everything above the beltline is one dark glass canopy all the way round; below it is silver,
-with dark wheel wells cut round the wheels, a sensor puck on the roof wearing a cyan ring, and a
+with dark wells over four ball tyres (each wears two cyan rings at right angles, so you can see it
+roll and steer), a sensor puck on the roof wearing a cyan ring, and a
 cyan bar at each end. The silver is the one `FINISH.CHROME` part
 in the game (util/geo.js): metal with most of its diffuse traded for mirror, so the sky and the
 skyline do the colouring. Cyan is the robot's colour and nothing else in the game uses it.
