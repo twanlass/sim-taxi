@@ -79,7 +79,8 @@ import { createDepotRun } from '../src/game/depotrun.js';
 import { spinTaxi, driftTaxi, kickDrift, DRIFT_KICK_WINDOW, DRIFT_MIN_V, DRIFT_ANGLE, DRIFT_EXIT, DRIFT_CHAIN, createTraffic, lightPhase, displayPhase, setPriorityJunction, isUnsignalised, ringAxisAt, placeCar, approachRoom, setClosedLanes, isLaneClosed, ROAD_Y, HOP_LEN, DRIFT_LAUNCH_LEN, DRIFT_LAUNCH_HEIGHT, onDriftLaunch, setBarrelRoll, setHopStyle, setDodge, setOvertakeStyle, setPeek, setTaxiScatter, HOP_MIN_V, STOP_SETBACK, SIGNAL_LEAD, SIGNAL_LINGER, wheelAnchors, WHEEL_R, STEER_MAX, SPEED, CAR_LEN, CAR_W, landingBounce, landingRoll, BOUNCE_DUR, TRUCK_W, SPAWN_CLEARANCE, POLICE_FLEET,
   LOCO_DEFAULTS, locoTuning, setLocoTuning, resetLocoTuning, locoRamp, boostCruise, overdriveTop, MPH_PER_UNIT, locoWeave, locoWeaveFade, MIN_GAP, ENVELOPE, CIRCLE_OFFSET, DODGE_MARGIN, carGeometry, CABIN_TOP, copLaysRubber, uturnWindow } from '../src/sim/traffic.js';
 import { loadLocoTuning, saveLocoTuning, clearLocoTuning } from '../src/game/locostash.js';
-import { createRoadwork, BARRIER_S, CONE_ROW } from '../src/game/roadwork.js';
+import { createRoadwork, BARRIER_S, CONE_ROW, ROADWORKS_MODE } from '../src/game/roadwork.js';
+import { launchHop } from '../src/sim/traffic.js';
 import { createFlatbed, CRATES, LOAD_YAW } from '../src/game/flatbed.js';
 import { createBoxSpill, boxesFor, TRUCK_LOAD, spills } from '../src/game/boxspill.js';
 import { BOX_REAR as SPILL_BOX_REAR } from '../src/geometry/truckdoors.js';
@@ -93,7 +94,10 @@ import { createDust } from '../src/game/dust.js';
 import { createSkidMarks } from '../src/game/skidmarks.js';
 import { createSparks } from '../src/game/sparks.js';
 import { createRepairFx } from '../src/game/repairfx.js';
-import { barricadeParts, spoilParts, RAMP_RUN, RAMP_H, WORKS_Y, TRENCH_Y, SPLINTER_REST_Y } from '../src/geometry/roadworks.js';
+import {
+  barricadeParts, spoilParts, RAMP_RUN, RAMP_H, WORKS_Y, TRENCH_Y, SPLINTER_REST_Y,
+  SAWHORSE_HALF_W, CONE_BASE_R,
+} from '../src/geometry/roadworks.js';
 import {
   findRoute as planRoute, setRoadworkLanes, setBlockedLanes, setHazardLanes, laneCost, serviceLaneCost,
 } from '../src/game/route.js';
@@ -129,7 +133,7 @@ import { createParcelPad, PAD_R } from '../src/geometry/parcelpad.js';
 import { underglowGeometry, createPulse, pulseStep, createRace, COUNT_STEP as RACE_COUNT_STEP, ROCKET_COUNT, COUNTDOWN as RACE_COUNTDOWN } from '../src/game/race.js';
 import { createHydraulics, LIFT_MIN, LIFT_MAX } from '../src/game/hydraulics.js';
 import { TAXI_DECK_Y, TAXI_TAILPIPE_BACK, TAXI_TAILPIPE_HEIGHT, TAXI_SCALE as TAXI_SCALE_TOP } from '../src/geometry/taxi.js';
-import { createLocoFlame } from '../src/game/locoflame.js';
+import { createLocoFlame, setFlameStyle } from '../src/game/locoflame.js';
 import { createParcel, PARCEL_CENTRE_Y } from '../src/geometry/parcel.js';
 import { createFoodOrder } from '../src/geometry/food.js';
 import { createCargo, CARGO_KINDS, CARGO_CENTRE_Y } from '../src/geometry/cargo.js';
@@ -9775,19 +9779,34 @@ function rideToPickup() {
     for (let step = 0; step < 30; step++) twin.update(1 / 60, still, false, true);
     const [b0, b1] = twin.group.children;
     const purple = new THREE.Color(PALETTE.locoFlameDriftOuter);
-    // ...and splayed, so the two read as two from the fixed diagonal camera: parallel sheets 0.9
-    // apart projected nearly on top of each other. Measured as how far apart the tips are.
+    // ...running parallel, and far enough apart to read as two from the fixed diagonal camera:
+    // at 1.2 apart they were once reported as one flame. Measured as how far apart the tips
+    // are, and as the two barrels pointing the same way.
     twin.group.updateMatrixWorld(true);
     const tip = (b) => b.localToWorld(new THREE.Vector3(3, 0, 0));
     const tipGap = tip(b0).distanceTo(tip(b1));
-    const split = twin.group.visible && b1.visible && b1.position.z - b0.position.z > 0.8
-      && tipGap > 2.5 && twin.group.scale.x > 1.5 && twin.materials[0].color.getHex() === purple.getHex();
+    const root = (b) => b.localToWorld(new THREE.Vector3(0, 0, 0));
+    const parallel = Math.abs(root(b0).distanceTo(root(b1)) - tipGap) < 1e-6;
+    const split = twin.group.visible && b1.visible && b1.position.z - b0.position.z > 1.2
+      && tipGap > 1.2 && parallel && twin.group.scale.x > 1.5
+      && twin.materials[0].color.getHex() === purple.getHex();
     for (let step = 0; step < 30; step++) twin.update(1 / 60, still, true, false);
     check('the drift kick splits the flame into two longer violet barrels, and lets them go after',
       split && !twin.group.children[1].visible && Math.abs(twin.group.children[0].position.z) < 1e-6
         && Math.abs(twin.group.children[0].rotation.y) < 1e-6
         && twin.materials[0].color.getHex() === new THREE.Color(PALETTE.locoFlameOuter).getHex(),
-      `split ${split}, tips ${tipGap.toFixed(2)} apart, scale ${twin.group.scale.x.toFixed(2)} after`);
+      `split ${split}, tips ${tipGap.toFixed(2)} apart, parallel ${parallel}, scale ${twin.group.scale.x.toFixed(2)} after`);
+
+    // `?flames=classic` splays the pair into the old V, tips 3.1 apart.
+    setFlameStyle('classic');
+    const vee = createLocoFlame(new THREE.Scene());
+    for (let step = 0; step < 30; step++) vee.update(1 / 60, still, false, true);
+    vee.group.updateMatrixWorld(true);
+    const [v0, v1] = vee.group.children;
+    const veeGap = tip(v0).distanceTo(tip(v1));
+    setFlameStyle(null);
+    check('?flames=classic splays the drift kick\'s barrels into a V', veeGap > 2.5,
+      `tips ${veeGap.toFixed(2)} apart`);
   }
 }
 
@@ -15510,6 +15529,33 @@ let chopperOrder; // likewise
     outsideSpan === 0 && worstLateral < ROAD_W / 2,
     `${outsideSpan} past an end, worst offset ${worstLateral.toFixed(2)} of ${ROAD_W / 2}`);
 
+  // The sawhorses that replaced the spoil heap: one at each end of the hole, on the tarmac, plank
+  // across the road, and never standing on a cone — at the heap's full offset a sawhorse's end
+  // reached 2.25 against a cone row at 2.6 less its 0.31 base.
+  const horses = roadwork.horses;
+  let horseWorst = 0;
+  let horseOut = 0;
+  let horseCone = Infinity;
+  for (const horse of horses) {
+    const along = (horse.x - a.x) * ux + (horse.z - a.z) * uz;
+    const lateral = (horse.x - cx) * uz - (horse.z - cz) * ux;
+    horseWorst = Math.max(horseWorst, Math.abs(lateral) + SAWHORSE_HALF_W);
+    if (along < 0 || along > lane.length) horseOut += 1;
+    for (const cone of roadwork.cones) {
+      // Distance from the cone to the plank's segment, less the cone's base.
+      const px = horse.x - cone.x;
+      const pz = horse.z - cone.z;
+      const ex = Math.cos(horse.yaw);
+      const ez = -Math.sin(horse.yaw);
+      const t = Math.max(-SAWHORSE_HALF_W, Math.min(SAWHORSE_HALF_W, -(px * ex + pz * ez)));
+      horseCone = Math.min(horseCone, Math.hypot(px + ex * t, pz + ez * t) - CONE_BASE_R);
+    }
+  }
+  check('the hole has a sawhorse at each end, on the tarmac and clear of every cone',
+    (ROADWORKS_MODE === 'classic' ? horses.length === 0 : horses.length === 2) && horseOut === 0 && horseWorst < ROAD_W / 2 && horseCone > 0.1,
+    `${horses.length} sawhorses, ${horseOut} past an end, outer end at ${horseWorst.toFixed(2)} `
+    + `of ${ROAD_W / 2}, nearest cone ${horseCone.toFixed(2)}`);
+
   // Two rows rather than a scatter. This was a sine zigzag that wandered across the centreline,
   // which read as cones dropped at random — the order has to be legible before the jitter on top of
   // it reads as a crew having placed them rather than as noise.
@@ -15580,7 +15626,13 @@ let chopperOrder; // likewise
   check('the zone finishes rising out of the road and everything is at rest',
     roadwork.state.phase === 'live' && roadwork.active() === 0);
 
-  // --- The ramp -------------------------------------------------------------
+  // --- The hop ----------------------------------------------------------------
+  // The hop is traffic.js's (`launchHop`), and it outlived the ramp it was built for: the Loco arch
+  // jump and the drawbridge both throw the taxi with it. Under `?roadworks=classic` the barricade
+  // launches it; by default the street has no ramp, so the probe launches it itself off the same
+  // smash, which keeps every assertion below about the arc and the landing honest. What the
+  // default street does on its own is asserted after this, in "Barrelling through".
+  //
   // Driven at two very different speeds, because the arc is paced by distance and the whole point
   // of that is that the two agree. A time-paced hop covers 4.25 units at cruise and 11.5 in
   // overdrive, which is most of a 12-unit lane — the taxi would still be in the air at the line
@@ -15622,7 +15674,14 @@ let chopperOrder; // likewise
     // Frames spent in the landing bounce. The curve itself is asserted separately, off
     // `landingBounce` — see below for why it cannot usefully be measured off the rendered taxi.
     let bounceFrames = 0;
-    runwork.onSmash(() => { smashes += 1; });
+    let launchedByProbe = false;
+    runwork.onSmash(() => {
+      smashes += 1;
+      if (ROADWORKS_MODE !== 'classic' && !launchedByProbe) {
+        launchedByProbe = true;
+        launchHop(taxi);
+      }
+    });
     // Touchdown is published by the traffic model rather than by the site, because the taxi is
     // launched off an arched bridge as well as off a barricade and there is no site there to
     // publish it — see `onTaxiLand` in sim/traffic.js.
@@ -15696,10 +15755,69 @@ let chopperOrder; // likewise
     `lands at ${(BARRIER_S + HOP_LEN).toFixed(2)}, line at ${holdS.toFixed(2)}, `
     + `margin ${margin.toFixed(2)}`);
 
+  check('going through knocks the sawhorses over too',
+    flights.every((f) => f.runwork.horses.length === 0 || f.runwork.horses.some((h) => h.knocked)),
+    flights.map((f) => `${f.runwork.horses.filter((h) => h.knocked).length}/${f.runwork.horses.length}`).join(', '));
+
   check('going through knocks the cones over, and they come to rest',
     flights.every((f) => f.runwork.cones.filter((c) => c.knocked).length >= 4
       && f.runwork.active() === 0),
     flights.map((f) => `${f.runwork.cones.filter((c) => c.knocked).length} knocked`).join(', '));
+
+  // --- Barrelling through ---------------------------------------------------
+  // The default street (2026-11-04) has no ramp. The taxi stays on the road the whole way, so the
+  // claims are the opposite of the hop's: it never leaves the tarmac, it goes through the trestle
+  // at *both* ends (the hop used to carry it over the far one), the rubble throws its body about,
+  // and the bounce is written back to exactly zero once it is over — a jolt left set is a taxi
+  // that rides a tenth of a unit off the road for the rest of the run.
+  if (ROADWORKS_MODE !== 'classic') {
+    const runs = [];
+    for (const boosting of [false, true]) {
+      setClosedLanes([]);
+      const runScene = new THREE.Scene();
+      const runTraffic = createTraffic(makeRng(seed + 212), runScene, 6);
+      const runwork = createRoadwork(makeRng(seed + 211), runScene, null);
+      for (let step = 0; step < 300; step++) runTraffic.update(1 / 60);
+      if (!runwork.place(runTraffic.taxi, runTraffic.cars, [])) continue;
+      while (runwork.state.phase !== 'live') runwork.update(1 / 60, runTraffic.taxi, runTraffic.cars, []);
+      const taxi = runTraffic.taxi;
+      const target = net.laneById.get(runwork.closedLaneIds[0]);
+      const [ti, tj] = target.to.split(',').map(Number);
+      placeCar(taxi, cityNetwork().dirOfLane(target), ti, tj, target.length - 1);
+      taxi.boost = boosting;
+      taxi.v = boosting ? 22 : SPEED;
+      let entries = 0;
+      let exits = 0;
+      let bumps = 0;
+      let hopped = false;
+      let peakJolt = 0;
+      let peakPitch = 0;
+      runwork.onSmash((e) => { if (e.exit) exits += 1; else entries += 1; });
+      runwork.onBump(() => { bumps += 1; });
+      for (let step = 0; step < 60 * 4; step++) {
+        runTraffic.update(1 / 60);
+        runwork.update(1 / 60, taxi, runTraffic.cars, []);
+        if (taxi.hopFrom != null) hopped = true;
+        peakJolt = Math.max(peakJolt, taxi.jolt || 0);
+        peakPitch = Math.max(peakPitch, Math.abs(taxi.joltPitch || 0));
+      }
+      runs.push({
+        boosting, entries, exits, bumps, hopped, peakJolt, peakPitch, runwork,
+        rest: (taxi.jolt || 0) === 0 && (taxi.joltPitch || 0) === 0 && (taxi.joltRoll || 0) === 0,
+      });
+    }
+    const label = (f) => (f.boosting ? 'boost' : 'cruise');
+    check('with no ramp, the taxi stays on the road and smashes the trestle at both ends',
+      runs.length === 2 && runs.every((f) => !f.hopped && f.entries === 1 && f.exits === 1),
+      runs.map((f) => `${label(f)} ${f.entries} in / ${f.exits} out${f.hopped ? ', hopped' : ''}`).join(', '));
+    check('the street has rubble in both lanes, and the taxi bounces over it',
+      runs.every((f) => f.runwork.rubble.length >= 2 && f.runwork.rubble.some((p) => p.hit)
+        && f.bumps >= 1 && f.peakJolt > 0.08 && f.peakJolt < 0.35 && f.peakPitch > 0.02),
+      runs.map((f) => `${label(f)} ${f.runwork.rubble.filter((p) => p.hit).length}/`
+        + `${f.runwork.rubble.length} piles, ${f.bumps} bumps, up ${f.peakJolt.toFixed(2)}`).join(', '));
+    check('...and the bounce is back to exactly zero once it is over',
+      runs.every((f) => f.rest));
+  }
 
   // --- The wreckage ---------------------------------------------------------
   // "More chaotic" is a look, but the two things carrying it are numbers: cones that genuinely

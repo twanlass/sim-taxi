@@ -84,7 +84,7 @@ import { createFlames } from './game/flames.js';
 import { createSparks } from './game/sparks.js';
 import { createRepairFx } from './game/repairfx.js';
 import {
-  createLocoFlame, tongueOutline, FLAME_FRAMES, FLAME_FRAME_TIME, FLAME_LAYER_SCALES, FLAME_LEN,
+  createLocoFlame, setFlameStyle, tongueOutline, FLAME_FRAMES, FLAME_FRAME_TIME, FLAME_LAYER_SCALES, FLAME_LEN,
 } from './game/locoflame.js';
 import { createWreckage } from './game/wreckage.js';
 import { createEjection, EJECT_CLOSING } from './game/ejection.js';
@@ -1461,6 +1461,8 @@ setPassTurnGate(new URLSearchParams(window.location.search).get('passturn'));
 // judgement about what is there; `?overtake=classic` puts the judgement back.
 setOvertakeStyle(new URLSearchParams(window.location.search).get('overtake'));
 setPeek(new URLSearchParams(window.location.search).get('peek'));
+// The drift kick's twin plumes run parallel; `?flames=classic` splays them into the old V.
+setFlameStyle(new URLSearchParams(window.location.search).get('flames'));
 // Ambient traffic no longer flees the boosting taxi; `?scatter=classic` puts the flee back.
 setTaxiScatter(new URLSearchParams(window.location.search).get('scatter'));
 // A swinging-out taxi keeps its pace instead of matching the car it is going round, and a truck it
@@ -2098,8 +2100,11 @@ const STUNTMAN_FUEL = DRIFT_CHAIN.fuel[0];
 // fuel. `?bigairfuel=classic` lands with nothing.
 const bigAirFuel = new URLSearchParams(window.location.search).get('bigairfuel') !== 'classic';
 const BIG_AIR_FUEL = DRIFT_CHAIN.fuel[0];
-roadwork.onSmash(({ x, z }) => {
-  if (stuntman && !fares.state.gameOver) {
+roadwork.onSmash(({ x, z, exit }) => {
+  // Once per street: the trestle at the far end is smashed on the way *out* now that there is no
+  // ramp to hop it (`?roadworks=classic` has the hop), and paying the combo twice would make every
+  // closed street worth two of anything else on the meter.
+  if (stuntman && !exit && !fares.state.gameOver) {
     flyEnergyToBoost({
       from: taxiScreenPos,
       to: fuelScreenPos,
@@ -2118,6 +2123,12 @@ roadwork.onSmash(({ x, z }) => {
   // A proper burst. Two ordinary puffs was what a boosting taxi lays down in two frames, so the
   // impact read as exhaust rather than as hitting something. See `dust.burst`.
   dust.burst(x, z, traffic.taxi.yaw);
+});
+// Rubble and the sawhorses round the hole: the taxi's body bounces (game/roadwork.js), and this
+// is the sound and the nudge of camera that go with it — a kerb's worth, not a barricade's.
+roadwork.onBump(({ amp }) => {
+  controller.kickShake(0.35 * amp);
+  sfx?.play('bump', { gain: 0.35 + 0.25 * amp, rate: 0.9 + Math.random() * 0.2 });
 });
 // A post box or a hot dog cart knocked off the kerb (game/streetprops.js). Half a step on the meter,
 // on top of the overtake that carried the taxi into it: it is a lucky line through a pass rather
@@ -2513,7 +2524,10 @@ function onRaceEvent(type, detail) {
   } else if (type === 'decided') {
     // Step 5: pulled up beside the winner — the word. The money is RESULT_HOLD later ('won'/'lost').
     raceSkid = null;
-    popLabel(detail.winner === 'taxi' ? 'You won!' : 'You lost!', 'is-count', RACE_LABEL_MS);
+    // Centred across the screen rather than over the taxi: the camera is following the loser in by
+    // now, so the taxi stands off to one side and the word popped there sat off-centre (Tyler,
+    // 2026-11-04). Same height as the countdown, which already clears the roofs.
+    popLabel(detail.winner === 'taxi' ? 'You won!' : 'You lost!', 'is-count', RACE_LABEL_MS, raceWordAt);
     haptic(detail.winner === 'taxi' ? 'pick' : 'snap');
     raceWatch ??= detail.loser;
     raceZoomHome ??= controller.state.zoom;
@@ -2556,6 +2570,8 @@ const raceFullTank = new URLSearchParams(window.location.search).get('racetank')
 const raceCountClassic = new URLSearchParams(window.location.search).get('racecount') === 'classic';
 const raceCountClass = raceCountClassic ? 'is-count' : 'is-count is-countdown';
 const raceCountAt = () => ({ x: viewport.width() / 2, y: viewport.height() * (raceCountClassic ? 0.36 : RACE_COUNT_Y) });
+// Where "You won!" / "You lost!" stand: the middle of the screen, at the countdown's height.
+const raceWordAt = () => ({ x: viewport.width() / 2, y: viewport.height() * RACE_COUNT_Y });
 // The count's height on screen, as a fraction of it. Not quite the middle Tyler asked for: the
 // camera is back on the taxi when it counts, so dead centre (0.5) put each 80px digit squarely over
 // the two cars on the line, which on a 390x844 phone stand at ~0.47-0.51. At 0.4 the digit's
