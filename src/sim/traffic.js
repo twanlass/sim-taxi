@@ -171,6 +171,14 @@ export const STOP_DWELL = 0.8;
 export const STOP_PATIENCE = 3;
 
 /**
+ * A robo-taxi's stop at an all-way junction: the full, by-the-book halt, two and a half times
+ * anybody else's. Kept under STOP_DWELL + STOP_PATIENCE (3.8) on purpose — inside that the cars on
+ * the other streets still treat it as first in and wait their turn behind it, which is the
+ * annoyance; past it they would stop waiting and go round it.
+ */
+export const ROBO_STOP_DWELL = 2;
+
+/**
  * Road hierarchy of the edge you get by leaving (i, j) in direction d.
  *
  * 'ring'     — outermost road, unsignalised end to end, corners included
@@ -1524,6 +1532,14 @@ const TRUCK_CORNER_SPEED = TRUCK_SPEED * 0.7;
 // nothing here is ever a boosting car, since only the taxi boosts and the taxi's own isTruck is
 // always forced false.
 const TRUCK_RIGHT_TURN_SPEED = TRUCK_CORNER_SPEED * 0.6;
+// The robo-taxi (game/robotaxi.js): a guest car with `car.robo` set, and the one thing about it the
+// sim knows is that it drives like a nervous learner. Slower than a truck on the straight, and round
+// a corner at a crawl, pulling away gently — every number a fixed rule of the car, never a reaction
+// to the taxi (traffic stays predictable: the player takes the risk, not the traffic). Its stop at
+// an all-way junction is the long one too (ROBO_STOP_DWELL), so a queue forms behind it.
+export const ROBO_SPEED = SPEED * 0.55;      // ~4.7 u/s
+const ROBO_CORNER_SPEED = ROBO_SPEED * 0.6;
+const ROBO_ACCEL_SCALE = 0.45;
 // The pitch spring below (search "Rocking") drives the nose-dip/lift on every accel and brake
 // event. A truck gets half the excursion for the same Δv — the weight is on the box, not the cab,
 // so the driver's-eye view pitches less — and damps harder, so what dip there is settles rather
@@ -2623,7 +2639,7 @@ const CHASE_ACCEL = 15;
  * stops the same omission happening to the next factor somebody adds — as it just did to the
  * pull-over, which was added to the drive branch alone.
  */
-const cruiseCapFor = (car) => (car.isTruck ? TRUCK_SPEED : SPEED)
+const cruiseCapFor = (car) => (car.isTruck ? TRUCK_SPEED : car.robo ? ROBO_SPEED : SPEED)
   * (1 + (SCATTER_SPEED - 1) * car.scatter)
   * (1 + (CHASE_SPEED - 1) * car.chase)
   * (1 + (PURSUIT_LIFT - 1) * car.pursuit)
@@ -2849,7 +2865,7 @@ const scatterAccel = () => loco.accel;
  * junction boundary — which the car then chases with real acceleration, four times a block. The
  * comment at the second site records that trap for the speed target; it is the same trap here.
  */
-const chaseAccelFor = (car) => Math.max(
+const chaseAccelFor = (car) => (car.robo ? ROBO_ACCEL_SCALE : 1) * Math.max(
   ACCEL + (scatterAccel() - ACCEL) * car.scatter,
   ACCEL + (CHASE_ACCEL - ACCEL) * car.chase + (PURSUIT_ACCEL - CHASE_ACCEL) * car.pursuit,
 );
@@ -5445,7 +5461,7 @@ export function createTraffic(
     // ...and so does the street race's rival (game/race.js), which is the whole of what makes it
     // a racer at an all-way stop rather than a fast car that stops at every corner: with the dwell,
     // an unboosted taxi beat it on 8 races in 16.
-    const dwell = car.police || car.racer ? 0 : STOP_DWELL;
+    const dwell = car.police || car.racer ? 0 : car.robo ? ROBO_STOP_DWELL : STOP_DWELL;
     if (t - car.stopAt.t < dwell) return false;
 
     const street = car.lane.phase;
@@ -7490,7 +7506,7 @@ export function createTraffic(
           ? (isRight ? cruise * 0.75 : cruise)
           : car.isTruck
             ? (isRight ? TRUCK_RIGHT_TURN_SPEED : TRUCK_CORNER_SPEED)
-            : chaseTurn;
+            : car.robo ? ROBO_CORNER_SPEED : chaseTurn;
         // A kicked drift goes round at the boost cruise, rights included.
         const cornerTarget = driftHolds(car) ? car.drift.v : straightOn ? straightTop : boostTurn;
 

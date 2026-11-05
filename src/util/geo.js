@@ -932,11 +932,11 @@ export const GLOSS_UNIFORMS = {
   uGlossCeiling: { value: 1 },
   uGlossTop: { value: new THREE.Color(PALETTE.skyTop).convertSRGBToLinear() },
   uGlossHorizon: { value: new THREE.Color(PALETTE.skyBottom).convertSRGBToLinear() },
-  // One slot per finish (`FINISH`, below): seven, and the same seven in the GLSL arrays and `gK`'s clamp.
-  uFinishA: { value: [0, 1, 2, 3, 4, 5, 6].map(() => new THREE.Vector4()) },
-  uFinishB: { value: [0, 1, 2, 3, 4, 5, 6].map(() => new THREE.Vector4()) },
-  uFinishC: { value: [0, 1, 2, 3, 4, 5, 6].map(() => new THREE.Vector4()) },
-  uFinishD: { value: [0, 1, 2, 3, 4, 5, 6].map(() => new THREE.Vector4()) },
+  // One slot per finish (`FINISH`, below): eight, and the same eight in the GLSL arrays and `gK`'s clamp.
+  uFinishA: { value: [0, 1, 2, 3, 4, 5, 6, 7].map(() => new THREE.Vector4()) },
+  uFinishB: { value: [0, 1, 2, 3, 4, 5, 6, 7].map(() => new THREE.Vector4()) },
+  uFinishC: { value: [0, 1, 2, 3, 4, 5, 6, 7].map(() => new THREE.Vector4()) },
+  uFinishD: { value: [0, 1, 2, 3, 4, 5, 6, 7].map(() => new THREE.Vector4()) },
   // x: flake cells per unit, y: façade darkness, z: false-colour finish view (0/1).
   uGlossGlobal: { value: new THREE.Vector4() },
   // The rim look's backlight (`setRim`): rgb in linear, a = strength.
@@ -1082,8 +1082,8 @@ export function setGlossCity(field, ceiling) {
 // dark hole. A façade keeps its own colour (diffuse 1) and mirrors nothing: what makes it glass is
 // the stylised streaks `glossFragment` draws on WINDOW only (WINDOW_STREAKS, below). No bends: a
 // merged city has no one centre to bend about, and a pane is flat.
-export const FINISH = { TYRE: 0, PAINT: 1, GLASS: 2, METAL: 3, MATTE: 4, PATINA: 5, WINDOW: 6 };
-export const FINISH_NAMES = ['tyre', 'paint', 'glass', 'metal', 'matte', 'patina', 'window'];
+export const FINISH = { TYRE: 0, PAINT: 1, GLASS: 2, METAL: 3, MATTE: 4, PATINA: 5, WINDOW: 6, CHROME: 7 };
+export const FINISH_NAMES = ['tyre', 'paint', 'glass', 'metal', 'matte', 'patina', 'window', 'chrome'];
 
 // `?carbody=smooth`: the cars' bodies with rounded edges and soft normals, so a reflection has a
 // curve to slide across instead of one flat colour per panel (2026-10-17, an experiment beside the
@@ -1266,6 +1266,15 @@ export const FINISH_DEFAULTS = {
     glint: 0, glintSharp: 1, glintBend: 0, sheen: 0, sheenSharp: 1, flake: 0,
     reflect: 0, reflectEdge: 0, reflectBend: 0, diffuse: 1,
     flakeTilt: 0, flakeSharp: 1, coat: 0, tint: 0, flop: 0,
+  },
+  // The robo-taxi's whole body (geometry/robotaxi.js): polished silver, which is metal with most of
+  // its diffuse traded for mirror. `metal` is the hubcaps and bumpers, small enough that a third of
+  // a reflection reads as steel; over a car-sized curve that reads as white paint, so this keeps the
+  // diffuse low and lets the sky and the skyline do the colouring, with a hard sun glint on top.
+  chrome: {
+    glint: 1.3, glintSharp: 260, glintBend: 1, sheen: 0.45, sheenSharp: 40, flake: 0,
+    reflect: 0.8, reflectEdge: 0.3, reflectBend: 0.75, diffuse: 0.42,
+    flakeTilt: 0, flakeSharp: 1, coat: 0, tint: 0.15, flop: 0,
   },
 };
 
@@ -1468,7 +1477,7 @@ if (GLOSS_COLOR_VERTEX === THREE.ShaderChunk.color_vertex) throw new Error('glos
 // arrive as 1.9999 — the triangle never mixes finishes, but interpolation does not know that.
 const GLOSS_COLOR = /* glsl */ `
 	{
-		int gK = clamp(int(vGlossFinish + 0.5), 0, 6);
+		int gK = clamp(int(vGlossFinish + 0.5), 0, 7);
 		gFinA = uFinishA[gK];
 		gFinB = uFinishB[gK];
 		gFinC = uFinishC[gK];
@@ -1961,10 +1970,10 @@ uniform vec4 uGlossCityBox;
 uniform float uGlossCeiling;
 uniform vec3 uGlossTop;
 uniform vec3 uGlossHorizon;
-uniform vec4 uFinishA[7];
-uniform vec4 uFinishB[7];
-uniform vec4 uFinishC[7];
-uniform vec4 uFinishD[7];
+uniform vec4 uFinishA[8];
+uniform vec4 uFinishB[8];
+uniform vec4 uFinishC[8];
+uniform vec4 uFinishD[8];
 uniform vec4 uGlossGlobal;
 uniform float uGloss;
 uniform float uGlossMirror;

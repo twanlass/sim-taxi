@@ -34,6 +34,7 @@ import {
 import { createPolice } from '../sim/police.js';
 import { createFireTruckMesh } from '../geometry/firetruck.js';
 import { createGarbageTruckMesh } from '../geometry/garbage.js';
+import { createRoboTaxiMesh } from '../geometry/robotaxi.js';
 import { createRivalMesh } from '../game/race.js';
 import { createHelicopterMesh } from '../geometry/helicopter.js';
 import { createPlaneMesh } from '../geometry/plane.js';
@@ -218,6 +219,16 @@ export const CATALOG = [
       const truck = createGarbageTruckMesh();
       truck.shell.visible = true;
       return { object: truck.group };
+    },
+  },
+  {
+    id: 'robotaxi', label: 'Robo-taxi', kind: 'Vehicles',
+    source: 'src/geometry/robotaxi.js · createRoboTaxiMesh',
+    // Hidden until it is wearing a traffic car in the game, like the garbage truck's shell.
+    build: () => {
+      const robo = createRoboTaxiMesh(CAR_LEN, CAR_W);
+      robo.shell.visible = true;
+      return { object: robo.group, glow: [[robo.glow, 'siren']] };
     },
   },
   {

@@ -60,6 +60,7 @@ doc; what the classic version was, and why it changed, is in that doc's history 
 | `?walls=classic` | Flat building walls: no plinth, storey ledges, cornice, and no frames round the punched windows | `WALLS=classic` | [rendering.md](rendering.md#wall-detail--cityfacadejs) |
 | `?windows=classic` | Building windows are the faux sky gradient in vertex colour again, instead of glass meshes with stylised 45° light streaks | #681 | [rendering.md](rendering.md#window-glass--citybuildingsjs) |
 | `?garbage=classic` | No bag piles on the kerb and no garbage truck | `GARBAGE=classic` | [city.md](city.md#the-bag-piles-and-the-garbage-truck) |
+| `?robotaxi=classic` | No robo-taxis: nobody else in town takes your riders | | [gameplay.md](gameplay.md#robo-taxis) |
 | `?vet=classic` | No vet clinic: the corner shop it picks keeps a bare roof and an empty window | | [city.md](city.md#the-vet-clinic) |
 | `?billboard=classic` | No rooftop billboards: the robo-taxi and Dub Burger roofs stay bare | | [city.md](city.md#the-rooftop-billboard) |
 | `?vetopen=word` | The vet's OPEN sign spells the word in red neon letters inside its blue frame, instead of one red bar | | [city.md](city.md#the-vet-clinic) |
@@ -199,6 +200,7 @@ doc; what the classic version was, and why it changed, is in that doc's history 
 | `?flatbed=soon` | The flatbed starts shedding crates three seconds in | [traffic.md](traffic.md) |
 | `?fire=soon` | A building catches fire early | [traffic.md](traffic.md) |
 | `?garbage=soon` | The garbage truck comes on a second in, headed for the pile nearest the taxi | [city.md](city.md#the-bag-piles-and-the-garbage-truck) |
+| `?robotaxi=soon` | The robo-taxis come on from the start instead of after the first drop-off (they still leave the first rider alone) | [gameplay.md](gameplay.md#robo-taxis) |
 | `?race=soon` | The street racer turns up a few seconds in rather than after the 2nd-4th drop-off, and comes back ~12s after each race | [gameplay.md](gameplay.md#the-street-race) |
 | `?demo` / `?demo=off` | Demo mode on (or off) for this load, overruling the Settings switch and saving nothing; also reveals that switch | [gameplay.md](gameplay.md#demo-mode) |
 | `?parcels=0` / `=1` | Packages off / forced on (they are off in shot mode by default) | [gameplay.md](gameplay.md) |
