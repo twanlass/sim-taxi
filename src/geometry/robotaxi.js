@@ -1,105 +1,73 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import {
-  propMaterial, unlitMaterial, bakeColor, setFinish, srcTag, BODY_EULER_ORDER, FINISH,
+  propMaterial, unlitMaterial, setFinish, srcTag, BODY_EULER_ORDER, FINISH,
 } from '../util/geo.js';
 import { PALETTE, color } from '../palette.js';
 import { SILL_Y, WHEEL_R, wheelAnchors, wheelGeometry, wheelGeometries } from './wheels.js';
 
-// The robo-taxi: a rounded retro bubble car — one smooth arc from the bumper over the roof to the
-// tail, four fenders standing off the body over the wheels, frog-eye lamps on the front pair — in
-// brushed silver on the metal finish, so it is the one car in town that the sky and the skyline
-// slide across. A dark sensor puck rides the roof and a cold cyan band runs round it and across the
-// nose: the lamps say robot, the shape says it is not like anything else on the road.
+// The robo-taxi: a pod, not a car. An elongated rounded box — a superellipsoid, square-ish in every
+// section with soft corners — whose whole upper half is one continuous piece of tinted glass, roof,
+// windscreens and side windows alike, over a brushed-silver lower body on the chrome finish. It is
+// the same at both ends: no bonnet, no boot, a cyan light bar across each end and the sensor puck in
+// the middle of the roof, so you cannot tell which way it is about to go. (Tyler, 2026-11-05: the
+// first build was a retro bubble car with fenders and frog-eye lamps; "a little too retro".)
 //
-// Car-local like every vehicle: +x is the nose, y is up, z is across, on the ordinary car's
-// `len` × `width` footprint and its wheels, so the traffic model's envelope, lamp pods and steered
-// front pair land where they do on a sedan. Taken as arguments for the same reason classics.js
-// takes them (sim/traffic.js imports the geometry modules).
+// Car-local like every vehicle: +x is the direction of travel, y is up, z is across, on the
+// ordinary car's `len` × `width` footprint and its wheels, so the traffic model's envelope, lamp
+// pods and steered front pair land where they do on a sedan. Taken as arguments for the same reason
+// classics.js takes them (sim/traffic.js imports the geometry modules).
 
-// The body shell's half-width before the fenders, which stand proud of it.
-const BODY_HALF_W = 0.74;
-// Where the ends of the shell close, above the road.
-const NOSE_Y = 1.0;
-const TAIL_Y = 1.08;
-// The belt line: glass above it, silver below.
-const BELT_Y = 1.6;
-
-// The roof line, nose (+1) to tail (-1), as (xn, y). One arc with a long sloped bonnet in front of a
-// steep screen, a dome over the cabin, and a round tail falling away behind — the profile is what
-// makes it read as a bubble car before any detail does.
-const ROOF = [
-  [-1, TAIL_Y], [-0.86, 1.56], [-0.62, 1.98], [-0.32, 2.2], [0, 2.24], [0.22, 2.1],
-  [0.38, 1.78], [0.56, 1.6], [0.8, 1.46], [0.93, 1.3], [1, NOSE_Y],
-];
-
-/** Catmull-Rom through ROOF. */
-function roofAt(xn) {
-  let k = 0;
-  while (k < ROOF.length - 2 && xn > ROOF[k + 1][0]) k++;
-  const p0 = ROOF[Math.max(0, k - 1)];
-  const p1 = ROOF[k];
-  const p2 = ROOF[k + 1];
-  const p3 = ROOF[Math.min(ROOF.length - 1, k + 2)];
-  const t = (xn - p1[0]) / (p2[0] - p1[0] || 1);
-  const t2 = t * t;
-  const t3 = t2 * t;
-  return 0.5 * ((2 * p1[1]) + (-p0[1] + p2[1]) * t + (2 * p0[1] - 5 * p1[1] + 4 * p2[1] - p3[1]) * t2
-    + (-p0[1] + 3 * p1[1] - 3 * p2[1] + p3[1]) * t3);
-}
-
-const smooth01 = (t) => { const c = Math.max(0, Math.min(1, t)); return c * c * (3 - 2 * c); };
-
-/** The shell's underside: flat along the sill, curling up to meet the roof at each end. */
-function floorAt(xn) {
-  const floor = SILL_Y + 0.03;
-  const end = xn > 0 ? NOSE_Y : TAIL_Y;
-  return floor + (end - floor) * smooth01((Math.abs(xn) - 0.72) / 0.28) ** 1.6;
-}
-
-/** Half-width at a station: full through the middle, closing round at both ends. */
-const widthAt = (xn) => BODY_HALF_W * (1 - Math.abs(xn) ** 4.5) ** (1 / 4.5);
+// The body's half-width: the wheels' treads stand WHEEL_PROUD past the ordinary car's flank, so a
+// pod a touch narrower than the car leaves the outer 0.16 of each tread standing out of its well.
+const BODY_HALF_W = 0.8;
+// Low, as a skirt round the wheels: the tyres show in their wells, not under the body.
+const FLOOR_Y = 0.32;
+const ROOF_Y = 2.12;
+// Glass above this, silver below: the silver carries the wheel wells, the glass the top third.
+const BELT_Y = 1.56;
+// How square the pod is: superellipse exponents along its length and round its section. Higher
+// along the length is flatter ends; lower round the section (as a power on the unit circle) is
+// fuller, squarer corners.
+const END_P = 5;
+const SECTION_P = 0.42;
 
 const signPow = (v, p) => Math.sign(v) * Math.abs(v) ** p;
+const endShape = (xn) => (1 - Math.abs(xn) ** END_P) ** (1 / END_P);
 
 /**
- * A point on the shell at station `xn` (-1 tail .. +1 nose) and angle `v` round its section (0 is
- * the +z flank at mid-height, pi/2 the roof): a lofted superellipse, rounder over the top than under
- * it so the flanks drop to a flat floor.
+ * A point on the pod at station `xn` (-1 .. +1, symmetric) and angle `v` round its section (0 the
+ * +z flank at mid-height, pi/2 the roof). Each section is a rounded rectangle that shrinks toward
+ * the ends, closing on a soft point at mid-height.
  */
 function shellPoint(len, xn, v, out) {
-  const top = roofAt(xn);
-  const bottom = floorAt(xn);
-  const w = widthAt(xn);
-  const yc = (top + bottom) / 2;
-  const h = (top - bottom) / 2;
-  const cv = Math.cos(v);
-  const sv = Math.sin(v);
-  const up = sv >= 0;
-  return out.set(xn * len / 2 * 0.985, yc + h * signPow(sv, up ? 0.9 : 0.35), w * signPow(cv, up ? 0.8 : 0.45));
+  const e = endShape(xn);
+  const mid = (ROOF_Y + FLOOR_Y) / 2;
+  const h = (ROOF_Y - FLOOR_Y) / 2 * (0.25 + 0.75 * e);
+  const w = BODY_HALF_W * e;
+  return out.set(xn * len / 2 * 0.985, mid + h * signPow(Math.sin(v), SECTION_P),
+    w * signPow(Math.cos(v), SECTION_P));
 }
 
-/** The angle above which the section at `xn` is over the belt line. */
+/** The angle round the section at `xn` where the surface crosses the belt line. */
 function beltAngle(xn) {
-  const top = roofAt(xn);
-  const bottom = floorAt(xn);
-  const k = (BELT_Y - (top + bottom) / 2) / ((top - bottom) / 2);
-  return Math.asin(Math.max(0, Math.min(1, k)) ** (1 / 0.9));
+  const e = endShape(xn);
+  const mid = (ROOF_Y + FLOOR_Y) / 2;
+  const h = (ROOF_Y - FLOOR_Y) / 2 * (0.25 + 0.75 * e);
+  const k = (BELT_Y - mid) / h;
+  return Math.asin(Math.max(-1, Math.min(1, k)) ** (1 / SECTION_P) * Math.sign(k) || 0);
 }
 
 /**
- * A patch of the shell over `[x0, x1]` × `[v0(xn), v1(xn)]`, indexed so its normals come out soft,
- * and pushed `lift` out along them — 0 for the shell itself, a hair for the glass laid on it (two
- * surfaces on one plane is a z-fight, CLAUDE.md).
+ * A patch of the pod over `[-1, 1]` × `[v0(xn), v1(xn)]`, indexed so its normals come out soft,
+ * stations packed toward the ends where the curve turns fastest.
  */
-function patch(len, x0, x1, v0, v1, stations, around, lift, { packEnds = false } = {}) {
+function patch(len, v0, v1, stations, around) {
   const pos = [];
   const index = [];
   const at = new THREE.Vector3();
   for (let a = 0; a <= stations; a++) {
-    const s = a / stations;
-    // Packed toward the ends, where the curve turns fastest.
-    const xn = packEnds ? -Math.cos(s * Math.PI) : x0 + (x1 - x0) * s;
+    const xn = -Math.cos((a / stations) * Math.PI);
     const va = v0(xn);
     const vb = v1(xn);
     for (let b = 0; b <= around; b++) {
@@ -118,48 +86,24 @@ function patch(len, x0, x1, v0, v1, stations, around, lift, { packEnds = false }
   const g = new THREE.BufferGeometry();
   g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
   g.setIndex(index);
-  g.computeVertexNormals();
-  if (lift) {
-    const p = g.attributes.position;
-    const n = g.attributes.normal;
-    for (let i = 0; i < p.count; i++) {
-      p.setXYZ(i, p.getX(i) + n.getX(i) * lift, p.getY(i) + n.getY(i) * lift, p.getZ(i) + n.getZ(i) * lift);
-    }
-  }
   return g;
 }
 
-const GLASS_LIFT = 0.012;
-// Where the side windows stop climbing toward the roof, as an angle round the section.
-const SIDE_TOP = 1.0;
-
-/** The silver shell, closed end to end. */
+/**
+ * The silver lower body, from the belt on one flank under the floor to the belt on the other. It
+ * and the canopy share the belt line edge to edge — a seam, not an overlap, so nothing fights.
+ */
 function shellGeometry(len) {
-  return softPart(patch(len, -1, 1, () => 0, () => Math.PI * 2, 56, 48, 0, { packEnds: true }),
+  return softPart(patch(len, (xn) => Math.PI - beltAngle(xn), (xn) => 2 * Math.PI + beltAngle(xn), 48, 40),
     'roboSilver', FINISH.CHROME);
 }
 
-/**
- * The glass: a wrap-round windscreen, a rear window, and two side windows split by a pillar each
- * side — laid on the shell rather than painted into it, so every edge is a clean curve along the
- * body instead of the stair-step of its triangles.
- */
+/** The canopy: one piece of glass over the whole top, ends included, belt to belt. */
 function glassGeometries(len) {
-  const belt = beltAngle;
-  const wrap = (xn) => Math.PI - beltAngle(xn);
-  const parts = [
-    // Windscreen and rear window wrap over the top.
-    patch(len, 0.25, 0.4, belt, wrap, 6, 24, GLASS_LIFT),
-    patch(len, -0.84, -0.67, belt, wrap, 6, 24, GLASS_LIFT),
-  ];
-  for (const [x0, x1] of [[-0.14, 0.21], [-0.62, -0.21]]) {
-    parts.push(patch(len, x0, x1, belt, () => SIDE_TOP, 8, 8, GLASS_LIFT));
-    parts.push(patch(len, x0, x1, (xn) => Math.PI - SIDE_TOP, wrap, 8, 8, GLASS_LIFT));
-  }
-  return parts.map((g) => softPart(g, 'roboGlass', FINISH.GLASS));
+  return [softPart(patch(len, beltAngle, (xn) => Math.PI - beltAngle(xn), 48, 28), 'roboGlass', FINISH.GLASS)];
 }
 
-/** A soft part: indexed sphere maths for the normals, then the vertex colour and finish baked on. */
+/** A soft part: normals from the indexed surface, then split and the colour and finish baked on. */
 function softPart(geometry, colorName, finishSlot) {
   geometry.computeVertexNormals();
   const flat = geometry.index ? geometry.toNonIndexed() : geometry;
@@ -171,84 +115,106 @@ function softPart(geometry, colorName, finishSlot) {
   return setFinish(flat, finishSlot);
 }
 
-const FENDER_RY = WHEEL_R * 1.05;
-const FENDER_Y = WHEEL_R + 0.06;
+// The well round each wheel: a dark arch over the tyre, laid *on* the flank — every point projected
+// onto the shell where it is, so it follows the curve into the ends instead of standing off it as a
+// flat disc (the first cut was a half-cylinder, whose caps jutted 0.18 past the narrowing ends).
+const WELL_R = WHEEL_R + 0.1;
+const WELL_LIFT = 0.01;
+const WELL_REACH = 0.88;
 
-/** The four fenders: an elongated dome over each wheel, standing off the shell to the tread. */
-function fenderGeometries(len, width) {
+/** The flank's z at (x, y) on the +z side, or null where the body does not reach. */
+function flankZ(len, x, y) {
+  const xn = x / (len / 2 * 0.985);
+  if (Math.abs(xn) >= 0.999) return null;
+  const e = endShape(xn);
+  const mid = (ROOF_Y + FLOOR_Y) / 2;
+  const h = (ROOF_Y - FLOOR_Y) / 2 * (0.25 + 0.75 * e);
+  const k = (y - mid) / h;
+  if (k <= -1 || k >= 1) return null;
+  const v = Math.asin(signPow(k, 1 / SECTION_P));
+  return BODY_HALF_W * e * Math.cos(v) ** SECTION_P;
+}
+
+function wellGeometries(len, width) {
   const parts = [];
+  const RINGS = 6;
+  const SWEEP = 24;
   for (const anchor of wheelAnchors(len, width)) {
-    // Down to a little below the hub so the arch frames the tyre's top half.
-    const dome = new THREE.SphereGeometry(1, 28, 12, 0, Math.PI * 2, 0, Math.PI * 0.56);
-    dome.scale(0.92, FENDER_RY, 0.36);
-    dome.translate(anchor.x, FENDER_Y, Math.sign(anchor.z) * (width / 2 - 0.06));
-    parts.push(softPart(dome, 'roboSilver', FINISH.CHROME));
-    if (anchor.front) {
-      // Frog-eye lamp on the fender's crown, a chrome cup with a pale lens a hair proud of it.
-      const cup = new THREE.SphereGeometry(0.2, 14, 8);
-      cup.scale(1, 1, 1);
-      const lx = anchor.x + 0.5;
-      const ly = FENDER_Y + FENDER_RY * 0.8;
-      const lz = Math.sign(anchor.z) * (width / 2 - 0.12);
-      cup.translate(lx, ly, lz);
-      parts.push(softPart(cup, 'bumperChrome', FINISH.METAL));
-      const lens = new THREE.SphereGeometry(0.15, 14, 8);
-      lens.scale(0.6, 1, 1);
-      lens.translate(lx + 0.12, ly, lz);
-      parts.push(softPart(lens, 'headlightLens', FINISH.MATTE));
+    const side = Math.sign(anchor.z);
+    const pos = [];
+    const index = [];
+    for (let r = 0; r <= RINGS; r++) {
+      for (let t = 0; t <= SWEEP; t++) {
+        const rad = WELL_R * (0.35 + 0.65 * r / RINGS);
+        const th = Math.PI * t / SWEEP;
+        // Below the floor there is no flank to lay it on: pinned just above it. Past the end it
+        // is pulled back along the length until it lands on the body.
+        const y = Math.max(FLOOR_Y + 0.03, WHEEL_R + Math.sin(th) * rad);
+        // Stopped short of the end's turn, where the flank starts to face along the car: an arch
+        // wrapped round it folded over itself. Past that the arch is cut off square.
+        const xMax = len / 2 * 0.985 * WELL_REACH;
+        const x = Math.max(-xMax, Math.min(xMax, anchor.x + Math.cos(th) * rad));
+        const z = flankZ(len, x, y) ?? 0;
+        // Lifted along the surface's own normal, not along z: round the ends the flank faces
+        // along the car, and a lift across it pushed the arch back inside the shell.
+        const dx = ((flankZ(len, x + 0.01, y) ?? z) - (flankZ(len, x - 0.01, y) ?? z)) / 0.02;
+        const dy = ((flankZ(len, x, y + 0.01) ?? z) - (flankZ(len, x, y - 0.01) ?? z)) / 0.02;
+        const nl = Math.hypot(dx, dy, 1);
+        pos.push(x - dx / nl * WELL_LIFT, y - dy / nl * WELL_LIFT, side * (z + WELL_LIFT / nl));
+      }
     }
+    const row = SWEEP + 1;
+    for (let r = 0; r < RINGS; r++) {
+      for (let t = 0; t < SWEEP; t++) {
+        const q = r * row + t;
+        // Outward is +z on the +z flank; the mirror on the other side reverses the winding.
+        if (side > 0) index.push(q, q + row, q + 1, q + 1, q + row, q + row + 1);
+        else index.push(q, q + 1, q + row, q + 1, q + row + 1, q + row);
+      }
+    }
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    g.setIndex(index);
+    parts.push(softPart(g, 'wheelWell', FINISH.TYRE));
   }
   return parts;
 }
 
-/** Running boards between the fenders, and a slim chrome blade of a bumper at each end. */
-function trimGeometries(len, width) {
-  const parts = [];
-  for (const sz of [-1, 1]) {
-    const board = new THREE.BoxGeometry(len * 0.32, 0.08, 0.2);
-    board.translate(0, SILL_Y + 0.06, sz * (width / 2 - 0.12));
-    parts.push(setFinish(bakeColor(board, color('roboTrim')), FINISH.METAL));
-  }
-  for (const end of [-1, 1]) {
-    const blade = new THREE.CapsuleGeometry(0.07, width * 0.86, 4, 10);
-    blade.rotateX(Math.PI / 2);
-    blade.translate(end * (len / 2 - 0.03), SILL_Y + 0.22, 0);
-    parts.push(softPart(blade, 'bumperChrome', FINISH.METAL));
-  }
-  return parts;
-}
-
-/** The sensor puck on the roof, dark, on a short stalk. */
+/** The sensor puck in the middle of the roof, dark, on a short stalk. */
 function sensorGeometry() {
   const parts = [];
-  const base = roofAt(-0.04) - 0.04;
-  const stalk = new THREE.CylinderGeometry(0.12, 0.16, 0.12, 14);
-  stalk.translate(-0.06, base + 0.06, 0);
+  const base = ROOF_Y - 0.03;
+  const stalk = new THREE.CylinderGeometry(0.14, 0.18, 0.1, 16);
+  stalk.translate(0, base + 0.05, 0);
   parts.push(softPart(stalk, 'roboSensor', FINISH.METAL));
-  const puck = new THREE.CylinderGeometry(0.22, 0.22, 0.12, 20);
-  puck.translate(-0.06, base + 0.18, 0);
+  const puck = new THREE.CylinderGeometry(0.24, 0.24, 0.12, 24);
+  puck.translate(0, base + 0.16, 0);
   parts.push(softPart(puck, 'roboSensor', FINISH.METAL));
-  const cap = new THREE.SphereGeometry(0.22, 20, 6, 0, Math.PI * 2, 0, Math.PI / 2);
+  const cap = new THREE.SphereGeometry(0.24, 24, 6, 0, Math.PI * 2, 0, Math.PI / 2);
   cap.scale(1, 0.4, 1);
-  cap.translate(-0.06, base + 0.24, 0);
+  cap.translate(0, base + 0.22, 0);
   parts.push(softPart(cap, 'roboSensor', FINISH.GLASS));
   return parts;
 }
 
-/** Where the cyan lamps go: a band round the puck and a slim bar across the nose. */
+/** The cyan lamps: a band round the puck and a light bar across each end, just under the belt. */
 function glowGeometry(len) {
-  const base = roofAt(-0.04) - 0.04;
-  const ring = new THREE.CylinderGeometry(0.232, 0.232, 0.09, 24, 1, true);
-  ring.translate(-0.06, base + 0.18, 0);
-  const noseX = len / 2 * 0.9;
-  const bar = new THREE.CapsuleGeometry(0.06, 0.7, 3, 8);
-  bar.rotateX(Math.PI / 2);
-  // Laid along the nose's slope, just proud of it.
-  bar.translate(noseX - 0.02, roofAt(0.9) + 0.03, 0);
-  const merged = mergeGeometries([ring.toNonIndexed(), bar.toNonIndexed()], false);
+  const parts = [];
+  const ring = new THREE.CylinderGeometry(0.252, 0.252, 0.09, 24, 1, true);
+  ring.translate(0, ROOF_Y - 0.03 + 0.16, 0);
+  parts.push(ring.toNonIndexed());
   ring.dispose();
-  bar.dispose();
-  return merged;
+  const y = BELT_Y - 0.12;
+  for (const end of [-1, 1]) {
+    // END_P makes the ends blunt: the pod is still ~0.6 wide a hundredth of its length from the
+    // tip, so a short bar laid across the tip stands proud of it over its whole length.
+    const bar = new THREE.CapsuleGeometry(0.06, 0.5, 3, 8);
+    bar.rotateX(Math.PI / 2);
+    bar.translate(end * (len / 2 * 0.985 - 0.03), y, 0);
+    parts.push(bar.toNonIndexed());
+    bar.dispose();
+  }
+  return mergeGeometries(parts, false);
 }
 
 /** The shell and the glass laid on it, for tools/probe.mjs to check the winding of. */
@@ -259,8 +225,7 @@ export function roboTaxiBodyGeometry(len, width) {
   const parts = [
     shellGeometry(len),
     ...glassGeometries(len),
-    ...fenderGeometries(len, width),
-    ...trimGeometries(len, width),
+    ...wellGeometries(len, width),
     ...sensorGeometry(),
     ...wheelGeometries(len, width),
   ];

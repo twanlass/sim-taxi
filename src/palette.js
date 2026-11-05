@@ -400,7 +400,7 @@ export const PALETTE = {
   // status lamps a cold cyan that no other light in the game uses: cyan means "robot".
   roboSilver: '#BCC2C9',
   roboTrim: '#8E969E',
-  roboGlass: '#1D2733',
+  roboGlass: '#2B3C4E',
   roboSensor: '#22262C',
   roboGlow: '#3FE9FF',
   // Its frog-eye lamps: a pale glass lens in a chrome cup.

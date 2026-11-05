@@ -12,7 +12,7 @@ import { markOccluder } from './ssao.js';
 
 // The robo-taxis: the city council's driverless cabs, arriving in town to take your riders.
 //
-// Each one is a guest car in traffic (`enterGuest`, sim/traffic.js) wearing the silver bubble body
+// Each one is a guest car in traffic (`enterGuest`, sim/traffic.js) wearing the glass-topped pod
 // of geometry/robotaxi.js, with `car.robo` set — which is everything the sim knows about it: it
 // cruises at ROBO_SPEED, crawls round corners, pulls away gently and sits out the long stop at every
 // junction (ROBO_STOP_DWELL). It queues, stops, can be bumped and can be wrecked like any car.

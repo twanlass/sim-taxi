@@ -2044,9 +2044,11 @@ The city council's driverless cabs (game/robotaxi.js, body in geometry/robotaxi.
 on the map from the first drop-off, and they **take your riders**. `?robotaxi=classic` turns them
 off; `?robotaxi=soon` brings them on from the start.
 
-**What one is.** A guest car in traffic wearing a rounded silver bubble body — one arc from bumper
-to tail, fenders standing off it over the wheels, frog-eye lamps, a dark sensor puck on the roof
-with a cyan band round it and a cyan bar across the nose. The body is the one `FINISH.CHROME` part
+**What one is.** A guest car in traffic wearing a pod with no front or back: an elongated box with
+domed ends and rounded sides, the same shape both ways, so you cannot tell which way it is about to
+go. Everything above the beltline is one dark glass canopy all the way round; below it is silver,
+with dark wheel wells cut round the wheels, a sensor puck on the roof wearing a cyan ring, and a
+cyan bar at each end. The silver is the one `FINISH.CHROME` part
 in the game (util/geo.js): metal with most of its diffuse traded for mirror, so the sky and the
 skyline do the colouring. Cyan is the robot's colour and nothing else in the game uses it.
 
