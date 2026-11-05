@@ -2216,7 +2216,8 @@ a build that shot every cut from behind the city showed it. See
 ## Roadworks: a street closed at both ends
 
 `src/game/roadwork.js` and `src/geometry/roadworks.js`. Once per run, about a minute in, a side
-street is closed off: a striped trestle across each end, two rows of cones, a hole with a small
+street is closed off: a pair of striped trestles across each end (one per lane, each a few degrees
+off square, thrown separately when hit), two rows of cones, a hole with a small
 single-plank sawhorse barricade at either end of it, a few low piles of broken road in the lanes,
 and two workers standing over it. Ambient traffic routes around it. **The player's taxi is sent
 through it**, so the closed street is the emptiest road in the city, and the taxi **barrels
@@ -2242,7 +2243,7 @@ The sawhorses share the cones' closed-form flight in `updatePool`, at two-thirds
 the road's frame (`pitParts`) so the two sawhorses can be measured off its real length, and it is
 pulled in to 0.8 of its old offset so a sawhorse's end never touches a cone row.
 
-`?roadworks=classic` brings back the zone as it was: a plywood ramp against the entry trestle that
+`?roadworks=classic` brings back the zone as it was: one full-width trestle at each end, a plywood ramp against the entry trestle that
 hops the taxi over the works (the sections on the ramp and the suspension below describe that hop,
 which the Loco arch jump and the drawbridge still use), and a heap of dug-up spoil beside the hole
 in place of the sawhorses and the rubble. The ramp went because the bridges and the drawbridge

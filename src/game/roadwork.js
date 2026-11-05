@@ -396,24 +396,52 @@ export function createRoadwork(rng, scene, camera = null) {
       // in "across / up / downfield" rather than in world axes.
       const holder = new THREE.Group();
       holder.applyMatrix4(frame.matrix);
-      const mesh = new THREE.Mesh(mergeAll(trestle), propMaterial());
-      mesh.castShadow = true;
-      holder.add(mesh);
       group.add(holder);
-      materials.push(mesh.material);
+
+      // By default the street is closed by **two** trestles, one per lane, each a little off
+      // square (Tyler, 2026-11-05: "we shouldn't have a single barrier covering the entire cross of
+      // the street … a slight rotation so that it doesn't look perfectly placed"). One plank the
+      // width of the road read as a level crossing gate rather than as a crew's kit. They meet near
+      // the centreline with a small gap and are thrown separately, so a smash scatters two things.
+      // `?roadworks=classic` keeps the one full-width trestle.
+      const pieces = [];
+      const addPiece = (geos, x, z, yaw) => {
+        const mesh = new THREE.Mesh(mergeAll(geos), propMaterial());
+        mesh.castShadow = true;
+        mesh.position.set(x, 0, z);
+        mesh.rotation.y = yaw;
+        holder.add(mesh);
+        materials.push(mesh.material);
+        pieces.push({ mesh, x, z, yaw, throwX: rng.jitter(0.8), twist: rng.range(-0.9, 0.9) });
+      };
+      if (BARREL) {
+        for (const geo of trestle) geo.dispose();
+        const span = ROAD_W - 0.4;
+        const gap = rng.range(0.2, 0.45);
+        const w = (span - gap) / 2 - 0.15;
+        for (const side of [-1, 1]) {
+          const { trestle: half, ramp: unused } = barricadeParts({ width: w });
+          for (const geo of unused) geo.dispose();
+          // Measured from the road centreline (`LANE` across, see above), each half centred on
+          // its own lane, nudged along the road and turned a few degrees about its own middle.
+          addPiece(half, LANE + side * (gap / 2 + w / 2) + rng.jitter(0.1),
+            rng.jitter(0.22), rng.jitter(0.1));
+        }
+      } else {
+        addPiece(trestle, 0, 0, 0);
+      }
       // `exitLaneId`/`exitS`: the same trestle met from behind, by a taxi on the *other* lane
       // driving out of the street. The ramp's hop used to carry it over this one; on the road it
       // goes through it, and `dir` flips the throw so the trestle goes the way the taxi was going.
       const other = edge.lanes.find((l) => l !== lane);
       barriers.push({
-        mesh, laneId: lane.id, s: BARRIER_S, hit: false, hitAt: 0, dir: 1, exit: false,
+        pieces, laneId: lane.id, s: BARRIER_S, hit: false, hitAt: 0, dir: 1, exit: false,
         // Tested where the taxi's *nose* meets it, half a car short of the trestle line, and that
         // is not only geometry: the far trestle stands 2.1 from the junction against a hold line
         // 3.4 back, so the taxi's own position never reaches it — the car stops being on the lane
         // at the line, and a test on the centre never fired (0 exits of 2 in the probe).
         exitLaneId: other?.id ?? null,
         exitS: other ? other.length - BARRIER_S - CAR_LEN / 2 : Infinity,
-        throwX: rng.jitter(0.8), twist: rng.range(-0.9, 0.9),
         x: frame.x, z: frame.z,
         // Kept so the splinters can be thrown in the trestle's own frame rather than in world
         // axes — see burstChips. The frame itself is discarded with the matrix it was built for.
@@ -1089,14 +1117,16 @@ export function createRoadwork(rng, scene, camera = null) {
       flying += 1;
 
       const ease = 1 - (1 - u) ** 2;
-      barrier.mesh.position.set(
-        barrier.throwX * ease,
-        Math.sin(Math.PI * u) * 1.25,
-        TRESTLE_THROW * ease * barrier.dir,
-      );
-      // Tips away down the road and lands past flat, which reads as slammed rather than as laid
-      // down. Negative x swings the top toward +Z, the direction the taxi was going.
-      barrier.mesh.rotation.set(-1.95 * ease * barrier.dir, barrier.twist * ease, 0);
+      for (const piece of barrier.pieces) {
+        piece.mesh.position.set(
+          piece.x + piece.throwX * ease,
+          Math.sin(Math.PI * u) * 1.25,
+          piece.z + TRESTLE_THROW * ease * barrier.dir,
+        );
+        // Tips away down the road and lands past flat, which reads as slammed rather than as laid
+        // down. Negative x swings the top toward +Z, the direction the taxi was going.
+        piece.mesh.rotation.set(-1.95 * ease * barrier.dir, piece.yaw + piece.twist * ease, 0);
+      }
     }
 
     return flying;
