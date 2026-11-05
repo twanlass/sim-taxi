@@ -129,7 +129,7 @@ import { createParcelPad, PAD_R } from '../src/geometry/parcelpad.js';
 import { underglowGeometry, createPulse, pulseStep, createRace, COUNT_STEP as RACE_COUNT_STEP, ROCKET_COUNT, COUNTDOWN as RACE_COUNTDOWN } from '../src/game/race.js';
 import { createHydraulics, LIFT_MIN, LIFT_MAX } from '../src/game/hydraulics.js';
 import { TAXI_DECK_Y, TAXI_TAILPIPE_BACK, TAXI_TAILPIPE_HEIGHT, TAXI_SCALE as TAXI_SCALE_TOP } from '../src/geometry/taxi.js';
-import { createLocoFlame } from '../src/game/locoflame.js';
+import { createLocoFlame, setFlameStyle } from '../src/game/locoflame.js';
 import { createParcel, PARCEL_CENTRE_Y } from '../src/geometry/parcel.js';
 import { createFoodOrder } from '../src/geometry/food.js';
 import { createCargo, CARGO_KINDS, CARGO_CENTRE_Y } from '../src/geometry/cargo.js';
@@ -9775,19 +9775,34 @@ function rideToPickup() {
     for (let step = 0; step < 30; step++) twin.update(1 / 60, still, false, true);
     const [b0, b1] = twin.group.children;
     const purple = new THREE.Color(PALETTE.locoFlameDriftOuter);
-    // ...and splayed, so the two read as two from the fixed diagonal camera: parallel sheets 0.9
-    // apart projected nearly on top of each other. Measured as how far apart the tips are.
+    // ...running parallel, and far enough apart to read as two from the fixed diagonal camera:
+    // at 1.2 apart they were once reported as one flame. Measured as how far apart the tips
+    // are, and as the two barrels pointing the same way.
     twin.group.updateMatrixWorld(true);
     const tip = (b) => b.localToWorld(new THREE.Vector3(3, 0, 0));
     const tipGap = tip(b0).distanceTo(tip(b1));
-    const split = twin.group.visible && b1.visible && b1.position.z - b0.position.z > 0.8
-      && tipGap > 2.5 && twin.group.scale.x > 1.5 && twin.materials[0].color.getHex() === purple.getHex();
+    const root = (b) => b.localToWorld(new THREE.Vector3(0, 0, 0));
+    const parallel = Math.abs(root(b0).distanceTo(root(b1)) - tipGap) < 1e-6;
+    const split = twin.group.visible && b1.visible && b1.position.z - b0.position.z > 1.2
+      && tipGap > 1.2 && parallel && twin.group.scale.x > 1.5
+      && twin.materials[0].color.getHex() === purple.getHex();
     for (let step = 0; step < 30; step++) twin.update(1 / 60, still, true, false);
     check('the drift kick splits the flame into two longer violet barrels, and lets them go after',
       split && !twin.group.children[1].visible && Math.abs(twin.group.children[0].position.z) < 1e-6
         && Math.abs(twin.group.children[0].rotation.y) < 1e-6
         && twin.materials[0].color.getHex() === new THREE.Color(PALETTE.locoFlameOuter).getHex(),
-      `split ${split}, tips ${tipGap.toFixed(2)} apart, scale ${twin.group.scale.x.toFixed(2)} after`);
+      `split ${split}, tips ${tipGap.toFixed(2)} apart, parallel ${parallel}, scale ${twin.group.scale.x.toFixed(2)} after`);
+
+    // `?flames=classic` splays the pair into the old V, tips 3.1 apart.
+    setFlameStyle('classic');
+    const vee = createLocoFlame(new THREE.Scene());
+    for (let step = 0; step < 30; step++) vee.update(1 / 60, still, false, true);
+    vee.group.updateMatrixWorld(true);
+    const [v0, v1] = vee.group.children;
+    const veeGap = tip(v0).distanceTo(tip(v1));
+    setFlameStyle(null);
+    check('?flames=classic splays the drift kick\'s barrels into a V', veeGap > 2.5,
+      `tips ${veeGap.toFixed(2)} apart`);
   }
 }
 
