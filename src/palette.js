@@ -398,7 +398,7 @@ export const PALETTE = {
   // finish, so the sky and the skyline slide across it — the one car in town that is all mirror.
   // Its glass a shade bluer than the fleet's so the band reads as tinted, its sensor dark, and its
   // status lamps a cold cyan that no other light in the game uses: cyan means "robot".
-  roboSilver: '#D9DEE3',
+  roboSilver: '#BCC2C9',
   roboTrim: '#8E969E',
   roboGlass: '#1D2733',
   roboSensor: '#22262C',

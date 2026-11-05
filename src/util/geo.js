@@ -1271,10 +1271,12 @@ export const FINISH_DEFAULTS = {
   // its diffuse traded for mirror. `metal` is the hubcaps and bumpers, small enough that a third of
   // a reflection reads as steel; over a car-sized curve that reads as white paint, so this keeps the
   // diffuse low and lets the sky and the skyline do the colouring, with a hard sun glint on top.
+  // `tint` high so the reflection takes the silver's own grey: at 0.15 the sky came back as the
+  // car's colour and at play zoom it read as a pale blue car, not a silver one.
   chrome: {
     glint: 1.3, glintSharp: 260, glintBend: 1, sheen: 0.45, sheenSharp: 40, flake: 0,
-    reflect: 0.8, reflectEdge: 0.3, reflectBend: 0.75, diffuse: 0.42,
-    flakeTilt: 0, flakeSharp: 1, coat: 0, tint: 0.15, flop: 0,
+    reflect: 0.7, reflectEdge: 0.3, reflectBend: 0.75, diffuse: 0.5,
+    flakeTilt: 0, flakeSharp: 1, coat: 0, tint: 0.85, flop: 0,
   },
 };
 
@@ -1484,6 +1486,7 @@ const GLOSS_COLOR = /* glsl */ `
 		gFinD = uFinishD[gK];
 		gIsPaint = gK == 1 ? 1.0 : 0.0;
 		gIsWindow = gK == 6 ? 1.0 : 0.0;
+		gIsChrome = gK == 7 ? 1.0 : 0.0;
 		gFinishColor = gK == 0 ? vec3(0.15) : gK == 1 ? vec3(0.9, 0.2, 0.15)
 			: gK == 2 ? vec3(0.1, 0.7, 0.9) : gK == 3 ? vec3(0.95, 0.8, 0.2)
 			: gK == 4 ? vec3(0.6, 0.45, 0.85) : gK == 5 ? vec3(0.2, 0.8, 0.6) : vec3(0.85, 0.95, 1.0);
@@ -1728,6 +1731,9 @@ ${classic ? GLOSS_HIT_CLASSIC : GLOSS_HIT_SOFT}
 			gEnv = mix(gEnv, uGlossHorizon * uGlossGlobal.y * (0.7 + 0.6 * gHitY / uGlossCeiling), gOcc);
 		}
 __LOOK_FINAL__
+		// Chrome mirrors the world in grey: the robo-taxi's silver taking the sky's blue whole made
+		// it a pale blue car at play zoom. Brightness kept, hue mostly dropped.
+		gEnv = mix(gEnv, vec3(dot(gEnv, vec3(0.2126, 0.7152, 0.0722))), 0.8 * gIsChrome);
 		outgoingLight = mix(outgoingLight, gEnv, clamp(gMirror, 0.0, 1.0));
 ${WINDOW_STREAKS}
 		if (uGlossGlobal.z > 0.5) outgoingLight = gFinishColor;
@@ -1997,6 +2003,7 @@ vec4 gFinC;
 vec4 gFinD;
 float gIsPaint;
 float gIsWindow;
+float gIsChrome;
 vec3 gFinishColor;
 vec3 gSpecN;
 vec3 gReflN;

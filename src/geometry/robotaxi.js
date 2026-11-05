@@ -238,10 +238,10 @@ function sensorGeometry() {
 /** Where the cyan lamps go: a band round the puck and a slim bar across the nose. */
 function glowGeometry(len) {
   const base = roofAt(-0.04) - 0.04;
-  const ring = new THREE.CylinderGeometry(0.232, 0.232, 0.05, 24, 1, true);
+  const ring = new THREE.CylinderGeometry(0.232, 0.232, 0.09, 24, 1, true);
   ring.translate(-0.06, base + 0.18, 0);
   const noseX = len / 2 * 0.9;
-  const bar = new THREE.CapsuleGeometry(0.035, 0.55, 3, 8);
+  const bar = new THREE.CapsuleGeometry(0.06, 0.7, 3, 8);
   bar.rotateX(Math.PI / 2);
   // Laid along the nose's slope, just proud of it.
   bar.translate(noseX - 0.02, roofAt(0.9) + 0.03, 0);
