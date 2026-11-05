@@ -1049,6 +1049,17 @@ export const PALETTE = {
   dogTag: '#F2C14E',
   vetNeonBlue: '#3D8BFF',
   vetNeonRed: '#FF3348',
+  // The rooftop billboards (city/billboard.js; the posters' own colours are in city/billboardart.js,
+  // which paints them). The steel is painted a dark bottle green, as hoarding structures often are:
+  // galvanised grey was `rooftop` to within 3 in every channel and the frame vanished into the roof
+  // (Tyler, 2026-11-04). Paper is the headless stand-in for the art.
+  billboardPaper: '#F2EDE2',
+  billboardBack: '#22302B',
+  billboardSteel: '#2E4038',
+  billboardWalk: '#3A4C44',
+  billboardLamp: '#FFF2CC',
+  // The lamps' beams, additive: warm, and dim, because they add to whatever is behind them.
+  billboardBeam: '#4A3D24',
   // The tube man at the car wash (game/tubeman.js), off the photo Tyler sent: a fire-engine
   // red tube, a shock of yellow streamers for hair and the same yellow on the cuffs, a white
   // cartoon face, and a dark blower box under him.

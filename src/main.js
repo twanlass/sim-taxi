@@ -41,6 +41,7 @@ import { createCanopyFuzz } from './city/canopyfuzz.js';
 import { createGarage, LANDMARK as GARAGE_LANDMARK } from './city/garage.js';
 import { createBurgerJoint, SIGN_SPIN, LANDMARK as BURGER_LANDMARK } from './city/burgerjoint.js';
 import { createVetClinic, VET_CLASSIC } from './city/vetclinic.js';
+import { createBillboard, BILLBOARD_CLASSIC } from './city/billboard.js';
 import { createGraveyard, LANDMARK as GRAVEYARD_LANDMARK } from './city/graveyard.js';
 import { plantedCrowns } from './city/props.js';
 import {
@@ -880,6 +881,15 @@ if (vet) {
   scene.add(vet.group);
   markOccluder(vet.shell);
 }
+// The rooftop billboards: the robo-taxis' teaser and the Dub Burger ad, on the widest flat roofs (city/billboard.js).
+// Scenery only, and in the sightline field below, so no fare lands on a corner it hides. Null on
+// `?billboard=classic` or a city with no roof that fits.
+const billboards = BILLBOARD_CLASSIC ? [] : city.billboards.map((site) => createBillboard(site));
+for (const board of billboards) {
+  scene.add(board.group);
+  markOccluder(board.shell);
+  markOccluder(board.poster);
+}
 // The roadside business — the fourth block `createLayout` took from the towers, a car wash or a gas
 // station as the city seed rolls it (`?roadside=carwash` / `=gas` pins one) — and the inflatable tube man flailing on its corner, which is what
 // it is there for. Scenery only: not tappable, nothing routes into it. `null` on
@@ -906,7 +916,7 @@ const manholeSteam = createManholeSteam(scene, manholes?.userData.spots, makeRng
 const occluders = setCityOccluders(
   city.mesh, ...(city.domeMesh ? [city.domeMesh] : []), propsMesh, ...(garage?.meshes ?? []),
   ...(burger?.meshes ?? []), ...(graveyard?.meshes ?? []), ...(roadside?.meshes ?? []),
-  ...(vet ? [vet.shell] : []),
+  ...(vet ? [vet.shell] : []), ...billboards.flatMap((b) => [b.shell, b.poster]),
 );
 // The same field is what the cars' paint reflects (`propMaterial({ gloss })`, util/geo.js).
 setGlossCity(occluders, SKYLINE_CEILING);
@@ -1550,6 +1560,8 @@ for (const [built, landmark] of [
 if (depotPanes) markEmissive(depotPanes, 'window');
 // The vet's OPEN sign, at the strength the depot's and the burger joint's neon bloom at.
 if (vet) markEmissive(vet.glow, 'window');
+// The billboard's three lamps, the same.
+for (const board of billboards) markEmissive(board.glow, 'window');
 // The riders. They receive AO through `propMaterial()` either way, so leaving them out of the
 // prepass would paint the kerb's own contact line across whoever is standing in front of it.
 // Only the figure is taken — `markOccluder` filters out the translucent target disc under them.
@@ -1727,7 +1739,7 @@ const cityEntry = createCityEntry({
   // anchor, so it comes up as a building rather than as a building and a door.
   meshes: [city.mesh, ...city.glass, ...(city.frames ? [city.frames] : []), ...(city.domeMesh ? [city.domeMesh] : []), ...(westEdge ? [westEdge.towers, ...westEdge.glass] : []), ...(westEdge?.frames ? [westEdge.frames] : []), propsMesh, grass.mesh, canopyFuzz.mesh, ...(garage?.meshes ?? []),
     ...(burger?.meshes ?? []), ...(graveyard?.meshes ?? []), ...(roadside?.meshes ?? []),
-    ...(vet?.meshes ?? []),
+    ...(vet?.meshes ?? []), ...billboards.flatMap((b) => b.meshes),
     ...(lamps ? [lamps.posts, lamps.heads] : []),
     ...(props.courtMesh ? [props.courtMesh] : []), ...(props.skateMesh ? [props.skateMesh] : []),
     ...(props.pondMesh ? [props.pondMesh] : [])],
@@ -8057,6 +8069,14 @@ if (shot) {
   // anything if the two are pointed at the same lane.
   if (shot.atBurger && burger) {
     controller.state.target.set(burger.site.focus.x, 0, burger.site.focus.z);
+    controller.update(aspect());
+  }
+  // The billboard, aimed at the ground point its face sits over on screen: up in the air at y, it
+  // shares a sightline with the ground y / 0.92 further up-screen in both x and z (VIEW_DIR).
+  // `atBillboard` is the index of the board, 1-based: the robo-taxi ad, then Dub Burger.
+  if (billboards[(shot.atBillboard ?? 0) - 1]) {
+    const { focus } = billboards[shot.atBillboard - 1].site;
+    controller.state.target.set(focus.x - focus.y / 0.92, 0, focus.z - focus.y / 0.92);
     controller.update(aspect());
   }
   // The roadside business, framed on its lot; and its tube man, close enough to see his face.
