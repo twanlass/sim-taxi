@@ -11,7 +11,7 @@ import { ADS, posterTexture } from './billboardart.js';
 //
 // **What they say.** Two ads, one board each, on two roofs at least `APART` from each other: the
 // robo-taxis' teaser (the council approved them; they arrive Monday, as the intro tells it) and
-// Loco Juice, the energy drink the radio advertises. The posters are vector art painted on a canvas
+// Dub Burger, the city's own drive-through advertising itself. The posters are vector art painted on a canvas
 // (city/billboardart.js), where the layouts and why they are sized as they are live. The steel is a
 // dark bottle green so the frame stands off the grey roof, and three lamps on the catwalk throw a
 // faint beam each up onto the paper.

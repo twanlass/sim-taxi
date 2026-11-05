@@ -881,7 +881,7 @@ if (vet) {
   scene.add(vet.group);
   markOccluder(vet.shell);
 }
-// The rooftop billboards: the robo-taxis' teaser and the Loco Juice ad, on the widest flat roofs (city/billboard.js).
+// The rooftop billboards: the robo-taxis' teaser and the Dub Burger ad, on the widest flat roofs (city/billboard.js).
 // Scenery only, and in the sightline field below, so no fare lands on a corner it hides. Null on
 // `?billboard=classic` or a city with no roof that fits.
 const billboards = BILLBOARD_CLASSIC ? [] : city.billboards.map((site) => createBillboard(site));
@@ -8057,7 +8057,7 @@ if (shot) {
   }
   // The billboard, aimed at the ground point its face sits over on screen: up in the air at y, it
   // shares a sightline with the ground y / 0.92 further up-screen in both x and z (VIEW_DIR).
-  // `atBillboard` is the index of the board, 1-based: the robo-taxi ad, then Loco Juice.
+  // `atBillboard` is the index of the board, 1-based: the robo-taxi ad, then Dub Burger.
   if (billboards[(shot.atBillboard ?? 0) - 1]) {
     const { focus } = billboards[shot.atBillboard - 1].site;
     controller.state.target.set(focus.x - focus.y / 0.92, 0, focus.z - focus.y / 0.92);

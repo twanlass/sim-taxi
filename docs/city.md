@@ -957,8 +957,8 @@ the bench block, with the sign on it.
 
 Up to two flat roofs per city carry an advertising hoarding (`city/billboard.js`), one per ad: the
 robo-taxis' teaser (**MONDAY.** under a teal band with a little robo-taxi pod and "ROBO-TAXIS
-ARRIVE") and **Loco Juice**, the energy drink from the radio's ad break (a lime can on a hot
-sunburst). Each stands on dark bottle-green steel (galvanised grey matched the roof and vanished)
+ARRIVE") and **Dub Burger**, the city's own drive-through advertising itself (its turning sign's
+burger on the building's red, and "We take cash or Bitcoin," the speaker's line). Each stands on dark bottle-green steel (galvanised grey matched the roof and vanished)
 with raking braces, a catwalk and three lamps, which bloom as `window` and throw a faint additive
 beam each up onto the paper. The building is untouched; `chooseBillboardSite` picks roofs after the
 vet clinic, by rule and hash, so no draw moves. `?billboard=classic` leaves both off.
@@ -976,9 +976,9 @@ street it would be read at 45° and lose a third of its width. The widest decks 
 of board, never under 5.6), the posts draw in where a deck is narrow and the ends cantilever up to
 0.5 past the lip, and a ray from each corner of the face has to reach the camera past every other
 tower (`clearOf`, shared with the vet). The second board has to stand 30 units from the first, so
-the two never share a view. Over 30 seeds every city gets the robo-taxi board and 19 get Loco Juice
+the two never share a view. Over 30 seeds every city gets the robo-taxi board and 19 get Dub Burger
 as well. The steel and the poster go into the sightline field, so no fare is placed on a corner a
-board hides. Shots `billboard`/`billboard-far` frame the first, `billboard-loco`/`billboard-loco-far`
+board hides. Shots `billboard`/`billboard-far` frame the first, `billboard-burger`/`billboard-burger-far`
 the second.
 
 ## The roadside lot, and its tube man

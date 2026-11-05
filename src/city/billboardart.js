@@ -2,8 +2,8 @@ import * as THREE from 'three';
 
 // The billboards' posters, drawn as vector art on a canvas: real type in the game's own face (Space
 // Grotesk 700, src/fonts.css) and flat shapes, no gloss. Tyler asked for "actual vector design"
-// over the first build's pixel letters on 2026-11-04, and for one of the two to be the Loco Juice
-// ad the radio plays (RADIO_ad_loco_juice, game/sfx.js).
+// over the first build's pixel letters on 2026-11-04. The second ad was Loco Juice (the radio's
+// energy drink) for an afternoon, then Dub Burger, the city's own drive-through (Tyler, 2026-11-05).
 //
 // **One word per poster has to read at play zoom**, and that sets every layout below. A world unit
 // is ~7.7px there and the poster is about 7.6 × 3 units, so the canvas's 400px of height is ~23
@@ -20,7 +20,7 @@ export const ART_H = 400;
 const FONT = '"Space Grotesk", system-ui, sans-serif';
 
 /** The poster designs, by name. */
-export const ADS = ['robotaxi', 'locojuice'];
+export const ADS = ['robotaxi', 'dubburger'];
 
 /** The largest size at which `text` fits in `maxW` (and under `maxSize`). */
 function fit(g, text, weight, maxW, maxSize) {
@@ -107,98 +107,89 @@ function drawRobotaxi(g) {
   g.fillText('MONDAY.', ART_W / 2, ART_H - 40);
 }
 
-// --- Loco Juice -----------------------------------------------------------------------------------
+// --- Dub Burger ---------------------------------------------------------------------------------
 
 /**
- * The energy drink. A sunburst in hot orange and magenta, a lime can tipped into the corner with a
- * lightning bolt on it, and LOCO / JUICE stacked beside it in a slanted heavy face. At play zoom:
- * "hot pink board, white word". The tagline is a joke for anyone who pinches in.
+ * The city's own drive-through (city/burgerjoint.js), advertising itself: the building's red band
+ * as the field, the turning sign's burger drawn big on the left in the sign's own five slice
+ * colours (palette.js), and DUB / BURGER stacked beside it. At play zoom: "red board, burger,
+ * cream word" — the same three things the restaurant is. The tagline is the drive-through
+ * speaker's own line ("Cash or Bitcoin?", game/ordertalk.js).
  */
-function drawLocoJuice(g) {
-  // Pushed hotter than they look here: the haze and the golden-hour sun both pale a poster, and
-  // the first pair came out a dusty salmon at play zoom.
-  const hot = '#FF1F63';
-  const orange = '#FF7A00';
-  const lime = '#B8F53B';
-  const ink = '#24102E';
-  const grad = g.createLinearGradient(0, 0, ART_W, ART_H);
-  grad.addColorStop(0, orange);
-  grad.addColorStop(1, hot);
-  g.fillStyle = grad;
+function drawDubBurger(g) {
+  const red = '#D2402F';                 // `burgerBand`, a touch hotter for the haze to pale
+  const deep = '#8E2318';
+  const cream = '#FFF1D6';
+  const amber = '#FFC24A';               // `burgerNeon`
+  const ink = '#2A1410';
+  g.fillStyle = red;
   g.fillRect(0, 0, ART_W, ART_H);
+  // A darker disc behind the burger, so its outline holds against the red.
+  const cx = 200;
+  const cy = 205;
+  g.fillStyle = deep;
+  g.beginPath(); g.arc(cx, cy, 175, 0, Math.PI * 2); g.fill();
 
-  // The burst, round the can.
-  const cx = 190;
-  const cy = 210;
-  g.fillStyle = 'rgba(255, 230, 140, 0.22)';
-  const rays = 18;
-  for (let i = 0; i < rays; i++) {
-    const a0 = (i / rays) * Math.PI * 2;
-    const a1 = a0 + Math.PI / rays;
+  // The burger, bottom up, each slice outlined in ink so the stack reads as slices at 30 pixels.
+  const slice = (draw, fill) => {
+    g.fillStyle = ink;
+    g.save(); g.translate(0, 5); draw(); g.fill(); g.restore();
+    draw(); g.fillStyle = fill; g.fill();
+  };
+  const W = 270;
+  const x0 = cx - W / 2;
+  slice(() => roundRect(g, x0 + 8, cy + 62, W - 16, 52, 24), '#D2A163');              // bun base
+  slice(() => roundRect(g, x0 - 4, cy + 30, W + 8, 40, 18), '#54321F');               // patty
+  slice(() => {                                                                       // cheese
     g.beginPath();
-    g.moveTo(cx, cy);
-    g.lineTo(cx + Math.cos(a0) * 1200, cy + Math.sin(a0) * 1200);
-    g.lineTo(cx + Math.cos(a1) * 1200, cy + Math.sin(a1) * 1200);
+    g.moveTo(x0 - 6, cy + 20); g.lineTo(x0 + W + 6, cy + 20);
+    g.lineTo(x0 + W - 30, cy + 52); g.lineTo(x0 + W - 70, cy + 36);
+    g.lineTo(x0 + 70, cy + 54); g.lineTo(x0 + 30, cy + 34); g.closePath();
+  }, '#F7C63C');
+  slice(() => {                                                                       // lettuce
+    g.beginPath();
+    g.moveTo(x0 - 14, cy + 14);
+    for (let i = 0; i <= 10; i++) {
+      const x = x0 - 14 + ((W + 28) * i) / 10;
+      g.quadraticCurveTo(x - (W + 28) / 20, cy + (i % 2 ? 36 : 4), x, cy + 14);
+    }
+    g.lineTo(x0 + W + 14, cy); g.lineTo(x0 - 14, cy); g.closePath();
+  }, '#7FB050');
+  slice(() => {                                                                       // bun top
+    g.beginPath();
+    g.moveTo(x0, cy + 6);
+    g.bezierCurveTo(x0, cy - 150, x0 + W, cy - 150, x0 + W, cy + 6);
     g.closePath();
-    g.fill();
+  }, '#DFAE6C');
+  g.fillStyle = '#F7EDD6';                                                            // sesame
+  for (const [sx, sy, r] of [[-70, -70, 0.4], [-20, -92, -0.2], [40, -80, 0.5], [90, -52, -0.4],
+    [-100, -30, 0.2], [0, -48, 0.1], [60, -30, -0.3]]) {
+    g.save(); g.translate(cx + sx, cy + sy); g.rotate(r);
+    g.beginPath(); g.ellipse(0, 0, 11, 6, 0, 0, Math.PI * 2); g.fill();
+    g.restore();
   }
 
-  // The can: flat colour, a darker band at each end for the rims, no highlight.
-  g.save();
-  g.translate(cx, cy);
-  g.rotate(-0.22);
-  const cw = 150;
-  const ch = 300;
-  g.fillStyle = ink;
-  roundRect(g, -cw / 2 - 6, -ch / 2 - 6, cw + 12, ch + 12, 26);   // outline
-  g.fill();
-  g.fillStyle = lime;
-  roundRect(g, -cw / 2, -ch / 2, cw, ch, 22);
-  g.fill();
-  g.fillStyle = '#8CC51F';
-  g.fillRect(-cw / 2, -ch / 2 + 6, cw, 18);
-  g.fillRect(-cw / 2, ch / 2 - 24, cw, 18);
-  g.fillStyle = '#C9CED6';                                    // lid
-  roundRect(g, -cw / 2 + 10, -ch / 2 - 22, cw - 20, 22, 8);
-  g.fill();
-  g.fillStyle = ink;                                          // the bolt
-  g.beginPath();
-  g.moveTo(14, -100);
-  g.lineTo(-40, 14);
-  g.lineTo(-4, 14);
-  g.lineTo(-22, 104);
-  g.lineTo(42, -16);
-  g.lineTo(6, -16);
-  g.closePath();
-  g.fill();
-  g.restore();
-
-  // LOCO / JUICE, slanted (Space Grotesk has no italic, so the slant is a skew), white on a hard
-  // ink drop rather than any soft shadow.
-  const word = (text, size, y, fill) => {
-    g.save();
-    g.setTransform(1, 0, -0.18, 1, 0, 0);
+  // DUB / BURGER: cream on a hard ink drop, no soft shadow.
+  const word = (text, size, x, y, fill) => {
     g.font = `700 ${size}px ${FONT}`;
-    g.textAlign = 'left';
-    const x = 400 + y * 0.18;
     g.fillStyle = ink;
-    g.fillText(text, x + 8, y + 8);
+    g.fillText(text, x + 7, y + 7);
     g.fillStyle = fill;
     g.fillText(text, x, y);
-    g.restore();
   };
   g.textBaseline = 'alphabetic';
-  const big = fit(g, 'LOCO', 700, 560, 210);
-  word('LOCO', big, 196, '#FFFFFF');
-  const mid = fit(g, 'JUICE', 700, 560, 170);
-  word('JUICE', mid, 340, lime);
-  g.fillStyle = '#FFF4DA';
   g.textAlign = 'left';
-  fit(g, 'DRINK RESPONSIBLY. DRIVE LOCO.', 600, 520, 26);
-  g.fillText('DRINK RESPONSIBLY. DRIVE LOCO.', 432, 384);
+  const left = 420;
+  const big = fit(g, 'DUB', 700, ART_W - left - 40, 230);
+  word('DUB', big, left, 196, cream);
+  const mid = fit(g, 'BURGER', 700, ART_W - left - 40, 150);
+  word('BURGER', mid, left + 4, 322, amber);
+  g.fillStyle = cream;
+  fit(g, 'WE TAKE CASH OR BITCOIN.', 600, ART_W - left - 40, 28);
+  g.fillText('WE TAKE CASH OR BITCOIN.', left + 6, 376);
 }
 
-const DRAW = { robotaxi: drawRobotaxi, locojuice: drawLocoJuice };
+const DRAW = { robotaxi: drawRobotaxi, dubburger: drawDubBurger };
 
 /**
  * The light off the three lamps on the catwalk, painted into the poster: a warm fan up from the

@@ -61,7 +61,7 @@ doc; what the classic version was, and why it changed, is in that doc's history 
 | `?windows=classic` | Building windows are the faux sky gradient in vertex colour again, instead of glass meshes with stylised 45° light streaks | #681 | [rendering.md](rendering.md#window-glass--citybuildingsjs) |
 | `?garbage=classic` | No bag piles on the kerb and no garbage truck | `GARBAGE=classic` | [city.md](city.md#the-bag-piles-and-the-garbage-truck) |
 | `?vet=classic` | No vet clinic: the corner shop it picks keeps a bare roof and an empty window | | [city.md](city.md#the-vet-clinic) |
-| `?billboard=classic` | No rooftop billboards: the robo-taxi and Loco Juice roofs stay bare | | [city.md](city.md#the-rooftop-billboard) |
+| `?billboard=classic` | No rooftop billboards: the robo-taxi and Dub Burger roofs stay bare | | [city.md](city.md#the-rooftop-billboard) |
 | `?vetopen=word` | The vet's OPEN sign spells the word in red neon letters inside its blue frame, instead of one red bar | | [city.md](city.md#the-vet-clinic) |
 | `?roofs=classic` | Solid flat roof caps, with no lip and no sunk deck | #511 | [city.md](city.md) |
 | `?foliage=classic` | The first, louder autumn palette | #486 | [rendering.md](rendering.md) |
