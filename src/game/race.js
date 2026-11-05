@@ -135,6 +135,15 @@ const ARRIVAL_CLEAR = 7.5;
 const ARRIVAL_FROM = 0.25;
 // A loser not stopped by now (wedged at the corner, the player steering off) is called in anyway.
 const DRIVE_IN_MAX = 8;
+// How far back from the corner the loser comes through the cross street has to be empty when the
+// finish is staged. The racer rolls in out in the oncoming lane (`parkedOut`), which is exactly the
+// lane a car turning off the cross street turns into: one already in the box, or at its line, met
+// the racer's flank in the mouth of the lane, and the two edged round each other a few tenths of a
+// unit at a time while the racer waited for the box and the turner waited for the racer. Over 129
+// headless taxi wins, 4 never got the racer to the taxi before DRIVE_IN_MAX and 7 more took 3 to 7s
+// — "You won!" came up with the racer stood in a crosswalk a block short. Further out than this the
+// racer's own junction hold (`sirenHold`, sim/traffic.js) keeps the cross street at its line.
+const ARRIVAL_BOX_CLEAR = 12;
 // The racer's pace on the drive-in: quick, but short of race pace. At RIVAL_CHASE it came through
 // the corner at 21.7 and needed 6.7 units to stop on a lane that gives it 6 — on the brake the
 // frame it got there and still a car's length past the taxi's window. At 0.4 it comes in at 13.8
@@ -1034,6 +1043,18 @@ export function createRace({
    * The loser is put on the lane *into* the far junction, so it has a corner and a block to come
    * down — the shot Tyler asked for — rather than a third of a block from a standstill.
    */
+  /**
+   * Is the corner the loser comes round free of cross traffic: nobody crossing it, and nobody on
+   * another arm within ARRIVAL_BOX_CLEAR of it (see that constant for what it cost).
+   */
+  function boxClear(node, behind, winnerCar, loserCar) {
+    return !traffic.cars.some((c) => {
+      if (c === winnerCar || c === loserCar || c.crashed) return false;
+      if (c.state === 'turn') return c.turn?.node === node.id;
+      return c.lane && c.lane !== behind && c.lane.to === node.id && c.lane.length - c.s < ARRIVAL_BOX_CLEAR;
+    });
+  }
+
   function chooseArrival(winnerCar, loserCar, dir = null) {
     const net = cityNetwork();
     const ring = (n) => n.gi === 0 || n.gi === GRID_I || n.gj === 0 || n.gj === GRID_J;
@@ -1065,7 +1086,7 @@ export function createRace({
       const crowded = traffic.cars.some((c) => c !== winnerCar && c !== loserCar && !c.crashed
         && (c.lane === lane || c.lane === back || c.lane === behind
           || Math.hypot(c.x - p.x, c.z - p.z) < START_CLEAR || Math.hypot(c.x - r.x, c.z - r.z) < START_CLEAR));
-      if (crowded) continue;
+      if (crowded || !boxClear(x, behind, winnerCar, loserCar)) continue;
       const to = net.nodeById.get(lane.to);
       best = { lane, s, back, sb, behind, from, d, goal: { i: to.gi, j: to.gj } };
     }

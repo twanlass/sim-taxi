@@ -2890,7 +2890,11 @@ line waypoint cut to black"), behind the same wipe as the start: the winner is p
 front of a side street near where it finished, **facing the way they raced** (`homeDir`, the heading
 the winner crossed the line on; Tyler: "make sure both cars face the same direction"), and the loser
 is put a block back on the same street, rolling at `ARRIVAL_ROLL` (`chooseArrival`, by the start's
-rules: clear of traffic, off the water, in sight). The street is one lane each way, so as at the
+rules: clear of traffic, off the water, in sight — and with nothing crossing or queued within
+`ARRIVAL_BOX_CLEAR` (12) of the corner the loser comes round, because the racer rolls in out in the
+oncoming lane, which is the lane a car turning off the cross street turns into; the two used to edge
+round each other in the mouth of it, and "You won!" came up with the racer stood in a crosswalk a
+block short on 4 of 129 headless wins, 7 more taking 3 to 7s to arrive). The street is one lane each way, so as at the
 start the racer is the one in the oncoming lane: on the cop pass's offset (`racePass`), held out
 there by `parkedOut` until the money has moved, whichever of them won. The winner stands at least
 `ARRIVAL_CLEAR` (7.5) up its lane, past what the junction's box check keeps clear of a landing
