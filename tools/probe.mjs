@@ -23830,8 +23830,11 @@ let chopperOrder; // likewise
   }).length;
   const driverWrong = classic.ambient.filter((car) =>
     (scaleAt(classic.classicInteriorMesh, car.instanceIndex) > 0.5) !== (classic.modelOf(car) === 'convertible')).length;
+  // In the scene, too: the matrices were right for weeks while the mesh was never added, and a
+  // driver written to an InstancedMesh nothing draws is no driver.
+  const notAdded = classic.classicDrawn.filter((inst) => inst.parent !== classicScene).length;
   check('classics: every convertible has a driver in it, and nothing else does',
-    driverWrong === 0, `${driverWrong} wrong`);
+    driverWrong === 0 && notAdded === 0, `${driverWrong} wrong, ${notAdded} classic meshes not in the scene`);
   const kinds = new Set(models.map((car) => car.model));
   check('classics: each car is drawn by exactly one body, and both models turn up',
     wrong === 0 && kinds.size === 2, `${wrong} cars drawn wrong, models ${[...kinds].join('/')}`);
