@@ -4900,7 +4900,10 @@ export function createTraffic(
   if (truckMesh.instanceColor) truckMesh.instanceColor.needsUpdate = true;
   if (truckWheelMesh.instanceColor) truckWheelMesh.instanceColor.needsUpdate = true;
   scene.add(mesh);
-  for (const classic of classicList) scene.add(classic);
+  // `classicDrawn`, not `classicList`: the convertible's interior and driver are a mesh of their own,
+  // and adding only the bodies left every convertible an empty tub of paint — driving itself — from
+  // the day the classics landed (#711) until it was reported off a phone (2026-11-06).
+  for (const classic of classicDrawn) scene.add(classic);
   scene.add(wheelMesh);
   scene.add(truckMesh);
   scene.add(truckWheelMesh);
