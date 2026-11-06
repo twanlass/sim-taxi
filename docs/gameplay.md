@@ -2060,13 +2060,6 @@ the other streets still wait their turn behind it. Every number is a fixed rule 
 reacts to the taxi. It queues, can be bumped and can be wrecked like any car; a wreck sends a
 replacement 25 s later.
 
-**The crab walk.** The body does not turn with the road. Through a junction it keeps facing the way
-it was and the balls swing under it, so it leaves the turn sliding sideways down the next street.
-It squares up only when it is standing still, which in practice is the next hold line: it spins on
-the spot to whichever of its two identical ends is nearer, a quarter turn a second, inside the two
-seconds it waits there anyway. This is drawing only (`skinFor` in game/robotaxi.js); the sim still
-moves it as a car, so a sideways pod is drawn 3.4 across a lane its collision envelope calls 1.7.
-
 **How it steals.** With its seat empty it picks the waiting rider nearest to *itself* (never one
 another robo-taxi has picked, and never the player's choice), marks them with a breathing cyan ring
 on the kerb, and drives at their junction. If it brakes to the hold line there before the taxi

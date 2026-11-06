@@ -23187,14 +23187,6 @@ let chopperOrder; // likewise
   let movingSteals = 0;
   let badSteals = 0;
   let steals = 0;
-  // The crab walk: frames spent going sideways, the body turning while it moves, and the angle it
-  // was left at after a full second stood still.
-  let crabbing = 0;
-  let turnedMoving = 0;
-  let unsquared = 0;
-  const lastYaw = new Map();
-  const stillFor = new Map();
-  const folded = (a) => { const w = Math.atan2(Math.sin(a), Math.cos(a)); return Math.abs(w) > Math.PI / 2 ? Math.PI - Math.abs(w) : Math.abs(w); };
   for (let step = 0; step < 60 * 240; step++) {
     rTraffic.update(1 / 60);
     const allowed = new Set(rFares.stealable());
@@ -23211,16 +23203,6 @@ let chopperOrder; // likewise
       for (const f of board) if (!rFares.state.fares.includes(f) && !allowed.has(f)) badSteals += 1;
     }
     for (const car of robos.cars()) fastest = Math.max(fastest, car.v);
-    for (const r of robos.state.robos) {
-      if (!r.car || r.skinCar !== r.car) continue;
-      const prev = lastYaw.get(r);
-      if (prev !== undefined && r.car.v > 0.5 && Math.abs(r.bodyYaw - prev) > 1e-9) turnedMoving += 1;
-      lastYaw.set(r, r.bodyYaw);
-      const wheelYaw = r.rig.wheels[1].rotation.y;    // a rear ball: minus the body's offset from the road
-      if (r.car.v > 1 && folded(wheelYaw) > 1.2) crabbing += 1;
-      stillFor.set(r, r.car.v < 0.05 ? (stillFor.get(r) ?? 0) + 1 / 60 : 0);
-      if (stillFor.get(r) > 1.1 && Math.abs(stillFor.get(r) - 1.1) < 1 / 120 && folded(wheelYaw) > 0.02) unsquared += 1;
-    }
     const targets = robos.state.robos.map((r) => r.target).filter(Boolean);
     if (new Set(targets).size !== targets.length) shared += 1;
   }
@@ -23230,9 +23212,6 @@ let chopperOrder; // likewise
   check('robo-taxis: never over ROBO_SPEED, and a steal is no strike',
     fastest <= ROBO_SPEED + 1e-6 && rFares.state.strikes === 0,
     `fastest ${fastest.toFixed(2)} against ${ROBO_SPEED.toFixed(2)}, ${rFares.state.strikes} strikes`);
-  check('robo-taxis: crab through a turn, never turn the body on the move, square up at a stop',
-    crabbing > 60 && turnedMoving === 0 && unsquared === 0,
-    `${(crabbing / 60).toFixed(1)}s sideways, ${turnedMoving} frames turning on the move, ${unsquared} stops left unsquared`);
   setFareSeconds(null);
   clearCityOccluders();
 }

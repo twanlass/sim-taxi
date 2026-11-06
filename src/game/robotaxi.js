@@ -7,15 +7,6 @@ import { PALETTE } from '../palette.js';
 import { CAR_LEN, CAR_W, ROBO_SPEED, STOP_SETBACK, stopDistance } from '../sim/traffic.js';
 import { createRoboTaxiMesh } from '../geometry/robotaxi.js';
 import { WHEEL_R } from '../geometry/wheels.js';
-
-// The crab walk (`skinFor`): the body squares up to the road only below this speed, at this rate —
-// a quarter turn in a second, well inside the 2 s it waits at every stop.
-const CRAB_PIVOT_BELOW = 0.05;
-const CRAB_PIVOT_RATE = Math.PI / 2;
-const UP = new THREE.Vector3(0, 1, 0);
-const wrapPi = (a) => Math.atan2(Math.sin(a), Math.cos(a));
-// Folded into ±π/2: the pod is the same at both ends, so facing backwards is facing the road.
-const wrapHalf = (a) => { const w = wrapPi(a); return w > Math.PI / 2 ? w - Math.PI : w < -Math.PI / 2 ? w + Math.PI : w; };
 import { findRoute, planOrigin } from './route.js';
 import { BOARD_SECONDS, kerbFor } from './fares.js';
 import { markOccluder } from './ssao.js';
@@ -91,32 +82,11 @@ export function createRoboTaxis({ rng, scene, traffic, fares, blocked = () => fa
       wait: soon ? 1 + k * 3 : k * ENTER_GAP,
     };
   });
-  const state = { robos, stolen: 0, clock: 0, dt: 1 / 60 };
-  const fwd = new THREE.Vector3();
-  const yawQ = new THREE.Quaternion();
+  const state = { robos, stolen: 0, clock: 0 };
 
-  // The crab walk. The body does not turn with the road: through a junction it holds the way it
-  // was facing and the balls swing under it, so it leaves a turn sliding sideways down the next
-  // street. It squares up again only when it is standing still — and since every junction is an
-  // all-way stop it waits out (ROBO_STOP_DWELL), that is at the next hold line, where it spins on
-  // the spot to whichever of its two identical ends is nearer. So a turn reads as a robot
-  // that does not need to turn, a block of the road sideways, and a pivot at the next corner.
-  //
-  // Purely the drawing: the sim still moves the car along its lane as a car, collision envelope
-  // and all, so a pod going sideways is drawn 3.4 across a lane its envelope calls 1.7.
   const skinFor = (robo) => (pos, quat, car) => {
     robo.rig.group.position.copy(pos);
-    fwd.set(1, 0, 0).applyQuaternion(quat);
-    const travel = Math.atan2(-fwd.z, fwd.x);
-    if (robo.skinCar !== car) { robo.skinCar = car; robo.bodyYaw = travel; robo.lastPos = null; }
-    if (Math.abs(car.v) < CRAB_PIVOT_BELOW) {
-      // Nearest of the two ends: the offset folded into ±π/2.
-      const off = wrapHalf(travel - robo.bodyYaw);
-      robo.bodyYaw += Math.sign(off) * Math.min(Math.abs(off), CRAB_PIVOT_RATE * state.dt);
-    }
-    const delta = wrapPi(robo.bodyYaw - travel);
-    yawQ.setFromAxisAngle(UP, delta);
-    robo.rig.group.quaternion.copy(quat).multiply(yawQ);
+    robo.rig.group.quaternion.copy(quat);
     // The balls roll by the ground covered since the last frame (WHEEL_R per radian), forward
     // being +x, which is a turn about -z. Measured off the pose rather than v·dt so a shove rolls
     // them too, but capped so a re-placement does not spin them into a blur.
@@ -125,9 +95,7 @@ export function createRoboTaxis({ rng, scene, traffic, fares, blocked = () => fa
     robo.roll = (robo.roll ?? 0) - Math.sign(car.v || 1) * moved / WHEEL_R;
     for (const wheel of robo.rig.wheels) {
       wheel.rotation.z = robo.roll;
-      // Every ball points along the travel, whichever way the body is facing; the front pair
-      // steers on top, as long as the body is facing the road.
-      wheel.rotation.y = -delta + (wheel.userData.steers && Math.abs(delta) < 0.01 ? car.wheelAngle : 0);
+      wheel.rotation.y = wheel.userData.steers ? car.wheelAngle : 0;
     }
   };
 
@@ -262,7 +230,6 @@ export function createRoboTaxis({ rng, scene, traffic, fares, blocked = () => fa
 
   function update(dt) {
     state.clock += dt;
-    state.dt = dt;
     for (const robo of robos) {
       const car = robo.car;
       // The taxi wrote it off. The wreck path has the body; another one comes along later.
