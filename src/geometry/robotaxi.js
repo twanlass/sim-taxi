@@ -19,6 +19,12 @@ import { SILL_Y, WHEEL_R, WHEEL_W, wheelAnchors } from './wheels.js';
 // pods and steered front pair land where they do on a sedan. Taken as arguments for the same reason
 // classics.js takes them (sim/traffic.js imports the geometry modules).
 
+// Drawn at the taxi's size, not a sedan's: the group is scaled the way geometry/taxi.js scales the
+// taxi (TAXI_SCALE, 1.18 — not imported, for the same cycle reason wheels.js gives), so the pod is
+// 4.0 long and 2.5 tall on screen. At 1:1 it read as a small car; Tyler (2026-11-06) wanted "little
+// minivans", the taxi's size. The sim's envelope stays CAR_LEN, exactly as the taxi's does.
+export const ROBO_SCALE = 1.18;
+
 // The body's half-width: the wheels' treads stand WHEEL_PROUD past the ordinary car's flank, so a
 // pod a touch narrower than the car leaves the outer 0.16 of each tread standing out of its well.
 const BODY_HALF_W = 0.8;
@@ -302,6 +308,7 @@ export function createRoboTaxiMesh(len, width) {
   const group = new THREE.Group();
   group.name = 'robotaxi';
   group.rotation.order = BODY_EULER_ORDER;
+  group.scale.setScalar(ROBO_SCALE);
   const shell = new THREE.Group();
   group.add(shell);
 

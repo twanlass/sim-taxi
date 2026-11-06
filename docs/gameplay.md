@@ -2044,7 +2044,8 @@ The city council's driverless cabs (game/robotaxi.js, body in geometry/robotaxi.
 on the map from the first drop-off, and they **take your riders**. `?robotaxi=classic` turns them
 off; `?robotaxi=soon` brings them on from the start.
 
-**What one is.** A guest car in traffic wearing a pod with no front or back: an elongated box with
+**What one is.** A guest car in traffic wearing a pod with no front or back, drawn at the taxi's
+size (`ROBO_SCALE`, the taxi's 1.18) so it reads as a little minivan rather than a small car: an elongated box with
 domed ends and rounded sides, the same shape both ways, so you cannot tell which way it is about to
 go. Everything above the beltline is one dark glass canopy all the way round; below it is silver,
 with dark wells over four ball tyres (each wears two cyan rings at right angles, so you can see it
