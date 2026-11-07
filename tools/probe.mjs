@@ -8666,6 +8666,73 @@ function rideToPickup() {
     && hTaxi.hp === 0, `crashed ${hTaxi.crashed}, ${wrecks} wrecks, hp ${hTaxi.hp}`);
 }
 
+// --- The bump stop: a hit the taxi delivers parks it until the next press --------
+// The same square T-bone at boost cruise, with `bumpStop` on as main.js runs it and off as
+// `?bumpstop=classic` does. With it, the taxi has to stop dead, come off the pill, stay put on the
+// brake while the pill is up (no creep back into the car, no second charge), and drive on once the
+// flag is cleared. Without it, the old 45% and the taxi rolls on.
+{
+  const stage = (bumpStop) => {
+    const sTraffic = createTraffic(makeRng(seed + 45), new THREE.Scene(), CARS_DEFAULT);
+    const sTaxi = sTraffic.taxi;
+    const sCollisions = createCollisions(sTraffic.cars, sTaxi, { bumpStop });
+    const events = [];
+    sCollisions.onBump((e) => events.push(e));
+    sTaxi.hp = TAXI_HP;
+    sTraffic.warmup(3);
+    const moving = (c) => !c.isTaxi && c.state === 'drive' && c.v > 1;
+    for (let f = 0; f < 60 * 20 && !sTraffic.cars.some(moving); f++) sTraffic.update(1 / 60);
+    const target = sTraffic.cars.find(moving);
+    sTaxi.staged = true;
+    sTaxi.yaw = target.yaw + Math.PI / 2;
+    sTaxi.x = target.x - Math.cos(sTaxi.yaw) * 1.6;
+    sTaxi.z = target.z + Math.sin(sTaxi.yaw) * 1.6;
+    sTaxi.v = 19;
+    sTaxi.boost = true;
+    sCollisions.update(1 / 60);
+    sTaxi.staged = false;
+    const after = { v: sTaxi.v, stalled: sTaxi.stalled, boost: sTaxi.boost, event: events[0] };
+    // Two seconds as main.js would leave it: the pill up, so `boost` false, nothing on the pedal.
+    let peakV = 0;
+    for (let f = 0; f < 120; f++) {
+      sTaxi.boost = false;
+      sTaxi.braking = false;
+      sTraffic.update(1 / 60);
+      sCollisions.update(1 / 60);
+      peakV = Math.max(peakV, sTaxi.v);
+    }
+    const held = { peakV, stalled: sTaxi.stalled, bumps: events.length };
+    // The press: main.js clears the flag in holdLocoMode, and BOOST_KICK punches the taxi forward
+    // with its nose still on the car — staged back into contact so the press always lands on it.
+    sTaxi.stalled = false;
+    sTaxi.staged = true;
+    sTaxi.x = target.x - Math.cos(sTaxi.yaw) * 1.6;
+    sTaxi.z = target.z + Math.sin(sTaxi.yaw) * 1.6;
+    sTaxi.v = 10.6;
+    sTaxi.boost = true;
+    for (let f = 0; f < 30; f++) sCollisions.update(1 / 60);
+    sTaxi.staged = false;
+    const repress = events.length - held.bumps;
+    for (let f = 0; f < 60; f++) { sTaxi.braking = false; sTaxi.boost = false; sTraffic.update(1 / 60); }
+    return { after, held, repress, freed: sTaxi.braking === false };
+  };
+  const on = stage(true);
+  const off = stage(false);
+  check('a hit the taxi delivers stops it dead and drops the pill',
+    on.after.event?.taxiStruck && on.after.event.stalled && on.after.v === 0 && on.after.stalled
+      && !on.after.boost,
+    `v ${on.after.v.toFixed(2)}, stalled ${on.after.stalled}, boost ${on.after.boost}`);
+  check('a stalled taxi stays on the brake until the pill is pressed, and is charged once',
+    on.held.stalled && on.held.peakV < 0.01 && on.held.bumps === 1,
+    `peak ${on.held.peakV.toFixed(2)} u/s over 2s, ${on.held.bumps} bumps`);
+  check('clearing the stall hands the brake back', on.freed, `braking ${!on.freed}`);
+  check('the press out of a stall is not charged again on the car it stalled against',
+    on.repress === 0, `${on.repress} more bumps`);
+  check('?bumpstop=classic keeps 45% and never stalls',
+    !off.after.stalled && !off.held.stalled && off.after.v > 1,
+    `v ${off.after.v.toFixed(2)}, stalled ${off.after.stalled}`);
+}
+
 // --- A truck outweighs the taxi ---------------------------------------------
 // The same square T-bone at boost cruise, once into a car and once into a truck (TRUCK_MASS in
 // sim/collisions.js). The truck has to come off the lighter of the two — knocked less far, slewed
