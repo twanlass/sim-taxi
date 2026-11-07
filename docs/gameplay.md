@@ -795,6 +795,95 @@ and because the taxi has one seat, all but one of those are riders waiting on th
    multiplier, see [Economy](#economy)), and the board refills.
 5. A rider's clock running out, on the kerb or **aboard**, is a [strike](difficulty.md#strikes):
    they get out and storm off, the taxi is freed, and the third strike ends the run.
+6. The run itself is a [shift](#the-shift): five minutes, and the score is what the taxi earns in it.
+
+## The week
+
+**The title has two ways in** (Tyler, 2026-11-04): **Story** plays the week below, and **Arcade** is
+the endless run — no clock, no target, ended only by a wreck, a bust or the rating, ranked on the
+endless score table. The pick is remembered on the device (`simtaxi.mode`), so Play again plays the
+same mode (`chooseMode` in main.js). Demo mode keeps the one Play. `?modes=classic` is the one Play.
+
+**The game is a week of days, and each day is one shift** (`game/days.js`, Tyler, 2026-10-31). A
+day has its own clock, an **earnings target**, a floor on [the difficulty ramp](difficulty.md)
+(`setFloor`: a later day opens where an earlier one was finishing) and the events it allows. Clear
+the day by being on the road at the buzzer with the target made; the run-end card reads **Day
+Cleared!** and names the next day. A buzzer short of the target is **Came Up Short!**, and a wreck,
+a bust or a firing fails the day the way they always ended a run. **A failed day is played again
+from the top and its cash is lost** — only a cleared day banks what it earned, for a store that does
+not exist yet. The HUD shows the day and the cash against its target under the clock
+(`#day-goal`), green once it is made.
+
+**The HUD docks for the week** (Tyler, 2026-11-01): the combo meter stands over Loco Mode on the
+crown of the fuel gauge, the shift clock takes the top centre, and the 🚨 chase siren is off for
+now. `?hudlayout=classic` puts all three back.
+
+**The run-end card's last prompt names what the tap plays** (Tyler, 2026-11-07): **Play Saturday**
+after a cleared Friday, **Replay Friday** after a failed one, and **Play again** in Arcade, where it
+used to say "Tap to continue" (`retryLabel` in main.js and game/runend.js).
+
+**The day's name goes up as the taxi rolls out of the garage** (`game/daycard.js`, `#day-card`;
+Tyler, 2026-10-31): big white type with the pop text's dark stroke, dead centre, for about two
+seconds, on the frame the taxi comes off the garage's kerb at the end of the
+[opening vignette](#the-opening-vignette) — every run, whether it came from the title, the story or
+Play again. A skipped opening puts it up on the handover instead. A repair visit's drive-out never
+shows it. A tap skips it.
+
+| Day | Target | Floor | Events |
+|---|---|---|---|
+| Friday | $150 | 0 | No bank rider, no racer |
+| Saturday | $250 | 0.15 | Street race |
+| Sunday | $300 | 0.3 | Street race; the bank is shut |
+| Monday | $400 | 0.4 | Street race; the bank robbery, guaranteed |
+
+Every day's clock is **2:30** (Tyler, 2026-10-31, to play it and see; the targets were guessed for
+five minutes and left as they were). A day at its own length ranks on the shift table; the targets
+are **untuned**. Only the bank robbery and the street race are events. The
+garbage truck, the drawbridge, the fire and the patrols are the world and run every day (Tyler,
+2026-10-30). Clearing Monday clears the week and replays Monday, because the robo-taxis' days are
+not built. Off in shot and demo mode. `?days=classic` is the plain shift; `?day=sat` plays a day
+without saving; `?day=reset` sends the week back to Friday. The design and its open questions are
+in project-files `shifts/proposal.md`.
+
+## The shift
+
+A run is a **five-minute shift** (`SHIFT_SECONDS` in `game/fares.js`, Tyler's idea, 2026-10-19), and
+the score is the cash earned in it. Every run on the table is then the same size, so the cash on it
+compares like for like. The clock sits under the rating (`#shift-clock`), turns red for the last 30
+seconds and knocks on each of the last ten.
+
+**The stars still end a shift early.** A clock with no fail state makes every rider free to drop:
+the best play would be to grab whoever is nearest and let the rest time out. The rating is what
+keeps a rider's own clock worth reading, so the two stack: the shift is how long the run can last,
+and three lost riders end it sooner as "Fired!". Wrecks and busts end it as they always did.
+
+**The buzzer honours the ride aboard.** At 0:00 everyone on the kerb leaves without a strike (the
+shift ended on them; they did not give up on the driver) and nobody new appears, but a rider in the
+cab keeps their seat and their own clock ("Last ride!"). The shift ends when the seat empties, by
+the drop-off or by that rider running out. A shift that ended on the buzzer would make every pickup
+in its last half-minute worthless, and a player who could read the clock would stop playing before
+the game did. With the ride honoured, any pickup before 0:00 pays.
+
+**Five minutes is set by where runs already end.** The sweep's perfect players are done around the
+ninth to twelfth fare ([difficulty.md](difficulty.md#what-the-sweep-found)) at ~35s a delivery, so an
+unshifted run lasts five to seven minutes. Longer than that and the shift changes nothing for most
+players; at five, a player who keeps their rating finishes on the clock. The difficulty ramp still
+runs on deliveries, so a strong player reaches Rush Hour inside the shift and a weak one does not.
+(The other way to hang it, off the shift clock so everyone gets a Rush Hour finale, is untried.)
+
+The clock counts the same seconds a fare's does: held while the tutorial talks and while main.js
+holds the fare loop (the vignette, the garage, the wipe), and stopped by the ⏸ with everything else.
+It ends on "Shift Over!" with a short hold on the taxi while the last payout lands
+(`SHIFT_BANNER_DELAY`), and the card's stats are **Cash** and **Rides**, since Time is the same on
+every shift.
+
+Shifts rank on **their own table** (`SHIFT_TABLE` in `game/highscores.js`): an endless run's cash grows
+with its length, so on one table every old run would sit above every shift. `?shift=classic` plays
+the endless run against the old table; `?shift=N` pins the length in seconds and is unranked.
+
+Not to be confused with the [difficulty bands](difficulty.md#shifts) (Early Shift, Busy, Rush Hour,
+Gridlock), which are named shifts too and are what `difficulty.shiftFor` and a score entry's `shift`
+field mean.
 
 ## The drop-off dispatches itself
 
@@ -2043,7 +2132,9 @@ so the soak suite's expected earnings are roughly where a flat fare put them. Hi
 
 The city council's driverless cabs (game/robotaxi.js, body in geometry/robotaxi.js): two of them,
 on the map from the first drop-off, and they **take your riders**. `?robotaxi=classic` turns them
-off; `?robotaxi=soon` brings them on from the start.
+off; `?robotaxi=soon` brings them on from the start. In Story they stay off the road on every day of the week, because they
+roll out at Monday's buzzer ([the week](#the-week), days.js `robo`); Arcade has them, and `soon` overrides
+the day.
 
 **What one is.** A guest car in traffic wearing a pod with no front or back, drawn at the taxi's
 size (`ROBO_SCALE`, the taxi's 1.18) so it reads as a little minivan rather than a small car: an elongated box with
@@ -4321,12 +4412,13 @@ Escape and P toggle it from a keyboard.
 
 ## The run-end screen
 
-`src/game/runend.js`, styled in `index.html` under `#run-end`. The run ends three ways — a fare's
-clock hitting zero (aboard, or the third [strike](difficulty.md#strikes) on the kerb), a collision,
-a police bust — and all three land on the same screen: a title, the
-reason, the run's three stats (**Cash**, **Max combo**, then **Time**), the [high-score table](#high-scores), and **Play again**. The title is
-set by the caller, so a timeout reads **Too Slow!**, a collision reads **Wrecked!**, and a police
-bust reads **Busted!**.
+`src/game/runend.js`, styled in `index.html` under `#run-end`. The run ends four ways — [the
+shift](#the-shift) running out, a fare's clock hitting zero (aboard, or the third
+[strike](difficulty.md#strikes) on the kerb), a collision, a police bust — and all of them land on
+the same screen: a title, the reason, the run's three stats (**Cash**, **Max combo**, then **Rides**
+on a shift or **Time** on the endless run), the [high-score table](#high-scores), and **Play again**.
+The title is set by the caller, so the shift reads **Shift Over!**, a timeout **Fired!**, a
+collision **Wrecked!**, and a police bust **Busted!**.
 
 All three also **hold the screen back for a beat** while the camera pulls into whatever ended the run
 — the wreck, the cruiser, or the corner a fare's clock ran out on. See
@@ -4501,6 +4593,7 @@ chance to put a name on the run.
 |---|---|---|
 | Cash | `fares.state.money` | |
 | Time | `fares.state.elapsed` | seconds, shown as `m:ss` + trailing `s` (e.g. `1:03s`) |
+| Rides | `fares.state.delivered` | on a shift, in Time's place |
 
 ## High scores
 

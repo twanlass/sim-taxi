@@ -650,6 +650,9 @@ function buildBoard(entries, youId) {
  */
 export function showRunEnd(root, {
   title, reason, stats, scores = null, onRetry, finale = null, photo = null, footHint = true, statCount = true, tapRetry = true, fit = true,
+  // What the last prompt says, the one whose tap starts the next run — "Replay Saturday" in Story,
+  // "Play again" in Arcade (main.js `retryLabel`). The pill wears it too.
+  retryLabel = 'Play again',
   onStatsShown = null,
 }) {
   root.innerHTML = '';
@@ -664,7 +667,7 @@ export function showRunEnd(root, {
   const sub = el('span', 'run-end-reason', reason ?? '');
   const body = el('div', 'run-end-body');
 
-  const retry = el('button', 'retry', 'Play again');
+  const retry = el('button', 'retry', retryLabel);
   retry.type = 'button';
   retry.addEventListener('click', onRetry);
 
@@ -791,7 +794,7 @@ export function showRunEnd(root, {
    * review does — the tap that skipped the table must not be the one that reloads the run.
    */
   function playTapRetry() {
-    const hint = el('span', 'run-end-continue', 'Tap to continue');
+    const hint = el('span', 'run-end-continue', retryLabel);
     if (footHint) {
       hint.classList.add('is-foot');
       root.append(hint);
