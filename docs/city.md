@@ -956,10 +956,11 @@ the bench block, with the sign on it.
 ## The rooftop billboard
 
 Up to two flat roofs per city carry an advertising hoarding (`city/billboard.js`), one per ad:
-**Good Boy Vet**, the vet clinic advertising itself (a white dog with black ears peeking up from
-the bottom edge of a yellow board under a big **Good boy?**; `?dogad=` picks one of three other
-directions: a two-ink dachshund print, a Bauhaus dog of flat primitives, or the first outlined
-cartoon, which Tyler found clip-arty) and **Dub Burger**, the city's own drive-through advertising itself (its turning sign's
+**Good Boy Vet**, the vet clinic advertising itself (a red dachshund lying in a hot dog bun with
+mustard down his back, on deep blue, under **WITH EVERYTHING.** and "Checkups, shots & belly
+rubs"; `?dogad=` picks one of the other directions Tyler saw on the way: a dog peeking up on
+yellow, the plain dachshund print, a Bauhaus dog of flat primitives, or the first outlined cartoon,
+which he found clip-arty) and **Dub Burger**, the city's own drive-through advertising itself (its turning sign's
 burger on the building's red, and "We take cash or Bitcoin," the speaker's line). Each stands on dark bottle-green steel (galvanised grey matched the roof and vanished)
 with raking braces, a catwalk and three lamps, which bloom as `window` and throw a faint additive
 beam each up onto the paper. The building is untouched; `chooseBillboardSite` picks roofs after the
