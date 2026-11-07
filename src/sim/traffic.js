@@ -3554,6 +3554,10 @@ function spawnCars(rng, count, into = [], accept = null, truckChance = 0, classi
       // positional budget of zero: this overrides the budget entirely and is the only input that can
       // stop the taxi in the middle of a junction.
       braking: false,
+      // Stopped by a hit it delivered, until the next press of Loco (sim/collisions.js BUMP_STOP).
+      // Set by the collision pass, cleared by main.js; while it stands the taxi is held on the
+      // brake below, whatever main.js wrote into `braking` this frame.
+      stalled: false,
       // A survivable hit from the boosting taxi (src/sim/collisions.js, via `knockCar`). `knock` is
       // the shove — a world-space offset and a yaw offset, applied at render only — and `stun` is
       // how long the car sits on its brakes afterwards. Both clear themselves.
@@ -3733,6 +3737,7 @@ export function stageCar(car, x, z, yaw) {
   car.route = [];
   car.lateTurn = null;
   car.parked = false;
+  car.stalled = false;
   car.lateral = 0;
   car.steer = 0;
   car.pass = 0;
@@ -4916,7 +4921,10 @@ export function createTraffic(
   if (truckMesh.instanceColor) truckMesh.instanceColor.needsUpdate = true;
   if (truckWheelMesh.instanceColor) truckWheelMesh.instanceColor.needsUpdate = true;
   scene.add(mesh);
-  for (const classic of classicList) scene.add(classic);
+  // `classicDrawn`, not `classicList`: the convertible's interior and driver are a mesh of their own,
+  // and adding only the bodies left every convertible an empty tub of paint — driving itself — from
+  // the day the classics landed (#711) until it was reported off a phone (2026-11-06).
+  for (const classic of classicDrawn) scene.add(classic);
   scene.add(wheelMesh);
   scene.add(truckMesh);
   scene.add(truckWheelMesh);
@@ -6907,6 +6915,10 @@ export function createTraffic(
       // against 34 held (Tyler, 2026-10-19: "if the combo gets triggered, just follow all the way
       // through, even if loco gets let go"). The landing hands it back to the pill.
       const fullPower = (car.boost && !car.boostEasing) || onDriftLaunch(car);
+      // A taxi stalled by a hit stands on the brake until the pill clears it (sim/collisions.js).
+      // `braking` rather than a speed clamp of its own for the reason a stun is: a stall inside a
+      // junction box then holds the cross traffic the way the pedal does.
+      if (car.stalled) car.braking = true;
       // Nothing to brake against in the air — see DRIFT_LAUNCH_LEN. main.js rewrites the pedal
       // every frame, so this lasts exactly as long as the flight.
       if (hopFloorOn ? car.hopFrom != null : onDriftLaunch(car)) car.braking = false;

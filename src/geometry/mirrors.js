@@ -23,6 +23,10 @@ const HOUSING_H = 0.22;
 const HOUSING_W = 0.26;       // across
 export const MIRROR_OUT = 0.28;   // how far the housing's outer face stands off the body's flank
 const STALK_H = 0.08;
+// Swept back about the vertical, outer end toward the tail, the way a real mirror is raked. Square
+// to the flank (0, as #755 shipped) it read as a peg stuck out of the door. Turned about the
+// housing's own centre, so it stays on its stalk; the swept corner reaches 0.03 past MIRROR_OUT.
+export const MIRROR_SWEEP = 25 * Math.PI / 180;
 const GLASS_INSET = 0.035;    // the glass face's margin inside the housing's back
 const GLASS_T = 0.012;
 // Up off the body's top: the housing hangs over the shoulder, not on it, so its underside is never
@@ -40,17 +44,21 @@ const STALK_LIFT = 0.01;
 export function mirrorParts({ x, top, flank, glass, side, paint }) {
   const parts = [];
   const outer = flank + MIRROR_OUT;
-  const inner = outer - HOUSING_W;
+  const mid = outer - HOUSING_W / 2;
   const y = top + HOUSING_LIFT + HOUSING_H / 2;
+  // Housing and glass are built about the origin and swept as one: −side·angle about +y takes the
+  // outer end (+side·z) toward −x, the tail, on both sides.
+  const sweep = new THREE.Matrix4().makeRotationY(-side * MIRROR_SWEEP);
+  const place = (g) => g.applyMatrix4(sweep).translate(x, y, side * mid);
 
-  const housing = bodyBox(HOUSING_LEN, HOUSING_H, HOUSING_W, 0.05);
-  housing.translate(x, y, side * (outer - HOUSING_W / 2));
+  const housing = place(bodyBox(HOUSING_LEN, HOUSING_H, HOUSING_W, 0.05));
   const shell = bakeColor(housing, paint);
   parts.push(setFinish(SMOOTH_BODY ? softenNormals(shell) : shell, FINISH.PAINT));
 
-  // From 0.04 inside the cabin's glass to 0.02 inside the housing.
+  // From 0.04 inside the cabin's glass to the housing's centre, so its end stays buried in the
+  // housing whichever way that is turned.
   const stalkFrom = glass - 0.04;
-  const stalkTo = inner + 0.02;
+  const stalkTo = mid;
   const stalk = new THREE.BoxGeometry(0.08, STALK_H, stalkTo - stalkFrom);
   stalk.translate(x - 0.02, top + STALK_LIFT + STALK_H / 2, side * (stalkFrom + stalkTo) / 2);
   parts.push(setFinish(bakeColor(stalk, paint), FINISH.PAINT));
@@ -58,7 +66,8 @@ export function mirrorParts({ x, top, flank, glass, side, paint }) {
   // The glass on the housing's back, GLASS_T proud of it. Its front face sits on the housing's back
   // face facing into it — buried, so it cannot fight it.
   const pane = new THREE.BoxGeometry(GLASS_T, HOUSING_H - 2 * GLASS_INSET, HOUSING_W - 2 * GLASS_INSET);
-  pane.translate(x - HOUSING_LEN / 2 - GLASS_T / 2, y, side * (outer - HOUSING_W / 2));
+  pane.translate(-HOUSING_LEN / 2 - GLASS_T / 2, 0, 0);
+  place(pane);
   parts.push(setFinish(bakeColor(pane, color('carGlass')), FINISH.GLASS));
   return parts;
 }

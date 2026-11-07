@@ -2791,8 +2791,11 @@ const STRUCK_SPIN = 1.9;
 // A police car is priced like any other car (the capture model, above). Under `?capture=classic`,
 // ramming one is the wreck whatever the taxi's HP (`lethalPolice` in sim/collisions.js, #466) —
 // unless `?cop=classic` as well, which was the rule before that.
+// And a hit the taxi delivers stops it until the next press of Loco (BUMP_STOP in
+// sim/collisions.js); `?bumpstop=classic` keeps 45% of the speed and drives on into it.
 const collisions = createCollisions(traffic.cars, traffic.taxi, {
   lethalPolice: captureClassic && new URLSearchParams(window.location.search).get('cop') !== 'classic',
+  bumpStop: new URLSearchParams(window.location.search).get('bumpstop') !== 'classic',
 });
 
 // Hit points. Arming `hp` is what turns every contact but the last into a bump rather than the
@@ -2834,8 +2837,11 @@ const hitCue = shot ? null : createHitCue({
   mode: hitCueMode(new URLSearchParams(window.location.search)),
   project: projectToScreen, maxHp: TAXI_HP, lowAt: SMOKE_FRACTION, midAt: BOOT_FRACTION,
 });
-collisions.onBump(({ x, z, closing, nx, nz, speed, rearEnd, other, taxiStruck, damage, hp, taxi }) => {
+collisions.onBump(({ x, z, closing, nx, nz, speed, rearEnd, other, taxiStruck, damage, hp, taxi,
+  stalled }) => {
   hitCue?.hit({ damage, hp, taxi });
+  // Stalled by it: the pill comes up under the thumb, with no momentum tail (`boost.cut`).
+  if (stalled) boost.cut();
   const yaw = traffic.taxi.yaw;
   // Ramming the patrol car on the pill is a bump like any other, not a bust — game/patrol.js
   // `rammed`. The collision pass runs before the patrol's, so this lands the same frame. Under the
@@ -4986,6 +4992,8 @@ function holdLocoMode() {
     controller.kickShake(0.3);
     stampAllRubber(traffic.taxi);
   }
+  // A taxi stalled against something it hit drives on from here — and only from here.
+  traffic.taxi.stalled = false;
   if (boost.press()) {
     kickLocoMode();
   }
@@ -6838,6 +6846,7 @@ function tick() {
   // passing. See game/robberline.js for why this beat stops the world rather than running over it.
   if (robberLine?.isOpen()) {
     robberLine.update(dt);
+    sfx?.still();
     renderFrame();
     return;
   }
@@ -6845,6 +6854,8 @@ function tick() {
   // camera — running on wall time. It hands over to the robber's line above when the robber is in.
   if (bankJob?.running()) {
     bankJob.update(dt, aspect());
+    // The engine settles to the kerb, or a taxi that Loco'd in revs through the whole cut.
+    sfx?.still();
     // The L's deck thins over the cut's own subjects rather than over wherever the taxi and the
     // pins were on the frame the world stopped (`fadePoints` in game/bankjob.js). Left as they are
     // for the robber's line after it, which is about the same cab.
@@ -6934,6 +6945,10 @@ function tick() {
   // is handed back, the taxi is being driven by the vignette.
   if (burgerRun?.holdsTaxi() || opening?.visiting()) boost.release();
   boost.update(dt);
+  // A stall waits on a press of the pill (sim/collisions.js BUMP_STOP), so it cannot outlast a
+  // pill that will not press: a tank run dry gets driven on, rather than parked for the five
+  // seconds the floor takes to come back. And a cut scene owns a staged taxi outright.
+  if (traffic.taxi.stalled && (boost.isEmpty() || traffic.taxi.staged)) traffic.taxi.stalled = false;
   // Latched here rather than on the press, because the whole point of it is that it cannot be
   // answered by one — see `locoHeld` where it is declared. Read every frame off the same hold clock
   // the camera's push-in uses, which stops with a paused run rather than banking the pause.

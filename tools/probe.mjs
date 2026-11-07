@@ -8670,6 +8670,73 @@ function rideToPickup() {
     && hTaxi.hp === 0, `crashed ${hTaxi.crashed}, ${wrecks} wrecks, hp ${hTaxi.hp}`);
 }
 
+// --- The bump stop: a hit the taxi delivers parks it until the next press --------
+// The same square T-bone at boost cruise, with `bumpStop` on as main.js runs it and off as
+// `?bumpstop=classic` does. With it, the taxi has to stop dead, come off the pill, stay put on the
+// brake while the pill is up (no creep back into the car, no second charge), and drive on once the
+// flag is cleared. Without it, the old 45% and the taxi rolls on.
+{
+  const stage = (bumpStop) => {
+    const sTraffic = createTraffic(makeRng(seed + 45), new THREE.Scene(), CARS_DEFAULT);
+    const sTaxi = sTraffic.taxi;
+    const sCollisions = createCollisions(sTraffic.cars, sTaxi, { bumpStop });
+    const events = [];
+    sCollisions.onBump((e) => events.push(e));
+    sTaxi.hp = TAXI_HP;
+    sTraffic.warmup(3);
+    const moving = (c) => !c.isTaxi && c.state === 'drive' && c.v > 1;
+    for (let f = 0; f < 60 * 20 && !sTraffic.cars.some(moving); f++) sTraffic.update(1 / 60);
+    const target = sTraffic.cars.find(moving);
+    sTaxi.staged = true;
+    sTaxi.yaw = target.yaw + Math.PI / 2;
+    sTaxi.x = target.x - Math.cos(sTaxi.yaw) * 1.6;
+    sTaxi.z = target.z + Math.sin(sTaxi.yaw) * 1.6;
+    sTaxi.v = 19;
+    sTaxi.boost = true;
+    sCollisions.update(1 / 60);
+    sTaxi.staged = false;
+    const after = { v: sTaxi.v, stalled: sTaxi.stalled, boost: sTaxi.boost, event: events[0] };
+    // Two seconds as main.js would leave it: the pill up, so `boost` false, nothing on the pedal.
+    let peakV = 0;
+    for (let f = 0; f < 120; f++) {
+      sTaxi.boost = false;
+      sTaxi.braking = false;
+      sTraffic.update(1 / 60);
+      sCollisions.update(1 / 60);
+      peakV = Math.max(peakV, sTaxi.v);
+    }
+    const held = { peakV, stalled: sTaxi.stalled, bumps: events.length };
+    // The press: main.js clears the flag in holdLocoMode, and BOOST_KICK punches the taxi forward
+    // with its nose still on the car — staged back into contact so the press always lands on it.
+    sTaxi.stalled = false;
+    sTaxi.staged = true;
+    sTaxi.x = target.x - Math.cos(sTaxi.yaw) * 1.6;
+    sTaxi.z = target.z + Math.sin(sTaxi.yaw) * 1.6;
+    sTaxi.v = 10.6;
+    sTaxi.boost = true;
+    for (let f = 0; f < 30; f++) sCollisions.update(1 / 60);
+    sTaxi.staged = false;
+    const repress = events.length - held.bumps;
+    for (let f = 0; f < 60; f++) { sTaxi.braking = false; sTaxi.boost = false; sTraffic.update(1 / 60); }
+    return { after, held, repress, freed: sTaxi.braking === false };
+  };
+  const on = stage(true);
+  const off = stage(false);
+  check('a hit the taxi delivers stops it dead and drops the pill',
+    on.after.event?.taxiStruck && on.after.event.stalled && on.after.v === 0 && on.after.stalled
+      && !on.after.boost,
+    `v ${on.after.v.toFixed(2)}, stalled ${on.after.stalled}, boost ${on.after.boost}`);
+  check('a stalled taxi stays on the brake until the pill is pressed, and is charged once',
+    on.held.stalled && on.held.peakV < 0.01 && on.held.bumps === 1,
+    `peak ${on.held.peakV.toFixed(2)} u/s over 2s, ${on.held.bumps} bumps`);
+  check('clearing the stall hands the brake back', on.freed, `braking ${!on.freed}`);
+  check('the press out of a stall is not charged again on the car it stalled against',
+    on.repress === 0, `${on.repress} more bumps`);
+  check('?bumpstop=classic keeps 45% and never stalls',
+    !off.after.stalled && !off.held.stalled && off.after.v > 1,
+    `v ${off.after.v.toFixed(2)}, stalled ${off.after.stalled}`);
+}
+
 // --- A truck outweighs the taxi ---------------------------------------------
 // The same square T-bone at boost cruise, once into a car and once into a truck (TRUCK_MASS in
 // sim/collisions.js). The truck has to come off the lighter of the two — knocked less far, slewed
@@ -21468,12 +21535,14 @@ let chopperOrder; // likewise
   // The taxi 2 units short of touchdown at the kick's speed, with a car parked under its landing
   // point (`ahead` units in front of it, along the same lane). Run for two seconds.
   {
-    const crushRun = ({ ahead = 1.4, truck = false, classic = false } = {}) => {
+    const crushRun = ({ ahead = 1.4, truck = false, guest = false, classic = false } = {}) => {
       setCrush(classic ? 'classic' : null);
       const pTraffic = createTraffic(makeRng(seed + 96), new THREE.Scene(), 2);
       const pTaxi = pTraffic.taxi;
       const other = pTraffic.cars.find((c) => c !== pTaxi);
       if (truck) other.isTruck = true;
+      // The garbage truck's arrangement: a truck in traffic its owner draws (`wearSkin`) and wrecks.
+      if (guest) { other.isTruck = true; other.guest = true; other.skin = () => {}; }
       const d = [DIR.PX, DIR.NX, DIR.PZ, DIR.NZ].find((dd) => placeCar(pTaxi, dd, 2, 2, 14));
       placeCar(other, d, 2, 2, 14 - ahead);
       other.v = 0;
@@ -21509,8 +21578,13 @@ let chopperOrder; // likewise
       p.otherCrashed && p.minV > 25 && p.moved > 50,
       `car crashed ${p.otherCrashed}, slowest ${p.minV.toFixed(1)} u/s, ${p.moved.toFixed(1)} units in 2s`);
     const truck = crushRun({ truck: true });
-    check('a truck under the landing is still a hit', truck.crush === 0 && truck.hp < TAXI_HP,
-      `crush ${truck.crush}, hp ${truck.hp}`);
+    check('a truck under the landing is crushed too, and the taxi loses nothing',
+      truck.crush === 1 && truck.otherCrashed && truck.hp === TAXI_HP && truck.wrecks === 0,
+      `crush ${truck.crush}, hp ${truck.hp}, wrecks ${truck.wrecks}`);
+    const guestTruck = crushRun({ guest: true });
+    check('...and so is a guest truck its owner draws (the garbage truck, the fire engine)',
+      guestTruck.crush === 1 && guestTruck.otherCrashed && guestTruck.hp === TAXI_HP,
+      `crush ${guestTruck.crush}, hp ${guestTruck.hp}`);
     const far = crushRun({ ahead: 7 });
     check('...and a car a few units past the touchdown is not landed on, so is not crushed',
       far.crush === 0 && !far.otherCrashed, `crush ${far.crush}, hp ${far.hp}`);
@@ -23962,8 +24036,11 @@ let chopperOrder; // likewise
   }).length;
   const driverWrong = classic.ambient.filter((car) =>
     (scaleAt(classic.classicInteriorMesh, car.instanceIndex) > 0.5) !== (classic.modelOf(car) === 'convertible')).length;
+  // In the scene, too: the matrices were right for weeks while the mesh was never added, and a
+  // driver written to an InstancedMesh nothing draws is no driver.
+  const notAdded = classic.classicDrawn.filter((inst) => inst.parent !== classicScene).length;
   check('classics: every convertible has a driver in it, and nothing else does',
-    driverWrong === 0, `${driverWrong} wrong`);
+    driverWrong === 0 && notAdded === 0, `${driverWrong} wrong, ${notAdded} classic meshes not in the scene`);
   const kinds = new Set(models.map((car) => car.model));
   check('classics: each car is drawn by exactly one body, and both models turn up',
     wrong === 0 && kinds.size === 2, `${wrong} cars drawn wrong, models ${[...kinds].join('/')}`);

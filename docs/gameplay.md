@@ -1936,9 +1936,11 @@ shell is consumed under them (`game/vanish.js`) rather than left in the road, be
 on. The taxi takes no damage, keeps its speed and drives on, and the meter gets +1 on top of Big
 Air's +2, labelled after it. It's only one step because where Big Air lands is mostly luck. It
 counts on the descent of the arc and for a car length past the touchdown (`crushing` in
-`sim/collisions.js`). Further on, the taxi is driving into the car and it is a hit. Only ordinary
-cars and cops count. A truck is too tall to land on, and the patrol cruiser and the racer belong to
-modules that run their own lives. A crushed car leaves the fleet for the rest of the run.
+`sim/collisions.js`). Further on, the taxi is driving into the car and it is a hit. Anything on the
+road counts, Mega Air included: cars, cops, box trucks, the garbage truck, the fire engine, the
+patrol cruiser and the racer (Tyler, 2026-11-07, landing on the garbage truck: "it did not
+explode"). Only a cut scene's staged car is left out. A crushed car leaves the fleet for the rest
+of the run; a guest's owner sends another one later, as it does after any wreck.
 `?crush=classic` charges the landing as a hit again.
 
 The crush splashes (Tyler, 2026-10-25: "if there is a car within ... a taxi's length-and-a-half
@@ -1952,9 +1954,8 @@ pop one at a time, nearest first, 0.14s after the crush and 0.12s apart (`CRUSH_
 and each shakes harder than the last, up to the wreck's 2.4. After the last pop, **Pile-Up** lands
 on the meter at +0.5 a car, labelled "Pile-Up ×N". It's one ring, not a chain where each car sets
 off its neighbours: that would take a whole queue at a red, and every car it takes leaves the fleet.
-Trucks count in the splash, though not under the landing, because the taxi never touches a truck
-caught in the blast; a box truck spills its load. Cops count like any car. The patrol cruiser, the
-racer, guests and staged cars don't. `?crushsplash=classic` crushes the one car.
+The splash takes what the landing takes: trucks (a box truck spills its load), cops, the guests. Staged
+cars don't. `?crushsplash=classic` crushes the one car.
 
 The whole crush plays in slow motion (Tyler, 2026-10-25: "we need to do a little bit of slow mo
 there to really sell that effect"; `game/crushslowmo.js`). The clock drops straight to 0.3x on the

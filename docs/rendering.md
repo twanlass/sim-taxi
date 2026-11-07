@@ -3917,7 +3917,9 @@ above than the glass ever did.
 ### Wing mirrors — `geometry/mirrors.js`
 
 Every car, the taxi and the box trucks wear a wing mirror each side: a housing in the body's paint
-on a short stalk off the foot of the A-pillar, with a dark glass face on its back. They are sized
+on a short stalk off the foot of the A-pillar, with a dark glass face on its back, the housing
+swept 25° about the vertical so its outer end rakes toward the tail (`MIRROR_SWEEP`; square to the
+flank it read as a peg sticking out of the door). They are sized
 for the camera rather than for a real car, standing 0.28 clear of the flank (~2.2px at play zoom on a
 fleet car, ~2.6 on the taxi), because a true-scale mirror is a pixel and a half and flickers as the
 car turns. The fleet's and the trucks' are merged into the shared body geometry and baked white for
