@@ -9,8 +9,9 @@ import { SILL_Y, WHEEL_R, WHEEL_W, wheelAnchors } from './wheels.js';
 // The robo-taxi: a pod, not a car. An elongated rounded box — a superellipsoid, square-ish in every
 // section with soft corners — whose whole upper half is one continuous piece of tinted glass, roof,
 // windscreens and side windows alike, over a brushed-silver lower body on the chrome finish. It is
-// the same at both ends, and it rolls on balls rather than wheels: no bonnet, no boot, a cyan light bar across each end and the sensor puck in
-// the middle of the roof, so you cannot tell which way it is about to go. (Tyler, 2026-11-05: the
+// the same at both ends, and it rolls on balls rather than wheels: no bonnet, no boot, a cyan belly
+// band round its waist and the sensor puck in the middle of the roof, so you cannot tell which way
+// it is about to go. (Tyler, 2026-11-05: the
 // first build was a retro bubble car with fenders and frog-eye lamps; "a little too retro". The
 // balls were his next ask: futuristic, and they leave room for it to move in ways a car cannot.)
 //
@@ -188,15 +189,11 @@ function wellGeometries(len, width) {
 }
 
 // The ball tyres. A sphere of the ordinary wheel's radius, so the pod rides at the height every
-// other body is built for, set in so its outer face stands where a tyre's tread did. A plain ball is
-// the same from every angle, so it cannot show that it is rolling — or steering, which on a sedan's
-// front pair is the whole reason the wheel is a separate mesh. Two cyan rings round it, at right
-// angles, both through the axle: seen side-on they read as a cross on the hub that turns as it
-// rolls, and seen from above a ring along the direction of travel turns with the steering.
+// other body is built for, set in so its outer face stands where a tyre's tread did. Plain and dark:
+// a pair of cyan rings round each ball (a cross on the hub that turned as it rolled) went in with
+// them and came out again on Tyler's call (2026-11-07), in favour of the belly band below.
 const BALL_SEGMENTS = 28;
 const BALL_RINGS = 18;
-const BALL_BAND = 0.06;    // half-width of each ring: ~1px across at play zoom
-const BALL_PROUD = 0.006;  // the ring's lift off the ball, so the two are not one surface
 const BALL_TUCK = 0.1;     // in from a tyre's outer face: a ball bulges further than a tread did
 
 function ballZ(anchor) {
@@ -204,38 +201,108 @@ function ballZ(anchor) {
   return Math.sign(anchor.z) * (Math.abs(anchor.z) + WHEEL_W / 2 - WHEEL_R - BALL_TUCK);
 }
 
-/** The ball, dark, and its two rings as a separate geometry for the unlit lamp material. */
-function ballGeometries() {
-  const ball = softPart(new THREE.SphereGeometry(WHEEL_R, BALL_SEGMENTS, BALL_RINGS), 'roboSensor', FINISH.TYRE);
-  // Each ring is a strip laid on the sphere between two parallel planes, built rather than cut out
-  // of a finer sphere: picking a sphere's triangles by their centres left the edges sawtoothed.
-  const pos = [];
-  const index = [];
-  const r = WHEEL_R + BALL_PROUD;
-  const SEGS = 64;
-  for (const axis of ['x', 'y']) {
-    const base = pos.length / 3;
-    for (let i = 0; i <= SEGS; i++) {
-      const phi = (i / SEGS) * Math.PI * 2;
-      for (const t of [-BALL_BAND, BALL_BAND]) {
-        const rr = Math.sqrt(r * r - t * t);
-        const u = rr * Math.cos(phi);
-        const w = rr * Math.sin(phi);
-        // axis 'x': the ring in the x = 0 plane, round (y, z); 'y': in the y = 0 plane, round (x, z).
-        if (axis === 'x') pos.push(t, u, w); else pos.push(u, t, w);
-      }
-    }
-    for (let i = 0; i < SEGS; i++) {
-      const q = base + i * 2;
-      // Wound to face out; checked by the probe, which walks the index.
-      if (axis === 'x') index.push(q, q + 2, q + 1, q + 1, q + 2, q + 3);
-      else index.push(q, q + 1, q + 2, q + 1, q + 3, q + 2);
+function ballGeometry() {
+  return softPart(new THREE.SphereGeometry(WHEEL_R, BALL_SEGMENTS, BALL_RINGS), 'roboSensor', FINISH.TYRE);
+}
+
+// The belly band: a thin cyan ribbon all the way round the pod, just under the glass and just clear
+// of the wheel wells' crowns (WHEEL_R + WELL_R = 1.38), with a light tracing round it (`bandMaterial`).
+// A vertical ribbon on the band's own outline rather than a strip laid on the shell: the flank is
+// near vertical at this height (the section starts turning in at the belt), and a strip that
+// followed it would have to stop at the tips, where the shell does not reach this high at all.
+// It replaces the two bars that stood at the ends at the same height — it runs through both.
+const BAND_Y = 1.45;
+const BAND_HALF = 0.05;    // 0.1 tall: ~1px at play zoom before the bloom takes it
+const BAND_PROUD = 0.02;   // out from the shell, so the two never share a surface
+const BAND_STATIONS = 64;  // per side, packed toward the tips where the outline turns
+
+/** The band's outline at BAND_Y: [x, z, nx, nz] round the pod, +z side then -z, closed. */
+function bandOutline(len) {
+  const half = len / 2 * 0.985;
+  const pts = [];
+  for (const side of [1, -1]) {
+    for (let i = 0; i < BAND_STATIONS; i++) {
+      // Packed with -cos like the shell's own stations; the +z side runs -x to +x, the -z back.
+      const xn = -Math.cos(Math.PI * i / BAND_STATIONS) * side;
+      const x = xn * half;
+      pts.push([x, side * (flankZ(len, x, BAND_Y) ?? 0)]);
     }
   }
-  const rings = new THREE.BufferGeometry();
-  rings.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-  rings.setIndex(index);
-  return { ball, rings };
+  return pts.map((p, i) => {
+    const a = pts[(i - 1 + pts.length) % pts.length];
+    const b = pts[(i + 1) % pts.length];
+    // The loop runs +x along the +z flank and back along the -z, so (-dz, dx) points away from
+    // the pod: (0, 1) on the +z flank. The probe checks the ribbon's winding agrees.
+    let nx = -(b[1] - a[1]);
+    let nz = b[0] - a[0];
+    const l = Math.hypot(nx, nz) || 1;
+    nx /= l; nz /= l;
+    return [p[0] + nx * BAND_PROUD, p[1] + nz * BAND_PROUD, nx, nz];
+  });
+}
+
+/** The ribbon, indexed and closed, with `aTrace` 0..1 round it by arc length for the trace. */
+export function roboBandGeometry(len) {
+  const loop = bandOutline(len);
+  const n = loop.length;
+  const pos = [];
+  const trace = [];
+  const index = [];
+  let run = 0;
+  const lengths = [0];
+  for (let i = 1; i <= n; i++) {
+    const a = loop[i - 1];
+    const b = loop[i % n];
+    run += Math.hypot(b[0] - a[0], b[1] - a[1]);
+    lengths.push(run);
+  }
+  // One more column than stations, so the seam can carry aTrace 1 beside the first column's 0.
+  for (let i = 0; i <= n; i++) {
+    const [x, z] = loop[i % n];
+    pos.push(x, BAND_Y - BAND_HALF, z, x, BAND_Y + BAND_HALF, z);
+    trace.push(lengths[i] / run, lengths[i] / run);
+  }
+  for (let i = 0; i < n; i++) {
+    const q = i * 2;
+    index.push(q, q + 2, q + 1, q + 1, q + 2, q + 3);
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute('aTrace', new THREE.Float32BufferAttribute(trace, 1));
+  g.setIndex(index);
+  return g;
+}
+
+// The trace: a bright head with a fading tail chasing round the band, two of them half a lap
+// apart, over a steady dim base so the band still reads as a band between them. The clock is one
+// uniform shared by every band (and by the bloom's copy, which inherits this patch through
+// `markEmissive`), set once a frame by game/robotaxi.js.
+export const ROBO_BAND_TIME = { value: 0 };
+const BAND_LAPS_PER_SECOND = 0.45;
+const BAND_BASE = 0.3;
+const BAND_HEAD = 1.4;
+
+function bandMaterial() {
+  const material = unlitMaterial({ color: PALETTE.roboGlow });
+  material.customProgramCacheKey = () => 'robotaxi-band';
+  material.onBeforeCompile = (shader) => {
+    shader.uniforms.uBandTime = ROBO_BAND_TIME;
+    const vert = shader.vertexShader;
+    shader.vertexShader = vert
+      .replace('#include <common>', '#include <common>\nattribute float aTrace;\nvarying float vTrace;')
+      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvTrace = aTrace;');
+    const frag = shader.fragmentShader;
+    shader.fragmentShader = frag
+      .replace('#include <common>', '#include <common>\nuniform float uBandTime;\nvarying float vTrace;')
+      .replace('#include <color_fragment>', `#include <color_fragment>
+      float bandBehind = fract(2.0 * (uBandTime * ${BAND_LAPS_PER_SECOND.toFixed(3)} - vTrace));
+      diffuseColor.rgb *= ${BAND_BASE.toFixed(3)} + ${BAND_HEAD.toFixed(3)} * pow(1.0 - bandBehind, 6.0);`);
+    if (shader.vertexShader === vert || !shader.vertexShader.includes('vTrace = aTrace')
+      || !shader.fragmentShader.includes('bandBehind')) {
+      throw new Error('robotaxi band: a shader hook matched nothing');
+    }
+  };
+  return material;
 }
 
 /** The sensor puck in the middle of the roof, dark, on a short stalk. */
@@ -255,31 +322,20 @@ function sensorGeometry() {
   return parts;
 }
 
-/** The cyan lamps: a band round the puck and a light bar across each end, just under the belt. */
+/** The cyan lamp on the roof: a band round the puck. (The belly band is its own mesh.) */
 function glowGeometry(len) {
   const parts = [];
   const ring = new THREE.CylinderGeometry(0.252, 0.252, 0.09, 24, 1, true);
   ring.translate(0, ROOF_Y - 0.03 + 0.16, 0);
   parts.push(ring.toNonIndexed());
   ring.dispose();
-  const y = BELT_Y - 0.12;
-  for (const end of [-1, 1]) {
-    // END_P makes the ends blunt: the pod is still ~0.6 wide a hundredth of its length from the
-    // tip, so a short bar laid across the tip stands proud of it over its whole length.
-    const bar = new THREE.CapsuleGeometry(0.06, 0.5, 3, 8);
-    bar.rotateX(Math.PI / 2);
-    bar.translate(end * (len / 2 * 0.985 - 0.03), y, 0);
-    parts.push(bar.toNonIndexed());
-    bar.dispose();
-  }
+  // The bars that stood at each end at this height are the belly band's now (`roboBandGeometry`).
   return mergeGeometries(parts, false);
 }
 
 /** The shell and the glass laid on it, for tools/probe.mjs to check the winding of. */
 export const roboShellParts = (len) => [shellGeometry(len), ...glassGeometries(len)];
 
-/** The balls' rings (indexed, centred on the ball), for the same check. */
-export const roboBallRings = () => ballGeometries().rings;
 
 /** Everything that is paint, chrome and glass, in one geometry. */
 export function roboTaxiBodyGeometry(len, width) {
@@ -327,7 +383,7 @@ export function createRoboTaxiMesh(len, width) {
   // All four balls are their own meshes: each rolls (about z, by the distance driven) and the front
   // pair steers (about y). 'YZX' composes Ry·Rz, so the roll happens about the ball's own axle and
   // the steer turns that axle; the default 'XYZ' would roll it about the car's axle instead.
-  const { ball: ballGeo, rings: ringGeo } = ballGeometries();
+  const ballGeo = ballGeometry();
   const wheelMat = propMaterial({ gloss: { geometry: ballGeo } });
   const wheels = wheelAnchors(len, width).map((anchor) => {
     const wheel = new THREE.Mesh(ballGeo, wheelMat);
@@ -335,17 +391,18 @@ export function createRoboTaxiMesh(len, width) {
     wheel.rotation.order = 'YZX';
     wheel.userData.steers = anchor.front;
     wheel.castShadow = true;
-    const rings = new THREE.Mesh(ringGeo, glowMat);
-    rings.userData.roboLamp = true;
-    wheel.add(rings);
     shell.add(wheel);
     return wheel;
   });
 
   // Dissolved in and out rather than blended — see `faders` in sim/police.js for why alphaHash.
-  const faders = [body.material, wheelMat, glowMat];
+  const band = new THREE.Mesh(roboBandGeometry(len), bandMaterial());
+  band.userData.roboLamp = true;
+  shell.add(band);
+
+  const faders = [body.material, wheelMat, glowMat, band.material];
   for (const material of faders) material.alphaHash = true;
   shell.visible = false;
 
-  return { group, shell, body, wheels, rings: wheels.map((w) => w.children[0]), glow, faders, occluders: [body, ...wheels] };
+  return { group, shell, body, wheels, band, glow, faders, occluders: [body, ...wheels] };
 }

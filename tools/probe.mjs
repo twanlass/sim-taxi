@@ -53,7 +53,7 @@ import { createAsphaltPatches, planPatches, patchGeometry, patchRoadHalf, PATCH_
 import { createStreetProps, planStreetProps } from '../src/game/streetprops.js';
 import { createGarbage, planTrashPiles } from '../src/game/garbage.js';
 import { createRoboTaxis } from '../src/game/robotaxi.js';
-import { roboShellParts, roboBallRings } from '../src/geometry/robotaxi.js';
+import { roboShellParts, roboBandGeometry } from '../src/geometry/robotaxi.js';
 import { setFareSeconds } from '../src/game/fares.js';
 import { ROBO_SPEED } from '../src/sim/traffic.js';
 import { HOPPER_MOUTH } from '../src/geometry/garbage.js';
@@ -23158,19 +23158,22 @@ let chopperOrder; // likewise
   check('robo-taxi: the shell and its glass are wound to face out', tris > 1000 && inward / tris < 0.01,
     `${inward}/${tris} triangles face in`);
   {
-    // The balls' rings are indexed, so the winding is read off the index (CLAUDE.md), and out is
-    // away from the ball's own centre.
-    const g = roboBallRings();
+    // The belly band is indexed, so the winding is read off the index (CLAUDE.md); out is away
+    // from the pod's vertical axis, which the band's outline is star-shaped about.
+    const g = roboBandGeometry(CAR_LEN);
     const p = g.attributes.position;
     const idx = g.index.array;
     let ringIn = 0;
     for (let f = 0; f < idx.length; f += 3) {
       a.fromBufferAttribute(p, idx[f]); b.fromBufferAttribute(p, idx[f + 1]); c.fromBufferAttribute(p, idx[f + 2]);
       n.subVectors(b, a).cross(c.clone().sub(a));
-      if (n.dot(a.clone().add(b).add(c)) <= 0) ringIn += 1;
+      const mid = a.clone().add(b).add(c);
+      if (n.x * mid.x + n.z * mid.z <= 0) ringIn += 1;
     }
-    check('robo-taxi: the rings on its ball tyres face out', idx.length > 0 && ringIn === 0,
-      `${ringIn}/${idx.length / 3} ring triangles face in`);
+    const trace = g.attributes.aTrace.array;
+    check('robo-taxi: the belly band faces out, and its trace runs once round from 0 to 1',
+      idx.length > 0 && ringIn === 0 && trace[0] === 0 && Math.abs(trace[trace.length - 1] - 1) < 1e-6,
+      `${ringIn}/${idx.length / 3} band triangles face in`);
     g.dispose();
   }
 

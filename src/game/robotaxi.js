@@ -5,7 +5,7 @@ import { lineX, lineZ } from '../city/grid.js';
 import { cloneProp, unlitMaterial } from '../util/geo.js';
 import { PALETTE } from '../palette.js';
 import { CAR_LEN, CAR_W, ROBO_SPEED, STOP_SETBACK, stopDistance } from '../sim/traffic.js';
-import { createRoboTaxiMesh, ROBO_SCALE } from '../geometry/robotaxi.js';
+import { createRoboTaxiMesh, ROBO_SCALE, ROBO_BAND_TIME } from '../geometry/robotaxi.js';
 import { WHEEL_R } from '../geometry/wheels.js';
 import { findRoute, planOrigin } from './route.js';
 import { BOARD_SECONDS, kerbFor } from './fares.js';
@@ -230,6 +230,7 @@ export function createRoboTaxis({ rng, scene, traffic, fares, blocked = () => fa
 
   function update(dt) {
     state.clock += dt;
+    ROBO_BAND_TIME.value = state.clock;
     for (const robo of robos) {
       const car = robo.car;
       // The taxi wrote it off. The wreck path has the body; another one comes along later.
@@ -289,7 +290,7 @@ export function createRoboTaxis({ rng, scene, traffic, fares, blocked = () => fa
     state,
     update,
     /** The cyan lamps, for main.js to put in the bloom. */
-    emissiveMeshes: robos.flatMap((r) => [r.rig.glow, ...r.rig.rings]),
+    emissiveMeshes: robos.flatMap((r) => [r.rig.glow, r.rig.band]),
     /** Bring every robo-taxi on now, for the probe and `__taxi`. Answers how many are on. */
     spawnAll: () => robos.filter((r) => r.car || spawn(r)).length,
     /** The traffic cars, for the probe. */
