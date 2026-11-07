@@ -26,9 +26,9 @@ import { SILL_Y, WHEEL_W, wheelAnchors } from './wheels.js';
 // minivans", the taxi's size. The sim's envelope stays CAR_LEN, exactly as the taxi's does.
 export const ROBO_SCALE = 1.18;
 
-// The body's half-width: the wheels' treads stand WHEEL_PROUD past the ordinary car's flank, so a
-// pod a touch narrower than the car leaves the outer 0.16 of each tread standing out of its well.
-const BODY_HALF_W = 0.8;
+// The body's half-width: 1.76 across, 2.08 drawn (ROBO_SCALE) — a touch wider than the taxi's 2.0.
+// It was 0.8 (1.89 drawn), which read narrow beside the taxi (Tyler, 2026-11-07).
+const BODY_HALF_W = 0.88;
 // Low, as a skirt round the wheels: the tyres show in their wells, not under the body.
 const FLOOR_Y = 0.32;
 const ROOF_Y = 2.12;
@@ -271,7 +271,8 @@ function wellGeometries(len, width) {
 // them and came out again on Tyler's call (2026-11-07), in favour of the belly band below.
 const BALL_SEGMENTS = 28;
 const BALL_RINGS = 18;
-const BALL_TUCK = 0.1;     // in from a tyre's outer face: a ball bulges further than a tread did
+const BALL_TUCK = 0.02;    // in from a tyre's outer face: the outer 0.06 of each ball stands out of
+                           // the 0.88 flank
 
 function ballZ(anchor) {
   // Outer face a little in from where a tyre's sat (wheelAnchors places a tyre by that face).
