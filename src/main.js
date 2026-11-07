@@ -116,6 +116,7 @@ import { createStreetProps, planStreetProps } from './game/streetprops.js';
 import { createFire } from './game/fire.js';
 import { createGarbage, planTrashPiles, PROP_KEEP_OUT } from './game/garbage.js';
 import { createRoboTaxis } from './game/robotaxi.js';
+import { createRoboDebug } from './game/robodebug.js';
 import { createRace, WIN_PAY, LOSE_COST, TANK_FLOOR, COUNT_STEP, COUNTDOWN } from './game/race.js';
 import { createSpeech } from './game/speech.js';
 import { MARKER_BASE } from './game/faremarker.js';
@@ -1739,6 +1740,9 @@ const robotaxis = roboParam === 'classic' ? null : createRoboTaxis({
   soon: roboParam === 'soon',
 });
 for (const mesh of robotaxis?.emissiveMeshes ?? []) markEmissive(mesh, 'siren');
+// `?robodebug`: each robo-taxi's route and goal drawn on the map (game/robodebug.js).
+const roboDebug = robotaxis && new URLSearchParams(window.location.search).has('robodebug')
+  ? createRoboDebug(scene, robotaxis) : null;
 
 // The city's entrance: buildings and trees rise out of the ground in a wave that spreads from the
 // taxi's spawn — the run starts where the player's car is, and the city builds itself outward from
@@ -7266,6 +7270,7 @@ function tick() {
   garbage.update(dt);
   // After the traffic step for the same reason: the robo-taxi's skin is posed by it.
   robotaxis?.update(dt);
+  roboDebug?.update();
   if (fares.state.gameOver) race?.abandon();
   race?.update(dt);
   raceTalk?.update(dt);

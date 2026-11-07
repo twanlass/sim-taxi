@@ -403,6 +403,9 @@ export const PALETTE = {
   roboGlass: '#2B3C4E',
   roboSensor: '#22262C',
   roboGlow: '#3FE9FF',
+  // `?robodebug` (game/robodebug.js): a robo-taxi's route while it hunts, and while it carries.
+  roboDebugHunt: '#3FE9FF',
+  roboDebugRide: '#FF4FD8',
   // Its frog-eye lamps: a pale glass lens in a chrome cup.
   headlightLens: '#EEF4FA',
   // A box truck's cab is painted from carBody, same colorIndex and everything — one taxi-company

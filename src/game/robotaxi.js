@@ -7,7 +7,7 @@ import { PALETTE } from '../palette.js';
 import { CAR_LEN, CAR_W, ROBO_SPEED, STOP_SETBACK, stopDistance } from '../sim/traffic.js';
 import { createRoboTaxiMesh, ROBO_SCALE, ROBO_BAND_TIME, BALL_R } from '../geometry/robotaxi.js';
 import { findRoute, planOrigin } from './route.js';
-import { BOARD_SECONDS, kerbFor } from './fares.js';
+import { BOARD_SECONDS, cornerFor, kerbFor } from './fares.js';
 import { markOccluder } from './ssao.js';
 
 // The robo-taxis: the city council's driverless cabs, arriving in town to take your riders.
@@ -21,20 +21,24 @@ import { markOccluder } from './ssao.js';
 // nearest to *itself* — never the one the player is heading for, never reacting to the taxi at all:
 // traffic stays predictable and the player is the one who takes the risk — marks that rider with a
 // cyan ring, and drives there. If it gets to their junction first it stops, the rider runs over and
-// hops in (`fares.steal`), the fare leaves the board with no strike, and the robo-taxi drives off
-// with them for BUSY_SECONDS before it starts hunting again. Slow is the player's counterplay: a taxi
+// hops in (`fares.steal`), the fare leaves the board with no strike, and the robo-taxi drives them
+// to the drop-off they would have asked the taxi for, where they get out and walk to the kerb on
+// the delivered rider's own animation (`fares.robotDropoff`). Then it hunts again. (Tyler,
+// 2026-11-07: "for all intents and purposes, look and feel like an AI taxi". The first cut just
+// wandered for 20 s with the rider aboard.) Slow is the player's counterplay: a taxi
 // that goes for the marked rider nearly always gets there first. One that ignores them does not.
 //
 //   off      not on the map yet, or written off and waiting to come back
 //   hunt     seat empty: driving at its claimed rider, or wandering while there is none
 //   board    stopped at the corner while the rider runs over and gets in
-//   busy     carrying them: wandering town with the lamps steady, not hunting
+//   ride     carrying them to their drop-off, lamps steady
+//   drop     stopped at the drop-off while they get out
 
 /** How many are about at once. */
 export const ROBO_COUNT = 2;
 
-/** Seconds a robo-taxi drives a stolen rider around before it hunts again. */
-const BUSY_SECONDS = 20;
+/** The robo-taxi stays stopped at the drop-off while the rider gets out and clears the car. */
+const DROP_HOLD = 1.6;
 
 /** Seconds between arrivals on the map, so two do not appear together. */
 const ENTER_GAP = 8;
@@ -81,7 +85,7 @@ export function createRoboTaxis({ rng, scene, traffic, fares, blocked = () => fa
       wait: soon ? 1 + k * 3 : k * ENTER_GAP,
     };
   });
-  const state = { robos, stolen: 0, clock: 0 };
+  const state = { robos, stolen: 0, delivered: 0, clock: 0 };
 
   const skinFor = (robo) => (pos, quat, car) => {
     robo.rig.group.position.copy(pos);
@@ -153,6 +157,7 @@ export function createRoboTaxis({ rng, scene, traffic, fares, blocked = () => fa
     robo.t = 0;
     robo.target = null;
     robo.arrived = false;
+    robo.goal = null;
     if (robo.car) {
       robo.car.route = [];
       robo.car.routeConsumed = false;
@@ -181,9 +186,12 @@ export function createRoboTaxis({ rng, scene, traffic, fares, blocked = () => fa
     if (route?.length) { car.route = route; car.routeConsumed = false; }
   }
 
-  function wander(car) {
+  /** Off to a junction picked at random — what "busy" and an empty board both look like. */
+  function wander(robo) {
+    const car = robo.car;
     if (car.route?.length) return;
     const j = randomJunction();
+    robo.goal = { x: j.x, z: j.z };
     steer(car, { i: j.i, j: j.j });
   }
 
@@ -200,31 +208,58 @@ export function createRoboTaxis({ rng, scene, traffic, fares, blocked = () => fa
     }
     if (!robo.target) robo.target = choose(robo);
     const fare = robo.target;
-    if (!fare) { wander(car); return; }
+    if (!fare) { wander(robo); return; }
     const { i, j } = fare.pickup;
-    // On a lane into the rider's junction, and close enough that braking now stops it at the hold
-    // line, where the all-way stop would have stood it anyway. Measured along the lane rather than
-    // as a radius from the junction: an arterial's hold line is ~10 units out, past the taxi's own
-    // ARRIVE_RADIUS, and a robot that never counted as arrived drove laps round its rider.
-    const left = car.lane ? car.lane.length - car.s : Infinity;
-    // Latched: once it has braked for the corner it has arrived, even though standing still it is
-    // a touch further back than the test reads on the move (the stopping distance it had is gone).
-    robo.arrived ||= car.state === 'drive' && car.i === i && car.j === j
-      && left - stopDistance(car.v) < STOP_SETBACK + 1;
-    if (robo.arrived) {
-      // At the corner: brake and hold, and once it is standing the rider is theirs.
-      car.roadblock = Infinity;
-      if (car.v < 0.1 && fares.steal(fare, car)) {
+    robo.goal = kerbFor(fare);
+    if (stoppedAt(robo, i, j)) {
+      // Standing at the corner: the rider is theirs.
+      const ride = fares.steal(fare, car);
+      if (ride) {
         robo.target = null;
         robo.arrived = false;
+        robo.ride = ride;
         state.stolen += 1;
         robo.phase = 'board';
         robo.t = 0;
       }
       return;
     }
-    steer(car, { i, j });
     robo.t += dt;
+  }
+
+  /**
+   * Drive at junction (i, j) and stop at its hold line. Answers true once standing there.
+   *
+   * Arrival is on a lane into the junction, close enough that braking now stops it at the hold
+   * line, where the all-way stop would have stood it anyway. Measured along the lane rather than as
+   * a radius from the junction: an arterial's hold line is ~10 units out, past the taxi's own
+   * ARRIVE_RADIUS, and a robot that never counted as arrived drove laps round its rider.
+   */
+  function stoppedAt(robo, i, j) {
+    const car = robo.car;
+    const left = car.lane ? car.lane.length - car.s : Infinity;
+    // Latched: once it has braked for the corner it has arrived, even though standing still it is
+    // a touch further back than the test reads on the move (the stopping distance it had is gone).
+    robo.arrived ||= car.state === 'drive' && car.i === i && car.j === j
+      && left - stopDistance(car.v) < STOP_SETBACK + 1;
+    if (!robo.arrived) {
+      steer(car, { i, j });
+      return false;
+    }
+    car.roadblock = Infinity;
+    return car.v < 0.1;
+  }
+
+  /** Aboard: to the rider's drop-off, and out they get. */
+  function ride(robo) {
+    const { i, j } = robo.ride.dropoff;
+    robo.goal = cornerFor(i, j);
+    if (!stoppedAt(robo, i, j)) return;
+    fares.robotDropoff(robo.ride, robo.car);
+    robo.ride = null;
+    robo.phase = 'drop';
+    robo.t = 0;
+    state.delivered += 1;
   }
 
   function update(dt) {
@@ -234,6 +269,8 @@ export function createRoboTaxis({ rng, scene, traffic, fares, blocked = () => fa
       const car = robo.car;
       // The taxi wrote it off. The wreck path has the body; another one comes along later.
       if (car?.crashed) {
+        if (robo.ride) fares.robotLose(robo.ride);
+        robo.ride = null;
         robo.car = null;
         robo.target = null;
         robo.phase = 'off';
@@ -251,11 +288,15 @@ export function createRoboTaxis({ rng, scene, traffic, fares, blocked = () => fa
         else if (robo.phase === 'board') {
           if (robo.t >= BOARD_HOLD) {
             robo.car.roadblock = 0;
-            setPhase(robo, 'busy');
+            setPhase(robo, 'ride');
           }
-        } else if (robo.phase === 'busy') {
-          wander(robo.car);
-          if (robo.t >= BUSY_SECONDS) setPhase(robo, 'hunt');
+        } else if (robo.phase === 'ride') {
+          ride(robo);
+        } else if (robo.phase === 'drop') {
+          if (robo.t >= DROP_HOLD) {
+            robo.car.roadblock = 0;
+            setPhase(robo, 'hunt');
+          }
         }
       }
 

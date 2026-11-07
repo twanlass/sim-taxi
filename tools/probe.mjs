@@ -23208,13 +23208,21 @@ let chopperOrder; // likewise
   let movingSteals = 0;
   let badSteals = 0;
   let steals = 0;
+  let movingDrops = 0;
   for (let step = 0; step < 60 * 240; step++) {
     rTraffic.update(1 / 60);
     const allowed = new Set(rFares.stealable());
     const board = [...rFares.state.fares];
     const before = robos.state.stolen;
+    const droppedBefore = robos.state.delivered;
     for (const e of rFares.update(1 / 60, rTraffic.taxi)) if (e.type === 'stolen') steals += 1;
     robos.update(1 / 60);
+    if (robos.state.delivered > droppedBefore) {
+      for (const r of robos.state.robos) {
+        if (r.phase !== 'drop' || r.t > 0) continue;
+        if (r.car.v >= 0.1) movingDrops += 1;
+      }
+    }
     if (robos.state.stolen > before) {
       for (const r of robos.state.robos) {
         if (r.phase !== 'board' || r.t > 0) continue;
@@ -23230,6 +23238,9 @@ let chopperOrder; // likewise
   check('robo-taxis: they take waiting riders, standing still at the corner, never two after one rider',
     robos.state.stolen >= 2 && steals === robos.state.stolen && movingSteals === 0 && shared === 0 && badSteals === 0,
     `${robos.state.stolen} taken in 240s (${steals} events), ${movingSteals} on the move, ${shared} frames sharing a rider`);
+  check('robo-taxis: they drive the riders they take to their drop-offs and let them out standing still',
+    robos.state.delivered >= 1 && movingDrops === 0,
+    `${robos.state.delivered} dropped off of ${robos.state.stolen} taken, ${movingDrops} on the move`);
   check('robo-taxis: never over ROBO_SPEED, and a steal is no strike',
     fastest <= ROBO_SPEED + 1e-6 && rFares.state.strikes === 0,
     `fastest ${fastest.toFixed(2)} against ${ROBO_SPEED.toFixed(2)}, ${rFares.state.strikes} strikes`);

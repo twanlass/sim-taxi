@@ -2066,13 +2066,17 @@ replacement 25 s later.
 another robo-taxi has picked, and never the player's choice), marks them with a breathing cyan ring
 on the kerb, and drives at their junction. If it brakes to the hold line there before the taxi
 collects them, the rider runs over and hops in (`fares.steal`), the fare leaves the board with **no
-strike** and the streak breaks — "Rider stolen!". It then drives about with them for 20 s, lamps
-steady, before it hunts again. It never takes the first rider of a run, a VIP, the bank rider or a
+strike** and the streak breaks — "Rider stolen!". Then it is a taxi: it drives them to the
+drop-off they would have asked you for (drawn when they spawned, never shown on the board), stops
+at that junction's hold line, and they get out and walk to the kerb on the delivered rider's own
+animation (`fares.robotDropoff`; the exit entry holds the board slot for the whole ride). Then it
+hunts again. A wreck loses the rider with it. `?robodebug` draws each one's route and goal: cyan
+while it hunts, magenta while it carries (game/robodebug.js). It never takes the first rider of a run, a VIP, the bank rider or a
 robber (`fares.stealable`).
 
 Slow is the counterplay: a rider marked cyan is a race the taxi nearly always wins if it goes. A
 headless run with the taxi standing still and the clocks pinned measured 4 steals in 240 s from the
-two of them.
+two of them, and all 4 riders dropped off.
 
 Not yet: they arrive on every run, where the story has them arriving on Monday — once days ship
 (#760) they should appear from Monday on, and the board should grow to give them something to take.

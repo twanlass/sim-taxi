@@ -1619,6 +1619,11 @@ export function createFareSystem(rng, scene, {
    * with no strike — losing the money is the cost — and the figure runs to `car` and hops in, on
    * the taxi's own boarding animation, through `exits` like any other rider leaving a slot.
    * Surfaces as a 'stolen' event from the next `update`, so main.js handles it beside the rest.
+   *
+   * The rider then *rides*: the exit entry outlives the boarding, holding the slot (and the hidden
+   * figure) for as long as the robot is driving them, and `robotDropoff` turns it into an ordinary
+   * delivered rider's exit at their own drop-off — the same junction they would have asked the taxi
+   * for, drawn when they spawned. Answers the ride (`{ fare, dropoff }`), or null if it could not.
    */
   function steal(fare, car) {
     const at = state.fares.indexOf(fare);
@@ -1637,9 +1642,34 @@ export function createFareSystem(rng, scene, {
     const len = Math.hypot(dx, dz) || 1;
     const run = Math.max(0, len - 1.3) / len;
     const hop = Math.max(0, len - 0.4) / len;
-    exits.push({ slot, stolen: { rx: dx * run, rz: dz * run, ix: dx * hop, iz: dz * hop }, elapsed: 0 });
+    const ride = { fare, dropoff: fare.dropoff, aboard: false };
+    exits.push({ slot, stolen: { rx: dx * run, rz: dz * run, ix: dx * hop, iz: dz * hop }, elapsed: 0, ride });
     pendingEvents.push({ type: 'stolen', fare });
+    return ride;
+  }
+
+  /**
+   * The robo-taxi has stopped at its rider's drop-off: they get out and walk to the kerb, on the
+   * delivered rider's own exit (`beginExit`). Answers false if the ride is gone — a run that ended
+   * clears every exit — and the robot simply carries on empty.
+   */
+  function robotDropoff(ride, car) {
+    const at = exits.findIndex((e) => e.ride === ride);
+    if (at === -1) return false;
+    const { slot } = exits[at];
+    exits.splice(at, 1);
+    beginExit(slot, ride.dropoff, car);
     return true;
+  }
+
+  /** The robo-taxi carrying this ride was written off: the rider is gone with it. */
+  function robotLose(ride) {
+    const at = exits.findIndex((e) => e.ride === ride);
+    if (at === -1) return;
+    const { slot } = exits[at];
+    slot.passenger.group.visible = false;
+    slot.passenger.standing?.rest?.();
+    exits.splice(at, 1);
   }
 
   function clear(fare) {
@@ -1781,9 +1811,17 @@ export function createFareSystem(rng, scene, {
       e.elapsed += dt;
       const t = Math.min(1, e.elapsed / (e.bail ? BAIL_SECONDS : e.stolen ? BOARD_SECONDS : EXIT_SECONDS));
       const { standing } = e.slot.passenger;
+      if (e.ride?.aboard) continue;   // in the robo-taxi, out of sight, until `robotDropoff`
       if (e.stolen) {
         const s = e.stolen;
         standing?.board?.(t, s.rx, s.rz, s.ix, s.iz);
+        if (t >= 1 && e.ride) {
+          // In. The figure goes and the slot stays held for the ride.
+          e.slot.passenger.group.visible = false;
+          standing?.rest?.();
+          e.ride.aboard = true;
+          continue;
+        }
       } else if (e.bail) {
         standing?.bail?.(t, e.run.dx, e.run.dz);
         // The bubble rides above wherever the figure has got to. `standing.group` and the bubble
@@ -2386,9 +2424,11 @@ export function createFareSystem(rng, scene, {
     },
     pickables,
     fareFor,
-    /** The robo-taxis' side of the board — see `stealable` and `steal`. */
+    /** The robo-taxis' side of the board — see `stealable`, `steal` and `robotDropoff`. */
     stealable,
     steal,
+    robotDropoff,
+    robotLose,
     markDirected,
     refuse,
     /** A robber gets into the taxi outside the bank — see `spawnRobber` and game/robbery.js. */

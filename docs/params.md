@@ -201,6 +201,7 @@ doc; what the classic version was, and why it changed, is in that doc's history 
 | `?fire=soon` | A building catches fire early | [traffic.md](traffic.md) |
 | `?garbage=soon` | The garbage truck comes on a second in, headed for the pile nearest the taxi | [city.md](city.md#the-bag-piles-and-the-garbage-truck) |
 | `?robotaxi=soon` | The robo-taxis come on from the start instead of after the first drop-off (they still leave the first rider alone) | [gameplay.md](gameplay.md#robo-taxis) |
+| `?robodebug` | Draws each robo-taxi's route and goal on the map: cyan while it hunts (to the rider it has claimed), magenta while it carries a rider to their drop-off | [gameplay.md](gameplay.md#robo-taxis) |
 | `?race=soon` | The street racer turns up a few seconds in rather than after the 2nd-4th drop-off, and comes back ~12s after each race | [gameplay.md](gameplay.md#the-street-race) |
 | `?demo` / `?demo=off` | Demo mode on (or off) for this load, overruling the Settings switch and saving nothing; also reveals that switch | [gameplay.md](gameplay.md#demo-mode) |
 | `?parcels=0` / `=1` | Packages off / forced on (they are off in shot mode by default) | [gameplay.md](gameplay.md) |
