@@ -2038,6 +2038,45 @@ Calibration: median trip in the current city is ~5 blocks, which pays `$20` — 
 so the soak suite's expected earnings are roughly where a flat fare put them. History:
 [priced by the trip](gameplay-history.md#priced-by-the-trip).
 
+## Robo-taxis
+
+The city council's driverless cabs (game/robotaxi.js, body in geometry/robotaxi.js): two of them,
+on the map from the first drop-off, and they **take your riders**. `?robotaxi=classic` turns them
+off; `?robotaxi=soon` brings them on from the start.
+
+**What one is.** A guest car in traffic wearing a pod with no front or back, drawn at the taxi's
+size (`ROBO_SCALE`, the taxi's 1.18) so it reads as a little minivan rather than a small car: an elongated box with
+domed ends and rounded sides, the same shape both ways, so you cannot tell which way it is about to
+go. Everything above the beltline is one dark glass canopy all the way round; below it is silver,
+with real wheel wells cut into it (a dark lined opening with a trim lip round it) over four
+smooth ball tyres, a sensor puck on the roof wearing a cyan ring, and a
+thin cyan belly band all the way round just under the glass, with two points of light chasing round
+it (a shader on the band, `bandMaterial`; the bloom's copy inherits it, so the glow chases too). The silver is the one `FINISH.CHROME` part
+in the game (util/geo.js): metal with most of its diffuse traded for mirror, so the sky and the
+skyline do the colouring. Cyan is the robot's colour and nothing else in the game uses it.
+
+**How it drives.** `car.robo` is all the traffic model knows (sim/traffic.js): `ROBO_SPEED`
+(0.55 of a car's cruise, slower than a truck), a crawl round corners, a gentle pull-away, and
+`ROBO_STOP_DWELL` — a two-second halt at every all-way stop, under `STOP_DWELL + STOP_PATIENCE` so
+the other streets still wait their turn behind it. Every number is a fixed rule of the car; it never
+reacts to the taxi. It queues, can be bumped and can be wrecked like any car; a wreck sends a
+replacement 25 s later.
+
+**How it steals.** With its seat empty it picks the waiting rider nearest to *itself* (never one
+another robo-taxi has picked, and never the player's choice), marks them with a breathing cyan ring
+on the kerb, and drives at their junction. If it brakes to the hold line there before the taxi
+collects them, the rider runs over and hops in (`fares.steal`), the fare leaves the board with **no
+strike** and the streak breaks — "Rider stolen!". It then drives about with them for 20 s, lamps
+steady, before it hunts again. It never takes the first rider of a run, a VIP, the bank rider or a
+robber (`fares.stealable`).
+
+Slow is the counterplay: a rider marked cyan is a race the taxi nearly always wins if it goes. A
+headless run with the taxi standing still and the clocks pinned measured 4 steals in 240 s from the
+two of them.
+
+Not yet: they arrive on every run, where the story has them arriving on Monday — once days ship
+(#760) they should appear from Monday on, and the board should grow to give them something to take.
+
 ## VIP pickups
 
 **Off by default** (Tyler, 2026-10-21): `wantsVip` returns false, so no VIP ever spawns. The

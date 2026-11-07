@@ -52,6 +52,10 @@ import { isArterialX as gridIsArterialX } from '../src/city/grid.js';
 import { createAsphaltPatches, planPatches, patchGeometry, patchRoadHalf, PATCH_COUNT, SEAL_W } from '../src/city/asphaltpatch.js';
 import { createStreetProps, planStreetProps } from '../src/game/streetprops.js';
 import { createGarbage, planTrashPiles } from '../src/game/garbage.js';
+import { createRoboTaxis } from '../src/game/robotaxi.js';
+import { roboShellParts, roboBandGeometry, roboWellLiners } from '../src/geometry/robotaxi.js';
+import { setFareSeconds } from '../src/game/fares.js';
+import { ROBO_SPEED } from '../src/sim/traffic.js';
 import { HOPPER_MOUTH } from '../src/geometry/garbage.js';
 import { truckPaint } from '../src/sim/traffic.js';
 import { createCarWash } from '../src/city/carwash.js';
@@ -23120,6 +23124,116 @@ let chopperOrder; // likewise
     `closed throughout ${closedWhileTaking}, priced throughout ${hazardWhileTaking}, ${leftClosed} pile lanes left shut`);
   setClosedLanes([], 'garbage');
   setHazardLanes([], 'garbage');
+  clearCityOccluders();
+}
+
+// --- The robo-taxis ---------------------------------------------------------------
+//
+// game/robotaxi.js: two slow driverless cabs that drive at waiting riders and take them. Run with
+// the taxi standing still and the clocks pinned long, so every rider that leaves the board is one
+// a robo-taxi took — and checked for what would be silent: a robot faster than its rule, two of
+// them after one rider, a steal on the move or of a rider it may not take, a strike for one.
+{
+  // The shell is hand-lofted, so its winding is asserted rather than eyeballed (CLAUDE.md): every
+  // triangle's normal *from its winding* points away from the middle of the car.
+  let tris = 0;
+  let inward = 0;
+  const a = new THREE.Vector3();
+  const b = new THREE.Vector3();
+  const c = new THREE.Vector3();
+  const n = new THREE.Vector3();
+  for (const g of roboShellParts(CAR_LEN, CAR_W)) {
+    const p = g.attributes.position;
+    for (let f = 0; f < p.count; f += 3) {
+      a.fromBufferAttribute(p, f); b.fromBufferAttribute(p, f + 1); c.fromBufferAttribute(p, f + 2);
+      n.subVectors(c, b).cross(a.clone().sub(b));
+      if (n.lengthSq() < 1e-12) continue;
+      // Out from the middle of the car: the bubble is star-shaped about it.
+      const out = new THREE.Vector3((a.x + b.x + c.x) / 3, (a.y + b.y + c.y) / 3 - 1.45, (a.z + b.z + c.z) / 3);
+      tris += 1;
+      if (n.dot(out) <= 0) inward += 1;
+    }
+    g.dispose();
+  }
+  check('robo-taxi: the shell and its glass are wound to face out', tris > 1000 && inward / tris < 0.01,
+    `${inward}/${tris} triangles face in`);
+  {
+    // The belly band is indexed, so the winding is read off the index (CLAUDE.md); out is away
+    // from the pod's vertical axis, which the band's outline is star-shaped about.
+    const g = roboBandGeometry(CAR_LEN);
+    const p = g.attributes.position;
+    const idx = g.index.array;
+    let ringIn = 0;
+    for (let f = 0; f < idx.length; f += 3) {
+      a.fromBufferAttribute(p, idx[f]); b.fromBufferAttribute(p, idx[f + 1]); c.fromBufferAttribute(p, idx[f + 2]);
+      n.subVectors(b, a).cross(c.clone().sub(a));
+      const mid = a.clone().add(b).add(c);
+      if (n.x * mid.x + n.z * mid.z <= 0) ringIn += 1;
+    }
+    const trace = g.attributes.aTrace.array;
+    // The wheel wells' liners face their axles, or the opening shows the outside of a tube.
+    let linerOut = 0;
+    let linerTris = 0;
+    for (const liner of roboWellLiners(CAR_LEN, CAR_W)) {
+      const lp = liner.attributes.position;
+      const { x: ax, y: ay } = liner.userData.wellLiner;
+      for (let f = 0; f < lp.count; f += 3) {
+        a.fromBufferAttribute(lp, f); b.fromBufferAttribute(lp, f + 1); c.fromBufferAttribute(lp, f + 2);
+        n.subVectors(b, a).cross(c.clone().sub(a));
+        const mx = (a.x + b.x + c.x) / 3 - ax;
+        const my = (a.y + b.y + c.y) / 3 - ay;
+        linerTris += 1;
+        if (n.x * mx + n.y * my >= 0) linerOut += 1;
+      }
+      liner.dispose();
+    }
+    check('robo-taxi: its wheel wells are lined facing in', linerTris > 0 && linerOut === 0,
+      `${linerOut}/${linerTris} liner triangles face away from the axle`);
+    check('robo-taxi: the belly band faces out, and its trace runs once round from 0 to 1',
+      idx.length > 0 && ringIn === 0 && trace[0] === 0 && Math.abs(trace[trace.length - 1] - 1) < 1e-6,
+      `${ringIn}/${idx.length / 3} band triangles face in`);
+    g.dispose();
+  }
+
+  setCityOccluders(buildings.mesh);
+  const rScene = new THREE.Scene();
+  const rTraffic = createTraffic(makeRng(seed + 760), rScene, 24, 24);
+  for (let step = 0; step < 120; step++) rTraffic.update(1 / 60);
+  const rFares = createFareSystem(makeRng(seed + 761), rScene);
+  setFareSeconds(900);
+  rFares.state.delivered = 1;
+  const robos = createRoboTaxis({ rng: makeRng(seed + 762), scene: rScene, traffic: rTraffic, fares: rFares, soon: true });
+  let fastest = 0;
+  let shared = 0;
+  let movingSteals = 0;
+  let badSteals = 0;
+  let steals = 0;
+  for (let step = 0; step < 60 * 240; step++) {
+    rTraffic.update(1 / 60);
+    const allowed = new Set(rFares.stealable());
+    const board = [...rFares.state.fares];
+    const before = robos.state.stolen;
+    for (const e of rFares.update(1 / 60, rTraffic.taxi)) if (e.type === 'stolen') steals += 1;
+    robos.update(1 / 60);
+    if (robos.state.stolen > before) {
+      for (const r of robos.state.robos) {
+        if (r.phase !== 'board' || r.t > 0) continue;
+        if (r.car.v >= 0.1) movingSteals += 1;
+      }
+      // Whatever just left the board has to have been a rider the robots may take.
+      for (const f of board) if (!rFares.state.fares.includes(f) && !allowed.has(f)) badSteals += 1;
+    }
+    for (const car of robos.cars()) fastest = Math.max(fastest, car.v);
+    const targets = robos.state.robos.map((r) => r.target).filter(Boolean);
+    if (new Set(targets).size !== targets.length) shared += 1;
+  }
+  check('robo-taxis: they take waiting riders, standing still at the corner, never two after one rider',
+    robos.state.stolen >= 2 && steals === robos.state.stolen && movingSteals === 0 && shared === 0 && badSteals === 0,
+    `${robos.state.stolen} taken in 240s (${steals} events), ${movingSteals} on the move, ${shared} frames sharing a rider`);
+  check('robo-taxis: never over ROBO_SPEED, and a steal is no strike',
+    fastest <= ROBO_SPEED + 1e-6 && rFares.state.strikes === 0,
+    `fastest ${fastest.toFixed(2)} against ${ROBO_SPEED.toFixed(2)}, ${rFares.state.strikes} strikes`);
+  setFareSeconds(null);
   clearCityOccluders();
 }
 

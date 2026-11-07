@@ -802,6 +802,8 @@ export function createFareSystem(rng, scene, {
   // delivered, and the animation is only skin. Each entry pins the slot it uses until it clears,
   // so a new fare cannot land on the same slot while its previous rider is still running away.
   const exits = [];
+  // Events raised between frames — a robo-taxi's `steal` — handed out by the next `update`.
+  const pendingEvents = [];
 
   // The marker root sits on the junction so intersection-space arithmetic elsewhere still works;
   // the standing pin (and, on the destination, the ring around it) shifts out to the pavement
@@ -1600,6 +1602,46 @@ export function createFareSystem(rng, scene, {
     fare.slot.marker.beginTransfer();
   }
 
+  /**
+   * Riders a robo-taxi (game/robotaxi.js) may take: an ordinary fare still on the kerb. Never the
+   * first fare of a run (the loop is being taught), never a VIP, the bank rider or a robber — each
+   * is an event of its own, and a robot driving off with one would end it with nothing to see —
+   * and nobody while a getaway has the rest of the board hidden.
+   */
+  function stealable() {
+    if (state.gameOver || concealed() || state.delivered < 1) return [];
+    return state.fares.filter((f) => f.stage === 'waiting' && !f.vip && !f.bank && !f.robber
+      && !f.quest && !f.stand && !f.scripted);
+  }
+
+  /**
+   * A robo-taxi pulled up at this rider's corner first: they get in it. The fare leaves the board
+   * with no strike — losing the money is the cost — and the figure runs to `car` and hops in, on
+   * the taxi's own boarding animation, through `exits` like any other rider leaving a slot.
+   * Surfaces as a 'stolen' event from the next `update`, so main.js handles it beside the rest.
+   */
+  function steal(fare, car) {
+    const at = state.fares.indexOf(fare);
+    if (at === -1 || fare.stage !== 'waiting') return false;
+    state.fares.splice(at, 1);
+    const { slot } = fare;
+    const kerb = kerbFor(fare);
+    slot.marker.hide();
+    slot.destination.group.visible = false;
+    slot.passenger.postGroup.scale.setScalar(1);
+    slot.passenger.standing?.highlight?.(0);
+    slot.passenger.standing?.rest?.();
+    // Into the car's kerb-side flank rather than its middle, and the hop the last unit of it.
+    const dx = car.x - kerb.x;
+    const dz = car.z - kerb.z;
+    const len = Math.hypot(dx, dz) || 1;
+    const run = Math.max(0, len - 1.3) / len;
+    const hop = Math.max(0, len - 0.4) / len;
+    exits.push({ slot, stolen: { rx: dx * run, rz: dz * run, ix: dx * hop, iz: dz * hop }, elapsed: 0 });
+    pendingEvents.push({ type: 'stolen', fare });
+    return true;
+  }
+
   function clear(fare) {
     fare.slot.passenger.group.visible = false;
     fare.slot.destination.group.visible = false;
@@ -1737,9 +1779,12 @@ export function createFareSystem(rng, scene, {
     for (let i = exits.length - 1; i >= 0; i--) {
       const e = exits[i];
       e.elapsed += dt;
-      const t = Math.min(1, e.elapsed / (e.bail ? BAIL_SECONDS : EXIT_SECONDS));
+      const t = Math.min(1, e.elapsed / (e.bail ? BAIL_SECONDS : e.stolen ? BOARD_SECONDS : EXIT_SECONDS));
       const { standing } = e.slot.passenger;
-      if (e.bail) {
+      if (e.stolen) {
+        const s = e.stolen;
+        standing?.board?.(t, s.rx, s.rz, s.ix, s.iz);
+      } else if (e.bail) {
         standing?.bail?.(t, e.run.dx, e.run.dz);
         // The bubble rides above wherever the figure has got to. `standing.group` and the bubble
         // are siblings under `postGroup`, so the figure's own local position is already the offset
@@ -1839,6 +1884,7 @@ export function createFareSystem(rng, scene, {
 
     let events = null;
     const emit = (type, fare) => { (events ??= []).push({ type, fare }); };
+    while (pendingEvents.length) { const ev = pendingEvents.shift(); emit(ev.type, ev.fare); }
 
     // Snapshot before refilling, for two reasons: resolving an arrival splices the fare out from
     // under the loop, and a fare spawned *this* frame must not also be ticked in it.
@@ -2252,6 +2298,7 @@ export function createFareSystem(rng, scene, {
       e.slot.passenger.standing?.rest?.();
     }
     exits.length = 0;
+    pendingEvents.length = 0;
   }
 
   /** Which fare owns a picked object, walking up from the hit the way the picker does. */
@@ -2339,6 +2386,9 @@ export function createFareSystem(rng, scene, {
     },
     pickables,
     fareFor,
+    /** The robo-taxis' side of the board — see `stealable` and `steal`. */
+    stealable,
+    steal,
     markDirected,
     refuse,
     /** A robber gets into the taxi outside the bank — see `spawnRobber` and game/robbery.js. */
