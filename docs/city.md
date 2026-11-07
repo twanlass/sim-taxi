@@ -955,9 +955,10 @@ the bench block, with the sign on it.
 
 ## The rooftop billboard
 
-Up to two flat roofs per city carry an advertising hoarding (`city/billboard.js`), one per ad: the
-robo-taxis' teaser (**MONDAY.** under a teal band with a little robo-taxi pod and "ROBO-TAXIS
-ARRIVE") and **Dub Burger**, the city's own drive-through advertising itself (its turning sign's
+Up to two flat roofs per city carry an advertising hoarding (`city/billboard.js`), one per ad:
+**Good Boy Vet**, the vet clinic advertising itself (its sign's golden dog drawn front on, big
+eyes and tongue out, on the clinic's neon blue, with **WOOF!**, the clinic's name and "Walk-ins &
+wag-ins welcome") and **Dub Burger**, the city's own drive-through advertising itself (its turning sign's
 burger on the building's red, and "We take cash or Bitcoin," the speaker's line). Each stands on dark bottle-green steel (galvanised grey matched the roof and vanished)
 with raking braces, a catwalk and three lamps, which bloom as `window` and throw a faint additive
 beam each up onto the paper. The building is untouched; `chooseBillboardSite` picks roofs after the
@@ -971,12 +972,18 @@ unit is ~7.7px and the poster is ~23px tall, so each layout is built round one h
 most of it; everything smaller is for pinching in. With no canvas (the headless tools) the paper is
 plain.
 
+The first board carried the robo-taxis' teaser until 2026-11-07: **MONDAY.** under a teal band with
+a little pod and "ROBO-TAXIS ARRIVE". It was the only thing on the map telling the story that the
+robo-taxis come on Monday, and Tyler found it boring; the intro's dispatch lines and the robo-taxis
+themselves carry that now. `?billboardad=classic` puts it back. The clinic had no name before its
+poster gave it one.
+
 **Which roofs.** A board stands across its deck's *diagonal*, face square to the camera; along a
 street it would be read at 45° and lose a third of its width. The widest decks win (up to 8 units
 of board, never under 5.6), the posts draw in where a deck is narrow and the ends cantilever up to
 0.5 past the lip, and a ray from each corner of the face has to reach the camera past every other
 tower (`clearOf`, shared with the vet). The second board has to stand 30 units from the first, so
-the two never share a view. Over 30 seeds every city gets the robo-taxi board and 19 get Dub Burger
+the two never share a view. Over 30 seeds every city gets the vet's board and 19 get Dub Burger
 as well. The steel and the poster go into the sightline field, so no fare is placed on a corner a
 board hides. Shots `billboard`/`billboard-far` frame the first, `billboard-burger`/`billboard-burger-far`
 the second.
