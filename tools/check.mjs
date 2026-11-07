@@ -11,7 +11,7 @@ import { spawnSync } from 'node:child_process';
 
 // Boot the browser-only modules in node before anything else. They construct fine outside a
 // browser, and a scope slip in scene.js shipped undetected because nothing headless imported it.
-const BOOT = ['../src/game/scene.js', '../src/game/debugpanel.js', '../src/geometry/taxi.js',
+const BOOT = ['../src/game/scene.js', '../src/game/debugpanel.js', '../src/geometry/taxi.js', '../src/game/daycard.js', '../src/game/days.js',
   '../src/game/faremarker.js', '../src/geometry/person.js', '../src/game/routeline.js',
   '../src/game/pathdrag.js', '../src/game/sfx.js', '../src/game/audiopanel.js', '../src/game/soundrings.js',
   '../src/game/soundpins.js', '../src/game/phoneframe.js', '../src/game/quicktips.js', '../src/game/quicktips.js',

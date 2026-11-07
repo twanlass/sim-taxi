@@ -201,8 +201,11 @@ function playIntro(cold, blur) {
  * @param {(done: () => void) => boolean} [opts.beforePlay]  Asked on the press: answer true to take
  *   the screen over first (the menu goes, the gate stays shut) and call `done` to let the run go —
  *   the backstory's hook (game/backstory.js).
+ * @param {(mode: 'story' | 'arcade') => void} [opts.onChoose]  With it, Play splits into **Story**
+ *   and **Arcade** (Tyler, 2026-11-04), and this hears which one was pressed, before `beforePlay`.
+ *   Without it there is the one Play, as before (`?modes=classic`).
  */
-export function createTitleScreen(root, { sound, settings, demo = null, onPlay, beforePlay = null }) {
+export function createTitleScreen(root, { sound, settings, demo = null, onPlay, beforePlay = null, onChoose = null }) {
   if (!root) return null;
 
   let holding = true;
@@ -218,12 +221,20 @@ export function createTitleScreen(root, { sound, settings, demo = null, onPlay, 
   // --- the menu ---------------------------------------------------------------------------------
   const menu = el('nav', 'title-view title-menu');
   menu.setAttribute('aria-label', 'Main menu');
-  const playButton = el('button', 'title-item', 'Play');
+  // Story and Arcade where the one Play was, when the caller has modes to choose between.
+  const playButtons = onChoose
+    ? [['Story', 'story'], ['Arcade', 'arcade']].map(([label, mode]) => {
+      const b = el('button', 'title-item', label);
+      b.addEventListener('click', () => { if (holding && !telling) onChoose(mode); play(); });
+      return b;
+    })
+    : [el('button', 'title-item', 'Play')];
+  if (!onChoose) playButtons[0].addEventListener('click', () => play());
   const settingsButton = el('button', 'title-item', 'Settings');
   const creditsButton = el('button', 'title-item', 'Credits');
-  for (const b of [playButton, settingsButton, creditsButton]) b.type = 'button';
+  for (const b of [...playButtons, settingsButton, creditsButton]) b.type = 'button';
   // The small print sits inside the menu so it fades in with it and goes when a page opens.
-  menu.append(playButton, settingsButton, creditsButton, el('p', 'title-legal', copyrightLine()));
+  menu.append(...playButtons, settingsButton, creditsButton, el('p', 'title-legal', copyrightLine()));
 
   // --- Settings ---------------------------------------------------------------------------------
   const settingsPage = menuPage('settings', 'Settings', () => show('menu'));
@@ -312,7 +323,6 @@ export function createTitleScreen(root, { sound, settings, demo = null, onPlay, 
     const fade = root.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 260, easing: 'ease-in' });
     fade.onfinish = () => { root.hidden = true; };
   }
-  playButton.addEventListener('click', play);
 
   // Escape walks back out of a page. Registered on window, ahead of nothing: the pause key also
   // answers Escape, and it is told to stand down while this screen holds (`canPause` in main.js).
