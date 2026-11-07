@@ -23244,8 +23244,9 @@ let chopperOrder; // likewise
   check('robo-taxis: they take waiting riders, standing still at the corner, never two after one rider',
     robos.state.stolen >= 2 && steals === robos.state.stolen && movingSteals === 0 && shared === 0 && badSteals === 0,
     `${robos.state.stolen} taken in 240s (${steals} events), ${movingSteals} on the move, ${shared} frames sharing a rider`);
-  check('robo-taxis: they drive the riders they take to their drop-offs and let them out standing still',
-    robos.state.delivered >= 1 && movingDrops === 0,
+  // Tyler, 2026-11-07: "I don't think robo taxis should u-turn." They drive the lap instead.
+  check('robo-taxis: they drive the riders they take to their drop-offs and let them out standing still, never turning round',
+    robos.state.delivered >= 1 && movingDrops === 0 && roboUturns === 0,
     `${robos.state.delivered} dropped off of ${robos.state.stolen} taken, ${movingDrops} on the move, ${roboUturns} U-turns`);
   check('robo-taxis: never over ROBO_SPEED, and a steal is no strike',
     fastest <= ROBO_SPEED + 1e-6 && rFares.state.strikes === 0,

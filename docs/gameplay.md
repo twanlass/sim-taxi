@@ -2061,7 +2061,8 @@ skyline do the colouring. Cyan is the robot's colour and nothing else in the gam
 the other streets still wait their turn behind it. Every number is a fixed rule of the car; it never
 reacts to the taxi. It queues, can be bumped and can be wrecked like any car; a wreck sends a
 replacement 25 s later. It routes with the taxi's own router (`findRoute`, on the non-taxi `serviceLaneCost`), and
-turns round in the road when that saves a lap, on the cops' rule (two legs) and at its own speed.
+never turns round in the road: a rider behind it costs the real lap, which is why it picks riders by road
+distance rather than straight-line distance.
 
 **How it steals.** With its seat empty it picks the waiting rider it can reach soonest *by road*
 from where it is (never one another robo-taxi has picked, and never the player's choice; by

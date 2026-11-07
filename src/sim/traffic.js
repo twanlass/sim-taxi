@@ -1873,9 +1873,6 @@ const blocksOnCentreline = (car) => laneOffsetFor(car.d, car.i, car.j) <= LANE +
 
 /** Through the arc, in u/s. A semicircle of radius 2 at 6 u/s is a second: a flick, not a crawl. */
 const UTURN_SPEED = 6;
-// A robo-taxi swings round at its own cruise, which is under UTURN_SPEED: its speed is a rule of
-// the car, and the clearance check has to time the slower arc it actually drives.
-const uturnSpeedFor = (car) => (car.robo ? Math.min(UTURN_SPEED, ROBO_SPEED) : UTURN_SPEED);
 /** Road kept clear between the arc and anything it must not touch, the junction boxes included. */
 const UTURN_MARGIN = 1;
 /**
@@ -1958,7 +1955,7 @@ function uturnClear(car, sw, cars) {
   // `n` is one perpendicular; point it at the far lane.
   const toBack = sw.back.path.at(Math.max(0, Math.min(sw.back.length, sw.c - car.s)));
   if ((toBack.x - p.x) * n.x + (toBack.z - p.z) * n.z < 0) { n.x = -n.x; n.z = -n.z; }
-  const time = (Math.PI * sw.r) / uturnSpeedFor(car) + 0.3;
+  const time = (Math.PI * sw.r) / UTURN_SPEED + 0.3;
   const body = CAR_LEN + UTURN_MARGIN;
   for (const other of cars) {
     if (other === car || other.crashed || other.staged) continue;
@@ -6938,7 +6935,7 @@ export function createTraffic(
         // --- Mid-U-turn. The car is already on the far lane, held at its landing point while the
         // arc is driven (see UTURN_SPEED), at the arc's own speed; the brake still means stop, so a
         // cop rammed half way round is stunned broadside like anywhere else.
-        const target = car.braking ? 0 : uturnSpeedFor(car);
+        const target = car.braking ? 0 : UTURN_SPEED;
         car.v = car.v > target
           ? Math.max(target, car.v - hardBrake() * dt)
           : Math.min(target, car.v + chaseAccelFor(car) * dt);
