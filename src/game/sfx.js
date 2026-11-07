@@ -727,7 +727,7 @@ export function createSfx({ rng, menuMusic = false, menuSongs = false, radioFade
     return {
       state, play: noop, update: noop, hold: noop, setMuted: noop, toggleMuted: () => true,
       setVolumes: noop,
-      locoOn: noop, locoOff: noop, release: noop, unloop: noop, steer: noop, duckMusic: noop, fadeOutMusic: noop,
+      locoOn: noop, locoOff: noop, still: noop, release: noop, unloop: noop, steer: noop, duckMusic: noop, fadeOutMusic: noop,
       goOnAir: (opts) => { state.dashRadio = Boolean(opts?.dash); },
       openDash: () => { state.dashRadio = false; }, dashMusicSeconds: () => Infinity, tuning, tune: tuneMix, reset: () => tuneMix(SHIPPED_MIX),
       monitor, setMonitor: (key, { mute, solo } = {}) => setMonitorSets(key, mute, solo),
@@ -848,6 +848,7 @@ export function createSfx({ rng, menuMusic = false, menuSongs = false, radioFade
   const ambient = {};    // Block 2's beds, by key — see AMBIENT
   let activate = null;   // the current Loco activate voice, or null
   let locoSince = -1;    // ctx time the current hold began, or -1
+  let locoStilled = false; // `still()` cut a hold the pill may still be down on — see `update`
   let signalHand = null;
   let stoppedFor = 0;
   let wasAir = false;
@@ -1616,6 +1617,30 @@ export function createSfx({ rng, menuMusic = false, menuSongs = false, radioFade
   }
 
   /**
+   * The world has stopped with the context still running — the bank job's cut and the robber's
+   * line, which keep the city's hum rather than suspending (see `sfx.hold` in main.js). Nothing
+   * calls `update` under those, so without this the engine beds hold whatever the last live frame
+   * set them to: a taxi that Loco'd into the bank kept revving its overdrive loop, at full pitch,
+   * the whole time the robber ran down the steps (Tyler, 2026-11-07). Settle the engine to a cab
+   * standing at the kerb instead: the Loco hold and its loop out, the idle at its resting pitch,
+   * and the blinker quiet over a lamp that has stopped blinking with everything else (`update`
+   * restarts it on the first live frame, as for any change of hand). Every frame of the freeze;
+   * idempotent.
+   */
+  function still() {
+    if (!ctx) return;
+    const t = ctx.currentTime;
+    const e = mix.engine;
+    if (locoSince >= 0) { locoOff(); locoStilled = true; }
+    if (loco) loco.gain.gain.setTargetAtTime(0, t, e.release);
+    if (idle) idle.src.playbackRate.setTargetAtTime(e.idleRateLo * mix.sounds.idle.rate, t, e.pitchGlide);
+    stopVoice(signal, 0.03);
+    signal = null;
+    signalHand = null;
+    stoppedFor = 0;
+  }
+
+  /**
    * Steer the beds off this frame's taxi.
    *
    * @param {number} dt
@@ -1645,6 +1670,13 @@ export function createSfx({ rng, menuMusic = false, menuSongs = false, radioFade
     const alive = !over && !menu && !taxi.crashed;
 
     if (!holding && locoSince >= 0) locoOff();
+    // A pill still down when a `still()` freeze lets go: the overdrive is still on, so its loop
+    // comes back — glided in from its `locoLoopAt` point rather than replaying the activate, which
+    // is the press, and nobody pressed anything.
+    if (locoStilled) {
+      if (holding && locoSince < 0 && state.ready) locoSince = t - mix.engine.locoLoopAt;
+      locoStilled = false;
+    }
 
     // The engine. Pitched off speed, ducked under Loco, and gone with the run.
     const s = Math.min(1, v / cruise);
@@ -1971,6 +2003,7 @@ export function createSfx({ rng, menuMusic = false, menuSongs = false, radioFade
     hold,
     locoOn,
     locoOff,
+    still,
     /** Fade out a voice `play()` returned — the drive-through speaker as the taxi leaves the lot. */
     release: (voice, tau = 0.3) => stopVoice(voice, tau),
     /** Let a voice `play({ loop: true })` started finish the pass it is on, then end. */
