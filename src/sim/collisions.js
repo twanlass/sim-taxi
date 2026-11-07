@@ -102,6 +102,17 @@ const PUSH_V = 1.5;                // u/s
 // a push, and the taxi keeps its speed: dividing by a sliver of a cosine would stop it dead.
 const LEAN_MIN = 0.3;
 
+// The bump stop (Tyler, 2026-11-07; `?bumpstop=classic` is the rule above it). Keeping 45% and
+// driving on meant the taxi, which always drives itself forward, went straight back into whatever
+// it had just hit: off the pill a push at PUSH_V that drags the struck car around like a trolley,
+// on it a fresh charge every REHIT for as long as the thumb stayed down. So a hit the *taxi*
+// delivers stops it where it is — the recoil still bounces it back off the car, which is what
+// keeps it from sitting nose-to-door — and drops the pill, and it stays stalled (`taxi.stalled`,
+// which sim/traffic.js holds on the brake) until the player presses Loco again. A hit the taxi
+// *takes* (a truck running into its flank) still leaves it driving, and so does ramming a cop: the
+// robbery's roadblocks are there to be smashed through, and a taxi stalled against a chasing cop
+// is "Busted!" under the capture model the frame its boost tail would have run out.
+
 // A truck is 5.6 long against a car's 3.4, and the two circles used to sit at the car's offsets
 // on it too — which left 0.7 of cab and 0.7 of cargo box at either end that nothing tested, and
 // the taxi drove through them. Its circles go out to its own length, and it gets a third in the
@@ -272,8 +283,11 @@ export const crushable = (car) => !car.staged && !car.isTaxi && !car.crashed;
  *   probe's bump checks keep their currency. Only the
  *   *charged* path — a contact off the pill is still a shove, and a cop catching a taxi that is
  *   not boosting is still the arrest under it (game/patrol.js).
+ * @param bumpStop  a hit the taxi delivers stops it dead and sets `taxi.stalled` (see BUMP_STOP
+ *   below). Off by default for the same reason as `lethalPolice`: every tool that counts bumps off
+ *   a held pill measures in the currency of a taxi that keeps driving. main.js turns it on.
  */
-export function createCollisions(cars, taxi, { lethalPolice = false } = {}) {
+export function createCollisions(cars, taxi, { lethalPolice = false, bumpStop = false } = {}) {
   const listeners = [];
   const bumpListeners = [];
   const onImpact = (cb) => { listeners.push(cb); };
@@ -490,9 +504,19 @@ export function createCollisions(cars, taxi, { lethalPolice = false } = {}) {
       rearEnd ? 0 : STRUCK_STUN);
     const recoil = shove * TAXI_RECOIL * mass;
     knockCar(taxi, -nx * recoil, -nz * recoil, -side * TAXI_SPIN * mass);
-    taxi.v *= BUMP_KEEP / mass;
+    // Disarmed on the spot as well, so nothing else this frame's loop reaches is charged — main.js
+    // drops the pill itself from its bump listener, and the next frame's `taxi.boost` follows it.
+    const stalled = bumpStop && taxiStruck && !other.police;
+    if (stalled) {
+      taxi.v = 0;
+      taxi.stalled = true;
+      taxi.boost = false;
+    } else {
+      taxi.v *= BUMP_KEEP / mass;
+    }
     for (const cb of bumpListeners) {
-      cb({ x: px, z: pz, speed, closing, damage, hp: taxi.hp, taxi, other, nx, nz, rearEnd, taxiStruck });
+      cb({ x: px, z: pz, speed, closing, damage, hp: taxi.hp, taxi, other, nx, nz, rearEnd, taxiStruck,
+        stalled });
     }
   }
 

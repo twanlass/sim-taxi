@@ -170,6 +170,23 @@ export function createBoost(duration = BOOST_DURATION, startFraction = BOOST_STA
     },
 
     /**
+     * Drop the pill outright, with no momentum tail: the taxi has hit something and stopped
+     * (sim/collisions.js BUMP_STOP). The tail exists so letting go a beat before impact is not a
+     * free escape; after the impact there is nothing left to escape, and a second of `isEngaged`
+     * on a car standing in a junction would charge whatever crossed it. A thumb still on the pill
+     * stays down but no longer holds it — the next press is what drives on.
+     */
+    cut() {
+      state.held = false;
+      state.heldFor = 0;
+      if (state.mode === 'active' || state.mode === 'cooldown') {
+        state.cooldownLeft = 0;
+        if (state.fuel <= EMPTY_FUEL) { state.fuel = 0; state.mode = 'empty'; }
+        else state.mode = 'ready';
+      }
+    },
+
+    /**
      * Queue a fuel top-up (fraction of a full tank). Drips in over time so the meter *fills* on
      * screen rather than snapping — the animation is how the player sees they got a bonus.
      */
