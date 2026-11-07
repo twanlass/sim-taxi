@@ -394,6 +394,20 @@ export const PALETTE = {
   hubcap: '#C4C8CC',
   // The bumpers (geometry/bumpers.js) — metal too, and a step brighter than the hubcaps: chrome.
   bumperChrome: '#E6EAEE',
+  // The robo-taxi (geometry/robotaxi.js): a rounded retro bubble car in brushed silver on the metal
+  // finish, so the sky and the skyline slide across it — the one car in town that is all mirror.
+  // Its glass a shade bluer than the fleet's so the band reads as tinted, its sensor dark, and its
+  // status lamps a cold cyan that no other light in the game uses: cyan means "robot".
+  roboSilver: '#BCC2C9',
+  roboTrim: '#8E969E',
+  roboGlass: '#2B3C4E',
+  roboSensor: '#22262C',
+  roboGlow: '#3FE9FF',
+  // `?robodebug` (game/robodebug.js): a robo-taxi's route while it hunts, and while it carries.
+  roboDebugHunt: '#3FE9FF',
+  roboDebugRide: '#FF4FD8',
+  // Its frog-eye lamps: a pale glass lens in a chrome cup.
+  headlightLens: '#EEF4FA',
   // A box truck's cab is painted from carBody, same colorIndex and everything — one taxi-company
   // fleet's palette covers both, and it is what makes a truck read as "one more vehicle in this
   // traffic" rather than a prop dropped in from elsewhere. Only the cargo box breaks from that: it

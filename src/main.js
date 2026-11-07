@@ -115,6 +115,8 @@ import { createRoadwork } from './game/roadwork.js';
 import { createStreetProps, planStreetProps } from './game/streetprops.js';
 import { createFire } from './game/fire.js';
 import { createGarbage, planTrashPiles, PROP_KEEP_OUT } from './game/garbage.js';
+import { createRoboTaxis } from './game/robotaxi.js';
+import { createRoboDebug } from './game/robodebug.js';
 import { createRace, WIN_PAY, LOSE_COST, TANK_FLOOR, COUNT_STEP, COUNTDOWN } from './game/race.js';
 import { createSpeech } from './game/speech.js';
 import { MARKER_BASE } from './game/faremarker.js';
@@ -1726,6 +1728,21 @@ const garbage = createGarbage({
 });
 // The beacon blooms at the cruiser's bar's strength.
 for (const mesh of garbage.emissiveMeshes ?? []) markEmissive(mesh, 'siren');
+
+// The robo-taxis: driverless cabs in traffic that crawl about town and steal waiting riders — see
+// game/robotaxi.js. They turn up after the first delivery and hold off in shot mode and through
+// the opening vignette, like the garbage truck. `?robotaxi=soon` brings them on from the start;
+// `?robotaxi=classic` has none.
+const roboParam = new URLSearchParams(window.location.search).get('robotaxi');
+const robotaxis = roboParam === 'classic' ? null : createRoboTaxis({
+  rng: makeRng(runSeed + 761), scene, traffic, fares,
+  blocked: () => Boolean(shot) || traffic.taxi.staged,
+  soon: roboParam === 'soon',
+});
+for (const mesh of robotaxis?.emissiveMeshes ?? []) markEmissive(mesh, 'siren');
+// `?robodebug`: each robo-taxi's route and goal drawn on the map (game/robodebug.js).
+const roboDebug = robotaxis && new URLSearchParams(window.location.search).has('robodebug')
+  ? createRoboDebug(scene, robotaxis) : null;
 
 // The city's entrance: buildings and trees rise out of the ground in a wave that spreads from the
 // taxi's spawn — the run starts where the player's car is, and the city builds itself outward from
@@ -7266,6 +7283,9 @@ function tick() {
   fire.update(dt);
   // After the traffic step for the same reason: the bags are aimed at the hopper where it now is.
   garbage.update(dt);
+  // After the traffic step for the same reason: the robo-taxi's skin is posed by it.
+  robotaxis?.update(dt);
+  roboDebug?.update();
   if (fares.state.gameOver) race?.abandon();
   race?.update(dt);
   raceTalk?.update(dt);
@@ -7566,6 +7586,17 @@ function tick() {
       // The seat is empty from this frame on — they are getting out of it in shot — so the roof
       // sign goes back to vacant rather than holding "occupied" over a cab nobody is in.
       traffic.setTaxiOccupied(false);
+    } else if (type === 'stolen') {
+      // A robo-taxi got to this rider first (game/robotaxi.js). No strike — the fare is the cost —
+      // but the streak goes with them like any rider walking off, and a taxi on its way to collect
+      // them has nobody to collect.
+      popLabel('Rider stolen!', 'is-stolen');
+      haptic('perfect-lost');
+      if (combo.walkout(fare)) comboTag.lost = true;
+      if (fare.directed) {
+        traffic.taxi.route = [];
+        traffic.taxi.pendingTarget = null;
+      }
     } else if (type === 'vip-missed' || type === 'robber-missed' || type === 'missed') {
       // The rider swearing as they storm off (geometry/cursebubble.js) — out of the cab if they
       // were aboard, off their kerb if not.
@@ -8754,6 +8785,8 @@ window.__taxi = {
   fire,
   /** The bag piles and the garbage truck. `garbage.spawn()` brings the truck on now; `piles`, `state`. */
   garbage,
+  /** The robo-taxis (game/robotaxi.js): `state`, `spawnAll()`, `cars()`. Null under `?robotaxi=classic`. */
+  robotaxis,
   pause,
   routeTo,
   findRoute,
