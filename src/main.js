@@ -6829,6 +6829,7 @@ function tick() {
   // passing. See game/robberline.js for why this beat stops the world rather than running over it.
   if (robberLine?.isOpen()) {
     robberLine.update(dt);
+    sfx?.still();
     renderFrame();
     return;
   }
@@ -6836,6 +6837,8 @@ function tick() {
   // camera — running on wall time. It hands over to the robber's line above when the robber is in.
   if (bankJob?.running()) {
     bankJob.update(dt, aspect());
+    // The engine settles to the kerb, or a taxi that Loco'd in revs through the whole cut.
+    sfx?.still();
     // The L's deck thins over the cut's own subjects rather than over wherever the taxi and the
     // pins were on the frame the world stopped (`fadePoints` in game/bankjob.js). Left as they are
     // for the robber's line after it, which is about the same cab.
