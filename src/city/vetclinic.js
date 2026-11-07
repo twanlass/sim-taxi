@@ -205,7 +205,7 @@ const RISE = 0.92;              // the view's climb per unit of x (and of z): VI
 const LIP = 0.28;               // the roof's lip, which the pole keeps inside (LIP_W in buildings.js)
 
 /** Does a ray from `p` towards the camera get out without entering another tower's box? */
-function clearOf(towers, self, p) {
+export function clearOf(towers, self, p) {
   for (let t = 0.25; t < 40; t += 0.25) {
     const x = p.x + t;
     const y = p.y + RISE * t;
@@ -287,6 +287,8 @@ export function chooseVetSite(towers, pad) {
   tower.deck.keep.push({ x0: pole.x - 0.3, x1: pole.x + 0.3, z0: pole.z - 0.3, z1: pole.z + 0.3 });
   return {
     sign, pole, head, deck: tower.deck.deck,
+    // The deck record itself, so the billboard (city/billboard.js) knows this roof is taken.
+    roof: tower.deck,
     bounds: { x0: tower.x0, x1: tower.x1, z0: tower.z0, z1: tower.z1 },
     // The entrance anchor its building was stamped with (`createBuildings`), so the sign rises with it.
     anchor: { x: tower.cx, z: tower.cz, rand: hash01(tower.cx, tower.cz) },

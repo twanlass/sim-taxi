@@ -41,6 +41,7 @@ import { createCanopyFuzz } from './city/canopyfuzz.js';
 import { createGarage, LANDMARK as GARAGE_LANDMARK } from './city/garage.js';
 import { createBurgerJoint, SIGN_SPIN, LANDMARK as BURGER_LANDMARK } from './city/burgerjoint.js';
 import { createVetClinic, VET_CLASSIC } from './city/vetclinic.js';
+import { createBillboard, BILLBOARD_CLASSIC } from './city/billboard.js';
 import { createGraveyard, LANDMARK as GRAVEYARD_LANDMARK } from './city/graveyard.js';
 import { plantedCrowns } from './city/props.js';
 import {
@@ -83,7 +84,7 @@ import { createFlames } from './game/flames.js';
 import { createSparks } from './game/sparks.js';
 import { createRepairFx } from './game/repairfx.js';
 import {
-  createLocoFlame, tongueOutline, FLAME_FRAMES, FLAME_FRAME_TIME, FLAME_LAYER_SCALES, FLAME_LEN,
+  createLocoFlame, setFlameStyle, tongueOutline, FLAME_FRAMES, FLAME_FRAME_TIME, FLAME_LAYER_SCALES, FLAME_LEN,
 } from './game/locoflame.js';
 import { createWreckage } from './game/wreckage.js';
 import { createEjection, EJECT_CLOSING } from './game/ejection.js';
@@ -114,6 +115,8 @@ import { createRoadwork } from './game/roadwork.js';
 import { createStreetProps, planStreetProps } from './game/streetprops.js';
 import { createFire } from './game/fire.js';
 import { createGarbage, planTrashPiles, PROP_KEEP_OUT } from './game/garbage.js';
+import { createRoboTaxis } from './game/robotaxi.js';
+import { createRoboDebug } from './game/robodebug.js';
 import { createRace, WIN_PAY, LOSE_COST, TANK_FLOOR, COUNT_STEP, COUNTDOWN } from './game/race.js';
 import { createSpeech } from './game/speech.js';
 import { MARKER_BASE } from './game/faremarker.js';
@@ -882,6 +885,15 @@ if (vet) {
   scene.add(vet.group);
   markOccluder(vet.shell);
 }
+// The rooftop billboards: the robo-taxis' teaser and the Dub Burger ad, on the widest flat roofs (city/billboard.js).
+// Scenery only, and in the sightline field below, so no fare lands on a corner it hides. Null on
+// `?billboard=classic` or a city with no roof that fits.
+const billboards = BILLBOARD_CLASSIC ? [] : city.billboards.map((site) => createBillboard(site));
+for (const board of billboards) {
+  scene.add(board.group);
+  markOccluder(board.shell);
+  markOccluder(board.poster);
+}
 // The roadside business — the fourth block `createLayout` took from the towers, a car wash or a gas
 // station as the city seed rolls it (`?roadside=carwash` / `=gas` pins one) — and the inflatable tube man flailing on its corner, which is what
 // it is there for. Scenery only: not tappable, nothing routes into it. `null` on
@@ -908,7 +920,7 @@ const manholeSteam = createManholeSteam(scene, manholes?.userData.spots, makeRng
 const occluders = setCityOccluders(
   city.mesh, ...(city.domeMesh ? [city.domeMesh] : []), propsMesh, ...(garage?.meshes ?? []),
   ...(burger?.meshes ?? []), ...(graveyard?.meshes ?? []), ...(roadside?.meshes ?? []),
-  ...(vet ? [vet.shell] : []),
+  ...(vet ? [vet.shell] : []), ...billboards.flatMap((b) => [b.shell, b.poster]),
 );
 // The same field is what the cars' paint reflects (`propMaterial({ gloss })`, util/geo.js).
 setGlossCity(occluders, SKYLINE_CEILING);
@@ -1499,6 +1511,8 @@ setPassTurnGate(new URLSearchParams(window.location.search).get('passturn'));
 // judgement about what is there; `?overtake=classic` puts the judgement back.
 setOvertakeStyle(new URLSearchParams(window.location.search).get('overtake'));
 setPeek(new URLSearchParams(window.location.search).get('peek'));
+// The drift kick's twin plumes run parallel; `?flames=classic` splays them into the old V.
+setFlameStyle(new URLSearchParams(window.location.search).get('flames'));
 // Ambient traffic no longer flees the boosting taxi; `?scatter=classic` puts the flee back.
 setTaxiScatter(new URLSearchParams(window.location.search).get('scatter'));
 // A swinging-out taxi keeps its pace instead of matching the car it is going round, and a truck it
@@ -1596,6 +1610,8 @@ for (const [built, landmark] of [
 if (depotPanes) markEmissive(depotPanes, 'window');
 // The vet's OPEN sign, at the strength the depot's and the burger joint's neon bloom at.
 if (vet) markEmissive(vet.glow, 'window');
+// The billboard's three lamps, the same.
+for (const board of billboards) markEmissive(board.glow, 'window');
 // The riders. They receive AO through `propMaterial()` either way, so leaving them out of the
 // prepass would paint the kerb's own contact line across whoever is standing in front of it.
 // Only the figure is taken — `markOccluder` filters out the translucent target disc under them.
@@ -1761,6 +1777,25 @@ const garbage = createGarbage({
 // The beacon blooms at the cruiser's bar's strength.
 for (const mesh of garbage.emissiveMeshes ?? []) markEmissive(mesh, 'siren');
 
+// The robo-taxis: driverless cabs in traffic that crawl about town and steal waiting riders — see
+// game/robotaxi.js. They turn up after the first delivery and hold off in shot mode and through
+// the opening vignette, like the garbage truck. `?robotaxi=soon` brings them on from the start;
+// `?robotaxi=classic` has none.
+const roboParam = new URLSearchParams(window.location.search).get('robotaxi');
+const robotaxis = roboParam === 'classic' ? null : createRoboTaxis({
+  rng: makeRng(runSeed + 761), scene, traffic, fares,
+  // Story keeps them off the road until a day says otherwise (days.js `robo`): they roll out at
+  // Monday's buzzer, and no day after it is built yet. Arcade has them as before; `?robotaxi=soon`
+  // brings them in on any day, for looking at them.
+  blocked: () => Boolean(shot) || traffic.taxi.staged
+    || (today !== null && !today.robo && roboParam !== 'soon'),
+  soon: roboParam === 'soon',
+});
+for (const mesh of robotaxis?.emissiveMeshes ?? []) markEmissive(mesh, 'siren');
+// `?robodebug`: each robo-taxi's route and goal drawn on the map (game/robodebug.js).
+const roboDebug = robotaxis && new URLSearchParams(window.location.search).has('robodebug')
+  ? createRoboDebug(scene, robotaxis) : null;
+
 // The city's entrance: buildings and trees rise out of the ground in a wave that spreads from the
 // taxi's spawn — the run starts where the player's car is, and the city builds itself outward from
 // them — with a puff of dust off each building's footprint as it lands. See game/cityentry.js. It
@@ -1773,7 +1808,7 @@ const cityEntry = createCityEntry({
   // anchor, so it comes up as a building rather than as a building and a door.
   meshes: [city.mesh, ...city.glass, ...(city.frames ? [city.frames] : []), ...(city.domeMesh ? [city.domeMesh] : []), ...(westEdge ? [westEdge.towers, ...westEdge.glass] : []), ...(westEdge?.frames ? [westEdge.frames] : []), propsMesh, grass.mesh, canopyFuzz.mesh, ...(garage?.meshes ?? []),
     ...(burger?.meshes ?? []), ...(graveyard?.meshes ?? []), ...(roadside?.meshes ?? []),
-    ...(vet?.meshes ?? []),
+    ...(vet?.meshes ?? []), ...billboards.flatMap((b) => b.meshes),
     ...(lamps ? [lamps.posts, lamps.heads] : []),
     ...(props.courtMesh ? [props.courtMesh] : []), ...(props.skateMesh ? [props.skateMesh] : []),
     ...(props.pondMesh ? [props.pondMesh] : [])],
@@ -2134,8 +2169,11 @@ const STUNTMAN_FUEL = DRIFT_CHAIN.fuel[0];
 // fuel. `?bigairfuel=classic` lands with nothing.
 const bigAirFuel = new URLSearchParams(window.location.search).get('bigairfuel') !== 'classic';
 const BIG_AIR_FUEL = DRIFT_CHAIN.fuel[0];
-roadwork.onSmash(({ x, z }) => {
-  if (stuntman && !fares.state.gameOver) {
+roadwork.onSmash(({ x, z, exit }) => {
+  // Once per street: the trestle at the far end is smashed on the way *out* now that there is no
+  // ramp to hop it (`?roadworks=classic` has the hop), and paying the combo twice would make every
+  // closed street worth two of anything else on the meter.
+  if (stuntman && !exit && !fares.state.gameOver) {
     flyEnergyToBoost({
       from: taxiScreenPos,
       to: fuelScreenPos,
@@ -2154,6 +2192,12 @@ roadwork.onSmash(({ x, z }) => {
   // A proper burst. Two ordinary puffs was what a boosting taxi lays down in two frames, so the
   // impact read as exhaust rather than as hitting something. See `dust.burst`.
   dust.burst(x, z, traffic.taxi.yaw);
+});
+// Rubble and the sawhorses round the hole: the taxi's body bounces (game/roadwork.js), and this
+// is the sound and the nudge of camera that go with it — a kerb's worth, not a barricade's.
+roadwork.onBump(({ amp }) => {
+  controller.kickShake(0.35 * amp);
+  sfx?.play('bump', { gain: 0.35 + 0.25 * amp, rate: 0.9 + Math.random() * 0.2 });
 });
 // A post box or a hot dog cart knocked off the kerb (game/streetprops.js). Half a step on the meter,
 // on top of the overtake that carried the taxi into it: it is a lucky line through a pass rather
@@ -2802,8 +2846,11 @@ const STRUCK_SPIN = 1.9;
 // A police car is priced like any other car (the capture model, above). Under `?capture=classic`,
 // ramming one is the wreck whatever the taxi's HP (`lethalPolice` in sim/collisions.js, #466) —
 // unless `?cop=classic` as well, which was the rule before that.
+// And a hit the taxi delivers stops it until the next press of Loco (BUMP_STOP in
+// sim/collisions.js); `?bumpstop=classic` keeps 45% of the speed and drives on into it.
 const collisions = createCollisions(traffic.cars, traffic.taxi, {
   lethalPolice: captureClassic && new URLSearchParams(window.location.search).get('cop') !== 'classic',
+  bumpStop: new URLSearchParams(window.location.search).get('bumpstop') !== 'classic',
 });
 
 // Hit points. Arming `hp` is what turns every contact but the last into a bump rather than the
@@ -2845,8 +2892,11 @@ const hitCue = shot ? null : createHitCue({
   mode: hitCueMode(new URLSearchParams(window.location.search)),
   project: projectToScreen, maxHp: TAXI_HP, lowAt: SMOKE_FRACTION, midAt: BOOT_FRACTION,
 });
-collisions.onBump(({ x, z, closing, nx, nz, speed, rearEnd, other, taxiStruck, damage, hp, taxi }) => {
+collisions.onBump(({ x, z, closing, nx, nz, speed, rearEnd, other, taxiStruck, damage, hp, taxi,
+  stalled }) => {
   hitCue?.hit({ damage, hp, taxi });
+  // Stalled by it: the pill comes up under the thumb, with no momentum tail (`boost.cut`).
+  if (stalled) boost.cut();
   const yaw = traffic.taxi.yaw;
   // Ramming the patrol car on the pill is a bump like any other, not a bust — game/patrol.js
   // `rammed`. The collision pass runs before the patrol's, so this lands the same frame. Under the
@@ -5117,6 +5167,8 @@ function holdLocoMode() {
     controller.kickShake(0.3);
     stampAllRubber(traffic.taxi);
   }
+  // A taxi stalled against something it hit drives on from here — and only from here.
+  traffic.taxi.stalled = false;
   if (boost.press()) {
     kickLocoMode();
   }
@@ -6973,6 +7025,7 @@ function tick() {
   // passing. See game/robberline.js for why this beat stops the world rather than running over it.
   if (robberLine?.isOpen()) {
     robberLine.update(dt);
+    sfx?.still();
     renderFrame();
     return;
   }
@@ -6980,6 +7033,8 @@ function tick() {
   // camera — running on wall time. It hands over to the robber's line above when the robber is in.
   if (bankJob?.running()) {
     bankJob.update(dt, aspect());
+    // The engine settles to the kerb, or a taxi that Loco'd in revs through the whole cut.
+    sfx?.still();
     // The L's deck thins over the cut's own subjects rather than over wherever the taxi and the
     // pins were on the frame the world stopped (`fadePoints` in game/bankjob.js). Left as they are
     // for the robber's line after it, which is about the same cab.
@@ -7069,6 +7124,10 @@ function tick() {
   // is handed back, the taxi is being driven by the vignette.
   if (burgerRun?.holdsTaxi() || opening?.visiting()) boost.release();
   boost.update(dt);
+  // A stall waits on a press of the pill (sim/collisions.js BUMP_STOP), so it cannot outlast a
+  // pill that will not press: a tank run dry gets driven on, rather than parked for the five
+  // seconds the floor takes to come back. And a cut scene owns a staged taxi outright.
+  if (traffic.taxi.stalled && (boost.isEmpty() || traffic.taxi.staged)) traffic.taxi.stalled = false;
   // Latched here rather than on the press, because the whole point of it is that it cannot be
   // answered by one — see `locoHeld` where it is declared. Read every frame off the same hold clock
   // the camera's push-in uses, which stops with a paused run rather than banking the pause.
@@ -7403,6 +7462,9 @@ function tick() {
   fire.update(dt);
   // After the traffic step for the same reason: the bags are aimed at the hopper where it now is.
   garbage.update(dt);
+  // After the traffic step for the same reason: the robo-taxi's skin is posed by it.
+  robotaxis?.update(dt);
+  roboDebug?.update();
   if (fares.state.gameOver) race?.abandon();
   race?.update(dt);
   raceTalk?.update(dt);
@@ -7722,6 +7784,17 @@ function tick() {
       traffic.taxi.crashed = true;
       traffic.taxi.v = 0;
       boost.release();
+    } else if (type === 'stolen') {
+      // A robo-taxi got to this rider first (game/robotaxi.js). No strike — the fare is the cost —
+      // but the streak goes with them like any rider walking off, and a taxi on its way to collect
+      // them has nobody to collect.
+      popLabel('Rider stolen!', 'is-stolen');
+      haptic('perfect-lost');
+      if (combo.walkout(fare)) comboTag.lost = true;
+      if (fare.directed) {
+        traffic.taxi.route = [];
+        traffic.taxi.pendingTarget = null;
+      }
     } else if (type === 'vip-missed' || type === 'robber-missed' || type === 'missed') {
       // The rider swearing as they storm off (geometry/cursebubble.js) — out of the cab if they
       // were aboard, off their kerb if not.
@@ -8240,6 +8313,14 @@ if (shot) {
   // anything if the two are pointed at the same lane.
   if (shot.atBurger && burger) {
     controller.state.target.set(burger.site.focus.x, 0, burger.site.focus.z);
+    controller.update(aspect());
+  }
+  // The billboard, aimed at the ground point its face sits over on screen: up in the air at y, it
+  // shares a sightline with the ground y / 0.92 further up-screen in both x and z (VIEW_DIR).
+  // `atBillboard` is the index of the board, 1-based: the robo-taxi ad, then Dub Burger.
+  if (billboards[(shot.atBillboard ?? 0) - 1]) {
+    const { focus } = billboards[shot.atBillboard - 1].site;
+    controller.state.target.set(focus.x - focus.y / 0.92, 0, focus.z - focus.y / 0.92);
     controller.update(aspect());
   }
   // The roadside business, framed on its lot; and its tube man, close enough to see his face.
@@ -8906,6 +8987,8 @@ window.__taxi = {
   fire,
   /** The bag piles and the garbage truck. `garbage.spawn()` brings the truck on now; `piles`, `state`. */
   garbage,
+  /** The robo-taxis (game/robotaxi.js): `state`, `spawnAll()`, `cars()`. Null under `?robotaxi=classic`. */
+  robotaxis,
   pause,
   routeTo,
   findRoute,

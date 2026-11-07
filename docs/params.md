@@ -60,9 +60,12 @@ doc; what the classic version was, and why it changed, is in that doc's history 
 | `?walls=classic` | Flat building walls: no plinth, storey ledges, cornice, and no frames round the punched windows | `WALLS=classic` | [rendering.md](rendering.md#wall-detail--cityfacadejs) |
 | `?windows=classic` | Building windows are the faux sky gradient in vertex colour again, instead of glass meshes with stylised 45° light streaks | #681 | [rendering.md](rendering.md#window-glass--citybuildingsjs) |
 | `?garbage=classic` | No bag piles on the kerb and no garbage truck | `GARBAGE=classic` | [city.md](city.md#the-bag-piles-and-the-garbage-truck) |
+| `?robotaxi=classic` | No robo-taxis: nobody else in town takes your riders | | [gameplay.md](gameplay.md#robo-taxis) |
 | `?vet=classic` | No vet clinic: the corner shop it picks keeps a bare roof and an empty window | | [city.md](city.md#the-vet-clinic) |
+| `?billboard=classic` | No rooftop billboards: the robo-taxi and Dub Burger roofs stay bare | | [city.md](city.md#the-rooftop-billboard) |
 | `?vetopen=word` | The vet's OPEN sign spells the word in red neon letters inside its blue frame, instead of one red bar | | [city.md](city.md#the-vet-clinic) |
 | `?roofs=classic` | Solid flat roof caps, with no lip and no sunk deck | #511 | [city.md](city.md) |
+| `?flames=classic` | The drift kick's two plumes splayed into a V off the pipe (0.6 out, 0.32 rad each side) instead of running parallel 0.65 out | | [rendering.md](rendering.md#the-tailpipe-plume--gamelocoflamejs) |
 | `?foliage=classic` | The first, louder autumn palette | #486 | [rendering.md](rendering.md) |
 | `?water=classic` | The faceted first river surface | | [river.md](river.md) |
 | `?paint=classic` / `=layered` / `=chameleon` / `=satin` / `=toon` / `=rim` | Car paint before the layered finish, or one of the explored looks (default is `real`: sharp glint, flakes, flip colour, painted reflection streaks; `rim` was the default before it, `toon` before that) | #501 | [rendering.md](rendering.md) |
@@ -74,11 +77,13 @@ doc; what the classic version was, and why it changed, is in that doc's history 
 | `?classics=classic` / `=0.3` | No convertibles or camper vans / that chance per car, capped at 0.5 (default 1 in 40) | #495 | [traffic.md](traffic.md) |
 | `?damage=classic` | The taxi's damage ladder before the first-hit flash, grime and steam | #456 | [gameplay.md](gameplay.md) |
 | `?wreck=flat` / `=classic` / `=quick` | The unlit ring of fire that was the default until 2026-10-20, the original fireball, or the quick cut. The default is `burn`: shaded fire, firelight on the road, the wrecks left burning | #398 | [rendering.md](rendering.md#wreck--gameblastjs-gamewreckagejs) |
+| `?bumpstop=classic` | After hitting a car the taxi keeps 45% of its speed and drives on into it, instead of stopping until the next press of Loco | | [traffic.md](traffic.md) |
 | `?capture=classic` | The old police rules: any patrol touch is "Busted!", a boosted hit on any cop is a full wreck, a getaway's cops never arrest. Default: hitting a cop costs HP like any car, and "Busted!" is being pinned by a chasing cop | #527 | [gameplay.md](gameplay.md#getting-caught) |
 | `?coplights=classic` | The patrol cop's bar swings red and blue while it patrols, instead of staying dark until it gives chase | | [traffic.md](traffic.md#the-patrol-cruiser) |
 | `?standdown=classic` | A patrol cop that loses you goes dark and drives off the map, instead of going back on patrol | | [traffic.md](traffic.md#the-life-of-a-patrol) |
 | `?cop=classic` | With `?capture=classic`: boosting into a cop is a bump rather than a full wreck | #466 | [gameplay.md](gameplay.md) |
 | `?stuntman=classic` | Smashing a roadworks barricade is scenery: no Stuntman combo step, no Loco refund | | [gameplay.md](gameplay.md#the-combo-meter) |
+| `?roadworks=classic` | The roadworks as they were before 2026-11-04: one full-width trestle across each end, a plywood ramp against the entry trestle that hops the taxi over the works, and a heap of dug-up spoil beside the hole. The default closes each end with two slightly skewed trestles and has no ramp: the taxi stays on the road, smashes the trestles at both ends, bounces over rubble piles and knocks over a sawhorse at each end of the hole. Headless tools take `ROADWORKS=classic` | | [traffic.md](traffic.md#roadworks-a-street-closed-at-both-ends) |
 | `?taxifinder=classic` | The "back to the taxi" chip above the brake corner, which comes up while the taxi is completely off-frame. Off by default since 2026-10-20, since the camera rides home on its own after 1.5s | | [rendering.md](rendering.md#getting-back-to-the-taxi) |
 | `?camreturn=classic` | The camera stays where the player panned it, instead of riding back to the taxi after 1.5s with no touch on the map | #530 | [rendering.md](rendering.md#getting-back-to-the-taxi) |
 | `?taxidamage=classic` | The taxi's paint dulls toward `taxiGrime` as it takes damage, instead of chipping to bare metal at the struck corner | #632 | [traffic.md](traffic.md) |
@@ -201,6 +206,8 @@ doc; what the classic version was, and why it changed, is in that doc's history 
 | `?flatbed=soon` | The flatbed starts shedding crates three seconds in | [traffic.md](traffic.md) |
 | `?fire=soon` | A building catches fire early | [traffic.md](traffic.md) |
 | `?garbage=soon` | The garbage truck comes on a second in, headed for the pile nearest the taxi | [city.md](city.md#the-bag-piles-and-the-garbage-truck) |
+| `?robotaxi=soon` | The robo-taxis come on from the start instead of after the first drop-off (they still leave the first rider alone) | [gameplay.md](gameplay.md#robo-taxis) |
+| `?robodebug` | Draws each robo-taxi's route and goal on the map: cyan while it hunts (to the rider it has claimed), magenta while it carries a rider to their drop-off | [gameplay.md](gameplay.md#robo-taxis) |
 | `?race=soon` | The street racer turns up a few seconds in rather than after the 2nd-4th drop-off, and comes back ~12s after each race | [gameplay.md](gameplay.md#the-street-race) |
 | `?demo` / `?demo=off` | Demo mode on (or off) for this load, overruling the Settings switch and saving nothing; also reveals that switch | [gameplay.md](gameplay.md#demo-mode) |
 | `?parcels=0` / `=1` | Packages off / forced on (they are off in shot mode by default) | [gameplay.md](gameplay.md) |

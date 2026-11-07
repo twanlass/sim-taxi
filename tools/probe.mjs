@@ -52,6 +52,10 @@ import { isArterialX as gridIsArterialX } from '../src/city/grid.js';
 import { createAsphaltPatches, planPatches, patchGeometry, patchRoadHalf, PATCH_COUNT, SEAL_W } from '../src/city/asphaltpatch.js';
 import { createStreetProps, planStreetProps } from '../src/game/streetprops.js';
 import { createGarbage, planTrashPiles } from '../src/game/garbage.js';
+import { createRoboTaxis } from '../src/game/robotaxi.js';
+import { roboShellParts, roboBandGeometry, roboWellLiners } from '../src/geometry/robotaxi.js';
+import { setFareSeconds } from '../src/game/fares.js';
+import { ROBO_SPEED } from '../src/sim/traffic.js';
 import { HOPPER_MOUTH } from '../src/geometry/garbage.js';
 import { truckPaint } from '../src/sim/traffic.js';
 import { createCarWash } from '../src/city/carwash.js';
@@ -79,7 +83,8 @@ import { createDepotRun } from '../src/game/depotrun.js';
 import { spinTaxi, driftTaxi, kickDrift, DRIFT_KICK_WINDOW, DRIFT_MIN_V, DRIFT_ANGLE, DRIFT_EXIT, DRIFT_CHAIN, createTraffic, lightPhase, displayPhase, setPriorityJunction, isUnsignalised, ringAxisAt, placeCar, approachRoom, setClosedLanes, isLaneClosed, ROAD_Y, HOP_LEN, DRIFT_LAUNCH_LEN, DRIFT_LAUNCH_HEIGHT, onDriftLaunch, setBarrelRoll, setHopStyle, setDodge, setOvertakeStyle, setPeek, setTaxiScatter, HOP_MIN_V, STOP_SETBACK, SIGNAL_LEAD, SIGNAL_LINGER, wheelAnchors, WHEEL_R, STEER_MAX, SPEED, CAR_LEN, CAR_W, landingBounce, landingRoll, BOUNCE_DUR, TRUCK_W, SPAWN_CLEARANCE, POLICE_FLEET,
   LOCO_DEFAULTS, locoTuning, setLocoTuning, resetLocoTuning, locoRamp, boostCruise, overdriveTop, MPH_PER_UNIT, locoWeave, locoWeaveFade, MIN_GAP, ENVELOPE, CIRCLE_OFFSET, DODGE_MARGIN, carGeometry, CABIN_TOP, copLaysRubber, uturnWindow } from '../src/sim/traffic.js';
 import { loadLocoTuning, saveLocoTuning, clearLocoTuning } from '../src/game/locostash.js';
-import { createRoadwork, BARRIER_S, CONE_ROW } from '../src/game/roadwork.js';
+import { createRoadwork, BARRIER_S, CONE_ROW, ROADWORKS_MODE } from '../src/game/roadwork.js';
+import { launchHop } from '../src/sim/traffic.js';
 import { createFlatbed, CRATES, LOAD_YAW } from '../src/game/flatbed.js';
 import { createBoxSpill, boxesFor, TRUCK_LOAD, spills } from '../src/game/boxspill.js';
 import { BOX_REAR as SPILL_BOX_REAR } from '../src/geometry/truckdoors.js';
@@ -93,7 +98,10 @@ import { createDust } from '../src/game/dust.js';
 import { createSkidMarks } from '../src/game/skidmarks.js';
 import { createSparks } from '../src/game/sparks.js';
 import { createRepairFx } from '../src/game/repairfx.js';
-import { barricadeParts, spoilParts, RAMP_RUN, RAMP_H, WORKS_Y, TRENCH_Y, SPLINTER_REST_Y } from '../src/geometry/roadworks.js';
+import {
+  barricadeParts, spoilParts, RAMP_RUN, RAMP_H, WORKS_Y, TRENCH_Y, SPLINTER_REST_Y,
+  SAWHORSE_HALF_W, CONE_BASE_R,
+} from '../src/geometry/roadworks.js';
 import {
   findRoute as planRoute, setRoadworkLanes, setBlockedLanes, setHazardLanes, laneCost, serviceLaneCost,
 } from '../src/game/route.js';
@@ -129,7 +137,7 @@ import { createParcelPad, PAD_R } from '../src/geometry/parcelpad.js';
 import { underglowGeometry, createPulse, pulseStep, createRace, COUNT_STEP as RACE_COUNT_STEP, ROCKET_COUNT, COUNTDOWN as RACE_COUNTDOWN } from '../src/game/race.js';
 import { createHydraulics, LIFT_MIN, LIFT_MAX } from '../src/game/hydraulics.js';
 import { TAXI_DECK_Y, TAXI_TAILPIPE_BACK, TAXI_TAILPIPE_HEIGHT, TAXI_SCALE as TAXI_SCALE_TOP } from '../src/geometry/taxi.js';
-import { createLocoFlame } from '../src/game/locoflame.js';
+import { createLocoFlame, setFlameStyle } from '../src/game/locoflame.js';
 import { createParcel, PARCEL_CENTRE_Y } from '../src/geometry/parcel.js';
 import { createFoodOrder } from '../src/geometry/food.js';
 import { createCargo, CARGO_KINDS, CARGO_CENTRE_Y } from '../src/geometry/cargo.js';
@@ -8781,6 +8789,73 @@ function rideToPickup() {
     && hTaxi.hp === 0, `crashed ${hTaxi.crashed}, ${wrecks} wrecks, hp ${hTaxi.hp}`);
 }
 
+// --- The bump stop: a hit the taxi delivers parks it until the next press --------
+// The same square T-bone at boost cruise, with `bumpStop` on as main.js runs it and off as
+// `?bumpstop=classic` does. With it, the taxi has to stop dead, come off the pill, stay put on the
+// brake while the pill is up (no creep back into the car, no second charge), and drive on once the
+// flag is cleared. Without it, the old 45% and the taxi rolls on.
+{
+  const stage = (bumpStop) => {
+    const sTraffic = createTraffic(makeRng(seed + 45), new THREE.Scene(), CARS_DEFAULT);
+    const sTaxi = sTraffic.taxi;
+    const sCollisions = createCollisions(sTraffic.cars, sTaxi, { bumpStop });
+    const events = [];
+    sCollisions.onBump((e) => events.push(e));
+    sTaxi.hp = TAXI_HP;
+    sTraffic.warmup(3);
+    const moving = (c) => !c.isTaxi && c.state === 'drive' && c.v > 1;
+    for (let f = 0; f < 60 * 20 && !sTraffic.cars.some(moving); f++) sTraffic.update(1 / 60);
+    const target = sTraffic.cars.find(moving);
+    sTaxi.staged = true;
+    sTaxi.yaw = target.yaw + Math.PI / 2;
+    sTaxi.x = target.x - Math.cos(sTaxi.yaw) * 1.6;
+    sTaxi.z = target.z + Math.sin(sTaxi.yaw) * 1.6;
+    sTaxi.v = 19;
+    sTaxi.boost = true;
+    sCollisions.update(1 / 60);
+    sTaxi.staged = false;
+    const after = { v: sTaxi.v, stalled: sTaxi.stalled, boost: sTaxi.boost, event: events[0] };
+    // Two seconds as main.js would leave it: the pill up, so `boost` false, nothing on the pedal.
+    let peakV = 0;
+    for (let f = 0; f < 120; f++) {
+      sTaxi.boost = false;
+      sTaxi.braking = false;
+      sTraffic.update(1 / 60);
+      sCollisions.update(1 / 60);
+      peakV = Math.max(peakV, sTaxi.v);
+    }
+    const held = { peakV, stalled: sTaxi.stalled, bumps: events.length };
+    // The press: main.js clears the flag in holdLocoMode, and BOOST_KICK punches the taxi forward
+    // with its nose still on the car — staged back into contact so the press always lands on it.
+    sTaxi.stalled = false;
+    sTaxi.staged = true;
+    sTaxi.x = target.x - Math.cos(sTaxi.yaw) * 1.6;
+    sTaxi.z = target.z + Math.sin(sTaxi.yaw) * 1.6;
+    sTaxi.v = 10.6;
+    sTaxi.boost = true;
+    for (let f = 0; f < 30; f++) sCollisions.update(1 / 60);
+    sTaxi.staged = false;
+    const repress = events.length - held.bumps;
+    for (let f = 0; f < 60; f++) { sTaxi.braking = false; sTaxi.boost = false; sTraffic.update(1 / 60); }
+    return { after, held, repress, freed: sTaxi.braking === false };
+  };
+  const on = stage(true);
+  const off = stage(false);
+  check('a hit the taxi delivers stops it dead and drops the pill',
+    on.after.event?.taxiStruck && on.after.event.stalled && on.after.v === 0 && on.after.stalled
+      && !on.after.boost,
+    `v ${on.after.v.toFixed(2)}, stalled ${on.after.stalled}, boost ${on.after.boost}`);
+  check('a stalled taxi stays on the brake until the pill is pressed, and is charged once',
+    on.held.stalled && on.held.peakV < 0.01 && on.held.bumps === 1,
+    `peak ${on.held.peakV.toFixed(2)} u/s over 2s, ${on.held.bumps} bumps`);
+  check('clearing the stall hands the brake back', on.freed, `braking ${!on.freed}`);
+  check('the press out of a stall is not charged again on the car it stalled against',
+    on.repress === 0, `${on.repress} more bumps`);
+  check('?bumpstop=classic keeps 45% and never stalls',
+    !off.after.stalled && !off.held.stalled && off.after.v > 1,
+    `v ${off.after.v.toFixed(2)}, stalled ${off.after.stalled}`);
+}
+
 // --- A truck outweighs the taxi ---------------------------------------------
 // The same square T-bone at boost cruise, once into a car and once into a truck (TRUCK_MASS in
 // sim/collisions.js). The truck has to come off the lighter of the two — knocked less far, slewed
@@ -9894,19 +9969,34 @@ function rideToPickup() {
     for (let step = 0; step < 30; step++) twin.update(1 / 60, still, false, true);
     const [b0, b1] = twin.group.children;
     const purple = new THREE.Color(PALETTE.locoFlameDriftOuter);
-    // ...and splayed, so the two read as two from the fixed diagonal camera: parallel sheets 0.9
-    // apart projected nearly on top of each other. Measured as how far apart the tips are.
+    // ...running parallel, and far enough apart to read as two from the fixed diagonal camera:
+    // at 1.2 apart they were once reported as one flame. Measured as how far apart the tips
+    // are, and as the two barrels pointing the same way.
     twin.group.updateMatrixWorld(true);
     const tip = (b) => b.localToWorld(new THREE.Vector3(3, 0, 0));
     const tipGap = tip(b0).distanceTo(tip(b1));
-    const split = twin.group.visible && b1.visible && b1.position.z - b0.position.z > 0.8
-      && tipGap > 2.5 && twin.group.scale.x > 1.5 && twin.materials[0].color.getHex() === purple.getHex();
+    const root = (b) => b.localToWorld(new THREE.Vector3(0, 0, 0));
+    const parallel = Math.abs(root(b0).distanceTo(root(b1)) - tipGap) < 1e-6;
+    const split = twin.group.visible && b1.visible && b1.position.z - b0.position.z > 1.2
+      && tipGap > 1.2 && parallel && twin.group.scale.x > 1.5
+      && twin.materials[0].color.getHex() === purple.getHex();
     for (let step = 0; step < 30; step++) twin.update(1 / 60, still, true, false);
     check('the drift kick splits the flame into two longer violet barrels, and lets them go after',
       split && !twin.group.children[1].visible && Math.abs(twin.group.children[0].position.z) < 1e-6
         && Math.abs(twin.group.children[0].rotation.y) < 1e-6
         && twin.materials[0].color.getHex() === new THREE.Color(PALETTE.locoFlameOuter).getHex(),
-      `split ${split}, tips ${tipGap.toFixed(2)} apart, scale ${twin.group.scale.x.toFixed(2)} after`);
+      `split ${split}, tips ${tipGap.toFixed(2)} apart, parallel ${parallel}, scale ${twin.group.scale.x.toFixed(2)} after`);
+
+    // `?flames=classic` splays the pair into the old V, tips 3.1 apart.
+    setFlameStyle('classic');
+    const vee = createLocoFlame(new THREE.Scene());
+    for (let step = 0; step < 30; step++) vee.update(1 / 60, still, false, true);
+    vee.group.updateMatrixWorld(true);
+    const [v0, v1] = vee.group.children;
+    const veeGap = tip(v0).distanceTo(tip(v1));
+    setFlameStyle(null);
+    check('?flames=classic splays the drift kick\'s barrels into a V', veeGap > 2.5,
+      `tips ${veeGap.toFixed(2)} apart`);
   }
 }
 
@@ -15629,6 +15719,33 @@ let chopperOrder; // likewise
     outsideSpan === 0 && worstLateral < ROAD_W / 2,
     `${outsideSpan} past an end, worst offset ${worstLateral.toFixed(2)} of ${ROAD_W / 2}`);
 
+  // The sawhorses that replaced the spoil heap: one at each end of the hole, on the tarmac, plank
+  // across the road, and never standing on a cone — at the heap's full offset a sawhorse's end
+  // reached 2.25 against a cone row at 2.6 less its 0.31 base.
+  const horses = roadwork.horses;
+  let horseWorst = 0;
+  let horseOut = 0;
+  let horseCone = Infinity;
+  for (const horse of horses) {
+    const along = (horse.x - a.x) * ux + (horse.z - a.z) * uz;
+    const lateral = (horse.x - cx) * uz - (horse.z - cz) * ux;
+    horseWorst = Math.max(horseWorst, Math.abs(lateral) + SAWHORSE_HALF_W);
+    if (along < 0 || along > lane.length) horseOut += 1;
+    for (const cone of roadwork.cones) {
+      // Distance from the cone to the plank's segment, less the cone's base.
+      const px = horse.x - cone.x;
+      const pz = horse.z - cone.z;
+      const ex = Math.cos(horse.yaw);
+      const ez = -Math.sin(horse.yaw);
+      const t = Math.max(-SAWHORSE_HALF_W, Math.min(SAWHORSE_HALF_W, -(px * ex + pz * ez)));
+      horseCone = Math.min(horseCone, Math.hypot(px + ex * t, pz + ez * t) - CONE_BASE_R);
+    }
+  }
+  check('the hole has a sawhorse at each end, on the tarmac and clear of every cone',
+    (ROADWORKS_MODE === 'classic' ? horses.length === 0 : horses.length === 2) && horseOut === 0 && horseWorst < ROAD_W / 2 && horseCone > 0.1,
+    `${horses.length} sawhorses, ${horseOut} past an end, outer end at ${horseWorst.toFixed(2)} `
+    + `of ${ROAD_W / 2}, nearest cone ${horseCone.toFixed(2)}`);
+
   // Two rows rather than a scatter. This was a sine zigzag that wandered across the centreline,
   // which read as cones dropped at random — the order has to be legible before the jitter on top of
   // it reads as a crew having placed them rather than as noise.
@@ -15699,7 +15816,13 @@ let chopperOrder; // likewise
   check('the zone finishes rising out of the road and everything is at rest',
     roadwork.state.phase === 'live' && roadwork.active() === 0);
 
-  // --- The ramp -------------------------------------------------------------
+  // --- The hop ----------------------------------------------------------------
+  // The hop is traffic.js's (`launchHop`), and it outlived the ramp it was built for: the Loco arch
+  // jump and the drawbridge both throw the taxi with it. Under `?roadworks=classic` the barricade
+  // launches it; by default the street has no ramp, so the probe launches it itself off the same
+  // smash, which keeps every assertion below about the arc and the landing honest. What the
+  // default street does on its own is asserted after this, in "Barrelling through".
+  //
   // Driven at two very different speeds, because the arc is paced by distance and the whole point
   // of that is that the two agree. A time-paced hop covers 4.25 units at cruise and 11.5 in
   // overdrive, which is most of a 12-unit lane — the taxi would still be in the air at the line
@@ -15741,7 +15864,14 @@ let chopperOrder; // likewise
     // Frames spent in the landing bounce. The curve itself is asserted separately, off
     // `landingBounce` — see below for why it cannot usefully be measured off the rendered taxi.
     let bounceFrames = 0;
-    runwork.onSmash(() => { smashes += 1; });
+    let launchedByProbe = false;
+    runwork.onSmash(() => {
+      smashes += 1;
+      if (ROADWORKS_MODE !== 'classic' && !launchedByProbe) {
+        launchedByProbe = true;
+        launchHop(taxi);
+      }
+    });
     // Touchdown is published by the traffic model rather than by the site, because the taxi is
     // launched off an arched bridge as well as off a barricade and there is no site there to
     // publish it — see `onTaxiLand` in sim/traffic.js.
@@ -15815,10 +15945,69 @@ let chopperOrder; // likewise
     `lands at ${(BARRIER_S + HOP_LEN).toFixed(2)}, line at ${holdS.toFixed(2)}, `
     + `margin ${margin.toFixed(2)}`);
 
+  check('going through knocks the sawhorses over too',
+    flights.every((f) => f.runwork.horses.length === 0 || f.runwork.horses.some((h) => h.knocked)),
+    flights.map((f) => `${f.runwork.horses.filter((h) => h.knocked).length}/${f.runwork.horses.length}`).join(', '));
+
   check('going through knocks the cones over, and they come to rest',
     flights.every((f) => f.runwork.cones.filter((c) => c.knocked).length >= 4
       && f.runwork.active() === 0),
     flights.map((f) => `${f.runwork.cones.filter((c) => c.knocked).length} knocked`).join(', '));
+
+  // --- Barrelling through ---------------------------------------------------
+  // The default street (2026-11-04) has no ramp. The taxi stays on the road the whole way, so the
+  // claims are the opposite of the hop's: it never leaves the tarmac, it goes through the trestle
+  // at *both* ends (the hop used to carry it over the far one), the rubble throws its body about,
+  // and the bounce is written back to exactly zero once it is over — a jolt left set is a taxi
+  // that rides a tenth of a unit off the road for the rest of the run.
+  if (ROADWORKS_MODE !== 'classic') {
+    const runs = [];
+    for (const boosting of [false, true]) {
+      setClosedLanes([]);
+      const runScene = new THREE.Scene();
+      const runTraffic = createTraffic(makeRng(seed + 212), runScene, 6);
+      const runwork = createRoadwork(makeRng(seed + 211), runScene, null);
+      for (let step = 0; step < 300; step++) runTraffic.update(1 / 60);
+      if (!runwork.place(runTraffic.taxi, runTraffic.cars, [])) continue;
+      while (runwork.state.phase !== 'live') runwork.update(1 / 60, runTraffic.taxi, runTraffic.cars, []);
+      const taxi = runTraffic.taxi;
+      const target = net.laneById.get(runwork.closedLaneIds[0]);
+      const [ti, tj] = target.to.split(',').map(Number);
+      placeCar(taxi, cityNetwork().dirOfLane(target), ti, tj, target.length - 1);
+      taxi.boost = boosting;
+      taxi.v = boosting ? 22 : SPEED;
+      let entries = 0;
+      let exits = 0;
+      let bumps = 0;
+      let hopped = false;
+      let peakJolt = 0;
+      let peakPitch = 0;
+      runwork.onSmash((e) => { if (e.exit) exits += 1; else entries += 1; });
+      runwork.onBump(() => { bumps += 1; });
+      for (let step = 0; step < 60 * 4; step++) {
+        runTraffic.update(1 / 60);
+        runwork.update(1 / 60, taxi, runTraffic.cars, []);
+        if (taxi.hopFrom != null) hopped = true;
+        peakJolt = Math.max(peakJolt, taxi.jolt || 0);
+        peakPitch = Math.max(peakPitch, Math.abs(taxi.joltPitch || 0));
+      }
+      runs.push({
+        boosting, entries, exits, bumps, hopped, peakJolt, peakPitch, runwork,
+        rest: (taxi.jolt || 0) === 0 && (taxi.joltPitch || 0) === 0 && (taxi.joltRoll || 0) === 0,
+      });
+    }
+    const label = (f) => (f.boosting ? 'boost' : 'cruise');
+    check('with no ramp, the taxi stays on the road and smashes the trestle at both ends',
+      runs.length === 2 && runs.every((f) => !f.hopped && f.entries === 1 && f.exits === 1),
+      runs.map((f) => `${label(f)} ${f.entries} in / ${f.exits} out${f.hopped ? ', hopped' : ''}`).join(', '));
+    check('the street has rubble in both lanes, and the taxi bounces over it',
+      runs.every((f) => f.runwork.rubble.length >= 2 && f.runwork.rubble.some((p) => p.hit)
+        && f.bumps >= 1 && f.peakJolt > 0.08 && f.peakJolt < 0.35 && f.peakPitch > 0.02),
+      runs.map((f) => `${label(f)} ${f.runwork.rubble.filter((p) => p.hit).length}/`
+        + `${f.runwork.rubble.length} piles, ${f.bumps} bumps, up ${f.peakJolt.toFixed(2)}`).join(', '));
+    check('...and the bounce is back to exactly zero once it is over',
+      runs.every((f) => f.rest));
+  }
 
   // --- The wreckage ---------------------------------------------------------
   // "More chaotic" is a look, but the two things carrying it are numbers: cones that genuinely
@@ -21465,12 +21654,14 @@ let chopperOrder; // likewise
   // The taxi 2 units short of touchdown at the kick's speed, with a car parked under its landing
   // point (`ahead` units in front of it, along the same lane). Run for two seconds.
   {
-    const crushRun = ({ ahead = 1.4, truck = false, classic = false } = {}) => {
+    const crushRun = ({ ahead = 1.4, truck = false, guest = false, classic = false } = {}) => {
       setCrush(classic ? 'classic' : null);
       const pTraffic = createTraffic(makeRng(seed + 96), new THREE.Scene(), 2);
       const pTaxi = pTraffic.taxi;
       const other = pTraffic.cars.find((c) => c !== pTaxi);
       if (truck) other.isTruck = true;
+      // The garbage truck's arrangement: a truck in traffic its owner draws (`wearSkin`) and wrecks.
+      if (guest) { other.isTruck = true; other.guest = true; other.skin = () => {}; }
       const d = [DIR.PX, DIR.NX, DIR.PZ, DIR.NZ].find((dd) => placeCar(pTaxi, dd, 2, 2, 14));
       placeCar(other, d, 2, 2, 14 - ahead);
       other.v = 0;
@@ -21506,8 +21697,13 @@ let chopperOrder; // likewise
       p.otherCrashed && p.minV > 25 && p.moved > 50,
       `car crashed ${p.otherCrashed}, slowest ${p.minV.toFixed(1)} u/s, ${p.moved.toFixed(1)} units in 2s`);
     const truck = crushRun({ truck: true });
-    check('a truck under the landing is still a hit', truck.crush === 0 && truck.hp < TAXI_HP,
-      `crush ${truck.crush}, hp ${truck.hp}`);
+    check('a truck under the landing is crushed too, and the taxi loses nothing',
+      truck.crush === 1 && truck.otherCrashed && truck.hp === TAXI_HP && truck.wrecks === 0,
+      `crush ${truck.crush}, hp ${truck.hp}, wrecks ${truck.wrecks}`);
+    const guestTruck = crushRun({ guest: true });
+    check('...and so is a guest truck its owner draws (the garbage truck, the fire engine)',
+      guestTruck.crush === 1 && guestTruck.otherCrashed && guestTruck.hp === TAXI_HP,
+      `crush ${guestTruck.crush}, hp ${guestTruck.hp}`);
     const far = crushRun({ ahead: 7 });
     check('...and a car a few units past the touchdown is not landed on, so is not crushed',
       far.crush === 0 && !far.otherCrashed, `crush ${far.crush}, hp ${far.hp}`);
@@ -23124,6 +23320,134 @@ let chopperOrder; // likewise
   clearCityOccluders();
 }
 
+// --- The robo-taxis ---------------------------------------------------------------
+//
+// game/robotaxi.js: two slow driverless cabs that drive at waiting riders and take them. Run with
+// the taxi standing still and the clocks pinned long, so every rider that leaves the board is one
+// a robo-taxi took — and checked for what would be silent: a robot faster than its rule, two of
+// them after one rider, a steal on the move or of a rider it may not take, a strike for one.
+{
+  // The shell is hand-lofted, so its winding is asserted rather than eyeballed (CLAUDE.md): every
+  // triangle's normal *from its winding* points away from the middle of the car.
+  let tris = 0;
+  let inward = 0;
+  const a = new THREE.Vector3();
+  const b = new THREE.Vector3();
+  const c = new THREE.Vector3();
+  const n = new THREE.Vector3();
+  for (const g of roboShellParts(CAR_LEN, CAR_W)) {
+    const p = g.attributes.position;
+    for (let f = 0; f < p.count; f += 3) {
+      a.fromBufferAttribute(p, f); b.fromBufferAttribute(p, f + 1); c.fromBufferAttribute(p, f + 2);
+      n.subVectors(c, b).cross(a.clone().sub(b));
+      if (n.lengthSq() < 1e-12) continue;
+      // Out from the middle of the car: the bubble is star-shaped about it.
+      const out = new THREE.Vector3((a.x + b.x + c.x) / 3, (a.y + b.y + c.y) / 3 - 1.45, (a.z + b.z + c.z) / 3);
+      tris += 1;
+      if (n.dot(out) <= 0) inward += 1;
+    }
+    g.dispose();
+  }
+  check('robo-taxi: the shell and its glass are wound to face out', tris > 1000 && inward / tris < 0.01,
+    `${inward}/${tris} triangles face in`);
+  {
+    // The belly band is indexed, so the winding is read off the index (CLAUDE.md); out is away
+    // from the pod's vertical axis, which the band's outline is star-shaped about.
+    const g = roboBandGeometry(CAR_LEN);
+    const p = g.attributes.position;
+    const idx = g.index.array;
+    let ringIn = 0;
+    for (let f = 0; f < idx.length; f += 3) {
+      a.fromBufferAttribute(p, idx[f]); b.fromBufferAttribute(p, idx[f + 1]); c.fromBufferAttribute(p, idx[f + 2]);
+      n.subVectors(b, a).cross(c.clone().sub(a));
+      const mid = a.clone().add(b).add(c);
+      if (n.x * mid.x + n.z * mid.z <= 0) ringIn += 1;
+    }
+    const trace = g.attributes.aTrace.array;
+    // The wheel wells' liners face their axles, or the opening shows the outside of a tube.
+    let linerOut = 0;
+    let linerTris = 0;
+    for (const liner of roboWellLiners(CAR_LEN, CAR_W)) {
+      const lp = liner.attributes.position;
+      const { x: ax, y: ay } = liner.userData.wellLiner;
+      for (let f = 0; f < lp.count; f += 3) {
+        a.fromBufferAttribute(lp, f); b.fromBufferAttribute(lp, f + 1); c.fromBufferAttribute(lp, f + 2);
+        n.subVectors(b, a).cross(c.clone().sub(a));
+        const mx = (a.x + b.x + c.x) / 3 - ax;
+        const my = (a.y + b.y + c.y) / 3 - ay;
+        linerTris += 1;
+        if (n.x * mx + n.y * my >= 0) linerOut += 1;
+      }
+      liner.dispose();
+    }
+    check('robo-taxi: its wheel wells are lined facing in', linerTris > 0 && linerOut === 0,
+      `${linerOut}/${linerTris} liner triangles face away from the axle`);
+    check('robo-taxi: the belly band faces out, and its trace runs once round from 0 to 1',
+      idx.length > 0 && ringIn === 0 && trace[0] === 0 && Math.abs(trace[trace.length - 1] - 1) < 1e-6,
+      `${ringIn}/${idx.length / 3} band triangles face in`);
+    g.dispose();
+  }
+
+  setCityOccluders(buildings.mesh);
+  const rScene = new THREE.Scene();
+  const rTraffic = createTraffic(makeRng(seed + 760), rScene, 24, 24);
+  for (let step = 0; step < 120; step++) rTraffic.update(1 / 60);
+  const rFares = createFareSystem(makeRng(seed + 761), rScene);
+  setFareSeconds(900);
+  rFares.state.delivered = 1;
+  const robos = createRoboTaxis({ rng: makeRng(seed + 762), scene: rScene, traffic: rTraffic, fares: rFares, soon: true });
+  let fastest = 0;
+  let shared = 0;
+  let movingSteals = 0;
+  let badSteals = 0;
+  let steals = 0;
+  let movingDrops = 0;
+  let roboUturns = 0;
+  const turning = new Set();
+  for (let step = 0; step < 60 * 240; step++) {
+    rTraffic.update(1 / 60);
+    const allowed = new Set(rFares.stealable());
+    const board = [...rFares.state.fares];
+    const before = robos.state.stolen;
+    const droppedBefore = robos.state.delivered;
+    for (const e of rFares.update(1 / 60, rTraffic.taxi)) if (e.type === 'stolen') steals += 1;
+    robos.update(1 / 60);
+    if (robos.state.delivered > droppedBefore) {
+      for (const r of robos.state.robos) {
+        if (r.phase !== 'drop' || r.t > 0) continue;
+        if (r.car.v >= 0.1) movingDrops += 1;
+      }
+    }
+    if (robos.state.stolen > before) {
+      for (const r of robos.state.robos) {
+        if (r.phase !== 'board' || r.t > 0) continue;
+        if (r.car.v >= 0.1) movingSteals += 1;
+      }
+      // Whatever just left the board has to have been a rider the robots may take.
+      for (const f of board) if (!rFares.state.fares.includes(f) && !allowed.has(f)) badSteals += 1;
+    }
+    for (const car of robos.cars()) fastest = Math.max(fastest, car.v);
+    for (const car of robos.cars()) {
+      if (car.uturn && !turning.has(car)) { roboUturns += 1; turning.add(car); }
+      if (!car.uturn) turning.delete(car);
+    }
+    const targets = robos.state.robos.map((r) => r.target).filter(Boolean);
+    if (new Set(targets).size !== targets.length) shared += 1;
+  }
+  check('robo-taxis: they take waiting riders, standing still at the corner, never two after one rider',
+    robos.state.stolen >= 2 && steals === robos.state.stolen && movingSteals === 0 && shared === 0 && badSteals === 0,
+    `${robos.state.stolen} taken in 240s (${steals} events), ${movingSteals} on the move, ${shared} frames sharing a rider`);
+  // Tyler, 2026-11-07: "I don't think robo taxis should u-turn." They drive the lap instead.
+  check('robo-taxis: they drive the riders they take to their drop-offs and let them out standing still, never turning round',
+    robos.state.delivered >= 1 && movingDrops === 0 && roboUturns === 0,
+    `${robos.state.delivered} dropped off of ${robos.state.stolen} taken, ${movingDrops} on the move, ${roboUturns} U-turns`);
+  check('robo-taxis: never over ROBO_SPEED, and a steal is no strike',
+    fastest <= ROBO_SPEED + 1e-6 && rFares.state.strikes === 0,
+    `fastest ${fastest.toFixed(2)} against ${ROBO_SPEED.toFixed(2)}, ${rFares.state.strikes} strikes`);
+  setFareSeconds(null);
+  clearCityOccluders();
+}
+
 // --- The combo meter ------------------------------------------------------------
 //
 // game/combometer.js on its own: what steps it, what empties it, and what each scope keeps.
@@ -23831,8 +24155,11 @@ let chopperOrder; // likewise
   }).length;
   const driverWrong = classic.ambient.filter((car) =>
     (scaleAt(classic.classicInteriorMesh, car.instanceIndex) > 0.5) !== (classic.modelOf(car) === 'convertible')).length;
+  // In the scene, too: the matrices were right for weeks while the mesh was never added, and a
+  // driver written to an InstancedMesh nothing draws is no driver.
+  const notAdded = classic.classicDrawn.filter((inst) => inst.parent !== classicScene).length;
   check('classics: every convertible has a driver in it, and nothing else does',
-    driverWrong === 0, `${driverWrong} wrong`);
+    driverWrong === 0 && notAdded === 0, `${driverWrong} wrong, ${notAdded} classic meshes not in the scene`);
   const kinds = new Set(models.map((car) => car.model));
   check('classics: each car is drawn by exactly one body, and both models turn up',
     wrong === 0 && kinds.size === 2, `${wrong} cars drawn wrong, models ${[...kinds].join('/')}`);

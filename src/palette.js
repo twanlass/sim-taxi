@@ -394,6 +394,20 @@ export const PALETTE = {
   hubcap: '#C4C8CC',
   // The bumpers (geometry/bumpers.js) — metal too, and a step brighter than the hubcaps: chrome.
   bumperChrome: '#E6EAEE',
+  // The robo-taxi (geometry/robotaxi.js): a rounded retro bubble car in brushed silver on the metal
+  // finish, so the sky and the skyline slide across it — the one car in town that is all mirror.
+  // Its glass a shade bluer than the fleet's so the band reads as tinted, its sensor dark, and its
+  // status lamps a cold cyan that no other light in the game uses: cyan means "robot".
+  roboSilver: '#BCC2C9',
+  roboTrim: '#8E969E',
+  roboGlass: '#2B3C4E',
+  roboSensor: '#22262C',
+  roboGlow: '#3FE9FF',
+  // `?robodebug` (game/robodebug.js): a robo-taxi's route while it hunts, and while it carries.
+  roboDebugHunt: '#3FE9FF',
+  roboDebugRide: '#FF4FD8',
+  // Its frog-eye lamps: a pale glass lens in a chrome cup.
+  headlightLens: '#EEF4FA',
   // A box truck's cab is painted from carBody, same colorIndex and everything — one taxi-company
   // fleet's palette covers both, and it is what makes a truck read as "one more vehicle in this
   // traffic" rather than a prop dropped in from elsewhere. Only the cargo box breaks from that: it
@@ -1049,6 +1063,17 @@ export const PALETTE = {
   dogTag: '#F2C14E',
   vetNeonBlue: '#3D8BFF',
   vetNeonRed: '#FF3348',
+  // The rooftop billboards (city/billboard.js; the posters' own colours are in city/billboardart.js,
+  // which paints them). The steel is painted a dark bottle green, as hoarding structures often are:
+  // galvanised grey was `rooftop` to within 3 in every channel and the frame vanished into the roof
+  // (Tyler, 2026-11-04). Paper is the headless stand-in for the art.
+  billboardPaper: '#F2EDE2',
+  billboardBack: '#22302B',
+  billboardSteel: '#2E4038',
+  billboardWalk: '#3A4C44',
+  billboardLamp: '#FFF2CC',
+  // The lamps' beams, additive: warm, and dim, because they add to whatever is behind them.
+  billboardBeam: '#4A3D24',
   // The tube man at the car wash (game/tubeman.js), off the photo Tyler sent: a fire-engine
   // red tube, a shock of yellow streamers for hair and the same yellow on the cuffs, a white
   // cartoon face, and a dark blower box under him.
@@ -1353,6 +1378,9 @@ export const PALETTE = {
   // Dug-up spoil: the road base under the asphalt, not garden soil. Browner than the kerb and
   // darker than the sidewalk, so the heap has an edge against both.
   spoil: '#7C6A52',
+  // Broken-up road in the closed street's lanes, which the taxi bounces over: chunks of the asphalt
+  // a little paler than the road they came out of, so a pile has an edge against it.
+  rubble: '#6F7178',
   // The hole the spoil came out of, painted flat on the road.
   trench: '#3E3B37',
   // The ramp leaning on the barricade. It borrowed the spoil's brown at first and read as a mud

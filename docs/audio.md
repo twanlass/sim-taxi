@@ -395,7 +395,11 @@ on the next frame. Only the station goes through it: the ⚙️ panel's track pr
   suspends it too. The robber's line freezes the world the same way but **not** the sound: a
   suspend there cut the robber's cab door off mid-sample (a click and a ding) and the radio with
   it, which read as the game breaking. The radio ducks under the line instead (`robberDucked` in
-  `src/main.js`). The New Move card after a run doesn't hold it either: the run's taxi and radio
+  `src/main.js`). Since nothing calls `sfx.update` under that freeze or the bank job's cut before
+  it, both call `sfx.still()` every frame, which settles the engine to a cab at the kerb: the Loco
+  hold and its loop out, the idle at its resting pitch, the blinker quiet. Without it a taxi that
+  Loco'd into the bank kept revving through the whole cut. A pill still held when the world lets
+  go fades its loop back in without the activate. The New Move card after a run doesn't hold it either: the run's taxi and radio
   are already silent by then, and the city's beds come back up under the card (`cityAudio` in
   `src/main.js`, the `city` flag on `sfx.update`). A mid-run card (`?newmove=classic`) still holds.
 - **Coming back from another app.** Showing the page again resumes the context, and every tap

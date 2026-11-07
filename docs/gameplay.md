@@ -2025,9 +2025,11 @@ shell is consumed under them (`game/vanish.js`) rather than left in the road, be
 on. The taxi takes no damage, keeps its speed and drives on, and the meter gets +1 on top of Big
 Air's +2, labelled after it. It's only one step because where Big Air lands is mostly luck. It
 counts on the descent of the arc and for a car length past the touchdown (`crushing` in
-`sim/collisions.js`). Further on, the taxi is driving into the car and it is a hit. Only ordinary
-cars and cops count. A truck is too tall to land on, and the patrol cruiser and the racer belong to
-modules that run their own lives. A crushed car leaves the fleet for the rest of the run.
+`sim/collisions.js`). Further on, the taxi is driving into the car and it is a hit. Anything on the
+road counts, Mega Air included: cars, cops, box trucks, the garbage truck, the fire engine, the
+patrol cruiser and the racer (Tyler, 2026-11-07, landing on the garbage truck: "it did not
+explode"). Only a cut scene's staged car is left out. A crushed car leaves the fleet for the rest
+of the run; a guest's owner sends another one later, as it does after any wreck.
 `?crush=classic` charges the landing as a hit again.
 
 The crush splashes (Tyler, 2026-10-25: "if there is a car within ... a taxi's length-and-a-half
@@ -2041,9 +2043,8 @@ pop one at a time, nearest first, 0.14s after the crush and 0.12s apart (`CRUSH_
 and each shakes harder than the last, up to the wreck's 2.4. After the last pop, **Pile-Up** lands
 on the meter at +0.5 a car, labelled "Pile-Up ×N". It's one ring, not a chain where each car sets
 off its neighbours: that would take a whole queue at a red, and every car it takes leaves the fleet.
-Trucks count in the splash, though not under the landing, because the taxi never touches a truck
-caught in the blast; a box truck spills its load. Cops count like any car. The patrol cruiser, the
-racer, guests and staged cars don't. `?crushsplash=classic` crushes the one car.
+The splash takes what the landing takes: trucks (a box truck spills its load), cops, the guests. Staged
+cars don't. `?crushsplash=classic` crushes the one car.
 
 The whole crush plays in slow motion (Tyler, 2026-10-25: "we need to do a little bit of slow mo
 there to really sell that effect"; `game/crushslowmo.js`). The clock drops straight to 0.3x on the
@@ -2060,7 +2061,8 @@ over an arch. It pays once per landing, so Crushin' It adds a step and no more f
 the refund lands with or without a job. `?bigairfuel=classic` lands with nothing.
 
 Stuntman is smashing through a [roadworks](traffic.md#roadworks-a-street-closed-at-both-ends)
-barricade, at any speed (Tyler, 2026-10-14). It also pays a sixth of the Loco tank back on the
+barricade, at any speed (Tyler, 2026-10-14). Once per street: since the ramp went (2026-11-04) the
+taxi drives out through the far trestle too, and that one pays nothing. It also pays a sixth of the Loco tank back on the
 energy bits a drift kick uses, the same refund as the first kick of a chain (`DRIFT_CHAIN.fuel[0]`).
 The refund lands whether or not there is a job in hand; the step, like every combo, only on one.
 The zone comes up once a run, so this is a once-a-run move; the router already prices the closed
@@ -2125,6 +2127,54 @@ is the 1× column.
 Calibration: median trip in the current city is ~5 blocks, which pays `$20` — the old flat rate —
 so the soak suite's expected earnings are roughly where a flat fare put them. History:
 [priced by the trip](gameplay-history.md#priced-by-the-trip).
+
+## Robo-taxis
+
+The city council's driverless cabs (game/robotaxi.js, body in geometry/robotaxi.js): two of them,
+on the map from the first drop-off, and they **take your riders**. `?robotaxi=classic` turns them
+off; `?robotaxi=soon` brings them on from the start. In Story they stay off the road on every day of the week, because they
+roll out at Monday's buzzer ([the week](#the-week), days.js `robo`); Arcade has them, and `soon` overrides
+the day.
+
+**What one is.** A guest car in traffic wearing a pod with no front or back, drawn at the taxi's
+size (`ROBO_SCALE`, the taxi's 1.18) so it reads as a little minivan rather than a small car: an elongated box with
+domed ends and rounded sides, the same shape both ways, so you cannot tell which way it is about to
+go. Everything above the beltline is one dark glass canopy all the way round; below it is silver,
+with real wheel wells cut into it (a dark lined opening with a trim lip round it) over four
+smooth ball tyres, a sensor puck on the roof wearing a cyan ring, and a
+thin cyan belly band all the way round just under the glass, with two points of light chasing round
+it (a shader on the band, `bandMaterial`; the bloom's copy inherits it, so the glow chases too). The silver is the one `FINISH.CHROME` part
+in the game (util/geo.js): metal with most of its diffuse traded for mirror, so the sky and the
+skyline do the colouring. Cyan is the robot's colour and nothing else in the game uses it.
+
+**How it drives.** `car.robo` is all the traffic model knows (sim/traffic.js): `ROBO_SPEED`
+(0.55 of a car's cruise, slower than a truck), a crawl round corners, a gentle pull-away, and
+`ROBO_STOP_DWELL` — a two-second halt at every all-way stop, under `STOP_DWELL + STOP_PATIENCE` so
+the other streets still wait their turn behind it. Every number is a fixed rule of the car; it never
+reacts to the taxi. It queues, can be bumped and can be wrecked like any car; a wreck sends a
+replacement 25 s later. It routes with the taxi's own router (`findRoute`, on the non-taxi `serviceLaneCost`), and
+never turns round in the road: a rider behind it costs the real lap, which is why it picks riders by road
+distance rather than straight-line distance.
+
+**How it steals.** With its seat empty it picks the waiting rider it can reach soonest *by road*
+from where it is (never one another robo-taxi has picked, and never the player's choice; by
+straight-line distance it chose riders behind it and drove a lap of the island to reach them), marks them with a breathing cyan ring
+on the kerb, and drives at their junction. If it brakes to the hold line there before the taxi
+collects them, the rider runs over and hops in (`fares.steal`), the fare leaves the board with **no
+strike** and the streak breaks — "Rider stolen!". Then it is a taxi: it drives them to the
+drop-off they would have asked you for (drawn when they spawned, never shown on the board), stops
+at that junction's hold line, and they get out and walk to the kerb on the delivered rider's own
+animation (`fares.robotDropoff`; the exit entry holds the board slot for the whole ride). Then it
+hunts again. A wreck loses the rider with it. `?robodebug` draws each one's route and goal: cyan
+while it hunts, magenta while it carries (game/robodebug.js). It never takes the first rider of a run, a VIP, the bank rider or a
+robber (`fares.stealable`).
+
+Slow is the counterplay: a rider marked cyan is a race the taxi nearly always wins if it goes. A
+headless run with the taxi standing still and the clocks pinned measured 4 steals in 240 s from the
+two of them, and all 4 riders dropped off.
+
+Not yet: they arrive on every run, where the story has them arriving on Monday — once days ship
+(#760) they should appear from Monday on, and the board should grow to give them something to take.
 
 ## VIP pickups
 
@@ -2979,7 +3029,11 @@ line waypoint cut to black"), behind the same wipe as the start: the winner is p
 front of a side street near where it finished, **facing the way they raced** (`homeDir`, the heading
 the winner crossed the line on; Tyler: "make sure both cars face the same direction"), and the loser
 is put a block back on the same street, rolling at `ARRIVAL_ROLL` (`chooseArrival`, by the start's
-rules: clear of traffic, off the water, in sight). The street is one lane each way, so as at the
+rules: clear of traffic, off the water, in sight — and with nothing crossing or queued within
+`ARRIVAL_BOX_CLEAR` (12) of the corner the loser comes round, because the racer rolls in out in the
+oncoming lane, which is the lane a car turning off the cross street turns into; the two used to edge
+round each other in the mouth of it, and "You won!" came up with the racer stood in a crosswalk a
+block short on 4 of 129 headless wins, 7 more taking 3 to 7s to arrive). The street is one lane each way, so as at the
 start the racer is the one in the oncoming lane: on the cop pass's offset (`racePass`), held out
 there by `parkedOut` until the money has moved, whichever of them won. The winner stands at least
 `ARRIVAL_CLEAR` (7.5) up its lane, past what the junction's box check keeps clear of a landing

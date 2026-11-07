@@ -296,6 +296,12 @@ export const SHOTS = [
   // picks the look. Appended, for the index reason.
   { name: 'plaza', description: 'the brick plaza junction, close', target: [0, 0], zoom: 14, warmup: 12, atPlaza: true },
   { name: 'plaza-far', description: 'the brick plaza junction at play zoom', target: [0, 0], zoom: 52, warmup: 12, atPlaza: true },
+  // The rooftop billboard (city/billboard.js): close enough to read the strap line, and at play
+  // zoom, where only the headline has to. Appended, for the index reason.
+  { name: 'billboard', description: 'the robo-taxi billboard, close', target: [0, 0], zoom: 12, warmup: 12, atBillboard: 1 },
+  { name: 'billboard-far', description: 'the robo-taxi billboard at play zoom', target: [0, 0], zoom: 52, warmup: 12, atBillboard: 1 },
+  { name: 'billboard-burger', description: 'the Dub Burger billboard, close', target: [0, 0], zoom: 12, warmup: 12, atBillboard: 2 },
+  { name: 'billboard-burger-far', description: 'the Dub Burger billboard at play zoom', target: [0, 0], zoom: 52, warmup: 12, atBillboard: 2 },
 ];
 
 export function getActiveShot() {

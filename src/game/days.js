@@ -24,14 +24,16 @@
  * `bank`: 'off' — no bank rider at all; 'on' — the ordinary chance; 'force' — the bank rider is the
  * first spawn the bank is allowed and is always the robbery (what demo mode does).
  * `race`: whether a racer can turn up.
+ * `robo`: whether the robo-taxis are on the road. They roll out at Monday's buzzer, so no day in
+ * the week has them yet; the first day after it will.
  */
 export const DAYS = Object.freeze([
-  { key: 'fri', name: 'Friday', seconds: 150, target: 150, floor: 0, bank: 'off', race: false },
-  { key: 'sat', name: 'Saturday', seconds: 150, target: 250, floor: 0.15, bank: 'off', race: true },
+  { key: 'fri', name: 'Friday', seconds: 150, target: 150, floor: 0, bank: 'off', race: false, robo: false },
+  { key: 'sat', name: 'Saturday', seconds: 150, target: 250, floor: 0.15, bank: 'off', race: true, robo: false },
   // The bank's closed on a Sunday.
-  { key: 'sun', name: 'Sunday', seconds: 150, target: 300, floor: 0.3, bank: 'off', race: true },
+  { key: 'sun', name: 'Sunday', seconds: 150, target: 300, floor: 0.3, bank: 'off', race: true, robo: false },
   // The robbery, guaranteed; the robo-taxis roll out at Monday's buzzer (not built yet).
-  { key: 'mon', name: 'Monday', seconds: 150, target: 400, floor: 0.4, bank: 'force', race: true },
+  { key: 'mon', name: 'Monday', seconds: 150, target: 400, floor: 0.4, bank: 'force', race: true, robo: false },
 ]);
 
 const STORE_KEY = 'simtaxi.days';

@@ -953,6 +953,34 @@ units, under half a screen pixel, so the word lands as the same red smudge the b
 The model workshop has it as **Vet clinic**: the city's own tower generator building a shop on
 the bench block, with the sign on it.
 
+## The rooftop billboard
+
+Up to two flat roofs per city carry an advertising hoarding (`city/billboard.js`), one per ad: the
+robo-taxis' teaser (**MONDAY.** under a teal band with a little robo-taxi pod and "ROBO-TAXIS
+ARRIVE") and **Dub Burger**, the city's own drive-through advertising itself (its turning sign's
+burger on the building's red, and "We take cash or Bitcoin," the speaker's line). Each stands on dark bottle-green steel (galvanised grey matched the roof and vanished)
+with raking braces, a catwalk and three lamps, which bloom as `window` and throw a faint additive
+beam each up onto the paper. The building is untouched; `chooseBillboardSite` picks roofs after the
+vet clinic, by rule and hash, so no draw moves. `?billboard=classic` leaves both off.
+
+**The posters** are vector art painted on a canvas in Space Grotesk 700 (`city/billboardart.js`),
+used as the paper's map and, at 0.22, its emissive map, so a poster reads a step brighter than its
+roof. The lamps' light on the paper is painted into the canvas (a warm fan under each lamp) rather
+than lit, because a real light would re-resolve every program in the city. At play zoom a world
+unit is ~7.7px and the poster is ~23px tall, so each layout is built round one headline that fills
+most of it; everything smaller is for pinching in. With no canvas (the headless tools) the paper is
+plain.
+
+**Which roofs.** A board stands across its deck's *diagonal*, face square to the camera; along a
+street it would be read at 45° and lose a third of its width. The widest decks win (up to 8 units
+of board, never under 5.6), the posts draw in where a deck is narrow and the ends cantilever up to
+0.5 past the lip, and a ray from each corner of the face has to reach the camera past every other
+tower (`clearOf`, shared with the vet). The second board has to stand 30 units from the first, so
+the two never share a view. Over 30 seeds every city gets the robo-taxi board and 19 get Dub Burger
+as well. The steel and the poster go into the sightline field, so no fare is placed on a corner a
+board hides. Shots `billboard`/`billboard-far` frame the first, `billboard-burger`/`billboard-burger-far`
+the second.
+
 ## The roadside lot, and its tube man
 
 The fourth block taken from the tower generator (`city/roadside.js`, `?roadside=classic` to give it
