@@ -21464,12 +21464,14 @@ let chopperOrder; // likewise
   // The taxi 2 units short of touchdown at the kick's speed, with a car parked under its landing
   // point (`ahead` units in front of it, along the same lane). Run for two seconds.
   {
-    const crushRun = ({ ahead = 1.4, truck = false, classic = false } = {}) => {
+    const crushRun = ({ ahead = 1.4, truck = false, guest = false, classic = false } = {}) => {
       setCrush(classic ? 'classic' : null);
       const pTraffic = createTraffic(makeRng(seed + 96), new THREE.Scene(), 2);
       const pTaxi = pTraffic.taxi;
       const other = pTraffic.cars.find((c) => c !== pTaxi);
       if (truck) other.isTruck = true;
+      // The garbage truck's arrangement: a truck in traffic its owner draws (`wearSkin`) and wrecks.
+      if (guest) { other.isTruck = true; other.guest = true; other.skin = () => {}; }
       const d = [DIR.PX, DIR.NX, DIR.PZ, DIR.NZ].find((dd) => placeCar(pTaxi, dd, 2, 2, 14));
       placeCar(other, d, 2, 2, 14 - ahead);
       other.v = 0;
@@ -21505,8 +21507,13 @@ let chopperOrder; // likewise
       p.otherCrashed && p.minV > 25 && p.moved > 50,
       `car crashed ${p.otherCrashed}, slowest ${p.minV.toFixed(1)} u/s, ${p.moved.toFixed(1)} units in 2s`);
     const truck = crushRun({ truck: true });
-    check('a truck under the landing is still a hit', truck.crush === 0 && truck.hp < TAXI_HP,
-      `crush ${truck.crush}, hp ${truck.hp}`);
+    check('a truck under the landing is crushed too, and the taxi loses nothing',
+      truck.crush === 1 && truck.otherCrashed && truck.hp === TAXI_HP && truck.wrecks === 0,
+      `crush ${truck.crush}, hp ${truck.hp}, wrecks ${truck.wrecks}`);
+    const guestTruck = crushRun({ guest: true });
+    check('...and so is a guest truck its owner draws (the garbage truck, the fire engine)',
+      guestTruck.crush === 1 && guestTruck.otherCrashed && guestTruck.hp === TAXI_HP,
+      `crush ${guestTruck.crush}, hp ${guestTruck.hp}`);
     const far = crushRun({ ahead: 7 });
     check('...and a car a few units past the touchdown is not landed on, so is not crushed',
       far.crush === 0 && !far.otherCrashed, `crush ${far.crush}, hp ${far.hp}`);

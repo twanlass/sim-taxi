@@ -208,9 +208,16 @@ const REHIT = 0.35;          // s
 // arc ends is under it, not in front of it. A car length: at 31 u/s that is 0.11s, and anything
 // met further on is the taxi driving into it, which is still a hit.
 //
-// Not a truck: its box stands 2.7 tall, and the taxi coming down on it is a car flying into a wall.
-// Not anything drawn by somebody else's mesh (the patrol cruiser, the racer, a guest), whose owners
-// run their own lives and would be left holding a car the sim had dropped — nor a staged car.
+// Trucks and guests count too (Tyler, 2026-11-07: Mega Air came down on the garbage truck and
+// it "did not explode"). The first cut left out trucks — "its box stands 2.7 tall, and the taxi
+// coming down on it is a car flying into a wall" — and anything drawn by somebody else's mesh (the
+// patrol cruiser, the racer, the garbage truck, the fire engine), on the grounds that its owner
+// would be left holding a car the sim had dropped. The second reason had stopped being true: a
+// lethal hit already wrecks every one of them through the same `wreckShell`/`guestWreck` path, and
+// each owner already lets go of a `crashed` car (garbage.js, fire.js, race.js, sim/police.js). And
+// the first read as a bug from the player's chair: the move is "land on it and it blows up", and
+// the biggest thing on the road was the one thing it would not blow up. Only a staged car (a cut
+// scene's) is left out.
 const CRUSH_AFTER = CAR_LEN;
 let crushOn = true;
 
@@ -227,10 +234,8 @@ let crushOn = true;
 // sets off its own neighbours: a chain of that kind takes a whole queue at a red, and every car it
 // takes leaves the fleet for the rest of the run.
 //
-// Trucks count here where they do not under the landing. What rules a truck out of being landed on
-// is the taxi meeting a 2.7-tall box; a truck caught in the blast is never touched by the taxi at
-// all. The patrol cruiser, the racer, guests and staged cars stay out for the reason they are out of
-// `crushable`: their owners would be left holding a car the sim had dropped.
+// The splash takes exactly what the landing does (`crushable`): trucks, guests and cops included,
+// staged cars not.
 //
 // The cars are `crashed` on the frame of the crush, so they stop dead and nothing — the taxi
 // included — can hit them, and handed to the listener nearest first. When each one goes up is
@@ -248,9 +253,6 @@ export function setCrushSplash(name) {
   splashOn = name !== 'classic';
 }
 
-/** Whether `car` is caught in a crush's splash: what `crushable` allows, plus trucks. */
-const splashable = (car) => !car.skin && !car.guest && !car.staged && !car.isTaxi && !car.crashed;
-
 /** Whether the taxi is coming down on whatever it touches, rather than driving into it. */
 export function crushing(taxi) {
   if (!crushOn) return false;
@@ -258,9 +260,8 @@ export function crushing(taxi) {
   return taxi.slamAt != null && taxi.travelled - taxi.slamAt < CRUSH_AFTER;
 }
 
-/** Whether `car` can be crushed: an ordinary car or cop in the ambient instances. */
-export const crushable = (car) => !car.isTruck && !car.skin && !car.guest && !car.staged
-  && !car.isTaxi && !car.crashed;
+/** Whether `car` can be crushed, or caught in a crush's splash: anything but a staged car. */
+export const crushable = (car) => !car.staged && !car.isTaxi && !car.crashed;
 
 /**
  * @param lethalPolice  a charged hit on a police car empties the taxi's HP on the spot, so it is
@@ -430,7 +431,7 @@ export function createCollisions(cars, taxi, { lethalPolice = false } = {}) {
     const splash = [];
     if (splashOn) {
       for (const car of cars) {
-        if (car === other || !splashable(car)) continue;
+        if (car === other || !crushable(car)) continue;
         const dist = Math.hypot(car.x - other.x, car.z - other.z);
         if (dist > CRUSH_SPLASH) continue;
         splash.push({ car, dist });
