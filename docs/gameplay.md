@@ -2060,10 +2060,12 @@ skyline do the colouring. Cyan is the robot's colour and nothing else in the gam
 `ROBO_STOP_DWELL` — a two-second halt at every all-way stop, under `STOP_DWELL + STOP_PATIENCE` so
 the other streets still wait their turn behind it. Every number is a fixed rule of the car; it never
 reacts to the taxi. It queues, can be bumped and can be wrecked like any car; a wreck sends a
-replacement 25 s later.
+replacement 25 s later. It routes with the taxi's own router (`findRoute`, on the non-taxi `serviceLaneCost`), and
+turns round in the road when that saves a lap, on the cops' rule (two legs) and at its own speed.
 
-**How it steals.** With its seat empty it picks the waiting rider nearest to *itself* (never one
-another robo-taxi has picked, and never the player's choice), marks them with a breathing cyan ring
+**How it steals.** With its seat empty it picks the waiting rider it can reach soonest *by road*
+from where it is (never one another robo-taxi has picked, and never the player's choice; by
+straight-line distance it chose riders behind it and drove a lap of the island to reach them), marks them with a breathing cyan ring
 on the kerb, and drives at their junction. If it brakes to the hold line there before the taxi
 collects them, the rider runs over and hops in (`fares.steal`), the fare leaves the board with **no
 strike** and the streak breaks — "Rider stolen!". Then it is a taxi: it drives them to the

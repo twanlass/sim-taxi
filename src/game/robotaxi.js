@@ -1,12 +1,12 @@
 import * as THREE from 'three';
 import { cityNetwork } from '../city/roadnet.js';
 import { KERB_H } from '../city/ground.js';
-import { lineX, lineZ } from '../city/grid.js';
+import { lineX, lineZ, opposite } from '../city/grid.js';
 import { cloneProp, unlitMaterial } from '../util/geo.js';
 import { PALETTE } from '../palette.js';
 import { CAR_LEN, CAR_W, ROBO_SPEED, STOP_SETBACK, stopDistance } from '../sim/traffic.js';
 import { createRoboTaxiMesh, ROBO_SCALE, ROBO_BAND_TIME, BALL_R } from '../geometry/robotaxi.js';
-import { findRoute, planOrigin } from './route.js';
+import { findRoute, planOrigin, serviceLaneCost } from './route.js';
 import { BOARD_SECONDS, cornerFor, kerbFor } from './fares.js';
 import { markOccluder } from './ssao.js';
 
@@ -36,6 +36,14 @@ import { markOccluder } from './ssao.js';
 
 /** How many are about at once. */
 export const ROBO_COUNT = 2;
+
+/**
+ * Turning round in the road (the U-turn every routed car has, `uturnWanted` in sim/traffic.js) has
+ * to save this many legs, the lap round the block — the cops' rule (UTURN_LEGS, game/route.js) —
+ * and not twice inside UTURN_SETTLE seconds, which reads as lost.
+ */
+const UTURN_LEGS = 2;
+const UTURN_SETTLE = 4;
 
 /** The robo-taxi stays stopped at the drop-off while the rider gets out and clears the car. */
 const DROP_HOLD = 1.6;
@@ -161,20 +169,43 @@ export function createRoboTaxis({ rng, scene, traffic, fares, blocked = () => fa
     if (robo.car) {
       robo.car.route = [];
       robo.car.routeConsumed = false;
+      robo.car.uturnWanted = false;
     }
   }
 
-  /** The nearest rider to this robo-taxi that no other one has claimed. */
+  /**
+   * Legs of road to junction (i, j): on from the junction ahead, or turned round in the road and on
+   * from the one behind, plus what the turn costs. Also whether turning round is the shorter.
+   */
+  function legsTo(car, i, j) {
+    const ahead = findRoute(planOrigin(car), { i, j }, serviceLaneCost);
+    let legs = ahead ? ahead.length : Infinity;
+    let round = false;
+    if (car.state === 'drive' && car.lane) {
+      const from = cityNetwork().nodeById.get(car.lane.from);
+      const back = findRoute({ i: from.gi, j: from.gj, d: opposite(car.d) }, { i, j }, serviceLaneCost);
+      if (back && back.length + UTURN_LEGS <= legs) { legs = back.length + UTURN_LEGS; round = true; }
+    }
+    return { legs, round };
+  }
+
+  /**
+   * The rider this robo-taxi can reach soonest, by road, that no other one has claimed. By road,
+   * not as the crow flies: by distance it went for a rider a block away the far side of where it
+   * had just come from and drove a lap of the island to get there (Tyler, 2026-11-07).
+   */
   function choose(robo) {
     const car = robo.car;
     const taken = new Set(robos.filter((r) => r !== robo && r.target).map((r) => r.target));
     let best = null;
+    let bestLegs = Infinity;
     let bestD = Infinity;
     for (const fare of fares.stealable()) {
       if (taken.has(fare)) continue;
+      const { legs } = legsTo(car, fare.pickup.i, fare.pickup.j);
       const kerb = kerbFor(fare);
       const d = Math.hypot(kerb.x - car.x, kerb.z - car.z);
-      if (d < bestD) { bestD = d; best = fare; }
+      if (legs < bestLegs || (legs === bestLegs && d < bestD)) { bestLegs = legs; bestD = d; best = fare; }
     }
     return best;
   }
@@ -182,13 +213,15 @@ export function createRoboTaxis({ rng, scene, traffic, fares, blocked = () => fa
   /** Re-plan only once it has run out of route, never per frame (CLAUDE.md). */
   function steer(car, goal) {
     if (car.route?.length) return;
-    const route = findRoute(planOrigin(car), goal);
+    // The non-taxi cost: the roadworks discount is a lure for the player, not for the robots.
+    const route = findRoute(planOrigin(car), goal, serviceLaneCost);
     if (route?.length) { car.route = route; car.routeConsumed = false; }
   }
 
   /** Off to a junction picked at random — what "busy" and an empty board both look like. */
   function wander(robo) {
     const car = robo.car;
+    car.uturnWanted = false;
     if (car.route?.length) return;
     const j = randomJunction();
     robo.goal = { x: j.x, z: j.z };
@@ -244,8 +277,18 @@ export function createRoboTaxis({ rng, scene, traffic, fares, blocked = () => fa
       && left - stopDistance(car.v) < STOP_SETBACK + 1;
     if (!robo.arrived) {
       steer(car, { i, j });
+      // Turn round in the road when that saves the lap, asked once per lane and goal. The U-turn
+      // clears the route, and `steer` plans the new one from the far lane next frame.
+      if (car.uturn) robo.turnedAt = state.clock;
+      const key = car.state === 'drive' && car.lane ? `${car.lane.id}|${i},${j}` : null;
+      if (key !== robo.turnKey) {
+        robo.turnKey = key;
+        robo.turnAnswer = Boolean(key) && legsTo(car, i, j).round;
+      }
+      car.uturnWanted = robo.turnAnswer && state.clock - (robo.turnedAt ?? -Infinity) >= UTURN_SETTLE;
       return false;
     }
+    car.uturnWanted = false;
     car.roadblock = Infinity;
     return car.v < 0.1;
   }
