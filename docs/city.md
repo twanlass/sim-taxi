@@ -956,13 +956,17 @@ the bench block, with the sign on it.
 ## The rooftop billboard
 
 Up to two flat roofs per city carry an advertising hoarding (`city/billboard.js`), one per ad:
-**Good Boy Vet**, the vet clinic advertising itself (a red dachshund lying in a hot dog bun with
-mustard down his back, on deep blue, under **WITH EVERYTHING.** and "Checkups, shots & belly
-rubs"; `?dogad=` picks one of the other directions Tyler saw on the way: a dog peeking up on
+**Good Boy Vet**, the vet clinic advertising itself. Its board is not a rectangle: it is cut out
+in the shape of a dachshund that is also a hot dog, lying in the bun with mustard down his back,
+his head out of one end, his tail out of the other and four stubby legs out of the bottom, with
+GOOD BOY VET painted on the bun. The outline lives beside the art (`OUTLINES` in
+`city/billboardart.js`) and the board extrudes it; a cut-out has no catwalk, lamps or beams, so it
+lights itself a little more (`SHAPED_GLOW`). `?dogad=` picks one of the rectangular directions
+Tyler saw on the way: the dachshund in a bun on blue ("With everything."), a dog peeking up on
 yellow, the plain dachshund print, a Bauhaus dog of flat primitives, or the first outlined cartoon,
-which he found clip-arty) and **Dub Burger**, the city's own drive-through advertising itself (its turning sign's
+which he found clip-arty. The second board is **Dub Burger**, the city's own drive-through advertising itself (its turning sign's
 burger on the building's red, and "We take cash or Bitcoin," the speaker's line). Each stands on dark bottle-green steel (galvanised grey matched the roof and vanished)
-with raking braces, a catwalk and three lamps, which bloom as `window` and throw a faint additive
+with raking braces; a rectangular board adds a catwalk and three lamps, which bloom as `window` and throw a faint additive
 beam each up onto the paper. The building is untouched; `chooseBillboardSite` picks roofs after the
 vet clinic, by rule and hash, so no draw moves. `?billboard=classic` leaves both off.
 

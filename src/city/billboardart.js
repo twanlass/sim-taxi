@@ -32,11 +32,12 @@ export const AD_CLASSIC = typeof location !== 'undefined'
  * `?dogad=` — which of the vet's posters the first board carries. Tyler asked for three directions
  * after the first (`cartoon`) read as clip art, 2026-11-07: `peek`, `print` and `shapes`, all
  * without the ink outline and the hard drop that made the cartoon cheesy. He liked the dachshund
- * and asked for it in a hot dog bun, which is `bun`, the default.
+ * and asked for it in a hot dog bun, which is `bun`; then for the board itself cut to the shape of a
+ * hot dog on legs, which is `sign`, the default.
  */
-const DOG_ADS = { bun: 'dogbun', peek: 'dogpeek', print: 'dogprint', shapes: 'dogshapes', cartoon: 'goodboy' };
+const DOG_ADS = { sign: 'dogsign', bun: 'dogbun', peek: 'dogpeek', print: 'dogprint', shapes: 'dogshapes', cartoon: 'goodboy' };
 const DOG_AD = (typeof location !== 'undefined'
-  && DOG_ADS[new URLSearchParams(location.search).get('dogad')]) || DOG_ADS.bun;
+  && DOG_ADS[new URLSearchParams(location.search).get('dogad')]) || DOG_ADS.sign;
 
 /** The poster designs, by name, in the order the boards are placed (the first lands on every city). */
 export const ADS = [AD_CLASSIC ? 'robotaxi' : DOG_AD, 'dubburger'];
@@ -528,6 +529,127 @@ function drawDogShapes(g) {
   g.fillText('VETERINARY  ·  SIT. STAY. HEAL.', left + 4, 366);
 }
 
+// --- The hot dog sign: a board cut to its own outline -----------------------------------------
+
+/**
+ * Shaped posters: the board is cut to this outline instead of being a rectangle (city/billboard.js
+ * extrudes it and lays the art on its face). Each entry draws its outline as closed sub-paths, in
+ * canvas pixels, through a `pen` with `moveTo`/`lineTo`/`quadraticCurveTo`/`bezierCurveTo`/
+ * `closePath` — a 2D context and a `THREE.Shape` builder both are one — so the art and the
+ * geometry are the same curves. The sub-paths overlap; the board is their union.
+ */
+const K = 0.5523;                       // a quarter circle's bezier handle
+function ellipsePath(pen, x, y, rx, ry) {
+  pen.moveTo(x + rx, y);
+  pen.bezierCurveTo(x + rx, y + ry * K, x + rx * K, y + ry, x, y + ry);
+  pen.bezierCurveTo(x - rx * K, y + ry, x - rx, y + ry * K, x - rx, y);
+  pen.bezierCurveTo(x - rx, y - ry * K, x - rx * K, y - ry, x, y - ry);
+  pen.bezierCurveTo(x + rx * K, y - ry, x + rx, y - ry * K, x + rx, y);
+  pen.closePath();
+}
+function capsulePath(pen, x0, y0, x1, y1) {
+  const r = Math.min(x1 - x0, y1 - y0) / 2;
+  pen.moveTo(x0 + r, y0);
+  pen.lineTo(x1 - r, y0);
+  pen.quadraticCurveTo(x1, y0, x1, y0 + r);
+  pen.lineTo(x1, y1 - r);
+  pen.quadraticCurveTo(x1, y1, x1 - r, y1);
+  pen.lineTo(x0 + r, y1);
+  pen.quadraticCurveTo(x0, y1, x0, y1 - r);
+  pen.lineTo(x0, y0 + r);
+  pen.quadraticCurveTo(x0, y0, x0 + r, y0);
+  pen.closePath();
+}
+
+/** Where the hot dog dog's parts are, in canvas pixels. */
+const HD = {
+  bun: [70, 156, 872, 306],
+  sausage: [48, 100, 906, 186],
+  head: [912, 100, 74, 68],
+  snout: [968, 134, 54, 34],
+  legs: [[176, 230], [278, 332], [648, 702], [748, 802]],
+  legY: [270, 398],
+};
+function hotdogTail(pen) {
+  pen.moveTo(96, 132);
+  pen.quadraticCurveTo(40, 102, 18, 26);
+  pen.lineTo(38, 22);
+  pen.quadraticCurveTo(66, 82, 104, 108);
+  pen.closePath();
+}
+function hotdogOutline(pen) {
+  capsulePath(pen, ...HD.bun);
+  capsulePath(pen, ...HD.sausage);
+  ellipsePath(pen, ...HD.head);
+  ellipsePath(pen, ...HD.snout);
+  hotdogTail(pen);
+  for (const [x0, x1] of HD.legs) capsulePath(pen, x0, HD.legY[0], x1, HD.legY[1]);
+}
+
+export const OUTLINES = { dogsign: hotdogOutline };
+
+/**
+ * `sign`: the whole board is the joke (Tyler, 2026-11-07). A dachshund that is also a hot dog, cut
+ * out of plywood: his body is the sausage, lying in the bun with a squiggle of mustard down his
+ * back, his head and ear out of one end and his tail out of the other, and four stubby legs out of
+ * the bottom of the bun so he is standing up in it. The clinic's name goes on the bun. No lamps and
+ * no wash — there is no catwalk on a cut-out — so the art is painted at full strength.
+ */
+function drawDogSign(g) {
+  const navy = '#1F2A44';
+  const red = '#E0503A';
+  const redDark = '#B83A28';
+  const mustard = '#F7CB2D';
+  const bun = '#E2AA62';
+  const bunLight = '#F1C788';
+  // Bun colour everywhere, so a texel of slop at the cut edge is crust rather than a seam.
+  g.fillStyle = bun;
+  g.fillRect(0, 0, ART_W, ART_H);
+  const fill = (draw, col) => { g.beginPath(); draw(g); g.fillStyle = col; g.fill(); };
+
+  // Legs and tail behind, a shade darker on the far pair so the four read as two and two.
+  HD.legs.forEach(([x0, x1], i) => fill((p) => capsulePath(p, x0, HD.legY[0], x1, HD.legY[1]),
+    i % 2 ? red : redDark));
+  fill(hotdogTail, red);
+  // The sausage, the head and the snout: one red animal.
+  fill((p) => capsulePath(p, ...HD.sausage), red);
+  fill((p) => ellipsePath(p, ...HD.head), red);
+  fill((p) => ellipsePath(p, ...HD.snout), red);
+  // Ear, eye, nose, and a smile under the snout.
+  g.fillStyle = navy;
+  g.beginPath();
+  g.moveTo(884, 52); g.quadraticCurveTo(836, 82, 850, 178);
+  g.quadraticCurveTo(892, 178, 910, 66); g.closePath(); g.fill();
+  g.beginPath(); g.arc(944, 86, 10, 0, Math.PI * 2); g.fill();
+  g.beginPath(); g.ellipse(1012, 122, 13, 11, 0, 0, Math.PI * 2); g.fill();
+  g.strokeStyle = navy;
+  g.lineWidth = 6;
+  g.lineCap = 'round';
+  g.beginPath(); g.moveTo(958, 152); g.quadraticCurveTo(984, 164, 1004, 146); g.stroke();
+  // The mustard, down his back.
+  g.strokeStyle = mustard;
+  g.lineWidth = 16;
+  g.lineJoin = 'round';
+  g.beginPath();
+  for (let x = 100; x <= 830; x += 6) {
+    const y = 128 + Math.sin((x - 100) / 26) * 10;
+    if (x === 100) g.moveTo(x, y); else g.lineTo(x, y);
+  }
+  g.stroke();
+  // The bun in front, with a lighter crust along its lip, and the name on it.
+  fill((p) => capsulePath(p, ...HD.bun), bun);
+  g.fillStyle = bunLight;
+  roundRect(g, 120, 166, 700, 18, 9); g.fill();
+  g.fillStyle = navy;
+  g.textBaseline = 'alphabetic';
+  g.textAlign = 'center';
+  fit(g, 'GOOD BOY VET', 700, 640, 92);
+  g.fillText('GOOD BOY VET', 470, 266);
+  g.fillStyle = redDark;
+  fit(g, 'CHECKUPS  ·  SHOTS  ·  BELLY RUBS', 700, 520, 24);
+  g.fillText('CHECKUPS  ·  SHOTS  ·  BELLY RUBS', 470, 294);
+}
+
 // --- Dub Burger ---------------------------------------------------------------------------------
 
 /**
@@ -611,7 +733,7 @@ function drawDubBurger(g) {
 }
 
 const DRAW = {
-  dogbun: drawDogBun, dogpeek: drawDogPeek, dogprint: drawDogPrint, dogshapes: drawDogShapes, goodboy: drawGoodBoy, robotaxi: drawRobotaxi, dubburger: drawDubBurger };
+  dogsign: drawDogSign, dogbun: drawDogBun, dogpeek: drawDogPeek, dogprint: drawDogPrint, dogshapes: drawDogShapes, goodboy: drawGoodBoy, robotaxi: drawRobotaxi, dubburger: drawDubBurger };
 
 /**
  * The light off the three lamps on the catwalk, painted into the poster: a warm fan up from the
@@ -651,7 +773,7 @@ export function posterTexture(name) {
   const paint = () => {
     g.setTransform(1, 0, 0, 1, 0, 0);
     DRAW[name](g);
-    drawWash(g);
+    if (!OUTLINES[name]) drawWash(g);
     texture.needsUpdate = true;
   };
   paint();
