@@ -298,6 +298,12 @@ export function createCollisions(cars, taxi, { lethalPolice = false, bumpStop = 
   // Sim seconds, and when each car last touched the taxi on that clock.
   let clock = 0;
   const lastTouch = new Map();
+  // The car a bump stop parked the taxi against. Pressing Loco to drive on puts BOOST_KICK on the
+  // taxi in one frame with its nose still on that car, and to the clock above it is long past
+  // REHIT — so the press was a second full charge at ~10 u/s of closing, and on a taxi the first hit
+  // had left low it was the wreck (Tyler, 2026-11-07: "I hit loco and hit it again. It immediately
+  // was wrecked"). It is leaned on rather than charged until the two have come apart once.
+  let stalledOn = null;
 
   function update(dt = 1 / 60) {
     clock += dt;
@@ -316,6 +322,7 @@ export function createCollisions(cars, taxi, { lethalPolice = false, bumpStop = 
     // The bridge jump's arc is not a sine (it rides the leaf first), so ask the sim how high it is.
     if (onDriftLaunch(taxi) && airborneHeight(taxi) > DRIFT_LAUNCH_CLEAR) return;
 
+    let stillOn = false;
     for (const other of cars) {
       if (other === taxi) continue;
       if (other.crashed) continue;
@@ -324,6 +331,7 @@ export function createCollisions(cars, taxi, { lethalPolice = false, bumpStop = 
       if (Math.abs(other.x - taxi.x) > reach || Math.abs(other.z - taxi.z) > reach) continue;
       const pen = penetration(taxi, other);
       if (!pen) continue;
+      if (other === stalledOn) stillOn = true;
 
       // Come down on it from Big Air: wreck it, armed or not — the drift launch flies at full
       // power however the pill is held, so `boost` says nothing about how hard this landed.
@@ -345,7 +353,7 @@ export function createCollisions(cars, taxi, { lethalPolice = false, bumpStop = 
 
       const touched = lastTouch.get(other);
       lastTouch.set(other, clock);
-      const fresh = touched === undefined || clock - touched > REHIT;
+      const fresh = (touched === undefined || clock - touched > REHIT) && other !== stalledOn;
 
       // Still leaning on something it has already paid for: push it out of the way and carry on.
       // Every frame of contact does this, which is what stops the taxi ever passing through a car.
@@ -357,6 +365,8 @@ export function createCollisions(cars, taxi, { lethalPolice = false, bumpStop = 
 
       if (charge(other, pen)) return;   // one impact per frame is plenty — the taxi is done anyway.
     }
+    // Apart, and driving again: the next touch on that car is a hit like any other.
+    if (!stillOn && !taxi.stalled) stalledOn = null;
   }
 
   /**
@@ -508,6 +518,7 @@ export function createCollisions(cars, taxi, { lethalPolice = false, bumpStop = 
     // drops the pill itself from its bump listener, and the next frame's `taxi.boost` follows it.
     const stalled = bumpStop && taxiStruck && !other.police;
     if (stalled) {
+      stalledOn = other;
       taxi.v = 0;
       taxi.stalled = true;
       taxi.boost = false;

@@ -8702,10 +8702,19 @@ function rideToPickup() {
       peakV = Math.max(peakV, sTaxi.v);
     }
     const held = { peakV, stalled: sTaxi.stalled, bumps: events.length };
-    // The press: main.js clears the flag in holdLocoMode. The taxi has to be free to drive again.
+    // The press: main.js clears the flag in holdLocoMode, and BOOST_KICK punches the taxi forward
+    // with its nose still on the car — staged back into contact so the press always lands on it.
     sTaxi.stalled = false;
-    for (let f = 0; f < 60; f++) { sTaxi.braking = false; sTraffic.update(1 / 60); }
-    return { after, held, freed: sTaxi.braking === false };
+    sTaxi.staged = true;
+    sTaxi.x = target.x - Math.cos(sTaxi.yaw) * 1.6;
+    sTaxi.z = target.z + Math.sin(sTaxi.yaw) * 1.6;
+    sTaxi.v = 10.6;
+    sTaxi.boost = true;
+    for (let f = 0; f < 30; f++) sCollisions.update(1 / 60);
+    sTaxi.staged = false;
+    const repress = events.length - held.bumps;
+    for (let f = 0; f < 60; f++) { sTaxi.braking = false; sTaxi.boost = false; sTraffic.update(1 / 60); }
+    return { after, held, repress, freed: sTaxi.braking === false };
   };
   const on = stage(true);
   const off = stage(false);
@@ -8717,6 +8726,8 @@ function rideToPickup() {
     on.held.stalled && on.held.peakV < 0.01 && on.held.bumps === 1,
     `peak ${on.held.peakV.toFixed(2)} u/s over 2s, ${on.held.bumps} bumps`);
   check('clearing the stall hands the brake back', on.freed, `braking ${!on.freed}`);
+  check('the press out of a stall is not charged again on the car it stalled against',
+    on.repress === 0, `${on.repress} more bumps`);
   check('?bumpstop=classic keeps 45% and never stalls',
     !off.after.stalled && !off.held.stalled && off.after.v > 1,
     `v ${off.after.v.toFixed(2)}, stalled ${off.after.stalled}`);

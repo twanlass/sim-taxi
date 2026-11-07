@@ -1859,7 +1859,10 @@ ram is left for a junction ahead with no straight through it, and one-way roads.
 - **The taxi stops where it is** when it did the hitting, recoils a little the other way, and the
   pill drops with no momentum tail (`boost.cut`). It stays stalled (`taxi.stalled`, held on the
   brake in `sim/traffic.js`) until the player presses Loco again; a tank that runs dry clears it
-  instead, since a dead pill cannot be pressed. Before this (`?bumpstop=classic`) the taxi kept 45%
+  instead, since a dead pill cannot be pressed. The press that drives on is not charged against
+  the car the taxi stalled on until the two have come apart: `BOOST_KICK` puts ~10 u/s into a nose
+  that is still touching it, which was a second full hit and, on a taxi the first had left low, the
+  wreck. Before this (`?bumpstop=classic`) the taxi kept 45%
   of its speed and, because it always drives itself forward, went straight back into the car: off
   the pill pushing it along at `PUSH_V`, on the pill charged again every `REHIT`. A hit the taxi
   *takes* — a truck running into its flank — keeps the old 45%, and so does ramming a cop, so the
