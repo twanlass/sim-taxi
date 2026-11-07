@@ -818,6 +818,10 @@ not exist yet. The HUD shows the day and the cash against its target under the c
 crown of the fuel gauge, the shift clock takes the top centre, and the 🚨 chase siren is off for
 now. `?hudlayout=classic` puts all three back.
 
+**The run-end card's last prompt names what the tap plays** (Tyler, 2026-11-07): **Play Saturday**
+after a cleared Friday, **Replay Friday** after a failed one, and **Play again** in Arcade, where it
+used to say "Tap to continue" (`retryLabel` in main.js and game/runend.js).
+
 **The day's name goes up as the taxi rolls out of the garage** (`game/daycard.js`, `#day-card`;
 Tyler, 2026-10-31): big white type with the pop text's dark stroke, dead centre, for about two
 seconds, on the frame the taxi comes off the garage's kerb at the end of the

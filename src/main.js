@@ -4130,6 +4130,17 @@ function announceDay() {
   showDayCard(document.body, today.name);
 }
 
+/**
+ * The run-end card's last prompt (Tyler, 2026-11-07): in Story it names the day the tap plays —
+ * the next one after a cleared day, this one again after a fail — and in Arcade it is "Play again".
+ */
+function retryLabel(s) {
+  if (today === null) return 'Play again';
+  const last = today.index >= DAYS.length - 1;
+  if (s.cleared && !last && !today.pinned) return `Play ${DAYS[today.index + 1].name}`;
+  return `Replay ${today.name}`;
+}
+
 function closeDay(s) {
   if (today === null) return null;
   // A fail says nothing extra (Tyler, 2026-10-31: cut "Back to the start of Friday.").
@@ -4868,6 +4879,7 @@ function updateHud(dt) {
       // over.
       scores: collectScores(),
       onRetry: playAgain,
+      retryLabel: retryLabel(s),
       // What the run unlocked, after the table and before the button. The tap that closes the card
       // starts the next run rather than going back to the table (Tyler, 2026-10-25: "progress to
       // start a new game after this and not show the leaderboard again") — the table has already
