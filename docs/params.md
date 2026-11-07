@@ -62,6 +62,7 @@ doc; what the classic version was, and why it changed, is in that doc's history 
 | `?garbage=classic` | No bag piles on the kerb and no garbage truck | `GARBAGE=classic` | [city.md](city.md#the-bag-piles-and-the-garbage-truck) |
 | `?vet=classic` | No vet clinic: the corner shop it picks keeps a bare roof and an empty window | | [city.md](city.md#the-vet-clinic) |
 | `?billboard=classic` | No rooftop billboards: the vet's and Dub Burger's roofs stay bare | | [city.md](city.md#the-rooftop-billboard) |
+| `?dogad=print` / `=shapes` / `=cartoon` | Which vet poster the first billboard carries: `peek` (default, a dog peeking up under "Good boy?" on yellow), `print` (a two-ink dachshund), `shapes` (a Bauhaus dog beside GOOD BOY), `cartoon` (the outlined first draft) | | [city.md](city.md#the-rooftop-billboard) |
 | `?billboardad=classic` | The first billboard shows the robo-taxis' MONDAY teaser instead of the vet's dog | | [city.md](city.md#the-rooftop-billboard) |
 | `?vetopen=word` | The vet's OPEN sign spells the word in red neon letters inside its blue frame, instead of one red bar | | [city.md](city.md#the-vet-clinic) |
 | `?roofs=classic` | Solid flat roof caps, with no lip and no sunk deck | #511 | [city.md](city.md) |
