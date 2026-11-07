@@ -53,7 +53,7 @@ import { createAsphaltPatches, planPatches, patchGeometry, patchRoadHalf, PATCH_
 import { createStreetProps, planStreetProps } from '../src/game/streetprops.js';
 import { createGarbage, planTrashPiles } from '../src/game/garbage.js';
 import { createRoboTaxis } from '../src/game/robotaxi.js';
-import { roboShellParts, roboBandGeometry } from '../src/geometry/robotaxi.js';
+import { roboShellParts, roboBandGeometry, roboWellLiners } from '../src/geometry/robotaxi.js';
 import { setFareSeconds } from '../src/game/fares.js';
 import { ROBO_SPEED } from '../src/sim/traffic.js';
 import { HOPPER_MOUTH } from '../src/geometry/garbage.js';
@@ -23142,7 +23142,7 @@ let chopperOrder; // likewise
   const b = new THREE.Vector3();
   const c = new THREE.Vector3();
   const n = new THREE.Vector3();
-  for (const g of roboShellParts(CAR_LEN)) {
+  for (const g of roboShellParts(CAR_LEN, CAR_W)) {
     const p = g.attributes.position;
     for (let f = 0; f < p.count; f += 3) {
       a.fromBufferAttribute(p, f); b.fromBufferAttribute(p, f + 1); c.fromBufferAttribute(p, f + 2);
@@ -23171,6 +23171,24 @@ let chopperOrder; // likewise
       if (n.x * mid.x + n.z * mid.z <= 0) ringIn += 1;
     }
     const trace = g.attributes.aTrace.array;
+    // The wheel wells' liners face their axles, or the opening shows the outside of a tube.
+    let linerOut = 0;
+    let linerTris = 0;
+    for (const liner of roboWellLiners(CAR_LEN, CAR_W)) {
+      const lp = liner.attributes.position;
+      const { x: ax, y: ay } = liner.userData.wellLiner;
+      for (let f = 0; f < lp.count; f += 3) {
+        a.fromBufferAttribute(lp, f); b.fromBufferAttribute(lp, f + 1); c.fromBufferAttribute(lp, f + 2);
+        n.subVectors(b, a).cross(c.clone().sub(a));
+        const mx = (a.x + b.x + c.x) / 3 - ax;
+        const my = (a.y + b.y + c.y) / 3 - ay;
+        linerTris += 1;
+        if (n.x * mx + n.y * my >= 0) linerOut += 1;
+      }
+      liner.dispose();
+    }
+    check('robo-taxi: its wheel wells are lined facing in', linerTris > 0 && linerOut === 0,
+      `${linerOut}/${linerTris} liner triangles face away from the axle`);
     check('robo-taxi: the belly band faces out, and its trace runs once round from 0 to 1',
       idx.length > 0 && ringIn === 0 && trace[0] === 0 && Math.abs(trace[trace.length - 1] - 1) < 1e-6,
       `${ringIn}/${idx.length / 3} band triangles face in`);

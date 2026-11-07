@@ -4,7 +4,7 @@ import {
   propMaterial, unlitMaterial, setFinish, srcTag, BODY_EULER_ORDER, FINISH,
 } from '../util/geo.js';
 import { PALETTE, color } from '../palette.js';
-import { SILL_Y, WHEEL_R, WHEEL_W, wheelAnchors } from './wheels.js';
+import { SILL_Y, WHEEL_W, wheelAnchors } from './wheels.js';
 
 // The robo-taxi: a pod, not a car. An elongated rounded box — a superellipsoid, square-ish in every
 // section with soft corners — whose whole upper half is one continuous piece of tinted glass, roof,
@@ -39,6 +39,11 @@ const BELT_Y = 1.56;
 // fuller, squarer corners.
 const END_P = 5;
 const SECTION_P = 0.42;
+// How much of its height a section keeps at the very tip. 0.25 made the ends domes, which also
+// dropped them below the belt line — the glass edge sagged at every corner (Tyler's "weird dip",
+// 2026-11-07). At 0.6 the tip still reaches 1.71, so the belt and the band run level all round.
+const END_H = 0.6;
+const sectionH = (e) => (ROOF_Y - FLOOR_Y) / 2 * (END_H + (1 - END_H) * e);
 
 const signPow = (v, p) => Math.sign(v) * Math.abs(v) ** p;
 const endShape = (xn) => (1 - Math.abs(xn) ** END_P) ** (1 / END_P);
@@ -51,7 +56,7 @@ const endShape = (xn) => (1 - Math.abs(xn) ** END_P) ** (1 / END_P);
 function shellPoint(len, xn, v, out) {
   const e = endShape(xn);
   const mid = (ROOF_Y + FLOOR_Y) / 2;
-  const h = (ROOF_Y - FLOOR_Y) / 2 * (0.25 + 0.75 * e);
+  const h = sectionH(e);
   const w = BODY_HALF_W * e;
   return out.set(xn * len / 2 * 0.985, mid + h * signPow(Math.sin(v), SECTION_P),
     w * signPow(Math.cos(v), SECTION_P));
@@ -61,7 +66,7 @@ function shellPoint(len, xn, v, out) {
 function beltAngle(xn) {
   const e = endShape(xn);
   const mid = (ROOF_Y + FLOOR_Y) / 2;
-  const h = (ROOF_Y - FLOOR_Y) / 2 * (0.25 + 0.75 * e);
+  const h = sectionH(e);
   const k = (BELT_Y - mid) / h;
   return Math.asin(Math.max(-1, Math.min(1, k)) ** (1 / SECTION_P) * Math.sign(k) || 0);
 }
@@ -70,7 +75,7 @@ function beltAngle(xn) {
  * A patch of the pod over `[-1, 1]` × `[v0(xn), v1(xn)]`, indexed so its normals come out soft,
  * stations packed toward the ends where the curve turns fastest.
  */
-function patch(len, v0, v1, stations, around) {
+function patch(len, v0, v1, stations, around, keep = null) {
   const pos = [];
   const index = [];
   const at = new THREE.Vector3();
@@ -88,6 +93,7 @@ function patch(len, v0, v1, stations, around) {
     for (let b = 0; b < around; b++) {
       const q = a * row + b;
       // Wound so the outward face is the front face — asserted in tools/probe.mjs.
+      if (keep && !keep(pos, q, row)) continue;
       index.push(q, q + row, q + 1, q + 1, q + row, q + row + 1);
     }
   }
@@ -101,8 +107,21 @@ function patch(len, v0, v1, stations, around) {
  * The silver lower body, from the belt on one flank under the floor to the belt on the other. It
  * and the canopy share the belt line edge to edge — a seam, not an overlap, so nothing fights.
  */
-function shellGeometry(len) {
-  return softPart(patch(len, (xn) => Math.PI - beltAngle(xn), (xn) => 2 * Math.PI + beltAngle(xn), 48, 40),
+function shellGeometry(len, width) {
+  // Twice the stations the canopy needs, for the wells: a cell is dropped whole, so the opening's
+  // edge is as ragged as a cell is big (~0.06 here), and the lip (`wellGeometries`) is sized to it.
+  const wells = roboWheelAnchors(len, width);
+  const keep = (pos, q, row) => {
+    // The cell's middle, from its two diagonal corners.
+    const a = q * 3;
+    const b = (q + row + 1) * 3;
+    const x = (pos[a] + pos[b]) / 2;
+    const y = (pos[a + 1] + pos[b + 1]) / 2;
+    const z = (pos[a + 2] + pos[b + 2]) / 2;
+    return !wells.some((w) => Math.sign(z) === Math.sign(w.z) && Math.abs(z) > WELL_BACK
+      && (x - w.x) ** 2 + (y - w.y) ** 2 < WELL_CUT ** 2);
+  };
+  return softPart(patch(len, (xn) => Math.PI - beltAngle(xn), (xn) => 2 * Math.PI + beltAngle(xn), 96, 80, keep),
     'roboSilver', FINISH.CHROME);
 }
 
@@ -123,12 +142,33 @@ function softPart(geometry, colorName, finishSlot) {
   return setFinish(flat, finishSlot);
 }
 
-// The well round each wheel: a dark arch over the tyre, laid *on* the flank — every point projected
-// onto the shell where it is, so it follows the curve into the ends instead of standing off it as a
-// flat disc (the first cut was a half-cylinder, whose caps jutted 0.18 past the narrowing ends).
-const WELL_R = WHEEL_R + 0.1;
-const WELL_LIFT = 0.01;
-const WELL_REACH = 0.88;
+// The wheel wells are real openings (Tyler, 2026-11-07: "add real wheel wells"; the first ones were
+// dark arches painted on the flank). The shell's cells inside WELL_CUT of an axle are dropped, a dark
+// liner runs in from the opening to a back wall at WELL_BACK, and a trim lip laid on the flank round
+// the opening hides the cut's ragged edge. The balls sit a little in from the ends (WHEEL_X) so a
+// well's arch closes before the tip rather than running off it.
+// The balls are smaller than a sedan's wheel (WHEEL_R 0.64): opened up, a full-size ball's well
+// took the flank from the floor to the band and the pod read as a moon buggy. Ride height is the
+// body's own (FLOOR_Y), so the ball only has to reach the road.
+export const BALL_R = 0.5;
+const WELL_R = BALL_R + 0.07;      // the liner: a ball's clearance inside it
+const WELL_CUT = WELL_R + 0.04;    // the hole in the shell, a little wider, under the lip
+const WELL_LIP = 0.08;             // the lip's width, from WELL_R out: covers the cut's raggedness
+const WELL_BACK = 0.12;            // the back wall's |z|; the shell is only cut outboard of it
+const WELL_LIFT = 0.012;           // the lip off the flank, so the two never share a surface
+const WHEEL_X = 0.26;              // the axles at ±this × len (a sedan's are at 0.3): the cut
+                                   // then stops at 1.49, short of the 1.67 tip
+
+/** Where each ball sits: on the ordinary car's anchors, moved in along the length and across. */
+export function roboWheelAnchors(len, width) {
+  return wheelAnchors(len, width).map((anchor) => ({
+    ...anchor, x: Math.sign(anchor.x) * len * WHEEL_X, y: BALL_R, z: ballZ(anchor),
+  }));
+}
+
+/** The arch's sweep: from where it meets the floor on one side, over the top, to the other. */
+const ARCH_FROM = -Math.asin((BALL_R - FLOOR_Y) / WELL_R);
+const ARCH_TO = Math.PI - ARCH_FROM;
 
 /** The flank's z at (x, y) on the +z side, or null where the body does not reach. */
 function flankZ(len, x, y) {
@@ -136,7 +176,7 @@ function flankZ(len, x, y) {
   if (Math.abs(xn) >= 0.999) return null;
   const e = endShape(xn);
   const mid = (ROOF_Y + FLOOR_Y) / 2;
-  const h = (ROOF_Y - FLOOR_Y) / 2 * (0.25 + 0.75 * e);
+  const h = sectionH(e);
   const k = (y - mid) / h;
   if (k <= -1 || k >= 1) return null;
   const v = Math.asin(signPow(k, 1 / SECTION_P));
@@ -145,45 +185,82 @@ function flankZ(len, x, y) {
 
 function wellGeometries(len, width) {
   const parts = [];
-  const RINGS = 6;
-  const SWEEP = 24;
-  for (const anchor of wheelAnchors(len, width)) {
-    const side = Math.sign(anchor.z);
-    const pos = [];
-    const index = [];
-    for (let r = 0; r <= RINGS; r++) {
+  const SWEEP = 32;
+  for (const w of roboWheelAnchors(len, width)) {
+    const side = Math.sign(w.z);
+    const arch = (t, rad) => {
+      const th = ARCH_FROM + (ARCH_TO - ARCH_FROM) * t;
+      return [w.x + Math.cos(th) * rad, Math.max(FLOOR_Y, w.y + Math.sin(th) * rad)];
+    };
+
+    // The liner: the inside of a cylinder round the axle, from the back wall out to the flank (and
+    // a hair past it, under the lip). Faces the axle.
+    {
+      const pos = [];
+      const index = [];
       for (let t = 0; t <= SWEEP; t++) {
-        const rad = WELL_R * (0.35 + 0.65 * r / RINGS);
-        const th = Math.PI * t / SWEEP;
-        // Below the floor there is no flank to lay it on: pinned just above it. Past the end it
-        // is pulled back along the length until it lands on the body.
-        const y = Math.max(FLOOR_Y + 0.03, WHEEL_R + Math.sin(th) * rad);
-        // Stopped short of the end's turn, where the flank starts to face along the car: an arch
-        // wrapped round it folded over itself. Past that the arch is cut off square.
-        const xMax = len / 2 * 0.985 * WELL_REACH;
-        const x = Math.max(-xMax, Math.min(xMax, anchor.x + Math.cos(th) * rad));
-        const z = flankZ(len, x, y) ?? 0;
-        // Lifted along the surface's own normal, not along z: round the ends the flank faces
-        // along the car, and a lift across it pushed the arch back inside the shell.
-        const dx = ((flankZ(len, x + 0.01, y) ?? z) - (flankZ(len, x - 0.01, y) ?? z)) / 0.02;
-        const dy = ((flankZ(len, x, y + 0.01) ?? z) - (flankZ(len, x, y - 0.01) ?? z)) / 0.02;
-        const nl = Math.hypot(dx, dy, 1);
-        pos.push(x - dx / nl * WELL_LIFT, y - dy / nl * WELL_LIFT, side * (z + WELL_LIFT / nl));
+        const [x, y] = arch(t / SWEEP, WELL_R);
+        const out = (flankZ(len, x, y) ?? 0) + 0.02;
+        pos.push(x, y, side * WELL_BACK, x, y, side * Math.max(out, WELL_BACK + 0.05));
       }
-    }
-    const row = SWEEP + 1;
-    for (let r = 0; r < RINGS; r++) {
       for (let t = 0; t < SWEEP; t++) {
-        const q = r * row + t;
-        // Outward is +z on the +z flank; the mirror on the other side reverses the winding.
-        if (side > 0) index.push(q, q + row, q + 1, q + 1, q + row, q + row + 1);
-        else index.push(q, q + 1, q + row, q + 1, q + row + 1, q + row);
+        const q = t * 2;
+        if (side > 0) index.push(q, q + 1, q + 2, q + 2, q + 1, q + 3);
+        else index.push(q, q + 2, q + 1, q + 2, q + 3, q + 1);
       }
+      const g = new THREE.BufferGeometry();
+      g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+      g.setIndex(index);
+      const liner = softPart(g, 'wheelWell', FINISH.TYRE);
+      liner.userData.wellLiner = { x: w.x, y: w.y };
+      parts.push(liner);
     }
-    const g = new THREE.BufferGeometry();
-    g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-    g.setIndex(index);
-    parts.push(softPart(g, 'wheelWell', FINISH.TYRE));
+
+    // The back wall: the arch's shape, flat, at WELL_BACK, facing out. A fan from the axle.
+    {
+      const pos = [w.x, w.y, side * WELL_BACK];
+      const index = [];
+      for (let t = 0; t <= SWEEP; t++) {
+        const [x, y] = arch(t / SWEEP, WELL_R);
+        pos.push(x, y, side * WELL_BACK);
+      }
+      for (let t = 1; t <= SWEEP + 1; t++) {
+        // The last triangle closes the chord along the floor.
+        const i = t;
+        const j = t === SWEEP + 1 ? 1 : t + 1;
+        if (side > 0) index.push(0, i, j); else index.push(0, j, i);
+      }
+      const g = new THREE.BufferGeometry();
+      g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+      g.setIndex(index);
+      parts.push(softPart(g, 'wheelWell', FINISH.TYRE));
+    }
+
+    // The lip: a trim band laid on the flank round the opening, WELL_R to WELL_R + WELL_LIP,
+    // each point projected onto the shell and lifted along its normal (as the painted wells were).
+    {
+      const pos = [];
+      const index = [];
+      for (const rad of [WELL_R, WELL_R + WELL_LIP]) {
+        for (let t = 0; t <= SWEEP; t++) {
+          const [x, y] = arch(t / SWEEP, rad);
+          const z = flankZ(len, x, y) ?? 0;
+          const dx = ((flankZ(len, x + 0.01, y) ?? z) - (flankZ(len, x - 0.01, y) ?? z)) / 0.02;
+          const dy = ((flankZ(len, x, y + 0.01) ?? z) - (flankZ(len, x, y - 0.01) ?? z)) / 0.02;
+          const nl = Math.hypot(dx, dy, 1);
+          pos.push(x - dx / nl * WELL_LIFT, y - dy / nl * WELL_LIFT, side * (z + WELL_LIFT / nl));
+        }
+      }
+      const row = SWEEP + 1;
+      for (let t = 0; t < SWEEP; t++) {
+        if (side > 0) index.push(t, t + row, t + 1, t + 1, t + row, t + row + 1);
+        else index.push(t, t + 1, t + row, t + 1, t + row + 1, t + row);
+      }
+      const g = new THREE.BufferGeometry();
+      g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+      g.setIndex(index);
+      parts.push(softPart(g, 'roboTrim', FINISH.METAL));
+    }
   }
   return parts;
 }
@@ -198,20 +275,20 @@ const BALL_TUCK = 0.1;     // in from a tyre's outer face: a ball bulges further
 
 function ballZ(anchor) {
   // Outer face a little in from where a tyre's sat (wheelAnchors places a tyre by that face).
-  return Math.sign(anchor.z) * (Math.abs(anchor.z) + WHEEL_W / 2 - WHEEL_R - BALL_TUCK);
+  return Math.sign(anchor.z) * (Math.abs(anchor.z) + WHEEL_W / 2 - BALL_R - BALL_TUCK);
 }
 
 function ballGeometry() {
-  return softPart(new THREE.SphereGeometry(WHEEL_R, BALL_SEGMENTS, BALL_RINGS), 'roboSensor', FINISH.TYRE);
+  return softPart(new THREE.SphereGeometry(BALL_R, BALL_SEGMENTS, BALL_RINGS), 'roboSensor', FINISH.TYRE);
 }
 
 // The belly band: a thin cyan ribbon all the way round the pod, just under the glass and just clear
-// of the wheel wells' crowns (WHEEL_R + WELL_R = 1.38), with a light tracing round it (`bandMaterial`).
+// of the wheel wells' crowns (BALL_R + WELL_R + WELL_LIP = 1.15), with a light tracing round it (`bandMaterial`).
 // A vertical ribbon on the band's own outline rather than a strip laid on the shell: the flank is
 // near vertical at this height (the section starts turning in at the belt), and a strip that
 // followed it would have to stop at the tips, where the shell does not reach this high at all.
 // It replaces the two bars that stood at the ends at the same height — it runs through both.
-const BAND_Y = 1.45;
+const BAND_Y = BELT_Y - 0.07;  // its top 0.02 under the glass's edge, all the way round
 const BAND_HALF = 0.05;    // 0.1 tall: ~1px at play zoom before the bloom takes it
 const BAND_PROUD = 0.02;   // out from the shell, so the two never share a surface
 const BAND_STATIONS = 64;  // per side, packed toward the tips where the outline turns
@@ -334,13 +411,16 @@ function glowGeometry(len) {
 }
 
 /** The shell and the glass laid on it, for tools/probe.mjs to check the winding of. */
-export const roboShellParts = (len) => [shellGeometry(len), ...glassGeometries(len)];
+export const roboShellParts = (len, width) => [shellGeometry(len, width), ...glassGeometries(len)];
+
+/** The wells' liners, for the probe: each faces its axle (`userData.wellLiner`). */
+export const roboWellLiners = (len, width) => wellGeometries(len, width).filter((g) => g.userData.wellLiner);
 
 
 /** Everything that is paint, chrome and glass, in one geometry. */
 export function roboTaxiBodyGeometry(len, width) {
   const parts = [
-    shellGeometry(len),
+    shellGeometry(len, width),
     ...glassGeometries(len),
     ...wellGeometries(len, width),
     ...sensorGeometry(),
@@ -384,10 +464,11 @@ export function createRoboTaxiMesh(len, width) {
   // pair steers (about y). 'YZX' composes Ry·Rz, so the roll happens about the ball's own axle and
   // the steer turns that axle; the default 'XYZ' would roll it about the car's axle instead.
   const ballGeo = ballGeometry();
-  const wheelMat = propMaterial({ gloss: { geometry: ballGeo } });
-  const wheels = wheelAnchors(len, width).map((anchor) => {
+  // Smooth: under the flat default a ball is a faceted polyhedron.
+  const wheelMat = propMaterial({ gloss: { geometry: ballGeo }, smooth: true });
+  const wheels = roboWheelAnchors(len, width).map((anchor) => {
     const wheel = new THREE.Mesh(ballGeo, wheelMat);
-    wheel.position.set(anchor.x, anchor.y, ballZ(anchor));
+    wheel.position.set(anchor.x, anchor.y, anchor.z);
     wheel.rotation.order = 'YZX';
     wheel.userData.steers = anchor.front;
     wheel.castShadow = true;

@@ -5,8 +5,7 @@ import { lineX, lineZ } from '../city/grid.js';
 import { cloneProp, unlitMaterial } from '../util/geo.js';
 import { PALETTE } from '../palette.js';
 import { CAR_LEN, CAR_W, ROBO_SPEED, STOP_SETBACK, stopDistance } from '../sim/traffic.js';
-import { createRoboTaxiMesh, ROBO_SCALE, ROBO_BAND_TIME } from '../geometry/robotaxi.js';
-import { WHEEL_R } from '../geometry/wheels.js';
+import { createRoboTaxiMesh, ROBO_SCALE, ROBO_BAND_TIME, BALL_R } from '../geometry/robotaxi.js';
 import { findRoute, planOrigin } from './route.js';
 import { BOARD_SECONDS, kerbFor } from './fares.js';
 import { markOccluder } from './ssao.js';
@@ -87,12 +86,12 @@ export function createRoboTaxis({ rng, scene, traffic, fares, blocked = () => fa
   const skinFor = (robo) => (pos, quat, car) => {
     robo.rig.group.position.copy(pos);
     robo.rig.group.quaternion.copy(quat);
-    // The balls roll by the ground covered since the last frame (WHEEL_R per radian), forward
+    // The balls roll by the ground covered since the last frame (BALL_R per radian), forward
     // being +x, which is a turn about -z (the ball is drawn ROBO_SCALE up, so its radius is too). Measured off the pose rather than v·dt so a shove rolls
     // them too, but capped so a re-placement does not spin them into a blur.
     const moved = robo.lastPos ? Math.min(pos.distanceTo(robo.lastPos), 1) : 0;
     robo.lastPos = (robo.lastPos ?? new THREE.Vector3()).copy(pos);
-    robo.roll = (robo.roll ?? 0) - Math.sign(car.v || 1) * moved / (WHEEL_R * ROBO_SCALE);
+    robo.roll = (robo.roll ?? 0) - Math.sign(car.v || 1) * moved / (BALL_R * ROBO_SCALE);
     for (const wheel of robo.rig.wheels) {
       wheel.rotation.z = robo.roll;
       wheel.rotation.y = wheel.userData.steers ? car.wheelAngle : 0;

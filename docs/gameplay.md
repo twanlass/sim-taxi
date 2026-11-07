@@ -2048,7 +2048,8 @@ off; `?robotaxi=soon` brings them on from the start.
 size (`ROBO_SCALE`, the taxi's 1.18) so it reads as a little minivan rather than a small car: an elongated box with
 domed ends and rounded sides, the same shape both ways, so you cannot tell which way it is about to
 go. Everything above the beltline is one dark glass canopy all the way round; below it is silver,
-with dark wells over four plain ball tyres, a sensor puck on the roof wearing a cyan ring, and a
+with real wheel wells cut into it (a dark lined opening with a trim lip round it) over four
+smooth ball tyres, a sensor puck on the roof wearing a cyan ring, and a
 thin cyan belly band all the way round just under the glass, with two points of light chasing round
 it (a shader on the band, `bandMaterial`; the bloom's copy inherits it, so the glow chases too). The silver is the one `FINISH.CHROME` part
 in the game (util/geo.js): metal with most of its diffuse traded for mirror, so the sky and the
