@@ -8317,7 +8317,7 @@ if (shot) {
   }
   // The billboard, aimed at the ground point its face sits over on screen: up in the air at y, it
   // shares a sightline with the ground y / 0.92 further up-screen in both x and z (VIEW_DIR).
-  // `atBillboard` is the index of the board, 1-based: the robo-taxi ad, then Dub Burger.
+  // `atBillboard` is the index of the board, 1-based: the vet's dog (or MONDAY under `?billboardad=classic`), then Dub Burger.
   if (billboards[(shot.atBillboard ?? 0) - 1]) {
     const { focus } = billboards[shot.atBillboard - 1].site;
     controller.state.target.set(focus.x - focus.y / 0.92, 0, focus.z - focus.y / 0.92);

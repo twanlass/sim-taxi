@@ -62,7 +62,9 @@ doc; what the classic version was, and why it changed, is in that doc's history 
 | `?garbage=classic` | No bag piles on the kerb and no garbage truck | `GARBAGE=classic` | [city.md](city.md#the-bag-piles-and-the-garbage-truck) |
 | `?robotaxi=classic` | No robo-taxis: nobody else in town takes your riders | | [gameplay.md](gameplay.md#robo-taxis) |
 | `?vet=classic` | No vet clinic: the corner shop it picks keeps a bare roof and an empty window | | [city.md](city.md#the-vet-clinic) |
-| `?billboard=classic` | No rooftop billboards: the robo-taxi and Dub Burger roofs stay bare | | [city.md](city.md#the-rooftop-billboard) |
+| `?billboard=classic` | No rooftop billboards: the vet's and Dub Burger's roofs stay bare | | [city.md](city.md#the-rooftop-billboard) |
+| `?dogad=bun` / `=peek` / `=print` / `=shapes` / `=cartoon` | Which vet poster the first billboard carries instead of the default (the board itself cut out as a dachshund hot dog on legs): `bun` (a dachshund in a bun on a rectangular blue poster, "With everything."), `peek` (a dog peeking up under "Good boy?" on yellow), `print` (a two-ink dachshund), `shapes` (a Bauhaus dog beside GOOD BOY), `cartoon` (the outlined first draft) | | [city.md](city.md#the-rooftop-billboard) |
+| `?billboardad=classic` | The first billboard shows the robo-taxis' MONDAY teaser instead of the vet's dog | | [city.md](city.md#the-rooftop-billboard) |
 | `?vetopen=word` | The vet's OPEN sign spells the word in red neon letters inside its blue frame, instead of one red bar | | [city.md](city.md#the-vet-clinic) |
 | `?roofs=classic` | Solid flat roof caps, with no lip and no sunk deck | #511 | [city.md](city.md) |
 | `?flames=classic` | The drift kick's two plumes splayed into a V off the pipe (0.6 out, 0.32 rad each side) instead of running parallel 0.65 out | | [rendering.md](rendering.md#the-tailpipe-plume--gamelocoflamejs) |

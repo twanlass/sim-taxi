@@ -19,8 +19,28 @@ export const ART_H = 400;
 
 const FONT = '"Space Grotesk", system-ui, sans-serif';
 
-/** The poster designs, by name. */
-export const ADS = ['robotaxi', 'dubburger'];
+/**
+ * `?billboardad=classic` — the first board carries the robo-taxis' MONDAY teaser again instead of
+ * the vet's dog. MONDAY was the only thing on the map saying the robo-taxis were coming; Tyler
+ * found it boring and asked for the vet on 2026-11-07, and the story now rides on the intro's
+ * dispatch lines and on the robo-taxis themselves.
+ */
+export const AD_CLASSIC = typeof location !== 'undefined'
+  && new URLSearchParams(location.search).get('billboardad') === 'classic';
+
+/**
+ * `?dogad=` — which of the vet's posters the first board carries. Tyler asked for three directions
+ * after the first (`cartoon`) read as clip art, 2026-11-07: `peek`, `print` and `shapes`, all
+ * without the ink outline and the hard drop that made the cartoon cheesy. He liked the dachshund
+ * and asked for it in a hot dog bun, which is `bun`; then for the board itself cut to the shape of a
+ * hot dog on legs, which is `sign`, the default.
+ */
+const DOG_ADS = { sign: 'dogsign', bun: 'dogbun', peek: 'dogpeek', print: 'dogprint', shapes: 'dogshapes', cartoon: 'goodboy' };
+const DOG_AD = (typeof location !== 'undefined'
+  && DOG_ADS[new URLSearchParams(location.search).get('dogad')]) || DOG_ADS.sign;
+
+/** The poster designs, by name, in the order the boards are placed (the first lands on every city). */
+export const ADS = [AD_CLASSIC ? 'robotaxi' : DOG_AD, 'dubburger'];
 
 /** The largest size at which `text` fits in `maxW` (and under `maxSize`). */
 function fit(g, text, weight, maxW, maxSize) {
@@ -107,6 +127,529 @@ function drawRobotaxi(g) {
   g.fillText('MONDAY.', ART_W / 2, ART_H - 40);
 }
 
+// --- Good Boy Vet ------------------------------------------------------------------------------
+
+/**
+ * The vet clinic (city/vetclinic.js) advertising itself, the way Dub Burger does: its sign's dog
+ * drawn big on the left, in the same golden fur, brown ears and cream muzzle (palette.js `dog*`),
+ * on the clinic's neon blue. The clinic had no name until this poster gave it one. At play zoom:
+ * "blue board, dog face, WOOF!" — the face is the part that has to survive 23 pixels, so it is
+ * drawn front on (the 3D head is swung off the view axis to show a snout; flat art doesn't need
+ * to) with eyes far too big and the tongue out. The collar is the sign's red rather than its blue,
+ * which would vanish into the field.
+ */
+function drawGoodBoy(g) {
+  const blue = '#2C74F0';               // `dogCollar`, a touch deeper so the cream word holds on it
+  const deep = '#1A4CB4';
+  const paw = '#3F84F5';
+  const cream = '#FFF1D6';
+  const gold = '#F2C14E';               // `dogTag`
+  const ink = '#141628';
+  const fur = '#E0A24E';                // `dogFur`
+  const ear = '#8B4F26';                // `dogEar`
+  g.fillStyle = blue;
+  g.fillRect(0, 0, ART_W, ART_H);
+
+  // Paw prints trotting across the field behind everything: texture for a player who pinches in,
+  // a shade off the blue so at play zoom they are not there at all.
+  g.fillStyle = paw;
+  const print = (x, y, r) => {
+    g.save(); g.translate(x, y); g.rotate(r);
+    g.beginPath(); g.ellipse(0, 6, 15, 12, 0, 0, Math.PI * 2); g.fill();
+    for (const [tx, ty] of [[-15, -10], [-5, -18], [6, -18], [16, -10]]) {
+      g.beginPath(); g.ellipse(tx, ty, 5, 6.5, 0, 0, Math.PI * 2); g.fill();
+    }
+    g.restore();
+  };
+  for (const [x, y, r] of [[430, 360, 1.3], [500, 330, 1.2], [570, 365, 1.4], [640, 335, 1.2],
+    [710, 368, 1.35], [780, 338, 1.25], [850, 366, 1.3], [920, 336, 1.2], [990, 362, 1.4]]) {
+    print(x, y, r);
+  }
+
+  // A darker disc behind the dog, so the ears' outline holds against the blue.
+  const cx = 205;
+  const cy = 190;
+  g.fillStyle = deep;
+  g.beginPath(); g.arc(cx, cy + 8, 178, 0, Math.PI * 2); g.fill();
+
+  // Every part drawn twice: a hard ink drop, then the fill. The burger's trick — it is what makes
+  // the shapes read as shapes at 30 pixels rather than as a blur of warm colours.
+  const part = (draw, fill, drop = 6) => {
+    g.fillStyle = ink;
+    g.save(); g.translate(0, drop); draw(); g.fill(); g.restore();
+    draw(); g.fillStyle = fill; g.fill();
+  };
+  const ell = (x, y, rx, ry, rot = 0) => () => {
+    g.beginPath(); g.ellipse(x, y, rx, ry, rot, 0, Math.PI * 2);
+  };
+
+  g.save();
+  g.translate(cx, cy);
+  g.rotate(-0.1);                       // the head cock, the same listening tilt the sign does
+
+  // The collar first, under the chin, and its tag.
+  part(() => roundRect(g, -88, 106, 176, 34, 16), '#FF3348');            // `vetNeonRed`
+  part(ell(0, 158, 22, 22), gold, 4);
+  g.fillStyle = '#C8932A';
+  g.beginPath(); g.arc(0, 158, 9, 0, Math.PI * 2); g.fill();
+  // The ears, hung off the crown behind the head and kicked out at the bottom.
+  for (const s of [-1, 1]) part(ell(s * 118, 22, 50, 104, s * -0.38), ear);
+  // The head, wider than tall, with a tuft on the crown.
+  part(() => {
+    g.beginPath();
+    g.ellipse(0, -2, 128, 118, 0, 0, Math.PI * 2);
+    g.moveTo(-26, -112); g.quadraticCurveTo(-8, -150, 4, -116);
+    g.quadraticCurveTo(18, -146, 30, -110); g.closePath();
+  }, fur);
+  // A brown patch over one eye: the bit of character that makes him somebody's dog.
+  g.fillStyle = ear;
+  g.beginPath(); g.ellipse(52, -30, 46, 48, 0.2, 0, Math.PI * 2); g.fill();
+  // The muzzle.
+  g.fillStyle = cream;
+  g.beginPath(); g.ellipse(0, 52, 82, 58, 0, 0, Math.PI * 2); g.fill();
+  // Eyes: far too big, pupils sat in and down, so he is looking up at you.
+  for (const s of [-1, 1]) {
+    g.fillStyle = ink;
+    g.beginPath(); g.ellipse(s * 50, -26, 30, 34, 0, 0, Math.PI * 2); g.fill();
+    g.fillStyle = '#FFFFFF';
+    g.beginPath(); g.ellipse(s * 50, -28, 25, 29, 0, 0, Math.PI * 2); g.fill();
+    g.fillStyle = ink;
+    g.beginPath(); g.ellipse(s * 47, -21, 16, 18, 0, 0, Math.PI * 2); g.fill();
+    g.fillStyle = '#FFFFFF';
+    g.beginPath(); g.arc(s * 47 + 6, -28, 6, 0, Math.PI * 2); g.fill();
+  }
+  // Pink cheeks.
+  g.fillStyle = 'rgba(255, 111, 142, 0.45)';
+  for (const s of [-1, 1]) { g.beginPath(); g.ellipse(s * 92, 30, 18, 11, 0, 0, Math.PI * 2); g.fill(); }
+  // The open mouth and the tongue hanging out of it, a little off-centre.
+  g.fillStyle = '#5A1E24';                                               // `dogMouth`
+  g.beginPath();
+  g.moveTo(-42, 62); g.quadraticCurveTo(0, 74, 42, 62);
+  g.quadraticCurveTo(36, 106, 0, 108); g.quadraticCurveTo(-36, 106, -42, 62);
+  g.fill();
+  part(() => {
+    g.beginPath();
+    g.moveTo(-14, 80); g.lineTo(34, 80);
+    g.quadraticCurveTo(40, 136, 10, 138); g.quadraticCurveTo(-20, 136, -14, 80);
+  }, '#FF6F8E', 4);                                                      // `dogTongue`
+  g.strokeStyle = '#D8486C';
+  g.lineWidth = 4;
+  g.beginPath(); g.moveTo(10, 92); g.lineTo(11, 122); g.stroke();
+  // The smile line, from the nose down and out each way.
+  g.strokeStyle = ink;
+  g.lineWidth = 6;
+  g.lineCap = 'round';
+  g.beginPath();
+  g.moveTo(0, 36); g.lineTo(0, 58);
+  g.moveTo(-46, 58); g.quadraticCurveTo(-22, 74, 0, 58); g.quadraticCurveTo(22, 74, 46, 58);
+  g.stroke();
+  // The nose, with a shine.
+  g.fillStyle = ink;
+  g.beginPath();
+  g.moveTo(-30, 18); g.quadraticCurveTo(0, 6, 30, 18);
+  g.quadraticCurveTo(26, 44, 0, 46); g.quadraticCurveTo(-26, 44, -30, 18);
+  g.fill();
+  g.fillStyle = 'rgba(255, 255, 255, 0.55)';
+  g.beginPath(); g.ellipse(-10, 20, 9, 5, -0.2, 0, Math.PI * 2); g.fill();
+  g.restore();
+
+  // WOOF! / GOOD BOY VET: cream and gold on a hard ink drop, as Dub Burger's are.
+  const word = (text, size, x, y, fill) => {
+    g.font = `700 ${size}px ${FONT}`;
+    g.fillStyle = ink;
+    g.fillText(text, x + 7, y + 7);
+    g.fillStyle = fill;
+    g.fillText(text, x, y);
+  };
+  g.textBaseline = 'alphabetic';
+  g.textAlign = 'left';
+  const left = 420;
+  const big = fit(g, 'WOOF!', 700, ART_W - left - 36, 220);
+  word('WOOF!', big, left, 196, cream);
+  const mid = fit(g, 'GOOD BOY VET', 700, ART_W - left - 36, 96);
+  word('GOOD BOY VET', mid, left + 4, 290, gold);
+  g.fillStyle = cream;
+  fit(g, 'WALK-INS & WAG-INS WELCOME.', 600, ART_W - left - 36, 30);
+  g.fillText('WALK-INS & WAG-INS WELCOME.', left + 6, 334);
+}
+
+// --- Good Boy Vet, three directions ------------------------------------------------------------
+
+const circle = (g, x, y, r) => { g.beginPath(); g.arc(x, y, r, 0, Math.PI * 2); g.fill(); };
+const oval = (g, x, y, rx, ry, rot = 0) => {
+  g.beginPath(); g.ellipse(x, y, rx, ry, rot, 0, Math.PI * 2); g.fill();
+};
+
+/**
+ * `peek`: a modern campaign crop. A white dog with black ears comes up from the bottom edge so only
+ * the top of its head shows — the eyes and the top of the nose — on a hard yellow, with "Good boy?"
+ * set big in black beside it. At play zoom: "yellow board, a face looking up at you, a black word".
+ * The cut-off is the joke and it is what makes it read as an ad rather than an illustration.
+ */
+function drawDogPeek(g) {
+  const yellow = '#FFD23F';
+  const ink = '#141414';
+  const white = '#FBF7EE';
+  g.fillStyle = yellow;
+  g.fillRect(0, 0, ART_W, ART_H);
+  const cx = 740;
+  const cy = 520;
+  // Ears behind the head, hanging off the crown.
+  g.fillStyle = ink;
+  oval(g, cx - 238, cy - 120, 72, 165, 0.32);
+  oval(g, cx + 238, cy - 120, 72, 165, -0.32);
+  // The head, mostly off the bottom of the board.
+  g.fillStyle = white;
+  oval(g, cx, cy, 250, 330);
+  // A black patch over one eye.
+  g.fillStyle = ink;
+  oval(g, cx + 88, cy - 228, 70, 62, 0.3);
+  // Eyes, looking up at you.
+  for (const s of [-1, 1]) {
+    g.fillStyle = s > 0 ? white : ink;
+    if (s > 0) circle(g, cx + 88, cy - 228, 38);
+    g.fillStyle = ink;
+    circle(g, cx + s * 88, cy - 236, s > 0 ? 26 : 30);
+    g.fillStyle = '#FFFFFF';
+    circle(g, cx + s * 88 + 9, cy - 246, 9);
+  }
+  // Eyebrows, worried up in the middle.
+  g.strokeStyle = ink;
+  g.lineWidth = 12;
+  g.lineCap = 'round';
+  g.beginPath();
+  g.moveTo(cx - 128, cy - 300); g.quadraticCurveTo(cx - 90, cy - 316, cx - 52, cy - 296);
+  g.moveTo(cx + 52, cy - 296); g.quadraticCurveTo(cx + 90, cy - 316, cx + 128, cy - 300);
+  g.stroke();
+  // The top of the nose, cut off by the bottom edge.
+  g.fillStyle = ink;
+  g.beginPath();
+  g.moveTo(cx - 62, cy - 146); g.quadraticCurveTo(cx, cy - 168, cx + 62, cy - 146);
+  g.quadraticCurveTo(cx + 56, cy - 90, cx, cy - 84); g.quadraticCurveTo(cx - 56, cy - 90, cx - 62, cy - 146);
+  g.fill();
+  g.fillStyle = 'rgba(255, 255, 255, 0.5)';
+  oval(g, cx - 20, cy - 142, 16, 8, -0.2);
+
+  g.fillStyle = ink;
+  g.textBaseline = 'alphabetic';
+  g.textAlign = 'left';
+  fit(g, 'Good', 700, 400, 170);
+  g.fillText('Good', 40, 168);
+  fit(g, 'boy?', 700, 400, 170);
+  g.fillText('boy?', 40, 312);
+  fit(g, 'GOOD BOY VET  ·  WALK-INS WELCOME', 700, 380, 26);
+  g.fillText('GOOD BOY VET  ·  WALK-INS WELCOME', 44, 362);
+}
+
+/**
+ * `print`: a two-ink mid-century screen print. A long red dachshund stands right across the board,
+ * the one dog shaped like a billboard, under a mustard sun, with the clinic's name in navy and a
+ * line about the long haul. Flat colour, no outlines, slight registration offset on the sun.
+ */
+function drawDogPrint(g) {
+  const paper = '#F1E6CF';
+  const navy = '#1F2A44';
+  const red = '#E0503A';
+  const mustard = '#E8B04A';
+  g.fillStyle = paper;
+  g.fillRect(0, 0, ART_W, ART_H);
+  // The sun behind the head, and the ground line.
+  g.fillStyle = mustard;
+  circle(g, 840, 170, 120);
+  g.fillStyle = navy;
+  g.fillRect(0, 352, ART_W, 6);
+
+  // The dachshund, facing right: tail, legs, body, chest, head, snout, ear.
+  g.fillStyle = red;
+  g.beginPath();                                                       // tail
+  g.moveTo(172, 236); g.quadraticCurveTo(118, 228, 96, 192);
+  g.quadraticCurveTo(130, 212, 180, 210); g.closePath(); g.fill();
+  for (const x of [210, 268, 650, 712]) {                              // legs
+    roundRect(g, x, 260, 42, 92, 18); g.fill();
+  }
+  roundRect(g, 160, 196, 640, 112, 56); g.fill();                      // body
+  oval(g, 760, 252, 74, 70);                                           // chest
+  circle(g, 842, 184, 70);                                             // head
+  g.beginPath();                                                       // snout
+  g.moveTo(860, 150); g.quadraticCurveTo(960, 168, 984, 214);
+  g.quadraticCurveTo(964, 244, 868, 236); g.closePath(); g.fill();
+  g.fillStyle = navy;
+  g.beginPath();                                                       // ear
+  g.moveTo(812, 140); g.quadraticCurveTo(760, 170, 778, 270);
+  g.quadraticCurveTo(820, 268, 840, 156); g.closePath(); g.fill();
+  circle(g, 870, 172, 9);                                              // eye
+  oval(g, 984, 210, 13, 11);                                           // nose
+
+  // The name, top left, and the line under it.
+  g.fillStyle = navy;
+  g.textBaseline = 'alphabetic';
+  g.textAlign = 'left';
+  fit(g, 'GOOD BOY VET', 700, 580, 96);
+  g.fillText('GOOD BOY VET', 44, 112);
+  g.fillStyle = red;
+  fit(g, 'Here for the long haul.', 500, 520, 36);
+  g.fillText('Here for the long haul.', 48, 160);
+  g.fillStyle = navy;
+  fit(g, 'OPEN LATE  ·  WALK-INS', 700, 300, 22);
+  g.fillText('OPEN LATE  ·  WALK-INS', 48, 388);
+}
+
+/**
+ * `bun`: the print's dachshund lying in a hot dog bun, Tyler's riff on the wiener (2026-11-07).
+ * The print's flat screen-print look, on deep blue rather than its cream paper: cream lost the bun
+ * at play zoom, where the lamp wash and the tan crust came out the same colour. A mustard sun behind the head, a squiggle of mustard
+ * down his back, his head and front paws over the end of the bun and his tail out of the other.
+ * The joke is the hot dog order: "With everything." — and for a vet, everything is checkups, shots
+ * and belly rubs. At play zoom: "blue board, a long red dog in a bun".
+ */
+function drawDogBun(g) {
+  const field = '#203E66';               // a deep blue, so a tan bun and a red dog pop under the lamps
+  const cream = '#F6EBD2';
+  const navy = '#1F2A44';
+  const red = '#E0503A';
+  const sun = '#E8B04A';
+  const mustard = '#F7CB2D';
+  const bun = '#D9A15A';
+  const bunBack = '#BF8340';
+  const bunLight = '#EBBE7C';
+  g.fillStyle = field;
+  g.fillRect(0, 0, ART_W, ART_H);
+  g.fillStyle = sun;
+  circle(g, 892, 196, 116);
+
+  // The back half of the bun, behind him.
+  g.fillStyle = bunBack;
+  roundRect(g, 150, 200, 720, 96, 48); g.fill();
+  // The tail, out of the left end.
+  g.fillStyle = red;
+  g.beginPath();
+  g.moveTo(190, 236); g.quadraticCurveTo(130, 226, 104, 184);
+  g.quadraticCurveTo(140, 206, 196, 214); g.closePath(); g.fill();
+  // The dog: body, chest, head, snout, ear.
+  roundRect(g, 172, 212, 690, 84, 42); g.fill();
+  oval(g, 846, 246, 54, 48);
+  circle(g, 896, 196, 62);
+  g.beginPath();
+  g.moveTo(910, 164); g.quadraticCurveTo(1000, 180, 1012, 222);
+  g.quadraticCurveTo(992, 250, 912, 246); g.closePath(); g.fill();
+  g.fillStyle = navy;
+  g.beginPath();
+  g.moveTo(870, 154); g.quadraticCurveTo(822, 184, 838, 272);
+  g.quadraticCurveTo(878, 268, 896, 168); g.closePath(); g.fill();
+  circle(g, 924, 184, 9);
+  oval(g, 1010, 218, 12, 10);
+  // The mustard, squiggled down his back.
+  g.strokeStyle = mustard;
+  g.lineWidth = 15;
+  g.lineCap = 'round';
+  g.lineJoin = 'round';
+  g.beginPath();
+  for (let x = 220; x <= 790; x += 6) {
+    const y = 228 + Math.sin((x - 220) / 26) * 9;
+    if (x === 220) g.moveTo(x, y); else g.lineTo(x, y);
+  }
+  g.stroke();
+  // The front half of the bun, with a lighter crust along its lip.
+  g.fillStyle = bun;
+  roundRect(g, 136, 262, 752, 98, 49); g.fill();
+  g.fillStyle = bunLight;
+  roundRect(g, 176, 270, 672, 16, 8); g.fill();
+  // Front paws over the lip.
+  g.fillStyle = red;
+  oval(g, 812, 276, 24, 16);
+  oval(g, 858, 280, 24, 16);
+
+  g.fillStyle = cream;
+  g.textBaseline = 'alphabetic';
+  g.textAlign = 'left';
+  fit(g, 'WITH EVERYTHING.', 700, 640, 84);
+  g.fillText('WITH EVERYTHING.', 40, 98);
+  g.fillStyle = sun;
+  fit(g, 'Checkups, shots & belly rubs.', 500, 600, 36);
+  g.fillText('Checkups, shots & belly rubs.', 44, 146);
+  g.fillStyle = cream;
+  fit(g, 'GOOD BOY VET  ·  OPEN LATE', 700, 380, 24);
+  g.fillText('GOOD BOY VET  ·  OPEN LATE', 44, 388);
+}
+
+/**
+ * `shapes`: Bauhaus. A coral block on the left with a dog built only from primitives — a navy
+ * circle for the head, two mustard half-discs for the ears, cream circles for eyes, a coral
+ * triangle for the nose — and GOOD / BOY stacked heavy in navy on cream beside it.
+ */
+function drawDogShapes(g) {
+  const cream = '#F5EEDF';
+  const coral = '#FF6B57';
+  const navy = '#1C2B4A';
+  const mustard = '#F2B33D';
+  g.fillStyle = cream;
+  g.fillRect(0, 0, ART_W, ART_H);
+  g.fillStyle = coral;
+  g.fillRect(0, 0, 420, ART_H);
+
+  const cx = 210;
+  const cy = 214;
+  // The head.
+  g.fillStyle = navy;
+  circle(g, cx, cy, 130);
+  // Ears: long capsules hung off the crown and down past the cheeks, over the head's edge.
+  g.fillStyle = mustard;
+  for (const s of [-1, 1]) {
+    roundRect(g, cx + s * 112 - 40, cy - 120, 80, 200, 40); g.fill();
+  }
+  // A cream muzzle disc, low.
+  g.fillStyle = cream;
+  circle(g, cx, cy + 58, 64);
+  // Eyes: cream circles with navy pupils, set high.
+  for (const s of [-1, 1]) {
+    g.fillStyle = cream;
+    circle(g, cx + s * 52, cy - 34, 28);
+    g.fillStyle = navy;
+    circle(g, cx + s * 48, cy - 28, 14);
+  }
+  // The nose: a navy half-disc, flat side up, and a coral tongue under the muzzle.
+  g.fillStyle = navy;
+  g.beginPath(); g.arc(cx, cy + 28, 26, 0, Math.PI); g.closePath(); g.fill();
+  g.fillStyle = coral;
+  g.beginPath(); g.arc(cx, cy + 100, 26, 0, Math.PI); g.closePath(); g.fill();
+  // A mustard tag at the chin.
+  g.fillStyle = mustard;
+  circle(g, cx, cy + 156, 22);
+
+  g.fillStyle = navy;
+  g.textBaseline = 'alphabetic';
+  g.textAlign = 'left';
+  const left = 470;
+  fit(g, 'GOOD', 700, ART_W - left - 40, 170);
+  g.fillText('GOOD', left, 168);
+  fit(g, 'BOY', 700, ART_W - left - 40, 170);
+  g.fillText('BOY', left, 318);
+  g.fillStyle = coral;
+  fit(g, 'VETERINARY  ·  SIT. STAY. HEAL.', 700, ART_W - left - 40, 26);
+  g.fillText('VETERINARY  ·  SIT. STAY. HEAL.', left + 4, 366);
+}
+
+// --- The hot dog sign: a board cut to its own outline -----------------------------------------
+
+/**
+ * Shaped posters: the board is cut to this outline instead of being a rectangle (city/billboard.js
+ * extrudes it and lays the art on its face). Each entry draws its outline as closed sub-paths, in
+ * canvas pixels, through a `pen` with `moveTo`/`lineTo`/`quadraticCurveTo`/`bezierCurveTo`/
+ * `closePath` — a 2D context and a `THREE.Shape` builder both are one — so the art and the
+ * geometry are the same curves. The sub-paths overlap; the board is their union.
+ */
+const K = 0.5523;                       // a quarter circle's bezier handle
+function ellipsePath(pen, x, y, rx, ry) {
+  pen.moveTo(x + rx, y);
+  pen.bezierCurveTo(x + rx, y + ry * K, x + rx * K, y + ry, x, y + ry);
+  pen.bezierCurveTo(x - rx * K, y + ry, x - rx, y + ry * K, x - rx, y);
+  pen.bezierCurveTo(x - rx, y - ry * K, x - rx * K, y - ry, x, y - ry);
+  pen.bezierCurveTo(x + rx * K, y - ry, x + rx, y - ry * K, x + rx, y);
+  pen.closePath();
+}
+function capsulePath(pen, x0, y0, x1, y1) {
+  const r = Math.min(x1 - x0, y1 - y0) / 2;
+  pen.moveTo(x0 + r, y0);
+  pen.lineTo(x1 - r, y0);
+  pen.quadraticCurveTo(x1, y0, x1, y0 + r);
+  pen.lineTo(x1, y1 - r);
+  pen.quadraticCurveTo(x1, y1, x1 - r, y1);
+  pen.lineTo(x0 + r, y1);
+  pen.quadraticCurveTo(x0, y1, x0, y1 - r);
+  pen.lineTo(x0, y0 + r);
+  pen.quadraticCurveTo(x0, y0, x0 + r, y0);
+  pen.closePath();
+}
+
+/** Where the hot dog dog's parts are, in canvas pixels. */
+const HD = {
+  bun: [70, 156, 872, 306],
+  sausage: [48, 100, 906, 186],
+  head: [912, 100, 74, 68],
+  snout: [968, 134, 54, 34],
+  legs: [[176, 230], [278, 332], [648, 702], [748, 802]],
+  legY: [270, 398],
+};
+function hotdogTail(pen) {
+  pen.moveTo(96, 132);
+  pen.quadraticCurveTo(40, 102, 18, 26);
+  pen.lineTo(38, 22);
+  pen.quadraticCurveTo(66, 82, 104, 108);
+  pen.closePath();
+}
+function hotdogOutline(pen) {
+  capsulePath(pen, ...HD.bun);
+  capsulePath(pen, ...HD.sausage);
+  ellipsePath(pen, ...HD.head);
+  ellipsePath(pen, ...HD.snout);
+  hotdogTail(pen);
+  for (const [x0, x1] of HD.legs) capsulePath(pen, x0, HD.legY[0], x1, HD.legY[1]);
+}
+
+export const OUTLINES = { dogsign: hotdogOutline };
+
+/**
+ * `sign`: the whole board is the joke (Tyler, 2026-11-07). A dachshund that is also a hot dog, cut
+ * out of plywood: his body is the sausage, lying in the bun with a squiggle of mustard down his
+ * back, his head and ear out of one end and his tail out of the other, and four stubby legs out of
+ * the bottom of the bun so he is standing up in it. The clinic's name goes on the bun. No lamps and
+ * no wash — there is no catwalk on a cut-out — so the art is painted at full strength.
+ */
+function drawDogSign(g) {
+  const navy = '#1F2A44';
+  const red = '#E0503A';
+  const redDark = '#B83A28';
+  const mustard = '#F7CB2D';
+  const bun = '#E2AA62';
+  const bunLight = '#F1C788';
+  // Bun colour everywhere, so a texel of slop at the cut edge is crust rather than a seam.
+  g.fillStyle = bun;
+  g.fillRect(0, 0, ART_W, ART_H);
+  const fill = (draw, col) => { g.beginPath(); draw(g); g.fillStyle = col; g.fill(); };
+
+  // Legs and tail behind, a shade darker on the far pair so the four read as two and two.
+  HD.legs.forEach(([x0, x1], i) => fill((p) => capsulePath(p, x0, HD.legY[0], x1, HD.legY[1]),
+    i % 2 ? red : redDark));
+  fill(hotdogTail, red);
+  // The sausage, the head and the snout: one red animal.
+  fill((p) => capsulePath(p, ...HD.sausage), red);
+  fill((p) => ellipsePath(p, ...HD.head), red);
+  fill((p) => ellipsePath(p, ...HD.snout), red);
+  // Ear, eye, nose, and a smile under the snout.
+  g.fillStyle = navy;
+  g.beginPath();
+  g.moveTo(884, 52); g.quadraticCurveTo(836, 82, 850, 178);
+  g.quadraticCurveTo(892, 178, 910, 66); g.closePath(); g.fill();
+  g.beginPath(); g.arc(944, 86, 10, 0, Math.PI * 2); g.fill();
+  g.beginPath(); g.ellipse(1012, 122, 13, 11, 0, 0, Math.PI * 2); g.fill();
+  g.strokeStyle = navy;
+  g.lineWidth = 6;
+  g.lineCap = 'round';
+  g.beginPath(); g.moveTo(958, 152); g.quadraticCurveTo(984, 164, 1004, 146); g.stroke();
+  // The mustard, down his back.
+  g.strokeStyle = mustard;
+  g.lineWidth = 16;
+  g.lineJoin = 'round';
+  g.beginPath();
+  for (let x = 100; x <= 830; x += 6) {
+    const y = 128 + Math.sin((x - 100) / 26) * 10;
+    if (x === 100) g.moveTo(x, y); else g.lineTo(x, y);
+  }
+  g.stroke();
+  // The bun in front, with a lighter crust along its lip, and the name on it.
+  fill((p) => capsulePath(p, ...HD.bun), bun);
+  g.fillStyle = bunLight;
+  roundRect(g, 120, 166, 700, 18, 9); g.fill();
+  g.fillStyle = navy;
+  g.textBaseline = 'alphabetic';
+  g.textAlign = 'center';
+  fit(g, 'GOOD BOY VET', 700, 640, 92);
+  g.fillText('GOOD BOY VET', 470, 266);
+  g.fillStyle = redDark;
+  fit(g, 'CHECKUPS  ·  SHOTS  ·  BELLY RUBS', 700, 520, 24);
+  g.fillText('CHECKUPS  ·  SHOTS  ·  BELLY RUBS', 470, 294);
+}
+
 // --- Dub Burger ---------------------------------------------------------------------------------
 
 /**
@@ -189,7 +732,8 @@ function drawDubBurger(g) {
   g.fillText('WE TAKE CASH OR BITCOIN.', left + 6, 376);
 }
 
-const DRAW = { robotaxi: drawRobotaxi, dubburger: drawDubBurger };
+const DRAW = {
+  dogsign: drawDogSign, dogbun: drawDogBun, dogpeek: drawDogPeek, dogprint: drawDogPrint, dogshapes: drawDogShapes, goodboy: drawGoodBoy, robotaxi: drawRobotaxi, dubburger: drawDubBurger };
 
 /**
  * The light off the three lamps on the catwalk, painted into the poster: a warm fan up from the
@@ -229,7 +773,7 @@ export function posterTexture(name) {
   const paint = () => {
     g.setTransform(1, 0, 0, 1, 0, 0);
     DRAW[name](g);
-    drawWash(g);
+    if (!OUTLINES[name]) drawWash(g);
     texture.needsUpdate = true;
   };
   paint();
