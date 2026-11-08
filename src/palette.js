@@ -59,6 +59,10 @@ export const PALETTE = {
   // screen before it: what a cold start shows while the game loads, so it has to be the same black
   // everywhere or the hand-offs between them flash.
   splashVoid: '#000000',
+  // The load bar under the word (game/loadbar.js): a dim track and the taxi's own yellow filling it.
+  // Flat, no gloss — the HUD's rule (no white shine) holds for the one thing on screen at boot too.
+  loadTrack: '#2A2A2E',
+  loadFill: '#F5C130',
   // The startup screen's logo (game/splashlogo.js): white faces, and the cool grey its extrusion's
   // sides fall to away from the light. Lit by its own neutral light rather than the scene's: the
   // late-afternoon sun and the warm fill turned even pure white into cardboard tan.

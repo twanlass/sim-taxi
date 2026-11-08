@@ -12,9 +12,15 @@
  * Without a startup screen (`?splash=classic`, shot mode, `?dev`, `?title=off`, "Play again") the
  * game is imported straight away, and the page's black (`html.booting`) gives way to the sky once
  * the city has drawn.
+ *
+ * The load bar (game/loadbar.js) goes up first on either path, and the game's import waits a frame
+ * for it the same way, because its creep is a compositor animation that has to be presented before
+ * main.js freezes the page. What the import resolves to is main.js's `ready` — its warm-up is
+ * spread over frames now, so the module having evaluated no longer means the city is on screen.
  */
 import { createSplash, wantsSplash, WAIT_LOGO } from './game/splash.js';
 import { BACKDROP, announceReady } from './game/backdrop.js';
+import { showLoadBar, hideLoadBar, LOADER } from './game/loadbar.js';
 
 if (BACKDROP) document.documentElement.classList.add('backdrop');
 
@@ -26,7 +32,10 @@ const presented = () => new Promise((resolve) => {
   requestAnimationFrame(() => requestAnimationFrame(resolve));
   setTimeout(resolve, 100);
 });
-const loading = splash && WAIT_LOGO ? presented().then(() => import('./main.js')) : import('./main.js');
+showLoadBar();
+const game = () => import('./main.js').then((main) => main.ready);
+const loading = (splash && WAIT_LOGO) || LOADER ? presented().then(game) : game();
+loading.then(hideLoadBar, hideLoadBar);
 if (splash) {
   splash.run(loading);
 } else {

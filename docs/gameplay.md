@@ -55,6 +55,23 @@ cannot stutter anything, and then the drop plays with the city skipping its fram
 (`splashCovers()`, read at the top of `frame` in main.js). The fade reveals the last of those warm
 frames, still on the city's canvas, and the city picks up when the screen is gone.
 
+**A load bar under the word says how far the load has got** (game/loadbar.js). A first launch after
+a new build is the long one — iOS has no shader pipelines cached — and a still word reads as a hang.
+Measured headless, the boot is three stretches: the city build (~1.3 s, one synchronous task), the
+shader links `renderer.compile()` queues (2.7 s, the biggest), and the warm-up draw that builds every
+pipeline (game/warmup.js). The bar is a thin flat track in `loadTrack` filling with the taxi's
+yellow, and it is honest about each stretch the only way that stretch allows. During the city build
+no script can run, so it gets one compositor animation before the import starts — a creep that eases
+towards a quarter and never arrives, which keeps moving because a transform animation runs off the
+main thread. The links are polled a frame at a time (`awaitPrograms`), counting programs done where
+the browser has `KHR_parallel_shader_compile` and leaves the page free while they link. The warm-up
+is drawn in ten slices a frame apart (`warmFirstDrawsInSteps`), each slice alone, balanced on new
+materials, each moving the bar its share across its own blocking draw. Slicing costs nothing
+measurable: 5.3–6.2 s to `taxi:ready` against 6.4 s for the one-frame warm-up, headless. `boot.js`
+now waits on main.js's exported `ready` rather than the import itself, so the drop starts once the
+warm-up is done. It shows on every load behind black, fades in after 0.4 s so a quick load never
+flashes it, and `?loader=classic` is the load without it, warm-up in one frame.
+
 **It is built before the game is imported on purpose.** `propMaterial()` bakes the AO, Crayon and
 cloud-shadow switches into the shader at creation, and `main.js` throws them as it boots: a taxi made
 afterwards would sample the city's SSAO buffer at whatever pixel it stood on. Built and compiled
