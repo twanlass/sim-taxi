@@ -197,7 +197,8 @@ import { SKYLINE_CEILING } from './city/buildings.js';
 import { popHighlight, POP_TIME } from './game/selectpop.js';
 import { createDiagnostics, describeGpu } from './game/diag.js';
 import { createHitchLogger, getHitchLogger } from './game/hitch.js';
-import { warmFirstDraws } from './game/warmup.js';
+import { warmFirstDraws, warmFirstDrawsInSteps, awaitPrograms } from './game/warmup.js';
+import { LOADER, warmStep, compileProgress } from './game/loadbar.js';
 import { createBench } from './game/bench.js';
 import { createSoak } from './game/soak.js';
 import { createGovernor } from './game/governor.js';
@@ -8104,6 +8105,13 @@ const loco = {
 const stashedLoco = !shot && wantsDebugPanel ? loadLocoTuning() : null;
 if (stashedLoco) loco.set(stashedLoco);
 
+/**
+ * Resolves once the city is warm and its frame loop running — what src/boot.js waits on. The warm-up
+ * below is spread over frames (game/loadbar.js), so the module having evaluated no longer means that.
+ */
+let resolveReady;
+export const ready = new Promise((resolve) => { resolveReady = resolve; });
+
 if (shot) {
   document.body.classList.add('shot-mode');
   traffic.warmup(shot.warmup ?? 12);
@@ -8634,6 +8642,7 @@ if (shot) {
   // The skater the same way, for filming a trick or a push (shots `skatepark` and `skatepark-far`).
   window.__skateStep = (dt = 1 / 30) => { skaters.update(dt); renderFrame(); };
   document.body.dataset.shotReady = 'true';
+  resolveReady();
 } else {
   traffic.warmup(10);
   // The opening vignette, and it is built here rather than up with everything else for one
@@ -8732,10 +8741,41 @@ if (shot) {
   // was a first play that hitched every time the camera reached somewhere new and a second play
   // that didn't (see game/warmup.js). `?warmup=classic` skips it. The second draw is so the frame
   // left in the canvas is the real one, not the city with every pool showing.
-  if (new URLSearchParams(window.location.search).get('warmup') !== 'classic') {
+  //
+  // Spread over frames by default, so the load bar can show it for what it is: on a phone's first
+  // launch after an update this is most of the wait (game/loadbar.js). The links `compile()` just
+  // queued are waited out first, a frame at a time, rather than left to block the first draw. The canvas is see-through
+  // meanwhile — each slice's frame is the city with that slice's pools all showing, and without the
+  // startup screen over it (Play again) that would be presented. `?loader=classic` is the one frame.
+  const warming = new URLSearchParams(window.location.search).get('warmup') !== 'classic';
+  if (warming && !LOADER) {
     warmFirstDraws(scene, () => renderFrame());
     renderFrame();
+    startRun();
+  } else if (warming) {
+    const canvas = renderer.domElement;
+    canvas.style.opacity = '0';
+    // Two frames, not one: a rAF callback runs *before* its frame paints, so a step announced and
+    // then drawn on the next callback would block before the announcement was ever presented.
+    const yieldFrame = () => new Promise((resolve) => {
+      requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+      // A background tab runs no frames; don't hold its load until it is looked at.
+      setTimeout(resolve, 100);
+    });
+    awaitPrograms(renderer, { onProgress: compileProgress, yieldFrame })
+      .then(() => warmFirstDrawsInSteps(scene, () => renderFrame(), { onStep: warmStep, yieldFrame }))
+      .catch((error) => console.error('[taxi] warm-up', error))
+      .finally(() => {
+        renderFrame();
+        canvas.style.opacity = '';
+        startRun();
+      });
+  } else {
+    startRun();
   }
+}
+
+function startRun() {
   const benchHooks = {
     renderer,
     ready: () => Boolean(traffic.taxi) && !traffic.taxi.staged,
@@ -8753,6 +8793,9 @@ if (shot) {
   // `?bench` or `?soak` — at most one; see game/bench.js and game/soak.js.
   bench = createBench(benchHooks) ?? createSoak(benchHooks);
   frame(performance.now());
+  // When the run could start, for timing a load from the console: performance.getEntriesByName(...).
+  performance.mark('taxi:ready');
+  resolveReady();
 }
 
 if (!shot && wantsDebugPanel) {
