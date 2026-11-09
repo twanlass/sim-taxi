@@ -72,6 +72,14 @@ now waits on main.js's exported `ready` rather than the import itself, so the dr
 warm-up is done. It shows on every load behind black, fades in after 0.4 s so a quick load never
 flashes it, and `?loader=classic` is the load without it, warm-up in one frame.
 
+Under the bar a caption says what the load is "doing", in the run-end screen's "Tap to continue"
+style (white, 0.62, breathing to 0.32 — an opacity animation, so it keeps breathing through a
+block). "Paving the streets…" for the city build, "Mixing the paint…" while links are counted, and
+during the warm-up a line for something in the slice actually being drawn (`SLICE_LINES` in
+game/loadbar.js, keyed by scene-child name), with `SPARE_LINES` for a slice with nothing nameable.
+Each step is announced and *then* given two frames before its slice blocks; announced on the frame
+before, it was painted only after the slice it described had finished.
+
 **It is built before the game is imported on purpose.** `propMaterial()` bakes the AO, Crayon and
 cloud-shadow switches into the shader at creation, and `main.js` throws them as it boots: a taxi made
 afterwards would sample the city's SSAO buffer at whatever pixel it stood on. Built and compiled

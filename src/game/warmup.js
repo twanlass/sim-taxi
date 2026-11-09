@@ -66,8 +66,8 @@ export function warmFirstDraws(scene, draw, roots = [scene]) {
  * Slices are balanced on **new materials**, not meshes: a pipeline is built per program and state,
  * so a material already drawn by an earlier slice costs next to nothing the second time.
  *
- * `onStep(from, to)` is called before each slice draws, with the fraction done before and after
- * it; the draw itself blocks, so whatever is told `to` has to animate there on the compositor.
+ * `onStep(from, to, children)` is called a frame before each slice draws, with the fraction done
+ * before and after it and the slice's scene children; the draw itself blocks, so whatever is told `to` has to animate there on the compositor.
  */
 export async function warmFirstDrawsInSteps(scene, draw, { steps = 10, onStep = () => {}, yieldFrame } = {}) {
   const drawable = (o) => o.isMesh || o.isPoints || o.isLine || o.isSprite;
@@ -101,8 +101,10 @@ export async function warmFirstDrawsInSteps(scene, draw, { steps = 10, onStep = 
   }
   if (slice.length) slices.push(slice);
   for (let i = 0; i < slices.length; i++) {
+    // Told first and *then* the yield, so the bar's step and caption reach the screen before the
+    // slice blocks. The other way round, each slice's news was painted after that slice had drawn.
+    onStep(i / slices.length, (i + 1) / slices.length, slices[i]);
     await yieldFrame();
-    onStep(i / slices.length, (i + 1) / slices.length);
     const inSlice = new Set(slices[i]);
     const hidden = [];
     for (const child of scene.children) {

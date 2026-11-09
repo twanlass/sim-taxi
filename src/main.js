@@ -8755,8 +8755,10 @@ if (shot) {
   } else if (warming) {
     const canvas = renderer.domElement;
     canvas.style.opacity = '0';
+    // Two frames, not one: a rAF callback runs *before* its frame paints, so a step announced and
+    // then drawn on the next callback would block before the announcement was ever presented.
     const yieldFrame = () => new Promise((resolve) => {
-      requestAnimationFrame(() => resolve());
+      requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
       // A background tab runs no frames; don't hold its load until it is looked at.
       setTimeout(resolve, 100);
     });
