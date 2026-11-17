@@ -38,6 +38,7 @@ import { createProps, parkPlots, setAutumn } from './city/props.js';
 import { createLeaves } from './game/leaves.js';
 import { createGrass } from './city/grass.js';
 import { createCanopyFuzz } from './city/canopyfuzz.js';
+import { createSquare } from './city/square.js';
 import { createGarage, LANDMARK as GARAGE_LANDMARK } from './city/garage.js';
 import { createBurgerJoint, SIGN_SPIN, LANDMARK as BURGER_LANDMARK } from './city/burgerjoint.js';
 import { createVetClinic, VET_CLASSIC } from './city/vetclinic.js';
@@ -727,6 +728,10 @@ if (litPanes) scene.add(litPanes);
 const props = createProps(makeRng(seed + 33), layout);
 const propsMesh = props.mesh;
 scene.add(markOccluder(propsMesh));
+// The turbine square's plaza and town hall (city/square.js), before the canopy fuzz below so the
+// plaza's trees get their leaf cards. Its own stream. Null under `?layout=classic`.
+const squareMesh = createSquare(makeRng(seed + 223), layout);
+if (squareMesh) scene.add(markOccluder(rain.wetGround(squareMesh)));
 // The street lamps, built after the props so they can keep off the court, the skatepark and the
 // pond — a park's lamp stands on its walk, and any of the three can run right up to it. A lamp
 // pole once stood in the middle of a basketball court.
@@ -919,7 +924,8 @@ const manholeSteam = createManholeSteam(scene, manholes?.userData.spots, makeRng
 // the trees, and the depot. Nothing transient does — a construction zone is 3 units of barrier and
 // comes and goes, and the boards would have to be re-asked every time one moved.
 const occluders = setCityOccluders(
-  city.mesh, ...(city.domeMesh ? [city.domeMesh] : []), propsMesh, ...(garage?.meshes ?? []),
+  city.mesh, ...(city.domeMesh ? [city.domeMesh] : []), propsMesh, ...(squareMesh ? [squareMesh] : []),
+  ...(garage?.meshes ?? []),
   ...(burger?.meshes ?? []), ...(graveyard?.meshes ?? []), ...(roadside?.meshes ?? []),
   ...(vet ? [vet.shell] : []), ...billboards.flatMap((b) => [b.shell, b.poster]),
 );

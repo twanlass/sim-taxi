@@ -338,6 +338,18 @@ export function setClosedSegments(keys) {
 }
 
 /** True if the road from (i, j) heading d has been built over. */
+// The turbine square's blades (city/square.js), kept apart from the rest so the few things that
+// treat a corner of the square differently from a road a park built over can ask.
+const squareClosures = new Set();
+export function setSquareClosures(keys) {
+  squareClosures.clear();
+  for (const key of keys) squareClosures.add(key);
+}
+export function isSquareClosure(i, j, d) {
+  const next = nextIntersection(d, i, j);
+  return Boolean(next) && squareClosures.has(segmentKey(i, j, next.i, next.j));
+}
+
 export function isSegmentClosed(i, j, d) {
   const next = nextIntersection(d, i, j);
   if (!next) return true;

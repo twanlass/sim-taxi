@@ -457,8 +457,11 @@ for (let s = 0; s < SEEDS; s++) {
       if (block.type === 'river') continue;
       // The double graveyard closed the road between its two blocks too, and comes back as one.
       if (layout.graveyardBlock?.double && block.type === 'graveyard') continue;
+      // So does each domino round the turbine square (city/square.js), across the stub it closed.
+      if (block.merge) continue;
       wanted.push(block.bounds);
     }
+    for (const merge of layout.merges ?? []) wanted.push(merge.bounds);
     for (const district of layout.districts) wanted.push(district.bounds);
     if (layout.graveyardBlock?.double) wanted.push(layout.graveyardBlock.bounds);
 

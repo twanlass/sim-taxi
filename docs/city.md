@@ -420,6 +420,43 @@ They are decided **first**, before anything else in `createLayout`, because a wi
 extra width out of the blocks either side of it and `blockBounds` cannot answer until
 `setArterialLines` has been told.
 
+## The turbine square
+
+The city is not a pure grid any more (Tyler, 2026-11-17, off a magazine plate of a medieval town
+plan). In the middle of the three-row bank there is a **turbine square**: a paved plaza with an
+obelisk and four trees, the streets round it laid in setts, and a **town hall** with a clock tower
+across the road on its −Z side. `city/square.js` owns all of it; `?layout=classic` is the plain grid.
+
+**What makes it a turbine.** The streets reach the square at its corners *offset*: at each corner one
+of the two stubs leading away is closed, chosen in pinwheel order, so every approach meets the square
+at a T and carries on along a different side of it. Nobody drives straight across. Each closed stub
+merges the two ring blocks either side of it into one long block (`bakeMerges`): one platform over
+both blocks and the road between them, built on as a single lot. The eight blocks round the plaza come
+out as dominoes spinning round it.
+
+**It is all closures, which is why it is cheap.** A closed segment is something every system already
+understands — `legalExits`, the network bake, the router, ambient traffic, the robo-taxis — exactly as
+for a [park district](#park-districts-close-roads). Nothing in the sim learned anything new.
+
+**Where it goes.** The middle column, because a square at the edge of town is not a town square, and
+the middle row of whichever bank has three rows, because the ring of blocks needs land all round. A
+first cut kept every blade off the arterials, which forced it to column 1 or 3, half in the fog.
+
+**No blade on an arterial.** A closed stub on a main street would cut its green wave and median, and
+the L runs down the north-south one. In the middle column the north-south arterial is always one of
+the plaza's boundary lines, so that corner's blade is left off: the main street runs straight past the
+square's side and the other three corners spin. The east-west arterial is held to the stricter rule —
+on a seed where it lands on the square's lines, `createLayout` moves it to its other middle line
+(`planRiver` never reads it, so nothing upstream moves). The setts stop at an arterial for the same
+reason: its median and double line carry on past the square as they do everywhere.
+
+**Why the hall is on the −Z side.** The camera looks down the +X+Z diagonal, so that side is
+up-screen of the plaza: the hall is seen front-on over the square and hides none of it.
+
+**What it does not do.** The plate also has curved streets and wedge-shaped blocks. The road network
+can describe both ([roadnet.md](roadnet.md)), but the ground, the buildings, the paint and most of the
+probe still read every block as a rectangle, so those wait on meshing blocks from network faces.
+
 ## The depot block
 
 `city/garage.js`. One block per city is `type: 'garage'` instead of `'built'`, which takes it out

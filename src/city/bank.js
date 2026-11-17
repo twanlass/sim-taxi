@@ -249,7 +249,13 @@ export function chooseBankLot(rng, lots, buildableOf, exclude = null) {
     // they were before it existed, so the draw lands where it always did, then moved if it lands there.
     && (entry.block.type === 'built' || entry.ghost)
     && bankSite(buildableOf(entry.lot), entry.lot, entry.block.bounds) !== null);
-  return options.length ? rng.pick(options) : null;
+  // Off the dominoes round the turbine square (city/square.js) where there is anywhere else: a
+  // domino is two blocks long, so the robber's run round the bank's block and the cut that frames
+  // it are drawn for a block it is not. Only where the square has left no ordinary block with a
+  // bank-sized lot does one go on a domino — a city without a bank has no robbery at all.
+  const plain = options.filter((entry) => !entry.block.merge);
+  const pool = plain.length ? plain : options;
+  return pool.length ? rng.pick(pool) : null;
 }
 
 /**

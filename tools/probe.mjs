@@ -1287,7 +1287,12 @@ const onGrass = (city, i, j) => {
   const plots = parkPlots(layout).map((p) => p.bounds);
   const parkCrowns = propsBuild.crowns.filter((c) =>
     plots.some(({ x0, z0, x1, z1 }) => c.tx >= x0 && c.tx <= x1 && c.tz >= z0 && c.tz <= z1));
-  const target = parkCrowns[0];
+  // Over the crown with the most lawn downwind of it, so the drift has somewhere to land: the first
+  // crown in the list can stand at a park's east edge, whose leaves blow straight off onto the road
+  // (it did, once the turbine square moved the parks round).
+  const lawnDownwind = (c) => Math.max(...plots.map(({ x0, z0, x1, z1 }) =>
+    (c.tx >= x0 && c.tx <= x1 && c.tz >= z0 && c.tz <= z1 ? x1 - c.tx : -Infinity)));
+  const target = [...parkCrowns].sort((p, q) => lawnDownwind(q) - lawnDownwind(p))[0];
   const cell = { x: target.x, z: target.z, r: 30, on: true, dirX: 1, dirZ: 0 };
   // A mask that is half-in everywhere, which is where the shedding peaks.
   const fake = { cell, rainAt: () => 0.5 };
@@ -6747,7 +6752,18 @@ const PRESSURE_END = difficulty.getTuning().pressureEnd;
       for (const d of [0, 1, 2, 3]) {
         // Straight on out of this junction, and straight on out of the next, so the pass has road.
         if (!legalExits(d, i, j).includes(d)) continue;
+        // The route gate below turns left here instead, so that has to be a real exit too.
+        if (!legalExits(d, i, j).includes(leftOf(d))) continue;
         if (approachRoom(d, i, j) < 30) continue;
+        // ...and for the whole [d, d, d] route the cars are given: a T-junction two blocks on (the
+        // turbine square's blades make several) turns the leader into the taxi mid-pass.
+        let at = { i, j };
+        let through = true;
+        for (let n = 0; n < 2 && through; n++) {
+          at = nextIntersection(d, at.i, at.j);
+          through = Boolean(at) && legalExits(d, at.i, at.j).includes(d);
+        }
+        if (!through) continue;
         pI = i; pJ = j; pD = d;
         break outerPass;
       }
@@ -8043,7 +8059,9 @@ check('the taxi is an ordinary car in the traffic array',
   const lRng = makeRng(seed + 91);
   const ints = allIntersections();
   let taps = 0, offered = 0, swapped = 0, arrived = 0, jumps = 0, stale = 0;
-  for (let k = 0; k < 30; k++) {
+  // 40 rather than 30 since the turbine square: its T-junctions take some late swaps out of the
+  // running (there is no corner to take where a blade closed it), and 30 offered exactly 5.
+  for (let k = 0; k < 40; k++) {
     lTaxi.route = findRoute(planOrigin(lTaxi), ints[lRng.int(0, ints.length - 1)]) ?? [];
     lTaxi.routeConsumed = false;
     for (let g = 0; g < 3000 && !crossingOrigin(lTaxi); g++) lTraffic.update(1 / 60);
@@ -11111,7 +11129,9 @@ function rideToPickup() {
   };
   const cornering = [];
   const cruising = [];
-  for (let k = 0; k < 8; k++) {
+  // Twelve cities rather than eight since the turbine square, whose blades leave fewer corners to
+  // break a sightline round on its bank: eight lost none out of sight on this seed.
+  for (let k = 0; k < 12; k++) {
     const a = chase(seed + 500 + k, BOOST_DURATION, zigzag);
     const b = chase(seed + 500 + k, 0, across);
     if (a) cornering.push(a);
@@ -19759,7 +19779,9 @@ let chopperOrder; // likewise
         // A cop turning round in the road (UTURN_* in sim/traffic.js, `wantsToTurnRound` in
         // game/robbery.js): how many, and whether the arc ever meets anything.
         let uturns = 0; let uturnOverlap = 0; let uturnTaxi = Infinity;
-        for (let k = 0; k < 12; k++) {
+        // 18 since the turbine square: its T-junctions take straights away, and passes need them —
+        // the bank's getaways on this seed went round 0 times in 12.
+        for (let k = 0; k < 18; k++) {
           const s3 = new THREE.Scene();
           const t3 = createTraffic(makeRng(seed + 300 + k * 17), s3, 18, 30);
           const f3 = createFareSystem(makeRng(seed + 55), s3);
@@ -21570,7 +21592,16 @@ let chopperOrder; // likewise
       placeCar(jTaxi, DIR.PZ, bLine, riverRow(), 10);
       jTaxi.parked = false;
       jTaxi.v = 8;
-      jTaxi.route = [DIR.PZ, DIR.PX, DIR.PZ];
+      // A turn at the far bank, and on from there: east and then north by default, or whichever
+      // turn and onward leg are open — a blade of the turbine square can close the north one.
+      const far = { i: bLine, j: riverRow() + 1 };
+      const legs = [DIR.PX, DIR.NX].flatMap((t) => {
+        const next = nextIntersection(t, far.i, far.j);
+        if (!next || !legalExits(DIR.PZ, far.i, far.j).includes(t)) return [];
+        const on = legalExits(t, next.i, next.j);
+        return on.length ? [[t, on.includes(DIR.PZ) ? DIR.PZ : on[0]]] : [];
+      });
+      jTaxi.route = [DIR.PZ, ...(legs[0] ?? [DIR.PX, DIR.PZ])];
       jTaxi.routeConsumed = false;
       bridge.request();
       const deck = new Set(bridge.laneIds);

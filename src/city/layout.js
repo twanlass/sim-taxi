@@ -1,6 +1,6 @@
 import {
   GRID_I, GRID_J, blockBounds, HALF_SPAN_X, HALF_SPAN_Z, isRiverBlock, segmentKey,
-  setArterialLines, setClosedSegments, setParkBlocks, setRiverRow, BIG_CITY, setParkwayMid,
+  setArterialLines, setClosedSegments, setSquareClosures, setParkBlocks, setRiverRow, BIG_CITY, setParkwayMid,
 } from './grid.js';
 import { planCentralPark } from './centralpark.js';
 import { planRiver, setRiverCrossings } from './river.js';
@@ -11,6 +11,7 @@ import { chooseGraveyardBlock, planGraveyardPair, GRAVEYARD_MODE } from './grave
 import { chooseRoadsideBlock, ROADSIDE_MODE } from './roadside.js';
 import { clearPlantedCrowns } from './props.js';
 import { configureSignals } from '../sim/traffic.js';
+import { HAS_SQUARE, planSquare, bakeMerges } from './square.js';
 
 // Decides what each block *is* before anything is built. Ground, buildings and props all read
 // this, so a park is a park in every system rather than three subsystems each rolling their own
@@ -58,6 +59,44 @@ export function createLayout(rng) {
   setRiverRow(river.row);
   setRiverCrossings(river.crossings);
 
+  // --- The turbine square, third (city/square.js) -----------------------------------------------
+  //
+  // After the river, because it needs a full ring of land round it; before the districts, because
+  // they must not claim any of the nine blocks it shapes. Its four closures sit on the plaza's own
+  // boundary lines, which must all be side streets — and on a seed where the river leaves the
+  // three-row bank to the north and the east-west arterial landed on one of those lines, there is
+  // nowhere for it. Then the arterial moves to the other middle line, which is the square's
+  // priority over a coin flip: both lines are equally good main streets, and only one admits the
+  // square. `planRiver` never reads `arterialX`, so moving it here changes nothing above.
+  let square = null;
+  if (HAS_SQUARE) {
+    const isWater = isRiverBlock;
+    const bridged = new Set([...river.crossings].filter(([, kind]) => kind !== 'water').map(([i]) => i));
+    square = planSquare(rng, { arterialX, arterialZ, isWater, bridged });
+    if (!square && arterialX.size === 1) {
+      const [j] = arterialX;
+      const other = j === 2 ? 3 : 2;
+      const moved = planSquare(rng, { arterialX: new Set([other]), arterialZ, isWater, bridged });
+      if (moved) {
+        const dir = dirX.get(j);
+        arterialX.clear();
+        arterialX.add(other);
+        dirX.clear();
+        dirX.set(other, dir);
+        setArterialLines({ x: arterialX, z: arterialZ });
+        configureSignals({ arterialX, arterialZ, dirX, dirZ });
+        square = moved;
+      }
+    }
+    // Nowhere for all four blades even then: take the square with one fewer.
+    square ??= planSquare(rng, { arterialX, arterialZ, isWater, bridged, strictX: false });
+  }
+  const bridgedLines = new Set([...river.crossings].filter(([, kind]) => kind !== 'water').map(([i]) => i));
+  // The two-row bank's middle line: row r's far side runs 0..r or r+1..GRID_J, two rows each.
+  const keepStraight = square ? (river.row >= GRID_J / 2 ? river.row + 2 : river.row - 1) : null;
+  const squareCells = new Set(square
+    ? [[square.plaza.bi, square.plaza.bj], ...square.ring].map(([bi, bj]) => `${bi},${bj}`) : []);
+
   // A park district is two adjacent blocks *plus the road that used to separate them*, merged
   // into one solid green mass. Leaving the road in place produced two parks either side of a
   // street, which still reads as the same repeating grid. Closing the segment is what actually
@@ -85,6 +124,19 @@ export function createLayout(rng) {
       const b = horizontal ? [bi + 1, bj] : [bi, bj + 1];
       if (parkCells.has(`${a[0]},${a[1]}`) || parkCells.has(`${b[0]},${b[1]}`)) continue;
       if (centralCells.has(`${a[0]},${a[1]}`) || centralCells.has(`${b[0]},${b[1]}`)) continue;
+      if (squareCells.has(`${a[0]},${a[1]}`) || squareCells.has(`${b[0]},${b[1]}`)) continue;
+      // With the square cutting both interior east-west streets on its bank, the middle street of
+      // the other bank is the city's one long straight side street left — what the overtake, the
+      // U-turn clip and a good run-up all want. A vertical district would close it.
+      if (keepStraight !== null && !horizontal && bj + 1 === keepStraight) continue;
+      // ...and, beside the square, by the square's own rule: no closure on a main street, whose
+      // green wave, median and (north-south) L would be cut in two.
+      if (square && (horizontal ? arterialZ.has(bi + 1) : arterialX.has(bj + 1))) continue;
+      // Nor the block of road straight off either end of a bridge: the drawbridge's Mega Air needs
+      // its run-up and its landing, and with the square taking nine blocks of one bank the districts
+      // crowd onto the other, right where the far side of the bridges come down.
+      if (square && horizontal && bridgedLines.has(bi + 1)
+        && [bj, bj + 1].some((k) => k === river.row || k === river.row + 1)) continue;
       // Not on the water, and not straddling it. A district lays one platform across both its
       // blocks and the road between them, so a vertical pair spanning the bank would pave over the
       // river; and closing the road between them would close a crossing that may be a bridge.
@@ -145,7 +197,8 @@ export function createLayout(rng) {
   // but the blocks it takes and the road it closes. `?graveyard=single` plans nothing here and takes
   // one block at the end instead.
   const gravePair = GRAVEYARD_MODE === 'double' ? planGraveyardPair({
-    taken: (bi, bj) => parkCells.has(`${bi},${bj}`) || centralCells.has(`${bi},${bj}`),
+    taken: (bi, bj) => parkCells.has(`${bi},${bj}`) || centralCells.has(`${bi},${bj}`)
+      || squareCells.has(`${bi},${bj}`),
     isWater: isRiverBlock,
     arterialZ,
     centrality: centralityOf,
@@ -156,9 +209,22 @@ export function createLayout(rng) {
 
   // The river's bridgeless crossings join the districts' closures: from here down nothing knows
   // the difference between a road a park built over and a road with a river across it.
+  if (square) closed.push(...square.closed);
   setClosedSegments([...closed, ...river.closed]);
+  setSquareClosures(square ? square.closed : []);
 
   const blocks = [];
+
+  // The square's nine blocks are decided by the plan, not by the park roll (which still happens and
+  // is thrown away, the river's reason). The eight round the plaza are held as `'ring'` while the
+  // landmarks below choose their blocks, so no depot or burger joint lands in half a domino, and go
+  // back to `'built'` afterwards.
+  const squareType = (bi, bj) => {
+    if (!square) return null;
+    if (bi === square.plaza.bi && bj === square.plaza.bj) return 'plaza';
+    if (bi === square.hall.bi && bj === square.hall.bj) return 'townhall';
+    return squareCells.has(`${bi},${bj}`) ? 'ring' : null;
+  };
 
   for (let bi = 0; bi < GRID_I; bi++) {
     for (let bj = 0; bj < GRID_J; bj++) {
@@ -184,7 +250,8 @@ export function createLayout(rng) {
         bounds: blockBounds(bi, bj),
         // The graveyard's two blocks still roll for a park above, and throw it away — the river's
         // reason: the draw stays the same shape for every seed wherever the graveyard landed.
-        type: water ? 'river' : graveCells.has(`${bi},${bj}`) ? 'graveyard' : isPark ? 'park' : 'built',
+        type: water ? 'river' : graveCells.has(`${bi},${bj}`) ? 'graveyard'
+          : squareType(bi, bj) ?? (isPark ? 'park' : 'built'),
         districtId: water || !inDistrict ? null : districtId,
         districtBounds: water || !inDistrict ? null
           : central ? centralPark.bounds : districts[districtId].bounds,
@@ -225,6 +292,7 @@ export function createLayout(rng) {
   // junction's offset from how far along the wave it sits.
   blocks.arterials = { x: arterialX, z: arterialZ, dirX, dirZ };
   blocks.closedSegments = closed;
+  blocks.square = square;
   blocks.centralPark = centralPark;
   blocks.river = river;
 
@@ -284,6 +352,11 @@ export function createLayout(rng) {
   const roadside = ROADSIDE_MODE !== 'classic' ? chooseRoadsideBlock(rng, blocks) : null;
   if (roadside) roadside.type = 'roadside';
   blocks.roadsideBlock = roadside ?? null;
+
+  // The square's ring goes back to being ordinary towers now every landmark has chosen, and its
+  // dominoes are baked: one platform per pair and the lots the tower generator builds on.
+  for (const block of blocks) if (block.type === 'ring') block.type = 'built';
+  blocks.merges = square ? bakeMerges(square, blocks) : [];
 
   // Bake the road network for the city just decided, and install it as *the* network. Everything
   // above — the closures, the arterials, their coordinated directions — is exactly the input it

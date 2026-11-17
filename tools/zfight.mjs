@@ -50,6 +50,7 @@ import { createWestEdge } from '../src/city/westedge.js';
 import { createBridge, jointParts } from '../src/geometry/bridge.js';
 import { createBuildings } from '../src/city/buildings.js';
 import { createProps } from '../src/city/props.js';
+import { createSquare } from '../src/city/square.js';
 import { createGarage } from '../src/city/garage.js';
 import { createBurgerJoint } from '../src/city/burgerjoint.js';
 import { createVetClinic } from '../src/city/vetclinic.js';
@@ -128,6 +129,7 @@ function buildCity(seed) {
   }
   const props = createProps(makeRng(seed + 33), layout);
   add('props', props.mesh);
+  add('square', createSquare(makeRng(seed + 223), layout));
   add('pond', props.pondMesh);
   add('court', props.courtMesh);
   add('skatepark', props.skateMesh);

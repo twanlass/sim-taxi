@@ -15,6 +15,21 @@ import {
 
 const KERB_H = 0.35;
 const MARK_Y = 0.02;
+// The turbine square's setts: over the slab, under the paint.
+const SETT_Y = 0.01;
+
+/**
+ * The four streets round the turbine square's plaza that are paved in setts, as `{ axis, line, k }`
+ * gaps in `markRoad`'s terms — every side but an arterial one.
+ */
+export function squareStreets(square) {
+  if (!square) return [];
+  const { bi, bj } = square.plaza;
+  return [
+    { axis: 'z', line: bi, k: bj }, { axis: 'z', line: bi + 1, k: bj },
+    { axis: 'x', line: bj, k: bi }, { axis: 'x', line: bj + 1, k: bi },
+  ].filter((r) => !(r.axis === 'z' ? isArterialZ(r.line) : isArterialX(r.line)));
+}
 
 /** Flat quad lying on the road surface — cheaper than a box for paint markings. */
 function paint(w, d, x, z, col, y = MARK_Y) {
@@ -467,9 +482,13 @@ export function createGround(rng, blocks) {
     if (block.type === 'river') continue;
     if (block.districtId !== null && block.districtId !== undefined) continue;
     if (graveLot && block.type === 'graveyard') continue;
-    const { x0, z0, cx, cz } = block.bounds;
-    const w = block.bounds.x1 - x0;
-    const d = block.bounds.z1 - z0;
+    // A domino round the turbine square (city/square.js) is one platform over both blocks and the
+    // stub it closed, laid once, by the first of the pair.
+    if (block.merge && block.merge.blocks[0] !== block) continue;
+    const bounds = block.merge ? block.merge.bounds : block.bounds;
+    const { x0, z0, cx, cz } = bounds;
+    const w = bounds.x1 - x0;
+    const d = bounds.z1 - z0;
 
     parts.push(curbBox(w, KERB_H, d, cx, 0, cz, jitterColor(PALETTE.kerb, rng, { l: 0.02 })));
 
@@ -534,6 +553,8 @@ export function createGround(rng, blocks) {
   // The two axes are walked separately. The road running along Z at x = c is bounded in z by the
   // *X* roads at each end of the gap, and the road running along X at z = c by the Z roads — the
   // same number until an arterial made one of them 5.33.
+  const onSquare = (axis, line, k) => squareStreets(blocks.square)
+    .some((r) => r.axis === axis && r.line === line && r.k === k);
   const markRoad = (axis, line) => {
     // A road running along Z sits at an *x* of `lineX(line)` and its gaps are indexed by j; one
     // running along X sits at a *z* and its gaps are indexed by i. Both halves of that were one
@@ -554,6 +575,8 @@ export function createGround(rng, blocks) {
       // (`?city=big`), whose curving road opens the asphalt where the old straight one ran and
       // showed its dashes through. Skipping it everywhere is free: nothing else ever saw them.
       if (axis === 'x' && isSegmentClosed(k, line, 0)) continue;
+      // The square's streets are setts, with no centre line (see below).
+      if (onSquare(axis, line, k)) continue;
       const from = along(k) + (axis === 'z' ? halfRoadX(k) : halfRoadZ(k));
       const to = along(k + 1) - (axis === 'z' ? halfRoadX(k + 1) : halfRoadZ(k + 1));
 
@@ -577,6 +600,33 @@ export function createGround(rng, blocks) {
 
   for (let i = 0; i <= GRID_I; i++) markRoad('z', i);
   for (let j = 0; j <= GRID_J; j++) markRoad('x', j);
+
+  // --- The turbine square's streets (city/square.js), laid in setts rather than asphalt, kerb to
+  // kerb and through the corner junctions, so the square reads as the plaza *and* the streets
+  // round it — 30 units of open paving rather than a 12-unit block with nothing built on it. Never
+  // on an arterial, whose median and double line carry on past the square as they do everywhere.
+  // Lifted to `SETT_Y`, between the slab and the paint, so the crosswalks still sit on top.
+  for (const road of squareStreets(blocks.square)) {
+    const sett = jitterColor(PALETTE.plazaSett, rng, { l: 0.015 });
+    if (road.axis === 'z') {
+      const x = lineX(road.line);
+      const half = halfRoadZ(road.line);
+      // Through the corner junctions, except one with a main street across it.
+      const z0 = lineZ(road.k) + (isArterialX(road.k) ? 1 : -1) * halfRoadX(road.k);
+      const z1 = lineZ(road.k + 1) + (isArterialX(road.k + 1) ? -1 : 1) * halfRoadX(road.k + 1);
+      parts.push(paint(half * 2, z1 - z0, x, (z0 + z1) / 2, sett, SETT_Y));
+    } else {
+      const z = lineZ(road.line);
+      const half = halfRoadX(road.line);
+      // Stopped short of the Z strips it meets so no two sett quads overlap, and of an arterial's
+      // junction for the reason above.
+      const zLines = new Set(squareStreets(blocks.square).filter((r) => r.axis === 'z').map((r) => r.line));
+      const stop = (line) => zLines.has(line) || isArterialZ(line);
+      const a = lineX(road.k) + (stop(road.k) ? 1 : -1) * halfRoadZ(road.k);
+      const b = lineX(road.k + 1) + (stop(road.k + 1) ? -1 : 1) * halfRoadZ(road.k + 1);
+      parts.push(paint(b - a, half * 2, (a + b) / 2, z, sett, SETT_Y));
+    }
+  }
 
   // --- Crosswalks.
   //

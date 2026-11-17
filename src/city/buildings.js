@@ -1365,8 +1365,15 @@ export function createBuildings(rng, blocks) {
   const lots = [];
   for (const block of blocks) {
     if (block.type !== 'built' && block.type !== 'roadside') continue;
-    const { x0, z0, x1, z1 } = block.bounds;
-    for (const lot of splitLot(x0, z0, x1, z1, 2, rng)) lots.push({ lot, block, ghost: block.type === 'roadside' });
+    // A domino round the turbine square (city/square.js) is built as one long block, by one of its
+    // pair, over the stub it closed — and only up to the town hall's lot when it holds the hall.
+    if (block.merge && block.merge.builder !== block) continue;
+    const owner = block.merge ? { ...block, bounds: block.merge.build } : block;
+    const { x0, z0, x1, z1 } = owner.bounds;
+    // A domino is two blocks' worth of ground, so it splits one level deeper: the same lot sizes as
+    // the blocks round it, rather than half as many towers twice the size.
+    const depth = block.merge && !block.merge.hall ? 3 : 2;
+    for (const lot of splitLot(x0, z0, x1, z1, depth, rng)) lots.push({ lot, block: owner, ghost: block.type === 'roadside' });
   }
 
   // Only an *undivided* block is wide enough to hollow out and still leave wings with rooms in
