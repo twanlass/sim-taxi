@@ -223,6 +223,7 @@ doc; what the classic version was, and why it changed, is in that doc's history 
 | Param | Does |
 |---|---|
 | `?backdrop` | The title screen's city alone, wider, with no startup screen, menu, HUD, sound or input, for the marketing site to frame behind its hero; tells the parent frame when it has drawn (game/backdrop.js) |
+| `?backdrop=island` | As `?backdrop`, but framed out to the whole island floating in its fog bank, for the light marketing site to fade into its page (game/backdrop.js) |
 | `?dev` | Debug mode, past the title screen and the opening vignette, straight into a run |
 | `?debug` | The ⚙️ panel. Fare clocks are frozen while it is on |
 | `?settings` | Same as `?debug` |
