@@ -22,7 +22,7 @@ import { bumperHinge, lampSocket, lampHang } from '../geometry/damage.js';
 import { mirrorGeometries, CAR_BODY_TOP } from '../geometry/mirrors.js';
 import {
   GRID_I, GRID_J, HALF_ROAD, LANE, PITCH, isXAxis, dirSign, dirYaw, leftOf, rightOf, opposite,
-  ringAxisAt, isUnsignalised, lineX, lineZ, laneOffsetFor, riverBanks, halfRoadX, halfRoadZ, junctionReach,
+  ringAxisAt, isUnsignalised, lineX, lineZ, laneOffsetFor, riverBanks, halfRoadX, halfRoadZ, junctionReach, isWarped,
 } from '../city/grid.js';
 import { deckHeightAt } from '../city/river.js';
 import { cityNetwork } from '../city/roadnet.js';
@@ -3952,7 +3952,10 @@ function applyKnock(car, dt) {
   car.yaw += k.yaw;
 }
 
-const isCurvedLane = (lane) => !!lane?.path && lane.path.kind !== 'line';
+// Every lane on the warped city (city/warp.js) counts: its junctions are off the grid lines, so a
+// straight street there still does not run along a grid axis, and the grid headings below
+// (`dirYaw(car.d)`) would hold the body square to the map while the car drove off at an angle.
+const isCurvedLane = (lane) => !!lane?.path && (lane.path.kind !== 'line' || isWarped());
 
 /** Whether a turn joins the park road's bend at either end. Memoised on the network's turn. */
 function curvedTurn(turn) {

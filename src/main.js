@@ -38,6 +38,7 @@ import { createProps, parkPlots, setAutumn } from './city/props.js';
 import { createLeaves } from './game/leaves.js';
 import { createGrass } from './city/grass.js';
 import { createCanopyFuzz } from './city/canopyfuzz.js';
+import { createSquare } from './city/square.js';
 import { createGarage, LANDMARK as GARAGE_LANDMARK } from './city/garage.js';
 import { createBurgerJoint, SIGN_SPIN, LANDMARK as BURGER_LANDMARK } from './city/burgerjoint.js';
 import { createVetClinic, VET_CLASSIC } from './city/vetclinic.js';
@@ -207,7 +208,7 @@ import { isNative } from './util/platform.js';
 import { tap as haptic, setHapticPrefs } from './util/haptics.js';
 import { createSfx, DASH, MUSIC_FADE_AT_HINT } from './game/sfx.js';
 import { attachContextRecovery } from './game/recovery.js';
-import { isCityConnected, GRID_I, GRID_J, MAX_SPAN, lineX, lineZ } from './city/grid.js';
+import { isCityConnected, GRID_I, GRID_J, MAX_SPAN, lineX, lineZ, junctionAt } from './city/grid.js';
 import { cityNetwork } from './city/roadnet.js';
 import { PALETTE, color as paletteColor, roadsClassic } from './palette.js';
 
@@ -727,6 +728,10 @@ if (litPanes) scene.add(litPanes);
 const props = createProps(makeRng(seed + 33), layout);
 const propsMesh = props.mesh;
 scene.add(markOccluder(propsMesh));
+// The turbine square's plaza and town hall (city/square.js), before the canopy fuzz below so the
+// plaza's trees get their leaf cards. Its own stream. Null under `?layout=classic`.
+const squareMesh = createSquare(makeRng(seed + 223), layout);
+if (squareMesh) scene.add(markOccluder(rain.wetGround(squareMesh)));
 // The street lamps, built after the props so they can keep off the court, the skatepark and the
 // pond — a park's lamp stands on its walk, and any of the three can run right up to it. A lamp
 // pole once stood in the middle of a basketball court.
@@ -806,7 +811,8 @@ const skaters = (skaterFlag === 'classic' ? createClassicSkaters : createSkaters
 // since 2026-10-11 (Tyler); `?ltrain=classic` takes it out for comparison. Built here rather than beside the boats because the entrance wave below has to
 // be handed it. Run seed: where the line runs is the arterial's, so the map's already; which way
 // the first train goes and how long the line stands empty is the situation.
-const ltrain = new URLSearchParams(window.location.search).get('ltrain') !== 'classic' || shot?.atLTrain
+// Not on the warped city (city/warp.js), whose arterial bends with every other street.
+const ltrain = !layout.warp && (new URLSearchParams(window.location.search).get('ltrain') !== 'classic' || shot?.atLTrain)
   ? createLTrain(scene, makeRng(runSeed + 421), {
     // Wheel sparks through the shared pool, which is built further down — only ever called from
     // the frame loop, by which time it exists.
@@ -919,7 +925,8 @@ const manholeSteam = createManholeSteam(scene, manholes?.userData.spots, makeRng
 // the trees, and the depot. Nothing transient does — a construction zone is 3 units of barrier and
 // comes and goes, and the boards would have to be re-asked every time one moved.
 const occluders = setCityOccluders(
-  city.mesh, ...(city.domeMesh ? [city.domeMesh] : []), propsMesh, ...(garage?.meshes ?? []),
+  city.mesh, ...(city.domeMesh ? [city.domeMesh] : []), propsMesh, ...(squareMesh ? [squareMesh] : []),
+  ...(garage?.meshes ?? []),
   ...(burger?.meshes ?? []), ...(graveyard?.meshes ?? []), ...(roadside?.meshes ?? []),
   ...(vet ? [vet.shell] : []), ...billboards.flatMap((b) => [b.shell, b.poster]),
 );
@@ -2041,7 +2048,7 @@ function heliTarget(dt) {
       // The robber is still climbing out on the scene's first frames: hold over the corner rather
       // than turning for home and straight back.
       const J = arrest.state.phase === 'converge' ? arrest.junction() : null;
-      return J ? { x: lineX(J.i), z: lineZ(J.j) } : null;
+      return J ? junctionAt(J.i, J.j) : null;
     }
   }
   if (!heliTail) return null;
@@ -7801,7 +7808,7 @@ function tick() {
       // were aboard, off their kerb if not.
       const riding = fare.stage === 'riding';
       sfx?.play('angry', { at: riding ? placeAt(traffic.taxi.x, traffic.taxi.z)
-        : placeAt(lineX(fare.pickup.i), lineZ(fare.pickup.j)) });
+        : placeAt(junctionAt(fare.pickup.i, fare.pickup.j).x, junctionAt(fare.pickup.i, fare.pickup.j).z) });
       // An ordinary rider let go on the kerb is a strike as well as a freed taxi — see MAX_STRIKES.
       if (type === 'missed') showStrikes(fares.state.strikes);
       // And the job the combo meter was building toward has walked off with them, so the streak
@@ -9188,8 +9195,8 @@ window.__taxi = {
    * not tap either.
    */
   streetScreenPosition: ({ a, b }) => {
-    const x = (lineX(a.i) + lineX(b.i)) / 2;
-    const z = (lineZ(a.j) + lineZ(b.j)) / 2;
+    const x = (junctionAt(a.i, a.j).x + junctionAt(b.i, b.j).x) / 2;
+    const z = (junctionAt(a.i, a.j).z + junctionAt(b.i, b.j).z) / 2;
     return sightlineClear(x, 0.1, z) ? projectToScreen(x, 0, z) : null;
   },
   routeScreenPosition: (fraction = 0.45) => {

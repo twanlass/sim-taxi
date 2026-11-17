@@ -353,7 +353,16 @@ export function streetLamps(rng, blocks, keepOut = [], areas = []) {
     ];
     const chosen = new Set();
     while (chosen.size < LAMPS_PER_BLOCK) chosen.add(rng.int(0, 3));
+    // A block of the curved street (city/curvedstreet.js) has no straight kerb on the curve's side,
+    // and none along the seam where its pair was merged over the closed road. Skipped after the
+    // draw, so every other lamp in the city stands where it did.
+    const curve = block.merge?.curve ? block.merge : null;
+    const skip = new Set(curve ? [
+      curve.curve.blocks[curve.which].sideOf > 0 ? 3 : 2,
+      curve.blocks[0] === block ? 1 : 0,
+    ] : []);
     for (const e of chosen) {
+      if (skip.has(e)) continue;
       const edge = edges[e];
       // Clear of the rounded corners and the crossings beside them, of every doorway, and of the
       // parks' court, skatepark and pond (`areas`): a few fresh spots along the edge, and no lamp

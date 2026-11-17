@@ -50,6 +50,7 @@ import { createWestEdge } from '../src/city/westedge.js';
 import { createBridge, jointParts } from '../src/geometry/bridge.js';
 import { createBuildings } from '../src/city/buildings.js';
 import { createProps } from '../src/city/props.js';
+import { createSquare } from '../src/city/square.js';
 import { createGarage } from '../src/city/garage.js';
 import { createBurgerJoint } from '../src/city/burgerjoint.js';
 import { createVetClinic } from '../src/city/vetclinic.js';
@@ -63,7 +64,7 @@ import { createDrawbridge } from '../src/game/drawbridge.js';
 import { CATALOG } from '../src/workshop/catalog.js';
 import { ROUTE_Y, routePath, bandTriangles, BAND_HALF_WIDTHS } from '../src/game/routeline.js';
 import {
-  GRID_I, GRID_J, DIR, lineX, lineZ, halfRoadX, halfRoadZ, HALF_SPAN_X, HALF_SPAN_Z, legalExits,
+  GRID_I, GRID_J, DIR, lineX, lineZ, halfRoadX, halfRoadZ, HALF_SPAN_X, HALF_SPAN_Z,
 } from '../src/city/grid.js';
 import { cityNetwork } from '../src/city/roadnet.js';
 
@@ -128,6 +129,7 @@ function buildCity(seed) {
   }
   const props = createProps(makeRng(seed + 33), layout);
   add('props', props.mesh);
+  add('square', createSquare(makeRng(seed + 223), layout));
   add('pond', props.pondMesh);
   add('court', props.courtMesh);
   add('skatepark', props.skateMesh);
@@ -230,8 +232,12 @@ function checkRouteBandFolds(seed) {
       for (const d of Object.values(DIR)) {
         const lane = net.laneByGrid(d, i, j);
         if (!lane || lane.degenerate) continue;
-        for (const dOut of legalExits(d, i, j)) {
-          if (dOut === d) continue;
+        // The network's own legal turns, not `legalExits`: on the warped city (city/warp.js) a hairpin
+        // the network refuses is still a grid exit, and "the same grid direction" is not "straight on".
+        for (const turnId of lane.exits) {
+          const turn = net.turnById.get(turnId);
+          if (turn.hand === 'straight') continue;
+          const dOut = net.dirOfLane(net.laneById.get(turn.outLane));
           const car = { state: 'drive', lane, s: lane.length / 2, i, j, d };
           const path = routePath(car, [dOut], { onward: false });
           turns += 1;

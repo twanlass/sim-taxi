@@ -1,7 +1,6 @@
 import * as THREE from 'three';
 import { cityNetwork } from '../city/roadnet.js';
 import { KERB_H } from '../city/ground.js';
-import { lineX, lineZ } from '../city/grid.js';
 import { cloneProp, unlitMaterial } from '../util/geo.js';
 import { PALETTE } from '../palette.js';
 import { CAR_LEN, CAR_W, ROBO_SPEED, STOP_SETBACK, stopDistance } from '../sim/traffic.js';
@@ -149,7 +148,7 @@ export function createRoboTaxis({ rng, scene, traffic, fares, blocked = () => fa
   function randomJunction() {
     const nodes = cityNetwork().nodes.filter((n) => n.gi != null);
     const n = rng.pick(nodes);
-    return { x: lineX(n.gi), z: lineZ(n.gj), i: n.gi, j: n.gj };
+    return { x: n.x, z: n.z, i: n.gi, j: n.gj };
   }
 
   function setPhase(robo, phase) {

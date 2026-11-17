@@ -204,7 +204,13 @@ for (let s = 0; s < SEEDS; s++) {
   // sweeps a little way across the cross street there and holds that street's lanes ~0.6 further
   // back than `junctionReach` (which only knows square crossings). Right for the network, unknown
   // to the grid: those two junctions are left out of the trim comparisons.
-  const parkEnd = (i, j) => park && [park.W, park.E].some((n) => n.i === i && n.j === j);
+  // The curved street (city/curvedstreet.js) is the same road the other way up: closed in the grid,
+  // two arcs in the network, leaving its end junctions 27° off the street it continues — so its
+  // three junctions join the park's in every exemption, and its middle node is moved off the grid
+  // lines to the apex of the curve on purpose.
+  const curve = layout.curvedStreet;
+  const onCurve = (i, j) => curve && i === curve.I && j >= curve.r0 && j <= curve.r0 + 2;
+  const parkEnd = (i, j) => (park && [park.W, park.E].some((n) => n.i === i && n.j === j)) || onCurve(i, j);
 
   // --- Constants shared across the module boundary --------------------------
   check(`${tag} cruise matches SPEED`, SIGNAL_DEFAULTS.cruise === SPEED,
@@ -224,6 +230,10 @@ for (let s = 0; s < SEEDS; s++) {
     for (let i = 0; i <= GRID_I; i++) {
       for (let j = 0; j <= GRID_J; j++) {
         const node = net.nodeByGrid(i, j);
+        if (curve && i === curve.mid.i && j === curve.mid.j) {
+          check(`${tag} curve apex node`, apart(node, curve.M) < 1e-9, `${node.x},${node.z}`);
+          continue;
+        }
         samples.push([apart(node, { x: lineX(i), z: lineZ(j) }), `(${i},${j})`]);
       }
     }
@@ -457,8 +467,11 @@ for (let s = 0; s < SEEDS; s++) {
       if (block.type === 'river') continue;
       // The double graveyard closed the road between its two blocks too, and comes back as one.
       if (layout.graveyardBlock?.double && block.type === 'graveyard') continue;
+      // So does each domino round the turbine square (city/square.js), across the stub it closed.
+      if (block.merge) continue;
       wanted.push(block.bounds);
     }
+    for (const merge of layout.merges ?? []) if (!merge.curve) wanted.push(merge.bounds);
     for (const district of layout.districts) wanted.push(district.bounds);
     if (layout.graveyardBlock?.double) wanted.push(layout.graveyardBlock.bounds);
 
@@ -467,7 +480,13 @@ for (let s = 0; s < SEEDS; s++) {
     const inPark = (b) => park && b.bounds.x0 >= park.bounds.x0 - TOL && b.bounds.x1 <= park.bounds.x1 + TOL
       && b.bounds.z0 >= park.bounds.z0 - TOL && b.bounds.z1 <= park.bounds.z1 + TOL;
     const allLand = net.blocks.filter((b) => b.type !== 'water');
-    const land = allLand.filter((b) => !inPark(b));
+    // ...and the curved street's two blocks, the same way: one face each side of the curve.
+    const inCurve = (b) => (curve?.blocks ?? []).some(({ bounds }) => b.bounds.z0 >= bounds.z0 - TOL
+      && b.bounds.z1 <= bounds.z1 + TOL && b.bounds.x0 >= bounds.x0 - TOL - 6 && b.bounds.x1 <= bounds.x1 + TOL + 6
+      && Math.abs((b.bounds.x0 + b.bounds.x1) / 2 - bounds.cx) < 4);
+    const curveFaces = allLand.filter((b) => !inPark(b) && inCurve(b));
+    const land = allLand.filter((b) => !inPark(b) && !inCurve(b));
+    if (curve) check(`${tag} curved street is two faces`, curveFaces.length === 2, `${curveFaces.length}`);
     if (park) {
       check(`${tag} central park is two faces`, allLand.length - land.length === 2,
         `${allLand.length - land.length}`);
@@ -588,7 +607,7 @@ for (let s = 0; s < SEEDS; s++) {
           // different route is expected wherever it is shorter, and the park's middle junction is
           // unreachable to the reference outright. What must still hold is that nothing the
           // reference can reach is lost.
-          if (park && (mine !== null || reference === null)) continue;
+          if ((park || curve) && (mine !== null || reference === null)) continue;
           mismatched += 1;
           if (!example) example = `(${from.i},${from.j},d${d})→(${to.i},${to.j}): `
             + `${JSON.stringify(mine)} vs ${JSON.stringify(reference)}`;

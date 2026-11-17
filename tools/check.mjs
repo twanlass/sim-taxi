@@ -9,6 +9,23 @@
  */
 import { spawnSync } from 'node:child_process';
 
+// Which city each step builds. The default is the warped city (city/warp.js), a street blockout
+// with no landmarks — no garage, bank, burger joint, graveyard, trees or L train — and a road
+// network that deliberately stops matching the grid. So the steps that are *about* those things
+// run on the plain grid (`LAYOUT=classic`): the in-process module checks below (the garage visit,
+// the bank, the clip streets as the grid lays them), the road network's grid-equivalence control
+// and the probe. Everything that drives — routing, fares, signals, the replays — runs on the
+// default, and `tools/warp.mjs` checks the warped network itself. `LAYOUT=… npm run check` pins
+// every step to one layout.
+const PINNED_LAYOUT = process.env.LAYOUT;
+process.env.LAYOUT = PINNED_LAYOUT ?? 'classic';
+const envFor = (tool) => {
+  const env = { ...process.env };
+  const layout = PINNED_LAYOUT ?? tool.layout;
+  if (layout) env.LAYOUT = layout; else delete env.LAYOUT;
+  return env;
+};
+
 // Boot the browser-only modules in node before anything else. They construct fine outside a
 // browser, and a scope slip in scene.js shipped undetected because nothing headless imported it.
 const BOOT = ['../src/game/scene.js', '../src/game/debugpanel.js', '../src/geometry/taxi.js', '../src/game/daycard.js', '../src/game/days.js',
@@ -56,8 +73,10 @@ const BOOT = ['../src/game/scene.js', '../src/game/debugpanel.js', '../src/geome
 const TOOLS = [
   // Runs first: it is the control on every later step. If the road network stops describing the
   // same city as the grid, the traffic and routing numbers below stop meaning anything.
-  { name: 'roadnet', args: ['tools/roadnet.mjs'],      pick: /(\d+\/\d+) checks passed/ },
-  { name: 'probe',   args: ['tools/probe.mjs'],        pick: /(\d+\/\d+) checks passed/ },
+  { name: 'roadnet', args: ['tools/roadnet.mjs'],      pick: /(\d+\/\d+) checks passed/, layout: 'classic' },
+  // The warped city's own network: connected, every street long enough, every fork wide enough.
+  { name: 'warp',    args: ['tools/warp.mjs'],         pick: /(\d+\/\d+) checks passed/ },
+  { name: 'probe',   args: ['tools/probe.mjs'],        pick: /(\d+\/\d+) checks passed/, layout: 'classic' },
   { name: 'routing', args: ['tools/taxi.mjs', '30'],   pick: /arrived (\S+)/ },
   // Pure logic against a fake `localStorage`, so it costs nothing and covers the half of the score
   // table a browser on this machine never reaches: a store that throws, and a corrupt payload.
@@ -744,7 +763,7 @@ try {
 }
 
 for (const tool of TOOLS) {
-  const run = spawnSync('node', tool.args, { encoding: 'utf8' });
+  const run = spawnSync('node', tool.args, { encoding: 'utf8', env: envFor(tool) });
   const out = `${run.stdout}${run.stderr}`;
   const summary = out.match(tool.pick)?.[1] ?? '?';
   const ok = run.status === 0;

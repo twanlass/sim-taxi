@@ -280,6 +280,17 @@ export function turnControl(dIn, dOut, i, j) {
  * drag that runs past the ring road should pin to the ring, not stop answering.
  */
 export function nearestJunction(x, z) {
+  // On the warped city the junctions are wherever city/warp.js put them, so it is a search.
+  if (warpAt) {
+    let best = null;
+    let bestD = Infinity;
+    for (const [k, p] of warpAt) {
+      const d = (p.x - x) ** 2 + (p.z - z) ** 2;
+      if (d < bestD) { bestD = d; best = k; }
+    }
+    const [i, j] = best.split(',').map(Number);
+    return { i, j };
+  }
   const near = (v, half, top) => Math.min(top, Math.max(0, Math.round((v + half) / PITCH)));
   return { i: near(x, HALF_SPAN_X, GRID_I), j: Math.min(GRID_J, Math.max(0, lineIndexZ(z))) };
 }
@@ -338,6 +349,18 @@ export function setClosedSegments(keys) {
 }
 
 /** True if the road from (i, j) heading d has been built over. */
+// The turbine square's blades (city/square.js), kept apart from the rest so the few things that
+// treat a corner of the square differently from a road a park built over can ask.
+const squareClosures = new Set();
+export function setSquareClosures(keys) {
+  squareClosures.clear();
+  for (const key of keys) squareClosures.add(key);
+}
+export function isSquareClosure(i, j, d) {
+  const next = nextIntersection(d, i, j);
+  return Boolean(next) && squareClosures.has(segmentKey(i, j, next.i, next.j));
+}
+
 export function isSegmentClosed(i, j, d) {
   const next = nextIntersection(d, i, j);
   if (!next) return true;
@@ -452,7 +475,39 @@ export function setRiverRow(row) {
 // through, sitting in the middle of a lawn, so nothing should treat it as a kerb corner.
 let parkwayMid = null;
 export function setParkwayMid(at) { parkwayMid = at ?? null; }
-export const isParkwayMid = (i, j) => parkwayMid !== null && parkwayMid.i === i && parkwayMid.j === j;
+// ...and the curved street's (city/curvedstreet.js), which is the same kind of node: every grid road
+// round it closed, the curve put back in the network only. Folded into the one predicate because
+// every caller is asking the same question of both — "is this a junction with no grid lanes and no
+// kerb corner?" — and its node is moved off the grid lines besides. `curveLine` holds the three
+// junctions on the curve's line, whose kerb corners the curve has bent out of place.
+let curveMid = null;
+let curveLine = null;
+export function setCurvedStreet(plan) {
+  curveMid = plan ? plan.mid : null;
+  curveLine = plan ? { i: plan.I, j0: plan.r0, j1: plan.r0 + 2 } : null;
+}
+export const isParkwayMid = (i, j) => (parkwayMid !== null && parkwayMid.i === i && parkwayMid.j === j)
+  || (curveMid !== null && curveMid.i === i && curveMid.j === j);
+/** A junction on the curved street, whose corner pin would stand on a kerb that is not there. */
+export const isCurveJunction = (i, j) => (curveLine !== null && i === curveLine.i
+  && j >= curveLine.j0 && j <= curveLine.j1) || (warpBends?.has(`${i},${j}`) ?? false);
+
+// The warped city's junction positions (city/warp.js), or null on a grid city. Kept here beside the
+// lines they replace so anything that needs *where junction (i, j) stands* — the road network, the
+// fare pins — asks one function and gets the right answer in every layout.
+let warpAt = null;
+let warpBends = null;   // an avenue's bends: vertices on a straight road, with no kerb corner
+export function setWarp(plan) {
+  warpAt = plan ? plan.at : null;
+  warpBends = plan ? plan.bends : null;
+}
+/** Is the city warped? Grid arithmetic (`lineX(i)` as a junction's x) is wrong on one that is. */
+export const isWarped = () => warpAt !== null;
+/** Where junction (i, j) stands: on its grid lines unless the city is warped. */
+export function junctionAt(i, j) {
+  const moved = warpAt?.get(`${i},${j}`);
+  return moved ? { x: moved.x, z: moved.z } : { x: lineX(i), z: lineZ(j) };
+}
 
 /** The block row the river runs down, or null. */
 export const riverRow = () => riverRowIndex;
@@ -617,7 +672,7 @@ export function isCityConnected() {
   // The central park's middle junction (`?city=big`) has every grid road closed round it — its road
   // only exists in the network — so it is left out of both ends of the question rather than failing
   // every city that has one.
-  const N = ((GRID_I + 1) * (GRID_J + 1) - (parkwayMid ? 1 : 0)) * 4;
+  const N = ((GRID_I + 1) * (GRID_J + 1) - (parkwayMid ? 1 : 0) - (curveMid ? 1 : 0)) * 4;
   const key = (i, j, d) => (i * (GRID_J + 1) + j) * 4 + d;
 
   const preds = new Array(N);
