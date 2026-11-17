@@ -26,13 +26,17 @@ import { treeParts } from './props.js';
 // road network can describe them (`roadnet.js`), but the ground, the buildings and the paint still
 // read every block as a rectangle. See city.md#the-turbine-square.
 //
-// `?layout=classic` (`LAYOUT=classic` headless) is the plain grid. Off on `?city=big`, whose 2 × 2
-// central park already breaks its grid in the middle.
+// `?layout=square` (`LAYOUT=square` headless) turns it on. The default is the warped city
+// (city/warp.js) and `?layout=classic` the plain grid. Off on `?city=big`, whose 2 × 2 central park
+// already breaks its grid in the middle.
 
-export const LAYOUT_CLASSIC = typeof location !== 'undefined'
-  ? new URLSearchParams(location.search).get('layout') === 'classic'
-  : globalThis.process?.env?.LAYOUT === 'classic';
-export const HAS_SQUARE = !BIG_CITY && !LAYOUT_CLASSIC;
+/** 'warp' (default), 'square' or 'classic'. The big city is always the plain grid. */
+export const LAYOUT_MODE = BIG_CITY ? 'classic' : ((typeof location !== 'undefined'
+  ? new URLSearchParams(location.search).get('layout')
+  : globalThis.process?.env?.LAYOUT) ?? 'warp');
+export const LAYOUT_CLASSIC = LAYOUT_MODE === 'classic';
+export const HAS_SQUARE = LAYOUT_MODE === 'square';
+export const HAS_WARP = LAYOUT_MODE === 'warp';
 
 /**
  * Where the square goes, and which stubs it closes. `null` when no block fits.

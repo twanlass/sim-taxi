@@ -1,6 +1,6 @@
 import {
   GRID_I, GRID_J, blockBounds, HALF_SPAN_X, HALF_SPAN_Z, isRiverBlock, segmentKey,
-  setArterialLines, setClosedSegments, setSquareClosures, setCurvedStreet, setParkBlocks, setRiverRow, BIG_CITY, setParkwayMid,
+  setArterialLines, setClosedSegments, setSquareClosures, setCurvedStreet, setParkBlocks, setRiverRow, BIG_CITY, setParkwayMid, setWarp,
 } from './grid.js';
 import { planCentralPark } from './centralpark.js';
 import { planRiver, setRiverCrossings } from './river.js';
@@ -11,7 +11,8 @@ import { chooseGraveyardBlock, planGraveyardPair, GRAVEYARD_MODE } from './grave
 import { chooseRoadsideBlock, ROADSIDE_MODE } from './roadside.js';
 import { clearPlantedCrowns } from './props.js';
 import { configureSignals } from '../sim/traffic.js';
-import { HAS_SQUARE, planSquare, bakeMerges } from './square.js';
+import { HAS_SQUARE, HAS_WARP, planSquare, bakeMerges } from './square.js';
+import { planWarp } from './warp.js';
 import { planCurvedStreet, bakeCurvedMerges } from './curvedstreet.js';
 
 // Decides what each block *is* before anything is built. Ground, buildings and props all read
@@ -25,6 +26,7 @@ import { planCurvedStreet, bakeCurvedMerges } from './curvedstreet.js';
 export function createLayout(rng) {
   // A new layout is a new city, so the last one's trees are no longer anybody's (`plantedCrowns`).
   clearPlantedCrowns();
+  setWarp(null);
 
   // --- Arterials, first ------------------------------------------------------
   // Road hierarchy is a property of the city, so it is decided here alongside the blocks and
@@ -158,8 +160,10 @@ export function createLayout(rng) {
       parkCells.set(`${a[0]},${a[1]}`, id);
       parkCells.set(`${b[0]},${b[1]}`, id);
 
-      // The road between the pair, named by the two intersections at its ends.
-      closed.push(horizontal
+      // The road between the pair, named by the two intersections at its ends. Left open on the
+      // warped city, whose avenues close streets of their own (city/warp.js) — both together merged
+      // most of a bank into one block.
+      if (!HAS_WARP) closed.push(horizontal
         ? segmentKey(bi + 1, bj, bi + 1, bj + 1)
         : segmentKey(bi, bj + 1, bi + 1, bj + 1));
 
@@ -217,7 +221,7 @@ export function createLayout(rng) {
     districts,
   }) : null;
   const graveCells = new Set(gravePair ? gravePair.cells.map(([bi, bj]) => `${bi},${bj}`) : []);
-  if (gravePair) closed.push(gravePair.closed);
+  if (gravePair && !HAS_WARP) closed.push(gravePair.closed);
 
   // The river's bridgeless crossings join the districts' closures: from here down nothing knows
   // the difference between a road a park built over and a road with a river across it.
@@ -320,7 +324,9 @@ export function createLayout(rng) {
   // footprint inside a block that `splitLot` is about to divide leaves the building generator a
   // sliver it will happily put a tower on. `null` is a real answer — a city with nowhere to put
   // one opens without the vignette rather than not opening. See city/garage.js.
-  const garage = chooseGarageBlock(rng, blocks);
+  // The warped city is a blockout (Tyler: "just block it out ... focus on the street so we can test
+  // gameplay"): the landmarks are all drawn on grid rectangles, so it has none of them yet.
+  const garage = HAS_WARP ? null : chooseGarageBlock(rng, blocks);
   if (garage) garage.type = 'garage';
   blocks.garageBlock = garage ?? null;
 
@@ -329,7 +335,7 @@ export function createLayout(rng) {
   // cannot reshuffle a park, an arterial, a tower or the depot. It reads the depot's block as
   // already spoken for, since the line above has set its `type` — which is also why the order of
   // these two is not free. See city/burgerjoint.js.
-  const burger = chooseBurgerBlock(rng, blocks);
+  const burger = HAS_WARP ? null : chooseBurgerBlock(rng, blocks);
   if (burger) burger.type = 'burger';
   blocks.burgerBlock = burger ?? null;
 
@@ -338,7 +344,9 @@ export function createLayout(rng) {
   // blocks as spoken for so the three landmarks don't clump. `?graveyard=classic` skips the draw
   // and leaves the block to the towers. See city/graveyard.js.
   // In double mode the pair was planned above; this is the `?graveyard=single` path.
-  if (GRAVEYARD_MODE === 'single') {
+  if (HAS_WARP) {
+    blocks.graveyardBlock = null;
+  } else if (GRAVEYARD_MODE === 'single') {
     const single = chooseGraveyardBlock(rng, blocks);
     if (single) single.type = 'graveyard';
     blocks.graveyardBlock = single ?? null;
@@ -364,7 +372,7 @@ export function createLayout(rng) {
   // adding it moves no park, landmark or arterial. It reads the other landmarks' blocks as spoken
   // for. Both businesses take the same block, so switching between them moves nothing else.
   // `?roadside=classic` skips the draw. See city/roadside.js.
-  const roadside = ROADSIDE_MODE !== 'classic' ? chooseRoadsideBlock(rng, blocks) : null;
+  const roadside = ROADSIDE_MODE !== 'classic' && !HAS_WARP ? chooseRoadsideBlock(rng, blocks) : null;
   if (roadside) roadside.type = 'roadside';
   blocks.roadsideBlock = roadside ?? null;
 
@@ -380,6 +388,15 @@ export function createLayout(rng) {
   // above — the closures, the arterials, their coordinated directions — is exactly the input it
   // needs, so this is the one place in the codebase that has it all in hand. Callers get the
   // network by asking `cityNetwork()` rather than by being handed one.
+  // The warp moves junctions, not roads, so it is planned last — after every block has its type —
+  // and installed before the bake that reads it. See city/warp.js.
+  if (HAS_WARP) {
+    blocks.warp = planWarp(rng, {
+      riverRow: river.row, crossings: river.crossings, closed: [...closed, ...river.closed],
+    });
+    closed.push(...blocks.warp.closed);
+    setWarp(blocks.warp);
+  }
   setCityNetwork(roadNetFromGrid(blocks));
 
   return blocks;

@@ -21,7 +21,7 @@
 
 import {
   GRID_I, GRID_J, LANE, HALF_ROAD, DIR, lineX, lineZ, isSegmentClosed, isXAxis, dirSign,
-  riverBanks,
+  riverBanks, junctionAt, isWarped, isRiverGap,
   halfRoadX, halfRoadZ, laneOffX, laneOffZ,
 } from './grid.js';
 import {
@@ -30,6 +30,7 @@ import {
 } from './curves.js';
 import { centralParkEdges } from './centralpark.js';
 import { curvedNodeAt, curvedStreetEdges } from './curvedstreet.js';
+import { smoothBulge, edgeKey } from './warp.js';
 
 /**
  * Signal timing. These are the numbers the city was tuned around — see docs/traffic.md — moved
@@ -70,6 +71,9 @@ const HAND_ORDER = { straight: 0, right: 1, left: 2, uturn: 3 };
 
 const EPS = 1e-9;
 
+/** The sharpest turn that is still a turn rather than a pivot (see buildTurns). */
+const HAIRPIN = (2 * Math.PI) / 3;
+
 // --- Building the network ---------------------------------------------------
 
 /**
@@ -108,7 +112,7 @@ export function bakeNetwork(spec, config = {}) {
 
   buildArms(nodes, nodeById, edges);
   const lanes = buildLanes(nodes, nodeById, edges);
-  const turns = buildTurns(nodes, lanes);
+  const turns = buildTurns(nodes, lanes, { pruneHairpins: spec.pruneHairpins });
   const laneById = new Map(lanes.map((l) => [l.id, l]));
   const turnById = new Map(turns.map((t) => [t.id, t]));
   buildStreets(nodes);
@@ -310,7 +314,7 @@ const ahead = (p, t, q) => (q.x - p.x) * t.x + (q.z - p.z) * t.z;
  * parallel. One rule now covers a right turn, a left, a straight-through and a sweep across a
  * diagonal, exactly as the direction arithmetic used to cover the first three.
  */
-function buildTurns(nodes, lanes) {
+function buildTurns(nodes, lanes, { pruneHairpins = false } = {}) {
   const turns = [];
 
   for (const node of nodes) {
@@ -380,10 +384,33 @@ function buildTurns(nodes, lanes) {
         };
         turn.length = turn.path.length;
         turns.push(turn);
-        if (turn.legal) inLane.exits.push(turn.id);
       }
     }
   }
+
+  // Nor a hairpin: a street leaving at under 60° to the one arriving (a turn of more than 120°)
+  // puts the two lanes' ends almost on top of each other, and the "turn" is a pivot on the spot —
+  // 0.3 units long, measured, where an avenue meets a side street on the warped city. Kept only
+  // where it is the one way out of its lane or the one way onto the next, so dropping it never
+  // traps a car or cuts a street off. A grid never has one, so this changes nothing there. Only the
+  // warped city asks for it (`spec.pruneHairpins`): an authored network keeps a 135° turn onto a
+  // diagonal as the legal left it is (tools/roadnet.mjs, "two distinct left turns").
+  const legalOut = new Map();
+  const legalIn = new Map();
+  for (const t of turns) {
+    if (!t.legal) continue;
+    legalOut.set(t.inLane, (legalOut.get(t.inLane) ?? 0) + 1);
+    legalIn.set(t.outLane, (legalIn.get(t.outLane) ?? 0) + 1);
+  }
+  for (const t of turns) {
+    if (!pruneHairpins || !t.legal || Math.abs(t.delta) <= HAIRPIN) continue;
+    if (legalOut.get(t.inLane) < 2 || legalIn.get(t.outLane) < 2) continue;
+    t.legal = false;
+    legalOut.set(t.inLane, legalOut.get(t.inLane) - 1);
+    legalIn.set(t.outLane, legalIn.get(t.outLane) - 1);
+  }
+  const laneOf = new Map(lanes.map((l) => [l.id, l]));
+  for (const t of turns) if (t.legal) laneOf.get(t.inLane).exits.push(t.id);
 
   const byId = new Map(turns.map((t) => [t.id, t]));
   const byLaneId = new Map(lanes.map((l) => [l.id, l]));
@@ -895,8 +922,15 @@ export function roadNetFromGrid(layout, config = {}) {
   for (let i = 0; i <= GRID_I; i++) {
     for (let j = 0; j <= GRID_J; j++) {
       // The curved street's middle node stands at the apex of the curve, off its grid line.
+      // ...and on the warped city every junction stands wherever city/warp.js put it.
       const moved = curvedNodeAt(layout?.curvedStreet, i, j);
-      nodes.push({ id: gridNodeId(i, j), x: moved ? moved.x : lineX(i), z: lineZ(j), gi: i, gj: j });
+      const at = junctionAt(i, j);
+      const node = { id: gridNodeId(i, j), x: moved ? moved.x : at.x, z: at.z, gi: i, gj: j };
+      // An avenue's bend is a vertex on a straight road with nothing crossing it, so its "junction"
+      // is no wider than the gap between the two lanes' ends — at the default it took 4.5 off each
+      // street either side, on streets 14.8 long.
+      if (layout?.warp?.bends.has(`${i},${j}`)) node.radius = BEND_RADIUS;
+      nodes.push(node);
     }
   }
 
@@ -915,13 +949,43 @@ export function roadNetFromGrid(layout, config = {}) {
     // a→b and -1 is b→a with no further bookkeeping.
     const wave = arterial ? ((axis === 'x' ? dirX.get(line) : dirZ.get(line)) ?? 1) : 0;
 
+    // On the warped city the street is an arc, bent so it runs on through each junction along the
+    // same line rather than kinking there (city/warp.js). The junctions either side only count
+    // while the road actually carries on to them.
+    let bulge = 0;
+    if (isWarped()) {
+      const di = ni - i;
+      const dj = nj - j;
+      const open = (ai, aj, bi, bj) => bi >= 0 && bj >= 0 && bi <= GRID_I && bj <= GRID_J
+        && ai >= 0 && aj >= 0 && ai <= GRID_I && aj <= GRID_J
+        && !isSegmentClosed(Math.min(ai, bi), Math.min(aj, bj), axis === 'x' ? 0 : 1);
+      const prev = open(i - di, j - dj, i, j) ? junctionAt(i - di, j - dj) : null;
+      const next = open(ni, nj, ni + di, nj + dj) ? junctionAt(ni + di, nj + dj) : null;
+      // A bridge stays straight (its deck is drawn on its grid line), and the streets onto it meet it
+      // square.
+      const crossesRiver = (k) => axis === 'z' && isRiverGap(k);
+      // An avenue's streets are straight by construction (city/warp.js), and bending one would
+      // undo the diagonal.
+      // The main street is held straight too, for the move cards' clips.
+      const key = edgeKey(i, j, ni, nj);
+      if (!crossesRiver(j) && !layout?.warp?.straight.has(key) && !layout?.warp?.level?.has(key)) {
+        bulge = smoothBulge(prev, junctionAt(i, j), junctionAt(ni, nj), next, {
+          stiffPrev: crossesRiver(j - 1), stiffNext: crossesRiver(nj),
+        });
+      }
+    }
+
+    // An avenue (city/warp.js) runs over pieces of several grid lines, one of which may be a main
+    // street; it is one road, so it is one width end to end, an ordinary street's.
+    const avenue = layout?.warp?.straight.has(edgeKey(i, j, ni, nj));
     edges.push({
       id: `${gridNodeId(i, j)}-${gridNodeId(ni, nj)}`,
-      a: gridNodeId(i, j), b: gridNodeId(ni, nj), klass, wave,
+      a: gridNodeId(i, j), b: gridNodeId(ni, nj), klass: avenue && klass === 'arterial' ? 'side' : klass,
+      wave: avenue ? 0 : wave, bulge,
       // Read off the grid rather than derived from `klass` here: `grid.js` owns which lines are
       // wide, and the ground mesh and the block footprints are reading the same two functions.
-      halfWidth: axis === 'x' ? halfRoadX(line) : halfRoadZ(line),
-      laneOffset: axis === 'x' ? laneOffX(line) : laneOffZ(line),
+      halfWidth: avenue ? HALF_ROAD : axis === 'x' ? halfRoadX(line) : halfRoadZ(line),
+      laneOffset: avenue ? LANE : axis === 'x' ? laneOffX(line) : laneOffZ(line),
     });
   };
 
@@ -937,7 +1001,7 @@ export function roadNetFromGrid(layout, config = {}) {
   // ...and the curved street's two arcs, the same way (city/curvedstreet.js).
   if (layout?.curvedStreet) edges.push(...curvedStreetEdges(layout.curvedStreet, gridNodeId));
 
-  const net = bakeNetwork({ nodes, edges }, config);
+  const net = bakeNetwork({ nodes, edges, pruneHairpins: isWarped() }, config);
 
   // A face over the river is not buildable land, and the network has no way to know that on its
   // own: water is not a road, so the graph sees an ordinary face — one merged across every
@@ -986,3 +1050,6 @@ export function roadNetFromGrid(layout, config = {}) {
 }
 
 export const gridNodeId = (i, j) => `${i},${j}`;
+
+/** How far an avenue bend's junction reaches along each of its two arms (city/warp.js). */
+const BEND_RADIUS = 1;

@@ -420,12 +420,66 @@ They are decided **first**, before anything else in `createLayout`, because a wi
 extra width out of the blocks either side of it and `blockBounds` cannot answer until
 `setArterialLines` has been told.
 
+## The warped city
+
+The default city is a **street blockout** off a magazine plate of a medieval town plan (Tyler,
+2026-11-17: "I really want a radical re-layout … diagonal streets, curves … just block it out").
+Streets wander, two straight diagonal **avenues** cut across the grain, the streets near a market
+square pinch toward it, and the blocks between them come out as wedges. There are no landmarks: no
+garage, bank, burger joint, graveyard, vet, car wash, billboards, trees, props or L train. Blocks are
+plain kerbed platforms with tinted masses on them. It is there to test how the streets *play*.
+`city/warp.js` plans it, `city/blockout.js` builds it, and `?layout=classic` is the plain grid.
+
+**The grid's wiring is kept; only the junctions move.** Every junction keeps its `(i, j)` and its four
+grid neighbours, so `car.i/j/d`, `laneByGrid`, the router and everything that asks for "the junction
+east of this one" still work. `junctionAt(i, j)` (grid.js) says where it stands now, and the network
+bakes each street as an arc (`smoothBulge`) bent so that it runs on through each junction instead of
+kinking there. That is the trade: a true five-way junction, where a diagonal cuts a block in two, would
+break that wiring and every caller of `laneByGrid`. Anything that placed itself with `lineX`/`lineZ`
+at a junction reads `junctionAt` now (fares, race, robo-taxis, the arrest, the patrol, the fire).
+
+**How a junction moves.** Three smooth fields added together, so neighbouring streets bend together:
+a *meander* (each street swings across its own line, out of phase with the next), a *pinch* toward
+the market square (whose own corners are pushed out so it stays open), and a little jitter. Two
+relaxation passes then pull junctions back toward the grid until no street is under `MIN_STREET` (16)
+between centres and no fork is under 70°. The ring stays on the ring, both river banks stay on their
+lines, and a bridge's two bank junctions do not move at all (the decks are drawn on `lineX`).
+
+**The avenues.** A street can only join grid neighbours, but a staircase of them (south, east, south,
+east) is a straight 45° diagonal once every other junction on it, the *bend*, is moved to the midpoint
+of the two either side. Each bend's other two streets are closed, so the bend is a vertex on a straight
+road with a junction box one unit deep (`BEND_RADIUS`): left open, they met the avenue at 45° a car's
+length from the next junction and the boxes ate the street between them (lanes of 0–3 units on 60 of
+60 seeds). Those closures are what make the wedge blocks. One avenue per bank: each closes four
+streets, and two on one bank merged most of it into one block. An avenue is an ordinary street's width
+end to end, even where it runs over a piece of the arterial.
+
+**The main street.** One interior east-west side street, off the river, is held dead straight. The
+U-turn and overtake cards film the taxi down a straight two-way street three blocks long
+(`pickStreet` in game/uturnclip.js), and with every street bent there was none.
+
+**Turns.** A warped junction can leave two streets 160° apart, which is a hairpin, not a turn. The
+bake drops any turn over 120° (`HAIRPIN` in roadnet.js) unless it is the lane's only exit or the only
+way into the lane it feeds, so nothing becomes unreachable.
+
+**The blockout.** Each block is a face of the baked network (`blockoutFaces`): its sides are the
+street arcs, each offset to the kerb and trimmed where it meets its neighbour, which is what lets a
+wedge come to a point without a spike. A face is a kerb slab with a pavement, a lawn (small faces),
+the market's setts, or a strip of masses about 8.5 wide and 2.4–9.5 tall, taller toward the middle.
+The market square gets one hall. Fare pins stand at `warpedCorner`, where the two kerbs either side
+of the corner meet.
+
+**What the headless suite checks where.** `tools/warp.mjs` drives the warped network over 24 cities:
+every lane holds a car, every lane reaches every other, every fork is open, the avenues are straight,
+the move cards find their streets. `tools/roadnet.mjs` (the network against the grid) and the probe
+(landmarks, trees, water) run on `LAYOUT=classic`, as do the in-process module checks.
+
 ## The turbine square
 
-The city is not a pure grid any more (Tyler, 2026-11-17, off a magazine plate of a medieval town
-plan). In the middle of the three-row bank there is a **turbine square**: a paved plaza with an
+`?layout=square` (Tyler, 2026-11-17, the first answer to the medieval plate, before the warped city).
+In the middle of the three-row bank there is a **turbine square**: a paved plaza with an
 obelisk and four trees, the streets round it laid in setts, and a **town hall** with a clock tower
-across the road on its −Z side. `city/square.js` owns all of it; `?layout=classic` is the plain grid.
+across the road on its −Z side. `city/square.js` owns all of it.
 
 **What makes it a turbine.** The streets reach the square at its corners *offset*: at each corner one
 of the two stubs leading away is closed, chosen in pinwheel order, so every approach meets the square
@@ -457,8 +511,8 @@ up-screen of the plaza: the hall is seen front-on over the square and hides none
 
 The plate's other half: beside the turbine square, one north-south street bends into a long **C**
 across two blocks, and the blocks either side take their shape from it, one a D bowing into the street
-and the other a crescent with a hollow front (`city/curvedstreet.js`, same `?layout=classic` toggle as
-the square). It is lined with row houses under pitched roofs that step round the bend.
+and the other a crescent with a hollow front (`city/curvedstreet.js`, on `?layout=square` with the
+square). It is lined with row houses under pitched roofs that step round the bend.
 
 **Why one long C rather than every street bent a little.** An arc between two neighbouring junctions
 spends most of its bend inside the junction boxes, because the block only holds the middle 12 of the

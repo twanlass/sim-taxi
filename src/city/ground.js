@@ -4,6 +4,7 @@ import { bakeColor, propMaterial } from '../util/geo.js';
 import { PALETTE, color, jitterColor } from '../palette.js';
 import { centralParkGround } from './centralpark.js';
 import { curvedStreetGround } from './curvedstreet.js';
+import { blockoutGround } from './blockout.js';
 import {
   GRID_I, GRID_J, ROAD_W, SPAN_X, SPAN_Z, lineX, lineZ,
   isUnsignalised, isSegmentClosed, halfRoadX, halfRoadZ, isArterialX, isArterialZ,
@@ -440,6 +441,13 @@ export function createGround(rng, blocks) {
     parts.push(bakeColor(roundedSlab(outline), color('asphalt')));
   }
 
+  // --- The warped city (city/warp.js): its blocks are the road network's faces, not grid cells, so
+  // the platforms and the paint are laid by city/blockout.js and nothing below applies.
+  if (blocks.warp) {
+    parts.push(...blockoutGround(rng, blocks, { kerbH: KERB_H, markY: MARK_Y, paveInset: PAVE_INSET }));
+    return finishGround(parts, outlines);
+  }
+
   // --- Park districts first: a single platform spanning both blocks and the road that used to
   // run between them, so the green reads as one continuous mass.
   for (const district of blocks.districts ?? []) {
@@ -693,6 +701,10 @@ export function createGround(rng, blocks) {
     }
   }
 
+  return finishGround(parts, outlines);
+}
+
+function finishGround(parts, outlines) {
   const merged = mergeGeometries(parts, false);
   parts.forEach((p) => p.dispose());
 

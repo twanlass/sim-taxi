@@ -369,6 +369,12 @@ export const PALETTE = {
   // The streets round the square, in setts: a grey-brown stone well clear of `asphalt` so the
   // paving reads as a different surface from the far side of the map, darker than the plaza itself.
   plazaSett: '#8E8172',
+  // The warped city's blockout masses (city/blockout.js): plain massing in two tones, warm stone
+  // and a cooler grey, so neighbouring pieces read apart at play zoom without pretending to be
+  // finished buildings.
+  blockoutA: '#D9CCB4',
+  blockoutB: '#BFB6A8',
+  blockoutHall: '#C98F6A',
   obeliskStone: '#D6CFBF',
   // The dome: patinated copper. The statue's note (`statueStone`) records why a verdigris bronze
   // was refused there — the obvious patina (~#7A8B6E) lands a few points off `park` (#6F9A5A), and

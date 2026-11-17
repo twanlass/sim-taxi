@@ -280,6 +280,17 @@ export function turnControl(dIn, dOut, i, j) {
  * drag that runs past the ring road should pin to the ring, not stop answering.
  */
 export function nearestJunction(x, z) {
+  // On the warped city the junctions are wherever city/warp.js put them, so it is a search.
+  if (warpAt) {
+    let best = null;
+    let bestD = Infinity;
+    for (const [k, p] of warpAt) {
+      const d = (p.x - x) ** 2 + (p.z - z) ** 2;
+      if (d < bestD) { bestD = d; best = k; }
+    }
+    const [i, j] = best.split(',').map(Number);
+    return { i, j };
+  }
   const near = (v, half, top) => Math.min(top, Math.max(0, Math.round((v + half) / PITCH)));
   return { i: near(x, HALF_SPAN_X, GRID_I), j: Math.min(GRID_J, Math.max(0, lineIndexZ(z))) };
 }
@@ -478,8 +489,25 @@ export function setCurvedStreet(plan) {
 export const isParkwayMid = (i, j) => (parkwayMid !== null && parkwayMid.i === i && parkwayMid.j === j)
   || (curveMid !== null && curveMid.i === i && curveMid.j === j);
 /** A junction on the curved street, whose corner pin would stand on a kerb that is not there. */
-export const isCurveJunction = (i, j) => curveLine !== null && i === curveLine.i
-  && j >= curveLine.j0 && j <= curveLine.j1;
+export const isCurveJunction = (i, j) => (curveLine !== null && i === curveLine.i
+  && j >= curveLine.j0 && j <= curveLine.j1) || (warpBends?.has(`${i},${j}`) ?? false);
+
+// The warped city's junction positions (city/warp.js), or null on a grid city. Kept here beside the
+// lines they replace so anything that needs *where junction (i, j) stands* — the road network, the
+// fare pins — asks one function and gets the right answer in every layout.
+let warpAt = null;
+let warpBends = null;   // an avenue's bends: vertices on a straight road, with no kerb corner
+export function setWarp(plan) {
+  warpAt = plan ? plan.at : null;
+  warpBends = plan ? plan.bends : null;
+}
+/** Is the city warped? Grid arithmetic (`lineX(i)` as a junction's x) is wrong on one that is. */
+export const isWarped = () => warpAt !== null;
+/** Where junction (i, j) stands: on its grid lines unless the city is warped. */
+export function junctionAt(i, j) {
+  const moved = warpAt?.get(`${i},${j}`);
+  return moved ? { x: moved.x, z: moved.z } : { x: lineX(i), z: lineZ(j) };
+}
 
 /** The block row the river runs down, or null. */
 export const riverRow = () => riverRowIndex;

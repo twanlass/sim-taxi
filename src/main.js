@@ -208,7 +208,7 @@ import { isNative } from './util/platform.js';
 import { tap as haptic, setHapticPrefs } from './util/haptics.js';
 import { createSfx, DASH, MUSIC_FADE_AT_HINT } from './game/sfx.js';
 import { attachContextRecovery } from './game/recovery.js';
-import { isCityConnected, GRID_I, GRID_J, MAX_SPAN, lineX, lineZ } from './city/grid.js';
+import { isCityConnected, GRID_I, GRID_J, MAX_SPAN, lineX, lineZ, junctionAt } from './city/grid.js';
 import { cityNetwork } from './city/roadnet.js';
 import { PALETTE, color as paletteColor, roadsClassic } from './palette.js';
 
@@ -811,7 +811,8 @@ const skaters = (skaterFlag === 'classic' ? createClassicSkaters : createSkaters
 // since 2026-10-11 (Tyler); `?ltrain=classic` takes it out for comparison. Built here rather than beside the boats because the entrance wave below has to
 // be handed it. Run seed: where the line runs is the arterial's, so the map's already; which way
 // the first train goes and how long the line stands empty is the situation.
-const ltrain = new URLSearchParams(window.location.search).get('ltrain') !== 'classic' || shot?.atLTrain
+// Not on the warped city (city/warp.js), whose arterial bends with every other street.
+const ltrain = !layout.warp && (new URLSearchParams(window.location.search).get('ltrain') !== 'classic' || shot?.atLTrain)
   ? createLTrain(scene, makeRng(runSeed + 421), {
     // Wheel sparks through the shared pool, which is built further down — only ever called from
     // the frame loop, by which time it exists.
@@ -2047,7 +2048,7 @@ function heliTarget(dt) {
       // The robber is still climbing out on the scene's first frames: hold over the corner rather
       // than turning for home and straight back.
       const J = arrest.state.phase === 'converge' ? arrest.junction() : null;
-      return J ? { x: lineX(J.i), z: lineZ(J.j) } : null;
+      return J ? junctionAt(J.i, J.j) : null;
     }
   }
   if (!heliTail) return null;
@@ -7807,7 +7808,7 @@ function tick() {
       // were aboard, off their kerb if not.
       const riding = fare.stage === 'riding';
       sfx?.play('angry', { at: riding ? placeAt(traffic.taxi.x, traffic.taxi.z)
-        : placeAt(lineX(fare.pickup.i), lineZ(fare.pickup.j)) });
+        : placeAt(junctionAt(fare.pickup.i, fare.pickup.j).x, junctionAt(fare.pickup.i, fare.pickup.j).z) });
       // An ordinary rider let go on the kerb is a strike as well as a freed taxi — see MAX_STRIKES.
       if (type === 'missed') showStrikes(fares.state.strikes);
       // And the job the combo meter was building toward has walked off with them, so the streak
@@ -9194,8 +9195,8 @@ window.__taxi = {
    * not tap either.
    */
   streetScreenPosition: ({ a, b }) => {
-    const x = (lineX(a.i) + lineX(b.i)) / 2;
-    const z = (lineZ(a.j) + lineZ(b.j)) / 2;
+    const x = (junctionAt(a.i, a.j).x + junctionAt(b.i, b.j).x) / 2;
+    const z = (junctionAt(a.i, a.j).z + junctionAt(b.i, b.j).z) / 2;
     return sightlineClear(x, 0.1, z) ? projectToScreen(x, 0, z) : null;
   },
   routeScreenPosition: (fraction = 0.45) => {

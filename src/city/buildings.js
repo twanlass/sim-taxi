@@ -8,6 +8,7 @@ import { plantedCrowns, treeParts, treeShape } from './props.js';
 import { buildBank, bankDomeMesh, chooseBankLot } from './bank.js';
 import { chooseVetSite } from './vetclinic.js';
 import { chooseBillboardSite } from './billboard.js';
+import { blockoutMasses } from './blockout.js';
 import {
   GLASS_RECESS, RECESS_PIER, WALLS_CLASSIC, WALL_STYLE, fillWalls, frameMesh, patchWalls, recessShell, stampWall,
   windowFrames,
@@ -1380,6 +1381,16 @@ export function buildLotTower(lot, block, rng, options) {
 }
 
 export function createBuildings(rng, blocks) {
+  // The warped city is a blockout (city/blockout.js): plain massing on the network's own blocks, and
+  // none of the landmarks below, all of which are laid on grid rectangles.
+  if (blocks.warp) {
+    const { mesh, pieces, entrySites } = blockoutMasses(rng, blocks, { kerbH: KERB_H });
+    return {
+      glass: [], frames: null, mesh, domeMesh: null, count: pieces.length, courtyards: 0, court: null,
+      pad: null, entrySites, rehomed: [], bank: null, vet: null, billboards: [], decks: [],
+      pitched: 0, helipads: 0,
+    };
+  }
   const parts = [];
   // Counted rather than inferred. These are all rates the look depends on — one courtyard, a
   // scattering of pitched roofs, a helipad now and then — and a rate that drifts is invisible in

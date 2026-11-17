@@ -168,6 +168,8 @@ export function planGrass(rng, blocks, {
   benches = [], statue = null, pond = null, court = null, skatepark = null, boombox = null,
 } = {}) {
   const tufts = [];
+  // The warped city's lawns are network faces (city/blockout.js), not the grid rectangles below.
+  if (blocks.warp) return tufts;
   // Every lawn as bounds to scatter in and a test for "on the grass". The central park
   // (`?city=big`) is planted as its two curved lawns whole, not as the rectangles its trees and
   // furniture plan in — those stop short of the road, and the strip between was bare.
