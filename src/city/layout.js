@@ -1,6 +1,6 @@
 import {
   GRID_I, GRID_J, blockBounds, HALF_SPAN_X, HALF_SPAN_Z, isRiverBlock, segmentKey,
-  setArterialLines, setClosedSegments, setSquareClosures, setParkBlocks, setRiverRow, BIG_CITY, setParkwayMid,
+  setArterialLines, setClosedSegments, setSquareClosures, setCurvedStreet, setParkBlocks, setRiverRow, BIG_CITY, setParkwayMid,
 } from './grid.js';
 import { planCentralPark } from './centralpark.js';
 import { planRiver, setRiverCrossings } from './river.js';
@@ -12,6 +12,7 @@ import { chooseRoadsideBlock, ROADSIDE_MODE } from './roadside.js';
 import { clearPlantedCrowns } from './props.js';
 import { configureSignals } from '../sim/traffic.js';
 import { HAS_SQUARE, planSquare, bakeMerges } from './square.js';
+import { planCurvedStreet, bakeCurvedMerges } from './curvedstreet.js';
 
 // Decides what each block *is* before anything is built. Ground, buildings and props all read
 // this, so a park is a park in every system rather than three subsystems each rolling their own
@@ -96,6 +97,17 @@ export function createLayout(rng) {
   const keepStraight = square ? (river.row >= GRID_J / 2 ? river.row + 2 : river.row - 1) : null;
   const squareCells = new Set(square
     ? [[square.plaza.bi, square.plaza.bj], ...square.ring].map(([bi, bj]) => `${bi},${bj}`) : []);
+
+  // --- The curved street, with the square (city/curvedstreet.js) --------------------------------
+  //
+  // Same toggle as the square — the two together are the non-grid layout — and planned here for the
+  // square's reason: the districts must not claim its four blocks or close a road beside them.
+  const curve = square ? planCurvedStreet({
+    square, arterialX, arterialZ, taken: squareCells,
+    key: river.row + [...arterialZ][0] + 2 * square.plaza.bj + (square.spin > 0 ? 3 : 0),
+    drawLine: [...river.crossings].find(([, kind]) => kind === 'draw')?.[0],
+  }) : null;
+  for (const [bi, bj] of curve?.cells ?? []) squareCells.add(`${bi},${bj}`);
 
   // A park district is two adjacent blocks *plus the road that used to separate them*, merged
   // into one solid green mass. Leaving the road in place produced two parks either side of a
@@ -210,8 +222,10 @@ export function createLayout(rng) {
   // The river's bridgeless crossings join the districts' closures: from here down nothing knows
   // the difference between a road a park built over and a road with a river across it.
   if (square) closed.push(...square.closed);
+  if (curve) closed.push(...curve.closed);
   setClosedSegments([...closed, ...river.closed]);
   setSquareClosures(square ? square.closed : []);
+  setCurvedStreet(curve);
 
   const blocks = [];
 
@@ -293,6 +307,7 @@ export function createLayout(rng) {
   blocks.arterials = { x: arterialX, z: arterialZ, dirX, dirZ };
   blocks.closedSegments = closed;
   blocks.square = square;
+  blocks.curvedStreet = curve;
   blocks.centralPark = centralPark;
   blocks.river = river;
 
@@ -356,7 +371,10 @@ export function createLayout(rng) {
   // The square's ring goes back to being ordinary towers now every landmark has chosen, and its
   // dominoes are baked: one platform per pair and the lots the tower generator builds on.
   for (const block of blocks) if (block.type === 'ring') block.type = 'built';
-  blocks.merges = square ? bakeMerges(square, blocks) : [];
+  blocks.merges = [
+    ...(square ? bakeMerges(square, blocks) : []),
+    ...(curve ? bakeCurvedMerges(curve, blocks) : []),
+  ];
 
   // Bake the road network for the city just decided, and install it as *the* network. Everything
   // above — the closures, the arterials, their coordinated directions — is exactly the input it

@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import {
-  GRID_I, GRID_J, halfRoadX, halfRoadZ, isParkBlock, isParkwayMid, isRiverBlock, lineX, lineZ,
+  GRID_I, GRID_J, halfRoadX, halfRoadZ, isParkBlock, isParkwayMid, isCurveJunction, isRiverBlock, lineX, lineZ,
 } from '../city/grid.js';
 import { KERB_H } from '../city/ground.js';
 import { createPassengerPin, createDestinationPin } from '../geometry/marker.js';
@@ -1031,6 +1031,9 @@ export function createFareSystem(rng, scene, {
       && (!avoidBlockOf || !onSameBlock({ i, j }, avoidBlockOf))
       && !onWaterBlock({ i, j })
       && !isParkwayMid(i, j)
+      // The curved street's junctions: `cornerFor` puts the pin a straight kerb's width off the grid
+      // line, and on the curve's own line that kerb has bent away (city/curvedstreet.js).
+      && !isCurveJunction(i, j)
       && cornerSeen(i, j);
     return free;
   }
@@ -2481,7 +2484,7 @@ export function createFareSystem(rng, scene, {
       let best = Infinity;
       for (let i = 0; i <= GRID_I; i++) {
         for (let j = 0; j <= GRID_J; j++) {
-          if (onWaterBlock({ i, j }) || isParkwayMid(i, j) || !cornerSeen(i, j)) continue;
+          if (onWaterBlock({ i, j }) || isParkwayMid(i, j) || isCurveJunction(i, j) || !cornerSeen(i, j)) continue;
           const d = Math.hypot(i - GRID_I / 2, j - GRID_J / 2);
           if (d < best - 1e-9) { best = d; spot = { i, j }; }
         }

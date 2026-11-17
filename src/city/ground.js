@@ -3,6 +3,7 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { bakeColor, propMaterial } from '../util/geo.js';
 import { PALETTE, color, jitterColor } from '../palette.js';
 import { centralParkGround } from './centralpark.js';
+import { curvedStreetGround } from './curvedstreet.js';
 import {
   GRID_I, GRID_J, ROAD_W, SPAN_X, SPAN_Z, lineX, lineZ,
   isUnsignalised, isSegmentClosed, halfRoadX, halfRoadZ, isArterialX, isArterialZ,
@@ -475,6 +476,14 @@ export function createGround(rng, blocks) {
     parts.push(...centralParkGround(blocks.centralPark, rng, { kerbH: KERB_H, markY: MARK_Y }));
   }
 
+  // --- The curved street (city/curvedstreet.js): its two blocks shaped round the bend, and its
+  // centre line laid along it. The same dash and gap as the straight runs below.
+  if (blocks.curvedStreet) {
+    parts.push(...curvedStreetGround(blocks.curvedStreet, rng, {
+      kerbH: KERB_H, markY: MARK_Y, paveInset: PAVE_INSET, dash: 1.6, gap: 1.4,
+    }));
+  }
+
   // --- Block platforms: raised kerb + sidewalk surface, or grass for parks.
   for (const block of blocks) {
     // The river row has no platform at all: no kerb, no pavement, nothing to stand on. What edges
@@ -485,6 +494,8 @@ export function createGround(rng, blocks) {
     // A domino round the turbine square (city/square.js) is one platform over both blocks and the
     // stub it closed, laid once, by the first of the pair.
     if (block.merge && block.merge.blocks[0] !== block) continue;
+    // ...and the curved street's two are laid above, as polygons.
+    if (block.merge?.curve) continue;
     const bounds = block.merge ? block.merge.bounds : block.bounds;
     const { x0, z0, cx, cz } = bounds;
     const w = bounds.x1 - x0;

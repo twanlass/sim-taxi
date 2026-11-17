@@ -464,7 +464,22 @@ export function setRiverRow(row) {
 // through, sitting in the middle of a lawn, so nothing should treat it as a kerb corner.
 let parkwayMid = null;
 export function setParkwayMid(at) { parkwayMid = at ?? null; }
-export const isParkwayMid = (i, j) => parkwayMid !== null && parkwayMid.i === i && parkwayMid.j === j;
+// ...and the curved street's (city/curvedstreet.js), which is the same kind of node: every grid road
+// round it closed, the curve put back in the network only. Folded into the one predicate because
+// every caller is asking the same question of both — "is this a junction with no grid lanes and no
+// kerb corner?" — and its node is moved off the grid lines besides. `curveLine` holds the three
+// junctions on the curve's line, whose kerb corners the curve has bent out of place.
+let curveMid = null;
+let curveLine = null;
+export function setCurvedStreet(plan) {
+  curveMid = plan ? plan.mid : null;
+  curveLine = plan ? { i: plan.I, j0: plan.r0, j1: plan.r0 + 2 } : null;
+}
+export const isParkwayMid = (i, j) => (parkwayMid !== null && parkwayMid.i === i && parkwayMid.j === j)
+  || (curveMid !== null && curveMid.i === i && curveMid.j === j);
+/** A junction on the curved street, whose corner pin would stand on a kerb that is not there. */
+export const isCurveJunction = (i, j) => curveLine !== null && i === curveLine.i
+  && j >= curveLine.j0 && j <= curveLine.j1;
 
 /** The block row the river runs down, or null. */
 export const riverRow = () => riverRowIndex;
@@ -629,7 +644,7 @@ export function isCityConnected() {
   // The central park's middle junction (`?city=big`) has every grid road closed round it — its road
   // only exists in the network — so it is left out of both ends of the question rather than failing
   // every city that has one.
-  const N = ((GRID_I + 1) * (GRID_J + 1) - (parkwayMid ? 1 : 0)) * 4;
+  const N = ((GRID_I + 1) * (GRID_J + 1) - (parkwayMid ? 1 : 0) - (curveMid ? 1 : 0)) * 4;
   const key = (i, j, d) => (i * (GRID_J + 1) + j) * 4 + d;
 
   const preds = new Array(N);

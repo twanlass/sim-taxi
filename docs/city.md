@@ -453,9 +453,42 @@ reason: its median and double line carry on past the square as they do everywher
 **Why the hall is on the −Z side.** The camera looks down the +X+Z diagonal, so that side is
 up-screen of the plaza: the hall is seen front-on over the square and hides none of it.
 
-**What it does not do.** The plate also has curved streets and wedge-shaped blocks. The road network
-can describe both ([roadnet.md](roadnet.md)), but the ground, the buildings, the paint and most of the
-probe still read every block as a rectangle, so those wait on meshing blocks from network faces.
+## The curved street
+
+The plate's other half: beside the turbine square, one north-south street bends into a long **C**
+across two blocks, and the blocks either side take their shape from it, one a D bowing into the street
+and the other a crescent with a hollow front (`city/curvedstreet.js`, same `?layout=classic` toggle as
+the square). It is lined with row houses under pitched roofs that step round the bend.
+
+**Why one long C rather than every street bent a little.** An arc between two neighbouring junctions
+spends most of its bend inside the junction boxes, because the block only holds the middle 12 of the
+21 units between centrelines. At the 28° the network accepts as "straight on" the kerb along a block
+moves 0.86 units, which reads as a shifted, kinked road. Across two blocks, with the junction between
+them closed, the same angle at each end buys a 5-unit bow along 33 units of kerb.
+
+**Where.** Along the line between one of the square's column dominoes and the outer column. The
+domino is already the merged near side and its blade already one of the two stubs the curve closes,
+so the curve costs one more closure and one more merge. Not on the two-row bank: every north-south
+street there crosses its middle east-west line, the city's one long straight side street, and the
+U-turn and overtake clips need all five segments of it (the overtake's run is 84 units; three
+segments are 63). Never on an arterial or the drawbridge's line. Which domino and which way it bows
+come from a hash of the city's layout, not a draw, so adding it moved no park district.
+
+**How it is built.** The [central park's](#park-districts-close-roads) recipe: the grid closes the
+two segments and the two stubs into the middle junction, so everything grid-shaped sees two merged
+blocks, and the network gets the road back as two arcs of one circle. The middle node stays (every lane
+joins grid-adjacent nodes, so `laneByGrid` and the cars' `(i, j, d)` work) but is moved to the apex of
+the curve. Its two arms meet tangent, so nobody stops there. `isParkwayMid` answers for it as well as
+for the park's, and `isCurveJunction` keeps fare pins off the curve's three junctions, where
+`cornerFor`'s straight kerb is not.
+
+**Blocks are polygons, buildings are not.** The two platforms are extruded from the curve's offset
+kerb. The tower generator still builds rectangles: lots along the curve are cut to under 14.4 units
+down the street and each one's front set to where the kerb runs across it (`fitToCurve` in
+buildings.js), so the fronts step round the bend. Its towers are capped at 7.5 and pitch 85% of the
+time. The two blocks split two levels, not the domino's three, which keeps a bank-sized lot in the
+city (with three, 5 cities in 40 had none). Wedge-shaped *buildings*, and curved streets beyond this
+one, wait on meshing every block from network faces.
 
 ## The depot block
 

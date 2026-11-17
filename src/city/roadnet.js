@@ -29,6 +29,7 @@ import {
   insetPolygon, signedArea2, polygonBounds,
 } from './curves.js';
 import { centralParkEdges } from './centralpark.js';
+import { curvedNodeAt, curvedStreetEdges } from './curvedstreet.js';
 
 /**
  * Signal timing. These are the numbers the city was tuned around — see docs/traffic.md — moved
@@ -893,7 +894,9 @@ export function roadNetFromGrid(layout, config = {}) {
   const nodes = [];
   for (let i = 0; i <= GRID_I; i++) {
     for (let j = 0; j <= GRID_J; j++) {
-      nodes.push({ id: gridNodeId(i, j), x: lineX(i), z: lineZ(j), gi: i, gj: j });
+      // The curved street's middle node stands at the apex of the curve, off its grid line.
+      const moved = curvedNodeAt(layout?.curvedStreet, i, j);
+      nodes.push({ id: gridNodeId(i, j), x: moved ? moved.x : lineX(i), z: lineZ(j), gi: i, gj: j });
     }
   }
 
@@ -931,6 +934,8 @@ export function roadNetFromGrid(layout, config = {}) {
 
   // The central park's road (`?city=big`) is closed in the grid and put back here, curved.
   if (layout?.centralPark) edges.push(...centralParkEdges(layout.centralPark, gridNodeId));
+  // ...and the curved street's two arcs, the same way (city/curvedstreet.js).
+  if (layout?.curvedStreet) edges.push(...curvedStreetEdges(layout.curvedStreet, gridNodeId));
 
   const net = bakeNetwork({ nodes, edges }, config);
 

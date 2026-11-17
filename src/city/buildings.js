@@ -971,6 +971,42 @@ function splitLot(x0, z0, x1, z1, depth, rng) {
   ];
 }
 
+/**
+ * A lot on one of the curved street's blocks (city/curvedstreet.js), with its side on the curve
+ * moved to where the kerb actually runs across the lot's stretch — the extreme of it, so the setback
+ * holds everywhere along a front that curves away from it. A lot on the bowed-out block grows into
+ * the bulge and one on the concave block shrinks out of the hollow, so the fronts step round the
+ * bend lot by lot, the way buildings on an old curved street do. Each lot gets its own copy of the
+ * block's bounds with that side moved too, so `streetSidesOf` still knows it faces the street.
+ */
+function fitToCurve(lot, owner, merge) {
+  const { bounds, curve, which } = merge;
+  const west = curve.blocks[which].sideOf > 0;
+  const on = (a, b) => Math.abs(a - b) < 0.05;
+  if (west ? !on(lot.x1, bounds.x1) : !on(lot.x0, bounds.x0)) return { lot, block: owner, ghost: false };
+  const edge = curve.kerbLimit(which, lot.z0, lot.z1);
+  const fitted = west ? { ...lot, x1: edge } : { ...lot, x0: edge };
+  const fittedBounds = west ? { ...bounds, x1: edge } : { ...bounds, x0: edge };
+  return { lot: fitted, block: { ...owner, bounds: fittedBounds }, ghost: false };
+}
+
+/**
+ * A lot along the curve, cut into equal pieces no longer than `CURVE_LOT` down the street, so the
+ * fronts step round the bend in short runs instead of one long one set back to the curve's deepest
+ * point (measured: one 33-long lot on the bowed block stood 3.4 behind its kerb at the middle).
+ * Without a draw, so nothing after it moves.
+ */
+const CURVE_LOT = 7.2;
+/** The curved street's roofline: under `lowRise`'s 8, so every masonry front on it may pitch. */
+const CURVE_ROOF_MAX = 7.5;
+function curveLots(lot, merge) {
+  const west = merge.curve.blocks[merge.which].sideOf > 0;
+  const onCurve = west ? Math.abs(lot.x1 - merge.bounds.x1) < 0.05 : Math.abs(lot.x0 - merge.bounds.x0) < 0.05;
+  const n = onCurve ? Math.max(1, Math.floor((lot.z1 - lot.z0) / CURVE_LOT)) : 1;
+  const step = (lot.z1 - lot.z0) / n;
+  return Array.from({ length: n }, (_, k) => ({ ...lot, z0: lot.z0 + k * step, z1: lot.z0 + (k + 1) * step }));
+}
+
 /** Which of a lot's four sides sit on the block's edge, and so face a street. */
 function streetSidesOf(lot, bounds) {
   const on = (a, b) => Math.abs(a - b) < 0.05;
@@ -1014,7 +1050,11 @@ function buildTower(lot, block, rng, parts, stats, { height: fixed = null, famil
   // A height handed in (the high rises past the west ring road) skips the draw, so the city's own
   // stream is the one it always was.
   const ceiling = 5 + block.centrality * 11;
-  const height = fixed ?? Math.max(5, rng.range(0.42, 1) * ceiling);
+  // On the curved street (city/curvedstreet.js) the towers come down to row-house height and mostly
+  // take a pitched roof, which is what an old curved street is lined with — and what makes the
+  // stepped fronts read as a terrace following the bend rather than boxes set back from it.
+  const curved = Boolean(block.merge?.curve);
+  const height = Math.min(fixed ?? Math.max(5, rng.range(0.42, 1) * ceiling), curved ? CURVE_ROOF_MAX : Infinity);
 
   const family = rng.pick(families);
   const style = CURTAIN_WALL.has(family) ? 'curtain' : 'punched';
@@ -1097,7 +1137,7 @@ function buildTower(lot, block, rng, parts, stats, { height: fixed = null, famil
   // "never set back" test: the loop increments it once per tier built.
   const lowRise = tier === 1 && style === 'punched' && height <= 8 && Math.min(cw, cd) > 2;
   let deck = null;
-  if (lowRise && rng.chance(0.45)) {
+  if (lowRise && rng.next() < (curved ? 0.85 : 0.45)) {
     stats.pitched += 1;
     pitchedRoof(parts, cx, cz, cw, cd, y, body, rng);
   } else {
@@ -1372,14 +1412,21 @@ export function createBuildings(rng, blocks) {
     const { x0, z0, x1, z1 } = owner.bounds;
     // A domino is two blocks' worth of ground, so it splits one level deeper: the same lot sizes as
     // the blocks round it, rather than half as many towers twice the size.
-    const depth = block.merge && !block.merge.hall ? 3 : 2;
-    for (const lot of splitLot(x0, z0, x1, z1, depth, rng)) lots.push({ lot, block: owner, ghost: block.type === 'roadside' });
+    // The curved street's two (city/curvedstreet.js) stay at two: `curveLots` cuts their fronts
+    // finer anyway, and a third level left 5 cities in 40 with no lot big enough for the bank.
+    const depth = block.merge && !block.merge.hall && !block.merge.curve ? 3 : 2;
+    for (const lot of splitLot(x0, z0, x1, z1, depth, rng)) {
+      if (block.merge?.curve) lots.push(...curveLots(lot, block.merge).map((piece) => fitToCurve(piece, owner, block.merge)));
+      else lots.push({ lot, block: owner, ghost: block.type === 'roadside' });
+    }
   }
 
   // Only an *undivided* block is wide enough to hollow out and still leave wings with rooms in
   // them, so the candidate list is short to begin with — five or so on a typical seed. A city
   // whose blocks all happened to split gets no courtyard rather than a cramped one.
-  const roomy = lots.filter(({ lot }) => {
+  const roomy = lots.filter(({ lot, block }) => {
+    // Not on the curved street: a courtyard's wings are drawn square to a straight front.
+    if (block.merge?.curve) return false;
     const b = buildableOf(lot);
     return b.w > COURT_MIN && b.d > COURT_MIN;
   });
