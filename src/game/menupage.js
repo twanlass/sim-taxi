@@ -9,7 +9,7 @@
  * `:is(#title-screen, #pause-veil)`.
  */
 
-import { isNative } from '../util/platform.js';
+import { isNative, isTestFlight } from '../util/platform.js';
 import { QUALITIES } from './settings.js';
 import { MODES } from './difficulty.js';
 
@@ -115,6 +115,23 @@ function choiceRow(label, options, read, write) {
 }
 
 /**
+ * "Send beta feedback", in a TestFlight install only: it opens the TestFlight app, one tap from
+ * Rocket Rides' "Send Beta Feedback" (`ios/SimTaxi/FeedbackBridge.swift`). Apple gives an app no
+ * way to raise that form itself. Not among the hidden rows: a tester should not need the five taps.
+ */
+function feedbackRow() {
+  const row = el('button', 'title-row title-link');
+  row.type = 'button';
+  row.append(el('span', 'title-label', 'Send beta feedback'), el('span', 'title-link-arrow', '↗'));
+  row.addEventListener('click', () => {
+    try {
+      window.webkit?.messageHandlers?.feedback?.postMessage('open');
+    } catch { /* a shell built before the bridge existed */ }
+  });
+  return row;
+}
+
+/**
  * The Settings rows, appended to `body`. Returns `refresh()`, to be called each time the page comes
  * up: the sound switch is the one setting that can change from outside the page (M, or the other
  * screen's copy of it), so it is re-read rather than trusted.
@@ -194,6 +211,7 @@ export function settingsRows(body, { sound, settings, demo = null, header = null
     demoRow.paint();
   };
   if (demoRow) { paintDemo(); body.append(demoRow.row); }
+  if (isTestFlight()) body.append(feedbackRow());
   const revealDemo = () => {
     if (!demoRow) return;
     const shown = [...extraRows, demoRow].filter((r) => r.row.hidden);

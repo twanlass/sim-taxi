@@ -31,6 +31,7 @@ final class GameViewController: UIViewController {
     /// is owned by the configuration rather than by us. See `HapticsBridge.swift` for why it is a
     /// standalone object and not an extension on this class.
     private let haptics = HapticsBridge()
+    private let feedback = FeedbackBridge()
 
     override func loadView() {
         let config = WKWebViewConfiguration()
@@ -54,6 +55,8 @@ final class GameViewController: UIViewController {
         // The version and build ride along for the title menu's foot (`nativeVersion()` in
         // platform.js), read from Info.plist so they are whatever Xcode Cloud stamped on this
         // archive. JSON-encoded rather than interpolated, so no value can break out of the script.
+        // `__nativeTestFlight` says whether this install came from TestFlight, which is what shows
+        // Settings' "Send beta feedback" row (`FeedbackBridge.swift`).
         let info = Bundle.main.infoDictionary ?? [:]
         let version: [String: String] = [
             "version": info["CFBundleShortVersionString"] as? String ?? "",
@@ -62,7 +65,8 @@ final class GameViewController: UIViewController {
         let versionJSON = (try? JSONSerialization.data(withJSONObject: version))
             .flatMap { String(data: $0, encoding: .utf8) } ?? "null"
         let flag = WKUserScript(
-            source: "window.__native = true; window.__nativeVersion = \(versionJSON);",
+            source: "window.__native = true; window.__nativeVersion = \(versionJSON); "
+                + "window.__nativeTestFlight = \(FeedbackBridge.isTestFlight);",
             injectionTime: .atDocumentStart,
             forMainFrameOnly: true
         )
@@ -73,6 +77,7 @@ final class GameViewController: UIViewController {
         // Engine at all. `src/util/haptics.js` posts an event name to this handler and no-ops
         // everywhere else.
         config.userContentController.add(haptics, name: HapticsBridge.name)
+        config.userContentController.add(feedback, name: FeedbackBridge.name)
 
         webView = WKWebView(frame: .zero, configuration: config)
 

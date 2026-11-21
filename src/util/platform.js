@@ -46,3 +46,12 @@ export function nativeVersion() {
   if (!v || typeof v.version !== 'string' || typeof v.build !== 'string') return null;
   return { version: v.version, build: v.build };
 }
+
+/**
+ * True inside a TestFlight install of the app, false in an App Store install, a build Xcode put on
+ * the phone directly, and any browser. The shell works it out from the install's receipt
+ * (`FeedbackBridge.swift`). Read at call time, like `isNative()`.
+ */
+export function isTestFlight() {
+  return isNative() && window.__nativeTestFlight === true;
+}
