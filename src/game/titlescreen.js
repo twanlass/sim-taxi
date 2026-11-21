@@ -26,6 +26,7 @@ import { createClaudeMark } from './creditegg.js';
 import { el, menuPage, settingsRows } from './menupage.js';
 import { BACKDROP, backdropZoom } from './backdrop.js';
 import { nativeVersion } from '../util/platform.js';
+import { gameCenterReady, onGameCenterChange, showGameCenterBoard } from '../util/gamecenter.js';
 
 const params = new URLSearchParams(globalThis.location?.search ?? '');
 
@@ -232,9 +233,17 @@ export function createTitleScreen(root, { sound, settings, demo = null, onPlay, 
   if (!onChoose) playButtons[0].addEventListener('click', () => play());
   const settingsButton = el('button', 'title-item', 'Settings');
   const creditsButton = el('button', 'title-item', 'Credits');
-  for (const b of [...playButtons, settingsButton, creditsButton]) b.type = 'button';
+  // Arcade's Game Center leaderboard (util/gamecenter.js), opened in Apple's own screen. Only in the
+  // app, and only while the player is signed in: the shell says so once its sign-in settles, which
+  // can be after this menu is up, so the item appears when it hears rather than being decided here.
+  // "Scores" rather than "Leaderboard": at the menu's 64px that word is wider than a phone.
+  const boardButton = el('button', 'title-item', 'Scores');
+  boardButton.hidden = !gameCenterReady();
+  boardButton.addEventListener('click', () => { if (holding && !telling) showGameCenterBoard(); });
+  onGameCenterChange((on) => { boardButton.hidden = !on; });
+  for (const b of [...playButtons, boardButton, settingsButton, creditsButton]) b.type = 'button';
   // The small print sits inside the menu so it fades in with it and goes when a page opens.
-  menu.append(...playButtons, settingsButton, creditsButton, el('p', 'title-legal', copyrightLine()));
+  menu.append(...playButtons, boardButton, settingsButton, creditsButton, el('p', 'title-legal', copyrightLine()));
 
   // --- Settings ---------------------------------------------------------------------------------
   const settingsPage = menuPage('settings', 'Settings', () => show('menu'));

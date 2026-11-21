@@ -828,6 +828,8 @@ and because the taxi has one seat, all but one of those are riders waiting on th
 the endless run — no clock, no target, ended only by a wreck, a bust or the rating, ranked on the
 endless score table. The pick is remembered on the device (`simtaxi.mode`), so Play again plays the
 same mode (`chooseMode` in main.js). Demo mode keeps the one Play. `?modes=classic` is the one Play.
+In the iOS app, an Arcade run's cash also goes to a Game Center leaderboard, all-time, opened from
+**Scores** on the title menu ([ios.md](ios.md#game-center)).
 
 **The game is a week of days, and each day is one shift** (`game/days.js`, Tyler, 2026-10-31). A
 day has its own clock, an **earnings target**, a floor on [the difficulty ramp](difficulty.md)
