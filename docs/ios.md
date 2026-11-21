@@ -14,6 +14,8 @@ it are listed below.
 | `ios/SimTaxi/GameViewController.swift` | The `WKWebView` and its configuration. Wake lock, pause-on-background, portrait lock, status bar. |
 | `ios/SimTaxi/BundleSchemeHandler.swift` | Serves `web/` over `simtaxi://`. **The load-bearing file** — see below. |
 | `ios/SimTaxi/HapticsBridge.swift` | The `haptics` message handler. Taptic Engine feedback, which the web build has no route to at all. |
+| `ios/SimTaxi/GameCenterBridge.swift` | The `gamecenter` message handler. Sign-in, Arcade's score, Apple's leaderboard screen — see [Game Center](#game-center). |
+| `ios/SimTaxi/SimTaxi.entitlements` | The Game Center entitlement, and nothing else. |
 | `ios/SimTaxi/ComboHaptics.swift` | Core Haptics patterns for the combos (drift, kick, U-turn, overtake, combo cashed in/lost), played through the same handler. |
 | `ios/SimTaxi/Info.plist` | Full-screen, no status bar, portrait only, export compliance. |
 | `ios/SimTaxi/LaunchScreen.storyboard` | One flat fill of black, matching `PALETTE.splashVoid` — the web view, the manifest and the page before the city draws are the same black, so a cold start is one black screen until the startup screen's ROCKET RIDES word appears and stands through the load ([gameplay.md](gameplay.md#the-startup-screen)). iOS caches launch screens per install: a change here may need the app deleted and reinstalled to show. |
@@ -251,9 +253,42 @@ particular, because the default insets by the safe area and would double up on t
   second count is the frame count — around 24 — which on a phone is not a detent but a solid buzz
   for as long as the finger is down. The stub is torn down again with the gesture, since every
   check after it is about the web build.
+- **Game Center** — see [below](#game-center).
 - **Deferred home-indicator gesture** on the bottom edge. The Loco Mode pill and the brake are both
   *hold* controls at the bottom of the screen, and a resting thumb there is exactly the gesture iOS
   reads as a swipe home.
+
+## Game Center
+
+One leaderboard (Tyler, 2026-11-21): **Arcade's cash per run, all-time**, shown in Apple's own
+screen rather than an in-game table. Story doesn't submit — a day is a fixed shift with a target,
+which is a different game to rank. No score cap and no cheat checks yet, by choice: Arcade is
+expected to get a limit of its own that stops a run going on for ever.
+
+| Piece | Where |
+|---|---|
+| Leaderboard ID | `rocketrides.arcade.cash` (`GameCenterBridge.arcadeLeaderboard`). Must match App Store Connect exactly. |
+| Sign-in | `GKLocalPlayer.local.authenticateHandler`, set once in `viewDidAppear` — the title menu is the only thing on screen then, so Apple's sign-in sheet costs nobody a run. |
+| Submit | `submitArcadeRun` in `src/main.js`, on the frame the run-end card is built: Arcade only, the same terms as the local table (`isRankedRun`), never in demo mode, never a zero. Game Center keeps each player's best, so every run is sent. |
+| Open | **Scores** on the title menu, shown only while the player is signed in. "Scores" rather than "Leaderboard" because the menu's 64px type would put that word wider than a phone. |
+| Web half | `src/util/gamecenter.js`, a no-op outside the app. |
+
+**The page asks; the shell answers.** Sign-in usually settles before the bundle has evaluated, and
+script evaluated into a page that is still loading is lost — so the page posts `hello` at boot and
+the shell replies through `window.__gameCenterState(ready)`, then pushes every later change the
+same way. That is why the Scores item can appear a moment after the menu does.
+
+**Setting it up in App Store Connect** (once): the app's page ▸ Features ▸ Game Center ▸
+Leaderboards ▸ +, *Classic*, reference name "Arcade Cash", ID `rocketrides.arcade.cash`, score
+format *Integer* (or *Money — Whole Numbers*), submission type *Best Score*, sort *High to Low*,
+then an English localization ("Arcade"). Game Center has to be added to the app version too
+(the version page's Game Center section, with the leaderboard ticked) before a review build can
+see it; TestFlight builds see it once it is created. The App ID needs the Game Center capability,
+which every explicit App ID gets by default.
+
+**Testing:** TestFlight, on a phone signed in to Game Center (Settings ▸ Game Center). Play an
+Arcade run to the end, go back to the title, tap Scores. In the Simulator, sign in through its
+Settings app first; submits from a sandbox account show up on the same board.
 
 ## Build
 
@@ -466,9 +501,9 @@ Not built yet, roughly in value-for-effort order:
   should not simply reuse those two names. Each is a `haptic()` call at the site that already
   knows it happened plus a case in `HapticsBridge.swift`; the thinking is in which transient
   belongs to which, not in the plumbing.
-- **Game Center leaderboards.** The strongest Guideline 4.2 cover there is, and
-  `highscores.js`'s injectable store is the seam it slots into. Keep the local top-5 and submit in
-  addition.
+- **More Game Center.** Arcade's all-time board is in ([Game Center](#game-center)). Not yet: a
+  recurring (weekly) board, achievements, a way to the board from the run-end card, and any score
+  sanity checks.
 - **Audio — shipped, one thing to confirm on a phone.** The sound effects are in (see
   [audio.md](audio.md)), and the page asks for `navigator.audioSession.type = 'playback'`, so it
   plays through the silent switch. Still to check on a device: that WKWebView honours that the same
