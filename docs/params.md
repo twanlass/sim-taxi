@@ -275,7 +275,7 @@ See [rendering.md](rendering.md) for all of these.
 | `?diag` | The on-screen renderer readout |
 | `?warmup=classic` | Skips the boot frame that draws every mesh once, so first draws land mid-run again ([game/warmup.js](../src/game/warmup.js)) |
 | `?hitch` | The hitch logger: late frames, how long their JS took, shader links, resizes, and hitches a minute with and without a speech card up ([game/hitch.js](../src/game/hitch.js)) |
-| `?perf` | The on-device profiler: every frame's gap, JS time by phase, shader links, buffer and texture uploads, resizes and tags, plus a startup timeline, saved into the iOS app's container (or `__perfCapture.last` in a browser). `?perf=nobackdrop` also turns every CSS backdrop blur off, for an A/B of the compositor's share for `node tools/ios-perf.mjs pull` ([game/perf.js](../src/game/perf.js), [testing.md](testing.md#profiling-on-the-phone)) |
+| `?perf` | The on-device profiler: every frame's gap, JS time by phase, shader links, buffer and texture uploads, resizes and tags, plus a startup timeline, saved into the iOS app's container (or `__perfCapture.last` in a browser). `?perf=nobackdrop` also turns every CSS backdrop blur off and `?perf=nohud` hides everything but the canvas, for A/Bs of the compositor's share for `node tools/ios-perf.mjs pull` ([game/perf.js](../src/game/perf.js), [testing.md](testing.md#profiling-on-the-phone)) |
 | `?bench` | The step-by-step GPU benchmark |
 | `?br=` | Internal to `?bench`: the rows measured so far, carried across its reloads |
 | `?soak` / `=20` | The battery and heat soak, in minutes |

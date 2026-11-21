@@ -46,15 +46,21 @@ export const PERF = typeof window !== 'undefined'
 let active = null;
 
 /**
- * `?perf=nobackdrop`: every CSS `backdrop-filter` off, for an A/B against plain `?perf`. The first
+ * `?perf=nobackdrop` (and `?perf=nohud`, below): every CSS `backdrop-filter` off, for an A/B against plain `?perf`. The first
  * Metal System Trace of a run on an iPhone 16 Pro (2026-11-21) put the system compositor
  * (backboardd) at 40–45% of the GPU's wall time during play against 10% on the title screen, level
  * with the game itself, and the blurred speech cards and tags are what the compositor redraws from
  * the canvas underneath on every frame. A diagnostic, not a look: it changes the cards.
  */
-if (PERF && new URLSearchParams(window.location.search).get('perf') === 'nobackdrop') {
+const PERF_AB = PERF ? new URLSearchParams(window.location.search).get('perf') : '';
+if (PERF_AB === 'nobackdrop' || PERF_AB === 'nohud') {
   const style = document.createElement('style');
-  style.textContent = '*, *::before, *::after { -webkit-backdrop-filter: none !important; backdrop-filter: none !important; }';
+  style.textContent = PERF_AB === 'nobackdrop'
+    ? '*, *::before, *::after { -webkit-backdrop-filter: none !important; backdrop-filter: none !important; }'
+    // `?perf=nohud`: every element but the city's canvas hidden, so the compositor has one layer to
+    // draw. The blunt half of the same A/B: if the frame rate does not move with this, the page's
+    // DOM is not what the compositor is spending the GPU on.
+    : 'body * { visibility: hidden !important; } .city-canvas, #perf-hud { visibility: visible !important; }';
   document.head.appendChild(style);
 }
 
