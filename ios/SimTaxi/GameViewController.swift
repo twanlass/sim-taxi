@@ -32,6 +32,27 @@ final class GameViewController: UIViewController {
     /// standalone object and not an extension on this class.
     private let haptics = HapticsBridge()
 
+    #if DEBUG
+    /// `?perf` captures, written into the app's container for `tools/ios-perf.mjs pull`.
+    private let perf = PerfBridge()
+    #endif
+
+    /// The page to load. In a DEBUG build a launch argument can add a query string —
+    /// `xcrun devicectl device process launch … com.twanlass.rocketrides --query "perf&hitch"`, which
+    /// is what `tools/ios-perf.mjs launch` sends — because the app otherwise has no way to take a URL
+    /// parameter, and every diagnostic in the game (`?perf`, `?hitch`, `?diag`, `?bench`) is one.
+    /// Release ignores it, so a shipped build always opens the plain game.
+    private static var launchURL: URL {
+        #if DEBUG
+        let args = ProcessInfo.processInfo.arguments
+        if let at = args.firstIndex(of: "--query"), at + 1 < args.count {
+            let query = args[at + 1].trimmingCharacters(in: CharacterSet(charactersIn: "?"))
+            if !query.isEmpty, let url = URL(string: "\(startURL.absoluteString)?\(query)") { return url }
+        }
+        #endif
+        return startURL
+    }
+
     override func loadView() {
         let config = WKWebViewConfiguration()
         config.setURLSchemeHandler(BundleSchemeHandler(), forURLScheme: Self.scheme)
@@ -73,6 +94,9 @@ final class GameViewController: UIViewController {
         // Engine at all. `src/util/haptics.js` posts an event name to this handler and no-ops
         // everywhere else.
         config.userContentController.add(haptics, name: HapticsBridge.name)
+        #if DEBUG
+        config.userContentController.add(perf, name: PerfBridge.name)
+        #endif
 
         webView = WKWebView(frame: .zero, configuration: config)
 
@@ -119,7 +143,7 @@ final class GameViewController: UIViewController {
         center.addObserver(self, selector: #selector(pauseGame),
                            name: UIApplication.willResignActiveNotification, object: nil)
 
-        webView.load(URLRequest(url: Self.startURL))
+        webView.load(URLRequest(url: Self.launchURL))
     }
 
     /// Pause the run when the app stops being frontmost — a call, a notification pulled into a full

@@ -197,6 +197,7 @@ import { SKYLINE_CEILING } from './city/buildings.js';
 import { popHighlight, POP_TIME } from './game/selectpop.js';
 import { createDiagnostics, describeGpu } from './game/diag.js';
 import { createHitchLogger, getHitchLogger } from './game/hitch.js';
+import { createPerfCapture, perfMark, perfPhase } from './game/perf.js';
 import { warmFirstDraws, warmFirstDrawsInSteps, awaitPrograms } from './game/warmup.js';
 import { LOADER, warmStep, compileProgress } from './game/loadbar.js';
 import { createBench } from './game/bench.js';
@@ -311,6 +312,7 @@ const renderer = new THREE.WebGLRenderer({
   stencil: true,
   preserveDrawingBuffer: Boolean(shot),
 });
+perfMark('renderer');
 // NOT `window.innerWidth/innerHeight`: on an installed iOS app those stop short of the physical
 // bottom of the screen, and the strip the canvas doesn't cover shows as bare sky under the game.
 // See util/viewport.js for the measurement that is actually right.
@@ -436,6 +438,8 @@ settings.onChange((v) => {
  * bloom, the haze — and not a lesser render of its own.
  */
 function renderFrame(cam = camera) {
+  // `?perf`: everything `tick` did before this is the frame's `sim`; the passes name themselves.
+  perfPhase('pre');
   // The pass order lives in game/renderpath.js, shared with the workshop's bench; the weather and
   // the diagnostics are the game's own and ride in with it.
   renderPath.render(scene, cam, { rain, rainLightsOn, diag });
@@ -6951,9 +6955,11 @@ function frame(t) {
   // that way before the move and none after.
   governor.frame(t, !pause?.state.paused && !presenterHeld && !fares.state.gameOver && !document.hidden);
   hitch.begin(t);
+  perf.begin(t);
   bench?.begin(t);
   tick();
   bench?.end();
+  perf.end();
   hitch.end();
 }
 
@@ -6967,6 +6973,18 @@ const hitch = createHitchLogger(renderer, {
     truck: () => garbage.state.truck,
     paused: () => pause?.state.paused,
   },
+});
+
+// `?perf`: every frame and the startup, saved where a Mac can pull it — see game/perf.js.
+const perf = createPerfCapture(renderer, {
+  cap: frameRateCap,
+  probes: {
+    paused: () => pause?.state.paused,
+    speech: () => document.querySelector('.speech-glass.is-open:not([hidden]), .speech-liquid.is-open:not([hidden])'),
+    over: () => fares.state.gameOver,
+    truck: () => garbage.state.truck,
+  },
+  context: () => ({ quality: settings.get().quality, ratio: governor.ratio() }),
 });
 
 let edgeFogTime = 0;
@@ -8735,7 +8753,9 @@ if (shot) {
   // with `traverse`, not `traverseVisible`, so the hidden ones are covered too: measured at
   // `tools/links.mjs`, it moves six program links out of the run and into the boot, where they are
   // behind the wipe and the vignette and nobody is being made to wait for them mid-corner.
+  perfMark('compile:start');
   renderer.compile(scene, camera);
+  perfMark('compile:end');
   // ...and drawn once, because linking is not the whole of a first sight on iOS: Metal builds its
   // pipelines and three uploads the buffers on the first *draw*, per pass. Left to the run, that
   // was a first play that hitched every time the camera reached somewhere new and a second play
@@ -8776,6 +8796,7 @@ if (shot) {
 }
 
 function startRun() {
+  perfMark('warmup:end');
   const benchHooks = {
     renderer,
     ready: () => Boolean(traffic.taxi) && !traffic.taxi.staged,
