@@ -61,12 +61,13 @@ export function perfPhase(name) {
 
 /**
  * @param renderer  the context whose calls are counted
+ * @param scene     walked on a frame that linked a program, to name what draws with it
  * @param cap       `() => fps` — the cap a frame is judged against
  * @param probes    `{ tag: () => boolean }`
  * @param context   `() => object` — settings worth saving beside the frames (quality, ratio…)
  */
-export function createPerfCapture(renderer, { cap = () => 60, probes = {}, context = () => ({}) } = {}) {
-  const noop = { begin: () => {}, end: () => {}, save: () => null };
+export function createPerfCapture(renderer, { scene = null, cap = () => 60, probes = {}, context = () => ({}) } = {}) {
+  const noop = { begin: () => {}, end: () => {}, save: () => null, skip: () => {} };
   if (!PERF) return noop;
 
   const gl = renderer.getContext();
@@ -80,7 +81,21 @@ export function createPerfCapture(renderer, { cap = () => 60, probes = {}, conte
   };
   const bytesOf = (data) => (data && typeof data.byteLength === 'number' ? data.byteLength
     : typeof data === 'number' ? data : 0);
-  wrap('linkProgram', () => { counters.link += 1; });
+  // On a link, who asked for it: the call stack with three's own frames taken out, which leaves the
+  // game function that rendered something new. Only on links, which are rare and already a stall.
+  const linkStacks = [];
+  wrap('linkProgram', () => {
+    counters.link += 1;
+    // Deep enough to climb out of three: getProgram, setProgram, renderBufferDirect, renderObject…
+    const limit = Error.stackTraceLimit;
+    Error.stackTraceLimit = 40;
+    const stack = new Error().stack ?? '';
+    Error.stackTraceLimit = limit;
+    const frames = stack.split('\n').map((l) => l.trim())
+      .filter((l) => l && !/three|node_modules|perf\.js|^Error/.test(l))
+      .slice(0, 3).map((l) => l.replace(/https?:\/\/[^/]+\//, '').replace(/\?[^:]*:/, ':'));
+    linkStacks.push(frames.join(' < '));
+  });
   wrap('bufferData', (a) => { counters.up += bytesOf(a[1]); });
   wrap('bufferSubData', (a) => { counters.up += bytesOf(a[2]); });
   for (const name of ['texImage2D', 'texSubImage2D', 'texImage3D', 'texSubImage3D',
@@ -104,6 +119,7 @@ export function createPerfCapture(renderer, { cap = () => 60, probes = {}, conte
   let savedAt = 0;
   let saving = false;
   let wasHidden = false;
+  const known = new WeakSet();
   let count = 0;
   let calls = 0;
   let tris = 0;
@@ -154,6 +170,7 @@ export function createPerfCapture(renderer, { cap = () => 60, probes = {}, conte
       Object.assign(boot, counters);
       counters.link = 0; counters.up = 0; counters.tex = 0;
       note('first-frame', t);
+      for (const program of info.programs ?? []) known.add(program);
     }
     if (!lastAt) lastAt = t;
   }
@@ -169,10 +186,20 @@ export function createPerfCapture(renderer, { cap = () => 60, probes = {}, conte
     // matter most — the first one after the warm-up, a pipeline build — can run past two seconds.
     let gap = t - lastAt;
     lastAt = t;
-    if (wasHidden) { wasHidden = false; gap = -1; note('away', t); }
+    if (wasHidden) { wasHidden = false; gap = -1; }
     const canvas = renderer.domElement;
     const rs = canvas.width !== width || canvas.height !== height ? 1 : 0;
     if (rs && width) note(`resize ${canvas.width}x${canvas.height}`, t);
+    // Which programs those links were: whatever is in three's program list that was not there
+    // before, named by the meshes now drawing with it. three's own `program.name` is only
+    // `material.name`, which almost nothing here sets, so the scene is walked instead — only on a
+    // frame that linked, which is the frame that was already lost.
+    if (counters.link) {
+      const fresh = (info.programs ?? []).filter((program) => !known.has(program));
+      for (const program of fresh) known.add(program);
+      if (fresh.length) for (const name of nameProgramUsers(fresh)) note(`link ${name}`, t);
+      for (const stack of linkStacks) note(`link-from ${stack}`, t);
+    }
     width = canvas.width;
     height = canvas.height;
     let mask = 0;
@@ -193,6 +220,7 @@ export function createPerfCapture(renderer, { cap = () => 60, probes = {}, conte
       count -= 1;
     }
     counters.link = 0; counters.up = 0; counters.tex = 0;
+    linkStacks.length = 0;
 
     const budget = 1000 / cap();
     window0.frames += 1;
@@ -212,6 +240,36 @@ export function createPerfCapture(renderer, { cap = () => 60, probes = {}, conte
       if (secs > 10) window0 = { frames: 0, hitches: 0, since: t, worst: 0, last: window0.last };
     }
     if (t - savedAt > SAVE_EVERY_MS) save('periodic');
+  }
+
+  function nameProgramUsers(programs) {
+    const users = new Map(programs.map((p) => [p, new Set()]));
+    const describe = (object, material) => {
+      const path = [];
+      for (let o = object; o && path.length < 3; o = o.parent) if (o.name) path.push(o.name);
+      const geo = object.geometry;
+      const shape = geo ? ` ${geo.type.replace('Geometry', '')}/${geo.attributes?.position?.count ?? 0}v` : '';
+      return `${material.name || material.type}${material.color ? ` #${material.color.getHexString()}` : ''}${shape}${material.defines && Object.keys(material.defines).length ? `[${Object.keys(material.defines).slice(0, 3).join(',')}]` : ''}`
+        + ` on ${path.join('<') || object.type}`;
+    };
+    scene?.traverse((object) => {
+      // Plus the materials passes swap in for one draw and take back out: the bloom's copy
+      // (game/bloom.js) and the AO prepass's depth material (game/ssao.js).
+      const ud = object.userData ?? {};
+      const materials = [object.material, object.customDepthMaterial, object.customDistanceMaterial,
+        ud.bloomMaterial, ud.aoDepthMaterial].flat().filter(Boolean);
+      for (const material of materials) {
+        const program = renderer.properties.get(material)?.currentProgram;
+        if (users.has(program) && users.get(program).size < 3) users.get(program).add(describe(object, material));
+      }
+    });
+    return programs.map((p) => {
+      const named = [...users.get(p)];
+      if (named.length) return named.join(' | ');
+      // Not in the scene — a pass's own material (AO, bloom, the glass) or an override.
+      const key = p.cacheKey ?? '';
+      return `(no mesh) ${p.name || key.split(',')[0].slice(0, 40)}`;
+    });
   }
 
   function snapshot(reason) {
@@ -283,5 +341,8 @@ export function createPerfCapture(renderer, { cap = () => 60, probes = {}, conte
 
   window.__perfCapture = { save, download, note, last: null };
   active = { note, phase };
-  return { begin, end, save };
+  /** A frame not drawn on purpose (the startup screen covering the city): the gap it leaves is not late. */
+  function skip() { wasHidden = true; }
+
+  return { begin, end, save, skip };
 }

@@ -6944,7 +6944,7 @@ function frame(t) {
   // The startup screen is drawing over the whole page (game/splash.js): nothing here would be seen,
   // and a city frame behind it is GPU the drop needs. The sim waits too — the dt clamp below is the
   // whole of the catch-up when it lets go, and the governor ignores a gap that long.
-  if (splashCovers()) return;
+  if (splashCovers()) { perf.skip(); return; }
   if (frameRateCap() < 60 && t - lastFrameAt < 1000 / frameRateCap() - 4) return;
   lastFrameAt = t;
   // Only frames of live play count toward the governor: a paused or finished run is cheap and
@@ -6977,6 +6977,7 @@ const hitch = createHitchLogger(renderer, {
 
 // `?perf`: every frame and the startup, saved where a Mac can pull it — see game/perf.js.
 const perf = createPerfCapture(renderer, {
+  scene,
   cap: frameRateCap,
   probes: {
     paused: () => pause?.state.paused,
@@ -7180,6 +7181,7 @@ function tick() {
       || Boolean(depotRun?.holdsTaxi());
   }
   updateBoostButton(dt);
+  perfPhase('fx');
   skids.update(dt);
   wetTracks.update(dt);
   // Before the dust pool ticks, so a building's ground-burst is at age zero on the frame it fires.
@@ -7308,6 +7310,7 @@ function tick() {
   }
   // The kerb swipe at a post box or a hot dog cart is an offset `traffic.update` draws the taxi at,
   // so it is set before it (game/streetprops.js).
+  perfPhase('traffic');
   streetProps.update(dt, traffic.taxi);
   traffic.update(dt);
   if (traffic.taxi.overtakes > overtakesFelt) {
@@ -7410,6 +7413,7 @@ function tick() {
   // what the two wreck shells are copied out of. A detected impact takes both cars out of the
   // sim from this frame on; the loops in traffic.js already skip a crashed car, so no further
   // plumbing is needed here.
+  perfPhase('collide');
   collisions.update(dt);
   impact.update(dt);
   // After traffic has written the taxi's transform: the lean and the rattle ride on top of it.
@@ -7465,6 +7469,7 @@ function tick() {
   // (`setClosedLanes` in sim/traffic.js), so whichever runs second no longer clears the other.
   // Boats first, so a tug that reaches its asking distance this frame gets the barriers moving on
   // the same frame rather than the next one.
+  perfPhase('world');
   boats?.update(dt);
   harborShips?.update(dt);
   drawbridge?.update(dt, traffic.cars);
@@ -7528,6 +7533,7 @@ function tick() {
   // `holdsCamera` go false with the camera already sitting on `restFraming()` below, so there is
   // no gap for the follow-cam to snap across.
   // The title screen's drift sits above even the vignette, which is held behind it anyway.
+  perfPhase('game');
   updateCameraReturn(dt);
   const boosting = boost.isActive();
   // On the press, not every frame of the hold: a swipe made *while* holding is still the player

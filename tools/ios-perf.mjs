@@ -107,9 +107,13 @@ async function pull() {
   const files = await listJson(dest);
   if (!files.length) die(`nothing pulled into ${dest}`);
   console.log(`ios-perf  pulled ${files.length} capture(s) into ${dest}`);
-  // The newest capture is the run just played.
+  // The run just played is the newest capture with real play in it. Not simply the newest: "Play
+  // again" and a relaunch both start a fresh capture, which is a few seconds of title screen.
   files.sort();
-  await report(files[files.length - 1]);
+  const frames = async (f) => JSON.parse(await readFile(f, 'utf8'))?.frames?.t?.length ?? 0;
+  let pick = files[files.length - 1];
+  for (let k = files.length - 1; k >= 0; k -= 1) if (await frames(files[k]) >= 300) { pick = files[k]; break; }
+  await report(pick);
 }
 
 async function listJson(dir) {
@@ -125,18 +129,21 @@ async function listJson(dir) {
 const pct = (sorted, p) => sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * p))] ?? 0;
 const fmt = (n, d = 1) => (Number.isFinite(n) ? n.toFixed(d) : '–');
 
+/** `perfPhase` names that are render passes (game/renderpath.js); the rest are the game's update. */
+const RENDER_PASSES = ['pre', 'ao', 'bloom', 'main', 'post'];
+
 /** Why a late frame was late, as far as the JS side can tell. The first cause that fits wins. */
 function causeOf(f, budget) {
   if (f.save) return 'save (the capture serialising itself)';
   if (f.link) return `shader link ×${f.link}`;
   if (f.rs) return 'resize (governor step or rotation)';
-  if (f.tex >= 4 || f.up >= 256) return `first-draw uploads (${f.up} KB, ${f.tex} tex)`;
+  if (f.tex >= 4 || f.up >= 1024) return `heavy uploads (${f.up} KB, ${f.tex} tex)`;
   if (f.cpu > budget * 0.8) {
     // A render pass's JS is a few hundred WebGL calls; when one of those passes takes most of a
     // frame, the time went *inside* a call — WebKit blocking on its GPU process (a Metal pipeline
     // built on first draw, a sync readback) — not in three's own bookkeeping.
     const [pass, ms] = Object.entries(f.phases).sort((a, b) => b[1] - a[1])[0] ?? [];
-    if (pass && pass !== 'sim' && ms > budget * 0.5) return `GL stall in ${pass} (${ms.toFixed(0)} ms)`;
+    if (RENDER_PASSES.includes(pass) && ms > budget * 0.5) return `GL stall in ${pass} (${ms.toFixed(0)} ms)`;
     return `JS: ${f.top}`;
   }
   return 'not JS — GPU, compositor or GC (check the trace)';
@@ -188,7 +195,7 @@ async function report(file) {
   say();
   say('## Startup');
   say();
-  const marks = [...(data.boot.marks ?? []), ...data.notes.filter(([, n]) => !/^resize|^away/.test(n))]
+  const marks = [...(data.boot.marks ?? []), ...data.notes.filter(([, n]) => !/^resize|^away|^link/.test(n))]
     .sort((a, b) => a[0] - b[0]);
   const seen = new Set();
   let prev = 0;
@@ -236,6 +243,13 @@ async function report(file) {
     say(`- **${cause}** — ${n} frames, ${fmt(ms, 0)} ms over budget in all`);
   }
   say();
+  const links = data.notes.filter(([, n]) => n.startsWith('link'));
+  if (links.length) {
+    say('## Shaders linked mid-run');
+    say();
+    for (const [t, n] of links) say(`- ${fmt((t - t0) / 1000, 1)} s  ${n.startsWith('link-from') ? `  ↳ from ${n.slice(10)}` : n.slice(5)}`);
+    say();
+  }
   say('## Worst 25');
   say();
   say('| at (s) | gap | JS | top phases | links | KB up | tex | calls | tags | cause |');
@@ -261,10 +275,107 @@ async function report(file) {
   console.log(`\nios-perf  report written to ${out}`);
 }
 
+/**
+ * The GPU half: Metal System Trace's `metal-gpu-intervals`, reduced to what a WebGL frame costs.
+ *
+ * WebKit draws every WebGL frame from its GPU process (`com.apple.WebKit.GPU`), one Metal command
+ * buffer per presented frame, one render encoder per framebuffer three binds — so the encoders come
+ * in the game's pass order (shadow map, AO prepass, bloom levels, main pass, glass). Each interval
+ * row is one encoder on one GPU channel (vertex, fragment, compute); xctrace labels it
+ * `Command Buffer N:Render Command K (process)`. This sums them per command buffer for the frame's
+ * GPU time, and per encoder index for what each pass costs. The XML dedupes values by `id`/`ref`.
+ */
+async function gpu(tracePath) {
+  const res = await run('xcrun', ['xctrace', 'export', '--input', tracePath, '--xpath',
+    '/trace-toc/run[@number="1"]/data/table[@schema="metal-gpu-intervals"]']);
+  const xml = res.out.slice(res.out.indexOf('<?xml'));
+  if (!xml.startsWith('<?xml')) die('no metal-gpu-intervals in that trace', res.out);
+  const toc = await run('xcrun', ['xctrace', 'export', '--input', tracePath, '--toc']);
+  const startDate = toc.out.match(/<start-date>([^<]+)<\/start-date>/)?.[1];
+  const byId = new Map();
+  const rows = [];
+  // One row per line-free <row>…</row>; children are flat enough for a scanner: each top-level
+  // child either defines a value (id=, fmt=) or refers back to one (ref=).
+  for (const rowMatch of xml.matchAll(/<row>([\s\S]*?)<\/row>/g)) {
+    const body = rowMatch[1];
+    const cols = [];
+    let depth = 0;
+    let at = 0;
+    const tag = /<(\/?)([\w-]+)([^>]*?)(\/?)>/g;
+    let m;
+    let open = null;
+    while ((m = tag.exec(body))) {
+      const [, close, name, attrs, selfClose] = m;
+      if (close) { depth -= 1; if (depth === 0 && open) { open.text = body.slice(at, m.index).replace(/<[^>]*>/g, ''); cols.push(open); open = null; } continue; }
+      const id = attrs.match(/ id="(\d+)"/)?.[1];
+      const ref = attrs.match(/ ref="(\d+)"/)?.[1];
+      const fmt = attrs.match(/ fmt="([^"]*)"/)?.[1];
+      if (depth === 0) {
+        if (ref) { cols.push(byId.get(ref) ?? { name }); if (!selfClose) depth += 1; continue; }
+        open = { name, id, fmt };
+        at = m.index + m[0].length;
+        if (id) byId.set(id, open);
+        if (selfClose) { cols.push(open); open = null; continue; }
+        depth += 1;
+      } else {
+        if (id && !ref) byId.set(id, { name, id, fmt });
+        if (!selfClose) depth += 1;
+      }
+    }
+    const label = cols[6]?.fmt ?? '';
+    const process = cols[10]?.fmt ?? '';
+    rows.push({
+      start: Number(cols[0]?.text), dur: Number(cols[1]?.text), channel: cols[2]?.fmt ?? cols[2]?.text,
+      label, process,
+      cb: label.match(/Command Buffer (\d+)/)?.[1], enc: Number(label.match(/Render Command (\d+)/)?.[1] ?? -1),
+    });
+  }
+  const web = rows.filter((r) => r.process.includes('WebKit.GPU'));
+  const others = new Map();
+  for (const r of rows) if (!r.process.includes('WebKit.GPU')) others.set(r.process.replace(/ \(\d+\)$/, ''), (others.get(r.process.replace(/ \(\d+\)$/, '')) ?? 0) + r.dur);
+  // Frames: consecutive rows sharing a command-buffer label, in time order. Labels restart, so a
+  // frame is a run of the same `cb`, split wherever the gap to the previous row exceeds 8 ms.
+  web.sort((a, b) => a.start - b.start);
+  const frames = [];
+  let cur = null;
+  for (const r of web) {
+    if (!cur || r.cb !== cur.cb || r.start - cur.end > 8e6) {
+      cur = { cb: r.cb, start: r.start, end: r.start + r.dur, busy: 0, enc: new Map() };
+      frames.push(cur);
+    }
+    cur.end = Math.max(cur.end, r.start + r.dur);
+    cur.busy += r.dur;
+    const e = cur.enc.get(r.enc) ?? { vertex: 0, fragment: 0, other: 0 };
+    const key = /vertex/i.test(r.channel) ? 'vertex' : /fragment/i.test(r.channel) ? 'fragment' : 'other';
+    e[key] += r.dur;
+    cur.enc.set(r.enc, e);
+  }
+  const ms = (ns) => ns / 1e6;
+  const spans = frames.map((f) => ms(f.end - f.start)).sort((a, b) => a - b);
+  const total = web.length ? ms(web[web.length - 1].start - web[0].start) / 1000 : 0;
+  console.log(`# GPU — ${path.basename(tracePath)}\n`);
+  console.log(`Trace started ${startDate}. ${web.length} WebKit GPU intervals, ${frames.length} command buffers over ${total.toFixed(0)} s.`);
+  console.log(`Per command buffer, first encoder start to last end: p50 ${spans[spans.length >> 1]?.toFixed(1)} · p95 ${spans[Math.floor(spans.length * 0.95)]?.toFixed(1)} · max ${spans[spans.length - 1]?.toFixed(1)} ms.`);
+  const busy = web.reduce((a, r) => a + r.dur, 0);
+  console.log(`GPU channel time summed: ${(ms(busy) / Math.max(total, 1) / 10).toFixed(0)}% of wall time (vertex and fragment overlap, so this can pass 100).\n`);
+  console.log('By encoder index within a frame (mean ms per frame that has it; the order is the pass order):\n');
+  const encs = new Map();
+  for (const f of frames) for (const [k, v] of f.enc) {
+    const e = encs.get(k) ?? { n: 0, vertex: 0, fragment: 0, other: 0 };
+    e.n += 1; e.vertex += v.vertex; e.fragment += v.fragment; e.other += v.other;
+    encs.set(k, e);
+  }
+  for (const [k, e] of [...encs].sort((a, b) => a[0] - b[0])) {
+    console.log(`- encoder ${String(k).padStart(2)}  in ${String(e.n).padStart(5)} frames  vertex ${ms(e.vertex / e.n).toFixed(2)}  fragment ${ms(e.fragment / e.n).toFixed(2)}${e.other ? `  other ${ms(e.other / e.n).toFixed(2)}` : ''}`);
+  }
+  console.log('\nOther processes on the GPU (total ms):', [...others].sort((a, b) => b[1] - a[1]).slice(0, 6).map(([n, d]) => `${n} ${ms(d).toFixed(0)}`).join(', '));
+}
+
 if (command === 'launch') await launch();
 else if (command === 'trace') await trace();
 else if (command === 'pull') await pull();
 else if (command === 'report' && args[1]) await report(args[1]);
+else if (command === 'gpu' && args[1]) await gpu(args[1]);
 else {
   console.log('usage: node tools/ios-perf.mjs launch|trace|pull|report <file> [--device tdub] [--query perf] [--seconds 120]');
   process.exit(command ? 1 : 0);

@@ -459,7 +459,9 @@ and the first frame), frame-gap percentiles, JS by phase (`sim` is the game's up
 `bloom`, `main`, `post` are the render passes' JS submission; `after` is what `tick` does once the
 frame is submitted), then late frames grouped by cause and the worst 25 in a table. A late frame's
 cause is the first of: a shader link, a resize, first-draw uploads (≥256 KB or ≥4 textures), JS
-over 80% of the budget, and otherwise **not JS**.
+over 80% of the budget, and otherwise **not JS**. A shader linked mid-run is named in its own section, by the meshes that draw with it and by
+the game function that rendered it (the call stack with three's frames taken out); that is how a
+5.6 s run-end freeze on an iPhone turned out to be the wreck fireball's bloom copy.
 
 **"Not JS" is where the trace comes in.** WebKit has no GPU timer queries, so a GPU-bound frame
 reads as a long gap with a short `cpu` and that is all the page can say about it. `trace` records
