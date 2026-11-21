@@ -240,6 +240,17 @@ export function createChaseSiren() {
   camera.updateMatrixWorld();
   siren.domeMat.uniforms.uLight.value.copy(KEY_DIR).transformDirection(camera.matrixWorldInverse);
 
+  // One frame now, while the game is still loading, then wiped. This is a context of its own, so the
+  // boot's warm-up (game/warmup.js) never reaches it, and the first chase used to link all four of
+  // its programs — the drum, the lens, and the rays twice (a transparent DoubleSide draws its back
+  // and front faces as two passes) — on the frame it appeared. For the robbery that frame is the
+  // one the world comes back on after the robber's line, the worst moment in the run for a stall,
+  // and on iOS a link is the cheap half: the Metal pipeline and the buffer uploads wait for the
+  // first draw (see warmup.js), so `compile()` alone would not have covered it. Measured headless:
+  // 4 links on the getaway's first frames before, 0 after. The canvas is hidden until a chase.
+  renderer.render(scene, camera);
+  renderer.clear();
+
   const reducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)');
 
   let on = false;

@@ -52,7 +52,7 @@ export function createHitchLogger(renderer, { enabled = false, cap = () => 60, p
 
   const tags = Object.keys(probes);
   // Seconds of play spent with each tag on and off, and the hitches that landed in each.
-  const time = Object.fromEntries(tags.map((t) => [t, { on: 0, off: 0, hOn: 0, hOff: 0 }]));
+  const time = Object.fromEntries(tags.map((t) => [t, { on: 0, off: 0, hOn: 0, hOff: 0, fOn: 0, fOff: 0 }]));
   const recent = [];
   let lastAt = 0;
   let cpu = 0;
@@ -77,7 +77,10 @@ export function createHitchLogger(renderer, { enabled = false, cap = () => 60, p
     width = canvas.width;
     height = canvas.height;
     const on = tags.filter((tag) => { try { return Boolean(probes[tag]()); } catch { return false; } });
-    for (const tag of tags) time[tag][on.includes(tag) ? 'on' : 'off'] += gap / 1000;
+    for (const tag of tags) {
+      const r = time[tag];
+      if (on.includes(tag)) { r.on += gap / 1000; r.fOn += 1; } else { r.off += gap / 1000; r.fOff += 1; }
+    }
     frames += 1;
     worst = Math.max(worst, gap);
     if (gap > budget * SLOW) {
@@ -91,10 +94,13 @@ export function createHitchLogger(renderer, { enabled = false, cap = () => 60, p
     if (t - drawnAt > 500) {
       drawnAt = t;
       const rate = (h, s) => (s > 1 ? (h / s * 60).toFixed(1) : '–');
+      // ...and the frame rate either side, which is what a *sustained* drop shows up in: a run of
+      // frames each a little late never crosses SLOW, so it never counts as a hitch at all.
+      const fps = (f, s) => (s > 1 ? (f / s).toFixed(0) : '–');
       const rows = tags.map((tag) => {
         const r = time[tag];
-        return `${tag.padEnd(8)} ${rate(r.hOn, r.on).padStart(5)}/min on (${r.on.toFixed(0)}s)`
-          + `  ${rate(r.hOff, r.off).padStart(5)}/min off`;
+        return `${tag.padEnd(8)} ${rate(r.hOn, r.on).padStart(5)}/min ${fps(r.fOn, r.on).padStart(2)}fps on (${r.on.toFixed(0)}s)`
+          + `  ${rate(r.hOff, r.off).padStart(5)}/min ${fps(r.fOff, r.off).padStart(2)}fps off`;
       });
       element.textContent = [
         `hitches ${total} / ${frames} frames · worst ${worst.toFixed(0)}ms · cap ${cap()}`,
