@@ -54,6 +54,7 @@ import { createGarage } from '../src/city/garage.js';
 import { createBurgerJoint } from '../src/city/burgerjoint.js';
 import { createVetClinic } from '../src/city/vetclinic.js';
 import { createBillboard } from '../src/city/billboard.js';
+import { createCrane } from '../src/city/crane.js';
 import { createGraveyard } from '../src/city/graveyard.js';
 import { createCarWash } from '../src/city/carwash.js';
 import { createGasStation } from '../src/city/gasstation.js';
@@ -136,6 +137,7 @@ function buildCity(seed) {
   if (layout.burgerBlock) add('burger', createBurgerJoint(layout.burgerBlock, makeRng(seed + 111)).group);
   if (city.vet) add('vet', createVetClinic(city.vet).group);
   city.billboards.forEach((b, i) => add(`billboard-${i}`, createBillboard(b).group));
+  if (city.crane) add('crane', createCrane(city.crane, makeRng(seed + 547)).group);
   if (layout.roadsideBlock) {
     const create = roadsideKind(seed) === 'gas' ? createGasStation : createCarWash;
     add('roadside', create(layout.roadsideBlock, makeRng(seed + 141)).group);

@@ -63,6 +63,8 @@ doc; what the classic version was, and why it changed, is in that doc's history 
 | `?robotaxi=classic` | No robo-taxis: nobody else in town takes your riders | | [gameplay.md](gameplay.md#robo-taxis) |
 | `?vet=classic` | No vet clinic: the corner shop it picks keeps a bare roof and an empty window | | [city.md](city.md#the-vet-clinic) |
 | `?billboard=classic` | No rooftop billboards: the robo-taxi and Dub Burger roofs stay bare | | [city.md](city.md#the-rooftop-billboard) |
+| `?crane=classic` | No construction crane: the mid-rise it stands on keeps a plain roof | | [city.md](city.md#the-construction-crane) |
+| `?crane=shadow` | The crane's moving parts (jib, trolley, rope, beam) cast shadows too; by default only the storey and mast do | | [city.md](city.md#the-construction-crane) |
 | `?vetopen=word` | The vet's OPEN sign spells the word in red neon letters inside its blue frame, instead of one red bar | | [city.md](city.md#the-vet-clinic) |
 | `?roofs=classic` | Solid flat roof caps, with no lip and no sunk deck | #511 | [city.md](city.md) |
 | `?flames=classic` | The drift kick's two plumes splayed into a V off the pipe (0.6 out, 0.32 rad each side) instead of running parallel 0.65 out | | [rendering.md](rendering.md#the-tailpipe-plume--gamelocoflamejs) |

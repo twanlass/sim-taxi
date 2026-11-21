@@ -8,6 +8,7 @@ import { plantedCrowns, treeParts, treeShape } from './props.js';
 import { buildBank, bankDomeMesh, chooseBankLot } from './bank.js';
 import { chooseVetSite } from './vetclinic.js';
 import { chooseBillboardSite } from './billboard.js';
+import { chooseCraneSite } from './crane.js';
 import {
   GLASS_RECESS, RECESS_PIER, WALLS_CLASSIC, WALL_STYLE, fillWalls, frameMesh, patchWalls, recessShell, stampWall,
   windowFrames,
@@ -1517,6 +1518,12 @@ export function createBuildings(rng, blocks) {
   // The rooftop billboards (city/billboard.js): the widest flat roofs left, the same way — by rule
   // and by hash, after everything else, so they move nothing either.
   const billboards = chooseBillboardSite(towers, [site, vet?.roof].filter(Boolean));
+  // The construction crane (city/crane.js): a mid-rise roof that grows a bare storey and a tower
+  // crane, chosen last of all and the same way, so it moves nothing either.
+  const boardDecks = towers.filter((t) => billboards.some((b) => b.anchor.x === t.cx && b.anchor.z === t.cz)).map((t) => t.deck);
+  const crane = chooseCraneSite(towers, {
+    taken: [site, vet?.roof, ...boardDecks].filter(Boolean), bank, pad, billboards,
+  });
 
   const count = parts.length;
   const { solid: unframed, frames } = frameMesh(parts, 'buildings');
@@ -1551,6 +1558,8 @@ export function createBuildings(rng, blocks) {
     // The roofs that carry billboards, one per ad (maybe none) — see `chooseBillboardSite`. Built
     // by main.js.
     billboards,
+    // The roof the construction crane stands on, or null — see `chooseCraneSite`. Built by main.js.
+    crane,
     // Every flat roof that is still a roof — the helipad's deck is spoken for — with the footprint
     // of what stands on it. The flocks pick their rooftop roosts from these; see `chooseRoosts` in
     // game/birds.js.

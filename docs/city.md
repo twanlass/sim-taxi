@@ -981,6 +981,38 @@ as well. The steel and the poster go into the sightline field, so no fare is pla
 board hides. Shots `billboard`/`billboard-far` frame the first, `billboard-burger`/`billboard-burger-far`
 the second.
 
+## The construction crane
+
+One mid-rise per city is adding floors (`city/crane.js`): its flat roof grows a bare concrete storey,
+columns and a slab, with the next storey's column stubs and rebar on top, and a dusty-mustard tower
+crane stands up through the middle swinging a red-oxide steel beam about. Pure background; not
+tappable. `?crane=classic` leaves the roof a roof.
+
+**It uses a roof rather than a lot.** A fenced pit would mean `createLayout` taking a block and every
+draw after it moving; instead `chooseCraneSite` picks a tower after the billboards, by rule and hash,
+like the vet and the boards, so no draw moves. A real city crane climbs up the building's own core,
+so the mast going down through the slab is the true arrangement.
+
+**Which roof.** A deck at least 3.6 wide on a building 3.2 to 8.5 tall, nowhere near the helipad.
+The jib's underside sits 3.4 over the tallest thing in the circle it sweeps: every tower's roof
+plus 2.6 for its furniture, the bank's dome, the billboards, and the L train's car roofs (8.35).
+The lowest crane wins, because under this camera every unit of height hides 1.09 units of ground
+up-screen. The outer ring of blocks is penalised, since that is where the neighbours are lowest and the
+first cut kept choosing the fog. Every one of 40 seeds gets a crane, with the jib at 10 to 14.4.
+It stays out of the sightline field, because a lattice is see-through.
+
+**The motion is transforms, not geometry.** The storey and mast are one static mesh, stamped into
+the entrance wave. The slewing top (jib, counter-jib, head, cab), the trolley, the rope (a unit box
+scaled to the drop) and the hook with its beam are four meshes under two groups, grown on the CPU
+by the wave (`entryObject`) because they turn. The loop sets the beam down level with the column
+stubs, hoists it, slews it out 60 to 150° to a random radius, creeps, then swings it back. Every
+channel is eased, and the run's seed picks the moves. The beam hangs on a damped pendulum driven by
+the trolley's radial and tangential acceleration, so it swings when the crane starts and stops.
+While it is out over the neighbours, its underside stays a unit above the tallest roof in reach.
+The moving parts use `propMaterial({ ao: false })` and stay out of the AO prepass. By default they
+cast no shadow (`?crane=shadow` turns that on). The two red aircraft lamps bloom as `window`. Shots
+`crane`/`crane-far` frame it, and `window.__craneStep(dt)` steps it for filming.
+
 ## The roadside lot, and its tube man
 
 The fourth block taken from the tower generator (`city/roadside.js`, `?roadside=classic` to give it

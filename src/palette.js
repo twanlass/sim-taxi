@@ -1239,6 +1239,23 @@ export const PALETTE = {
   // Rust bleeding from the window frames, and the scum line round the foot of the house.
   trashRust: '#7A4A2C',
   trashStack: '#2F3236',
+  // --- The construction crane (city/crane.js) -----------------------------------
+  //
+  // Held to the harbor's rule: warm means "act on this", and a crane is the opposite of that. So
+  // the classic tower-crane yellow goes in dusty — a mustard well under the taxi's saturation, so
+  // the eye that is scanning for the one yellow car does not snag on a girder over the rooftops.
+  // The beam is in red-oxide primer, which is what steel arrives on site wearing, held down the
+  // same way. The concrete is a step paler than a finished wall, as fresh concrete is.
+  craneYellow: '#C4A456',
+  craneWeight: '#8E8B84',
+  craneGlass: '#3F5363',
+  craneRope: '#3A3C40',
+  craneLoad: '#8A5040',
+  // Unlit: a lamp, not paint. The bloom picks it up at night.
+  craneLamp: '#E04A3A',
+  siteConcrete: '#C3BEB3',
+  siteRebar: '#6B4B3B',
+  siteFormwork: '#A88A62',
   // --- The harbor (city/harbor.js) -------------------------------------------
   //
   // Same rules as the boats: value against the water and the concrete, and no warm hue above low

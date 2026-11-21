@@ -302,6 +302,10 @@ export const SHOTS = [
   { name: 'billboard-far', description: 'the robo-taxi billboard at play zoom', target: [0, 0], zoom: 52, warmup: 12, atBillboard: 1 },
   { name: 'billboard-burger', description: 'the Dub Burger billboard, close', target: [0, 0], zoom: 12, warmup: 12, atBillboard: 2 },
   { name: 'billboard-burger-far', description: 'the Dub Burger billboard at play zoom', target: [0, 0], zoom: 52, warmup: 12, atBillboard: 2 },
+  // The construction crane (city/crane.js): close on the mast and jib, and at play zoom, where the
+  // whole of it has to read as a crane over the rooftops. `__craneStep` films it. Appended.
+  { name: 'crane', description: 'the construction crane, close', target: [0, 0], zoom: 16, warmup: 12, atCrane: true },
+  { name: 'crane-far', description: 'the construction crane at play zoom', target: [0, 0], zoom: 52, warmup: 12, atCrane: true },
 ];
 
 export function getActiveShot() {
