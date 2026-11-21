@@ -45,6 +45,19 @@ export const PERF = typeof window !== 'undefined'
 
 let active = null;
 
+/**
+ * `?perf=nobackdrop`: every CSS `backdrop-filter` off, for an A/B against plain `?perf`. The first
+ * Metal System Trace of a run on an iPhone 16 Pro (2026-11-21) put the system compositor
+ * (backboardd) at 40–45% of the GPU's wall time during play against 10% on the title screen, level
+ * with the game itself, and the blurred speech cards and tags are what the compositor redraws from
+ * the canvas underneath on every frame. A diagnostic, not a look: it changes the cards.
+ */
+if (PERF && new URLSearchParams(window.location.search).get('perf') === 'nobackdrop') {
+  const style = document.createElement('style');
+  style.textContent = '*, *::before, *::after { -webkit-backdrop-filter: none !important; backdrop-filter: none !important; }';
+  document.head.appendChild(style);
+}
+
 /** A named moment in the startup, or an event worth seeing in the timeline. No-op without `?perf`. */
 export function perfMark(name) {
   if (!PERF) return;

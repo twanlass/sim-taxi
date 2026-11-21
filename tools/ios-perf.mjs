@@ -368,6 +368,33 @@ async function gpu(tracePath) {
   for (const [k, e] of [...encs].sort((a, b) => a[0] - b[0])) {
     console.log(`- encoder ${String(k).padStart(2)}  in ${String(e.n).padStart(5)} frames  vertex ${ms(e.vertex / e.n).toFixed(2)}  fragment ${ms(e.fragment / e.n).toFixed(2)}${e.other ? `  other ${ms(e.other / e.n).toFixed(2)}` : ''}`);
   }
+  // Wall-clock occupancy, which is the number that decides whether a frame fits: the union of each
+  // process's GPU intervals (vertex and fragment overlap; union, not sum), per 10 s. backboardd is
+  // the system compositor — it draws the web view's layer, and every CSS layer over it, to the
+  // screen. Its share is GPU the game cannot have, and on this game it is not small.
+  const bucket = 10e9;
+  const occ = new Map();
+  const add = (who, r) => {
+    const b = Math.floor((r.start - rows[0].start) / bucket);
+    const row = occ.get(b) ?? {};
+    (row[who] ??= []).push([r.start, r.start + r.dur]);
+    occ.set(b, row);
+  };
+  const sortedRows = [...rows].sort((a, b) => a.start - b.start);
+  for (const r of sortedRows) add(r.process.includes('WebKit.GPU') ? 'webkit' : r.process.startsWith('backboardd') ? 'compositor' : 'other', r);
+  const union = (iv) => {
+    iv.sort((a, b) => a[0] - b[0]);
+    let total = 0; let end = -Infinity;
+    for (const [a, b] of iv) { if (a > end) { total += b - a; end = b; } else if (b > end) { total += b - end; end = b; } }
+    return total;
+  };
+  console.log('\nGPU occupancy per 10 s (union of intervals, % of wall time):\n');
+  console.log('  from    webkit  compositor  other  all');
+  for (const [b, row] of [...occ].sort((x, y) => x[0] - y[0])) {
+    const pctOf = (iv) => (iv ? (union(iv.slice()) / bucket) * 100 : 0);
+    const all = union([...(row.webkit ?? []), ...(row.compositor ?? []), ...(row.other ?? [])]);
+    console.log(`  ${String(b * 10).padStart(4)} s  ${pctOf(row.webkit).toFixed(0).padStart(5)}%  ${pctOf(row.compositor).toFixed(0).padStart(9)}%  ${pctOf(row.other).toFixed(0).padStart(4)}%  ${((all / bucket) * 100).toFixed(0).padStart(3)}%`);
+  }
   console.log('\nOther processes on the GPU (total ms):', [...others].sort((a, b) => b[1] - a[1]).slice(0, 6).map(([n, d]) => `${n} ${ms(d).toFixed(0)}`).join(', '));
 }
 
