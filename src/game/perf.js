@@ -39,6 +39,7 @@ const SAVE_EVERY_MS = 60_000;
 const MAX_FRAMES = 72_000;
 const HUD_EVERY_MS = 500;
 const SLOW = 1.7;
+const CENSUS_EVERY_MS = 15_000;
 
 export const PERF = typeof window !== 'undefined'
   && new URLSearchParams(window.location.search).has('perf');
@@ -192,10 +193,12 @@ export function createPerfCapture(renderer, { scene = null, cap = () => 60, prob
       for (const program of info.programs ?? []) known.add(program);
     }
     if (!lastAt) lastAt = t;
+    censusBegin(started);
   }
 
   function end() {
     if (!started) return;
+    censusEnd(started);
     const now = performance.now();
     phase('');
     const t = started;
@@ -325,6 +328,7 @@ export function createPerfCapture(renderer, { scene = null, cap = () => 60, prob
           Math.round(r.duration), r.transferSize ?? 0]),
       },
       notes,
+      censuses,
       frames,
       phases: phaseCols,
     };
@@ -358,7 +362,54 @@ export function createPerfCapture(renderer, { scene = null, cap = () => 60, prob
   document.addEventListener('visibilitychange', () => { if (document.hidden) { wasHidden = true; save('hidden'); } });
   window.addEventListener('pagehide', () => save('pagehide'));
 
-  window.__perfCapture = { save, download, note, last: null };
+  /**
+   * Who the draw calls are, for one frame. Frame time on an iPhone tracks the draw-call count more
+   * than anything else measured (2026-11-21: ~34 ms a frame at 300 calls, ~44 at 700, ~50 at 900,
+   * in one run of real play) — WebKit forwards every call to its GPU process and translates it to
+   * Metal there, so a call costs CPU in a process the page cannot time. Every `CENSUS_EVERY_MS` one
+   * frame's calls are grouped by pass (render target size) and by the object's name path, and the
+   * capture keeps them, so the biggest sources can be merged or instanced. `__perfCapture.census()`
+   * asks for one on the next frame.
+   */
+  const censuses = [];
+  let censusAt = -Infinity;
+  let censusRows = null;
+  let censusWaiters = [];
+  const drawDirect = renderer.renderBufferDirect;
+  function countDraw(cam, sc, geometry, material, object, group) {
+    const target = renderer.getRenderTarget();
+    const pass = target ? `${target.width}x${target.height}` : 'screen';
+    const path = [];
+    for (let o = object; o && o !== sc && path.length < 4; o = o.parent) if (o.name) path.unshift(o.name);
+    // The leaf itself, when it has no name of its own: enough to tell a taxi's body from its ghost
+    // mask from its damaged hood. The report groups on the first path segment, so this only shows
+    // when a group is drilled into.
+    const leaf = object.name ? '' : `#${material.type.replace('Material', '')}${material.colorWrite === false ? '-mask' : ''}`
+      + `/${geometry.attributes?.position?.count ?? 0}v${object.isInstancedMesh ? `x${object.count}` : ''}`;
+    const key = `${pass}\t${[...path, leaf].filter(Boolean).join('/')}`;
+    censusRows.set(key, (censusRows.get(key) ?? 0) + 1);
+    return drawDirect.call(this, cam, sc, geometry, material, object, group);
+  }
+  function censusBegin(t) {
+    if (!censusWaiters.length && t - censusAt < CENSUS_EVERY_MS) return;
+    censusAt = t;
+    censusRows = new Map();
+    renderer.renderBufferDirect = countDraw;
+  }
+  function censusEnd(t) {
+    if (!censusRows) return;
+    renderer.renderBufferDirect = drawDirect;
+    const rows = [...censusRows].sort((a, b) => b[1] - a[1]);
+    censusRows = null;
+    censuses.push({ t: Math.round(t), total: rows.reduce((a, r) => a + r[1], 0), rows });
+    if (censuses.length > 120) censuses.shift();
+    for (const resolve of censusWaiters.splice(0)) resolve(rows);
+  }
+  function census() {
+    return new Promise((resolve) => censusWaiters.push(resolve));
+  }
+
+  window.__perfCapture = { save, download, note, census, last: null };
   active = { note, phase };
   /** A frame not drawn on purpose (the startup screen covering the city): the gap it leaves is not late. */
   function skip() { wasHidden = true; }

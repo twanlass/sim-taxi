@@ -250,6 +250,24 @@ async function report(file) {
     for (const [t, n] of links) say(`- ${fmt((t - t0) / 1000, 1)} s  ${n.startsWith('link-from') ? `  ↳ from ${n.slice(10)}` : n.slice(5)}`);
     say();
   }
+  // The census with the most calls: who they were, by pass and object (src/game/perf.js).
+  const cen = (data.censuses ?? []).filter((c) => c.t > (rows[0]?.t ?? 0));
+  if (cen.length) {
+    const top = cen.reduce((a, c) => (c.total > a.total ? c : a));
+    const totals = cen.map((c) => c.total).sort((a, b) => a - b);
+    say(`## Draw calls — ${cen.length} censuses, median ${totals[totals.length >> 1]}, max ${top.total} (at ${fmt((top.t - t0) / 1000, 0)} s)`);
+    say();
+    const byPass = new Map();
+    for (const [key, n] of top.rows) { const pass = key.split('\t')[0]; byPass.set(pass, (byPass.get(pass) ?? 0) + n); }
+    say(`By pass: ${[...byPass].sort((a, b) => b[1] - a[1]).map(([p, n]) => `${p} ${n}`).join(' · ')}`);
+    say();
+    const byObject = new Map();
+    for (const [key, n] of top.rows) { const obj = key.split('\t')[1].split('/')[0]; byObject.set(obj, (byObject.get(obj) ?? 0) + n); }
+    say('Top objects, all passes:');
+    say();
+    for (const [obj, n] of [...byObject].sort((a, b) => b[1] - a[1]).slice(0, 25)) say(`- ${String(n).padStart(4)}  ${obj}`);
+    say();
+  }
   say('## Worst 25');
   say();
   say('| at (s) | gap | JS | top phases | links | KB up | tex | calls | tags | cause |');
