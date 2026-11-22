@@ -162,8 +162,19 @@ try {
     await sleep(300);
   }
   if (!booted) throw new Error('never booted');
-  // The line between "boot" and "the run": everything linked up to the frame `window.__taxi` was
-  // published is load, and the player is looking at a wipe. Everything after it is the game.
+  // The line between "boot" and "the run": everything linked before the GPU warm-up finished is
+  // load, behind the startup screen and its load bar. Everything after it is the game.
+  //
+  // **Not the moment `window.__taxi` appears.** Since the warm-up was sliced over frames (#774),
+  // `__taxi` is published a second or so into a warm-up that takes twenty more on SwiftShader, and
+  // drawing the line there counted the warm-up's own draws as mid-run links: 21 of them, all in one
+  // "second", failing a budget that the game itself was meeting. `?perf` on the same build counted
+  // all 125 programs before the first frame and none after.
+  while (Date.now() < bootDeadline) {
+    if (await evaluate('Boolean(window.__taxi && window.__taxi.warmedUp)')) break;
+    await sleep(300);
+  }
+  if (!(await evaluate('Boolean(window.__taxi.warmedUp)'))) throw new Error('never finished warming up');
   const bootAt = await evaluate('Math.round(performance.now() - __links.t0)');
 
   await sleep(SECONDS * 1000);
