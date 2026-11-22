@@ -475,6 +475,34 @@ Captures and traces land in `perf-captures/`, which is git-ignored. In a desktop
 `?perf` keeps the capture on `window.__perfCapture.last`; `__perfCapture.download()` saves it, and
 `node tools/ios-perf.mjs report <file>` reads it the same way.
 
+### The unattended loop
+
+`?perf` with somebody playing measures whatever they happened to do. `?bot`
+([src/game/perfbot.js](../src/game/perfbot.js)) plays one fixed session instead, on pinned seeds:
+`warm` (8 s), `fares` (40), `loco` (25, Loco held), `drift` (30, a brake tap before each corner),
+`bigair` (35, straight over the arched bridges on Loco), `robbery` (up to 75: the bank rider, the
+cut, the getaway), `cops` (35, a patrol spots the taxi and chases), then `crash` (14: the wreck, the
+replay, the run-end card). Each scene is a `bot:<name>` note in the capture, so the report splits
+fps, p95 and hitches by scene, and the bot's own tally of what each scene managed (drifts kicked,
+hops, chases) is in the `bot:done` note. Until the crash the run cannot be lost: HP is topped up,
+the fare and shift clocks are held, and a chasing cop is kept in its grace window. Same input, not
+the same frames: a slow frame takes a bigger sim step, so compare scenes, not single frames.
+
+```bash
+node tools/ios-perfloop.mjs --device tdub --runs 3                       # build, install, 3 runs
+node tools/ios-perfloop.mjs --device tdub --no-build --variants "webgpu=,webgl=renderer=classic"
+```
+
+`tools/ios-perfloop.mjs` builds and installs a DEBUG build, then for each run relaunches the app with
+`?perf&bot` and the pinned base query (`governor=off&dpr=2&fps=60`: no resizes, never under 2x,
+uncapped so headroom shows), waits for the `bot-done` save, copies it off, kills the app and lets
+the phone cool (`--cool`, 180 s, longer after a hot run). Variants interleave so heat lands on each
+alike. The shell writes the phone's **thermal state** into the capture (`thermal fair` notes, from
+`ProcessInfo.thermalState` in `PerfBridge.swift`); a run that starts above `nominal` is flagged and
+kept out of the medians while a cool one exists. Everything lands in `perf-captures/loop/<stamp>/`
+with a `summary.md`. The phone has to stay unlocked with Auto-Lock set to Never: the app holds the
+screen on only while it is frontmost, and it is killed to cool.
+
 ## When a device renders nothing
 
 A phone came up **black**: no city, no sky, no markers — and the page underneath it working

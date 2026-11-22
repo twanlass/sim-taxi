@@ -362,6 +362,12 @@ export function createPerfCapture(renderer, { scene = null, cap = () => 60, prob
   document.addEventListener('visibilitychange', () => { if (document.hidden) { wasHidden = true; save('hidden'); } });
   window.addEventListener('pagehide', () => save('pagehide'));
 
+  // The phone's thermal state, as a note on every change (ios/SimTaxi/PerfBridge.swift): a run that
+  // starts warm is a few fps slower than the same build started cool, so the report has to be able
+  // to say which frames ran hot. Asked once here; the shell answers now and on each change.
+  window.__perfThermal = (state) => note(`thermal ${state}`);
+  try { window.webkit?.messageHandlers?.perf?.postMessage({ thermal: true }); } catch { /* a browser */ }
+
   /**
    * Who the draw calls are, for one frame. Frame time on an iPhone tracks the draw-call count more
    * than anything else measured (2026-11-21: ~34 ms a frame at 300 calls, ~44 at 700, ~50 at 900,

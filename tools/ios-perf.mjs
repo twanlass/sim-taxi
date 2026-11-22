@@ -23,6 +23,7 @@ import { existsSync } from 'node:fs';
 import { mkdir, readFile, readdir, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 
 const BUNDLE = 'com.twanlass.rocketrides';
 const OUT = 'perf-captures';
@@ -177,6 +178,54 @@ export function analyse(data) {
   return { rows, late, budget, phaseNames };
 }
 
+/**
+ * A `?bot` capture (src/game/perfbot.js), split at its `bot:<scene>` notes: per scene, the frame
+ * rate, the frame-gap percentiles, the hitches, and the hottest thermal state the shell reported
+ * while it ran (ios/SimTaxi/PerfBridge.swift). Empty for a capture with no bot in it.
+ *
+ * A hitch here is a gap over 50 ms — three vsyncs at 60 Hz, a frame a player sees stutter whatever
+ * the cap — rather than the report's late-frame line, which moves with the cap.
+ */
+export function scenes(data, rows = analyse(data).rows) {
+  const marks = data.notes.filter(([, n]) => n.startsWith('bot:'));
+  const heat = data.notes.filter(([, n]) => n.startsWith('thermal ')).map(([t, n]) => [t, n.slice(8)]);
+  const RANK = ['nominal', 'fair', 'serious', 'critical'];
+  const out = [];
+  for (let k = 0; k < marks.length; k += 1) {
+    const [from, label] = marks[k];
+    const name = label.slice(4).split(' ')[0];
+    if (name === 'done') break;
+    const to = marks[k + 1]?.[0] ?? Infinity;
+    const inside = rows.filter((r) => r.t >= from && r.t < to);
+    if (inside.length < 2) continue;
+    const secs = (inside[inside.length - 1].t - inside[0].t) / 1000;
+    const gaps = inside.map((r) => r.gap).sort((a, b) => a - b);
+    // The state on entry is the last note before it; the scene's worst is that or anything during.
+    let state = 'unknown';
+    for (const [t, s] of heat) if (t <= from) state = s;
+    let worst = state;
+    for (const [t, s] of heat) if (t > from && t < to && RANK.indexOf(s) > RANK.indexOf(worst)) worst = s;
+    const causes = new Map();
+    const budget = 1000 / data.cap;
+    for (const r of inside) {
+      if (r.gap <= 50) continue;
+      const c = causeOf(r, budget).replace(/ \(.*$/, '').replace(/×\d+/, '').replace(/^JS: .*/, 'JS');
+      causes.set(c, (causes.get(c) ?? 0) + 1);
+    }
+    out.push({
+      name, secs, frames: inside.length, fps: inside.length / Math.max(secs, 1e-3),
+      p50: pct(gaps, 0.5), p95: pct(gaps, 0.95), p99: pct(gaps, 0.99), max: gaps[gaps.length - 1],
+      hitches: gaps.filter((g) => g > 50).length, calls: pct(inside.map((r) => r.calls).sort((a, b) => a - b), 0.5),
+      thermal: state, thermalWorst: worst,
+      causes: [...causes].sort((a, b) => b[1] - a[1]).map(([c, n]) => `${c} ${n}`).join(', '),
+    });
+  }
+  const done = data.notes.find(([, n]) => n.startsWith('bot:done'));
+  let stats = null;
+  try { stats = done ? JSON.parse(done[1].slice(9)) : null; } catch { stats = null; }
+  return { scenes: out, stats, finished: Boolean(done) };
+}
+
 async function report(file) {
   const data = JSON.parse(await readFile(file, 'utf8'));
   const { rows, late, budget, phaseNames } = analyse(data);
@@ -195,7 +244,7 @@ async function report(file) {
   say();
   say('## Startup');
   say();
-  const marks = [...(data.boot.marks ?? []), ...data.notes.filter(([, n]) => !/^resize|^away|^link/.test(n))]
+  const marks = [...(data.boot.marks ?? []), ...data.notes.filter(([, n]) => !/^resize|^away|^link|^bot:|^thermal/.test(n))]
     .sort((a, b) => a[0] - b[0]);
   const seen = new Set();
   let prev = 0;
@@ -227,6 +276,18 @@ async function report(file) {
       const mean = v.reduce((a, b) => a + b, 0) / Math.max(v.length, 1);
       say(`- ${p.padEnd(6)} ${fmt(mean, 2)} / ${fmt(pct(v, 0.95), 2)}`);
     }
+    say();
+  }
+  const bot = scenes(data, rows);
+  if (bot.scenes.length) {
+    say(`## Scenes (?bot)${bot.finished ? '' : ' — did not finish'}`);
+    say();
+    say('| scene | s | fps | p50 | p95 | p99 | max | hitches >50 ms | calls | thermal | hitch causes |');
+    say('|---|---|---|---|---|---|---|---|---|---|---|');
+    for (const s of bot.scenes) {
+      say(`| ${s.name} | ${fmt(s.secs, 0)} | ${fmt(s.fps)} | ${fmt(s.p50)} | ${fmt(s.p95)} | ${fmt(s.p99)} | ${fmt(s.max, 0)} | ${s.hitches} | ${s.calls} | ${s.thermal}${s.thermalWorst !== s.thermal ? `→${s.thermalWorst}` : ''} | ${s.causes} |`);
+    }
+    if (bot.stats) say(`\nWhat each scene managed: ${JSON.stringify(bot.stats)}`);
     say();
   }
   say('## Late frames by cause');
@@ -416,7 +477,9 @@ async function gpu(tracePath) {
   console.log('\nOther processes on the GPU (total ms):', [...others].sort((a, b) => b[1] - a[1]).slice(0, 6).map(([n, d]) => `${n} ${ms(d).toFixed(0)}`).join(', '));
 }
 
-if (command === 'launch') await launch();
+const main = process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;
+if (!main) { /* imported by tools/ios-perfloop.mjs for `analyse` and `scenes` */ }
+else if (command === 'launch') await launch();
 else if (command === 'trace') await trace();
 else if (command === 'pull') await pull();
 else if (command === 'report' && args[1]) await report(args[1]);

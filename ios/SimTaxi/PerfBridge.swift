@@ -29,8 +29,42 @@ final class PerfBridge: NSObject, WKScriptMessageHandler {
             .appendingPathComponent("perf", isDirectory: true)
     }
 
+    /// The page that asked to hear about heat (`{ thermal: true }`), told on every change.
+    private weak var thermalListener: WKWebView?
+    private var thermalObserver: NSObjectProtocol?
+
+    /// **The phone's thermal state, into the capture.** A warm iPhone throttles its GPU, and a run
+    /// that starts warm reads a few fps slower than the same build started cool — enough to swamp a
+    /// fix being measured. The page has no way to know (no web API exposes it), so the shell tells
+    /// it: once when it asks and again on every `thermalStateDidChangeNotification`, and the capture
+    /// notes each one (`thermal nominal|fair|serious|critical`) where the report and
+    /// `tools/ios-perfloop.mjs` can see which scenes ran hot.
+    private func tellThermal() {
+        let name: String
+        switch ProcessInfo.processInfo.thermalState {
+        case .nominal: name = "nominal"
+        case .fair: name = "fair"
+        case .serious: name = "serious"
+        case .critical: name = "critical"
+        @unknown default: name = "unknown"
+        }
+        DispatchQueue.main.async { [weak self] in
+            self?.thermalListener?.evaluateJavaScript("window.__perfThermal?.('\(name)')", completionHandler: nil)
+        }
+    }
+
     func userContentController(_ controller: WKUserContentController,
                                didReceive message: WKScriptMessage) {
+        if let dict = message.body as? [String: Any], dict["thermal"] as? Bool == true {
+            thermalListener = message.webView
+            if thermalObserver == nil {
+                thermalObserver = NotificationCenter.default.addObserver(
+                    forName: ProcessInfo.thermalStateDidChangeNotification, object: nil, queue: nil
+                ) { [weak self] _ in self?.tellThermal() }
+            }
+            tellThermal()
+            return
+        }
         guard let dict = message.body as? [String: Any],
               let name = dict["name"] as? String,
               let body = dict["body"] as? String else { return }
