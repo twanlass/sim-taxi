@@ -416,7 +416,9 @@ if (squall) {
 
 // `?diag`. A no-op without the flag; with it, the one readout that can tell a lost context from a
 // scene that submitted nothing from a scene that drew and came out black. See `game/diag.js`.
-const diag = createDiagnostics(renderer, { enabled: getDiagnostics(), flags: budget });
+// `budget.ao` is the WebGL prepass, switched off above under WebGPU; the panel reports the AO that
+// is actually drawing.
+const diag = createDiagnostics(renderer, { enabled: getDiagnostics(), flags: GPU ? { ...budget, ao: gpuAo } : budget });
 declined.forEach((text) => diag.note(text));
 
 const { scene, sun, hemi, sky, fog } = createScene({ shadowMapSize: budget.shadowMapSize });

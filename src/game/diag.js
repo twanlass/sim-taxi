@@ -57,6 +57,15 @@ export function describeGpu(gl) {
   return { renderer: String(renderer ?? '?'), vendor: String(vendor ?? '?') };
 }
 
+/** The same answer under WebGPURenderer, from the adapter three asked for. */
+function describeAdapter(renderer) {
+  const info = renderer.backend?.device?.adapterInfo ?? {};
+  return {
+    renderer: String(info.description || info.device || info.architecture || '?'),
+    vendor: String(info.vendor || '?'),
+  };
+}
+
 /**
  * What the context was *granted*, which is not what it was asked for.
  *
@@ -115,10 +124,13 @@ export function createDiagnostics(renderer, { enabled = false, flags = {} } = {}
   // got the picture back. Caught by a swiftshader box dropping the context under a headless run.
   if (!element) return { frameStart: () => {}, update: () => {}, note: () => {} };
 
-  const gl = renderer.getContext();
-  const { renderer: gpu, vendor } = describeGpu(gl);
-  const buffers = describeBuffers(gl);
-  const limits = describeLimits(gl);
+  // Under WebGPURenderer there is no GL context to question: the header names the adapter and
+  // the rest of the panel (frame rate, draw calls, buffer size) reads off the renderer as before.
+  const webgpu = renderer.isWebGPURenderer === true;
+  const gl = webgpu ? null : renderer.getContext();
+  const { renderer: gpu, vendor } = webgpu ? describeAdapter(renderer) : describeGpu(gl);
+  const buffers = webgpu ? null : describeBuffers(gl);
+  const limits = webgpu ? null : describeLimits(gl);
   // One pixel, read back off the default framebuffer — see `readCentrePixel`.
   const centre = new Uint8Array(4);
 
@@ -127,10 +139,10 @@ export function createDiagnostics(renderer, { enabled = false, flags = {} } = {}
   const header = [
     `${vendor}`,
     `${gpu}`,
-    `webgl${renderer.capabilities.isWebGL2 ? '2' : '1'}`
+    webgpu ? `webgpu · aa ${renderer.samples > 1 ? `yes (${renderer.samples}x)` : 'off'}` : `webgl${renderer.capabilities.isWebGL2 ? '2' : '1'}`
       + ` · aa ${buffers.antialias ? 'yes' : 'NO'} (${buffers.samples}x)`
       + ` · stencil ${buffers.stencil ? 'yes' : 'NO'} (${buffers.stencilBits}b)`,
-    `depth ${buffers.depthBits}b · maxtex ${buffers.maxTexture}`
+    webgpu ? '' : `depth ${buffers.depthBits}b · maxtex ${buffers.maxTexture}`
       + ` · vary ${limits.varyings} · funif ${limits.fragUniforms}`
       + ` · tex ${limits.textureUnits}`,
     // The reduced budget is tagged with *why* it is on. `[safe:android]` is the platform default
@@ -140,7 +152,7 @@ export function createDiagnostics(renderer, { enabled = false, flags = {} } = {}
       + ` dpr=${flags.pixelRatioCap} ao=${flags.ao ? 'on' : 'off'}`
       + `${flags.crayon ? ' crayon=on' : ''}${flags.cartoon ? ' cartoon=on' : ''}`
       + `${flags.safe ? ` [safe:${flags.safeSource ?? '?'}]` : ''}`,
-  ].join('\n');
+  ].filter(Boolean).join('\n');
 
   // Averaged over half a second rather than reported per frame: a number that changes sixty times
   // a second is unreadable on a screen you are holding. The worst frame in the window rides along,
@@ -187,6 +199,8 @@ export function createDiagnostics(renderer, { enabled = false, flags = {} } = {}
    * resolve this is asking about — is not one.
    */
   function readCentrePixel() {
+    // WebGPU reads back asynchronously and only from a texture it was told to keep.
+    if (webgpu) return null;
     if (gl.isContextLost()) return null;
     try {
       gl.readPixels(
@@ -235,7 +249,7 @@ export function createDiagnostics(renderer, { enabled = false, flags = {} } = {}
     // Marked stale rather than left to be misread. `render()` returns at its first line while the
     // context is down, so `renderer.info` never resets and the counters sit frozen at the last
     // frame that actually drew — which reads as "40 draw calls a frame, and still black".
-    const lost = gl.isContextLost();
+    const lost = webgpu ? false : gl.isContextLost();
     renderer.getDrawingBufferSize(drawingBuffer);
     // First, because it is the line people open the panel for now that the device questions below
     // are answered.
@@ -243,9 +257,10 @@ export function createDiagnostics(renderer, { enabled = false, flags = {} } = {}
       + ` · worst ${worstMs.toFixed(1)} ms\n`
       + `${header}\n`
       // The line that decides a black screen. `calls` is the whole of the frame just drawn, every
-      // pass included — see `frameStart`.
+      // pass included — see `frameStart`. WebGPURenderer keeps the frame's draws in `drawCalls`;
+      // its `calls` counts render() calls since boot.
       + `ctx ${lost ? 'LOST' : 'ok'}`
-      + ` · calls ${info.calls}${lost ? ' (stale)' : ''} · tris ${info.triangles}`
+      + ` · calls ${info.drawCalls ?? info.calls}${lost ? ' (stale)' : ''} · tris ${info.triangles}`
       + ` · progs ${renderer.info.programs?.length ?? '?'}\n`
       + `${drawingBuffer.x}x${drawingBuffer.y} @${window.devicePixelRatio}`
       // Last, because it is the line you only need once the two above have failed to explain
