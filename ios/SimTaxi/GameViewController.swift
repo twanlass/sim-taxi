@@ -53,6 +53,10 @@ final class GameViewController: UIViewController {
         return startURL
     }
 
+    /// Game Center: sign-in, the Arcade score and Apple's leaderboard screen. Held for the same
+    /// reason as `haptics`; it holds this controller and the web view back weakly.
+    private let gameCenter = GameCenterBridge()
+
     override func loadView() {
         let config = WKWebViewConfiguration()
         config.setURLSchemeHandler(BundleSchemeHandler(), forURLScheme: Self.scheme)
@@ -97,8 +101,11 @@ final class GameViewController: UIViewController {
         #if DEBUG
         config.userContentController.add(perf, name: PerfBridge.name)
         #endif
+        config.userContentController.add(gameCenter, name: GameCenterBridge.name)
 
         webView = WKWebView(frame: .zero, configuration: config)
+        gameCenter.host = self
+        gameCenter.webView = webView
 
         // Not a document. Every one of these turns off a browser affordance that reads as a bug in
         // a game: rubber-banding the whole city when a drag runs past the edge of the screen,
@@ -144,6 +151,13 @@ final class GameViewController: UIViewController {
                            name: UIApplication.willResignActiveNotification, object: nil)
 
         webView.load(URLRequest(url: Self.launchURL))
+    }
+
+    /// Game Center sign-in starts once the controller is on screen, because the first thing it may
+    /// do is present Apple's sign-in sheet, and a controller not yet in a window cannot present.
+    override func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        gameCenter.start()
     }
 
     /// Pause the run when the app stops being frontmost — a call, a notification pulled into a full

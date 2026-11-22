@@ -123,6 +123,7 @@ import { MARKER_BASE } from './game/faremarker.js';
 import { createFlatbed } from './game/flatbed.js';
 import { createBoxSpill } from './game/boxspill.js';
 import { showRunEnd } from './game/runend.js';
+import { initGameCenter, submitArcadeScore } from './util/gamecenter.js';
 import { createSnapshot, PHOTO } from './game/polaroid.js';
 import { recordRun, lastName, clearScores, loadScores, SHIFT_TABLE } from './game/highscores.js';
 import { loadLocoTuning, saveLocoTuning, clearLocoTuning } from './game/locostash.js';
@@ -4885,6 +4886,19 @@ function collectScores() {
   };
 }
 
+/**
+ * Send a finished Arcade run's cash to Game Center (util/gamecenter.js), in the app only. Arcade
+ * alone (Tyler, 2026-11-21): a Story day is a fixed shift with a target, a different game to rank.
+ * Held to the same terms as the local table (`isRankedRun`), minus demo mode, which scripts its run.
+ * No cap on the score and no cheat checks yet, by choice — the plan is for Arcade itself to get a
+ * limit that stops a run going on for ever.
+ */
+function submitArcadeRun(s) {
+  if (runMode !== 'arcade' || today !== null || shiftSeconds !== null) return;
+  if (!isRankedRun() || demo.on()) return;
+  submitArcadeScore(s.money);
+}
+
 function updateHud(dt) {
   const s = fares.state;
   updateRunTags();
@@ -4906,6 +4920,7 @@ function updateHud(dt) {
       snapshot.grab(PHOTO.END);
     }
     const dayLine = closeDay(s);
+    submitArcadeRun(s);
     showRunEnd(hud.banner, {
       title: s.failTitle,
       reason: dayLine ? `${s.failReason} ${dayLine}` : s.failReason,
@@ -6542,6 +6557,9 @@ function holdForPreamble(screen, then) {
   layer.addEventListener('click', go);
   window.addEventListener('keydown', go, true);
 }
+// Game Center (app only): ask the shell whether the player is signed in, for the title's
+// Scores item and the Arcade submit. A no-op on the web.
+initGameCenter();
 const wantsTitle = !shot && !devMode && !consumeTitleSkip()
   && new URLSearchParams(window.location.search).get('title') !== 'off';
 const title = wantsTitle ? createTitleScreen(document.getElementById('title-screen'), {
