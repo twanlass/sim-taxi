@@ -11,8 +11,14 @@
  * - its `finish` is `<envmap_fragment>`: the streaks, the march through the city's height field,
  *   the mirror mix and the window streaks.
  *
- * Only the default look (`real`) is here. Not ported: the rim line, which reads the depth prepass
- * (itself not ported yet), `?paint=<other look>` and the false-colour finish view.
+ * Only the default look (`real`) is here. Not ported: `?paint=<other look>` and the false-colour
+ * finish view.
+ *
+ * **The rim line is not drawn here.** The GLSL steps each fragment across the AO prepass's depth
+ * to find the body's silhouette, and there is no prepass: a fragment cannot read the depth buffer
+ * it is being drawn into. So the paint only says where the line may go and how much sun is on it
+ * (`rimShare`), and the frame's last pass, which has the finished depth, draws it
+ * (game/gpuframe.js).
  *
  * Two things WGSL makes different. A derivative or an implicit-lod texture read may not sit in a
  * branch, so the `if (gIsPaint > 0.5)` blocks are multiplies by a mask and the march reads the
@@ -25,10 +31,10 @@ import {
   diffuseColor, dot, float, floor, fract, fwidth, If, instancedBufferAttribute,
   instancedDynamicBufferAttribute, instanceIndex, length, Loop, mat4, max, min, mix,
   modelViewMatrix, normalize, normalView, positionGeometry, positionViewDirection, positionWorld,
-  pow, reflect, select, texture, transformDirection, uniform, uniformArray, varying,
+  pow, property, reflect, select, step, texture, transformDirection, uniform, uniformArray, varying,
   varyingProperty, vec2, vec3, vec4,
 } from 'three/tsl';
-import { PropPhongNodeMaterial } from './gpumaterial.js';
+import { PropPhongNodeMaterial, rimShare, rimSunLuma } from './gpumaterial.js';
 
 // Bound by util/geo.js, which owns GLOSS_UNIFORMS and the window constants and imports this file.
 let U = null;
@@ -39,6 +45,8 @@ export function bindPaint(uniforms, constants) {
 }
 
 const LUMA = vec3(0.2126, 0.7152, 0.0722);
+// The direct light that reached this fragment, summed over the lights as they are added.
+const rimLit = property('float', 'rimLit');
 const BLANK = new DataTexture(new Uint8Array([0]), 1, 1, RedFormat, UnsignedByteType);
 BLANK.needsUpdate = true;
 
@@ -109,12 +117,19 @@ const paintLighting = (Base, p) => class PaintLighting extends Base {
     const flake = mix(lobe(p.reflN, p.finD.w).mul(0.17), lobe(p.flakeN, p.finC.w).mul(p.flakeDisc), p.flakeVis);
     reflectedLight.directSpecular.addAssign(glint.add(
       sheenIrr.mul(p.finA.w.mul(lobe(p.reflN, p.finB.x)).add(p.finB.y.mul(flake)))));
+    // RIM_LIGHT's `directLight.color`: the light on this fragment, shadow folded in.
+    if (K.rimOn()) rimLit.addAssign(dot(lightColor, LUMA));
   }
 
   finish(input, builder) {
     super.finish(input, builder);
     const { outgoingLight, reflectedLight } = input.context;
     const S = shared();
+    // Paint on a body up to a truck's size (the ships wear this paint too), and its share of sun.
+    if (K.rimOn()) {
+      rimShare.assign(p.isPaint.mul(step(0.5, p.carSized))
+        .mul(clamp(rimLit.div(rimSunLuma), 0, 1).mul(0.5).add(0.5)));
+    }
     const { obj, world } = p;
 
     const r0 = reflect(transformDirection(vec3(0, 0, 1), cameraWorldMatrix).negate(),

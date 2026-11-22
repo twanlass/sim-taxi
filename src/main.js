@@ -436,6 +436,7 @@ const diag = createDiagnostics(renderer, { enabled: getDiagnostics(), flags: GPU
 declined.forEach((text) => diag.note(text));
 
 const { scene, sun, hemi, sky, fog } = createScene({ shadowMapSize: budget.shadowMapSize });
+gpuFrame?.setSun(sun);   // the rim line on the cars follows it (game/gpuframe.js)
 
 // The crayon page and the bloom composite, over the city and under every read-out.
 renderPath.addOverlays(scene);

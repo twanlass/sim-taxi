@@ -1225,9 +1225,18 @@ Measured against WebGL with AO, bloom, CRT and painterly off, at the parked 16:2
   half a pixel in a phone's corner). While the lens is wet the lens is the last pass and draws the
   screen instead. Pixel-identical to WebGL wherever the frame under it is (`?shot=1&msaa=off`).
   Off wherever the frame target is (MSAA, `?ao=off`).
-- **The other passes are off**: the rim paint (it read the depth prepass), `?hdr`, Crayon and
-  Cartoon. Each is a WebGL render-target pass until it is ported; the frame's target is where
-  they go.
+- **The rim line is drawn by that last pass too.** The GLSL finds a body's silhouette by stepping
+  each paint fragment across the AO prepass's depth, and there is no prepass: a fragment cannot
+  read the depth buffer it is being drawn into. So the paint writes one number beside its fill
+  share (`rimShare`: is this rim-wearing paint, and how much sun reaches it) and the last pass,
+  which has the finished depth, does the stepping (`game/gpuframe.js`). What is not the GLSL's:
+  the panel's slope is the difference to the tap one step back, the hue is the pixel's own
+  colour at full strength, only the sun casts a line (a cop's bar lit the edges facing it), and
+  anything that writes depth can be stepped onto (WebGL saw the enrolled occluders alone). On
+  the parked frame the line covers 1,080 pixels against WebGL's 1,974 and carries 1.3 times the
+  light: thinner and crisper, with no half-resolution buffer under it.
+- **The other passes are off**: `?hdr`, Crayon and Cartoon. Each is a WebGL render-target pass
+  until it is ported; the frame's target is where they go.
 - **The weather is ported, all of it**: the grade, the cell's shade (`util/gpuclouds.js`), the
   falling rain, splashes, sun shafts and sun rays (`game/gpurain.js`), wet ground with puddles,
   ripples and the street's reflection (`game/gpuwet.js`), the lit windows and lamp pools that come

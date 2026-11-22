@@ -29,9 +29,11 @@
 import * as THREE from 'three';
 import { NodeMaterial, QuadMesh } from 'three/webgpu';
 import {
-  Fn, abs, clamp, diffuseColor, float, max, mrt, output, pow, step, texture, uniform, uv, vec2, vec3, vec4,
+  Fn, If, abs, clamp, diffuseColor, float, max, mix, mrt, output, pow, sRGBTransferEOTF, sRGBTransferOETF, smoothstep,
+  step, texture, uniform, uv, vec2, vec3, vec4,
 } from 'three/tsl';
-import { aoShare } from '../util/gpumaterial.js';
+import { aoShare, rimShare, rimSunLuma } from '../util/gpumaterial.js';
+import { GLOSS_UNIFORMS, RIM_MAX_WORLD } from '../util/geo.js';
 import { createGlowChain, glowLight, glowState, GLOW_RANGE } from './gpubloom.js';
 import { RING_BROAD, RING_TIGHT, FALLOFF, MAX_DEPTH_DIFF } from './ssao.js';
 
@@ -59,7 +61,7 @@ export function createGpuFrame(renderer, { strength = STRENGTH, crt = null } = {
   if (glow) target.textures[2].name = 'glow';
   const layout = mrt({
     output,
-    share: vec4(aoShare, 0, 0, diffuseColor.a),
+    share: vec4(aoShare, rimShare, 0, diffuseColor.a),
     ...(glow ? { glow: vec4(glowLight.div(GLOW_RANGE), output.a) } : {}),
   });
   const glowChain = glow ? createGlowChain(renderer, target.textures[2]) : null;
@@ -68,6 +70,15 @@ export function createGpuFrame(renderer, { strength = STRENGTH, crt = null } = {
   const broad = uniform(new THREE.Vector2());
   const depthScale = uniform(1);
   const amount = uniform(strength);
+  // The rim line (RIM_LIGHT, RIM_SKY and gRimEdge in util/geo.js): its steps across the screen
+  // toward the sun and up, the sun's colour, and the panel's live numbers.
+  const rimSunStep = uniform(new THREE.Vector2());
+  const rimUpStep = uniform(new THREE.Vector2());
+  const rimSun = uniform(new THREE.Color(0, 0, 0));
+  const rimTint = uniform(GLOSS_UNIFORMS.uRim.value);        // rgb the tint, w the strength
+  const rimShape = uniform(GLOSS_UNIFORMS.uRimShape.value);  // gap, sky, width, the paint's own hue
+  const rimSky = uniform(GLOSS_UNIFORMS.uGlossTop.value);
+  let sunLight = null;
   // The CRT screen (game/gpucrt.js) wraps this pass; 0 for a frame the wet lens will finish.
   const screenOn = uniform(1);
 
@@ -99,10 +110,32 @@ export function createGpuFrame(renderer, { strength = STRENGTH, crt = null } = {
       either(pair(vec2(tight.x, 0), RING_TIGHT), pair(vec2(0, tight.y), RING_TIGHT)),
       either(pair(vec2(d.x, d.y), RING_BROAD), pair(vec2(d.x, d.y.negate()), RING_BROAD)),
     );
-    const colour = frame.sample(at);
-    const split = atR === at ? colour.rgb : vec3(frame.sample(atR).r, colour.g, frame.sample(atB).b);
+    const colour = frame.sample(at).toVar();
+    const shares = share.sample(at).toVar();
+    const split = (atR === at ? colour.rgb : vec3(frame.sample(atR).r, colour.g, frame.sample(atB).b)).toVar();
+
+    // **The rim line**, on the pixels the paint marked (`rimShare`). One step toward the sun and
+    // one up-screen across the frame's own depth: where the step lands on something further back
+    // than this panel carried along the step, the pixel is on the body's lit edge.
+    //
+    // Three things are not the GLSL's, all because this runs after the car is drawn and not in it.
+    // The panel's slope is the difference to the tap one step *back* (the GLSL has the triangle's
+    // own depth derivatives). The colour is the pixel's own, taken to full strength, for the
+    // paint's hue. And only the sun casts a line: a cop's bar lit the edges facing it.
+    If(shares.g.greaterThan(0.02), () => {
+      const edge = (stride) => {
+        const carried = z0.mul(2).sub(viewDepth(stride.negate()));
+        return smoothstep(rimShape.x, rimShape.x.add(0.3), viewDepth(stride).sub(carried));
+      };
+      const linear = sRGBTransferEOTF(split).toVar();
+      const hue = linear.div(max(max(linear.r, linear.g), max(linear.b, 1e-3)));
+      const line = rimSun.mul(rimTint.w).mul(clamp(shares.g.mul(2).sub(1), 0, 1)).mul(edge(rimSunStep))
+        .add(rimSky.mul(rimShape.y).mul(edge(rimUpStep)));
+      split.assign(sRGBTransferOETF(linear.add(mix(rimTint.rgb, hue, rimShape.w).mul(line))));
+    });
+
     // The frame is display-encoded, and the GLSL took the fill down before the encode.
-    const keep = float(1).sub(share.sample(at).r.mul(amount).mul(occluded));
+    const keep = float(1).sub(shares.r.mul(amount).mul(occluded));
     const occludedColour = split.mul(pow(max(keep, 0.05), 1 / 2.2));
     // The spill is light in the picture, added in display space as the WebGL composite adds it.
     return vec4(glowChain ? occludedColour.add(glowChain.composite(at)) : occludedColour, colour.a);
@@ -111,6 +144,7 @@ export function createGpuFrame(renderer, { strength = STRENGTH, crt = null } = {
   const quad = new QuadMesh(material);
 
   const size = new THREE.Vector2();
+  const toSun = new THREE.Vector3();
   const ring = (camera, radius, out) => {
     const halfW = size.x / 2;
     const halfH = size.y / 2;
@@ -138,6 +172,8 @@ export function createGpuFrame(renderer, { strength = STRENGTH, crt = null } = {
   return {
     target,
     setStrength(value) { amount.value = value; },
+    /** The sun, for the rim line: built before the scene is, so handed over once it exists. */
+    setSun(light) { sunLight = light; },
     /** Draw `draw()` (the scene, to whatever target is current) into the frame's own target. */
     begin() {
       renderer.getDrawingBufferSize(size);
@@ -161,6 +197,19 @@ export function createGpuFrame(renderer, { strength = STRENGTH, crt = null } = {
       ring(view, RING_TIGHT, tight.value);
       ring(view, RING_BROAD, broad.value);
       depthScale.value = camera.far - camera.near;
+      if (sunLight) {
+        // `directLight.direction.xy`: toward the sun in view space, y up; texture coordinates run down.
+        toSun.copy(sunLight.position).sub(sunLight.target.position).transformDirection(camera.matrixWorldInverse);
+        const across = Math.hypot(toSun.x, toSun.y);
+        // The GLSL's width is in texels of its half-resolution prepass, capped in world units so
+        // it stays a line when the camera pulls out (RIM_MAX_WORLD, util/geo.js).
+        const texels = Math.min(rimShape.value.z * 2, RIM_MAX_WORLD * size.x / (view.right - view.left));
+        if (across > 1e-3) rimSunStep.value.set(toSun.x / across * texels / size.x, -toSun.y / across * texels / size.y);
+        else rimSunStep.value.set(0, 0);
+        rimUpStep.value.set(0, -texels / size.y);
+        rimSun.value.copy(sunLight.color).multiplyScalar(sunLight.intensity);
+        rimSunLuma.value = Math.max(0.2126 * rimSun.value.r + 0.7152 * rimSun.value.g + 0.0722 * rimSun.value.b, 1e-4);
+      }
       depthOnly();
       glowChain?.render(target.width, target.height);
       renderer.setRenderTarget(destination);

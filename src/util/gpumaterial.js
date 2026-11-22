@@ -11,7 +11,9 @@
  */
 import { MeshLambertNodeMaterial, MeshPhongNodeMaterial, PhongLightingModel } from 'three/webgpu';
 import { BackSide, DoubleSide, FrontSide } from 'three';
-import { diffuseColor, dot, max, mix, positionWorld, property, smoothstep, sRGBTransferEOTF, sRGBTransferOETF, vec3 } from 'three/tsl';
+import {
+  diffuseColor, dot, max, mix, positionWorld, property, smoothstep, sRGBTransferEOTF, sRGBTransferOETF, uniform, vec3,
+} from 'three/tsl';
 
 // Set by util/geo.js, which owns SHADOW_UNIFORMS; a setter rather than an import because geo.js
 // imports this file.
@@ -33,6 +35,14 @@ const LUMA = vec3(0.2126, 0.7152, 0.0722);
  * leaves it at zero too.
  */
 export const aoShare = property('float', 'aoShare');
+/**
+ * Whether this fragment is car paint that wears the rim line, and how much of the sun reaches it:
+ * 0 on anything else, 0.5 in full shadow to 1 in full sun. The line itself is drawn by the frame's
+ * last pass (game/gpuframe.js); only the paint (util/gpupaint.js) writes this.
+ */
+export const rimShare = property('float', 'rimShare');
+/** The sun's own brightness, unshadowed: what `rimShare` measures the light on a fragment against. */
+export const rimSunLuma = uniform(1);
 
 /**
  * The shadow tint (SHADOW_LIGHT in util/geo.js, where the reasoning lives): shade is the share of

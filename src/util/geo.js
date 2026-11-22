@@ -1354,7 +1354,7 @@ const PAINT_LOOK_RIM_WIDTH = { real: 1 };
 // flank of a car and the whole hull of a harbour ship, so both came out lit edge to edge
 // (Tyler, 2026-10-17: "Boats are pure white. Cars are over bright."). 0.5 is what the rim look's
 // 4 texels measured at play zoom, the width Tyler had already been playing with.
-const RIM_MAX_WORLD = 0.5;
+export const RIM_MAX_WORLD = 0.5;
 let flipOverride = null;
 /** `?flip=`: a number, or `off`. Null keeps each look's own. */
 export function setFlip(value) {
@@ -1727,7 +1727,7 @@ const WINDOW_STREAKS = /* glsl */ `
 				+ vec3(0.9, 0.95, 1.0) * wIrr * clamp(wBand, 0.0, 1.0) * ${WINDOW_STREAK_GAIN.toFixed(2)});
 		}`;
 
-if (GPU) bindPaint(GLOSS_UNIFORMS, { WINDOW_PAN, WINDOW_STREAK_PITCH, WINDOW_STREAK_BLUR, WINDOW_STREAK_GAIN, WINDOW_SHEEN });
+if (GPU) bindPaint(GLOSS_UNIFORMS, { WINDOW_PAN, WINDOW_STREAK_PITCH, WINDOW_STREAK_BLUR, WINDOW_STREAK_GAIN, WINDOW_SHEEN, rimOn: () => rimPaintOn() });
 
 const glossFragment = (classic) => /* glsl */ `
 	{
@@ -2188,7 +2188,7 @@ export function propMaterial({ ao = true, gloss = null, cutout = null, smooth = 
   if (nodes) {
     // The WebGPU twin carries the shadow tint (util/gpumaterial.js). What `patchProp` adds beyond
     // that is still to port, and is listed here so `__taxi.unported()` can say so per mesh.
-    material.userData.unported = [paint && rimPaintOn() && 'rim line'].filter(Boolean);
+    material.userData.unported = [];
     // Read by the lighting model as it is built: whether this surface is occluded (game/gpuframe.js).
     material.userData.ao = ao;
     return material;
