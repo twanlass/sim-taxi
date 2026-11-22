@@ -1142,8 +1142,10 @@ What the WebGPU path draws today, and what it does not:
 - **Every other `onBeforeCompile` patch is ignored**, silently: facades, the leaf fuzz, the
   L train's own entrance and the rest.
 - **A `ShaderMaterial` cannot be converted at all** and loses the device if drawn, so
-  `game/gpucompat.js` hides those meshes. Only the manhole steam is left on that list: the taxi's
-  glints, the headlight cones and the L train's beam have twins (`unlitTwin`, `util/gpunodes.js`).
+  `game/gpucompat.js` hides those meshes. Nothing is on that list now: the taxi's glints, the
+  headlight cones and the L train's beam have twins (`unlitTwin`, `util/gpunodes.js`), and the
+  manhole steam's puffs are nodes set on its Lambert (`steamNodes`, `game/manholesteam.js`).
+  The entrance wave reaches the unlit glows and beams the same way.
 - **The mote pools' per-instance alpha** (dust, flames, sparks, spray, the wake, the fire, the
   blast, the ghost rims, the cash notes) is `instanceAlpha()`: an `opacityNode` set on the built-in
   material, which three copies across when it converts one. The fireball's facet shading runs at

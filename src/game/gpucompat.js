@@ -24,7 +24,7 @@ const nameOf = (o) => {
 // Meshes whose whole shape is their patch: a plain quad whose fragment shader draws the plume or
 // the beam in its alpha. Unpatched they are opaque white rectangles standing in the street, which
 // is worse than their absence. Named here until each is ported.
-const SHAPED_BY_PATCH = new Set(['manhole-steam']);
+const SHAPED_BY_PATCH = new Set();
 
 function hide(o) {
   // Hidden for good: a later `visible = true` from the game would hand the renderer a material it

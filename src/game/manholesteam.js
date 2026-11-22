@@ -2,6 +2,11 @@ import * as THREE from 'three';
 import { color } from '../palette.js';
 import { RIGHT } from './camera.js';
 import { COVER_Y, COVER_R } from '../city/manholes.js';
+import { GPU } from '../util/gpu.js';
+import {
+  Fn, attribute, clamp, dot, float, floor, fract, length, materialColor, materialEmissive, materialOpacity,
+  max, mix, pow, sin, smoothstep, sqrt, uniform, varying, vec2,
+} from 'three/tsl';
 
 // Steam out of a few of the manhole covers (city/manholes.js marks which, `spot.steam`): the New York
 // street, a white plume curling up out of the road and leaning off downwind (Tyler, 2026-10-24: "a
@@ -119,7 +124,72 @@ float steamNoise(vec2 p) {
 float steamShade;
 `;
 
+/**
+ * The patch below as nodes, for WebGPURenderer: the same puffs, term for term, with the loop
+ * unrolled here rather than in the shader. Set on the Lambert itself (three copies node
+ * properties across when it converts a built-in material), so `update` goes on writing
+ * `material.emissive` and the time uniform as it always has.
+ */
+function steamNodes(material, uniforms) {
+  const hash = Fn(([q]) => fract(sin(dot(q, vec2(127.1, 311.7))).mul(43758.5453)));
+  const noise = Fn(([q]) => {
+    const i = floor(q);
+    const f = fract(q);
+    const u = f.mul(f).mul(float(3).sub(f.mul(2)));
+    return mix(
+      mix(hash(i), hash(i.add(vec2(1, 0))), u.x),
+      mix(hash(i.add(vec2(0, 1))), hash(i.add(vec2(1, 1))), u.x),
+      u.y,
+    );
+  });
+  const plume = varying(attribute('aPlume', 'vec2'));
+  const seed = varying(attribute('aSeed', 'float'));
+  const kick = varying(attribute('aKick', 'vec2'));
+  const time = uniform(0).onRenderUpdate(() => uniforms.uSteamTime.value);
+  // One Fn, so the running `cover` and `shade` have a stack to be assigned on. x: shade, y: alpha.
+  const steam = Fn(() => {
+  const t = time.add(seed.mul(37)).toVar();
+  const p = vec2(plume.x.sub(BASE_U).mul(PLUME_W), plume.y.mul(PLUME_H)).toVar();
+  const breath = sin(t.mul(0.55)).mul(0.12).add(sin(t.mul(1.7).add(1.3)).mul(0.08)).add(0.8);
+  const cover = float(0).toVar();
+  const shade = float(0).toVar();
+  const lay = (a, lit) => {
+    shade.addAssign(lit.mul(a).mul(float(1).sub(cover)));
+    cover.addAssign(a.mul(float(1).sub(cover)));
+  };
+  for (let k = 0; k < PUFFS; k++) {
+    const cyc = t.mul(1 / PUFF_LIFE).add(k / PUFFS).add(hash(vec2(k, seed)).mul(0.13)).toVar();
+    const f = fract(cyc).toVar();
+    const gen = floor(cyc);
+    const gust = hash(vec2(gen.mul(13).add(k), seed.add(1)));
+    const drift = hash(vec2(gen.mul(7).add(k), seed.add(2))).sub(0.5);
+    const rise = float(1).sub(pow(float(1).sub(f), 1.4)).toVar();
+    const y = rise.mul(WISP_RISE).add(0.25);
+    const h = y.div(PLUME_H);
+    const x = pow(rise, 1.2).mul(LEAN).add(drift.mul(1.6).mul(rise))
+      .add(rise.mul(0.5).mul(sin(t.mul(0.9).add(k * 2.4))))
+      .add(kick.x.mul(kick.y).mul(1.8).mul(sqrt(rise)));
+    const r = mix(0.55, 1.7, pow(f, 0.7)).mul(kick.x.mul(0.3).add(1));
+    const d = p.sub(vec2(x, y)).div(vec2(r.mul(mix(1.0, 1.5, f)), r.mul(mix(0.8, 0.45, f)))).toVar();
+    const rim = noise(p.mul(1.9).add(vec2(k * 7.3, t.mul(-0.8).add(k * 3.1)))).sub(0.5).mul(0.7);
+    const a = float(1).sub(smoothstep(0.0, 1.0, length(d).add(rim)))
+      .mul(smoothstep(0.0, 0.08, f)).mul(float(1).sub(smoothstep(0.1, 0.85, f))).mul(mix(0.35, 0.8, gust))
+      .mul(float(1).sub(kick.x.mul(0.9).mul(float(1).sub(smoothstep(0.15, 0.55, h)))));
+    lay(a.toVar(), clamp(d.y.mul(0.45).add(0.55), 0.0, 1.0));
+  }
+  const dl = p.sub(vec2(0.0, 0.45)).div(vec2(0.85, 0.55));
+  const foot = float(1).sub(smoothstep(0.2, 1.0, length(dl))).mul(0.45).mul(float(1).sub(kick.x.mul(0.9)));
+  lay(foot.toVar(), float(0.8));
+  return vec2(mix(0.78, 1.0, shade.div(max(cover, 1e-3))), cover.mul(breath).mul(OPACITY));
+  })();
+  material.colorNode = materialColor.mul(steam.x);
+  material.emissiveNode = materialEmissive.mul(steam.x);
+  material.opacityNode = materialOpacity.mul(steam.y);
+  material.userData.ported = true;
+}
+
 function patchSteam(material, uniforms) {
+  if (GPU) steamNodes(material, uniforms);
   material.customProgramCacheKey = () => 'manhole-steam';
   material.onBeforeCompile = (shader) => {
     Object.assign(shader.uniforms, uniforms);

@@ -2,7 +2,8 @@ import * as THREE from 'three';
 import { KERB_H } from '../city/ground.js';
 import { coastWest, coastEast, coastNorth, coastSouth } from '../city/grid.js';
 import { setOccluderDepthMaterial } from './ssao.js';
-import { attribute, clamp, distance, float, mix, positionLocal, smoothstep, uniform, varying, vec3 } from 'three/tsl';
+import { attribute, clamp, distance, float, materialOpacity, mix, positionLocal, smoothstep, uniform, varying, vec3 } from 'three/tsl';
+import { GPU } from '../util/gpu.js';
 
 // The city's entrance: streets and ground are already in place, then the buildings and trees
 // grow out of them in a wave — rise from the kerb, fade in, overshoot their full size and settle
@@ -205,14 +206,17 @@ export function createCityEntry({
       };
     }
     material.positionNode = entryNodes.position;
-    material.opacityNode = entryNodes.fade;
+    // Times the material's own opacity: an unlit glow or a beam arrives here as a built-in material
+    // with one, and three copies these properties across when it converts it.
+    material.opacityNode = materialOpacity.mul(entryNodes.fade);
+    material.userData.ported = true;
     material.maskNode = entryNodes.mask;
   };
 
   const materials = [];
   for (const mesh of meshes) {
     const material = mesh.material;
-    if (material.isNodeMaterial) {
+    if (material.isNodeMaterial || GPU) {
       patchNodes(material);
       material.transparent = true;
       materials.push(material);
