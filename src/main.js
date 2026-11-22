@@ -4,6 +4,7 @@ import { gpuCompat, unported } from './game/gpucompat.js';
 import { GPU, gpuNote } from './util/gpu.js';
 import { createGpuCapture } from './game/gpucapture.js';
 import { createGpuFrame } from './game/gpuframe.js';
+import { createGpuCrt } from './game/gpucrt.js';
 import { enableGlow } from './game/gpubloom.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 // First, before anything builds a material: it patches three's fog chunk for every program.
@@ -313,6 +314,8 @@ const gpuAo = GPU && budget.ao && !budget.msaa;
 // Bloom rides the same target (game/gpubloom.js), so it is on where that is. Decided here, before
 // the first material is built: every node material writes its glow or none does.
 const gpuBloom = gpuAo && budget.bloom;
+// The CRT screen wraps the frame's last pass (game/gpucrt.js), so it needs that pass too.
+const gpuCrtOn = gpuAo && budget.crt;
 if (gpuBloom) enableGlow();
 if (GPU) Object.assign(budget, { gpu: true, ao: false, bloom: false, hdr: false, crayon: false, cartoon: false, crt: false });
 const renderer = GPU ? new WebGPURenderer({ antialias: budget.msaa, stencil: true }) : new THREE.WebGLRenderer({
@@ -337,7 +340,8 @@ if (GPU) {
   await renderer.init();
 }
 const gpuCapture = GPU ? createGpuCapture(renderer, { samples: budget.msaa ? 4 : 0 }) : null;
-let gpuFrame = gpuAo ? createGpuFrame(renderer) : null;
+const gpuCrt = gpuCrtOn ? createGpuCrt(renderer, { still: Boolean(shot) }) : null;
+let gpuFrame = gpuAo ? createGpuFrame(renderer, { crt: gpuCrt }) : null;
 // A validation error on the device does not throw: the frame is just black from then on. The
 // frame's target is the newest and least travelled path here, so the first such error drops it
 // (the city then draws straight to the canvas, without occlusion) and says what it was.
@@ -386,7 +390,9 @@ const renderPath = createRenderPath(renderer, budget, {
   // Shot mode pins the CRT's flicker, so a still does not depend on when it was taken.
   still: Boolean(shot),
 });
-const { ao, bloom, crayon, cartoon, hdr, crt } = renderPath;
+const { ao, bloom, crayon, cartoon, hdr } = renderPath;
+// One interface for the panel and `__taxi.crt`, whichever renderer draws the screen.
+const crt = gpuCrt ?? renderPath.crt;
 // The weather. `?storm` runs a storm across the afternoon and back on a loop (game/storm.js);
 // `?rain` is the same storm pinned at its peak. Either way the whole wet city is built up front —
 // see game/rain.js — and `applyWeather` below turns each part of it up and down with the clock.
@@ -405,7 +411,12 @@ const squallRampClassic = getSquallRampClassic();
 const squall = squallFlag ? createSquall({
   ...squallFlag, rng: () => squallRng.next(), ramp: squallRampClassic ? RAMP_CLASSIC : RAMP,
 }) : null;
-const rain = createRain(renderer, { enabled: Boolean(storm || squall), mood: stormFlag?.mood });
+const rain = createRain(renderer, {
+  enabled: Boolean(storm || squall),
+  mood: stormFlag?.mood,
+  // The WebGPU lens is the frame's last pass while the glass is wet, so it draws the CRT screen.
+  crt: gpuCrt,
+});
 if (squall) {
   // Sun rays in the cell's wake, as it passes (`SUN_RAYS` in game/rain.js); `?sunrays=classic` none.
   rain.attachSquall(squall, { sunRays: !getSunRaysClassic() });
@@ -421,7 +432,7 @@ if (squall) {
 // scene that submitted nothing from a scene that drew and came out black. See `game/diag.js`.
 // `budget.ao` is the WebGL prepass, switched off above under WebGPU; the panel reports the AO that
 // is actually drawing.
-const diag = createDiagnostics(renderer, { enabled: getDiagnostics(), flags: GPU ? { ...budget, ao: gpuAo, bloom: gpuBloom } : budget });
+const diag = createDiagnostics(renderer, { enabled: getDiagnostics(), flags: GPU ? { ...budget, ao: gpuAo, bloom: gpuBloom, crt: gpuCrtOn } : budget });
 declined.forEach((text) => diag.note(text));
 
 const { scene, sun, hemi, sky, fog } = createScene({ shadowMapSize: budget.shadowMapSize });
@@ -489,7 +500,7 @@ function renderFrame(cam = camera) {
     // frame target (MSAA, or after a WebGPU error) the glass stays dry.
     const destination = gpuCapture?.target ?? null;
     const wetGlass = rain.lensSource();
-    gpuFrame.end(cam, wetGlass ?? destination);
+    gpuFrame.end(cam, wetGlass ?? destination, { screen: !wetGlass });
     if (wetGlass) {
       renderer.setRenderTarget(destination);
       rain.renderLens({ from: wetGlass });

@@ -1217,9 +1217,17 @@ Measured against WebGL with AO, bloom, CRT and painterly off, at the parked 16:2
     that is in plain view.
   A node twin of a hand-written shader (`unlitTwin`) is skipped by `markEmissive`, as its source
   is on WebGL: the L train's beam has a `color` here and was swept into the bloom.
-- **The other passes are off**: the rim paint (it read the depth prepass), `?hdr`, Crayon,
-  Cartoon and the CRT. Each is a WebGL render-target pass until it is ported; the frame's target
-  is where they go.
+- **The CRT screen costs no pass** (`game/gpucrt.js`). On WebGL it is a copy of the canvas and a
+  triangle. Here the frame already ends in a full-screen pass over a target, so the screen wraps
+  that pass's fragment: it hands it a curved coordinate to work at and shades what comes back.
+  The red and blue of the aberration are the frame's own, read at their offsets under the
+  occlusion and spill worked out once at the centre tap (at the shipped 0.0002 the offset is under
+  half a pixel in a phone's corner). While the lens is wet the lens is the last pass and draws the
+  screen instead. Pixel-identical to WebGL wherever the frame under it is (`?shot=1&msaa=off`).
+  Off wherever the frame target is (MSAA, `?ao=off`).
+- **The other passes are off**: the rim paint (it read the depth prepass), `?hdr`, Crayon and
+  Cartoon. Each is a WebGL render-target pass until it is ported; the frame's target is where
+  they go.
 - **The weather is ported, all of it**: the grade, the cell's shade (`util/gpuclouds.js`), the
   falling rain, splashes, sun shafts and sun rays (`game/gpurain.js`), wet ground with puddles,
   ripples and the street's reflection (`game/gpuwet.js`), the lit windows and lamp pools that come

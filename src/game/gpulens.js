@@ -26,7 +26,7 @@ const lensHash = (p) => {
   return fract(vec3(p3.x.add(p3.y).mul(p3.z), p3.x.add(p3.z).mul(p3.y), p3.y.add(p3.z).mul(p3.x)));
 };
 
-export function lensTwin(glsl) {
+export function lensTwin(glsl, crt = null) {
   const frame = liveTexture(glsl.uniforms, 'tFrame');
   const material = unlitTwin(glsl, (u) => {
     const beads = Fn(([at, scale, density, t]) => {
@@ -100,20 +100,28 @@ export function lensTwin(glsl) {
       }
       return drop;
     });
-    const at = vec2(screenUV.x, float(1).sub(screenUV.y)).toVar();
-    const drop = nearest(at).toVar();
-    const cover = drop.w.mul(u.uAmount).toVar();
-    const bend = drop.xy.mul(sqrt(max(float(1).sub(drop.z.mul(drop.z)), 0.0)));
-    const src = at.sub(bend.mul(0.022));
-    const seen = frame.sample(vec2(src.x, float(1).sub(src.y))).level(0).rgb
-      .mul(mix(1.0, 0.72, smoothstep(0.55, 1.0, drop.z)));
-    const catchLight = falling(0.35, 0.0, length(drop.xy.sub(vec2(-0.35, 0.4))));
-    // Where the GLSL discarded (`cover < 0.01`) and left the frame under it showing, this pass is
-    // the frame: it writes what is there.
-    const plain = frame.sample(screenUV).level(0).rgb;
+    // The frame through the wet glass at `here` (texture coordinates). `atR` and `atB` are where
+    // the CRT screen wants the dry frame's red and blue read; a drop's own bend is not split.
+    const finish = ({ at: here, atR = here, atB = here }) => {
+      const at = vec2(here.x, float(1).sub(here.y)).toVar();
+      const drop = nearest(at).toVar();
+      const cover = drop.w.mul(u.uAmount).toVar();
+      const bend = drop.xy.mul(sqrt(max(float(1).sub(drop.z.mul(drop.z)), 0.0)));
+      const src = at.sub(bend.mul(0.022));
+      const seen = frame.sample(vec2(src.x, float(1).sub(src.y))).level(0).rgb
+        .mul(mix(1.0, 0.72, smoothstep(0.55, 1.0, drop.z)));
+      const catchLight = falling(0.35, 0.0, length(drop.xy.sub(vec2(-0.35, 0.4))));
+      // Where the GLSL discarded (`cover < 0.01`) and left the frame under it showing, this pass
+      // is the frame: it writes what is there.
+      const mid = frame.sample(here).level(0).rgb;
+      const plain = atR === here ? mid
+        : vec3(frame.sample(atR).level(0).r, mid.g, frame.sample(atB).level(0).b);
+      return vec4(mix(plain, seen.add(catchLight.mul(0.16)), cover.mul(step(0.01, cover))), 1.0);
+    };
     return {
       vertex: vec4(positionGeometry.xy, 0.0, 1.0),
-      color: mix(plain, seen.add(catchLight.mul(0.16)), cover.mul(step(0.01, cover))),
+      // The last pass while the glass is wet, so the CRT screen is this pass's (game/gpucrt.js).
+      color: (crt ? crt.screen(finish) : finish({ at: screenUV })).rgb,
     };
   }, { display: true });
   // Opaque: it replaces the destination rather than blending onto a copy of it.

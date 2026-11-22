@@ -171,7 +171,7 @@ const inert = {
   hideInMirror: () => {},
 };
 
-export function createRain(renderer, { enabled = false, mood: moodName = 'shower' } = {}) {
+export function createRain(renderer, { enabled = false, mood: moodName = 'shower', crt = null } = {}) {
   if (!enabled) return inert;
   const mood = MOODS[moodName] ?? MOODS.shower;
 
@@ -832,7 +832,7 @@ ${WET_ALBEDO}`, 'ground fragment');
   if (gpu) {
     // A node needs a texture to be built around; the first `renderLens` replaces it.
     lensUniforms.tFrame.value = new THREE.Texture();
-    lens.material = lensTwin(lens.material);
+    lens.material = lensTwin(lens.material, crt);
   }
   lens.frustumCulled = false;
   lensScene.add(lens);

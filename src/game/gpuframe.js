@@ -29,7 +29,7 @@
 import * as THREE from 'three';
 import { NodeMaterial, QuadMesh } from 'three/webgpu';
 import {
-  Fn, abs, clamp, diffuseColor, float, max, mrt, output, pow, step, texture, uniform, uv, vec2, vec4,
+  Fn, abs, clamp, diffuseColor, float, max, mrt, output, pow, step, texture, uniform, uv, vec2, vec3, vec4,
 } from 'three/tsl';
 import { aoShare } from '../util/gpumaterial.js';
 import { createGlowChain, glowLight, glowState, GLOW_RANGE } from './gpubloom.js';
@@ -46,7 +46,7 @@ const MAX_RADIUS_TEXELS = 6.0;
 // half-resolution upsample. Three quarters of it lands on WebGL's figure.
 const STRENGTH = 0.45;
 
-export function createGpuFrame(renderer, { strength = STRENGTH } = {}) {
+export function createGpuFrame(renderer, { strength = STRENGTH, crt = null } = {}) {
   const depthTexture = new THREE.DepthTexture(1, 1);
   depthTexture.format = THREE.DepthStencilFormat;
   depthTexture.type = THREE.UnsignedInt248Type;
@@ -68,6 +68,8 @@ export function createGpuFrame(renderer, { strength = STRENGTH } = {}) {
   const broad = uniform(new THREE.Vector2());
   const depthScale = uniform(1);
   const amount = uniform(strength);
+  // The CRT screen (game/gpucrt.js) wraps this pass; 0 for a frame the wet lens will finish.
+  const screenOn = uniform(1);
 
   const frame = texture(target.textures[0]);
   const share = texture(target.textures[1]);
@@ -79,8 +81,9 @@ export function createGpuFrame(renderer, { strength = STRENGTH } = {}) {
   // Finished display values in, finished display values out.
   material.userData.display = true;
   material.fog = false;
-  material.fragmentNode = Fn(() => {
-    const at = uv();
+  // The finished texel at `at`. `atR` and `atB` are where the screen wants its red and blue read
+  // (the aberration): the frame's own, under the occlusion and the spill worked out at `at`.
+  const finish = ({ at, atR = at, atB = at }) => {
     const viewDepth = (offset) => depth.sample(at.add(offset)).r.mul(depthScale);
     const z0 = viewDepth(vec2(0, 0)).toVar();
     // One opposed pair of taps: the depth Laplacian, clamped to its concave half (ssao.js).
@@ -97,12 +100,14 @@ export function createGpuFrame(renderer, { strength = STRENGTH } = {}) {
       either(pair(vec2(d.x, d.y), RING_BROAD), pair(vec2(d.x, d.y.negate()), RING_BROAD)),
     );
     const colour = frame.sample(at);
+    const split = atR === at ? colour.rgb : vec3(frame.sample(atR).r, colour.g, frame.sample(atB).b);
     // The frame is display-encoded, and the GLSL took the fill down before the encode.
     const keep = float(1).sub(share.sample(at).r.mul(amount).mul(occluded));
-    const occludedColour = colour.rgb.mul(pow(max(keep, 0.05), 1 / 2.2));
+    const occludedColour = split.mul(pow(max(keep, 0.05), 1 / 2.2));
     // The spill is light in the picture, added in display space as the WebGL composite adds it.
     return vec4(glowChain ? occludedColour.add(glowChain.composite(at)) : occludedColour, colour.a);
-  })();
+  };
+  material.fragmentNode = Fn(() => (crt ? crt.screen(finish, screenOn) : finish({ at: uv() })))();
   const quad = new QuadMesh(material);
 
   const size = new THREE.Vector2();
@@ -141,9 +146,13 @@ export function createGpuFrame(renderer, { strength = STRENGTH } = {}) {
       renderer.setMRT(layout);
       renderer.setRenderTarget(target);
     },
-    /** Occlude and put the frame on `destination` (null is the canvas). */
-    end(camera, destination = null) {
+    /**
+     * Occlude and put the frame on `destination` (null is the canvas). `screen: false` for a frame
+     * something else finishes: the CRT screen is then that pass's to draw.
+     */
+    end(camera, destination = null, { screen = true } = {}) {
       renderer.setMRT(null);
+      screenOn.value = screen ? 1 : 0;
       // `zoom` scales the frustum the projection actually uses.
       const view = {
         right: camera.right / camera.zoom, left: camera.left / camera.zoom,
