@@ -72,7 +72,7 @@ export function readBotScenes(search) {
  */
 export function createPerfBot({
   traffic, fares, boost, robbery, patrols, pause = null, robberLine = null, ready, drive, routeTo, holdLoco, releaseLoco, holdBrake,
-  releaseBrake, dispatchToRider, wreck, save, search = typeof window !== 'undefined' ? window.location.search : '',
+  releaseBrake, dispatchToRider, wreck, save, fixedStep = 0, search = typeof window !== 'undefined' ? window.location.search : '',
 }) {
   const scenes = readBotScenes(search);
   if (!scenes) return null;
@@ -275,7 +275,8 @@ export function createPerfBot({
     errand: () => errand && { ...errand, hops },
     /** Call once per frame, before `tick`. */
     update(t) {
-      const dt = lastT ? Math.min((t - lastT) / 1000, 0.1) : 0;
+      // Under `?fixedstep` the scene clocks run on game time too, so a scene is the same frames everywhere.
+      const dt = fixedStep && lastT ? fixedStep : lastT ? Math.min((t - lastT) / 1000, 0.1) : 0;
       lastT = t;
       if (done) return;
       if (!started) {

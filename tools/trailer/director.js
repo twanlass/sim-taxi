@@ -1,0 +1,146 @@
+/**
+ * The in-page half of tools/trailer.mjs: watches for each beat's moment and frames the camera.
+ * Injected after page-init.js. Driving is mostly `?bot=<scene>` (src/game/perfbot.js); the beats it
+ * has no scene for (the drawbridge jump, the end card) are staged here.
+ *
+ * `__director.update()` runs after every step and answers `{ event }` on the frame the beat's moment
+ * happens, so the recorder can find it on a quick pass with nothing drawn and come back for it.
+ */
+(() => {
+  const params = new URLSearchParams(location.search);
+  const beat = params.get('trailer') || '';
+  const zoomPin = Number(params.get('trailerzoom') || 0);
+
+  let prev = {};
+  let since = {};
+  let frames = 0;
+  let mega = { routed: false, requested: false, held: false };
+  let zoomNow = null;
+
+  const T = () => window.__taxi;
+  const key = (code, type) => window.dispatchEvent(new KeyboardEvent(type, { code, key: code === 'Space' ? ' ' : 'b', bubbles: true }));
+
+  /** Rising edge of a condition, latched per name. */
+  function rose(name, on) {
+    const was = prev[name];
+    prev[name] = on;
+    return on && !was;
+  }
+  /** How many consecutive frames a condition has held. */
+  function held(name, on) {
+    since[name] = on ? (since[name] ?? 0) + 1 : 0;
+    return since[name];
+  }
+
+  const EVENTS = {
+    loco() {
+      const t = T();
+      const taxi = t.traffic.taxi;
+      return t.perfBot?.scene() === 'loco' && held('loco', t.boost.isActive() && taxi.v > 12) === 40;
+    },
+    pickup() {
+      const t = T();
+      const riding = Boolean(t.fares.carrying());
+      return t.perfBot?.scene() === 'fares' && frames > 600 && rose('ride', riding);
+    },
+    drift() {
+      const t = T();
+      return t.perfBot?.scene() === 'drift' && rose('drift', Boolean(t.traffic.taxi.drift?.kicked));
+    },
+    bigair() {
+      const t = T();
+      const taxi = t.traffic.taxi;
+      // Any hop off an arch on Loco. (Big Air proper — the drift launch carried over a bridge, with
+      // the barrel roll — is the drift scene's to stumble on; see the bigroll beat.)
+      return t.perfBot?.scene() === 'bigair' && rose('hop', taxi.hopFrom != null);
+    },
+    mega() {
+      const taxi = T().traffic.taxi;
+      return rose('mega', taxi.hopFrom != null && taxi.hopKind === 'bridge');
+    },
+    robbery() {
+      const t = T();
+      const r = t.robbery;
+      // The getaway, once the robber's line has been answered and the taxi is moving.
+      return held('getaway', Boolean(r?.state.active && t.fares.carrying() && t.traffic.taxi.v > 6)) === 20;
+    },
+    bankjob() {
+      const t = T();
+      return rose('bank', Boolean(t.robbery?.state.active));
+    },
+    cops() {
+      const t = T();
+      return t.perfBot?.scene() === 'cops' && held('chase', t.patrols.some((p) => p.state.phase === 'chase')) === 30;
+    },
+    crash() {
+      const t = T();
+      return rose('crashed', Boolean(t.traffic.taxi.crashed));
+    },
+    title() {
+      return frames === 90;
+    },
+  };
+
+  /**
+   * The drawbridge jump: route across the drawbridge's crossing, ask for a lift as the taxi nears
+   * the gate, hold Loco while it waits. The rest is the game's own rule (`'go'` in drawbridge.js).
+   */
+  function stageMega() {
+    const t = T();
+    const taxi = t.traffic.taxi;
+    const db = t.drawbridge;
+    if (!db || !t.warmedUp || taxi.state == null) return;
+    if (frames < 240) return;
+    // Ask for the lift first and route only once the deck is clear and the arms are coming down:
+    // routed any earlier, the taxi is itself the car the span is waiting to clear, and crosses.
+    if (!mega.asked) { db.request(); mega.asked = true; return; }
+    if (!mega.routed && db.state.phase !== 'closing' && db.state.phase !== 'lifting') return;
+    if (!mega.routed) {
+      const line = db.line ?? null;
+      const span = db.span ?? null;
+      if (line == null || !span) { mega.routed = 'none'; return; }
+      // From whichever bank the taxi is on, to the junction two rows past the far end.
+      const north = taxi.z < span.z0;
+      const target = { i: line, j: north ? Math.min(span.row + 3, 99) : Math.max(span.row - 2, 0) };
+      const near = { i: line, j: north ? span.row + 1 : span.row };
+      const far = { i: line, j: north ? span.row : span.row + 1 };
+      mega.routed = Boolean(t.routeTo(target, { along: { a: near, b: far } }));
+      mega.target = target;
+      // Asked for at once: the gate holds a taxi whose route crosses while the span is clearing,
+      // closing or on the first 45° of the lift, so arriving early just means a wait at the arm.
+      mega.requested = true;
+      return;
+    }
+    if (!mega.requested && db.state.phase === 'open') {
+      const dz = Math.abs(taxi.z - (db.span.z0 + db.span.z1) / 2);
+      if (dz < 28 && taxi.route?.length) { db.request(); mega.requested = true; }
+    }
+    if (mega.requested && !mega.held && db.state.phase === 'lifting') { key('Space', 'keydown'); mega.held = true; }
+    if (mega.held && taxi.hopKind === 'bridge' && taxi.hopFrom == null && frames % 2) key('Space', 'keyup');
+  }
+
+  function frame() {
+    const t = T();
+    if (!t?.warmedUp) return {};
+    frames += 1;
+    if (beat === 'mega') stageMega();
+    // The wreck's own camera (the pull-in, the replay) owns the framing from the crash on.
+    if (zoomPin && t.camera?.state && !t.traffic.taxi.crashed) {
+      zoomNow = zoomNow == null ? t.camera.state.zoom : zoomNow + (zoomPin - zoomNow) * 0.08;
+      t.camera.state.zoom = zoomNow;
+    }
+    const fn = EVENTS[beat];
+    const event = fn ? Boolean(fn()) : false;
+    return { event };
+  }
+
+  window.__director = {
+    beat,
+    update: () => { try { return frame(); } catch (error) { return { error: String(error?.stack || error) }; } },
+    info: () => {
+      const t = T();
+      const taxi = t?.traffic?.taxi;
+      return taxi && { scene: t.perfBot?.scene(), x: +taxi.x.toFixed(1), z: +taxi.z.toFixed(1), v: +taxi.v.toFixed(1), st: taxi.state, route: taxi.route?.length, mega, db: t.drawbridge?.state?.phase, span: t.drawbridge && [t.drawbridge.line, t.drawbridge.span.cx, +t.drawbridge.span.z0.toFixed(1), +t.drawbridge.span.z1.toFixed(1), t.drawbridge.span.row] };
+    },
+  };
+})();

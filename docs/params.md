@@ -281,6 +281,7 @@ See [rendering.md](rendering.md) for all of these.
 | `?bot` / `=loco,drift` | The scripted session for profiling: fares, Loco, a drift, Big Air, the bank job, a patrol chase and a wreck on a fixed clock, each marked in the `?perf` capture; the taxi can't lose until the wreck. A list plays only those scenes. Driven from the Mac by `tools/ios-perfloop.mjs` ([game/perfbot.js](../src/game/perfbot.js), [testing.md](testing.md#the-unattended-loop)) |
 | `?bench` | The step-by-step GPU benchmark |
 | `?br=` | Internal to `?bench`: the rows measured so far, carried across its reloads |
+| `?fixedstep` | Every frame is 1/60 s of game time however long it took, so the same `?seed`/`?run` plays the same session on any device: slow frames run in slow motion instead of taking bigger steps. With `?bot`, scenes are timed on game time too. For A/B profiling, and what `tools/trailer.mjs` relies on ([testing.md](testing.md#trailer-footage)) |
 | `?soak` / `=20` | The battery and heat soak, in minutes |
 | `?st=` | Internal to `?soak`: elapsed time, carried across its reloads |
 | `?sr=` | Internal to `?soak`: the rows measured so far |

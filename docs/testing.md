@@ -512,6 +512,43 @@ kept out of the medians while a cool one exists. Everything lands in `perf-captu
 with a `summary.md`. The phone has to stay unlocked with Auto-Lock set to Never: the app holds the
 screen on only while it is frontmost, and it is killed to cool.
 
+## Trailer footage
+
+`tools/trailer.mjs` films trailer beats offline: real runs of the game, stepped one fixed frame at a
+time in headless Chromium, so a software renderer taking a second over a frame still produces
+footage that plays at true speed. Three pieces, all injected from `tools/trailer/` and none of them
+in the shipped game:
+
+- **A fake clock** (`page-init.js`): `performance.now` and `requestAnimationFrame` only move when the
+  recorder steps, 1/60 s at a time. `Math.random` is seeded off `?run=`, so the effects that draw
+  from it come out the same too. Same seeds, same frames: each beat is found on a quick pass with
+  `__taxi.holdRender(true)` (the world ticks, nothing is drawn, ~100× faster under swiftshader) and
+  then replayed to a little before its moment and captured. The take records whether the replay
+  landed the moment on the same frame (`replayDrift` in `take.json`); so far it always has.
+- **The game's own audio, rendered in lockstep**: `AudioContext` becomes an `OfflineAudioContext`
+  that reports `running` and renders exactly one frame of audio per step, so every sound lands on the
+  frame that scheduled it. Headless Chromium cannot decode AAC, so the run needs a build whose
+  `.m4a` files decode — the recorder runs Chromium as installed and the sounds that fail to decode
+  are simply silent; see the note in the PR for how the audio was checked. Music is muted in the
+  game's settings for every take, and the cut lays one of the game's songs under the whole thing.
+- **A director** (`director.js`): most beats ride a `?bot=<scene>` (game/perfbot.js) and only
+  detect the moment (a drift kicking, a hop, the getaway, a chase); the drawbridge jump is staged
+  here (ask for a lift, route over the span once its arms come down, Loco when the leaf rises).
+  `?trailerzoom=` eases the camera to a framing inside the player's own pinch range (14–150).
+
+```bash
+npm run build && npx vite preview --port 4173 &     # never the dev server: an edit reloads the page mid-take
+node tools/trailer.mjs --url http://localhost:4173 --out trailer-out                # every beat
+node tools/trailer.mjs --url http://localhost:4173 --beats drift,mega --find-only  # where the moments land
+node tools/trailer.mjs --cut --out trailer-out                                      # the two cuts
+```
+
+The cut writes `preview-886x1920-30fps.mp4` (the App Store app preview: H.264 High@4.0, 30 fps,
+stereo AAC 256k, under 30 s, HUD on — Apple wants "screen captures of the app itself", so its
+framings stay inside what a player can do) and `master-60fps.mp4` (the canvas alone, HUD off).
+Beats are in `BEATS` at the top of the tool: seeds, how much either side of the moment, and zoom.
+About a second a frame at 886×1920; a full set is ~30 minutes.
+
 ## When a device renders nothing
 
 A phone came up **black**: no city, no sky, no markers — and the page underneath it working

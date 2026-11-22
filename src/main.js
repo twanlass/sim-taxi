@@ -453,7 +453,12 @@ settings.onChange((v) => {
  * clip through a camera of its own (game/uturnclip.js), which wants the whole frame — the AO, the
  * bloom, the haze — and not a lesser render of its own.
  */
+// `__taxi.holdRender(true)` — tick everything, draw nothing. tools/trailer.mjs fast-forwards a take
+// to its moment this way: under a software renderer the draw is ~99% of a frame, so a 40-second
+// approach costs seconds instead of half an hour.
+let renderHeld = false;
 function renderFrame(cam = camera) {
+  if (renderHeld) return;
   // `?perf`: everything `tick` did before this is the frame's `sim`; the passes name themselves.
   perfPhase('pre');
   // Casters whose shadow cannot reach this camera's view sit the shadow pass out (game/shadowcull.js).
@@ -6979,6 +6984,7 @@ let presenterHeld = false;
 const fpsPin = Number.parseInt(new URLSearchParams(window.location.search).get('fps'), 10);
 const frameRateCap = () => (shot ? 60 : fpsPin > 0 ? fpsPin : qualityOf(settings.get()).frameRate);
 let lastFrameAt = 0;
+const FIXED_STEP = new URLSearchParams(window.location.search).has('fixedstep') ? 1 / 60 : 0;
 
 function frame(t) {
   requestAnimationFrame(frame);
@@ -7039,6 +7045,10 @@ function tick() {
   // caps that at 0.05s — not a teleport, but still a frame of city the player never saw, and the
   // clamp is there to survive a stalled tab rather than to license stalling on purpose.
   let dt = Math.min(clock.getDelta(), 0.05);
+  // `?fixedstep`: every frame is 1/60 s of game time however long it took, so the same seeds play
+  // the same session on any device (slow frames run in slow motion instead of taking bigger steps).
+  // For A/B profiling with `?bot`, and the trailer recorder's frames (tools/trailer.mjs).
+  if (FIXED_STEP) dt = FIXED_STEP;
 
   // Paused. Nothing updates — not the traffic, not the clocks, not the sky — but the frame is still
   // drawn: with `preserveDrawingBuffer` off, a resize or a rotation with the veil up repaints the
@@ -8874,6 +8884,7 @@ function startRun() {
     dispatchToRider,
     wreck: () => window.__taxi.wreck(),
     save: (reason) => perf.save(reason),
+    fixedStep: FIXED_STEP,
   });
   frame(performance.now());
   // When the run could start, for timing a load from the console: performance.getEntriesByName(...).
@@ -9240,6 +9251,8 @@ window.__taxi = {
    * capture. Harmless while the loop is running, since the next frame overwrites it anyway.
    */
   redraw: () => renderFrame(),
+  /** Skip every draw while on (tools/trailer.mjs's fast-forward); the world still ticks. */
+  holdRender: (on) => { renderHeld = Boolean(on); },
   // The fog of war's clock, for filming its drift from a frozen shot: `edgeFogAt(12.5)` sets it and
   // redraws (game/edgefog.js).
   edgeFogAt: (seconds) => { tickEdgeFog(seconds); renderFrame(); },
