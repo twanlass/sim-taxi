@@ -431,6 +431,50 @@ as separate runs from a cool, unplugged phone (`?soak` against `?soak&dpr=1.5`),
 battery level at each end by hand: Safari has no battery API. A wreck reloads into a fresh run with
 the rows carried in the URL.
 
+## Profiling on the phone
+
+`?bench` and `?soak` answer "what does a setting cost"; `?hitch` shows the last few late frames on
+screen. None of them leaves the phone, so every hitch report used to be someone reading numbers
+off the glass. `?perf` (`src/game/perf.js`) records **every** frame of a run and the startup, and
+the iOS shell saves it into the app's own container, where the Mac copies it off with `devicectl`.
+Nobody reads anything aloud.
+
+The loop, from the Mac, with a DEBUG build on the phone (`npm run push:ios -- --device tdub`):
+
+```bash
+node tools/ios-perf.mjs launch --device tdub            # relaunches the app as ?perf
+node tools/ios-perf.mjs trace --device tdub --seconds 150   # optional: Metal System Trace meanwhile
+node tools/ios-perf.mjs pull --device tdub              # copies the captures off and prints the report
+```
+
+`launch` takes `--query` for any other flags (`--query "perf&hitch&governor=off"`): the app has no
+address bar, so a DEBUG build reads a `--query` launch argument and appends it to its start URL
+(`launchURL` in `GameViewController.swift`). Release ignores it. A capture saves every minute, on
+game over and whenever the app leaves the foreground, so pressing the Home gesture is the reliable
+"save now"; the frame a save lands on is tagged `save` and the report names it as such.
+
+**What the report says.** A startup timeline (`boot` → `import:start` → `renderer` →
+`compile:start/end` → `warmup:end` → `first-frame`, plus the links and uploads between capture start
+and the first frame), frame-gap percentiles, JS by phase (`sim` is the game's update; `pre`, `ao`,
+`bloom`, `main`, `post` are the render passes' JS submission; `after` is what `tick` does once the
+frame is submitted), then late frames grouped by cause and the worst 25 in a table. A late frame's
+cause is the first of: a shader link, a resize, first-draw uploads (≥256 KB or ≥4 textures), JS
+over 80% of the budget, and otherwise **not JS**. A shader linked mid-run is named in its own section, by the meshes that draw with it and by
+the game function that rendered it (the call stack with three's frames taken out); that is how a
+5.6 s run-end freeze on an iPhone turned out to be the wreck fireball's bloom copy.
+
+**"Not JS" is where the trace comes in.** WebKit has no GPU timer queries, so a GPU-bound frame
+reads as a long gap with a short `cpu` and that is all the page can say about it. `trace` records
+Instruments' Metal System Trace across all processes — WebGL draws in `com.apple.WebKit.GPU`, not in
+the app — and the report prints the worst five frames on the wall clock so they can be found on the
+trace's timeline. Open the `.trace` in Instruments and look at the GPU process's command buffers
+under that timestamp. Safari Web Inspector (Develop ▸ tdub ▸ Rocket Rides, DEBUG builds only) is
+the third view: its Timelines tab records JS call stacks for a frame the report flagged as `JS`.
+
+Captures and traces land in `perf-captures/`, which is git-ignored. In a desktop browser,
+`?perf` keeps the capture on `window.__perfCapture.last`; `__perfCapture.download()` saves it, and
+`node tools/ios-perf.mjs report <file>` reads it the same way.
+
 ## When a device renders nothing
 
 A phone came up **black**: no city, no sky, no markers — and the page underneath it working

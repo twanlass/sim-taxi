@@ -317,6 +317,8 @@ function makePool(scene, geometry, material, capacity, renderOrder) {
   return mesh;
 }
 
+const WHITE = new THREE.Color(1, 1, 1);
+
 export function createBlast(scene, rng) {
   // --- Shockwave ring -------------------------------------------------------
   // Fourteen segments, not a smooth circle: at the wreck zoom the flat sides are visible and the
@@ -392,6 +394,9 @@ export function createBlast(scene, rng) {
   });
   const shardAlpha = withInstanceAlpha(shardGeo, shardMat, MAX_SHARDS);
   const shardMesh = makePool(scene, shardGeo, shardMat, MAX_SHARDS, 5);
+  // Seeded for the ring's reason (above): every shard is painted with `setColorAt` as it flies,
+  // and leaving that lazy would link its program on the frame of the first wreck.
+  for (let slot = 0; slot < MAX_SHARDS; slot++) shardMesh.setColorAt(slot, WHITE);
   shardMesh.castShadow = true;
 
   // --- Tyres ----------------------------------------------------------------
@@ -424,6 +429,12 @@ export function createBlast(scene, rng) {
   });
   const { alphas: puffAlpha, fire: puffFire } = withFireShading(puffGeo, puffMat, MAX_PUFFS);
   const puffMesh = makePool(scene, puffGeo, puffMat, MAX_PUFFS, 6);
+  // Seeded for the ring's reason (above), and this was the costly one: the RAMP is written per puff
+  // with `setColorAt`, so `instanceColor` used to be born on the first wreck, and with it a new
+  // program for the fireball *and* one for its bloom copy. On an iPhone 16 Pro that was the
+  // run-end freeze `?perf` caught at 0.7 s and then 5.6 s (2026-11-21); headless it was the only
+  // pair of links in a wrecked run.
+  for (let slot = 0; slot < MAX_PUFFS; slot++) puffMesh.setColorAt(slot, WHITE);
   // The fireball glows — see game/bloom.js. Three things about this one would each have needed
   // handling and none of them does, which is worth knowing because it is the shape most effects in
   // here have:

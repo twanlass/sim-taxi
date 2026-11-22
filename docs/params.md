@@ -270,6 +270,7 @@ See [rendering.md](rendering.md) for all of these.
 | `?safe` / `=off` | All four budget flags at their cheapest (no MSAA, 1024 shadows, DPR 1, no AO). On by default on Android; `=off` restores the full budget |
 | `?msaa=off` | No multisampling |
 | `?shadows=off` / `=1024` | No sun shadows, or that map size (power of two, 256–4096) |
+| `?shadowcull=classic` | Every shadow caster on the island is drawn into the shadow map every frame, instead of only the ones whose shadow can reach the view ([game/shadowcull.js](../src/game/shadowcull.js), [rendering.md](rendering.md#lighting)) |
 | `?dpr=N` | Caps `devicePixelRatio` (0.5–4, default 2) and pins it against the Quality setting |
 | `?ao=off` | No ambient occlusion |
 | `?fps=30` | Caps the frame rate, overriding the Settings choice |
@@ -277,6 +278,7 @@ See [rendering.md](rendering.md) for all of these.
 | `?diag` | The on-screen renderer readout |
 | `?warmup=classic` | Skips the boot frame that draws every mesh once, so first draws land mid-run again ([game/warmup.js](../src/game/warmup.js)) |
 | `?hitch` | The hitch logger: late frames, how long their JS took, shader links, resizes, and hitches a minute with and without a speech card up ([game/hitch.js](../src/game/hitch.js)) |
+| `?perf` | The on-device profiler: every frame's gap, JS time by phase, shader links, buffer and texture uploads, resizes and tags, plus a startup timeline, saved into the iOS app's container (or `__perfCapture.last` in a browser). `?perf=nobackdrop` also turns every CSS backdrop blur off and `?perf=nohud` hides everything but the canvas, for A/Bs of the compositor's share for `node tools/ios-perf.mjs pull` ([game/perf.js](../src/game/perf.js), [testing.md](testing.md#profiling-on-the-phone)) |
 | `?bench` | The step-by-step GPU benchmark |
 | `?br=` | Internal to `?bench`: the rows measured so far, carried across its reloads |
 | `?soak` / `=20` | The battery and heat soak, in minutes |

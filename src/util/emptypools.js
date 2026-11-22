@@ -43,8 +43,24 @@ function anyLive(mesh) {
   return false;
 }
 
+/**
+ * Hold the sweep off while `fn` runs. For the boot's warm-up (game/warmup.js), which draws every
+ * pool on purpose so each one's programs and Metal pipelines are built behind the load: the sweep
+ * runs inside the very render path the warm-up draws through, and from the third frame on it hid
+ * every empty pool again a line after the warm-up had shown it. The main-pass programs survived
+ * that because `renderer.compile()` had already linked them, but anything only a *draw* builds did
+ * not — the bloom's copy of the wreck fireball was linked on the first wreck instead, which `?perf`
+ * caught on an iPhone as part of a 5.6 s freeze at the end of a run (2026-11-21).
+ */
+export function withPoolsShown(fn) {
+  holding += 1;
+  try { return fn(); } finally { holding -= 1; }
+}
+let holding = 0;
+
 /** Called once before each frame's render passes. */
 export function cullEmptyPools() {
+  if (holding) return;
   if (framesSeen < 2) { framesSeen += 1; return; }
   for (const mesh of pools) mesh.visible = anyLive(mesh);
 }
