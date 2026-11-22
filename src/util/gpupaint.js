@@ -27,7 +27,7 @@
  */
 import { DataTexture, InstancedInterleavedBuffer, DynamicDrawUsage, RedFormat, UnsignedByteType } from 'three';
 import {
-  abs, attribute, Break, buffer, cameraPosition, cameraWorldMatrix, clamp, cross, dFdx, dFdy,
+  abs, attribute, Break, buffer, cameraPosition, cameraViewMatrix, cameraWorldMatrix, clamp, cross, dFdx, dFdy,
   diffuseColor, dot, float, floor, fract, fwidth, If, instancedBufferAttribute,
   instancedDynamicBufferAttribute, instanceIndex, length, Loop, mat4, max, min, mix,
   modelViewMatrix, normalize, normalView, positionGeometry, positionViewDirection, positionWorld,
@@ -132,8 +132,13 @@ const paintLighting = (Base, p) => class PaintLighting extends Base {
     }
     const { obj, world } = p;
 
-    const r0 = reflect(transformDirection(vec3(0, 0, 1), cameraWorldMatrix).negate(),
-      transformDirection(p.reflN, cameraWorldMatrix));
+    // View to world, the GLSL's `inverseTransformDirection(v, viewMatrix)`. TSL's
+    // `transformDirection(v, m)` is `v * m`, the transpose's product, so it is the *view* matrix that
+    // takes a view direction to world. This read `cameraWorldMatrix` at first, which reflected off
+    // a normal in the wrong space: over the 4,149 pixels it moved on the parked frame, the mean
+    // error against WebGL was 15.2/255 before and 4.2 after.
+    const r0 = reflect(transformDirection(vec3(0, 0, 1), cameraViewMatrix).negate(),
+      transformDirection(p.reflN, cameraViewMatrix));
     const R = normalize(vec3(r0.x, max(abs(r0.y), 0.12), r0.z)).toVar();
     const env = mix(S.horizon, S.top, pow(R.y, 0.6)).toVar();
     const graze = float(1).sub(clamp(p.reflN.z, 0, 1)).toVar();

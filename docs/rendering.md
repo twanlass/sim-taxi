@@ -1225,6 +1225,14 @@ Measured against WebGL with AO, bloom, CRT and painterly off, at the parked 16:2
   half a pixel in a phone's corner). While the lens is wet the lens is the last pass and draws the
   screen instead. Pixel-identical to WebGL wherever the frame under it is (`?shot=1&msaa=off`).
   Off wherever the frame target is (MSAA, `?ao=off`).
+- **The manhole covers' metal** is `city/gpumanholes.js`: the albedo on the `surfaces` seam, the
+  bent normal as `normalNode`, the sun's glint in a `lightingFactory`. Pixel for pixel WebGL's at
+  play zoom, glints included.
+- **`transformDirection(v, m)` is `v * m`**, the transpose's product, not `m * v`. So a world
+  direction goes to view space through `cameraWorldMatrix` and a view direction to world through
+  `cameraViewMatrix`, the reverse of how it reads. The paint's reflection had it backwards until
+  the manholes' glint, which is three bright pixels or none, showed it: 15.2/255 of error against
+  WebGL over the pixels it moved, 4.2 after.
 - **The rim line is drawn by that last pass too.** The GLSL finds a body's silhouette by stepping
   each paint fragment across the AO prepass's depth, and there is no prepass: a fragment cannot
   read the depth buffer it is being drawn into. So the paint writes one number beside its fill
