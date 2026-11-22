@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { uniform } from 'three/tsl';
-import { GPU } from './gpu.js';
+import { GPU, gpuMaterials } from './gpu.js';
 import { bindPropNodes, PropLambertNodeMaterial } from './gpumaterial.js';
 import { bindPaint, PaintNodeMaterial } from './gpupaint.js';
 import { createCloudNodes } from './gpuclouds.js';
@@ -2161,7 +2161,8 @@ export function propMaterial({ ao = true, gloss = null, cutout = null, smooth = 
   // Phong for the light loop its specular term sits in (see GLOSS_SPECULAR_TO), not for its own
   // specular, which the patch replaces outright.
   const params = { vertexColors: true, flatShading: true };
-  const material = GPU
+  const nodes = gpuMaterials();
+  const material = nodes
     ? (paint ? new PaintNodeMaterial(params, paint) : new PropLambertNodeMaterial(params))
     : (paint ? new THREE.MeshPhongMaterial(params) : new THREE.MeshLambertMaterial(params));
   // Unconditional now: the shadow tint rides in the same patch and is always available. See
@@ -2184,7 +2185,7 @@ export function propMaterial({ ao = true, gloss = null, cutout = null, smooth = 
   // carries comes out of `bakeColor` with flat ones and so draws as it did.
   // `smooth` counts here too, for a glossy dome that wants the same (the bank's, city/bank.js).
   if (paint && (SMOOTH_BODY || smooth)) material.flatShading = false;
-  if (GPU) {
+  if (nodes) {
     // The WebGPU twin carries the shadow tint (util/gpumaterial.js). What `patchProp` adds beyond
     // that is still to port, and is listed here so `__taxi.unported()` can say so per mesh.
     material.userData.unported = [paint && rimPaintOn() && 'rim line', 'ao']

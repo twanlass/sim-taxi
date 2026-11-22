@@ -134,6 +134,7 @@ doc; what the classic version was, and why it changed, is in that doc's history 
 | `?bubbles=dock` | The docked card with no tag on the talker | | [gameplay.md](gameplay.md#speech-bubbles) |
 | `?copchat=classic` | The cops' "pull over" and "lost the suspect" bubbles | #492 | [gameplay.md](gameplay.md) |
 | `?renderer=classic` | Draws with three's WebGLRenderer and the GLSL shader patches, as the game did before the WebGPU port. Also what a browser with no WebGPU gets, without being asked | | [rendering.md](rendering.md#the-webgpu-port) |
+| `?gpuerror=<text>` | Set by the page itself, never by hand: a WebGPU start that threw reloads on `?renderer=classic` with the error here, and the page shows it in a strip along the top (tap to dismiss) | | [rendering.md](rendering.md#the-webgpu-port) |
 | `?race=classic` | No street racers: the city before the race vignette, with no violet car tailing the empty taxi to challenge it | | [gameplay.md](gameplay.md#the-street-race) |
 | `?hydraulics=classic` | The street racer without hydraulics: its body sits still on its wheels through the offer, the start and the finish | | [gameplay.md](gameplay.md#the-street-race) |
 | `?racetap=classic` | The race's count waits on a tap on the racer's "Ready?" once the camera is back from the finish | | [gameplay.md](gameplay.md#the-street-race) |

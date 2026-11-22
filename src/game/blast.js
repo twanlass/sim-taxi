@@ -5,6 +5,12 @@ import { unlitMaterial } from '../util/geo.js';
 import { markEmissive } from './bloom.js';
 import { wheelGeometry, WHEEL_R } from '../geometry/wheels.js';
 import { carrySpeed, carryTravel } from '../util/carry.js';
+import { GPU } from '../util/gpu.js';
+import { instanceAlpha } from '../util/gpunodes.js';
+import {
+  attribute, cameraViewMatrix, clamp, cross, dFdx, dFdy, dot, float, length, materialOpacity, max, min, mix,
+  normalize, positionView, pow, smoothstep, sqrt, uv, varying, vec3, vec4,
+} from 'three/tsl';
 
 // The crash detonation, whole. One call — `fire(x, z, tint, yaw, speed)` — puts a shockwave ring, a
 // fireball and a handful of shards on the road, and a crash makes exactly two of those calls, one
@@ -211,6 +217,7 @@ function withInstanceAlpha(geometry, material, capacity) {
       .replace('#include <common>', '#include <common>\nvarying float vAlpha;')
       .replace('#include <dithering_fragment>', '#include <dithering_fragment>\n\tgl_FragColor.a *= vAlpha;');
   };
+  if (GPU) instanceAlpha(material);
   return alphas;
 }
 
@@ -227,6 +234,27 @@ function withInstanceAlpha(geometry, material, capacity) {
  * `withInstanceAlpha`, because three keys a program off `onBeforeCompile.toString()`: the ring, the
  * shards and the tyres must not share a cache key with a shader that reads an attribute they lack.
  */
+// The patch in `withFireShading` as nodes, at the same seam (`userData.finish`, game/gpufog.js).
+// No branch on `shade`: WGSL wants its derivatives outside control flow, and every term is a mix
+// on it that leaves an unshaded puff as it was.
+function fireFinish(out) {
+  const fire = varying(attribute('aFire', 'vec3'));
+  const toEye = positionView.negate();
+  const facetN = normalize(cross(dFdx(toEye), dFdy(toEye))).toVar();
+  const facing = clamp(facetN.z, 0.0, 1.0).toVar();
+  const up = dot(facetN, normalize(cameraViewMatrix.mul(vec4(0, 1, 0, 0)).xyz)).toVar();
+  const base = out.rgb;
+  const flame = base.mul(mix(0.55, 1.2, facing))
+    .add(vec3(1.0, 0.86, 0.55).mul(pow(facing, 5.0)).mul(0.5).mul(fire.y));
+  const soot = base.mul(max(up, 0.0).mul(0.6).add(0.7))
+    .add(vec3(1.0, 0.4, 0.1).mul(max(up.negate(), 0.0)).mul(fire.z));
+  const lit = mix(soot, flame, smoothstep(0.1, 0.55, fire.y));
+  const rim = sqrt(max(0.0, float(1).sub(facing.mul(facing))));
+  const alpha = out.a.mul(varying(attribute('aAlpha', 'float')))
+    .mul(mix(1.0, float(1).sub(smoothstep(0.5, 0.97, rim)), fire.x));
+  return vec4(mix(base, lit, fire.x), alpha);
+}
+
 function withFireShading(geometry, material, capacity) {
   const alphas = new Float32Array(capacity);
   const fire = new Float32Array(capacity * 3);
@@ -267,6 +295,10 @@ varying vec3 vFireView;`)
 		gl_FragColor.a *= mix(1.0, 1.0 - smoothstep(0.5, 0.97, rim), vFire.x);
 	}`);
   };
+  if (GPU) {
+    material.userData.finish = fireFinish;
+    material.userData.ported = true;
+  }
   return { alphas, fire };
 }
 
@@ -339,6 +371,11 @@ export function createBlast(scene, rng) {
 	float glowK = 1.0 - glowR;
 	gl_FragColor.a *= glowK * glowK * vGlow;`);
   };
+  if (GPU) {
+    const k = float(1).sub(min(1.0, length(uv().sub(0.5)).mul(2)));
+    glowMat.opacityNode = materialOpacity.mul(k).mul(k).mul(varying(attribute('aAlpha', 'float')));
+    glowMat.userData.ported = true;
+  }
   // Under the ring and the fire, over the rubber.
   const glowMesh = makePool(scene, glowGeo, glowMat, MAX_GLOWS, 3);
   const glowColor = color('blastGlow');

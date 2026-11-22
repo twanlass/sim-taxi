@@ -72,7 +72,12 @@ export function createFogNode(fog) {
 
   return Fn(() => {
     const display = sRGBTransferOETF(output.rgb).toVar();
-    display.assign(mix(display, hazeColor, rangeFogFactor(near, far)));
+    // The haze colour is encoded too. three's WebGL renderer hands `fogColor` over in the *output*
+    // colour space when it draws to the screen (`getUnlitUniformColorSpace`), so the GLSL mixed
+    // display into display. Mixing the linear colour instead left the red of #77CFFF at 0.19 for
+    // 0.47, and the whole city 6/255 short of red and 4 of green: the "lit faces 3% low" that was
+    // chased through the lights first. With it, the frame is within 0.5/255 of WebGL's.
+    display.assign(mix(display, sRGBTransferOETF(hazeColor), rangeFogFactor(near, far)));
 
     if (EDGE_FOG) {
       const p = positionWorld.xz;
@@ -124,12 +129,19 @@ let gradeInstalled = false;
 export function installNodeGrade() {
   if (gradeInstalled) return;
   gradeInstalled = true;
-  const base = NodeMaterial.prototype.setupOutput;
+  // three's own `setupOutput`, restated (fog, then the premultiply) so there is a place between
+  // the two: `userData.finish(rgba, builder)` runs where a patch after `<dithering_fragment>` did,
+  // on the finished display colour with its alpha still straight. Not part of three's cache key,
+  // so a material that sets one also needs a key of its own; one that keeps its `onBeforeCompile`
+  // has it, three's default key being that function's text.
   NodeMaterial.prototype.setupOutput = function setupOutput(builder, outputNode) {
-    const display = this.fog === true || this.userData.display
+    let node = this.fog === true || this.userData.display
       ? outputNode
       : vec4(gradeDisplay(sRGBTransferOETF(outputNode.rgb)), outputNode.a);
-    return base.call(this, builder, display);
+    if (this.fog === true) node = this.setupFog(builder, node);
+    if (this.userData.finish) node = this.userData.finish(node, builder);
+    if (this.premultipliedAlpha === true) node = this.setupPremultipliedAlpha(builder, node);
+    return node;
   };
 }
 

@@ -6,6 +6,8 @@ import { propMaterial, bakeColor } from '../util/geo.js';
 import { carrySpeed } from '../util/carry.js';
 import { TAXI_TAILPIPE_BACK, TAXI_TAILPIPE_HEIGHT } from '../geometry/taxi.js';
 import { ROAD_Y } from '../sim/traffic.js';
+import { GPU } from '../util/gpu.js';
+import { instanceAlpha } from '../util/gpunodes.js';
 
 // Banknotes fluttering out of the back of the taxi while it boosts with a robber aboard — see
 // [the bank robbery](../../docs/gameplay.md#the-bank-robbery).
@@ -379,6 +381,9 @@ export function createCashTrail(scene, rng) {
   // The back colour is baked into the source as a literal, so the default cache key — the patch
   // function's own text — would not change if the palette did. Key off the literal as well.
   material.customProgramCacheKey = () => `cashnote:${back}:${BACK_FLIP}`;
+  // WebGPU: the fade. Not the back's colour yet: it is mixed in after the instance colour, and
+  // three's node materials have no seam there short of a `setupDiffuseColor` of their own.
+  if (GPU) instanceAlpha(material);
 
   const mesh = skipWhenEmpty(new THREE.InstancedMesh(geometry, material, MAX_NOTES));
   mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);

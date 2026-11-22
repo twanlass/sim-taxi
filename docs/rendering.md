@@ -1142,7 +1142,19 @@ What the WebGPU path draws today, and what it does not:
 - **Every other `onBeforeCompile` patch is ignored**, silently: facades, the leaf fuzz, the
   L train's own entrance and the rest.
 - **A `ShaderMaterial` cannot be converted at all** and loses the device if drawn, so
-  `game/gpucompat.js` hides those meshes (the L train's beam, the headlight cones).
+  `game/gpucompat.js` hides those meshes. Only the manhole steam is left on that list: the taxi's
+  glints, the headlight cones and the L train's beam have twins (`unlitTwin`, `util/gpunodes.js`).
+- **The mote pools' per-instance alpha** (dust, flames, sparks, spray, the wake, the fire, the
+  blast, the ghost rims, the cash notes) is `instanceAlpha()`: an `opacityNode` set on the built-in
+  material, which three copies across when it converts one. The fireball's facet shading runs at
+  `userData.finish`, a seam added to the output stage where a patch after `<dithering_fragment>`
+  ran (`installNodeGrade`, `game/gpufog.js`). Not ported: the cash notes' back colour.
+- **The page's small WebGL canvases keep GLSL materials.** The startup splash, the taxi and rider
+  finders and the cargo chip are plain `WebGLRenderer`s, which cannot draw a node material: the
+  splash threw on the game's taxi before the game was imported and the page stayed black, on every
+  URL but a `?shot`. They build their models inside `forWebGL()` (`util/gpu.js`).
+- **A start that throws falls back.** Any error before `window.__taxi` exists reloads the page on
+  `?renderer=classic&gpuerror=<what>`, and that page shows the error in a strip along the top.
 
 Things the WebGL renderer does without being asked, each of which showed up as a wrong
 picture and each of which the node path now does by hand:
@@ -1150,6 +1162,10 @@ picture and each of which the node path now does by hand:
 - **Fog and grade are mixed in display space.** three's fog chunk runs after its colour-space
   chunk, so every fog colour and the whole grade were tuned against sRGB-encoded pixels. A node
   material fogs in linear and encodes last. `gpufog.js` encodes, mixes, grades and decodes.
+- **The haze colour is display-encoded.** three's WebGL renderer hands `fogColor` over in the
+  output colour space when it draws to the screen, so the GLSL mixed display into display. Mixing
+  the linear colour left the whole city 6/255 short of red and 4 of green. With it encoded the
+  frame is within 0.5/255 of WebGL's (`?shot=9`, by luminance band).
 - **The grade is not neutral.** `GRADE_DEFAULTS` carries about half a stop of exposure; without it
   the first WebGPU frames measured 1.7 times darker on lit faces (roof 133 against 184 of 255).
 - **Blending happens on display values.** Every WebGL material encodes sRGB in its own shader, so

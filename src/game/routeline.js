@@ -1106,6 +1106,7 @@ function routeNodeMaterial(uniforms) {
   const material = new MeshBasicNodeMaterial({
     transparent: true, depthWrite: false, premultipliedAlpha: true, side: THREE.DoubleSide, fog: false,
   });
+  material.uniforms = uniforms;
   const u = liveUniforms(uniforms, (name) => name.startsWith('u'));
   const dist = varying(attribute('aDist', 'float'));
 
@@ -1122,6 +1123,5 @@ function routeNodeMaterial(uniforms) {
 
   material.colorNode = mix(u.uColor, vec3(1), min(1.0, boost.add(u.uGrab.mul(focus).mul(GRAB_WHITEN))));
   material.opacityNode = min(float(1), envelope.add(boost));
-  material.uniforms = uniforms;
   return material;
 }

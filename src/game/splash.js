@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { forWebGL } from '../util/gpu.js';
 import { PALETTE, color } from '../palette.js';
 import { BODY_EULER_ORDER, unlitMaterial } from '../util/geo.js';
 import { makeRng } from '../util/rng.js';
@@ -563,7 +564,7 @@ export function createSplash(root) {
   const shadow = blobShadow();
   scene.add(shadow);
 
-  const taxi = createTaxiMesh();
+  const taxi = forWebGL(() => createTaxiMesh());
   // Nothing in this scene can hide the car, so the outline that shows it through buildings has
   // nothing to do — and with no stencil buffer asked for, it would fill the whole hull.
   setGhostOutlines(taxi.group, false);
