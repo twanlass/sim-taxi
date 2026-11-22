@@ -13,6 +13,7 @@
  * decode. The output pass's encode then cancels the decode and the pixel is the one WebGL drew.
  */
 import * as THREE from 'three';
+import { NodeMaterial } from 'three/webgpu';
 import {
   Fn, abs, dot, float, floor, fract, length, max, min, mix, output, positionWorld, rangeFogFactor,
   reference, sRGBTransferEOTF, sRGBTransferOETF, select, sin, smoothstep, texture3D, uniform, vec2, vec3,
@@ -92,9 +93,45 @@ export function createFogNode(fog) {
       display.assign(mix(display, edge.xyz.mul(n.mul(0.2).add(0.86)), select(on, eased, float(0))));
     }
 
-    return vec4(sRGBTransferEOTF(gradeDisplay(display)), output.a);
+    return vec4(gradeDisplay(display), output.a);
   })();
 }
 
-/** A display-space colour, as a linear node: what a WebGL `ShaderMaterial` wrote raw to the canvas. */
-export const displayColor = (node) => sRGBTransferEOTF(gradeDisplay(vec3(node)));
+/**
+ * Grade everything the haze does not reach. On WebGL the grade rides the end of three's fog chunk
+ * (`installColorGrade`), outside its `USE_FOG` test, so a material with `fog: false` — every
+ * marker and every unlit effect, through `unlitMaterial()` — is graded too. A node material only
+ * runs `scene.fogNode` when its own `fog` is on, so those came out ungraded: with the shipped
+ * grade that is every marker about half a stop dark.
+ *
+ * Patched onto the base class, once, because three converts built-in materials to node materials
+ * out of sight and there is no instance to set an `outputNode` on. Before the premultiply, as the
+ * GLSL chunk order has it.
+ *
+ * **Every node material ends in display space, and the renderer is told the frame is linear**
+ * (`outputColorSpace` in main.js), which is a deliberate lie with two payoffs. Blending happens on
+ * display values, as it does on WebGL, where every material encodes in its own shader: blended
+ * in linear the route band came out a third more opaque and visibly more yellow. And three draws
+ * straight to the canvas: asked to convert the colour space itself it renders the scene to a
+ * target and copies that to the canvas through a full-screen pass, every frame.
+ *
+ * So the tail of every material is: the haze, fog of war and grade (`scene.fogNode`, for the lit
+ * ones), or the encode and the grade (here, for the rest). A material that writes finished
+ * display values itself (the sky; a glow that is light and not paint, see game/colorgrade.js)
+ * sets `userData.display` and is left alone.
+ */
+let gradeInstalled = false;
+export function installNodeGrade() {
+  if (gradeInstalled) return;
+  gradeInstalled = true;
+  const base = NodeMaterial.prototype.setupOutput;
+  NodeMaterial.prototype.setupOutput = function setupOutput(builder, outputNode) {
+    const display = this.fog === true || this.userData.display
+      ? outputNode
+      : vec4(gradeDisplay(sRGBTransferOETF(outputNode.rgb)), outputNode.a);
+    return base.call(this, builder, display);
+  };
+}
+
+/** A display-space colour, graded: what a WebGL `ShaderMaterial` wrote raw to the canvas. For a `userData.display` material. */
+export const displayColor = (node) => gradeDisplay(vec3(node));

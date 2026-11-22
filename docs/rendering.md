@@ -1135,14 +1135,16 @@ What the WebGPU path draws today, and what it does not:
   to the shadow pass, so the two depth materials the WebGL path patches have no twin), and the
   paved junction (`util/gpupaving.js`), which is all of the painterly look that is on by default;
   `?roadstrokes=classic` and the dialled-off lawn strokes, wall-foot fade and terminator tint
-  are not ported.
+  are not ported. The route band is the first of the hand-written `ShaderMaterial`s to get a
+  twin (`routeNodeMaterial` in `game/routeline.js`); a twin keeps the GLSL material's `uniforms`
+  bag and reads the same slots (`util/gpunodes.js`).
   `propMaterial()` returns a node material under WebGPU (`util/gpu.js` decides, at import).
 - **Every other `onBeforeCompile` patch is ignored**, silently: facades, the leaf fuzz, the
   L train's own entrance and the rest.
 - **A `ShaderMaterial` cannot be converted at all** and loses the device if drawn, so
   `game/gpucompat.js` hides those meshes (the L train's beam, the headlight cones).
 
-Three things the WebGL renderer does without being asked, each of which showed up as a wrong
+Things the WebGL renderer does without being asked, each of which showed up as a wrong
 picture and each of which the node path now does by hand:
 
 - **Fog and grade are mixed in display space.** three's fog chunk runs after its colour-space
@@ -1150,6 +1152,17 @@ picture and each of which the node path now does by hand:
   material fogs in linear and encodes last. `gpufog.js` encodes, mixes, grades and decodes.
 - **The grade is not neutral.** `GRADE_DEFAULTS` carries about half a stop of exposure; without it
   the first WebGPU frames measured 1.7 times darker on lit faces (roof 133 against 184 of 255).
+- **Blending happens on display values.** Every WebGL material encodes sRGB in its own shader, so
+  a translucent surface is blended over an encoded frame. three's WebGPU renderer keeps the frame
+  linear and encodes at the end, and blended that way the route band came out about a third more
+  opaque and more yellow. So every node material ends in display space (`installNodeGrade` in
+  `game/gpufog.js` patches the base class's output for the ones the haze does not reach) and the
+  renderer is told the frame is linear. That also takes a pass out of every frame: asked to
+  convert, three draws the scene to a target and copies it to the canvas through a full-screen
+  quad; told there is nothing to convert, it draws straight to the canvas.
+- **The grade reaches unlit materials.** On WebGL it rides the fog chunk outside `USE_FOG`, so a
+  `fog: false` marker is graded. A node material only runs the scene's fog node when its own fog
+  is on; the same patch grades the rest.
 - **The shadow pass draws back faces.** WebGL's does for a front-sided material; WebGPU's draws
   `material.side`, and every roof came out striped and 8% dark until the node materials answered
   `shadowSide` the WebGL way.

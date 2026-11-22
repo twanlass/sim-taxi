@@ -321,7 +321,13 @@ const renderer = GPU ? new WebGPURenderer({ antialias: budget.msaa, stencil: tru
 // bottom of the screen, and the strip the canvas doesn't cover shows as bare sky under the game.
 // See util/viewport.js for the measurement that is actually right.
 const viewport = createViewport();
-if (GPU) await renderer.init();
+if (GPU) {
+  // Every node material writes display values itself (see `installNodeGrade`, game/gpufog.js), so
+  // three is told there is nothing to convert: it then draws straight to the canvas instead of to
+  // a target it copies across each frame, and blending happens where WebGL does it.
+  renderer.outputColorSpace = THREE.LinearSRGBColorSpace;
+  await renderer.init();
+}
 const gpuCapture = GPU ? createGpuCapture(renderer, { samples: budget.msaa ? 4 : 0 }) : null;
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, budget.pixelRatioCap));
 renderer.setSize(viewport.width(), viewport.height());
