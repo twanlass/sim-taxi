@@ -504,10 +504,21 @@ export function createTaxiHeadlights() {
   /**
    * 0..1, the same running-light level the fleet reads (`setRunningLights` in sim/traffic.js): off
    * in the sun, on once the storm is properly gloomy. A scale about each part's own origin — the
-   * lamp — as the fleet's are, rather than `visible`, so switching on is not the frame a program
-   * compiles.
+   * lamp — as the fleet's are.
+   *
+   * And `visible` off at 0, because a zero scale on its own is still drawn: three culls by a
+   * bounding sphere, and a sphere scaled to a point inside the frustum passes. That was four draws a
+   * frame for lamps that are dark for most of a run (`setShown` in geometry/taxi.js has the count).
+   * It was scale alone once so that switching on would not be the frame a program compiles, and it
+   * no longer needs to be: the boot's warm-up shows every hidden object before it draws
+   * (`warmFirstDraws` in game/warmup.js).
    */
-  const setLevel = (level) => { for (const part of group.children) part.scale.setScalar(level); };
+  const setLevel = (level) => {
+    for (const part of group.children) {
+      part.scale.setScalar(level);
+      part.visible = level > 0;
+    }
+  };
   setLevel(0);
   return { group, pods, setLevel };
 }
