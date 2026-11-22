@@ -854,7 +854,10 @@ export function createDiamond(colorHex) {
     depthWrite: true,
   }));
   mesh.renderOrder = DIAMOND_ORDER;
-  mesh.castShadow = true;
+  // No shadow. It is a clock hanging in the air, not a thing standing on the kerb, and its shadow
+  // was a dark blot on the grass beside the rider that read as part of the marker (Tyler,
+  // 2026-11-22). It was also a draw in the 2048² shadow pass for every fare on the board.
+  mesh.castShadow = false;
 
   // Near wall only. The far one was built and taken out again, and it is worth saying why, because
   // the argument for it is a good one: only the *near* half of the liquid's surface is drawn, and

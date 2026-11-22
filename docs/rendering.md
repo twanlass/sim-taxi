@@ -793,7 +793,13 @@ History: [the old drop-off aim, the 2400ms delay, the timer ring and the invisib
 
 `src/game/scene.js` returns `{ scene, sun, hemi, sky, fog }`:
 
-- **`sun`** — a directional light with shadows (`PCFSoftShadowMap`)
+- **`sun`** — a directional light with shadows (`PCFSoftShadowMap`). Its shadow camera covers the
+  whole island, so three's own culling in the shadow pass passes every caster on the map. Before
+  each frame `game/shadowcull.js` turns `castShadow` off for the casters whose shadow cannot reach
+  the view (the caster and its shadow on the ground, as one capsule, tested against the camera), and
+  turns it back on after. That took the 2048² shadow pass from 135 draws to 53 in a headless run
+  (2026-11-22), and renders pixel-identical to drawing them all. The warm-up holds it off so every
+  depth program still links at boot. `?shadowcull=classic` draws every caster.
 - **`hemi`** — a hemisphere light for ambient fill
 - **`sky`** — the *material* of a sky dome, whose `topColor` / `bottomColor` uniforms are the only
   handle on sky colour

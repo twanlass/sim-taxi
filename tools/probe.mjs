@@ -24341,6 +24341,49 @@ for (const viewName of ['side', 'quarter']) {
   check('speech: a card with no room above still hangs below', card.py === 0, `pointer at ${card.py}`);
 }
 
+// The shadow-pass cull (game/shadowcull.js): a caster sits the pass out only when neither it nor
+// its shadow can reach the view, it hands every flag back afterwards, and the warm-up holds it off.
+{
+  const { createShadowCull, withAllCasters } = await import('../src/game/shadowcull.js');
+  const sc = new THREE.Scene();
+  const sunL = new THREE.DirectionalLight();
+  sunL.castShadow = true;
+  // The parked sun's shape: low (13 degrees), off to one side.
+  const el = (13 * Math.PI) / 180;
+  sunL.position.set(Math.cos(el) * 100, Math.sin(el) * 100, 0);
+  sc.add(sunL, sunL.target);
+  const cam = new THREE.OrthographicCamera(-10, 10, 10, -10, 0.1, 1000);
+  cam.position.set(0, 100, 0);
+  cam.lookAt(0, 0, 0);
+  cam.updateProjectionMatrix();
+  const box = (x, y, z, h = 1) => {
+    const m = new THREE.Mesh(new THREE.BoxGeometry(1, h, 1), new THREE.MeshBasicMaterial());
+    m.position.set(x, y, z);
+    m.castShadow = true;
+    sc.add(m);
+    return m;
+  };
+  const inView = box(0, 0.5, 0);
+  const farAway = box(80, 0.5, 80);
+  // Off the +x edge, but the sun is on the +x side, so its shadow runs back across the view:
+  // 6 tall at 13 degrees throws 26 units of shadow, from x 14 to about x -12.
+  const shadowReaches = box(14, 3, 0, 6);
+  const staysOff = box(-80, 0.5, 0);
+  staysOff.castShadow = false;
+  const cull = createShadowCull(sc, sunL);
+  cull.cull(cam);
+  check('shadow cull: a caster in view keeps casting', inView.castShadow === true);
+  check('shadow cull: a caster nowhere near the view sits the pass out', farAway.castShadow === false);
+  check('shadow cull: a caster off screen whose shadow falls across the view keeps casting',
+    shadowReaches.castShadow === true);
+  cull.restore();
+  check('shadow cull: every flag it turned off comes back after the frame',
+    farAway.castShadow === true && staysOff.castShadow === false);
+  withAllCasters(() => cull.cull(cam));
+  check('shadow cull: the warm-up holds it off', farAway.castShadow === true);
+  cull.restore();
+}
+
 // Average speed per car over the whole run — a stable throughput number, unlike a snapshot of
 // how many cars happen to be moving at the instant the sim stops.
 const throughput = stats.distance / stats.time / traffic.cars.length;

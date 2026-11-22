@@ -200,6 +200,7 @@ import { createDiagnostics, describeGpu } from './game/diag.js';
 import { createHitchLogger, getHitchLogger } from './game/hitch.js';
 import { createPerfCapture, perfMark, perfPhase } from './game/perf.js';
 import { warmFirstDraws, warmFirstDrawsInSteps, awaitPrograms } from './game/warmup.js';
+import { createShadowCull } from './game/shadowcull.js';
 import { LOADER, warmStep, compileProgress } from './game/loadbar.js';
 import { createBench } from './game/bench.js';
 import { createSoak } from './game/soak.js';
@@ -394,6 +395,10 @@ declined.forEach((text) => diag.note(text));
 let warmedUp = false;
 
 const { scene, sun, hemi, sky, fog } = createScene({ shadowMapSize: budget.shadowMapSize });
+// The shadow pass draws only the casters whose shadow can reach the view, instead of every caster on
+// the island (game/shadowcull.js). `?shadowcull=classic` draws them all, as before.
+const shadowCull = createShadowCull(scene, sun);
+if (new URLSearchParams(location.search).get('shadowcull') === 'classic') shadowCull.setEnabled(false);
 
 // The crayon page and the bloom composite, over the city and under every read-out.
 renderPath.addOverlays(scene);
@@ -446,9 +451,15 @@ settings.onChange((v) => {
 function renderFrame(cam = camera) {
   // `?perf`: everything `tick` did before this is the frame's `sim`; the passes name themselves.
   perfPhase('pre');
+  // Casters whose shadow cannot reach this camera's view sit the shadow pass out (game/shadowcull.js).
+  shadowCull.cull(cam);
   // The pass order lives in game/renderpath.js, shared with the workshop's bench; the weather and
   // the diagnostics are the game's own and ride in with it.
-  renderPath.render(scene, cam, { rain, rainLightsOn, diag });
+  try {
+    renderPath.render(scene, cam, { rain, rainLightsOn, diag });
+  } finally {
+    shadowCull.restore();
+  }
 }
 
 // Weather, ringing the island — see game/clouds.js. Scenery on the same terms as the aeroplane and
@@ -8891,6 +8902,8 @@ if (!shot && wantsDebugPanel) {
 window.__taxi = {
   /** Whether the boot's GPU warm-up is done and the run has started — see `warmedUp`. */
   get warmedUp() { return warmedUp; },
+  // The shadow-pass cull — `stats()` says how many casters the last frame skipped (game/shadowcull.js).
+  shadowCull,
   traffic,
   // The CRT screen's `{ state, set, preset }` — see game/crt.js.
   crt,
