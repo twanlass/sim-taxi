@@ -20,6 +20,8 @@
  *     what `tick` did once the frame was submitted. These are **JS submission** times. A hitch
  *     whose `cpu` is small was not the game's JavaScript.
  *   - `link` — `gl.linkProgram` calls. A link is a synchronous stall in the driver.
+ *     Under WebGPU: render pipelines built plus materials whose nodes were rebuilt, each named in
+ *     a note (see `device` below). `up` and `tex` come from the device's queue there.
  *   - `up` / `tex` — kilobytes through `bufferData`/`bufferSubData`, and texture uploads. A first
  *     draw of anything uploads; game/warmup.js exists to move those into the load.
  *   - `calls` / `tris` — `renderer.info`, summed over every pass of the frame.
@@ -90,7 +92,12 @@ export function createPerfCapture(renderer, { scene = null, cap = () => 60, prob
   const noop = { begin: () => {}, end: () => {}, save: () => null, skip: () => {} };
   if (!PERF) return noop;
 
-  const gl = renderer.getContext();
+  // Under WebGPU there is no GL context to hook (`getContext()` is the canvas's GPU context, with
+  // none of these functions on it), and the first WebGPU captures therefore read 0 links and 0
+  // uploads at boot and for the whole run — which was the profiler being blind, not the game being
+  // idle. The same counters are fed from the device instead, further down (`hookDevice`).
+  const device = renderer.backend?.device ?? null;
+  const gl = device ? {} : renderer.getContext();
   const counters = { link: 0, up: 0, tex: 0 };
   const boot = { link: 0, up: 0, tex: 0 };
   const wrap = (name, fn) => {
@@ -120,6 +127,41 @@ export function createPerfCapture(renderer, { scene = null, cap = () => 60, prob
   wrap('bufferSubData', (a) => { counters.up += bytesOf(a[2]); });
   for (const name of ['texImage2D', 'texSubImage2D', 'texImage3D', 'texSubImage3D',
     'compressedTexImage2D', 'texStorage2D']) wrap(name, () => { counters.tex += 1; });
+
+  // WebGPU's equivalents, into the same three columns so the report reads the same either way:
+  //   - `link` — a render pipeline built (the driver stall a GL link is), **or** a material's nodes
+  //     built. The second has no GL counterpart: `material.needsUpdate` re-runs three's node
+  //     builder and regenerates the WGSL in JavaScript even when the pipeline it ends in is
+  //     already cached, so it costs a frame without the device ever hearing about it. Each is
+  //     named in a note (`link pipeline …`, `link nodes …`), which is what tells the two apart.
+  //   - `up` — bytes through `queue.writeBuffer` and buffers created mapped.
+  //   - `tex` — `queue.writeTexture` and `copyExternalImageToTexture`.
+  const gpuNotes = [];
+  const nameOf = (object) => {
+    for (let o = object; o; o = o.parent) if (o.name) return o.name;
+    return object?.type ?? '?';
+  };
+  if (device) {
+    const hook = (target, name, fn) => {
+      const original = target[name];
+      if (typeof original !== 'function') return;
+      target[name] = function hooked(...args) { fn(args); return original.apply(this, args); };
+    };
+    const built = (args) => { counters.link += 1; gpuNotes.push(`link pipeline ${args[0]?.label ?? ''}`); };
+    hook(device, 'createRenderPipeline', built);
+    hook(device, 'createRenderPipelineAsync', built);
+    hook(device, 'createBuffer', (a) => { if (a[0]?.mappedAtCreation) counters.up += a[0].size ?? 0; });
+    // `size` is in elements for a typed array and in bytes for a buffer.
+    hook(device.queue, 'writeBuffer', (a) => {
+      counters.up += a[4] === undefined ? bytesOf(a[2]) : a[4] * (a[2]?.BYTES_PER_ELEMENT ?? 1);
+    });
+    hook(device.queue, 'writeTexture', () => { counters.tex += 1; });
+    hook(device.queue, 'copyExternalImageToTexture', () => { counters.tex += 1; });
+    hook(renderer.backend, 'createNodeBuilder', (a) => {
+      counters.link += 1;
+      gpuNotes.push(`link nodes ${nameOf(a[0])}`);
+    });
+  }
 
   const tags = Object.keys(probes);
   const columns = ['t', 'gap', 'cpu', 'link', 'up', 'tex', 'calls', 'tris', 'rs', 'tags'];
@@ -222,6 +264,9 @@ export function createPerfCapture(renderer, { scene = null, cap = () => 60, prob
       if (fresh.length) for (const name of nameProgramUsers(fresh)) note(`link ${name}`, t);
       for (const stack of linkStacks) note(`link-from ${stack}`, t);
     }
+    // Named only once the first frame is out: the boot builds hundreds and they are the warm-up.
+    if (firstFrameAt && t > firstFrameAt) for (const line of gpuNotes) note(line, t);
+    gpuNotes.length = 0;
     width = canvas.width;
     height = canvas.height;
     let mask = 0;
@@ -297,7 +342,8 @@ export function createPerfCapture(renderer, { scene = null, cap = () => 60, prob
   function snapshot(reason) {
     const nav = performance.getEntriesByType?.('navigation')?.[0];
     const resources = performance.getEntriesByType?.('resource') ?? [];
-    const debug = gl.getExtension('WEBGL_debug_renderer_info');
+    const debug = device ? null : gl.getExtension('WEBGL_debug_renderer_info');
+    const adapter = renderer.backend?.adapter?.info;
     return {
       version: 1,
       reason,
@@ -307,7 +353,8 @@ export function createPerfCapture(renderer, { scene = null, cap = () => 60, prob
       native: Boolean(window.__native),
       nativeVersion: window.__nativeVersion ?? null,
       ua: navigator.userAgent,
-      gpu: debug ? gl.getParameter(debug.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER),
+      gpu: device ? `webgpu ${adapter?.vendor ?? ''} ${adapter?.architecture ?? ''} ${adapter?.device ?? ''}`.trim()
+        : debug ? gl.getParameter(debug.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER),
       screen: { w: window.screen.width, h: window.screen.height, dpr: window.devicePixelRatio },
       canvas: { w: renderer.domElement.width, h: renderer.domElement.height },
       cap: cap(),
