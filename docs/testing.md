@@ -170,6 +170,15 @@ The third piece is the `renderer.compile(scene, camera)` at the bottom of `main.
 walks the scene with `traverse` rather than `traverseVisible`, so it reaches the pooled effects that
 are sitting there invisible, and moves another six links out of the run.
 
+The fourth is **faded variants** (`fadeVariants` in `game/warmup.js`). `transparent` is part of a
+program's key (three's `OPAQUE` define), so anything that fades out — a delivered rider, the boats
+and gulls, the roadworks packing up — relinks its shader the first time it goes see-through, mid-run.
+The warm-up draws one copy per distinct opaque program with `transparent` on, once, at boot, and
+keeps the copies alive so three does not delete the programs. The roadworks' props are the only
+shadow-casting, non-receiving instanced meshes in the city, so `roadwork.js` adds two hidden
+stand-ins (`roadwork-warm`) that give the warm-up that key to find. On tdub this took three links
+worth ~850 ms of stalls out of the scripted run.
+
 `roadwork-pull.mjs` is deliberately **not** in `npm run check`. What it measures is a distribution —
 the share of runs in which the taxi is routed through the closed street — and the honest assertion
 ("most players meet it") is a percentage with real variance across seeds. A suite that gates on one

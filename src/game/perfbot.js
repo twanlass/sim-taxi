@@ -27,7 +27,7 @@
 import { cityNetwork } from '../city/roadnet.js';
 import { GRID_I, GRID_J } from '../city/grid.js';
 import { isArchedDeck } from './route.js';
-import { STOP_SETBACK } from '../sim/traffic.js';
+import { STOP_SETBACK, DRIFT_MIN_V } from '../sim/traffic.js';
 import { TAXI_HP } from '../sim/collisions.js';
 import { perfMark } from './perf.js';
 
@@ -88,6 +88,7 @@ export function createPerfBot({
   let errand = null;
   let hops = 0;
   let lineOpen = 0;
+  let tappedLane = null;
   let brakeUntil = -1;
   let robberySeen = false;
   let robberyEnded = 0;
@@ -213,8 +214,12 @@ export function createPerfBot({
     }
     locoOn();
     if (taxi.drift || taxi.state !== 'drive' || !taxi.route?.length || !taxi.lane) return;
+    // One tap per corner, and only at Loco speed: a tap that did not arm a drift is an ordinary
+    // brake, and tapping again every frame after it held the taxi at a crawl for a whole scene.
+    if (tappedLane === taxi.lane.id || taxi.v < DRIFT_MIN_V) return;
     const toLine = taxi.lane.length - STOP_SETBACK - taxi.s;
     if (taxi.route[0] !== taxi.d && toLine > 0 && toLine < Math.max(6, taxi.v * 0.5)) {
+      tappedLane = taxi.lane.id;
       holdBrake();
       brakeUntil = sceneT + 0.13;
     }

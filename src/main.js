@@ -8817,7 +8817,7 @@ if (shot) {
   // startup screen over it (Play again) that would be presented. `?loader=classic` is the one frame.
   const warming = new URLSearchParams(window.location.search).get('warmup') !== 'classic';
   if (warming && !LOADER) {
-    warmFirstDraws(scene, () => renderFrame());
+    warmFirstDraws(scene, () => renderFrame(), [scene], { renderer });
     renderFrame();
     startRun();
   } else if (warming) {
@@ -8831,7 +8831,7 @@ if (shot) {
       setTimeout(resolve, 100);
     });
     awaitPrograms(renderer, { onProgress: compileProgress, yieldFrame })
-      .then(() => warmFirstDrawsInSteps(scene, () => renderFrame(), { onStep: warmStep, yieldFrame }))
+      .then(() => warmFirstDrawsInSteps(scene, () => renderFrame(), { onStep: warmStep, yieldFrame, renderer }))
       .catch((error) => console.error('[taxi] warm-up', error))
       .finally(() => {
         renderFrame();

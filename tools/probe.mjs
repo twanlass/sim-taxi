@@ -15779,6 +15779,8 @@ let chopperOrder; // likewise
     rwScene.updateMatrixWorld(true);
     roadwork.group.traverse((o) => {
       if (!o.isMesh || o.isInstancedMesh || !o.geometry?.attributes?.position) return;
+      // The warm-up's stand-in barricade (game/roadwork.js) is never shown and stands at the origin.
+      if (o.name === 'roadwork-warm') return;
       const pos = o.geometry.attributes.position;
       for (let i = 0; i < pos.count; i++) {
         v.fromBufferAttribute(pos, i).applyMatrix4(o.matrixWorld);
