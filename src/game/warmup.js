@@ -81,7 +81,8 @@ export function warmFirstDraws(scene, draw, roots = [scene], { renderer = null }
     // Every pool shown and every shadow caster drawn, so each one's programs link now.
     withPoolsShown(() => withAllCasters(draw));
     // Then the faded variants of what that draw linked (see `fadeVariants`), in one more frame.
-    const swaps = fadeVariants(roots, renderer);
+    // `?fadewarm=classic` skips it, for an A/B on the phone (tools/ios-perfloop.mjs --variants).
+    const swaps = new URLSearchParams(globalThis.location?.search ?? '').get('fadewarm') === 'classic' ? [] : fadeVariants(roots, renderer);
     if (swaps.length) {
       for (const [o, , copy] of swaps) o.material = copy;
       try {
