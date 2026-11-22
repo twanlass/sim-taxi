@@ -446,6 +446,9 @@ export function markEmissive(root, kind = 'pod') {
     // which is how `game/routeline.js`'s band gets in. Silent, because a traversal over a group
     // legitimately meets meshes that are not lamps.
     if (!live.color && !live.emissive) return;
+    // The WebGPU stand-in for one of those (`unlitTwin`, util/gpunodes.js) does have a `color`, and
+    // is skipped all the same: the L train's beam is a shader on WebGL and was never a lamp.
+    if (live.userData.twin) return;
     // Through the helper, like every other unlit material in the game — and the `fog: false` it
     // carries is the point here rather than a formality: haze mixes toward the sky colour, and a
     // lamp faded into the sky is not a lamp.

@@ -42,6 +42,9 @@ export function unlitTwin(source, build, { display = false } = {}) {
   material.uniforms = source.uniforms;
   material.visible = source.visible;
   material.userData.display = display;
+  // Stands in for a hand-written shader, which `markEmissive` (game/bloom.js) cannot read light off
+  // and skips: the twin has a `color` and would otherwise be swept into the bloom its source is not in.
+  material.userData.twin = true;
   const { color, opacity, vertex, mask } = build(liveUniforms(source.uniforms, (name) => source.uniforms[name].value !== null
     && !source.uniforms[name].value?.isTexture));
   material.colorNode = color;

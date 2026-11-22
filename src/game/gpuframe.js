@@ -32,6 +32,7 @@ import {
   Fn, abs, clamp, diffuseColor, float, max, mrt, output, pow, step, texture, uniform, uv, vec2, vec4,
 } from 'three/tsl';
 import { aoShare } from '../util/gpumaterial.js';
+import { createGlowChain, glowLight, glowState, GLOW_RANGE } from './gpubloom.js';
 import { RING_BROAD, RING_TIGHT, FALLOFF, MAX_DEPTH_DIFF } from './ssao.js';
 
 // The estimator's radii are clamped in texels of the WebGL pass's half-resolution buffer; kept in
@@ -49,10 +50,19 @@ export function createGpuFrame(renderer, { strength = STRENGTH } = {}) {
   const depthTexture = new THREE.DepthTexture(1, 1);
   depthTexture.format = THREE.DepthStencilFormat;
   depthTexture.type = THREE.UnsignedInt248Type;
-  const target = new THREE.RenderTarget(1, 1, { count: 2, depthTexture, stencilBuffer: true });
+  // A third attachment while the bloom is on: the light each fragment sends it (game/gpubloom.js),
+  // blended by the frame's own alpha so a flame's glow fades with the flame.
+  const glow = glowState.enabled;
+  const target = new THREE.RenderTarget(1, 1, { count: glow ? 3 : 2, depthTexture, stencilBuffer: true });
   target.textures[0].name = 'output';
   target.textures[1].name = 'share';
-  const layout = mrt({ output, share: vec4(aoShare, 0, 0, diffuseColor.a) });
+  if (glow) target.textures[2].name = 'glow';
+  const layout = mrt({
+    output,
+    share: vec4(aoShare, 0, 0, diffuseColor.a),
+    ...(glow ? { glow: vec4(glowLight.div(GLOW_RANGE), output.a) } : {}),
+  });
+  const glowChain = glow ? createGlowChain(renderer, target.textures[2]) : null;
 
   const tight = uniform(new THREE.Vector2());
   const broad = uniform(new THREE.Vector2());
@@ -89,7 +99,9 @@ export function createGpuFrame(renderer, { strength = STRENGTH } = {}) {
     const colour = frame.sample(at);
     // The frame is display-encoded, and the GLSL took the fill down before the encode.
     const keep = float(1).sub(share.sample(at).r.mul(amount).mul(occluded));
-    return vec4(colour.rgb.mul(pow(max(keep, 0.05), 1 / 2.2)), colour.a);
+    const occludedColour = colour.rgb.mul(pow(max(keep, 0.05), 1 / 2.2));
+    // The spill is light in the picture, added in display space as the WebGL composite adds it.
+    return vec4(glowChain ? occludedColour.add(glowChain.composite(at)) : occludedColour, colour.a);
   })();
   const quad = new QuadMesh(material);
 
@@ -125,6 +137,7 @@ export function createGpuFrame(renderer, { strength = STRENGTH } = {}) {
     begin() {
       renderer.getDrawingBufferSize(size);
       if (target.width !== size.x || target.height !== size.y) target.setSize(size.x, size.y);
+      glowChain?.resize(size.x, size.y);
       renderer.setMRT(layout);
       renderer.setRenderTarget(target);
     },
@@ -140,6 +153,7 @@ export function createGpuFrame(renderer, { strength = STRENGTH } = {}) {
       ring(view, RING_BROAD, broad.value);
       depthScale.value = camera.far - camera.near;
       depthOnly();
+      glowChain?.render(target.width, target.height);
       renderer.setRenderTarget(destination);
       quad.render(renderer);
       renderer.setRenderTarget(null);

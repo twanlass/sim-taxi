@@ -1195,7 +1195,29 @@ Measured against WebGL with AO, bloom, CRT and painterly off, at the parked 16:2
   no per-mesh depth materials. Strength 0.45 against WebGL's 0.6 lands on the same measured
   darkening. Off under MSAA for now (so a `?shot` needs `&msaa=off` to show it) and with `?ao=off`.
   A device error drops the path and says so in a strip along the top (`gpuNote`).
-- **The other passes are off**: the rim paint (it read the depth prepass), bloom, `?hdr`, Crayon,
+- **The bloom is a third attachment on that target, not a second draw of the lamps**
+  (`game/gpubloom.js`). Every node material writes the light it sends to the bloom on its way out:
+  its own linear colour times a per-object level, which is the mesh's `BLOOM_INTENSITY` if
+  `markEmissive` named it and zero if not. An unmarked wall therefore writes black and hides the
+  lamp behind it through the ordinary depth test, which replaces the layer, the material swap,
+  `refreshEmissive` and the depth reject. The chain and the composite are the WebGL ones, and the
+  spill is added in the frame's last pass. It rides the frame target, so it is off wherever the AO
+  path is (MSAA, `?ao=off`). Three things found matching it against WebGL:
+  - **WebGL grades its lamps, on linear values.** The grade is appended to three's fog chunk,
+    which the emissive pass's materials include, so each lamp's light goes through the table as
+    though it were a display colour. The shipped grade lifts the low end by about half a stop, and
+    without it the whole emissive target summed to 0.47 of WebGL's. `writeGlow` does the same.
+  - **A level arrives at its weight squared.** The WebGL upsample writes `sum * weight` in all
+    four channels under a source-alpha additive blend. The port keeps the alpha for that reason.
+  - **A lamp glows by what the camera sees of it, and on WebGL by more.** The WebGL reject is
+    biased 0.28 world units, so a pod round a fender or a tube sunk in a sign writes its whole
+    shape. Here the depth test is exact: the garage's roof trim matches to the 8-bit step, and a
+    turn signal seen side-on writes a third of the light. Over the parked frame the spill adds
+    65% of what WebGL's adds. Not compensated: turning the master up would overdrive every lamp
+    that is in plain view.
+  A node twin of a hand-written shader (`unlitTwin`) is skipped by `markEmissive`, as its source
+  is on WebGL: the L train's beam has a `color` here and was swept into the bloom.
+- **The other passes are off**: the rim paint (it read the depth prepass), `?hdr`, Crayon,
   Cartoon and the CRT. Each is a WebGL render-target pass until it is ported; the frame's target
   is where they go.
 - **The weather is ported, all of it**: the grade, the cell's shade (`util/gpuclouds.js`), the

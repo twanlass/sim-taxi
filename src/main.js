@@ -4,6 +4,7 @@ import { gpuCompat, unported } from './game/gpucompat.js';
 import { GPU, gpuNote } from './util/gpu.js';
 import { createGpuCapture } from './game/gpucapture.js';
 import { createGpuFrame } from './game/gpuframe.js';
+import { enableGlow } from './game/gpubloom.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 // First, before anything builds a material: it patches three's fog chunk for every program.
 import { EDGE_FOG, createEdgeFogFloor, tickEdgeFog } from './game/edgefog.js';
@@ -309,6 +310,10 @@ if (!shot && !new URLSearchParams(window.location.search).has('msaa')) {
 
 // WebGPU has its own occlusion (game/gpuframe.js); the WebGL pass and its prepass stay off.
 const gpuAo = GPU && budget.ao && !budget.msaa;
+// Bloom rides the same target (game/gpubloom.js), so it is on where that is. Decided here, before
+// the first material is built: every node material writes its glow or none does.
+const gpuBloom = gpuAo && budget.bloom;
+if (gpuBloom) enableGlow();
 if (GPU) Object.assign(budget, { gpu: true, ao: false, bloom: false, hdr: false, crayon: false, cartoon: false, crt: false });
 const renderer = GPU ? new WebGPURenderer({ antialias: budget.msaa, stencil: true }) : new THREE.WebGLRenderer({
   antialias: budget.msaa,
@@ -416,7 +421,7 @@ if (squall) {
 // scene that submitted nothing from a scene that drew and came out black. See `game/diag.js`.
 // `budget.ao` is the WebGL prepass, switched off above under WebGPU; the panel reports the AO that
 // is actually drawing.
-const diag = createDiagnostics(renderer, { enabled: getDiagnostics(), flags: GPU ? { ...budget, ao: gpuAo } : budget });
+const diag = createDiagnostics(renderer, { enabled: getDiagnostics(), flags: GPU ? { ...budget, ao: gpuAo, bloom: gpuBloom } : budget });
 declined.forEach((text) => diag.note(text));
 
 const { scene, sun, hemi, sky, fog } = createScene({ shadowMapSize: budget.shadowMapSize });

@@ -273,13 +273,16 @@ export function createRain(renderer, { enabled = false, mood: moodName = 'shower
   let mirrorPair = null;
   let mirrorPrimed = false;
   function mirrorTarget() {
-    if (!gpu || !renderer.getMRT()) return reflectTarget;
+    const layout = gpu ? renderer.getMRT() : null;
+    if (!layout) return reflectTarget;
     if (!mirrorPair) {
+      // The frame's attachments by name, `output` first: the one the ground reads.
+      const names = Object.keys(layout.outputNodes);
+      names.sort((a, b) => (b === 'output') - (a === 'output'));
       mirrorPair = new THREE.RenderTarget(2, 2, {
-        count: 2, type: THREE.HalfFloatType, stencilBuffer: true, depthBuffer: true,
+        count: names.length, type: THREE.HalfFloatType, stencilBuffer: true, depthBuffer: true,
       });
-      mirrorPair.textures[0].name = 'output';
-      mirrorPair.textures[1].name = 'share';
+      names.forEach((name, i) => { mirrorPair.textures[i].name = name; });
     }
     return mirrorPair;
   }

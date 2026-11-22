@@ -20,6 +20,7 @@ import {
   vec4, clamp,
 } from 'three/tsl';
 import { GRADE_UNIFORMS, gradeUniform, LUT_SIZE } from './colorgrade.js';
+import { writeGlow } from './gpubloom.js';
 import {
   EDGE_FOG, FOG_HALF_X, FOG_HALF_Z, FOG_RADIUS, FOG_START, FOG_END, FOG_BILLOW, FOG_SLOPE, FOG_DRIFT,
   FOG_DRIFT_FINE, FOG_WARP, FOG_WARP_SPEED, FLOOR_Y, edgeFogUniform,
@@ -135,6 +136,8 @@ export function installNodeGrade() {
   // so a material that sets one also needs a key of its own; one that keeps its `onBeforeCompile`
   // has it, three's default key being that function's text.
   NodeMaterial.prototype.setupOutput = function setupOutput(builder, outputNode) {
+    // The bloom's share of this fragment, before the haze and the grade (game/gpubloom.js).
+    writeGlow(this.userData.display ? sRGBTransferEOTF(outputNode.rgb) : outputNode.rgb, gradeDisplay);
     let node = this.fog === true || this.userData.display
       ? outputNode
       : vec4(gradeDisplay(sRGBTransferOETF(outputNode.rgb)), outputNode.a);
