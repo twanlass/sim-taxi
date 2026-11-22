@@ -148,7 +148,8 @@ export function createQuestionMark(colorHex) {
     // Refuses the haze for the same reason the plumbob does: this is a marker, not scenery.
     fog: false,
   }));
-  mesh.castShadow = true;
+  // No shadow, like the plumbob's (geometry/diamond.js): a marker hanging in the air, not scenery.
+  mesh.castShadow = false;
 
   // Opaque, so the ordinary inverted hull works as-is: the glyph writes depth in the opaque pass,
   // and the hull's back faces fail the test everywhere but the ring around the silhouette.

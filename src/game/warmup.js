@@ -21,6 +21,7 @@
  * that is the honest limit of this, and `tools/links.mjs --tour` is what says how much is left.
  */
 import { withPoolsShown } from '../util/emptypools.js';
+import { withAllCasters } from './shadowcull.js';
 
 export function warmFirstDraws(scene, draw, roots = [scene]) {
   const lit = new Set();
@@ -40,7 +41,8 @@ export function warmFirstDraws(scene, draw, roots = [scene]) {
 
   try {
     // With the empty-pool sweep held off, or it would hide again every pool just shown.
-    withPoolsShown(draw);
+    // Every pool shown and every shadow caster drawn, so each one's programs link now.
+    withPoolsShown(() => withAllCasters(draw));
   } finally {
     for (const o of culled) o.frustumCulled = true;
     for (const o of shown) o.visible = false;
