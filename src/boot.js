@@ -21,6 +21,9 @@
 import { createSplash, wantsSplash, WAIT_LOGO } from './game/splash.js';
 import { BACKDROP, announceReady } from './game/backdrop.js';
 import { showLoadBar, hideLoadBar, LOADER } from './game/loadbar.js';
+import { perfMark } from './game/perf.js';
+
+perfMark('boot');
 
 if (BACKDROP) document.documentElement.classList.add('backdrop');
 
@@ -33,7 +36,10 @@ const presented = () => new Promise((resolve) => {
   setTimeout(resolve, 100);
 });
 showLoadBar();
-const game = () => import('./main.js').then((main) => main.ready);
+const game = () => {
+  perfMark('import:start');
+  return import('./main.js').then((main) => { perfMark('import:evaluated'); return main.ready; });
+};
 const loading = (splash && WAIT_LOGO) || LOADER ? presented().then(game) : game();
 loading.then(hideLoadBar, hideLoadBar);
 if (splash) {

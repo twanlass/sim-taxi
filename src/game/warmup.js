@@ -20,6 +20,8 @@
  * A pooled object at scale 0 or with an instance count of 0 draws nothing and so builds nothing;
  * that is the honest limit of this, and `tools/links.mjs --tour` is what says how much is left.
  */
+import { withPoolsShown } from '../util/emptypools.js';
+
 export function warmFirstDraws(scene, draw, roots = [scene]) {
   const lit = new Set();
   scene.traverseVisible((o) => { if (o.isLight) lit.add(o); });
@@ -37,7 +39,8 @@ export function warmFirstDraws(scene, draw, roots = [scene]) {
   });
 
   try {
-    draw();
+    // With the empty-pool sweep held off, or it would hide again every pool just shown.
+    withPoolsShown(draw);
   } finally {
     for (const o of culled) o.frustumCulled = true;
     for (const o of shown) o.visible = false;

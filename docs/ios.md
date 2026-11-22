@@ -254,6 +254,10 @@ particular, because the default insets by the safe area and would double up on t
   for as long as the finger is down. The stub is torn down again with the gesture, since every
   check after it is about the web build.
 - **Game Center** — see [below](#game-center).
+- **Profiling hooks, DEBUG only.** A `perf` script message handler (`PerfBridge.swift`) writes
+  `?perf` captures to `Documents/perf/`, and a `--query` launch argument adds a query string to the
+  start URL, since the app otherwise cannot take one. `tools/ios-perf.mjs` drives both from the Mac
+  ([testing.md](testing.md#profiling-on-the-phone)). Release registers neither.
 - **Deferred home-indicator gesture** on the bottom edge. The Loco Mode pill and the brake are both
   *hold* controls at the bottom of the screen, and a resting thumb there is exactly the gesture iOS
   reads as a swipe home.

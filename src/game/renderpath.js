@@ -30,6 +30,7 @@ import { createCrt } from './crt.js';
 import { cullEmptyPools } from '../util/emptypools.js';
 import { syncRiverWater } from '../city/riverwater.js';
 import { installColorGrade } from './colorgrade.js';
+import { perfPhase } from './perf.js';
 
 /**
  * The URL's say in how the frame is drawn. The game adds what only it decides (the safe mode, the
@@ -164,22 +165,27 @@ export function createRenderPath(renderer, budget, { onNotice = () => {}, still 
       rainLightsOn?.();
       rain?.update(0, cam);
       rain?.renderReflection(scene, cam);
+      perfPhase('ao');
       ao.render(scene, cam);
       // The rim paint reads the depth the prepass just drew (util/geo.js, `gRimEdge`).
       setRimDepth(ao.depth(), ao.depthSize(), cam);
       // After the AO prepass, which is what fills the depth buffer the lamps are rejected against.
+      perfPhase('bloom');
       bloom.render(scene, cam);
       // Here rather than in a loop for the AO prepass's reason: shot mode renders without one.
       syncRiverWater(scene.fog?.color);
       // `?hdr` takes the whole frame through a composer instead; a no-op without the flag, and it
       // returns false so the ordinary path below still runs.
+      perfPhase('main');
       if (!hdr.render(scene, cam)) renderer.render(scene, cam);
+      perfPhase('post');
       // Drops on the glass, over the finished frame.
       rain?.renderLens();
       // The glass, in front of the drops on it.
       crt.render();
       // After everything has drawn, so its counters and centre pixel are the frame on screen.
       diag?.update();
+      perfPhase('after');
     },
 
     dispose() {
