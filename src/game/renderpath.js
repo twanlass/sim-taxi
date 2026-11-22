@@ -85,8 +85,7 @@ export function decideLooks(budget) {
   setVehiclePaint(!getVehiclePaintClassic());
   // Cloud shadows are compiled into every lit material, so they are decided here with the look
   // modes. See CLOUD_UNIFORMS in util/geo.js; with no weather driving them they cover nothing.
-  // Not under WebGPU while it has no weather (main.js): the field would compile in and cover nothing.
-  setCloudShadows(Boolean(!budget.gpu && (getRain() ?? getStorm() ?? getSquall())));
+  setCloudShadows(Boolean(getRain() ?? getStorm() ?? getSquall()));
   // The other look on offer, and independent of Crayon — see `game/cartoon.js`. Its cel bands
   // compile into the same materials, so it is decided in the same breath and for the same reason.
   setCartoon(budget.cartoon);

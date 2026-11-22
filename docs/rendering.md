@@ -1198,13 +1198,33 @@ Measured against WebGL with AO, bloom, CRT and painterly off, at the parked 16:2
 - **The other passes are off**: the rim paint (it read the depth prepass), bloom, `?hdr`, Crayon,
   Cartoon and the CRT. Each is a WebGL render-target pass until it is ported; the frame's target
   is where they go.
-- **There is no weather.** The rain is a mirror pass, a frame copy and five `ShaderMaterial`s, and
-  the squall is wired through it, so `main.js` builds neither under WebGPU. The first four steps
-  of the port did not do this and **did not load at all with the squall on, which is the default**:
-  `createRain` asked for a WebGL extension and threw. It went unseen because a throw after a
-  top-level await raises no error event, only a page that never finishes loading, and every still
-  had been taken with `?squall=off`. The cloud field and the cell's shade are ported and waiting
-  (`util/gpuclouds.js`, checked by eye with the cover forced to 0.5), switched off with the rest.
+- **The weather is ported, all of it**: the grade, the cell's shade (`util/gpuclouds.js`), the
+  falling rain, splashes, sun shafts and sun rays (`game/gpurain.js`), wet ground with puddles,
+  ripples and the street's reflection (`game/gpuwet.js`), the lit windows and lamp pools that come
+  on under the cell (`game/gpulit.js`) and drops on the lens (`game/gpulens.js`). Each file sits
+  beside the GLSL it follows and says where its mechanics differ. Against WebGL at `?shot=1` the
+  city under a pinned squall is within 1/255 on every patch measured (a roof, dry and wet road,
+  grass); the rain itself is seeded off `Math.random` and does not repeat. What the mirror pass
+  needed that the WebGL one does not:
+  - **One set of lights for both cameras.** three keeps light nodes per scene and camera, and a
+    shadow map per set, so the mirror camera got a second sun whose shadow map nothing drew into.
+    `renderReflection` hands the mirror the main camera's set.
+  - **The same attachments as the frame.** three builds a material's shader once for both
+    cameras, with the outputs of whichever pass met it first, and MRT is not in the key. A mirror
+    with one attachment under a frame with two is a validation error on every draw.
+  - **Not on the first frame**, before the shadow map has been a render target.
+  - **A projection for a 0..1 clip volume**, and a camera that claims the renderer's coordinate
+    system so three does not rebuild it.
+  The lens takes no frame copy: `copyFramebufferToTexture` cannot find the canvas between
+  renders. While the glass is wet the AO pass lands in a target and the lens is the pass that puts
+  the frame on the canvas. It follows that there are no drops without the frame target (MSAA on,
+  or after a WebGPU error).
+- **A WebGPU error must leave the renderer as it found it.** The error listener drops the frame
+  target; it also has to clear `setMRT`, or every pipeline after it is built for two attachments
+  and drawn into one, and the first error becomes one per draw.
+- **`?diag` reads the adapter, not a GL context.** It used to throw under WebGPU, which the boot
+  fallback turned into a silent reload on WebGL, so the frame rate on screen was the old
+  renderer's. Its third line now says which renderer is drawing.
 
 Traps in TSL itself, each of which drew a wrong picture with nothing logged:
 
@@ -1220,6 +1240,14 @@ Traps in TSL itself, each of which drew a wrong picture with nothing logged:
   never built its own, and the paved junction was missing with nothing logged. For the same
   reason per-material numbers are read from the material being drawn (`onObjectUpdate`), never
   closed over.
+- **A `select` is an if/else, and a temporary made in one arm is unset in the other.** three writes
+  `select(c, a, b)` as a branch, and a `toVar()` reached from both arms (the noise inside
+  `cellShade` has three) is assigned in the first arm only. `select(seed < share, on * flicker,
+  on)` lit the quarter of the city's windows that flicker and left the other three quarters at
+  zero. Put anything both arms need in a variable before the branch, or do without the branch
+  (`game/gpulit.js`). The same goes for an `If`; a real function (`Fn`) has its own scope.
+- **An `If` needs a stack.** Called while a material is being described, outside any `Fn`, it
+  throws on a null stack (`game/gpulens.js`).
 - **`pow(0, 0)` is NaN in WGSL**, and NaN times a strength of zero is still NaN. A finish with a
   sharpness of 0 turned whole panes black until the lobe's base got a floor.
 

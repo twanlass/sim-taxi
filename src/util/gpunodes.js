@@ -5,7 +5,7 @@
  * that writes `material.uniforms.uX.value` goes on working, and the nodes read the same slots.
  */
 import { MeshBasicNodeMaterial } from 'three/webgpu';
-import { attribute, materialOpacity, uniform, varying } from 'three/tsl';
+import { attribute, materialOpacity, texture, uniform, varying } from 'three/tsl';
 
 /**
  * Every slot of a bag whose name passes `pick`, as nodes under the same names.
@@ -42,12 +42,27 @@ export function unlitTwin(source, build, { display = false } = {}) {
   material.uniforms = source.uniforms;
   material.visible = source.visible;
   material.userData.display = display;
-  const { color, opacity } = build(liveUniforms(source.uniforms, (name) => source.uniforms[name].value !== null
+  const { color, opacity, vertex, mask } = build(liveUniforms(source.uniforms, (name) => source.uniforms[name].value !== null
     && !source.uniforms[name].value?.isTexture));
   material.colorNode = color;
   if (opacity !== undefined) material.opacityNode = opacity;
+  // `vertex`: the finished clip-space position, for a shader that placed its own vertices.
+  if (vertex !== undefined) material.vertexNode = vertex;
+  // `mask`: false where the GLSL discarded.
+  if (mask !== undefined) material.maskNode = mask;
   return material;
 }
+
+/**
+ * A texture slot of a uniforms bag as a node that follows the slot: callers swap the texture in a
+ * slot (the squall hands the rain its wet map after the rain is built), and a texture node made
+ * from the slot's first value would go on reading that one.
+ */
+export const liveTexture = (bag, name) => {
+  const node = texture(bag[name].value);
+  node.onRenderUpdate(() => { node.value = bag[name].value; });
+  return node;
+};
 
 /**
  * A per-instance alpha from the `aAlpha` attribute: the three-line patch every mote pool carries
