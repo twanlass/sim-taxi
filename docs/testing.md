@@ -527,9 +527,9 @@ in the shipped game:
   landed the moment on the same frame (`replayDrift` in `take.json`); so far it always has.
 - **The game's own audio, rendered in lockstep**: `AudioContext` becomes an `OfflineAudioContext`
   that reports `running` and renders exactly one frame of audio per step, so every sound lands on the
-  frame that scheduled it. Headless Chromium cannot decode AAC, so the run needs a build whose
-  `.m4a` files decode — the recorder runs Chromium as installed and the sounds that fail to decode
-  are simply silent; see the note in the PR for how the audio was checked. Music is muted in the
+  frame that scheduled it. Headless Chromium has no AAC decoder, so the recorder answers every
+  `.m4a` request with the same file decoded to WAV by ffmpeg (cached in `trailer-out/.wav`, or
+  `--wav-cache`). Music is muted in the
   game's settings for every take, and the cut lays one of the game's songs under the whole thing.
 - **A director** (`director.js`): most beats ride a `?bot=<scene>` (game/perfbot.js) and only
   detect the moment (a drift kicking, a hop, the getaway, a chase); the drawbridge jump is staged
