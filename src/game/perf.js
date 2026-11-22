@@ -152,7 +152,9 @@ export function createPerfCapture(renderer, { scene = null, cap = () => 60, prob
   renderer.render = (...args) => {
     info.reset();
     const out = render(...args);
-    calls += info.render.calls;
+    // WebGPU's `calls` is a running total since the renderer was made; its per-render count is
+    // `drawCalls`, which WebGL's info does not have.
+    calls += info.render.drawCalls ?? info.render.calls;
     tris += info.render.triangles;
     return out;
   };
