@@ -56,9 +56,15 @@ if (GPU) {
   window.addEventListener('unhandledrejection', (event) => fail(event.reason?.stack ?? event.reason));
 } else if (typeof location !== 'undefined' && typeof document !== 'undefined') {
   const what = new URLSearchParams(location.search).get('gpuerror');
-  if (what) {
+  if (what) gpuNote(`WebGPU failed, drawing with WebGL. ${what}`);
+}
+
+/** A strip of diagnostic text along the top of the page, until it is tapped. For the port's own failures. */
+export function gpuNote(text) {
+  if (typeof document === 'undefined') return;
+  {
     const note = document.createElement('div');
-    note.textContent = `WebGPU failed, drawing with WebGL. ${what}`;
+    note.textContent = text;
     note.style.cssText = 'position:fixed;z-index:9999;left:0;right:0;top:0;padding:calc(env(safe-area-inset-top) + 6px) 10px 6px;'
       + 'font:11px/1.3 ui-monospace,monospace;color:#fff;background:rgba(160,30,30,.92);white-space:pre-wrap;word-break:break-word';
     note.addEventListener('click', () => note.remove());

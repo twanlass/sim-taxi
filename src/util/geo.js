@@ -2188,8 +2188,9 @@ export function propMaterial({ ao = true, gloss = null, cutout = null, smooth = 
   if (nodes) {
     // The WebGPU twin carries the shadow tint (util/gpumaterial.js). What `patchProp` adds beyond
     // that is still to port, and is listed here so `__taxi.unported()` can say so per mesh.
-    material.userData.unported = [paint && rimPaintOn() && 'rim line', 'ao']
-      .filter(Boolean);
+    material.userData.unported = [paint && rimPaintOn() && 'rim line'].filter(Boolean);
+    // Read by the lighting model as it is built: whether this surface is occluded (game/gpuframe.js).
+    material.userData.ao = ao;
     return material;
   }
   patchProp(material, { ao, gloss: paint });

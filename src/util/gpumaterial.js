@@ -11,7 +11,7 @@
  */
 import { MeshLambertNodeMaterial, MeshPhongNodeMaterial, PhongLightingModel } from 'three/webgpu';
 import { BackSide, DoubleSide, FrontSide } from 'three';
-import { diffuseColor, dot, max, mix, positionWorld, smoothstep, sRGBTransferEOTF, sRGBTransferOETF, vec3 } from 'three/tsl';
+import { diffuseColor, dot, max, mix, positionWorld, property, smoothstep, sRGBTransferEOTF, sRGBTransferOETF, vec3 } from 'three/tsl';
 
 // Set by util/geo.js, which owns SHADOW_UNIFORMS; a setter rather than an import because geo.js
 // imports this file.
@@ -24,6 +24,15 @@ export function bindPropNodes(nodes) {
 }
 
 const LUMA = vec3(0.2126, 0.7152, 0.0722);
+
+/**
+ * The share of a fragment's diffuse light that is fill rather than sun, for the frame's second
+ * attachment (game/gpuframe.js), which is what ambient occlusion is allowed to take away. Written
+ * by the prop lighting model; anything else leaves it at zero and is not occluded, as on WebGL,
+ * where only a `propMaterial()` fetches the AO texture. A `propMaterial({ ao: false })` (the water)
+ * leaves it at zero too.
+ */
+export const aoShare = property('float', 'aoShare');
 
 /**
  * The shadow tint (SHADOW_LIGHT in util/geo.js, where the reasoning lives): shade is the share of
@@ -49,7 +58,9 @@ class PropLightingModel extends PhongLightingModel {
     }
     const direct = dot(sunlit, LUMA);
     const indirect = dot(skylit, LUMA);
-    const shade = smoothstep(shared.shadeKnee, 1.0, indirect.div(max(direct.add(indirect), 1e-4)));
+    const fillShare = indirect.div(max(direct.add(indirect), 1e-4)).toVar();
+    if (material.userData.ao !== false) aoShare.assign(fillShare);
+    const shade = smoothstep(shared.shadeKnee, 1.0, fillShare);
     const tinted = mix(skylit, shared.shadowColor.mul(indirect), shade.mul(shared.shadowTint)).toVar();
     outgoingLight.addAssign(tinted.sub(reflectedLight.indirectDiffuse));
     // The two halves of the diffuse light as they now stand, for a subclass that needs the light
@@ -114,7 +125,8 @@ const propMaterial = (Base, specular) => class extends Base {
   // the paved junction was missing, with `finish` never once called for it.
   customProgramCacheKey() {
     const surfaces = (this.surfaces ?? []).map((surface) => surface.key).join(',');
-    return `brush${this.userData.brush ?? 0}|${surfaces}|${this.lightingFactory ? this.uuid : ''}`;
+    const ao = this.userData.ao === false ? 'flat' : 'ao';
+    return `brush${this.userData.brush ?? 0}|${ao}|${surfaces}|${this.lightingFactory ? this.uuid : ''}`;
   }
 };
 

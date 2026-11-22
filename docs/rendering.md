@@ -1188,8 +1188,16 @@ picture and each of which the node path now does by hand:
 Measured against WebGL with AO, bloom, CRT and painterly off, at the parked 16:24 light: shade
 73/71/69 against 73/72/68, road 69/72/73 against 71/72/73, a lit roof 178/164/119 against
 184/168/119. The lit faces' last 3% is not explained yet.
-- **The passes are off**: AO and its depth prepass (so the rim paint too), bloom, `?hdr`, Crayon,
-  Cartoon and the CRT. Each is a WebGL render-target pass until it is ported.
+- **Ambient occlusion is one pass over the frame, not a second draw of the city**
+  (`game/gpuframe.js`, where the reasoning is). The city renders once into a target with a depth
+  texture and a second attachment holding each pixel's share of fill light; one triangle runs
+  ssao.js's depth Laplacian on that depth and takes that share of the pixel down. No depth prepass,
+  no per-mesh depth materials. Strength 0.45 against WebGL's 0.6 lands on the same measured
+  darkening. Off under MSAA for now (so a `?shot` needs `&msaa=off` to show it) and with `?ao=off`.
+  A device error drops the path and says so in a strip along the top (`gpuNote`).
+- **The other passes are off**: the rim paint (it read the depth prepass), bloom, `?hdr`, Crayon,
+  Cartoon and the CRT. Each is a WebGL render-target pass until it is ported; the frame's target
+  is where they go.
 - **There is no weather.** The rain is a mirror pass, a frame copy and five `ShaderMaterial`s, and
   the squall is wired through it, so `main.js` builds neither under WebGPU. The first four steps
   of the port did not do this and **did not load at all with the squall on, which is the default**:

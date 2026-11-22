@@ -1,8 +1,9 @@
 import * as THREE from 'three';
 import { WebGPURenderer } from 'three/webgpu';
 import { gpuCompat, unported } from './game/gpucompat.js';
-import { GPU } from './util/gpu.js';
+import { GPU, gpuNote } from './util/gpu.js';
 import { createGpuCapture } from './game/gpucapture.js';
+import { createGpuFrame } from './game/gpuframe.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 // First, before anything builds a material: it patches three's fog chunk for every program.
 import { EDGE_FOG, createEdgeFogFloor, tickEdgeFog } from './game/edgefog.js';
@@ -306,6 +307,8 @@ if (!shot && !new URLSearchParams(window.location.search).has('msaa')) {
   budget.msaa = budget.msaa && settings.atLaunch().antialias;
 }
 
+// WebGPU has its own occlusion (game/gpuframe.js); the WebGL pass and its prepass stay off.
+const gpuAo = GPU && budget.ao && !budget.msaa;
 if (GPU) Object.assign(budget, { gpu: true, ao: false, bloom: false, hdr: false, crayon: false, cartoon: false, crt: false });
 const renderer = GPU ? new WebGPURenderer({ antialias: budget.msaa, stencil: true }) : new THREE.WebGLRenderer({
   antialias: budget.msaa,
@@ -329,6 +332,17 @@ if (GPU) {
   await renderer.init();
 }
 const gpuCapture = GPU ? createGpuCapture(renderer, { samples: budget.msaa ? 4 : 0 }) : null;
+let gpuFrame = gpuAo ? createGpuFrame(renderer) : null;
+// A validation error on the device does not throw: the frame is just black from then on. The
+// frame's target is the newest and least travelled path here, so the first such error drops it
+// (the city then draws straight to the canvas, without occlusion) and says what it was.
+if (GPU) {
+  renderer.backend.device?.addEventListener('uncapturederror', (event) => {
+    const wasFrame = Boolean(gpuFrame);
+    gpuFrame = null;
+    gpuNote(`WebGPU error${wasFrame ? ', occlusion switched off' : ''}: ${String(event.error?.message).slice(0, 300)}`);
+  }, { once: true });
+}
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, budget.pixelRatioCap));
 renderer.setSize(viewport.width(), viewport.height());
 renderer.shadowMap.enabled = budget.shadowMapSize > 0;
@@ -459,6 +473,15 @@ function renderFrame(cam = camera) {
   // The pass order lives in game/renderpath.js, shared with the workshop's bench; the weather and
   // the diagnostics are the game's own and ride in with it.
   if (GPU) gpuCompat(scene);
+  // With occlusion the city goes to the frame's own target and one triangle puts it on the canvas
+  // (or on the capture target, headless); without, straight to wherever it is going.
+  if (gpuFrame) {
+    gpuCapture?.begin();   // sizes the capture target; the frame takes the renderer from here
+    gpuFrame.begin();
+    renderPath.render(scene, cam, { rain, rainLightsOn, diag });
+    gpuFrame.end(cam, gpuCapture?.target ?? null);
+    return;
+  }
   gpuCapture?.begin();
   renderPath.render(scene, cam, { rain, rainLightsOn, diag });
   gpuCapture?.end();
