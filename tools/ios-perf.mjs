@@ -242,6 +242,14 @@ async function report(file) {
     + ` · canvas ${data.canvas.w}×${data.canvas.h} @ dpr ${data.screen.dpr} · cap ${data.cap} fps`
     + ` · quality ${data.context?.quality ?? '?'} · saved on ${data.reason}`);
   say();
+  if (data.errors) {
+    say('## Errors caught on the page');
+    say();
+    say('```');
+    say(data.errors.trim().split('\n').slice(0, 30).join('\n'));
+    say('```');
+    say();
+  }
   say('## Startup');
   say();
   const marks = [...(data.boot.marks ?? []), ...data.notes.filter(([, n]) => !/^resize|^away|^link|^bot:|^thermal/.test(n))]

@@ -168,7 +168,7 @@ function summarise(runs, title) {
   lines.push('', '## Runs', '');
   for (const r of runs) {
     lines.push(`- ${r.variant} #${r.k}: ${r.ok ? 'finished' : r.error ?? 'did not finish'}, started ${r.startThermal}, hottest ${r.worstThermal}, `
-      + `${f1(r.fps)} fps overall${r.stats ? `, managed ${JSON.stringify(r.stats)}` : ''} — ${r.file ?? ''}`);
+      + `${f1(r.fps)} fps overall${r.errors ? `, ERROR: ${r.errors}` : ''}${r.stats ? `, managed ${JSON.stringify(r.stats)}` : ''} — ${r.file ?? ''}`);
   }
   return lines.join('\n');
 }
@@ -226,6 +226,7 @@ async function main() {
         const secs = bot.scenes.reduce((a, sc) => a + sc.secs, 0) || 1;
         row = {
           ...row, ok: bot.finished, file, scenes: bot.scenes, stats: bot.stats, fps: inScenes / secs,
+          errors: got.data.errors ? got.data.errors.split('\n')[0].slice(0, 200) : null,
           startThermal: heat[0] ?? 'unknown',
           worstThermal: heat.reduce((w, s) => (RANK.indexOf(s) > RANK.indexOf(w) ? s : w), heat[0] ?? 'unknown'),
         };

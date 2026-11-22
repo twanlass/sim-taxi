@@ -297,7 +297,11 @@ export function createPerfCapture(renderer, { scene = null, cap = () => 60, prob
   function snapshot(reason) {
     const nav = performance.getEntriesByType?.('navigation')?.[0];
     const resources = performance.getEntriesByType?.('resource') ?? [];
-    const debug = gl.getExtension('WEBGL_debug_renderer_info');
+    // A WebGPU renderer (the port, #780) hands back a GPUCanvasContext here, which has none of
+    // WebGL's queries — and a throw in this function is a throw in the frame that saves, every
+    // minute, which on the phone is the "Something went wrong" panel over a running game.
+    const webgl = typeof gl?.getExtension === 'function';
+    const debug = webgl ? gl.getExtension('WEBGL_debug_renderer_info') : null;
     return {
       version: 1,
       reason,
@@ -307,7 +311,10 @@ export function createPerfCapture(renderer, { scene = null, cap = () => 60, prob
       native: Boolean(window.__native),
       nativeVersion: window.__nativeVersion ?? null,
       ua: navigator.userAgent,
-      gpu: debug ? gl.getParameter(debug.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER),
+      gpu: !webgl ? 'WebGPU' : debug ? gl.getParameter(debug.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER),
+      // Whatever index.html's error panel caught: in the App Store shell it says only "Something
+      // went wrong", so the capture is the one place the text leaves the phone.
+      errors: (window.__errorLog ?? '').slice(0, 20_000),
       screen: { w: window.screen.width, h: window.screen.height, dpr: window.devicePixelRatio },
       canvas: { w: renderer.domElement.width, h: renderer.domElement.height },
       cap: cap(),
