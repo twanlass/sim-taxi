@@ -14,6 +14,8 @@ import { WATER_Y } from '../city/river.js';
 import { harborLandAt } from '../city/harborplan.js';
 import { VIEW_DIR } from './camera.js';
 import { sinkShadowCaster } from './scene.js';
+import { gpuMaterials } from '../util/gpu.js';
+import { fadeNodesOn, introNodesOn } from './gpultrain.js';
 import { markOccluder, setOccluderDepthMaterial } from './ssao.js';
 
 // The elevated train (on by default, `?ltrain=classic`): a Chicago-style L on a steel structure, with
@@ -286,6 +288,11 @@ const CLIP_FRAGMENT = '#include <clipping_planes_fragment>';
  * No backticks in the GLSL comments: a backtick ends the template literal (CLAUDE.md).
  */
 export function fadeMaterial(material) {
+  // WebGPU: the same dither as a term of the material's mask (game/gpultrain.js).
+  if (material.isNodeMaterial || gpuMaterials()) {
+    fadeNodesOn(material, FADE_UNIFORMS);
+    return material;
+  }
   const base = material.onBeforeCompile;
   const baseKey = material.customProgramCacheKey();
   material.customProgramCacheKey = () => `${baseKey}-ltrain`;
@@ -413,6 +420,12 @@ if (aLIntro.y > 1.5) {
  * solid round the taxi but which still has to be laid with its spans.
  */
 function introMaterial(material, { bayer = false } = {}) {
+  if (material.isNodeMaterial || gpuMaterials()) {
+    introNodesOn(material, INTRO_UNIFORMS, {
+      dropDur: DROP_DUR, dropH: DROP_H, kerbH: KERB_H, riseXZFrom: RISE_XZ_FROM, riseFade: RISE_FADE,
+    });
+    return material;
+  }
   const base = material.onBeforeCompile;
   const baseKey = material.customProgramCacheKey();
   material.customProgramCacheKey = () => `${baseKey}-lintro`;
@@ -1031,7 +1044,14 @@ export function createLTrain(scene, rng, { sparks = null, lights = true, intro =
   const material = fadeMaterial(propMaterial());
   if (intro) introMaterial(material);
 
-  const deck = new THREE.Mesh(addIntro(buildDeck(plan)), material);
+  // WebGPU sinks a caster through a node on its *material* (`sinkShadowCaster`), and the columns,
+  // which share this one, are not sunk: there the deck wears a second material of the same kind.
+  let deckMaterial = material;
+  if (material.isNodeMaterial) {
+    deckMaterial = fadeMaterial(propMaterial());
+    if (intro) introMaterial(deckMaterial);
+  }
+  const deck = new THREE.Mesh(addIntro(buildDeck(plan)), deckMaterial);
   deck.castShadow = true;
   deck.receiveShadow = true;
   // The deck is a thin shell 3 units over the road: its slab, ties and rails are each a few tenths
@@ -1039,7 +1059,7 @@ export function createLTrain(scene, rng, { sparks = null, lights = true, intro =
   // for the same reason it is on a bridge, since its shadow lands three units down on asphalt.
   sinkShadowCaster(deck);
   group.add(deck);
-  if (intro) introDepth(deck.customDepthMaterial);
+  if (intro && deck.customDepthMaterial) introDepth(deck.customDepthMaterial);
 
   // The river truss stays solid: Tyler, 2026-10-13, "don't do any truss fading". It is its own mesh
   // on a plain material so the deck's dither round the taxi and the pins never reaches it — the
@@ -1055,7 +1075,8 @@ export function createLTrain(scene, rng, { sparks = null, lights = true, intro =
     truss.name = 'ltrain-truss';
     truss.castShadow = true;
     truss.receiveShadow = true;
-    if (intro) truss.customDepthMaterial = introDepth();
+    // A node material's intro is its `positionNode`, which the shadow pass is handed too.
+    if (intro && !trussMaterial.isNodeMaterial) truss.customDepthMaterial = introDepth();
     group.add(truss);
   }
 
@@ -1063,7 +1084,7 @@ export function createLTrain(scene, rng, { sparks = null, lights = true, intro =
   const columns = new THREE.Mesh(addIntro(buildColumns(plan)), material);
   columns.castShadow = true;
   columns.receiveShadow = true;
-  if (intro) columns.customDepthMaterial = introDepth();
+  if (intro && !material.isNodeMaterial) columns.customDepthMaterial = introDepth();
   group.add(columns);
 
   // The train: four cars on one geometry, each placed by its own two trucks (`place` below).
@@ -1077,7 +1098,9 @@ export function createLTrain(scene, rng, { sparks = null, lights = true, intro =
   let carMaterial = material;
   if (vehiclePaintOn()) {
     carMaterial = fadeMaterial(propMaterial({ gloss: { geometry: carGeo, amount: 0.55 } }));
-    if (intro) introMaterial(carMaterial);
+    // The cars carry no `aLIntro`, which GLSL reads as zero (no intro) and WGSL warns about, a
+    // line a car a frame: a node material is simply not given the intro.
+    if (intro && !carMaterial.isNodeMaterial) introMaterial(carMaterial);
   }
   const cars = [];
   for (let n = 0; n < CARS; n++) {

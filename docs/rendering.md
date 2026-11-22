@@ -1139,11 +1139,27 @@ What the WebGPU path draws today, and what it does not:
   twin (`routeNodeMaterial` in `game/routeline.js`); a twin keeps the GLSL material's `uniforms`
   bag and reads the same slots (`util/gpunodes.js`).
   `propMaterial()` returns a node material under WebGPU (`util/gpu.js` decides, at import).
-- **Every other `onBeforeCompile` patch is ignored**, silently: facades, the leaf fuzz, the
-  L train's own entrance and the rest.
+- **An `onBeforeCompile` patch is ignored**, silently, and `__taxi.unported()` only lists the ones
+  on built-in materials: a patch chained onto a `propMaterial()` (a node material here) is never
+  called and never reported. The L train's fade and intro went missing that way and were found
+  by reading `fadeMaterial`, not by the list.
+- **Patches on built-in materials are nodes set on the material itself**, made once and shared,
+  with what differs read off the mesh being drawn (`uniform().onObjectUpdate(({ object }) => ...)`
+  from a bag in `material.userData`): the fare marker's fill and the disc's beam
+  (`geometry/gpumarker.js`), the robo-taxi's band, the L train's lamps. A set of nodes per pooled
+  marker would be a shader per marker.
+- **The L train's fade and intro** (`game/gpultrain.js`) are terms of `maskNode`, the dither an
+  arithmetic 4x4 Bayer off `screenCoordinate` (mirrored top to bottom against WebGL's), and the
+  intro's movement a `positionNode`. The shadow pass gets the movement and not the discard.
+- **The shadow sink** (`sinkShadowCaster`) is `castShadowPositionNode`, pushed along the sun's ray
+  in the mesh's own space. three r180 leaks a caster's `positionNode` onto every later caster
+  when a material has both nodes, so a material with a `positionNode` (the L deck) takes the push
+  inside it, scaled by a uniform that is nonzero only for the shadow pass's material. The node is
+  the material's, so a sunk mesh needs a material of its own: the L deck and the ships' upper
+  works each got one.
 - **A `ShaderMaterial` cannot be converted at all** and loses the device if drawn, so
   `game/gpucompat.js` hides those meshes. Nothing is on that list now: the taxi's glints, the
-  headlight cones and the L train's beam have twins (`unlitTwin`, `util/gpunodes.js`), and the
+  headlight cones, the L train's beam and the police helicopter's searchlight have twins (`unlitTwin`, `util/gpunodes.js`), and the
   manhole steam's puffs are nodes set on its Lambert (`steamNodes`, `game/manholesteam.js`).
   The entrance wave reaches the unlit glows and beams the same way.
 - **The mote pools' per-instance alpha** (dust, flames, sparks, spray, the wake, the fire, the

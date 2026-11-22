@@ -5,7 +5,10 @@ import { countInEveryPass } from '../util/geo.js';
 import { GRADE_UNIFORMS } from './colorgrade.js';
 import { DISTANCE, PLAY_ZOOM, DEPTH_PER_SCREEN_UNIT } from './camera.js';
 import { MeshBasicNodeMaterial } from 'three/webgpu';
-import { normalize, positionWorld, uniform, vec3, mix as mixNode, max as maxNode } from 'three/tsl';
+import {
+  modelWorldMatrix, normalize, positionLocal, positionWorld, transformDirection, uniform, vec3,
+  mix as mixNode, max as maxNode,
+} from 'three/tsl';
 import { GPU } from '../util/gpu.js';
 import { createFogNode, displayColor, installNodeGrade } from './gpufog.js';
 import { bindWaterLights } from '../city/gpuwater.js';
@@ -315,6 +318,7 @@ export function createScene({ shadowMapSize = 2048 } = {}) {
   // leak; normalBias under 0.045 brings the roof acne back, and over 0.06 widens the leak again.
   scene.add(countInEveryPass(sun));
   scene.add(sun.target);
+  sunLight = sun;
 
   // The water lights what it reflects by hand, from these two (city/gpuwater.js).
   if (GPU) bindWaterLights(sun, hemi);
@@ -375,7 +379,37 @@ const PROJECT_VERTEX = '#include <project_vertex>';
  * prepass is a screen-space pass with no light direction in it at all; sinking a mesh there would
  * push its occlusion toward the *camera* and hollow out its own contact creases.
  */
+// The direction the sun's light travels, in world space, for the WebGPU sink below.
+let sunLight = null;
+const ray = new THREE.Vector3(0, -1, 0);
+const rayFrom = new THREE.Vector3();
+const sunRay = uniform(ray).onRenderUpdate(() => (sunLight
+  ? ray.setFromMatrixPosition(sunLight.target.matrixWorld).sub(rayFrom.setFromMatrixPosition(sunLight.matrixWorld)).normalize()
+  : ray));
+
 export function sinkShadowCaster(mesh, sink = SHADOW_SINK) {
+  // WebGPU: no depth material to patch. A node material may say where its vertices stand in the
+  // shadow pass alone (`castShadowPositionNode`), in the mesh's own space, so the push is along
+  // the sun's ray turned into that space; `transformDirection(v, m)` is `v * m`, the transpose,
+  // which for a rotation is world to local (the drawbridge's leaf turns).
+  // The material has to be the mesh's own, since the node is the material's and not the mesh's.
+  //
+  // **A material with a `positionNode` of its own takes the push inside it instead**, scaled by a
+  // uniform that is the sink in the shadow pass and zero in every other. three (r180,
+  // `Renderer.renderObject`) swaps the shadow material's position node for the caster's, then
+  // swaps it again for the cast-shadow one, and puts back what the *second* swap found: the
+  // caster's own node, left on the shared shadow material for every caster drawn after it. The
+  // deck's intro reached 44 other meshes that way, each warning that it has no `aLIntro`.
+  if (mesh.material?.isNodeMaterial) {
+    const push = transformDirection(sunRay, modelWorldMatrix);
+    if (mesh.material.positionNode) {
+      const inShadowPass = uniform(0).onObjectUpdate(({ material }) => (material.isShadowPassMaterial ? sink : 0));
+      mesh.material.positionNode = mesh.material.positionNode.add(push.mul(inShadowPass));
+    } else {
+      mesh.material.castShadowPositionNode = positionLocal.add(push.mul(sink));
+    }
+    return mesh;
+  }
   // The patch below is a string replace into three's own shader, so it asserts its match rather
   // than trusting it: a chunk renamed upstream would leave the replace a silent no-op and the acne
   // back, with nothing logged and nothing to point at. Asserted *here*, where the city is built,

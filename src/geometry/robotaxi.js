@@ -4,6 +4,8 @@ import {
   propMaterial, unlitMaterial, setFinish, srcTag, BODY_EULER_ORDER, FINISH,
 } from '../util/geo.js';
 import { PALETTE, color } from '../palette.js';
+import { attribute, float, fract, materialColor, uniform, varying } from 'three/tsl';
+import { gpuMaterials } from '../util/gpu.js';
 import { SILL_Y, WHEEL_W, wheelAnchors } from './wheels.js';
 
 // The robo-taxi: a pod, not a car. An elongated rounded box — a superellipsoid, square-ish in every
@@ -360,9 +362,18 @@ const BAND_LAPS_PER_SECOND = 0.45;
 const BAND_BASE = 0.3;
 const BAND_HEAD = 1.4;
 
+let bandNode = null;
 function bandMaterial() {
   const material = unlitMaterial({ color: PALETTE.roboGlow });
   material.customProgramCacheKey = () => 'robotaxi-band';
+  // WebGPU: the same chase on the colour, one set of nodes for every band.
+  if (gpuMaterials()) {
+    bandNode ??= materialColor.mul(float(BAND_BASE).add(float(BAND_HEAD).mul(
+      float(1).sub(fract(uniform(0).onRenderUpdate(() => ROBO_BAND_TIME.value)
+        .mul(BAND_LAPS_PER_SECOND).sub(varying(attribute('aTrace', 'float'))).mul(2))).pow(6))));
+    material.colorNode = bandNode;
+    material.userData.ported = true;
+  }
   material.onBeforeCompile = (shader) => {
     shader.uniforms.uBandTime = ROBO_BAND_TIME;
     const vert = shader.vertexShader;
