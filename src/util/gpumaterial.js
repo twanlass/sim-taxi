@@ -40,6 +40,9 @@ class PropLightingModel extends PhongLightingModel {
     const tinted = mix(reflectedLight.indirectDiffuse, shared.shadowColor.mul(indirect),
       shade.mul(shared.shadowTint));
     outgoingLight.addAssign(tinted.sub(reflectedLight.indirectDiffuse));
+    // The fill light as it now stands, for a subclass that needs the light on the surface
+    // (the window streaks, util/gpupaint.js).
+    this.fill = tinted;
   }
 }
 

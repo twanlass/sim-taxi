@@ -1,7 +1,8 @@
 import * as THREE from 'three';
 import { uniform } from 'three/tsl';
 import { GPU } from './gpu.js';
-import { bindPropNodes, PropLambertNodeMaterial, PropPhongNodeMaterial } from './gpumaterial.js';
+import { bindPropNodes, PropLambertNodeMaterial } from './gpumaterial.js';
+import { bindPaint, PaintNodeMaterial } from './gpupaint.js';
 import { PALETTE, plazaLook } from '../palette.js';
 import {
   PITCH, HALF_SPAN_X, HALF_SPAN_Z, HALF_ROAD, HALF_ARTERIAL, GRID_I, GRID_J, isArterialX, isArterialZ, RIVER_EXTRA,
@@ -1715,6 +1716,8 @@ const WINDOW_STREAKS = /* glsl */ `
 				+ vec3(0.9, 0.95, 1.0) * wIrr * clamp(wBand, 0.0, 1.0) * ${WINDOW_STREAK_GAIN.toFixed(2)});
 		}`;
 
+if (GPU) bindPaint(GLOSS_UNIFORMS, { WINDOW_PAN, WINDOW_STREAK_PITCH, WINDOW_STREAK_BLUR, WINDOW_STREAK_GAIN, WINDOW_SHEEN });
+
 const glossFragment = (classic) => /* glsl */ `
 	{
 		vec3 gN = inverseTransformDirection(gReflN, viewMatrix);
@@ -2148,7 +2151,7 @@ export function propMaterial({ ao = true, gloss = null, cutout = null, smooth = 
   // specular, which the patch replaces outright.
   const params = { vertexColors: true, flatShading: true };
   const material = GPU
-    ? (paint ? new PropPhongNodeMaterial(params) : new PropLambertNodeMaterial(params))
+    ? (paint ? new PaintNodeMaterial(params, paint) : new PropLambertNodeMaterial(params))
     : (paint ? new THREE.MeshPhongMaterial(params) : new THREE.MeshLambertMaterial(params));
   // Unconditional now: the shadow tint rides in the same patch and is always available. See
   // SHADOW_UNIFORMS for why it does not need a flag of its own.
@@ -2173,7 +2176,7 @@ export function propMaterial({ ao = true, gloss = null, cutout = null, smooth = 
   if (GPU) {
     // The WebGPU twin carries the shadow tint (util/gpumaterial.js). What `patchProp` adds beyond
     // that is still to port, and is listed here so `__taxi.unported()` can say so per mesh.
-    material.userData.unported = [paint && 'car paint', 'painterly', 'ao', 'cloud shadows']
+    material.userData.unported = [paint && rimPaintOn() && 'rim line', 'painterly', 'ao', 'cloud shadows']
       .filter(Boolean);
     return material;
   }

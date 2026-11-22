@@ -1127,9 +1127,12 @@ What the WebGPU path draws today, and what it does not:
   where the GLSL used `<lights_fragment_end>`), the distance haze, the fog of war and the colour
   grade (`game/gpufog.js`, one `scene.fogNode`), the sky dome (`game/scene.js`), and the water:
   river, sea, pond and lake (`city/gpuwater.js`, beside `city/riverwater.js` and line for line
-  against it; the smooth surface only, `?water=classic` stays a WebGL look).
+  against it; the smooth surface only, `?water=classic` stays a WebGL look), and the car paint
+  and building glass (`util/gpupaint.js`: finishes, bent normals, flop and flip, flakes, the two
+  specular lobes, streaks, the march through the city's roof heights, window streaks; the default
+  `real` look only, and without the rim line, which waits on the depth prepass).
   `propMaterial()` returns a node material under WebGPU (`util/gpu.js` decides, at import).
-- **Every other `onBeforeCompile` patch is ignored**, silently: the painterly pass, the car paint,
+- **Every other `onBeforeCompile` patch is ignored**, silently: the painterly pass,
   the city's entrance wave, cloud shadows, facades and the rest.
 - **A `ShaderMaterial` cannot be converted at all** and loses the device if drawn, so
   `game/gpucompat.js` hides those meshes (the L train's beam, the headlight cones).
@@ -1151,6 +1154,19 @@ Measured against WebGL with AO, bloom, CRT and painterly off, at the parked 16:2
 184/168/119. The lit faces' last 3% is not explained yet.
 - **The passes are off**: AO and its depth prepass (so the rim paint too), bloom, `?hdr`, Crayon,
   Cartoon, the CRT, and the squall's rain. Each is a WebGL render-target pass until it is ported.
+
+Traps in TSL itself, the first and last of which drew a wrong picture with nothing logged:
+
+- **A node shared between materials is not a value shared between meshes.** One `uniformArray`
+  handed to every paint material reached only some of the meshes drawing with it: the punched
+  windows read a `diffuse` of 0 from the finish table and drew black, while the curtain walls
+  beside them, on the same shader, were fine. Array nodes are made per build (`row` in
+  `gpupaint.js`). Plain `uniform()` nodes shared the same way have been fine.
+- **Per-material numbers are read from the material being drawn** (`onObjectUpdate`), not closed
+  over when the nodes are built, since three's cache key for a plain mesh carries no material
+  identity. Not seen to fail; cheap to get right.
+- **`pow(0, 0)` is NaN in WGSL**, and NaN times a strength of zero is still NaN. A finish with a
+  sharpness of 0 turned whole panes black until the lobe's base got a floor.
 
 `__taxi.unported()` is the worklist: what is hidden and what is drawing unpatched, by mesh name.
 It is empty when the port is done, and `game/gpucompat.js` is deleted with it.
