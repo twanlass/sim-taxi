@@ -1157,6 +1157,14 @@ What the WebGPU path draws today, and what it does not:
 - **The L train's fade and intro** (`game/gpultrain.js`) are terms of `maskNode`, the dither an
   arithmetic 4x4 Bayer off `screenCoordinate` (mirrored top to bottom against WebGL's), and the
   intro's movement a `positionNode`. The shadow pass gets the movement and not the discard.
+- **The cash note's back** is mixed in after the instance colour in GLSL, and three's node
+  materials multiply the instance colour on after `colorNode`: the node writes the finished colour
+  divided by the instance colour (`game/cashtrail.js`). Headless WebGL shows no backs to compare
+  with (SwiftShader answers `gl_FrontFacing` true on both sides).
+- **Not ported, by decision:** Crayon and Cartoon Mode (Tyler, 2026-11-21) and `?hdr`, a
+  comparison rather than a shipped mode. All three run under `?renderer=classic`.
+- **Size.** three's WebGPU renderer and TSL add 589 kB to the vendor chunk (557 to 1,145 kB;
+  142 to 304 kB gzipped). Both renderers ship, since WebGL is the fallback.
 - **The shadow sink** (`sinkShadowCaster`) is `castShadowPositionNode`, pushed along the sun's ray
   in the mesh's own space. three r180 leaks a caster's `positionNode` onto every later caster
   when a material has both nodes, so a material with a `positionNode` (the L deck) takes the push

@@ -8,6 +8,7 @@ import { TAXI_TAILPIPE_BACK, TAXI_TAILPIPE_HEIGHT } from '../geometry/taxi.js';
 import { ROAD_Y } from '../sim/traffic.js';
 import { GPU } from '../util/gpu.js';
 import { instanceAlpha } from '../util/gpunodes.js';
+import { float, frontFacing, materialColor, max, mix, select, varyingProperty, vec3 } from 'three/tsl';
 
 // Banknotes fluttering out of the back of the taxi while it boosts with a robber aboard — see
 // [the bank robbery](../../docs/gameplay.md#the-bank-robbery).
@@ -381,9 +382,21 @@ export function createCashTrail(scene, rng) {
   // The back colour is baked into the source as a literal, so the default cache key — the patch
   // function's own text — would not change if the palette did. Key off the literal as well.
   material.customProgramCacheKey = () => `cashnote:${back}:${BACK_FLIP}`;
-  // WebGPU: the fade. Not the back's colour yet: it is mixed in after the instance colour, and
-  // three's node materials have no seam there short of a `setupDiffuseColor` of their own.
-  if (GPU) instanceAlpha(material);
+  // WebGPU: the fade, and the back. The GLSL mixes the back in *after* the instance colour and
+  // three's node materials multiply the instance colour on after `colorNode`, with no seam past
+  // it. So the colour node writes the finished colour over the instance colour, which three then
+  // multiplies back in. The floor is for the division only: no note is painted black.
+  //
+  // Not checked against WebGL headless: SwiftShader's GL answers `gl_FrontFacing` true on both
+  // sides, so the reference there has no backs at all (with the mix forced to 0 here the two
+  // renderers agree to 1.1 of 255). On WebGPU about half the notes in a shower show the back.
+  if (GPU) {
+    instanceAlpha(material);
+    const paint = varyingProperty('vec3', 'vInstanceColor');
+    const flip = select(frontFacing, float(0), float(BACK_FLIP));
+    material.colorNode = mix(paint.mul(materialColor), vec3(BACK_COL.r, BACK_COL.g, BACK_COL.b), flip)
+      .div(max(paint, 1e-4));
+  }
 
   const mesh = skipWhenEmpty(new THREE.InstancedMesh(geometry, material, MAX_NOTES));
   mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
