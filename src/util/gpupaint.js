@@ -175,7 +175,7 @@ const paintLighting = (Base, p) => class PaintLighting extends Base {
     const wB = fwidth(wD).add(1e-4 + K.WINDOW_STREAK_BLUR).toVar();
     const wBand = sstep(wB.add(0.12), wB.negate().add(0.12), abs(wF.sub(0.4)))
       .add(sstep(wB.mul(0.5).add(0.03), max(wB.mul(-0.5).add(0.03), 0), abs(wF.sub(0.6))).mul(0.8));
-    const wIrr = reflectedLight.directDiffuse.add(this.fill).div(max(diffuseColor.rgb, vec3(1e-3))).toVar();
+    const wIrr = this.sunlit.add(this.fill).div(max(diffuseColor.rgb, vec3(1e-3))).toVar();
     outgoingLight.addAssign(p.isWindow.mul(p.mirror).mul(
       vec3(0.55, 0.72, 0.95).mul(dot(wIrr, LUMA)).mul(K.WINDOW_SHEEN)
         .add(vec3(0.9, 0.95, 1.0).mul(wIrr).mul(clamp(wBand, 0, 1)).mul(K.WINDOW_STREAK_GAIN))));

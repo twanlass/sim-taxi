@@ -3,6 +3,7 @@ import { uniform } from 'three/tsl';
 import { GPU } from './gpu.js';
 import { bindPropNodes, PropLambertNodeMaterial } from './gpumaterial.js';
 import { bindPaint, PaintNodeMaterial } from './gpupaint.js';
+import { createCloudNodes } from './gpuclouds.js';
 import { PALETTE, plazaLook } from '../palette.js';
 import {
   PITCH, HALF_SPAN_X, HALF_SPAN_Z, HALF_ROAD, HALF_ARTERIAL, GRID_I, GRID_J, isArterialX, isArterialZ, RIVER_EXTRA,
@@ -737,6 +738,10 @@ const CLOUD_LIGHT = /* glsl */ `
  */
 export function setCloudShadows(enabled) {
   cloudsEnabled = enabled;
+}
+if (GPU) {
+  let cloudLight = null;
+  bindPropNodes({ clouds: () => (cloudsEnabled ? (cloudLight ??= createCloudNodes(CLOUD_UNIFORMS)) : null) });
 }
 
 /**
@@ -2176,7 +2181,7 @@ export function propMaterial({ ao = true, gloss = null, cutout = null, smooth = 
   if (GPU) {
     // The WebGPU twin carries the shadow tint (util/gpumaterial.js). What `patchProp` adds beyond
     // that is still to port, and is listed here so `__taxi.unported()` can say so per mesh.
-    material.userData.unported = [paint && rimPaintOn() && 'rim line', 'painterly', 'ao', 'cloud shadows']
+    material.userData.unported = [paint && rimPaintOn() && 'rim line', 'painterly', 'ao']
       .filter(Boolean);
     return material;
   }

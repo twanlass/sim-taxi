@@ -15,7 +15,9 @@ import { dot, max, mix, smoothstep, vec3 } from 'three/tsl';
 
 // Set by util/geo.js, which owns SHADOW_UNIFORMS; a setter rather than an import because geo.js
 // imports this file.
-const shared = { shadowColor: null, shadowTint: null, shadeKnee: 0.45 };
+// `clouds` is `() => cloudLight | null`, asked as a material is built: weather is decided after
+// this module loads (`setCloudShadows`), and a city without it compiles none of the field.
+const shared = { shadowColor: null, shadowTint: null, shadeKnee: 0.45, clouds: () => null };
 export function bindPropNodes(nodes) {
   Object.assign(shared, nodes);
 }
@@ -34,14 +36,24 @@ const LUMA = vec3(0.2126, 0.7152, 0.0722);
 class PropLightingModel extends PhongLightingModel {
   finish({ context }) {
     const { reflectedLight, outgoingLight } = context;
-    const direct = dot(reflectedLight.directDiffuse, LUMA);
-    const indirect = dot(reflectedLight.indirectDiffuse, LUMA);
+    // Cloud shadows first (CLOUD_LIGHT), so a covered patch goes cool under the tint below.
+    const cloudLight = shared.clouds();
+    let sunlit = reflectedLight.directDiffuse;
+    let skylit = reflectedLight.indirectDiffuse;
+    if (cloudLight) {
+      const { sun, sky } = cloudLight();
+      sunlit = sunlit.mul(sun).toVar();
+      skylit = skylit.mul(sky).toVar();
+      outgoingLight.addAssign(sunlit.sub(reflectedLight.directDiffuse));
+    }
+    const direct = dot(sunlit, LUMA);
+    const indirect = dot(skylit, LUMA);
     const shade = smoothstep(shared.shadeKnee, 1.0, indirect.div(max(direct.add(indirect), 1e-4)));
-    const tinted = mix(reflectedLight.indirectDiffuse, shared.shadowColor.mul(indirect),
-      shade.mul(shared.shadowTint));
+    const tinted = mix(skylit, shared.shadowColor.mul(indirect), shade.mul(shared.shadowTint)).toVar();
     outgoingLight.addAssign(tinted.sub(reflectedLight.indirectDiffuse));
-    // The fill light as it now stands, for a subclass that needs the light on the surface
-    // (the window streaks, util/gpupaint.js).
+    // The two halves of the diffuse light as they now stand, for a subclass that needs the light
+    // on the surface (the window streaks, util/gpupaint.js).
+    this.sunlit = sunlit;
     this.fill = tinted;
   }
 }

@@ -1153,7 +1153,14 @@ Measured against WebGL with AO, bloom, CRT and painterly off, at the parked 16:2
 73/71/69 against 73/72/68, road 69/72/73 against 71/72/73, a lit roof 178/164/119 against
 184/168/119. The lit faces' last 3% is not explained yet.
 - **The passes are off**: AO and its depth prepass (so the rim paint too), bloom, `?hdr`, Crayon,
-  Cartoon, the CRT, and the squall's rain. Each is a WebGL render-target pass until it is ported.
+  Cartoon and the CRT. Each is a WebGL render-target pass until it is ported.
+- **There is no weather.** The rain is a mirror pass, a frame copy and five `ShaderMaterial`s, and
+  the squall is wired through it, so `main.js` builds neither under WebGPU. The first four steps
+  of the port did not do this and **did not load at all with the squall on, which is the default**:
+  `createRain` asked for a WebGL extension and threw. It went unseen because a throw after a
+  top-level await raises no error event, only a page that never finishes loading, and every still
+  had been taken with `?squall=off`. The cloud field and the cell's shade are ported and waiting
+  (`util/gpuclouds.js`, checked by eye with the cover forced to 0.5), switched off with the rest.
 
 Traps in TSL itself, the first and last of which drew a wrong picture with nothing logged:
 

@@ -366,8 +366,14 @@ const { ao, bloom, crayon, cartoon, hdr, crt } = renderPath;
 // rain cell crossing a sunny city (game/squall.js), `?squall=off` to drop it. An explicit `?squall`
 // wins over the other two — they are both "the sky over everything" — but the *default* steps aside
 // for either (`getSquall`). Run seed, so `?run=` replays the same crossings.
-const squallFlag = getSquall();
-const stormFlag = squallFlag ? null : (getRain() ?? getStorm());
+//
+// No weather under WebGPU yet. The rain is a mirror pass, a frame copy and five ShaderMaterials,
+// none of it ported, and the squall is wired through it (`rain.attachSquall`, `rain.centre`).
+// Left on, `createRain` asked the renderer for a WebGL extension and threw at load with the
+// squall on, which is the default weather; and a throw after a top-level await surfaces as
+// nothing at all, no error event, only a page that never finishes loading.
+const squallFlag = GPU ? null : getSquall();
+const stormFlag = GPU || squallFlag ? null : (getRain() ?? getStorm());
 const storm = stormFlag ? createStorm(stormFlag) : null;
 const squallRng = makeRng(runSeed + 733);
 // `?squallramp=classic`: the first front, which brought the shade, the rain and the lights in
