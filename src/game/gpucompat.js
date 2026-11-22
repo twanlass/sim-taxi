@@ -21,6 +21,18 @@ const nameOf = (o) => {
   return o.type;
 };
 
+// Meshes whose whole shape is their patch: a plain quad whose fragment shader draws the plume or
+// the beam in its alpha. Unpatched they are opaque white rectangles standing in the street, which
+// is worse than their absence. Named here until each is ported.
+const SHAPED_BY_PATCH = new Set(['manhole-steam', 'billboard-beams', 'boat-wake']);
+
+function hide(o) {
+  // Hidden for good: a later `visible = true` from the game would hand the renderer a material it
+  // throws on, or bring the white rectangle back.
+  Object.defineProperty(o, 'visible', { get: () => false, set: () => {}, configurable: true });
+  hidden.set(nameOf(o), (hidden.get(nameOf(o)) ?? 0) + 1);
+}
+
 /** Walk `scene` once for anything new. Cheap to call again: objects already judged are skipped. */
 export function gpuCompat(scene) {
   scene.traverse((o) => {
@@ -43,11 +55,9 @@ export function gpuCompat(scene) {
         continue;
       }
       if (m.isShaderMaterial || m.isRawShaderMaterial) {
-        o.visible = false;
-        // Hidden for good: a later `visible = true` from the game would hand the renderer a
-        // material it throws on.
-        Object.defineProperty(o, 'visible', { get: () => false, set: () => {}, configurable: true });
-        hidden.set(nameOf(o), (hidden.get(nameOf(o)) ?? 0) + 1);
+        hide(o);
+      } else if (SHAPED_BY_PATCH.has(nameOf(o))) {
+        hide(o);
       } else if (m.onBeforeCompile && m.onBeforeCompile !== Object.getPrototypeOf(m).onBeforeCompile) {
         unpatched.set(nameOf(o), (unpatched.get(nameOf(o)) ?? 0) + 1);
       }

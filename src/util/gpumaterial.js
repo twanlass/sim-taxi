@@ -61,16 +61,29 @@ const webglShadowSide = {
 
 // The `type` is part of how three keys a node material's program, and a stock Lambert that three
 // converted on the fly must not be handed this one's lighting, or the other way about.
-export class PropLambertNodeMaterial extends MeshLambertNodeMaterial {
-  static get type() { return 'PropLambertNodeMaterial'; }
+//
+// `lightingFactory`: a material that needs more at the lighting seams (the water does) hands in a
+// function from this model's class to a subclass of it. On the instance, so `copy` carries it;
+// `Material.clone()` copies parameters and would otherwise hand back a plain prop.
+const propMaterial = (Base, specular) => class extends Base {
+  setupLightingModel() {
+    const Model = this.lightingFactory ? this.lightingFactory(PropLightingModel) : PropLightingModel;
+    return new Model(specular);
+  }
 
-  setupLightingModel() { return new PropLightingModel(false); }
+  copy(source) {
+    super.copy(source);
+    this.lightingFactory = source.lightingFactory;
+    return this;
+  }
+};
+
+export class PropLambertNodeMaterial extends propMaterial(MeshLambertNodeMaterial, false) {
+  static get type() { return 'PropLambertNodeMaterial'; }
 }
 
-export class PropPhongNodeMaterial extends MeshPhongNodeMaterial {
+export class PropPhongNodeMaterial extends propMaterial(MeshPhongNodeMaterial, true) {
   static get type() { return 'PropPhongNodeMaterial'; }
-
-  setupLightingModel() { return new PropLightingModel(true); }
 }
 
 Object.defineProperty(PropLambertNodeMaterial.prototype, 'shadowSide', webglShadowSide);

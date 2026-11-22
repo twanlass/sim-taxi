@@ -8,6 +8,7 @@ import { MeshBasicNodeMaterial } from 'three/webgpu';
 import { normalize, positionWorld, uniform, vec3, mix as mixNode, max as maxNode } from 'three/tsl';
 import { GPU } from '../util/gpu.js';
 import { createFogNode, displayColor } from './gpufog.js';
+import { bindWaterLights } from '../city/gpuwater.js';
 
 /** The dome's gradient curve. Exported because the haze reads the same gradient — see hazeColor. */
 export const SKY_EXPONENT = 0.7;
@@ -311,6 +312,8 @@ export function createScene({ shadowMapSize = 2048 } = {}) {
   scene.add(countInEveryPass(sun));
   scene.add(sun.target);
 
+  // The water lights what it reflects by hand, from these two (city/gpuwater.js).
+  if (GPU) bindWaterLights(sun, hemi);
   return { scene, sun, hemi, sky: sky.material, fog: scene.fog };
 }
 

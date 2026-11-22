@@ -1125,10 +1125,12 @@ What the WebGPU path draws today, and what it does not:
   fly, so geometry, vertex colours, the sun and its shadow map all arrive.
 - **Ported to TSL so far:** the shadow tint (`util/gpumaterial.js`, the lighting model's `finish`
   where the GLSL used `<lights_fragment_end>`), the distance haze, the fog of war and the colour
-  grade (`game/gpufog.js`, one `scene.fogNode`), and the sky dome (`game/scene.js`).
+  grade (`game/gpufog.js`, one `scene.fogNode`), the sky dome (`game/scene.js`), and the water:
+  river, sea, pond and lake (`city/gpuwater.js`, beside `city/riverwater.js` and line for line
+  against it; the smooth surface only, `?water=classic` stays a WebGL look).
   `propMaterial()` returns a node material under WebGPU (`util/gpu.js` decides, at import).
 - **Every other `onBeforeCompile` patch is ignored**, silently: the painterly pass, the car paint,
-  the water, the city's entrance wave, cloud shadows, facades and the rest.
+  the city's entrance wave, cloud shadows, facades and the rest.
 - **A `ShaderMaterial` cannot be converted at all** and loses the device if drawn, so
   `game/gpucompat.js` hides those meshes (the L train's beam, the headlight cones).
 
