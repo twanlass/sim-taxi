@@ -1,4 +1,7 @@
 import * as THREE from 'three';
+import { uniform } from 'three/tsl';
+import { GPU } from './gpu.js';
+import { bindPropNodes, PropLambertNodeMaterial, PropPhongNodeMaterial } from './gpumaterial.js';
 import { PALETTE, plazaLook } from '../palette.js';
 import {
   PITCH, HALF_SPAN_X, HALF_SPAN_Z, HALF_ROAD, HALF_ARTERIAL, GRID_I, GRID_J, isArterialX, isArterialZ, RIVER_EXTRA,
@@ -225,6 +228,14 @@ export const SHADOW_UNIFORMS = {
   uShadowColor: { value: new THREE.Color(1, 1, 1) },
   uShadowTint: { value: 0 },
 };
+// The same two values as nodes, for the WebGPU materials: the colour by reference, the amount
+// read each render, so `setShadowTint` below reaches both renderers' materials unchanged.
+if (GPU) {
+  bindPropNodes({
+    shadowColor: uniform(SHADOW_UNIFORMS.uShadowColor.value),
+    shadowTint: uniform(0).onRenderUpdate(() => SHADOW_UNIFORMS.uShadowTint.value),
+  });
+}
 
 /**
  * How far the shade is pushed toward `PALETTE.shadowTint` in the shipped game.
@@ -2135,9 +2146,10 @@ export function propMaterial({ ao = true, gloss = null, cutout = null, smooth = 
   const paint = gloss && !crayonEnabled && !cartoonEnabled ? glossShape(gloss) : null;
   // Phong for the light loop its specular term sits in (see GLOSS_SPECULAR_TO), not for its own
   // specular, which the patch replaces outright.
-  const material = paint
-    ? new THREE.MeshPhongMaterial({ vertexColors: true, flatShading: true })
-    : new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true });
+  const params = { vertexColors: true, flatShading: true };
+  const material = GPU
+    ? (paint ? new PropPhongNodeMaterial(params) : new PropLambertNodeMaterial(params))
+    : (paint ? new THREE.MeshPhongMaterial(params) : new THREE.MeshLambertMaterial(params));
   // Unconditional now: the shadow tint rides in the same patch and is always available. See
   // SHADOW_UNIFORMS for why it does not need a flag of its own.
   // `cutout`: an alpha map, cut at half rather than blended, so the surface still writes depth and
@@ -2158,6 +2170,13 @@ export function propMaterial({ ao = true, gloss = null, cutout = null, smooth = 
   // carries comes out of `bakeColor` with flat ones and so draws as it did.
   // `smooth` counts here too, for a glossy dome that wants the same (the bank's, city/bank.js).
   if (paint && (SMOOTH_BODY || smooth)) material.flatShading = false;
+  if (GPU) {
+    // The WebGPU twin carries the shadow tint (util/gpumaterial.js). What `patchProp` adds beyond
+    // that is still to port, and is listed here so `__taxi.unported()` can say so per mesh.
+    material.userData.unported = [paint && 'car paint', 'painterly', 'ao', 'cloud shadows']
+      .filter(Boolean);
+    return material;
+  }
   patchProp(material, { ao, gloss: paint });
   return material;
 }

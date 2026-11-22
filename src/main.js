@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { WebGPURenderer } from 'three/webgpu';
 import { gpuCompat, unported } from './game/gpucompat.js';
+import { GPU } from './util/gpu.js';
 import { createGpuCapture } from './game/gpucapture.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 // First, before anything builds a material: it patches three's fog chunk for every program.
@@ -305,7 +306,6 @@ if (!shot && !new URLSearchParams(window.location.search).has('msaa')) {
   budget.msaa = budget.msaa && settings.atLaunch().antialias;
 }
 
-const GPU = new URLSearchParams(window.location.search).get('renderer') !== 'classic' && Boolean(navigator.gpu);
 if (GPU) Object.assign(budget, { gpu: true, ao: false, bloom: false, hdr: false, crayon: false, cartoon: false, crt: false });
 const renderer = GPU ? new WebGPURenderer({ antialias: budget.msaa, stencil: true }) : new THREE.WebGLRenderer({
   antialias: budget.msaa,
@@ -8868,6 +8868,7 @@ if (!shot && wantsDebugPanel) {
 }
 
 window.__taxi = {
+  scene,
   unported,
   renderer: GPU ? 'webgpu' : 'webgl',
   gpuCapture: () => gpuCapture?.capture(),

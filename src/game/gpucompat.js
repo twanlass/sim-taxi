@@ -34,7 +34,14 @@ export function gpuCompat(scene) {
     seen.add(o);
     const materials = o.material ? (Array.isArray(o.material) ? o.material : [o.material]) : [];
     for (const m of materials) {
-      if (m.isNodeMaterial) continue;
+      if (m.isNodeMaterial) {
+        // A ported material says what it still lacks.
+        for (const what of m.userData.unported ?? []) {
+          const key = `${nameOf(o)}: ${what}`;
+          unpatched.set(key, (unpatched.get(key) ?? 0) + 1);
+        }
+        continue;
+      }
       if (m.isShaderMaterial || m.isRawShaderMaterial) {
         o.visible = false;
         // Hidden for good: a later `visible = true` from the game would hand the renderer a

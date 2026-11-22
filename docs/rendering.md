@@ -1123,11 +1123,30 @@ What the WebGPU path draws today, and what it does not:
 - **It boots and plays.** `main.js` builds a `WebGPURenderer`, awaits `init()`, and draws the same
   scene. three converts the built-in materials (Lambert, Phong, Basic) to node materials on the
   fly, so geometry, vertex colours, the sun and its shadow map all arrive.
-- **Every `onBeforeCompile` patch is ignored**, silently. That is the painterly pass, the edge fog,
-  the colour grade, the car paint, the water, the city's entrance wave, cloud shadows and the rest:
-  about 130 kinds of mesh draw without their patch.
+- **Ported to TSL so far:** the shadow tint (`util/gpumaterial.js`, the lighting model's `finish`
+  where the GLSL used `<lights_fragment_end>`), the distance haze, the fog of war and the colour
+  grade (`game/gpufog.js`, one `scene.fogNode`), and the sky dome (`game/scene.js`).
+  `propMaterial()` returns a node material under WebGPU (`util/gpu.js` decides, at import).
+- **Every other `onBeforeCompile` patch is ignored**, silently: the painterly pass, the car paint,
+  the water, the city's entrance wave, cloud shadows, facades and the rest.
 - **A `ShaderMaterial` cannot be converted at all** and loses the device if drawn, so
-  `game/gpucompat.js` hides those meshes (the sky, the L train's beam, the headlight cones).
+  `game/gpucompat.js` hides those meshes (the L train's beam, the headlight cones).
+
+Three things the WebGL renderer does without being asked, each of which showed up as a wrong
+picture and each of which the node path now does by hand:
+
+- **Fog and grade are mixed in display space.** three's fog chunk runs after its colour-space
+  chunk, so every fog colour and the whole grade were tuned against sRGB-encoded pixels. A node
+  material fogs in linear and encodes last. `gpufog.js` encodes, mixes, grades and decodes.
+- **The grade is not neutral.** `GRADE_DEFAULTS` carries about half a stop of exposure; without it
+  the first WebGPU frames measured 1.7 times darker on lit faces (roof 133 against 184 of 255).
+- **The shadow pass draws back faces.** WebGL's does for a front-sided material; WebGPU's draws
+  `material.side`, and every roof came out striped and 8% dark until the node materials answered
+  `shadowSide` the WebGL way.
+
+Measured against WebGL with AO, bloom, CRT and painterly off, at the parked 16:24 light: shade
+73/71/69 against 73/72/68, road 69/72/73 against 71/72/73, a lit roof 178/164/119 against
+184/168/119. The lit faces' last 3% is not explained yet.
 - **The passes are off**: AO and its depth prepass (so the rim paint too), bloom, `?hdr`, Crayon,
   Cartoon, the CRT, and the squall's rain. Each is a WebGL render-target pass until it is ported.
 
