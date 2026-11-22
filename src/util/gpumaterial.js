@@ -11,7 +11,7 @@
  */
 import { MeshLambertNodeMaterial, MeshPhongNodeMaterial, PhongLightingModel } from 'three/webgpu';
 import { BackSide, DoubleSide, FrontSide } from 'three';
-import { dot, max, mix, positionWorld, smoothstep, sRGBTransferEOTF, sRGBTransferOETF, vec3 } from 'three/tsl';
+import { diffuseColor, dot, max, mix, positionWorld, smoothstep, sRGBTransferEOTF, sRGBTransferOETF, vec3 } from 'three/tsl';
 
 // Set by util/geo.js, which owns SHADOW_UNIFORMS; a setter rather than an import because geo.js
 // imports this file.
@@ -93,9 +93,18 @@ const propMaterial = (Base, specular) => class extends Base {
     return new Model(specular);
   }
 
+  // `surfaces`: `[{ key, paint }]`, each a multiply on the diffuse colour where a GLSL patch
+  // after `<color_fragment>` ran (the facade courses, city/facade.js). `paint()` answers the
+  // factor; `key` goes in the cache key, for the reason given below.
+  setupDiffuseColor(builder) {
+    super.setupDiffuseColor(builder);
+    for (const surface of this.surfaces ?? []) diffuseColor.rgb.mulAssign(surface.paint());
+  }
+
   copy(source) {
     super.copy(source);
     this.lightingFactory = source.lightingFactory;
+    this.surfaces = source.surfaces;
     return this;
   }
 
@@ -104,7 +113,8 @@ const propMaterial = (Base, specular) => class extends Base {
   // put there. Without this the ground never built its own: it drew with a plain prop's nodes and
   // the paved junction was missing, with `finish` never once called for it.
   customProgramCacheKey() {
-    return `brush${this.userData.brush ?? 0}${this.lightingFactory ? this.uuid : ''}`;
+    const surfaces = (this.surfaces ?? []).map((surface) => surface.key).join(',');
+    return `brush${this.userData.brush ?? 0}|${surfaces}|${this.lightingFactory ? this.uuid : ''}`;
   }
 };
 

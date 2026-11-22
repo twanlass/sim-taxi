@@ -1,6 +1,9 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { bakeColors, propMaterial } from '../util/geo.js';
+import {
+  abs, attribute, float, floor, fwidth, mix, positionGeometry, smoothstep, step, varying,
+} from 'three/tsl';
 
 // Wall detail on the towers: a darker plinth under a string course, a lit belt course with its
 // shadow at every floor line, a cornice at the top of each tier and lighter quoins at the corners.
@@ -82,8 +85,48 @@ const f = (x) => x.toFixed(4);
  * `?walls=classic`. The pattern reads the geometry's own `position`, not the animated one, so
  * during the entrance it rides up with the wall instead of sliding over it.
  */
+/**
+ * The courses as nodes, for a `propMaterial()` under WebGPURenderer: the fragment patch below,
+ * line for line, as one factor on the diffuse colour. The one difference is that nothing sits in
+ * a branch (WGSL wants `fwidth` outside control flow): a face with no pattern is a mix back to 1.
+ */
+function wallNodes({ floorH, groundTop }) {
+  const wall = varying(attribute('aWall', 'vec4'));
+  const top = varying(attribute('aWallTop', 'float'));
+  const wy = varying(positionGeometry.y);
+  const origin = wall.y;
+  const u = wall.z;
+  const fw = wall.w;
+  const ay = fwidth(wy).mul(0.5).add(1e-4).toVar();
+  const au = fwidth(u).mul(0.5).add(1e-4);
+  const band = (x, a, b, aa) => smoothstep(a.sub(aa), a.add(aa), x).sub(smoothstep(b.sub(aa), b.add(aa), x));
+  const lerp = (to, k) => mix(1.0, to, k);
+  const ground = step(abs(origin.sub(groundTop)), 0.01);
+  const upper = step(origin.add(floorH), top.sub(0.35 - 1e-3)).toVar();
+  const gu = ground.mul(upper).toVar();
+  const k = floor(wy.sub(origin).div(floorH).add(0.5)).toVar();
+  const d = wy.sub(origin).sub(k.mul(floorH)).toVar();
+  const row = step(0.0, k).mul(step(origin.add(k.add(1).mul(floorH)), top.sub(0.35 - 1e-3)))
+    .mul(float(1).sub(ground.mul(step(k, 0.5)))).toVar();
+  const m = lerp(PLINTH, gu.mul(float(1).sub(smoothstep(origin.sub(ay), origin.add(ay), wy))))
+    .mul(lerp(COURSE_LIT, gu.mul(band(wy, origin.sub(0.06), origin.add(0.16), ay))))
+    .mul(lerp(LEDGE_LIT, row.mul(band(d, float(-0.02), float(BELT_TOP), ay))))
+    .mul(lerp(LEDGE_SHADE, row.mul(band(d, float(-0.18), float(-0.02), ay))))
+    .mul(lerp(CORNICE_LIT, upper.mul(band(wy, top.sub(0.4), top.add(1.0), ay))))
+    .mul(lerp(LEDGE_SHADE, upper.mul(band(wy, top.sub(0.56), top.sub(0.4), ay))))
+    .mul(lerp(QUOIN_LIT, upper.mul(smoothstep(fw.mul(0.5).sub(0.26).sub(au), fw.mul(0.5).sub(0.26).add(au), abs(u)))));
+  return mix(1.0, m, step(0.5, wall.x));
+}
+
 export function patchWalls(material, { floorH, groundTop }) {
   if (WALLS_CLASSIC) return material;
+  if (material.isNodeMaterial) {
+    material.surfaces = [...(material.surfaces ?? []), {
+      key: `walls:${floorH}:${groundTop}`,
+      paint: () => wallNodes({ floorH, groundTop }),
+    }];
+    return material;
+  }
   const prevCompile = material.onBeforeCompile;
   const prevKey = material.customProgramCacheKey;
   material.customProgramCacheKey = () => `${prevKey ? prevKey.call(material) : ''}|walls`;
