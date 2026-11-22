@@ -1130,10 +1130,12 @@ What the WebGPU path draws today, and what it does not:
   against it; the smooth surface only, `?water=classic` stays a WebGL look), and the car paint
   and building glass (`util/gpupaint.js`: finishes, bent normals, flop and flip, flakes, the two
   specular lobes, streaks, the march through the city's roof heights, window streaks; the default
-  `real` look only, and without the rim line, which waits on the depth prepass).
+  `real` look only, and without the rim line, which waits on the depth prepass), and the city's
+  entrance wave (`game/cityentry.js`, as the material's `positionNode`, which three also hands
+  to the shadow pass, so the two depth materials the WebGL path patches have no twin).
   `propMaterial()` returns a node material under WebGPU (`util/gpu.js` decides, at import).
-- **Every other `onBeforeCompile` patch is ignored**, silently: the painterly pass,
-  the city's entrance wave, cloud shadows, facades and the rest.
+- **Every other `onBeforeCompile` patch is ignored**, silently: the painterly pass, facades, the
+  L train's own entrance and the rest.
 - **A `ShaderMaterial` cannot be converted at all** and loses the device if drawn, so
   `game/gpucompat.js` hides those meshes (the L train's beam, the headlight cones).
 

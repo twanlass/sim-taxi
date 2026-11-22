@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { KERB_H } from '../city/ground.js';
 import { coastWest, coastEast, coastNorth, coastSouth } from '../city/grid.js';
 import { setOccluderDepthMaterial } from './ssao.js';
+import { attribute, clamp, distance, float, mix, positionLocal, smoothstep, uniform, varying, vec3 } from 'three/tsl';
 
 // The city's entrance: streets and ground are already in place, then the buildings and trees
 // grow out of them in a wave — rise from the kerb, fade in, overshoot their full size and settle
@@ -171,9 +172,52 @@ export function createCityEntry({
     }
   };
 
+  // The same wave for a node material (WebGPU): ENTRY_VERTEX as the material's `positionNode`,
+  // which three also hands to the sun's shadow pass, so there is no depth material to patch.
+  // The fade rides `opacityNode` and the early discard `maskNode`.
+  //
+  // Two things the GLSL does that this does not. The shadow pass has no discard, so a building
+  // that has not started is a sheet at kerb height in the shadow map; it lies on the pavement it
+  // shadows, and nothing reads as wrong. And an alpha-cut card (grass, leaf fuzz) is cut on its
+  // coverage times the fade, so it arrives a little after the ground under it rather than with it.
+  let entryNodes = null;
+  const patchNodes = (material) => {
+    if (!entryNodes) {
+      const live = (slot) => uniform(slot.value).onRenderUpdate(() => slot.value);
+      const anchor = attribute('aEntry', 'vec3');
+      const eT = clamp(live(uEntryTime)
+        .sub(distance(anchor.xy, uniform(uEntryFrom.value)).mul(live(uEntryWave))
+          .add(anchor.z.mul(live(uEntryJitter))))
+        .div(live(uEntryDur)), 0, 1).toVar();
+      const over = live(uEntryOver);
+      const eB = eT.sub(1).toVar();
+      const eS = float(1).add(over.add(1).mul(eB).mul(eB).mul(eB)).add(over.mul(eB).mul(eB)).toVar();
+      const eXZ = mix(XZ_FROM, 1.0, eS);
+      const fade = varying(smoothstep(0.0, FADE_IN, eT));
+      entryNodes = {
+        position: vec3(
+          anchor.x.add(positionLocal.x.sub(anchor.x).mul(eXZ)),
+          positionLocal.y.sub(KERB_H).mul(eS).add(KERB_H),
+          anchor.y.add(positionLocal.z.sub(anchor.y).mul(eXZ)),
+        ),
+        fade,
+        mask: fade.greaterThan(0.004),
+      };
+    }
+    material.positionNode = entryNodes.position;
+    material.opacityNode = entryNodes.fade;
+    material.maskNode = entryNodes.mask;
+  };
+
   const materials = [];
   for (const mesh of meshes) {
     const material = mesh.material;
+    if (material.isNodeMaterial) {
+      patchNodes(material);
+      material.transparent = true;
+      materials.push(material);
+      continue;
+    }
     const prevCompile = material.onBeforeCompile;
     const prevKey = material.customProgramCacheKey;
     // Composed, not replaced: with AO on this material already carries the 'prop-ssao' key, and
