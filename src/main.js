@@ -389,6 +389,11 @@ if (squall) {
 const diag = createDiagnostics(renderer, { enabled: getDiagnostics(), flags: budget });
 declined.forEach((text) => diag.note(text));
 
+// True once the GPU warm-up has finished and the run has started. `window.__taxi` is published
+// before that (the warm-up is sliced over frames, game/warmup.js), so a tool drawing a line between
+// "boot" and "the run" has to wait for this rather than for `__taxi` (tools/links.mjs).
+let warmedUp = false;
+
 const { scene, sun, hemi, sky, fog } = createScene({ shadowMapSize: budget.shadowMapSize });
 // The shadow pass draws only the casters whose shadow can reach the view, instead of every caster on
 // the island (game/shadowcull.js). `?shadowcull=classic` draws them all, as before.
@@ -8832,6 +8837,7 @@ if (shot) {
 
 function startRun() {
   perfMark('warmup:end');
+  warmedUp = true;
   const benchHooks = {
     renderer,
     ready: () => Boolean(traffic.taxi) && !traffic.taxi.staged,
@@ -8894,6 +8900,8 @@ if (!shot && wantsDebugPanel) {
 }
 
 window.__taxi = {
+  /** Whether the boot's GPU warm-up is done and the run has started — see `warmedUp`. */
+  get warmedUp() { return warmedUp; },
   // The shadow-pass cull — `stats()` says how many casters the last frame skipped (game/shadowcull.js).
   shadowCull,
   traffic,
