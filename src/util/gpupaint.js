@@ -202,9 +202,9 @@ export class PaintNodeMaterial extends PropPhongNodeMaterial {
     const { object, geometry } = builder;
     const S = shared();
     const g = this.gloss;
-    // Read from the material being drawn, not captured, so the numbers stay right if three ever
-    // hands one build to two materials (its cache key for a plain mesh has no material identity
-    // in it beyond the type and the geometry's layout).
+    // Read from the material being drawn, not captured: three hands one build of the nodes to
+    // every material with the same cache key (see `customProgramCacheKey` in gpumaterial.js), and
+    // a captured number would be the first material's for all of them.
     const own = (start, read) => uniform(start).onObjectUpdate(({ material }) => read(material.gloss));
     const centre = own(g.centre, (o) => o.centre);
     const invHalf = own(g.invHalf, (o) => o.invHalf);

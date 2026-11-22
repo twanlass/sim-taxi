@@ -11,13 +11,14 @@
  */
 import { MeshLambertNodeMaterial, MeshPhongNodeMaterial, PhongLightingModel } from 'three/webgpu';
 import { BackSide, DoubleSide, FrontSide } from 'three';
-import { dot, max, mix, smoothstep, vec3 } from 'three/tsl';
+import { dot, max, mix, positionWorld, smoothstep, sRGBTransferEOTF, sRGBTransferOETF, vec3 } from 'three/tsl';
 
 // Set by util/geo.js, which owns SHADOW_UNIFORMS; a setter rather than an import because geo.js
 // imports this file.
 // `clouds` is `() => cloudLight | null`, asked as a material is built: weather is decided after
 // this module loads (`setCloudShadows`), and a city without it compiles none of the field.
-const shared = { shadowColor: null, shadowTint: null, shadeKnee: 0.45, clouds: () => null };
+// `paving` is the same shape: `() => paving | null`, the painterly look's junction (util/gpupaving.js).
+const shared = { shadowColor: null, shadowTint: null, shadeKnee: 0.45, clouds: () => null, paving: () => null };
 export function bindPropNodes(nodes) {
   Object.assign(shared, nodes);
 }
@@ -34,7 +35,7 @@ const LUMA = vec3(0.2126, 0.7152, 0.0722);
  * change is added to the sum instead. Same arithmetic, one line later.
  */
 class PropLightingModel extends PhongLightingModel {
-  finish({ context }) {
+  finish({ context, material }) {
     const { reflectedLight, outgoingLight } = context;
     // Cloud shadows first (CLOUD_LIGHT), so a covered patch goes cool under the tint below.
     const cloudLight = shared.clouds();
@@ -55,6 +56,12 @@ class PropLightingModel extends PhongLightingModel {
     // on the surface (the window streaks, util/gpupaint.js).
     this.sunlit = sunlit;
     this.fill = tinted;
+    // The paved junction, on the ground only (`userData.brush` 2, tagged in main.js before the
+    // first compile). A display-space multiply in the GLSL, so: encode, pave, decode.
+    const paving = material.userData.brush === 2 ? shared.paving() : null;
+    if (paving) {
+      outgoingLight.assign(sRGBTransferEOTF(paving(sRGBTransferOETF(outgoingLight), positionWorld)));
+    }
   }
 }
 
@@ -90,6 +97,14 @@ const propMaterial = (Base, specular) => class extends Base {
     super.copy(source);
     this.lightingFactory = source.lightingFactory;
     return this;
+  }
+
+  // three builds a material's nodes once per cache key and hands that build to every material
+  // with the same key, and nothing decided in `setupLightingModel` is in the key unless it is
+  // put there. Without this the ground never built its own: it drew with a plain prop's nodes and
+  // the paved junction was missing, with `finish` never once called for it.
+  customProgramCacheKey() {
+    return `brush${this.userData.brush ?? 0}${this.lightingFactory ? this.uuid : ''}`;
   }
 };
 

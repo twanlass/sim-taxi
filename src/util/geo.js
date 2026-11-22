@@ -4,6 +4,7 @@ import { GPU } from './gpu.js';
 import { bindPropNodes, PropLambertNodeMaterial } from './gpumaterial.js';
 import { bindPaint, PaintNodeMaterial } from './gpupaint.js';
 import { createCloudNodes } from './gpuclouds.js';
+import { createPaving } from './gpupaving.js';
 import { PALETTE, plazaLook } from '../palette.js';
 import {
   PITCH, HALF_SPAN_X, HALF_SPAN_Z, HALF_ROAD, HALF_ARTERIAL, GRID_I, GRID_J, isArterialX, isArterialZ, RIVER_EXTRA,
@@ -450,6 +451,11 @@ export function placeJunctionPaving(rng, visible = () => true) {
   const pick = rng.pick(scored.filter((c) => c.seen === top));
   PAINT_UNIFORMS.uJunctionAt.value.set(pick.i, pick.j);
   return pick;
+}
+
+if (GPU) {
+  let paving = null;
+  bindPropNodes({ paving: () => (painterlyEnabled ? (paving ??= createPaving(PAINT_UNIFORMS)) : null) });
 }
 
 const PAINT_COMMON = /* glsl */ `
@@ -2181,7 +2187,7 @@ export function propMaterial({ ao = true, gloss = null, cutout = null, smooth = 
   if (GPU) {
     // The WebGPU twin carries the shadow tint (util/gpumaterial.js). What `patchProp` adds beyond
     // that is still to port, and is listed here so `__taxi.unported()` can say so per mesh.
-    material.userData.unported = [paint && rimPaintOn() && 'rim line', 'painterly', 'ao']
+    material.userData.unported = [paint && rimPaintOn() && 'rim line', 'ao']
       .filter(Boolean);
     return material;
   }

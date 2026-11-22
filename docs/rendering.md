@@ -1132,9 +1132,12 @@ What the WebGPU path draws today, and what it does not:
   specular lobes, streaks, the march through the city's roof heights, window streaks; the default
   `real` look only, and without the rim line, which waits on the depth prepass), and the city's
   entrance wave (`game/cityentry.js`, as the material's `positionNode`, which three also hands
-  to the shadow pass, so the two depth materials the WebGL path patches have no twin).
+  to the shadow pass, so the two depth materials the WebGL path patches have no twin), and the
+  paved junction (`util/gpupaving.js`), which is all of the painterly look that is on by default;
+  `?roadstrokes=classic` and the dialled-off lawn strokes, wall-foot fade and terminator tint
+  are not ported.
   `propMaterial()` returns a node material under WebGPU (`util/gpu.js` decides, at import).
-- **Every other `onBeforeCompile` patch is ignored**, silently: the painterly pass, facades, the
+- **Every other `onBeforeCompile` patch is ignored**, silently: facades, the leaf fuzz, the
   L train's own entrance and the rest.
 - **A `ShaderMaterial` cannot be converted at all** and loses the device if drawn, so
   `game/gpucompat.js` hides those meshes (the L train's beam, the headlight cones).
@@ -1164,16 +1167,20 @@ Measured against WebGL with AO, bloom, CRT and painterly off, at the parked 16:2
   had been taken with `?squall=off`. The cloud field and the cell's shade are ported and waiting
   (`util/gpuclouds.js`, checked by eye with the cover forced to 0.5), switched off with the rest.
 
-Traps in TSL itself, the first and last of which drew a wrong picture with nothing logged:
+Traps in TSL itself, each of which drew a wrong picture with nothing logged:
 
 - **A node shared between materials is not a value shared between meshes.** One `uniformArray`
   handed to every paint material reached only some of the meshes drawing with it: the punched
   windows read a `diffuse` of 0 from the finish table and drew black, while the curtain walls
   beside them, on the same shader, were fine. Array nodes are made per build (`row` in
   `gpupaint.js`). Plain `uniform()` nodes shared the same way have been fine.
-- **Per-material numbers are read from the material being drawn** (`onObjectUpdate`), not closed
-  over when the nodes are built, since three's cache key for a plain mesh carries no material
-  identity. Not seen to fail; cheap to get right.
+- **One build of the nodes serves every material with the same cache key**, and the key for a
+  plain mesh is the material's type, its parameters and the geometry's layout. Anything else a
+  material decides while it builds has to be put in `customProgramCacheKey` (the ground's brush
+  tag, a custom lighting model), or the material silently draws with another's nodes: the ground
+  never built its own, and the paved junction was missing with nothing logged. For the same
+  reason per-material numbers are read from the material being drawn (`onObjectUpdate`), never
+  closed over.
 - **`pow(0, 0)` is NaN in WGSL**, and NaN times a strength of zero is still NaN. A finish with a
   sharpness of 0 turned whole panes black until the lobe's base got a floor.
 
