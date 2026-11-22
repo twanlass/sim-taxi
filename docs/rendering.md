@@ -1161,6 +1161,30 @@ What the WebGPU path draws today, and what it does not:
   materials multiply the instance colour on after `colorNode`: the node writes the finished colour
   divided by the instance colour (`game/cashtrail.js`). Headless WebGL shows no backs to compare
   with (SwiftShader answers `gl_FrontFacing` true on both sides).
+- **Pipelines built mid-run are the port's stutter, and the warm-up has to cover states, not just
+  materials.** WebGPU builds a pipeline per (shader, transparent, depthWrite, side, winding, pass),
+  so a flip that is free in WebGL is a synchronous build. On the phone that was ~4 frames over
+  50 ms in a fares scene that WebGL ran clean; headless it counted as **36 pipelines built after
+  the load**, and is **0 over four minutes of an untouched run** now. Five things did that:
+  - three reads up to 1000 instance matrices from a uniform array whose *length is in the shader*,
+    so every pool size was its own shader (15 of the 36 were garbage piles).
+    `util/gpuinstances.js` always uses the instanced attribute; boot pipelines fell 203 to ~145.
+  - `util/warmvariants.js`: a second warm-up draw with every state-flipping material in its other
+    state (`alsoWarm`, `alsoWarmAs`): the entrance wave landed, riders and cargo fading, the glint
+    shown. `alsoWarmAs` sets `needsUpdate` because the real flips do, and under WebGPU that
+    rebuilds the nodes: `transparent` picks between alpha 1 and a discard, 34 characters of WGSL.
+  - three **releases a pipeline when no object is wearing it**, so a warmed variant was thrown
+    away as the warm-up restored the material (the garage door built the same key three times).
+    `keepPipelines` makes both release hooks no-ops; the caches are keyed on content, so they are
+    bounded by the game's variants.
+  - three redraws a shadow map once per frame id, which only moves on its rAF tick, so the second
+    draw skipped the shadow pass. `drawVariants` ticks the node frame first.
+  - Things built mid-run (boats, gulls, roadworks) have hidden stand-ins at load. The shadow
+    pass's shader is built from the state a mesh is *first drawn* in and kept through later
+    flips, so a stand-in is born in the state the real thing is born in.
+
+  An untouched run has no cops, robbery, race or wreck in it; those are not measured. Count with
+  `renderer._pipelines.caches.size` after `__taxi.warmedUp`.
 - **Not ported, by decision:** Crayon and Cartoon Mode (Tyler, 2026-11-21) and `?hdr`, a
   comparison rather than a shipped mode. All three run under `?renderer=classic`.
 - **Size.** three's WebGPU renderer and TSL add 589 kB to the vendor chunk (557 to 1,145 kB;

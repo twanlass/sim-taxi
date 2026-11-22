@@ -1,3 +1,4 @@
+import { alsoWarm } from '../util/warmvariants.js';
 import * as THREE from 'three';
 import { abs, float, length, min, smoothstep, uv, vec2 } from 'three/tsl';
 import { gpuMaterials } from '../util/gpu.js';
@@ -134,6 +135,9 @@ export function createGlint({ scene, taxiGroup }) {
     // Hidden by material rather than by `visible`, the way bloom.js asks of anything that switches —
     // and there is no light under it, so nothing else in the scene notices either way.
     material.visible = false;
+    // Which also hides it from the warm-up, so the first star of a run built its pipeline as it
+    // fired. One stands for all three: same source, same state.
+    if (n === 0) alsoWarm(() => { material.visible = true; }, () => { material.visible = false; });
     scene.add(mesh);
     return { ...star, tilt: TILT + TILT_STEP * n, mesh, material };
   });

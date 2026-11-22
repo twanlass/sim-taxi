@@ -11,6 +11,7 @@ import {
 } from 'three/tsl';
 import { GPU } from '../util/gpu.js';
 import { createFogNode, displayColor, installNodeGrade } from './gpufog.js';
+import { installInstanceAttributes } from '../util/gpuinstances.js';
 import { bindWaterLights } from '../city/gpuwater.js';
 
 /** The dome's gradient curve. Exported because the haze reads the same gradient — see hazeColor. */
@@ -261,6 +262,7 @@ export function createScene({ shadowMapSize = 2048 } = {}) {
   if (GPU) {
     scene.fogNode = createFogNode(scene.fog);
     installNodeGrade();
+    installInstanceAttributes();
   }
 
   // Held onto so the debug panel can retint the gradient live; its ShaderMaterial uniforms are

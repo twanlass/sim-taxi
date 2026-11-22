@@ -4,6 +4,7 @@ import { coastWest, coastEast, coastNorth, coastSouth } from '../city/grid.js';
 import { setOccluderDepthMaterial } from './ssao.js';
 import { attribute, clamp, distance, float, materialOpacity, mix, positionLocal, smoothstep, uniform, varying, vec3 } from 'three/tsl';
 import { GPU } from '../util/gpu.js';
+import { alsoWarm } from '../util/warmvariants.js';
 
 // The city's entrance: streets and ground are already in place, then the buildings and trees
 // grow out of them in a wave — rise from the kerb, fade in, overshoot their full size and settle
@@ -308,6 +309,17 @@ export function createCityEntry({
   let queue = buildQueue();
   let head = 0;
   let done = false;
+
+  // WebGPU builds a pipeline per state (util/warmvariants.js): the warm-up also draws the city as
+  // it stands once landed, opaque and with the grown objects at their own size. A mirrored object
+  // is wound the other way at its rest scale than at zero, which is a pipeline of its own.
+  alsoWarm(() => {
+    for (const material of materials) material.transparent = false;
+    for (const g of grown) g.object.scale.copy(g.rest);
+  }, () => {
+    for (const material of materials) material.transparent = !done;
+    applyObjects();
+  });
 
   const finish = () => {
     done = true;

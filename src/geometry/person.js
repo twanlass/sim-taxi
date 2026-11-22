@@ -3,6 +3,9 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { bakeColor, propMaterial } from '../util/geo.js';
 import { PALETTE } from '../palette.js';
 import { stampGhostMask } from './ghostoutline.js';
+import { alsoWarmAs } from '../util/warmvariants.js';
+
+let warmedFade = false;
 
 // A blocky figure: a rider hailing a cab and running to it, and — same rig, different colours —
 // a road worker standing in a closed street until the taxi comes at them.
@@ -373,6 +376,12 @@ export function createPerson({
   // camera and the cab is in front of it just as a tower is: unstamped, the rim drew their
   // silhouette across the car. Stencil state, not shader source, so it links nothing.
   for (const mesh of meshes) stampGhostMask(mesh.material);
+  // The first figure built stands for all of them in the warm-up: a fading figure is another
+  // pipeline under WebGPU (util/warmvariants.js), and every figure's is the same one.
+  if (!warmedFade) {
+    warmedFade = true;
+    for (const mesh of meshes) alsoWarmAs(mesh.material, { transparent: true, depthWrite: false });
+  }
 
   /**
    * Set the whole figure's opacity. `1` returns the meshes to opaque (no blend cost).

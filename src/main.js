@@ -1,3 +1,4 @@
+import { keepPipelines } from './util/warmvariants.js';
 import * as THREE from 'three';
 import { WebGPURenderer } from 'three/webgpu';
 import { gpuCompat, unported } from './game/gpucompat.js';
@@ -341,6 +342,7 @@ if (GPU) {
   // a target it copies across each frame, and blending happens where WebGL does it.
   renderer.outputColorSpace = THREE.LinearSRGBColorSpace;
   await renderer.init();
+  keepPipelines(renderer);
 }
 const gpuCapture = GPU ? createGpuCapture(renderer, { samples: budget.msaa ? 4 : 0 }) : null;
 const gpuCrt = gpuCrtOn ? createGpuCrt(renderer, { still: Boolean(shot) }) : null;

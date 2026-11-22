@@ -2,6 +2,8 @@ import * as THREE from 'three';
 import { LANE, ROAD_W, isRiverGap } from '../city/grid.js';
 import { cityNetwork } from '../city/roadnet.js';
 import { propMaterial } from '../util/geo.js';
+import { GPU } from '../util/gpu.js';
+import { alsoWarmAs } from '../util/warmvariants.js';
 import { PALETTE } from '../palette.js';
 import { createPerson } from '../geometry/person.js';
 import { markOccluder, unmarkOccluder } from './ssao.js';
@@ -223,6 +225,36 @@ export function createRoadwork(rng, scene, camera = null) {
   group.name = 'roadwork';
   scene.add(group);
   group.visible = false;
+
+  // WebGPU: stand-ins for the warm-up to draw. The zone is built when it is placed, a minute or
+  // more into a run, so none of its meshes exist at load, and it fades in — which is a pipeline per
+  // (instanced or not) x (transparent or not) x (main pass, shadow pass). Measured: four built on
+  // the frame the works appeared and one when the fade ended. One of each shape here, in both states
+  // (util/warmvariants.js), and the pipelines are kept for the real ones.
+  if (GPU) {
+    const specimens = new THREE.Group();
+    specimens.name = 'roadwork-specimens';
+    specimens.visible = false;
+    const geometry = coneGeometry();
+    const fades = (mesh) => {
+      // Born transparent and warmed opaque, in the order the works themselves go. The order is
+      // not cosmetic: three builds the shadow pass's shader once, from the state the mesh is in
+      // when it is first drawn, and keeps it through later flips — so stand-ins born opaque warmed
+      // the shadow pipelines of a zone that starts solid, and the real one built 3 of its own.
+      mesh.material.transparent = true;
+      mesh.material.depthWrite = false;
+      alsoWarmAs(mesh.material, { transparent: false, depthWrite: true });
+      mesh.castShadow = true;
+      specimens.add(mesh);
+      return mesh;
+    };
+    fades(new THREE.Mesh(geometry, propMaterial()));
+    fades(new THREE.Mesh(geometry, propMaterial())).receiveShadow = true;
+    const pool = fades(new THREE.InstancedMesh(geometry, propMaterial(), 1));
+    pool.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    pool.frustumCulled = false;
+    scene.add(specimens);
+  }
 
   const smashListeners = [];
   const placeListeners = [];

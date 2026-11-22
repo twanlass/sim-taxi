@@ -22,6 +22,8 @@
  */
 import { withPoolsShown } from '../util/emptypools.js';
 import { withAllCasters } from './shadowcull.js';
+import { GPU } from '../util/gpu.js';
+import { drawVariants } from '../util/warmvariants.js';
 
 export function warmFirstDraws(scene, draw, roots = [scene]) {
   const lit = new Set();
@@ -43,6 +45,9 @@ export function warmFirstDraws(scene, draw, roots = [scene]) {
     // With the empty-pool sweep held off, or it would hide again every pool just shown.
     // Every pool shown and every shadow caster drawn, so each one's programs link now.
     withPoolsShown(() => withAllCasters(draw));
+    // WebGPU: once more with every material that changes state mid-run in its other state, so
+    // that state's pipelines are built here too (util/warmvariants.js).
+    if (GPU) withPoolsShown(() => withAllCasters(() => drawVariants(draw)));
   } finally {
     for (const o of culled) o.frustumCulled = true;
     for (const o of shown) o.visible = false;
