@@ -116,7 +116,9 @@ export function createRenderPath(renderer, budget, { onNotice = () => {}, still 
   // it, and Android's `?safe` default would otherwise have turned the pass off on the platform
   // most likely to be asked for a drawn look.
   const ao = createAmbientOcclusion(renderer, {
-    enabled: budget.ao, edges: budget.crayon || budget.cartoon, depth: budget.bloom || rimPaintOn(),
+    enabled: budget.ao, edges: budget.crayon || budget.cartoon,
+    // WebGPU: the depth prepass is a WebGL pass until it is ported (game/gpucompat.js).
+    depth: !budget.gpu && (budget.bloom || rimPaintOn()),
   });
   // Spill around every self-lit thing — see game/bloom.js. Not a bright-pass over the frame: an
   // explicit draw list of lamps, rendered into a small half-float target of its own, so the main

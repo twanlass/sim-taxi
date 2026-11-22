@@ -1107,6 +1107,40 @@ depth, the bloom, the river's fog sync, then the frame (or the HDR composer), th
 lens and the CRT screen over all of it. The game's weather and `?diag` ride in as optional extras. A change to how a frame is drawn
 goes here, never into `main.js`'s `renderFrame`, or the bench stops showing what the game shows.
 
+## The WebGPU port
+
+**In progress, on a branch.** The game is moving from three's `WebGLRenderer` and hand-patched GLSL
+to `WebGPURenderer` and TSL node materials. The reason is the iPhone: `?perf` captures put a frame
+at about 34 ms for 300 draw calls and 50 ms for 900, nearly linear in the call count and nearly
+blind to resolution, MSAA, AO and bloom. That is the cost of a WebGL call crossing into WebKit's
+GPU process, and it is the thing WebGPU is expected to make cheaper.
+
+`?renderer=classic` is the WebGL renderer, untouched, and it is also what any browser without
+`navigator.gpu` gets. Everything below this section still describes that path.
+
+What the WebGPU path draws today, and what it does not:
+
+- **It boots and plays.** `main.js` builds a `WebGPURenderer`, awaits `init()`, and draws the same
+  scene. three converts the built-in materials (Lambert, Phong, Basic) to node materials on the
+  fly, so geometry, vertex colours, the sun and its shadow map all arrive.
+- **Every `onBeforeCompile` patch is ignored**, silently. That is the painterly pass, the edge fog,
+  the colour grade, the car paint, the water, the city's entrance wave, cloud shadows and the rest:
+  about 130 kinds of mesh draw without their patch.
+- **A `ShaderMaterial` cannot be converted at all** and loses the device if drawn, so
+  `game/gpucompat.js` hides those meshes (the sky, the L train's beam, the headlight cones).
+- **The passes are off**: AO and its depth prepass (so the rim paint too), bloom, `?hdr`, Crayon,
+  Cartoon, the CRT, and the squall's rain. Each is a WebGL render-target pass until it is ported.
+
+`__taxi.unported()` is the worklist: what is hidden and what is drawing unpatched, by mesh name.
+It is empty when the port is done, and `game/gpucompat.js` is deleted with it.
+
+**Stills.** Headless Chromium can run WebGPU on SwiftShader but cannot present it: the canvas
+comes out transparent and the device is destroyed half a second later, on a one-cube scene as much
+as on the game. A render target is fine. So a tool sets `window.__gpuOffscreen` before load, every
+frame goes to a target, and `__taxi.gpuCapture()` reads it back (`game/gpucapture.js`). The
+existing headless tools do not pass `--enable-unsafe-webgpu`, find no `navigator.gpu`, and so keep
+testing the WebGL path exactly as before.
+
 ## The CRT screen — `game/crt.js`
 
 The finished frame goes out through a CRT: a slightly curved screen, scanlines, an RGB aperture

@@ -1,4 +1,7 @@
 import * as THREE from 'three';
+import { WebGPURenderer } from 'three/webgpu';
+import { gpuCompat, unported } from './game/gpucompat.js';
+import { createGpuCapture } from './game/gpucapture.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 // First, before anything builds a material: it patches three's fog chunk for every program.
 import { EDGE_FOG, createEdgeFogFloor, tickEdgeFog } from './game/edgefog.js';
@@ -302,7 +305,9 @@ if (!shot && !new URLSearchParams(window.location.search).has('msaa')) {
   budget.msaa = budget.msaa && settings.atLaunch().antialias;
 }
 
-const renderer = new THREE.WebGLRenderer({
+const GPU = new URLSearchParams(window.location.search).get('renderer') !== 'classic' && Boolean(navigator.gpu);
+if (GPU) Object.assign(budget, { gpu: true, ao: false, bloom: false, hdr: false, crayon: false, cartoon: false, crt: false });
+const renderer = GPU ? new WebGPURenderer({ antialias: budget.msaa, stencil: true }) : new THREE.WebGLRenderer({
   antialias: budget.msaa,
   // Three defaults the stencil buffer OFF since r163. The taxi's ghost outline stamps its mask
   // into it every frame (see geometry/ghostoutline.js); without the buffer the stencil test
@@ -316,6 +321,8 @@ const renderer = new THREE.WebGLRenderer({
 // bottom of the screen, and the strip the canvas doesn't cover shows as bare sky under the game.
 // See util/viewport.js for the measurement that is actually right.
 const viewport = createViewport();
+if (GPU) await renderer.init();
+const gpuCapture = GPU ? createGpuCapture(renderer, { samples: budget.msaa ? 4 : 0 }) : null;
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, budget.pixelRatioCap));
 renderer.setSize(viewport.width(), viewport.height());
 renderer.shadowMap.enabled = budget.shadowMapSize > 0;
@@ -439,7 +446,10 @@ settings.onChange((v) => {
 function renderFrame(cam = camera) {
   // The pass order lives in game/renderpath.js, shared with the workshop's bench; the weather and
   // the diagnostics are the game's own and ride in with it.
+  if (GPU) gpuCompat(scene);
+  gpuCapture?.begin();
   renderPath.render(scene, cam, { rain, rainLightsOn, diag });
+  gpuCapture?.end();
 }
 
 // Weather, ringing the island — see game/clouds.js. Scenery on the same terms as the aeroplane and
@@ -8753,7 +8763,9 @@ if (shot) {
   // with `traverse`, not `traverseVisible`, so the hidden ones are covered too: measured at
   // `tools/links.mjs`, it moves six program links out of the run and into the boot, where they are
   // behind the wipe and the vignette and nobody is being made to wait for them mid-corner.
-  renderer.compile(scene, camera);
+  // WebGPU: `compile()` is async there and a draw that meets a pipeline still being built throws.
+  // The warm-up below draws everything once anyway, which builds each pipeline in line.
+  if (!GPU) renderer.compile(scene, camera);
   // ...and drawn once, because linking is not the whole of a first sight on iOS: Metal builds its
   // pipelines and three uploads the buffers on the first *draw*, per pass. Left to the run, that
   // was a first play that hitched every time the camera reached somewhere new and a second play
@@ -8806,7 +8818,7 @@ function startRun() {
       else dispatchToRider(fares.state.fares.find((f) => f.stage === 'waiting'));
     },
     ended: () => fares.state.gameOver,
-    gpu: describeGpu(renderer.getContext()).renderer,
+    gpu: GPU ? 'webgpu' : describeGpu(renderer.getContext()).renderer,
   };
   // `?bench` or `?soak` — at most one; see game/bench.js and game/soak.js.
   bench = createBench(benchHooks) ?? createSoak(benchHooks);
@@ -8856,6 +8868,9 @@ if (!shot && wantsDebugPanel) {
 }
 
 window.__taxi = {
+  unported,
+  renderer: GPU ? 'webgpu' : 'webgl',
+  gpuCapture: () => gpuCapture?.capture(),
   traffic,
   // The CRT screen's `{ state, set, preset }` — see game/crt.js.
   crt,
