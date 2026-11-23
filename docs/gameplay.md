@@ -4660,10 +4660,11 @@ What is reset and what is not:
   the last run wrote off is dealt back onto a lane (`traffic.reviveWrecks` — nothing in a run ever
   brings one back) and the density ramp's extra cars are cut off the pool tails
   (`traffic.trimToStart`), so the next run starts at the bottom of the curve.
+- **The roadworks**: whatever zone is up is taken down and the module goes back to waiting on a
+  fresh cooldown (`roadwork.reset`), so every run gets its own closure. The warm-up stand-ins and
+  the WebGPU pools outlive a zone on purpose — disposing them would relink the programs the load
+  paid for, and the second zone would hitch as it appeared.
 - **The world carries on**: boats, the train, the drawbridge, weather, the time of day, robo-taxis.
-
-Known gap: the roadworks are once per run and tear down their own meshes when they go, so a run
-after the first one does not get a closure.
 
 ## High scores
 

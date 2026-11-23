@@ -7025,6 +7025,9 @@ function resetRun({ toTitle = false } = {}) {
   // Rubber and wet tracks are left to fade on their own lives; the opening is seconds long.
   traffic.reviveWrecks();
   traffic.trimToStart();
+  // A closure for this run too, on a fresh cooldown: without the reset the page's one zone went to
+  // its first run. Before the taxi below, whose rubble jolt it would otherwise leave mid-bounce.
+  roadwork.reset();
 
   // The taxi: repaired, empty, and back behind the garage door (`stageOpening` parks it there).
   const taxi = traffic.taxi;
@@ -7034,6 +7037,9 @@ function resetRun({ toTitle = false } = {}) {
   taxi.braking = false;
   taxi.stalled = false;
   taxi.hp = TAXI_HP;
+  taxi.jolt = 0;
+  taxi.joltRoll = 0;
+  taxi.joltPitch = 0;
   taxi.pendingTarget = null;
   taxi.route = [];
   taxiDamage.reset();
