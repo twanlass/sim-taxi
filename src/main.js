@@ -144,6 +144,7 @@ import { createDaylight, DAY_SECONDS } from './game/daylight.js';
 import { createPicker } from './game/pick.js';
 import { createRiderFinder } from './game/riderfinder.js';
 import { createTaxiFinder } from './game/taxifinder.js';
+import { createTaxiMarker } from './game/taximarker.js';
 import { createCargoChip } from './game/cargochip.js';
 import { createChaseSiren } from './game/chasesiren.js';
 import { createTutorial, LOCO_HINT_HOLD } from './game/tutorial.js';
@@ -3998,6 +3999,10 @@ const riderFinder = wantsRiderChips
 // home on its own after CAMERA_RETURN_IDLE, so the chip only ever covered that 1.5s gap.
 // `?taxifinder=classic` brings it back; without it there is no chip and no extra WebGL context.
 const wantsTaxiFinder = new URLSearchParams(window.location.search).get('taxifinder') === 'classic';
+// The yellow triangle over an empty taxi (game/taximarker.js) — playtests, 2026-11-23: players could
+// not tell which car was theirs. `?taximarker=classic` takes it off.
+const taxiMarker = new URLSearchParams(window.location.search).get('taximarker') === 'classic'
+  ? null : createTaxiMarker({ root: document.body, project: projectToScreen, taxi: traffic.taxi });
 const taxiFinder = !wantsTaxiFinder ? null : createTaxiFinder({
   sun,
   hemi,
@@ -8112,6 +8117,9 @@ function tick() {
   // already on its way somewhere — including this chip's own, which is what drops it on the tap.
   taxiFinder?.update(dt, traffic.taxi,
     !fares.state.gameOver && !controller.isGliding() && !tutorial?.holdsCamera());
+  // Up while the seat is empty and the car is out on the road: not in the garage (`hudAway`, the same
+  // beat the HUD steps off its edges on), not with a robber in the back, not once the run is over.
+  taxiMarker?.update(!fares.carrying() && !getaway() && !hudAway && !fares.state.gameOver);
   // A no-op unless a package is aboard — it draws nothing while the chip is down.
   cargoChip?.render();
   // Up for a patrol chase or a getaway, and down for the arrest itself: once the cuffs are on, the

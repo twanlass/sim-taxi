@@ -1363,6 +1363,24 @@ arrive in one read.
 — wears the courier's own cyan instead: a package has no clock, so an urgency hue there would be
 reporting a countdown that does not exist.
 
+### The taxi marker
+
+A yellow down-pointing triangle hovers over the taxi while **no rider is aboard**
+(`game/taximarker.js`). Playtests on 2026-11-23 kept finding players who couldn't say which car
+was theirs. The [opening vignette](#the-opening-vignette) was supposed to answer that, but it shows
+the car at door zoom, pulls back to play zoom, where the taxi is about 30px among the traffic, and
+then the tutorial pans away to the first rider. Tyler's spec: a simple yellow triangle above the car.
+
+It's up from the moment the taxi leaves the garage until a rider gets in, and again from each
+drop-off. It goes down in the garage (the same `hud-away` beat as the HUD), during a getaway, in
+the crash replay, on the title screen and when the run ends. While a rider is aboard the route band
+and the drop-off pin already say where the car is going, and the camera is following it.
+
+It's a DOM element rather than a mesh so that it stays the same size in pixels at every zoom,
+reads over a tower standing between the taxi and the camera, and needs no shader on either
+renderer. Flat fill in `taxiBody` with a `taxiTrim` outline and no gloss, and it bobs 4px.
+`?taximarker=classic` takes it off.
+
 ## Routing
 
 `src/game/route.js` is Dijkstra over the road network's **lanes**, instant at this size.
