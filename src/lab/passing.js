@@ -42,16 +42,13 @@ import { createVanish } from '../game/vanish.js';
 import { createCarGhosts } from '../game/carghosts.js';
 import { createDaylight, DAY_SECONDS } from '../game/daylight.js';
 import { createAmbientOcclusion, markOccluder } from '../game/ssao.js';
-import { createCrayon } from '../game/crayon.js';
-import { createCartoon } from '../game/cartoon.js';
-import { setAmbientOcclusion, setCrayon, setCartoon } from '../util/geo.js';
+import { setAmbientOcclusion } from '../util/geo.js';
 import {
   TAXI_TAILPIPE_BACK, TAXI_TAILPIPE_HEIGHT, TAXI_REAR_AXLE_BACK, TAXI_REAR_TRACK,
 } from '../geometry/taxi.js';
 import { DIR, dirSign, dirYaw, HALF_ROAD, PITCH } from '../city/grid.js';
 import { PALETTE } from '../palette.js';
-import { getAmbientOcclusion, getMsaa, getPixelRatioCap, getShadowMapSize, getCrayon, getCartoon }
-  from '../util/shot.js';
+import { getAmbientOcclusion, getMsaa, getPixelRatioCap, getShadowMapSize } from '../util/shot.js';
 import {
   labNetwork, createLabGround, labTreeBlocks, labRoadLength, labNodeX, LAB_BLOCKS,
 } from './labroad.js';
@@ -104,10 +101,6 @@ const budget = {
   shadowMapSize: getShadowMapSize(),
   pixelRatioCap: getPixelRatioCap(),
   ao: getAmbientOcclusion(),
-  // `?crayon` reaches the lab too. A pass whose whole subject is a moving silhouette is worth
-  // watching on the one page where the same car goes past the same way every time.
-  crayon: getCrayon(),
-  cartoon: getCartoon(),
 };
 
 const renderer = new THREE.WebGLRenderer({
@@ -123,16 +116,9 @@ renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 document.body.appendChild(renderer.domElement);
 
 setAmbientOcclusion(budget.ao);
-setCrayon(budget.crayon);
-setCartoon(budget.cartoon);
-const ao = createAmbientOcclusion(renderer, {
-  enabled: budget.ao, edges: budget.crayon || budget.cartoon,
-});
-const crayon = createCrayon(renderer, { enabled: budget.crayon });
-const cartoon = createCartoon({ enabled: budget.cartoon });
+const ao = createAmbientOcclusion(renderer, { enabled: budget.ao });
 
 const { scene, sun, hemi, sky, fog } = createScene({ shadowMapSize: budget.shadowMapSize });
-if (crayon.overlay) scene.add(crayon.overlay);
 const daylight = createDaylight({ sun, hemi, sky, fog });
 daylight.setDayLength(DAY_SECONDS);
 daylight.setCycling(false);
@@ -159,15 +145,6 @@ const oncomingPool = pool.slice(MAX_AHEAD);
 markOccluder(traffic.mesh);
 markOccluder(traffic.wheelMesh);
 markOccluder(traffic.taxiGroup);
-
-// Cartoon Mode's hero outlines, after the occluder marking above for the reason main.js records:
-// a hull is opaque and colour-writing, so the prepass would take it and stamp a silhouette bigger
-// than the car. The lab is the one page where the same overtake happens the same way every time,
-// which makes it the place to judge whether an outline holds together on a moving silhouette.
-if (budget.cartoon) {
-  cartoon.outline(traffic.taxiGroup, { group: 'taxi' });
-  scene.add(...cartoon.fleet(traffic.mesh));
-}
 
 const carGhosts = createCarGhosts(scene, traffic);
 
@@ -595,7 +572,6 @@ function kickDust() {
 // --- Frame ------------------------------------------------------------------
 
 function renderFrame() {
-  crayon.prepare();
   ao.render(scene, camera);
   renderer.render(scene, camera);
 }
@@ -679,8 +655,6 @@ function frame() {
   // correct and dull — re-stage instead, so holding the button just runs the scenario again.
   if (!resetAt && taxi.x > ROAD_EAST - RESET_MARGIN) stage();
 
-  crayon.update(dt);
-  cartoon.update();
   renderFrame();
 }
 

@@ -1025,7 +1025,7 @@ ${WET_ALBEDO}`, 'ground fragment');
       streakUniforms.uBox.value.set(span, BOX.y, span);
       splashUniforms.uBox.value = span;
     },
-    /** Anything else that must stay out of the mirror — the bloom and crayon overlays. */
+    /** Anything else that must stay out of the mirror — the bloom overlay. */
     hideInMirror: (...objects) => { hidden.push(...objects.filter(Boolean)); },
     uniforms: {
       ground: groundUniforms, streaks: streakUniforms, lens: lensUniforms, shafts: shaftUniforms,

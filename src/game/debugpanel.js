@@ -3,7 +3,6 @@ import { HAZE_TOP, setHazeTop, hazeColor, hazeTuning } from './scene.js';
 import * as difficulty from './difficulty.js';
 import { SPEED, MPH_PER_UNIT, CAR_W } from '../sim/traffic.js';
 import { PITCH, LANE } from '../city/grid.js';
-import { PLAY_ZOOM } from './camera.js';
 import {
   setShadowTint, shadowTint, FINISH_NAMES, glossTuning, setGlossFinish, setGlossGlobal, rimTuning, setRimTuning,
   resetGlossTuning,
@@ -18,14 +17,6 @@ import {
 } from './colorgrade.js';
 import { buildAudioSections } from './audiopanel.js';
 import { attachQuickTips } from './quicktips.js';
-
-// Screen pixels to a world unit at play zoom, for the readouts that need one. Derived rather than
-// written down as the 7.7 that appears as prose all over this project: the frustum is sized by
-// *height*, so half a nominal 800px-tall frame spans `PLAY_ZOOM` world units, and re-tuning that
-// constant moves this with it. Approximate by nature — a real device's canvas is whatever it is —
-// which is why every readout using it carries a "u" as well.
-const NOMINAL_FRAME_H = 800;
-const PX_PER_UNIT = (NOMINAL_FRAME_H / 2) / PLAY_ZOOM;
 
 // A small tweak panel behind a gear button.
 //
@@ -83,16 +74,10 @@ const clockLabel = (hour) => {
 
 export function createDebugPanel({
   sun, hemi, sky, daylight, fares, carCount, routeLine, ao,
-  // Crayon Mode's live uniforms — `{ state, set }` over game/crayon.js. Defaulted like the rest
-  // of the optional systems below so the `npm run check` boot pass can build the panel against
-  // nothing; with the flag off the section says so instead of drawing dead sliders.
-  crayon = { state: { enabled: false }, set: () => {} },
-  // Cartoon Mode's, same shape — `{ state, set }` over game/cartoon.js.
-  cartoon = { state: { enabled: false }, set: () => {} },
-  // The emissive bloom's, same shape again — `{ state, set }` over game/bloom.js.
+  // The emissive bloom's live uniforms — `{ state, set }` over game/bloom.js. Defaulted like the
+  // rest of the optional systems below so the `npm run check` boot pass can build the panel
+  // against nothing; with the flag off the section says so instead of drawing dead sliders.
   bloom = { state: { enabled: false }, set: () => {} },
-  // ...and the HDR comparison's, over game/hdr.js. Only one of the two is ever enabled.
-  hdr = { state: { enabled: false }, set: () => {} },
   // The CRT screen's — `{ state, set, preset }` over game/crt.js. Off under `?crt=classic`, which
   // allocates nothing, so the section is left out rather than drawn dead.
   crt = { state: { enabled: false }, set: () => {}, preset: () => {} },
@@ -416,82 +401,6 @@ export function createDebugPanel({
     showOcclusion();
   });
 
-  // --- Crayon Mode ------------------------------------------------------------
-  // `?crayon`. Whether the pass exists at all is a URL flag for the same reason `?ao` is — the
-  // paper fetch is compiled into every prop material before a mesh exists — but every number in
-  // it is a judgement about a whole frame, so every number in it is live. Three of them in
-  // particular cannot be settled any other way: the grain, because the only question is whether
-  // the city still reads at play zoom; the ink, because a car is 26px wide and a line drawn for a
-  // building is a line drawn across a quarter of it; and the boil, because a rate that looks
-  // hand-drawn on a still is television static in motion.
-  if (crayon.state.enabled) {
-    heading('Crayon');
-    const crayonRow = (label, key, min, max, step, format = (v) => v.toFixed(2)) => {
-      const el = slider(min, max, step, crayon.state[key]);
-      const value = row(panel, label, el);
-      value.textContent = format(crayon.state[key]);
-      el.addEventListener('input', () => {
-        const next = Number(el.value);
-        crayon.set(key, next);
-        value.textContent = format(next);
-      });
-    };
-    crayonRow('Paper', 'paper', 0, 0.6, 0.01);
-    crayonRow('Vignette', 'vignette', 0, 0.5, 0.01);
-    crayonRow('Tooth', 'grain', 0, 0.6, 0.01);
-    crayonRow('Fibre', 'blotch', 0, 0.4, 0.01);
-    crayonRow('Ink', 'line', 0, 1, 0.02);
-    crayonRow('Wobble', 'wobble', 0, 4, 0.1, (v) => `${v.toFixed(1)}px`);
-    crayonRow('Steps', 'quantize', 0, 1, 0.05);
-    crayonRow('Boil', 'boilHz', 0, 24, 1, (v) => (v > 0 ? `${v.toFixed(0)}/s` : 'held'));
-  }
-
-  // --- Cartoon Mode -----------------------------------------------------------
-  // `?cartoon`, and **every number in it is live** — including the two hull rims, which used to be
-  // baked into an inflated geometry and are now a uniform (see `outlineGeometry` in
-  // game/cartoon.js). That was worth the change on its own: the weight of an outline is the one
-  // thing here nobody can settle from a still. It is a judgement about how hard a car should shout
-  // against a city, and it needs the game running and a hand on the slider.
-  //
-  // The two rims are separate controls rather than one, because the gap between them *is* the
-  // mode: a hero reads as a hero because its ink is heavier than everything else's, and a single
-  // number would collapse the only distinction being made.
-  if (cartoon.state.enabled) {
-    heading('Cartoon');
-    const toonRow = (label, key, min, max, step, format = (v) => v.toFixed(2)) => {
-      const el = slider(min, max, step, cartoon.state[key]);
-      const value = row(panel, label, el);
-      value.textContent = format(cartoon.state[key]);
-      el.addEventListener('input', () => {
-        const next = Number(el.value);
-        cartoon.set(key, next);
-        value.textContent = format(next);
-      });
-    };
-
-    // The outline first: it is what the mode is for, and what anyone opening this panel came to
-    // move. Stated in world units with the pixel count beside it, because a rim is authored in the
-    // world and judged on the screen — at play zoom one unit is about 7.7px.
-    const px = (v) => `${v.toFixed(2)}u · ${(v * PX_PER_UNIT).toFixed(1)}px`;
-    toonRow('Taxi ink', 'taxiRim', 0, 0.6, 0.01, px);
-    toonRow('Traffic ink', 'heroRim', 0, 0.6, 0.01, px);
-    toonRow('Ink opacity', 'inkOpacity', 0.1, 1, 0.05);
-
-    const inkColor = swatch(cartoon.state.inkColor);
-    const inkValue = row(panel, 'Ink', inkColor);
-    inkValue.textContent = cartoon.state.inkColor;
-    inkColor.addEventListener('input', () => {
-      cartoon.set('inkColor', inkColor.value);
-      inkValue.textContent = inkColor.value;
-    });
-
-    // Then the city's own line, and the light behind it.
-    toonRow('City line', 'ink', 0, 1, 0.02);
-    toonRow('Line bite', 'bite', 0, 0.9, 0.02);
-    toonRow('Cel', 'cel', 0, 1, 0.05);
-    toonRow('Bands', 'steps', 2, 6, 1, (v) => v.toFixed(0));
-  }
-
   // --- Bloom ------------------------------------------------------------------
   // Spill around the lamps (game/bloom.js). Split into the three numbers that shape the *whole*
   // effect and then one per kind of lamp, because those are two different jobs: the first three are
@@ -682,29 +591,6 @@ export function createDebugPanel({
     // a core that whitens and one that is flat, and nothing else on screen reports it.
     row(panel, 'Buffer', document.createTextNode('')).textContent = bloom.state.hdr
       ? 'RGBA16F' : 'RGBA8 — clipped';
-  }
-
-  // --- HDR ----------------------------------------------------------------------
-  // `?hdr`: the whole frame through a composer with tone mapping on (game/hdr.js). A comparison
-  // rather than a shipped mode, and `Exposure` is the row that makes the comparison honest — the
-  // city's palette was authored with no tone curve at all, so the first thing anyone looks for is
-  // where to put the exposure to get the colours back, and the answer is that you cannot.
-  if (hdr.state.enabled) {
-    heading('HDR');
-    const hdrRow = (label, key, min, max, step, format = (v) => v.toFixed(2)) => {
-      const el = slider(min, max, step, hdr.state[key]);
-      const value = row(panel, label, el);
-      value.textContent = format(hdr.state[key]);
-      el.addEventListener('input', () => {
-        const next = Number(el.value);
-        hdr.set(key, next);
-        value.textContent = format(next);
-      });
-    };
-    hdrRow('Exposure', 'exposure', 0.2, 2.5, 0.05);
-    hdrRow('Strength', 'strength', 0, 2, 0.05);
-    hdrRow('Radius', 'radius', 0, 1, 0.05);
-    hdrRow('Threshold', 'threshold', 0, 1.5, 0.05);
   }
 
   // --- CRT ----------------------------------------------------------------------
@@ -1493,18 +1379,6 @@ export function createDebugPanel({
   carsValue.textContent = String(carCount);
   cars.addEventListener('input', () => { carsValue.textContent = cars.value; });
 
-  // The look, and it belongs in this section rather than among the live controls above because it
-  // genuinely cannot be live: both modes are compiled into every prop material *before a mesh
-  // exists* (see `setCrayon`/`setCartoon` in util/geo.js), so switching one means recompiling every
-  // program in the city. What it saves is real all the same — trying the two looks against each
-  // other used to mean hand-editing the address bar, which is exactly the friction that stops a
-  // look from being judged properly.
-  const LOOKS = ['off', 'crayon', 'cartoon', 'both'];
-  const lookNow = (crayon.state.enabled && cartoon.state.enabled) ? 'both'
-    : (crayon.state.enabled && 'crayon') || (cartoon.state.enabled && 'cartoon') || 'off';
-  const look = dropdown(LOOKS, lookNow);
-  row(panel, 'Look', look);
-
   const actions = document.createElement('div');
   actions.className = 'dbg-actions';
 
@@ -1514,10 +1388,6 @@ export function createDebugPanel({
   restart.addEventListener('click', () => {
     const params = new URLSearchParams(window.location.search);
     params.set('cars', cars.value);
-    // Written as explicit `on`/`off` rather than by deleting the parameter, so a reload out of a
-    // look lands back on the stock renderer instead of on whatever the URL happened to carry.
-    params.set('crayon', look.value === 'crayon' || look.value === 'both' ? 'on' : 'off');
-    params.set('cartoon', look.value === 'cartoon' || look.value === 'both' ? 'on' : 'off');
     params.delete('run');                     // a genuinely fresh situation
     window.location.search = params.toString();
   });
@@ -1618,12 +1488,6 @@ export function createDebugPanel({
       cars: Number(cars.value),
       routeBlend: routeLine.blend(),
       ambientOcclusion: ao.state.enabled ? Number(ao.state.strength.toFixed(2)) : false,
-      // The keys map onto CRAYON_DEFAULTS in game/crayon.js. `false` rather than an object with
-      // the flag off, so a pasted export can't quietly promote a look nobody was looking at.
-      crayon: crayon.state.enabled ? { ...crayon.state, enabled: undefined } : false,
-      // The keys map onto CARTOON_DEFAULTS in game/cartoon.js. The hull rims are not in here
-      // because they are not live — see the note by the section above.
-      cartoon: cartoon.state.enabled ? { ...cartoon.state, enabled: undefined } : false,
       // The keys map onto GRADE_DEFAULTS in game/colorgrade.js; a loaded file is named, and its
       // table travels separately as the section's "Download baked .cube".
       colorGrade: gradeSnapshot(),
@@ -1715,7 +1579,7 @@ const TAB_KEY = 'dbg-tab';
  */
 const TABS = [
   ['Audio', ['Audio', 'Engine sound', 'Sounds', 'Music', 'Audio export']],
-  ['Visuals', ['Light', 'Crayon', 'Cartoon', 'Car finish', 'Bloom', 'HDR', 'CRT', 'Colour grade', 'Haze', 'Clouds', 'City entrance']],
+  ['Visuals', ['Light', 'Car finish', 'Bloom', 'CRT', 'Colour grade', 'Haze', 'Clouds', 'City entrance']],
   ['Game', ['Game', 'Loco Mode', 'Loco weave', 'Restart to apply', 'Scores', 'Export']],
 ];
 const tabOf = (title) => TABS.find(([, titles]) => titles.includes(title))?.[0] ?? 'Game';

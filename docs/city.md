@@ -564,7 +564,6 @@ a chamfer round every edge, and that is most of what reads as metal: under `flat
 lit by one sun is a cut-out, and the chamfer is a ring of 45° faces that catches the glint as it
 turns. The material is the vehicles' **metal** finish (`propMaterial({ gloss })` with every vertex
 on `FINISH.METAL`) — a darkened base with a tight glint and some sky and skyline reflected in it.
-Under Crayon and Cartoon the gloss is declined and it is an ordinary prop, as the cars are.
 
 The pole is static and rides in the shell's merge. The wrench cannot: the city's entrance wave is a
 vertex shader whose anchor is a *world* coordinate, and a world coordinate in a turning object's

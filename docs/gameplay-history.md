@@ -306,7 +306,7 @@ Now: [The board steps back while the seat is full](gameplay.md#the-board-steps-b
 first cut and that came back wrong: it read as a *different, smaller kind of marker* rather than as
 the same one turned down, and it took the hue — which is the clock — down with it in screen area.
 The glow is the right thing to spend instead, because the bloom's spill is an order of magnitude
-wider than the thing spilling ([rendering.md](rendering.md#bloom--gamebloomjs-and-the-comparison-in-gamehdrjs)), so it is most of
+wider than the thing spilling ([rendering.md](rendering.md#bloom--gamebloomjs)), so it is most of
 what makes a marker carry across the city. The hop is the other half of the same claim — a thing that moves on its own is a thing asking to be
 pressed — so it damps out on the same curve. Between them they are the loudest pair available that
 doesn't touch what the marker *says*. `setEmissiveScale` is how the glow goes, rather than
