@@ -53,13 +53,47 @@ function depths(lines) {
   return { start, low };
 }
 
-/** Rewrite one function's lines in place. `from`/`to` are the lines of its body, braces excluded. */
+/**
+ * Rewrite one function's lines in place. `from`/`to` are the lines of its body, braces excluded.
+ *
+ * Indexed rather than scanned: the first cut tested every line of the body against three fresh
+ * regexes for every `var`, and with ~1,200 vars over ~2,000 lines in the busiest functions that was
+ * quadratic — 1.5 s of the WebGPU warm-up's JavaScript, headless (2026-11-23), more than three's
+ * own WGSL generation. Each identifier's lines are now collected in one pass, a `var` only looks at
+ * the lines that name it, and where each line's block ends is worked out once. Same output, byte for
+ * byte, over the 120 modules a boot builds.
+ */
 function rewriteBody(lines, from, to, depth) {
   const decls = [];
+  // Every line each identifier appears on, in order. `\bname\b` holds on a line exactly when one of
+  // its maximal `\w` runs is `name`, which is what this collects.
+  const seen = new Map();
   for (let i = from; i < to; i++) {
-    const m = lines[i].match(DECL);
+    const line = lines[i];
+    const m = line.match(DECL);
     if (m && !m[2].startsWith('array')) decls.push({ line: i, name: m[1], type: m[2] });
+    for (const [word] of line.matchAll(/\w+/g)) {
+      let at = seen.get(word);
+      if (!at) seen.set(word, (at = []));
+      if (at[at.length - 1] !== i) at.push(i);
+    }
   }
+  // The block a line sits in ends on the first later line that dips below its starting depth.
+  // Walked backwards, holding for each depth the nearest later line that dips below it.
+  let blockEnd = null;
+  const endOf = (line) => {
+    if (!blockEnd) {
+      blockEnd = new Int32Array(to - from);
+      let deepest = 0;
+      for (let i = from; i < to; i++) deepest = Math.max(deepest, depth.start[i]);
+      const below = new Int32Array(deepest + 1).fill(to);
+      for (let i = to - 1; i >= from; i--) {
+        blockEnd[i - from] = below[depth.start[i]];
+        for (let k = Math.max(0, depth.low[i] + 1); k <= deepest; k++) below[k] = i;
+      }
+    }
+    return blockEnd[line - from];
+  };
   let saved = 0;
   for (const { line: declLine, name, type } of decls) {
     const word = new RegExp(`\\b${escape(name)}\\b`);
@@ -69,22 +103,21 @@ function rewriteBody(lines, from, to, depth) {
     let assign = -1;
     let ok = true;
     const uses = [];
-    for (let i = from; i < to && ok; i++) {
+    for (const i of seen.get(name)) {
+      // Lines already rewritten above can have lost the name; the index is only a shortlist.
       if (i === declLine || !word.test(lines[i])) continue;
       const m = lines[i].match(plain);
       if (m && !word.test(m[2])) {
         if (assign !== -1) ok = false;
         else assign = i;
+        if (!ok) break;
         continue;
       }
       if (write.test(lines[i])) { ok = false; break; }
       uses.push(i);
     }
     if (!ok || assign === -1) continue;
-    // The block the write sits in ends on the first later line that dips below its depth.
-    const d = depth.start[assign];
-    let end = to;
-    for (let i = assign + 1; i < to; i++) if (depth.low[i] < d) { end = i; break; }
+    const end = endOf(assign);
     if (!uses.every((i) => i > assign && i < end)) continue;
     const [, indent, expr] = lines[assign].match(plain);
     lines[assign] = `${indent}let ${name} : ${type} = ${expr};`;
