@@ -1356,6 +1356,25 @@
       /* Nothing to go back to once the run is over, and a screenshot frames itself. */
       body.shot-mode #taxi-finder, body.game-over #taxi-finder { display: none; }
 
+      /* The taxi marker (game/taximarker.js): a yellow down-pointing triangle over the taxi while no
+         rider is aboard, so a player can always say which car is theirs. Positioned per frame by a
+         transform from JS; the bob is on the svg inside, so the two never fight over `transform`.
+         Under the spotlight (17) like the fare arrows, so the tutorial's dimming covers it too, and
+         under the HUD so it never sits over a control. */
+      #taxi-marker {
+        position: fixed; left: 0; top: 0; z-index: 16; pointer-events: none; user-select: none;
+        opacity: 0; transition: opacity 0.25s ease; will-change: transform;
+      }
+      #taxi-marker.is-on { opacity: 1; }
+      #taxi-marker svg {
+        display: block; overflow: visible;
+        filter: drop-shadow(0 1px 1.5px rgba(0, 0, 0, 0.35));
+        animation: taxi-marker-bob 1.1s ease-in-out infinite alternate;
+      }
+      @keyframes taxi-marker-bob { from { translate: 0 0; } to { translate: 0 -4px; } }
+      @media (prefers-reduced-motion: reduce) { #taxi-marker svg { animation: none; } }
+      body.game-over #taxi-marker, body.title-up #taxi-marker, body.replaying #taxi-marker { display: none; }
+
       /* Off-screen fare pointers. Arrows that clamp to the viewport edge and rotate to point at a
          fare that has slipped off the frame (portrait, or after panning). Two kinds, same arrow:
          the drop-off ring while a fare is aboard, and every rider still waiting on a kerb.
