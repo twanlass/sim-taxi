@@ -2,7 +2,8 @@ import { keepPipelines, pinWarmedNodes } from './util/warmvariants.js';
 import * as THREE from 'three';
 import { WebGPURenderer } from 'three/webgpu';
 import { gpuCompat, unported } from './game/gpucompat.js';
-import { GPU, gpuNote } from './util/gpu.js';
+import { GPU, fallBackToWebGL, gpuNote } from './util/gpu.js';
+import { installVarsToLets } from './util/wgsllets.js';
 import { createGpuCapture } from './game/gpucapture.js';
 import { createGpuFrame } from './game/gpuframe.js';
 import { createGpuCrt } from './game/gpucrt.js';
@@ -336,6 +337,9 @@ const renderer = GPU ? new WebGPURenderer({ antialias: budget.msaa, stencil: tru
   stencil: true,
   preserveDrawingBuffer: Boolean(shot),
 });
+// Safari refuses any WGSL function whose `var`s add up past 8 KB, and three declares one for every
+// node it caches: see util/wgsllets.js.
+if (GPU) installVarsToLets(renderer);
 perfMark('renderer');
 // NOT `window.innerWidth/innerHeight`: on an installed iOS app those stop short of the physical
 // bottom of the screen, and the strip the canvas doesn't cover shows as bare sky under the game.
@@ -352,11 +356,14 @@ if (GPU) {
 const gpuCapture = GPU ? createGpuCapture(renderer, { samples: budget.msaa ? 4 : 0 }) : null;
 const gpuCrt = gpuCrtOn ? createGpuCrt(renderer, { still: Boolean(shot) }) : null;
 let gpuFrame = gpuAo ? createGpuFrame(renderer, { crt: gpuCrt }) : null;
-// A validation error on the device does not throw: the frame is just black from then on. The
-// frame's target is the newest and least travelled path here, so the first such error drops it
-// (the city then draws straight to the canvas, without occlusion) and says what it was.
+// A validation error on the device does not throw: the frame is just black from then on. Before
+// the game is up the page reloads on WebGL (`fallBackToWebGL`), since a shader that failed to
+// compile leaves its material undrawn whatever happens next. After, the frame's target is the
+// newest and least travelled path here, so the first such error drops it (the city then draws
+// straight to the canvas, without occlusion) and says what it was.
 if (GPU) {
   renderer.backend.device?.addEventListener('uncapturederror', (event) => {
+    if (fallBackToWebGL(`device: ${event.error?.message}`)) return;
     const wasFrame = Boolean(gpuFrame);
     gpuFrame = null;
     // The event lands between frames, with the frame's two attachments still set from `begin()`.

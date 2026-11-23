@@ -23792,6 +23792,58 @@ for (const viewName of ['side', 'quarter']) {
   cull.restore();
 }
 
+// Safari's 8 KB cap on a WGSL function's `var`s (util/wgsllets.js). The rewrite has to make a `let`
+// of what it can prove and leave everything else exactly as three wrote it: a wrong `let` is a
+// compile error on every browser, and a missed one is only bytes.
+{
+  const { varsToLets, functionVarBytes } = await import('../src/util/wgsllets.js');
+  const src = [
+    'fn helper( a : f32 ) -> f32 {',
+    '\tvar keep : f32;',
+    '\tkeep = a;',
+    '\tkeep = keep * 2.0;',
+    '\treturn keep;',
+    '}',
+    'fn main( @location( 0 ) uvv : vec2<f32> ) -> @location( 0 ) vec4<f32> {',
+    '\t// vars',
+    '\tvar once : vec2<f32>;',
+    '\tvar inIf : f32;',
+    '\tvar pastIf : f32;',
+    '\tvar swizzled : vec3<f32>;',
+    '\tvar elseRead : f32;',
+    '\tvar ring : array<vec3<f32>, 4>;',
+    '\tvar ref : f32;',
+    '\tonce = uvv * vec2<f32>( 2.0 );',
+    '\tswizzled = vec3<f32>( once, 1.0 );',
+    '\tswizzled.x = 0.5;',
+    '\tref = 1.0;',
+    '\tlet p = &ref;',
+    '\tif ( once.x > 0.5 ) {',
+    '\t\tinIf = once.y;',
+    '\t\tpastIf = inIf + 1.0;',
+    '\t\telseRead = 2.0;',
+    '\t} else {',
+    '\t\tring[ 0 ] = vec3<f32>( elseRead );',
+    '\t}',
+    '\treturn vec4<f32>( swizzled, pastIf );',
+    '}',
+  ].join('\n');
+  const out = varsToLets(src);
+  const has = (re) => re.test(out);
+  check('wgsl lets: a var written once at the top of main becomes a let at its write',
+    has(/let once : vec2<f32> = uvv \* vec2<f32>\( 2\.0 \);/) && !has(/var once/));
+  check('wgsl lets: one written and read inside the same if becomes a let there',
+    has(/\t\tlet inIf : f32 = once\.y;/));
+  check('wgsl lets: one written inside an if and read after it stays a var',
+    has(/var pastIf : f32;/) && has(/\t\tpastIf = inIf/));
+  check('wgsl lets: a swizzle write, a pointer, a second write and an array all keep their var',
+    has(/var swizzled/) && has(/var ref/) && has(/var keep/) && has(/var ring/));
+  check('wgsl lets: a read on the else line counts as past the if', has(/var elseRead/));
+  const bytes = (code) => Math.max(...functionVarBytes(code).map((r) => r.bytes));
+  check('wgsl lets: the byte count WebKit checks goes down by the lets it made',
+    bytes(src) - bytes(out) === 8 + 4, `${bytes(src)} -> ${bytes(out)}`);
+}
+
 // Average speed per car over the whole run — a stable throughput number, unlike a snapshot of
 // how many cars happen to be moving at the instant the sim stops.
 const throughput = stats.distance / stats.time / traffic.cars.length;

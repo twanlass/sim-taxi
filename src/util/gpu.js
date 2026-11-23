@@ -14,6 +14,10 @@ export const GPU = typeof location !== 'undefined'
   && Boolean(navigator.gpu)
   && new URLSearchParams(location.search).get('renderer') !== 'classic';
 
+// Every `gpuNote` so far, for `rendererStatus`. Up here because `gpuNote` runs during this module's
+// own evaluation (the fallback page's reason, below), before anything declared after it exists.
+const notes = [];
+
 /**
  * Build something for one of the page's small WebGLRenderers while the game itself is on WebGPU.
  *
@@ -44,25 +48,53 @@ export const gpuMaterials = () => GPU && classic === 0;
  * and that page shows the message in a strip along the top until it is tapped. After the game is
  * up an error is an ordinary error and nothing here acts on it.
  */
+/**
+ * Before the game is up, reload the page on WebGL with `what` as the reason; after, do nothing and
+ * answer false. Also the device's own error handler's first move (main.js): a shader WebKit refuses
+ * to compile fails as a device error rather than a throw, and the material it belonged to then
+ * draws nothing on WebGPU however the frame is arranged — the city went missing that way on an
+ * iPhone, under a lone fire truck.
+ */
+export function fallBackToWebGL(what) {
+  if (!GPU || window.__taxi) return false;
+  const params = new URLSearchParams(location.search);
+  params.set('renderer', 'classic');
+  params.set('gpuerror', String(what).slice(0, 300));
+  location.replace(`${location.pathname}?${params}`);
+  return true;
+}
 if (GPU) {
-  const fail = (what) => {
-    if (window.__taxi) return;
-    const params = new URLSearchParams(location.search);
-    params.set('renderer', 'classic');
-    params.set('gpuerror', String(what).slice(0, 300));
-    location.replace(`${location.pathname}?${params}`);
-  };
-  window.addEventListener('error', (event) => fail(event.error?.stack ?? event.message));
-  window.addEventListener('unhandledrejection', (event) => fail(event.reason?.stack ?? event.reason));
+  window.addEventListener('error', (event) => fallBackToWebGL(event.error?.stack ?? event.message));
+  window.addEventListener('unhandledrejection', (event) => fallBackToWebGL(event.reason?.stack ?? event.reason));
 } else if (typeof location !== 'undefined' && typeof document !== 'undefined') {
   const what = new URLSearchParams(location.search).get('gpuerror');
   if (what) gpuNote(`WebGPU failed, drawing with WebGL. ${what}`);
 }
 
-/** A strip of diagnostic text along the top of the page, until it is tapped. For the port's own failures. */
+/**
+ * Which renderer is drawing, for the hidden Renderer row in Settings (game/menupage.js), with
+ * every `gpuNote` so far as the reason. `label` is what the row shows: `WebGPU`, `WebGPU (no AO)`
+ * after a device error has dropped the frame's target, `WebGL (fallback)` on a page a WebGPU start
+ * sent back, and `WebGL` where it was asked for or there is no WebGPU.
+ */
+export function rendererStatus() {
+  const fellBack = !GPU && typeof location !== 'undefined' && new URLSearchParams(location.search).has('gpuerror');
+  const label = GPU ? (notes.length ? 'WebGPU (no AO)' : 'WebGPU') : (fellBack ? 'WebGL (fallback)' : 'WebGL');
+  return { label, detail: notes.join('\n') };
+}
+
+/**
+ * A strip of diagnostic text along the top of the page, until it is tapped. For the port's own
+ * failures, and only for us: it shows under `?dev` and on the dev server, and everywhere else the
+ * text goes to the console alone. A player has nothing to do with a WGSL compiler's message, and
+ * the first one shipped as a red bar across the loading screen.
+ */
 export function gpuNote(text) {
   if (typeof document === 'undefined') return;
-  {
+  notes.push(String(text));
+  console.warn(text);
+  const show = import.meta.env?.DEV || new URLSearchParams(location.search).has('dev');
+  if (show) {
     const note = document.createElement('div');
     note.textContent = text;
     note.style.cssText = 'position:fixed;z-index:9999;left:0;right:0;top:0;padding:calc(env(safe-area-inset-top) + 6px) 10px 6px;'
