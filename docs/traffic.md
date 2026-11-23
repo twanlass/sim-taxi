@@ -1955,7 +1955,7 @@ swinging lamp when the first hit is the commonest one in Loco Mode.
 Everything is sized for silhouette, because at play zoom the taxi is ~30px long and nothing finer
 reads. It is all render-only; the lean and rattle are added to the group after the sim writes its
 transform each frame, so nothing accumulates and nothing reaches the sim. The parts are built at boot
-and hidden by a zero scale, so `markOccluder`, the cartoon outline and the ghost outline all see them.
+and hidden by a zero scale, so `markOccluder` and the ghost outline both see them.
 
 The roof sign used to be knocked crooked and then sputter at low HP, and both came out: the tilt read
 as the sign wobbling rather than as damage, and the flicker made the one lamp that says whether a rider
