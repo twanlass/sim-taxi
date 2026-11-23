@@ -49,7 +49,10 @@ export function createSnapshot(source) {
     },
     /** The print to put on the card, or null if nothing was ever grabbed. */
     photo: () => (rank >= 0 ? print : null),
-    /** Which priority the held print was taken at (-1 for none). For the checks. */
+    /** Play again on the same page (main.js `rerun`): no print held. A new canvas, since the old
+     * one may still be drawn on the card that is going away. */
+    reset: () => { print = null; rank = -1; },
+        /** Which priority the held print was taken at (-1 for none). For the checks. */
     rank: () => rank,
   };
 }

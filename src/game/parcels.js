@@ -491,6 +491,8 @@ export function createParcelSystem(rng, scene, { foodPickup = null, towardHud = 
     nextSpawnAt: -Infinity,
     over: false,
   };
+  // What a run starts from, for `reset` (Play again on the same page, main.js `rerun`).
+  const freshState = structuredClone(state);
 
   // Every pad and kerb box under one group, so a getaway can take the courier board off the map in
   // one switch — see `concealed` in `update`. The flying box stays outside it (`createSlot` puts it
@@ -1061,6 +1063,11 @@ export function createParcelSystem(rng, scene, { foodPickup = null, towardHud = 
   }
 
   return {
+    /** Play again on the same page: everything off the board the way a run's end takes it, then fresh. */
+    reset: () => {
+      update(0, null, { over: true });
+      Object.assign(state, structuredClone(freshState));
+    },
     state,
     update,
     carrying,

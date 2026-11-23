@@ -4146,6 +4146,10 @@ export function createTraffic(
   // without an outline at all until it grew one.
   const ambient = cars.filter((c) => !c.isTaxi && !c.isTruck);
   const trucks = cars.filter((c) => !c.isTaxi && c.isTruck);
+  // The pools as the city was built, before the density ramp grew them — what `trimToStart` cuts
+  // back to.
+  const startAmbient = ambient.length;
+  const startTrucks = trucks.length;
   ambient.forEach((car, index) => { car.instanceIndex = index; });
   trucks.forEach((car, index) => { car.instanceIndex = index; });
 
@@ -5051,6 +5055,64 @@ export function createTraffic(
    * into a standalone group wearing one tinted material instead, and every instance behind it
    * collapses to zero scale.
    */
+  // What a revived car keeps of itself: which instance it is drawn by and what it looks like.
+  const REVIVE_KEEP = new Set(['isTruck', 'colorIndex', 'model', 'phase', 'instanceIndex', 'police', 'isTaxi']);
+
+  /**
+   * Put every written-off ambient car back on the road — Play again on the same page (main.js
+   * `rerun`). Nothing in a run brings a crashed or crushed car back, so without this each run would
+   * start with the last one's wrecks missing from the traffic. Each is re-dealt onto a lane the way
+   * the city's own cars were (`spawnCars`, so it clears its neighbours), off the taxi by
+   * SPAWN_CLEARANCE, and keeps its instance, paint and model. Police and guests are their owners'
+   * to clear. Answers how many came back.
+   */
+  function reviveWrecks() {
+    let revived = 0;
+    for (const car of cars) {
+      if (!car.crashed || car.isTaxi || car.police || car.guest) continue;
+      const before = cars.length;
+      spawnCars(rng, 1, cars, ({ lane, s }) => {
+        if (closedLanes.has(lane.id)) return false;
+        const at = lane.path.at(s);
+        return Math.hypot(at.x - taxi.x, at.z - taxi.z) >= SPAWN_CLEARANCE;
+      });
+      if (cars.length === before) continue;
+      const fresh = cars.pop();
+      for (const key of Object.keys(fresh)) if (!REVIVE_KEEP.has(key)) car[key] = fresh[key];
+      const at = car.lane.path.at(car.s);
+      car.x = at.x;
+      car.z = at.z;
+      car.yaw = dirYaw(car.d);
+      car.prevSteerYaw = car.yaw;
+      revived += 1;
+    }
+    return revived;
+  }
+
+  /**
+   * Cut the density ramp's cars back off — Play again on the same page (main.js `rerun`), where the
+   * run starts at the bottom of the curve again and `setCarCount` regrows from there. Only the cars
+   * the ramp appended, from the tails of the two pools, so every remaining instance index stays put.
+   * The police block must be empty first (`clearPolice`): it lives at the tail of `ambient`.
+   */
+  function trimToStart() {
+    if (policeCars.length) clearPolice();
+    const drop = (car) => {
+      const at = cars.indexOf(car);
+      if (at !== -1) cars.splice(at, 1);
+    };
+    while (ambient.length > startAmbient) drop(ambient.pop());
+    while (trucks.length > startTrucks) drop(trucks.pop());
+    countPolice();
+    truckMesh.count = trucks.length;
+    truckWheelMesh.count = trucks.length * TRUCK_FRONT.length;
+    truckBoxMesh.count = trucks.length;
+    truckBumperMesh.count = trucks.length * 2;
+    truckBrakeMesh.count = trucks.length * LIGHT_PODS;
+    truckTurnLeftMesh.count = trucks.length * LIGHT_PODS;
+    truckTurnRightMesh.count = trucks.length * LIGHT_PODS;
+  }
+
   function wreckShell(car) {
     car.crashed = true;
     // A guest has no instance to copy a shell from — its body is somebody else's mesh, so its owner
@@ -8428,6 +8490,8 @@ export function createTraffic(
     /** Called with `{ x, z, yaw, v, deck }` on the frame the taxi's hop touches down. */
     onTaxiLand: (cb) => { landListeners.push(cb); },
     wreckShell, stats,
+    reviveWrecks,
+    trimToStart,
     wearSkin,
     /** Every group drawn in a car's place, the taxi's included — the crash replay tapes these. */
     drawnRoots,

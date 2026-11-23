@@ -704,6 +704,9 @@ export function createRace({
     brakeTaxi: false,
   };
 
+  // What a run starts from, for `reset`.
+  const freshState = { ...state };
+
   function setPhase(phase) {
     state.phase = phase;
     state.phaseT = 0;
@@ -1657,6 +1660,16 @@ export function createRace({
       if (state.phase === 'waiting' || state.phase === 'leaving') return;
       taxi.parked = false;
       leave();
+    },
+    /**
+     * Play again on the same page (main.js `rerun`): the racer off the road on the spot, whatever
+     * the race was doing, and the run's tallies and first-race countdown as the system was built.
+     */
+    reset: () => {
+      if (state.phase !== 'waiting' && state.phase !== 'leaving') leave();
+      taxi.parked = false;
+      retire();
+      Object.assign(state, freshState);
     },
     /** For `tools/race.mjs`'s sweep. */
     setRivalChase: (v) => { rivalChase = v; },

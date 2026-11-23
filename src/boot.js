@@ -9,7 +9,7 @@
  * screen while main.js evaluates (game/splash.js, `WAIT_LOGO`). It costs ~33ms on a load of seconds.
  * `?splashwait=classic` issues it at once, behind black, as it first shipped.
  *
- * Without a startup screen (`?splash=classic`, shot mode, `?dev`, `?title=off`, "Play again") the
+ * Without a startup screen (`?splash=classic`, shot mode, `?dev`, `?title=off`, a `?rerun=classic` Play again) the
  * game is imported straight away, and the page's black (`html.booting`) gives way to the sky once
  * the city has drawn.
  *

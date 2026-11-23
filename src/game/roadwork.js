@@ -1250,6 +1250,38 @@ export function createRoadwork(rng, scene, camera = null) {
    * down a street with nothing on it — the exact failure the placement rules exist to avoid, only
    * with no barricade to explain it.
    */
+  // What outlives a zone: the WebGL warm-up stand-ins and the WebGPU premade pools. Disposing them
+  // at teardown was harmless while there was one zone per page, and stopped being harmless when Play
+  // again started reusing the page (`reset` below): three deletes a program when its last material
+  // goes, so a second zone would have linked every program the warm-up had paid for at load — the
+  // ~300 ms appearance hitch the stand-ins exist to prevent, on every run after the first.
+  const keep = new Set(group.children);
+  if (premade) for (const mesh of Object.values(premade)) keep.add(mesh);
+  const parkPremade = () => {
+    if (!premade) return;
+    const specimens = scene.getObjectByName('roadwork-specimens');
+    for (const mesh of Object.values(premade)) specimens?.add(mesh);
+  };
+
+  /** Take down and free everything one zone built; leaves what `keep` names alone. */
+  function clearPieces() {
+    // Before the dispose below, not after: the AO prepass holds a hard reference to every occluder
+    // and swaps its material each frame, so a freed mesh left enrolled is both a leak and a swap
+    // onto disposed geometry.
+    unmarkOccluder(group);
+    parkPremade();
+    for (const child of [...group.children]) {
+      if (keep.has(child)) continue;
+      group.remove(child);
+      child.traverse((object) => {
+        if (!object.isMesh) return;
+        object.geometry.dispose();
+        object.material.dispose();
+      });
+    }
+    materials.length = 0;
+  }
+
   function teardown() {
     state.phase = 'gone';
     setClosedLanes([]);
@@ -1257,17 +1289,38 @@ export function createRoadwork(rng, scene, camera = null) {
 
     group.visible = false;
     scene.remove(group);
-    // Before the dispose below, not after: the AO prepass holds a hard reference to every occluder
-    // and swaps its material each frame, so a freed mesh left enrolled is both a leak and a swap
-    // onto disposed geometry.
-    unmarkOccluder(group);
-    group.traverse((object) => {
-      if (!object.isMesh) return;
-      object.geometry.dispose();
-      object.material.dispose();
-    });
-    materials.length = 0;
+    clearPieces();
     emit(clearListeners, { edge: state.edge });
+  }
+
+  /**
+   * Back to the start of a run: no zone, a fresh cooldown. For Play again, which keeps the page (and
+   * so this module) rather than reloading it — without this the one zone a page ever got went to
+   * the first run. Draws its cooldown from the same run stream, so the next zone lands somewhere
+   * and sometime new.
+   */
+  function reset() {
+    const hadZone = state.phase !== 'waiting' && state.phase !== 'gone';
+    if (state.phase !== 'waiting') {
+      setClosedLanes([]);
+      setRoadworkLanes([]);
+      clearPieces();
+    }
+    for (const list of [workers, barriers, cones, horses, rubble, chips, pools]) list.length = 0;
+    coneMesh = horseMesh = chipMesh = null;
+    Object.assign(bump, { at: -Infinity, amp: 0, roll: 1, live: false });
+    const edge = state.edge;
+    Object.assign(state, {
+      phase: 'waiting',
+      cooldown: rng.range(FIRST_WAIT[0], FIRST_WAIT[1]),
+      fade: 0, alpha: 0, smashed: false, leaveAt: null, t: 0,
+      airborne: false, lastLaneId: null, lastS: 0,
+      edge: null, closedLaneIds: [], occluded: false,
+    });
+    group.visible = false;
+    group.position.y = 0;
+    if (group.parent !== scene) scene.add(group);
+    if (hadZone) emit(clearListeners, { edge });
   }
 
   function update(dt, taxi, cars = [], busy = []) {
@@ -1387,6 +1440,7 @@ export function createRoadwork(rng, scene, camera = null) {
     state,
     place,
     update,
+    reset,
     active,
     cones,
     /** The sawhorses at the ends of the hole; empty under `?roadworks=classic`. */

@@ -309,8 +309,18 @@ export function createTape(scene, { roots = [], exclude = () => false } = {}) {
     for (const [node, data] of nodes) applyNode(node, data, LIVE, LIVE, 0);
   }
 
+  /** Play again on the same page (main.js `rerun`): the last run's seconds wiped off the tape. */
+  function reset() {
+    times.fill(NaN);
+    head = 0;
+    filled = 0;
+    lastT = -Infinity;
+    recording = true;
+    rescanIn = 0;
+  }
+
   return {
-    record, span, apply, positionAt, capture, restore,
+    record, span, apply, positionAt, capture, restore, reset,
     /** For the headless check: how many meshes and nodes are being taped. */
     stats: () => ({ tracks: tracks.size, nodes: nodes.size, samples: filled }),
   };
@@ -668,6 +678,8 @@ export function createCrashReplay({
     start,
     update,
     skip: finish,
+    /** Play again on the same page: anything playing handed back, and nothing armed. */
+    reset: () => { finish(); crash = null; },
     armed: () => Boolean(crash),
     active: () => Boolean(run),
     /** For the headless check and `__taxi`: which shot, and where the playhead is against the hit. */

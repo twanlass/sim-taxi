@@ -278,8 +278,8 @@ no way to set. Between songs the station talks:
   due, and the ID follows the break rather than splitting it.
 
 So the hour runs: intro, song, song, *break*, song, *ID*, song, *break*, song, song, *break*, *ID*, …
-Under `?titlemusic=classic` the menu's song is never the first song after the intro. Play again reloads past the title screen,
-so that run goes straight to the intro on its first tap, as do `?title=off` and `?dev`. Before
+Under `?titlemusic=classic` the menu's song is never the first song after the intro. Play again goes past the title screen,
+so that run goes straight to the intro, as do `?title=off` and `?dev`. Before
 October 2026 the station went on the air on the first tap anywhere, so the intro played under the
 menu and was usually over by the time the run began; `?menumusic=classic` keeps that. Between then
 and the silent menu, the menu played songs alone until Play (#519); `?titlemusic=classic` keeps that.
@@ -297,7 +297,9 @@ bus fades to silence over 2.5 s once the first "Tap to continue" comes up (`onSt
 `showRunEnd`, `MUSIC_FADE_AT_HINT`); a tap that skips the count brings the fade forward with it.
 Effects carry on. `?musicfade=classic` fades over 1.5 s the moment the card appears instead
 (`MUSIC_FADE_OUT`). The fade is latched, so moving the Music slider on that screen does not bring
-it back. Retry and Quit both reload the page, so the next run opens on the intro as usual.
+it back. Play again opens the station on its intro again and brings the music back up
+(`sfx.newRun`); Quit takes it off the air until the next Play (`sfx.offAir`). Under
+`?rerun=classic` both reload, to the same effect.
 
 Levels (`RADIO.gain`) bring every track to −24 LUFS at full slider. The first four were measured
 off the masters with ffmpeg's `ebur128`: they arrived at −13.5 (country), −12.3 (jazz) and −10.8

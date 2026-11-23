@@ -831,6 +831,8 @@ export function createFareSystem(rng, scene, {
     // coin — see BANK_ROBBER_STEP. Always 0 under `risingOdds: false`.
     bankRides: 0,
   };
+  // What a run starts from, for `reset` — Play again keeps the page and starts the run over.
+  const freshState = structuredClone(state);
 
   const slots = Array.from({ length: MAX_FARES }, (_, index) => createSlot(scene, index));
 
@@ -2417,6 +2419,30 @@ export function createFareSystem(rng, scene, {
     pendingEvents.length = 0;
   }
 
+  /**
+   * Start the run over on the same page (main.js `rerun`): every slot emptied — the board, any rider
+   * still bailing or climbing out, the curse over a VIP — and the state back to what the system was
+   * built with. The shift is re-planned by the caller through `setShift` afterwards.
+   */
+  function reset() {
+    for (const slot of slots) {
+      slot.passenger.group.visible = false;
+      slot.destination.group.visible = false;
+      slot.passenger.postGroup.scale.setScalar(1);
+      slot.passenger.standing?.highlight?.(0);
+      slot.passenger.standing?.rest?.();
+      slot.marker.hide();
+      slot.curse.hide();
+    }
+    exits.length = 0;
+    pendingEvents.length = 0;
+    for (const key of Object.keys(state)) if (!(key in freshState)) delete state[key];
+    Object.assign(state, structuredClone(freshState));
+    dropoffHint = null;
+    lastVipAt = -Infinity;
+    lastBankAt = -Infinity;
+  }
+
   /** Which fare owns a picked object, walking up from the hit the way the picker does. */
   function fareFor(object) {
     for (let node = object; node; node = node.parent) {
@@ -2429,6 +2455,7 @@ export function createFareSystem(rng, scene, {
   return {
     state,
     update,
+    reset,
     /** Freeze/unfreeze every fare's countdown. See `paused` on the state above. */
     setPaused: (paused) => { state.paused = paused; },
     /**
