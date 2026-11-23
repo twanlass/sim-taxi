@@ -1223,8 +1223,19 @@ What the WebGPU path draws today, and what it does not:
   finders and the cargo chip are plain `WebGLRenderer`s, which cannot draw a node material: the
   splash threw on the game's taxi before the game was imported and the page stayed black, on every
   URL but a `?shot`. They build their models inside `forWebGL()` (`util/gpu.js`).
-- **A start that throws falls back.** Any error before `window.__taxi` exists reloads the page on
-  `?renderer=classic&gpuerror=<what>`, and that page shows the error in a strip along the top.
+- **A start that fails falls back.** Any error before `window.__taxi` exists, thrown or reported
+  by the device, reloads the page on `?renderer=classic&gpuerror=<what>`. The strip along the top
+  that says why (`gpuNote`) shows only under `?dev` and on the dev server; a player's page logs it
+  to the console and nothing else. A device error counts because a shader that fails to compile
+  does not throw, and its material then draws nothing on WebGPU: the first build left an iPhone
+  with an empty sky, a lone fire truck and a red bar over the loading screen.
+- **Safari caps a WGSL function's `var`s at 8,192 bytes, and three declares one per cached node.**
+  WebKit enforces the spec's limit and Tint does not, so it never shows on a desktop or headless.
+  The city's materials sat at ~6 KB and the busiest at 8.5 KB, which failed on an iPhone with "The
+  combined byte size of all variables in this function exceeds 8192 bytes". `util/wgsllets.js`
+  rewrites every var that is written once and read only after it, in the same block, as a `let`
+  (not counted: it is not storage), on every shader three builds; the busiest is then 580 bytes and
+  the frame is pixel-identical. Anything it cannot prove stays a var.
 
 Things the WebGL renderer does without being asked, each of which showed up as a wrong
 picture and each of which the node path now does by hand:
@@ -1262,7 +1273,8 @@ Measured against WebGL with AO, bloom, CRT and painterly off, at the parked 16:2
   ssao.js's depth Laplacian on that depth and takes that share of the pixel down. No depth prepass,
   no per-mesh depth materials. Strength 0.45 against WebGL's 0.6 lands on the same measured
   darkening. Off under MSAA for now (so a `?shot` needs `&msaa=off` to show it) and with `?ao=off`.
-  A device error drops the path and says so in a strip along the top (`gpuNote`).
+  A device error after the game is up drops the path and logs why (`gpuNote`); one before it falls
+  back to WebGL (above).
 - **The bloom is a third attachment on that target, not a second draw of the lamps**
   (`game/gpubloom.js`). Every node material writes the light it sends to the bloom on its way out:
   its own linear colour times a per-object level, which is the mesh's `BLOOM_INTENSITY` if
