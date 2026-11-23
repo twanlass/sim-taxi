@@ -21,7 +21,7 @@
  * What differs from WebGL, knowingly: the estimator runs at full resolution on a depth buffer that
  * holds everything that writes depth rather than the enrolled occluders alone; the multiply lands
  * after the haze and the grade rather than before (through the display curve, so a crease is the
- * same depth of shade); and there is no ink channel yet (Crayon and Cartoon are not ported).
+ * same depth of shade).
  *
  * Off with `?ao=off`, and under MSAA for now (a multisampled depth texture cannot be sampled as it
  * stands): the frame then goes straight to the canvas as it did before this file.

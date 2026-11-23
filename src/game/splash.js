@@ -40,8 +40,8 @@ import { buildLogo, createDebris, LOGO_HEIGHT } from './splashlogo.js';
  * governor between it and a frame; this is one disc, one car and four effect pools, so it gets a
  * context of its own and gives it back (`forceContextLoss`) when it is done.
  *
- * **Everything is built before the game is imported, on purpose.** `propMaterial()` bakes the AO,
- * Crayon and cloud-shadow decisions into the shader at creation (util/geo.js), and those switches are
+ * **Everything is built before the game is imported, on purpose.** `propMaterial()` bakes the AO
+ * and cloud-shadow decisions into the shader at creation (util/geo.js), and those switches are
  * thrown by `main.js` as it boots. A taxi made afterwards would compile against the city's SSAO
  * buffer and sample the occlusion of whatever building stood at that pixel in a frame it never drew.
  * Built and compiled first, it is the plain car.

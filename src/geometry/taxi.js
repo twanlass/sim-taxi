@@ -679,8 +679,8 @@ function buildDoors(group) {
 // whether a rider is aboard unreliable to read.
 //
 // Built at boot and hidden with a zero scale rather than added when needed, for the reason the light
-// pods are: `markOccluder`, the cartoon outline and the ghost-outline traversal all walk this group
-// once, and a part that turns up later is missed by all three. Put away with `setShown`, which is a
+// pods are: `markOccluder` and the ghost-outline traversal both walk this group once, and a part that
+// turns up later is missed by both. Put away with `setShown`, which is a
 // zero scale *and* `visible = false`: a zero scale alone is still drawn, in every pass (see setShown).
 // (No lights in here, so hiding a subtree has none of the light-count trap.)
 

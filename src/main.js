@@ -301,7 +301,7 @@ const budget = {
   // player asked for and one the platform default imposed are different things to be looking at.
   safeSource: safeModeSource(),
   pixelRatioCap: getPixelRatioCap(getSafeMode() ? 1 : shot ? 2 : qualityOf(settings.get()).resolution),
-  // msaa, shadowMapSize, ao, crayon, cartoon, hdr, bloom: the shared render path's (game/renderpath.js).
+  // msaa, shadowMapSize, ao, bloom: the shared render path's (game/renderpath.js).
   ...renderBudget(),
   // The CRT screen (game/crt.js) — the game's alone, so not in the shared `renderBudget`.
   crt: getCrt(),
@@ -320,7 +320,7 @@ const gpuBloom = gpuAo && budget.bloom;
 // The CRT screen wraps the frame's last pass (game/gpucrt.js), so it needs that pass too.
 const gpuCrtOn = gpuAo && budget.crt;
 if (gpuBloom) enableGlow();
-if (GPU) Object.assign(budget, { gpu: true, ao: false, bloom: false, hdr: false, crayon: false, cartoon: false, crt: false });
+if (GPU) Object.assign(budget, { gpu: true, ao: false, bloom: false, crt: false });
 const renderer = GPU ? new WebGPURenderer({ antialias: budget.msaa, stencil: true }) : new THREE.WebGLRenderer({
   antialias: budget.msaa,
   // Three defaults the stencil buffer OFF since r163. The taxi's ghost outline stamps its mask
@@ -369,33 +369,23 @@ renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 renderer.domElement.classList.add('city-canvas');
 document.body.appendChild(renderer.domElement);
 
-// AO, Crayon, Cartoon, painterly, the paint look, the rim and cloud shadows: all baked into the
+// AO, painterly, the paint look, the rim and cloud shadows: all baked into the
 // shader `propMaterial()` builds, so all decided here, before a single mesh exists. In
 // game/renderpath.js because the model workshop's bench takes the same decisions.
 decideLooks(budget);
 const aoEnabled = budget.ao;
-const crayonEnabled = budget.crayon;
-const cartoonEnabled = budget.cartoon;
 // Which brush a static mesh wears (see PAINT_FRAGMENT): 1 buildings, 2 ground (lawns only).
 const brush = (mesh, kind) => {
   mesh.material.userData.brush = kind;
   return mesh;
 };
-// Notices raised while the passes below are being built, replayed into `game/diag.js` once it
-// exists. See `onNotice` on `createHdr`.
-const declined = [];
-
-// HDR, AO, bloom, Crayon and Cartoon, and the order a frame runs them in — game/renderpath.js,
-// shared with the workshop's bench. It settles `budget.hdr` and `budget.bloom` as it goes.
+// AO, bloom and the CRT, and the order a frame runs them in — game/renderpath.js, shared with the
+// workshop's bench.
 const renderPath = createRenderPath(renderer, budget, {
-  // Queued rather than passed straight to `diag`, which does not exist yet: hdr declines the flag
-  // *during construction*, and reaching a `const` declared thirty lines further down is a
-  // temporal-dead-zone throw that takes the whole page with it.
-  onNotice: (text) => { declined.push(text); },
   // Shot mode pins the CRT's flicker, so a still does not depend on when it was taken.
   still: Boolean(shot),
 });
-const { ao, bloom, crayon, cartoon, hdr } = renderPath;
+const { ao, bloom } = renderPath;
 // One interface for the panel and `__taxi.crt`, whichever renderer draws the screen.
 const crt = gpuCrt ?? renderPath.crt;
 // The weather. `?storm` runs a storm across the afternoon and back on a loop (game/storm.js);
@@ -438,7 +428,6 @@ if (squall) {
 // `budget.ao` is the WebGL prepass, switched off above under WebGPU; the panel reports the AO that
 // is actually drawing.
 const diag = createDiagnostics(renderer, { enabled: getDiagnostics(), flags: GPU ? { ...budget, ao: gpuAo, bloom: gpuBloom, crt: gpuCrtOn } : budget });
-declined.forEach((text) => diag.note(text));
 
 // True once the GPU warm-up has finished and the run has started. `window.__taxi` is published
 // before that (the warm-up is sliced over frames, game/warmup.js), so a tool drawing a line between
@@ -452,12 +441,12 @@ gpuFrame?.setSun(sun);   // the rim line on the cars follows it (game/gpuframe.j
 const shadowCull = createShadowCull(scene, sun);
 if (new URLSearchParams(location.search).get('shadowcull') === 'classic') shadowCull.setEnabled(false);
 
-// The crayon page and the bloom composite, over the city and under every read-out.
+// The bloom composite, over the city and under every read-out.
 renderPath.addOverlays(scene);
 
 // The falling rain, and the two overlays that must stay out of its mirror pass.
 rain.addTo(scene);
-rain.hideInMirror(crayon.overlay, bloom.overlay, scene.getObjectByName('sky'));
+rain.hideInMirror(bloom.overlay, scene.getObjectByName('sky'));
 
 // A GPU that takes the context away gets the budget turned down rather than the player getting a
 // black screen for the rest of the run — see `game/recovery.js` for the two steps and why the
@@ -1712,24 +1701,6 @@ for (const board of billboards) markEmissive(board.glow, 'window');
 // prepass would paint the kerb's own contact line across whoever is standing in front of it.
 // Only the figure is taken — `markOccluder` filters out the translucent target disc under them.
 for (const slot of fares.slots) markOccluder(slot.passenger.group);
-
-// Cartoon Mode's hero outlines, and **after every `markOccluder` above rather than beside them**.
-// A hull is an opaque colour-writing mesh, so `markOccluder` would happily enrol one — and a hull
-// in the depth prepass stamps a silhouette a third of a unit bigger than the car it wraps, which
-// would leave the city's own screen-space line tracing the outline instead of the vehicle.
-//
-// The taxi and the cruiser are per-mesh groups and wear child hulls; the ambient fleet is
-// instanced and gets sibling meshes sharing traffic's own matrices, so the whole fleet costs three
-// draw calls and no per-frame work. Wheels are skipped for the fleet and included on the two hero
-// vehicles, which is the same split `game/carghosts.js` measured: a wheel sits inside the body's
-// hull on every axis but a sliver, and at play zoom a truck is a shape while the taxi is *read*.
-if (cartoonEnabled) {
-  cartoon.outline(traffic.taxiGroup, { group: 'taxi' });
-  for (const cruiser of cruisers) cartoon.outline(cruiser.group);
-  for (const source of [traffic.mesh, ...traffic.classicDrawn, traffic.truckMesh, traffic.truckBoxMesh]) {
-    scene.add(...cartoon.fleet(source));
-  }
-}
 // One fixed 3/4 framing of the whole city, plus drag-to-pan. The framing is still the default and
 // the game is playable without ever touching it on a desktop — but in portrait the frustum is
 // sized by height, so a phone cuts off both sides of the map and panning stops being optional.
@@ -7193,7 +7164,7 @@ function tick() {
   // event — a wreck bottoms out at SLOW_MO_MIN, a bust much shallower so the chase still moves.
   const nowMs = performance.now();
   // Held before the crash dilation below, for the things that run on wall time — the replay, the
-  // robbery glow, the crayon wobble — rather than slowing with the wreck.
+  // robbery glow — rather than slowing with the wreck.
   const wallDt = dt;
 
   // The crash replay holds the frame outright. Nothing in the world is stepped while it runs —
@@ -8151,13 +8122,6 @@ function tick() {
   // Wall clock for the envelope, so the crash's slow-motion does not hold the frame up; the strobe
   // stays on the sim clock the cop cars' own bars run off.
   robberyGlow.update(wallDt, !!robbery?.state.alarmed && !fares.state.gameOver, traffic.stats.time);
-  // Undilated: the slow-motion ramp at the end of a run is a statement about the sim, and a
-  // drawing does not slow down because a taxi did. Skipped entirely on a paused frame above, which
-  // is right — a held frame is a held drawing.
-  crayon.update(wallDt);
-  // Three assignments: an instanced hull draws `count` instances and nothing watches that for it,
-  // while traffic moves it when a truck spawns and when the panel's car slider is dragged.
-  cartoon.update();
   // Last thing before the frame is drawn, so the sample is the frame the player sees. Stops once a
   // run is over and no replay is coming — a bust or a timeout has nothing to show.
   if (tape && (!fares.state.gameOver || replay.armed())) tape.record(simClock, tapeImpact);
@@ -8949,10 +8913,7 @@ if (!shot && wantsDebugPanel) {
     fares: { getSeconds: getFareSeconds, setSeconds: setFareSeconds, isPinned: isFareClockPinned },
     routeLine,
     ao,
-    crayon,
-    cartoon,
     bloom,
-    hdr,
     crt,
     scores: { load: shiftScores.load, clear: shiftScores.clear },
     clouds,
@@ -9011,15 +8972,6 @@ window.__taxi = {
    * drive the same handle, so this is where you go for a value past the end of one of them.
    */
   loco,
-  /**
-   * The two look modes — `{ state, set }` each, the same handles the ⚙️ panel's sliders drive.
-   * Here for the reason `loco` is: this is where you go for a value past the end of a slider, and
-   * where a browser test reaches a look it cannot see from a still. `set(key, value)` takes any key
-   * in `state`; see CRAYON_DEFAULTS and CARTOON_DEFAULTS for what each one means. Both are inert
-   * stubs unless their flag is on.
-   */
-  crayon,
-  cartoon,
   /** Rain Mode's handles — uniforms and the mirror target. Inert unless `?rain`. */
   rain,
   /** The storm's clock — `pin(v)`, `seek(t)` and its `state`. Null unless `?storm` or `?rain`. */
@@ -9029,12 +8981,10 @@ window.__taxi = {
   /** The squall's falling leaves — `stats()`, `positions()`. Null with `?fall=off` or no squall. */
   leaves,
   /**
-   * The two bloom routes — `{ state, set }` each, the same handles the ⚙️ panel drives, plus
-   * `target()` on the emissive one so a browser test can look at what the lamps actually wrote.
-   * Only ever one of them is enabled; the other is an inert stub. See game/bloom.js, game/hdr.js.
+   * The bloom — `{ state, set }`, the same handle the ⚙️ panel drives, plus `target()` so a browser
+   * test can look at what the lamps actually wrote. Inert unless it is on. See game/bloom.js.
    */
   bloom,
-  hdr,
   tutorial,
   /** Dispatch's bubble — the robbery's and the patrol chase's — or null in shot mode. See game/radio.js. */
   radio,
