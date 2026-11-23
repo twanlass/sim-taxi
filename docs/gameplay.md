@@ -80,7 +80,7 @@ game/loadbar.js, keyed by scene-child name), with `SPARE_LINES` for a slice with
 Each step is announced and *then* given two frames before its slice blocks; announced on the frame
 before, it was painted only after the slice it described had finished.
 
-**It is built before the game is imported on purpose.** `propMaterial()` bakes the AO, Crayon and
+**It is built before the game is imported on purpose.** `propMaterial()` bakes the AO and
 cloud-shadow switches into the shader at creation, and `main.js` throws them as it boots: a taxi made
 afterwards would sample the city's SSAO buffer at whatever pixel it stood on. Built and compiled
 first, it is the plain car.
@@ -1114,7 +1114,7 @@ pooled and the loop does not tick a fare on the frame it spawns.
 as a *different, smaller kind of marker* rather than as the same one turned down, and takes the hue
 — which is the clock — down with it in screen area. The glow is the right thing to spend instead,
 because the bloom's spill is an order of magnitude wider than the thing spilling
-([rendering.md](rendering.md#bloom--gamebloomjs-and-the-comparison-in-gamehdrjs)), so it is most of
+([rendering.md](rendering.md#bloom--gamebloomjs)), so it is most of
 what makes a marker carry across the city. The hop is the other half of the same claim — a thing
 that moves on its own is a thing asking to be pressed — so it damps out on the same curve. Between
 them they are the loudest pair available that doesn't touch what the marker *says*.

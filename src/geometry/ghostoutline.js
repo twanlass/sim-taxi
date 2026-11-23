@@ -210,7 +210,7 @@ export function addGhostMask(mesh) {
 
 /**
  * Make a material's *visible* pixels part of the ghost mask, so no ghost rim — the taxi's, the
- * traffic's, or a cartoon outline — paints over them.
+ * traffic's — paints over them.
  *
  * For things that fly. A rim's rule is "draw where something in the depth buffer sits in front of
  * me", and that is meant to mean a tower. A bird, the aeroplane or the helicopter passing between
@@ -220,9 +220,8 @@ export function addGhostMask(mesh) {
  * is left is a gap in the outline under the flyer, which is what an object in front should leave.
  *
  * Deliberately a stencil stamp and not a later renderOrder. Moving a flyer after the ghost tiers
- * (9990+) keeps it out of the depth buffer they read — and also out from under the crayon page at
- * renderOrder 1, which then washes every pixel in the frame except the birds. Stencil state is GL
- * state rather than shader source, so this costs no program link.
+ * (9990+) keeps it out of the depth buffer they read. Stencil state is GL state rather than shader
+ * source, so this costs no program link.
  *
  * Only for a material that writes depth: one that doesn't was never an occluder.
  */

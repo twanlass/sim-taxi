@@ -311,11 +311,11 @@ toggles `.collapsed` and reads the panel's name from `data-name`) lets the panel
 
 **The bench draws through the game's own rendering path** (`game/renderpath.js`): the same budget
 off the same URL flags, the same look decisions compiled into every material (AO, painterly, the
-paint look, the rim, Crayon, Cartoon), and the same passes in the same order — the AO prepass, the
+paint look, the rim), and the same passes in the same order — the AO prepass, the
 rim's depth, the bloom, then the frame. `main.js`'s `renderFrame` is that function plus the game's
 weather and diagnostics, so a change to how the city draws lands on the bench with nothing to
 copy. It used to be a hand-kept copy, and it drifted: it stayed on toon paint after the game moved
-to real, and drew no rim and no AO at all. Every game flag (`?ao=off`, `?crayon`, `?bloom=off`)
+to real, and drew no rim and no AO at all. Every game flag (`?ao=off`, `?bloom=off`)
 works on the bench URL too. A model's lamps bloom at the kinds `main.js` gives them: a landmark's
 come from its own `LANDMARK.glow`, which `main.js` reads as well.
 
