@@ -86,24 +86,35 @@ export function convertibleGeometry(len, width) {
   hood.translate(cockpitBack - 0.12, BODY_TOP + 0.09, 0);
   parts.push(paint(hood, 'convertibleHood', FINISH.TYRE));
 
-  // The windscreen, raked 32° back, with a chrome top rail. Built upright at the origin, tipped
-  // about its own foot (positive rotateZ takes +y toward -x, i.e. leans it back), then stood on
-  // the cowl at the front of the cockpit. Tall enough that its top (y 2.09) clears the driver's
-  // eyes (2.04, `convertibleInteriorGeometry`): over a 0.5 screen they sat above it, which reads
-  // as someone peering over the glass rather than sitting behind it (Tyler, 2026-10-13).
+  // The windscreen, raked 32° back: an open chrome frame, a top rail on two posts. Built upright at
+  // the origin, tipped about its own foot (positive rotateZ takes +y toward -x, i.e. leans it back),
+  // then stood on the cowl at the front of the cockpit. Tall enough that its top (y 2.09) clears the
+  // driver's eyes (2.04, `convertibleInteriorGeometry`): over a 0.5 screen they sat above it, which
+  // reads as someone peering over the glass rather than sitting behind it (Tyler, 2026-10-13).
+  //
+  // No pane. It was an opaque dark glass box, and the materials here have no see-through glass, so
+  // on every car heading toward the camera (two of the four headings) it stood squarely between
+  // the view and the driver: the car read as empty, and got reported as the driver having gone
+  // missing again (Tyler, 2026-11-23). Through the frame the driver shows from every heading.
   const RAKE = 0.55;
   const SCREEN_H = 0.72;
   const screenW = width * 0.84;
-  const screen = new THREE.BoxGeometry(0.05, SCREEN_H, screenW);
-  screen.translate(0, SCREEN_H / 2, 0);
+  const POST = 0.07;
+  const frame = [];
+  for (const sz of [-1, 1]) {
+    // Each post runs up into the rail and stops inside it, so their faces never share a plane.
+    const post = new THREE.BoxGeometry(POST, SCREEN_H, POST);
+    post.translate(0, SCREEN_H / 2, sz * (screenW - POST) / 2);
+    frame.push(post);
+  }
   const rail = new THREE.BoxGeometry(0.08, 0.06, screenW + 0.04);
   rail.translate(0, SCREEN_H, 0);
-  for (const g of [screen, rail]) {
+  frame.push(rail);
+  for (const g of frame) {
     g.rotateZ(RAKE);
     g.translate(cockpitFront + 0.18, BODY_TOP - 0.02, 0);
+    parts.push(paint(g, 'hubcap', FINISH.METAL));
   }
-  parts.push(paint(screen, 'carGlass', FINISH.GLASS));
-  parts.push(paint(rail, 'hubcap', FINISH.METAL));
 
   parts.push(...wheelGeometries(len, width));
   return merge(parts);
