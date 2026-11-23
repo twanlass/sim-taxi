@@ -8941,7 +8941,7 @@ window.__taxi = {
   scene,
   unported,
   renderer: GPU ? 'webgpu' : 'webgl',
-  gpuCapture: () => gpuCapture?.capture(),
+  gpuCapture: (options) => gpuCapture?.capture(options),
   /** Whether the boot's GPU warm-up is done and the run has started — see `warmedUp`. */
   get warmedUp() { return warmedUp; },
   // The shadow-pass cull — `stats()` says how many casters the last frame skipped (game/shadowcull.js).

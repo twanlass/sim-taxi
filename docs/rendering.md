@@ -1191,6 +1191,14 @@ What the WebGPU path draws today, and what it does not:
 
   An untouched run has no cops, robbery, race or wreck in it; those are not measured. Count with
   `renderer._pipelines.caches.size` after `__taxi.warmedUp`.
+- **The see-through canvas, again** (the trap in CLAUDE.md, WebGPU's edition). three folds a
+  material's alpha map into its opacity, and the entrance wave builds every city material while
+  `transparent`, so the grass and leaf cards went on writing their coverage as alpha after the
+  city landed: 0.5 to 1 along every blade, with the page's sky colour showing through. Reported
+  from the phone as grass that looked unlit or too bright. The entrance now writes the fade as
+  those cards' alpha (`userData.finish`, `game/cityentry.js`). A headless still cannot show it
+  (shot mode lands the entrance before the first build, and a PNG's alpha is 255);
+  `__taxi.gpuCapture({ alpha: true })` paints the frame's alpha as grey and does.
 - **Not ported, and since removed:** Crayon and Cartoon Mode and `?hdr` (Tyler, 2026-11-21, then
   deleted from both renderers on 2026-11-23 — [history](rendering-history.md#crayon-mode-cartoon-mode-and-hdr--removed-2026-11)).
 - **Size.** three's WebGPU renderer and TSL add 589 kB to the vendor chunk (557 to 1,145 kB;

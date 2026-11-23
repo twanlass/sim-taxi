@@ -31,8 +31,12 @@ export function createGpuCapture(renderer, { samples = 0 } = {}) {
     end() {
       renderer.setRenderTarget(null);
     },
-    /** The last frame, as a PNG data URL. */
-    async capture() {
+    /**
+     * The last frame, as a PNG data URL. `{ alpha: true }` paints the frame's alpha channel as
+     * grey instead: the canvas is see-through, so anything under 255 there is the page showing
+     * through the game, and no picture of the colour can show that (the PNG's own alpha is 255).
+     */
+    async capture({ alpha = false } = {}) {
       const { width, height } = target;
       const pixels = await renderer.readRenderTargetPixelsAsync(target, 0, 0, width, height);
       const image = new ImageData(width, height);
@@ -43,9 +47,9 @@ export function createGpuCapture(renderer, { samples = 0 } = {}) {
         for (let x = 0; x < width; x++) {
           const from = y * stride + x * 4;
           const to = (y * width + x) * 4;
-          image.data[to] = pixels[from];
-          image.data[to + 1] = pixels[from + 1];
-          image.data[to + 2] = pixels[from + 2];
+          image.data[to] = pixels[from + (alpha ? 3 : 0)];
+          image.data[to + 1] = pixels[from + (alpha ? 3 : 1)];
+          image.data[to + 2] = pixels[from + (alpha ? 3 : 2)];
           image.data[to + 3] = 255;
         }
       }
