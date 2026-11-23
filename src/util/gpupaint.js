@@ -243,11 +243,18 @@ export class PaintNodeMaterial extends PropPhongNodeMaterial {
     // uniforms above are. One array node shared by every paint material reached only some of the
     // meshes drawing with it: the punched windows read a `diffuse` of 0 out of a table whose every
     // row is above 0.1, and drew black.
-    const row = (table) => uniformArray(table.value).element(k).toVar();
-    const finA = row(U.uFinishA);
-    const finB = row(U.uFinishB);
-    const finC = row(U.uFinishC);
-    const finD = row(U.uFinishD);
+    //
+    // Each one is **named**. three otherwise names an array's buffer after the node's own id
+    // (`NodeBuffer_424329`), which is a fresh number on every build — so two builds of the same
+    // material came out as two different WGSL sources, and every one of them was a new shader
+    // module and a new render pipeline that no cache could ever answer. A crushed car's shell is a
+    // fresh clone of the fleet's paint going see-through, so each Crushin' It built two pipelines
+    // mid-run, splash cars included, which on a phone was a freeze of about a second (2026-11-23).
+    const row = (table, name) => uniformArray(table.value).setName(name).element(k).toVar();
+    const finA = row(U.uFinishA, 'paintFinishA');
+    const finB = row(U.uFinishB, 'paintFinishB');
+    const finC = row(U.uFinishC, 'paintFinishC');
+    const finD = row(U.uFinishD, 'paintFinishD');
     const is = (n) => select(k.equal(n), 1.0, 0.0).toVar();
     if (tinted) {
       diffuseColor.rgb.mulAssign(select(k.equal(3), vec3(1), varyingProperty('vec3', 'vInstanceColor')));

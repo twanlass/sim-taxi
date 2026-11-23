@@ -3,6 +3,8 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import {
   bakeColor, propMaterial, cloneProp, setFinish, FINISH, BODY_EULER_ORDER, SMOOTH_BODY, bodyBox, softenNormals, srcTag,
 } from '../util/geo.js';
+import { alsoWarmAs } from '../util/warmvariants.js';
+import { FADED_SHELL } from '../game/vanish.js';
 import { PALETTE, color } from '../palette.js';
 import { KERB_H, roundedRectShape } from '../city/ground.js';
 import {
@@ -5287,6 +5289,32 @@ export function createTraffic(
       truckBoxMesh.instanceMatrix.needsUpdate = true;
     }
     return shell;
+  }
+
+  // **Every part `wreckShell` can build, once, for the boot's warm-up to draw** (game/warmup.js).
+  // A shell is a plain mesh on a copy of an instanced mesh's material — a shader the fleet itself
+  // never draws with — and Crushin' It fades it out under its fireball (game/vanish.js), which is
+  // `transparent` and no depth write: a render state that is its own pipeline under WebGPU. Left to
+  // the run, the first crush built them, and the node build for the see-through copy came back on
+  // every crush after it, because each shell's copy is freed with the shell (2026-11-23: Tyler,
+  // "landed a Crushin' It ... the screen froze for like a second"). These stay in the scene,
+  // hidden — the warm-up shows hidden meshes — so the nodes they build stay cached and every real
+  // shell finds its program already made, opaque (a run-ending wreck, game/wreckage.js) and faded.
+  {
+    const warm = new THREE.Group();
+    warm.name = 'wreckShellWarm';
+    warm.visible = false;
+    const parts = [mesh, truckMesh, ...classicList, wheelMesh, truckWheelMesh, bumperMesh, truckBumperMesh,
+      truckBoxMesh, interiorMesh, policeCabMesh, sirenHousingMesh];
+    for (const inst of parts) {
+      const part = new THREE.Mesh(inst.geometry, alsoWarmAs(cloneProp(inst.material), FADED_SHELL));
+      part.castShadow = true;
+      part.receiveShadow = true;
+      // Never drawn in play, so never anything to fight with (tools/zfight.mjs).
+      part.userData.zfight = false;
+      warm.add(part);
+    }
+    scene.add(warm);
   }
 
   const wheelMatrix = new THREE.Matrix4();
