@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { KERB_H } from '../city/ground.js';
 import { coastWest, coastEast, coastNorth, coastSouth } from '../city/grid.js';
 import { setOccluderDepthMaterial } from './ssao.js';
-import { attribute, clamp, distance, float, materialOpacity, mix, positionLocal, smoothstep, uniform, varying, vec3 } from 'three/tsl';
+import { attribute, clamp, distance, float, materialOpacity, mix, positionLocal, smoothstep, uniform, varying, vec3, vec4 } from 'three/tsl';
 import { GPU } from '../util/gpu.js';
 import { alsoWarm } from '../util/warmvariants.js';
 
@@ -212,6 +212,18 @@ export function createCityEntry({
     material.opacityNode = materialOpacity.mul(entryNodes.fade);
     material.userData.ported = true;
     material.maskNode = entryNodes.mask;
+    // An alpha-cut card (grass, leaf fuzz) leaves with the fade for its alpha, not its coverage:
+    // the GLSL's `gl_FragColor.a = vEntryFade`, for the same reason. three folds the alpha map
+    // into the opacity, and a program built while `transparent` keeps writing that alpha once the
+    // city has landed and the material is opaque again, so every blade's soft edge reached the
+    // canvas at 0.5 to 1 and the page showed through it. On the phone that read as grass that was
+    // unlit or too bright; in the frame's alpha channel (`gpuCapture({ alpha: true })`) it is 3%
+    // of a park shot under 250, and nothing at all in the colour of a headless still, because shot
+    // mode lands the entrance before the first build. `finish` runs on the finished colour
+    // (`installNodeGrade`); the alpha map is in three's cache key, so these build apart.
+    if (material.alphaMap) {
+      material.userData.finish = (rgba) => vec4(rgba.rgb, entryNodes.fade);
+    }
   };
 
   const materials = [];
