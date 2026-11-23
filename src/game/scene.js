@@ -4,6 +4,15 @@ import { MAX_SPAN } from '../city/grid.js';
 import { countInEveryPass } from '../util/geo.js';
 import { GRADE_UNIFORMS } from './colorgrade.js';
 import { DISTANCE, PLAY_ZOOM, DEPTH_PER_SCREEN_UNIT } from './camera.js';
+import { MeshBasicNodeMaterial } from 'three/webgpu';
+import {
+  modelWorldMatrix, normalize, positionLocal, positionWorld, transformDirection, uniform, vec3,
+  mix as mixNode, max as maxNode,
+} from 'three/tsl';
+import { GPU } from '../util/gpu.js';
+import { createFogNode, displayColor, installNodeGrade } from './gpufog.js';
+import { installInstanceAttributes } from '../util/gpuinstances.js';
+import { bindWaterLights } from '../city/gpuwater.js';
 
 /** The dome's gradient curve. Exported because the haze reads the same gradient — see hazeColor. */
 export const SKY_EXPONENT = 0.7;
@@ -12,6 +21,27 @@ export const SKY_EXPONENT = 0.7;
  * behind each of its fragments, and has to be asking about this dome. */
 export const SKY_RADIUS = 900;
 export const SKY_DROP = 90;
+
+/**
+ * The dome on WebGPU. The same gradient off the same uniform objects, so `daylight.js`, the debug
+ * panel and the horizon keep writing to `sky.uniforms` and never learn which renderer is running.
+ *
+ * `displayColor`: the GLSL dome writes its colours to the canvas raw, with no colour-space chunk,
+ * so the values the day cycle keys are display values. A node material encodes on the way out,
+ * and the decode here is what keeps the dome the colour it has always been. It grades too, as the
+ * GLSL dome does.
+ */
+function skyNodeMaterial(uniforms) {
+  const material = new MeshBasicNodeMaterial({ side: THREE.BackSide, depthWrite: false, fog: false });
+  const top = uniform(uniforms.topColor.value);
+  const bottom = uniform(uniforms.bottomColor.value);
+  const exponent = uniform(SKY_EXPONENT).onRenderUpdate(() => uniforms.exponent.value);
+  const h = normalize(positionWorld.add(vec3(0, SKY_DROP, 0))).y;
+  material.colorNode = displayColor(mixNode(bottom, top, maxNode(h, 0).pow(exponent)));
+  material.uniforms = uniforms;
+  material.userData.display = true; // `displayColor` above is the finished pixel
+  return material;
+}
 
 function createSky() {
   const geometry = new THREE.SphereGeometry(SKY_RADIUS, 24, 12);
@@ -45,7 +75,7 @@ function createSky() {
     `,
   });
 
-  const sky = new THREE.Mesh(geometry, material);
+  const sky = new THREE.Mesh(geometry, GPU ? skyNodeMaterial(material.uniforms) : material);
   sky.name = 'sky';
   return sky;
 }
@@ -227,6 +257,13 @@ export function createScene({ shadowMapSize = 2048 } = {}) {
   // answer, and what a scene built without a daylight module (the headless tools) keeps.
   const { near, far } = hazeRange();
   scene.fog = new THREE.Fog(PALETTE.fog, near, far);
+  // WebGPU: the haze and the fog of war as one node (game/gpufog.js). `scene.fog` stays, as the
+  // object the day cycle and the haze tuning write to; the node reads it.
+  if (GPU) {
+    scene.fogNode = createFogNode(scene.fog);
+    installNodeGrade();
+    installInstanceAttributes();
+  }
 
   // Held onto so the debug panel can retint the gradient live; its ShaderMaterial uniforms are
   // the only handle on the sky colours.
@@ -283,7 +320,10 @@ export function createScene({ shadowMapSize = 2048 } = {}) {
   // leak; normalBias under 0.045 brings the roof acne back, and over 0.06 widens the leak again.
   scene.add(countInEveryPass(sun));
   scene.add(sun.target);
+  sunLight = sun;
 
+  // The water lights what it reflects by hand, from these two (city/gpuwater.js).
+  if (GPU) bindWaterLights(sun, hemi);
   return { scene, sun, hemi, sky: sky.material, fog: scene.fog };
 }
 
@@ -341,7 +381,37 @@ const PROJECT_VERTEX = '#include <project_vertex>';
  * prepass is a screen-space pass with no light direction in it at all; sinking a mesh there would
  * push its occlusion toward the *camera* and hollow out its own contact creases.
  */
+// The direction the sun's light travels, in world space, for the WebGPU sink below.
+let sunLight = null;
+const ray = new THREE.Vector3(0, -1, 0);
+const rayFrom = new THREE.Vector3();
+const sunRay = uniform(ray).onRenderUpdate(() => (sunLight
+  ? ray.setFromMatrixPosition(sunLight.target.matrixWorld).sub(rayFrom.setFromMatrixPosition(sunLight.matrixWorld)).normalize()
+  : ray));
+
 export function sinkShadowCaster(mesh, sink = SHADOW_SINK) {
+  // WebGPU: no depth material to patch. A node material may say where its vertices stand in the
+  // shadow pass alone (`castShadowPositionNode`), in the mesh's own space, so the push is along
+  // the sun's ray turned into that space; `transformDirection(v, m)` is `v * m`, the transpose,
+  // which for a rotation is world to local (the drawbridge's leaf turns).
+  // The material has to be the mesh's own, since the node is the material's and not the mesh's.
+  //
+  // **A material with a `positionNode` of its own takes the push inside it instead**, scaled by a
+  // uniform that is the sink in the shadow pass and zero in every other. three (r180,
+  // `Renderer.renderObject`) swaps the shadow material's position node for the caster's, then
+  // swaps it again for the cast-shadow one, and puts back what the *second* swap found: the
+  // caster's own node, left on the shared shadow material for every caster drawn after it. The
+  // deck's intro reached 44 other meshes that way, each warning that it has no `aLIntro`.
+  if (mesh.material?.isNodeMaterial) {
+    const push = transformDirection(sunRay, modelWorldMatrix);
+    if (mesh.material.positionNode) {
+      const inShadowPass = uniform(0).onObjectUpdate(({ material }) => (material.isShadowPassMaterial ? sink : 0));
+      mesh.material.positionNode = mesh.material.positionNode.add(push.mul(inShadowPass));
+    } else {
+      mesh.material.castShadowPositionNode = positionLocal.add(push.mul(sink));
+    }
+    return mesh;
+  }
   // The patch below is a string replace into three's own shader, so it asserts its match rather
   // than trusting it: a chunk renamed upstream would leave the replace a silent no-op and the acne
   // back, with nothing logged and nothing to point at. Asserted *here*, where the city is built,

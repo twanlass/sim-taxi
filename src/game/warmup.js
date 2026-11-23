@@ -23,6 +23,8 @@
 import { withPoolsShown } from '../util/emptypools.js';
 import { withAllCasters } from './shadowcull.js';
 import { cloneProp } from '../util/geo.js';
+import { GPU } from '../util/gpu.js';
+import { drawVariants } from '../util/warmvariants.js';
 
 /**
  * **The faded variant of every prop program.** `transparent` is part of a program's key (three's
@@ -80,15 +82,20 @@ export function warmFirstDraws(scene, draw, roots = [scene], { renderer = null }
     // With the empty-pool sweep held off, or it would hide again every pool just shown.
     // Every pool shown and every shadow caster drawn, so each one's programs link now.
     withPoolsShown(() => withAllCasters(draw));
-    // Then the faded variants of what that draw linked (see `fadeVariants`), in one more frame.
+    // WebGPU: once more with every material that changes state mid-run in its other state, so
+    // that state's pipelines are built here too (util/warmvariants.js).
+    if (GPU) withPoolsShown(() => withAllCasters(() => drawVariants(draw)));
+    // WebGL: the faded variants of what that draw linked (see `fadeVariants`), in one more frame.
     // `?fadewarm=classic` skips it, for an A/B on the phone (tools/ios-perfloop.mjs --variants).
-    const swaps = new URLSearchParams(globalThis.location?.search ?? '').get('fadewarm') === 'classic' ? [] : fadeVariants(roots, renderer);
-    if (swaps.length) {
-      for (const [o, , copy] of swaps) o.material = copy;
-      try {
-        withPoolsShown(draw);
-      } finally {
-        for (const [o, m] of swaps) o.material = m;
+    else {
+      const swaps = new URLSearchParams(globalThis.location?.search ?? '').get('fadewarm') === 'classic' ? [] : fadeVariants(roots, renderer);
+      if (swaps.length) {
+        for (const [o, , copy] of swaps) o.material = copy;
+        try {
+          withPoolsShown(draw);
+        } finally {
+          for (const [o, m] of swaps) o.material = m;
+        }
       }
     }
   } finally {

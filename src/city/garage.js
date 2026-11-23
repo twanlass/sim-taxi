@@ -1047,8 +1047,7 @@ export function createGarage(block, rng, {
   //
   // The vehicles' **metal** finish (FINISH_DEFAULTS in util/geo.js): a darkened base, a tight sun
   // glint and a share of the sky and skyline in it. That last is what makes it steel rather than
-  // grey paint — and since it turns, the glint walks round the chamfer once a revolution. Under
-  // Crayon and Cartoon `gloss` is declined and this is an ordinary prop, as the cars are.
+  // grey paint — and since it turns, the glint walks round the chamfer once a revolution.
   //
   // **Out of the AO lookup**, and that is the rule in `markOccluder` rather than a preference. It
   // refuses to put this mesh in the depth prepass and so does main.js — but *receiving* is the

@@ -10,7 +10,7 @@ import * as THREE from 'three';
 //
 // **It is a fragment tail, not a full-screen pass.** A screen-space LUT is the textbook build — draw
 // the city into a target, then one pass over it that looks every pixel up — and it costs the things
-// `game/hdr.js` lists for the composer: the frame stops being the default framebuffer, MSAA has to be
+// an `EffectComposer` costs: the frame stops being the default framebuffer, MSAA has to be
 // bought back as `samples` on a target, and a phone pays a full-screen resolve plus a full-screen
 // draw every frame for the privilege. This instead rides three's own fog chunk, the way the fog of
 // war does (`game/edgefog.js`): every built-in material looks its own fragment up as its very last

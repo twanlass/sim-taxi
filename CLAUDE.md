@@ -248,7 +248,7 @@ Omit the whole section if there's nothing to note.
 - **A backtick inside a GLSL template literal ends the shader, not the sentence.** Every shader in
   this project is a `/* glsl */ \`...\`` literal, and the house comment style leans hard on
   `backticks` for identifiers — so writing a normal comment inside one closes the template and the
-  rest of the shader parses as JavaScript. It cost two builds in a row on the crayon pass, and the
+  rest of the shader parses as JavaScript. It cost two builds in a row on the (since removed) crayon pass, and the
   error it throws (`Unexpected identifier`, pointing at a word in the middle of a comment) names
   nothing that would lead you to it. Inside a shader literal, identifiers go bare.
 - **A route through a junction does not name a *lane* into it, and a U-turn is not a legal exit.**
@@ -595,11 +595,11 @@ Omit the whole section if there's nothing to note.
   not the screen.** `WebGLPrograms.getParameters` reads `renderer.toneMapping` only when the current
   target is null, and the colour-space encode follows the target's own `colorSpace` — both by
   design, so an `EffectComposer`'s `OutputPass` can do them once at the end. Which means routing the
-  city through *any* render target silently moves a seam this project builds on: `propMaterial()`
-  patches `<colorspace_fragment>` because the frame is in **display space** by then, and both
-  Crayon and Cartoon Mode mix sRGB-encoded ink constants into it there. Under a composer those
-  constants land in linear values and every line in the game is the wrong colour, with nothing
-  logged. `game/hdr.js` declines the two look modes outright rather than drawing it.
+  city through *any* render target silently moves a seam this project builds on: the colour grade
+  (`game/colorgrade.js`) is appended to three's fog chunk because the frame is in **display space**
+  by then, and a `.cube` is authored in display space. Under a composer it lands on linear values
+  and every colour in the game is graded wrong, with nothing logged. Crayon and Cartoon Mode broke
+  exactly this way under the old `?hdr` comparison (all three since removed).
 - **In a layer-gated pass, skipping the material swap does not skip the draw.** What decides who
   renders is `camera.layers`; swapping each mesh's material is only what decides *how*. So a loop
   that `continue`s over an entry — because it is switched off, or fails a test — leaves that mesh on

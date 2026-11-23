@@ -2,6 +2,8 @@ import * as THREE from 'three';
 import { skipWhenEmpty } from '../util/emptypools.js';
 import { unlitMaterial } from '../util/geo.js';
 import { markEmissive } from './bloom.js';
+import { GPU } from '../util/gpu.js';
+import { instanceAlpha } from '../util/gpunodes.js';
 
 // One-shot flame burst out the tailpipe when Loco Mode fires up. Same instanced-plus-alpha-
 // attribute recipe as dust.js — different tuning so the burst reads as *hot*: hot orange, additive
@@ -42,6 +44,7 @@ export function createFlames(scene, rng) {
       .replace('#include <common>', '#include <common>\nvarying float vAlpha;')
       .replace('#include <dithering_fragment>', '#include <dithering_fragment>\n\tgl_FragColor.a *= vAlpha;');
   };
+  if (GPU) instanceAlpha(material);
 
   const mesh = skipWhenEmpty(new THREE.InstancedMesh(geometry, material, MAX_FLAMES));
   mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);

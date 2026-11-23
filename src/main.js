@@ -1,4 +1,12 @@
+import { keepPipelines, pinWarmedNodes } from './util/warmvariants.js';
 import * as THREE from 'three';
+import { WebGPURenderer } from 'three/webgpu';
+import { gpuCompat, unported } from './game/gpucompat.js';
+import { GPU, gpuNote } from './util/gpu.js';
+import { createGpuCapture } from './game/gpucapture.js';
+import { createGpuFrame } from './game/gpuframe.js';
+import { createGpuCrt } from './game/gpucrt.js';
+import { enableGlow } from './game/gpubloom.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 // First, before anything builds a material: it patches three's fog chunk for every program.
 import { EDGE_FOG, createEdgeFogFloor, tickEdgeFog } from './game/edgefog.js';
@@ -298,7 +306,7 @@ const budget = {
   // player asked for and one the platform default imposed are different things to be looking at.
   safeSource: safeModeSource(),
   pixelRatioCap: getPixelRatioCap(getSafeMode() ? 1 : shot ? 2 : qualityOf(settings.get()).resolution),
-  // msaa, shadowMapSize, ao, crayon, cartoon, hdr, bloom: the shared render path's (game/renderpath.js).
+  // msaa, shadowMapSize, ao, bloom: the shared render path's (game/renderpath.js).
   ...renderBudget(),
   // The CRT screen (game/crt.js) — the game's alone, so not in the shared `renderBudget`.
   crt: getCrt(),
@@ -309,7 +317,16 @@ if (!shot && !new URLSearchParams(window.location.search).has('msaa')) {
   budget.msaa = budget.msaa && settings.atLaunch().antialias;
 }
 
-const renderer = new THREE.WebGLRenderer({
+// WebGPU has its own occlusion (game/gpuframe.js); the WebGL pass and its prepass stay off.
+const gpuAo = GPU && budget.ao && !budget.msaa;
+// Bloom rides the same target (game/gpubloom.js), so it is on where that is. Decided here, before
+// the first material is built: every node material writes its glow or none does.
+const gpuBloom = gpuAo && budget.bloom;
+// The CRT screen wraps the frame's last pass (game/gpucrt.js), so it needs that pass too.
+const gpuCrtOn = gpuAo && budget.crt;
+if (gpuBloom) enableGlow();
+if (GPU) Object.assign(budget, { gpu: true, ao: false, bloom: false, crt: false });
+const renderer = GPU ? new WebGPURenderer({ antialias: budget.msaa, stencil: true }) : new THREE.WebGLRenderer({
   antialias: budget.msaa,
   // Three defaults the stencil buffer OFF since r163. The taxi's ghost outline stamps its mask
   // into it every frame (see geometry/ghostoutline.js); without the buffer the stencil test
@@ -324,6 +341,31 @@ perfMark('renderer');
 // bottom of the screen, and the strip the canvas doesn't cover shows as bare sky under the game.
 // See util/viewport.js for the measurement that is actually right.
 const viewport = createViewport();
+if (GPU) {
+  // Every node material writes display values itself (see `installNodeGrade`, game/gpufog.js), so
+  // three is told there is nothing to convert: it then draws straight to the canvas instead of to
+  // a target it copies across each frame, and blending happens where WebGL does it.
+  renderer.outputColorSpace = THREE.LinearSRGBColorSpace;
+  await renderer.init();
+  keepPipelines(renderer);
+}
+const gpuCapture = GPU ? createGpuCapture(renderer, { samples: budget.msaa ? 4 : 0 }) : null;
+const gpuCrt = gpuCrtOn ? createGpuCrt(renderer, { still: Boolean(shot) }) : null;
+let gpuFrame = gpuAo ? createGpuFrame(renderer, { crt: gpuCrt }) : null;
+// A validation error on the device does not throw: the frame is just black from then on. The
+// frame's target is the newest and least travelled path here, so the first such error drops it
+// (the city then draws straight to the canvas, without occlusion) and says what it was.
+if (GPU) {
+  renderer.backend.device?.addEventListener('uncapturederror', (event) => {
+    const wasFrame = Boolean(gpuFrame);
+    gpuFrame = null;
+    // The event lands between frames, with the frame's two attachments still set from `begin()`.
+    // Left set, every pipeline after it was built for two targets and drawn into one.
+    renderer.setMRT(null);
+    renderer.setRenderTarget(null);
+    gpuNote(`WebGPU error${wasFrame ? ', occlusion switched off' : ''}: ${String(event.error?.message).slice(0, 300)}`);
+  }, { once: true });
+}
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, budget.pixelRatioCap));
 renderer.setSize(viewport.width(), viewport.height());
 renderer.shadowMap.enabled = budget.shadowMapSize > 0;
@@ -332,33 +374,25 @@ renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 renderer.domElement.classList.add('city-canvas');
 document.body.appendChild(renderer.domElement);
 
-// AO, Crayon, Cartoon, painterly, the paint look, the rim and cloud shadows: all baked into the
+// AO, painterly, the paint look, the rim and cloud shadows: all baked into the
 // shader `propMaterial()` builds, so all decided here, before a single mesh exists. In
 // game/renderpath.js because the model workshop's bench takes the same decisions.
 decideLooks(budget);
 const aoEnabled = budget.ao;
-const crayonEnabled = budget.crayon;
-const cartoonEnabled = budget.cartoon;
 // Which brush a static mesh wears (see PAINT_FRAGMENT): 1 buildings, 2 ground (lawns only).
 const brush = (mesh, kind) => {
   mesh.material.userData.brush = kind;
   return mesh;
 };
-// Notices raised while the passes below are being built, replayed into `game/diag.js` once it
-// exists. See `onNotice` on `createHdr`.
-const declined = [];
-
-// HDR, AO, bloom, Crayon and Cartoon, and the order a frame runs them in — game/renderpath.js,
-// shared with the workshop's bench. It settles `budget.hdr` and `budget.bloom` as it goes.
+// AO, bloom and the CRT, and the order a frame runs them in — game/renderpath.js, shared with the
+// workshop's bench.
 const renderPath = createRenderPath(renderer, budget, {
-  // Queued rather than passed straight to `diag`, which does not exist yet: hdr declines the flag
-  // *during construction*, and reaching a `const` declared thirty lines further down is a
-  // temporal-dead-zone throw that takes the whole page with it.
-  onNotice: (text) => { declined.push(text); },
   // Shot mode pins the CRT's flicker, so a still does not depend on when it was taken.
   still: Boolean(shot),
 });
-const { ao, bloom, crayon, cartoon, hdr, crt } = renderPath;
+const { ao, bloom } = renderPath;
+// One interface for the panel and `__taxi.crt`, whichever renderer draws the screen.
+const crt = gpuCrt ?? renderPath.crt;
 // The weather. `?storm` runs a storm across the afternoon and back on a loop (game/storm.js);
 // `?rain` is the same storm pinned at its peak. Either way the whole wet city is built up front —
 // see game/rain.js — and `applyWeather` below turns each part of it up and down with the clock.
@@ -377,7 +411,12 @@ const squallRampClassic = getSquallRampClassic();
 const squall = squallFlag ? createSquall({
   ...squallFlag, rng: () => squallRng.next(), ramp: squallRampClassic ? RAMP_CLASSIC : RAMP,
 }) : null;
-const rain = createRain(renderer, { enabled: Boolean(storm || squall), mood: stormFlag?.mood });
+const rain = createRain(renderer, {
+  enabled: Boolean(storm || squall),
+  mood: stormFlag?.mood,
+  // The WebGPU lens is the frame's last pass while the glass is wet, so it draws the CRT screen.
+  crt: gpuCrt,
+});
 if (squall) {
   // Sun rays in the cell's wake, as it passes (`SUN_RAYS` in game/rain.js); `?sunrays=classic` none.
   rain.attachSquall(squall, { sunRays: !getSunRaysClassic() });
@@ -391,8 +430,9 @@ if (squall) {
 
 // `?diag`. A no-op without the flag; with it, the one readout that can tell a lost context from a
 // scene that submitted nothing from a scene that drew and came out black. See `game/diag.js`.
-const diag = createDiagnostics(renderer, { enabled: getDiagnostics(), flags: budget });
-declined.forEach((text) => diag.note(text));
+// `budget.ao` is the WebGL prepass, switched off above under WebGPU; the panel reports the AO that
+// is actually drawing.
+const diag = createDiagnostics(renderer, { enabled: getDiagnostics(), flags: GPU ? { ...budget, ao: gpuAo, bloom: gpuBloom, crt: gpuCrtOn } : budget });
 
 // True once the GPU warm-up has finished and the run has started. `window.__taxi` is published
 // before that (the warm-up is sliced over frames, game/warmup.js), so a tool drawing a line between
@@ -400,17 +440,18 @@ declined.forEach((text) => diag.note(text));
 let warmedUp = false;
 
 const { scene, sun, hemi, sky, fog } = createScene({ shadowMapSize: budget.shadowMapSize });
+gpuFrame?.setSun(sun);   // the rim line on the cars follows it (game/gpuframe.js)
 // The shadow pass draws only the casters whose shadow can reach the view, instead of every caster on
 // the island (game/shadowcull.js). `?shadowcull=classic` draws them all, as before.
 const shadowCull = createShadowCull(scene, sun);
 if (new URLSearchParams(location.search).get('shadowcull') === 'classic') shadowCull.setEnabled(false);
 
-// The crayon page and the bloom composite, over the city and under every read-out.
+// The bloom composite, over the city and under every read-out.
 renderPath.addOverlays(scene);
 
 // The falling rain, and the two overlays that must stay out of its mirror pass.
 rain.addTo(scene);
-rain.hideInMirror(crayon.overlay, bloom.overlay, scene.getObjectByName('sky'));
+rain.hideInMirror(bloom.overlay, scene.getObjectByName('sky'));
 
 // A GPU that takes the context away gets the budget turned down rather than the player getting a
 // black screen for the rest of the run — see `game/recovery.js` for the two steps and why the
@@ -460,8 +501,30 @@ function renderFrame(cam = camera) {
   shadowCull.cull(cam);
   // The pass order lives in game/renderpath.js, shared with the workshop's bench; the weather and
   // the diagnostics are the game's own and ride in with it.
+  if (GPU) gpuCompat(scene);
   try {
+    // With occlusion the city goes to the frame's own target and one triangle puts it on the canvas
+    // (or on the capture target, headless); without, straight to wherever it is going.
+    if (gpuFrame) {
+      gpuCapture?.begin();   // sizes the capture target; the frame takes the renderer from here
+      gpuFrame.begin();
+      renderPath.render(scene, cam, { rain, rainLightsOn, diag });
+      // Drops on the glass: while it is wet the frame ends in the lens's own target and the lens
+      // puts it on the destination (`lensSource` in game/rain.js). Only on this path; without the
+      // frame target (MSAA, or after a WebGPU error) the glass stays dry.
+      const destination = gpuCapture?.target ?? null;
+      const wetGlass = rain.lensSource();
+      gpuFrame.end(cam, wetGlass ?? destination, { screen: !wetGlass });
+      if (wetGlass) {
+        renderer.setRenderTarget(destination);
+        rain.renderLens({ from: wetGlass });
+        renderer.setRenderTarget(null);
+      }
+      return;
+    }
+    gpuCapture?.begin();
     renderPath.render(scene, cam, { rain, rainLightsOn, diag });
+    gpuCapture?.end();
   } finally {
     shadowCull.restore();
   }
@@ -1643,24 +1706,6 @@ for (const board of billboards) markEmissive(board.glow, 'window');
 // prepass would paint the kerb's own contact line across whoever is standing in front of it.
 // Only the figure is taken — `markOccluder` filters out the translucent target disc under them.
 for (const slot of fares.slots) markOccluder(slot.passenger.group);
-
-// Cartoon Mode's hero outlines, and **after every `markOccluder` above rather than beside them**.
-// A hull is an opaque colour-writing mesh, so `markOccluder` would happily enrol one — and a hull
-// in the depth prepass stamps a silhouette a third of a unit bigger than the car it wraps, which
-// would leave the city's own screen-space line tracing the outline instead of the vehicle.
-//
-// The taxi and the cruiser are per-mesh groups and wear child hulls; the ambient fleet is
-// instanced and gets sibling meshes sharing traffic's own matrices, so the whole fleet costs three
-// draw calls and no per-frame work. Wheels are skipped for the fleet and included on the two hero
-// vehicles, which is the same split `game/carghosts.js` measured: a wheel sits inside the body's
-// hull on every axis but a sliver, and at play zoom a truck is a shape while the taxi is *read*.
-if (cartoonEnabled) {
-  cartoon.outline(traffic.taxiGroup, { group: 'taxi' });
-  for (const cruiser of cruisers) cartoon.outline(cruiser.group);
-  for (const source of [traffic.mesh, ...traffic.classicDrawn, traffic.truckMesh, traffic.truckBoxMesh]) {
-    scene.add(...cartoon.fleet(source));
-  }
-}
 // One fixed 3/4 framing of the whole city, plus drag-to-pan. The framing is still the default and
 // the game is playable without ever touching it on a desktop — but in portrait the frustum is
 // sized by height, so a phone cuts off both sides of the map and panning stops being optional.
@@ -7127,7 +7172,7 @@ function tick() {
   // event — a wreck bottoms out at SLOW_MO_MIN, a bust much shallower so the chase still moves.
   const nowMs = performance.now();
   // Held before the crash dilation below, for the things that run on wall time — the replay, the
-  // robbery glow, the crayon wobble — rather than slowing with the wreck.
+  // robbery glow — rather than slowing with the wreck.
   const wallDt = dt;
 
   // The crash replay holds the frame outright. Nothing in the world is stepped while it runs —
@@ -8085,13 +8130,6 @@ function tick() {
   // Wall clock for the envelope, so the crash's slow-motion does not hold the frame up; the strobe
   // stays on the sim clock the cop cars' own bars run off.
   robberyGlow.update(wallDt, !!robbery?.state.alarmed && !fares.state.gameOver, traffic.stats.time);
-  // Undilated: the slow-motion ramp at the end of a run is a statement about the sim, and a
-  // drawing does not slow down because a taxi did. Skipped entirely on a paused frame above, which
-  // is right — a held frame is a held drawing.
-  crayon.update(wallDt);
-  // Three assignments: an instanced hull draws `count` instances and nothing watches that for it,
-  // while traffic moves it when a truck spawns and when the panel's car slider is dragged.
-  cartoon.update();
   // Last thing before the frame is drawn, so the sample is the frame the player sees. Stops once a
   // run is over and no replay is coming — a bust or a timeout has nothing to show.
   if (tape && (!fares.state.gameOver || replay.armed())) tape.record(simClock, tapeImpact);
@@ -8801,8 +8839,10 @@ if (shot) {
   // with `traverse`, not `traverseVisible`, so the hidden ones are covered too: measured at
   // `tools/links.mjs`, it moves six program links out of the run and into the boot, where they are
   // behind the wipe and the vignette and nobody is being made to wait for them mid-corner.
+  // WebGPU: `compile()` is async there and a draw that meets a pipeline still being built throws.
+  // The warm-up below draws everything once anyway, which builds each pipeline in line.
   perfMark('compile:start');
-  renderer.compile(scene, camera);
+  if (!GPU) renderer.compile(scene, camera);
   perfMark('compile:end');
   // ...and drawn once, because linking is not the whole of a first sight on iOS: Metal builds its
   // pipelines and three uploads the buffers on the first *draw*, per pass. Left to the run, that
@@ -8846,6 +8886,7 @@ if (shot) {
 function startRun() {
   perfMark('warmup:end');
   warmedUp = true;
+  pinWarmedNodes();
   const benchHooks = {
     renderer,
     ready: () => Boolean(traffic.taxi) && !traffic.taxi.staged,
@@ -8858,7 +8899,7 @@ function startRun() {
       else dispatchToRider(fares.state.fares.find((f) => f.stage === 'waiting'));
     },
     ended: () => fares.state.gameOver,
-    gpu: describeGpu(renderer.getContext()).renderer,
+    gpu: GPU ? 'webgpu' : describeGpu(renderer.getContext()).renderer,
   };
   // `?bench` or `?soak` — at most one; see game/bench.js and game/soak.js.
   bench = createBench(benchHooks) ?? createSoak(benchHooks);
@@ -8893,10 +8934,7 @@ if (!shot && wantsDebugPanel) {
     fares: { getSeconds: getFareSeconds, setSeconds: setFareSeconds, isPinned: isFareClockPinned },
     routeLine,
     ao,
-    crayon,
-    cartoon,
     bloom,
-    hdr,
     crt,
     scores: { load: shiftScores.load, clear: shiftScores.clear },
     clouds,
@@ -8921,6 +8959,10 @@ if (!shot && wantsDebugPanel) {
 }
 
 window.__taxi = {
+  scene,
+  unported,
+  renderer: GPU ? 'webgpu' : 'webgl',
+  gpuCapture: (options) => gpuCapture?.capture(options),
   /** The `?bot` scripted session, or null — `scene()` and `log` (game/perfbot.js). */
   get perfBot() { return perfBot; },
   /** Whether the boot's GPU warm-up is done and the run has started — see `warmedUp`. */
@@ -8953,15 +8995,6 @@ window.__taxi = {
    * drive the same handle, so this is where you go for a value past the end of one of them.
    */
   loco,
-  /**
-   * The two look modes — `{ state, set }` each, the same handles the ⚙️ panel's sliders drive.
-   * Here for the reason `loco` is: this is where you go for a value past the end of a slider, and
-   * where a browser test reaches a look it cannot see from a still. `set(key, value)` takes any key
-   * in `state`; see CRAYON_DEFAULTS and CARTOON_DEFAULTS for what each one means. Both are inert
-   * stubs unless their flag is on.
-   */
-  crayon,
-  cartoon,
   /** Rain Mode's handles — uniforms and the mirror target. Inert unless `?rain`. */
   rain,
   /** The storm's clock — `pin(v)`, `seek(t)` and its `state`. Null unless `?storm` or `?rain`. */
@@ -8971,12 +9004,10 @@ window.__taxi = {
   /** The squall's falling leaves — `stats()`, `positions()`. Null with `?fall=off` or no squall. */
   leaves,
   /**
-   * The two bloom routes — `{ state, set }` each, the same handles the ⚙️ panel drives, plus
-   * `target()` on the emissive one so a browser test can look at what the lamps actually wrote.
-   * Only ever one of them is enabled; the other is an inert stub. See game/bloom.js, game/hdr.js.
+   * The bloom — `{ state, set }`, the same handle the ⚙️ panel drives, plus `target()` so a browser
+   * test can look at what the lamps actually wrote. Inert unless it is on. See game/bloom.js.
    */
   bloom,
-  hdr,
   tutorial,
   /** Dispatch's bubble — the robbery's and the patrol chase's — or null in shot mode. See game/radio.js. */
   radio,

@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { forWebGL } from '../util/gpu.js';
 import { createCargo, CARGO_CENTRE_Y, CARGO_SCALE } from '../geometry/cargo.js';
 import { mirrorSceneLights } from './avatarlights.js';
 import { VIEW_DIR } from './camera.js';
@@ -167,7 +168,7 @@ export function createCargoChip({ sun, hemi }) {
   // it is the slow one. The flight in rides on top of that: it *inherits* the spin the world copy
   // was turning at and eases the excess away, leaving the box on the idle turn rather than stopping
   // it dead — see `flyIn`.
-  const cargo = createCargo({ pickable: null });
+  const cargo = forWebGL(() => createCargo({ pickable: null }));
   scene.add(cargo.group);
 
   const camera = new THREE.OrthographicCamera(-FIT, FIT, FIT, -FIT, 0.1, 60);

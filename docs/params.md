@@ -134,6 +134,8 @@ doc; what the classic version was, and why it changed, is in that doc's history 
 | `?hail=classic` | The first tutorial line as a "Tip" ("Pick up rider to start") rather than the rider hailing the cab ("Hey taxi! Over here!") | | [gameplay.md](gameplay.md#the-opening-tutorial) |
 | `?bubbles=dock` | The docked card with no tag on the talker | | [gameplay.md](gameplay.md#speech-bubbles) |
 | `?copchat=classic` | The cops' "pull over" and "lost the suspect" bubbles | #492 | [gameplay.md](gameplay.md) |
+| `?renderer=classic` | Draws with three's WebGLRenderer and the GLSL shader patches, as the game did before the WebGPU port. Also what a browser with no WebGPU gets, without being asked | | [rendering.md](rendering.md#the-webgpu-port) |
+| `?gpuerror=<text>` | Set by the page itself, never by hand: a WebGPU start that threw reloads on `?renderer=classic` with the error here, and the page shows it in a strip along the top (tap to dismiss) | | [rendering.md](rendering.md#the-webgpu-port) |
 | `?race=classic` | No street racers: the city before the race vignette, with no violet car tailing the empty taxi to challenge it | | [gameplay.md](gameplay.md#the-street-race) |
 | `?hydraulics=classic` | The street racer without hydraulics: its body sits still on its wheels through the offer, the start and the finish | | [gameplay.md](gameplay.md#the-street-race) |
 | `?racetap=classic` | The race's count waits on a tap on the racer's "Ready?" once the camera is back from the finish | | [gameplay.md](gameplay.md#the-street-race) |
@@ -246,9 +248,6 @@ doc; what the classic version was, and why it changed, is in that doc's history 
 | `?bridgenormals=classic` | The arched bridge decks lit facet by facet again: ten bands of shading down the carriageway over the hump. By default (2026-10-25) the deck, footways, paint and soffit carry the arch's own smooth normals |
 | `?roadstrokes=classic` | The painted brush strokes back on the streets, each a little lighter or darker and a little red or blue, fading in and out in block-sized patches. Off by default since 2026-10-25 |
 | `?painterly=classic` | Without the painterly pass at all: no road strokes even with `?roadstrokes=classic`, and no paved junction |
-| `?crayon` | Crayon Mode. Off by default |
-| `?cartoon` | Cartoon Mode. Off by default |
-| `?hdr` | The full HDR bloom route instead of the emissive bloom, as a comparison. Not with Crayon or Cartoon |
 | `?bloom=off` | No emissive bloom |
 | `?grade=<preset>` | Draw this load through one of the colour grade's bundled LUTs (`warm`, `cool`, `teal & orange` as `teal+%26+orange`, `faded film`, `bleach bypass`, `punchy`) without remembering it. See [rendering.md](rendering.md#colour-grade--gamecolorgradejs) |
 | `?grade=classic` | The neutral frame: no colour grade at all, as the game shipped before Tyler's look became the default. See [rendering.md](rendering.md#colour-grade--gamecolorgradejs) |

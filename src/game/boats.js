@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { propMaterial, vehiclePaintOn } from '../util/geo.js';
 import { makeRng } from '../util/rng.js';
+import { GPU } from '../util/gpu.js';
 import {
   createBargeMesh, createTugMesh, BARGE_LEN, TUG_LEN, BARGE_BEAM, TUG_BEAM,
 } from '../geometry/boat.js';
@@ -265,6 +266,37 @@ export function createBoats(scene, rng, drawbridge) {
     boats.push(boat);
     if (kind === 'tug') state.tugs += 1; else state.barges += 1;
     return boat;
+  }
+
+  // WebGPU: one of each kind, hidden, for the warm-up to draw (game/warmup.js shows what is hidden).
+  // Every boat is built when it launches and wears a material of its own, so nothing about one
+  // exists at load — and the first of each kind built its pipelines as it sailed in: the hull's and
+  // the gulls' in the main pass and the shadow pass both, measured at 3 of the 4 pipelines still
+  // being built mid-run once everything else was warmed. Pipelines are keyed on content
+  // (util/warmvariants.js keeps them), so these stand for every boat after. On a stream of its own:
+  // the hull builders spend randoms and the launch schedule must not move.
+  if (GPU) {
+    const specimens = new THREE.Group();
+    specimens.name = 'boat-specimens';
+    specimens.visible = false;
+    const srng = makeRng(0x5eab0a7);
+    for (const kind of ['tug', 'barge']) {
+      const geo = kind === 'tug' ? createTugMesh(srng) : createBargeMesh(srng);
+      const mesh = new THREE.Mesh(geo, vehiclePaintOn() ? propMaterial({ gloss: { geometry: geo } }) : propMaterial());
+      mesh.castShadow = true;
+      mesh.receiveShadow = true;
+      mesh.material.transparent = true;
+      if (geo.userData.house) {
+        const house = new THREE.Mesh(geo.userData.house, propMaterial({ gloss: { geometry: geo.userData.house } }));
+        house.material.transparent = true;
+        house.castShadow = true;
+        house.receiveShadow = true;
+        mesh.add(house);
+      }
+      if (kind === 'barge') mesh.add(createGullFlock(srng, geo.userData.perches, mesh.material).group);
+      specimens.add(mesh);
+    }
+    scene.add(specimens);
   }
 
   /** Where along the channel the lifting span is, or null on a city without one. */
