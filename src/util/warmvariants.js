@@ -42,6 +42,8 @@ let kept = null;
 /** Draw once more with every variant switched over. A no-op with none registered. */
 export function drawVariants(draw) {
   if (!variants.length) return;
+  // Before anything flips: the flip itself is what releases the first state's node builds.
+  pinWarmedNodes();
   for (const variant of variants) variant.apply();
   try {
     // three redraws a shadow map once per *frame id* per camera (`ShadowNode.updateBefore`), and the
@@ -76,4 +78,24 @@ export function keepPipelines(renderer) {
   }
   pipelines._releasePipeline = () => {};
   pipelines._releaseProgram = () => {};
+}
+
+/**
+ * Keep every node build the warm-up made, for the rest of the session. Call once it has finished.
+ *
+ * The same release as the pipelines', one layer up: three caches a material's built nodes (the
+ * generated WGSL and its bindings) under a key, counts the render objects using each, and deletes
+ * the entry at zero (`Nodes.delete`). A `needsUpdate` flip disposes the render object, so a state
+ * only one mesh is ever in is rebuilt on **every** flip back to it — in JavaScript, with no
+ * pipeline built and nothing for the device to report. An InstancedMesh is always that mesh: its
+ * uuid is in the key. The roadworks' three pools were made at load and warmed in both states, and
+ * still rebuilt all six as the works appeared and finished fading, until this.
+ *
+ * Pinned rather than never released, unlike the pipelines: these keys can carry an object's uuid,
+ * so keeping every one would grow with each instanced mesh a run creates and frees.
+ */
+export function pinWarmedNodes() {
+  const cache = kept?._nodes?.nodeBuilderCache;
+  if (!cache) return;
+  for (const state of cache.values()) state.usedTimes += 1;
 }

@@ -1,4 +1,4 @@
-import { keepPipelines } from './util/warmvariants.js';
+import { keepPipelines, pinWarmedNodes } from './util/warmvariants.js';
 import * as THREE from 'three';
 import { WebGPURenderer } from 'three/webgpu';
 import { gpuCompat, unported } from './game/gpucompat.js';
@@ -8914,6 +8914,7 @@ if (shot) {
 function startRun() {
   perfMark('warmup:end');
   warmedUp = true;
+  pinWarmedNodes();
   const benchHooks = {
     renderer,
     ready: () => Boolean(traffic.taxi) && !traffic.taxi.staged,

@@ -1183,6 +1183,16 @@ What the WebGPU path draws today, and what it does not:
     pass's shader is built from the state a mesh is *first drawn* in and kept through later
     flips, so a stand-in is born in the state the real thing is born in.
 
+  - **A build the device never sees.** three caches a material's built nodes (the generated WGSL)
+    per key, deletes the entry when no render object uses it, and puts an InstancedMesh's uuid
+    in the key. So an instanced mesh rebuilds its WGSL in JavaScript on its first draw in every
+    state and pass, and again on every flip back, with every pipeline already cached: on the phone
+    the roadworks cost a 93 to 101 ms frame as they appeared (6 builds, 73 to 79 ms of JS) and
+    72 to 75 ms as the fade ended (3 more). A look-alike cannot warm that. The works' three
+    instanced pools are therefore the real meshes, made at load and adopted by `build`
+    (`game/roadwork.js`), and `pinWarmedNodes` holds every build the warm-up made. `?perf`
+    names these as `link nodes <object> (<material>)`.
+
   An untouched run has no cops, robbery, race or wreck in it; those are not measured. Count with
   `renderer._pipelines.caches.size` after `__taxi.warmedUp`.
 - **Not ported, by decision:** Crayon and Cartoon Mode (Tyler, 2026-11-21) and `?hdr`, a

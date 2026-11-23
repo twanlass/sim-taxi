@@ -136,8 +136,9 @@ export function createGlint({ scene, taxiGroup }) {
     // and there is no light under it, so nothing else in the scene notices either way.
     material.visible = false;
     // Which also hides it from the warm-up, so the first star of a run built its pipeline as it
-    // fired. One stands for all three: same source, same state.
-    if (n === 0) alsoWarm(() => { material.visible = true; }, () => { material.visible = false; });
+    // fired. All three, not one for the lot: they share a pipeline, but three builds each
+    // material's nodes for itself and that is a frame's worth of JavaScript on a phone.
+    alsoWarm(() => { material.visible = true; }, () => { material.visible = false; });
     scene.add(mesh);
     return { ...star, tilt: TILT + TILT_STEP * n, mesh, material };
   });

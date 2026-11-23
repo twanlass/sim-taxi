@@ -157,10 +157,19 @@ export function createPerfCapture(renderer, { scene = null, cap = () => 60, prob
     });
     hook(device.queue, 'writeTexture', () => { counters.tex += 1; });
     hook(device.queue, 'copyExternalImageToTexture', () => { counters.tex += 1; });
-    hook(renderer.backend, 'createNodeBuilder', (a) => {
+    // The builder is handed its material after it is made, so it is kept and read at frame end:
+    // which pass a build was for is the half of the answer the object's name does not give (a mesh
+    // warmed for the main pass still builds again for the shadow pass, or for an AO depth swap).
+    const createNodeBuilder = renderer.backend.createNodeBuilder;
+    renderer.backend.createNodeBuilder = function hooked(...args) {
+      const builder = createNodeBuilder.apply(this, args);
       counters.link += 1;
-      gpuNotes.push(`link nodes ${nameOf(a[0])}`);
-    });
+      gpuNotes.push(() => {
+        const m = builder.material;
+        return `link nodes ${nameOf(args[0])} (${m?.name || m?.type || '?'}${m?.transparent ? ', transparent' : ''})`;
+      });
+      return builder;
+    };
   }
 
   const tags = Object.keys(probes);
@@ -194,7 +203,9 @@ export function createPerfCapture(renderer, { scene = null, cap = () => 60, prob
   renderer.render = (...args) => {
     info.reset();
     const out = render(...args);
-    calls += info.render.calls;
+    // WebGPU's `render.calls` is render *passes* since the page loaded and is never reset (the
+    // first WebGPU captures showed 163,045 and rising); its draw calls are `drawCalls`.
+    calls += info.render.drawCalls ?? info.render.calls;
     tris += info.render.triangles;
     return out;
   };
@@ -265,7 +276,7 @@ export function createPerfCapture(renderer, { scene = null, cap = () => 60, prob
       for (const stack of linkStacks) note(`link-from ${stack}`, t);
     }
     // Named only once the first frame is out: the boot builds hundreds and they are the warm-up.
-    if (firstFrameAt && t > firstFrameAt) for (const line of gpuNotes) note(line, t);
+    if (firstFrameAt && t > firstFrameAt) for (const line of gpuNotes) note(typeof line === 'function' ? line() : line, t);
     gpuNotes.length = 0;
     width = canvas.width;
     height = canvas.height;
