@@ -366,6 +366,9 @@ export function createPerfCapture(renderer, { scene = null, cap = () => 60, prob
       ua: navigator.userAgent,
       gpu: device ? `webgpu ${adapter?.vendor ?? ''} ${adapter?.architecture ?? ''} ${adapter?.device ?? ''}`.trim()
         : debug ? gl.getParameter(debug.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER),
+      // Whatever index.html's error panel caught: in the App Store shell it says only "Something
+      // went wrong", so the capture is the one place the text leaves the phone.
+      errors: (window.__errorLog ?? '').slice(0, 20_000),
       screen: { w: window.screen.width, h: window.screen.height, dpr: window.devicePixelRatio },
       canvas: { w: renderer.domElement.width, h: renderer.domElement.height },
       cap: cap(),
@@ -419,6 +422,12 @@ export function createPerfCapture(renderer, { scene = null, cap = () => 60, prob
 
   document.addEventListener('visibilitychange', () => { if (document.hidden) { wasHidden = true; save('hidden'); } });
   window.addEventListener('pagehide', () => save('pagehide'));
+
+  // The phone's thermal state, as a note on every change (ios/SimTaxi/PerfBridge.swift): a run that
+  // starts warm is a few fps slower than the same build started cool, so the report has to be able
+  // to say which frames ran hot. Asked once here; the shell answers now and on each change.
+  window.__perfThermal = (state) => note(`thermal ${state}`);
+  try { window.webkit?.messageHandlers?.perf?.postMessage({ thermal: true }); } catch { /* a browser */ }
 
   /**
    * Who the draw calls are, for one frame. Frame time on an iPhone tracks the draw-call count more

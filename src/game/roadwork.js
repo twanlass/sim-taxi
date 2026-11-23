@@ -228,6 +228,29 @@ export function createRoadwork(rng, scene, camera = null) {
   scene.add(group);
   group.visible = false;
 
+  // WebGL: **stand-ins, for the boot's warm-up and nothing else.** The trestles, cones, horses and chips
+  // are the only props in the city that cast a shadow without receiving one (`receiveShadow` is in
+  // a program's key), plain and instanced, and the zone is built mid-run and fades in — so their
+  // programs, opaque and faded both, had nothing to compile against at boot and linked on the
+  // frame the zone appeared: a ~300 ms hitch on an iPhone (`?bot`, 2026-11-22). One of each shape,
+  // built as `addPiece` and `buildCones` build theirs and never shown, so game/warmup.js draws them
+  // once, and their faded variants (`fadeVariants`), behind the load. They go with the group at
+  // teardown, by which time the real pieces own the programs.
+  if (!GPU) {
+    const geo = new THREE.BoxGeometry(0.01, 0.01, 0.01).toNonIndexed();
+    // A colour attribute so it compiles with `vertexColors` like every piece; never seen, so 1s.
+    geo.setAttribute('color', new THREE.BufferAttribute(new Float32Array(geo.attributes.position.count * 3).fill(1), 3));
+    for (const standIn of [new THREE.Mesh(geo, propMaterial()), new THREE.InstancedMesh(geo, propMaterial(), 1)]) {
+      standIn.castShadow = true;
+      standIn.receiveShadow = false;
+      standIn.visible = false;
+      standIn.name = 'roadwork-warm';
+      // Instanced meshes are left out of the faded warm-up unless they ask (game/warmup.js).
+      standIn.userData.warmFade = true;
+      group.add(standIn);
+    }
+  }
+
   // WebGPU: stand-ins for the warm-up to draw. The zone is built when it is placed, a minute or
   // more into a run, so none of its meshes exist at load, and it fades in — which is a pipeline per
   // (instanced or not) x (transparent or not) x (main pass, shadow pass). Measured: four built on

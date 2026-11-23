@@ -22,10 +22,47 @@
  */
 import { withPoolsShown } from '../util/emptypools.js';
 import { withAllCasters } from './shadowcull.js';
+import { cloneProp } from '../util/geo.js';
 import { GPU } from '../util/gpu.js';
 import { drawVariants } from '../util/warmvariants.js';
 
-export function warmFirstDraws(scene, draw, roots = [scene]) {
+/**
+ * **The faded variant of every prop program.** `transparent` is part of a program's key (three's
+ * `OPAQUE` define), so a prop that fades in or out — a rider stepping off the kerb
+ * (geometry/person.js), a roadworks zone appearing (game/roadwork.js), a boat coming in off the edge
+ * of the map (game/boats.js, transparent from birth) — compiles a second program on the frame it
+ * first goes see-through. The boot only ever drew them opaque, or not at all, so each one was a
+ * link mid-run: `?bot` on an iPhone 16 Pro found three, 850 ms of stall between them, the worst
+ * 513 ms (2026-11-22). Instead, for each distinct opaque prop program the warm-up drew, one mesh
+ * using it is drawn once more wearing a transparent copy of its material. One mesh per *program*,
+ * because that is the unit that links: materials that shared the opaque program share the faded one.
+ * The copies are kept, not disposed — three deletes a program with its last material, and this
+ * program has no other owner until something actually fades.
+ */
+const fadeWarmed = new Set();
+const fadeKeep = [];
+function fadeVariants(roots, renderer) {
+  if (!renderer?.properties) return [];
+  const swaps = [];
+  for (const root of roots) root.traverse((o) => {
+    // Instanced meshes only on request (`userData.warmFade`): the traffic's are never faded, and
+    // each one warmed is another link in the boot.
+    if (!o.isMesh || (o.isInstancedMesh && !o.userData.warmFade) || Array.isArray(o.material)) return;
+    const m = o.material;
+    if (m.transparent || !m.vertexColors || !(m.isMeshLambertMaterial || m.isMeshPhongMaterial)) return;
+    const program = renderer.properties.get(m)?.currentProgram;
+    if (!program || fadeWarmed.has(program)) return;
+    fadeWarmed.add(program);
+    const copy = m.onBeforeCompile ? cloneProp(m) : m.clone();
+    copy.transparent = true;
+    copy.depthWrite = false;
+    fadeKeep.push(copy);
+    swaps.push([o, m, copy]);
+  });
+  return swaps;
+}
+
+export function warmFirstDraws(scene, draw, roots = [scene], { renderer = null } = {}) {
   const lit = new Set();
   scene.traverseVisible((o) => { if (o.isLight) lit.add(o); });
 
@@ -48,6 +85,19 @@ export function warmFirstDraws(scene, draw, roots = [scene]) {
     // WebGPU: once more with every material that changes state mid-run in its other state, so
     // that state's pipelines are built here too (util/warmvariants.js).
     if (GPU) withPoolsShown(() => withAllCasters(() => drawVariants(draw)));
+    // WebGL: the faded variants of what that draw linked (see `fadeVariants`), in one more frame.
+    // `?fadewarm=classic` skips it, for an A/B on the phone (tools/ios-perfloop.mjs --variants).
+    else {
+      const swaps = new URLSearchParams(globalThis.location?.search ?? '').get('fadewarm') === 'classic' ? [] : fadeVariants(roots, renderer);
+      if (swaps.length) {
+        for (const [o, , copy] of swaps) o.material = copy;
+        try {
+          withPoolsShown(draw);
+        } finally {
+          for (const [o, m] of swaps) o.material = m;
+        }
+      }
+    }
   } finally {
     for (const o of culled) o.frustumCulled = true;
     for (const o of shown) o.visible = false;
@@ -79,7 +129,7 @@ export function warmFirstDraws(scene, draw, roots = [scene]) {
  * `onStep(from, to, children)` is called a frame before each slice draws, with the fraction done
  * before and after it and the slice's scene children; the draw itself blocks, so whatever is told `to` has to animate there on the compositor.
  */
-export async function warmFirstDrawsInSteps(scene, draw, { steps = 10, onStep = () => {}, yieldFrame } = {}) {
+export async function warmFirstDrawsInSteps(scene, draw, { steps = 10, onStep = () => {}, yieldFrame, renderer = null } = {}) {
   const drawable = (o) => o.isMesh || o.isPoints || o.isLine || o.isSprite;
   const seen = new Set();
   const units = [];
@@ -122,7 +172,7 @@ export async function warmFirstDrawsInSteps(scene, draw, { steps = 10, onStep = 
       child.traverse((o) => { if (drawable(o) && o.visible) { o.visible = false; hidden.push(o); } });
     }
     try {
-        warmFirstDraws(scene, draw, slices[i]);
+        warmFirstDraws(scene, draw, slices[i], { renderer });
     } finally {
       for (const o of hidden) o.visible = true;
     }

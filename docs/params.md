@@ -19,6 +19,7 @@ doc; what the classic version was, and why it changed, is in that doc's history 
 |---|---|---|---|
 | `?streets=classic` | 8-unit streets, the width they were before 2026-10-17. The default is 9. Blocks keep their size, so the map shrinks with the streets. Headless tools take `STREETS=` | | [city.md](city.md#street-width-streets) |
 | `?river=classic` | The 12-unit river, the width it was before 2026-10-18. The default is 15 (25% wider); the blocks keep their size, so the map is 3 units taller. `?city=big` keeps the 12-unit river either way. Headless tools take `RIVER=classic` | | [river.md](river.md#the-channel-is-wider-than-a-block-row-riverclassic) |
+| `?fadewarm=classic` | Skips warming the faded (transparent) program variants at boot, so the first fade of a rider, a boat or the roadworks links its shader mid-run as it did before 2026-11-22. For A/B timing on a device | | [testing.md](testing.md) |
 | `?bridges=classic` | The island's old four crossings: both ring roads and the L's line bridged beside the drawbridge. The default (2026-10-18) is three: fixed bridges one line in from each coast and the drawbridge between them. `?city=big` is unaffected. Headless tools take `BRIDGES=classic` | | [river.md](river.md#which-crossings-bridge) |
 | `?city=big` | The 6 × 7 city (36 land blocks) with the central park, harbor, north park, shores, west edge high rises, horizon filler and the L's turn west. The default is the 5 × 5 island with feathered edges. Headless tools take `CITY=big` | #483 | [city.md](city.md) |
 | `?harbor=classic` | The old river mouth, with no harbor, cranes or ships | #488, #497 | [river.md](river.md) |
@@ -276,6 +277,7 @@ See [rendering.md](rendering.md) for all of these.
 | `?warmup=classic` | Skips the boot frame that draws every mesh once, so first draws land mid-run again ([game/warmup.js](../src/game/warmup.js)) |
 | `?hitch` | The hitch logger: late frames, how long their JS took, shader links, resizes, and hitches a minute with and without a speech card up ([game/hitch.js](../src/game/hitch.js)) |
 | `?perf` | The on-device profiler: every frame's gap, JS time by phase, shader links, buffer and texture uploads, resizes and tags, plus a startup timeline, saved into the iOS app's container (or `__perfCapture.last` in a browser). `?perf=nobackdrop` also turns every CSS backdrop blur off and `?perf=nohud` hides everything but the canvas, for A/Bs of the compositor's share for `node tools/ios-perf.mjs pull` ([game/perf.js](../src/game/perf.js), [testing.md](testing.md#profiling-on-the-phone)) |
+| `?bot` / `=loco,drift` | The scripted session for profiling: fares, Loco, a drift, Big Air, the bank job, a patrol chase and a wreck on a fixed clock, each marked in the `?perf` capture; the taxi can't lose until the wreck. A list plays only those scenes. Driven from the Mac by `tools/ios-perfloop.mjs` ([game/perfbot.js](../src/game/perfbot.js), [testing.md](testing.md#the-unattended-loop)) |
 | `?bench` | The step-by-step GPU benchmark |
 | `?br=` | Internal to `?bench`: the rows measured so far, carried across its reloads |
 | `?soak` / `=20` | The battery and heat soak, in minutes |

@@ -221,6 +221,11 @@ import { attachContextRecovery } from './game/recovery.js';
 import { isCityConnected, GRID_I, GRID_J, MAX_SPAN, lineX, lineZ } from './city/grid.js';
 import { cityNetwork } from './city/roadnet.js';
 import { PALETTE, color as paletteColor, roadsClassic } from './palette.js';
+import { createPerfBot } from './game/perfbot.js';
+
+// `?bot` — the scripted session for profiling (game/perfbot.js). Declared up here, ahead of the
+// fare system and the robbery whose callbacks ask it about the bank, and built in `startRun`.
+let perfBot = null;
 
 // Caches the app shell so a Home Screen launch still opens with no connection — see public/sw.js.
 // Skipped under `npm run dev`: Vite's dev server rewrites module URLs on every change, and a
@@ -1117,10 +1122,10 @@ const fares = createFareSystem(makeRng(runSeed + 55), scene, {
   risingOdds: new URLSearchParams(window.location.search).get('robberyodds') !== 'classic',
   // Demo mode: every bank rider is the robbery, whatever BANK_ROBBER_ALWAYS says. Read live, since
   // the switch is in Settings and flips mid-session.
-  forceRob: () => demo.on() || today?.bank === 'force',
+  forceRob: () => demo.on() || today?.bank === 'force' || Boolean(perfBot?.wantsBank()),
   // ...and the bank rider is the first spawn after BANK_MIN_DELIVERED rather than a 30% chance,
   // so the robbery comes up inside the first four rides.
-  forceBank: () => demo.on() || today?.bank === 'force',
+  forceBank: () => demo.on() || today?.bank === 'force' || Boolean(perfBot?.wantsBank()),
   reserved: () => parcels?.occupiedSpots() ?? [],
   judgeRun: () => combo.judge(),
 });
@@ -1361,7 +1366,7 @@ const robbery = city.bank && !shot
     // ...and the robbery waits for a patrol chase to be over — see `busy` in game/robbery.js.
     busy: () => patrol.busy(),
     // Demo mode waives the fairness gates, so the bank rider is the robbery every time.
-    forced: () => demo.on(),
+    forced: () => demo.on() || Boolean(perfBot?.wantsBank()),
     // Never take a cop off the map where the player can see it — see `inShot` in game/robbery.js.
     inShot,
     // Delivered: the nearest cop comes after the taxi as an ordinary patrol chase — caught on a
@@ -3240,6 +3245,8 @@ collisions.onImpact(({ x, z, speed, closing, other }) => {
  */
 function bustByPolice(ram) {
   if (fares.state.gameOver || traffic.taxi.crashed) return;
+  // `?bot` keeps its run alive until it wrecks the taxi itself (game/perfbot.js).
+  if (perfBot?.immortal()) return;
   if (ram) {
     const closing = Math.max(RAM_MIN_CLOSING, ram.closing);
     controller.kickShake(RAM_SHAKE);
@@ -7036,6 +7043,7 @@ function frame(t) {
   hitch.begin(t);
   perf.begin(t);
   bench?.begin(t);
+  perfBot?.update(t);
   tick();
   bench?.end();
   perf.end();
@@ -8849,7 +8857,7 @@ if (shot) {
   // startup screen over it (Play again) that would be presented. `?loader=classic` is the one frame.
   const warming = new URLSearchParams(window.location.search).get('warmup') !== 'classic';
   if (warming && !LOADER) {
-    warmFirstDraws(scene, () => renderFrame());
+    warmFirstDraws(scene, () => renderFrame(), [scene], { renderer });
     renderFrame();
     startRun();
   } else if (warming) {
@@ -8863,7 +8871,7 @@ if (shot) {
       setTimeout(resolve, 100);
     });
     awaitPrograms(renderer, { onProgress: compileProgress, yieldFrame })
-      .then(() => warmFirstDrawsInSteps(scene, () => renderFrame(), { onStep: warmStep, yieldFrame }))
+      .then(() => warmFirstDrawsInSteps(scene, () => renderFrame(), { onStep: warmStep, yieldFrame, renderer }))
       .catch((error) => console.error('[taxi] warm-up', error))
       .finally(() => {
         renderFrame();
@@ -8895,6 +8903,19 @@ function startRun() {
   };
   // `?bench` or `?soak` — at most one; see game/bench.js and game/soak.js.
   bench = createBench(benchHooks) ?? createSoak(benchHooks);
+  perfBot = createPerfBot({
+    traffic, fares, boost, robbery, patrols, pause, robberLine,
+    ready: benchHooks.ready,
+    drive: benchHooks.drive,
+    routeTo,
+    holdLoco: holdLocoMode,
+    releaseLoco: () => boost.release(),
+    holdBrake,
+    releaseBrake,
+    dispatchToRider,
+    wreck: () => window.__taxi.wreck(),
+    save: (reason) => perf.save(reason),
+  });
   frame(performance.now());
   // When the run could start, for timing a load from the console: performance.getEntriesByName(...).
   performance.mark('taxi:ready');
@@ -8942,6 +8963,8 @@ window.__taxi = {
   unported,
   renderer: GPU ? 'webgpu' : 'webgl',
   gpuCapture: (options) => gpuCapture?.capture(options),
+  /** The `?bot` scripted session, or null — `scene()` and `log` (game/perfbot.js). */
+  get perfBot() { return perfBot; },
   /** Whether the boot's GPU warm-up is done and the run has started — see `warmedUp`. */
   get warmedUp() { return warmedUp; },
   // The shadow-pass cull — `stats()` says how many casters the last frame skipped (game/shadowcull.js).
