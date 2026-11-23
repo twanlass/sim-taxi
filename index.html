@@ -101,6 +101,14 @@
          behind the page; game/splash.js (or src/boot.js, without the startup screen) takes it off
          once the city is on screen, and the sky underlay is back for the rest of the session. */
       html.booting, html.booting body { background: #000; }
+      /* ...and nothing but the load bar on that black. The HUD is revealed at module scope in
+         main.js (`hud-ready`), seconds before the city has drawn, and with the startup screen over
+         everything that never showed — but "Play again" reloads without one, and the cash, the ⏸
+         and both pedals stood on the black around the load bar for the whole load. Only on a boot
+         with no startup screen (`bare-boot`, src/boot.js): with one, `booting` stays on through
+         the splash's fade, and the fade has to reveal the menu and the city under it. `visibility`
+         rather than `display`, so the pedal zones and every other measurement read the real layout. */
+      html.booting.bare-boot body > :not(canvas):not(#load-bar):not(#error):not(#diag) { visibility: hidden; }
       /* `?backdrop` (game/backdrop.js): the marketing site's frame. The city canvas and nothing else,
          and no input — the site's page is what takes the taps. */
       html.backdrop body > :not(.city-canvas) { display: none !important; }
