@@ -2384,6 +2384,14 @@
       :is(#title-screen, #pause-veil) .title-toggle.is-asleep { opacity: 0.4; }
       :is(#title-screen, #pause-veil) .title-row.is-revealed { animation: demo-reveal 1.2s ease-out; }
       @keyframes demo-reveal { from { color: #F5C130; } }
+      /* The Renderer row (game/menupage.js): a value instead of a control, and a tap shows why. */
+      :is(#title-screen, #pause-veil) .title-info { flex-wrap: wrap; text-align: left; }
+      :is(#title-screen, #pause-veil) .title-info-value { font-size: 16px; font-weight: 600; opacity: 0.8; }
+      :is(#title-screen, #pause-veil) .title-info-detail {
+        flex-basis: 100%; font: 12px/1.35 ui-monospace, monospace; opacity: 0.75;
+        white-space: pre-wrap; word-break: break-word;
+      }
+      :is(#title-screen, #pause-veil) .title-info-detail[hidden] { display: none; }
 
       :is(#title-screen, #pause-veil) .title-switch {
         flex: none; position: relative; width: 50px; height: 30px; border-radius: 999px;

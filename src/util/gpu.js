@@ -14,6 +14,10 @@ export const GPU = typeof location !== 'undefined'
   && Boolean(navigator.gpu)
   && new URLSearchParams(location.search).get('renderer') !== 'classic';
 
+// Every `gpuNote` so far, for `rendererStatus`. Up here because `gpuNote` runs during this module's
+// own evaluation (the fallback page's reason, below), before anything declared after it exists.
+const notes = [];
+
 /**
  * Build something for one of the page's small WebGLRenderers while the game itself is on WebGPU.
  *
@@ -68,6 +72,18 @@ if (GPU) {
 }
 
 /**
+ * Which renderer is drawing, for the hidden Renderer row in Settings (game/menupage.js), with
+ * every `gpuNote` so far as the reason. `label` is what the row shows: `WebGPU`, `WebGPU (no AO)`
+ * after a device error has dropped the frame's target, `WebGL (fallback)` on a page a WebGPU start
+ * sent back, and `WebGL` where it was asked for or there is no WebGPU.
+ */
+export function rendererStatus() {
+  const fellBack = !GPU && typeof location !== 'undefined' && new URLSearchParams(location.search).has('gpuerror');
+  const label = GPU ? (notes.length ? 'WebGPU (no AO)' : 'WebGPU') : (fellBack ? 'WebGL (fallback)' : 'WebGL');
+  return { label, detail: notes.join('\n') };
+}
+
+/**
  * A strip of diagnostic text along the top of the page, until it is tapped. For the port's own
  * failures, and only for us: it shows under `?dev` and on the dev server, and everywhere else the
  * text goes to the console alone. A player has nothing to do with a WGSL compiler's message, and
@@ -75,6 +91,7 @@ if (GPU) {
  */
 export function gpuNote(text) {
   if (typeof document === 'undefined') return;
+  notes.push(String(text));
   console.warn(text);
   const show = import.meta.env?.DEV || new URLSearchParams(location.search).has('dev');
   if (show) {

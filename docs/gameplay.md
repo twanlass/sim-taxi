@@ -135,8 +135,11 @@ they match TestFlight with nothing to bump; on the web it is `BUILD_VERSION`, bu
 Settings shows a player five rows: **Sound, Music volume, SFX volume, Quality and Antialiasing**
 (Tyler, 2026-10-25; the last two joined 2026-10-26). The rest are there but hidden until the same
 five taps on the Settings heading that reveal [Demo mode](#demo-mode): Tutorial tips, Always show
-intro story, Haptics (iOS app only), Difficulty and Demo mode itself. Revealed, the page reads
-Sound, Music, SFX, tips, intro story, Haptics, Quality, Antialiasing, Difficulty, Demo mode. Five more taps hide them again and
+intro story, Haptics (iOS app only), Difficulty, Renderer and Demo mode itself. Revealed, the page reads
+Sound, Music, SFX, tips, intro story, Haptics, Quality, Antialiasing, Difficulty, Renderer, Demo mode.
+Renderer is read-only: `WebGPU`, `WebGPU (no AO)` after a device error dropped the frame's target,
+`WebGL (fallback)` when a failed WebGPU start reloaded the page, or `WebGL`; a tap shows the error
+behind either of the first two kinds of trouble (`rendererStatus`, util/gpu.js). Five more taps hide them again and
 leave Demo mode as it was, so a presenter can set up a demo and put it all away before the audience
 sees the screen. Either way it is remembered on the device (`simTaxi.demo.row`, '1' or '0'), and
 hidden outranks Demo mode or `?demo` revealing the rows; a player who never goes looking keeps the
