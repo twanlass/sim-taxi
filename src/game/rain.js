@@ -160,6 +160,7 @@ const inert = {
   grade: null,
   wetGround: (mesh) => mesh,
   renderReflection: () => {},
+  warmMirror: (draw) => draw(),
   renderLens: () => {},
   lensSource: () => null,
   setWeather: () => {},
@@ -287,8 +288,23 @@ export function createRain(renderer, { enabled = false, mood: moodName = 'shower
     return mirrorPair;
   }
 
+  /**
+   * While the boot warms up (`warmMirror`), the mirror is drawn dry, so its pipelines are built
+   * behind the load bar rather than on the first wet frame of the run. Every material in the city
+   * gets a pipeline of its own for this target (half float, the frame's attachments, no MSAA), and
+   * nothing else draws into it: on an iPhone 16 Pro under `?bot` the squall's first wet frame built
+   * 95 of them at once, a **3.2 s** freeze, and each thing the mirror then saw for the first time
+   * (the bank's dome, the helicopter, a robotaxi) cost another 250–380 ms (2026-11-23).
+   *
+   * It has to be drawn from inside the frame, where the real one is, and not after it: a first cut
+   * drew it once the frame had ended, with the frame's attachments (`setMRT`) already cleared, so
+   * three built every material's mirror shader with one output; the first real wet frame then drew
+   * those into the frame's two-attachment layout, a WebGPU validation error that switches occlusion
+   * off for the rest of the session and rebuilds the whole city for the canvas (an 8 s freeze).
+   */
+  let warming = false;
   function renderReflection(scene, camera) {
-    if (weather.wet < 0.002) return;
+    if (!warming && weather.wet < 0.002) return;
     // Under WebGPU, never on the first frame. The mirror reuses the frame's shadow map without
     // redrawing it, so drawn before the main pass has ever run it binds a shadow map that has not
     // been a render target yet; three then recreates the texture on its first real draw and the
@@ -849,7 +865,9 @@ ${WET_ALBEDO}`, 'ground fragment');
    */
   let lensFrame = null;
   function lensSource() {
-    if (!gpu || lensLevel < 0.002) return null;
+    // Warmed with the mirror: the frame's last quad into this target and the lens onto the screen
+    // are two pipelines of their own, built on the first frame the glass got wet (2026-11-23).
+    if (!gpu || (!warming && lensLevel < 0.002)) return null;
     renderer.getDrawingBufferSize(drawingBuffer);
     lensFrame ??= new THREE.RenderTarget(2, 2, { depthBuffer: false });
     if (lensFrame.width !== drawingBuffer.x || lensFrame.height !== drawingBuffer.y) {
@@ -990,6 +1008,11 @@ ${WET_ALBEDO}`, 'ground fragment');
     weather,
     wetGround,
     renderReflection,
+    /** Draw the mirror on every frame `draw` renders, dry or not (see `renderReflection`). */
+    warmMirror: (draw) => {
+      warming = true;
+      try { draw(); } finally { warming = false; }
+    },
     renderLens,
     lensSource,
     update,
