@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { forWebGL } from '../util/gpu.js';
 import { createPerson } from '../geometry/person.js';
 import { mirrorSceneLights } from './avatarlights.js';
 import { urgencyLevel, fareColor } from './urgency.js';
@@ -58,7 +59,7 @@ function createChip(onSelect, sun, hemi) {
   // is the same one waiting on the kerb outside it, so it should be lit by the same afternoon.
   const syncLights = mirrorSceneLights(scene, sun, hemi);
 
-  const person = createPerson();
+  const person = forWebGL(() => createPerson());
   scene.add(person.group);
 
   // Ortho frustum sized to fit the ~3.2-unit-tall figure with a little air. Looking slightly down

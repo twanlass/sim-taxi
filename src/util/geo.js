@@ -1,4 +1,10 @@
 import * as THREE from 'three';
+import { uniform } from 'three/tsl';
+import { GPU, gpuMaterials } from './gpu.js';
+import { bindPropNodes, PropLambertNodeMaterial } from './gpumaterial.js';
+import { bindPaint, PaintNodeMaterial } from './gpupaint.js';
+import { createCloudNodes } from './gpuclouds.js';
+import { createPaving } from './gpupaving.js';
 import { PALETTE, plazaLook } from '../palette.js';
 import {
   PITCH, HALF_SPAN_X, HALF_SPAN_Z, HALF_ROAD, HALF_ARTERIAL, GRID_I, GRID_J, isArterialX, isArterialZ, RIVER_EXTRA,
@@ -225,6 +231,14 @@ export const SHADOW_UNIFORMS = {
   uShadowColor: { value: new THREE.Color(1, 1, 1) },
   uShadowTint: { value: 0 },
 };
+// The same two values as nodes, for the WebGPU materials: the colour by reference, the amount
+// read each render, so `setShadowTint` below reaches both renderers' materials unchanged.
+if (GPU) {
+  bindPropNodes({
+    shadowColor: uniform(SHADOW_UNIFORMS.uShadowColor.value),
+    shadowTint: uniform(0).onRenderUpdate(() => SHADOW_UNIFORMS.uShadowTint.value),
+  });
+}
 
 /**
  * How far the shade is pushed toward `PALETTE.shadowTint` in the shipped game.
@@ -437,6 +451,11 @@ export function placeJunctionPaving(rng, visible = () => true) {
   const pick = rng.pick(scored.filter((c) => c.seen === top));
   PAINT_UNIFORMS.uJunctionAt.value.set(pick.i, pick.j);
   return pick;
+}
+
+if (GPU) {
+  let paving = null;
+  bindPropNodes({ paving: () => (painterlyEnabled ? (paving ??= createPaving(PAINT_UNIFORMS)) : null) });
 }
 
 const PAINT_COMMON = /* glsl */ `
@@ -725,6 +744,10 @@ const CLOUD_LIGHT = /* glsl */ `
  */
 export function setCloudShadows(enabled) {
   cloudsEnabled = enabled;
+}
+if (GPU) {
+  let cloudLight = null;
+  bindPropNodes({ clouds: () => (cloudsEnabled ? (cloudLight ??= createCloudNodes(CLOUD_UNIFORMS)) : null) });
 }
 
 /**
@@ -1331,7 +1354,7 @@ const PAINT_LOOK_RIM_WIDTH = { real: 1 };
 // flank of a car and the whole hull of a harbour ship, so both came out lit edge to edge
 // (Tyler, 2026-10-17: "Boats are pure white. Cars are over bright."). 0.5 is what the rim look's
 // 4 texels measured at play zoom, the width Tyler had already been playing with.
-const RIM_MAX_WORLD = 0.5;
+export const RIM_MAX_WORLD = 0.5;
 let flipOverride = null;
 /** `?flip=`: a number, or `off`. Null keeps each look's own. */
 export function setFlip(value) {
@@ -1703,6 +1726,8 @@ const WINDOW_STREAKS = /* glsl */ `
 			outgoingLight += uGlossMirror * (vec3(0.55, 0.72, 0.95) * wLum * ${WINDOW_SHEEN.toFixed(2)}
 				+ vec3(0.9, 0.95, 1.0) * wIrr * clamp(wBand, 0.0, 1.0) * ${WINDOW_STREAK_GAIN.toFixed(2)});
 		}`;
+
+if (GPU) bindPaint(GLOSS_UNIFORMS, { WINDOW_PAN, WINDOW_STREAK_PITCH, WINDOW_STREAK_BLUR, WINDOW_STREAK_GAIN, WINDOW_SHEEN, rimOn: () => rimPaintOn() });
 
 const glossFragment = (classic) => /* glsl */ `
 	{
@@ -2135,9 +2160,11 @@ export function propMaterial({ ao = true, gloss = null, cutout = null, smooth = 
   const paint = gloss && !crayonEnabled && !cartoonEnabled ? glossShape(gloss) : null;
   // Phong for the light loop its specular term sits in (see GLOSS_SPECULAR_TO), not for its own
   // specular, which the patch replaces outright.
-  const material = paint
-    ? new THREE.MeshPhongMaterial({ vertexColors: true, flatShading: true })
-    : new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true });
+  const params = { vertexColors: true, flatShading: true };
+  const nodes = gpuMaterials();
+  const material = nodes
+    ? (paint ? new PaintNodeMaterial(params, paint) : new PropLambertNodeMaterial(params))
+    : (paint ? new THREE.MeshPhongMaterial(params) : new THREE.MeshLambertMaterial(params));
   // Unconditional now: the shadow tint rides in the same patch and is always available. See
   // SHADOW_UNIFORMS for why it does not need a flag of its own.
   // `cutout`: an alpha map, cut at half rather than blended, so the surface still writes depth and
@@ -2158,6 +2185,14 @@ export function propMaterial({ ao = true, gloss = null, cutout = null, smooth = 
   // carries comes out of `bakeColor` with flat ones and so draws as it did.
   // `smooth` counts here too, for a glossy dome that wants the same (the bank's, city/bank.js).
   if (paint && (SMOOTH_BODY || smooth)) material.flatShading = false;
+  if (nodes) {
+    // The WebGPU twin carries the shadow tint (util/gpumaterial.js). What `patchProp` adds beyond
+    // that is still to port, and is listed here so `__taxi.unported()` can say so per mesh.
+    material.userData.unported = [];
+    // Read by the lighting model as it is built: whether this surface is occluded (game/gpuframe.js).
+    material.userData.ao = ao;
+    return material;
+  }
   patchProp(material, { ao, gloss: paint });
   return material;
 }

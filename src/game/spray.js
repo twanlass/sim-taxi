@@ -1,6 +1,8 @@
 import * as THREE from 'three';
 import { skipWhenEmpty } from '../util/emptypools.js';
 import { color } from '../palette.js';
+import { GPU } from '../util/gpu.js';
+import { instanceAlpha } from '../util/gpunodes.js';
 
 // Water thrown off the taxi's tyres on a wet road — the squall's answer to the boost's dust
 // (game/dust.js), and laid by `wetTyres` in main.js off the same two rear contact patches.
@@ -58,6 +60,7 @@ export function createSpray(scene, rng) {
       .replace('#include <common>', '#include <common>\nvarying float vAlpha;')
       .replace('#include <dithering_fragment>', '#include <dithering_fragment>\n\tgl_FragColor.a *= vAlpha;');
   };
+  if (GPU) instanceAlpha(material);
 
   const mesh = skipWhenEmpty(new THREE.InstancedMesh(geometry, material, MAX));
   mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);

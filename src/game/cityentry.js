@@ -2,6 +2,9 @@ import * as THREE from 'three';
 import { KERB_H } from '../city/ground.js';
 import { coastWest, coastEast, coastNorth, coastSouth } from '../city/grid.js';
 import { setOccluderDepthMaterial } from './ssao.js';
+import { attribute, clamp, distance, float, materialOpacity, mix, positionLocal, smoothstep, uniform, varying, vec3, vec4 } from 'three/tsl';
+import { GPU } from '../util/gpu.js';
+import { alsoWarm } from '../util/warmvariants.js';
 
 // The city's entrance: streets and ground are already in place, then the buildings and trees
 // grow out of them in a wave — rise from the kerb, fade in, overshoot their full size and settle
@@ -171,9 +174,67 @@ export function createCityEntry({
     }
   };
 
+  // The same wave for a node material (WebGPU): ENTRY_VERTEX as the material's `positionNode`,
+  // which three also hands to the sun's shadow pass, so there is no depth material to patch.
+  // The fade rides `opacityNode` and the early discard `maskNode`.
+  //
+  // Two things the GLSL does that this does not. The shadow pass has no discard, so a building
+  // that has not started is a sheet at kerb height in the shadow map; it lies on the pavement it
+  // shadows, and nothing reads as wrong. And an alpha-cut card (grass, leaf fuzz) is cut on its
+  // coverage times the fade, so it arrives a little after the ground under it rather than with it.
+  let entryNodes = null;
+  const patchNodes = (material) => {
+    if (!entryNodes) {
+      const live = (slot) => uniform(slot.value).onRenderUpdate(() => slot.value);
+      const anchor = attribute('aEntry', 'vec3');
+      const eT = clamp(live(uEntryTime)
+        .sub(distance(anchor.xy, uniform(uEntryFrom.value)).mul(live(uEntryWave))
+          .add(anchor.z.mul(live(uEntryJitter))))
+        .div(live(uEntryDur)), 0, 1).toVar();
+      const over = live(uEntryOver);
+      const eB = eT.sub(1).toVar();
+      const eS = float(1).add(over.add(1).mul(eB).mul(eB).mul(eB)).add(over.mul(eB).mul(eB)).toVar();
+      const eXZ = mix(XZ_FROM, 1.0, eS);
+      const fade = varying(smoothstep(0.0, FADE_IN, eT));
+      entryNodes = {
+        position: vec3(
+          anchor.x.add(positionLocal.x.sub(anchor.x).mul(eXZ)),
+          positionLocal.y.sub(KERB_H).mul(eS).add(KERB_H),
+          anchor.y.add(positionLocal.z.sub(anchor.y).mul(eXZ)),
+        ),
+        fade,
+        mask: fade.greaterThan(0.004),
+      };
+    }
+    material.positionNode = entryNodes.position;
+    // Times the material's own opacity: an unlit glow or a beam arrives here as a built-in material
+    // with one, and three copies these properties across when it converts it.
+    material.opacityNode = materialOpacity.mul(entryNodes.fade);
+    material.userData.ported = true;
+    material.maskNode = entryNodes.mask;
+    // An alpha-cut card (grass, leaf fuzz) leaves with the fade for its alpha, not its coverage:
+    // the GLSL's `gl_FragColor.a = vEntryFade`, for the same reason. three folds the alpha map
+    // into the opacity, and a program built while `transparent` keeps writing that alpha once the
+    // city has landed and the material is opaque again, so every blade's soft edge reached the
+    // canvas at 0.5 to 1 and the page showed through it. On the phone that read as grass that was
+    // unlit or too bright; in the frame's alpha channel (`gpuCapture({ alpha: true })`) it is 3%
+    // of a park shot under 250, and nothing at all in the colour of a headless still, because shot
+    // mode lands the entrance before the first build. `finish` runs on the finished colour
+    // (`installNodeGrade`); the alpha map is in three's cache key, so these build apart.
+    if (material.alphaMap) {
+      material.userData.finish = (rgba) => vec4(rgba.rgb, entryNodes.fade);
+    }
+  };
+
   const materials = [];
   for (const mesh of meshes) {
     const material = mesh.material;
+    if (material.isNodeMaterial || GPU) {
+      patchNodes(material);
+      material.transparent = true;
+      materials.push(material);
+      continue;
+    }
     const prevCompile = material.onBeforeCompile;
     const prevKey = material.customProgramCacheKey;
     // Composed, not replaced: with AO on this material already carries the 'prop-ssao' key, and
@@ -260,6 +321,17 @@ export function createCityEntry({
   let queue = buildQueue();
   let head = 0;
   let done = false;
+
+  // WebGPU builds a pipeline per state (util/warmvariants.js): the warm-up also draws the city as
+  // it stands once landed, opaque and with the grown objects at their own size. A mirrored object
+  // is wound the other way at its rest scale than at zero, which is a pipeline of its own.
+  alsoWarm(() => {
+    for (const material of materials) material.transparent = false;
+    for (const g of grown) g.object.scale.copy(g.rest);
+  }, () => {
+    for (const material of materials) material.transparent = !done;
+    applyObjects();
+  });
 
   const finish = () => {
     done = true;

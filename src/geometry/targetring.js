@@ -2,6 +2,8 @@ import * as THREE from 'three';
 import { ROUTE_OPACITY } from '../game/routeline.js';
 import { popEnvelope, POP_TIME } from '../game/selectpop.js';
 import { unlitMaterial } from '../util/geo.js';
+import { gpuMaterials } from '../util/gpu.js';
+import { sweepNodesOn } from './gpumarker.js';
 import { color as paletteColor } from '../palette.js';
 
 // The disc a fare marks its ground with: a filled circle inside a solid rim, lying flat on the
@@ -150,6 +152,10 @@ export function createSweepFor(geometry, colorHex) {
         + '\t#include <dithering_fragment>');
   };
 
+  // WebGPU: the same beam as nodes (geometry/gpumarker.js), off a bag `update` moves.
+  const gpu = gpuMaterials() ? { uHead: { value: 0 }, uTail: { value: SWEEP_TAIL } } : null;
+  if (gpu) sweepNodesOn(material, gpu);
+
   const mesh = new THREE.Mesh(geometry, material);
   mesh.renderOrder = 5;   // over the rim (4) and fill (3) — the beam rides on top of both
   mesh.raycast = () => {};
@@ -159,6 +165,7 @@ export function createSweepFor(geometry, colorHex) {
     material,
     /** Advances the beam. A no-op until the shader has actually compiled once. */
     update(elapsed) {
+      if (gpu) gpu.uHead.value = (elapsed * SWEEP_SPEED) % TWO_PI;
       const shader = material.userData.shader;
       if (shader) shader.uniforms.uHead.value = (elapsed * SWEEP_SPEED) % TWO_PI;
     },

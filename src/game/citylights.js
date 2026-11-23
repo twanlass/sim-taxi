@@ -5,6 +5,8 @@ import {
   bakeColor, hash01, propMaterial, stampEntry, unlitMaterial, CLOUD_UNIFORMS, CLOUD_GLSL,
 } from '../util/geo.js';
 import { facadeQuads, setPaneSink } from '../city/buildings.js';
+import { gpuMaterials } from '../util/gpu.js';
+import { createLitOn, litSwitchNodes, poolTwin } from './gpulit.js';
 import { KERB_H } from '../city/ground.js';
 import { courtRect } from '../city/blacktop.js';
 import { skateRect } from '../city/skatepark.js';
@@ -113,7 +115,14 @@ const litUniforms = () => ({
 });
 
 /** Switch an unlit material's fragments on by their `aLitAt` against the level where they stand. */
+// The WebGPU renderer's `litOn` (game/gpulit.js), built on first use: one set of uniform nodes for
+// every switched light.
+let litOnNode = null;
+const gpuLitOn = () => (litOnNode ??= createLitOn(litUniforms(),
+  { ramp: LIT_RAMP, flickerShare: FLICKER_SHARE, flickerSpan: FLICKER_SPAN }));
+
 function litSwitch(material) {
+  if (gpuMaterials()) return litSwitchNodes(material, gpuLitOn());
   material.customProgramCacheKey = () => 'lit-switch';
   material.onBeforeCompile = (shader) => {
     Object.assign(shader.uniforms, litUniforms());
@@ -431,6 +440,11 @@ function poolGeometry() {
 }
 
 function poolMaterial() {
+  const glsl = poolGlsl();
+  return gpuMaterials() ? poolTwin(glsl, gpuLitOn()) : glsl;
+}
+
+function poolGlsl() {
   return new THREE.ShaderMaterial({
     uniforms: {
       uColor: { value: color('lampPool') }, uStrength: { value: 0.45 }, ...litUniforms(),

@@ -2,6 +2,8 @@ import * as THREE from 'three';
 import { LANE, ROAD_W, isRiverGap } from '../city/grid.js';
 import { cityNetwork } from '../city/roadnet.js';
 import { propMaterial } from '../util/geo.js';
+import { GPU } from '../util/gpu.js';
+import { alsoWarmAs } from '../util/warmvariants.js';
 import { PALETTE } from '../palette.js';
 import { createPerson } from '../geometry/person.js';
 import { markOccluder, unmarkOccluder } from './ssao.js';
@@ -123,6 +125,8 @@ export const BARRIER_S = 2.1;
 // Skipping the short lanes keeps the stunt exactly as it is on every site it can appear at.
 const RAMP_RUN_NEEDED = BARRIER_S + HOP_LEN + STOP_SETBACK;
 const CONES = 12;
+// One sawhorse at each end of the hole (`buildStatic`). The pool WebGPU makes ahead is this big.
+const MAX_HORSES = 2;
 const WORKERS = 2;
 
 // Two rows, one either side, this far off the road centreline. Set against the car rather than by
@@ -223,6 +227,52 @@ export function createRoadwork(rng, scene, camera = null) {
   group.name = 'roadwork';
   scene.add(group);
   group.visible = false;
+
+  // WebGPU: stand-ins for the warm-up to draw. The zone is built when it is placed, a minute or
+  // more into a run, so none of its meshes exist at load, and it fades in — which is a pipeline per
+  // (instanced or not) x (transparent or not) x (main pass, shadow pass). Measured: four built on
+  // the frame the works appeared and one when the fade ended. One of each shape here, in both states
+  // (util/warmvariants.js), and the pipelines are kept for the real ones.
+  let premade = null;
+  if (GPU) {
+    const specimens = new THREE.Group();
+    specimens.name = 'roadwork-specimens';
+    specimens.visible = false;
+    const geometry = coneGeometry();
+    const fades = (mesh) => {
+      // Born transparent and warmed opaque, in the order the works themselves go. The order is
+      // not cosmetic: three builds the shadow pass's shader once, from the state the mesh is in
+      // when it is first drawn, and keeps it through later flips — so stand-ins born opaque warmed
+      // the shadow pipelines of a zone that starts solid, and the real one built 3 of its own.
+      mesh.material.transparent = true;
+      mesh.material.depthWrite = false;
+      alsoWarmAs(mesh.material, { transparent: false, depthWrite: true });
+      mesh.castShadow = true;
+      specimens.add(mesh);
+      return mesh;
+    };
+    fades(new THREE.Mesh(geometry, propMaterial()));
+    fades(new THREE.Mesh(geometry, propMaterial())).receiveShadow = true;
+    // The three instanced pools are not stand-ins, they are the **real meshes**, made now and
+    // adopted by `build`. A stand-in cannot warm an InstancedMesh: three puts the object's uuid in
+    // the key its node builds are cached under (`RenderObject.getMaterialCacheKey`), so every
+    // instanced mesh regenerates its WGSL in JavaScript on its first draw in each state and each
+    // pass, whatever was built for a lookalike. With stand-ins the pipelines were all cached and
+    // the works still cost the phone a 93 to 101 ms frame as they appeared (six builds, 73 to
+    // 79 ms of JS) and a 72 to 75 ms one as the fade ended (three more).
+    const pool = (geo, count) => {
+      const mesh = fades(new THREE.InstancedMesh(geo, propMaterial(), count));
+      mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+      mesh.frustumCulled = false;
+      return mesh;
+    };
+    premade = {
+      cones: pool(geometry, CONES),
+      horses: pool(sawhorseGeometry(), MAX_HORSES),
+      chips: pool(splinterGeometry(), CHIPS),
+    };
+    scene.add(specimens);
+  }
 
   const smashListeners = [];
   const placeListeners = [];
@@ -524,7 +574,7 @@ export function createRoadwork(rng, scene, camera = null) {
 
   function buildCones(edge) {
     const geometry = coneGeometry();
-    coneMesh = new THREE.InstancedMesh(geometry, propMaterial(), CONES);
+    coneMesh = premade?.cones ?? new THREE.InstancedMesh(geometry, propMaterial(), CONES);
     coneMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
     // Three caches an InstancedMesh's bounding sphere once, and this pool's slots move a long way
     // from where they started when the taxi arrives. Same reason every pool in game/ turns it off.
@@ -568,7 +618,8 @@ export function createRoadwork(rng, scene, camera = null) {
   /** The two sawhorses at the ends of the hole. Knocked about exactly like cones. */
   function buildHorses(spots) {
     if (!spots.length) return;
-    horseMesh = new THREE.InstancedMesh(sawhorseGeometry(), propMaterial(), spots.length);
+    horseMesh = (spots.length <= MAX_HORSES ? premade?.horses : null) ?? new THREE.InstancedMesh(sawhorseGeometry(), propMaterial(), spots.length);
+    horseMesh.count = spots.length;
     horseMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
     horseMesh.frustumCulled = false;   // same reason as the cones
     horseMesh.castShadow = true;
@@ -598,7 +649,7 @@ export function createRoadwork(rng, scene, camera = null) {
    * "absent" has to be spelled as "zero size".
    */
   function buildChips() {
-    chipMesh = new THREE.InstancedMesh(splinterGeometry(), propMaterial(), CHIPS);
+    chipMesh = premade?.chips ?? new THREE.InstancedMesh(splinterGeometry(), propMaterial(), CHIPS);
     chipMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
     chipMesh.frustumCulled = false;   // same reason as the cones: these leave their bounding sphere
     chipMesh.castShadow = true;

@@ -1,4 +1,12 @@
+import { keepPipelines, pinWarmedNodes } from './util/warmvariants.js';
 import * as THREE from 'three';
+import { WebGPURenderer } from 'three/webgpu';
+import { gpuCompat, unported } from './game/gpucompat.js';
+import { GPU, gpuNote } from './util/gpu.js';
+import { createGpuCapture } from './game/gpucapture.js';
+import { createGpuFrame } from './game/gpuframe.js';
+import { createGpuCrt } from './game/gpucrt.js';
+import { enableGlow } from './game/gpubloom.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 // First, before anything builds a material: it patches three's fog chunk for every program.
 import { EDGE_FOG, createEdgeFogFloor, tickEdgeFog } from './game/edgefog.js';
@@ -304,7 +312,16 @@ if (!shot && !new URLSearchParams(window.location.search).has('msaa')) {
   budget.msaa = budget.msaa && settings.atLaunch().antialias;
 }
 
-const renderer = new THREE.WebGLRenderer({
+// WebGPU has its own occlusion (game/gpuframe.js); the WebGL pass and its prepass stay off.
+const gpuAo = GPU && budget.ao && !budget.msaa;
+// Bloom rides the same target (game/gpubloom.js), so it is on where that is. Decided here, before
+// the first material is built: every node material writes its glow or none does.
+const gpuBloom = gpuAo && budget.bloom;
+// The CRT screen wraps the frame's last pass (game/gpucrt.js), so it needs that pass too.
+const gpuCrtOn = gpuAo && budget.crt;
+if (gpuBloom) enableGlow();
+if (GPU) Object.assign(budget, { gpu: true, ao: false, bloom: false, hdr: false, crayon: false, cartoon: false, crt: false });
+const renderer = GPU ? new WebGPURenderer({ antialias: budget.msaa, stencil: true }) : new THREE.WebGLRenderer({
   antialias: budget.msaa,
   // Three defaults the stencil buffer OFF since r163. The taxi's ghost outline stamps its mask
   // into it every frame (see geometry/ghostoutline.js); without the buffer the stencil test
@@ -319,6 +336,31 @@ perfMark('renderer');
 // bottom of the screen, and the strip the canvas doesn't cover shows as bare sky under the game.
 // See util/viewport.js for the measurement that is actually right.
 const viewport = createViewport();
+if (GPU) {
+  // Every node material writes display values itself (see `installNodeGrade`, game/gpufog.js), so
+  // three is told there is nothing to convert: it then draws straight to the canvas instead of to
+  // a target it copies across each frame, and blending happens where WebGL does it.
+  renderer.outputColorSpace = THREE.LinearSRGBColorSpace;
+  await renderer.init();
+  keepPipelines(renderer);
+}
+const gpuCapture = GPU ? createGpuCapture(renderer, { samples: budget.msaa ? 4 : 0 }) : null;
+const gpuCrt = gpuCrtOn ? createGpuCrt(renderer, { still: Boolean(shot) }) : null;
+let gpuFrame = gpuAo ? createGpuFrame(renderer, { crt: gpuCrt }) : null;
+// A validation error on the device does not throw: the frame is just black from then on. The
+// frame's target is the newest and least travelled path here, so the first such error drops it
+// (the city then draws straight to the canvas, without occlusion) and says what it was.
+if (GPU) {
+  renderer.backend.device?.addEventListener('uncapturederror', (event) => {
+    const wasFrame = Boolean(gpuFrame);
+    gpuFrame = null;
+    // The event lands between frames, with the frame's two attachments still set from `begin()`.
+    // Left set, every pipeline after it was built for two targets and drawn into one.
+    renderer.setMRT(null);
+    renderer.setRenderTarget(null);
+    gpuNote(`WebGPU error${wasFrame ? ', occlusion switched off' : ''}: ${String(event.error?.message).slice(0, 300)}`);
+  }, { once: true });
+}
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, budget.pixelRatioCap));
 renderer.setSize(viewport.width(), viewport.height());
 renderer.shadowMap.enabled = budget.shadowMapSize > 0;
@@ -353,7 +395,9 @@ const renderPath = createRenderPath(renderer, budget, {
   // Shot mode pins the CRT's flicker, so a still does not depend on when it was taken.
   still: Boolean(shot),
 });
-const { ao, bloom, crayon, cartoon, hdr, crt } = renderPath;
+const { ao, bloom, crayon, cartoon, hdr } = renderPath;
+// One interface for the panel and `__taxi.crt`, whichever renderer draws the screen.
+const crt = gpuCrt ?? renderPath.crt;
 // The weather. `?storm` runs a storm across the afternoon and back on a loop (game/storm.js);
 // `?rain` is the same storm pinned at its peak. Either way the whole wet city is built up front —
 // see game/rain.js — and `applyWeather` below turns each part of it up and down with the clock.
@@ -372,7 +416,12 @@ const squallRampClassic = getSquallRampClassic();
 const squall = squallFlag ? createSquall({
   ...squallFlag, rng: () => squallRng.next(), ramp: squallRampClassic ? RAMP_CLASSIC : RAMP,
 }) : null;
-const rain = createRain(renderer, { enabled: Boolean(storm || squall), mood: stormFlag?.mood });
+const rain = createRain(renderer, {
+  enabled: Boolean(storm || squall),
+  mood: stormFlag?.mood,
+  // The WebGPU lens is the frame's last pass while the glass is wet, so it draws the CRT screen.
+  crt: gpuCrt,
+});
 if (squall) {
   // Sun rays in the cell's wake, as it passes (`SUN_RAYS` in game/rain.js); `?sunrays=classic` none.
   rain.attachSquall(squall, { sunRays: !getSunRaysClassic() });
@@ -386,7 +435,9 @@ if (squall) {
 
 // `?diag`. A no-op without the flag; with it, the one readout that can tell a lost context from a
 // scene that submitted nothing from a scene that drew and came out black. See `game/diag.js`.
-const diag = createDiagnostics(renderer, { enabled: getDiagnostics(), flags: budget });
+// `budget.ao` is the WebGL prepass, switched off above under WebGPU; the panel reports the AO that
+// is actually drawing.
+const diag = createDiagnostics(renderer, { enabled: getDiagnostics(), flags: GPU ? { ...budget, ao: gpuAo, bloom: gpuBloom, crt: gpuCrtOn } : budget });
 declined.forEach((text) => diag.note(text));
 
 // True once the GPU warm-up has finished and the run has started. `window.__taxi` is published
@@ -395,6 +446,7 @@ declined.forEach((text) => diag.note(text));
 let warmedUp = false;
 
 const { scene, sun, hemi, sky, fog } = createScene({ shadowMapSize: budget.shadowMapSize });
+gpuFrame?.setSun(sun);   // the rim line on the cars follows it (game/gpuframe.js)
 // The shadow pass draws only the casters whose shadow can reach the view, instead of every caster on
 // the island (game/shadowcull.js). `?shadowcull=classic` draws them all, as before.
 const shadowCull = createShadowCull(scene, sun);
@@ -455,8 +507,30 @@ function renderFrame(cam = camera) {
   shadowCull.cull(cam);
   // The pass order lives in game/renderpath.js, shared with the workshop's bench; the weather and
   // the diagnostics are the game's own and ride in with it.
+  if (GPU) gpuCompat(scene);
   try {
+    // With occlusion the city goes to the frame's own target and one triangle puts it on the canvas
+    // (or on the capture target, headless); without, straight to wherever it is going.
+    if (gpuFrame) {
+      gpuCapture?.begin();   // sizes the capture target; the frame takes the renderer from here
+      gpuFrame.begin();
+      renderPath.render(scene, cam, { rain, rainLightsOn, diag });
+      // Drops on the glass: while it is wet the frame ends in the lens's own target and the lens
+      // puts it on the destination (`lensSource` in game/rain.js). Only on this path; without the
+      // frame target (MSAA, or after a WebGPU error) the glass stays dry.
+      const destination = gpuCapture?.target ?? null;
+      const wetGlass = rain.lensSource();
+      gpuFrame.end(cam, wetGlass ?? destination, { screen: !wetGlass });
+      if (wetGlass) {
+        renderer.setRenderTarget(destination);
+        rain.renderLens({ from: wetGlass });
+        renderer.setRenderTarget(null);
+      }
+      return;
+    }
+    gpuCapture?.begin();
     renderPath.render(scene, cam, { rain, rainLightsOn, diag });
+    gpuCapture?.end();
   } finally {
     shadowCull.restore();
   }
@@ -8793,8 +8867,10 @@ if (shot) {
   // with `traverse`, not `traverseVisible`, so the hidden ones are covered too: measured at
   // `tools/links.mjs`, it moves six program links out of the run and into the boot, where they are
   // behind the wipe and the vignette and nobody is being made to wait for them mid-corner.
+  // WebGPU: `compile()` is async there and a draw that meets a pipeline still being built throws.
+  // The warm-up below draws everything once anyway, which builds each pipeline in line.
   perfMark('compile:start');
-  renderer.compile(scene, camera);
+  if (!GPU) renderer.compile(scene, camera);
   perfMark('compile:end');
   // ...and drawn once, because linking is not the whole of a first sight on iOS: Metal builds its
   // pipelines and three uploads the buffers on the first *draw*, per pass. Left to the run, that
@@ -8838,6 +8914,7 @@ if (shot) {
 function startRun() {
   perfMark('warmup:end');
   warmedUp = true;
+  pinWarmedNodes();
   const benchHooks = {
     renderer,
     ready: () => Boolean(traffic.taxi) && !traffic.taxi.staged,
@@ -8850,7 +8927,7 @@ function startRun() {
       else dispatchToRider(fares.state.fares.find((f) => f.stage === 'waiting'));
     },
     ended: () => fares.state.gameOver,
-    gpu: describeGpu(renderer.getContext()).renderer,
+    gpu: GPU ? 'webgpu' : describeGpu(renderer.getContext()).renderer,
   };
   // `?bench` or `?soak` — at most one; see game/bench.js and game/soak.js.
   bench = createBench(benchHooks) ?? createSoak(benchHooks);
@@ -8900,6 +8977,10 @@ if (!shot && wantsDebugPanel) {
 }
 
 window.__taxi = {
+  scene,
+  unported,
+  renderer: GPU ? 'webgpu' : 'webgl',
+  gpuCapture: (options) => gpuCapture?.capture(options),
   /** Whether the boot's GPU warm-up is done and the run has started — see `warmedUp`. */
   get warmedUp() { return warmedUp; },
   // The shadow-pass cull — `stats()` says how many casters the last frame skipped (game/shadowcull.js).

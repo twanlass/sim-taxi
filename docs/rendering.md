@@ -1113,6 +1113,273 @@ depth, the bloom, the river's fog sync, then the frame (or the HDR composer), th
 lens and the CRT screen over all of it. The game's weather and `?diag` ride in as optional extras. A change to how a frame is drawn
 goes here, never into `main.js`'s `renderFrame`, or the bench stops showing what the game shows.
 
+## The WebGPU port
+
+**In progress, on a branch.** The game is moving from three's `WebGLRenderer` and hand-patched GLSL
+to `WebGPURenderer` and TSL node materials. The reason is the iPhone: `?perf` captures put a frame
+at about 34 ms for 300 draw calls and 50 ms for 900, nearly linear in the call count and nearly
+blind to resolution, MSAA, AO and bloom. That is the cost of a WebGL call crossing into WebKit's
+GPU process, and it is the thing WebGPU is expected to make cheaper.
+
+`?renderer=classic` is the WebGL renderer, untouched, and it is also what any browser without
+`navigator.gpu` gets. Everything below this section still describes that path.
+
+What the WebGPU path draws today, and what it does not:
+
+- **It boots and plays.** `main.js` builds a `WebGPURenderer`, awaits `init()`, and draws the same
+  scene. three converts the built-in materials (Lambert, Phong, Basic) to node materials on the
+  fly, so geometry, vertex colours, the sun and its shadow map all arrive.
+- **Ported to TSL so far:** the shadow tint (`util/gpumaterial.js`, the lighting model's `finish`
+  where the GLSL used `<lights_fragment_end>`), the distance haze, the fog of war and the colour
+  grade (`game/gpufog.js`, one `scene.fogNode`), the sky dome (`game/scene.js`), and the water:
+  river, sea, pond and lake (`city/gpuwater.js`, beside `city/riverwater.js` and line for line
+  against it; the smooth surface only, `?water=classic` stays a WebGL look), and the car paint
+  and building glass (`util/gpupaint.js`: finishes, bent normals, flop and flip, flakes, the two
+  specular lobes, streaks, the march through the city's roof heights, window streaks; the default
+  `real` look only, and without the rim line, which waits on the depth prepass), and the city's
+  entrance wave (`game/cityentry.js`, as the material's `positionNode`, which three also hands
+  to the shadow pass, so the two depth materials the WebGL path patches have no twin), and the
+  paved junction (`util/gpupaving.js`), which is all of the painterly look that is on by default;
+  `?roadstrokes=classic` and the dialled-off lawn strokes, wall-foot fade and terminator tint
+  are not ported. The route band is the first of the hand-written `ShaderMaterial`s to get a
+  twin (`routeNodeMaterial` in `game/routeline.js`); a twin keeps the GLSL material's `uniforms`
+  bag and reads the same slots (`util/gpunodes.js`).
+  `propMaterial()` returns a node material under WebGPU (`util/gpu.js` decides, at import).
+- **An `onBeforeCompile` patch is ignored**, silently, and `__taxi.unported()` only lists the ones
+  on built-in materials: a patch chained onto a `propMaterial()` (a node material here) is never
+  called and never reported. The L train's fade and intro went missing that way and were found
+  by reading `fadeMaterial`, not by the list.
+- **Patches on built-in materials are nodes set on the material itself**, made once and shared,
+  with what differs read off the mesh being drawn (`uniform().onObjectUpdate(({ object }) => ...)`
+  from a bag in `material.userData`): the fare marker's fill and the disc's beam
+  (`geometry/gpumarker.js`), the robo-taxi's band, the L train's lamps. A set of nodes per pooled
+  marker would be a shader per marker.
+- **The L train's fade and intro** (`game/gpultrain.js`) are terms of `maskNode`, the dither an
+  arithmetic 4x4 Bayer off `screenCoordinate` (mirrored top to bottom against WebGL's), and the
+  intro's movement a `positionNode`. The shadow pass gets the movement and not the discard.
+- **The cash note's back** is mixed in after the instance colour in GLSL, and three's node
+  materials multiply the instance colour on after `colorNode`: the node writes the finished colour
+  divided by the instance colour (`game/cashtrail.js`). Headless WebGL shows no backs to compare
+  with (SwiftShader answers `gl_FrontFacing` true on both sides).
+- **Pipelines built mid-run are the port's stutter, and the warm-up has to cover states, not just
+  materials.** WebGPU builds a pipeline per (shader, transparent, depthWrite, side, winding, pass),
+  so a flip that is free in WebGL is a synchronous build. On the phone that was ~4 frames over
+  50 ms in a fares scene that WebGL ran clean; headless it counted as **36 pipelines built after
+  the load**, and is **0 over four minutes of an untouched run** now. Five things did that:
+  - three reads up to 1000 instance matrices from a uniform array whose *length is in the shader*,
+    so every pool size was its own shader (15 of the 36 were garbage piles).
+    `util/gpuinstances.js` always uses the instanced attribute; boot pipelines fell 203 to ~145.
+  - `util/warmvariants.js`: a second warm-up draw with every state-flipping material in its other
+    state (`alsoWarm`, `alsoWarmAs`): the entrance wave landed, riders and cargo fading, the glint
+    shown. `alsoWarmAs` sets `needsUpdate` because the real flips do, and under WebGPU that
+    rebuilds the nodes: `transparent` picks between alpha 1 and a discard, 34 characters of WGSL.
+  - three **releases a pipeline when no object is wearing it**, so a warmed variant was thrown
+    away as the warm-up restored the material (the garage door built the same key three times).
+    `keepPipelines` makes both release hooks no-ops; the caches are keyed on content, so they are
+    bounded by the game's variants.
+  - three redraws a shadow map once per frame id, which only moves on its rAF tick, so the second
+    draw skipped the shadow pass. `drawVariants` ticks the node frame first.
+  - Things built mid-run (boats, gulls, roadworks) have hidden stand-ins at load. The shadow
+    pass's shader is built from the state a mesh is *first drawn* in and kept through later
+    flips, so a stand-in is born in the state the real thing is born in.
+
+  - **A build the device never sees.** three caches a material's built nodes (the generated WGSL)
+    per key, deletes the entry when no render object uses it, and puts an InstancedMesh's uuid
+    in the key. So an instanced mesh rebuilds its WGSL in JavaScript on its first draw in every
+    state and pass, and again on every flip back, with every pipeline already cached: on the phone
+    the roadworks cost a 93 to 101 ms frame as they appeared (6 builds, 73 to 79 ms of JS) and
+    72 to 75 ms as the fade ended (3 more). A look-alike cannot warm that. The works' three
+    instanced pools are therefore the real meshes, made at load and adopted by `build`
+    (`game/roadwork.js`), and `pinWarmedNodes` holds every build the warm-up made. `?perf`
+    names these as `link nodes <object> (<material>)`.
+
+  An untouched run has no cops, robbery, race or wreck in it; those are not measured. Count with
+  `renderer._pipelines.caches.size` after `__taxi.warmedUp`.
+- **The see-through canvas, again** (the trap in CLAUDE.md, WebGPU's edition). three folds a
+  material's alpha map into its opacity, and the entrance wave builds every city material while
+  `transparent`, so the grass and leaf cards went on writing their coverage as alpha after the
+  city landed: 0.5 to 1 along every blade, with the page's sky colour showing through. Reported
+  from the phone as grass that looked unlit or too bright. The entrance now writes the fade as
+  those cards' alpha (`userData.finish`, `game/cityentry.js`). A headless still cannot show it
+  (shot mode lands the entrance before the first build, and a PNG's alpha is 255);
+  `__taxi.gpuCapture({ alpha: true })` paints the frame's alpha as grey and does.
+- **Not ported, by decision:** Crayon and Cartoon Mode (Tyler, 2026-11-21) and `?hdr`, a
+  comparison rather than a shipped mode. All three run under `?renderer=classic`.
+- **Size.** three's WebGPU renderer and TSL add 589 kB to the vendor chunk (557 to 1,145 kB;
+  142 to 304 kB gzipped). Both renderers ship, since WebGL is the fallback.
+- **The shadow sink** (`sinkShadowCaster`) is `castShadowPositionNode`, pushed along the sun's ray
+  in the mesh's own space. three r180 leaks a caster's `positionNode` onto every later caster
+  when a material has both nodes, so a material with a `positionNode` (the L deck) takes the push
+  inside it, scaled by a uniform that is nonzero only for the shadow pass's material. The node is
+  the material's, so a sunk mesh needs a material of its own: the L deck and the ships' upper
+  works each got one.
+- **A `ShaderMaterial` cannot be converted at all** and loses the device if drawn, so
+  `game/gpucompat.js` hides those meshes. Nothing is on that list now: the taxi's glints, the
+  headlight cones, the L train's beam and the police helicopter's searchlight have twins (`unlitTwin`, `util/gpunodes.js`), and the
+  manhole steam's puffs are nodes set on its Lambert (`steamNodes`, `game/manholesteam.js`).
+  The entrance wave reaches the unlit glows and beams the same way.
+- **The mote pools' per-instance alpha** (dust, flames, sparks, spray, the wake, the fire, the
+  blast, the ghost rims, the cash notes) is `instanceAlpha()`: an `opacityNode` set on the built-in
+  material, which three copies across when it converts one. The fireball's facet shading runs at
+  `userData.finish`, a seam added to the output stage where a patch after `<dithering_fragment>`
+  ran (`installNodeGrade`, `game/gpufog.js`). Not ported: the cash notes' back colour.
+- **The page's small WebGL canvases keep GLSL materials.** The startup splash, the taxi and rider
+  finders and the cargo chip are plain `WebGLRenderer`s, which cannot draw a node material: the
+  splash threw on the game's taxi before the game was imported and the page stayed black, on every
+  URL but a `?shot`. They build their models inside `forWebGL()` (`util/gpu.js`).
+- **A start that throws falls back.** Any error before `window.__taxi` exists reloads the page on
+  `?renderer=classic&gpuerror=<what>`, and that page shows the error in a strip along the top.
+
+Things the WebGL renderer does without being asked, each of which showed up as a wrong
+picture and each of which the node path now does by hand:
+
+- **Fog and grade are mixed in display space.** three's fog chunk runs after its colour-space
+  chunk, so every fog colour and the whole grade were tuned against sRGB-encoded pixels. A node
+  material fogs in linear and encodes last. `gpufog.js` encodes, mixes, grades and decodes.
+- **The haze colour is display-encoded.** three's WebGL renderer hands `fogColor` over in the
+  output colour space when it draws to the screen, so the GLSL mixed display into display. Mixing
+  the linear colour left the whole city 6/255 short of red and 4 of green. With it encoded the
+  frame is within 0.5/255 of WebGL's (`?shot=9`, by luminance band).
+- **The grade is not neutral.** `GRADE_DEFAULTS` carries about half a stop of exposure; without it
+  the first WebGPU frames measured 1.7 times darker on lit faces (roof 133 against 184 of 255).
+- **Blending happens on display values.** Every WebGL material encodes sRGB in its own shader, so
+  a translucent surface is blended over an encoded frame. three's WebGPU renderer keeps the frame
+  linear and encodes at the end, and blended that way the route band came out about a third more
+  opaque and more yellow. So every node material ends in display space (`installNodeGrade` in
+  `game/gpufog.js` patches the base class's output for the ones the haze does not reach) and the
+  renderer is told the frame is linear. That also takes a pass out of every frame: asked to
+  convert, three draws the scene to a target and copies it to the canvas through a full-screen
+  quad; told there is nothing to convert, it draws straight to the canvas.
+- **The grade reaches unlit materials.** On WebGL it rides the fog chunk outside `USE_FOG`, so a
+  `fog: false` marker is graded. A node material only runs the scene's fog node when its own fog
+  is on; the same patch grades the rest.
+- **The shadow pass draws back faces.** WebGL's does for a front-sided material; WebGPU's draws
+  `material.side`, and every roof came out striped and 8% dark until the node materials answered
+  `shadowSide` the WebGL way.
+
+Measured against WebGL with AO, bloom, CRT and painterly off, at the parked 16:24 light: shade
+73/71/69 against 73/72/68, road 69/72/73 against 71/72/73, a lit roof 178/164/119 against
+184/168/119. The lit faces' last 3% is not explained yet.
+- **Ambient occlusion is one pass over the frame, not a second draw of the city**
+  (`game/gpuframe.js`, where the reasoning is). The city renders once into a target with a depth
+  texture and a second attachment holding each pixel's share of fill light; one triangle runs
+  ssao.js's depth Laplacian on that depth and takes that share of the pixel down. No depth prepass,
+  no per-mesh depth materials. Strength 0.45 against WebGL's 0.6 lands on the same measured
+  darkening. Off under MSAA for now (so a `?shot` needs `&msaa=off` to show it) and with `?ao=off`.
+  A device error drops the path and says so in a strip along the top (`gpuNote`).
+- **The bloom is a third attachment on that target, not a second draw of the lamps**
+  (`game/gpubloom.js`). Every node material writes the light it sends to the bloom on its way out:
+  its own linear colour times a per-object level, which is the mesh's `BLOOM_INTENSITY` if
+  `markEmissive` named it and zero if not. An unmarked wall therefore writes black and hides the
+  lamp behind it through the ordinary depth test, which replaces the layer, the material swap,
+  `refreshEmissive` and the depth reject. The chain and the composite are the WebGL ones, and the
+  spill is added in the frame's last pass. It rides the frame target, so it is off wherever the AO
+  path is (MSAA, `?ao=off`). Three things found matching it against WebGL:
+  - **WebGL grades its lamps, on linear values.** The grade is appended to three's fog chunk,
+    which the emissive pass's materials include, so each lamp's light goes through the table as
+    though it were a display colour. The shipped grade lifts the low end by about half a stop, and
+    without it the whole emissive target summed to 0.47 of WebGL's. `writeGlow` does the same.
+  - **A level arrives at its weight squared.** The WebGL upsample writes `sum * weight` in all
+    four channels under a source-alpha additive blend. The port keeps the alpha for that reason.
+  - **A lamp glows by what the camera sees of it, and on WebGL by more.** The WebGL reject is
+    biased 0.28 world units, so a pod round a fender or a tube sunk in a sign writes its whole
+    shape. Here the depth test is exact: the garage's roof trim matches to the 8-bit step, and a
+    turn signal seen side-on writes a third of the light. Over the parked frame the spill adds
+    65% of what WebGL's adds. Not compensated: turning the master up would overdrive every lamp
+    that is in plain view.
+  A node twin of a hand-written shader (`unlitTwin`) is skipped by `markEmissive`, as its source
+  is on WebGL: the L train's beam has a `color` here and was swept into the bloom.
+- **The CRT screen costs no pass** (`game/gpucrt.js`). On WebGL it is a copy of the canvas and a
+  triangle. Here the frame already ends in a full-screen pass over a target, so the screen wraps
+  that pass's fragment: it hands it a curved coordinate to work at and shades what comes back.
+  The red and blue of the aberration are the frame's own, read at their offsets under the
+  occlusion and spill worked out once at the centre tap (at the shipped 0.0002 the offset is under
+  half a pixel in a phone's corner). While the lens is wet the lens is the last pass and draws the
+  screen instead. Pixel-identical to WebGL wherever the frame under it is (`?shot=1&msaa=off`).
+  Off wherever the frame target is (MSAA, `?ao=off`).
+- **The manhole covers' metal** is `city/gpumanholes.js`: the albedo on the `surfaces` seam, the
+  bent normal as `normalNode`, the sun's glint in a `lightingFactory`. Pixel for pixel WebGL's at
+  play zoom, glints included.
+- **`transformDirection(v, m)` is `v * m`**, the transpose's product, not `m * v`. So a world
+  direction goes to view space through `cameraWorldMatrix` and a view direction to world through
+  `cameraViewMatrix`, the reverse of how it reads. The paint's reflection had it backwards until
+  the manholes' glint, which is three bright pixels or none, showed it: 15.2/255 of error against
+  WebGL over the pixels it moved, 4.2 after.
+- **The rim line is drawn by that last pass too.** The GLSL finds a body's silhouette by stepping
+  each paint fragment across the AO prepass's depth, and there is no prepass: a fragment cannot
+  read the depth buffer it is being drawn into. So the paint writes one number beside its fill
+  share (`rimShare`: is this rim-wearing paint, and how much sun reaches it) and the last pass,
+  which has the finished depth, does the stepping (`game/gpuframe.js`). What is not the GLSL's:
+  the panel's slope is the difference to the tap one step back, the hue is the pixel's own
+  colour at full strength, only the sun casts a line (a cop's bar lit the edges facing it), and
+  anything that writes depth can be stepped onto (WebGL saw the enrolled occluders alone). On
+  the parked frame the line covers 1,080 pixels against WebGL's 1,974 and carries 1.3 times the
+  light: thinner and crisper, with no half-resolution buffer under it.
+- **The other passes are off**: `?hdr`, Crayon and Cartoon. Each is a WebGL render-target pass
+  until it is ported; the frame's target is where they go.
+- **The weather is ported, all of it**: the grade, the cell's shade (`util/gpuclouds.js`), the
+  falling rain, splashes, sun shafts and sun rays (`game/gpurain.js`), wet ground with puddles,
+  ripples and the street's reflection (`game/gpuwet.js`), the lit windows and lamp pools that come
+  on under the cell (`game/gpulit.js`) and drops on the lens (`game/gpulens.js`). Each file sits
+  beside the GLSL it follows and says where its mechanics differ. Against WebGL at `?shot=1` the
+  city under a pinned squall is within 1/255 on every patch measured (a roof, dry and wet road,
+  grass); the rain itself is seeded off `Math.random` and does not repeat. What the mirror pass
+  needed that the WebGL one does not:
+  - **One set of lights for both cameras.** three keeps light nodes per scene and camera, and a
+    shadow map per set, so the mirror camera got a second sun whose shadow map nothing drew into.
+    `renderReflection` hands the mirror the main camera's set.
+  - **The same attachments as the frame.** three builds a material's shader once for both
+    cameras, with the outputs of whichever pass met it first, and MRT is not in the key. A mirror
+    with one attachment under a frame with two is a validation error on every draw.
+  - **Not on the first frame**, before the shadow map has been a render target.
+  - **A projection for a 0..1 clip volume**, and a camera that claims the renderer's coordinate
+    system so three does not rebuild it.
+  The lens takes no frame copy: `copyFramebufferToTexture` cannot find the canvas between
+  renders. While the glass is wet the AO pass lands in a target and the lens is the pass that puts
+  the frame on the canvas. It follows that there are no drops without the frame target (MSAA on,
+  or after a WebGPU error).
+- **A WebGPU error must leave the renderer as it found it.** The error listener drops the frame
+  target; it also has to clear `setMRT`, or every pipeline after it is built for two attachments
+  and drawn into one, and the first error becomes one per draw.
+- **`?diag` reads the adapter, not a GL context.** It used to throw under WebGPU, which the boot
+  fallback turned into a silent reload on WebGL, so the frame rate on screen was the old
+  renderer's. Its third line now says which renderer is drawing.
+
+Traps in TSL itself, each of which drew a wrong picture with nothing logged:
+
+- **A node shared between materials is not a value shared between meshes.** One `uniformArray`
+  handed to every paint material reached only some of the meshes drawing with it: the punched
+  windows read a `diffuse` of 0 from the finish table and drew black, while the curtain walls
+  beside them, on the same shader, were fine. Array nodes are made per build (`row` in
+  `gpupaint.js`). Plain `uniform()` nodes shared the same way have been fine.
+- **One build of the nodes serves every material with the same cache key**, and the key for a
+  plain mesh is the material's type, its parameters and the geometry's layout. Anything else a
+  material decides while it builds has to be put in `customProgramCacheKey` (the ground's brush
+  tag, a custom lighting model), or the material silently draws with another's nodes: the ground
+  never built its own, and the paved junction was missing with nothing logged. For the same
+  reason per-material numbers are read from the material being drawn (`onObjectUpdate`), never
+  closed over.
+- **A `select` is an if/else, and a temporary made in one arm is unset in the other.** three writes
+  `select(c, a, b)` as a branch, and a `toVar()` reached from both arms (the noise inside
+  `cellShade` has three) is assigned in the first arm only. `select(seed < share, on * flicker,
+  on)` lit the quarter of the city's windows that flicker and left the other three quarters at
+  zero. Put anything both arms need in a variable before the branch, or do without the branch
+  (`game/gpulit.js`). The same goes for an `If`; a real function (`Fn`) has its own scope.
+- **An `If` needs a stack.** Called while a material is being described, outside any `Fn`, it
+  throws on a null stack (`game/gpulens.js`).
+- **`pow(0, 0)` is NaN in WGSL**, and NaN times a strength of zero is still NaN. A finish with a
+  sharpness of 0 turned whole panes black until the lobe's base got a floor.
+
+`__taxi.unported()` is the worklist: what is hidden and what is drawing unpatched, by mesh name.
+It is empty when the port is done, and `game/gpucompat.js` is deleted with it.
+
+**Stills.** Headless Chromium can run WebGPU on SwiftShader but cannot present it: the canvas
+comes out transparent and the device is destroyed half a second later, on a one-cube scene as much
+as on the game. A render target is fine. So a tool sets `window.__gpuOffscreen` before load, every
+frame goes to a target, and `__taxi.gpuCapture()` reads it back (`game/gpucapture.js`). The
+existing headless tools do not pass `--enable-unsafe-webgpu`, find no `navigator.gpu`, and so keep
+testing the WebGL path exactly as before.
+
 ## The CRT screen — `game/crt.js`
 
 The finished frame goes out through a CRT: a slightly curved screen, scanlines, an RGB aperture

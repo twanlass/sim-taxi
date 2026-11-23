@@ -1,5 +1,7 @@
 import * as THREE from 'three';
 import { unlitMaterial } from '../util/geo.js';
+import { gpuMaterials } from '../util/gpu.js';
+import { fillNodesOn } from './gpumarker.js';
 import { PALETTE } from '../palette.js';
 import { MARKER_OUTLINE_PX, PHONE_PX_PER_UNIT } from '../game/camera.js';
 
@@ -723,6 +725,24 @@ function patchFill(material, flipped = false) {
   uniforms.uFillLow = { value: SAND_BOTTOM[0] };
 
   uniforms.uFrame = { value: new THREE.Color(PALETTE.hourglassFrame) };
+
+  // WebGPU: the same split as nodes (geometry/gpumarker.js). The GLSL below is the reference.
+  if (gpuMaterials()) {
+    fillNodesOn(material, uniforms, {
+      shape: MARKER_SHAPE,
+      frame: PALETTE.hourglassFrame,
+      glassH: GLASS_H,
+      glassAlpha: GLASS_ALPHA,
+      glassEmissive: GLASS_EMISSIVE,
+      frameEmissive: FRAME_EMISSIVE,
+      meniscus: MENISCUS,
+      meniscusCore: MENISCUS_CORE,
+      sheen: SHEEN,
+      sheenPower: SHEEN_POWER,
+      pieSweep: PIE ? PIE_SWEEP : 0,
+      pieEatenAlpha: PIE ? PIE_EATEN_ALPHA : 0,
+    }, flipped);
+  }
 
   // The plumbob has one level. The hourglass has one per bulb, and its plates are frame rather
   // than vessel: opaque, walnut, and lit by a little of their own colour instead of the hue's.

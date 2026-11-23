@@ -1,6 +1,8 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { PALETTE } from '../palette.js';
+import { GPU } from '../util/gpu.js';
+import { instanceAlpha } from '../util/gpunodes.js';
 import {
   CAR_GHOST_MASK_ORDER, CAR_GHOST_RIM_ORDER, inflatedGeometry, ghostMaskMaterial, ghostRimMaterial,
 } from '../geometry/ghostoutline.js';
@@ -236,6 +238,7 @@ function createPool(scene, {
       .replace('#include <common>', '#include <common>\nvarying float vAlpha;')
       .replace('#include <dithering_fragment>', '#include <dithering_fragment>\n\tgl_FragColor.a *= vAlpha;');
   };
+  if (GPU) instanceAlpha(rimMaterial);
 
   const rim = new THREE.InstancedMesh(rimGeometry, rimMaterial, MAX_GHOSTS);
   rim.name = `${name}Rim`;

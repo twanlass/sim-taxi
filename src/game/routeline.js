@@ -10,6 +10,10 @@ import { cityNetwork } from '../city/roadnet.js';
 import { turnPosition } from '../sim/traffic.js';
 import { DECK_SEGMENTS } from '../geometry/bridge.js';
 import { GRADE_UNIFORMS } from './colorgrade.js';
+import { MeshBasicNodeMaterial } from 'three/webgpu';
+import { attribute, cos, exp, float, fract, max, min, mix, pow, smoothstep, varying, vec3 } from 'three/tsl';
+import { GPU } from '../util/gpu.js';
+import { liveUniforms } from '../util/gpunodes.js';
 
 /**
  * Draws the taxi's planned route as a band of paint laid down the lane it will drive.
@@ -774,7 +778,7 @@ export function createRouteLine(scene) {
   // vertex alpha would need the path re-tessellated at both fade boundaries every frame (and
   // `instanceColor`-style, a 4-component colour attribute takes a different code path anyway),
   // whereas one float per vertex interpolates the length of a 20-unit straight for free.
-  const material = new THREE.ShaderMaterial({
+  const glsl = new THREE.ShaderMaterial({
     uniforms: {
       ...GRADE_UNIFORMS,
       uColor: { value: new THREE.Color(PALETTE.routeLine) },
@@ -883,6 +887,7 @@ export function createRouteLine(scene) {
     premultipliedAlpha: true,
     side: THREE.DoubleSide,
   });
+  const material = GPU ? routeNodeMaterial(glsl.uniforms) : glsl;
 
   let blendName = ROUTE_BLEND_DEFAULT;
 
@@ -924,7 +929,7 @@ export function createRouteLine(scene) {
   //
   // `uColor` is the light, and `sync` is what carries the fare's hue across every frame: the band
   // is repainted as the clock runs down, exactly like the crystal it runs into.
-  const bloomMaterial = material.clone();
+  const bloomMaterial = glsl.clone();
   setEmissiveMaterial(mesh, bloomMaterial, 'path', (bloom, live, intensity) => {
     for (const name of Object.keys(live.uniforms)) {
       const from = live.uniforms[name].value;
@@ -1087,4 +1092,36 @@ export function createRouteLine(scene) {
     /** How strongly the band is laid down — the street racer's ghost route wears a fainter one. */
     setOpacity: (v) => { material.uniforms.uOpacity.value = v; },
   };
+}
+
+/**
+ * The band's material under WebGPURenderer: the fragment shader above as nodes, reading the same
+ * `uniforms` bag (util/gpunodes.js), so `setColor`, `update` and the rest write to both alike.
+ *
+ * What three does here that the GLSL did by hand: the colour-space encode, the grade (the base
+ * class's output, game/gpufog.js) and the premultiply. Not carried over: the `multiply` blend's
+ * own output (`uMultiply`), which no shipped setting selects.
+ */
+function routeNodeMaterial(uniforms) {
+  const material = new MeshBasicNodeMaterial({
+    transparent: true, depthWrite: false, premultipliedAlpha: true, side: THREE.DoubleSide, fog: false,
+  });
+  material.uniforms = uniforms;
+  const u = liveUniforms(uniforms, (name) => name.startsWith('u'));
+  const dist = varying(attribute('aDist', 'float'));
+
+  const head = smoothstep(u.uHeadGap, u.uHeadGap.add(u.uFadeHead), dist);
+  const tail = smoothstep(0.0, u.uFadeTail, u.uLength.sub(dist));
+  const reveal = smoothstep(0.0, u.uFadeTail, u.uReveal.sub(dist));
+  const off = dist.sub(u.uGrabDist).div(GRAB_GLOW);
+  const focus = exp(off.mul(off).negate()).toVar();
+  const held = u.uGrab.mul(focus.mul(GRAB_FOCUS).add(GRAB_LIFT));
+  const onward = mix(1.0, ONWARD_DIM, smoothstep(u.uStop.sub(ONWARD_EASE), u.uStop.add(ONWARD_EASE), dist));
+  const envelope = u.uOpacity.mul(held.add(1)).mul(head).mul(tail).mul(reveal).mul(onward).toVar();
+  const theta = fract(dist.sub(u.uLength).sub(u.uTime.mul(PULSE_SPEED)).div(PULSE_PERIOD)).mul(2 * Math.PI);
+  const boost = pow(max(0.0, cos(theta).mul(0.5).add(0.5)), PULSE_SHARPNESS).mul(envelope).mul(PULSE_BOOST).toVar();
+
+  material.colorNode = mix(u.uColor, vec3(1), min(1.0, boost.add(u.uGrab.mul(focus).mul(GRAB_WHITEN))));
+  material.opacityNode = min(float(1), envelope.add(boost));
+  return material;
 }

@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { forWebGL } from '../util/gpu.js';
 import { createTaxiMesh } from '../geometry/taxi.js';
 import { mirrorSceneLights } from './avatarlights.js';
 import { VIEW_DIR } from './camera.js';
@@ -133,7 +134,7 @@ export function createTaxiFinder({ project, frame, pixelsPerUnit, sun, hemi, onT
   const scene = new THREE.Scene();
   const syncLights = mirrorSceneLights(scene, sun, hemi);
 
-  const taxi = createTaxiMesh();
+  const taxi = forWebGL(() => createTaxiMesh());
   // The ghost outline needs `stencil: true`, which this renderer does not ask for — without the
   // buffer the stencil test passes everywhere and the "outline" fills the whole hull in solid
   // yellow. Nothing occludes the car in a 44px disc anyway, so both passes just go.

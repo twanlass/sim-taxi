@@ -2,6 +2,9 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { bakeColor, propMaterial } from '../util/geo.js';
 import { PALETTE } from '../palette.js';
+import { alsoWarmAs } from '../util/warmvariants.js';
+
+let warmedFade = false;
 
 // A parcel waiting to be couriered: a taped cardboard box on a kerb corner, where a rider would
 // otherwise be standing. The same rig serves the copy in the HUD's cargo chip and the one that flies
@@ -173,6 +176,11 @@ export function createParcel({ pickable = 'parcel' } = {}) {
    * invalidate on a transition — this runs every frame of a flight, and recompiling a program per
    * frame would be a stall rather than a fade.
    */
+  // The first one built stands for all of them in the warm-up (util/warmvariants.js).
+  if (!warmedFade) {
+    warmedFade = true;
+    alsoWarmAs(mesh.material, { transparent: true, depthWrite: false });
+  }
   let transparent = false;
   function setOpacity(a) {
     const opaque = a >= 1;
