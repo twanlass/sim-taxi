@@ -8863,8 +8863,13 @@ if (shot) {
   // meanwhile — each slice's frame is the city with that slice's pools all showing, and without the
   // startup screen over it (Play again) that would be presented. `?loader=classic` is the one frame.
   const warming = new URLSearchParams(window.location.search).get('warmup') !== 'classic';
+  // Each warm-up frame also draws the wet road's mirror, which a dry frame skips: nothing else
+  // draws into its target, so its pipelines are otherwise built on the first wet frame of the run
+  // (`warmMirror` in game/rain.js). `?mirrorwarm=classic` leaves it out, for the A/B.
+  const mirrorWarm = new URLSearchParams(window.location.search).get('mirrorwarm') !== 'classic';
+  const warmDraw = () => (mirrorWarm ? rain.warmMirror(() => renderFrame()) : renderFrame());
   if (warming && !LOADER) {
-    warmFirstDraws(scene, () => renderFrame(), [scene], { renderer });
+    warmFirstDraws(scene, warmDraw, [scene], { renderer });
     renderFrame();
     startRun();
   } else if (warming) {
@@ -8878,7 +8883,7 @@ if (shot) {
       setTimeout(resolve, 100);
     });
     awaitPrograms(renderer, { onProgress: compileProgress, yieldFrame })
-      .then(() => warmFirstDrawsInSteps(scene, () => renderFrame(), { onStep: warmStep, yieldFrame, renderer }))
+      .then(() => warmFirstDrawsInSteps(scene, warmDraw, { onStep: warmStep, yieldFrame, renderer }))
       .catch((error) => console.error('[taxi] warm-up', error))
       .finally(() => {
         renderFrame();

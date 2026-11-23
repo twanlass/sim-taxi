@@ -1189,6 +1189,17 @@ What the WebGPU path draws today, and what it does not:
     (`game/roadwork.js`), and `pinWarmedNodes` holds every build the warm-up made. `?perf`
     names these as `link nodes <object> (<material>)`.
 
+  - **The wet road's mirror is a pass of its own, and a dry warm-up never drew it.** The mirror
+    renders the whole city into a half-float copy of the frame's attachments, so every material
+    has a pipeline for it that nothing else builds, and it is skipped while the streets are dry.
+    The first squall's first wet frame built ~95 at once: a **3.2 s** freeze on an iPhone 16 Pro,
+    then 250–380 ms each time the mirror met something new (2026-11-23, `?bot`). The warm-up now
+    draws its frames with the mirror and the raindrop lens forced on (`warmMirror` in
+    game/rain.js, `?mirrorwarm=classic` to compare). It has to run *inside* the frame: drawn after
+    it, with the frame's attachments already cleared, it built one-output shaders that the first
+    real wet frame then drew into the two-attachment layout, a validation error that switches
+    occlusion off for the session.
+
   An untouched run has no cops, robbery, race or wreck in it; those are not measured. Count with
   `renderer._pipelines.caches.size` after `__taxi.warmedUp`.
 - **The see-through canvas, again** (the trap in CLAUDE.md, WebGPU's edition). three folds a
