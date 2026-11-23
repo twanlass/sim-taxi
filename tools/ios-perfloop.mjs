@@ -33,6 +33,7 @@ import { appendFile, mkdir, readFile, readdir, writeFile } from 'node:fs/promise
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { analyse, scenes } from './ios-perf.mjs';
+import { readBotScenes } from '../src/game/perfbot.js';
 
 const BUNDLE = 'com.twanlass.rocketrides';
 const BOT_SECONDS = 262;   // the sum of BOT_SCENES in src/game/perfbot.js, give or take the robbery
@@ -125,9 +126,11 @@ async function pullAll(device, dest) {
  * Wait for this launch's capture to say the bot is done. Captures are named after the page's own
  * `timeOrigin`, so the one that belongs to this run is the newest one started after the launch.
  */
-async function awaitCapture(device, launchedAt, scratch) {
-  const deadline = Date.now() + (BOT_SECONDS + 150) * 1000;
-  await wait((BOT_SECONDS - 20) * 1000);
+async function awaitCapture(device, launchedAt, scratch, seconds = BOT_SECONDS) {
+  // Twice the game time plus slack: under `?fixedstep` a slow frame is slow motion, so a run at
+  // 40 fps takes half as long again in wall time as its scenes add up to.
+  const deadline = Date.now() + (seconds * 2 + 150) * 1000;
+  await wait((seconds - 20) * 1000);
   let last = null;
   while (Date.now() < deadline) {
     const files = await pullAll(device, path.join(scratch, `poll-${Date.now()}`));
@@ -205,13 +208,18 @@ async function main() {
   const runs = [];
   for (let k = 1; k <= runsPer; k += 1) {
     for (const v of variants) {
-      const query = v.query ? `${BASE}&${v.query}` : BASE;
+      // A variant naming its own `bot=` scenes replaces the bare `bot` (the page reads the first).
+      const own = /(^|&)bot=/.test(v.query ?? '');
+      const base = own ? BASE.replace(/(^|&)bot(?=&|$)/, '') : BASE;
+      const query = v.query ? `${base}&${v.query}` : base;
+      const played = readBotScenes('?' + query);
+      const seconds = played ? played.reduce((n, sc) => n + sc.seconds, 0) : BOT_SECONDS;
       say(`${v.label} #${k}: launching ?${query}`);
       const launchedAt = Date.now();
       let row = { variant: v.label, k, query, ok: false, scenes: [], startThermal: 'unknown', worstThermal: 'unknown' };
       try {
         const pid = await launch(device, query);
-        const got = await awaitCapture(device, launchedAt, path.join(dir, '.pull'));
+        const got = await awaitCapture(device, launchedAt, path.join(dir, '.pull'), seconds);
         await kill(device, pid);
         if (!got) throw new Error('no capture from this launch');
         const file = path.join(dir, `${v.label}-${k}.json`);
