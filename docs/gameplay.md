@@ -86,8 +86,9 @@ afterwards would sample the city's SSAO buffer at whatever pixel it stood on. Bu
 first, it is the plain car.
 
 **Where it plays.** Every cold start. Not wherever the title screen would not be either — shot mode,
-`?dev`, `?title=off`, the reload "Play again" does — nor on the reload the pause menu's Quit does,
-which lands on the title without the logo (a one-shot `simTaxi.skipSplash` in sessionStorage) — and not on **`?splash=classic`**, which is the
+`?dev`, `?title=off`, a "Play again" or Quit (both on the same page, [Play again](#play-again); under
+`?rerun=classic` both reload, Quit with a one-shot `simTaxi.skipSplash` in sessionStorage so it lands
+on the title without the logo) — and not on **`?splash=classic`**, which is the
 old load: straight into the game, though the page is still black rather than sky until the city has
 drawn. The drop itself is walked in `tools/probe.mjs`: the body never dips into the road, and the
 car starts above the frame and is gone, plume included, at `exitTime` at a phone, a square and a
@@ -159,8 +160,10 @@ up, Claude hops in, and it Loco-boosts off the right of the screen with the star
 sounds, then he pops back (game/creditegg.js). It is DOM and Web Animations over the title screen,
 nothing in the 3D scene, and it does nothing under Reduce Motion.
 
-**"Play again" skips it.** The retry is a reload, and a player who just pressed Play does not want
-the menu again, so `onRetry` sets a one-shot `sessionStorage` flag the next boot consumes.
+**"Play again" skips it.** A player who just pressed Play does not want the menu again, so Play
+again goes straight back to the garage door on the same page ([Play again](#play-again)). Under
+`?rerun=classic` it is a reload, and `onRetry` sets a one-shot `sessionStorage` flag the next boot
+consumes.
 **`?title=off`** skips it too, the same escape hatch `?vignette=off` is; `tools/smoke.mjs` runs every
 page but its own title check that way. **`?dev`** skips both, and turns on debug mode (the ⚙️
 panel) with them: the one flag for playtesting. Shot mode never builds it.
@@ -209,7 +212,7 @@ speech updates are parked with everything else.
 
 **Once per device.** It is a `createSeenFlag` (`src/game/progress.js`), marked seen as it
 *starts*, so a player who quits halfway is not told it twice, and [Demo mode](#demo-mode) tells it
-on every Play. "Play again" reloads past the title and so past this too.
+on every Play. "Play again" goes past the title and so past this too.
 `?intro=classic` never tells it; `?intro=always`, or the **Always show intro story** switch in
 Settings, tells it on every Play.
 
@@ -4431,8 +4434,8 @@ Three details in that early return are load-bearing:
 screen's own page (both build it from `game/menupage.js`, and `index.html` shares the styles under
 `:is(#title-screen, #pause-veil)`) minus Tutorial tips, which are read once on Play and would change
 nothing mid-run. Back or Escape returns to the pause menu; every pause opens on the menu. **Quit**
-reloads without the "Play again" skip flag, so it lands on the title screen and the run is
-abandoned — no score is recorded.
+abandons the run — no score is recorded — and puts the title screen back up over the same city,
+on the same page ([Play again](#play-again)); `?rerun=classic` reloads onto the title instead.
 
 Only Resume resumes — a stray tap elsewhere on the veil must not drop the player back into
 traffic — and it resumes on `pointerdown` rather than `click` — the release then lands on the canvas
@@ -4624,6 +4627,43 @@ chance to put a name on the run.
 | Cash | `fares.state.money` | |
 | Time | `fares.state.elapsed` | seconds, shown as `m:ss` + trailing `s` (e.g. `1:03s`) |
 | Rides | `fares.state.delivered` | on a shift, in Time's place |
+
+### Play again
+
+`rerun`/`resetRun` in `src/main.js`. **Play again starts the next run on the same page**, and Quit
+goes back to the title the same way: under a wipe (`RERUN_HOLD_MS` of black), every system the run
+touched is put back the way the boot left it, the opening vignette is staged again, and the run
+starts inside the garage with the city's entrance wave building outward from it — the shot a fresh
+load opens on. Quit does the same reset and puts the title menu back up instead, with the station
+off the air until Play (`sfx.offAir`) and no entrance wave.
+
+It used to be `location.reload()`, and that threw the GPU context away with the page: the replay
+paid the whole load again, the city rebuilt and every shader linked and pipeline warmed. Measured
+headless (SwiftShader, WebGL) the reload reached `taxi:ready` in 9.0–9.4 s against a cold start's
+6.5 s, all of the gap GPU work; the reset takes ~20 ms, and Play again to a live run is ~440 ms, of
+which ~420 is the wipe itself. **The city is the same city** — a new seed means a new city build,
+which is what the reload was buying. `?rerun=classic` is the reload, new city and all.
+
+What is reset and what is not:
+
+- **The run**: the fare board (`fares.reset`, then `chooseMode` re-plans the shift and the day), the
+  combo meter, Loco fuel, the U-turn and overtake trackers, cash, strikes, the run-end card
+  (`showRunEnd` answers a `close()` that takes its listeners down — a reload used to do that, and a
+  stale one hands the next card's tap to the old card's `onRetry`), the crash tape and polaroid.
+- **Everything on the road for the run**: the robbery and its fleet, the race and its racer, the
+  patrols (each back to a fresh opening cooldown), the burger and garage trips, the courier.
+- **The wreck**: shells (the taxi's own group gets its paint and scale back, `wreckage.clear`), the
+  ejected driver, both windscreens' glass, crush shells, and every particle pool, which are burned
+  out by stepping them past their lives (`BURN_OUT_STEP`) rather than given clears of their own.
+- **The taxi**: repaired, emptied, un-crashed, and parked in the garage again by `stageOpening`.
+- **Traffic is not reset, it is repaired**: the city keeps driving through the wipe, but every car
+  the last run wrote off is dealt back onto a lane (`traffic.reviveWrecks` — nothing in a run ever
+  brings one back) and the density ramp's extra cars are cut off the pool tails
+  (`traffic.trimToStart`), so the next run starts at the bottom of the curve.
+- **The world carries on**: boats, the train, the drawbridge, weather, the time of day, robo-taxis.
+
+Known gap: the roadworks are once per run and tear down their own meshes when they go, so a run
+after the first one does not get a closure.
 
 ## High scores
 

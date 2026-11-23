@@ -11,7 +11,7 @@
  * combos, intro story"). For showing the game to someone: every run plays as if it were the
  * player's first — every seen flag reads unseen, every unlock reads unlocked — and *none of it is
  * written*. A seen flag in Demo mode keeps a shadow in memory, so a card shown once is not shown
- * twice in the same run (a run is a page load: Play again reloads), and the real flag underneath
+ * twice in the same session, and the real flag underneath
  * is never touched. Switch Demo mode off and the player's own progress is exactly where it was.
  * The high-score table is not progress in this sense and is left alone; a demo run that sets a
  * score keeps it.

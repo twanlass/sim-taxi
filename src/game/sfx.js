@@ -727,7 +727,7 @@ export function createSfx({ rng, menuMusic = false, menuSongs = false, radioFade
     return {
       state, play: noop, update: noop, hold: noop, setMuted: noop, toggleMuted: () => true,
       setVolumes: noop,
-      locoOn: noop, locoOff: noop, still: noop, release: noop, unloop: noop, steer: noop, duckMusic: noop, fadeOutMusic: noop,
+      locoOn: noop, locoOff: noop, still: noop, release: noop, unloop: noop, steer: noop, duckMusic: noop, fadeOutMusic: noop, newRun: (opts) => { state.dashRadio = Boolean(opts?.dash); }, offAir: () => { state.dashRadio = false; },
       goOnAir: (opts) => { state.dashRadio = Boolean(opts?.dash); },
       openDash: () => { state.dashRadio = false; }, dashMusicSeconds: () => Infinity, tuning, tune: tuneMix, reset: () => tuneMix(SHIPPED_MIX),
       monitor, setMonitor: (key, { mute, solo } = {}) => setMonitorSets(key, mute, solo),
@@ -1254,7 +1254,7 @@ export function createSfx({ rng, menuMusic = false, menuSongs = false, radioFade
   // While the intro is still decoding after the cut, nothing may be scheduled ahead of it.
   let introPending = false;
   // The intro runs once a page. On the iOS app the context runs from boot, so `start` is already
-  // part-way through its first decode when "Play again" (a reload straight past the title) runs
+  // part-way through its first decode when a reload straight past the title (`?rerun=classic`'s Play again) runs
   // `goOnAir` — which opens the station itself, and then `start` came back from the await, read
   // `onAir` as true and opened it a second time: the intro started, was cut, and started over.
   let stationOpen = false;
@@ -1813,6 +1813,48 @@ export function createSfx({ rng, menuMusic = false, menuSongs = false, radioFade
    * duck released afterwards cannot bring it back; nothing has to undo it, because Retry and Quit
    * both reload the page.
    */
+  /**
+   * Play again on the same page (main.js `rerun`): the music the run-end card faded brought back up,
+   * and the station opened on its intro again, in the dash if the run starts in the car — the same
+   * top of the show a reload's `goOnAir` gave.
+   */
+  function newRun({ dash: inCar = false } = {}) {
+    state.musicOut = false;
+    onAir = true;
+    state.dashRadio = inCar;
+    if (!ctx) return;
+    const t = ctx.currentTime;
+    musicBus.gain.cancelScheduledValues(t);
+    musicBus.gain.setTargetAtTime(musicLevel(), t, 0.02);
+    setDash(inCar, t);
+    openStation();
+  }
+
+  /**
+   * Quit to the title on the same page (main.js `rerun`): the station off the air, the way the menu
+   * found it on a fresh load, so the next Play's `goOnAir` opens it on the intro again.
+   */
+  function offAir() {
+    onAir = false;
+    stationOpen = false;
+    state.musicOut = false;
+    state.dashRadio = false;
+    generation++;
+    if (!ctx) return;
+    const t = ctx.currentTime;
+    for (const v of radioVoices) {
+      v.gain.gain.cancelScheduledValues(t);
+      v.gain.gain.setTargetAtTime(0, t, 0.05);
+      try { v.src.stop(t + 0.3); } catch { /* not started yet: stop() still cancels it */ }
+    }
+    radioVoices.clear();
+    ahead = 0;
+    queuedEnd = 0;
+    between.length = 0;
+    musicBus.gain.cancelScheduledValues(t);
+    musicBus.gain.setTargetAtTime(musicLevel(), t, 0.02);
+  }
+
   function fadeOutMusic(seconds = MUSIC_FADE_OUT) {
     if (state.musicOut) return;
     state.musicOut = true;
@@ -2011,6 +2053,8 @@ export function createSfx({ rng, menuMusic = false, menuSongs = false, radioFade
     steer,
     duckMusic,
     fadeOutMusic,
+    newRun,
+    offAir,
     goOnAir,
     openDash,
     /**

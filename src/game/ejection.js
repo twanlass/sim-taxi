@@ -380,8 +380,16 @@ export function createEjection(scene, { roadY = 0, onLand = null } = {}) {
     if (when >= 0) pose(when);
   }
 
+  /** Play again on the same page (main.js `rerun`): the figure off the road. */
+  function clear() {
+    flight = null;
+    age = 0;
+    landed = 0;
+    root.visible = false;
+  }
+
   return {
-    fire, update, seek,
+    fire, update, seek, clear,
     active: () => flight !== null,
     /** Where the figure comes to rest, for framing the end of the beat. Null until `fire()`. */
     landing: () => {

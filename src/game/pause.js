@@ -21,7 +21,7 @@
  *
  * **The screen is the title screen's menu**: "Paused" as a small header, then Resume, Settings and
  * Quit as plain white words. Settings is the title screen's own page (game/menupage.js); its Back, or Escape, returns to this menu rather than
- * resuming. Quit is the caller's (`onQuit`) — main.js reloads, which lands back on the title.
+ * resuming. Quit is the caller's (`onQuit`) — main.js puts the title back up (`rerun`).
  *
  * **Only Resume resumes**, not the rest of the veil — a stray tap while reading the
  * paused screen must not drop the player straight back into traffic. It resumes on `pointerdown`

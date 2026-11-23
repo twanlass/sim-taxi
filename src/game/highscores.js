@@ -49,8 +49,9 @@ export const NAME_LENGTH = 3;
 export const DEFAULT_NAME = 'AAA';
 
 /**
- * Ids are only ever compared, never parsed. A run ends once per page load, so the counter cannot
- * collide with itself, and the timestamp keeps two tabs apart.
+ * Ids are only ever compared, never parsed. The counter only climbs, so it cannot collide with
+ * itself across the runs of one page (Play again keeps the page), and the timestamp keeps two tabs
+ * apart.
  */
 let nextId = 0;
 const makeId = (at) => `${at.toString(36)}-${(nextId++).toString(36)}`;

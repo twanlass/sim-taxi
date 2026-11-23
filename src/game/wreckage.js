@@ -110,8 +110,8 @@ export function createWreckage({ smoke = null } = {}) {
   const entries = [];
 
   /**
-   * Take over an object's transform and its materials' colour, for good. Nothing is ever restored:
-   * a wreck ends the run, and Retry reloads the page.
+   * Take over an object's transform and its materials' colour until the run ends: a wreck ends the
+   * run, and Play again hands everything back (`clear`).
    */
   function take(object, options = {}) {
     if (!object) return;
@@ -262,5 +262,23 @@ export function createWreckage({ smoke = null } = {}) {
   /** For the headless checks — how many wrecks are on the road. */
   const pending = () => entries.length;
 
-  return { take, update, seek, pending };
+  /**
+   * Hand every shell back: its paint unburnt, its scale as it arrived, visible. Answers the objects,
+   * so the caller can take the copies it made off the road — main.js `rerun`, the one place a wreck
+   * is undone (Play again on the same page). The taxi's shell is its own group and goes back to the
+   * traffic model's render pass, which writes its pose again from the next frame.
+   */
+  function clear() {
+    const objects = [];
+    for (const entry of entries) {
+      for (const [material, base] of entry.materials) material.color.copy(base);
+      entry.object.scale.copy(entry.base);
+      entry.object.visible = true;
+      objects.push(entry.object);
+    }
+    entries.length = 0;
+    return objects;
+  }
+
+  return { take, update, seek, pending, clear };
 }
