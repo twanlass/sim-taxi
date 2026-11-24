@@ -12,7 +12,7 @@
 // has none of them.
 
 import {
-  setAmbientOcclusion, setPainterly, setPaintBrushes, setJunctionPaving, setRoadStrokes, setRoadTexture,
+  setAmbientOcclusion, setPainterly, setPaintBrushes, setJunctionPaving, setRoadStrokes, setRoadTexture, setRoadPixels, ROAD_TEXEL,
   setClassicPaint,
   setPaintLook, setRim, rimTuning, setRimTuning, setFlip, setVehiclePaint, setCloudShadows, rimPaintOn, setRimDepth,
 } from '../util/geo.js';
@@ -67,8 +67,12 @@ export function decideLooks(budget, seed = 0) {
     setRoadStrokes(params.get('roadstrokes') === 'classic');
     // The asphalt's colour variation (`setRoadTexture`): resurfaced runs, wear and mottle, worked
     // out in the same pass. `?roadtex=classic` is the one flat grey; `?roadtexamt=` scales it.
+    // It is drawn as a pixel-art street, through a grid of world texels (`setRoadPixels`);
+    // `?roadtex=smooth` is the same road without the grid, and `?roadpx=` the texel's size.
     const texAmt = Number(params.get('roadtexamt') ?? 1);
     setRoadTexture(params.get('roadtex') === 'classic' ? 0 : Number.isFinite(texAmt) ? texAmt : 1, seed);
+    const texel = Number(params.get('roadpx') ?? ROAD_TEXEL);
+    setRoadPixels(params.get('roadtex') === 'smooth' ? 0 : Number.isFinite(texel) ? texel : ROAD_TEXEL);
   }
   setClassicPaint(getPaintClassic());
   setPaintLook(getPaintLook());

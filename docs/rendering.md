@@ -1644,6 +1644,15 @@ ground's paint pass, worked out from the grid arithmetic with no texture and no 
 - **Grain.** Two finer octaves at 1.3 and 0.45 units. The finer is about ten device pixels on a
   phone; a world-locked noise much below that crawls as the camera pans.
 
+**It is drawn as a pixel-art street** (`setRoadPixels`; `?roadtex=smooth` is the same road without
+the grid, `?roadpx=` the texel's size). Every layer above is read at the centre of a 0.375-unit
+world texel, 24 to an ordinary street and landing on its kerb lines, and the value is rounded to a
+ramp of greys a tenth apart. The stains get a hard edge, the grain becomes single light and dark
+pixels (one texel in ten each way; the 1.3-unit octave rounded to the ramp read as static and is
+left out), and a one-texel crack runs where the mottle crosses its middle, in about half the 9-unit
+cells. The texels are square on the ground, so on screen they are a low-resolution texture's
+diamonds, not screen pixels. Lane paint, kerbs and everything standing on the road stay smooth.
+
 Held off the lane paint, the lawns, the plaza and (like the plaza) a road that is already bright,
 which is the wet road at night. The asphalt patches and manhole covers are their own meshes and
 keep their own colour. It costs +6.2% of a SwiftShader WebGL frame at phone size (+4.3% before the stains and grain); the same code

@@ -295,6 +295,7 @@ export const PAINT_UNIFORMS = {
   // and the next, y the soft mottle, z the wear across a lane, w the city's offset into the hashes.
   uRoadTex: { value: new THREE.Vector4(0, 0, 0, 0) },
   uRoadTexFine: { value: new THREE.Vector2(0, 0) }, // x the oil stains, y the grain
+  uRoadTexPixel: { value: new THREE.Vector2(0, 0.1) }, // the pixel street: x its texel in world units (0 is the smooth road), y the palette's step
   uRoadTexGrid: { value: new THREE.Vector3(GRID_I, GRID_J, LANE_TO_KERB) }, // the last real line each way, then kerb to lane centre
   uBrushTile: { value: 8 },     // world units per tile repeat
   uBrushAmt: { value: 0.7 },   // value swing of a stroke (0.22 was invisible at play zoom)
@@ -459,6 +460,25 @@ export function setRoadTexture(amount = 1, seed = 0) {
   PAINT_UNIFORMS.uRoadTexFine.value.set(ROAD_TEX.stain * a, ROAD_TEX.grain * a);
 }
 
+/**
+ * The pixel-art street (Tyler, 2026-11-23: "Can we try something that looks like a pixel art
+ * street?"). The same road, read through a grid of world texels: every layer above is sampled at
+ * its texel's centre, the value is rounded to a short ramp of greys, the stains get a hard edge,
+ * the grain becomes single light and dark pixels (one texel in ten each way), and a crack runs
+ * where the mottle crosses its middle, in about half the 9-unit cells.
+ *
+ * 0.375 because the grid divides by it: a 9-unit street is 24 texels kerb to kerb, the pitch 56
+ * and both half-spans whole numbers, so texel edges land on every kerb line of an ordinary street
+ * (an arterial's 10.67 does not divide, and its outer texel is cut). It is 2.9 CSS pixels at play
+ * zoom, which is about the smallest a texel can be and still read as one. The texels are square
+ * on the *ground*, so on screen they are the diamonds of a low-resolution texture rather than
+ * screen pixels. `texel` 0 is the smooth road (`?roadtex=smooth`).
+ */
+export const ROAD_TEXEL = 0.375;
+export function setRoadPixels(texel = ROAD_TEXEL, step = 0.1) {
+  PAINT_UNIFORMS.uRoadTexPixel.value.set(Math.max(0, texel), step);
+}
+
 if (GPU) {
   let paving = null;
   bindPropNodes({ paving: () => (painterlyEnabled ? (paving ??= createPaving(PAINT_UNIFORMS)) : null) });
@@ -501,6 +521,7 @@ uniform float uBrushAmt;
 uniform vec4 uRoadTex;
 uniform vec3 uRoadTexGrid;
 uniform vec2 uRoadTexFine;
+uniform vec2 uRoadTexPixel;
 // One oil stain a cell at most. lane is how near a drip line this is (0 to 1, already eased off
 // away from a junction), chew a noise that roughens the edge. 1 in the blot, 0 outside.
 float roadStain(vec2 p, float lane, float chew) {
@@ -658,7 +679,10 @@ const PAINT_FRAGMENT = /* glsl */ `
 					// bright, which is the wet road at night.
 					float tHold = (1.0 - grassy) * (1.0 - smoothstep(0.42, 0.7, lum)) * (1.0 - plaza);
 					if (uRoadTex.x + uRoadTex.y + uRoadTex.z > 0.0 && abs(vPaintWorld.y) < 0.1 && tHold > 0.0) {
-						vec2 tp = vPaintWorld.xz - vec2(0.0, vPaintWorld.z > uRiverZ.x ? uRiverZ.y : 0.0);
+						// The pixel street reads every layer at its texel's centre (setRoadPixels).
+						float pix = step(1e-4, uRoadTexPixel.x);
+						vec2 wq = pix > 0.5 ? (floor(vPaintWorld.xz / uRoadTexPixel.x) + 0.5) * uRoadTexPixel.x : vPaintWorld.xz;
+						vec2 tp = wq - vec2(0.0, wq.y > uRiverZ.x ? uRiverZ.y : 0.0);
 						vec2 tl = floor((tp + uRoadGrid.xy) / uRoadGrid.z + 0.5);
 						vec2 td = abs(tp + uRoadGrid.xy - tl * uRoadGrid.z);
 						float aX = mod(floor(uRoadArt.x / exp2(tl.y)), 2.0);  // the road along x at line j
@@ -673,23 +697,38 @@ const PAINT_FRAGMENT = /* glsl */ `
 						float zWins = aZ * (1.0 - aX);
 						float wX = inX * mix(1.0, 1.0 - inZ, zWins);
 						float wZ = inZ * mix(1.0 - inX, 1.0, zWins);
-						float tn = paintNoise(vPaintWorld.xz / 11.0 + uRoadTex.w);
+						float tn = paintNoise(wq / 11.0 + uRoadTex.w);
 						vec2 run = roadRun(tp.x, tl.y) * wX + roadRun(tp.y, tl.x + 57.0) * wZ;
 						float wear = roadWear(td.y, hX, mix(9.0, td.x - hZ, realZ)) * inX
 							+ roadWear(td.x, hZ, mix(9.0, td.y - hX, realX)) * inZ;
 						float tv = run.x * uRoadTex.x + (tn - 0.5) * uRoadTex.y + wear * (0.35 + 1.3 * tn) * uRoadTex.z;
 						vec3 tex = (1.0 + tv) * (1.0 + run.y * uRoadTex.x * 0.6 * vec3(1.0, 0.1, -1.0));
 						if (uRoadTexFine.x + uRoadTexFine.y > 0.0) {
-							float g1 = paintNoise(vPaintWorld.xz / 1.3 + 7.0);
-							float g2 = paintNoise(vPaintWorld.xz / 0.45 + 31.0);
+							float g1 = paintNoise(wq / 1.3 + 7.0);
+							float g2 = paintNoise(wq / 0.45 + 31.0);
+							if (pix > 0.5) {
+								// Single pixels instead of the fine octave: one in ten light, one in ten dark.
+								float sp = paintHash(wq * 7.31 + 3.0);
+								g2 = 0.5 + 0.9 * (step(0.9, sp) - step(sp, 0.1));
+							}
 							// How near a lane's drip line, and only on the way up to a junction or in it.
 							float lx = (1.0 - smoothstep(0.2, 0.9, abs(td.y - (hX - uRoadTexGrid.z)))) * inX
 								* (1.0 - smoothstep(1.0, 8.0, mix(9.0, td.x - hZ, realZ)));
 							float lz = (1.0 - smoothstep(0.2, 0.9, abs(td.x - (hZ - uRoadTexGrid.z)))) * inZ
 								* (1.0 - smoothstep(1.0, 8.0, mix(9.0, td.y - hX, realX)));
-							float stain = roadStain(vPaintWorld.xz, max(lx, lz), g1) * max(inX, inZ) * uRoadTexFine.x;
-							tex *= 1.0 + ((g1 - 0.5) * 0.6 + (g2 - 0.5) * 0.4) * uRoadTexFine.y * 2.0;
+							float stain = roadStain(wq, max(lx, lz), g1);
+							stain = mix(stain, step(0.4, stain), pix) * max(inX, inZ) * uRoadTexFine.x;
+							// The pixel street keeps only the single pixels: the 1.3-unit octave rounded to the
+							// ramp was a second band pattern over the mottle's, and read as static.
+							tex *= 1.0 + ((g1 - 0.5) * 0.6 * (1.0 - pix) + (g2 - 0.5) * 0.4) * uRoadTexFine.y * 2.0;
 							tex *= 1.0 - stain * vec3(0.9, 1.0, 1.15);
+						}
+						if (pix > 0.5) {
+							float crack = step(abs(tn - 0.5), 0.018) * step(0.5, paintHash(floor(wq / 9.0) + 5.0)) * max(inX, inZ);
+							tex *= 1.0 - 0.45 * crack;
+							// The ramp: the value rounded to the palette's step, the hue left as it was.
+							float lv = (tex.r + tex.g + tex.b) / 3.0;
+							tex *= floor(lv / uRoadTexPixel.y + 0.5) * uRoadTexPixel.y / max(lv, 1e-3);
 						}
 						gl_FragColor.rgb *= mix(vec3(1.0), tex, tHold);
 					}
