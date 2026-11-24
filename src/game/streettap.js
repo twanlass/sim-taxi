@@ -1,7 +1,8 @@
 import {
   GRID_I, GRID_J, PITCH, HALF_SPAN_X, HALF_SPAN_Z, lineX, lineZ, halfRoadX, halfRoadZ, lineIndexZ, rowIndexZ,
-  nextIntersection, opposite,
+  nextIntersection, opposite, isWarped,
 } from '../city/grid.js';
+import { cityNetwork } from '../city/roadnet.js';
 
 /**
  * Tap a street to send the route down it.
@@ -51,6 +52,7 @@ export const STREET_TAP_MAX_DETOUR = 4;
  * tap a little way into an arm reads as that arm.
  */
 export function streetAt(x, z) {
+  if (isWarped()) return warpedStreetAt(x, z);
   const clampIdx = (v, half, top) => Math.min(top, Math.max(0, Math.round((v + half) / PITCH)));
   // Out to the outer kerb of the ring road, which is the edge of the drivable map.
   const reachX = STREET_SLOP + Math.max(halfRoadZ(0), halfRoadZ(GRID_I));
@@ -73,6 +75,31 @@ export function streetAt(x, z) {
   }
   const j0 = Math.min(GRID_J - 1, Math.max(0, rowIndexZ(z)));
   return { a: { i, j: j0 }, b: { i, j: j0 + 1 } };
+}
+
+/**
+ * `streetAt` on the warped city (city/warp.js), whose streets are arcs between junctions that have
+ * moved: the nearest street centreline to the point, sampled a unit apart, if the point is on it.
+ */
+function warpedStreetAt(x, z) {
+  const net = cityNetwork();
+  let best = null;
+  let bestD = Infinity;
+  for (const edge of net?.edges ?? []) {
+    const a = net.nodeById.get(edge.a);
+    const b = net.nodeById.get(edge.b);
+    if (a.gi === undefined || b.gi === undefined) continue;
+    const n = Math.max(2, Math.ceil(edge.curve.length));
+    for (let k = 0; k <= n; k++) {
+      const p = edge.curve.at((edge.curve.length * k) / n);
+      const d = Math.hypot(p.x - x, p.z - z) - edge.halfWidth;
+      if (d < bestD) { bestD = d; best = { a, b }; }
+    }
+  }
+  if (!best || bestD > STREET_SLOP) return null;
+  const lo = best.a.gi + best.a.gj <= best.b.gi + best.b.gj ? best.a : best.b;
+  const hi = lo === best.a ? best.b : best.a;
+  return { a: { i: lo.gi, j: lo.gj }, b: { i: hi.gi, j: hi.gj } };
 }
 
 const sameStreet = (s, p, q) => (

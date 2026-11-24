@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { PALETTE } from '../palette.js';
 import { setEmissiveMaterial } from './bloom.js';
 import {
-  ROAD_W, isXAxis, dirSign, lineX, lineZ, laneOffsetCoord, entryPoint, exitPoint, turnControl,
+  ROAD_W, isXAxis, dirSign, lineX, lineZ, laneOffsetCoord, entryPoint, exitPoint, turnControl, isWarped,
   nextIntersection, riverBanks,
 } from '../city/grid.js';
 import { deckHeightAt } from '../city/river.js';
@@ -198,8 +198,11 @@ function densifyOverWater(pts) {
       for (let n = first; n >= 1 && n <= DECK_STEPS; n += step) {
         const z = banks.z0 + (span * n) / DECK_SEGMENTS;
         const t = (z - a.z) / dz;
-        // Strictly between, so a plane landing on an existing point does not duplicate it.
-        if (t <= 1e-6 || t >= 1 - 1e-6) continue;
+        // Strictly between, so a plane landing on an existing point does not duplicate it — and on
+        // the warped city not within 5 cm of one either: a turn there can end right at the bank, and a
+        // deck point dropped a centimetre from its last sample folds the band (tools/zfight.mjs).
+        const near = isWarped() ? 0.05 / Math.max(Math.hypot(b.x - a.x, dz), 1e-9) : 1e-6;
+        if (t <= near || t >= 1 - near) continue;
         out.push({ x: a.x + (b.x - a.x) * t, z });
       }
     }
@@ -338,8 +341,8 @@ function lookAhead(pts, extra) {
 }
 
 /**
- * Spacing of the points laid down a *curved* lane — the central park's S-bend, the one road in the
- * city that is not a straight. The grid arithmetic below (`entryPoint`/`exitPoint`) only knows
+ * Spacing of the points laid down a *curved* lane — the central park's S-bend (`?city=big`) and the
+ * curved street's C (city/curvedstreet.js), the roads in the city that are not straights. The grid arithmetic below (`entryPoint`/`exitPoint`) only knows
  * straights, so it drew the bend as two chords: 12 and 13 units of straight band cutting across a
  * lawn the taxi was visibly driving round. 1 unit puts ~13 points down each half of the bend; the
  * bend's tightest radius is ~20, so the chord sits at most 1/(8·20) = 0.006 off the curve.
@@ -349,12 +352,28 @@ function lookAhead(pts, extra) {
  */
 const CURVE_STEP = 1;
 
-const isCurved = (lane) => !!lane && !lane.degenerate && lane.edge.curve.kind !== 'line';
+/**
+ * Points across a turn on or off a curved lane: at least `TURN_STEPS`, and one every half unit, so
+ * a chord sits a few millimetres off the network's cubic rather than the 0.05 `TURN_STEPS` alone
+ * left on the curved street's sharper corners. Even, so the middle one can carry the stop flag.
+ */
+const turnSamples = (turn) => Math.max(TURN_STEPS, 2 * Math.ceil(turn.length));
+
+// On the warped city (city/warp.js) every lane is drawn off the network: its junctions have moved
+// off the grid lines that `entryPoint`/`exitPoint` measure from, so even a straight street is "curved"
+// as far as the grid arithmetic is concerned.
+const isCurved = (lane) => !!lane && !lane.degenerate && (isWarped() || lane.edge.curve.kind !== 'line');
 
 /** Points down a curved lane strictly after arc length `from`, up to and including its end. */
 function pushCurve(push, lane, from = 0) {
+  // Over the river the deck's own points go in instead (`densifyOverWater`), and the two sets
+  // interleaved would put points 0.1 apart on a bridge — slivers the band folds on. Only the warped
+  // city lays straight lanes down point by point, so only it can reach a bridge here.
+  const banks = isWarped() ? riverBanks() : null;
   for (let s = (Math.floor(from / CURVE_STEP) + 1) * CURVE_STEP; s < lane.length - 1e-3; s += CURVE_STEP) {
-    push(lane.path.at(s));
+    const p = lane.path.at(s);
+    if (banks && p.z > banks.z0 && p.z < banks.z1) continue;
+    push(p);
   }
   push(lane.path.at(lane.length));
 }
@@ -362,9 +381,16 @@ function pushCurve(push, lane, from = 0) {
 /** The whole route, junction to junction — `routePath` above, before any trim. */
 function lanePath(car, route) {
   const pts = [];
+  // On the warped city a turn's last sample and its lane's first point can land a centimetre apart
+  // rather than on top of each other (the turn is sampled by arc length along a cubic), and a
+  // centimetre-long segment carries a mitre at an angle that folds the band over itself at its own
+  // width (tools/zfight.mjs measured 0.5 u²). There, anything closer than 10 cm is the same point:
+  // 5 cm left a 5.9 cm segment at the mouth of a tight right turn (city 11), folding the grabbed
+  // band's 1.91 half-width by 0.13 u².
+  const same = isWarped() ? 0.1 : 1e-4;
   const push = (p) => {
     const last = pts[pts.length - 1];
-    if (last && Math.abs(last.x - p.x) < 1e-4 && Math.abs(last.z - p.z) < 1e-4) return;
+    if (last && Math.abs(last.x - p.x) < same && Math.abs(last.z - p.z) < same) return;
     pts.push({ x: p.x, z: p.z });
   };
   // Straight-run points only: never step backwards along the direction of travel. A car can sit
@@ -395,7 +421,22 @@ function lanePath(car, route) {
     // (~3.4 units) the instant a car committed to a turn. Invisible on the old static band, it
     // showed up as a pop once the pulse animation rode on top of it.
     const travelled = Math.min(car.turnT, 1) * car.turnLen;
-    if (travelled < car.leadIn) {
+    const curvedTurn = car.turn && (isCurved(net?.laneById.get(car.turn.inLane))
+      || isCurved(net?.laneById.get(car.turn.outLane)));
+    if (curvedTurn) {
+      // A turn on or off a curved lane is drawn at the planned path's own fixed points (see
+      // `turnSamples`), so the band ahead of the car is the band that was planned. Re-sampled from
+      // the car, the cubic's chords sat 0.054 off the planned ones on the curved street's corners.
+      const t0 = Math.max(0, travelled - car.leadIn) / Math.max(1e-6, car.turnLen - car.leadIn);
+      if (travelled < car.leadIn) {
+        const t = travelled / car.leadIn;
+        push({ x: car.hold.x + (car.entry.x - car.hold.x) * t, z: car.hold.z + (car.entry.z - car.hold.z) * t });
+      } else {
+        push(turnPosition(car, t0));
+      }
+      const n = turnSamples(car.turn);
+      for (let s = 0; s <= n; s++) if (s / n > t0 + 1e-6) push(turnPosition(car, s / n));
+    } else if (travelled < car.leadIn) {
       const t = travelled / car.leadIn;
       push({
         x: car.hold.x + (car.entry.x - car.hold.x) * t,
@@ -447,9 +488,10 @@ function lanePath(car, route) {
     if (isCurved(inLane) || isCurved(outLane)) {
       const turn = inLane && outLane && net.turnById.get(`${inLane.id}>${outLane.id}`);
       if (turn) {
-        for (let s = 0; s <= TURN_STEPS; s++) {
-          push(turn.path.at((turn.length * s) / TURN_STEPS));
-          if (k === stopAt && s === TURN_STEPS / 2) markStop();
+        const n = turnSamples(turn);
+        for (let s = 0; s <= n; s++) {
+          push(turn.path.at((turn.length * s) / n));
+          if (k === stopAt && s === n / 2) markStop();
         }
         if (isCurved(outLane)) pushCurve(push, outLane);
         const next = nextIntersection(dOut, i, j);
@@ -486,6 +528,17 @@ function lanePath(car, route) {
 
   // The destination. Stop in the middle of the junction, still in lane — that is where the taxi
   // comes to rest, and running the band out to the far side would point past the pin.
+  const last = net?.laneByGrid(d, i, j);
+  if (isCurved(last)) {
+    // Off the network: the lane's end, then on along its heading level with the junction's centre.
+    const e = last.path.at(last.length);
+    const t = last.path.tangentAt(last.length);
+    const node = net.nodeByGrid(i, j);
+    const ahead = (node.x - e.x) * t.x + (node.z - e.z) * t.z;
+    push(e);
+    if (ahead > 0.01) push({ x: e.x + t.x * ahead, z: e.z + t.z * ahead });
+    return densifyOverWater(pts);
+  }
   pushAhead(entryPoint(d, i, j), d);
   pushAhead(lanePoint(d, i, j, isXAxis(d) ? lineX(i) : lineZ(j)), d);
   return densifyOverWater(pts);

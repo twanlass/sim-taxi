@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import { GRID_I, GRID_J, lineX, lineZ, riverBanks, rightOf } from '../city/grid.js';
+import { GRID_I, GRID_J, riverBanks, rightOf, junctionAt } from '../city/grid.js';
 import { cityNetwork } from '../city/roadnet.js';
 import {
   carGeometry, setClosedLanes, isLaneClosed, stageCar, releaseCar, STOP_SETBACK, CAR_LEN, CAR_W,
@@ -736,8 +736,11 @@ export function createRace({
       if (ring(a) && ring(b)) continue;
       // Mid-block: clear of both junctions, so the car that dissolves in is not born in a box or
       // past a hold line (CLAUDE.md, on cars handed to the traffic model inside their stop line).
-      const s = lane.length / 2;
-      if (s < STOP_SETBACK + CAR_LEN / 2) continue;
+      // On a short block it goes back from the middle until its nose clears the hold line: the
+      // warped city's streets run 7.5 to 13 units (41% under 10.2, the old mid-block minimum), and
+      // asking for the middle found no spot at all on some of its cities.
+      if (lane.length < STOP_SETBACK + CAR_LEN) continue;
+      const s = Math.min(lane.length / 2, lane.length - STOP_SETBACK - CAR_LEN / 2);
       const p = lane.path.at(s);
       if (overWater(p.z)) continue;
       const d = Math.hypot(p.x - taxi.x, p.z - taxi.z);
@@ -769,8 +772,7 @@ export function createRace({
         if (!net.nodeById.has(`${i},${j}`)) continue;
         const d = Math.min(blockDistance(taxiFrom, { i, j }), blockDistance(rivalFrom, { i, j }));
         if (d < FINISH_MIN || d > FINISH_MAX) continue;
-        const x = lineX(i);
-        const z = lineZ(j);
+        const { x, z } = junctionAt(i, j);
         if (overWater(z)) continue;
         if (!sightlineClear(x, 0.5, z)) continue;
         const taxiRoute = findRoute(taxiFrom, { i, j });
@@ -1033,7 +1035,7 @@ export function createRace({
       const n = net.nodeById.get(id);
       if (!n) continue;
       const ring = n.gi === 0 || n.gi === GRID_I || n.gj === 0 || n.gj === GRID_J;
-      if (ring || overWater(lineZ(n.gj)) || !sightlineClear(lineX(n.gi), 0.5, lineZ(n.gj))) continue;
+      if (ring || overWater(n.z) || !sightlineClear(n.x, 0.5, n.z)) continue;
       return { i: n.gi, j: n.gj };
     }
     return null;
@@ -1227,7 +1229,7 @@ export function createRace({
     state.finishShown = !lateReveal;
     if (!lateReveal) showFinish();
     setPhase('reveal');
-    onEvent('lined-up', { car: state.car, finish: goal, x: lineX(goal.i), z: lineZ(goal.j) });
+    onEvent('lined-up', { car: state.car, finish: goal, ...junctionAt(goal.i, goal.j) });
   }
 
   /** Start the count — called when the camera is back from the finish, or by `REVEAL_MAX`. */
@@ -1393,12 +1395,12 @@ export function createRace({
 
   function showFinish(at = state.finish) {
     const { i, j } = at;
-    finishRing.group.position.set(lineX(i), ROAD_Y + RING_Y, lineZ(j));
+    finishRing.group.position.set(junctionAt(i, j).x, ROAD_Y + RING_Y, junctionAt(i, j).z);
     finishRing.appear();
     // The turnaround is the ring alone (Tyler: "midpoint: don't show the finish flag, just the
     // white circle"); the flag goes up over the line the race actually finishes on, once rounded.
     // `?raceflag=classic` flies it over both.
-    finishFlag.group.position.set(lineX(i), FINISH_FLAG_Y, lineZ(j));
+    finishFlag.group.position.set(junctionAt(i, j).x, FINISH_FLAG_Y, junctionAt(i, j).z);
     finishFlag.group.visible = midFlag || at === state.home;
   }
 
@@ -1407,7 +1409,7 @@ export function createRace({
     finishFlag.group.visible = false;
   }
 
-  const near = (car, target, reach) => Math.hypot(car.x - lineX(target.i), car.z - lineZ(target.j)) < reach;
+  const near = (car, target, reach) => Math.hypot(car.x - junctionAt(target.i, target.j).x, car.z - junctionAt(target.i, target.j).z) < reach;
 
   // --- Drawing the rival ------------------------------------------------------
 

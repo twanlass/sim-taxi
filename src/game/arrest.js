@@ -1,5 +1,5 @@
 import {
-  GRID_I, GRID_J, halfRoadX, halfRoadZ, isXAxis, dirSign, lineX, lineZ, opposite,
+  GRID_I, GRID_J, halfRoadX, halfRoadZ, isXAxis, dirSign, opposite, junctionAt,
 } from '../city/grid.js';
 import { cityNetwork } from '../city/roadnet.js';
 import { findRoute, planOrigin, serviceLaneCost } from './route.js';
@@ -341,7 +341,7 @@ export function createArrest({ traffic, taxi, inShot = null }) {
   function begin(at, held, cops) {
     abandon();
     J = { i: at.i, j: at.j };
-    centre = { x: lineX(J.i), z: lineZ(J.j) };
+    centre = junctionAt(J.i, J.j);
     box = { hx: halfRoadZ(J.i), hz: halfRoadX(J.j) };
     figure = held;
     arms = armsAt(J);

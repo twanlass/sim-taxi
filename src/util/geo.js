@@ -8,7 +8,7 @@ import { createPaving } from './gpupaving.js';
 import { PALETTE, plazaLook } from '../palette.js';
 import {
   PITCH, HALF_SPAN_X, HALF_SPAN_Z, HALF_ROAD, HALF_ARTERIAL, GRID_I, GRID_J, isArterialX, isArterialZ, RIVER_EXTRA,
-  riverMidZ, riverRow, isUnsignalised, isSegmentClosed, lineX, lineZ,
+  riverMidZ, riverRow, isUnsignalised, isSegmentClosed, isSquareClosure, lineX, lineZ,
 } from '../city/grid.js';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 
@@ -383,7 +383,10 @@ export function plazaJunctions() {
     for (let j = 1; j < GRID_J; j++) {
       if (isUnsignalised(i, j) || isArterialX(j) || isArterialZ(i)) continue;
       if (row !== null && (j === row || j === row + 1)) continue;
-      if ([0, 1, 2, 3].some((d) => isSegmentClosed(i, j, d))) continue;
+      // A T-junction where a blade of the turbine square ends (city/square.js) still takes the
+      // paving: the square closes four stubs on one bank, and with them most of that bank's
+      // four-way junctions, which left one city in twenty with no box the camera could see whole.
+      if ([0, 1, 2, 3].some((d) => isSegmentClosed(i, j, d) && !isSquareClosure(i, j, d))) continue;
       out.push({ i, j });
     }
   }

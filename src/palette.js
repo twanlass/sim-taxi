@@ -352,6 +352,30 @@ export const PALETTE = {
   // is the same problem the statue already solved, and solving it twice with two colours is two
   // things to keep in step.
   bankStep: '#A9A499',
+  // The town hall facing the turbine square (city/square.js). Warmer limestone than the bank's,
+  // under a red-brown tiled roof, so the two civic buildings are told apart by colour as well as by
+  // silhouette (a gable and a clock tower against a colonnade and a dome).
+  hallStone: '#E3D2B0',
+  hallTrim: '#F2EADA',
+  hallRoof: '#A4523C',
+  hallDoor: '#4A3426',
+  clockFace: '#F7F2E4',
+  clockHands: '#2A2A2E',
+  // The square's paving: a warmer, slightly darker stone than `sidewalk` (#CDBFA6) so the plaza
+  // reads as a place rather than as a block with nothing built on it, and a darker inlay for the
+  // ring and the paths.
+  plazaStone: '#D8C29C',
+  plazaInlay: '#B39A76',
+  // The streets round the square, in setts: a grey-brown stone well clear of `asphalt` so the
+  // paving reads as a different surface from the far side of the map, darker than the plaza itself.
+  plazaSett: '#8E8172',
+  // The warped city's blockout masses (city/blockout.js): plain massing in two tones, warm stone
+  // and a cooler grey, so neighbouring pieces read apart at play zoom without pretending to be
+  // finished buildings.
+  blockoutA: '#D9CCB4',
+  blockoutB: '#BFB6A8',
+  blockoutHall: '#C98F6A',
+  obeliskStone: '#D6CFBF',
   // The dome: patinated copper. The statue's note (`statueStone`) records why a verdigris bronze
   // was refused there — the obvious patina (~#7A8B6E) lands a few points off `park` (#6F9A5A), and
   // a figure standing on grass in the colour of grass is a figure nobody sees. A dome stands on a

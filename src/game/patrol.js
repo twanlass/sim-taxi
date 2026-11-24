@@ -1,4 +1,4 @@
-import { DIR, GRID_I, GRID_J, PITCH, dirSign, isXAxis, lineX, lineZ } from '../city/grid.js';
+import { DIR, GRID_I, GRID_J, PITCH, dirSign, isXAxis, junctionAt } from '../city/grid.js';
 import { SLAB_X, SLAB_Z } from '../city/ground.js';
 import { cityNetwork } from '../city/roadnet.js';
 import { SPAWN_CLEARANCE } from '../sim/traffic.js';
@@ -445,7 +445,7 @@ export function createPatrol({
       acrossI ? rng.int(1, GRID_J - 1) : rng.int(1, GRID_I - 1));
     // `enterPolice` ranks lanes by distance to the point it is handed and never places one in
     // frame (SPAWN_CLEARANCE), so the car arrives on a road at that edge junction or next to it.
-    if (!traffic.enterPolice(1, { x: lineX(entry.i), z: lineZ(entry.j) })) { state.cooldown = 3; return; }
+    if (!traffic.enterPolice(1, junctionAt(entry.i, entry.j))) { state.cooldown = 3; return; }
     const cop = traffic.policeCars[traffic.policeCars.length - 1];
     cop.patrol = true;
     cop.siren = false;

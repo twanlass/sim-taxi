@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { skipWhenEmpty } from '../util/emptypools.js';
-import { GRID_I, GRID_J, DIR, lineX, lineZ } from '../city/grid.js';
+import { GRID_I, GRID_J, DIR, junctionAt } from '../city/grid.js';
 import { cityNetwork } from '../city/roadnet.js';
 import {
   setClosedLanes, isLaneClosed, stopDistance, STOP_SETBACK, SPAWN_CLEARANCE, TRUCK_LEN,
@@ -772,7 +772,7 @@ export function createFire({
         if (!truck) { if (!flames.live() && !smoke.live()) retire(); }
         else {
           const ex = state.exit;
-          const near = ex && Math.hypot(truck.x - lineX(ex.i), truck.z - lineZ(ex.j)) < EXIT_REACH;
+          const near = ex && Math.hypot(truck.x - junctionAt(ex.i, ex.j).x, truck.z - junctionAt(ex.i, ex.j).z) < EXIT_REACH;
           const away = Math.hypot(truck.x - taxi.x, truck.z - taxi.z) > SPAWN_CLEARANCE;
           if (state.fading >= 0 && (near || state.phaseT > LEAVE_MAX || (away && state.phaseT > 6))) {
             state.fading = -1;

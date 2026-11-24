@@ -11,7 +11,7 @@ import fs from 'node:fs';
 import * as THREE from 'three';
 import { makeRng } from '../src/util/rng.js';
 import { pointInPolygon } from '../src/city/curves.js';
-import { isParkwayMid, coastWest, coastEast, coastNorth, harborBasin, HARBOR, NORTH_PARK, SOUTH_SHORE, LTRAIN_NS as GRID_LTRAIN_NS, isArterialZ as gridIsArterialZ, lineIndexZ as gridLineIndexZ, gridZ } from '../src/city/grid.js';
+import { isParkwayMid, isCurveJunction, coastWest, coastEast, coastNorth, harborBasin, HARBOR, NORTH_PARK, SOUTH_SHORE, LTRAIN_NS as GRID_LTRAIN_NS, isArterialZ as gridIsArterialZ, lineIndexZ as gridLineIndexZ, gridZ } from '../src/city/grid.js';
 import { createHarbor } from '../src/city/harbor.js';
 import {
   createWestEdge, westKerbX, westClosures, WEST_SKYLINE, WEST_CLEAR_X, cornerBlocks, northClosure,
@@ -261,6 +261,10 @@ import { placeSpeech } from '../src/game/speech.js';
 import { createCrushSlowMo, CRUSH_SLOW_MIN, CRUSH_SLOW_HOLD, CRUSH_SLOW_HOLD_MAX, CRUSH_SLOW_OUT } from '../src/game/crushslowmo.js';
 
 const seed = Number(process.argv[2] ?? 71624);
+// A junction on or one along from the curved street (city/curvedstreet.js). The staged scenes below
+// place cars by grid distance back from a junction, which on the curve's line is a lane that bends
+// out from under them; they stage elsewhere.
+const nearCurve = (i, j) => [-1, 0, 1].some((k) => isCurveJunction(i, j + k));
 const CARS_DEFAULT = 7;    // low-density baseline for the fare-loop checks — keeps timing thresholds stable regardless of runtime default
 const results = [];
 const check = (name, pass, detail = '') => {
@@ -1280,7 +1284,12 @@ const onGrass = (city, i, j) => {
   const plots = parkPlots(layout).map((p) => p.bounds);
   const parkCrowns = propsBuild.crowns.filter((c) =>
     plots.some(({ x0, z0, x1, z1 }) => c.tx >= x0 && c.tx <= x1 && c.tz >= z0 && c.tz <= z1));
-  const target = parkCrowns[0];
+  // Over the crown with the most lawn downwind of it, so the drift has somewhere to land: the first
+  // crown in the list can stand at a park's east edge, whose leaves blow straight off onto the road
+  // (it did, once the turbine square moved the parks round).
+  const lawnDownwind = (c) => Math.max(...plots.map(({ x0, z0, x1, z1 }) =>
+    (c.tx >= x0 && c.tx <= x1 && c.tz >= z0 && c.tz <= z1 ? x1 - c.tx : -Infinity)));
+  const target = [...parkCrowns].sort((p, q) => lawnDownwind(q) - lawnDownwind(p))[0];
   const cell = { x: target.x, z: target.z, r: 30, on: true, dirX: 1, dirZ: 0 };
   // A mask that is half-in everywhere, which is where the shedding peaks.
   const fake = { cell, rainAt: () => 0.5 };
@@ -5887,8 +5896,12 @@ const PRESSURE_END = difficulty.getTuning().pressureEnd;
   check('and nobody yields at one either',
     ringCorners.every(([i, j]) => net.nodeByGrid(i, j).uncontrolled
       && net.nodeByGrid(i, j).inbound.every((lane) => net.laneSignal(lane, 0).open)));
+  // The interior four-way it is set against is the first one down the diagonal: on some cities
+  // (1, 1) itself is the curved street's apex (city/curvedstreet.js), a two-armed bend with nothing
+  // to arbitrate.
+  const fourWay = [[1, 1], [2, 2], [3, 3], [4, 4]].find(([i, j]) => net.nodeByGrid(i, j).arms.length === 4);
   check('the rest of the ring has none',
-    !signalled(1, 0) && !signalled(0, 1) && signalled(1, 1));
+    !signalled(1, 0) && !signalled(0, 1) && !!fourWay && signalled(...fourWay));
   // An interior junction is untouched — the corners are dropped for having no conflicts, not for
   // sitting on the ring, and a normal four-way is full of them.
   check('an interior junction still arbitrates', !net.nodeByGrid(2, 2).uncontrolled);
@@ -5983,7 +5996,7 @@ const PRESSURE_END = difficulty.getTuning().pressureEnd;
   let dIn = -1;
   outer: for (let i = 1; i < GRID_I && dIn < 0; i++) {
     for (let j = 1; j < GRID_J && dIn < 0; j++) {
-      if (ringAxisAt(i, j)) continue;
+      if (ringAxisAt(i, j) || nearCurve(i, j)) continue;
       for (const d of [0, 1, 2, 3]) {
         if (!legalExits(d, i, j).includes(leftOf(d))) continue;
         if (!legalExits(opposite(d), i, j).length) continue;
@@ -6230,7 +6243,7 @@ const PRESSURE_END = difficulty.getTuning().pressureEnd;
       // the first such junction on the 5 × 5): an open bug in the jink, not in this staging, and
       // flagged on the PR that moved the default city onto it rather than hidden in the order.
       for (const d of [1, 3, 0, 2]) {
-        if (ringAxisAt(i, j) || approachRoom(d, i, j) < 30) continue;
+        if (ringAxisAt(i, j) || nearCurve(i, j) || approachRoom(d, i, j) < 30) continue;
         if (!legalExits(d, i, j).includes(d) || !legalExits(opposite(d), i, j).length) continue;
         if (!(approachRoom(leftOf(d), i, j) > 0)) continue;
         sw = { i, j, d };
@@ -6376,7 +6389,9 @@ const PRESSURE_END = difficulty.getTuning().pressureEnd;
   for (let i = 1; i < GRID_I && !lt; i++) {
     for (let j = 1; j < GRID_J && !lt; j++) {
       for (const d of [0, 1, 2, 3]) {
-        if (ringAxisAt(i, j) || approachRoom(d, i, j) < 40) continue;
+        if (ringAxisAt(i, j) || nearCurve(i, j) || approachRoom(d, i, j) < 40) continue;
+        // Not off the end of a bridge either: from 36 back the taxi starts on the arched deck.
+        if (!isXAxis(d) && (j === riverRow() || j === riverRow() + 1)) continue;
         const exits = legalExits(d, i, j);
         if (!exits.includes(d) || !exits.includes(leftOf(d)) || !legalExits(opposite(d), i, j).length) continue;
         lt = { i, j, d };
@@ -6518,7 +6533,7 @@ const PRESSURE_END = difficulty.getTuning().pressureEnd;
       for (let j = 1; j < GRID_J && !st; j++) {
         for (const d of [1, 3, 0, 2]) {
           const d2 = hand === 'right' ? rightOf(d) : leftOf(d);
-          if (ringAxisAt(i, j) || approachRoom(d, i, j) < 12 || !legalExits(d, i, j).includes(d2)) continue;
+          if (ringAxisAt(i, j) || nearCurve(i, j) || approachRoom(d, i, j) < 12 || !legalExits(d, i, j).includes(d2)) continue;
           const n = nextIntersection(d2, i, j);
           const exit = n && net.laneByGrid(d2, n.i, n.j);
           if (!exit || !legalExits(d2, n.i, n.j).includes(d2) || !net.laneByGrid(opposite(d2), i, j)) continue;
@@ -6736,11 +6751,22 @@ const PRESSURE_END = difficulty.getTuning().pressureEnd;
   let pI = -1; let pJ = -1; let pD = -1;
   outerPass: for (let i = 1; i < GRID_I; i++) {
     for (let j = 1; j < GRID_J; j++) {
-      if (ringAxisAt(i, j)) continue;
+      if (ringAxisAt(i, j) || nearCurve(i, j)) continue;
       for (const d of [0, 1, 2, 3]) {
         // Straight on out of this junction, and straight on out of the next, so the pass has road.
         if (!legalExits(d, i, j).includes(d)) continue;
+        // The route gate below turns left here instead, so that has to be a real exit too.
+        if (!legalExits(d, i, j).includes(leftOf(d))) continue;
         if (approachRoom(d, i, j) < 30) continue;
+        // ...and for the whole [d, d, d] route the cars are given: a T-junction two blocks on (the
+        // turbine square's blades make several) turns the leader into the taxi mid-pass.
+        let at = { i, j };
+        let through = true;
+        for (let n = 0; n < 2 && through; n++) {
+          at = nextIntersection(d, at.i, at.j);
+          through = Boolean(at) && legalExits(d, at.i, at.j).includes(d) && !nearCurve(at.i, at.j);
+        }
+        if (!through) continue;
         pI = i; pJ = j; pD = d;
         break outerPass;
       }
@@ -7249,6 +7275,21 @@ check('every intersection is routable from every approach', unroutable === 0,
     return best;
   };
 
+  // The curved street's lanes (city/curvedstreet.js) are no grid line's, so a segment on one has
+  // no "one LANE off the centreline" to be measured against; the bend test below covers them.
+  const curvedSamples = [];
+  const bentLane = (l) => l && !l.degenerate && l.edge.curve.kind !== 'line';
+  for (const l of cityNetwork().lanes) {
+    if (!bentLane(l)) continue;
+    for (let s = 0; s <= l.length; s += 0.25) curvedSamples.push(l.path.at(s));
+  }
+  // ...and the turns on and off them, which the grid's junction-box arithmetic cannot place either.
+  for (const t of cityNetwork().turnById.values()) {
+    if (!t.legal) continue;
+    if (!bentLane(cityNetwork().laneById.get(t.inLane)) && !bentLane(cityNetwork().laneById.get(t.outLane))) continue;
+    for (let s = 0; s <= t.length; s += 0.25) curvedSamples.push(t.path.at(s));
+  }
+  const onCurvedLane = (p) => curvedSamples.some((q) => Math.hypot(q.x - p.x, q.z - p.z) < 0.3);
   const planned = routePath(rTaxi, rTaxi.route);
   let offRoad = 0;
   let wrongLane = 0;
@@ -7275,7 +7316,7 @@ check('every intersection is routable from every approach', unroutable === 0,
       // Whichever centreline is nearer is the road the point is on, and it is that road's width
       // the band has to fit inside.
       const half = dx <= dz ? hz : hx;
-      if (!inJunction && Math.min(dx, dz) + BAND_HALF > half) offRoad += 1;
+      if (!inJunction && Math.min(dx, dz) + BAND_HALF > half && !onCurvedLane(p)) offRoad += 1;
       drift = Math.max(drift, distToPath(p, planned));
     }
 
@@ -7295,6 +7336,7 @@ check('every intersection is routable from every approach', unroutable === 0,
       const alongLine = dirX ? lineNearX(alongMid) : lineNearZ(alongMid);
       if (Math.abs(alongMid - alongLine) < box) continue;                  // inside a junction box
       if (Math.hypot(b.x - a.x, b.z - a.z) < 1) continue;
+      if (onCurvedLane(a) || onCurvedLane(b)) continue;
       const crossLine = dirX ? lineNearZ(cross) : lineNearX(cross);
       const sign = dirX ? Math.sign(b.x - a.x) : Math.sign(b.z - a.z);
       const off = dirX ? laneOffX(lineIndexZ(cross)) : laneOffZ(lineIndexX(cross));
@@ -7329,7 +7371,11 @@ check('every intersection is routable from every approach', unroutable === 0,
   const curved = net.lanes.filter((l) => !l.degenerate && l.edge.curve.kind !== 'line');
   if (curved.length) {
     // The head of the bend: no curved lane feeds it, bar its own twin running the other way.
-    const first = curved.find((l) => !curved.some((m) => m.to === l.from && m.from !== l.to));
+    // Of the two heads a two-way bend has, one with a road leading into it: the curved street's
+    // ring end has none along the bend's own line (city/curvedstreet.js).
+    const heads = curved.filter((l) => !curved.some((m) => m.to === l.from && m.from !== l.to));
+    const fedHead = (l) => { const n = net.nodeById.get(l.from); return net.laneByGrid(net.dirOfLane(l), n.gi, n.gj); };
+    const first = heads.find(fedHead) ?? heads[0];
     const A = net.nodeById.get(first.from);
     const d = net.dirOfLane(first);
     // Down the bend, then whichever legal way out of its far junction comes first: straight on is
@@ -7342,7 +7388,14 @@ check('every intersection is routable from every approach', unroutable === 0,
       end = next;
     }
     route.push(net.dirOfLane(net.laneById.get(net.turnById.get(end.exits[0]).outLane)));
-    const car = { state: 'drive', lane: net.laneByGrid(d, A.gi, A.gj), s: 1, i: A.gi, j: A.gj, d };
+    // From the lane into the head of the bend — or, where the bend starts at a junction nothing
+    // arrives at along it (the curved street's ring end), from the bend's own first lane.
+    const behind = net.laneByGrid(d, A.gi, A.gj);
+    const firstTo = net.nodeById.get(first.to);
+    const car = behind
+      ? { state: 'drive', lane: behind, s: 1, i: A.gi, j: A.gj, d }
+      : { state: 'drive', lane: first, s: 1, i: firstTo.gi, j: firstTo.gj, d };
+    if (!behind) route.shift();
     let tail = first;
     for (let next; (next = curved.find((m) => m.from === tail.to && m.to !== tail.from)); ) tail = next;
     const Z = net.nodeById.get(tail.to);
@@ -7351,7 +7404,12 @@ check('every intersection is routable from every approach', unroutable === 0,
     const along = (p) => (isXAxis(d) ? p.x : p.z);
     const lo = Math.min(along(A), along(Z)) - 6;
     const hi = Math.max(along(A), along(Z)) + 6;
-    const pts = routePath(car, route, { onward: false }).filter((p) => along(p) > lo && along(p) < hi);
+    // ...and nothing in the destination junction itself, which the window above leaves in when the
+    // way out of the far end is a turn along it (the curved street's ends a ring corner away).
+    const outLane = net.laneById.get(net.turnById.get(tail.exits[0]).outLane);
+    const dest = net.nodeById.get(outLane.to);
+    const pts = routePath(car, route, { onward: false }).filter((p) => along(p) > lo && along(p) < hi
+      && Math.hypot(p.x - dest.x, p.z - dest.z) > ROAD_W / 2);
     const ref = [];
     for (const l of net.lanes) if (!l.degenerate) for (let s = 0; s <= l.length; s += 0.05) ref.push(l.path.at(s));
     for (const t of net.turnById.values()) if (t.legal) for (let s = 0; s <= t.length; s += 0.05) ref.push(t.path.at(s));
@@ -7390,7 +7448,11 @@ check('every intersection is routable from every approach', unroutable === 0,
   const curved = net.lanes.filter((l) => !l.degenerate && l.edge.curve.kind !== 'line');
   if (curved.length) {
     // The head of the bend: no curved lane feeds it, bar its own twin running the other way.
-    const first = curved.find((l) => !curved.some((m) => m.to === l.from && m.from !== l.to));
+    // Of the two heads a two-way bend has, one with a road leading into it: the curved street's
+    // ring end has none along the bend's own line (city/curvedstreet.js).
+    const heads = curved.filter((l) => !curved.some((m) => m.to === l.from && m.from !== l.to));
+    const fedHead = (l) => { const n = net.nodeById.get(l.from); return net.laneByGrid(net.dirOfLane(l), n.gi, n.gj); };
+    const first = heads.find(fedHead) ?? heads[0];
     const last = (() => {
       // Follow the chain from the head rather than searching, so a two-way bend ends where this
       // direction does.
@@ -8036,7 +8098,9 @@ check('the taxi is an ordinary car in the traffic array',
   const lRng = makeRng(seed + 91);
   const ints = allIntersections();
   let taps = 0, offered = 0, swapped = 0, arrived = 0, jumps = 0, stale = 0;
-  for (let k = 0; k < 30; k++) {
+  // 40 rather than 30 since the turbine square: its T-junctions take some late swaps out of the
+  // running (there is no corner to take where a blade closed it), and 30 offered exactly 5.
+  for (let k = 0; k < 40; k++) {
     lTaxi.route = findRoute(planOrigin(lTaxi), ints[lRng.int(0, ints.length - 1)]) ?? [];
     lTaxi.routeConsumed = false;
     for (let g = 0; g < 3000 && !crossingOrigin(lTaxi); g++) lTraffic.update(1 / 60);
@@ -11104,7 +11168,9 @@ function rideToPickup() {
   };
   const cornering = [];
   const cruising = [];
-  for (let k = 0; k < 8; k++) {
+  // Twelve cities rather than eight since the turbine square, whose blades leave fewer corners to
+  // break a sightline round on its bank: eight lost none out of sight on this seed.
+  for (let k = 0; k < 12; k++) {
     const a = chase(seed + 500 + k, BOOST_DURATION, zigzag);
     const b = chase(seed + 500 + k, 0, across);
     if (a) cornering.push(a);
@@ -19167,7 +19233,9 @@ let chopperOrder; // likewise
         // A cop turning round in the road (UTURN_* in sim/traffic.js, `wantsToTurnRound` in
         // game/robbery.js): how many, and whether the arc ever meets anything.
         let uturns = 0; let uturnOverlap = 0; let uturnTaxi = Infinity;
-        for (let k = 0; k < 12; k++) {
+        // 18 since the turbine square: its T-junctions take straights away, and passes need them —
+        // the bank's getaways on this seed went round 0 times in 12.
+        for (let k = 0; k < 18; k++) {
           const s3 = new THREE.Scene();
           const t3 = createTraffic(makeRng(seed + 300 + k * 17), s3, 18, 30);
           const f3 = createFareSystem(makeRng(seed + 55), s3);
@@ -19742,6 +19810,9 @@ let chopperOrder; // likewise
     let rejectedHere = 0;
     for (let i = 0; i <= GRID_I; i++) {
       for (let j = 0; j <= GRID_J; j++) {
+        // The curved street's three junctions never reach the board (`isCurveJunction`): the kerb
+        // `cornerFor` assumes is not there, so what the camera sees of it is not a question.
+        if (isCurveJunction(i, j)) continue;
         corners += 1;
         const c = cornerFor(i, j);
         const seen = cornerSeen(i, j);
@@ -20795,7 +20866,11 @@ let chopperOrder; // likewise
   // drives under it is not a collision. The routed exit is straight on, which the launch requires;
   // the same crossing with a turn there is the ordinary hop.
   {
-    const lLine = bridgeLines().find((i) => riverCrossing(i) === 'fixed');
+    // The fixed bridge the curved street does not run off (city/curvedstreet.js): the run-ups
+    // below are staged a block or two back along the line, which on the curve's line bends away.
+    const fixedLines = bridgeLines().filter((i) => riverCrossing(i) === 'fixed');
+    const lLine = fixedLines.find((i) => ![...Array(GRID_J + 1).keys()].some((j) => isCurveJunction(i, j)))
+      ?? fixedLines[0];
     const fly = (exitDir, { release = false, carry = 3 } = {}) => {
       const lScene = new THREE.Scene();
       const lTraffic = createTraffic(makeRng(seed + 96), lScene, 1);
@@ -20894,10 +20969,16 @@ let chopperOrder; // likewise
     // runs out a few units short of the launch point, and used to fly the ordinary hop at the kick's
     // speed. DRIFT_LAUNCH_GRACE honours it. And free-driving — no route — the far bank's exit is no
     // longer a dice roll that can quietly take the jackpot away.
+    // Kicked from the east-west street at row line `j` into a bridge's line: the first fixed bridge
+    // whose corner there is approached from the west, clear of the square's blades and not the curved
+    // street's apex (city/curvedstreet.js) — neither leaves a corner to kick out of.
+    const kickLine = (j) => fixedLines.find((i) => !isParkwayMid(i, j)
+      && cityNetwork().laneByGrid(DIR.PX, i, j)) ?? lLine;
     const kickInto = (j, rest, trafficSeed = 98) => {
       const kTraffic = createTraffic(makeRng(seed + trafficSeed), new THREE.Scene(), 1);
       const kTaxi = kTraffic.taxi;
-      const dIn = [DIR.PX, DIR.NX].find((d) => placeCar(kTaxi, d, lLine, j, 14));
+      const line = j === riverRow() ? lLine : kickLine(j);
+      const dIn = [DIR.PX, DIR.NX].find((d) => placeCar(kTaxi, d, line, j, 14));
       kTaxi.parked = false;
       kTaxi.v = 22;
       kTaxi.route = [DIR.PZ, ...rest];
@@ -20978,7 +21059,16 @@ let chopperOrder; // likewise
       placeCar(jTaxi, DIR.PZ, bLine, riverRow(), 10);
       jTaxi.parked = false;
       jTaxi.v = 8;
-      jTaxi.route = [DIR.PZ, DIR.PX, DIR.PZ];
+      // A turn at the far bank, and on from there: east and then north by default, or whichever
+      // turn and onward leg are open — a blade of the turbine square can close the north one.
+      const far = { i: bLine, j: riverRow() + 1 };
+      const legs = [DIR.PX, DIR.NX].flatMap((t) => {
+        const next = nextIntersection(t, far.i, far.j);
+        if (!next || !legalExits(DIR.PZ, far.i, far.j).includes(t)) return [];
+        const on = legalExits(t, next.i, next.j);
+        return on.length ? [[t, on.includes(DIR.PZ) ? DIR.PZ : on[0]]] : [];
+      });
+      jTaxi.route = [DIR.PZ, ...(legs[0] ?? [DIR.PX, DIR.PZ])];
       jTaxi.routeConsumed = false;
       bridge.request();
       const deck = new Set(bridge.laneIds);

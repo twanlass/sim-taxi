@@ -455,7 +455,9 @@ function benchParts(x, z, y, yaw, rng) {
 
   // End frames, and the posts the back is bolted to.
   for (const side of [-1, 1]) {
-    box(0.09, BENCH_SEAT_Y, 0.62, side * BENCH_END_X, BENCH_SEAT_Y / 2, 0, frame);
+    // 0.64 deep, 0.01 proud of the seat slats' front edge at 0.31: at 0.62 the two faces were one
+    // plane, and a bench facing +Z on the turbine square's layout showed it (zfight, city 29).
+    box(0.09, BENCH_SEAT_Y, 0.64, side * BENCH_END_X, BENCH_SEAT_Y / 2, 0, frame);
     box(0.09, 0.62, 0.08, side * BENCH_END_X, BENCH_SEAT_Y + 0.31, BENCH_BACK_Z, frame);
   }
 
@@ -622,6 +624,18 @@ export function parkPlots(blocks) {
 const TRUNK_GAP = 0.5;
 
 export function createProps(rng, blocks) {
+  // The warped city is a blockout (city/blockout.js): nothing below knows where its blocks are, so
+  // it gets no trees, benches, pond, court or skatepark.
+  if (blocks.warp) {
+    const empty = new THREE.BufferGeometry();
+    // Everything downstream reads `attributes.position` (the sightline's occluder scan for one).
+    empty.setAttribute('position', new THREE.Float32BufferAttribute([], 3));
+    const mesh = new THREE.Mesh(empty, propMaterial({ smooth: true }));
+    return {
+      mesh, pond: null, pondMesh: null, benches: [], statue: null, crowns: [], court: null, courtMesh: null,
+      skatepark: null, skateMesh: null, boombox: null,
+    };
+  }
   const parts = [];
 
   // Every tree stamped with its own trunk position, so the entrance animation (game/cityentry.js)
