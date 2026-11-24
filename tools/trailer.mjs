@@ -135,18 +135,37 @@ async function findMoment(page, beat) {
   for (let f = 0; f < limit; f++) {
     const r = await page.evaluate(async () => { await window.__trailer.step(1); return window.__director.update(); });
     if (r.error) throw new Error(r.error);
-    if (r.event) { console.log('  at the moment', JSON.stringify(await page.evaluate(() => window.__director.info())).slice(0, 300)); return f; }
+    if (r.event) {
+      console.log('  at the moment', JSON.stringify(await page.evaluate(() => window.__director.info())).slice(0, 300));
+      // Play on through the rest of the take: a ram after the moment spoils it as much as one before.
+      const at = await page.evaluate(() => window.__director.frames);
+      for (let k = 0; k < Math.round(beat.post * FPS); k++) {
+        await page.evaluate(async () => { await window.__trailer.step(1); window.__director.update(); });
+      }
+      const stalls = await page.evaluate(() => window.__director.stalls());
+      const rams = stalls.filter((s) => s >= at - Math.round(beat.pre * FPS) - 30 && s <= at + Math.round(beat.post * FPS));
+      if (rams.length) console.log(`  the taxi rams something ${rams.length}× inside the take`);
+      return rams.length && !flag('allow-rams') ? -2 : f;
+    }
     if (f % (beat.name === "mega" ? 120 : 600) === 0 && f) console.log(`  …${f / FPS}s`, JSON.stringify(await page.evaluate(() => window.__director.info())));
   }
   return -1;
 }
 
 async function shootBeat(browser, beat) {
-  console.log(`\n${beat.name}: finding the moment`);
-  let a = await openBeat(browser, beat);
-  const moment = await findMoment(a.page, beat);
-  await a.context.close();
-  if (moment < 0) { console.log(`  ${beat.name}: no moment inside ${beat.max}s — skipped`); return null; }
+  // `--runs 3,5,8`: run seeds to try in turn until one gives the moment with no ram inside the take.
+  const runs = (arg('runs', null)?.split(',').map(Number)) ?? [Number(arg('run', beat.run))];
+  let moment = -1;
+  let a;
+  for (const run of runs) {
+    beat = { ...beat, run };
+    console.log(`\n${beat.name}: finding the moment (run ${run})`);
+    a = await openBeat(browser, beat);
+    moment = await findMoment(a.page, beat);
+    await a.context.close();
+    if (moment >= 0) break;
+  }
+  if (moment < 0) { console.log(`  ${beat.name}: no clean moment inside ${beat.max}s — skipped`); return null; }
   console.log(`  moment at frame ${moment} (${(moment / FPS).toFixed(2)}s)`);
   if (flag('find-only')) return { moment };
 

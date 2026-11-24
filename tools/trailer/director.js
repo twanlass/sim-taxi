@@ -17,6 +17,7 @@
   let mega = { routed: false, requested: false, held: false };
   let zoomNow = null;
   let lastKick = -1;
+  const stalls = [];
   let kickBefore = null;
 
   const T = () => window.__taxi;
@@ -140,6 +141,9 @@
       zoomNow = zoomNow == null ? t.camera.state.zoom : zoomNow + (zoomPin - zoomNow) * 0.08;
       t.camera.state.zoom = zoomNow;
     }
+    // Every frame the taxi rams something (sim/collisions.js stalls it), so the recorder can turn
+    // down a take with a ram inside it.
+    if (rose('stall', Boolean(t.traffic.taxi.stalled))) stalls.push(frames);
     const fn = EVENTS[beat];
     const event = fn ? Boolean(fn()) : false;
     return { event };
@@ -147,6 +151,9 @@
 
   window.__director = {
     beat,
+    /** Frames (counted from the first warmed frame) on which the taxi rammed something. */
+    stalls: () => stalls.slice(),
+    get frames() { return frames; },
     update: () => { try { return frame(); } catch (error) { return { error: String(error?.stack || error) }; } },
     info: () => {
       const t = T();

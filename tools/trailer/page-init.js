@@ -100,6 +100,26 @@
     return new Uint8Array(out.buffer);
   }
 
+  // --- 4. CSS animations and transitions on the same clock --------------------------------------
+  // The HUD's motion (the taxi marker's bob, fades, the combo flame) runs on the compositor's wall
+  // clock, and a captured frame takes a second or two of wall clock: left alone, every frame samples
+  // the bob at a random phase and the marker jumps about. Each one is paused and placed at its own
+  // fake-clock age instead.
+  function stepDomAnimations() {
+    if (typeof document === 'undefined' || !document.getAnimations) return;
+    for (const a of document.getAnimations()) {
+      try {
+        if (a.__born == null) { a.__born = now - (a.currentTime ?? 0); a.pause(); }
+        const t = now - a.__born;
+        const end = a.effect?.getComputedTiming?.().endTime;
+        // Past its end, finish it for real: a paused animation never fires `finish`/`animationend`,
+        // and the HUD removes its coin bursts and cash pops on those (they piled up on the taxi).
+        if (Number.isFinite(end) && t >= end) a.finish();
+        else a.currentTime = t;
+      } catch {}
+    }
+  }
+
   window.__trailer = {
     FPS,
     get frame() { return frame; },
@@ -117,6 +137,7 @@
         for (const { cb } of run) {
           try { cb(now); } catch (error) { console.error('[trailer] frame', error); }
         }
+        stepDomAnimations();
       }
     },
     /** Run the audio context to its end and return [from, to) seconds of it as WAV, base64. */
