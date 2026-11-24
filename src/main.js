@@ -385,7 +385,7 @@ document.body.appendChild(renderer.domElement);
 // AO, painterly, the paint look, the rim and cloud shadows: all baked into the
 // shader `propMaterial()` builds, so all decided here, before a single mesh exists. In
 // game/renderpath.js because the model workshop's bench takes the same decisions.
-decideLooks(budget);
+decideLooks(budget, seed);
 const aoEnabled = budget.ao;
 // Which brush a static mesh wears (see PAINT_FRAGMENT): 1 buildings, 2 ground (lawns only).
 const brush = (mesh, kind) => {

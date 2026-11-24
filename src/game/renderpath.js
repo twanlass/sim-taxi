@@ -12,7 +12,7 @@
 // has none of them.
 
 import {
-  setAmbientOcclusion, setPainterly, setPaintBrushes, setJunctionPaving, setRoadStrokes,
+  setAmbientOcclusion, setPainterly, setPaintBrushes, setJunctionPaving, setRoadStrokes, setRoadTexture,
   setClassicPaint,
   setPaintLook, setRim, rimTuning, setRimTuning, setFlip, setVehiclePaint, setCloudShadows, rimPaintOn, setRimDepth,
 } from '../util/geo.js';
@@ -46,7 +46,7 @@ export function renderBudget() {
  * Every decision `propMaterial()` bakes into the shader it builds, so all of it has to be taken
  * before a single mesh exists: none of it can move afterwards.
  */
-export function decideLooks(budget) {
+export function decideLooks(budget, seed = 0) {
   // The colour grade (game/colorgrade.js) goes on the end of three's fog chunk, after the edge
   // fog's own term — which is why here, once every import has run, and not at its own import.
   installColorGrade();
@@ -65,6 +65,10 @@ export function decideLooks(budget) {
     setPaintBrushes(tiles.wall, tiles.ground, tiles.road);
     setJunctionPaving(params.get('roads') !== 'classic');
     setRoadStrokes(params.get('roadstrokes') === 'classic');
+    // The asphalt's colour variation (`setRoadTexture`): resurfaced runs, wear and mottle, worked
+    // out in the same pass. `?roadtex=classic` is the one flat grey; `?roadtexamt=` scales it.
+    const texAmt = Number(params.get('roadtexamt') ?? 1);
+    setRoadTexture(params.get('roadtex') === 'classic' ? 0 : Number.isFinite(texAmt) ? texAmt : 1, seed);
   }
   setClassicPaint(getPaintClassic());
   setPaintLook(getPaintLook());

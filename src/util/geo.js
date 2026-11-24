@@ -7,7 +7,7 @@ import { createCloudNodes } from './gpuclouds.js';
 import { createPaving } from './gpupaving.js';
 import { PALETTE, plazaLook } from '../palette.js';
 import {
-  PITCH, HALF_SPAN_X, HALF_SPAN_Z, HALF_ROAD, HALF_ARTERIAL, GRID_I, GRID_J, isArterialX, isArterialZ, RIVER_EXTRA,
+  PITCH, HALF_SPAN_X, HALF_SPAN_Z, HALF_ROAD, HALF_ARTERIAL, GRID_I, GRID_J, LANE_TO_KERB, isArterialX, isArterialZ, RIVER_EXTRA,
   riverMidZ, riverRow, isUnsignalised, isSegmentClosed, lineX, lineZ,
 } from '../city/grid.js';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
@@ -291,6 +291,10 @@ export const PAINT_UNIFORMS = {
   uJunctionMortar: { value: new THREE.Vector3(1, 1, 1) },    // the joints' ratio
   uJunctionAt: { value: new THREE.Vector2(-99, -99) },       // which junction, as (i, j)
   uJunctionBrick: { value: new THREE.Vector3(0.9, 0.45, 0.07) }, // brick length, width, joint, world units
+  // The asphalt's own colour variation (`setRoadTexture`): x the swing between one resurfaced run
+  // and the next, y the soft mottle, z the wear across a lane, w the city's offset into the hashes.
+  uRoadTex: { value: new THREE.Vector4(0, 0, 0, 0) },
+  uRoadTexGrid: { value: new THREE.Vector3(GRID_I, GRID_J, LANE_TO_KERB) }, // the last real line each way, then kerb to lane centre
   uBrushTile: { value: 8 },     // world units per tile repeat
   uBrushAmt: { value: 0.7 },   // value swing of a stroke (0.22 was invisible at play zoom)
 };
@@ -413,6 +417,35 @@ export function placeJunctionPaving(rng, visible = () => true) {
   return pick;
 }
 
+/**
+ * The asphalt's colour variation (Tyler, 2026-11-23: "It's all one shade of gray ... mostly color /
+ * albedo"). Three things, all a ratio over the lit road in the ground's paint pass, so shadows, wet
+ * sheen and reflections stay the road's, and all worked out from the grid arithmetic the plaza
+ * already does: no texture, no geometry.
+ *
+ * - **Resurfaced runs.** A street is laid in lengths of 22 to 48 units, each a little lighter or
+ *   darker and a hair warmer or cooler than the next, with the seam square across the road. The
+ *   length and the phase are per street, so the seams never line up into a grid across the map
+ *   (a tone per junction-to-junction segment was the obvious cut and is the checkerboard the paved
+ *   junctions were dropped for). A junction box belongs to the road that runs through it: the
+ *   arterial, and between two of a kind the east-west one, the rule the strokes used.
+ * - **Wear.** Two paler wheel tracks a lane, a darker drip line between them that deepens on the
+ *   way up to a junction, and a darker gutter along each kerb. Faded out inside the box.
+ * - **Mottle.** One octave of value noise at 11 units, which also swells and thins the wear so no
+ *   track is ruled the length of a street.
+ *
+ * `amount` scales all three (`?roadtexamt=`); 0 is the plain road (`?roadtex=classic`).
+ */
+//
+// Cost, tools/gpucost.mjs at 780x1688 on SwiftShader's WebGL, against main: 934 ms to 975 ms a frame,
+// +4.3% (the painted strokes it stands where were about a third). Ten hashes and no texture read.
+// 0.11 of wear ruled a dark comb up to every junction at play zoom; 0.085 leaves it as wear.
+export const ROAD_TEX = { run: 0.16, mottle: 0.1, wear: 0.085 };
+export function setRoadTexture(amount = 1, seed = 0) {
+  const a = Math.max(0, amount);
+  PAINT_UNIFORMS.uRoadTex.value.set(ROAD_TEX.run * a, ROAD_TEX.mottle * a, ROAD_TEX.wear * a, (seed % 97) + 0.5);
+}
+
 if (GPU) {
   let paving = null;
   bindPropNodes({ paving: () => (painterlyEnabled ? (paving ??= createPaving(PAINT_UNIFORMS)) : null) });
@@ -452,6 +485,30 @@ float paintNoise(vec2 p) {
 }
 uniform float uBrushTile;
 uniform float uBrushAmt;
+uniform vec4 uRoadTex;
+uniform vec3 uRoadTexGrid;
+// One resurfaced run of a street: x its value, y its hue, both -0.5 to 0.5. s is the distance
+// along the street. The seam is 0.3 units of cross-fade, which is what keeps a square edge from
+// stair-stepping down this camera's diagonal.
+vec2 roadRun(float s, float line) {
+	float h = paintHash(vec2(line, uRoadTex.w));
+	float len = 22.0 + 26.0 * h;
+	float u = s / len + fract(h * 37.0);
+	float c = floor(u);
+	float k = smoothstep(1.0 - 0.3 / len, 1.0, fract(u));
+	float a = paintHash(vec2(c, line + uRoadTex.w));
+	float b = paintHash(vec2(c + 1.0, line + uRoadTex.w));
+	return mix(vec2(a, fract(a * 7.3)), vec2(b, fract(b * 7.3)), k) - 0.5;
+}
+// The wear across one road: d from its centreline, h its half-width, near how far short of the
+// next junction box (0 at its edge). Measured from the kerb, so an arterial's lanes land right.
+float roadWear(float d, float h, float near) {
+	float q = abs(d - (h - uRoadTexGrid.z));
+	float track = 1.0 - smoothstep(0.12, 0.5, abs(q - 0.7));
+	float drip = (1.0 - smoothstep(0.1, 0.45, q)) * (1.0 + (1.0 - smoothstep(1.0, 7.0, near)));
+	float gutter = smoothstep(h - 0.9, h - 0.1, d);
+	return (0.6 * track - 0.3 * drip - 0.6 * gutter) * smoothstep(0.0, 1.5, near);
+}
 `;
 
 // Spliced in after SHADOW_LIGHT. The shade ratio is 0 on a fully lit face and 1 in full shade, so
@@ -517,6 +574,7 @@ const PAINT_FRAGMENT = /* glsl */ `
 					// screen. The two road-tile reads and the junction arithmetic below are skipped
 					// there rather than computed and thrown away (perf pass, 2026-10-18).
 					float hold = (1.0 - grassy) * (1.0 - smoothstep(0.35, 0.6, lum));
+					float plaza = 0.0;
 					if (uJunctionTint.w > 0.0 && vPaintWorld.y < 0.1) {
 						vec2 jp = vPaintWorld.xz - vec2(0.0, vPaintWorld.z > uRiverZ.x ? uRiverZ.y : 0.0);
 						vec2 jl = floor((jp + uRoadGrid.xy) / uRoadGrid.z + 0.5);
@@ -567,7 +625,36 @@ const PAINT_FRAGMENT = /* glsl */ `
 							// Sunlit dry asphalt sits under 0.42 and keeps the whole ratio.
 							float jWet = 1.0 - smoothstep(0.42, 0.7, lum);
 							gl_FragColor.rgb *= mix(vec3(1.0), jt, jBox * uJunctionTint.w * jWet);
+							plaza = jBox * uJunctionTint.w;
 						}
+					}
+					// The asphalt's colour variation (setRoadTexture, where the reasoning is). Held off
+					// the lawns, the lane paint, the plaza, and (like the plaza) anything already
+					// bright, which is the wet road at night.
+					float tHold = (1.0 - grassy) * (1.0 - smoothstep(0.42, 0.7, lum)) * (1.0 - plaza);
+					if (uRoadTex.x + uRoadTex.y + uRoadTex.z > 0.0 && abs(vPaintWorld.y) < 0.1 && tHold > 0.0) {
+						vec2 tp = vPaintWorld.xz - vec2(0.0, vPaintWorld.z > uRiverZ.x ? uRiverZ.y : 0.0);
+						vec2 tl = floor((tp + uRoadGrid.xy) / uRoadGrid.z + 0.5);
+						vec2 td = abs(tp + uRoadGrid.xy - tl * uRoadGrid.z);
+						float aX = mod(floor(uRoadArt.x / exp2(tl.y)), 2.0);  // the road along x at line j
+						float aZ = mod(floor(uRoadArt.y / exp2(tl.x)), 2.0);  // the road along z at line i
+						float hX = mix(uRoadArt.z, uRoadArt.w, aX);
+						float hZ = mix(uRoadArt.z, uRoadArt.w, aZ);
+						// Only the lines the city has: the arithmetic carries on out over the fade skirt.
+						float realX = step(-0.5, tl.y) * step(tl.y, uRoadTexGrid.y + 0.5);
+						float realZ = step(-0.5, tl.x) * step(tl.x, uRoadTexGrid.x + 0.5);
+						float inX = smoothstep(-0.12, 0.12, hX - td.y) * realX;
+						float inZ = smoothstep(-0.12, 0.12, hZ - td.x) * realZ;
+						float zWins = aZ * (1.0 - aX);
+						float wX = inX * mix(1.0, 1.0 - inZ, zWins);
+						float wZ = inZ * mix(1.0 - inX, 1.0, zWins);
+						float tn = paintNoise(vPaintWorld.xz / 11.0 + uRoadTex.w);
+						vec2 run = roadRun(tp.x, tl.y) * wX + roadRun(tp.y, tl.x + 57.0) * wZ;
+						float wear = roadWear(td.y, hX, mix(9.0, td.x - hZ, realZ)) * inX
+							+ roadWear(td.x, hZ, mix(9.0, td.y - hX, realX)) * inZ;
+						float tv = run.x * uRoadTex.x + (tn - 0.5) * uRoadTex.y + wear * (0.35 + 1.3 * tn) * uRoadTex.z;
+						vec3 tex = (1.0 + tv) * (1.0 + run.y * uRoadTex.x * 0.6 * vec3(1.0, 0.1, -1.0));
+						gl_FragColor.rgb *= mix(vec3(1.0), tex, tHold);
 					}
 					vec2 mq = vPaintWorld.xz / uRoadMaskScale;
 					float m = hold > 0.0 && uRoadAmt > 0.0 ? paintNoise(mq) * 0.65 + paintNoise(mq * 2.3 + 17.1) * 0.35 : 0.0;

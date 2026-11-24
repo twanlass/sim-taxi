@@ -2,7 +2,8 @@
  * The paved junction as nodes: the plaza's brick field, soldier course and kerb-stone band from
  * PAINT_FRAGMENT (util/geo.js), where the reasoning for every number lives.
  *
- * That is the whole of the painterly look that is on by default. Its other parts are all dialled
+ * That and the asphalt's colour variation (`setRoadTexture`) are the whole of the painterly look
+ * that is on by default. Its other parts are all dialled
  * to zero (lawn strokes, the wall-foot fade, the terminator tint) or behind a classic toggle
  * (`?roadstrokes=classic`), and none of those is ported.
  *
@@ -11,9 +12,40 @@
  */
 import { abs, dot, exp2, float, floor, fract, If, length, min, mix, mod, select, sin, smoothstep, step, uniform, vec2, vec3 } from 'three/tsl';
 
+const LUMA = vec3(0.2126, 0.7152, 0.0722);
+
 const hash = (p) => fract(sin(dot(p, vec2(127.1, 311.7))).mul(43758.5453));
 
+// paintNoise in the GLSL: one octave of value noise.
+const noise = (p) => {
+  const i = floor(p).toVar();
+  const f0 = fract(p).toVar();
+  const f = f0.mul(f0).mul(f0.mul(-2).add(3)).toVar();
+  return mix(mix(hash(i), hash(i.add(vec2(1, 0))), f.x), mix(hash(i.add(vec2(0, 1))), hash(i.add(vec2(1, 1))), f.x), f.y);
+};
+
 export function createPaving(U) {
+  const tex = uniform(U.uRoadTex.value);
+  const texGrid = uniform(U.uRoadTexGrid.value);
+  // roadRun and roadWear in PAINT_COMMON (util/geo.js), where the reasoning is.
+  const roadRun = (s, line) => {
+    const h = hash(vec2(line, tex.w)).toVar();
+    const len = h.mul(26).add(22).toVar();
+    const u = s.div(len).add(fract(h.mul(37))).toVar();
+    const c = floor(u).toVar();
+    const k = smoothstep(float(1).sub(float(0.3).div(len)), 1.0, fract(u));
+    const a = hash(vec2(c, line.add(tex.w))).toVar();
+    const b = hash(vec2(c.add(1), line.add(tex.w))).toVar();
+    return mix(vec2(a, fract(a.mul(7.3))), vec2(b, fract(b.mul(7.3))), k).sub(0.5);
+  };
+  const roadWear = (d, h, near) => {
+    const q = abs(d.sub(h.sub(texGrid.z))).toVar();
+    const track = float(1).sub(smoothstep(0.12, 0.5, abs(q.sub(0.7))));
+    const drip = float(1).sub(smoothstep(0.1, 0.45, q))
+      .mul(float(1).sub(smoothstep(1.0, 7.0, near)).add(1));
+    const gutter = smoothstep(h.sub(0.9), h.sub(0.1), d);
+    return track.mul(0.6).sub(drip.mul(0.3)).sub(gutter.mul(0.6)).mul(smoothstep(0.0, 1.5, near));
+  };
   const grid = uniform(U.uRoadGrid.value);
   const riverZ = uniform(U.uRiverZ.value);
   const art = uniform(U.uRoadArt.value);
@@ -27,6 +59,10 @@ export function createPaving(U) {
 
   return function paving(display, world) {
     const out = display.toVar();
+    const plaza = float(0).toVar();
+    // Before the plaza multiplies it: the two holds below read the bare road.
+    const lum = dot(display, LUMA).toVar();
+    const grassy = smoothstep(0.015, 0.06, display.g.sub(display.r.max(display.b))).toVar();
     If(tint.w.greaterThan(0).and(world.y.lessThan(0.1)), () => {
       const jp = world.xz.sub(vec2(0, select(world.z.greaterThan(riverZ.x), riverZ.y, 0.0))).toVar();
       const jl = floor(jp.add(grid.xy).div(grid.z).add(0.5)).toVar();
@@ -63,7 +99,33 @@ export function createPaving(U) {
         // The lift comes off where the asphalt is already bright (wet night reflections).
         const wet = float(1).sub(smoothstep(0.42, 0.7, dot(display, vec3(0.2126, 0.7152, 0.0722))));
         out.mulAssign(mix(vec3(1), select(style.greaterThan(0.5), framed, plain), box.mul(tint.w).mul(wet)));
+        plaza.assign(box.mul(tint.w));
       });
+    });
+    // The asphalt's colour variation (setRoadTexture in util/geo.js).
+    const hold = float(1).sub(grassy).mul(float(1).sub(smoothstep(0.42, 0.7, lum))).mul(float(1).sub(plaza)).toVar();
+    If(tex.x.add(tex.y).add(tex.z).greaterThan(0).and(abs(world.y).lessThan(0.1)).and(hold.greaterThan(0)), () => {
+      const tp = world.xz.sub(vec2(0, select(world.z.greaterThan(riverZ.x), riverZ.y, 0.0))).toVar();
+      const tl = floor(tp.add(grid.xy).div(grid.z).add(0.5)).toVar();
+      const td = abs(tp.add(grid.xy).sub(tl.mul(grid.z))).toVar();
+      const aX = mod(floor(art.x.div(exp2(tl.y))), 2.0).toVar();
+      const aZ = mod(floor(art.y.div(exp2(tl.x))), 2.0).toVar();
+      const hX = mix(art.z, art.w, aX).toVar();
+      const hZ = mix(art.z, art.w, aZ).toVar();
+      const realX = step(-0.5, tl.y).mul(step(tl.y, texGrid.y.add(0.5))).toVar();
+      const realZ = step(-0.5, tl.x).mul(step(tl.x, texGrid.x.add(0.5))).toVar();
+      const inX = smoothstep(-0.12, 0.12, hX.sub(td.y)).mul(realX).toVar();
+      const inZ = smoothstep(-0.12, 0.12, hZ.sub(td.x)).mul(realZ).toVar();
+      const zWins = aZ.mul(float(1).sub(aX)).toVar();
+      const wX = inX.mul(mix(1.0, float(1).sub(inZ), zWins));
+      const wZ = inZ.mul(mix(float(1).sub(inX), 1.0, zWins));
+      const tn = noise(world.xz.div(11).add(tex.w)).toVar();
+      const run = roadRun(tp.x, tl.y).mul(wX).add(roadRun(tp.y, tl.x.add(57)).mul(wZ)).toVar();
+      const wear = roadWear(td.y, hX, mix(9.0, td.x.sub(hZ), realZ)).mul(inX)
+        .add(roadWear(td.x, hZ, mix(9.0, td.y.sub(hX), realX)).mul(inZ));
+      const tv = run.x.mul(tex.x).add(tn.sub(0.5).mul(tex.y)).add(wear.mul(tn.mul(1.3).add(0.35)).mul(tex.z));
+      const ratio = tv.add(1).mul(vec3(1, 0.1, -1).mul(run.y.mul(tex.x).mul(0.6)).add(1));
+      out.mulAssign(mix(vec3(1), ratio, hold));
     });
     return out;
   };

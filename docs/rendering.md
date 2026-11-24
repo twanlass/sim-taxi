@@ -1625,6 +1625,25 @@ pavement a paler, warmer `#CDBFA6`, because the old pair (`#636972` against `#9E
 same khaki under the low warm sun and a block did not separate from its street. Against that, three
 things break the run of tarmac. `?roads=classic` brings back the old road and drops all three.
 
+The asphalt itself is not one grey either (`setRoadTexture`, util/geo.js; `?roadtex=classic` is the
+flat road and `?roadtexamt=` scales it). It is albedo only, a ratio over the lit road in the
+ground's paint pass, worked out from the grid arithmetic with no texture and no geometry:
+
+- **Resurfaced runs.** Each street is laid in lengths of 22 to 48 units, every one a little lighter
+  or darker and a hair warmer or cooler than the next, seamed square across the road. The length and
+  phase are per street, so the seams do not line up across the map. A tone per junction-to-junction
+  segment was the obvious cut, and is the checkerboard the paved junctions were dropped for. A
+  junction box takes the road that runs through it: the arterial, else the east-west one.
+- **Wear.** Two paler wheel tracks a lane, a darker drip line between them that deepens on the way
+  up to a junction, and a darker gutter along each kerb, measured from the kerb so an arterial's
+  lanes land right. Faded out inside the junction box.
+- **Mottle.** One octave of value noise at 11 units, which also swells and thins the wear.
+
+Held off the lane paint, the lawns, the plaza and (like the plaza) a road that is already bright,
+which is the wet road at night. The asphalt patches and manhole covers are their own meshes and
+keep their own colour. It costs +4.3% of a SwiftShader WebGL frame at phone size; the same code
+runs as nodes on WebGPU (util/gpupaving.js).
+
 - **Light bridge decks.** Every crossing, fixed or lifting, wears one light pavement grey
   (`bridgeDeck`, `drawbridgeDeck`), so the river row reads as a different material rather than as
   more street; `bridgeTrim` went paler with it so the parapets still outline the deck.

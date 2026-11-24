@@ -249,6 +249,8 @@ doc; what the classic version was, and why it changed, is in that doc's history 
 | `?plazaspot=classic` | The paved plaza on the side-street four-way nearest the middle of the map (beside the garage in most cities) rather than a random one the camera can see. See `placeJunctionPaving` in util/geo.js |
 | `?plaza=granite` / `tan` / `classic` | The one paved junction in another stone: warm grey or buff paving in a dark frame, or `classic`, the first plaza's red brick with its faint border. The default is charcoal setts in a pale frame. See `PLAZA_LOOKS` in palette.js |
 | `?bridgenormals=classic` | The arched bridge decks lit facet by facet again: ten bands of shading down the carriageway over the hump. By default (2026-10-25) the deck, footways, paint and soffit carry the arch's own smooth normals |
+| `?roadtex=classic` | The asphalt as one flat grey, without its colour variation (resurfaced runs, lane wear, mottle). See `setRoadTexture` in util/geo.js ([rendering.md](rendering.md#roads-bridges-and-the-paved-junction)) |
+| `?roadtexamt=<n>` | Scales that variation: 1 is as shipped, 2 twice as strong, 0 the same as `?roadtex=classic` ([rendering.md](rendering.md#roads-bridges-and-the-paved-junction)) |
 | `?roadstrokes=classic` | The painted brush strokes back on the streets, each a little lighter or darker and a little red or blue, fading in and out in block-sized patches. Off by default since 2026-10-25 |
 | `?painterly=classic` | Without the painterly pass at all: no road strokes even with `?roadstrokes=classic`, and no paved junction |
 | `?bloom=off` | No emissive bloom |
