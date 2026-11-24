@@ -187,6 +187,22 @@ are curtain walls or too narrow to take a window.
 
 `?walls=classic` leaves the walls flat and the windows unframed ([history](rendering-history.md#wall-detail--cityfacadejs)).
 
+### Pixel grain — `city/wallgrain.js`
+
+The towers' walls and roofs carry the pixel street's texel grid (0.25 units, ~6 device pixels on a
+phone), so a building reads at the same pixel resolution as the road in front of it. Each texel
+takes one value from a tone drift (value noise at 2.5 and 0.7 units) plus single light and dark
+speckle texels (about one in 22 each), rounded to a 0.06 ramp through a 2×2 ordered dither, so a tone
+step is a checker of pixels rather than an edge. It is one multiply on the diffuse colour in the
+courses' seam, after them, so shadow, AO and the courses all sit on top unchanged; the grid is laid
+in each face's own plane and salted by its facing, so neighbouring walls differ. Glass, frames and
+the dressings (billboards, vents, signs) are separate meshes and stay smooth. No stains or colour:
+painted wall strokes and colour blotches were both tried and dropped.
+
+Cost about 2 to 3% of a SwiftShader frame (`tools/gpucost.mjs`); not measured on a phone.
+
+`?bldgtex=classic` compiles none of it; `?bldgtexamt=` scales it; `?bldgpx=` sets the texel.
+
 ### Wheel wells — `archedBodyGeometries` in `geometry/wheels.js`
 
 Every road vehicle's lower body — the fleet's cars, truck chassis, the cop cars and cruiser (through
