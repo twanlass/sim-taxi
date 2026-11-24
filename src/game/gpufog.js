@@ -23,7 +23,8 @@ import { GRADE_UNIFORMS, gradeUniform, LUT_SIZE } from './colorgrade.js';
 import { writeGlow } from './gpubloom.js';
 import {
   EDGE_FOG, FOG_HALF_X, FOG_HALF_Z, FOG_RADIUS, FOG_START, FOG_END, FOG_BILLOW, FOG_SLOPE, FOG_DRIFT,
-  FOG_DRIFT_FINE, FOG_WARP, FOG_WARP_SPEED, FLOOR_Y, edgeFogUniform,
+  FOG_DRIFT_FINE, FOG_WARP, FOG_WARP_SPEED, FLOOR_Y, edgeFogUniform, edgeFogSun, FOG_SHADE,
+  FOG_LIGHT_STEP, FOG_LIGHT_GAIN, FOG_SHADE_LIT, FOG_SHADE_DARK, FOG_REGION_COOL, FOG_REGION_WARM, FOG_BODY,
 } from './edgefog.js';
 
 const hash = Fn(([p]) => fract(sin(dot(p, vec2(127.1, 311.7))).mul(43758.5453)));
@@ -70,6 +71,9 @@ export function createFogNode(fog) {
   const edge = uniform(new THREE.Vector4()).onRenderUpdate((_, self) => {
     self.value.set(edgeFogUniform.x, edgeFogUniform.y, edgeFogUniform.z, edgeFogUniform.w);
   });
+  const sun = uniform(new THREE.Vector4()).onRenderUpdate((_, self) => {
+    self.value.set(edgeFogSun.x, edgeFogSun.y, edgeFogSun.z, edgeFogSun.w);
+  });
 
   return Fn(() => {
     const display = sRGBTransferOETF(output.rgb).toVar();
@@ -86,8 +90,11 @@ export function createFogNode(fog) {
       const q = abs(p).sub(vec2(FOG_HALF_X - FOG_RADIUS, FOG_HALF_Z - FOG_RADIUS));
       const d = length(max(q, 0)).add(min(max(q.x, q.y), 0)).sub(FOG_RADIUS);
       const s = p.mul(0.022).add(vec2(0, FOG_WARP_SPEED * 0.022).mul(t));
-      const w = p.add(vec2(noise(s), noise(s.yx.add(4.7))).sub(0.5).mul(2 * FOG_WARP));
-      const n = noise(w.sub(vec2(...FOG_DRIFT).mul(t)).mul(0.06)).mul(0.65)
+      const wn = vec2(noise(s), noise(s.yx.add(4.7))).toVar();
+      const w = p.add(wn.sub(0.5).mul(2 * FOG_WARP));
+      const cp = w.sub(vec2(...FOG_DRIFT).mul(t)).mul(0.06).toVar();
+      const nc = noise(cp).toVar();
+      const n = nc.mul(0.65)
         .add(noise(w.sub(vec2(...FOG_DRIFT_FINE).mul(t)).mul(0.17).add(7.3)).mul(0.35)).toVar();
       const h = max(positionWorld.y, 0).mul(FOG_SLOPE);
       const rising = smoothstep(FOG_START, FOG_END, d.sub(n.mul(FOG_BILLOW)).sub(h));
@@ -96,7 +103,16 @@ export function createFogNode(fog) {
       const eased = float(1).sub(float(1).sub(a).pow(3));
       // All-zero colour is the fog switched off (`?edgefog` tuning, the workshop's bench).
       const on = edge.x.add(edge.y).add(edge.z).greaterThan(0);
-      display.assign(mix(display, edge.xyz.mul(n.mul(0.2).add(0.86)), select(on, eased, float(0))));
+      // The bank's weather: lit and shaded sides, warm and cool regions (edgefog.js, FOG_SHADE).
+      let color = edge.xyz.mul(n.mul(0.2).add(0.86));
+      if (FOG_SHADE) {
+        const l = noise(cp.add(sun.xy.mul(FOG_LIGHT_STEP)));
+        const lit = clamp(nc.sub(l).mul(FOG_LIGHT_GAIN * 2).mul(sun.z).add(0.5), 0, 1);
+        color = edge.xyz.mul(n.mul(FOG_BODY[1]).add(FOG_BODY[0]))
+          .mul(mix(vec3(...FOG_SHADE_DARK), vec3(...FOG_SHADE_LIT), lit))
+          .mul(mix(vec3(...FOG_REGION_COOL), vec3(...FOG_REGION_WARM), smoothstep(0.25, 0.75, wn.x)));
+      }
+      display.assign(mix(display, color, select(on, eased, float(0))));
     }
 
     return vec4(gradeDisplay(display), output.a);

@@ -2390,7 +2390,21 @@ there under the fog, and what `?city=big` shows, since the fog is island-only.
   It is what stands in for the sky everywhere past the island.
 - **Colour follows the sky.** `daylight.js` calls `setEdgeFogSky` on every keyframe: the dome's
   horizon colour lifted 45% toward white, so it greys under rain and darkens at night with no wiring
-  of its own. The noise shades it ±10% so the bank has bodies in it.
+  of its own.
+- **Weather in the bank.** Tyler, 2026-11-24: the fog "reads as just pure white". The bank is lit
+  like a cloud layer: the coarse billow field is read a second time a step toward the sun
+  (`FOG_LIGHT_STEP`), and where it climbs that way the fragment is on a billow's shadowed flank,
+  the one-sample version of how a cloud renderer lights a density field. Lit sides go a touch cream
+  and shaded ones blue-lavender (`FOG_SHADE_LIT/DARK`), crests stay brighter than hollows
+  (`FOG_BODY`), and the warp field, already computed to bend the billows, tints whole stretches
+  warmer or cooler (`FOG_REGION_*`). Every tint *multiplies* the fog's own colour, so dusk, rain and
+  night keep their hue. The sun direction and strength come from `daylight.js` through a second
+  shared plain-object uniform, `edgeFogSun` (`setEdgeFogSun`), so the lit sides agree with the
+  city's shadows, swing round with the day and fade out at night. Cost: one extra value-noise read,
+  on fogged fragments only. `?fogshade=classic` (`FOGSHADE=classic` headless) puts back the flat
+  bank ([history](rendering-history.md#the-flat-white-fog-bank-557-until-2026-11-24-fogshadeclassic)).
+  The marketing site's page colour is this fog's, and the bank's mean now sits a few levels
+  bluer at the frame edges than the flat colour did.
 - **Sim time** drives it (`tickEdgeFog`), so a paused game holds its fog still and shots repeat;
   `__taxi.edgeFogAt(seconds)` sets the clock and redraws, for filming the drift from a frozen shot.
 - **No city in the fog.** A ring of pale towers standing in the bank to the west and north was

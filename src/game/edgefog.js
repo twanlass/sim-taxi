@@ -41,6 +41,13 @@ const CLASSIC = typeof location !== 'undefined'
 
 export const EDGE_FOG = !BIG_CITY && !CLASSIC;
 
+const params = typeof location !== 'undefined' ? new URLSearchParams(location.search) : null;
+/**
+ * `?fogshade=classic` (`FOGSHADE=classic` headless): the bank as it was before it had weather in it
+ * — one colour, its billows only a shade brighter at the crests. See `FOG_SHADE` below.
+ */
+export const FOG_SHADE = (params ? params.get('fogshade') : globalThis.process?.env?.FOGSHADE) !== 'classic';
+
 /** The rectangle the fog is measured from: the outer kerb of the ring road, on each axis. */
 export const FOG_HALF_X = HALF_SPAN_X + HALF_ROAD;
 export const FOG_HALF_Z = HALF_SPAN_Z + HALF_ROAD;
@@ -81,6 +88,40 @@ export const FOG_DRIFT_FINE = [-0.9, 1.4];
 /** How far the warp field can bend the billows (world units), and how fast the warp itself moves. */
 export const FOG_WARP = 16;
 export const FOG_WARP_SPEED = 0.6;
+/**
+ * **The bank's weather** (Tyler, 2026-11-24: the fog "reads as just pure white"). The first bank
+ * shaded its billows by height alone, crests 0.2 brighter than hollows, which on a colour already
+ * 45% of the way to white is a range of about 12/255 — at phone zoom, a flat sheet. Three things
+ * now, all off the noise the bank already computes plus **one** extra read:
+ *
+ * - **Sunlit and shadowed sides.** The coarse billow field is read a second time a step towards the
+ *   sun (`FOG_LIGHT_STEP`, in that field's own units), and where it climbs that way the fragment is
+ *   on a billow's shadowed flank: the cheap one-sample version of how a cloud renderer lights a
+ *   density field. The step follows the real sun (`setEdgeFogSun`), so the lit sides agree with the
+ *   city's shadows and swing round with the day; at night the strength goes to zero and the bank
+ *   goes back to plain billows rather than being lit by a sun that has set.
+ * - **Warm lit, cool shade.** Multiplied into the fog's own colour rather than mixed toward fixed
+ *   colours, so a dusk or night fog keeps its own hue and only gains the relief. The shade is a
+ *   blue-lavender, the light a cream; the mean stays within a few levels of the old flat colour,
+ *   which matters to the marketing site (its page colour is this fog's).
+ * - **Regions.** The warp field — two reads at ~45-unit scale that were only ever used to bend the
+ *   billows — tints whole stretches of the bank a touch warmer or cooler, so it is not the same
+ *   white all the way round the island. Free: those values were already computed.
+ *
+ * Costs one value-noise read on fogged fragments only (inside `FOG_START` the term early-outs, as
+ * before).
+ */
+export const FOG_LIGHT_STEP = 0.35;
+export const FOG_LIGHT_GAIN = 1.7;
+/** The two ends of the light ramp, multiplied into the fog colour. */
+export const FOG_SHADE_LIT = [1.04, 1.02, 0.97];
+export const FOG_SHADE_DARK = [0.85, 0.88, 0.95];
+/** The regional tint's two ends, picked between by the warp field. */
+export const FOG_REGION_COOL = [0.97, 0.98, 1.03];
+export const FOG_REGION_WARM = [1.03, 1.0, 0.96];
+/** The crest-to-hollow brightness range: base + span × billow. Classic was 0.86 + 0.2. */
+export const FOG_BODY = [0.84, 0.24];
+
 /** The floor's depth: under the river's bed (the channel is 2 down), so it never covers it. */
 export const FLOOR_Y = -6;
 
@@ -98,6 +139,12 @@ export const FLOOR_Y = -6;
  * and skips the term rather than painting a black fog.
  */
 export const edgeFogUniform = { x: 0.93, y: 0.96, z: 0.98, w: 0 };
+
+/**
+ * The sun, for the bank's lit sides: xy is the horizontal direction *towards* the sun (unit, world
+ * x and z), z its strength 0..1. A plain object for the same reason as `edgeFogUniform`.
+ */
+export const edgeFogSun = { x: -0.6, y: -0.8, z: 1, w: 0 };
 
 const f = (n) => n.toFixed(3);
 
@@ -119,6 +166,7 @@ const VERTEX = /* glsl */ `
 const PARS_FRAGMENT = /* glsl */ `
 #ifdef USE_FOG
 	uniform vec4 edgeFog;
+	uniform vec4 edgeFogSun;
 	varying vec3 vEdgeFogWorld;
 	float edgeFogHash( vec2 p ) {
 		return fract( sin( dot( p, vec2( 127.1, 311.7 ) ) ) * 43758.5453 );
@@ -135,6 +183,18 @@ const PARS_FRAGMENT = /* glsl */ `
 #endif
 `;
 
+const vec3 = (a) => `vec3( ${a.map(f).join(', ')} )`;
+
+// The colour the bank is mixed toward, from the billow value efn (and, shaded, the coarse octave
+// efnc, its read towards the sun, and the warp field efwn) — see FOG_SHADE.
+const SHADE_GLSL = FOG_SHADE ? /* glsl */ `
+		float efl = edgeFogNoise( efcp + edgeFogSun.xy * ${f(FOG_LIGHT_STEP)} );
+		float eflit = clamp( 0.5 + ( efnc - efl ) * ${f(FOG_LIGHT_GAIN * 2)} * edgeFogSun.z, 0.0, 1.0 );
+		vec3 efc = edgeFog.xyz * ( ${f(FOG_BODY[0])} + ${f(FOG_BODY[1])} * efn )
+			* mix( ${vec3(FOG_SHADE_DARK)}, ${vec3(FOG_SHADE_LIT)}, eflit )
+			* mix( ${vec3(FOG_REGION_COOL)}, ${vec3(FOG_REGION_WARM)}, smoothstep( 0.25, 0.75, efwn.x ) );` : /* glsl */ `
+		vec3 efc = edgeFog.xyz * ( 0.86 + 0.2 * efn );`;
+
 const FRAGMENT = /* glsl */ `
 #ifdef USE_FOG
 	if ( edgeFog.x + edgeFog.y + edgeFog.z > 0.0 ) {
@@ -147,8 +207,11 @@ const FRAGMENT = /* glsl */ `
 		if ( efd > ${f(FOG_START)} || vEdgeFogWorld.y < ${f(FLOOR_Y + 1)} ) {
 		float eft = edgeFog.w;
 		vec2 efs = efp * 0.022 + vec2( 0.0, ${f(FOG_WARP_SPEED * 0.022)} ) * eft;
-		vec2 efw = efp + ( vec2( edgeFogNoise( efs ), edgeFogNoise( efs.yx + 4.7 ) ) - 0.5 ) * ${f(2 * FOG_WARP)};
-		float efn = edgeFogNoise( ( efw - vec2( ${f(FOG_DRIFT[0])}, ${f(FOG_DRIFT[1])} ) * eft ) * 0.06 ) * 0.65
+		vec2 efwn = vec2( edgeFogNoise( efs ), edgeFogNoise( efs.yx + 4.7 ) );
+		vec2 efw = efp + ( efwn - 0.5 ) * ${f(2 * FOG_WARP)};
+		vec2 efcp = ( efw - vec2( ${f(FOG_DRIFT[0])}, ${f(FOG_DRIFT[1])} ) * eft ) * 0.06;
+		float efnc = edgeFogNoise( efcp );
+		float efn = efnc * 0.65
 			+ edgeFogNoise( ( efw - vec2( ${f(FOG_DRIFT_FINE[0])}, ${f(FOG_DRIFT_FINE[1])} ) * eft ) * 0.17 + 7.3 ) * 0.35;
 		float efh = max( vEdgeFogWorld.y, 0.0 ) * ${f(FOG_SLOPE)};
 		float efa = smoothstep( ${f(FOG_START)}, ${f(FOG_END)}, efd - efn * ${f(FOG_BILLOW)} - efh );
@@ -156,9 +219,7 @@ const FRAGMENT = /* glsl */ `
 		// much as past it. Partly fogged it would show its own plain colour as a pale band.
 		if ( vEdgeFogWorld.y < ${f(FLOOR_Y + 1)} ) efa = 1.0;
 		efa = 1.0 - ( 1.0 - efa ) * ( 1.0 - efa ) * ( 1.0 - efa );
-		// The billows' own shading: the noise's crests a shade brighter than its hollows, so the
-		// bank has bodies in it rather than being one flat sheet of colour.
-		vec3 efc = edgeFog.xyz * ( 0.86 + 0.2 * efn );
+${SHADE_GLSL}
 		gl_FragColor.rgb = mix( gl_FragColor.rgb, efc, efa );
 		}
 	}
@@ -175,8 +236,12 @@ if (EDGE_FOG) {
   // UniformsLib.fog alone would miss every one of them); ShaderMaterials written in this project
   // merge UniformsLib.fog when they are built, and this module loads before any of them are.
   THREE.UniformsLib.fog.edgeFog = { value: edgeFogUniform };
+  THREE.UniformsLib.fog.edgeFogSun = { value: edgeFogSun };
   for (const shader of Object.values(THREE.ShaderLib)) {
-    if (shader.uniforms?.fogColor) shader.uniforms.edgeFog = { value: edgeFogUniform };
+    if (shader.uniforms?.fogColor) {
+      shader.uniforms.edgeFog = { value: edgeFogUniform };
+      shader.uniforms.edgeFogSun = { value: edgeFogSun };
+    }
   }
 }
 
@@ -192,6 +257,17 @@ export function setEdgeFogSky(bottom) {
   edgeFogUniform.x = tmp.r;
   edgeFogUniform.y = tmp.g;
   edgeFogUniform.z = tmp.b;
+}
+
+/**
+ * Follow the sun: where it is (a world position, as the light's) and how strong (0..1, the light's
+ * power against full day). daylight.js calls it beside `setEdgeFogSky`.
+ */
+export function setEdgeFogSun(x, z, strength) {
+  const len = Math.hypot(x, z) || 1;
+  edgeFogSun.x = x / len;
+  edgeFogSun.y = z / len;
+  edgeFogSun.z = Math.min(Math.max(strength, 0), 1);
 }
 
 /** Advance the drift. Sim time, so a paused game holds its fog still and shot mode is repeatable. */
