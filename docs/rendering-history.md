@@ -167,7 +167,7 @@ was measured against the 1.50 fill.
 
 [Current](rendering.md#the-shadow-tint--shadow_uniforms-in-utilgeojs).
 
-`propMaterial()` used to patch only when AO, Crayon or Cartoon Mode asked. The shadow tint is the
+`propMaterial()` used to patch only when AO, Crayon or Cartoon Mode (both since removed) asked. The shadow tint is the
 first patch that is not behind a flag, so it patches unconditionally now.
 
 ## Atmospheric perspective
@@ -234,26 +234,34 @@ Until 2026-10-17 the island's edge was the feathered skirt alone: the asphalt ap
 road faded to nothing over 16 units and the sky dome showed through, so the island read as a slab
 floating in the sky with its outline on show. `?edgefog=classic` brings it back.
 
-## Crayon Mode — `game/crayon.js`
+## Crayon Mode, Cartoon Mode and `?hdr` — removed 2026-11
 
-### The line — a texel, not a radius
+Three alternative looks, each behind a URL flag and off by default, deleted on 2026-11-23 (Tyler:
+"it won't be used"). None of them had been ported to the WebGPU renderer either. The full write-ups
+are in `docs/rendering.md` as it stood before that change, in git history.
 
-[Current](rendering.md#the-line--a-texel-not-a-radius).
+- **Crayon Mode (`?crayon`, `game/crayon.js`).** A hand-drawn look: a paper tile baked from seeded
+  noise and drawn as one quad over the scene at `renderOrder` 1, a tooth-and-fibre multiply and a
+  luminance-only quantise spliced into every `propMaterial()` after `<colorspace_fragment>` and
+  before the haze, and a broken graphite line traced from an edge term the AO pass wrote into `.g`
+  at one texel (four extra taps on top of the occlusion's nine). The line was first built by
+  reusing the occlusion's own rings, which was free and wrong: a Laplacian at radius R answers over
+  a band 2R wide, so every silhouette wore a fifteen-pixel fringe and tree canopies went furry.
+- **Cartoon Mode (`?cartoon`, `game/cartoon.js`).** Cel bands on the direct light (quantised as a
+  ratio against the albedo, so hue never moved), a hard ink off the same `.g` edge, and inflated
+  back-face hulls round the taxi, the cruiser and the instanced fleet, the taxi's rim heavier than
+  the traffic's. The rim moved from a geometry bake to an `aInflate` attribute and a uniform with a
+  zero-pixel difference, so the ⚙️ panel could scrub it.
+- **`?hdr` (`game/hdr.js`).** The whole frame through an `EffectComposer` at RGBA16F with ACES tone
+  mapping and `UnrealBloomPass`, as a side-by-side against [the emissive bloom](rendering.md#bloom--gamebloomjs).
+  It showed what that route costs: every colour in the palette re-judged under a tone curve, MSAA
+  and the stencil bought back on a target, both look modes broken (they mixed ink in display space,
+  which an output pass moves), and a luminance threshold that also caught the route band.
 
-**The first version reused the occlusion's own taps and was free, and wrong.** A depth Laplacian at
-radius R answers over a band 2R wide, and the rings are 1.0 and 0.4 *world* units — 7.7px and 3px at
-play zoom, double that at the close framing. Every silhouette in the city came out wearing a
-fifteen-pixel fringe: recognisably an outline, and recognisably not a line. Tree canopies, which are
-jittered icosahedra and therefore all facet, went furry.
-
-## Cartoon Mode — `game/cartoon.js`
-
-### The rim is a uniform, not a bake
-
-[Current](rendering.md#the-rim-is-a-uniform-not-a-bake).
-
-The hull rim used to be baked into each hull's geometry by `inflatedGeometry`. Moving it to the
-`aInflate` attribute and a uniform landed with a **zero-pixel** difference against the baked build.
+What went with them: the AO pass's `.g` edge channel and the `edges` flag (the pass is back to nine
+fetches), the gloss being declined under either look, the ⚙️ panel's Crayon, Cartoon and HDR
+sections and its Look switcher, `CRAYON_UNIFORMS`/`CARTOON_UNIFORMS`, the `crayonLine`, `paper`,
+`paperFibre` and `toonInk` palette entries, and the periodic `fbm` the paper was baked from.
 
 ## Rain Mode — `game/rain.js`
 
@@ -328,7 +336,7 @@ road it read as a second set of lights beside the cones.
 
 ### What it is not doing yet
 
-[Current](rendering.md#what-it-is-not-doing-yet-2).
+[Current](rendering.md#what-it-is-not-doing-yet).
 
 **The mirror pass's cost before #474** (2026-10-11, "Cheaper rain reflections"). On an iPhone
 (`?bench`, 2026-10-11) the squall row cost **+22% busy** against baseline and dropped to 32 fps, with
@@ -340,7 +348,7 @@ take the screen's sRGB encode took headless JS under `?squall=0.5` from 15.5 to 
 
 This list also used to say there was no spray off tyres; `game/spray.js` added it.
 
-## Bloom — `game/bloom.js`, and the comparison in `game/hdr.js`
+## Bloom — `game/bloom.js`
 
 ### The pass
 

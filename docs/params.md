@@ -19,6 +19,8 @@ doc; what the classic version was, and why it changed, is in that doc's history 
 |---|---|---|---|
 | `?streets=classic` | 8-unit streets, the width they were before 2026-10-17. The default is 9. Blocks keep their size, so the map shrinks with the streets. Headless tools take `STREETS=` | | [city.md](city.md#street-width-streets) |
 | `?river=classic` | The 12-unit river, the width it was before 2026-10-18. The default is 15 (25% wider); the blocks keep their size, so the map is 3 units taller. `?city=big` keeps the 12-unit river either way. Headless tools take `RIVER=classic` | | [river.md](river.md#the-channel-is-wider-than-a-block-row-riverclassic) |
+| `?mirrorwarm=classic` | Skips drawing the wet road's mirror during the boot warm-up, so the first squall builds the mirror pass's pipelines mid-run (a 3.2 s freeze on an iPhone 16 Pro under WebGPU) as it did before 2026-11-23. For A/B timing on a device | | [testing.md](testing.md) |
+| `?fadewarm=classic` | Skips warming the faded (transparent) program variants at boot, so the first fade of a rider, a boat or the roadworks links its shader mid-run as it did before 2026-11-22. For A/B timing on a device | | [testing.md](testing.md) |
 | `?bridges=classic` | The island's old four crossings: both ring roads and the L's line bridged beside the drawbridge. The default (2026-10-18) is three: fixed bridges one line in from each coast and the drawbridge between them. `?city=big` is unaffected. Headless tools take `BRIDGES=classic` | | [river.md](river.md#which-crossings-bridge) |
 | `?city=big` | The 6 × 7 city (36 land blocks) with the central park, harbor, north park, shores, west edge high rises, horizon filler and the L's turn west. The default is the 5 × 5 island with feathered edges. Headless tools take `CITY=big` | #483 | [city.md](city.md) |
 | `?harbor=classic` | The old river mouth, with no harbor, cranes or ships | #488, #497 | [river.md](river.md) |
@@ -87,6 +89,7 @@ doc; what the classic version was, and why it changed, is in that doc's history 
 | `?stuntman=classic` | Smashing a roadworks barricade is scenery: no Stuntman combo step, no Loco refund | | [gameplay.md](gameplay.md#the-combo-meter) |
 | `?roadworks=classic` | The roadworks as they were before 2026-11-04: one full-width trestle across each end, a plywood ramp against the entry trestle that hops the taxi over the works, and a heap of dug-up spoil beside the hole. The default closes each end with two slightly skewed trestles and has no ramp: the taxi stays on the road, smashes the trestles at both ends, bounces over rubble piles and knocks over a sawhorse at each end of the hole. Headless tools take `ROADWORKS=classic` | | [traffic.md](traffic.md#roadworks-a-street-closed-at-both-ends) |
 | `?taxifinder=classic` | The "back to the taxi" chip above the brake corner, which comes up while the taxi is completely off-frame. Off by default since 2026-10-20, since the camera rides home on its own after 1.5s | | [rendering.md](rendering.md#getting-back-to-the-taxi) |
+| `?taximarker=classic` | No yellow triangle over the empty taxi. Default: the triangle hovers over the taxi while no rider is aboard | | [gameplay.md](gameplay.md#the-taxi-marker) |
 | `?camreturn=classic` | The camera stays where the player panned it, instead of riding back to the taxi after 1.5s with no touch on the map | #530 | [rendering.md](rendering.md#getting-back-to-the-taxi) |
 | `?taxidamage=classic` | The taxi's paint dulls toward `taxiGrime` as it takes damage, instead of chipping to bare metal at the struck corner | #632 | [traffic.md](traffic.md) |
 | `?taxichips=classic` | The taxi's paint chips anywhere on the body, roof and lids included, instead of only at the bumpers, wings and body corners | #729 | [traffic.md](traffic.md) |
@@ -110,6 +113,7 @@ doc; what the classic version was, and why it changed, is in that doc's history 
 | `?ejectthrow=classic` | The thrown driver's arc graded only by distance (forward speed `0.7 × closing`, clamped 10-18) at one fixed height and spin, instead of height, spin and distance all scaling with how hard the hit was | | [traffic.md](traffic.md) |
 | `?eject=classic` | The wrecked taxi's driver appearing full size in the air above the bonnet and fading in, instead of squeezing out through the windscreen | | [traffic.md](traffic.md) |
 | `?poptext=classic` | The flying prices, combo words, checkpoints and race count with their old soft drop shadow instead of the speech card's dark outline | | [gameplay.md](gameplay.md#economy) |
+| `?rerun=classic` | Play again and Quit reload the page (a new city, and the whole load again) instead of resetting the run on the same page | | [gameplay.md](gameplay.md#play-again) |
 | `?playagain=classic` | The run-end card ending on the yellow Play again pill instead of a pulsing "Tap to continue" (tap anywhere to play again) | | [gameplay.md](gameplay.md#the-polaroid) |
 | `?musicfade=classic` | The music fading over 1.5s as the run-end card appears, instead of playing under the stats and fading over 2.5s once "Tap to continue" comes up | | [audio.md](audio.md) |
 | `?statcount=classic` | The run-end stats' old pace: each value fades in with its label and rolls in 0.34s, in yellow, instead of appearing after the label lands and counting for 0.46s in white | | [gameplay.md](gameplay.md#the-polaroid) |
@@ -135,6 +139,8 @@ doc; what the classic version was, and why it changed, is in that doc's history 
 | `?hail=classic` | The first tutorial line as a "Tip" ("Pick up rider to start") rather than the rider hailing the cab ("Hey taxi! Over here!") | | [gameplay.md](gameplay.md#the-opening-tutorial) |
 | `?bubbles=dock` | The docked card with no tag on the talker | | [gameplay.md](gameplay.md#speech-bubbles) |
 | `?copchat=classic` | The cops' "pull over" and "lost the suspect" bubbles | #492 | [gameplay.md](gameplay.md) |
+| `?renderer=classic` | Draws with three's WebGLRenderer and the GLSL shader patches, as the game did before the WebGPU port. Also what a browser with no WebGPU gets, without being asked | | [rendering.md](rendering.md#the-webgpu-port) |
+| `?gpuerror=<text>` | Set by the page itself, never by hand: a WebGPU start that threw reloads on `?renderer=classic` with the error here, and the page shows it in a strip along the top (tap to dismiss) | | [rendering.md](rendering.md#the-webgpu-port) |
 | `?race=classic` | No street racers: the city before the race vignette, with no violet car tailing the empty taxi to challenge it | | [gameplay.md](gameplay.md#the-street-race) |
 | `?hydraulics=classic` | The street racer without hydraulics: its body sits still on its wheels through the offer, the start and the finish | | [gameplay.md](gameplay.md#the-street-race) |
 | `?racetap=classic` | The race's count waits on a tap on the racer's "Ready?" once the camera is back from the finish | | [gameplay.md](gameplay.md#the-street-race) |
@@ -247,9 +253,6 @@ doc; what the classic version was, and why it changed, is in that doc's history 
 | `?bridgenormals=classic` | The arched bridge decks lit facet by facet again: ten bands of shading down the carriageway over the hump. By default (2026-10-25) the deck, footways, paint and soffit carry the arch's own smooth normals |
 | `?roadstrokes=classic` | The painted brush strokes back on the streets, each a little lighter or darker and a little red or blue, fading in and out in block-sized patches. Off by default since 2026-10-25 |
 | `?painterly=classic` | Without the painterly pass at all: no road strokes even with `?roadstrokes=classic`, and no paved junction |
-| `?crayon` | Crayon Mode. Off by default |
-| `?cartoon` | Cartoon Mode. Off by default |
-| `?hdr` | The full HDR bloom route instead of the emissive bloom, as a comparison. Not with Crayon or Cartoon |
 | `?bloom=off` | No emissive bloom |
 | `?grade=<preset>` | Draw this load through one of the colour grade's bundled LUTs (`warm`, `cool`, `teal & orange` as `teal+%26+orange`, `faded film`, `bleach bypass`, `punchy`) without remembering it. See [rendering.md](rendering.md#colour-grade--gamecolorgradejs) |
 | `?grade=classic` | The neutral frame: no colour grade at all, as the game shipped before Tyler's look became the default. See [rendering.md](rendering.md#colour-grade--gamecolorgradejs) |
@@ -270,6 +273,7 @@ See [rendering.md](rendering.md) for all of these.
 | `?safe` / `=off` | All four budget flags at their cheapest (no MSAA, 1024 shadows, DPR 1, no AO). On by default on Android; `=off` restores the full budget |
 | `?msaa=off` | No multisampling |
 | `?shadows=off` / `=1024` | No sun shadows, or that map size (power of two, 256–4096) |
+| `?shadowcull=classic` | Every shadow caster on the island is drawn into the shadow map every frame, instead of only the ones whose shadow can reach the view ([game/shadowcull.js](../src/game/shadowcull.js), [rendering.md](rendering.md#lighting)) |
 | `?dpr=N` | Caps `devicePixelRatio` (0.5–4, default 2) and pins it against the Quality setting |
 | `?ao=off` | No ambient occlusion |
 | `?fps=30` | Caps the frame rate, overriding the Settings choice |
@@ -277,6 +281,8 @@ See [rendering.md](rendering.md) for all of these.
 | `?diag` | The on-screen renderer readout |
 | `?warmup=classic` | Skips the boot frame that draws every mesh once, so first draws land mid-run again ([game/warmup.js](../src/game/warmup.js)) |
 | `?hitch` | The hitch logger: late frames, how long their JS took, shader links, resizes, and hitches a minute with and without a speech card up ([game/hitch.js](../src/game/hitch.js)) |
+| `?perf` | The on-device profiler: every frame's gap, JS time by phase, shader links, buffer and texture uploads, resizes and tags, plus a startup timeline, saved into the iOS app's container (or `__perfCapture.last` in a browser). `?perf=nobackdrop` also turns every CSS backdrop blur off and `?perf=nohud` hides everything but the canvas, for A/Bs of the compositor's share for `node tools/ios-perf.mjs pull` ([game/perf.js](../src/game/perf.js), [testing.md](testing.md#profiling-on-the-phone)) |
+| `?bot` / `=loco,drift` | The scripted session for profiling: fares, Loco, a drift, Big Air, the bank job, a patrol chase and a wreck on a fixed clock, each marked in the `?perf` capture; the taxi can't lose until the wreck. A list plays only those scenes. Driven from the Mac by `tools/ios-perfloop.mjs` ([game/perfbot.js](../src/game/perfbot.js), [testing.md](testing.md#the-unattended-loop)) |
 | `?bench` | The step-by-step GPU benchmark |
 | `?br=` | Internal to `?bench`: the rows measured so far, carried across its reloads |
 | `?soak` / `=20` | The battery and heat soak, in minutes |

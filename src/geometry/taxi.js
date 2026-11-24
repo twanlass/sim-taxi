@@ -297,6 +297,29 @@ export function taxiSignGeometry() {
   return merged;
 }
 
+/**
+ * Put a part away, or bring it back: a zero scale **and** `visible`.
+ *
+ * Everything on this car that comes and goes — the damage, the rear door, a dark light pod — was
+ * hidden by scale alone, and three cannot tell a zero-scale mesh from a live one: it culls by a
+ * bounding sphere, a zero scale shrinks that to a point, and a point inside the frustum is drawn. So
+ * every hidden part still cost a full draw in the main pass, and again in the shadow and AO passes
+ * for the ones that cast — along with the ghost mask and rim hanging off each of them. `?perf`'s
+ * census counted **79** main-pass draws for one undamaged taxi in view, **52** of them for parts
+ * scaled to nothing (2026-11-22). `visible` stops three at the part and everything under it.
+ *
+ * The scale stays as well as the flag, because it is what the rest of this file and the probe read
+ * as "out": `setLights` multiplies a level into it, and a pod brought back by `visible` alone would
+ * flash at full size for the frame before its level arrived. Nothing is lost to the boot-time
+ * traversals the parts were built up front for (`markOccluder`, the outlines): those walk with
+ * `traverse`, which does not look at `visible`. And the warm-up shows every hidden object before it
+ * draws (`warmFirstDraws`), so no program waits for the first crash to link.
+ */
+function setShown(part, on) {
+  part.scale.setScalar(on ? 1 : 0);
+  part.visible = on;
+}
+
 export function createTaxiMesh() {
   const group = new THREE.Group();
   group.name = 'taxi';
@@ -346,7 +369,9 @@ export function createTaxiMesh() {
     });
     const mirror = new THREE.Mesh(mergeGeometries(parts, false), shell.material);
     parts.forEach((p) => p.dispose());
-    mirror.castShadow = true;
+    // Receives but does not cast: a housing this size throws a shadow of a pixel or two, on the
+    // flank or inside the car's own, and casting it was a draw a frame in the 2048² shadow pass.
+    mirror.castShadow = false;
     mirror.receiveShadow = true;
     mirror.userData.pickable = 'taxi';
     addGhostMask(mirror);
@@ -437,7 +462,7 @@ export function createTaxiMesh() {
     turnSignalShapes());
   const lightPods = [...brakeLights, ...turnLeftLight, ...turnRightLight];
   for (const light of lightPods) {
-    light.scale.setScalar(0);
+    setShown(light, false);
     light.userData.pickable = 'taxi';
     group.add(light);
     // Smaller than the sign's: these pods are thinner still, and the mask/rim inherit whatever
@@ -496,9 +521,14 @@ export function createTaxiMesh() {
    * car, taxi included, since the taxi is just another entry in the `cars` array physics runs over.
    */
   const setLights = (brakeLevel, turnLeftLevel, turnRightLevel) => {
-    for (const pod of brakeLights) pod.scale.copy(pod.userData.shape).multiplyScalar(brakeLevel);
-    for (const pod of turnLeftLight) pod.scale.copy(pod.userData.shape).multiplyScalar(turnLeftLevel);
-    for (const pod of turnRightLight) pod.scale.copy(pod.userData.shape).multiplyScalar(turnRightLevel);
+    // A dark pod is put away rather than drawn at nothing (see setShown).
+    const level = (pod, amount) => {
+      pod.scale.copy(pod.userData.shape).multiplyScalar(amount);
+      pod.visible = amount > 0;
+    };
+    for (const pod of brakeLights) level(pod, brakeLevel);
+    for (const pod of turnLeftLight) level(pod, turnLeftLevel);
+    for (const pod of turnRightLight) level(pod, turnRightLevel);
   };
 
   return {
@@ -530,7 +560,7 @@ export function createTaxiMesh() {
 // a hinge line. Two-tone (body below, glass above) only because a single yellow slab swung out reads
 // as a panel falling off, which is what the damage's boot and bonnet already say.
 //
-// Built at boot and hidden at a zero scale, for the reason the damage parts are (see the note over
+// Built at boot and put away with `setShown`, for the reason the damage parts are (see the note over
 // buildDamage): everything that walks this group walks it once. A closed door is never drawn at all
 // rather than drawn flush — a flush door would just be a second skin over the flank and stripe.
 //
@@ -606,8 +636,8 @@ function buildDoors(group) {
     const gap = new THREE.Mesh(bakeColor(gapGeo, color('taxiTrim')), propMaterial());
     gap.userData.pickable = 'taxi';
 
-    hinge.scale.setScalar(0);
-    gap.scale.setScalar(0);
+    setShown(hinge, false);
+    setShown(gap, false);
     group.add(hinge, gap);
     // Mask only, like the damage panels: a part left out of the stencil occludes the shell's rim.
     addGhostMask(panel);
@@ -627,8 +657,8 @@ function buildDoors(group) {
     set(side, angle) {
       for (const [s, { hinge, gap }] of doors) {
         const open = s === side && angle > 0;
-        hinge.scale.setScalar(open ? 1 : 0);
-        gap.scale.setScalar(open ? 1 : 0);
+        setShown(hinge, open);
+        setShown(gap, open);
         // Ry(θ) takes the panel's −x run to (−cos θ, sin θ): +θ swings toward +z.
         if (open) hinge.rotation.y = s * angle;
       }
@@ -649,9 +679,10 @@ function buildDoors(group) {
 // whether a rider is aboard unreliable to read.
 //
 // Built at boot and hidden with a zero scale rather than added when needed, for the reason the light
-// pods are: `markOccluder`, the cartoon outline and the ghost-outline traversal all walk this group
-// once, and a part that turns up later is missed by all three. A zero scale draws nothing and needs
-// no second code path. (No lights in here, so hiding by scale has none of the light-count trap.)
+// pods are: `markOccluder` and the ghost-outline traversal both walk this group once, and a part that
+// turns up later is missed by both. Put away with `setShown`, which is a
+// zero scale *and* `visible = false`: a zero scale alone is still drawn, in every pass (see setShown).
+// (No lights in here, so hiding a subtree has none of the light-count trap.)
 
 // The parts' dimensions live in geometry/damage.js, shared with the ambient cars the taxi hits
 // (game/cardamage.js) — one body, one set of numbers.
@@ -710,8 +741,8 @@ function buildDamage(group, lightPods, bumpers, chrome, mirrors) {
   holeGeo.translate(BOOT_HINGE_X - BOOT_LEN / 2, BODY_TOP + 0.01, 0);
   const hole = new THREE.Mesh(bakeColor(holeGeo, color('taxiTrim')), propMaterial());
   hole.userData.pickable = 'taxi';
-  bootHinge.scale.setScalar(0);
-  hole.scale.setScalar(0);
+  setShown(bootHinge, false);
+  setShown(hole, false);
   group.add(bootHinge, hole);
 
   // The bonnet, the boot's mirror image off the other end of the cabin: hinged at the foot of the
@@ -732,8 +763,8 @@ function buildDamage(group, lightPods, bumpers, chrome, mirrors) {
   bayGeo.translate(HOOD_HINGE_X + HOOD_LEN / 2, BODY_TOP + 0.01, 0);
   const bay = new THREE.Mesh(bakeColor(bayGeo, color('taxiTrim')), propMaterial());
   bay.userData.pickable = 'taxi';
-  hoodHinge.scale.setScalar(0);
-  bay.scale.setScalar(0);
+  setShown(hoodHinge, false);
+  setShown(bay, false);
   group.add(hoodHinge, bay);
 
   // The chequer on the shut bonnet and boot, off the shell and on meshes of their own so a lid that
@@ -745,7 +776,10 @@ function buildDamage(group, lightPods, bumpers, chrome, mirrors) {
     const plates = deckChequer(run);
     const mesh = new THREE.Mesh(mergeGeometries(plates), chrome);
     plates.forEach((p) => p.dispose());
-    mesh.castShadow = true;
+    // Receives but does not cast: plates 0.036 proud of a deck the shell already casts from have
+    // nothing to shade but the deck under them, and a caster that thin shades itself (CLAUDE.md on
+    // thin shells). Casting was a draw a frame each in the shadow pass for nothing on screen.
+    mesh.castShadow = false;
     mesh.receiveShadow = true;
     mesh.userData.pickable = 'taxi';
     group.add(mesh);
@@ -776,8 +810,8 @@ function buildDamage(group, lightPods, bumpers, chrome, mirrors) {
       const wire = new THREE.Mesh(bakeColor(wireGeo, color('taxiTrim')), propMaterial());
       wire.position.copy(socket);
       wire.userData.pickable = 'taxi';
-      housing.scale.setScalar(0);
-      wire.scale.setScalar(0);
+      setShown(housing, false);
+      setShown(wire, false);
       group.add(housing, wire);
       lamps.set(`${sx},${sz}`, { pods, home, socket, housing, wire });
     }
@@ -817,7 +851,7 @@ function buildDamage(group, lightPods, bumpers, chrome, mirrors) {
   screenParts.push(bakeColor(rakeBack(holeRim), color('taxiTrim')));
   const brokenScreen = new THREE.Mesh(mergeGeometries(screenParts.map((g) => (g.index ? g.toNonIndexed() : g))), propMaterial());
   brokenScreen.userData.pickable = 'taxi';
-  brokenScreen.scale.setScalar(0);
+  setShown(brokenScreen, false);
   group.add(brokenScreen);
 
   // The bumper: the chrome bar hinged at one corner, its free end down on the tarmac. The geometry
@@ -831,7 +865,7 @@ function buildDamage(group, lightPods, bumpers, chrome, mirrors) {
   bar.castShadow = true;
   bar.userData.pickable = 'taxi';
   bumperHinge.add(bar);
-  bumperHinge.scale.setScalar(0);
+  setShown(bumperHinge, false);
   group.add(bumperHinge);
   // Every piece in the ghost stencil mask, or it counts as an occluder of the shell's rim: a lid
   // swung up sits inside the shell's 0.3 hull, and the rim traced itself right across it — the
@@ -860,8 +894,9 @@ function buildDamage(group, lightPods, bumpers, chrome, mirrors) {
     setLamp(sx, sz, angle) {
       const lamp = lamps.get(`${sx},${sz}`);
       const loose = angle != null;
-      lamp.housing.scale.setScalar(loose ? 1 : 0);
-      lamp.wire.scale.set(loose ? 1 : 0, loose ? LAMP_WIRE : 0, loose ? 1 : 0);
+      setShown(lamp.housing, loose);
+      setShown(lamp.wire, loose);
+      if (loose) lamp.wire.scale.y = LAMP_WIRE;
       if (!loose) {
         for (const pod of lamp.pods) { pod.position.copy(lamp.home); pod.rotation.set(0, 0, 0); }
         return;
@@ -882,16 +917,16 @@ function buildDamage(group, lightPods, bumpers, chrome, mirrors) {
     /** The boot lid's opening angle in radians, or null to put it away altogether. */
     setBoot(angle) {
       const shown = angle != null;
-      bootHinge.scale.setScalar(shown ? 1 : 0);
-      hole.scale.setScalar(shown ? 1 : 0);
+      setShown(bootHinge, shown);
+      setShown(hole, shown);
       bootChequer.visible = !shown;
       if (shown) bootHinge.rotation.z = -angle;
     },
     /** The bonnet's opening angle in radians (free edge up), or null to put it away. */
     setHood(angle) {
       const shown = angle != null;
-      hoodHinge.scale.setScalar(shown ? 1 : 0);
-      bay.scale.setScalar(shown ? 1 : 0);
+      setShown(hoodHinge, shown);
+      setShown(bay, shown);
       bonnetChequer.visible = !shown;
       // +z lifts the free end here, where it runs forward of the hinge; the boot's runs back.
       if (shown) hoodHinge.rotation.z = angle;
@@ -902,7 +937,7 @@ function buildDamage(group, lightPods, bumpers, chrome, mirrors) {
      * side 0 to put it away.
      */
     setBumper(side, end = -1, lift = 0) {
-      bumperHinge.scale.setScalar(side ? 1 : 0);
+      setShown(bumperHinge, Boolean(side));
       for (const [at, bumper] of bumpers) bumper.visible = !side || at !== end;
       if (!side) return;
       hingeTo(CAR_LEN, CAR_W, side, end, lift, bumperHinge.position, bumperHinge.rotation);
@@ -937,22 +972,22 @@ function buildDamage(group, lightPods, bumpers, chrome, mirrors) {
       this.setFlash(0);
       scratches.setWear(new Map());
       for (const [key] of lamps) this.setLamp(...key.split(',').map(Number), null);
-      bootHinge.scale.setScalar(0);
-      hole.scale.setScalar(0);
-      hoodHinge.scale.setScalar(0);
-      bay.scale.setScalar(0);
+      setShown(bootHinge, false);
+      setShown(hole, false);
+      setShown(hoodHinge, false);
+      setShown(bay, false);
       bonnetChequer.visible = true;
       bootChequer.visible = true;
-      bumperHinge.scale.setScalar(0);
+      setShown(bumperHinge, false);
       for (const bumper of bumpers.values()) bumper.visible = true;
       for (const mirror of mirrors.values()) mirror.visible = true;
-      brokenScreen.scale.setScalar(0);
+      setShown(brokenScreen, false);
     },
     /** For the headless check. */
     screen: brokenScreen,
     /** The windscreen the driver went out through — see `brokenScreen`. */
     breakScreen() {
-      brokenScreen.scale.setScalar(1);
+      setShown(brokenScreen, true);
     },
   };
 }

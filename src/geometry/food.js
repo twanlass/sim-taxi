@@ -4,6 +4,9 @@ import { bakeColor, propMaterial } from '../util/geo.js';
 import { burgerGeometry } from '../city/burgerjoint.js';
 import { CARGO_SCALE } from './parcel.js';
 import { PALETTE } from '../palette.js';
+import { alsoWarmAs } from '../util/warmvariants.js';
+
+let warmedFade = false;
 
 // A food order waiting to be couriered: a burger and a soda cup, both several sizes too big, sitting
 // on a kerb corner where a rider would otherwise be standing. The courier layer's second load
@@ -203,6 +206,11 @@ export function createFoodOrder({ pickable = 'parcel' } = {}) {
   group.add(mesh);
 
   /** See `createParcel`'s own: a shader-define switch, so only flip `needsUpdate` on a transition. */
+  // The first one built stands for all of them in the warm-up (util/warmvariants.js).
+  if (!warmedFade) {
+    warmedFade = true;
+    alsoWarmAs(mesh.material, { transparent: true, depthWrite: false });
+  }
   let transparent = false;
   function setOpacity(a) {
     const opaque = a >= 1;

@@ -5,6 +5,8 @@ import {
   bakeColor, hash01, propMaterial, stampEntry, unlitMaterial, CLOUD_UNIFORMS, CLOUD_GLSL,
 } from '../util/geo.js';
 import { facadeQuads, setPaneSink } from '../city/buildings.js';
+import { gpuMaterials } from '../util/gpu.js';
+import { createLitOn, litSwitchNodes, poolTwin } from './gpulit.js';
 import { KERB_H } from '../city/ground.js';
 import { courtRect } from '../city/blacktop.js';
 import { skateRect } from '../city/skatepark.js';
@@ -113,7 +115,14 @@ const litUniforms = () => ({
 });
 
 /** Switch an unlit material's fragments on by their `aLitAt` against the level where they stand. */
+// The WebGPU renderer's `litOn` (game/gpulit.js), built on first use: one set of uniform nodes for
+// every switched light.
+let litOnNode = null;
+const gpuLitOn = () => (litOnNode ??= createLitOn(litUniforms(),
+  { ramp: LIT_RAMP, flickerShare: FLICKER_SHARE, flickerSpan: FLICKER_SPAN }));
+
 function litSwitch(material) {
+  if (gpuMaterials()) return litSwitchNodes(material, gpuLitOn());
   material.customProgramCacheKey = () => 'lit-switch';
   material.onBeforeCompile = (shader) => {
     Object.assign(shader.uniforms, litUniforms());
@@ -431,6 +440,11 @@ function poolGeometry() {
 }
 
 function poolMaterial() {
+  const glsl = poolGlsl();
+  return gpuMaterials() ? poolTwin(glsl, gpuLitOn()) : glsl;
+}
+
+function poolGlsl() {
   return new THREE.ShaderMaterial({
     uniforms: {
       uColor: { value: color('lampPool') }, uStrength: { value: 0.45 }, ...litUniforms(),
@@ -504,10 +518,21 @@ export function createTaxiHeadlights() {
   /**
    * 0..1, the same running-light level the fleet reads (`setRunningLights` in sim/traffic.js): off
    * in the sun, on once the storm is properly gloomy. A scale about each part's own origin — the
-   * lamp — as the fleet's are, rather than `visible`, so switching on is not the frame a program
-   * compiles.
+   * lamp — as the fleet's are.
+   *
+   * And `visible` off at 0, because a zero scale on its own is still drawn: three culls by a
+   * bounding sphere, and a sphere scaled to a point inside the frustum passes. That was four draws a
+   * frame for lamps that are dark for most of a run (`setShown` in geometry/taxi.js has the count).
+   * It was scale alone once so that switching on would not be the frame a program compiles, and it
+   * no longer needs to be: the boot's warm-up shows every hidden object before it draws
+   * (`warmFirstDraws` in game/warmup.js).
    */
-  const setLevel = (level) => { for (const part of group.children) part.scale.setScalar(level); };
+  const setLevel = (level) => {
+    for (const part of group.children) {
+      part.scale.setScalar(level);
+      part.visible = level > 0;
+    }
+  };
   setLevel(0);
   return { group, pods, setLevel };
 }

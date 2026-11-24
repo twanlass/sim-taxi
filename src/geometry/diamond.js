@@ -1,5 +1,7 @@
 import * as THREE from 'three';
 import { unlitMaterial } from '../util/geo.js';
+import { gpuMaterials } from '../util/gpu.js';
+import { fillNodesOn } from './gpumarker.js';
 import { PALETTE } from '../palette.js';
 import { MARKER_OUTLINE_PX, PHONE_PX_PER_UNIT } from '../game/camera.js';
 
@@ -724,6 +726,24 @@ function patchFill(material, flipped = false) {
 
   uniforms.uFrame = { value: new THREE.Color(PALETTE.hourglassFrame) };
 
+  // WebGPU: the same split as nodes (geometry/gpumarker.js). The GLSL below is the reference.
+  if (gpuMaterials()) {
+    fillNodesOn(material, uniforms, {
+      shape: MARKER_SHAPE,
+      frame: PALETTE.hourglassFrame,
+      glassH: GLASS_H,
+      glassAlpha: GLASS_ALPHA,
+      glassEmissive: GLASS_EMISSIVE,
+      frameEmissive: FRAME_EMISSIVE,
+      meniscus: MENISCUS,
+      meniscusCore: MENISCUS_CORE,
+      sheen: SHEEN,
+      sheenPower: SHEEN_POWER,
+      pieSweep: PIE ? PIE_SWEEP : 0,
+      pieEatenAlpha: PIE ? PIE_EATEN_ALPHA : 0,
+    }, flipped);
+  }
+
   // The plumbob has one level. The hourglass has one per bulb, and its plates are frame rather
   // than vessel: opaque, walnut, and lit by a little of their own colour instead of the hue's.
   const level = PLUMBOB_CLASSIC ? 'uFill' : `(vFillY > 0.0 ? uFill : uFillLow)`;
@@ -854,7 +874,10 @@ export function createDiamond(colorHex) {
     depthWrite: true,
   }));
   mesh.renderOrder = DIAMOND_ORDER;
-  mesh.castShadow = true;
+  // No shadow. It is a clock hanging in the air, not a thing standing on the kerb, and its shadow
+  // was a dark blot on the grass beside the rider that read as part of the marker (Tyler,
+  // 2026-11-22). It was also a draw in the 2048² shadow pass for every fare on the board.
+  mesh.castShadow = false;
 
   // Near wall only. The far one was built and taken out again, and it is worth saying why, because
   // the argument for it is a good one: only the *near* half of the liquid's surface is drawn, and

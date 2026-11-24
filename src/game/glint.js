@@ -1,4 +1,8 @@
+import { alsoWarm } from '../util/warmvariants.js';
 import * as THREE from 'three';
+import { abs, float, length, min, smoothstep, uv, vec2 } from 'three/tsl';
+import { gpuMaterials } from '../util/gpu.js';
+import { unlitTwin } from '../util/gpunodes.js';
 import { color } from '../palette.js';
 import { BILLBOARD, VIEW_DIR } from './camera.js';
 
@@ -89,6 +93,23 @@ const FRAG = /* glsl */ `
   }
 `;
 
+// FRAG as nodes, for WebGPURenderer (util/gpunodes.js).
+function glintNodes(u) {
+  const streak = (p, len, width) => {
+    const along = float(1).sub(smoothstep(0.0, len, abs(p.x)));
+    const across = float(1).sub(smoothstep(0.0, float(1).sub(abs(p.x).div(len)).mul(width).max(1e-5), abs(p.y)));
+    return along.mul(along).mul(across);
+  };
+  const p = uv().mul(2).sub(1).toVar();
+  const d = vec2(p.x.sub(p.y), p.x.add(p.y)).mul(0.7071).toVar();
+  const r = length(p);
+  const a = streak(p, 1.0, 0.07).add(streak(p.yx, 1.0, 0.07))
+    .add(streak(d, 0.45, 0.05).add(streak(d.yx, 0.45, 0.05)).mul(0.55))
+    .add(float(1).sub(smoothstep(0.0, 0.16, r)).mul(0.9))
+    .add(float(1).sub(smoothstep(0.0, 0.42, r)).mul(0.25));
+  return { color: u.uColor.mul(min(a, 1.4)).mul(u.uStrength) };
+}
+
 /**
  * @param scene     the scene the stars are drawn in
  * @param taxiGroup the player's car mesh, which the stars ride
@@ -97,7 +118,7 @@ export function createGlint({ scene, taxiGroup }) {
   const geometry = new THREE.PlaneGeometry(2, 2);
   // One material each, for the strength. Same source, so three compiles them to one program.
   const stars = STARS.map((star, n) => {
-    const material = new THREE.ShaderMaterial({
+    const glsl = new THREE.ShaderMaterial({
       uniforms: { uColor: { value: color('glint') }, uStrength: { value: 0 } },
       vertexShader: VERT,
       fragmentShader: FRAG,
@@ -105,6 +126,7 @@ export function createGlint({ scene, taxiGroup }) {
       depthWrite: false,
       blending: THREE.AdditiveBlending,
     });
+    const material = gpuMaterials() ? unlitTwin(glsl, glintNodes, { display: true }) : glsl;
     const mesh = new THREE.Mesh(geometry, material);
     mesh.name = `taxi-glint-${n}`;
     mesh.frustumCulled = false;
@@ -113,6 +135,10 @@ export function createGlint({ scene, taxiGroup }) {
     // Hidden by material rather than by `visible`, the way bloom.js asks of anything that switches —
     // and there is no light under it, so nothing else in the scene notices either way.
     material.visible = false;
+    // Which also hides it from the warm-up, so the first star of a run built its pipeline as it
+    // fired. All three, not one for the lot: they share a pipeline, but three builds each
+    // material's nodes for itself and that is a frame's worth of JavaScript on a phone.
+    alsoWarm(() => { material.visible = true; }, () => { material.visible = false; });
     scene.add(mesh);
     return { ...star, tilt: TILT + TILT_STEP * n, mesh, material };
   });

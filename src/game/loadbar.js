@@ -17,8 +17,8 @@
  *   update — this is most of the wait. It is sliced (`warmFirstDrawsInSteps`), and each slice moves
  *   the bar its true share, animated across the slice's own blocking draw.
  *
- * Shown on every load that boots behind black (the startup screen's and the "Play again" reload's
- * alike), never in shot mode or the marketing site's frame. It fades in after `SHOW_DELAY` so a
+ * Shown on every load that boots behind black (the startup screen's and a `?rerun=classic` Play
+ * again's reload alike), never in shot mode or the marketing site's frame. It fades in after `SHOW_DELAY` so a
  * quick warm load never flashes it. `?loader=classic` is the load as it was: no bar, and the warm-up
  * in one frame.
  */

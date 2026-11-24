@@ -94,7 +94,7 @@ const on = (target, type, fn) => target.addEventListener(type, fn, { signal: lis
 // the same order — AO prepass, rim depth, bloom, then the frame. The bench's own copy drifted:
 // it stayed on toon paint after the game moved to real, and drew no rim and no AO because both
 // read a depth prepass the bench had never been given. Every game flag works here too
-// (`?ao=off`, `?crayon`, `?bloom=off`, ...), since it is the same code reading them. Decided
+// (`?ao=off`, `?bloom=off`, ...), since it is the same code reading them. Decided
 // before any mesh exists, as main.js does, because `propMaterial` bakes all of it into the shader.
 //
 // What the bench keeps of its own: a 2048 shadow map whatever the budget says (pulled in to one
@@ -107,9 +107,7 @@ renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 stage.prepend(renderer.domElement);
-const renderPath = createRenderPath(renderer, budget, {
-  onNotice: (text) => console.info(`[workshop] ${text}`),
-});
+const renderPath = createRenderPath(renderer, budget);
 
 const { scene, sun, hemi, sky, fog } = createScene({ shadowMapSize: 2048 });
 renderPath.addOverlays(scene);

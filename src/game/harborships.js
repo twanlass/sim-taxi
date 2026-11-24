@@ -82,6 +82,7 @@ export function createHarborShips(scene, rng, berth) {
   material.alphaHash = true;
   const fadeFrom = coastEast() - 2;
   const fadeTo = coastEast() + EDGE_FADE * 0.7;
+  let sunkMaterial = null;
   const merge = (parts) => {
     const geo = mergeGeometries(parts, false);
     parts.forEach((p) => p.dispose());
@@ -101,7 +102,10 @@ export function createHarborShips(scene, rng, berth) {
     const mesh = merge(hull);
     mesh.name = 'harbor-ship';
     mesh.visible = false;
-    const works = sinkShadowCaster(merge(upper));
+    const deckworks = merge(upper);
+    // WebGPU sinks through a node on the material (`sinkShadowCaster`), and the hull is not sunk.
+    if (material?.isNodeMaterial) deckworks.material = (sunkMaterial ??= material.clone());
+    const works = sinkShadowCaster(deckworks);
     works.name = 'harbor-ship-upper';
     mesh.add(works);
     scene.add(markOccluder(mesh));

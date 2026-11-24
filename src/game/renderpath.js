@@ -12,24 +12,22 @@
 // has none of them.
 
 import {
-  setAmbientOcclusion, setCrayon, setCartoon, setPainterly, setPaintBrushes, setJunctionPaving, setRoadStrokes,
+  setAmbientOcclusion, setPainterly, setPaintBrushes, setJunctionPaving, setRoadStrokes,
   setClassicPaint,
   setPaintLook, setRim, rimTuning, setRimTuning, setFlip, setVehiclePaint, setCloudShadows, rimPaintOn, setRimDepth,
 } from '../util/geo.js';
 import {
-  getAmbientOcclusion, getMsaa, getShadowMapSize, getCrayon, getCartoon, getHdr, getBloom, getRain,
+  getAmbientOcclusion, getMsaa, getShadowMapSize, getBloom, getRain,
   getStorm, getSquall, getPaintClassic, getPaintLook, getRimColor, getRimTune, getFlip, getVehiclePaintClassic,
 } from '../util/shot.js';
 import { createBrushTiles } from './brushtiles.js';
 import { createAmbientOcclusion } from './ssao.js';
 import { createBloom } from './bloom.js';
-import { createHdr } from './hdr.js';
-import { createCrayon } from './crayon.js';
-import { createCartoon } from './cartoon.js';
 import { createCrt } from './crt.js';
 import { cullEmptyPools } from '../util/emptypools.js';
 import { syncRiverWater } from '../city/riverwater.js';
 import { installColorGrade } from './colorgrade.js';
+import { perfPhase } from './perf.js';
 
 /**
  * The URL's say in how the frame is drawn. The game adds what only it decides (the safe mode, the
@@ -40,12 +38,6 @@ export function renderBudget() {
     msaa: getMsaa(),
     shadowMapSize: getShadowMapSize(),
     ao: getAmbientOcclusion(),
-    crayon: getCrayon(),
-    cartoon: getCartoon(),
-    // The two bloom routes, and they are alternatives rather than layers — see `game/hdr.js`.
-    // `?hdr` wins where it can run at all; both are settled in `createRenderPath`, once it has had
-    // its say.
-    hdr: getHdr(),
     bloom: getBloom(),
   };
 }
@@ -60,8 +52,6 @@ export function decideLooks(budget) {
   installColorGrade();
   // Ambient occlusion. `?ao=off` turns it off for a like-for-like cost comparison on a device.
   setAmbientOcclusion(budget.ao);
-  // Crayon Mode, the same kind of decision: see `game/crayon.js` for its three layers.
-  setCrayon(budget.crayon);
   // The painterly pass (PAINT_* in util/geo.js, game/brushtiles.js) on the ground. It carries the
   // paved junction, and once carried painted strokes along the streets; those are off by default
   // since 2026-10-25 (Tyler: "toggle off the street streaks") and `?roadstrokes=classic` brings
@@ -86,37 +76,19 @@ export function decideLooks(budget) {
   // Cloud shadows are compiled into every lit material, so they are decided here with the look
   // modes. See CLOUD_UNIFORMS in util/geo.js; with no weather driving them they cover nothing.
   setCloudShadows(Boolean(getRain() ?? getStorm() ?? getSquall()));
-  // The other look on offer, and independent of Crayon — see `game/cartoon.js`. Its cel bands
-  // compile into the same materials, so it is decided in the same breath and for the same reason.
-  setCartoon(budget.cartoon);
 }
 
 /**
- * The passes. Writes the settled `hdr` and `bloom` back into `budget`, because the diagnostics
- * panel reports the budget the page actually got, and `?hdr&crayon` is a request that was refused
- * rather than one that was honoured. `onNotice` hears about a refusal.
+ * The passes.
  */
-export function createRenderPath(renderer, budget, { onNotice = () => {}, still = false } = {}) {
-  // The comparison route first, because whether it can run at all is what decides the other one.
-  // `?hdr` takes the whole frame through a composer with tone mapping on — see game/hdr.js — and
-  // declines itself outright when a look mode is on or the GPU has no renderable float target.
-  const hdr = createHdr(renderer, {
-    enabled: budget.hdr,
-    incompatible: [budget.crayon && 'crayon', budget.cartoon && 'cartoon'].filter(Boolean),
-    onNotice,
-  });
-  budget.hdr = hdr.state.enabled;
-  // **A declined `?hdr` stands the ordinary bloom back up.** The two are alternatives, so asking
-  // for the composer takes this one's place — but only if the composer is actually running, or the
-  // flag would leave a page with neither and no way to tell from the picture which was missing.
-  budget.bloom = budget.bloom && !budget.hdr;
-
-  // `edges` and `depth` are why the AO pass takes three flags: the crayon line is traced out of
-  // its depth buffer, the bloom rejects its lamps against it and the rim paint finds its edges in
-  // it, and Android's `?safe` default would otherwise have turned the pass off on the platform
-  // most likely to be asked for a drawn look.
+export function createRenderPath(renderer, budget, { still = false } = {}) {
+  // `depth` is why the AO pass takes two flags: the bloom rejects its lamps against its depth
+  // buffer and the rim paint finds its edges in it, and Android's `?safe` default would otherwise
+  // have turned the pass off.
   const ao = createAmbientOcclusion(renderer, {
-    enabled: budget.ao, edges: budget.crayon || budget.cartoon, depth: budget.bloom || rimPaintOn(),
+    enabled: budget.ao,
+    // WebGPU: the depth prepass is a WebGL pass until it is ported (game/gpucompat.js).
+    depth: !budget.gpu && (budget.bloom || rimPaintOn()),
   });
   // Spill around every self-lit thing — see game/bloom.js. Not a bright-pass over the frame: an
   // explicit draw list of lamps, rendered into a small half-float target of its own, so the main
@@ -124,22 +96,18 @@ export function createRenderPath(renderer, budget, { onNotice = () => {}, still 
   const bloom = createBloom(renderer, {
     enabled: budget.bloom, depth: ao.depth, depthSize: ao.depthSize,
   });
-  const crayon = createCrayon(renderer, { enabled: budget.crayon });
-  const cartoon = createCartoon({ enabled: budget.cartoon });
   // The CRT screen over the finished frame — see game/crt.js. Only the game's budget carries
   // `crt`; the workshop's bench leaves it undefined and gets the clean frame.
   const crt = createCrt(renderer, { enabled: Boolean(budget.crt), still });
 
   return {
-    ao, bloom, crayon, cartoon, hdr, crt,
+    ao, bloom, crt,
 
     /**
-     * The page (crayon) and the bloom composite: ordinary objects in the main scene at
-     * `renderOrder` 1, not post passes, with the page over the bloom. Each is null when its flag
-     * is off.
+     * The bloom composite: an ordinary object in the main scene at `renderOrder` 1, not a post
+     * pass. Null when its flag is off.
      */
     addOverlays(scene) {
-      if (crayon.overlay) scene.add(crayon.overlay);
       if (bloom.overlay) scene.add(bloom.overlay);
     },
 
@@ -152,9 +120,6 @@ export function createRenderPath(renderer, budget, { onNotice = () => {}, still 
      * `rain`, `rainLightsOn` and `diag` are the game's; the bench passes none of them.
      */
     render(scene, cam, { rain = null, rainLightsOn = null, diag = null } = {}) {
-      // Sized here rather than in a frame loop for the same reason the AO prepass is called here:
-      // shot mode and `__taxi.redraw()` both reach a render without ever reaching the loop.
-      crayon.prepare();
       // `?diag` counts the whole frame's draws, every pass below included.
       diag?.frameStart();
       // Before every pass below, so an effect pool with nothing in it skips the shadow, AO and
@@ -164,26 +129,29 @@ export function createRenderPath(renderer, budget, { onNotice = () => {}, still 
       rainLightsOn?.();
       rain?.update(0, cam);
       rain?.renderReflection(scene, cam);
+      perfPhase('ao');
       ao.render(scene, cam);
       // The rim paint reads the depth the prepass just drew (util/geo.js, `gRimEdge`).
       setRimDepth(ao.depth(), ao.depthSize(), cam);
       // After the AO prepass, which is what fills the depth buffer the lamps are rejected against.
+      perfPhase('bloom');
       bloom.render(scene, cam);
       // Here rather than in a loop for the AO prepass's reason: shot mode renders without one.
       syncRiverWater(scene.fog?.color);
-      // `?hdr` takes the whole frame through a composer instead; a no-op without the flag, and it
-      // returns false so the ordinary path below still runs.
-      if (!hdr.render(scene, cam)) renderer.render(scene, cam);
+      perfPhase('main');
+      renderer.render(scene, cam);
+      perfPhase('post');
       // Drops on the glass, over the finished frame.
       rain?.renderLens();
       // The glass, in front of the drops on it.
       crt.render();
       // After everything has drawn, so its counters and centre pixel are the frame on screen.
       diag?.update();
+      perfPhase('after');
     },
 
     dispose() {
-      [ao, bloom, crayon, cartoon, hdr, crt].forEach((pass) => pass.dispose());
+      [ao, bloom, crt].forEach((pass) => pass.dispose());
     },
   };
 }

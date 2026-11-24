@@ -32,6 +32,37 @@ final class GameViewController: UIViewController {
     /// standalone object and not an extension on this class.
     private let haptics = HapticsBridge()
 
+    #if DEBUG
+    /// `?perf` captures, written into the app's container for `tools/ios-perf.mjs pull`.
+    private let perf = PerfBridge()
+    #endif
+
+    /// The page to load. In a DEBUG build a launch argument can add a query string —
+    /// `xcrun devicectl device process launch … com.twanlass.rocketrides --query "perf&hitch"`, which
+    /// is what `tools/ios-perf.mjs launch` sends — because the app otherwise has no way to take a URL
+    /// parameter, and every diagnostic in the game (`?perf`, `?hitch`, `?diag`, `?bench`) is one.
+    /// Release ignores it, so a shipped build always opens the plain game.
+    private static var launchURL: URL {
+        #if DEBUG
+        let args = ProcessInfo.processInfo.arguments
+        if let at = args.firstIndex(of: "--query"), at + 1 < args.count {
+            let query = args[at + 1].trimmingCharacters(in: CharacterSet(charactersIn: "?"))
+            // `--query park`: load nothing. The app is frontmost, so the idle timer stays off and the
+            // phone stays awake and unlocked, but there is no game drawing to heat it. This is how
+            // `tools/ios-perfloop.mjs` cools the phone between runs on a phone whose Auto-Lock cannot
+            // be set to Never: killing the app to cool let it lock after 5 minutes, and every launch
+            // after that failed with "Locked".
+            if query == "park" { return URL(string: "about:blank")! }
+            if !query.isEmpty, let url = URL(string: "\(startURL.absoluteString)?\(query)") { return url }
+        }
+        #endif
+        return startURL
+    }
+
+    /// Game Center: sign-in, the Arcade score and Apple's leaderboard screen. Held for the same
+    /// reason as `haptics`; it holds this controller and the web view back weakly.
+    private let gameCenter = GameCenterBridge()
+
     override func loadView() {
         let config = WKWebViewConfiguration()
         config.setURLSchemeHandler(BundleSchemeHandler(), forURLScheme: Self.scheme)
@@ -73,8 +104,14 @@ final class GameViewController: UIViewController {
         // Engine at all. `src/util/haptics.js` posts an event name to this handler and no-ops
         // everywhere else.
         config.userContentController.add(haptics, name: HapticsBridge.name)
+        #if DEBUG
+        config.userContentController.add(perf, name: PerfBridge.name)
+        #endif
+        config.userContentController.add(gameCenter, name: GameCenterBridge.name)
 
         webView = WKWebView(frame: .zero, configuration: config)
+        gameCenter.host = self
+        gameCenter.webView = webView
 
         // Not a document. Every one of these turns off a browser affordance that reads as a bug in
         // a game: rubber-banding the whole city when a drag runs past the edge of the screen,
@@ -119,7 +156,14 @@ final class GameViewController: UIViewController {
         center.addObserver(self, selector: #selector(pauseGame),
                            name: UIApplication.willResignActiveNotification, object: nil)
 
-        webView.load(URLRequest(url: Self.startURL))
+        webView.load(URLRequest(url: Self.launchURL))
+    }
+
+    /// Game Center sign-in starts once the controller is on screen, because the first thing it may
+    /// do is present Apple's sign-in sheet, and a controller not yet in a window cannot present.
+    override func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        gameCenter.start()
     }
 
     /// Pause the run when the app stops being frontmost — a call, a notification pulled into a full

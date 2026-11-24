@@ -96,6 +96,9 @@ export function createBoost(duration = BOOST_DURATION, startFraction = BOOST_STA
     charging: false,
   };
 
+  // What a run starts from, for `reset` (Play again on the same page, main.js `rerun`).
+  const freshState = { ...state };
+
   // Leaving 'active' for any reason — letting go or running the tank dry — passes through here
   // first instead of landing straight on 'ready'/'empty'.
   function enterCooldown() {
@@ -123,6 +126,7 @@ export function createBoost(duration = BOOST_DURATION, startFraction = BOOST_STA
   const EMPTY_FUEL = 1 / 30;
 
   return {
+    reset: () => { Object.assign(state, freshState); },
     state,
     isActive: () => state.mode === 'active',
     isReady: () => state.mode === 'ready',

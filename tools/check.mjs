@@ -22,21 +22,21 @@ const BOOT = ['../src/game/scene.js', '../src/game/debugpanel.js', '../src/geome
   '../src/city/burgerjoint.js', '../src/game/drivethru.js',
   '../src/city/bank.js', '../src/game/robbery.js', '../src/game/radio.js', '../src/game/radiocue.js', '../src/game/race.js', '../src/geometry/raceflag.js',
   '../src/game/robberline.js', '../src/game/bankjob.js', '../src/game/copshout.js', '../src/game/depotcall.js', '../src/game/ordertalk.js', '../src/game/patrol.js', '../src/game/bootleg.js', '../src/game/newmove.js', '../src/game/uturnclip.js', '../src/game/driftclip.js', '../src/game/moveclip.js', '../src/game/repairclip.js',
-  '../src/game/speech.js',
+  '../src/game/speech.js', '../src/game/perfbot.js',
   '../src/game/coplights.js', '../src/game/cashtrail.js',
   '../src/game/wipe.js',
   '../src/game/chopper.js', '../src/game/policeheli.js',
   '../src/game/flames.js', '../src/game/locoflame.js', '../src/game/sparks.js',
   '../src/game/repairfx.js', '../src/game/streetprops.js', '../src/geometry/streetprops.js',
   '../src/game/daylight.js', '../src/game/edgefog.js', '../src/game/riderfinder.js',
-  '../src/game/taxifinder.js',
+  '../src/game/taxifinder.js', '../src/game/taximarker.js',
   '../src/game/farepointers.js', '../src/game/sirenglow.js', '../src/game/robberyglow.js',
   '../src/game/vanish.js', '../src/game/wreckage.js', '../src/game/ejection.js', '../src/game/windshield.js', '../src/game/replay.js', '../src/game/runend.js', '../src/game/polaroid.js',
   '../src/game/impact.js', '../src/game/taxidamage.js', '../src/game/taxidoor.js',
   '../src/util/viewport.js',
   '../src/game/energybits.js', '../src/game/carghosts.js', '../src/game/homescreen.js',
-  '../src/game/ssao.js', '../src/game/crayon.js', '../src/game/cartoon.js', '../src/game/brushtiles.js',
-  '../src/game/bloom.js', '../src/game/hdr.js', '../src/game/renderpath.js',
+  '../src/game/ssao.js', '../src/game/brushtiles.js',
+  '../src/game/bloom.js', '../src/game/renderpath.js',
   '../src/game/diag.js', '../src/game/bench.js', '../src/game/soak.js', '../src/game/governor.js', '../src/game/recovery.js', '../src/game/pause.js', '../src/game/menupage.js', '../src/game/inspect.js',
   '../src/geometry/roadworks.js', '../src/game/roadwork.js',
   '../src/geometry/crate.js', '../src/game/flatbed.js',
@@ -110,6 +110,18 @@ try {
   const { createDaylight, DAY_SECONDS } = await import('../src/game/daylight.js');
   const world = createScene();
   for (const mod of BOOT) await import(mod);
+
+  // `?bot`'s scene list, and the Mac loop's idea of how long it runs: tools/ios-perfloop.mjs starts
+  // polling for the capture at that many seconds, so a scene added without it would time out.
+  {
+    const { readBotScenes, BOT_SCENES } = await import('../src/game/perfbot.js');
+    const names = readBotScenes('?bot=loco').map((sc) => sc.name).join(',');
+    if (names !== 'warm,loco,crash') throw new Error(`readBotScenes('?bot=loco') gave ${names}`);
+    if (readBotScenes('?perf') !== null) throw new Error('readBotScenes without ?bot should be null');
+    const total = BOT_SCENES.reduce((a, sc) => a + sc.seconds, 0);
+    const loop = await (await import('node:fs/promises')).readFile(new URL('./ios-perfloop.mjs', import.meta.url), 'utf8');
+    if (!loop.includes(`const BOT_SECONDS = ${total};`)) throw new Error(`ios-perfloop.mjs BOT_SECONDS should be ${total}`);
+  }
 
   // The bridges' shadow patch, run rather than trusted. It is a string replace into three's own
   // depth shader (see `sinkShadowCaster`), and a replace that stops matching does not throw — it

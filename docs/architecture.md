@@ -47,6 +47,7 @@ src/
                         tap one on a phone to ride the camera to it
     riderfinder.js      the HUD chips that used to do that job, now behind `?chips=on`
     taxifinder.js       the chip that comes up when the taxi is off-frame — tap to ride back to it
+    taximarker.js       the yellow triangle over the taxi while no rider is aboard
     faremarker.js       the fare clock, as a physical object: kerb, flight, taxi
     selectpop.js        the swell-and-settle curve a tapped rider and their crystal share
     boost.js            crazy-taxi duty cycle (a pure clock, no scene knowledge)

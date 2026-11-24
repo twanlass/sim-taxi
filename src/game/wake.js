@@ -3,6 +3,8 @@ import { skipWhenEmpty } from '../util/emptypools.js';
 import { unlitMaterial } from '../util/geo.js';
 import { waterHeightAt } from '../city/river.js';
 import { PALETTE } from '../palette.js';
+import { GPU } from '../util/gpu.js';
+import { instanceAlpha } from '../util/gpunodes.js';
 
 // The foam behind a boat. One `InstancedMesh` of flattened motes lying on the water, shared by
 // every hull on the river — the dust/flames recipe (`game/dust.js`) with the tuning a wake wants.
@@ -146,6 +148,7 @@ export function createWake(parent, rng, edges, fade) {
       .replace('#include <common>', '#include <common>\nvarying float vAlpha;')
       .replace('#include <dithering_fragment>', '#include <dithering_fragment>\n\tgl_FragColor.a *= vAlpha;');
   };
+  if (GPU) instanceAlpha(material);
 
   const mesh = skipWhenEmpty(new THREE.InstancedMesh(geometry, material, MAX_FOAM));
   mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);

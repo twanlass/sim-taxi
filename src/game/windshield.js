@@ -273,8 +273,15 @@ export function createWindshield(scene, { rng, roadY = 0, withFlash = true } = {
     pose(at ?? age);
   }
 
+  /** Play again on the same page (main.js `rerun`): every shard and the flash gone. */
+  function clear() {
+    pose(-1);
+    fired = false;
+    age = 0;
+  }
+
   return {
-    fire, update, seek,
+    fire, update, seek, clear,
     active: () => fired,
     mesh,
     flash,

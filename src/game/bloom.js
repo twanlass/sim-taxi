@@ -29,13 +29,10 @@ import { unlitMaterial } from '../util/geo.js';
  * bloom specifically there is a second and larger reason. A composer implies HDR, HDR implies tone
  * mapping, and tone mapping means re-judging every colour in `palette.js`, the sky dome's
  * gradient, `hazeColor()` and the shadow tint, all of which were picked against `NoToneMapping`.
- * It also moves the sRGB encode out of the materials and into an output pass, which breaks Crayon
- * and Cartoon Mode outright: both deliberately mix their ink **in display space**, after
- * `<colorspace_fragment>` has run.
+ * (That route was built once, as `?hdr`, for a side-by-side; it was removed in 2026-11.)
  *
- * `game/hdr.js` is that route, behind `?hdr`, so the two can be looked at side by side. This one
- * keeps the main render exactly where it is: the spill is composited as one more **object in the
- * scene**, the same trick `game/crayon.js` uses for its page, so the frame never enters a target.
+ * This one keeps the main render exactly where it is: the spill is composited as one more
+ * **object in the scene**, so the frame never enters a target.
  *
  * ### The HDR that is worth having
  *
@@ -56,10 +53,9 @@ export const BLOOM_LAYER = 2;
 /**
  * Where the composite lands in the transparent queue.
  *
- * **Zero, under everything.** The existing ladder is the crayon page 1, skid marks 2, dust 3, the
- * route band 4, the drag handle 5, flames 6, the fare rings 7-9. Bloom is light in the picture and
- * not a read-out, so the crayon page washes over it exactly as it washes over the city, and no
- * fare's timer ring is ever lifted by a passing indicator.
+ * **Zero, under everything.** The existing ladder is skid marks 2, dust 3, the route band 4, the
+ * drag handle 5, flames 6, the fare rings 7-9. Bloom is light in the picture and not a read-out,
+ * so no fare's timer ring is ever lifted by a passing indicator.
  */
 export const BLOOM_ORDER = 0;
 
@@ -403,18 +399,17 @@ export function refreshEmissive(mesh, master = 1) {
  *
  * The exclusion `markEmissive`'s traversal needs, and the same shape as the rule
  * [`markOccluder`](./ssao.js) carries for its own prepass. Every vehicle part in the game wears a
- * ghost outline (`geometry/ghostoutline.js`) and may wear a Cartoon Mode hull on top of that — two
- * child meshes each, attached to the part rather than beside it. **The taxi's six light pods
- * therefore carry twelve children between them**, and a traversal that took them would bloom an
+ * ghost outline (`geometry/ghostoutline.js`) — two child meshes, a mask and a rim, attached to the
+ * part rather than beside it. **The taxi's six light pods therefore carry twelve children between
+ * them**, and a traversal that took them would bloom an
  * inflated hull of the pod and a mask that writes no colour at all: a soft rectangle floating
  * around each of the taxi's lights, three times the size they are.
  *
  * Two tests, because the two halves fail differently. A mask is `colorWrite: false` — it has no
  * colour to *be* light, which is the same argument the AO prepass makes about it. A rim does write
- * colour, so it is caught by name, the way `setGhostOutlines` and Cartoon Mode's own sweep already
- * identify them.
+ * colour, so it is caught by name, the way `setGhostOutlines` already identifies them.
  */
-const OUTLINE_NAMES = new Set(['ghostMask', 'ghostRim', 'toonOutline', 'toonOutlineMask']);
+const OUTLINE_NAMES = new Set(['ghostMask', 'ghostRim']);
 
 function isOutline(object) {
   return object.material.colorWrite === false || OUTLINE_NAMES.has(object.name);
@@ -446,6 +441,9 @@ export function markEmissive(root, kind = 'pod') {
     // which is how `game/routeline.js`'s band gets in. Silent, because a traversal over a group
     // legitimately meets meshes that are not lamps.
     if (!live.color && !live.emissive) return;
+    // The WebGPU stand-in for one of those (`unlitTwin`, util/gpunodes.js) does have a `color`, and
+    // is skipped all the same: the L train's beam is a shader on WebGL and was never a lamp.
+    if (live.userData.twin) return;
     // Through the helper, like every other unlit material in the game — and the `fog: false` it
     // carries is the point here rather than a formality: haze mixes toward the sky colour, and a
     // lamp faded into the sky is not a lamp.
@@ -721,7 +719,7 @@ export function createBloom(renderer, { enabled = true, depth = null, depthSize 
 
   /**
    * The composite, as an ordinary object in the main scene — hoisted out of a render target and
-   * into the transparent queue, exactly as `game/crayon.js` hoists its page. This is the whole
+   * into the transparent queue. This is the whole
    * reason the frame keeps its MSAA and the ghost outlines keep their stencil.
    */
   const overlay = new THREE.Mesh(

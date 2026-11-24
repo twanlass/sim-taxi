@@ -2,6 +2,8 @@ import * as THREE from 'three';
 import { skipWhenEmpty } from '../util/emptypools.js';
 import { color } from '../palette.js';
 import { carrySpeed } from '../util/carry.js';
+import { GPU } from '../util/gpu.js';
+import { instanceAlpha } from '../util/gpunodes.js';
 
 // Dust kicked up behind the taxi in crazy mode — and, off the same pool, the wall of it a
 // barricade throws, the collar of smoke that rings a wreck, and the rotor wash a helicopter lifts
@@ -106,6 +108,7 @@ export function createDust(scene, camera, rng) {
       .replace('#include <common>', '#include <common>\nvarying float vAlpha;')
       .replace('#include <dithering_fragment>', '#include <dithering_fragment>\n\tgl_FragColor.a *= vAlpha;');
   };
+  if (GPU) instanceAlpha(material);
 
   const mesh = skipWhenEmpty(new THREE.InstancedMesh(geometry, material, MAX_PUFFS));
   mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);

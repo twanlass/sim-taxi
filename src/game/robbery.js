@@ -443,6 +443,9 @@ export function createRobbery({
     pairs: 0,
   };
 
+  // What a run starts from, for `reset`.
+  const freshState = { ...state };
+
   // The cop summoned to stand beside the current roadblock, and the one it is joining. At most one
   // of each, because only one roadblock stands at a time.
   let partner = null;
@@ -1356,6 +1359,16 @@ export function createRobbery({
     abandon() {
       stop();
       clearFleet();
+    },
+    /** Play again on the same page (main.js `rerun`): any event dropped and the run's tallies gone. */
+    reset() {
+      stop();
+      clearFleet();
+      Object.assign(state, freshState);
+      robber = null;
+      aimedAt = null;
+      partner = null;
+      partnerLead = null;
     },
   };
 }

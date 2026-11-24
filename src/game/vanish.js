@@ -30,6 +30,9 @@ import { carryTravel } from '../util/carry.js';
 
 const VANISH_TIME = 0.34;
 
+/** The render state `take` puts a shell's materials in — warmed at boot for the fleet's shells (sim/traffic.js). */
+export const FADED_SHELL = Object.freeze({ transparent: true, depthWrite: false });
+
 const UP = new THREE.Vector3(0, 1, 0);
 
 export function createVanish() {
@@ -62,8 +65,7 @@ export function createVanish() {
         // The taxi's oversized pick volume is already invisible — there is nothing to fade, and
         // switching it to a transparent pass would cost a shader recompile for nothing.
         if (!material.visible) continue;
-        material.transparent = true;
-        material.depthWrite = false;
+        Object.assign(material, FADED_SHELL);
         // `transparent` is part of the program cache key, so flipping it at runtime needs the
         // recompile flag. One recompile, on the frame a run ends.
         material.needsUpdate = true;

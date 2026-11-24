@@ -170,6 +170,15 @@ The third piece is the `renderer.compile(scene, camera)` at the bottom of `main.
 walks the scene with `traverse` rather than `traverseVisible`, so it reaches the pooled effects that
 are sitting there invisible, and moves another six links out of the run.
 
+The fourth is **faded variants** (`fadeVariants` in `game/warmup.js`). `transparent` is part of a
+program's key (three's `OPAQUE` define), so anything that fades out — a delivered rider, the boats
+and gulls, the roadworks packing up — relinks its shader the first time it goes see-through, mid-run.
+The warm-up draws one copy per distinct opaque program with `transparent` on, once, at boot, and
+keeps the copies alive so three does not delete the programs. The roadworks' props are the only
+shadow-casting, non-receiving instanced meshes in the city, so `roadwork.js` adds two hidden
+stand-ins (`roadwork-warm`) that give the warm-up that key to find. On tdub this took three links
+worth ~850 ms of stalls out of the scripted run.
+
 `roadwork-pull.mjs` is deliberately **not** in `npm run check`. What it measures is a distribution —
 the share of runs in which the taxi is routed through the closed street — and the honest assertion
 ("most players meet it") is a percentage with real variance across seeds. A suite that gates on one
@@ -430,6 +439,87 @@ reports one row per minute plus a start-against-end summary (`src/game/soak.js`)
 as separate runs from a cool, unplugged phone (`?soak` against `?soak&dpr=1.5`), and note the
 battery level at each end by hand: Safari has no battery API. A wreck reloads into a fresh run with
 the rows carried in the URL.
+
+## Profiling on the phone
+
+`?bench` and `?soak` answer "what does a setting cost"; `?hitch` shows the last few late frames on
+screen. None of them leaves the phone, so every hitch report used to be someone reading numbers
+off the glass. `?perf` (`src/game/perf.js`) records **every** frame of a run and the startup, and
+the iOS shell saves it into the app's own container, where the Mac copies it off with `devicectl`.
+Nobody reads anything aloud.
+
+The loop, from the Mac, with a DEBUG build on the phone (`npm run push:ios -- --device tdub`):
+
+```bash
+node tools/ios-perf.mjs launch --device tdub            # relaunches the app as ?perf
+node tools/ios-perf.mjs trace --device tdub --seconds 150   # optional: Metal System Trace meanwhile
+node tools/ios-perf.mjs pull --device tdub              # copies the captures off and prints the report
+```
+
+`launch` takes `--query` for any other flags (`--query "perf&hitch&governor=off"`): the app has no
+address bar, so a DEBUG build reads a `--query` launch argument and appends it to its start URL
+(`launchURL` in `GameViewController.swift`). Release ignores it. A capture saves every minute, on
+game over and whenever the app leaves the foreground, so pressing the Home gesture is the reliable
+"save now"; the frame a save lands on is tagged `save` and the report names it as such.
+
+**What the report says.** A startup timeline (`boot` → `import:start` → `renderer` →
+`compile:start/end` → `warmup:end` → `first-frame`, plus the links and uploads between capture start
+and the first frame), frame-gap percentiles, JS by phase (`sim` is the game's update; `pre`, `ao`,
+`bloom`, `main`, `post` are the render passes' JS submission; `after` is what `tick` does once the
+frame is submitted), then late frames grouped by cause and the worst 25 in a table. A late frame's
+cause is the first of: a shader link, a resize, first-draw uploads (≥256 KB or ≥4 textures), JS
+over 80% of the budget, and otherwise **not JS**. A shader linked mid-run is named in its own section, by the meshes that draw with it and by
+the game function that rendered it (the call stack with three's frames taken out); that is how a
+5.6 s run-end freeze on an iPhone turned out to be the wreck fireball's bloom copy.
+
+**Under WebGPU the same columns are fed from the device**, since there is no GL context to hook
+(captures taken before 2026-11-22 read 0 links and 0 uploads on WebGPU for that reason, which was
+the profiler being blind). `link` counts render pipelines built **and** materials whose nodes were
+rebuilt: `material.needsUpdate` re-runs three's node builder and regenerates the WGSL in JavaScript
+even when the pipeline is cached, which costs a frame the device never hears about. Each is named
+in a note, `link pipeline <label>` or `link nodes <object>`. `up` is `queue.writeBuffer` bytes,
+uniform buffers included, so it sits around 100 to 300 KB on every frame where WebGL's is 0 on a
+quiet one; `tex` is `queue.writeTexture` and `copyExternalImageToTexture`.
+
+**"Not JS" is where the trace comes in.** WebKit has no GPU timer queries, so a GPU-bound frame
+reads as a long gap with a short `cpu` and that is all the page can say about it. `trace` records
+Instruments' Metal System Trace across all processes — WebGL draws in `com.apple.WebKit.GPU`, not in
+the app — and the report prints the worst five frames on the wall clock so they can be found on the
+trace's timeline. Open the `.trace` in Instruments and look at the GPU process's command buffers
+under that timestamp. Safari Web Inspector (Develop ▸ tdub ▸ Rocket Rides, DEBUG builds only) is
+the third view: its Timelines tab records JS call stacks for a frame the report flagged as `JS`.
+
+Captures and traces land in `perf-captures/`, which is git-ignored. In a desktop browser,
+`?perf` keeps the capture on `window.__perfCapture.last`; `__perfCapture.download()` saves it, and
+`node tools/ios-perf.mjs report <file>` reads it the same way.
+
+### The unattended loop
+
+`?perf` with somebody playing measures whatever they happened to do. `?bot`
+([src/game/perfbot.js](../src/game/perfbot.js)) plays one fixed session instead, on pinned seeds:
+`warm` (8 s), `fares` (40), `loco` (25, Loco held), `drift` (30, a brake tap before each corner),
+`bigair` (35, straight over the arched bridges on Loco), `robbery` (up to 75: the bank rider, the
+cut, the getaway), `cops` (35, a patrol spots the taxi and chases), then `crash` (14: the wreck, the
+replay, the run-end card). Each scene is a `bot:<name>` note in the capture, so the report splits
+fps, p95 and hitches by scene, and the bot's own tally of what each scene managed (drifts kicked,
+hops, chases) is in the `bot:done` note. Until the crash the run cannot be lost: HP is topped up,
+the fare and shift clocks are held, and a chasing cop is kept in its grace window. Same input, not
+the same frames: a slow frame takes a bigger sim step, so compare scenes, not single frames.
+
+```bash
+node tools/ios-perfloop.mjs --device tdub --runs 3                       # build, install, 3 runs
+node tools/ios-perfloop.mjs --device tdub --no-build --variants "webgpu=,webgl=renderer=classic"
+```
+
+`tools/ios-perfloop.mjs` builds and installs a DEBUG build, then for each run relaunches the app with
+`?perf&bot` and the pinned base query (`governor=off&dpr=2&fps=60`: no resizes, never under 2x,
+uncapped so headroom shows), waits for the `bot-done` save, copies it off, kills the app and lets
+the phone cool (`--cool`, 180 s, longer after a hot run). Variants interleave so heat lands on each
+alike. The shell writes the phone's **thermal state** into the capture (`thermal fair` notes, from
+`ProcessInfo.thermalState` in `PerfBridge.swift`); a run that starts above `nominal` is flagged and
+kept out of the medians while a cool one exists. Everything lands in `perf-captures/loop/<stamp>/`
+with a `summary.md`. The phone has to stay unlocked with Auto-Lock set to Never: the app holds the
+screen on only while it is frontmost, and it is killed to cool.
 
 ## When a device renders nothing
 
