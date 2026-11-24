@@ -437,7 +437,7 @@ export function placeJunctionPaving(rng, visible = () => true) {
  *   track is ruled the length of a street.
  * - **Oil stains** (Tyler, 2026-11-23: "Keep going! Ruts, oil stains, some general noise"). One
  *   dark, faintly brown blot at most per 3.2-unit cell, 0.45 to 1.3 across with an edge the grain
- *   chews: about one cell in four anywhere on a road, and better than one in two down a lane's
+ *   chews: about one cell in twelve anywhere on a road, and one in three down a lane's
  *   drip line on the way up to a junction, which is where cars stand and drip.
  * - **Grain.** Two finer octaves, 1.3 and 0.45 units, the second about ten device pixels on a
  *   phone: below that a world-locked noise crawls as the camera pans.
@@ -464,17 +464,23 @@ export function setRoadTexture(amount = 1, seed = 0) {
  * The pixel-art street (Tyler, 2026-11-23: "Can we try something that looks like a pixel art
  * street?"). The same road, read through a grid of world texels: every layer above is sampled at
  * its texel's centre, the value is rounded to a short ramp of greys, the stains get a hard edge,
- * the grain becomes single light and dark pixels (one texel in ten each way), and a crack runs
- * where the mottle crosses its middle, in about half the 9-unit cells.
+ * the grain becomes single light and dark pixels (one texel in twenty-five each way), and a crack
+ * runs where the mottle crosses its middle, in about a fifth of the 9-unit cells.
  *
- * 0.375 because the grid divides by it: a 9-unit street is 24 texels kerb to kerb, the pitch 56
+ * 0.25 because the grid divides by it: a 9-unit street is 36 texels kerb to kerb, the pitch 84
  * and both half-spans whole numbers, so texel edges land on every kerb line of an ordinary street
- * (an arterial's 10.67 does not divide, and its outer texel is cut). It is 2.9 CSS pixels at play
- * zoom, which is about the smallest a texel can be and still read as one. The texels are square
+ * (an arterial's 10.67 does not divide, and its outer texel is cut). It is 1.9 CSS pixels at play
+ * zoom, six device pixels on a phone. The texels are square
  * on the *ground*, so on screen they are the diamonds of a low-resolution texture rather than
  * screen pixels. `texel` 0 is the smooth road (`?roadtex=smooth`).
  */
-export const ROAD_TEXEL = 0.375;
+//
+// 0.375 (24 to a street) was the first cut and Tyler found it "a little too big" (2026-11-23), along
+// with the stains, cracks and speckle being overdone and the street all dark: so 0.25, 36 to a
+// street and still on every kerb line; stains from one cell in four to one in twelve, cracks from
+// half the 9-unit cells to a fifth, speckle from one texel in ten each way to one in twenty-five;
+// and the runs and the mottle biased light (a run is -0.25 to +0.75 of its swing, not -0.5 to 0.5).
+export const ROAD_TEXEL = 0.25;
 export function setRoadPixels(texel = ROAD_TEXEL, step = 0.1) {
   PAINT_UNIFORMS.uRoadTexPixel.value.set(Math.max(0, texel), step);
 }
@@ -531,7 +537,7 @@ float roadStain(vec2 p, float lane, float chew) {
 	vec2 o = 0.3 + 0.4 * vec2(fract(h * 91.7), fract(h * 513.3));
 	float r = 0.07 + 0.13 * fract(h * 7919.0);
 	float d = length(f - o) / r + (chew - 0.5) * 0.9;
-	return step(1.0 - 0.25 - 0.5 * lane, h) * (1.0 - smoothstep(0.5, 1.0, d));
+	return step(1.0 - 0.08 - 0.25 * lane, h) * (1.0 - smoothstep(0.5, 1.0, d));
 }
 // One resurfaced run of a street: x its value, y its hue, both -0.5 to 0.5. s is the distance
 // along the street. The seam is 0.3 units of cross-fade, which is what keeps a square edge from
@@ -701,15 +707,16 @@ const PAINT_FRAGMENT = /* glsl */ `
 						vec2 run = roadRun(tp.x, tl.y) * wX + roadRun(tp.y, tl.x + 57.0) * wZ;
 						float wear = roadWear(td.y, hX, mix(9.0, td.x - hZ, realZ)) * inX
 							+ roadWear(td.x, hZ, mix(9.0, td.y - hX, realX)) * inZ;
-						float tv = run.x * uRoadTex.x + (tn - 0.5) * uRoadTex.y + wear * (0.35 + 1.3 * tn) * uRoadTex.z;
+						// Biased light: a street that only ever varies about its base reads as all dark.
+						float tv = (run.x + 0.25 * (wX + wZ)) * uRoadTex.x + (tn - 0.35) * uRoadTex.y + wear * (0.35 + 1.3 * tn) * uRoadTex.z;
 						vec3 tex = (1.0 + tv) * (1.0 + run.y * uRoadTex.x * 0.6 * vec3(1.0, 0.1, -1.0));
 						if (uRoadTexFine.x + uRoadTexFine.y > 0.0) {
 							float g1 = paintNoise(wq / 1.3 + 7.0);
 							float g2 = paintNoise(wq / 0.45 + 31.0);
 							if (pix > 0.5) {
-								// Single pixels instead of the fine octave: one in ten light, one in ten dark.
+								// Single pixels instead of the fine octave: one in 25 light, one in 25 dark.
 								float sp = paintHash(wq * 7.31 + 3.0);
-								g2 = 0.5 + 0.9 * (step(0.9, sp) - step(sp, 0.1));
+								g2 = 0.5 + 0.9 * (step(0.96, sp) - step(sp, 0.04));
 							}
 							// How near a lane's drip line, and only on the way up to a junction or in it.
 							float lx = (1.0 - smoothstep(0.2, 0.9, abs(td.y - (hX - uRoadTexGrid.z)))) * inX
@@ -724,7 +731,7 @@ const PAINT_FRAGMENT = /* glsl */ `
 							tex *= 1.0 - stain * vec3(0.9, 1.0, 1.15);
 						}
 						if (pix > 0.5) {
-							float crack = step(abs(tn - 0.5), 0.018) * step(0.5, paintHash(floor(wq / 9.0) + 5.0)) * max(inX, inZ);
+							float crack = step(abs(tn - 0.5), 0.018) * step(0.8, paintHash(floor(wq / 9.0) + 5.0)) * max(inX, inZ);
 							tex *= 1.0 - 0.45 * crack;
 							// The ramp: the value rounded to the palette's step, the hue left as it was.
 							float lv = (tex.r + tex.g + tex.b) / 3.0;

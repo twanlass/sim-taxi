@@ -35,7 +35,7 @@ export function createPaving(U) {
     const o = vec2(fract(h.mul(91.7)), fract(h.mul(513.3))).mul(0.4).add(0.3);
     const r = fract(h.mul(7919)).mul(0.13).add(0.07);
     const d = length(fract(g).sub(o)).div(r).add(chew.sub(0.5).mul(0.9));
-    return step(float(1 - 0.25).sub(lane.mul(0.5)), h).mul(float(1).sub(smoothstep(0.5, 1.0, d)));
+    return step(float(1 - 0.08).sub(lane.mul(0.25)), h).mul(float(1).sub(smoothstep(0.5, 1.0, d)));
   };
   // roadRun and roadWear in PAINT_COMMON (util/geo.js), where the reasoning is.
   const roadRun = (s, line) => {
@@ -131,18 +131,18 @@ export function createPaving(U) {
       const inX = smoothstep(-0.12, 0.12, hX.sub(td.y)).mul(realX).toVar();
       const inZ = smoothstep(-0.12, 0.12, hZ.sub(td.x)).mul(realZ).toVar();
       const zWins = aZ.mul(float(1).sub(aX)).toVar();
-      const wX = inX.mul(mix(1.0, float(1).sub(inZ), zWins));
-      const wZ = inZ.mul(mix(float(1).sub(inX), 1.0, zWins));
+      const wX = inX.mul(mix(1.0, float(1).sub(inZ), zWins)).toVar();
+      const wZ = inZ.mul(mix(float(1).sub(inX), 1.0, zWins)).toVar();
       const tn = noise(wq.div(11).add(tex.w)).toVar();
       const run = roadRun(tp.x, tl.y).mul(wX).add(roadRun(tp.y, tl.x.add(57)).mul(wZ)).toVar();
       const wear = roadWear(td.y, hX, mix(9.0, td.x.sub(hZ), realZ)).mul(inX)
         .add(roadWear(td.x, hZ, mix(9.0, td.y.sub(hX), realX)).mul(inZ));
-      const tv = run.x.mul(tex.x).add(tn.sub(0.5).mul(tex.y)).add(wear.mul(tn.mul(1.3).add(0.35)).mul(tex.z));
+      const tv = run.x.add(wX.add(wZ).mul(0.25)).mul(tex.x).add(tn.sub(0.35).mul(tex.y)).add(wear.mul(tn.mul(1.3).add(0.35)).mul(tex.z));
       const ratio = tv.add(1).mul(vec3(1, 0.1, -1).mul(run.y.mul(tex.x).mul(0.6)).add(1)).toVar();
       If(fine.x.add(fine.y).greaterThan(0), () => {
         const g1 = noise(wq.div(1.3).add(7)).toVar();
         const sp = hash(wq.mul(7.31).add(3)).toVar();
-        const g2 = mix(noise(wq.div(0.45).add(31)), step(0.9, sp).sub(step(sp, 0.1)).mul(0.9).add(0.5), pix);
+        const g2 = mix(noise(wq.div(0.45).add(31)), step(0.96, sp).sub(step(sp, 0.04)).mul(0.9).add(0.5), pix);
         const lx = float(1).sub(smoothstep(0.2, 0.9, abs(td.y.sub(hX.sub(texGrid.z))))).mul(inX)
           .mul(float(1).sub(smoothstep(1.0, 8.0, mix(9.0, td.x.sub(hZ), realZ))));
         const lz = float(1).sub(smoothstep(0.2, 0.9, abs(td.x.sub(hZ.sub(texGrid.z))))).mul(inZ)
@@ -153,7 +153,7 @@ export function createPaving(U) {
         ratio.mulAssign(float(1).sub(stain.mul(vec3(0.9, 1.0, 1.15))));
       });
       If(pix.greaterThan(0.5), () => {
-        const crack = step(abs(tn.sub(0.5)), 0.018).mul(step(0.5, hash(floor(wq.div(9)).add(5)))).mul(inX.max(inZ));
+        const crack = step(abs(tn.sub(0.5)), 0.018).mul(step(0.8, hash(floor(wq.div(9)).add(5)))).mul(inX.max(inZ));
         ratio.mulAssign(float(1).sub(crack.mul(0.45)));
         const lv = ratio.r.add(ratio.g).add(ratio.b).div(3).toVar();
         ratio.mulAssign(floor(lv.div(pixel.y).add(0.5)).mul(pixel.y).div(lv.max(1e-3)));

@@ -1629,8 +1629,8 @@ The asphalt itself is not one grey either (`setRoadTexture`, util/geo.js; `?road
 flat road and `?roadtexamt=` scales it). It is albedo only, a ratio over the lit road in the
 ground's paint pass, worked out from the grid arithmetic with no texture and no geometry:
 
-- **Resurfaced runs.** Each street is laid in lengths of 22 to 48 units, every one a little lighter
-  or darker and a hair warmer or cooler than the next, seamed square across the road. The length and
+- **Resurfaced runs.** Each street is laid in lengths of 22 to 48 units, every one lighter
+  or darker (biased light, so the street is not all at its darkest) and a hair warmer or cooler than the next, seamed square across the road. The length and
   phase are per street, so the seams do not line up across the map. A tone per junction-to-junction
   segment was the obvious cut, and is the checkerboard the paved junctions were dropped for. A
   junction box takes the road that runs through it: the arterial, else the east-west one.
@@ -1639,18 +1639,19 @@ ground's paint pass, worked out from the grid arithmetic with no texture and no 
   lanes land right. Faded out inside the junction box.
 - **Mottle.** One octave of value noise at 11 units, which also swells and thins the wear.
 - **Oil stains.** At most one dark, faintly brown blot per 3.2-unit cell, 0.45 to 1.3 across, its
-  edge chewed by the grain: about one cell in four anywhere on a road, better than one in two down
+  edge chewed by the grain: about one cell in twelve anywhere on a road, one in three down
   a lane's drip line on the way up to a junction, where cars stand.
 - **Grain.** Two finer octaves at 1.3 and 0.45 units. The finer is about ten device pixels on a
   phone; a world-locked noise much below that crawls as the camera pans.
 
 **It is drawn as a pixel-art street** (`setRoadPixels`; `?roadtex=smooth` is the same road without
-the grid, `?roadpx=` the texel's size). Every layer above is read at the centre of a 0.375-unit
-world texel, 24 to an ordinary street and landing on its kerb lines, and the value is rounded to a
+the grid, `?roadpx=` the texel's size). Every layer above is read at the centre of a 0.25-unit
+world texel, 36 to an ordinary street and landing on its kerb lines, and the value is rounded to a
 ramp of greys a tenth apart. The stains get a hard edge, the grain becomes single light and dark
-pixels (one texel in ten each way; the 1.3-unit octave rounded to the ramp read as static and is
-left out), and a one-texel crack runs where the mottle crosses its middle, in about half the 9-unit
-cells. The texels are square on the ground, so on screen they are a low-resolution texture's
+pixels (one texel in twenty-five each way; the 1.3-unit octave rounded to the ramp read as static
+and is left out), and a one-texel crack runs where the mottle crosses its middle, in about a fifth
+of the 9-unit cells. The first cut was a 0.375 texel with three times the stains, cracks and
+speckle, which Tyler found too big and overdone. The texels are square on the ground, so on screen they are a low-resolution texture's
 diamonds, not screen pixels. Lane paint, kerbs and everything standing on the road stay smooth.
 
 Held off the lane paint, the lawns, the plaza and (like the plaza) a road that is already bright,
