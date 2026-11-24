@@ -11,6 +11,7 @@ import { BILLBOARD, VIEW_UP } from './camera.js';
 import { sightlineClear } from './sightline.js';
 import { ARRIVE_RADIUS, blockDistance } from './fares.js';
 import { propMaterial, unlitMaterial, cloneProp, bakeColor, setFinish, FINISH, BODY_EULER_ORDER } from '../util/geo.js';
+import { warmWreckOf } from './vanish.js';
 import { color } from '../palette.js';
 import { wheelAnchors, wheelGeometry, SILL_Y, CHASSIS_LIFT } from '../geometry/wheels.js';
 import { createTargetRing, RING_Y } from '../geometry/targetring.js';
@@ -558,6 +559,7 @@ export function createRace({
 
   const rival = createRivalMesh();
   scene.add(rival.group);
+  warmWreckOf(scene, rival.shell, 'raceRival');
   markOccluder(rival.group);
 
   // The tap target, from the moment the racer turns up until the flag drops. On a group that

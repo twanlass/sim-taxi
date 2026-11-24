@@ -8,6 +8,7 @@ import {
 import { findRoute, findRouteOnto, planOrigin, setHazardLanes, serviceLaneCost } from './route.js';
 import { heightAt, sightlineClear } from './sightline.js';
 import { unlitMaterial, cloneProp } from '../util/geo.js';
+import { warmWreckOf } from './vanish.js';
 import { color } from '../palette.js';
 import { markEmissive } from './bloom.js';
 import { markOccluder } from './ssao.js';
@@ -230,6 +231,7 @@ export function createFire({
   // --- The engine ------------------------------------------------------------
   const engine = createFireTruckMesh();
   scene.add(engine.group);
+  warmWreckOf(scene, engine.shell, 'fireEngine');
   markOccluder(engine.group);
   const engineEmissive = engine.pods;
 
