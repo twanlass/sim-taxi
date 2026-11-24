@@ -3057,7 +3057,7 @@ function crushBang(car, speed, yaw, { driftX, driftZ, spin = 0, shake, gain = 0.
   crushShells.push(shell);
   crushVanish.take(shell, { driftX, driftZ, spin });
 }
-collisions.onCrush(({ speed, other, airborne, splash }) => {
+function crushLanding({ speed, other, airborne, splash }) {
   if (airborne) crushOwed = true;
   else if (!fares.state.gameOver) landCombo('crush');
   crushSlowMo.start(performance.now());
@@ -3090,7 +3090,8 @@ collisions.onCrush(({ speed, other, airborne, splash }) => {
       },
     });
   });
-});
+}
+collisions.onCrush(crushLanding);
 function landPileup(count) {
   if (crushOwed) { pileupOwed = count; return; }
   if (!fares.state.gameOver) landCombo('pileup', count);
@@ -9389,6 +9390,9 @@ window.__taxi = {
   flatbed,
   /** Box trucks spilling their load. `boxSpill.hit(truck, closing)` rams one; `boxes`, `doors`. */
   boxSpill,
+  // Crushin' It on demand, for the headless tools: `crush({ speed, other, airborne, splash })` is
+  // exactly what sim/collisions.js hands the game when Big Air lands on `other`.
+  crush: crushLanding,
   /** The building fire and its engine. `fire.ignite()` starts one now; `state`, `engine`. */
   fire,
   /** The bag piles and the garbage truck. `garbage.spawn()` brings the truck on now; `piles`, `state`. */

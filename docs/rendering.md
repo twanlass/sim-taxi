@@ -1200,6 +1200,17 @@ What the WebGPU path draws today, and what it does not:
     real wet frame then drew into the two-attachment layout, a validation error that switches
     occlusion off for the session.
 
+  - **A node id in the shader source makes every build a new shader.** three names a
+    `uniformArray`'s buffer `NodeBuffer_<node id>` unless it is given a name, and the id is new on
+    every build, so two builds of the same material came out as two WGSL sources that no cache
+    could match. The car paint's four finish tables (`util/gpupaint.js`) were built that way, and
+    a Crushin' It shell (a fresh copy of the fleet's paint, faded out by `game/vanish.js`) built
+    two pipelines on **every** crush, splash cars included: a freeze of about a second on a phone
+    (Tyler, 2026-11-23). The tables are named now, which also took the boot from 370 pipelines to
+    359, and the fleet's shell parts are warmed opaque and faded (`wreckShellWarm` in
+    `sim/traffic.js`). Measured headless with `__taxi.crush`: 2 pipelines per crush before, 0 after.
+    Anything new built from `uniformArray` or `buffer` per material wants `.setName()`.
+
   An untouched run has no cops, robbery, race or wreck in it; those are not measured. Count with
   `renderer._pipelines.caches.size` after `__taxi.warmedUp`.
 - **The see-through canvas, again** (the trap in CLAUDE.md, WebGPU's edition). three folds a
