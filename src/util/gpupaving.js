@@ -37,20 +37,13 @@ export function createPaving(U) {
     const d = length(fract(g).sub(o)).div(r).add(chew.sub(0.5).mul(0.9));
     return step(float(1 - 0.08).sub(lane.mul(0.25)), h).mul(float(1).sub(smoothstep(0.5, 1.0, d)));
   };
-  // roadTone and roadWear in PAINT_COMMON (util/geo.js), where the reasoning is.
+  // roadTone in PAINT_COMMON (util/geo.js), where the reasoning is.
   const roadTone = (q) => {
     const a = noise(q.div(31).add(tex.w.mul(1.7)));
     const b = noise(q.div(13).add(tex.w.mul(2.9)).add(40));
     const c = noise(q.div(47).add(tex.w.mul(0.7)).add(90));
-    return vec2(a.mul(0.7).add(b.mul(0.3)).sub(0.5).mul(1.7), c.sub(0.5).mul(1.5));
-  };
-  const roadWear = (d, h, near) => {
-    const q = abs(d.sub(h.sub(texGrid.z))).toVar();
-    const track = float(1).sub(smoothstep(0.12, 0.5, abs(q.sub(0.7))));
-    const drip = float(1).sub(smoothstep(0.1, 0.45, q))
-      .mul(float(1).sub(smoothstep(1.0, 7.0, near)).add(1));
-    const gutter = smoothstep(h.sub(0.9), h.sub(0.1), d);
-    return track.mul(0.6).sub(drip.mul(0.3)).sub(gutter.mul(0.6)).mul(smoothstep(0.0, 1.5, near));
+    const t = smoothstep(0.38, 0.62, a.mul(0.7).add(b.mul(0.3))).sub(0.5).toVar();
+    return vec2(t, t.mul(0.35).add(c.sub(0.5).mul(0.6)));
   };
   const grid = uniform(U.uRoadGrid.value);
   const riverZ = uniform(U.uRiverZ.value);
@@ -128,9 +121,7 @@ export function createPaving(U) {
       const inZ = smoothstep(-0.12, 0.12, hZ.sub(td.x)).mul(realZ).toVar();
       const tn = noise(wq.div(11).add(tex.w)).toVar();
       const run = roadTone(wq).toVar();
-      const wear = roadWear(td.y, hX, mix(9.0, td.x.sub(hZ), realZ)).mul(inX)
-        .add(roadWear(td.x, hZ, mix(9.0, td.y.sub(hX), realX)).mul(inZ));
-      const tv = run.x.add(0.25).mul(tex.x).add(tn.sub(0.35).mul(tex.y)).add(wear.mul(tn.mul(1.3).add(0.35)).mul(tex.z));
+      const tv = run.x.add(0.25).mul(tex.x).add(tn.sub(0.35).mul(tex.y));
       const ratio = tv.add(1).mul(vec3(1, 0.1, -1).mul(run.y.mul(tex.x).mul(0.6)).add(1)).toVar();
       If(fine.x.add(fine.y).greaterThan(0), () => {
         const g1 = noise(wq.div(1.3).add(7)).toVar();
