@@ -197,6 +197,8 @@ import { createCopLights } from './game/coplights.js';
 import { createCashTrail } from './game/cashtrail.js';
 import { setCityOccluders, sightlineClear } from './game/sightline.js';
 import { createBootleg, COMBO_GAP_MS as BOOTLEG_GAP_MS } from './game/bootleg.js';
+import { createSteer } from './game/steer.js';
+import { createSteerTip } from './game/steertip.js';
 import { createOvertakeCombo, OVERTAKE_GRACE } from './game/overtake.js';
 import { createNewMove, createSeenFlag, MOVES, REPAIR, SHOW_DELAY } from './game/newmove.js';
 import { demoMode } from './game/progress.js';
@@ -290,6 +292,26 @@ const settings = createSettings();
 const demo = demoMode();
 // The tutorial tips, which Demo mode holds on: a demo is for showing the tips off.
 const tipsOn = () => demo.on() || settings.get().tips;
+
+// Pac-Man steering (game/steer.js) is the default: swipe to queue the next turn, drive past a rider
+// to collect them. `?steer=classic` puts back tap-a-rider auto-routing. Off wherever nothing is
+// holding the phone — a still, the headless bench and soak, the perf bot — all of which drive by
+// routing.
+const steerOn = (() => {
+  const params = new URLSearchParams(window.location.search);
+  if (params.get('steer') === 'classic' || shot) return false;
+  return !['bot', 'bench', 'soak'].some((k) => params.has(k));
+})();
+/** `routeTo` for the trips that drive themselves even when the player steers — see `routeTo`. */
+// The trips that drive themselves hand the taxi back to the job they interrupted by routing at it
+// (`handBack` in game/burgerrun.js and game/depotrun.js); steered, that job is the player's to drive,
+// so a fare's or a package's own corner goes through the plain gate and plans nothing.
+function scriptedRouteTo(target, opts = {}) {
+  const job = fares.state.fares.some((f) => f.target === target || f.dropoff === target)
+    || Boolean(parcels?.state.parcels.some((p) => p.target === target || p.pickup === target
+      || p.dropoff === target));
+  return routeTo(target, { ...opts, scripted: !job });
+}
 // The Difficulty row (Easy / Regular / Hard). Applied here, before the fare system budgets its first
 // clock, and live from then on: a change takes effect from the next rider to spawn. `?difficulty=`
 // pins it for the load and leaves the saved choice alone; shot mode holds Easy, so a stored Hard on
@@ -1194,7 +1216,7 @@ const burgerRun = driveThru
     site: burger.site,
     lot: driveThru,
     taxi: traffic.taxi,
-    routeTo,
+    routeTo: scriptedRouteTo,
     // Both halves of the counter transaction, on the frame the order is handed over. The boost
     // arrives on the same energy bit a delivery pays with (`flyEnergyToBoost`), so the reward reads
     // as the reward rather than as a meter that moved on its own — it is the smallest top-up in the
@@ -1237,7 +1259,7 @@ const depotRun = garage && !shot
     farMouth: garageRouteClassic ? null : entryPath(garage.site, 'far')?.mouth ?? null,
     cars: traffic.cars,
     taxi: traffic.taxi,
-    routeTo,
+    routeTo: scriptedRouteTo,
     onArrive: (s0, handBack, side) => {
       if (!opening?.enter(s0, {
         side,
@@ -1829,8 +1851,27 @@ const releaseCameraToPlayer = () => {
 // and auditioning the court's falloff means being able to put the court there.
 const pan = shot
   ? null
-  : attachDragPan(controller, renderer.domElement, aspect, () => isNarrow() || debugMode,
+  : attachDragPan(controller, renderer.domElement, aspect, () => (isNarrow() || debugMode) && !steerOn,
     releaseCameraToPlayer);
+
+// Pac-Man steering (game/steer.js): a swipe on the map queues the taxi's next turn, and the map
+// stops panning so the same thumb can do it — the camera follows the car. Live only while the car
+// is the player's to drive and no trip that drives itself (the garage, the drive-through, the depot,
+// the race) holds a `pendingTarget`.
+const steerLive = () => steerOn && runBegun && pedalsLive() && !fares.state.gameOver
+  && !traffic.taxi.pendingTarget && !pause?.state.paused;
+const steer = steerOn ? createSteer({
+  dom: renderer.domElement,
+  taxi: traffic.taxi,
+  toScreen: (dx, dz) => {
+    const t = traffic.taxi;
+    const a = projectToScreen(t.x, 0, t.z);
+    const b = projectToScreen(t.x + dx, 0, t.z + dz);
+    return { x: b.x - a.x, y: b.y - a.y };
+  },
+  canSteer: steerLive,
+}) : null;
+fares.setSteered(steerOn);
 
 const dust = createDust(scene, camera, makeRng(seed + 77));
 const spray = createSpray(scene, makeRng(seed + 78));
@@ -2444,7 +2485,7 @@ const raceParam = new URLSearchParams(window.location.search).get('race');
 // finish. `?racetap=classic` keeps it — the count waits on a tap on the racer's "Ready?".
 const raceTapClassic = new URLSearchParams(window.location.search).get('racetap') === 'classic';
 race = shot || raceParam === 'classic' ? null : createRace({
-  rng: makeRng(runSeed + 743), scene, traffic, routeTo,
+  rng: makeRng(runSeed + 743), scene, traffic, routeTo: scriptedRouteTo,
   soon: raceParam === 'soon',
   // The racer's body bounces on hydraulics in the race's scenes (game/hydraulics.js).
   hydraulics: new URLSearchParams(window.location.search).get('hydraulics') !== 'classic',
@@ -3368,6 +3409,7 @@ const selected = true;
 // exit through their junction like it did before the look-ahead (see `onwardFrom`).
 const routeLookAhead = new URLSearchParams(window.location.search).get('route') !== 'classic';
 
+
 /**
  * Where the taxi goes *after* `target`, when that is already decided: the drop-off of the waiting
  * rider `target` belongs to. Null for anything else — a drop-off, a package, the depot — because
@@ -3411,8 +3453,16 @@ function onwardFrom(target) {
  * keeps the same destination must pass the same object rather than an equal one — otherwise every
  * frame of a drag replays the sweep and the band never finishes drawing itself.
  */
-function routeTo(target, { via = null, along = null, maxDetour, onto = target?.onto ?? null } = {}) {
+function routeTo(target, { via = null, along = null, maxDetour, onto = target?.onto ?? null,
+  scripted = false } = {}) {
   const car = traffic.taxi;
+  // Steered (game/steer.js), the player drives every trip themselves: a rider, a drop-off, a
+  // package or a tapped street plans nothing, and answers true so whatever asked carries on as if
+  // the trip were under way (the drop-off still marks its fare directed). What still routes is a
+  // *scripted* trip — the garage, the drive-through, the depot, the race — which arrives by a lane
+  // a thumb cannot be asked to find, and re-plans of the one already running (identified by
+  // `pendingTarget`, which steering never sets).
+  if (steerOn && !scripted && !(car.pendingTarget && target === car.pendingTarget)) return true;
   const plan = (from) => (along
     ? findRouteAlong(from, along, target, { maxDetour })
     : via
@@ -3743,8 +3793,8 @@ createPicker(
     }
   },
   // A gesture that moved the map, or one that pulled the route round, is not also a tap on
-  // whatever it happened to finish over.
-  () => Boolean(pan?.didPan() || pathDrag?.didDrag()),
+  // whatever it happened to finish over — nor is a swipe that steered the taxi.
+  () => Boolean(pan?.didPan() || pathDrag?.didDrag() || steer?.didSwipe()),
   // A tap on the depot's or the joint's own wall is a tap on the building, even where a rider's
   // invisible hit box stands in front of it — see the stand-in rule in game/pick.js. The depot only
   // while it would take the car: a tap it would refuse keeps meaning the rider.
@@ -4189,6 +4239,16 @@ tutorial = shot || !wantsTutorial ? null : createTutorial({
     if (!running) revealHud();
   },
 });
+
+// "Swipe to turn" over the taxi until the player has the idea, and again at a dead end — see
+// game/steertip.js. After the tutorial's pan to the first rider, which is framing somewhere else.
+const steerTip = steer ? createSteerTip({
+  project: projectToScreen,
+  viewport,
+  taxi: traffic.taxi,
+  steer,
+  canShow: () => steerLive() && tipsOn() && !tutorial?.holdsCamera(),
+}) : null;
 
 // The boost meter, the money counter and the rider chips start off their own screen edge and
 // slide in together — see the HUD entrance block in index.html. A run used to open with all of them
@@ -7048,6 +7108,7 @@ function resetRun({ toTitle = false } = {}) {
   taxi.joltPitch = 0;
   taxi.pendingTarget = null;
   taxi.route = [];
+  steer?.reset();
   taxiDamage.reset();
   hitCue?.clear();
   traffic.setTaxiOccupied(false);
@@ -7629,6 +7690,9 @@ function tick() {
   // so it is set before it (game/streetprops.js).
   perfPhase('traffic');
   streetProps.update(dt, traffic.taxi);
+  // The steered taxi's one-step route, from the turn the player has queued — read by this very
+  // `traffic.update` at the hold line.
+  steer?.update();
   traffic.update(dt);
   if (traffic.taxi.overtakes > overtakesFelt) {
     overtakesFelt = traffic.taxi.overtakes;
@@ -7963,6 +8027,7 @@ function tick() {
   radio?.update(dt, { over: fares.state.gameOver });
   radioCue?.update(dt, { over: fares.state.gameOver });
   copShout?.update(dt, { over: fares.state.gameOver });
+  steerTip?.update(dt);
   orderTalk?.update(dt, { over: fares.state.gameOver });
   hitCue?.update(dt, traffic.taxi);
   // The depot's card: SHOW_DELAY after the car starts smoking, so the hit that did it has landed
@@ -8291,6 +8356,10 @@ function tick() {
   // The route is a property of the selection, not of the world — deselecting clears it from view
   // even though the taxi keeps driving it.
   if (selected && traffic.taxi.pendingTarget && !fares.state.gameOver) {
+    paintRouteBand();
+    routeLine.update(traffic.taxi, traffic.taxi.route, dt);
+  } else if (steer && steerLive() && traffic.taxi.route.length) {
+    // Steered, the band is the queued turn: down this lane, round the corner, one block on.
     paintRouteBand();
     routeLine.update(traffic.taxi, traffic.taxi.route, dt);
   } else {
@@ -9205,6 +9274,10 @@ if (!shot && wantsDebugPanel) {
 window.__taxi = {
   scene,
   unported,
+  /** Pac-Man steering (game/steer.js), null under `?steer=classic`; `live()` says whether it is driving. */
+  steer: steer && { ...steer, live: steerLive,
+    why: () => ({ runBegun, pedals: pedalsLive(), over: fares.state.gameOver,
+      target: Boolean(traffic.taxi.pendingTarget), paused: Boolean(pause?.state.paused) }) },
   renderer: GPU ? 'webgpu' : 'webgl',
   gpuCapture: (options) => gpuCapture?.capture(options),
   /** The `?bot` scripted session, or null — `scene()` and `log` (game/perfbot.js). */
@@ -9402,6 +9475,7 @@ window.__taxi = {
   pause,
   routeTo,
   findRoute,
+  planOrigin,
   // The lifting span, so a reel or a hand test can ask for a lift and stage the Mega Air jump.
   drawbridge,
   findRouteVia,

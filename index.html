@@ -1586,12 +1586,12 @@
 
          Not `#tip`/`#intro`/`#banner`/`#popup`: those sit on ad-blocker filter lists, and one
          match takes the module graph down with ERR_BLOCKED_BY_CLIENT (CLAUDE.md). */
-      #coach, #robber-talk, #radio, #radio-cue, #cop-shout, #depot-call, #order-talk, #race-talk, #bank-mark {
+      #coach, #robber-talk, #radio, #radio-cue, #cop-shout, #depot-call, #order-talk, #race-talk, #bank-mark, #steer-talk {
         position: fixed; inset: 0; z-index: 18;
         pointer-events: none; user-select: none; -webkit-user-select: none;
       }
       #coach[hidden], #robber-talk[hidden], #radio[hidden], #radio-cue[hidden], #cop-shout[hidden], #depot-call[hidden], #order-talk[hidden],
-      #race-talk[hidden], #bank-mark[hidden] { display: none; }
+      #race-talk[hidden], #bank-mark[hidden], #steer-talk[hidden] { display: none; }
       /* Never over a screenshot, and never over the retry screen: the run is the thing then. */
       body.shot-mode #coach, body.game-over #coach,
       body.shot-mode #robber-talk, body.game-over #robber-talk,
@@ -1601,7 +1601,8 @@
       body.shot-mode #depot-call, body.game-over #depot-call,
       body.shot-mode #order-talk, body.game-over #order-talk,
       body.shot-mode #race-talk, body.game-over #race-talk,
-      body.shot-mode #bank-mark, body.game-over #bank-mark { display: none; }
+      body.shot-mode #bank-mark, body.game-over #bank-mark,
+      body.shot-mode #steer-talk, body.game-over #steer-talk { display: none; }
       /* The bank rider's "!" (main.js) leaves the screen edge to the rider's own arrow, which
          already points there and takes the tap: two marks at one edge for one rider is one too many. */
       #bank-mark.at-edge { visibility: hidden; }
@@ -3273,6 +3274,8 @@
     <!-- The bootleg's card — a speech layer like the others; see src/game/newmove.js. -->
     <div id="new-move" role="status" aria-live="polite" hidden></div>
     <div id="cop-shout" role="status" aria-live="polite" hidden></div>
+    <!-- "Swipe to turn" over the taxi while steering is new (game/steertip.js). -->
+    <div id="steer-talk" role="status" aria-live="polite" hidden></div>
     <div id="radio" role="status" aria-live="polite" hidden></div>
     <div id="radio-cue" role="status" aria-live="polite" hidden></div>
     <div id="race-talk" role="status" aria-live="polite" hidden></div>

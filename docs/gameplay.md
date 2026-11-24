@@ -816,12 +816,13 @@ and because the taxi has one seat, all but one of those are riders waiting on th
    [diamond](#the-fares-clock-travels) over their head, coloured by how much of that clock
    is left. The whole trip is drawn now; none of it is shown until they board — see
    [Neither how far nor where](#neither-how-far-nor-where).
-2. Tap them → the taxi routes there.
+2. Drive through their junction with the seat empty → they board. The player [steers](#steering);
+   under `?steer=classic` a tap on them routes the taxi there instead.
 3. On arrival the passenger boards (the cab's rear door swings open on the kerb side as they reach
    it and slams behind them — `game/taxidoor.js`, pure flourish), their diamond flies from the kerb to the roof of the taxi, a
-   ring in that same urgency colour appears on the road where they're going, and the taxi **drives
-   straight on to it** — because the instruction it used to ask for is now given for you. See
-   [The drop-off dispatches itself](#the-drop-off-dispatches-itself).
+   ring in that same urgency colour appears on the road where they're going, and the player drives
+   them there: through the ring's junction delivers. (`?steer=classic`: the taxi **drives straight
+   on to it** — see [The drop-off dispatches itself](#the-drop-off-dispatches-itself).)
 4. Deliver → the fare pays out (`FARE_BASE + FARE_PER_BLOCK × blocks`, times the shift's
    multiplier, see [Economy](#economy)), and the board refills.
 5. A rider's clock running out, on the kerb or **aboard**, is a [strike](difficulty.md#strikes):
@@ -1383,6 +1384,49 @@ It's a DOM element rather than a mesh so that it stays the same size in pixels a
 reads over a tower standing between the taxi and the camera, and needs no shader on either
 renderer. Flat fill in `taxiBody` with a `taxiTrim` outline and no gloss, and it bobs 4px.
 `?taximarker=classic` takes it off.
+
+## Steering
+
+`src/game/steer.js`. **The player drives the taxi**, Pac-Man style: a swipe anywhere on the map
+queues the next turn, and the taxi takes it at the first corner that has that exit, carrying
+straight on through every corner until then. Boost and brake are unchanged. There is no routing to
+a fare: driving through a waiting rider's junction with the seat empty collects them, and driving
+through the drop-off's junction delivers — the same `ARRIVE_RADIUS` arrival as ever, with the
+"sent here" test ([Arrival requires direction](#arrival-requires-direction)) replaced by the seat
+(`setSteered` in `fares.js`). A tap on a rider does nothing to the car. `?steer=classic` puts
+back tap-to-route, and with it everything below this section.
+
+**The car still drives the traffic model.** What changed is who writes `car.route`: a one-step plan
+— the exit at the next junction the car can still choose at (`planOrigin`'s junction) — rewritten
+every frame from the queue. So the steered taxi signals, yields, stops at reds and takes the late
+turn in the run-up (`retakeCrossing`) exactly as a routed one did, and it is never left with an
+*empty* route while moving, which would hand its exits to the ambient dice (`rollExit`).
+
+**The queue is a direction on the map, and it waits.** A swipe is read against the heading the car
+will have at its next decision: within 40° of it on screen is straight on (and clears the queue),
+within 40° of the reverse clears it too, anything else is a turn to that side. Reading it against
+the heading rather than snapping it to a street is because the camera looks down the diagonal —
+foreshortened, every street lies ~29° off the horizontal on screen, so a thumb's "up" or "left"
+sits between two of them. (Heading up-right, a thumb's "left" is backwards; up and down turn.) The queued
+direction survives corners that do not have it and is spent once the car heads that way, so a
+swipe made too late for one corner lands on the next. Arrow keys and WASD do the same on a desktop.
+
+**A dead end waits for the player.** At a T with nothing queued, straight on is not an exit, so the
+taxi holds at the line (`car.steerHold`, read by `entryRefused` and the hold-line commit in
+`traffic.js`) — the Pac-Man wall, rather than a turn the player did not choose. It brakes for it
+like a red. "Swipe to turn" (`game/steertip.js`) stands over the taxi until the player has swiped
+twice, and comes back whenever a dead-end hold lasts 0.8s.
+
+**The map no longer pans** — the swipe is the steering — so the camera follows the car, and the
+off-screen arrows are how a rider out of frame is found (a tap on one still pans to them).
+
+**Trips that drive themselves still do.** The garage, the drive-through, the depot and the street
+race arrive by a lane a thumb cannot be asked to find, so they route as before (`scriptedRouteTo`
+in `main.js`) and steering stands down while one holds `pendingTarget`. When one hands the taxi back
+to the job it interrupted, that job's corner plans nothing — it is the player's to drive.
+
+Prototype, and the numbers have not caught up: rider clocks are still budgeted from the router's
+best route ([The clock is budgeted](#the-clock-is-budgeted)), and robo-taxis still route perfectly.
 
 ## Routing
 

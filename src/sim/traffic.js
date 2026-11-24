@@ -6138,6 +6138,9 @@ export function createTraffic(
      * braking for a turn they were never going to take.
      */
     const entryRefused = (car) => {
+      // The steered taxi at a dead end with no turn queued (game/steer.js): it waits for the player
+      // like a red, boosting or not — barging is about other cars, and this is about which way.
+      if (car.steerHold && !car.route?.length) return true;
       if (bargesThrough(car)) return false;
       // A car stranded mid-turn: cross traffic released into the junction drives through it.
       if (heldAt.has(`${car.i},${car.j}`) && !joinsBlock(car)) return true;
@@ -7480,6 +7483,10 @@ export function createTraffic(
               }
             }
           }
+
+          // The steered taxi at a dead end with nothing queued waits at the line for the player
+          // (game/steer.js) — not a refusal, so the intent is left alone.
+          if (chosen && car.steerHold && !car.route?.length) chosen = null;
 
           if (!chosen) {
             // Held at the line after all — the routed turn was never taken, so the route must not
