@@ -37,16 +37,12 @@ export function createPaving(U) {
     const d = length(fract(g).sub(o)).div(r).add(chew.sub(0.5).mul(0.9));
     return step(float(1 - 0.08).sub(lane.mul(0.25)), h).mul(float(1).sub(smoothstep(0.5, 1.0, d)));
   };
-  // roadRun and roadWear in PAINT_COMMON (util/geo.js), where the reasoning is.
-  const roadRun = (s, line) => {
-    const h = hash(vec2(line, tex.w)).toVar();
-    const len = h.mul(26).add(22).toVar();
-    const u = s.div(len).add(fract(h.mul(37))).toVar();
-    const c = floor(u).toVar();
-    const k = smoothstep(float(1).sub(float(0.3).div(len)), 1.0, fract(u));
-    const a = hash(vec2(c, line.add(tex.w))).toVar();
-    const b = hash(vec2(c.add(1), line.add(tex.w))).toVar();
-    return mix(vec2(a, fract(a.mul(7.3))), vec2(b, fract(b.mul(7.3))), k).sub(0.5);
+  // roadTone and roadWear in PAINT_COMMON (util/geo.js), where the reasoning is.
+  const roadTone = (q) => {
+    const a = noise(q.div(31).add(tex.w.mul(1.7)));
+    const b = noise(q.div(13).add(tex.w.mul(2.9)).add(40));
+    const c = noise(q.div(47).add(tex.w.mul(0.7)).add(90));
+    return vec2(a.mul(0.7).add(b.mul(0.3)).sub(0.5).mul(1.7), c.sub(0.5).mul(1.5));
   };
   const roadWear = (d, h, near) => {
     const q = abs(d.sub(h.sub(texGrid.z))).toVar();
@@ -130,14 +126,11 @@ export function createPaving(U) {
       const realZ = step(-0.5, tl.x).mul(step(tl.x, texGrid.x.add(0.5))).toVar();
       const inX = smoothstep(-0.12, 0.12, hX.sub(td.y)).mul(realX).toVar();
       const inZ = smoothstep(-0.12, 0.12, hZ.sub(td.x)).mul(realZ).toVar();
-      const zWins = aZ.mul(float(1).sub(aX)).toVar();
-      const wX = inX.mul(mix(1.0, float(1).sub(inZ), zWins)).toVar();
-      const wZ = inZ.mul(mix(float(1).sub(inX), 1.0, zWins)).toVar();
       const tn = noise(wq.div(11).add(tex.w)).toVar();
-      const run = roadRun(tp.x, tl.y).mul(wX).add(roadRun(tp.y, tl.x.add(57)).mul(wZ)).toVar();
+      const run = roadTone(wq).toVar();
       const wear = roadWear(td.y, hX, mix(9.0, td.x.sub(hZ), realZ)).mul(inX)
         .add(roadWear(td.x, hZ, mix(9.0, td.y.sub(hX), realX)).mul(inZ));
-      const tv = run.x.add(wX.add(wZ).mul(0.25)).mul(tex.x).add(tn.sub(0.35).mul(tex.y)).add(wear.mul(tn.mul(1.3).add(0.35)).mul(tex.z));
+      const tv = run.x.add(0.25).mul(tex.x).add(tn.sub(0.35).mul(tex.y)).add(wear.mul(tn.mul(1.3).add(0.35)).mul(tex.z));
       const ratio = tv.add(1).mul(vec3(1, 0.1, -1).mul(run.y.mul(tex.x).mul(0.6)).add(1)).toVar();
       If(fine.x.add(fine.y).greaterThan(0), () => {
         const g1 = noise(wq.div(1.3).add(7)).toVar();

@@ -1629,11 +1629,11 @@ The asphalt itself is not one grey either (`setRoadTexture`, util/geo.js; `?road
 flat road and `?roadtexamt=` scales it). It is albedo only, a ratio over the lit road in the
 ground's paint pass, worked out from the grid arithmetic with no texture and no geometry:
 
-- **Resurfaced runs.** Each street is laid in lengths of 22 to 48 units, every one lighter
-  or darker (biased light, so the street is not all at its darkest) and a hair warmer or cooler than the next, seamed square across the road. The length and
-  phase are per street, so the seams do not line up across the map. A tone per junction-to-junction
-  segment was the obvious cut, and is the checkerboard the paved junctions were dropped for. A
-  junction box takes the road that runs through it: the arterial, else the east-west one.
+- **Tone.** The broad light and dark, biased light so the street is not all at its darkest: value
+  noise over world position alone (31 and 13 units, a 47-unit octave leaning it warm or cool), so
+  it has no edge anywhere. It was resurfaced runs first (lengths of 22 to 48 units a street, each
+  its own shade, seamed square across the road); every one of those straight edges read as a seam
+  between street meshes, and the reasoning is beside `setRoadTexture`.
 - **Wear.** Two paler wheel tracks a lane, a darker drip line between them that deepens on the way
   up to a junction, and a darker gutter along each kerb, measured from the kerb so an arterial's
   lanes land right. Faded out inside the junction box.

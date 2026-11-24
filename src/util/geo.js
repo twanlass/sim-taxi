@@ -291,8 +291,8 @@ export const PAINT_UNIFORMS = {
   uJunctionMortar: { value: new THREE.Vector3(1, 1, 1) },    // the joints' ratio
   uJunctionAt: { value: new THREE.Vector2(-99, -99) },       // which junction, as (i, j)
   uJunctionBrick: { value: new THREE.Vector3(0.9, 0.45, 0.07) }, // brick length, width, joint, world units
-  // The asphalt's own colour variation (`setRoadTexture`): x the swing between one resurfaced run
-  // and the next, y the soft mottle, z the wear across a lane, w the city's offset into the hashes.
+  // The asphalt's own colour variation (`setRoadTexture`): x the swing of its broad light and
+  // dark, y the soft mottle, z the wear across a lane, w the city's offset into the hashes.
   uRoadTex: { value: new THREE.Vector4(0, 0, 0, 0) },
   uRoadTexFine: { value: new THREE.Vector2(0, 0) }, // x the oil stains, y the grain
   uRoadTexPixel: { value: new THREE.Vector2(0, 0.1) }, // the pixel street: x its texel in world units (0 is the smooth road), y the palette's step
@@ -425,12 +425,13 @@ export function placeJunctionPaving(rng, visible = () => true) {
  * sheen and reflections stay the road's, and all worked out from the grid arithmetic the plaza
  * already does: no texture, no geometry.
  *
- * - **Resurfaced runs.** A street is laid in lengths of 22 to 48 units, each a little lighter or
- *   darker and a hair warmer or cooler than the next, with the seam square across the road. The
- *   length and the phase are per street, so the seams never line up into a grid across the map
- *   (a tone per junction-to-junction segment was the obvious cut and is the checkerboard the paved
- *   junctions were dropped for). A junction box belongs to the road that runs through it: the
- *   arterial, and between two of a kind the east-west one, the rule the strokes used.
+ * - **Tone.** The broad light and dark: two octaves of value noise at 31 and 13 units, and a third
+ *   at 47 that leans it warm or cool. A function of world position alone, so it has no edge
+ *   anywhere. It was **resurfaced runs** first, lengths of 22 to 48 units a street each its own
+ *   shade and seamed square across the road, with a junction box taking the road that ran through
+ *   it; Tyler read every one of those straight edges as a seam between street meshes (2026-11-23:
+ *   "visible seams where street meshes come together"), and the tone stopping dead at the last
+ *   real street put another along the coast. Nothing in the broad tone asks which road it is on.
  * - **Wear.** Two paler wheel tracks a lane, a darker drip line between them that deepens on the
  *   way up to a junction, and a darker gutter along each kerb. Faded out inside the box.
  * - **Mottle.** One octave of value noise at 11 units, which also swells and thins the wear so no
@@ -539,18 +540,13 @@ float roadStain(vec2 p, float lane, float chew) {
 	float d = length(f - o) / r + (chew - 0.5) * 0.9;
 	return step(1.0 - 0.08 - 0.25 * lane, h) * (1.0 - smoothstep(0.5, 1.0, d));
 }
-// One resurfaced run of a street: x its value, y its hue, both -0.5 to 0.5. s is the distance
-// along the street. The seam is 0.3 units of cross-fade, which is what keeps a square edge from
-// stair-stepping down this camera's diagonal.
-vec2 roadRun(float s, float line) {
-	float h = paintHash(vec2(line, uRoadTex.w));
-	float len = 22.0 + 26.0 * h;
-	float u = s / len + fract(h * 37.0);
-	float c = floor(u);
-	float k = smoothstep(1.0 - 0.3 / len, 1.0, fract(u));
-	float a = paintHash(vec2(c, line + uRoadTex.w));
-	float b = paintHash(vec2(c + 1.0, line + uRoadTex.w));
-	return mix(vec2(a, fract(a * 7.3)), vec2(b, fract(b * 7.3)), k) - 0.5;
+// The broad light and dark of the asphalt: x its value, y its hue, both about -0.5 to 0.5. Two
+// octaves of value noise over the world position and nothing else, so it has no edge anywhere.
+vec2 roadTone(vec2 p) {
+	float a = paintNoise(p / 31.0 + uRoadTex.w * 1.7);
+	float b = paintNoise(p / 13.0 + uRoadTex.w * 2.9 + 40.0);
+	float c = paintNoise(p / 47.0 + uRoadTex.w * 0.7 + 90.0);
+	return vec2((a * 0.7 + b * 0.3 - 0.5) * 1.7, (c - 0.5) * 1.5);
 }
 // The wear across one road: d from its centreline, h its half-width, near how far short of the
 // next junction box (0 at its edge). Measured from the kerb, so an arterial's lanes land right.
@@ -700,15 +696,12 @@ const PAINT_FRAGMENT = /* glsl */ `
 						float realZ = step(-0.5, tl.x) * step(tl.x, uRoadTexGrid.x + 0.5);
 						float inX = smoothstep(-0.12, 0.12, hX - td.y) * realX;
 						float inZ = smoothstep(-0.12, 0.12, hZ - td.x) * realZ;
-						float zWins = aZ * (1.0 - aX);
-						float wX = inX * mix(1.0, 1.0 - inZ, zWins);
-						float wZ = inZ * mix(1.0 - inX, 1.0, zWins);
 						float tn = paintNoise(wq / 11.0 + uRoadTex.w);
-						vec2 run = roadRun(tp.x, tl.y) * wX + roadRun(tp.y, tl.x + 57.0) * wZ;
+						vec2 run = roadTone(wq);
 						float wear = roadWear(td.y, hX, mix(9.0, td.x - hZ, realZ)) * inX
 							+ roadWear(td.x, hZ, mix(9.0, td.y - hX, realX)) * inZ;
 						// Biased light: a street that only ever varies about its base reads as all dark.
-						float tv = (run.x + 0.25 * (wX + wZ)) * uRoadTex.x + (tn - 0.35) * uRoadTex.y + wear * (0.35 + 1.3 * tn) * uRoadTex.z;
+						float tv = (run.x + 0.25) * uRoadTex.x + (tn - 0.35) * uRoadTex.y + wear * (0.35 + 1.3 * tn) * uRoadTex.z;
 						vec3 tex = (1.0 + tv) * (1.0 + run.y * uRoadTex.x * 0.6 * vec3(1.0, 0.1, -1.0));
 						if (uRoadTexFine.x + uRoadTexFine.y > 0.0) {
 							float g1 = paintNoise(wq / 1.3 + 7.0);
