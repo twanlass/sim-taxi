@@ -10,9 +10,13 @@
  * marks — boot, the game's import, the renderer, the module evaluated, the warm-up's end — and the
  * median `taxi:ready`.
  *
+ * `BOOTTIME_DUMP=file.json` writes each variant's first run's modules out, for a diff.
+ *
  * `--compare A B` runs both query strings the same number of times, prints both medians, and
  * checks that every WGSL module each of them handed `createShaderModule` is the same text in the
- * same order. That is the test for a change that is meant to make three's node builder *faster*
+ * same order (or, for a change that only moves when things are built, the same set). Each run
+ * waits for the warm-up deferred behind the title screen as well (`__taxi.lateWarmDone`), so the
+ * modules counted are everything the boot warms. That is the test for a change that is meant to make three's node builder *faster*
  * without changing what it writes (util/nodememo.js): a speed-up that moved one character of one
  * shader fails here, and nowhere else would.
  *
@@ -122,13 +126,22 @@ async function boot(query) {
     }
     const ready = await evaluate("performance.getEntriesByName('taxi:ready')[0]?.startTime ?? null");
     if (ready === null) throw new Error(`never reached taxi:ready (${query || 'no query'})`);
+    // The half of the warm-up deferred behind the title screen (`warmBehindTitle` in main.js): waited
+    // out too, so the shader comparison covers everything the boot warms, whichever side of the
+    // title it lands on.
+    const modulesAtReady = await evaluate('window.__boottime.codes.length');
+    while (Date.now() < until) {
+      if (await evaluate('Boolean(window.__taxi && window.__taxi.lateWarmDone)')) break;
+      await sleep(100);
+    }
+    const late = await evaluate('performance.now()');
     const result = JSON.parse(await evaluate(`JSON.stringify({
       renderer: window.__taxi && window.__taxi.renderer,
       marks: (window.__perfCapture && window.__perfCapture.save && (window.__perfCapture.save('boottime'), window.__perfCapture.last.notes) || [])
         .filter((n) => typeof n[1] === 'string' && n[1].indexOf('link ') !== 0),
       codes: window.__boottime.codes,
     })`));
-    return { ready, ...result };
+    return { ready, late, modulesAtReady, ...result };
   } finally {
     client?.close();
     chrome.kill();
@@ -145,20 +158,33 @@ for (let r = 0; r < RUNS; r++) {
     const run = await boot(variants[v]);
     results[v].push(run);
     const marks = run.marks.map(([t, name]) => `${name} ${t}`).join(' · ');
-    console.log(`[${variants[v] || 'default'}] run ${r + 1}: taxi:ready ${Math.round(run.ready)} ms (${run.renderer}) — ${marks}`);
+    const lateNote = run.late - run.ready > 250 ? `, late warm-up done ${Math.round(run.late)} ms` : '';
+    console.log(`[${variants[v] || 'default'}] run ${r + 1}: taxi:ready ${Math.round(run.ready)} ms${lateNote} (${run.renderer}, ${run.modulesAtReady}/${run.codes.length} modules by ready) — ${marks}`);
   }
 }
 for (let v = 0; v < variants.length; v++) {
   const times = results[v].map((x) => Math.round(x.ready));
   console.log(`[${variants[v] || 'default'}] median ${median(times)} ms of ${times.join(', ')} · ${results[v][0].codes.length} shader modules`);
 }
+if (process.env.BOOTTIME_DUMP) {
+  const { writeFileSync } = await import('node:fs');
+  writeFileSync(process.env.BOOTTIME_DUMP, JSON.stringify(results.map((r) => r[0].codes)));
+}
 if (variants.length === 2) {
   const a = results[0][0].codes;
   const b = results[1][0].codes;
   const firstDiff = a.findIndex((code, i) => code !== b[i]);
+  const setA = new Set(a);
+  const setB = new Set(b);
   if (a.length === b.length && firstDiff === -1) {
     console.log(`shaders identical: ${a.length} modules, same text, same order`);
+  } else if (setA.size === setB.size && [...setA].every((code) => setB.has(code))) {
+    // A deferred warm-up builds the same shaders in a different order.
+    console.log(`shaders identical as a set: ${setA.size} distinct modules (built in a different order)`);
   } else {
+    const onlyA = [...setA].filter((code) => !setB.has(code)).length;
+    const onlyB = [...setB].filter((code) => !setA.has(code)).length;
+    console.log(`  ${onlyA} modules only in [${variants[0] || 'default'}], ${onlyB} only in [${variants[1] || 'default'}]`);
     console.log(`shaders DIFFER: ${a.length} vs ${b.length} modules, first difference at module ${firstDiff === -1 ? a.length : firstDiff}`);
     process.exitCode = 1;
   }

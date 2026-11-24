@@ -450,6 +450,8 @@ const diag = createDiagnostics(renderer, { enabled: getDiagnostics(), flags: GPU
 // before that (the warm-up is sliced over frames, game/warmup.js), so a tool drawing a line between
 // "boot" and "the run" has to wait for this rather than for `__taxi` (tools/links.mjs).
 let warmedUp = false;
+/** False only while `warmBehindTitle` still has slices to draw. */
+let lateWarmDone = true;
 
 const { scene, sun, hemi, sky, fog } = createScene({ shadowMapSize: budget.shadowMapSize });
 gpuFrame?.setSun(sun);   // the rim line on the cars follows it (game/gpuframe.js)
@@ -9043,17 +9045,71 @@ if (shot) {
       // A background tab runs no frames; don't hold its load until it is looked at.
       setTimeout(resolve, 100);
     });
+    // **Under the title screen, only what it shows is warmed before it appears.** The title is a
+    // finished city with its traffic running, so the load bar waits for that — every visible mesh
+    // drawn once, opaque, culling off — and everything else (the pools, the variants, the wet
+    // mirror) is warmed behind the menu afterwards, a slice every few frames (`warmBehindTitle`).
+    // Measured headless (tools/boottime.mjs, 2026-11-24): that half was ~60% of the node builds. No
+    // title (Play again, `?title=off`, shot mode, `?dev`) means no idle time to hide it in, so those
+    // boots warm everything up front as before. `?warmdefer=classic` does that under the title too.
+    const deferWarm = GPU && Boolean(title)
+      && new URLSearchParams(window.location.search).get('warmdefer') !== 'classic';
+    // The title lands the entrance on its first frame (`parked()` in tick), so warm the city in
+    // the state that frame will draw rather than the see-through one it is about to leave.
+    if (deferWarm) cityEntry.settle();
     awaitPrograms(renderer, { onProgress: compileProgress, yieldFrame })
-      .then(() => warmFirstDrawsInSteps(scene, warmDraw, { onStep: warmStep, yieldFrame, renderer }))
+      // The mirror only if the streets are already wet (`?rain`): the title would draw it at once.
+      .then(() => warmFirstDrawsInSteps(scene, deferWarm && !((rain.weather?.wet ?? 0) > 0.002) ? () => renderFrame() : warmDraw, {
+        onStep: warmStep, yieldFrame, renderer, visibleOnly: deferWarm,
+      }))
       .catch((error) => console.error('[taxi] warm-up', error))
       .finally(() => {
         renderFrame();
         canvas.style.opacity = '';
         startRun();
+        if (deferWarm) warmBehindTitle(warmDraw);
       });
   } else {
     startRun();
   }
+}
+
+/**
+ * The rest of the warm-up, after the title screen is up: the same slices the load bar would have
+ * waited for (every pool shown, every variant, the wet mirror), drawn a slice at a time between the
+ * menu's own frames. Each slice is followed by a real frame in the same task, so what is presented
+ * is always the title's city. Finer slices than the boot's, because each one is a dropped frame or
+ * two in a drift that is meant to be calm: ~10 node builds a slice rather than ~30.
+ *
+ * Play does not wait for it. A tap before it ends starts the backstory or the vignette over the
+ * slices still to come (seven seconds of camera work that nobody steers), and the worst a slice can
+ * then cost is the hitch the same build would have cost mid-run anyway. `__taxi.lateWarmDone`
+ * says when it has finished.
+ */
+function warmBehindTitle(draw) {
+  perfMark('warmlate:start');
+  lateWarmDone = false;
+  // Three frames between slices: one for the menu to move, so a slice never lands on two frames
+  // running, and the two `warmFirstDrawsInSteps` itself expects a yield to cover.
+  const breathe = () => new Promise((resolve) => {
+    requestAnimationFrame(() => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+    setTimeout(resolve, 150);
+  });
+  // Not while the startup screen is still playing its landing over the city (`splashCovers`): that
+  // animation runs after the load, on a renderer of its own, and a slice under it is a stutter in
+  // the one bit of the boot everybody watches. The menu's own drift is the place for them.
+  const uncovered = () => new Promise((resolve) => {
+    const look = () => (splashCovers() ? requestAnimationFrame(look) : resolve());
+    look();
+  });
+  uncovered()
+    .then(() => warmFirstDrawsInSteps(scene, draw, { steps: 30, yieldFrame: breathe, renderer, afterSlice: () => renderFrame() }))
+    .catch((error) => console.error('[taxi] late warm-up', error))
+    .finally(() => {
+      pinWarmedNodes();
+      lateWarmDone = true;
+      perfMark('warmlate:end');
+    });
 }
 
 /**
@@ -9215,6 +9271,8 @@ window.__taxi = {
   get perfBot() { return perfBot; },
   /** Whether the boot's GPU warm-up is done and the run has started — see `warmedUp`. */
   get warmedUp() { return warmedUp; },
+  /** Whether the part of the warm-up deferred behind the title screen has finished too. */
+  get lateWarmDone() { return warmedUp && lateWarmDone; },
   // The shadow-pass cull — `stats()` says how many casters the last frame skipped (game/shadowcull.js).
   shadowCull,
   traffic,
