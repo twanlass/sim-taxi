@@ -983,9 +983,16 @@ the second.
 ## The construction crane
 
 One mid-rise per city is adding floors (`city/crane.js`): its flat roof grows a bare concrete storey,
-columns and a slab, with the next storey's column stubs and rebar on top, and a dusty-mustard tower
-crane stands up through the middle swinging a red-oxide steel beam about. Pure background; not
-tappable. `?crane=classic` leaves the roof a roof.
+columns and a slab in raw grey concrete a step darker than any finished wall, with the next storey's
+column stubs and rebar on top. A dusty-mustard tower crane stands up through the middle swinging a
+red-oxide steel beam about. Pure background; not tappable. `?crane=classic` leaves the roof a roof.
+
+**Chunky, not lattice.** The first cut was a real lattice of 0.07–0.12 members, and at play zoom it
+was one or two pixels of shimmer: "too spindly". Now the mast is a solid 0.85 box and the jib a
+solid box that tapers to 55% at the tip, both segmented by darker collars every 1.6. There is an
+operator's cab, glazed all round and hung under the jib's root so the jib never hides it, and two
+0.34 red lamps (tower head and jib tip). There are no pendant ties or slings, because black hairlines
+read as scratches. Only the hoist rope is left, one 0.1 grey line, so the beam doesn't float.
 
 **It uses a roof rather than a lot.** A fenced pit would mean `createLayout` taking a block and every
 draw after it moving; instead `chooseCraneSite` picks a tower after the billboards, by rule and hash,
@@ -998,7 +1005,7 @@ plus 2.6 for its furniture, the bank's dome, the billboards, and the L train's c
 The lowest crane wins, because under this camera every unit of height hides 1.09 units of ground
 up-screen. The outer ring of blocks is penalised, since that is where the neighbours are lowest and the
 first cut kept choosing the fog. Every one of 40 seeds gets a crane, with the jib at 10 to 14.4.
-It stays out of the sightline field, because a lattice is see-through.
+It stays out of the sightline field: a member under a unit across can cover a slice of a 3.5-unit kerb mark, never the whole of one.
 
 **The motion is transforms, not geometry.** The storey and mast are one static mesh, stamped into
 the entrance wave. The slewing top (jib, counter-jib, head, cab), the trolley, the rope (a unit box

@@ -259,12 +259,19 @@ export function createCrane(site, rng) {
   // The tower head over the root: a short block, not the lattice mast it used to be, with the
   // top lamp on it. No pendant ties off it any more — black lines a pixel wide read as cracks.
   top_.push(box(0.6, HEAD_H, 0.6, 0, JIB_H + HEAD_H / 2 - 0.1, 0, yellow));
-  // The operator's cab, up at the top where a real one is: a chunky box on the slewing platform
-  // beside the jib's root, glazed on the front and the side the camera sees.
-  const cab = { x: 0.35, y: 0.55, z: 0.95, w: 1.1, h: 1.0, d: 0.9 };
+  // The operator's cab, up at the top where a real one is: a chunky box hung under the jib's root,
+  // just out from the mast, glazed all round. Under the jib, and wider than it, so
+  // it shows whichever way the jib points; the first try sat it off to one side of the root and it
+  // spent half of every slew hidden behind the mast.
+  const cab = { x: 1.15, y: -0.6, z: 0.2, w: 1.25, h: 1.1, d: 1.05 };
   top_.push(box(cab.w, cab.h, cab.d, cab.x, cab.y, cab.z, yellow));
-  top_.push(box(0.04, cab.h * 0.55, cab.d * 0.75, cab.x + cab.w / 2 + 0.02, cab.y + 0.1, cab.z, color('craneGlass')));
-  top_.push(box(cab.w * 0.75, cab.h * 0.55, 0.04, cab.x + 0.05, cab.y + 0.1, cab.z + cab.d / 2 + 0.02, color('craneGlass')));
+  // Windows all the way round, so whichever face the camera has is a window and it reads as a cab
+  // rather than as one more yellow box: with glass on two faces it showed a blank back on half the
+  // headings.
+  for (const sx of [-1, 1]) {
+    top_.push(box(0.04, cab.h * 0.55, cab.d * 0.75, cab.x + sx * (cab.w / 2 + 0.02), cab.y + 0.1, cab.z, color('craneGlass')));
+    top_.push(box(cab.w * 0.75, cab.h * 0.55, 0.04, cab.x, cab.y + 0.1, cab.z + sx * (cab.d / 2 + 0.02), color('craneGlass')));
+  }
   top_.push(box(cab.w + 0.12, 0.08, cab.d + 0.12, cab.x, cab.y + cab.h / 2 + 0.04, cab.z, color('craneDark')));
   const slewMesh = new THREE.Mesh(mergeGeometries(top_, false), propMaterial({ ao: false }));
   top_.forEach((p) => p.dispose());
