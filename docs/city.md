@@ -1383,8 +1383,32 @@ default city; `CITY=big npm run check` is the big one's suite.
 | `ground.js` | asphalt slab, road surface, kerbs (`KERB_H = 0.35`), block tops — a park's is a walk around a lawn, [above](#a-park-has-a-frontage) — crosswalks | One merged mesh, plus the edge fade as a child — alpha can't ride in the merge's 3-component colour. Crosswalks are omitted at unsignalised junctions — a crosswalk implies a signal. |
 | `buildings.js` | towers, courtyard blocks, façades, roof furniture | One merged mesh. Height ceiling is deliberately low; tall towers hid the taxi. See [what a building is made of](#what-a-building-is-made-of). |
 | `props.js` | trees, park benches, the statue | Merged per material via `bakeColor`, so hundreds of props cost one draw call. Placement is [above](#benches-and-one-statue). |
+| `markings.js` | zebra crossings, stop lines and a painted STOP on every all-way-stop approach, and a bike lane down one street on each axis | Merged into the ground mesh, so no draw call of its own. [Below](#street-markings). |
 | `manholes.js` | seven or eight manhole covers, three of them venting steam (`game/manholesteam.js`) | Its own mesh, wet in the rain, not brushed. [Below](#manhole-covers). |
 | `game/streetprops.js`, `geometry/streetprops.js` | two blue post boxes and a hot dog cart on the kerb | Their own meshes, since they fall over. [Below](#the-post-box-and-the-hot-dog-cart). |
+
+### Street markings
+
+`city/markings.js` paints, per lane off the road network (each mark belongs to a direction of
+travel, which the grid does not know):
+
+- **Zebra crossings** wherever the first pass put a crossing — every junction with traffic control,
+  across an ordinary street only. Continental stripes, 0.55 wide at a 1.1 pitch, four to a half road,
+  0.15..1.45 off the box edge.
+- **A stop line** across the inbound half of every all-way-stop approach (arterials too), 1.55..1.85
+  off the box edge — under the nose of a car holding at `STOP_SETBACK`, so it reads as pulled up to
+  the line rather than over the crossing.
+- **STOP** in a 3×5 pixel face behind the line, stretched 1.75× along the lane, readable from the
+  driver's seat — so half of them read upside down from this camera, which is right.
+- **A bike lane** on one ordinary street per axis (off the ground's seed): a white edge line 3.2 off
+  the centreline, clear of a car in its lane, a dull red lane to the kerb (`bikeLaneFill`, 0.01 under
+  the paint because the bicycle sits on it), a bicycle just past each crossing, and a brighter red
+  band (`bikeLane`) beside the zebra where the lane crosses — the stripes stop short of it rather
+  than lying over it.
+
+One triangle soup, wound up from its own corners, merged into the ground: no draw call, material or
+shader on either renderer; 5.1k triangles (the ground goes from 11.6k to 16.3k) and ~7ms to build. `?markings=classic` is the first pass: four 0.72 bars
+per crossing and nothing else.
 
 ### Manhole covers
 

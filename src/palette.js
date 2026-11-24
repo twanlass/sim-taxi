@@ -92,6 +92,11 @@ export const PALETTE = {
   manholeLid: '#3B3F45',
   manholeFrame: '#8C9097',
   crosswalk: '#DAD7CB',
+  // A bike lane where it crosses a junction (city/markings.js): a brick red, darker than the paint
+  // beside it and warmer than the asphalt, so it reads as coloured surfacing rather than as a mark.
+  bikeLane: '#A8503F',
+  // ...and down the length of the block, a duller, darker red so the crossings stay the loud part.
+  bikeLaneFill: '#6F4A45',
   // The one paved junction's colours are a look of their own, PLAZA_LOOKS below.
   sidewalk: '#CDBFA6',
   kerb: '#B3A994',

@@ -3,6 +3,7 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { bakeColor, propMaterial } from '../util/geo.js';
 import { PALETTE, color, jitterColor } from '../palette.js';
 import { centralParkGround } from './centralpark.js';
+import { MARKINGS_CLASSIC, streetMarkings } from './markings.js';
 import {
   GRID_I, GRID_J, ROAD_W, SPAN_X, SPAN_Z, lineX, lineZ,
   isUnsignalised, isSegmentClosed, halfRoadX, halfRoadZ, isArterialX, isArterialZ,
@@ -578,7 +579,11 @@ export function createGround(rng, blocks) {
   for (let i = 0; i <= GRID_I; i++) markRoad('z', i);
   for (let j = 0; j <= GRID_J; j++) markRoad('x', j);
 
-  // --- Crosswalks.
+  // --- Crosswalks, stop lines and bike lanes (city/markings.js); the loop below is the first pass,
+  // kept for `?markings=classic`.
+  if (!MARKINGS_CLASSIC) parts.push(streetMarkings(rng, MARK_Y));
+
+  // --- Crosswalks (classic).
   //
   // Only where there is a signal to stop traffic for the person crossing. That rules out the ring
   // junctions, which are yield-controlled and carry no lights, and it rules out crossing an
@@ -591,7 +596,7 @@ export function createGround(rng, blocks) {
 
   for (let i = 0; i <= GRID_I; i++) {
     for (let j = 0; j <= GRID_J; j++) {
-      if (isUnsignalised(i, j)) continue;
+      if (!MARKINGS_CLASSIC || isUnsignalised(i, j)) continue;
 
       const cx = lineX(i);
       const cz = lineZ(j);
