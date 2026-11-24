@@ -294,6 +294,7 @@ export const PAINT_UNIFORMS = {
   // The asphalt's own colour variation (`setRoadTexture`): x the swing between one resurfaced run
   // and the next, y the soft mottle, z the wear across a lane, w the city's offset into the hashes.
   uRoadTex: { value: new THREE.Vector4(0, 0, 0, 0) },
+  uRoadTexFine: { value: new THREE.Vector2(0, 0) }, // x the oil stains, y the grain
   uRoadTexGrid: { value: new THREE.Vector3(GRID_I, GRID_J, LANE_TO_KERB) }, // the last real line each way, then kerb to lane centre
   uBrushTile: { value: 8 },     // world units per tile repeat
   uBrushAmt: { value: 0.7 },   // value swing of a stroke (0.22 was invisible at play zoom)
@@ -433,17 +434,26 @@ export function placeJunctionPaving(rng, visible = () => true) {
  *   way up to a junction, and a darker gutter along each kerb. Faded out inside the box.
  * - **Mottle.** One octave of value noise at 11 units, which also swells and thins the wear so no
  *   track is ruled the length of a street.
+ * - **Oil stains** (Tyler, 2026-11-23: "Keep going! Ruts, oil stains, some general noise"). One
+ *   dark, faintly brown blot at most per 3.2-unit cell, 0.45 to 1.3 across with an edge the grain
+ *   chews: about one cell in nine anywhere on a road, and better than one in two down a lane's
+ *   drip line on the way up to a junction, which is where cars stand and drip.
+ * - **Grain.** Two finer octaves, 1.3 and 0.45 units, the second about ten device pixels on a
+ *   phone: below that a world-locked noise crawls as the camera pans.
  *
  * `amount` scales all three (`?roadtexamt=`); 0 is the plain road (`?roadtex=classic`).
  */
 //
-// Cost, tools/gpucost.mjs at 780x1688 on SwiftShader's WebGL, against main: 934 ms to 975 ms a frame,
-// +4.3% (the painted strokes it stands where were about a third). Ten hashes and no texture read.
-// 0.11 of wear ruled a dark comb up to every junction at play zoom; 0.085 leaves it as wear.
-export const ROAD_TEX = { run: 0.16, mottle: 0.1, wear: 0.085 };
+// Cost, tools/gpucost.mjs at 780x1688 on SwiftShader's WebGL, against main: 897 ms to 952 ms a frame,
+// +6.2% (the painted strokes it stands where were about a third). It was +4.3% with the runs, wear
+// and mottle alone: the stains and the two grain octaves are the other 2%. No texture read.
+// 0.11 of wear ruled a dark comb up to every junction at play zoom while it was the only detail
+// on the road; with the stains and the grain breaking it up it reads as ruts, and is 0.13.
+export const ROAD_TEX = { run: 0.16, mottle: 0.1, wear: 0.13, stain: 0.3, grain: 0.1 };
 export function setRoadTexture(amount = 1, seed = 0) {
   const a = Math.max(0, amount);
   PAINT_UNIFORMS.uRoadTex.value.set(ROAD_TEX.run * a, ROAD_TEX.mottle * a, ROAD_TEX.wear * a, (seed % 97) + 0.5);
+  PAINT_UNIFORMS.uRoadTexFine.value.set(ROAD_TEX.stain * a, ROAD_TEX.grain * a);
 }
 
 if (GPU) {
@@ -487,6 +497,18 @@ uniform float uBrushTile;
 uniform float uBrushAmt;
 uniform vec4 uRoadTex;
 uniform vec3 uRoadTexGrid;
+uniform vec2 uRoadTexFine;
+// One oil stain a cell at most. lane is how near a drip line this is (0 to 1, already eased off
+// away from a junction), chew a noise that roughens the edge. 1 in the blot, 0 outside.
+float roadStain(vec2 p, float lane, float chew) {
+	vec2 g = p / 3.2;
+	vec2 f = fract(g);
+	float h = paintHash(floor(g) + uRoadTex.w * 3.1);
+	vec2 o = 0.3 + 0.4 * vec2(fract(h * 91.7), fract(h * 513.3));
+	float r = 0.07 + 0.13 * fract(h * 7919.0);
+	float d = length(f - o) / r + (chew - 0.5) * 0.9;
+	return step(1.0 - 0.11 - 0.5 * lane, h) * (1.0 - smoothstep(0.5, 1.0, d));
+}
 // One resurfaced run of a street: x its value, y its hue, both -0.5 to 0.5. s is the distance
 // along the street. The seam is 0.3 units of cross-fade, which is what keeps a square edge from
 // stair-stepping down this camera's diagonal.
@@ -654,6 +676,18 @@ const PAINT_FRAGMENT = /* glsl */ `
 							+ roadWear(td.x, hZ, mix(9.0, td.y - hX, realX)) * inZ;
 						float tv = run.x * uRoadTex.x + (tn - 0.5) * uRoadTex.y + wear * (0.35 + 1.3 * tn) * uRoadTex.z;
 						vec3 tex = (1.0 + tv) * (1.0 + run.y * uRoadTex.x * 0.6 * vec3(1.0, 0.1, -1.0));
+						if (uRoadTexFine.x + uRoadTexFine.y > 0.0) {
+							float g1 = paintNoise(vPaintWorld.xz / 1.3 + 7.0);
+							float g2 = paintNoise(vPaintWorld.xz / 0.45 + 31.0);
+							// How near a lane's drip line, and only on the way up to a junction or in it.
+							float lx = (1.0 - smoothstep(0.2, 0.9, abs(td.y - (hX - uRoadTexGrid.z)))) * inX
+								* (1.0 - smoothstep(1.0, 8.0, mix(9.0, td.x - hZ, realZ)));
+							float lz = (1.0 - smoothstep(0.2, 0.9, abs(td.x - (hZ - uRoadTexGrid.z)))) * inZ
+								* (1.0 - smoothstep(1.0, 8.0, mix(9.0, td.y - hX, realX)));
+							float stain = roadStain(vPaintWorld.xz, max(lx, lz), g1) * max(inX, inZ) * uRoadTexFine.x;
+							tex *= 1.0 + ((g1 - 0.5) * 0.6 + (g2 - 0.5) * 0.4) * uRoadTexFine.y * 2.0;
+							tex *= 1.0 - stain * vec3(0.9, 1.0, 1.15);
+						}
 						gl_FragColor.rgb *= mix(vec3(1.0), tex, tHold);
 					}
 					vec2 mq = vPaintWorld.xz / uRoadMaskScale;

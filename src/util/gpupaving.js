@@ -27,6 +27,15 @@ const noise = (p) => {
 export function createPaving(U) {
   const tex = uniform(U.uRoadTex.value);
   const texGrid = uniform(U.uRoadTexGrid.value);
+  const fine = uniform(U.uRoadTexFine.value);
+  const roadStain = (p, lane, chew) => {
+    const g = p.div(3.2).toVar();
+    const h = hash(floor(g).add(tex.w.mul(3.1))).toVar();
+    const o = vec2(fract(h.mul(91.7)), fract(h.mul(513.3))).mul(0.4).add(0.3);
+    const r = fract(h.mul(7919)).mul(0.13).add(0.07);
+    const d = length(fract(g).sub(o)).div(r).add(chew.sub(0.5).mul(0.9));
+    return step(float(1 - 0.11).sub(lane.mul(0.5)), h).mul(float(1).sub(smoothstep(0.5, 1.0, d)));
+  };
   // roadRun and roadWear in PAINT_COMMON (util/geo.js), where the reasoning is.
   const roadRun = (s, line) => {
     const h = hash(vec2(line, tex.w)).toVar();
@@ -124,7 +133,18 @@ export function createPaving(U) {
       const wear = roadWear(td.y, hX, mix(9.0, td.x.sub(hZ), realZ)).mul(inX)
         .add(roadWear(td.x, hZ, mix(9.0, td.y.sub(hX), realX)).mul(inZ));
       const tv = run.x.mul(tex.x).add(tn.sub(0.5).mul(tex.y)).add(wear.mul(tn.mul(1.3).add(0.35)).mul(tex.z));
-      const ratio = tv.add(1).mul(vec3(1, 0.1, -1).mul(run.y.mul(tex.x).mul(0.6)).add(1));
+      const ratio = tv.add(1).mul(vec3(1, 0.1, -1).mul(run.y.mul(tex.x).mul(0.6)).add(1)).toVar();
+      If(fine.x.add(fine.y).greaterThan(0), () => {
+        const g1 = noise(world.xz.div(1.3).add(7)).toVar();
+        const g2 = noise(world.xz.div(0.45).add(31));
+        const lx = float(1).sub(smoothstep(0.2, 0.9, abs(td.y.sub(hX.sub(texGrid.z))))).mul(inX)
+          .mul(float(1).sub(smoothstep(1.0, 8.0, mix(9.0, td.x.sub(hZ), realZ))));
+        const lz = float(1).sub(smoothstep(0.2, 0.9, abs(td.x.sub(hZ.sub(texGrid.z))))).mul(inZ)
+          .mul(float(1).sub(smoothstep(1.0, 8.0, mix(9.0, td.y.sub(hX), realX))));
+        const stain = roadStain(world.xz, lx.max(lz), g1).mul(inX.max(inZ)).mul(fine.x);
+        ratio.mulAssign(g1.sub(0.5).mul(0.6).add(g2.sub(0.5).mul(0.4)).mul(fine.y).mul(2).add(1));
+        ratio.mulAssign(float(1).sub(stain.mul(vec3(0.9, 1.0, 1.15))));
+      });
       out.mulAssign(mix(vec3(1), ratio, hold));
     });
     return out;

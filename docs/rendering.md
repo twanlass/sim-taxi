@@ -1638,10 +1638,15 @@ ground's paint pass, worked out from the grid arithmetic with no texture and no 
   up to a junction, and a darker gutter along each kerb, measured from the kerb so an arterial's
   lanes land right. Faded out inside the junction box.
 - **Mottle.** One octave of value noise at 11 units, which also swells and thins the wear.
+- **Oil stains.** At most one dark, faintly brown blot per 3.2-unit cell, 0.45 to 1.3 across, its
+  edge chewed by the grain: about one cell in nine anywhere on a road, better than one in two down
+  a lane's drip line on the way up to a junction, where cars stand.
+- **Grain.** Two finer octaves at 1.3 and 0.45 units. The finer is about ten device pixels on a
+  phone; a world-locked noise much below that crawls as the camera pans.
 
 Held off the lane paint, the lawns, the plaza and (like the plaza) a road that is already bright,
 which is the wet road at night. The asphalt patches and manhole covers are their own meshes and
-keep their own colour. It costs +4.3% of a SwiftShader WebGL frame at phone size; the same code
+keep their own colour. It costs +6.2% of a SwiftShader WebGL frame at phone size (+4.3% before the stains and grain); the same code
 runs as nodes on WebGPU (util/gpupaving.js).
 
 - **Light bridge decks.** Every crossing, fixed or lifting, wears one light pavement grey
