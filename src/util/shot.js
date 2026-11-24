@@ -766,6 +766,19 @@ export function getCrt(fallback = true) {
   return raw !== 'classic' && !isOff(raw);
 }
 
+/**
+ * The pixel-art screen (game/pixelart.js): CSS px per art pixel, or null for the smooth frame.
+ * On by default at `fallback`; `?pixel=classic` (or `off`) turns it off, `?pixelsize=` sizes it
+ * (1 to 8, fractions allowed, though only a whole number keeps every art pixel the same width).
+ */
+export function getPixel(fallback) {
+  const params = new URLSearchParams(window.location.search);
+  const raw = params.get('pixel');
+  if (raw === 'classic' || (raw !== null && isOff(raw))) return null;
+  const size = Number.parseFloat(params.get('pixelsize'));
+  return Number.isFinite(size) ? Math.max(1, Math.min(8, size)) : fallback;
+}
+
 /** `off` / `0` / `false` — the spelling every switch above takes. */
 function isOff(raw) {
   return raw === 'off' || raw === '0' || raw === 'false';

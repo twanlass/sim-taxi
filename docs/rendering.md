@@ -1408,6 +1408,37 @@ frame goes to a target, and `__taxi.gpuCapture()` reads it back (`game/gpucaptur
 existing headless tools do not pass `--enable-unsafe-webgpu`, find no `navigator.gpu`, and so keep
 testing the WebGL path exactly as before.
 
+## The pixel-art screen — `game/pixelart.js`
+
+The city is drawn as pixel art: rendered at one art pixel per 2 CSS px (`PIXEL_SIZE`, `?pixelsize=`
+to change it) and scaled up by the browser with `image-rendering: pixelated`, so every art pixel is a
+hard-edged square. `?pixel=classic` is the smooth frame at the full Quality resolution.
+
+- **No pass, and less work than without it.** The drawing buffer is set through the pixel ratio
+  (`1 / size`), and every target behind it (the occlusion, the bloom chain, the rain's mirror) already
+  follows the buffer, so AO, bloom and the shadows carry on at art resolution on WebGPU and WebGL
+  alike. The budget's ratio cap is pinned to the same number, which leaves the governor and the
+  context recovery nothing to move, and the Quality setting's resolution does nothing under it.
+- **The camera is snapped to a grid anchored in the world**, for the render only. Unsnapped, a
+  following camera moves by fractions of an art pixel every frame and every static edge in the city
+  re-quantises: the whole map shimmers while it pans. The snap rounds the camera's position along
+  screen right and up down to a whole art pixel, and the canvas is slid by CSS `translate` the
+  fraction it was moved, so the pan stays smooth and the drawing stays fixed to the city. The canvas
+  is one art pixel bigger than the screen on every side to have room to slide (`setViewOffset`
+  widens the frustum over it), and the camera is put back after the render, so the follow and every
+  DOM marker projected through it never see the snap. Cars still crawl over the grid as they drive,
+  as sprites do, and a zoom re-quantises everything until it settles.
+- **Taps read `canvasRect`**, not the canvas's own rectangle, because the slid, oversized canvas no
+  longer covers exactly the frame the picking camera describes.
+- **MSAA is off under it** unless `?msaa=` asks: pixel art has hard silhouettes, and under WebGPU MSAA
+  also costs the occlusion and the bloom.
+- **The CRT is off under it** unless `?crt=` asks: its scanlines and grille are a CSS px apart, finer
+  than an art pixel, and drawn into the art buffer they alias into a flat tint.
+- **Detail finer than an art pixel aliases.** At 2 CSS px an art pixel is about 0.25 world units at
+  phone play zoom (`PHONE_PX_PER_UNIT` = 8.1), so the garage door's slats and the lane paint's thin
+  edges break into dots; world-space grain on a 0.25 grid would turn to noise the same way.
+- **The HUD is DOM** and stays sharp.
+
 ## The CRT screen — `game/crt.js`
 
 The finished frame goes out through a CRT: a slightly curved screen, scanlines, an RGB aperture

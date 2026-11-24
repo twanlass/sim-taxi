@@ -7,6 +7,7 @@ import { installVarsToLets } from './util/wgsllets.js';
 import { createGpuCapture } from './game/gpucapture.js';
 import { createGpuFrame } from './game/gpuframe.js';
 import { createGpuCrt } from './game/gpucrt.js';
+import { createPixelArt, canvasRect, PIXEL_SIZE } from './game/pixelart.js';
 import { enableGlow } from './game/gpubloom.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 // First, before anything builds a material: it patches three's fog chunk for every program.
@@ -180,7 +181,7 @@ import { streetAt, routeDrives, STREET_TAP_MAX_DETOUR } from './game/streettap.j
 import { createPathDrag } from './game/pathdrag.js';
 import { getActiveShot, getSeed, getRunSeed, getCarCount, getDifficultyPin, getDifficultyMode,
   getSafeMode, safeModeSource, getPixelRatioCap,
-  getDiagnostics, getParcelsPin, getRain, getStorm, getSquall, getSquallRampClassic, getSunRaysClassic, getWetTyres, getWreckStyle, getFall, getFoliageClassic, getWater, getUturnStyle, getCrt } from './util/shot.js';
+  getDiagnostics, getParcelsPin, getRain, getStorm, getSquall, getSquallRampClassic, getSunRaysClassic, getWetTyres, getWreckStyle, getFall, getFoliageClassic, getWater, getUturnStyle, getCrt, getPixel } from './util/shot.js';
 import { createParcelSystem, TAP_MAX_DETOUR } from './game/parcels.js';
 import { createRobbery } from './game/robbery.js';
 import { createRadio, LOST_CALL, ROBBERY_CALL } from './game/radio.js';
@@ -302,22 +303,31 @@ settings.onChange((v) => {
   if (!difficultyPinned && v.difficulty !== difficulty.getMode()) difficulty.setMode(v.difficulty);
 });
 const resolutionPinned = new URLSearchParams(window.location.search).has('dpr');
+// The pixel-art screen (game/pixelart.js): CSS px per art pixel, or null under `?pixel=classic`.
+// It owns the resolution outright, so it beats Quality, `?dpr=`, `?safe` and shot mode's 2x.
+const pixelSize = getPixel(PIXEL_SIZE);
 const budget = {
   safe: getSafeMode(),
   // 'url' | 'android' | null — see `safeModeSource`. The panel reports it, because a budget the
   // player asked for and one the platform default imposed are different things to be looking at.
   safeSource: safeModeSource(),
-  pixelRatioCap: getPixelRatioCap(getSafeMode() ? 1 : shot ? 2 : qualityOf(settings.get()).resolution),
+  pixelRatioCap: pixelSize ? 1 / pixelSize : getPixelRatioCap(getSafeMode() ? 1 : shot ? 2 : qualityOf(settings.get()).resolution),
   // msaa, shadowMapSize, ao, bloom: the shared render path's (game/renderpath.js).
   ...renderBudget(),
-  // The CRT screen (game/crt.js) — the game's alone, so not in the shared `renderBudget`.
-  crt: getCrt(),
+  // The CRT screen (game/crt.js) — the game's alone, so not in the shared `renderBudget`. Off
+  // under the pixel look unless asked for: its scanlines and grille are a CSS px apart, finer than
+  // an art pixel, so drawn into the art buffer they alias into a flat tint.
+  crt: getCrt(!pixelSize),
 };
 // The Antialiasing setting, as it stood at launch (MSAA is a context attribute). `?msaa=` beats it,
 // as `?dpr=` beats Quality, and shot mode keeps MSAA so screenshots don't depend on a saved setting.
 if (!shot && !new URLSearchParams(window.location.search).has('msaa')) {
   budget.msaa = budget.msaa && settings.atLaunch().antialias;
 }
+// Pixel art has hard edges: MSAA would blend every silhouette into its art pixel's neighbours, and
+// under WebGPU it also costs the occlusion and the bloom (they need the frame target). `?msaa=`
+// still has the last word.
+if (pixelSize && !new URLSearchParams(window.location.search).has('msaa')) budget.msaa = false;
 
 // WebGPU has its own occlusion (game/gpuframe.js); the WebGL pass and its prepass stay off.
 const gpuAo = GPU && budget.ao && !budget.msaa;
@@ -374,8 +384,14 @@ if (GPU) {
     gpuNote(`WebGPU error${wasFrame ? ', occlusion switched off' : ''}: ${String(event.error?.message).slice(0, 300)}`);
   }, { once: true });
 }
+const pixelArt = pixelSize ? createPixelArt(renderer, { size: pixelSize }) : null;
+// The canvas's size for a screen of w × h: the screen itself, or whole art pixels plus a border.
+function sizeCanvas(w, h) {
+  if (pixelArt) pixelArt.resize(w, h);
+  else renderer.setSize(w, h);
+}
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, budget.pixelRatioCap));
-renderer.setSize(viewport.width(), viewport.height());
+sizeCanvas(viewport.width(), viewport.height());
 renderer.shadowMap.enabled = budget.shadowMapSize > 0;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 // Named for the stylesheet: the title's intro blurs this canvas and no other (game/titlescreen.js).
@@ -480,7 +496,7 @@ const governor = createGovernor({
 // frame-rate half needs nothing here: `frameRateCap` reads the setting every frame.
 settings.onChange((v) => {
   const { resolution } = qualityOf(v);
-  if (shot || resolutionPinned || budget.safe || resolution === budget.pixelRatioCap) return;
+  if (shot || resolutionPinned || budget.safe || pixelArt || resolution === budget.pixelRatioCap) return;
   budget.pixelRatioCap = resolution;
   governor.reset();
   renderer.setPixelRatio(governor.ratio());
@@ -510,6 +526,8 @@ function renderFrame(cam = camera) {
   // The pass order lives in game/renderpath.js, shared with the workshop's bench; the weather and
   // the diagnostics are the game's own and ride in with it.
   if (GPU) gpuCompat(scene);
+  // On the art grid for the render alone (game/pixelart.js); put back in the `finally`.
+  pixelArt?.snap(cam);
   try {
     // With occlusion the city goes to the frame's own target and one triangle puts it on the canvas
     // (or on the capture target, headless); without, straight to wherever it is going.
@@ -534,6 +552,7 @@ function renderFrame(cam = camera) {
     renderPath.render(scene, cam, { rain, rainLightsOn, diag });
     gpuCapture?.end();
   } finally {
+    pixelArt?.restore();
     shadowCull.restore();
   }
 }
@@ -5059,7 +5078,7 @@ let stillDrawn = false;
 // without ever firing a resize event, and the canvas has to follow it or the game keeps the
 // dead strip the settle just revealed.
 viewport.onChange((w, h) => {
-  renderer.setSize(w, h);
+  sizeCanvas(w, h);
   stillDrawn = false;
   controller.resize(aspect());
 });
@@ -6365,7 +6384,7 @@ const groundRay = new THREE.Raycaster();
 const groundPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
 const groundHit = new THREE.Vector3();
 function groundUnder(clientX, clientY) {
-  const rect = renderer.domElement.getBoundingClientRect();
+  const rect = canvasRect(renderer.domElement);
   groundRay.setFromCamera(new THREE.Vector2(
     ((clientX - rect.left) / rect.width) * 2 - 1,
     -((clientY - rect.top) / rect.height) * 2 + 1,

@@ -5,6 +5,7 @@ import { nearestJunction } from '../city/grid.js';
 import { planOrigin } from './route.js';
 import { routePath, nearestOnPath, HEAD_GAP } from './routeline.js';
 import { tap as haptic } from '../util/haptics.js';
+import { canvasRect } from './pixelart.js';
 
 /**
  * Drag the route band to re-route the taxi.
@@ -299,7 +300,7 @@ export function createPathDrag({
 
   /** Where a pointer is pointing, on the road. */
   function groundAt(clientX, clientY) {
-    const rect = domElement.getBoundingClientRect();
+    const rect = canvasRect(domElement);
     ndc.x = ((clientX - rect.left) / rect.width) * 2 - 1;
     ndc.y = -((clientY - rect.top) / rect.height) * 2 + 1;
     raycaster.setFromCamera(ndc, camera);
