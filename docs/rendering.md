@@ -1639,7 +1639,7 @@ ground's paint pass, worked out from the grid arithmetic with no texture and no 
   lanes land right. Faded out inside the junction box.
 - **Mottle.** One octave of value noise at 11 units, which also swells and thins the wear.
 - **Oil stains.** At most one dark, faintly brown blot per 3.2-unit cell, 0.45 to 1.3 across, its
-  edge chewed by the grain: about one cell in nine anywhere on a road, better than one in two down
+  edge chewed by the grain: about one cell in four anywhere on a road, better than one in two down
   a lane's drip line on the way up to a junction, where cars stand.
 - **Grain.** Two finer octaves at 1.3 and 0.45 units. The finer is about ten device pixels on a
   phone; a world-locked noise much below that crawls as the camera pans.

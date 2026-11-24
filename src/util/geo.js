@@ -436,7 +436,7 @@ export function placeJunctionPaving(rng, visible = () => true) {
  *   track is ruled the length of a street.
  * - **Oil stains** (Tyler, 2026-11-23: "Keep going! Ruts, oil stains, some general noise"). One
  *   dark, faintly brown blot at most per 3.2-unit cell, 0.45 to 1.3 across with an edge the grain
- *   chews: about one cell in nine anywhere on a road, and better than one in two down a lane's
+ *   chews: about one cell in four anywhere on a road, and better than one in two down a lane's
  *   drip line on the way up to a junction, which is where cars stand and drip.
  * - **Grain.** Two finer octaves, 1.3 and 0.45 units, the second about ten device pixels on a
  *   phone: below that a world-locked noise crawls as the camera pans.
@@ -449,7 +449,10 @@ export function placeJunctionPaving(rng, visible = () => true) {
 // and mottle alone: the stains and the two grain octaves are the other 2%. No texture read.
 // 0.11 of wear ruled a dark comb up to every junction at play zoom while it was the only detail
 // on the road; with the stains and the grain breaking it up it reads as ruts, and is 0.13.
-export const ROAD_TEX = { run: 0.16, mottle: 0.1, wear: 0.13, stain: 0.3, grain: 0.1 };
+//
+// Roughly doubled on 2026-11-23 (Tyler, of run 0.16, mottle 0.1, wear 0.13, stain 0.3, grain 0.1:
+// "Still not enough. Way too subtle."). The stains went from one cell in nine to one in four too.
+export const ROAD_TEX = { run: 0.34, mottle: 0.22, wear: 0.28, stain: 0.5, grain: 0.2 };
 export function setRoadTexture(amount = 1, seed = 0) {
   const a = Math.max(0, amount);
   PAINT_UNIFORMS.uRoadTex.value.set(ROAD_TEX.run * a, ROAD_TEX.mottle * a, ROAD_TEX.wear * a, (seed % 97) + 0.5);
@@ -507,7 +510,7 @@ float roadStain(vec2 p, float lane, float chew) {
 	vec2 o = 0.3 + 0.4 * vec2(fract(h * 91.7), fract(h * 513.3));
 	float r = 0.07 + 0.13 * fract(h * 7919.0);
 	float d = length(f - o) / r + (chew - 0.5) * 0.9;
-	return step(1.0 - 0.11 - 0.5 * lane, h) * (1.0 - smoothstep(0.5, 1.0, d));
+	return step(1.0 - 0.25 - 0.5 * lane, h) * (1.0 - smoothstep(0.5, 1.0, d));
 }
 // One resurfaced run of a street: x its value, y its hue, both -0.5 to 0.5. s is the distance
 // along the street. The seam is 0.3 units of cross-fade, which is what keeps a square edge from

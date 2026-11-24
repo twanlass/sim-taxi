@@ -34,7 +34,7 @@ export function createPaving(U) {
     const o = vec2(fract(h.mul(91.7)), fract(h.mul(513.3))).mul(0.4).add(0.3);
     const r = fract(h.mul(7919)).mul(0.13).add(0.07);
     const d = length(fract(g).sub(o)).div(r).add(chew.sub(0.5).mul(0.9));
-    return step(float(1 - 0.11).sub(lane.mul(0.5)), h).mul(float(1).sub(smoothstep(0.5, 1.0, d)));
+    return step(float(1 - 0.25).sub(lane.mul(0.5)), h).mul(float(1).sub(smoothstep(0.5, 1.0, d)));
   };
   // roadRun and roadWear in PAINT_COMMON (util/geo.js), where the reasoning is.
   const roadRun = (s, line) => {
