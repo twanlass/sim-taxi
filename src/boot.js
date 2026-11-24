@@ -9,7 +9,7 @@
  * screen while main.js evaluates (game/splash.js, `WAIT_LOGO`). It costs ~33ms on a load of seconds.
  * `?splashwait=classic` issues it at once, behind black, as it first shipped.
  *
- * Without a startup screen (`?splash=classic`, shot mode, `?dev`, `?title=off`, "Play again") the
+ * Without a startup screen (`?splash=classic`, shot mode, `?dev`, `?title=off`, a `?rerun=classic` Play again) the
  * game is imported straight away, and the page's black (`html.booting`) gives way to the sky once
  * the city has drawn.
  *
@@ -28,7 +28,11 @@ perfMark('boot');
 if (BACKDROP) document.documentElement.classList.add('backdrop');
 
 const splash = wantsSplash() ? createSplash(document.getElementById('splash')) : null;
-if (!splash) document.getElementById('splash')?.remove();
+if (!splash) {
+  document.getElementById('splash')?.remove();
+  // Nothing covers the HUD on this boot, so index.html hides it until the black lifts.
+  document.documentElement.classList.add('bare-boot');
+}
 // With a timeout beside it, because a tab opened in the background runs no animation frames at all
 // and would otherwise not start loading the game until it was looked at.
 const presented = () => new Promise((resolve) => {

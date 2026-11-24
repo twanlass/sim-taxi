@@ -1,0 +1,27 @@
+<!doctype html><body><script type="module">
+import * as THREE from 'three';
+import { WebGPURenderer } from 'three/webgpu';
+const gpu = location.search.includes('gpu');
+const r = gpu ? new WebGPURenderer({ antialias: false }) : new THREE.WebGLRenderer();
+if (gpu) await r.init();
+r.setSize(64, 64);
+const out = {};
+for (const [name, lights] of [['sun', 's'], ['hemi', 'h'], ['both', 'sh']]) for (const vc of [0, 1]) {
+  const s = new THREE.Scene();
+  const c = new THREE.OrthographicCamera(-1,1,1,-1,0.1,10); c.position.set(0, 5, 0); c.lookAt(0,0,0);
+  const g = new THREE.PlaneGeometry(4, 4).rotateX(-Math.PI/2).toNonIndexed();
+  const n = g.attributes.position.count; const col = new Float32Array(n*3).fill(0.5);
+  g.setAttribute('color', new THREE.BufferAttribute(col, 3));
+  s.add(new THREE.Mesh(g, new THREE.MeshLambertMaterial({ vertexColors: !!vc, flatShading: true, color: vc ? 0xffffff : new THREE.Color(0.5,0.5,0.5) })));
+  if (lights.includes('s')) { const d = new THREE.DirectionalLight(0xffffff, 3.55); d.position.set(0, 1, 0); s.add(d); }
+  if (lights.includes('h')) s.add(new THREE.HemisphereLight(0xffffff, 0x000000, 1.2));
+  const rt = gpu ? new THREE.RenderTarget(64, 64) : new THREE.WebGLRenderTarget(64, 64);
+  r.setRenderTarget(rt); r.render(s, c);
+  let px;
+  if (gpu) px = await r.readRenderTargetPixelsAsync(rt, 32, 32, 1, 1);
+  else { px = new Uint8Array(4); r.readRenderTargetPixels(rt, 32, 32, 1, 1, px); }
+  r.setRenderTarget(null);
+  out[name + (vc ? '-vc' : '-mat')] = Array.from(px).slice(0, 3).join(',');
+}
+window.__res = out; window.__res2 = {}; window.__done = true;
+</script></body>

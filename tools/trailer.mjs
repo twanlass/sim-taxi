@@ -58,6 +58,8 @@ export const BEATS = [
   { name: 'pickup', query: 'bot=fares', seed: 71624, run: 7, pre: 1.6, post: 1.4, zoom: 26, max: 70 },
   { name: 'drift', query: 'bot=drift', seed: 71624, run: 7, pre: 1.0, post: 2.0, zoom: 28, max: 90 },
   { name: 'bigair', query: 'bot=bigair', seed: 71624, run: 7, pre: 0.9, post: 2.3, zoom: 34, max: 100 },
+  // The drift onto the bridge and the Big Air off it, in one take: ~6 s with the UI (`a` frames).
+  { name: 'bigroll', query: 'bot=bigroll', seed: 71624, run: 3, pre: 3.0, post: 3.0, zoom: 30, max: 60, solo: true },
   { name: 'mega', query: '', seed: 71624, run: 7, pre: 1.4, post: 2.6, zoom: 40, max: 70 },
   { name: 'robbery', query: 'bot=robbery', seed: 71624, run: 7, pre: 0.3, post: 3.0, zoom: 36, max: 140 },
   { name: 'cops', query: 'bot=cops', seed: 71624, run: 7, pre: 0.5, post: 2.8, zoom: 34, max: 100 },
@@ -133,7 +135,7 @@ async function findMoment(page, beat) {
   for (let f = 0; f < limit; f++) {
     const r = await page.evaluate(async () => { await window.__trailer.step(1); return window.__director.update(); });
     if (r.error) throw new Error(r.error);
-    if (r.event) return f;
+    if (r.event) { console.log('  at the moment', JSON.stringify(await page.evaluate(() => window.__director.info())).slice(0, 300)); return f; }
     if (f % (beat.name === "mega" ? 120 : 600) === 0 && f) console.log(`  …${f / FPS}s`, JSON.stringify(await page.evaluate(() => window.__director.info())));
   }
   return -1;
@@ -175,11 +177,12 @@ async function shootBeat(browser, beat) {
     });
     if (r.event && seenAt < 0) seenAt = f;
     writeFileSync(join(dir, `m${String(k).padStart(5, '0')}.jpg`), Buffer.from(r.jpg, 'base64'));
-    if (k % 2 === 0) {
+    // `--ui60`: the composited page (HUD and all) on every frame rather than every other.
+    if (k % 2 === 0 || flag('ui60')) {
       const shot = await cdp.send('Page.captureScreenshot', {
         format: 'jpeg', quality: 93, clip: { x: 0, y: 0, width: WIDTH, height: HEIGHT, scale: DPR },
       });
-      writeFileSync(join(dir, `a${String(k / 2).padStart(5, '0')}.jpg`), Buffer.from(shot.data, 'base64'));
+      writeFileSync(join(dir, flag('ui60') ? `u${String(k).padStart(5, '0')}.jpg` : `a${String(k / 2).padStart(5, '0')}.jpg`), Buffer.from(shot.data, 'base64'));
     }
     if (k % 30 === 0) console.log(`  frame ${k}/${to - from}  ${((Date.now() - started) / 1000 / (k + 1)).toFixed(2)}s/frame`);
   }
@@ -206,7 +209,8 @@ function cut() {
   const song = arg('song', join(root, 'assets/audio/27_MUS_upbeat.m4a'));
   const songAt = Number(arg('song-at', '0'));
   const XF = 0.25;
-  const takes = BEATS.map((b) => ({ b, dir: join(OUT, b.name) }))
+  const named = arg('beats', null)?.split(',');
+  const takes = BEATS.filter((b) => (named ? named.includes(b.name) : !b.solo)).map((b) => ({ b, dir: join(OUT, b.name) }))
     .filter(({ dir }) => existsSync(join(dir, 'take.json')));
   if (!takes.length) throw new Error(`no takes in ${OUT}`);
   for (const [prefix, fps, name, extra] of [
@@ -256,7 +260,8 @@ function cut() {
 if (flag('cut')) {
   cut();
 } else {
-  const want = (arg('beats', BEATS.map((b) => b.name).join(','))).split(',');
+  // `solo` beats are clips of their own, shot only when named.
+  const want = (arg('beats', BEATS.filter((b) => !b.solo).map((b) => b.name).join(','))).split(',');
   const browser = await chromium.launch({
     args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--autoplay-policy=no-user-gesture-required'],
   });

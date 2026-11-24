@@ -4,6 +4,8 @@ import { color } from '../palette.js';
 import { unlitMaterial } from '../util/geo.js';
 import { markEmissive } from './bloom.js';
 import { carrySpeed } from '../util/carry.js';
+import { GPU } from '../util/gpu.js';
+import { instanceAlpha } from '../util/gpunodes.js';
 
 // Sparks off the underside of the taxi when it lands a jump — the barricade's ramp, and the crest
 // of an arched bridge under Loco Mode.
@@ -84,6 +86,7 @@ export function createSparks(scene, rng) {
       .replace('#include <common>', '#include <common>\nvarying float vAlpha;')
       .replace('#include <dithering_fragment>', '#include <dithering_fragment>\n\tgl_FragColor.a *= vAlpha;');
   };
+  if (GPU) instanceAlpha(material);
 
   const mesh = skipWhenEmpty(new THREE.InstancedMesh(geometry, material, MAX_SPARKS));
   mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);

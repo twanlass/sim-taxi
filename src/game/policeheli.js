@@ -6,6 +6,9 @@ import { CRUISE_ALT, ROTOR_FLIGHT, heading, WEST_MARGIN } from './chopper.js';
 import { WEST_CLEAR_X } from '../city/westedge.js';
 import { VIEW_DIR } from './camera.js';
 import { markEmissive } from './bloom.js';
+import { abs, attribute, float, length, normalView, positionLocal, smoothstep, varying, vec3 } from 'three/tsl';
+import { gpuMaterials } from '../util/gpu.js';
+import { unlitTwin } from '../util/gpunodes.js';
 
 // The police helicopter: a getaway's eye in the sky. It flies in once the taxi has made its first
 // checkpoint, sits behind and above the cab with its searchlight on it for the rest of the run to
@@ -152,6 +155,36 @@ function beamGeometry() {
   return geo;
 }
 
+// The three fragment shaders below as nodes, for WebGPURenderer (util/gpunodes.js). Each GLSL one
+// writes its numbers to the canvas as they stand, so the twins are `display` and ungraded.
+const radius = () => varying(length(positionLocal.xy));
+const ease = (a) => a.mul(a).mul(float(3).sub(a.mul(2)));
+const NODES = {
+  beam: (u) => {
+    const along = varying(attribute('along', 'float'));
+    const facing = abs(normalView.z);
+    const a = smoothstep(0.0, 0.12, along).mul(float(1).sub(along.mul(0.45))).mul(facing).mul(facing);
+    return { color: u.uColor.mul(a).mul(u.uStrength) };
+  },
+  pool: {
+    soft: (u) => ({ color: u.uColor.mul(ease(float(1).sub(smoothstep(0.3, 1.0, radius())))).mul(u.uStrength) }),
+    classic: (u) => {
+      const r = radius();
+      const a = float(1).sub(smoothstep(0.72, 1.0, r)).mul(float(1).sub(r).mul(0.25).add(0.75));
+      return { color: u.uColor.mul(a).mul(u.uStrength) };
+    },
+  },
+  shade: Object.fromEntries([['soft', [2.4, 0.75, 1.4]], ['classic', [1.9, 0.8, 1.05]]].map(([look, [across, from, peak]]) => [
+    look,
+    (u) => {
+      const r = radius().mul(across);
+      const a = smoothstep(from, peak, r).mul(float(1).sub(smoothstep(peak, across, r)));
+      return { color: vec3(0.02, 0.03, 0.06), opacity: a.mul(u.uStrength) };
+    },
+  ])),
+};
+const twin = (glsl, nodes) => (gpuMaterials() ? unlitTwin(glsl, nodes, { display: true }) : glsl);
+
 function beamMaterial() {
   return new THREE.ShaderMaterial({
     uniforms: { uColor: { value: color('headlightBeam') }, uStrength: { value: 0 } },
@@ -280,16 +313,16 @@ export function createPoliceHeli(scene, rng, { groundY = () => 0, classic = fals
   heli.group.rotation.order = BODY_EULER_ORDER;
   scene.add(heli.group);
 
-  const beam = new THREE.Mesh(beamGeometry(), beamMaterial());
+  const beam = new THREE.Mesh(beamGeometry(), twin(beamMaterial(), NODES.beam));
   beam.name = 'heliBeam';
   beam.renderOrder = 2;
   beam.frustumCulled = false;
   // The radial reads `position.xy`, so the disc is laid flat by the mesh rather than baked flat.
   const flat = new THREE.CircleGeometry(1, 40);
-  const pool = new THREE.Mesh(flat, discMaterial(POOL_FRAG[look], THREE.AdditiveBlending));
+  const pool = new THREE.Mesh(flat, twin(discMaterial(POOL_FRAG[look], THREE.AdditiveBlending), NODES.pool[look]));
   pool.name = 'heliPool';
   pool.renderOrder = 2;
-  const shade = new THREE.Mesh(flat, discMaterial(SHADE_FRAG[look], THREE.NormalBlending));
+  const shade = new THREE.Mesh(flat, twin(discMaterial(SHADE_FRAG[look], THREE.NormalBlending), NODES.shade[look]));
   shade.name = 'heliShade';
   shade.renderOrder = 1;
   const light = new THREE.Group();

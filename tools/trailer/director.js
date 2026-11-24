@@ -16,6 +16,8 @@
   let frames = 0;
   let mega = { routed: false, requested: false, held: false };
   let zoomNow = null;
+  let lastKick = -1;
+  let kickBefore = null;
 
   const T = () => window.__taxi;
   const key = (code, type) => window.dispatchEvent(new KeyboardEvent(type, { code, key: code === 'Space' ? ' ' : 'b', bubbles: true }));
@@ -53,6 +55,15 @@
       // Any hop off an arch on Loco. (Big Air proper — the drift launch carried over a bridge, with
       // the barrel roll — is the drift scene's to stumble on; see the bigroll beat.)
       return t.perfBot?.scene() === 'bigair' && rose('hop', taxi.hopFrom != null);
+    },
+    // True Big Air: the drift launch off an arched crest (the bot's bigroll scene stages it).
+    bigroll() {
+      const t = T();
+      const taxi = t.traffic.taxi;
+      if (rose('kick', Boolean(taxi.drift?.kicked))) lastKick = frames;
+      const on = taxi.hopFrom != null && taxi.hopBig === true && taxi.hopKind !== 'bridge';
+      if (rose('bigroll', on)) { kickBefore = lastKick < 0 ? null : (frames - lastKick) / 60; return true; }
+      return false;
     },
     mega() {
       const taxi = T().traffic.taxi;
@@ -140,7 +151,7 @@
     info: () => {
       const t = T();
       const taxi = t?.traffic?.taxi;
-      return taxi && { scene: t.perfBot?.scene(), x: +taxi.x.toFixed(1), z: +taxi.z.toFixed(1), v: +taxi.v.toFixed(1), st: taxi.state, route: taxi.route?.length, mega, db: t.drawbridge?.state?.phase, span: t.drawbridge && [t.drawbridge.line, t.drawbridge.span.cx, +t.drawbridge.span.z0.toFixed(1), +t.drawbridge.span.z1.toFixed(1), t.drawbridge.span.row] };
+      return taxi && { kickBefore, errand: t.perfBot?.errand?.(), scene: t.perfBot?.scene(), x: +taxi.x.toFixed(1), z: +taxi.z.toFixed(1), v: +taxi.v.toFixed(1), st: taxi.state, route: taxi.route?.length, mega, db: t.drawbridge?.state?.phase, span: t.drawbridge && [t.drawbridge.line, t.drawbridge.span.cx, +t.drawbridge.span.z0.toFixed(1), +t.drawbridge.span.z1.toFixed(1), t.drawbridge.span.row] };
     },
   };
 })();

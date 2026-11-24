@@ -17,8 +17,10 @@
  * phone cools between runs with the app killed (`--cool`, default 180 s) and the shell writes its
  * thermal state into the capture (ios/SimTaxi/PerfBridge.swift). A run that *starts* above
  * `nominal` is kept but flagged, and left out of the medians while there is a cool one to use.
- * Needs: the phone unlocked, on power, Auto-Lock set to Never (the app keeps the screen on only while
- * it is frontmost, and it is killed to cool), and the same Wi-Fi as the Mac or a cable.
+ * Needs: the phone unlocked, on power, and the same Wi-Fi as the Mac or a cable. It cools *parked*:
+ * the app relaunched on a blank page (`--query park`), still frontmost, so its idle-timer hold keeps
+ * the phone awake and unlocked whatever Auto-Lock says, and the loop leaves it parked when it ends.
+ * `--kill` cools with the app killed instead, which needs Auto-Lock set to Never.
  *
  * `--variants` is `label=query,label=query`: each query is appended to the base for that variant,
  * and the runs interleave (A, B, A, B…) so heat and battery drift land on both alike.
@@ -33,6 +35,7 @@ import { appendFile, mkdir, readFile, readdir, writeFile } from 'node:fs/promise
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { analyse, scenes } from './ios-perf.mjs';
+import { readBotScenes } from '../src/game/perfbot.js';
 
 const BUNDLE = 'com.twanlass.rocketrides';
 const BOT_SECONDS = 262;   // the sum of BOT_SCENES in src/game/perfbot.js, give or take the robbery
@@ -97,6 +100,17 @@ async function launch(device, query) {
   throw new Error('launch kept failing — is the phone unlocked, with Auto-Lock set to Never?');
 }
 
+/**
+ * Cool on a blank page rather than with the app killed (`--query park`, GameViewController.swift):
+ * the app stays frontmost, so the screen stays on and the phone never locks, but nothing draws.
+ * Launching it with `--terminate-existing` is also what ends the game run before it.
+ */
+async function park(device) {
+  const { code, out } = await run('xcrun', ['devicectl', 'device', 'process', 'launch', '--device', device.id,
+    '--terminate-existing', BUNDLE, '--query', 'park'], { timeout: 60_000 });
+  if (code !== 0) say(`park failed: ${out.trim().split('\n').slice(-1)[0]}`);
+}
+
 async function kill(device, pid) {
   if (!pid) return;
   await run('xcrun', ['devicectl', 'device', 'process', 'terminate', '--device', device.id, '--pid', String(pid)], { timeout: 30_000 });
@@ -125,9 +139,11 @@ async function pullAll(device, dest) {
  * Wait for this launch's capture to say the bot is done. Captures are named after the page's own
  * `timeOrigin`, so the one that belongs to this run is the newest one started after the launch.
  */
-async function awaitCapture(device, launchedAt, scratch) {
-  const deadline = Date.now() + (BOT_SECONDS + 150) * 1000;
-  await wait((BOT_SECONDS - 20) * 1000);
+async function awaitCapture(device, launchedAt, scratch, seconds = BOT_SECONDS) {
+  // Twice the game time plus slack: under `?fixedstep` a slow frame is slow motion, so a run at
+  // 40 fps takes half as long again in wall time as its scenes add up to.
+  const deadline = Date.now() + (seconds * 2 + 150) * 1000;
+  await wait((seconds - 20) * 1000);
   let last = null;
   while (Date.now() < deadline) {
     const files = await pullAll(device, path.join(scratch, `poll-${Date.now()}`));
@@ -201,18 +217,30 @@ async function main() {
       throw new Error('push failed — see above (Game Center capability? phone locked?)');
     }
   }
+  if (!flag('--kill')) await park(device);
 
   const runs = [];
   for (let k = 1; k <= runsPer; k += 1) {
     for (const v of variants) {
-      const query = v.query ? `${BASE}&${v.query}` : BASE;
+      // A variant naming its own `bot=` scenes replaces the bare `bot` (the page reads the first).
+      // Same for a variant's own `perf=` (`perf=nobackdrop`, `perf=nohud`) and `fps=` (a lower cap,
+      // such as 30, to see what it does to the heat).
+      // `--base` swaps the pinned base for another (say, one that keeps the squall and the title).
+      let base = value('--base', BASE);
+      for (const key of ['bot', 'perf', 'fps']) {
+        if (new RegExp(`(^|&)${key}=`).test(v.query ?? '')) base = base.replace(new RegExp(`(^|&)${key}(=[^&]*)?(?=&|$)`), '');
+      }
+      base = base.replace(/^&/, '');
+      const query = v.query ? `${base}&${v.query}` : base;
+      const played = readBotScenes('?' + query);
+      const seconds = played ? played.reduce((n, sc) => n + sc.seconds, 0) : BOT_SECONDS;
       say(`${v.label} #${k}: launching ?${query}`);
       const launchedAt = Date.now();
       let row = { variant: v.label, k, query, ok: false, scenes: [], startThermal: 'unknown', worstThermal: 'unknown' };
       try {
         const pid = await launch(device, query);
-        const got = await awaitCapture(device, launchedAt, path.join(dir, '.pull'));
-        await kill(device, pid);
+        const got = await awaitCapture(device, launchedAt, path.join(dir, '.pull'), seconds);
+        if (flag('--kill')) await kill(device, pid); else await park(device);
         if (!got) throw new Error('no capture from this launch');
         const file = path.join(dir, `${v.label}-${k}.json`);
         await writeFile(file, JSON.stringify(got.data));
@@ -253,6 +281,7 @@ async function main() {
   const text = summarise(runs, `Perf loop — ${path.basename(dir)}`);
   console.log(`\n${text}`);
   say(`summary: ${path.join(dir, 'summary.md')}`);
+  if (!flag('--kill')) await park(device);   // and leave it awake for whatever comes next
 }
 
 main().catch((error) => { console.error(`perfloop  ${error.message}`); process.exit(1); });

@@ -1,4 +1,10 @@
 import * as THREE from 'three';
+import { uniform } from 'three/tsl';
+import { GPU, gpuMaterials } from './gpu.js';
+import { bindPropNodes, PropLambertNodeMaterial } from './gpumaterial.js';
+import { bindPaint, PaintNodeMaterial } from './gpupaint.js';
+import { createCloudNodes } from './gpuclouds.js';
+import { createPaving } from './gpupaving.js';
 import { PALETTE, plazaLook } from '../palette.js';
 import {
   PITCH, HALF_SPAN_X, HALF_SPAN_Z, HALF_ROAD, HALF_ARTERIAL, GRID_I, GRID_J, isArterialX, isArterialZ, RIVER_EXTRA,
@@ -172,49 +178,11 @@ export const AO_UNIFORMS = {
 };
 
 /**
- * The matching bag for Crayon Mode — same contract as `AO_UNIFORMS` above, written by
- * `game/crayon.js` and read by every material `patchProp` touches.
- *
- * `uCrayonPaperScale` turns a `gl_FragCoord` into tile uv and `uCrayonPixelRatio` converts a
- * distance stated in CSS pixels into the device pixels `gl_FragCoord` is measured in. Both carry
- * the pixel ratio for the same reason: a tooth or a wobble stated in device pixels halves on a
- * DPR-2 phone and stops reading at all.
- */
-export const CRAYON_UNIFORMS = {
-  tCrayonPaper: { value: null },
-  uCrayonPaperScale: { value: new THREE.Vector2(1, 1) },
-  uCrayonBoil: { value: new THREE.Vector2() },
-  uCrayonInk: { value: new THREE.Color() },
-  uCrayonGrain: { value: 0 },
-  uCrayonBlotch: { value: 0 },
-  uCrayonQuantize: { value: 0 },
-  uCrayonLine: { value: 0 },
-  uCrayonWobble: { value: 0 },
-  uCrayonPixelRatio: { value: 1 },
-};
-
-/**
- * And Cartoon Mode's. Same contract again — written by `game/cartoon.js`, read by every material
- * `patchProp` touches.
- *
- * `uToonInkColor` is stored **sRGB-encoded**, because the ink is mixed in after three's
- * `<colorspace_fragment>` has run. A `THREE.Color` built from a hex string is in the linear
- * working space; the frame at that point in the shader is not.
- */
-export const CARTOON_UNIFORMS = {
-  uToonCel: { value: 0 },
-  uToonSteps: { value: 3 },
-  uToonInk: { value: 0 },
-  uToonBite: { value: 0.5 },
-  uToonInkColor: { value: new THREE.Color() },
-};
-
-/**
  * The shadow tint — the one lighting control in here that is **not** behind a build-time flag.
  *
  * It is part of the shipped look rather than an opt-in mode (`SHADOW_TINT` below), so there is
  * nothing to gate: `propMaterial()` patches unconditionally. It would not deserve a flag either
- * way — unlike AO, the crayon and the cartoon it costs no texture fetch, only a dot product and a
+ * way — unlike AO it costs no texture fetch, only a dot product and a
  * mix, and at amount 0 that mix is against 1.0 and the frame comes out bit-identical to an
  * unpatched one.
  *
@@ -225,6 +193,14 @@ export const SHADOW_UNIFORMS = {
   uShadowColor: { value: new THREE.Color(1, 1, 1) },
   uShadowTint: { value: 0 },
 };
+// The same two values as nodes, for the WebGPU materials: the colour by reference, the amount
+// read each render, so `setShadowTint` below reaches both renderers' materials unchanged.
+if (GPU) {
+  bindPropNodes({
+    shadowColor: uniform(SHADOW_UNIFORMS.uShadowColor.value),
+    shadowTint: uniform(0).onRenderUpdate(() => SHADOW_UNIFORMS.uShadowTint.value),
+  });
+}
 
 /**
  * How far the shade is pushed toward `PALETTE.shadowTint` in the shipped game.
@@ -272,8 +248,6 @@ export function shadowTint() {
 setShadowTint();
 
 let aoEnabled = false;
-let crayonEnabled = false;
-let cartoonEnabled = false;
 let cloudsEnabled = false;
 let painterlyEnabled = false;
 
@@ -437,6 +411,11 @@ export function placeJunctionPaving(rng, visible = () => true) {
   const pick = rng.pick(scored.filter((c) => c.seen === top));
   PAINT_UNIFORMS.uJunctionAt.value.set(pick.i, pick.j);
   return pick;
+}
+
+if (GPU) {
+  let paving = null;
+  bindPropNodes({ paving: () => (painterlyEnabled ? (paving ??= createPaving(PAINT_UNIFORMS)) : null) });
 }
 
 const PAINT_COMMON = /* glsl */ `
@@ -726,6 +705,10 @@ const CLOUD_LIGHT = /* glsl */ `
 export function setCloudShadows(enabled) {
   cloudsEnabled = enabled;
 }
+if (GPU) {
+  let cloudLight = null;
+  bindPropNodes({ clouds: () => (cloudsEnabled ? (cloudLight ??= createCloudNodes(CLOUD_UNIFORMS)) : null) });
+}
 
 /**
  * Switch screen-space ambient occlusion on for every `propMaterial()` built after this call.
@@ -743,137 +726,7 @@ export function ambientOcclusionEnabled() {
   return aoEnabled;
 }
 
-/**
- * Switch Crayon Mode on for every `propMaterial()` built after this call — `?crayon`, and
- * `main.js` calls it in the same breath as `setAmbientOcclusion`, before any geometry is meshed.
- *
- * Build-time for exactly the reason AO is: with it off, not one material carries the paper fetch.
- * Everything a player would want to move afterwards is a uniform on the ⚙️ panel instead.
- */
-export function setCrayon(enabled) {
-  crayonEnabled = enabled;
-}
-
-export function crayonEnabledFlag() {
-  return crayonEnabled;
-}
-
-/**
- * Switch Cartoon Mode on for every `propMaterial()` built after this call — `?cartoon`, decided in
- * `main.js` beside the other two and before any geometry is meshed.
- *
- * The hero outlines in `game/cartoon.js` are hulls rather than shader work, but the cel bands and
- * the city's ink are both compiled in here, so the same build-time rule applies.
- */
-export function setCartoon(enabled) {
-  cartoonEnabled = enabled;
-}
-
-export function cartoonEnabledFlag() {
-  return cartoonEnabled;
-}
-
-// The crayon body, spliced in **before `#include <fog_fragment>`** — see `patchProp` for why that
-// seam and not an earlier one.
-//
-// Everything here is keyed off `gl_FragCoord`. That is not a shortcut: `bakeColor()` strips every
-// attribute but position and normal, so there is no uv to reach for — and a drawing wants screen
-// space anyway. The page does not slide when the camera pans, because a page doesn't.
-const CRAYON_FRAGMENT = /* glsl */ `
-	{
-		vec2 cPx = gl_FragCoord.xy;
-		vec2 cUv = cPx * uCrayonPaperScale + uCrayonBoil;
-		// Two fetches. The fine one is the tooth; the coarse one is the same tile read a fifth as
-		// often, and its blue channel — an uncorrelated per-texel draw, smoothed by the sampler at
-		// this scale — is the wander that bends the ink line off straight.
-		vec4 cFine = texture2D(tCrayonPaper, cUv);
-		vec4 cCoarse = texture2D(tCrayonPaper, cUv * 0.19 + 0.37);
-
-		float cLum = dot(gl_FragColor.rgb, vec3(0.2126, 0.7152, 0.0722));
-
-		// The tooth, weighted to the mid-tones by 4*l*(1-l). Wax is patchy where it is thin and
-		// solid where it is piled up, so a flat amplitude both dirties the highlights and lifts
-		// speckle out of the shadows — the two places a drawing has none.
-		float cWeight = 4.0 * cLum * (1.0 - cLum);
-		float cGrain = 1.0
-			+ uCrayonGrain * cWeight * (cFine.r - 0.5) * 2.0
-			+ uCrayonBlotch * (cCoarse.g - 0.5);
-		gl_FragColor.rgb *= cGrain;
-
-		// Quantisation, and it is **luminance only**. Hue is content in this game — a fare's ring
-		// is its clock, yellow is the player's car, cyan is a parcel — and tools/probe.mjs
-		// asserts measured hue separations between them. Scaling rgb to hit a stepped luminance
-		// leaves every one of those ratios exactly where it was.
-		if (uCrayonQuantize > 0.0) {
-			float cSteps = 4.0;
-			float cQ = floor(cLum * cSteps + 0.5) / cSteps;
-			gl_FragColor.rgb *= mix(1.0, cQ / max(cLum, 0.0001), uCrayonQuantize);
-		}
-
-		// The ink. .g of the AO texture is the edge term game/ssao.js takes at one texel —
-		// silhouettes saturate it, creases leave it partial, and a flat receding plane cancels it
-		// exactly. The lookup wanders by up to uCrayonWobble CSS pixels, and the paper breaks the
-		// stroke up so it skips rather than ruling solid.
-		//
-		// Broken by the **coarse** fetch, not the fine one. The tooth is 2px, so modulating the
-		// line with it dithers the stroke pixel by pixel and the whole thing reads as noise along
-		// an edge rather than as a mark. At a fifth of that frequency the skips run eight or ten
-		// pixels, which is a crayon lifting off the page. And the floor is 0.72 rather than 0.5:
-		// under about two thirds the gaps stop being skips and start being a dashed line.
-		if (uCrayonLine > 0.0) {
-			vec2 cWander = vec2(cCoarse.b, cCoarse.a) - 0.5;
-			vec2 cInkUv = (cPx + cWander * uCrayonWobble * uCrayonPixelRatio) * uAOTexel;
-			float cEdge = texture2D(tAmbientOcclusion, cInkUv).g;
-			float cInk = clamp(uCrayonLine * cEdge * mix(0.72, 1.0, cCoarse.r), 0.0, 1.0);
-			gl_FragColor.rgb = mix(gl_FragColor.rgb, uCrayonInk, cInk);
-		}
-	}
-`;
-
-// Cartoon Mode's cel bands, spliced in after three's own lights_fragment_end — the first point at
-// which reflectedLight.directDiffuse is final, shadow map included.
-//
-// It is quantised as a **ratio against the albedo**, not as a colour. Dividing the direct term by
-// the surface's own luminance recovers roughly the N dot L times the sun, which is the number a
-// toon ramp is actually about; banding the colour itself would band a dark brick and a pale
-// concrete at different points on their own falloff and put the terminator in a different place on
-// each. Scaling rgb back by a scalar leaves every channel ratio — every hue in palette.js —
-// exactly where it was.
-//
-// Flat shading is what makes this cheap and clean: every facet has one normal, so N dot L is
-// constant across it and a band edge can never crawl over a surface. The one thing that does vary
-// per fragment is the shadow map, so what the bands actually cut into hard steps is PCF's soft
-// penumbra — which is the cartoon look, arrived at for free.
-const CARTOON_LIGHT = /* glsl */ `
-	{
-		float tLum = dot(reflectedLight.directDiffuse, vec3(0.2126, 0.7152, 0.0722));
-		float tAlbedo = dot(diffuseColor.rgb, vec3(0.2126, 0.7152, 0.0722));
-		float tRatio = tLum / max(tAlbedo, 0.0001);
-		// Band centres rather than band floors, so the lit end keeps its brightness instead of the
-		// whole city stepping down by half a band.
-		float tBand = (floor(tRatio * uToonSteps) + 0.5) / uToonSteps;
-		reflectedLight.directDiffuse *= mix(1.0, tBand / max(tRatio, 0.0001), uToonCel);
-	}
-`;
-
-// And its ink, spliced in before fog_fragment beside the crayon's — same seam, same reasons: the
-// frame is in display space by then, and the haze has not run, so a line at the back of the city
-// sits behind the same air as the wall it traces.
-//
-// The edge arrives already ramped by game/ssao.js, so uToonBite is a *second* threshold on top of
-// that one. It is high (0.42 against the crayon taking everything it can find) because the two
-// looks want opposite things from the same signal: a drawing is a lot of tentative marks, and a
-// cartoon is a few confident ones. There is no tooth and no wander here for the same reason.
-const CARTOON_INK = /* glsl */ `
-	{
-		float tEdge = texture2D(tAmbientOcclusion, gl_FragCoord.xy * uAOTexel).g;
-		float tInk = smoothstep(uToonBite, 1.0, tEdge) * uToonInk;
-		gl_FragColor.rgb = mix(gl_FragColor.rgb, uToonInkColor, tInk);
-	}
-`;
-
-// The shadow tint, spliced in after three's lights_fragment_end — and after the cartoon's bands,
-// so that with Cartoon Mode on the tint steps with the cel rather than smearing across it.
+// The shadow tint, spliced in after three's lights_fragment_end.
 //
 // **The shade factor is a ratio between the two light terms, not a shadow-map lookup.** Three only
 // defines getShadowMask() for ShadowMaterial; pulling that chunk into a Lambert would work and
@@ -1331,7 +1184,7 @@ const PAINT_LOOK_RIM_WIDTH = { real: 1 };
 // flank of a car and the whole hull of a harbour ship, so both came out lit edge to edge
 // (Tyler, 2026-10-17: "Boats are pure white. Cars are over bright."). 0.5 is what the rim look's
 // 4 texels measured at play zoom, the width Tyler had already been playing with.
-const RIM_MAX_WORLD = 0.5;
+export const RIM_MAX_WORLD = 0.5;
 let flipOverride = null;
 /** `?flip=`: a number, or `off`. Null keeps each look's own. */
 export function setFlip(value) {
@@ -1399,8 +1252,8 @@ for (const name of FINISH_NAMES) writeFinish(name);
 writeGlobal();
 
 /**
- * `?paint=classic` for every glossy material built after this call — `main.js` calls it beside
- * `setCrayon`, before any vehicle is meshed. Build-time because the two paints are different
+ * `?paint=classic` for every glossy material built after this call — `decideLooks` calls it
+ * before any vehicle is meshed. Build-time because the two paints are different
  * source, not different numbers.
  */
 export function setClassicPaint(enabled) {
@@ -1704,6 +1557,8 @@ const WINDOW_STREAKS = /* glsl */ `
 				+ vec3(0.9, 0.95, 1.0) * wIrr * clamp(wBand, 0.0, 1.0) * ${WINDOW_STREAK_GAIN.toFixed(2)});
 		}`;
 
+if (GPU) bindPaint(GLOSS_UNIFORMS, { WINDOW_PAN, WINDOW_STREAK_PITCH, WINDOW_STREAK_BLUR, WINDOW_STREAK_GAIN, WINDOW_SHEEN, rimOn: () => rimPaintOn() });
+
 const glossFragment = (classic) => /* glsl */ `
 	{
 		vec3 gN = inverseTransformDirection(gReflN, viewMatrix);
@@ -1877,19 +1732,12 @@ const PAINT_LOOKS = {
 };
 
 /**
- * The one patch every lit prop material carries — screen-space AO, Crayon Mode, or both.
+ * The one patch every lit prop material carries — screen-space AO and the shadow tint.
  *
  * **AO: indirect only.** Occlusion is a statement about how much of the sky reaches a crease, not
  * about whether the sun does — and this game's whole look is one lit face per building at golden
  * hour. Folding AO into the direct term as well greys those faces off and buys nothing the sun's
  * own shadow map isn't already saying.
- *
- * **Crayon: after the colour space, before the haze.** By `<fog_fragment>` three has already run
- * `<opaque_fragment>`, `<tonemapping_fragment>` and `<colorspace_fragment>`, so `gl_FragColor` is
- * in display space — which is where a paint-like multiply belongs, and where "mid-tone" means what
- * an eye means by it. And the haze has *not* run, so a stroke at the back of the city fades into
- * the air exactly as the façade under it does. Hooking `<dithering_fragment>` instead would ink
- * lines at full strength across a hazed skyline.
  */
 /**
  * Which parts of the painterly look a material compiles, decided when three compiles it. `kind` is
@@ -1911,12 +1759,9 @@ function patchProp(material, { ao = true, gloss = null } = {}) {
   // flat-shaded Lambert collides with every unpatched one sharing those parameters and
   // `acquireProgram` hands back whichever compiled first. This city is nothing but flat-shaded
   // Lambert — it is the same trap that once drew the diamond's fill with a building's shader.
-  //
-  // Composed out of both flags rather than one string, because the two are independent: with
-  // `?crayon&ao=off` a crayoned material and a bare one would otherwise share a key.
   const useAO = aoEnabled && ao;
-  const key = `prop${useAO ? '-ssao' : ''}${crayonEnabled ? '-crayon' : ''}`
-    + `${cartoonEnabled ? '-cartoon' : ''}${gloss ? `-gloss${classicPaint ? '-classic' : paintLook === 'layered' ? '' : `-${paintLook}`}${rimPaintOn() ? '-rim' : ''}` : ''}`
+  const key = `prop${useAO ? '-ssao' : ''}`
+    + `${gloss ? `-gloss${classicPaint ? '-classic' : paintLook === 'layered' ? '' : `-${paintLook}`}${rimPaintOn() ? '-rim' : ''}` : ''}`
     + `${cloudsEnabled ? '-clouds' : ''}${painterlyEnabled ? '-paint10' : ''}`;
   // The painterly part is read when three asks, not now: the brush is tagged on the material after
   // `propMaterial()` returns (main.js `brush`), and it decides what compiles (see `paintPlan`).
@@ -1926,8 +1771,6 @@ function patchProp(material, { ao = true, gloss = null } = {}) {
 
   material.onBeforeCompile = (shader) => {
     Object.assign(shader.uniforms, AO_UNIFORMS, SHADOW_UNIFORMS);
-    if (crayonEnabled) Object.assign(shader.uniforms, CRAYON_UNIFORMS);
-    if (cartoonEnabled) Object.assign(shader.uniforms, CARTOON_UNIFORMS);
     if (cloudsEnabled) Object.assign(shader.uniforms, CLOUD_UNIFORMS);
     const paint = painterlyEnabled ? paintPlan(material) : null;
     if (paint) Object.assign(shader.uniforms, PAINT_UNIFORMS);
@@ -2046,22 +1889,7 @@ uniform vec3 uShadowColor;
 uniform float uShadowTint;${paint ? PAINT_COMMON : ''}${paint?.world ? `
 #define PAINT_KIND ${paint.kind}.0${paint.foot ? `
 #define PAINT_FOOT` : ''}
-varying vec3 vPaintWorld;` : ''}${crayonEnabled ? `
-uniform sampler2D tCrayonPaper;
-uniform vec2 uCrayonPaperScale;
-uniform vec2 uCrayonBoil;
-uniform vec3 uCrayonInk;
-uniform float uCrayonGrain;
-uniform float uCrayonBlotch;
-uniform float uCrayonQuantize;
-uniform float uCrayonLine;
-uniform float uCrayonWobble;
-uniform float uCrayonPixelRatio;` : ''}${cartoonEnabled ? `
-uniform vec3 uToonInkColor;
-uniform float uToonCel;
-uniform float uToonSteps;
-uniform float uToonInk;
-uniform float uToonBite;` : ''}${cloudsEnabled ? `
+varying vec3 vPaintWorld;` : ''}${cloudsEnabled ? `
 uniform float uCloudCover;
 uniform float uCloudFloor;
 uniform float uCloudTime;
@@ -2084,23 +1912,16 @@ ${CLOUD_GLSL}` : ''}`);
 	reflectedLight.indirectDiffuse *= texture2D(tAmbientOcclusion, gl_FragCoord.xy * uAOTexel).r;`);
     }
 
-    // Both hook the same seam, and the order is the point: the cartoon bands the direct term, then
-    // the tint reads the banded result.
     shader.fragmentShader = shader.fragmentShader
       .replace('#include <lights_fragment_end>', `#include <lights_fragment_end>
 ${cloudsEnabled ? CLOUD_LIGHT : ''}
-${cartoonEnabled ? CARTOON_LIGHT : ''}
 ${SHADOW_LIGHT}
 ${paint?.edge ? PAINT_LIGHT : ''}`);
 
-    // Both inks share the seam, and they compose in the order the looks would be layered by hand:
-    // the cartoon's hard line first, the crayon's broken one over it. Running both is two inks on
-    // one frame and nobody should want it, but a flag combination that throws is worse than one
-    // that looks odd.
-    const beforeFog = `${paint?.world ? PAINT_FRAGMENT : ''}${cartoonEnabled ? CARTOON_INK : ''}${crayonEnabled ? CRAYON_FRAGMENT : ''}`;
-    if (beforeFog) {
+    // Before the haze, so the painterly tint sits behind the same air as the surface under it.
+    if (paint?.world) {
       shader.fragmentShader = shader.fragmentShader
-        .replace('#include <fog_fragment>', `${beforeFog}
+        .replace('#include <fog_fragment>', `${PAINT_FRAGMENT}
 #include <fog_fragment>`);
     }
   };
@@ -2130,14 +1951,14 @@ ${paint?.edge ? PAINT_LIGHT : ''}`);
  * alone here rather than changed on spec.
  */
 export function propMaterial({ ao = true, gloss = null, cutout = null, smooth = false } = {}) {
-  // Crayon and Cartoon are both paint-on-paper looks, and a skyline in a crayon drawing's bodywork
-  // is a photograph stuck to it — so under either one a glossy car is an ordinary prop.
-  const paint = gloss && !crayonEnabled && !cartoonEnabled ? glossShape(gloss) : null;
+  const paint = gloss ? glossShape(gloss) : null;
   // Phong for the light loop its specular term sits in (see GLOSS_SPECULAR_TO), not for its own
   // specular, which the patch replaces outright.
-  const material = paint
-    ? new THREE.MeshPhongMaterial({ vertexColors: true, flatShading: true })
-    : new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true });
+  const params = { vertexColors: true, flatShading: true };
+  const nodes = gpuMaterials();
+  const material = nodes
+    ? (paint ? new PaintNodeMaterial(params, paint) : new PropLambertNodeMaterial(params))
+    : (paint ? new THREE.MeshPhongMaterial(params) : new THREE.MeshLambertMaterial(params));
   // Unconditional now: the shadow tint rides in the same patch and is always available. See
   // SHADOW_UNIFORMS for why it does not need a flag of its own.
   // `cutout`: an alpha map, cut at half rather than blended, so the surface still writes depth and
@@ -2158,6 +1979,14 @@ export function propMaterial({ ao = true, gloss = null, cutout = null, smooth = 
   // carries comes out of `bakeColor` with flat ones and so draws as it did.
   // `smooth` counts here too, for a glossy dome that wants the same (the bank's, city/bank.js).
   if (paint && (SMOOTH_BODY || smooth)) material.flatShading = false;
+  if (nodes) {
+    // The WebGPU twin carries the shadow tint (util/gpumaterial.js). What `patchProp` adds beyond
+    // that is still to port, and is listed here so `__taxi.unported()` can say so per mesh.
+    material.userData.unported = [];
+    // Read by the lighting model as it is built: whether this surface is occluded (game/gpuframe.js).
+    material.userData.ao = ao;
+    return material;
+  }
   patchProp(material, { ao, gloss: paint });
   return material;
 }

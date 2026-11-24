@@ -47,6 +47,12 @@ final class GameViewController: UIViewController {
         let args = ProcessInfo.processInfo.arguments
         if let at = args.firstIndex(of: "--query"), at + 1 < args.count {
             let query = args[at + 1].trimmingCharacters(in: CharacterSet(charactersIn: "?"))
+            // `--query park`: load nothing. The app is frontmost, so the idle timer stays off and the
+            // phone stays awake and unlocked, but there is no game drawing to heat it. This is how
+            // `tools/ios-perfloop.mjs` cools the phone between runs on a phone whose Auto-Lock cannot
+            // be set to Never: killing the app to cool let it lock after 5 minutes, and every launch
+            // after that failed with "Locked".
+            if query == "park" { return URL(string: "about:blank")! }
             if !query.isEmpty, let url = URL(string: "\(startURL.absoluteString)?\(query)") { return url }
         }
         #endif

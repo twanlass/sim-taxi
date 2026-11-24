@@ -704,6 +704,11 @@ export function showRunEnd(root, {
    */
   let skip = null;
   let timer = 0;
+  // Everything this card hangs on the page, taken down by `close`. Play again used to be a reload,
+  // which cleared it for free; on the same page (main.js `rerun`) a listener left on `root` would
+  // hand the next run's card a tap that plays *this* card's `onRetry`.
+  const life = new AbortController();
+  let closed = false;
   // Fired at most once: with no table, the review is skipped and the first hint is the last one.
   let statsShown = false;
   const statsLanded = () => {
@@ -711,7 +716,7 @@ export function showRunEnd(root, {
     statsShown = true;
     onStatsShown?.();
   };
-  root.addEventListener('pointerdown', () => skip?.());
+  root.addEventListener('pointerdown', () => skip?.(), { signal: life.signal });
 
   /**
    * Run one beat: `play` starts it, `ms` is how long it lasts, and `next` is what follows. Returns
@@ -810,7 +815,7 @@ export function showRunEnd(root, {
       go();
     };
     const go = () => { skip = null; window.removeEventListener('keydown', onKey); onRetry(); };
-    window.addEventListener('keydown', onKey);
+    window.addEventListener('keydown', onKey, { signal: life.signal });
     if (still) { skip = go; statsLanded(); return; }
     hint.animate([{ opacity: 0 }, { opacity: 1 }],
       { duration: HINT_MS, delay: HOLD_MS, easing: 'ease-out', fill: 'backwards' });
@@ -906,5 +911,20 @@ export function showRunEnd(root, {
   // Under reduced motion the whole sequence resolves in this one call — every `beat` finishes the
   // instant it starts and each screen lands on its final frame — so there is nothing to wait for.
   if (still) startStats();
-  else setTimeout(startStats, STATS_AT);
+  else timer = setTimeout(startStats, STATS_AT);
+
+  /** Take the card down for good: every listener, the pending beat, and the card itself. */
+  return {
+    close() {
+      if (closed) return;
+      closed = true;
+      skip = null;
+      clearTimeout(timer);
+      life.abort();
+      root.getAnimations({ subtree: true }).forEach((anim) => anim.cancel());
+      root.innerHTML = '';
+      root.hidden = true;
+      root.classList.remove('is-fit');
+    },
+  };
 }

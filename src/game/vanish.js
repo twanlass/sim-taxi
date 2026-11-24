@@ -27,8 +27,48 @@
 
 import * as THREE from 'three';
 import { carryTravel } from '../util/carry.js';
+import { cloneProp } from '../util/geo.js';
 
 const VANISH_TIME = 0.34;
+
+/** The render state `take` puts a shell's materials in — warmed at boot for the fleet's shells (sim/traffic.js). */
+export const FADED_SHELL = Object.freeze({ transparent: true, depthWrite: false });
+
+/**
+ * A hidden copy of a guest vehicle's body, for the boot's warm-up to draw as its wreck will be.
+ *
+ * The robo-taxi, the race rival, the garbage truck and the fire engine each wreck by deep-cloning
+ * their `shell` onto `cloneProp` copies with `alphaHash` off — a state the live rig, which always
+ * dissolves by alpha hash, is never drawn in — and a Crushin' It then fades that copy
+ * (`FADED_SHELL`). Both are programs, and under WebGPU pipelines, the run otherwise built on the
+ * first crush of each (the fleet's own shells are warmed in sim/traffic.js, `wreckShellWarm`).
+ * Built the way their `wreck()` builds it, so every cache key matches; kept in the scene, hidden,
+ * so the node builds stay pinned.
+ */
+export function warmWreckOf(scene, shell, name) {
+  const warm = new THREE.Group();
+  warm.name = `${name}WreckWarm`;
+  warm.visible = false;
+  shell.traverse((o) => {
+    if (!o.isMesh || Array.isArray(o.material) || !o.material.visible) return;
+    // Two copies, opaque and already faded: born see-through, the faded one is drawn by every
+    // pass of the warm-up's main frame rather than only the variant frame.
+    for (const faded of [false, true]) {
+      const copy = o.clone(false);
+      copy.position.set(0, 0, 0);
+      copy.visible = true;
+      copy.material = cloneProp(o.material);
+      copy.material.alphaHash = false;
+      copy.material.opacity = 1;
+      if (faded) Object.assign(copy.material, FADED_SHELL);
+      // Never drawn in play (tools/zfight.mjs).
+      copy.userData.zfight = false;
+      warm.add(copy);
+    }
+  });
+  scene.add(warm);
+  return warm;
+}
 
 const UP = new THREE.Vector3(0, 1, 0);
 
@@ -62,8 +102,7 @@ export function createVanish() {
         // The taxi's oversized pick volume is already invisible — there is nothing to fade, and
         // switching it to a transparent pass would cost a shader recompile for nothing.
         if (!material.visible) continue;
-        material.transparent = true;
-        material.depthWrite = false;
+        Object.assign(material, FADED_SHELL);
         // `transparent` is part of the program cache key, so flipping it at runtime needs the
         // recompile flag. One recompile, on the frame a run ends.
         material.needsUpdate = true;

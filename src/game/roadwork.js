@@ -2,6 +2,8 @@ import * as THREE from 'three';
 import { LANE, ROAD_W, isRiverGap } from '../city/grid.js';
 import { cityNetwork } from '../city/roadnet.js';
 import { propMaterial } from '../util/geo.js';
+import { GPU } from '../util/gpu.js';
+import { alsoWarmAs } from '../util/warmvariants.js';
 import { PALETTE } from '../palette.js';
 import { createPerson } from '../geometry/person.js';
 import { markOccluder, unmarkOccluder } from './ssao.js';
@@ -123,6 +125,8 @@ export const BARRIER_S = 2.1;
 // Skipping the short lanes keeps the stunt exactly as it is on every site it can appear at.
 const RAMP_RUN_NEEDED = BARRIER_S + HOP_LEN + STOP_SETBACK;
 const CONES = 12;
+// One sawhorse at each end of the hole (`buildStatic`). The pool WebGPU makes ahead is this big.
+const MAX_HORSES = 2;
 const WORKERS = 2;
 
 // Two rows, one either side, this far off the road centreline. Set against the car rather than by
@@ -224,7 +228,7 @@ export function createRoadwork(rng, scene, camera = null) {
   scene.add(group);
   group.visible = false;
 
-  // **Stand-ins, for the boot's warm-up and nothing else.** The trestles, cones, horses and chips
+  // WebGL: **stand-ins, for the boot's warm-up and nothing else.** The trestles, cones, horses and chips
   // are the only props in the city that cast a shadow without receiving one (`receiveShadow` is in
   // a program's key), plain and instanced, and the zone is built mid-run and fades in — so their
   // programs, opaque and faded both, had nothing to compile against at boot and linked on the
@@ -232,7 +236,7 @@ export function createRoadwork(rng, scene, camera = null) {
   // built as `addPiece` and `buildCones` build theirs and never shown, so game/warmup.js draws them
   // once, and their faded variants (`fadeVariants`), behind the load. They go with the group at
   // teardown, by which time the real pieces own the programs.
-  {
+  if (!GPU) {
     const geo = new THREE.BoxGeometry(0.01, 0.01, 0.01).toNonIndexed();
     // A colour attribute so it compiles with `vertexColors` like every piece; never seen, so 1s.
     geo.setAttribute('color', new THREE.BufferAttribute(new Float32Array(geo.attributes.position.count * 3).fill(1), 3));
@@ -245,6 +249,52 @@ export function createRoadwork(rng, scene, camera = null) {
       standIn.userData.warmFade = true;
       group.add(standIn);
     }
+  }
+
+  // WebGPU: stand-ins for the warm-up to draw. The zone is built when it is placed, a minute or
+  // more into a run, so none of its meshes exist at load, and it fades in — which is a pipeline per
+  // (instanced or not) x (transparent or not) x (main pass, shadow pass). Measured: four built on
+  // the frame the works appeared and one when the fade ended. One of each shape here, in both states
+  // (util/warmvariants.js), and the pipelines are kept for the real ones.
+  let premade = null;
+  if (GPU) {
+    const specimens = new THREE.Group();
+    specimens.name = 'roadwork-specimens';
+    specimens.visible = false;
+    const geometry = coneGeometry();
+    const fades = (mesh) => {
+      // Born transparent and warmed opaque, in the order the works themselves go. The order is
+      // not cosmetic: three builds the shadow pass's shader once, from the state the mesh is in
+      // when it is first drawn, and keeps it through later flips — so stand-ins born opaque warmed
+      // the shadow pipelines of a zone that starts solid, and the real one built 3 of its own.
+      mesh.material.transparent = true;
+      mesh.material.depthWrite = false;
+      alsoWarmAs(mesh.material, { transparent: false, depthWrite: true });
+      mesh.castShadow = true;
+      specimens.add(mesh);
+      return mesh;
+    };
+    fades(new THREE.Mesh(geometry, propMaterial()));
+    fades(new THREE.Mesh(geometry, propMaterial())).receiveShadow = true;
+    // The three instanced pools are not stand-ins, they are the **real meshes**, made now and
+    // adopted by `build`. A stand-in cannot warm an InstancedMesh: three puts the object's uuid in
+    // the key its node builds are cached under (`RenderObject.getMaterialCacheKey`), so every
+    // instanced mesh regenerates its WGSL in JavaScript on its first draw in each state and each
+    // pass, whatever was built for a lookalike. With stand-ins the pipelines were all cached and
+    // the works still cost the phone a 93 to 101 ms frame as they appeared (six builds, 73 to
+    // 79 ms of JS) and a 72 to 75 ms one as the fade ended (three more).
+    const pool = (geo, count) => {
+      const mesh = fades(new THREE.InstancedMesh(geo, propMaterial(), count));
+      mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+      mesh.frustumCulled = false;
+      return mesh;
+    };
+    premade = {
+      cones: pool(geometry, CONES),
+      horses: pool(sawhorseGeometry(), MAX_HORSES),
+      chips: pool(splinterGeometry(), CHIPS),
+    };
+    scene.add(specimens);
   }
 
   const smashListeners = [];
@@ -547,7 +597,7 @@ export function createRoadwork(rng, scene, camera = null) {
 
   function buildCones(edge) {
     const geometry = coneGeometry();
-    coneMesh = new THREE.InstancedMesh(geometry, propMaterial(), CONES);
+    coneMesh = premade?.cones ?? new THREE.InstancedMesh(geometry, propMaterial(), CONES);
     coneMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
     // Three caches an InstancedMesh's bounding sphere once, and this pool's slots move a long way
     // from where they started when the taxi arrives. Same reason every pool in game/ turns it off.
@@ -591,7 +641,8 @@ export function createRoadwork(rng, scene, camera = null) {
   /** The two sawhorses at the ends of the hole. Knocked about exactly like cones. */
   function buildHorses(spots) {
     if (!spots.length) return;
-    horseMesh = new THREE.InstancedMesh(sawhorseGeometry(), propMaterial(), spots.length);
+    horseMesh = (spots.length <= MAX_HORSES ? premade?.horses : null) ?? new THREE.InstancedMesh(sawhorseGeometry(), propMaterial(), spots.length);
+    horseMesh.count = spots.length;
     horseMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
     horseMesh.frustumCulled = false;   // same reason as the cones
     horseMesh.castShadow = true;
@@ -621,7 +672,7 @@ export function createRoadwork(rng, scene, camera = null) {
    * "absent" has to be spelled as "zero size".
    */
   function buildChips() {
-    chipMesh = new THREE.InstancedMesh(splinterGeometry(), propMaterial(), CHIPS);
+    chipMesh = premade?.chips ?? new THREE.InstancedMesh(splinterGeometry(), propMaterial(), CHIPS);
     chipMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
     chipMesh.frustumCulled = false;   // same reason as the cones: these leave their bounding sphere
     chipMesh.castShadow = true;
@@ -1199,6 +1250,38 @@ export function createRoadwork(rng, scene, camera = null) {
    * down a street with nothing on it — the exact failure the placement rules exist to avoid, only
    * with no barricade to explain it.
    */
+  // What outlives a zone: the WebGL warm-up stand-ins and the WebGPU premade pools. Disposing them
+  // at teardown was harmless while there was one zone per page, and stopped being harmless when Play
+  // again started reusing the page (`reset` below): three deletes a program when its last material
+  // goes, so a second zone would have linked every program the warm-up had paid for at load — the
+  // ~300 ms appearance hitch the stand-ins exist to prevent, on every run after the first.
+  const keep = new Set(group.children);
+  if (premade) for (const mesh of Object.values(premade)) keep.add(mesh);
+  const parkPremade = () => {
+    if (!premade) return;
+    const specimens = scene.getObjectByName('roadwork-specimens');
+    for (const mesh of Object.values(premade)) specimens?.add(mesh);
+  };
+
+  /** Take down and free everything one zone built; leaves what `keep` names alone. */
+  function clearPieces() {
+    // Before the dispose below, not after: the AO prepass holds a hard reference to every occluder
+    // and swaps its material each frame, so a freed mesh left enrolled is both a leak and a swap
+    // onto disposed geometry.
+    unmarkOccluder(group);
+    parkPremade();
+    for (const child of [...group.children]) {
+      if (keep.has(child)) continue;
+      group.remove(child);
+      child.traverse((object) => {
+        if (!object.isMesh) return;
+        object.geometry.dispose();
+        object.material.dispose();
+      });
+    }
+    materials.length = 0;
+  }
+
   function teardown() {
     state.phase = 'gone';
     setClosedLanes([]);
@@ -1206,17 +1289,38 @@ export function createRoadwork(rng, scene, camera = null) {
 
     group.visible = false;
     scene.remove(group);
-    // Before the dispose below, not after: the AO prepass holds a hard reference to every occluder
-    // and swaps its material each frame, so a freed mesh left enrolled is both a leak and a swap
-    // onto disposed geometry.
-    unmarkOccluder(group);
-    group.traverse((object) => {
-      if (!object.isMesh) return;
-      object.geometry.dispose();
-      object.material.dispose();
-    });
-    materials.length = 0;
+    clearPieces();
     emit(clearListeners, { edge: state.edge });
+  }
+
+  /**
+   * Back to the start of a run: no zone, a fresh cooldown. For Play again, which keeps the page (and
+   * so this module) rather than reloading it — without this the one zone a page ever got went to
+   * the first run. Draws its cooldown from the same run stream, so the next zone lands somewhere
+   * and sometime new.
+   */
+  function reset() {
+    const hadZone = state.phase !== 'waiting' && state.phase !== 'gone';
+    if (state.phase !== 'waiting') {
+      setClosedLanes([]);
+      setRoadworkLanes([]);
+      clearPieces();
+    }
+    for (const list of [workers, barriers, cones, horses, rubble, chips, pools]) list.length = 0;
+    coneMesh = horseMesh = chipMesh = null;
+    Object.assign(bump, { at: -Infinity, amp: 0, roll: 1, live: false });
+    const edge = state.edge;
+    Object.assign(state, {
+      phase: 'waiting',
+      cooldown: rng.range(FIRST_WAIT[0], FIRST_WAIT[1]),
+      fade: 0, alpha: 0, smashed: false, leaveAt: null, t: 0,
+      airborne: false, lastLaneId: null, lastS: 0,
+      edge: null, closedLaneIds: [], occluded: false,
+    });
+    group.visible = false;
+    group.position.y = 0;
+    if (group.parent !== scene) scene.add(group);
+    if (hadZone) emit(clearListeners, { edge });
   }
 
   function update(dt, taxi, cars = [], busy = []) {
@@ -1336,6 +1440,7 @@ export function createRoadwork(rng, scene, camera = null) {
     state,
     place,
     update,
+    reset,
     active,
     cones,
     /** The sawhorses at the ends of the hole; empty under `?roadworks=classic`. */

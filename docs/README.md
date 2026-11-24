@@ -13,7 +13,7 @@ behind it that aren't obvious from the code.
 | [gameplay.md](gameplay.md) | The startup screen, the title screen, the opening vignette and tutorial, the fare loop, routing and tapping a street, the bank robbery, the package courier, picking, the travelling clock, economy and the combo meter, the pedals and the moves (overtake, U-turn, drift), the New Move cards, the burger run, repairs at the depot, pause | `src/game/` |
 | [gameplay-history.md](gameplay-history.md) | How each of those got to where it is: superseded designs, rejected attempts, and what each `?x=classic` brings back | |
 | [difficulty.md](difficulty.md) | The ramp: budgeted fare clocks, board size, shifts, and how the numbers were swept | `src/game/difficulty.js` |
-| [rendering.md](rendering.md) | Low-poly technique, palette, camera, lighting, the day/night cycle, the island's faded edge, car paint, weather, Crayon and Cartoon Mode, bloom, effects, sirens | `src/game/scene.js`, `src/geometry/` |
+| [rendering.md](rendering.md) | Low-poly technique, palette, camera, lighting, the day/night cycle, the island's faded edge, car paint, weather, bloom, effects, sirens | `src/game/scene.js`, `src/geometry/` |
 | [rendering-history.md](rendering-history.md) | The same for rendering: looks that were replaced and why | |
 | [audio.md](audio.md) | The taxi's sound: the designer's files and how they're encoded, the engine and Loco beds, the one-shots and where they fire, the tap unlock, pause and mute, the Audio sections of the ⚙️ panel (`?audio`) | `src/game/sfx.js`, `src/game/audiopanel.js`, `assets/audio/` |
 | [params.md](params.md) | Every URL parameter, including the `?<feature>=classic` toggles. `npm run check` keeps it complete | `src/util/shot.js`, `src/main.js` |
@@ -117,9 +117,9 @@ replaced, is listed in [params.md](params.md).
 ## Conventions worth knowing before editing
 
 - **Every mesh is generated in code.** There is no loader and no model file. If something needs
-  to look different, it changes in geometry or in `palette.js`. The one texture in the project is
-  [Crayon Mode](rendering.md#crayon-mode--gamecrayonjs)'s paper, which is baked from seeded noise
-  at boot — generated in code like everything else. **Audio is the exception**: the sound effects
+  to look different, it changes in geometry or in `palette.js`. There is no texture file either:
+  the few textures the game uses (the painterly brush tiles, `game/brushtiles.js`) are generated in
+  code at boot like everything else. **Audio is the exception**: the sound effects
   are a designer's recordings, shipped as `assets/audio/*.m4a` — see [audio.md](audio.md).
 - **Seeded generation.** The city is one seed, the run situation is another; see
   [architecture.md](architecture.md#seeding).

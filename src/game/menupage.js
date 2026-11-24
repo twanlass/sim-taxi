@@ -10,6 +10,7 @@
  */
 
 import { isNative } from '../util/platform.js';
+import { rendererStatus } from '../util/gpu.js';
 import { QUALITIES } from './settings.js';
 import { MODES } from './difficulty.js';
 
@@ -61,6 +62,28 @@ function toggleRow(label, read, write) {
   row.append(el('span', 'title-label', label), knob);
   const paint = () => row.setAttribute('aria-checked', String(read()));
   row.addEventListener('click', () => { write(!read()); paint(); });
+  paint();
+  return { row, paint };
+}
+
+/**
+ * A read-only row: the label, and `read().label` on the right. A tap shows `read().detail` under it
+ * (and hides it again), when there is any — the Renderer row's reason for a fallback.
+ */
+function infoRow(label, read) {
+  const row = el('button', 'title-row title-info');
+  row.type = 'button';
+  const value = el('span', 'title-info-value');
+  const detail = el('span', 'title-info-detail');
+  detail.hidden = true;
+  row.append(el('span', 'title-label', label), value, detail);
+  const paint = () => {
+    const { label: text, detail: why } = read();
+    value.textContent = text;
+    detail.textContent = why;
+    if (!why) detail.hidden = true;
+  };
+  row.addEventListener('click', () => { paint(); if (detail.textContent) detail.hidden = !detail.hidden; });
   paint();
   return { row, paint };
 }
@@ -180,10 +203,15 @@ export function settingsRows(body, { sound, settings, demo = null, header = null
     Object.entries(MODES).map(([value, m]) => ({ value, text: m.label })),
     () => settings.get().difficulty, (value) => settings.set({ difficulty: value }));
   body.append(difficultyRow.row);
+  // Which renderer is drawing, and why when it is not the one it should be (util/gpu.js): the red
+  // strip that used to say so is for `?dev` only now, and the app has no address bar to show the
+  // `?renderer=classic&gpuerror=` a failed WebGPU start reloads onto.
+  const rendererRow = infoRow('Renderer', rendererStatus);
+  body.append(rendererRow.row);
   const demoRow = demo ? toggleRow('Demo mode', () => demo.on(), (on) => demo.set(on)) : null;
   // Everything but the sound, Quality and Antialiasing rows, hidden with Demo mode's until revealed.
   // With no `demo` there are no taps to reveal them with, so they show.
-  const extraRows = [tipsRow, introRow, ...hapticRows, difficultyRow];
+  const extraRows = [tipsRow, introRow, ...hapticRows, difficultyRow, rendererRow];
   const hideExtras = settingsLayout() === 'sound' && demo !== null;
   const paintDemo = () => {
     for (const r of extraRows) r.row.hidden = hideExtras && !demo.revealed();
@@ -237,6 +265,7 @@ export function settingsRows(body, { sound, settings, demo = null, header = null
       antialiasRow.paint();
       paintAntialias();
       difficultyRow.paint();
+      rendererRow.paint();
       soundRow.paint();
       musicRow.paint();
       sfxRow.paint();

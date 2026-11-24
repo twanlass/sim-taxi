@@ -347,9 +347,28 @@ export function createTitleScreen(root, { sound, settings, demo = null, onPlay, 
   const endIntro = !stillPlease() && TITLE_INTRO !== 'classic'
     ? playIntro(!document.getElementById('splash'), TITLE_INTRO === 'blur') : null;
 
+  /**
+   * Back up over the city — Quit on the same page (main.js `rerun`), which used to be a reload. The
+   * menu as Play left it, without the first launch's intro: this player has seen it.
+   */
+  function reopen() {
+    root.getAnimations().forEach((anim) => anim.cancel());
+    menu.getAnimations().forEach((anim) => anim.cancel());
+    menu.style.pointerEvents = '';
+    root.style.pointerEvents = '';
+    root.style.opacity = '';
+    telling = false;
+    holding = true;
+    clock = 0;
+    document.body.classList.add('title-up');
+    root.hidden = false;
+    show('menu');
+  }
+
   return {
     holding: () => holding,
     view: () => view,
+    reopen,
     cover,
     show,
     play,

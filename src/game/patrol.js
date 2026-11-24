@@ -859,9 +859,25 @@ export function createPatrol({
     }
   }
 
+  // What a patrol starts a run as, for `reset`.
+  const freshState = { ...state };
+
   return {
     state,
     update,
+    /**
+     * Start the run over on the same page (main.js `rerun`): the cruiser off the road whatever it
+     * was doing, and a fresh opening cooldown drawn the way the first one was. The cooldown range is
+     * the difficulty curve's and stays as main.js last pushed it.
+     */
+    reset() {
+      if (state.cop) traffic.retirePolice(state.cop);
+      police.shed();
+      pin.reset();
+      aimedAt = null;
+      const range = state.cooldownRange;
+      Object.assign(state, freshState, { cooldownRange: range, cooldown: rng.range(5, 12) });
+    },
     /**
      * How often a patrol comes round, as `[min, max]` seconds between them. Pushed in by main.js
      * off the difficulty curve; takes effect from the *next* draw, so a delivery landing does not

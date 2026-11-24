@@ -23,6 +23,8 @@
 import { withPoolsShown } from '../util/emptypools.js';
 import { withAllCasters } from './shadowcull.js';
 import { cloneProp } from '../util/geo.js';
+import { GPU } from '../util/gpu.js';
+import { drawVariants } from '../util/warmvariants.js';
 
 /**
  * **The faded variant of every prop program.** `transparent` is part of a program's key (three's
@@ -80,15 +82,20 @@ export function warmFirstDraws(scene, draw, roots = [scene], { renderer = null }
     // With the empty-pool sweep held off, or it would hide again every pool just shown.
     // Every pool shown and every shadow caster drawn, so each one's programs link now.
     withPoolsShown(() => withAllCasters(draw));
-    // Then the faded variants of what that draw linked (see `fadeVariants`), in one more frame.
+    // WebGPU: once more with every material that changes state mid-run in its other state, so
+    // that state's pipelines are built here too (util/warmvariants.js).
+    if (GPU) withPoolsShown(() => withAllCasters(() => drawVariants(draw)));
+    // WebGL: the faded variants of what that draw linked (see `fadeVariants`), in one more frame.
     // `?fadewarm=classic` skips it, for an A/B on the phone (tools/ios-perfloop.mjs --variants).
-    const swaps = new URLSearchParams(globalThis.location?.search ?? '').get('fadewarm') === 'classic' ? [] : fadeVariants(roots, renderer);
-    if (swaps.length) {
-      for (const [o, , copy] of swaps) o.material = copy;
-      try {
-        withPoolsShown(draw);
-      } finally {
-        for (const [o, m] of swaps) o.material = m;
+    else {
+      const swaps = new URLSearchParams(globalThis.location?.search ?? '').get('fadewarm') === 'classic' ? [] : fadeVariants(roots, renderer);
+      if (swaps.length) {
+        for (const [o, , copy] of swaps) o.material = copy;
+        try {
+          withPoolsShown(draw);
+        } finally {
+          for (const [o, m] of swaps) o.material = m;
+        }
       }
     }
   } finally {
@@ -153,6 +160,17 @@ export async function warmFirstDrawsInSteps(scene, draw, { steps = 10, onStep = 
     }
   }
   if (slice.length) slices.push(slice);
+  // One mesh that receives shadows, drawn in every slice. three draws a shadow map only from a
+  // material that reads it (the shadow node's `updateBefore`), so a slice holding nothing but
+  // casters that receive no shadow of their own — the blast's shards and tyres, see-through and
+  // drawn alone — never ran the shadow pass at all, and their shadow pipelines were built on the
+  // run's first explosion instead (2026-11-23: two of them, whenever the slicing landed that way,
+  // which with robo-taxis on the map it did). Whichever receiver comes first is enough: it only has
+  // to make the pass happen.
+  let receiver = null;
+  scene.traverse((o) => {
+    if (!receiver && o.isMesh && o.visible && o.receiveShadow && !o.isInstancedMesh) receiver = o;
+  });
   for (let i = 0; i < slices.length; i++) {
     // Told first and *then* the yield, so the bar's step and caption reach the screen before the
     // slice blocks. The other way round, each slice's news was painted after that slice had drawn.
@@ -162,7 +180,7 @@ export async function warmFirstDrawsInSteps(scene, draw, { steps = 10, onStep = 
     const hidden = [];
     for (const child of scene.children) {
       if (inSlice.has(child)) continue;
-      child.traverse((o) => { if (drawable(o) && o.visible) { o.visible = false; hidden.push(o); } });
+      child.traverse((o) => { if (drawable(o) && o.visible && o !== receiver) { o.visible = false; hidden.push(o); } });
     }
     try {
         warmFirstDraws(scene, draw, slices[i], { renderer });

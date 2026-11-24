@@ -4,6 +4,7 @@ import { color } from '../palette.js';
 import {
   GRID_I, GRID_J, lineX, lineZ, halfRoadX, halfRoadZ, isSegmentClosed, isArterialX, isArterialZ,
 } from './grid.js';
+import { coverNodes } from './gpumanholes.js';
 import { MARK_Y } from './ground.js';
 
 // Manhole covers: a handful of cast-iron lids set into the streets, flat, with no say in anything
@@ -186,6 +187,7 @@ float coverHeight(vec2 p, float detail) {
 `;
 
 function patchCover(material) {
+  if (material.isNodeMaterial) return coverNodes(material, { lid: color('manholeLid'), uniforms: COVER_UNIFORMS });
   const prevCompile = material.onBeforeCompile;
   const prevKey = material.customProgramCacheKey();
   material.customProgramCacheKey = () => `${prevKey}-manhole`;

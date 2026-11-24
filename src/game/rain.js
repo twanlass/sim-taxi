@@ -3,6 +3,10 @@ import { PALETTE } from '../palette.js';
 import { AO_UNIFORMS, CLOUD_UNIFORMS, CLOUD_GLSL } from '../util/geo.js';
 import { WET_EXTENT } from './squall.js';
 import { HALF_SPAN_X, HALF_SPAN_Z } from '../city/grid.js';
+import { gpuMaterials } from '../util/gpu.js';
+import { shaftTwin, splashGeometry, splashTwin, streakTwin, sunRayTwin } from './gpurain.js';
+import { createWetNodes } from './gpuwet.js';
+import { lensTwin } from './gpulens.js';
 
 /**
  * Rain Mode — `?rain`. An exploration, off by default: the city on a wet afternoon.
@@ -156,7 +160,9 @@ const inert = {
   grade: null,
   wetGround: (mesh) => mesh,
   renderReflection: () => {},
+  warmMirror: (draw) => draw(),
   renderLens: () => {},
+  lensSource: () => null,
   setWeather: () => {},
   setSunDir: () => {},
   setSunRays: () => {},
@@ -166,7 +172,7 @@ const inert = {
   hideInMirror: () => {},
 };
 
-export function createRain(renderer, { enabled = false, mood: moodName = 'shower' } = {}) {
+export function createRain(renderer, { enabled = false, mood: moodName = 'shower', crt = null } = {}) {
   if (!enabled) return inert;
   const mood = MOODS[moodName] ?? MOODS.shower;
 
@@ -176,9 +182,12 @@ export function createRain(renderer, { enabled = false, mood: moodName = 'shower
   // --- the mirror -------------------------------------------------------------------------------
 
   // Half float where the GPU can render to it, because eight bits band badly in the darks.
-  const halfFloat = renderer.extensions.has('EXT_color_buffer_half_float')
+  // WebGPURenderer has no extensions to ask and renders to half float everywhere. Its materials are
+  // node materials (game/gpurain.js, game/gpuwet.js); what differs in each pass is marked `gpu`.
+  const gpu = gpuMaterials();
+  const halfFloat = gpu || renderer.extensions.has('EXT_color_buffer_half_float')
     || renderer.extensions.has('EXT_color_buffer_float');
-  const reflectTarget = new THREE.WebGLRenderTarget(2, 2, {
+  const reflectTarget = new (gpu ? THREE.RenderTarget : THREE.WebGLRenderTarget)(2, 2, {
     type: halfFloat ? THREE.HalfFloatType : THREE.UnsignedByteType,
     stencilBuffer: true,
     depthBuffer: true,
@@ -197,8 +206,14 @@ export function createRain(renderer, { enabled = false, mood: moodName = 'shower
   // The reflection's colours move a little with it, because fog and unlit colours now go in the
   // way the screen takes them: in-page A/B of one frozen frame, 6% of pixels moved by more than
   // 6/255 and none by more than 46.
-  reflectTarget.texture.colorSpace = THREE.SRGBColorSpace;
-  reflectTarget.isXRRenderTarget = true;
+  //
+  // Under WebGPU every node material already writes display values to whatever it is drawn into
+  // (game/gpufog.js), so the target needs neither switch, and must not be tagged sRGB: three
+  // would decode on the read and the ground's own decode would run on top of it.
+  if (!gpu) {
+    reflectTarget.texture.colorSpace = THREE.SRGBColorSpace;
+    reflectTarget.isXRRenderTarget = true;
+  }
   const mirrorCam = new THREE.OrthographicCamera();
   mirrorCam.matrixAutoUpdate = false;
   mirrorCam.matrixWorldAutoUpdate = false;
@@ -219,7 +234,12 @@ export function createRain(renderer, { enabled = false, mood: moodName = 'shower
   // pale wash with its paint gone — an overcast sky is the brightest thing in the scene, and a
   // puddle is a mirror of it.
   const skyTint = new THREE.Color(mood.reflectSky);
+  // WebGL converts a clear colour to the target's colour space; WebGPURenderer writes the numbers
+  // it is given, and this target holds display values.
+  const skyClear = gpu ? skyTint.clone().convertLinearToSRGB() : skyTint;
   const hidden = [];
+  // The sun, found on the first mirror pass: under WebGPU the shadow map belongs to the light.
+  let sunLights = null;
 
   const groundUniforms = {
     tRainReflect: { value: reflectTarget.texture },
@@ -245,11 +265,55 @@ export function createRain(renderer, { enabled = false, mood: moodName = 'shower
   // now (see `reflectTarget`), so there is no variant to compile.
   const viewInv = new THREE.Matrix4();
 
+  // Under WebGPU the frame may be going into two attachments (the AO pass, game/gpuframe.js), and
+  // three builds a material's shader once for both cameras, with the outputs of whichever pass
+  // met it first: a mirror with one attachment then either lacks a target the shader writes or,
+  // worse, hands the main pass a shader with one output for a pipeline with two, which is a
+  // validation error and an invalid pass. So the mirror takes the same layout the frame has, and
+  // carries a second attachment nobody reads.
+  let mirrorPair = null;
+  let mirrorPrimed = false;
+  function mirrorTarget() {
+    const layout = gpu ? renderer.getMRT() : null;
+    if (!layout) return reflectTarget;
+    if (!mirrorPair) {
+      // The frame's attachments by name, `output` first: the one the ground reads.
+      const names = Object.keys(layout.outputNodes);
+      names.sort((a, b) => (b === 'output') - (a === 'output'));
+      mirrorPair = new THREE.RenderTarget(2, 2, {
+        count: names.length, type: THREE.HalfFloatType, stencilBuffer: true, depthBuffer: true,
+      });
+      names.forEach((name, i) => { mirrorPair.textures[i].name = name; });
+    }
+    return mirrorPair;
+  }
+
+  /**
+   * While the boot warms up (`warmMirror`), the mirror is drawn dry, so its pipelines are built
+   * behind the load bar rather than on the first wet frame of the run. Every material in the city
+   * gets a pipeline of its own for this target (half float, the frame's attachments, no MSAA), and
+   * nothing else draws into it: on an iPhone 16 Pro under `?bot` the squall's first wet frame built
+   * 95 of them at once, a **3.2 s** freeze, and each thing the mirror then saw for the first time
+   * (the bank's dome, the helicopter, a robotaxi) cost another 250–380 ms (2026-11-23).
+   *
+   * It has to be drawn from inside the frame, where the real one is, and not after it: a first cut
+   * drew it once the frame had ended, with the frame's attachments (`setMRT`) already cleared, so
+   * three built every material's mirror shader with one output; the first real wet frame then drew
+   * those into the frame's two-attachment layout, a WebGPU validation error that switches occlusion
+   * off for the rest of the session and rebuilds the whole city for the canvas (an 8 s freeze).
+   */
+  let warming = false;
   function renderReflection(scene, camera) {
-    if (weather.wet < 0.002) return;
+    if (!warming && weather.wet < 0.002) return;
+    // Under WebGPU, never on the first frame. The mirror reuses the frame's shadow map without
+    // redrawing it, so drawn before the main pass has ever run it binds a shadow map that has not
+    // been a render target yet; three then recreates the texture on its first real draw and the
+    // bind groups made here go on naming the destroyed one for several frames, each an error.
+    if (gpu && !mirrorPrimed) { mirrorPrimed = true; return; }
     renderer.getDrawingBufferSize(drawingBuffer);
     const w = Math.max(2, Math.round(drawingBuffer.x * REFLECT_SCALE));
     const h = Math.max(2, Math.round(drawingBuffer.y * REFLECT_SCALE));
+    const reflectTarget = mirrorTarget();
     if (reflectTarget.width !== w || reflectTarget.height !== h) reflectTarget.setSize(w, h);
     groundUniforms.uRainScreen.value.set(1 / drawingBuffer.x, 1 / drawingBuffer.y);
 
@@ -269,15 +333,31 @@ export function createRain(renderer, { enabled = false, mood: moodName = 'shower
     // culled before it is drawn rather than drawn and clipped.
     viewPlane.copy(clipPlane).applyMatrix4(mirrorCam.matrixWorldInverse);
     const e = mirrorCam.projectionMatrix.elements;
-    const k = 2 / MIRROR_DEPTH;
+    // WebGPU's clip volume runs 0..1 in z where GL's runs -1..1: NDC z = d / MIRROR_DEPTH. And the
+    // camera has to claim the renderer's convention, or three rebuilds its projection from the
+    // (unset) orthographic bounds on the way into the render.
+    const k = (gpu ? 1 : 2) / MIRROR_DEPTH;
+    mirrorCam.coordinateSystem = camera.coordinateSystem;
     e[2] = k * viewPlane.normal.x;
     e[6] = k * viewPlane.normal.y;
     e[10] = k * viewPlane.normal.z;
-    e[14] = k * viewPlane.constant - 1;
+    e[14] = k * viewPlane.constant - (gpu ? 0 : 1);
     mirrorCam.projectionMatrixInverse.copy(mirrorCam.projectionMatrix).invert();
 
     const prevTarget = renderer.getRenderTarget();
     const prevShadow = renderer.shadowMap.autoUpdate;
+    if (gpu) {
+      if (!sunLights) {
+        sunLights = [];
+        scene.traverse((o) => { if (o.isLight && o.castShadow) sunLights.push(o); });
+        // three keeps a set of light nodes per scene *and camera*, and a shadow map per set. Left at
+        // that the mirror got a sun of its own, with a second shadow map nothing ever drew into,
+        // and the two fought over `light.shadow.map`: a destroyed texture in every submit. One set
+        // for both cameras, which is also what lets the mirror reuse the frame's shadow map.
+        renderer.lighting.set([scene, mirrorCam], renderer.lighting.getNode(scene, camera));
+      }
+      sunLights.forEach((light) => { light.shadow.autoUpdate = false; });
+    }
     const prevAO = AO_UNIFORMS.tAmbientOcclusion.value;
     const prevClear = renderer.getClearColor(new THREE.Color());
     const prevAlpha = renderer.getClearAlpha();
@@ -296,18 +376,21 @@ export function createRain(renderer, { enabled = false, mood: moodName = 'shower
     groundUniforms.uRainWet.value = 0;
 
     renderer.setRenderTarget(reflectTarget);
-    renderer.setClearColor(skyTint, 1);
+    renderer.setClearColor(skyClear, 1);
     renderer.clear();
     renderer.render(scene, mirrorCam);
 
     hidden.forEach((o, i) => { o.visible = wasVisible[i]; });
-    groundUniforms.tRainReflect.value = reflectTarget.texture;
+    groundUniforms.tRainReflect.value = reflectTarget.textures[0];
     groundUniforms.uRainWet.value = wet;
     AO_UNIFORMS.tAmbientOcclusion.value = prevAO;
     CLOUD_UNIFORMS.uCloudViewInv.value.copy(prevViewInv);
     renderer.shadowMap.autoUpdate = prevShadow;
     renderer.setClearColor(prevClear, prevAlpha);
     renderer.setRenderTarget(prevTarget);
+    if (gpu) {
+      sunLights.forEach((light) => { light.shadow.autoUpdate = true; });
+    }
   }
 
   // --- wet ground -------------------------------------------------------------------------------
@@ -328,6 +411,7 @@ export function createRain(renderer, { enabled = false, mood: moodName = 'shower
    * slope test (`rainUp`) still reads the real surface, so the hump's flanks stay as wet as the
    * camera can see they ought to be.
    */
+  const wetNodes = gpu ? createWetNodes(groundUniforms, CLOUD_UNIFORMS) : null;
   function wetGround(mesh, { deck = null } = {}) {
     const material = mesh.material;
     if (deck) {
@@ -335,6 +419,10 @@ export function createRain(renderer, { enabled = false, mood: moodName = 'shower
       const lift = new Float32Array(pos.count);
       for (let k = 0; k < pos.count; k++) lift[k] = deck(pos.getX(k), pos.getZ(k));
       mesh.geometry.setAttribute('rainDeck', new THREE.BufferAttribute(lift, 1));
+    }
+    if (gpu) {
+      wetNodes(material, { deck: Boolean(deck) });
+      return mesh;
     }
     const prevCompile = material.onBeforeCompile;
     const prevKey = material.customProgramCacheKey();
@@ -457,6 +545,7 @@ ${WET_ALBEDO}`, 'ground fragment');
       }
     `,
   }));
+  if (gpu) streaks.material = streakTwin(streaks.material);
   streaks.frustumCulled = false;
   streaks.renderOrder = 2;
   streaks.name = 'rain-streaks';
@@ -484,7 +573,7 @@ ${WET_ALBEDO}`, 'ground fragment');
     uCellShape: CLOUD_UNIFORMS.uCellShape,
     uCellLight: CLOUD_UNIFORMS.uCellLight,
   };
-  const splashes = new THREE.Points(splashGeo, new THREE.ShaderMaterial({
+  const splashPoints = new THREE.Points(splashGeo, new THREE.ShaderMaterial({
     uniforms: splashUniforms,
     transparent: true,
     depthWrite: false,
@@ -536,6 +625,7 @@ ${WET_ALBEDO}`, 'ground fragment');
       }
     `,
   }));
+  const splashes = gpu ? new THREE.Mesh(splashGeometry(splashSeeds), splashTwin(splashPoints.material)) : splashPoints;
   splashes.frustumCulled = false;
   splashes.renderOrder = 2;
   splashes.name = 'rain-splashes';
@@ -614,6 +704,7 @@ ${WET_ALBEDO}`, 'ground fragment');
       }
     `,
   }));
+  if (gpu) shafts.material = shaftTwin(shafts.material);
   shafts.frustumCulled = false;
   shafts.renderOrder = 2;
   shafts.name = 'rain-sunshafts';
@@ -720,6 +811,7 @@ ${WET_ALBEDO}`, 'ground fragment');
       }
     `,
   }));
+  if (gpu) sunRays.material = sunRayTwin(sunRays.material);
   sunRays.frustumCulled = false;
   sunRays.renderOrder = 2;
   sunRays.name = 'rain-sunrays';
@@ -753,11 +845,49 @@ ${WET_ALBEDO}`, 'ground fragment');
     `,
     fragmentShader: LENS_FRAGMENT,
   }));
+  if (gpu) {
+    // A node needs a texture to be built around; the first `renderLens` replaces it.
+    lensUniforms.tFrame.value = new THREE.Texture();
+    lens.material = lensTwin(lens.material, crt);
+  }
   lens.frustumCulled = false;
   lensScene.add(lens);
 
+  /**
+   * The WebGPU lens works the other way round: no copy. three's `copyFramebufferToTexture` needs a
+   * render in progress to find the canvas (called between renders it threw on a null context),
+   * and the frame's last step is already a fullscreen pass (the AO, game/gpuframe.js). So while
+   * the glass is wet that pass lands in this target instead of on the canvas, and the lens is one
+   * opaque pass that puts it there: the frame as it stands, or bent through a drop.
+   * `lensSource()` answers the target, or null while the glass is dry and the frame can go
+   * straight to its destination; `main.js` asks before it ends the frame and calls
+   * `renderLens({ from })` with the answer once the destination is set.
+   */
+  let lensFrame = null;
+  function lensSource() {
+    // Warmed with the mirror: the frame's last quad into this target and the lens onto the screen
+    // are two pipelines of their own, built on the first frame the glass got wet (2026-11-23).
+    if (!gpu || (!warming && lensLevel < 0.002)) return null;
+    renderer.getDrawingBufferSize(drawingBuffer);
+    lensFrame ??= new THREE.RenderTarget(2, 2, { depthBuffer: false });
+    if (lensFrame.width !== drawingBuffer.x || lensFrame.height !== drawingBuffer.y) {
+      lensFrame.setSize(drawingBuffer.x, drawingBuffer.y);
+    }
+    return lensFrame;
+  }
+
   /** After the main render: copy the frame, draw it back through the drops. */
-  function renderLens() {
+  function renderLens({ from = null } = {}) {
+    if (gpu) {
+      if (!from) return;
+      lensUniforms.tFrame.value = from.texture;
+      lensUniforms.uAspect.value = from.width / from.height;
+      const prevAuto = renderer.autoClear;
+      renderer.autoClear = false;
+      renderer.render(lensScene, lensCam);
+      renderer.autoClear = prevAuto;
+      return;
+    }
     // A frame copy and a fullscreen pass for nothing, while the glass is dry.
     if (lensLevel < 0.002) return;
     renderer.getDrawingBufferSize(drawingBuffer);
@@ -878,7 +1008,13 @@ ${WET_ALBEDO}`, 'ground fragment');
     weather,
     wetGround,
     renderReflection,
+    /** Draw the mirror on every frame `draw` renders, dry or not (see `renderReflection`). */
+    warmMirror: (draw) => {
+      warming = true;
+      try { draw(); } finally { warming = false; }
+    },
     renderLens,
+    lensSource,
     update,
     /** Put the falling rain in a scene. */
     addTo: (scene) => { scene.add(streaks, splashes, shafts, sunRays); },
@@ -912,7 +1048,7 @@ ${WET_ALBEDO}`, 'ground fragment');
       streakUniforms.uBox.value.set(span, BOX.y, span);
       splashUniforms.uBox.value = span;
     },
-    /** Anything else that must stay out of the mirror — the bloom and crayon overlays. */
+    /** Anything else that must stay out of the mirror — the bloom overlay. */
     hideInMirror: (...objects) => { hidden.push(...objects.filter(Boolean)); },
     uniforms: {
       ground: groundUniforms, streaks: streakUniforms, lens: lensUniforms, shafts: shaftUniforms,

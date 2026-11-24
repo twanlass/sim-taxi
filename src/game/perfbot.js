@@ -52,13 +52,22 @@ export const BOT_SCENES = [
   { name: 'crash', seconds: 14 },
 ];
 
+/**
+ * Scenes a list can ask for that the full session does not play, so the profiling loop's timing
+ * stays what it was. `bigroll`: a drift onto an arched bridge carried straight over its crest — true
+ * Big Air, barrel roll and all — which the `bigair` scene only stumbles on (tools/trailer.mjs).
+ */
+export const BOT_EXTRA_SCENES = [{ name: 'bigroll', seconds: 45 }];
+
 /** `?bot` → the scenes to play, or null without it. */
 export function readBotScenes(search) {
   const params = new URLSearchParams(search);
   if (!params.has('bot')) return null;
   const only = (params.get('bot') ?? '').split(',').map((s) => s.trim()).filter(Boolean);
   if (!only.length || only.includes('all') || only.includes('on')) return BOT_SCENES;
-  return BOT_SCENES.filter((s) => s.name === 'warm' || s.name === 'crash' || only.includes(s.name));
+  const extra = BOT_EXTRA_SCENES.filter((s) => only.includes(s.name));
+  const picked = BOT_SCENES.filter((s) => s.name === 'warm' || only.includes(s.name));
+  return [...picked, ...extra, BOT_SCENES.at(-1)];
 }
 
 /**
@@ -206,6 +215,30 @@ export function createPerfBot({
     return goTo(end, { along: { a: { i: a.gi, j: a.gj }, b: { i: b.gi, j: b.gj } } });
   }
 
+  /**
+   * Big Air, staged: an arched deck entered by a *turn* at its near bank, so the drift on that corner
+   * is still being carried when the taxi reaches the crest, with the route going straight on past the
+   * far bank (`launchHop(car, big)` in sim/traffic.js). Routed via the junction beside the near bank
+   * on the bank road, then on to one block past the far one; driftPedals does the corner.
+   */
+  function bigRollErrand() {
+    const net = cityNetwork();
+    const decks = net.lanes.filter((l) => isArchedDeck(l));
+    if (!decks.length) return false;
+    for (let tries = 0; tries < decks.length * 2; tries++) {
+      const k = hops++;
+      const lane = decks[k % decks.length];
+      const a = net.nodeById.get(lane.from);
+      const b = net.nodeById.get(lane.to);
+      const side = (Math.floor(k / decks.length) % 2) ? 1 : -1;
+      const si = a.gi + side;
+      if (si < 0 || si > GRID_I) continue;
+      const end = { i: b.gi, j: Math.max(0, Math.min(GRID_J, b.gj + Math.sign(b.gj - a.gj))) };
+      if (goTo(end, { via: { i: si, j: a.gj }, maxDetour: 99 })) return true;
+    }
+    return false;
+  }
+
   /** Loco on; a brake tap just before a corner the route turns at, then Loco again (the kick). */
   function driftPedals() {
     if (brakeUntil >= 0) {
@@ -314,6 +347,9 @@ export function createPerfBot({
       else if (name === 'bigair') {
         if (errandOver() && !bridgeErrand()) autopilot();
         if (errand) locoOn();
+      } else if (name === 'bigroll') {
+        if (errandOver() && !bigRollErrand()) autopilot();
+        if (errand) driftPedals(); else locoOn();
       } else if (name === 'robbery') robberyStep();
       else if (name === 'cops') copsStep();
       else if (name === 'crash' && !wrecked && sceneT > 0.5) wrecked = wreck();

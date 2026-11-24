@@ -11,6 +11,7 @@ import { BILLBOARD, VIEW_UP } from './camera.js';
 import { sightlineClear } from './sightline.js';
 import { ARRIVE_RADIUS, blockDistance } from './fares.js';
 import { propMaterial, unlitMaterial, cloneProp, bakeColor, setFinish, FINISH, BODY_EULER_ORDER } from '../util/geo.js';
+import { warmWreckOf } from './vanish.js';
 import { color } from '../palette.js';
 import { wheelAnchors, wheelGeometry, SILL_Y, CHASSIS_LIFT } from '../geometry/wheels.js';
 import { createTargetRing, RING_Y } from '../geometry/targetring.js';
@@ -558,6 +559,7 @@ export function createRace({
 
   const rival = createRivalMesh();
   scene.add(rival.group);
+  warmWreckOf(scene, rival.shell, 'raceRival');
   markOccluder(rival.group);
 
   // The tap target, from the moment the racer turns up until the flag drops. On a group that
@@ -703,6 +705,9 @@ export function createRace({
     // into the pedal, since `parked` stops a car dead.
     brakeTaxi: false,
   };
+
+  // What a run starts from, for `reset`.
+  const freshState = { ...state };
 
   function setPhase(phase) {
     state.phase = phase;
@@ -1657,6 +1662,16 @@ export function createRace({
       if (state.phase === 'waiting' || state.phase === 'leaving') return;
       taxi.parked = false;
       leave();
+    },
+    /**
+     * Play again on the same page (main.js `rerun`): the racer off the road on the spot, whatever
+     * the race was doing, and the run's tallies and first-race countdown as the system was built.
+     */
+    reset: () => {
+      if (state.phase !== 'waiting' && state.phase !== 'leaving') leave();
+      taxi.parked = false;
+      retire();
+      Object.assign(state, freshState);
     },
     /** For `tools/race.mjs`'s sweep. */
     setRivalChase: (v) => { rivalChase = v; },

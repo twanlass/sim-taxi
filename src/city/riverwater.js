@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { PALETTE } from '../palette.js';
 import { KERB_H } from './ground.js';
 import { WATER_Y, RAIL_H, RAIL_W, DECK_THICK } from './river.js';
+import { createWaterNodes, waterNodeMaterial, pondEdgeNode, lakeEdgeNode } from './gpuwater.js';
 
 // The river's surface: facets that move, a bed you can see into, and the far wall and the bridges
 // mirrored in it.
@@ -502,7 +503,22 @@ export function patchRiverWater(material, { edges, banks, bridges, wall, sea = n
 }
 
 /** The river's program, onto a material `propMaterial` has already patched. */
+// The WebGPU twin (city/gpuwater.js): the same uniforms, built into nodes once, on first use.
+// Built on first use, not at import: river.js and this file import each other, and `WATER_Y` is
+// still in its dead zone while this module's top level runs.
+let tsl = null;
+const tslConstants = () => (tsl ??= {
+  KERB_H, WATER_Y, RAIL_H, RAIL_W, DECK_THICK, BED_EDGE, BED_MID, RIM_W, RIM_REFLECT, RIM_GLOW, RIM_GLOW_W,
+  SMOOTH_AMP, SMOOTH_DETAIL, EDGE_SOFT, SEA_BED, SEA_RUN_IN, F0, REFLECT_FLOOR, ABSORB, SHINE, GLINT, CAUSTIC,
+});
+let waterNodes = null;
+const nodes = () => (waterNodes ??= createWaterNodes(UNIFORMS, tslConstants()));
+
 function patchWater(material) {
+  if (material.isNodeMaterial) {
+    material.userData.sharedWater = 'river';
+    return waterNodeMaterial(material, nodes(), tslConstants());
+  }
   const inner = material.onBeforeCompile;
   const innerKey = material.customProgramCacheKey();
   const styleKey = style;
@@ -623,7 +639,7 @@ export function patchPondWater(material, pond) {
     uPond: { value: new THREE.Vector4(pond.x, pond.z, pond.r, pond.bank) },
     // amp, phase for the 2- and 3-cycle lobes, in that order.
     uPondLobes: { value: new THREE.Vector4(l2.amp, l2.phase, l3.amp, l3.phase) },
-  }, pondEdge(), POND_TUNE);
+  }, pondEdge(), POND_TUNE, pondEdgeNode(pond));
 }
 
 // --- The north park's lake -----------------------------------------------------
@@ -671,7 +687,7 @@ export function patchLakeWater(material, lake) {
   return patchStillWater(material, 'lake', {
     uPond: { value: new THREE.Vector4(lake.x, lake.z, lake.rx, lake.rz) },
     uPondLobes: { value: new THREE.Vector4(lake.l2, lake.p2, lake.l3, lake.p3) },
-  }, lakeEdge(), LAKE_TUNE);
+  }, lakeEdge(), LAKE_TUNE, lakeEdgeNode(lake));
 }
 
 /**
@@ -683,7 +699,11 @@ export function patchLakeWater(material, lake) {
  * one's outline. The key is per *outline kind*, not per material (CLAUDE.md: a key is a promise
  * about source), so every lake shares one program.
  */
-function patchStillWater(material, kind, shape, edgeGlsl, tune) {
+function patchStillWater(material, kind, shape, edgeGlsl, tune, edgeNode) {
+  if (material.isNodeMaterial) {
+    material.userData.sharedWater = kind;
+    return waterNodeMaterial(material, nodes(), tslConstants(), { edge: edgeNode, tune });
+  }
   const inner = material.onBeforeCompile;
   const innerKey = material.customProgramCacheKey();
   material.customProgramCacheKey = () => `${innerKey}-${kind}`;

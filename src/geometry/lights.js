@@ -3,6 +3,9 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { color } from '../palette.js';
 import { bakeColor, unlitMaterial, srcTag } from '../util/geo.js';
 import { CHASSIS_LIFT } from './wheels.js';
+import { gpuMaterials } from '../util/gpu.js';
+import { unlitTwin } from '../util/gpunodes.js';
+import { abs, attribute, float, max, normalView, pow, smoothstep, varying } from 'three/tsl';
 
 // Brake and turn-signal light pods — the geometry and material both the ambient fleet
 // (sim/traffic.js, as an InstancedMesh) and the player's taxi (geometry/taxi.js, as an ordinary
@@ -249,6 +252,20 @@ export function coneQuat(z) {
  * cone read as a volume of lit rain rather than a lampshade. Fades out along its length.
  */
 export function coneMaterial() {
+  const glsl = coneGlsl();
+  return gpuMaterials() ? unlitTwin(glsl, coneNodes, { display: true }) : glsl;
+}
+
+// The fragment shader below as nodes, for WebGPURenderer (util/gpunodes.js). three's own
+// `normalView` already carries the instance matrix the vertex shader applies by hand.
+function coneNodes(u) {
+  const along = varying(attribute('along', 'float'));
+  const facing = abs(normalView.z);
+  const a = pow(max(float(1).sub(along), 0), 1.6).mul(smoothstep(0.0, 0.1, along)).mul(facing);
+  return { color: u.uColor.mul(a).mul(u.uStrength) };
+}
+
+function coneGlsl() {
   return new THREE.ShaderMaterial({
     uniforms: { uColor: { value: color('headlightBeam') }, uStrength: { value: 0.45 } },
     transparent: true,

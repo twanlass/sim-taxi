@@ -472,6 +472,15 @@ over 80% of the budget, and otherwise **not JS**. A shader linked mid-run is nam
 the game function that rendered it (the call stack with three's frames taken out); that is how a
 5.6 s run-end freeze on an iPhone turned out to be the wreck fireball's bloom copy.
 
+**Under WebGPU the same columns are fed from the device**, since there is no GL context to hook
+(captures taken before 2026-11-22 read 0 links and 0 uploads on WebGPU for that reason, which was
+the profiler being blind). `link` counts render pipelines built **and** materials whose nodes were
+rebuilt: `material.needsUpdate` re-runs three's node builder and regenerates the WGSL in JavaScript
+even when the pipeline is cached, which costs a frame the device never hears about. Each is named
+in a note, `link pipeline <label>` or `link nodes <object>`. `up` is `queue.writeBuffer` bytes,
+uniform buffers included, so it sits around 100 to 300 KB on every frame where WebGL's is 0 on a
+quiet one; `tex` is `queue.writeTexture` and `copyExternalImageToTexture`.
+
 **"Not JS" is where the trace comes in.** WebKit has no GPU timer queries, so a GPU-bound frame
 reads as a long gap with a short `cpu` and that is all the page can say about it. `trace` records
 Instruments' Metal System Trace across all processes — WebGL draws in `com.apple.WebKit.GPU`, not in

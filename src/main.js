@@ -1,4 +1,13 @@
+import { keepPipelines, pinWarmedNodes } from './util/warmvariants.js';
 import * as THREE from 'three';
+import { WebGPURenderer } from 'three/webgpu';
+import { gpuCompat, unported } from './game/gpucompat.js';
+import { GPU, fallBackToWebGL, gpuNote } from './util/gpu.js';
+import { installVarsToLets } from './util/wgsllets.js';
+import { createGpuCapture } from './game/gpucapture.js';
+import { createGpuFrame } from './game/gpuframe.js';
+import { createGpuCrt } from './game/gpucrt.js';
+import { enableGlow } from './game/gpubloom.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 // First, before anything builds a material: it patches three's fog chunk for every program.
 import { EDGE_FOG, createEdgeFogFloor, tickEdgeFog } from './game/edgefog.js';
@@ -135,6 +144,7 @@ import { createDaylight, DAY_SECONDS } from './game/daylight.js';
 import { createPicker } from './game/pick.js';
 import { createRiderFinder } from './game/riderfinder.js';
 import { createTaxiFinder } from './game/taxifinder.js';
+import { createTaxiMarker } from './game/taximarker.js';
 import { createCargoChip } from './game/cargochip.js';
 import { createChaseSiren } from './game/chasesiren.js';
 import { createTutorial, LOCO_HINT_HOLD } from './game/tutorial.js';
@@ -298,7 +308,7 @@ const budget = {
   // player asked for and one the platform default imposed are different things to be looking at.
   safeSource: safeModeSource(),
   pixelRatioCap: getPixelRatioCap(getSafeMode() ? 1 : shot ? 2 : qualityOf(settings.get()).resolution),
-  // msaa, shadowMapSize, ao, crayon, cartoon, hdr, bloom: the shared render path's (game/renderpath.js).
+  // msaa, shadowMapSize, ao, bloom: the shared render path's (game/renderpath.js).
   ...renderBudget(),
   // The CRT screen (game/crt.js) — the game's alone, so not in the shared `renderBudget`.
   crt: getCrt(),
@@ -309,7 +319,16 @@ if (!shot && !new URLSearchParams(window.location.search).has('msaa')) {
   budget.msaa = budget.msaa && settings.atLaunch().antialias;
 }
 
-const renderer = new THREE.WebGLRenderer({
+// WebGPU has its own occlusion (game/gpuframe.js); the WebGL pass and its prepass stay off.
+const gpuAo = GPU && budget.ao && !budget.msaa;
+// Bloom rides the same target (game/gpubloom.js), so it is on where that is. Decided here, before
+// the first material is built: every node material writes its glow or none does.
+const gpuBloom = gpuAo && budget.bloom;
+// The CRT screen wraps the frame's last pass (game/gpucrt.js), so it needs that pass too.
+const gpuCrtOn = gpuAo && budget.crt;
+if (gpuBloom) enableGlow();
+if (GPU) Object.assign(budget, { gpu: true, ao: false, bloom: false, crt: false });
+const renderer = GPU ? new WebGPURenderer({ antialias: budget.msaa, stencil: true }) : new THREE.WebGLRenderer({
   antialias: budget.msaa,
   // Three defaults the stencil buffer OFF since r163. The taxi's ghost outline stamps its mask
   // into it every frame (see geometry/ghostoutline.js); without the buffer the stencil test
@@ -319,11 +338,42 @@ const renderer = new THREE.WebGLRenderer({
   stencil: true,
   preserveDrawingBuffer: Boolean(shot),
 });
+// Safari refuses any WGSL function whose `var`s add up past 8 KB, and three declares one for every
+// node it caches: see util/wgsllets.js.
+if (GPU) installVarsToLets(renderer);
 perfMark('renderer');
 // NOT `window.innerWidth/innerHeight`: on an installed iOS app those stop short of the physical
 // bottom of the screen, and the strip the canvas doesn't cover shows as bare sky under the game.
 // See util/viewport.js for the measurement that is actually right.
 const viewport = createViewport();
+if (GPU) {
+  // Every node material writes display values itself (see `installNodeGrade`, game/gpufog.js), so
+  // three is told there is nothing to convert: it then draws straight to the canvas instead of to
+  // a target it copies across each frame, and blending happens where WebGL does it.
+  renderer.outputColorSpace = THREE.LinearSRGBColorSpace;
+  await renderer.init();
+  keepPipelines(renderer);
+}
+const gpuCapture = GPU ? createGpuCapture(renderer, { samples: budget.msaa ? 4 : 0 }) : null;
+const gpuCrt = gpuCrtOn ? createGpuCrt(renderer, { still: Boolean(shot) }) : null;
+let gpuFrame = gpuAo ? createGpuFrame(renderer, { crt: gpuCrt }) : null;
+// A validation error on the device does not throw: the frame is just black from then on. Before
+// the game is up the page reloads on WebGL (`fallBackToWebGL`), since a shader that failed to
+// compile leaves its material undrawn whatever happens next. After, the frame's target is the
+// newest and least travelled path here, so the first such error drops it (the city then draws
+// straight to the canvas, without occlusion) and says what it was.
+if (GPU) {
+  renderer.backend.device?.addEventListener('uncapturederror', (event) => {
+    if (fallBackToWebGL(`device: ${event.error?.message}`)) return;
+    const wasFrame = Boolean(gpuFrame);
+    gpuFrame = null;
+    // The event lands between frames, with the frame's two attachments still set from `begin()`.
+    // Left set, every pipeline after it was built for two targets and drawn into one.
+    renderer.setMRT(null);
+    renderer.setRenderTarget(null);
+    gpuNote(`WebGPU error${wasFrame ? ', occlusion switched off' : ''}: ${String(event.error?.message).slice(0, 300)}`);
+  }, { once: true });
+}
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, budget.pixelRatioCap));
 renderer.setSize(viewport.width(), viewport.height());
 renderer.shadowMap.enabled = budget.shadowMapSize > 0;
@@ -332,33 +382,25 @@ renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 renderer.domElement.classList.add('city-canvas');
 document.body.appendChild(renderer.domElement);
 
-// AO, Crayon, Cartoon, painterly, the paint look, the rim and cloud shadows: all baked into the
+// AO, painterly, the paint look, the rim and cloud shadows: all baked into the
 // shader `propMaterial()` builds, so all decided here, before a single mesh exists. In
 // game/renderpath.js because the model workshop's bench takes the same decisions.
 decideLooks(budget);
 const aoEnabled = budget.ao;
-const crayonEnabled = budget.crayon;
-const cartoonEnabled = budget.cartoon;
 // Which brush a static mesh wears (see PAINT_FRAGMENT): 1 buildings, 2 ground (lawns only).
 const brush = (mesh, kind) => {
   mesh.material.userData.brush = kind;
   return mesh;
 };
-// Notices raised while the passes below are being built, replayed into `game/diag.js` once it
-// exists. See `onNotice` on `createHdr`.
-const declined = [];
-
-// HDR, AO, bloom, Crayon and Cartoon, and the order a frame runs them in — game/renderpath.js,
-// shared with the workshop's bench. It settles `budget.hdr` and `budget.bloom` as it goes.
+// AO, bloom and the CRT, and the order a frame runs them in — game/renderpath.js, shared with the
+// workshop's bench.
 const renderPath = createRenderPath(renderer, budget, {
-  // Queued rather than passed straight to `diag`, which does not exist yet: hdr declines the flag
-  // *during construction*, and reaching a `const` declared thirty lines further down is a
-  // temporal-dead-zone throw that takes the whole page with it.
-  onNotice: (text) => { declined.push(text); },
   // Shot mode pins the CRT's flicker, so a still does not depend on when it was taken.
   still: Boolean(shot),
 });
-const { ao, bloom, crayon, cartoon, hdr, crt } = renderPath;
+const { ao, bloom } = renderPath;
+// One interface for the panel and `__taxi.crt`, whichever renderer draws the screen.
+const crt = gpuCrt ?? renderPath.crt;
 // The weather. `?storm` runs a storm across the afternoon and back on a loop (game/storm.js);
 // `?rain` is the same storm pinned at its peak. Either way the whole wet city is built up front —
 // see game/rain.js — and `applyWeather` below turns each part of it up and down with the clock.
@@ -377,7 +419,12 @@ const squallRampClassic = getSquallRampClassic();
 const squall = squallFlag ? createSquall({
   ...squallFlag, rng: () => squallRng.next(), ramp: squallRampClassic ? RAMP_CLASSIC : RAMP,
 }) : null;
-const rain = createRain(renderer, { enabled: Boolean(storm || squall), mood: stormFlag?.mood });
+const rain = createRain(renderer, {
+  enabled: Boolean(storm || squall),
+  mood: stormFlag?.mood,
+  // The WebGPU lens is the frame's last pass while the glass is wet, so it draws the CRT screen.
+  crt: gpuCrt,
+});
 if (squall) {
   // Sun rays in the cell's wake, as it passes (`SUN_RAYS` in game/rain.js); `?sunrays=classic` none.
   rain.attachSquall(squall, { sunRays: !getSunRaysClassic() });
@@ -391,8 +438,9 @@ if (squall) {
 
 // `?diag`. A no-op without the flag; with it, the one readout that can tell a lost context from a
 // scene that submitted nothing from a scene that drew and came out black. See `game/diag.js`.
-const diag = createDiagnostics(renderer, { enabled: getDiagnostics(), flags: budget });
-declined.forEach((text) => diag.note(text));
+// `budget.ao` is the WebGL prepass, switched off above under WebGPU; the panel reports the AO that
+// is actually drawing.
+const diag = createDiagnostics(renderer, { enabled: getDiagnostics(), flags: GPU ? { ...budget, ao: gpuAo, bloom: gpuBloom, crt: gpuCrtOn } : budget });
 
 // True once the GPU warm-up has finished and the run has started. `window.__taxi` is published
 // before that (the warm-up is sliced over frames, game/warmup.js), so a tool drawing a line between
@@ -400,17 +448,18 @@ declined.forEach((text) => diag.note(text));
 let warmedUp = false;
 
 const { scene, sun, hemi, sky, fog } = createScene({ shadowMapSize: budget.shadowMapSize });
+gpuFrame?.setSun(sun);   // the rim line on the cars follows it (game/gpuframe.js)
 // The shadow pass draws only the casters whose shadow can reach the view, instead of every caster on
 // the island (game/shadowcull.js). `?shadowcull=classic` draws them all, as before.
 const shadowCull = createShadowCull(scene, sun);
 if (new URLSearchParams(location.search).get('shadowcull') === 'classic') shadowCull.setEnabled(false);
 
-// The crayon page and the bloom composite, over the city and under every read-out.
+// The bloom composite, over the city and under every read-out.
 renderPath.addOverlays(scene);
 
 // The falling rain, and the two overlays that must stay out of its mirror pass.
 rain.addTo(scene);
-rain.hideInMirror(crayon.overlay, bloom.overlay, scene.getObjectByName('sky'));
+rain.hideInMirror(bloom.overlay, scene.getObjectByName('sky'));
 
 // A GPU that takes the context away gets the budget turned down rather than the player getting a
 // black screen for the rest of the run — see `game/recovery.js` for the two steps and why the
@@ -465,8 +514,30 @@ function renderFrame(cam = camera) {
   shadowCull.cull(cam);
   // The pass order lives in game/renderpath.js, shared with the workshop's bench; the weather and
   // the diagnostics are the game's own and ride in with it.
+  if (GPU) gpuCompat(scene);
   try {
+    // With occlusion the city goes to the frame's own target and one triangle puts it on the canvas
+    // (or on the capture target, headless); without, straight to wherever it is going.
+    if (gpuFrame) {
+      gpuCapture?.begin();   // sizes the capture target; the frame takes the renderer from here
+      gpuFrame.begin();
+      renderPath.render(scene, cam, { rain, rainLightsOn, diag });
+      // Drops on the glass: while it is wet the frame ends in the lens's own target and the lens
+      // puts it on the destination (`lensSource` in game/rain.js). Only on this path; without the
+      // frame target (MSAA, or after a WebGPU error) the glass stays dry.
+      const destination = gpuCapture?.target ?? null;
+      const wetGlass = rain.lensSource();
+      gpuFrame.end(cam, wetGlass ?? destination, { screen: !wetGlass });
+      if (wetGlass) {
+        renderer.setRenderTarget(destination);
+        rain.renderLens({ from: wetGlass });
+        renderer.setRenderTarget(null);
+      }
+      return;
+    }
+    gpuCapture?.begin();
     renderPath.render(scene, cam, { rain, rainLightsOn, diag });
+    gpuCapture?.end();
   } finally {
     shadowCull.restore();
   }
@@ -1648,24 +1719,6 @@ for (const board of billboards) markEmissive(board.glow, 'window');
 // prepass would paint the kerb's own contact line across whoever is standing in front of it.
 // Only the figure is taken — `markOccluder` filters out the translucent target disc under them.
 for (const slot of fares.slots) markOccluder(slot.passenger.group);
-
-// Cartoon Mode's hero outlines, and **after every `markOccluder` above rather than beside them**.
-// A hull is an opaque colour-writing mesh, so `markOccluder` would happily enrol one — and a hull
-// in the depth prepass stamps a silhouette a third of a unit bigger than the car it wraps, which
-// would leave the city's own screen-space line tracing the outline instead of the vehicle.
-//
-// The taxi and the cruiser are per-mesh groups and wear child hulls; the ambient fleet is
-// instanced and gets sibling meshes sharing traffic's own matrices, so the whole fleet costs three
-// draw calls and no per-frame work. Wheels are skipped for the fleet and included on the two hero
-// vehicles, which is the same split `game/carghosts.js` measured: a wheel sits inside the body's
-// hull on every axis but a sliver, and at play zoom a truck is a shape while the taxi is *read*.
-if (cartoonEnabled) {
-  cartoon.outline(traffic.taxiGroup, { group: 'taxi' });
-  for (const cruiser of cruisers) cartoon.outline(cruiser.group);
-  for (const source of [traffic.mesh, ...traffic.classicDrawn, traffic.truckMesh, traffic.truckBoxMesh]) {
-    scene.add(...cartoon.fleet(source));
-  }
-}
 // One fixed 3/4 framing of the whole city, plus drag-to-pan. The framing is still the default and
 // the game is playable without ever touching it on a desktop — but in portrait the frustum is
 // sized by height, so a phone cuts off both sides of the map and panning stops being optional.
@@ -3009,7 +3062,7 @@ function crushBang(car, speed, yaw, { driftX, driftZ, spin = 0, shake, gain = 0.
   crushShells.push(shell);
   crushVanish.take(shell, { driftX, driftZ, spin });
 }
-collisions.onCrush(({ speed, other, airborne, splash }) => {
+function crushLanding({ speed, other, airborne, splash }) {
   if (airborne) crushOwed = true;
   else if (!fares.state.gameOver) landCombo('crush');
   crushSlowMo.start(performance.now());
@@ -3042,7 +3095,8 @@ collisions.onCrush(({ speed, other, airborne, splash }) => {
       },
     });
   });
-});
+}
+collisions.onCrush(crushLanding);
 function landPileup(count) {
   if (crushOwed) { pileupOwed = count; return; }
   if (!fares.state.gameOver) landCombo('pileup', count);
@@ -3951,6 +4005,10 @@ const riderFinder = wantsRiderChips
 // home on its own after CAMERA_RETURN_IDLE, so the chip only ever covered that 1.5s gap.
 // `?taxifinder=classic` brings it back; without it there is no chip and no extra WebGL context.
 const wantsTaxiFinder = new URLSearchParams(window.location.search).get('taxifinder') === 'classic';
+// The yellow triangle over an empty taxi (game/taximarker.js) — playtests, 2026-11-23: players could
+// not tell which car was theirs. `?taximarker=classic` takes it off.
+const taxiMarker = new URLSearchParams(window.location.search).get('taximarker') === 'classic'
+  ? null : createTaxiMarker({ root: document.body, project: projectToScreen, taxi: traffic.taxi });
 const taxiFinder = !wantsTaxiFinder ? null : createTaxiFinder({
   sun,
   hemi,
@@ -4949,7 +5007,7 @@ function updateHud(dt) {
     }
     const dayLine = closeDay(s);
     submitArcadeRun(s);
-    showRunEnd(hud.banner, {
+    runEndCard = showRunEnd(hud.banner, {
       title: s.failTitle,
       reason: dayLine ? `${s.failReason} ${dayLine}` : s.failReason,
       // What the run paid, which is what it is ranked on; the highest the combo meter got; and how
@@ -6751,6 +6809,8 @@ const pause = shot ? null : createPause({
   // Quit abandons the run: a reload without the "Play again" skip flag lands back on the title —
   // but not through the logo smash again, which this player already watched on the way in.
   onQuit: () => {
+    // On the same page, like Play again (`rerun`): back under the title with the city kept.
+    if (!rerunClassic && title) { rerun({ toTitle: true }); return; }
     try { window.sessionStorage.setItem(SPLASH_SKIP_KEY, '1'); } catch { /* soft: they see the logo */ }
     location.reload();
   },
@@ -6859,8 +6919,223 @@ let depotCallSaid = false;
 const movesAfterRun = new URLSearchParams(window.location.search).get('newmove') !== 'classic';
 // `?moveexit=classic`: the last card closes back onto the run-end table instead of playing again.
 const moveExitClassic = new URLSearchParams(window.location.search).get('moveexit') === 'classic';
-// "Play again" means the run, not the menu: the reload goes straight past the title screen.
-function playAgain() { skipTitleNextLoad(); location.reload(); }
+// "Play again" means the run, not the menu: straight back to the garage door, never the title.
+//
+// On the same page (`rerun` below), not a reload. A reload threw the GPU context away with the
+// page, so a replay paid the whole load again — the city rebuilt and every shader linked and
+// warmed — and measured headless it was *slower* than a cold start (9.4s to taxi:ready against
+// 6.5s), all of it GPU work. The city, its programs and its pipelines are the same from one run to
+// the next; only the run is not. `?rerun=classic` is the reload, which is also a new city.
+const rerunClassic = new URLSearchParams(window.location.search).get('rerun') === 'classic';
+function playAgain() {
+  if (rerunClassic) { skipTitleNextLoad(); location.reload(); return; }
+  rerun();
+}
+
+// The card on screen, for `rerun` to take down. Null between runs.
+let runEndCard = null;
+let rerunning = false;
+// How long the screen sits black while the run is put back. Long enough to read as a beat of its
+// own rather than a skip — the reload this replaces sat on black for seconds.
+const RERUN_HOLD_MS = 260;
+// Seconds per step of the burn-out below: past any particle's life (the longest, a wreck's tyres, is
+// well under this), taken in a few steps so nothing integrating a velocity sees one enormous dt.
+const BURN_OUT_STEP = 15;
+
+/**
+ * Play again without leaving the page: under a wipe, every system the run touched is put back the
+ * way the boot left it — and the opening vignette staged again, so the run starts where a fresh one
+ * does, inside the garage with the city building itself outward from it.
+ *
+ * What is deliberately *not* reset is the world: the ambient traffic keeps driving (less whatever
+ * the last run wrote off, which is put back, and whatever the density ramp added, which is cut),
+ * as do the boats, the train, the weather and the clock of the day.
+ */
+function rerun({ toTitle = false } = {}) {
+  if (rerunning) return;
+  rerunning = true;
+  const go = () => {
+    try { resetRun({ toTitle }); } catch (error) {
+      // A reset that throws halfway leaves a run nobody can trust; the reload always works.
+      console.error('[taxi] rerun', error);
+      if (!toTitle) skipTitleNextLoad();
+      location.reload();
+      return;
+    }
+    rerunning = false;
+  };
+  if (!wipe?.cut(go, RERUN_HOLD_MS)) go();
+}
+
+function resetRun({ toTitle = false } = {}) {
+  perfMark('rerun:start');
+  // Quit comes from the pause screen, which is still up and holding the frame.
+  if (pause?.state.paused) pause.setPaused(false);
+  // The card and anything still riding on the end of the run.
+  runEndCard?.close();
+  runEndCard = null;
+  if (hud.banner) { hud.banner.hidden = true; hud.banner.innerHTML = ''; }
+  document.body.classList.remove('game-over', 'new-move-after-run', 'replaying');
+  replay?.reset();
+  tape?.reset();
+  snapshot?.reset();
+  labelQueue.length = 0;
+  clearTimeout(labelTimer);
+  if (labelUp) clearLabel(labelUp);
+  document.querySelectorAll('.earning').forEach((el) => el.remove());
+
+  // The input, so nothing held through the card carries into the new run.
+  boost.release();
+  releaseBrake();
+  dropPedalGesture();
+  bootleg.reset();
+  overtake.reset();
+
+  // Everything that can be on the road for the run rather than for the city.
+  robbery?.reset();
+  race?.reset();
+  raceTalk?.hide();
+  burgerRun?.abandon();
+  depotRun?.abandon();
+  patrols.forEach((p, k) => { p.reset(); p.state.cooldown += k * 12; });
+  traffic.clearPolice();
+  getawayPin.reset();
+  parcels?.reset();
+  cargoChip?.setCarrying(false);
+
+  // The wreck: shells, glass, the driver on the road, the scorched paint.
+  for (const shell of wreckage.clear()) {
+    if (shell === traffic.taxiGroup) continue;
+    shell.parent?.remove(shell);
+    shell.traverse((node) => node.material?.dispose?.());
+  }
+  for (const shell of crushShells) {
+    shell.parent?.remove(shell);
+    shell.traverse((node) => node.material?.dispose?.());
+  }
+  crushShells.length = 0;
+  crushPops.length = 0;
+  crushSlowMo.reset();
+  // The particle pools — the fireball, its smoke and debris, sparks, dust, flames, a spilled load —
+  // all live on per-particle lives, so stepping them a long way past the longest of those retires
+  // every one through the same path that retires them in play.
+  for (let k = 0; k < 4; k++) {
+    blast.update(BURN_OUT_STEP);
+    flames.update(BURN_OUT_STEP);
+    sparks.update(BURN_OUT_STEP);
+    dust.update(BURN_OUT_STEP);
+    spray.update(BURN_OUT_STEP);
+    impact.update(BURN_OUT_STEP);
+    cashTrail.update(BURN_OUT_STEP);
+    boxSpill.update(BURN_OUT_STEP, traffic.cars);
+  }
+  ejection.clear();
+  windshield.clear();
+  struckGlass.clear();
+  carDamage.reset();
+  // Rubber and wet tracks are left to fade on their own lives; the opening is seconds long.
+  traffic.reviveWrecks();
+  traffic.trimToStart();
+  // A closure for this run too, on a fresh cooldown: without the reset the page's one zone went to
+  // its first run. Before the taxi below, whose rubble jolt it would otherwise leave mid-bounce.
+  roadwork.reset();
+
+  // The taxi: repaired, empty, and back behind the garage door (`stageOpening` parks it there).
+  const taxi = traffic.taxi;
+  taxi.crashed = false;
+  taxi.boost = false;
+  taxi.boostEasing = false;
+  taxi.braking = false;
+  taxi.stalled = false;
+  taxi.hp = TAXI_HP;
+  taxi.jolt = 0;
+  taxi.joltRoll = 0;
+  taxi.joltPitch = 0;
+  taxi.pendingTarget = null;
+  taxi.route = [];
+  taxiDamage.reset();
+  hitCue?.clear();
+  traffic.setTaxiOccupied(false);
+  traffic.setTaxiHighlight(0);
+  taxiFlashAge = null;
+  driftsPaid = taxi.drifts;
+  spinKicksFelt = taxi.spinKicks ?? 0;
+  overtakesFelt = taxi.overtakes;
+
+  // The run's own numbers.
+  fares.reset();
+  combo.reset();
+  boost.reset();
+  chooseMode(runMode);
+  holdFareClocks();
+  showStrikes(0);
+  if (moneyRoll) cancelAnimationFrame(moneyRoll);
+  moneyRoll = null;
+  shownMoney = 0;
+  if (hud.money) hud.money.textContent = '0';
+
+  // The run's beats in this file, back to where the boot left them.
+  endSpot = null;
+  endZoom = WRECK_ZOOM;
+  crashBannerAt = null;
+  slowMoUntil = 0;
+  slowMoMin = SLOW_MO_MIN;
+  replayAt = null;
+  tapeImpact = false;
+  replayPhotoDone = false;
+  ramShove = null;
+  crushOwed = false;
+  pileupOwed = 0;
+  raceShot = null;
+  raceZoomHome = null;
+  raceWatch = null;
+  raceSkid = null;
+  raceSkidAt = -Infinity;
+  raceWatchTimer = 0;
+  robberBoarding = null;
+  robberDoorOpen = false;
+  if (robberDucked) { robberDucked = false; sfx?.duckMusic(false); }
+  radioIn = 0;
+  bankMarkFare = null;
+  locoPunched = false;
+  cameraTakenOver = false;
+  wasBoosting = false;
+  cameraIdle = 0;
+  arrowLookOut = false;
+  tipLook = null;
+  dayAnnounced = false;
+  repairCardIn = -1;
+  newMoveIn = -1;
+  newMoveDue = null;
+  afterNewMove = null;
+  fuelDrawn = -1;
+  fuseDrawn = '';
+  locoWasEmpty = false;
+  locoWokeTimer = 0;
+  lastOpeningPhase = null;
+  if (tutorial) dropTutorial();
+  depotCallSaid = false;
+
+  if (garage) stageOpening();
+  if (toTitle && title) {
+    // Back under the menu, parked the way a load with a title screen parks: the station off the air
+    // until Play (`beginRun`), the camera on the title's own drift, and the opening waiting behind
+    // the menu. No entrance wave: the city under the menu is the one that is already standing.
+    runBegun = false;
+    titleFramed = false;
+    storyCam = null;
+    sfx?.offAir();
+    title.reopen();
+  } else {
+    // The top of the show: the station on its intro, the city building out from the garage, the door.
+    sfx?.newRun({ dash: dashRadio });
+    opening?.cutToDoor();
+    cityEntry.replay(traffic.taxi);
+    replayLTrainIntro(traffic.taxi);
+  }
+  updateHud(0);
+  perfMark('rerun:end');
+}
 // The card's clip on polaroid paper and its keys in the HUD's own colours, without the glint
 // (Tyler, 2026-10-20). `?movecard=classic` is the bare rounded clip and the greyed keys.
 if (new URLSearchParams(window.location.search).get('movecard') === 'classic') {
@@ -7137,7 +7412,7 @@ function tick() {
   // event — a wreck bottoms out at SLOW_MO_MIN, a bust much shallower so the chase still moves.
   const nowMs = performance.now();
   // Held before the crash dilation below, for the things that run on wall time — the replay, the
-  // robbery glow, the crayon wobble — rather than slowing with the wreck.
+  // robbery glow — rather than slowing with the wreck.
   const wallDt = dt;
 
   // The crash replay holds the frame outright. Nothing in the world is stepped while it runs —
@@ -8070,6 +8345,9 @@ function tick() {
   // already on its way somewhere — including this chip's own, which is what drops it on the tap.
   taxiFinder?.update(dt, traffic.taxi,
     !fares.state.gameOver && !controller.isGliding() && !tutorial?.holdsCamera());
+  // Up while the seat is empty and the car is out on the road: not in the garage (`hudAway`, the same
+  // beat the HUD steps off its edges on), not with a robber in the back, not once the run is over.
+  taxiMarker?.update(!fares.carrying() && !getaway() && !hudAway && !fares.state.gameOver);
   // A no-op unless a package is aboard — it draws nothing while the chip is down.
   cargoChip?.render();
   // Up for a patrol chase or a getaway, and down for the arrest itself: once the cuffs are on, the
@@ -8095,13 +8373,6 @@ function tick() {
   // Wall clock for the envelope, so the crash's slow-motion does not hold the frame up; the strobe
   // stays on the sim clock the cop cars' own bars run off.
   robberyGlow.update(wallDt, !!robbery?.state.alarmed && !fares.state.gameOver, traffic.stats.time);
-  // Undilated: the slow-motion ramp at the end of a run is a statement about the sim, and a
-  // drawing does not slow down because a taxi did. Skipped entirely on a paused frame above, which
-  // is right — a held frame is a held drawing.
-  crayon.update(wallDt);
-  // Three assignments: an instanced hull draws `count` instances and nothing watches that for it,
-  // while traffic moves it when a truck spawns and when the panel's car slider is dragged.
-  cartoon.update();
   // Last thing before the frame is drawn, so the sample is the frame the player sees. Stops once a
   // run is over and no replay is coming — a bust or a timeout has nothing to show.
   if (tape && (!fares.state.gameOver || replay.armed())) tape.record(simClock, tapeImpact);
@@ -8724,76 +8995,7 @@ if (shot) {
   // The opening vignette, and it is built here rather than up with everything else for one
   // reason: constructing it parks the taxi inside the garage, and the warm-up above would have
   // driven it back out. See game/opening.js.
-  if (garage) {
-    opening = createOpening({
-      site: garage.site,
-      setDoor: garage.setDoor,
-      taxi: traffic.taxi,
-      taxiGroup: traffic.taxiGroup,
-      cars: traffic.cars,
-      controller,
-      aspect,
-      playZoom: PLAY_ZOOM,
-      // Where the camera is left. The same decision the priority list makes every other frame:
-      // the whole city on a desktop, the car on a phone — where the opening follow-cam is about
-      // to pick the framing up. Read per frame, because the taxi is moving while it is read.
-      restFraming: () => (isNarrow()
-        ? { x: traffic.taxi.x, z: traffic.taxi.z }
-        : { x: 0, z: 0 }),
-      // The city's own entrance goes first. Both are held behind the Home Screen tip on iOS in a
-      // tab, which parks the whole run until it is dismissed.
-      isBlocked: () => parked() || cityEntry.running(),
-      // Off the kerb. The same pool and the same call the boost trail uses, at about half a
-      // barricade's power — two wheels coming off a 0.35-unit lip, not a car landing off a ramp.
-      // ...and the day's name goes up as it lands on the road (`announceDay`).
-      onDrop: () => {
-        dust.burst(traffic.taxi.x, traffic.taxi.z, traffic.taxi.yaw, 7, 0.5);
-        if (opening?.running()) announceDay();
-      },
-      // The nose out into daylight: the fender catches the sun. See game/glint.js.
-      onClear: () => glint?.fire(),
-      // What a repair visit shows while the door is down to its gap. See game/repairfx.js.
-      workshop: repairFx,
-      // The car stays in its doorway until the dash radio's first song has played crushed for a
-      // few seconds (`DASH.music` in game/sfx.js), so the open lands on music, not the announcer.
-      holdReveal: () => Boolean(sfx?.state.dashRadio) && sfx.dashMusicSeconds() < DASH.music,
-    });
-    // `?vignette=off`, the same escape hatch `?tutorial=off` is: the opening is seven seconds
-    // long and nobody iterating on the fare loop wants it on every reload. The module is
-    // still constructed and then *landed* rather than not built at all, so the skip goes through
-    // the same handover the real sequence does — a skip that reached the game by a different route
-    // would be a second opening to keep working.
-    if (!wantsVignette) opening.settle();
-
-    // **Tap anywhere to skip it.** No button and no "skip" label: the vignette is seven seconds at
-    // the top of a run the player has already chosen to start, so the affordance costs more screen
-    // than the thing it escapes — and a tap is what every other beat of the opening already answers
-    // to (the tutorial's bubbles, the Home Screen screen, the run-end tally).
-    //
-    // Three things it is careful about:
-    //   - **Only while the vignette owns the camera.** `holdsCamera()` is false in `wait`, which is
-    //     the city's own entrance still building itself: a tap there belongs to the city rising, and
-    //     skipping a sequence that has not started reads as the tap having broken something.
-    //   - **Only a tap on the city.** The ⏸ is live through all of this (it is not part of the HUD's
-    //     entrance), and a `window` listener would otherwise skip the opening *and* pause the game
-    //     on the same press. Every other pointer target on the page is a control with its own job.
-    //   - **`pointerdown`, not `click`.** A skip has to land on the press or it reads as laggy on
-    //     the one gesture whose whole promise is getting out of a wait. Nothing here is tappable
-    //     while the vignette runs — the board is held empty, the HUD has not arrived and there is no
-    //     route band — so there is no gesture for this one to steal.
-    const skipVignette = (event) => {
-      if (!opening?.running()) {
-        window.removeEventListener('pointerdown', skipVignette);
-        return;
-      }
-      if (!opening.holdsCamera() || event.target !== renderer.domElement) return;
-      // Behind the black, always: `opening.skip()` throws the camera across the map, and doing that
-      // in plain sight is a worse thing to watch than the vignette was. See game/wipe.js.
-      if (wipe) wipe.cut(() => opening.skip()); else opening.skip();
-      window.removeEventListener('pointerdown', skipVignette);
-    };
-    if (wantsVignette) window.addEventListener('pointerdown', skipVignette);
-  }
+  if (garage) stageOpening();
   // Re-aim the entrance wave at the taxi *after* the warmup: it was created with the spawn
   // point, and ten sim-seconds of warmup drive the taxi a couple of blocks from there — so the
   // wave was visibly emanating from a spot the player's car had already left. Costs nothing:
@@ -8811,8 +9013,10 @@ if (shot) {
   // with `traverse`, not `traverseVisible`, so the hidden ones are covered too: measured at
   // `tools/links.mjs`, it moves six program links out of the run and into the boot, where they are
   // behind the wipe and the vignette and nobody is being made to wait for them mid-corner.
+  // WebGPU: `compile()` is async there and a draw that meets a pipeline still being built throws.
+  // The warm-up below draws everything once anyway, which builds each pipeline in line.
   perfMark('compile:start');
-  renderer.compile(scene, camera);
+  if (!GPU) renderer.compile(scene, camera);
   perfMark('compile:end');
   // ...and drawn once, because linking is not the whole of a first sight on iOS: Metal builds its
   // pipelines and three uploads the buffers on the first *draw*, per pass. Left to the run, that
@@ -8826,8 +9030,13 @@ if (shot) {
   // meanwhile — each slice's frame is the city with that slice's pools all showing, and without the
   // startup screen over it (Play again) that would be presented. `?loader=classic` is the one frame.
   const warming = new URLSearchParams(window.location.search).get('warmup') !== 'classic';
+  // Each warm-up frame also draws the wet road's mirror, which a dry frame skips: nothing else
+  // draws into its target, so its pipelines are otherwise built on the first wet frame of the run
+  // (`warmMirror` in game/rain.js). `?mirrorwarm=classic` leaves it out, for the A/B.
+  const mirrorWarm = new URLSearchParams(window.location.search).get('mirrorwarm') !== 'classic';
+  const warmDraw = () => (mirrorWarm ? rain.warmMirror(() => renderFrame()) : renderFrame());
   if (warming && !LOADER) {
-    warmFirstDraws(scene, () => renderFrame(), [scene], { renderer });
+    warmFirstDraws(scene, warmDraw, [scene], { renderer });
     renderFrame();
     startRun();
   } else if (warming) {
@@ -8841,7 +9050,7 @@ if (shot) {
       setTimeout(resolve, 100);
     });
     awaitPrograms(renderer, { onProgress: compileProgress, yieldFrame })
-      .then(() => warmFirstDrawsInSteps(scene, () => renderFrame(), { onStep: warmStep, yieldFrame, renderer }))
+      .then(() => warmFirstDrawsInSteps(scene, warmDraw, { onStep: warmStep, yieldFrame, renderer }))
       .catch((error) => console.error('[taxi] warm-up', error))
       .finally(() => {
         renderFrame();
@@ -8853,9 +9062,85 @@ if (shot) {
   }
 }
 
+/**
+ * The opening vignette, built — which parks the taxi inside the garage — and its tap-to-skip armed.
+ * At boot, and again by `rerun` for every Play again on the same page.
+ */
+function stageOpening() {
+  opening = createOpening({
+    site: garage.site,
+    setDoor: garage.setDoor,
+    taxi: traffic.taxi,
+    taxiGroup: traffic.taxiGroup,
+    cars: traffic.cars,
+    controller,
+    aspect,
+    playZoom: PLAY_ZOOM,
+    // Where the camera is left. The same decision the priority list makes every other frame:
+    // the whole city on a desktop, the car on a phone — where the opening follow-cam is about
+    // to pick the framing up. Read per frame, because the taxi is moving while it is read.
+    restFraming: () => (isNarrow()
+      ? { x: traffic.taxi.x, z: traffic.taxi.z }
+      : { x: 0, z: 0 }),
+    // The city's own entrance goes first. Both are held behind the Home Screen tip on iOS in a
+    // tab, which parks the whole run until it is dismissed.
+    isBlocked: () => parked() || cityEntry.running(),
+    // Off the kerb. The same pool and the same call the boost trail uses, at about half a
+    // barricade's power — two wheels coming off a 0.35-unit lip, not a car landing off a ramp.
+    // ...and the day's name goes up as it lands on the road (`announceDay`).
+    onDrop: () => {
+      dust.burst(traffic.taxi.x, traffic.taxi.z, traffic.taxi.yaw, 7, 0.5);
+      if (opening?.running()) announceDay();
+    },
+    // The nose out into daylight: the fender catches the sun. See game/glint.js.
+    onClear: () => glint?.fire(),
+    // What a repair visit shows while the door is down to its gap. See game/repairfx.js.
+    workshop: repairFx,
+    // The car stays in its doorway until the dash radio's first song has played crushed for a
+    // few seconds (`DASH.music` in game/sfx.js), so the open lands on music, not the announcer.
+    holdReveal: () => Boolean(sfx?.state.dashRadio) && sfx.dashMusicSeconds() < DASH.music,
+  });
+  // `?vignette=off`, the same escape hatch `?tutorial=off` is: the opening is seven seconds
+  // long and nobody iterating on the fare loop wants it on every reload. The module is
+  // still constructed and then *landed* rather than not built at all, so the skip goes through
+  // the same handover the real sequence does — a skip that reached the game by a different route
+  // would be a second opening to keep working.
+  if (!wantsVignette) opening.settle();
+
+  // **Tap anywhere to skip it.** No button and no "skip" label: the vignette is seven seconds at
+  // the top of a run the player has already chosen to start, so the affordance costs more screen
+  // than the thing it escapes — and a tap is what every other beat of the opening already answers
+  // to (the tutorial's bubbles, the Home Screen screen, the run-end tally).
+  //
+  // Three things it is careful about:
+  //   - **Only while the vignette owns the camera.** `holdsCamera()` is false in `wait`, which is
+  //     the city's own entrance still building itself: a tap there belongs to the city rising, and
+  //     skipping a sequence that has not started reads as the tap having broken something.
+  //   - **Only a tap on the city.** The ⏸ is live through all of this (it is not part of the HUD's
+  //     entrance), and a `window` listener would otherwise skip the opening *and* pause the game
+  //     on the same press. Every other pointer target on the page is a control with its own job.
+  //   - **`pointerdown`, not `click`.** A skip has to land on the press or it reads as laggy on
+  //     the one gesture whose whole promise is getting out of a wait. Nothing here is tappable
+  //     while the vignette runs — the board is held empty, the HUD has not arrived and there is no
+  //     route band — so there is no gesture for this one to steal.
+  const skipVignette = (event) => {
+    if (!opening?.running()) {
+      window.removeEventListener('pointerdown', skipVignette);
+      return;
+    }
+    if (!opening.holdsCamera() || event.target !== renderer.domElement) return;
+    // Behind the black, always: `opening.skip()` throws the camera across the map, and doing that
+    // in plain sight is a worse thing to watch than the vignette was. See game/wipe.js.
+    if (wipe) wipe.cut(() => opening.skip()); else opening.skip();
+    window.removeEventListener('pointerdown', skipVignette);
+  };
+  if (wantsVignette) window.addEventListener('pointerdown', skipVignette);
+}
+
 function startRun() {
   perfMark('warmup:end');
   warmedUp = true;
+  pinWarmedNodes();
   const benchHooks = {
     renderer,
     ready: () => Boolean(traffic.taxi) && !traffic.taxi.staged,
@@ -8868,7 +9153,7 @@ function startRun() {
       else dispatchToRider(fares.state.fares.find((f) => f.stage === 'waiting'));
     },
     ended: () => fares.state.gameOver,
-    gpu: describeGpu(renderer.getContext()).renderer,
+    gpu: GPU ? 'webgpu' : describeGpu(renderer.getContext()).renderer,
   };
   // `?bench` or `?soak` — at most one; see game/bench.js and game/soak.js.
   bench = createBench(benchHooks) ?? createSoak(benchHooks);
@@ -8904,10 +9189,7 @@ if (!shot && wantsDebugPanel) {
     fares: { getSeconds: getFareSeconds, setSeconds: setFareSeconds, isPinned: isFareClockPinned },
     routeLine,
     ao,
-    crayon,
-    cartoon,
     bloom,
-    hdr,
     crt,
     scores: { load: shiftScores.load, clear: shiftScores.clear },
     clouds,
@@ -8932,6 +9214,10 @@ if (!shot && wantsDebugPanel) {
 }
 
 window.__taxi = {
+  scene,
+  unported,
+  renderer: GPU ? 'webgpu' : 'webgl',
+  gpuCapture: (options) => gpuCapture?.capture(options),
   /** The `?bot` scripted session, or null — `scene()` and `log` (game/perfbot.js). */
   get perfBot() { return perfBot; },
   /** Whether the boot's GPU warm-up is done and the run has started — see `warmedUp`. */
@@ -8964,15 +9250,6 @@ window.__taxi = {
    * drive the same handle, so this is where you go for a value past the end of one of them.
    */
   loco,
-  /**
-   * The two look modes — `{ state, set }` each, the same handles the ⚙️ panel's sliders drive.
-   * Here for the reason `loco` is: this is where you go for a value past the end of a slider, and
-   * where a browser test reaches a look it cannot see from a still. `set(key, value)` takes any key
-   * in `state`; see CRAYON_DEFAULTS and CARTOON_DEFAULTS for what each one means. Both are inert
-   * stubs unless their flag is on.
-   */
-  crayon,
-  cartoon,
   /** Rain Mode's handles — uniforms and the mirror target. Inert unless `?rain`. */
   rain,
   /** The storm's clock — `pin(v)`, `seek(t)` and its `state`. Null unless `?storm` or `?rain`. */
@@ -8982,12 +9259,10 @@ window.__taxi = {
   /** The squall's falling leaves — `stats()`, `positions()`. Null with `?fall=off` or no squall. */
   leaves,
   /**
-   * The two bloom routes — `{ state, set }` each, the same handles the ⚙️ panel drives, plus
-   * `target()` on the emissive one so a browser test can look at what the lamps actually wrote.
-   * Only ever one of them is enabled; the other is an inert stub. See game/bloom.js, game/hdr.js.
+   * The bloom — `{ state, set }`, the same handle the ⚙️ panel drives, plus `target()` so a browser
+   * test can look at what the lamps actually wrote. Inert unless it is on. See game/bloom.js.
    */
   bloom,
-  hdr,
   tutorial,
   /** Dispatch's bubble — the robbery's and the patrol chase's — or null in shot mode. See game/radio.js. */
   radio,
@@ -9126,6 +9401,9 @@ window.__taxi = {
   flatbed,
   /** Box trucks spilling their load. `boxSpill.hit(truck, closing)` rams one; `boxes`, `doors`. */
   boxSpill,
+  // Crushin' It on demand, for the headless tools: `crush({ speed, other, airborne, splash })` is
+  // exactly what sim/collisions.js hands the game when Big Air lands on `other`.
+  crush: crushLanding,
   /** The building fire and its engine. `fire.ignite()` starts one now; `state`, `engine`. */
   fire,
   /** The bag piles and the garbage truck. `garbage.spawn()` brings the truck on now; `piles`, `state`. */
@@ -9202,6 +9480,8 @@ window.__taxi = {
     taxi.hp = 1;
     return collisions.strike(near);
   },
+  /** The run-end card's Play again, from the console or a headless check. See `rerun`. */
+  playAgain: () => playAgain(),
   hurt: (damage = 24) => {
     const taxi = traffic.taxi;
     damage = Math.min(damage, taxi.hp - 1);

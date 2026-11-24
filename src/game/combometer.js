@@ -128,5 +128,8 @@ export function createComboMeter({ scope = 'meter' } = {}) {
     return { runs, mult };
   }
 
-  return { state, scope, land, damage, walkout, judge };
+  // Play again on the same page (main.js `rerun`): the meter back to 1x and the run's best with it.
+  const reset = () => { state.mult = 1; state.landed = 0; state.best = 1; };
+
+  return { state, scope, land, damage, walkout, judge, reset };
 }
