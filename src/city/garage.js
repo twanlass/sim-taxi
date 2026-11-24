@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { patchWallGrain } from './wallgrain.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import {
   FINISH, bakeColor, hash01, propMaterial, setFinish, stampEntry, unlitMaterial,
@@ -987,7 +988,8 @@ export function createGarage(block, rng, {
   const stampAll = (geo) => stampEntry(geo, anchorX, anchorZ, rand);
 
   parts.forEach(stampAll);
-  const shell = new THREE.Mesh(mergeGeometries(parts, false), propMaterial());
+  // The buildings' pixel grain (city/wallgrain.js), so the garage reads like the towers round it.
+  const shell = new THREE.Mesh(mergeGeometries(parts, false), patchWallGrain(propMaterial()));
   parts.forEach((p) => p.dispose());
   shell.castShadow = true;
   shell.receiveShadow = true;

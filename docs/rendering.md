@@ -189,7 +189,7 @@ are curtain walls or too narrow to take a window.
 
 ### Pixel grain — `city/wallgrain.js`
 
-The towers' walls and roofs carry the pixel street's texel grid (0.25 units, ~6 device pixels on a
+The towers' walls and roofs, and the garage's shell, carry the pixel street's texel grid (0.25 units, ~6 device pixels on a
 phone), so a building reads at the same pixel resolution as the road in front of it. Each texel
 takes one value from a tone drift (value noise at 2.5 and 0.7 units) plus single light and dark
 speckle texels (about one in 22 each), rounded to a 0.06 ramp through a 2×2 ordered dither, so a tone
