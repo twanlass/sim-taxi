@@ -44,17 +44,19 @@ export const CRANE_SHADOW = CRANE_PARAM === 'shadow';
 /** Jib, mast to tip. 10 units is ~77px at play zoom: long enough to read as a crane's arm. */
 export const REACH = 10;
 const COUNTER = 3.6;          // counter-jib, mast to the back end
-// **Chunky, not spindly.** The first cut was a real lattice — chords and zigzag bracing 0.07 to
-// 0.12 across, one or two device pixels at play zoom — and Tyler, 2026-11-23: "busy and clunky ...
-// too spindly ... doesn't really read at this small screen resolution". So every member is now a
-// solid box sized to be several pixels wide, and the segmenting a lattice gives a crane is carried
-// by darker bands round the mast and the jib instead of by the bracing itself.
-const MAST_W = 0.85;          // the mast's square section: ~6.5px at play zoom
-const JIB_W = 0.62;           // the jib's section at the root, tapering to `JIB_TIP` of that
-const JIB_H = 0.62;
+// **Four bars and a few struts.** The first cut was a full lattice — chords and zigzag bracing 0.07
+// to 0.12 across, a pixel or two at play zoom — and read as "busy ... too spindly". The second went
+// to solid banded boxes, and read as "just blocks now". So: the frame a child would draw. The mast
+// and the jib are four main bars each (`BAR`, 0.17: about 1.3 CSS px and 2.6 device px at play
+// zoom), tied by a ring of cross struts every `BAY` and one diagonal per face per bay.
+// Few enough members that each one reads, thick enough that none of them shimmers.
+const MAST_W = 0.95;          // the mast's square section, bar centre to bar centre
+const JIB_W = 0.7;            // the jib's square section at the root, tapering to `JIB_TIP` of that
 const JIB_TIP = 0.55;
-const BAND = 1.6;             // pitch of the darker bands on the mast and the jib
-const HEAD_H = 1.5;           // the tower head over the jib root, the top lamp on it
+const BAR = 0.17;             // a main bar
+const STRUT = 0.11;           // a cross strut
+const BAY = 1.7;              // the struts' pitch along the mast and the jib
+const HEAD_H = 1.6;           // the tower head's apex over the jib's top, the top lamp on it
 const LAMP = 0.34;            // the aircraft-warning lamps' size: 0.16 at first, a speck
 const STOREY = 2.4;           // the new storey, deck to the top of its slab
 const SLAB = 0.26;
@@ -71,14 +73,14 @@ const MAX_TOP = 8.5;
 const MIN_TOP = 3.2;
 /** The hook block to the beam, along the slings. */
 const SLING = 1.0;
-const BEAM_L = 3.0;
-const BEAM_H = 0.3;
+const BEAM_L = 4.0;            // a big I-beam: ~31px at play zoom
+const BEAM_H = 0.42;
 /** Hoisted: the hook this far under the jib. */
 const DROP_UP = 1.4;
-/** Where over its own slab the crane sets the beam down, out along the jib. */
-const SET_R = 2.2;
 /** Past this fraction of the half-span (either axis) a block is on the outer ring. */
 const RIM = 0.78;
+/** Half the arc the jib swings through when the L is in reach, either side of straight away. */
+const ARC = 1.05;
 
 // --- Choosing the roof ------------------------------------------------------------------------
 
@@ -138,11 +140,25 @@ export function chooseCraneSite(towers, { taken = [], bank = null, pad = null, b
     };
   }).sort((a, b) => a.key - b.key);
   const { tower, deck, mast, slabTop, jibY, roof } = order[0].c;
+  // Which way is away from the L. The jib up in the air over the train cleared it in height and
+  // still read as the two clipping (Tyler, 2026-11-23: "it looks like it might clip our ... L-train
+  // car"), because under this camera height is just more screen. So a crane in reach of the line
+  // only ever swings through the half of its circle turned away from it (`ARC`).
+  let away = null;
+  if (line) {
+    let best = Infinity;
+    for (let a = line.from; a <= line.to; a += 1) {
+      const p = line.world(a);
+      const d = Math.hypot(p.x - mast.x, p.z - mast.z);
+      if (d < best) { best = d; away = Math.atan2(mast.z - p.z, mast.x - p.x); }
+    }
+    if (best > REACH + 4) away = null;
+  }
   // The birds roost on decks: this one is a building site now.
   deck.keep.push({ x0: deck.cx - deck.cw / 2, x1: deck.cx + deck.cw / 2, z0: deck.cz - deck.cd / 2, z1: deck.cz + deck.cd / 2 });
   return {
     deck: { cx: deck.cx, cz: deck.cz, cw: deck.cw, cd: deck.cd, y: deck.deck },
-    top: tower.top, mast, slabTop, jibY, roof,
+    top: tower.top, mast, slabTop, jibY, roof, away,
     anchor: { x: tower.cx, z: tower.cz, rand: hash01(tower.cx, tower.cz) },
     // Where to point a camera: the middle of the jib's height over the mast.
     focus: { x: mast.x, y: (tower.top + jibY) / 2, z: mast.z },
@@ -158,37 +174,57 @@ function box(w, h, d, x, y, z, col) {
 }
 
 
-/**
- * A solid yellow box from `y0` to `y1` about (x, z), `w` square, banded every `BAND` with a darker
- * collar standing 0.03 proud all round — proud rather than flush, so no band face shares a plane
- * with the mast's own.
- */
-function mastParts(x, z, y0, y1, w, col, bandCol) {
-  const parts = [box(w, y1 - y0, w, x, (y0 + y1) / 2, z, col)];
-  for (let y = y0 + BAND; y < y1 - 0.4; y += BAND) parts.push(box(w + 0.06, 0.12, w + 0.06, x, y, z, bandCol));
-  return parts;
+/** A square-section member from `a` to `b`. */
+function strut(a, b, size, col) {
+  const len = a.distanceTo(b);
+  const g = new THREE.BoxGeometry(size, len, size);
+  const dir = new THREE.Vector3().subVectors(b, a).normalize();
+  g.applyQuaternion(new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir));
+  const mid = new THREE.Vector3().addVectors(a, b).multiplyScalar(0.5);
+  g.translate(mid.x, mid.y, mid.z);
+  return bakeColor(g, col);
 }
 
 /**
- * The jib: a box from x = 0 to `len`, `w` wide and `h` tall at the root, narrowed to `tip` of that
- * at the far end — the taper is what makes a girder read as an arm rather than as a plank.
+ * A four-bar frame along a path. `corner(t, k)` gives corner `k` (0..3, going round) of the section
+ * at `t` in 0..1 along it; `length` is how long the path is, for spacing the bays. Four main bars,
+ * a ring of struts at every bay, and one diagonal per face per bay, alternating direction.
  */
-function jibParts(len, w, h, tip, col, bandCol) {
-  const g = new THREE.BoxGeometry(len, h, w);
-  g.translate(len / 2, h / 2, 0);
-  const pos = g.attributes.position;
-  for (let i = 0; i < pos.count; i++) {
-    const k = 1 - (1 - tip) * (pos.getX(i) / len);
-    pos.setY(i, pos.getY(i) * k);
-    pos.setZ(i, pos.getZ(i) * k);
+function frameParts(corner, length, col) {
+  const parts = [];
+  const bays = Math.max(1, Math.round(length / BAY));
+  for (let k = 0; k < 4; k++) parts.push(strut(corner(0, k), corner(1, k), BAR, col));
+  for (let i = 0; i <= bays; i++) {
+    const t = i / bays;
+    for (let k = 0; k < 4; k++) parts.push(strut(corner(t, k), corner(t, (k + 1) % 4), STRUT, col));
   }
-  g.computeVertexNormals();
-  const parts = [bakeColor(g, col)];
-  for (let x = BAND; x < len - 0.4; x += BAND) {
-    const k = 1 - (1 - tip) * (x / len);
-    parts.push(box(0.12, h * k + 0.06, w * k + 0.06, x, (h * k) / 2, 0, bandCol));
+  for (let i = 0; i < bays; i++) {
+    const t0 = i / bays;
+    const t1 = (i + 1) / bays;
+    for (let k = 0; k < 4; k++) {
+      const flip = (i + k) % 2 === 0;
+      parts.push(strut(corner(flip ? t0 : t1, k), corner(flip ? t1 : t0, (k + 1) % 4), STRUT, col));
+    }
   }
   return parts;
+}
+
+const v = (x, y, z) => new THREE.Vector3(x, y, z);
+const SQUARE = [[-1, -1], [1, -1], [1, 1], [-1, 1]];
+
+/** The mast: a vertical four-bar frame from `y0` to `y1` about (x, z). */
+function mastParts(x, z, y0, y1, col) {
+  const h = MAST_W / 2;
+  return frameParts((t, k) => v(x + SQUARE[k][0] * h, y0 + (y1 - y0) * t, z + SQUARE[k][1] * h), y1 - y0, col);
+}
+
+/** The jib: a four-bar frame from x = 0 out to `len`, its underside on y = 0, tapering to `JIB_TIP`. */
+function jibParts(len, col) {
+  return frameParts((t, k) => {
+    const w = JIB_W * (1 - (1 - JIB_TIP) * t);
+    const [a, b] = SQUARE[k];
+    return v(len * t, (b + 1) / 2 * w, a * w / 2);
+  }, len, col);
 }
 
 // --- Building it ------------------------------------------------------------------------------
@@ -240,7 +276,7 @@ export function createCrane(site, rng) {
   }
   parts.push(box(0.8, 0.5, 0.8, deck.cx + deck.cw * 0.28, slabTop + 0.25, deck.cz - deck.cd * 0.28, color('siteFormwork')));
   // The mast, from the deck up through the slab to the slewing ring.
-  parts.push(...mastParts(mast.x, mast.z, floorY, jibY - 0.3, MAST_W, yellow, color('craneBand')));
+  parts.push(...mastParts(mast.x, mast.z, floorY, jibY - 0.3, yellow));
   parts.forEach(stamp);
   const storey = new THREE.Mesh(mergeGeometries(parts, false), propMaterial());
   parts.forEach((p) => p.dispose());
@@ -249,28 +285,25 @@ export function createCrane(site, rng) {
   storey.name = 'crane-site';
 
   // --- The slewing top, in its own frame: origin on the mast at jibY, +X along the jib ---------
-  const band = color('craneBand');
   const top_ = [];
   top_.push(box(1.2, 0.3, 1.2, 0, -0.15, 0, color('craneDark')));          // the slewing ring
-  top_.push(...jibParts(REACH, JIB_W, JIB_H, JIB_TIP, yellow, band));
-  // The counter-jib, a deck as deep as the jib, and the counterweight hung off its end.
-  top_.push(box(COUNTER, 0.32, 0.8, -COUNTER / 2, 0.16, 0, yellow));
+  top_.push(...jibParts(REACH, yellow));
+  // The counter-jib, a flat walkway as wide as the jib, and the counterweight hung off its end.
+  top_.push(box(COUNTER, 0.2, JIB_W + BAR, -COUNTER / 2, 0.1, 0, yellow));
   top_.push(box(1.1, 1.2, 1.1, -COUNTER + 0.6, -0.3, 0, color('craneWeight')));
-  // The tower head over the root: a short block, not the lattice mast it used to be, with the
-  // top lamp on it. No pendant ties off it any more — black lines a pixel wide read as cracks.
-  top_.push(box(0.6, HEAD_H, 0.6, 0, JIB_H + HEAD_H / 2 - 0.1, 0, yellow));
-  // The operator's cab, up at the top where a real one is: a chunky box hung under the jib's root,
-  // just out from the mast, glazed all round. Under the jib, and wider than it, so
-  // it shows whichever way the jib points; the first try sat it off to one side of the root and it
-  // spent half of every slew hidden behind the mast.
-  const cab = { x: 1.15, y: -0.6, z: 0.2, w: 1.25, h: 1.1, d: 1.05 };
-  top_.push(box(cab.w, cab.h, cab.d, cab.x, cab.y, cab.z, yellow));
-  // Windows all the way round, so whichever face the camera has is a window and it reads as a cab
-  // rather than as one more yellow box: with glass on two faces it showed a blank back on half the
-  // headings.
+  // The tower head: four bars up off the jib's root to an apex, the top lamp on it. No pendant
+  // ties off it — black lines a pixel wide read as cracks.
+  const apex = v(0, JIB_W + HEAD_H, 0);
+  for (const [a, b] of SQUARE) top_.push(strut(v(a * JIB_W / 2, JIB_W, b * JIB_W / 2), apex, BAR, yellow));
+  // The operator's cab, where the mast meets the jib: a blue steel box with glass, sat on the
+  // slewing platform beside the jib's root. The frames either side of it are see-through now, so
+  // it shows on every heading.
+  const cab = { x: 0.15, y: 0.5, z: JIB_W / 2 + 0.6, w: 1.15, h: 1.0, d: 0.95 };
+  const cabCol = color('craneCab');
+  top_.push(box(cab.w, cab.h, cab.d, cab.x, cab.y, cab.z, cabCol));
   for (const sx of [-1, 1]) {
-    top_.push(box(0.04, cab.h * 0.55, cab.d * 0.75, cab.x + sx * (cab.w / 2 + 0.02), cab.y + 0.1, cab.z, color('craneGlass')));
-    top_.push(box(cab.w * 0.75, cab.h * 0.55, 0.04, cab.x, cab.y + 0.1, cab.z + sx * (cab.d / 2 + 0.02), color('craneGlass')));
+    top_.push(box(0.04, cab.h * 0.5, cab.d * 0.72, cab.x + sx * (cab.w / 2 + 0.02), cab.y + 0.12, cab.z, color('craneGlass')));
+    top_.push(box(cab.w * 0.72, cab.h * 0.5, 0.04, cab.x, cab.y + 0.12, cab.z + sx * (cab.d / 2 + 0.02), color('craneGlass')));
   }
   top_.push(box(cab.w + 0.12, 0.08, cab.d + 0.12, cab.x, cab.y + cab.h / 2 + 0.04, cab.z, color('craneDark')));
   const slewMesh = new THREE.Mesh(mergeGeometries(top_, false), propMaterial({ ao: false }));
@@ -278,8 +311,8 @@ export function createCrane(site, rng) {
   slewMesh.name = 'crane-jib';
 
   // The aircraft-warning lamps, on the head and the jib's tip: unlit red, and bloomed at night.
-  const lampGeo = [box(LAMP, LAMP, LAMP, 0, JIB_H + HEAD_H - 0.1 + LAMP / 2, 0, color('craneLamp')),
-    box(LAMP, LAMP, LAMP, REACH - LAMP / 2, JIB_H * JIB_TIP + LAMP / 2, 0, color('craneLamp'))];
+  const lampGeo = [box(LAMP, LAMP, LAMP, 0, apex.y + LAMP / 2, 0, color('craneLamp')),
+    box(LAMP, LAMP, LAMP, REACH, JIB_W * JIB_TIP + LAMP / 2, 0, color('craneLamp'))];
   const lamps = new THREE.Mesh(mergeGeometries(lampGeo, false), unlitMaterial({ vertexColors: true }));
   lampGeo.forEach((g) => g.dispose());
   lamps.name = 'crane-lamps';
@@ -296,7 +329,7 @@ export function createCrane(site, rng) {
   // The beam, an I-section along the jib's cross direction, hung straight under the block — the
   // slings went with the other hairlines.
   const by = -0.6 - SLING;
-  for (const [h, w, y] of [[0.08, 0.4, by + BEAM_H / 2 - 0.04], [0.08, 0.4, by - BEAM_H / 2 + 0.04], [BEAM_H, 0.12, by]]) {
+  for (const [h, w, y] of [[0.1, 0.5, by + BEAM_H / 2 - 0.05], [0.1, 0.5, by - BEAM_H / 2 + 0.05], [BEAM_H, 0.14, by]]) {
     loadParts.push(box(w, h, BEAM_L, 0, y, 0, color('craneLoad')));
   }
   loadParts.push(box(0.1, SLING - 0.1, 0.1, 0, -0.5 - SLING / 2, 0, color('craneRope')));
@@ -324,32 +357,34 @@ export function createCrane(site, rng) {
 
   // --- The motion ------------------------------------------------------------------------------
   //
-  // A loop of moves, each easing every channel (slew yaw, trolley radius, hook drop) from where the
-  // last left it: set the beam down on the slab, wait, hoist it, swing it out somewhere new, hover,
-  // swing back. Nothing is being built — it is a crane doing crane things in the corner of your eye.
-  // The beam then swings on its rope as a damped pendulum driven by the trolley's acceleration, which
-  // is the whole difference between a crane and a clock hand.
-  // Set down level with the tops of the column stubs, as if lining it up on them.
-  const setDrop = jibY - (slabTop + STUB + 0.1 + 0.6 + SLING + BEAM_H);
-  const setR = Math.max(1.1, Math.min(SET_R, Math.min(deck.cw, deck.cd) / 2 - 0.5));
+  // The beam is held out near the tip, dangling, and the crane slews it slowly from one heading to
+  // another, stopping between — Tyler, 2026-11-23: "holding out a big I-beam at the end and sort of
+  // just like dangling and swinging from it". Each move eases every channel (slew yaw, trolley
+  // radius, hook drop) from where the last left it; the beam swings on its rope as a damped
+  // pendulum driven by the trolley's acceleration, so every start and stop sets it going, and a
+  // faint breeze keeps it from ever hanging dead still. The first cut set the beam down on the slab
+  // every cycle; out at the end is the picture.
+  //
   // Out over the neighbours the beam's underside stays a unit over the tallest roof in reach.
-  const awayDrop = Math.max(DROP_UP, jibY - (site.roof + 1.0) - (0.6 + SLING + BEAM_H));
-  const home = rng.range(0, Math.PI * 2);
-  const state = { yaw: home, r: setR, drop: setDrop };
+  const drop = Math.max(DROP_UP, jibY - (site.roof + 1.0) - (0.6 + SLING + BEAM_H));
+  const centre = site.away ?? rng.range(0, Math.PI * 2);
+  const half = site.away === null ? Math.PI * 0.9 : ARC;
+  const heading = () => centre + rng.range(-half, half);
+  const state = { yaw: heading(), r: REACH - 1.2, drop };
   let moves = [];
   let move = null;
   let from = null;
   let t = 0;
+  let clock = 0;
   const plan = () => {
-    const out = home + (rng.chance(0.5) ? 1 : -1) * rng.range(1.1, 2.6);
-    const r = rng.range(4.5, REACH - 1.2);
+    // Somewhere at least a third of the arc from here, so every move is a visible swing.
+    let yaw = heading();
+    for (let k = 0; k < 6 && Math.abs(yaw - state.yaw) < half * 0.66; k++) yaw = heading();
     moves = [
-      { dur: rng.range(2.5, 5), to: {} },                                       // the beam on the slab
-      { dur: 3.5, to: { drop: DROP_UP } },                                      // hoist
-      { dur: rng.range(8, 12), to: { yaw: out, r, drop: awayDrop } },           // swing out
-      { dur: rng.range(2, 4), to: { r: r - rng.range(0.5, 1.5) } },             // creep, as if lining up
-      { dur: rng.range(8, 12), to: { yaw: home + rng.range(-0.25, 0.25), r: setR, drop: DROP_UP } },
-      { dur: 3.5, to: { drop: setDrop } },                                      // set it down
+      { dur: rng.range(6, 9), to: { yaw, r: rng.range(REACH - 2.6, REACH - 0.9) } },  // slew
+      { dur: rng.range(4, 7), to: {} },                                                  // dangle
+      { dur: rng.range(2.5, 4), to: { r: rng.range(REACH - 2.6, REACH - 0.9) } },       // inch
+      { dur: rng.range(3, 6), to: {} },                                                  // dangle
     ];
   };
   const ease = (k) => k * k * k * (k * (k * 6 - 15) + 10);
@@ -379,6 +414,7 @@ export function createCrane(site, rng) {
       t = 0;
     }
     t += dt;
+    clock += dt;
     const k = ease(Math.min(1, t / move.dur));
     for (const key of ['yaw', 'r', 'drop']) {
       if (move.to[key] !== undefined) state[key] = from[key] + (move.to[key] - from[key]) * k;
@@ -390,12 +426,15 @@ export function createCrane(site, rng) {
     const vr = (state.r - prev.r) / dt;
     const ayaw = (vyaw - prev.vyaw) / dt;
     const ar = (vr - prev.vr) / dt;
-    const radial = ar - state.r * vyaw * vyaw;
-    const tangential = state.r * ayaw + 2 * vr * vyaw;
+    // Plus the breeze: two slow incommensurate pushes, a few hundredths of a g, enough that a beam
+    // left dangling keeps turning over a little rather than hanging like a plumb line.
+    const radial = ar - state.r * vyaw * vyaw + 0.25 * Math.sin(clock * 1.31);
+    const tangential = state.r * ayaw + 2 * vr * vyaw + 0.35 * Math.sin(clock * 0.83 + 1.7);
     Object.assign(prev, { yaw: state.yaw, r: state.r, vyaw, vr });
     const len = state.drop + SLING;
     const g = 9.8;
-    const damp = 0.35;
+    // 0.35 at first, and a swing died within a cycle or two; this lets one carry through the dangle.
+    const damp = 0.18;
     const step = (ang, vel, accel) => {
       const acc = -(g / len) * ang - damp * vel - accel / len;
       const nv = vel + acc * dt;

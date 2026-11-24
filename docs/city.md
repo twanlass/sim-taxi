@@ -987,12 +987,13 @@ columns and a slab in raw grey concrete a step darker than any finished wall, wi
 column stubs and rebar on top. A dusty-mustard tower crane stands up through the middle swinging a
 red-oxide steel beam about. Pure background; not tappable. `?crane=classic` leaves the roof a roof.
 
-**Chunky, not lattice.** The first cut was a real lattice of 0.07–0.12 members, and at play zoom it
-was one or two pixels of shimmer: "too spindly". Now the mast is a solid 0.85 box and the jib a
-solid box that tapers to 55% at the tip, both segmented by darker collars every 1.6. There is an
-operator's cab, glazed all round and hung under the jib's root so the jib never hides it, and two
-0.34 red lamps (tower head and jib tip). There are no pendant ties or slings, because black hairlines
-read as scratches. Only the hoist rope is left, one 0.1 grey line, so the beam doesn't float.
+**Four bars and a few struts.** The mast and the jib are each four main bars (0.17) tied by a ring of
+cross struts every 1.7, with one diagonal per face per bay. The jib tapers to 55% at its tip. Two
+earlier looks were rejected. A full lattice of 0.07–0.12 members was one or two pixels of shimmer at
+play zoom ("too spindly"), and solid banded boxes read as "just blocks". The operator's cab is a blue
+steel box with glass all round, on the slewing platform where the mast meets the jib. There are two
+0.34 red lamps, on the tower head's apex and the jib tip. There are no pendant ties or slings,
+because black hairlines read as scratches. Only the hoist rope is left, one 0.1 grey line.
 
 **It uses a roof rather than a lot.** A fenced pit would mean `createLayout` taking a block and every
 draw after it moving; instead `chooseCraneSite` picks a tower after the billboards, by rule and hash,
@@ -1010,10 +1011,12 @@ It stays out of the sightline field: a member under a unit across can cover a sl
 **The motion is transforms, not geometry.** The storey and mast are one static mesh, stamped into
 the entrance wave. The slewing top (jib, counter-jib, head, cab), the trolley, the rope (a unit box
 scaled to the drop) and the hook with its beam are four meshes under two groups, grown on the CPU
-by the wave (`entryObject`) because they turn. The loop sets the beam down level with the column
-stubs, hoists it, slews it out 60 to 150° to a random radius, creeps, then swings it back. Every
-channel is eased, and the run's seed picks the moves. The beam hangs on a damped pendulum driven by
-the trolley's radial and tangential acceleration, so it swings when the crane starts and stops.
+by the wave (`entryObject`) because they turn. The crane holds a big I-beam (4 units) out near the tip and
+slews it slowly between headings, 6–9s a move, pausing between moves to let it dangle. The run's
+seed picks the headings. A crane within reach of the L only swings through a 120° arc turned away
+from the line (`ARC`), because a jib over the train read as clipping it even though it cleared it
+in height. The beam hangs on a damped pendulum driven by
+the trolley's radial and tangential acceleration plus a faint breeze, so it swings when the crane starts and stops and never hangs dead still.
 While it is out over the neighbours, its underside stays a unit above the tallest roof in reach.
 The moving parts use `propMaterial({ ao: false })` and stay out of the AO prepass. By default they
 cast no shadow (`?crane=shadow` turns that on). The two red aircraft lamps bloom as `window`. Shots

@@ -1251,11 +1251,11 @@ export const PALETTE = {
   craneGlass: '#3F5363',
   // Steel cable in daylight is a light grey; black read as a scratch on the screen.
   craneRope: '#9A9EA4',
-  // The collars round the mast and the jib: the yellow a few steps down, so they segment it.
-  craneBand: '#937A3E',
   craneLoad: '#8A5040',
   // Unlit: a lamp, not paint. The bloom picks it up at night.
   craneLamp: '#E04A3A',
+  // The operator's cab: blue steel, so it reads as a different thing from the yellow frame.
+  craneCab: '#4C74A0',
   // Raw concrete, cool and a step darker than any finished wall in the city, so the new storey reads
   // as unfinished rather than as more of the building under it (Tyler, 2026-11-23).
   siteConcrete: '#9A9FA3',
