@@ -921,3 +921,10 @@ as a black slab, a rendering bug rather than a bridge (Tyler: "the black looks l
 bug"). The current `drawbridgeSoffit` sits between the two, under the trim so the edge beams still
 outline it.
 
+## The flat white fog bank (#557 until 2026-11-24, `?fogshade=classic`)
+
+The fog of war's colour was the sky's horizon lifted 45% toward white, shaded only by its own billow
+noise: `fog × (0.86 + 0.2 × billow)`. On a colour that close to white that is a range of about
+12/255, and at phone zoom it read as one flat sheet (Tyler: "so they don't read as just pure
+white"). Replaced by sun-lit billows with warm and cool regions, described in
+[rendering.md](rendering.md#the-fog-of-war--gameedgefogjs).
