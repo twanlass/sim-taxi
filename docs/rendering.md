@@ -1437,6 +1437,12 @@ hard-edged square. `?pixel=classic` is the smooth frame at the full Quality reso
 - **Detail finer than an art pixel aliases.** At 2 CSS px an art pixel is about 0.25 world units at
   phone play zoom (`PHONE_PX_PER_UNIT` = 8.1), so the garage door's slats and the lane paint's thin
   edges break into dots; world-space grain on a 0.25 grid would turn to noise the same way.
+- **A dithered palette** (`game/dither.js`): the finished frame's brightness cut to 12 steps
+  with a 4×4 Bayer dither, its colour rounded without one. Brightness only, because a per-channel
+  dither rounds R, G and B different ways on a flat colour and scatters it into coloured dots. It
+  runs in the frame's last pass, after the occlusion and the bloom so their gradients dither too:
+  the occlusion composite on WebGPU, the CRT's copy pass on WebGL (which runs for the dither alone
+  with the CRT off). `?dither=classic` is smooth colour, `?ditherlevels=` the step count.
 - **The HUD is DOM** and stays sharp.
 
 ## The CRT screen — `game/crt.js`

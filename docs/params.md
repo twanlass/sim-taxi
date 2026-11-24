@@ -189,6 +189,8 @@ doc; what the classic version was, and why it changed, is in that doc's history 
 | `?sunrays=classic` | No sun rays in a squall's wake: the cell goes over and the sun simply comes back | | [rendering.md](rendering.md#a-squall--the-default-weather-gamesqualljs) |
 | `?squallramp=classic` | A squall's edge arriving all at once: shade, rain and city lights over the same few seconds, and the whole sky greying the moment a cell comes on | | [rendering.md](rendering.md#a-squall--the-default-weather-gamesqualljs) |
 | `?pixel=classic` | The smooth frame at the full Quality resolution, without the pixel-art screen (the city drawn at one art pixel per 2 CSS px and scaled up with hard pixels). `off` works too | #801 | [rendering.md](rendering.md#the-pixel-art-screen--gamepixelartjs) |
+| `?dither=classic` | Smooth colour under the pixel-art screen: no brightness steps and no ordered dither. `off` works too | #801 | [rendering.md](rendering.md#the-pixel-art-screen--gamepixelartjs) |
+| `?ditherlevels=` | Brightness steps for the pixel-art dither, 2 to 32 (default 12): fewer is a louder checker | #801 | [rendering.md](rendering.md#the-pixel-art-screen--gamepixelartjs) |
 | `?pixelsize=` | CSS px per art pixel under the pixel-art screen, 1 to 8 (default 2). A whole number keeps every art pixel the same width | #801 | [rendering.md](rendering.md#the-pixel-art-screen--gamepixelartjs) |
 | `?crt=classic` | The clean frame, without the CRT screen ported from Grog (curvature, scanlines, aperture grille, vignette, edge aberration, flicker). `off` works too. Off by default under the pixel-art screen; `?crt=on` puts it back over the pixels | | [rendering.md](rendering.md#the-crt-screen--gamecrtjs) |
 

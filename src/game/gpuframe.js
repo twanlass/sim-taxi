@@ -36,6 +36,7 @@ import { aoShare, rimShare, rimSunLuma } from '../util/gpumaterial.js';
 import { GLOSS_UNIFORMS, RIM_MAX_WORLD } from '../util/geo.js';
 import { createGlowChain, glowLight, glowState, GLOW_RANGE } from './gpubloom.js';
 import { RING_BROAD, RING_TIGHT, FALLOFF, MAX_DEPTH_DIFF } from './ssao.js';
+import { ditherNode } from './dither.js';
 
 // The estimator's radii are clamped in texels of the WebGL pass's half-resolution buffer; kept in
 // those units so a crease is as wide here as there.
@@ -48,7 +49,7 @@ const MAX_RADIUS_TEXELS = 6.0;
 // half-resolution upsample. Three quarters of it lands on WebGL's figure.
 const STRENGTH = 0.45;
 
-export function createGpuFrame(renderer, { strength = STRENGTH, crt = null } = {}) {
+export function createGpuFrame(renderer, { strength = STRENGTH, crt = null, dither = 0 } = {}) {
   const depthTexture = new THREE.DepthTexture(1, 1);
   depthTexture.format = THREE.DepthStencilFormat;
   depthTexture.type = THREE.UnsignedInt248Type;
@@ -140,7 +141,11 @@ export function createGpuFrame(renderer, { strength = STRENGTH, crt = null } = {
     // The spill is light in the picture, added in display space as the WebGL composite adds it.
     return vec4(glowChain ? occludedColour.add(glowChain.composite(at)) : occludedColour, colour.a);
   };
-  material.fragmentNode = Fn(() => (crt ? crt.screen(finish, screenOn) : finish({ at: uv() })))();
+  // The pixel look's palette (game/dither.js) on the finished texel, at art resolution; 0 is off.
+  material.fragmentNode = Fn(() => {
+    const out = crt ? crt.screen(finish, screenOn) : finish({ at: uv() });
+    return dither > 1 ? ditherNode(vec4(out).toVar(), dither) : out;
+  })();
   const quad = new QuadMesh(material);
 
   const size = new THREE.Vector2();

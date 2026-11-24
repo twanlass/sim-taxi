@@ -779,6 +779,18 @@ export function getPixel(fallback) {
   return Number.isFinite(size) ? Math.max(1, Math.min(8, size)) : fallback;
 }
 
+/**
+ * The pixel look's dither (game/dither.js): steps per channel, or 0 for smooth colour. On with the
+ * pixel look at `fallback`; `?dither=classic` (or `off`) turns it off, `?ditherlevels=` sets 2 to 32.
+ */
+export function getDither(fallback) {
+  const params = new URLSearchParams(window.location.search);
+  const raw = params.get('dither');
+  if (raw === 'classic' || (raw !== null && isOff(raw))) return 0;
+  const levels = Number.parseInt(params.get('ditherlevels'), 10);
+  return Number.isFinite(levels) ? Math.max(2, Math.min(32, levels)) : fallback;
+}
+
 /** `off` / `0` / `false` — the spelling every switch above takes. */
 function isOff(raw) {
   return raw === 'off' || raw === '0' || raw === 'false';
