@@ -107,7 +107,8 @@ export function readSwipe(sx, sy, d, toScreen) {
  * @param canSteer   live gate: false while a scripted trip, the opening or a menu owns the car
  * @param onQueue    called with the grid direction (or null) whenever the queue changes
  */
-export function createSteer({ dom, taxi, toScreen, canSteer = () => true, onQueue = () => {} }) {
+export function createSteer({ dom, taxi, toScreen, canSteer = () => true, onQueue = () => {},
+  swipe = true }) {
   let queued = null;
   let press = null;
   // The click the browser synthesises after a swipe must not also reach the picker.
@@ -121,6 +122,18 @@ export function createSteer({ dom, taxi, toScreen, canSteer = () => true, onQueu
     onQueue(dir);
   }
 
+  function queueTurn(dir) {
+    if (dir === queued) return;
+    setQueue(dir);
+    // In the run-up to a junction the car is crossing straight on, it can still take the corner —
+    // the same late turn a tap used to buy (`retakeCrossing` in traffic.js decides). Refused, the
+    // queue stands for the next corner.
+    if (taxi.state === 'turn' && taxi.turn?.hand === 'straight'
+      && Math.min(taxi.turnT, 1) * taxi.turnLen < taxi.leadIn) {
+      taxi.lateTurn = [dir];
+    }
+  }
+
   function apply(sx, sy) {
     if (!canSteer()) return;
     const at = decisionLane(taxi);
@@ -128,23 +141,33 @@ export function createSteer({ dom, taxi, toScreen, canSteer = () => true, onQueu
     const read = readSwipe(sx, sy, at.d, toScreen);
     swipes += 1;
     if (read === 'straight' || read === 'back') { setQueue(null); return; }
-    setQueue(read);
-    // In the run-up to a junction the car is crossing straight on, it can still take the corner —
-    // the same late turn a tap used to buy (`retakeCrossing` in traffic.js decides). Refused, the
-    // queue stands for the next corner.
-    if (taxi.state === 'turn' && taxi.turn?.hand === 'straight'
-      && Math.min(taxi.turnT, 1) * taxi.turnLen < taxi.leadIn) {
-      taxi.lateTurn = [read];
-    }
+    queueTurn(read);
   }
 
-  dom.addEventListener('pointerdown', (event) => {
+  // The stick (game/joystick.js) names a street direction outright. Held, it is re-asserted every
+  // frame in `update`, so it keeps meaning "that way" through corners.
+  let held = null;
+  function pushDir(dir) {
+    if (dir == null || !canSteer()) return;
+    const at = decisionLane(taxi);
+    if (!at) return;
+    if (dir === opposite(at.d)) return;
+    if (dir === at.d) { setQueue(null); return; }
+    queueTurn(dir);
+  }
+  function push(dir) {
+    if (dir != null && dir !== held) swipes += 1;
+    held = dir;
+    pushDir(dir);
+  }
+
+  if (swipe) dom.addEventListener('pointerdown', (event) => {
     if (!event.isPrimary) return;
     clearTimeout(clearSwiped);
     swiped = false;
     press = { x: event.clientX, y: event.clientY, fired: false };
   });
-  dom.addEventListener('pointermove', (event) => {
+  if (swipe) dom.addEventListener('pointermove', (event) => {
     if (!press || press.fired || !event.isPrimary) return;
     const dx = event.clientX - press.x;
     const dy = event.clientY - press.y;
@@ -179,6 +202,7 @@ export function createSteer({ dom, taxi, toScreen, canSteer = () => true, onQueu
       taxi.steerHold = false;
       return;
     }
+    if (held != null) pushDir(held);
     const at = decisionLane(taxi);
     // Spent: the car is heading the way that was queued. A queue that has come to point backwards
     // (the car turned the other way through a corner) can never be taken, so it goes too.
@@ -199,6 +223,8 @@ export function createSteer({ dom, taxi, toScreen, canSteer = () => true, onQueu
     update,
     reset,
     queued: () => queued,
+    /** The stick: a grid direction while pushed, null when let go (the queue stands). */
+    push,
     /** True for the click that ends a swipe, so the picker can ignore it. */
     didSwipe: () => swiped,
     /** How many swipes the player has made this page — the tip stops once they have the idea. */

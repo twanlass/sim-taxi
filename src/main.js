@@ -198,6 +198,7 @@ import { createCashTrail } from './game/cashtrail.js';
 import { setCityOccluders, sightlineClear } from './game/sightline.js';
 import { createBootleg, COMBO_GAP_MS as BOOTLEG_GAP_MS } from './game/bootleg.js';
 import { createSteer } from './game/steer.js';
+import { createJoystick } from './game/joystick.js';
 import { createSteerTip } from './game/steertip.js';
 import { createOvertakeCombo, OVERTAKE_GRACE } from './game/overtake.js';
 import { createNewMove, createSeenFlag, MOVES, REPAIR, SHOW_DELAY } from './game/newmove.js';
@@ -302,6 +303,10 @@ const steerOn = (() => {
   if (params.get('steer') === 'classic' || shot) return false;
   return !['bot', 'bench', 'soak'].some((k) => params.has(k));
 })();
+// Steered with the stick bottom left (game/joystick.js), the default; `?steer=swipe` reads swipes on
+// the map instead, the first cut of the prototype (Tyler: "No swipe", 2026-11-24).
+const steerStick = steerOn && new URLSearchParams(window.location.search).get('steer') !== 'swipe';
+if (steerStick) document.body.classList.add('steer-stick');
 /** `routeTo` for the trips that drive themselves even when the player steers — see `routeTo`. */
 // The trips that drive themselves hand the taxi back to the job they interrupted by routing at it
 // (`handBack` in game/burgerrun.js and game/depotrun.js); steered, that job is the player's to drive,
@@ -1851,7 +1856,8 @@ const releaseCameraToPlayer = () => {
 // and auditioning the court's falloff means being able to put the court there.
 const pan = shot
   ? null
-  : attachDragPan(controller, renderer.domElement, aspect, () => (isNarrow() || debugMode) && !steerOn,
+  : attachDragPan(controller, renderer.domElement, aspect,
+    () => (isNarrow() || debugMode) && !(steerOn && !steerStick),
     releaseCameraToPlayer);
 
 // Pac-Man steering (game/steer.js): a swipe on the map queues the taxi's next turn, and the map
@@ -1860,16 +1866,24 @@ const pan = shot
 // the race) holds a `pendingTarget`.
 const steerLive = () => steerOn && runBegun && pedalsLive() && !fares.state.gameOver
   && !traffic.taxi.pendingTarget && !pause?.state.paused;
+const steerToScreen = (dx, dz) => {
+  const t = traffic.taxi;
+  const a = projectToScreen(t.x, 0, t.z);
+  const b = projectToScreen(t.x + dx, 0, t.z + dz);
+  return { x: b.x - a.x, y: b.y - a.y };
+};
 const steer = steerOn ? createSteer({
   dom: renderer.domElement,
   taxi: traffic.taxi,
-  toScreen: (dx, dz) => {
-    const t = traffic.taxi;
-    const a = projectToScreen(t.x, 0, t.z);
-    const b = projectToScreen(t.x + dx, 0, t.z + dz);
-    return { x: b.x - a.x, y: b.y - a.y };
-  },
+  toScreen: steerToScreen,
   canSteer: steerLive,
+  swipe: !steerStick,
+}) : null;
+const stickEl = document.getElementById('stick');
+const stick = steerStick && stickEl ? createJoystick({
+  el: stickEl,
+  toScreen: steerToScreen,
+  onPush: (dir) => steer.push(dir),
 }) : null;
 fares.setSteered(steerOn);
 
@@ -4248,6 +4262,7 @@ const steerTip = steer ? createSteerTip({
   taxi: traffic.taxi,
   steer,
   canShow: () => steerLive() && tipsOn() && !tutorial?.holdsCamera(),
+  stickTop: stick ? stick.top : null,
 }) : null;
 
 // The boost meter, the money counter and the rider chips start off their own screen edge and
@@ -7693,6 +7708,7 @@ function tick() {
   // The steered taxi's one-step route, from the turn the player has queued — read by this very
   // `traffic.update` at the hold line.
   steer?.update();
+  stick?.update(steer.queued());
   traffic.update(dt);
   if (traffic.taxi.overtakes > overtakesFelt) {
     overtakesFelt = traffic.taxi.overtakes;

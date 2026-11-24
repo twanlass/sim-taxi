@@ -1387,9 +1387,11 @@ renderer. Flat fill in `taxiBody` with a `taxiTrim` outline and no gloss, and it
 
 ## Steering
 
-`src/game/steer.js`. **The player drives the taxi**, Pac-Man style: a swipe anywhere on the map
-queues the next turn, and the taxi takes it at the first corner that has that exit, carrying
-straight on through every corner until then. Boost and brake are unchanged. There is no routing to
+`src/game/steer.js`. **The player drives the taxi**, Pac-Man style: a virtual stick bottom left
+(`src/game/joystick.js`) queues the next turn, and the taxi takes it at the first corner that has
+that exit, carrying straight on through every corner until then. Boost and brake are unchanged,
+and moved to the right thumb: the gas sits at the right edge, the brake hangs off its left as
+ever, and the cargo box goes over the brake. There is no routing to
 a fare: driving through a waiting rider's junction with the seat empty collects them, and driving
 through the drop-off's junction delivers — the same `ARRIVE_RADIUS` arrival as ever, with the
 "sent here" test ([Arrival requires direction](#arrival-requires-direction)) replaced by the seat
@@ -1402,7 +1404,17 @@ every frame from the queue. So the steered taxi signals, yields, stops at reds a
 turn in the run-up (`retakeCrossing`) exactly as a routed one did, and it is never left with an
 *empty* route while moving, which would hand its exits to the ambient dice (`rollExit`).
 
-**The queue is a direction on the map, and it waits.** A swipe is read against the heading the car
+**The stick points at streets.** It snaps to the nearest of the four street directions *as they
+lie on screen* (about 30° above and below the horizontal, measured off the live camera), and a
+notch on its rim marks each one, the queued one lit yellow. Snapping absolutely is what makes a
+held stick mean something: held toward up-right, the taxi turns up-right at the next corner that
+has it and keeps going that way, where a heading-relative reading would treat the same hold as a
+fresh turn after every corner and staircase across town. Held, it is re-asserted every frame;
+let go, the last push stays queued, so a flick is enough. Toward the current heading clears the
+queue; backwards is ignored. A swipe on the map read the way below was the first cut; Tyler
+dropped it ("No swipe") and `?steer=swipe` keeps it.
+
+**The queue is a direction on the map, and it waits.** Under `?steer=swipe` a swipe is read against the heading the car
 will have at its next decision: within 40° of it on screen is straight on (and clears the queue),
 within 40° of the reverse clears it too, anything else is a turn to that side. Reading it against
 the heading rather than snapping it to a street is because the camera looks down the diagonal —
@@ -1414,11 +1426,10 @@ swipe made too late for one corner lands on the next. Arrow keys and WASD do the
 **A dead end waits for the player.** At a T with nothing queued, straight on is not an exit, so the
 taxi holds at the line (`car.steerHold`, read by `entryRefused` and the hold-line commit in
 `traffic.js`) — the Pac-Man wall, rather than a turn the player did not choose. It brakes for it
-like a red. "Swipe to turn" (`game/steertip.js`) stands over the taxi until the player has swiped
-twice, and comes back whenever a dead-end hold lasts 0.8s.
-
-**The map no longer pans** — the swipe is the steering — so the camera follows the car, and the
-off-screen arrows are how a rider out of frame is found (a tap on one still pans to them).
+like a red. "Steer with the stick" (`game/steertip.js`) stands on the stick until the player has
+pushed it twice, and comes back whenever a dead-end hold lasts 0.8s ("Swipe to turn", over the
+taxi, under `?steer=swipe`). The map still pans with the stick; under `?steer=swipe` it does not,
+since the swipe is the steering.
 
 **Trips that drive themselves still do.** The garage, the drive-through, the depot and the street
 race arrive by a lane a thumb cannot be asked to find, so they route as before (`scriptedRouteTo`

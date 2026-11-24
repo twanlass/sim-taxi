@@ -1093,7 +1093,7 @@
 
       /* The Loco Mode pill and the ⚙️ tweak toggle are gameplay controls; once the run is over
          they are noise behind the retry pill. */
-      body.game-over #boost, body.game-over #boost-meter, body.game-over #brake,
+      body.game-over #boost, body.game-over #boost-meter, body.game-over #brake, body.game-over #stick,
       body.game-over #dbg-toggle, body.game-over #dbg-panel { display: none; }
 
       /* The bottom control row: the gas pedal, the brake pedal beside it, and the pause square in
@@ -1148,7 +1148,7 @@
       #replay[hidden] { display: none; }
       #replay .replay-flash { position: absolute; inset: 0; background: #fff; opacity: 0; pointer-events: none; }
       body.replaying #hud, body.replaying #cargo-dock, body.replaying #pause, body.replaying #boost, body.replaying #boost-meter,
-      body.replaying #brake, body.replaying #rider-finder-stack, body.replaying #taxi-finder,
+      body.replaying #brake, body.replaying #stick, body.replaying #rider-finder-stack, body.replaying #taxi-finder,
       body.replaying .fare-pointer { display: none; }
 
       /* The pedals: two round buttons, inline SVG rather than an <img> because the press has to
@@ -1177,6 +1177,53 @@
         bottom: calc(var(--ctl-bottom) + (var(--gas-d) - var(--brake-d)) / 2);
         width: var(--brake-d); height: var(--brake-d);
       }
+      /* --- The steering stick (game/joystick.js) -----------------------------
+         Pac-Man steering's control, bottom left for the left thumb, so the pedals move to the
+         right thumb: the gas pinned to the right inset and the brake hanging off its left as ever.
+         The cargo box that sat right of the gas goes over the brake instead. Flat, no shine: a dark
+         well and a darker knob. The four notches round the rim are the four street directions as
+         they actually lie on screen (placed by JS from the camera), and the one the taxi has
+         queued lights yellow. `?steer=swipe` and `?steer=classic` have no stick. */
+      body.steer-stick {
+        /* 24px further in than the inset: the fuel arc's crown reaches past the button's box. */
+        --gas-left: calc(100% - var(--ctl-right) - var(--gas-d) - 24px);
+        --stick-d: 116px;
+      }
+      body.steer-stick #cargo-dock {
+        left: calc(var(--gas-left) - var(--pedal-gap) - var(--brake-d) + (var(--brake-d) - 42px) / 2);
+        bottom: calc(var(--ctl-bottom) + var(--gas-d) + 14px);
+      }
+      #stick { display: none; }
+      body.steer-stick #stick {
+        display: block;
+        position: fixed; left: var(--ctl-left); bottom: calc(var(--ctl-bottom) + (var(--gas-d) - var(--stick-d)) / 2);
+        width: var(--stick-d); height: var(--stick-d); z-index: 20;
+        user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; touch-action: none;
+      }
+      /* The thumb's reach, as the pedals have: a thumb lands off the drawn well more often than on it. */
+      #stick::before { content: ''; position: absolute; inset: -24px; }
+      #stick .stick-well {
+        position: absolute; inset: 0; border-radius: 50%;
+        background: rgba(12, 14, 20, 0.42);
+        box-shadow: inset 0 0 0 2px rgba(0, 0, 0, 0.35);
+        -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px);
+        pointer-events: none;
+      }
+      #stick .stick-notch {
+        position: absolute; left: 50%; top: 50%; width: 0; height: 0;
+        border-left: 7px solid transparent; border-right: 7px solid transparent;
+        border-bottom: 9px solid rgba(255, 255, 255, 0.45);
+        margin: -5px 0 0 -7px; pointer-events: none;
+        transition: border-bottom-color 0.12s ease;
+      }
+      #stick .stick-notch.is-queued { border-bottom-color: #F5C130; }
+      #stick .stick-knob {
+        position: absolute; left: 50%; top: 50%; width: 54px; height: 54px; margin: -27px 0 0 -27px;
+        border-radius: 50%; background: #23262E; box-shadow: 0 0 0 3px #0B0C10, 0 3px 0 3px rgba(0, 0, 0, 0.35);
+        pointer-events: none; transition: transform 0.12s ease;
+      }
+      #stick.is-held .stick-knob { transition: none; }
+
       /* The reach. Each pedal takes a thumb `--pedal-reach` past its drawn edge, because a thumb's
          contact point is not where its pad is and a thumb sliding back from the brake does not come
          back along the line it went out on (Tyler, 2026-10-08: it slipped off the gas mid-drift and
@@ -1253,7 +1300,7 @@
       #boost.is-empty { cursor: default; }
       #boost.is-empty .pedal-art { filter: grayscale(1) brightness(0.9); opacity: 0.7; }
 
-      body.shot-mode #boost, body.shot-mode #brake { display: none; }
+      body.shot-mode #boost, body.shot-mode #brake, body.shot-mode #stick { display: none; }
 
 
       /* Rider finder — one chip per waiting fare, in a row above the Loco Mode pill, left-aligned
@@ -2161,7 +2208,7 @@
          `pedals-ready`, which lands earlier — as the taxi joins the lane at the end of the opening
          vignette — because a control the player cannot reach is a wait, not an instrument that has
          nothing to say yet. `hud-ready` implies it, here rather than in main.js. */
-      #hud, #boost-meter, #pause, #boost, #brake, #rider-finder-stack, #cargo-dock {
+      #hud, #boost-meter, #pause, #boost, #brake, #stick, #rider-finder-stack, #cargo-dock {
         opacity: 0;
         /* Half again the first cut (0.45s / 0.55s), which read as a snap on the depot exit. */
         transition: opacity 0.7s ease, translate 0.85s cubic-bezier(0.22, 1, 0.36, 1);
@@ -2170,7 +2217,7 @@
       /* The pause is in the top row now and leaves by the top edge, off by its own height plus the
          inset over it — a percentage of a 42px square does not clear a notch's safe area. */
       #pause { translate: 0 calc(-100% - var(--hud-top) - 8px); }
-      #cargo-dock, #boost, #boost-meter, #brake { translate: 0 200%; }
+      #cargo-dock, #boost, #boost-meter, #brake, #stick { translate: 0 200%; }
       /* The chips sit a pill's height up the screen but only `--ctl-left` in from the side, so the
          left edge is the near one: off by their own width plus that inset. */
       #rider-finder-stack { translate: calc(-100% - var(--ctl-left) - 8px) 0; }
@@ -2179,10 +2226,10 @@
          rides in the same group for the same reason it waits at all: there is nothing to pause
          while the tutorial is still holding the clocks. */
       body:not(.hud-ready) #pause, body:not(.hud-ready):not(.pedals-ready) #boost,
-      body:not(.hud-ready):not(.pedals-ready) #brake,
+      body:not(.hud-ready):not(.pedals-ready) #brake, body:not(.hud-ready):not(.pedals-ready) #stick,
       body:not(.hud-ready) #rider-finder-stack { pointer-events: none; }
       body.hud-ready #hud, body.hud-ready #boost-meter, body.hud-ready #pause, body.hud-ready #cargo-dock,
-      body.hud-ready #boost, body.hud-ready #brake, body.pedals-ready #boost, body.pedals-ready #brake,
+      body.hud-ready #boost, body.hud-ready #brake, body.hud-ready #stick, body.pedals-ready #boost, body.pedals-ready #brake, body.pedals-ready #stick,
       body.pedals-ready #boost-meter,
       body.hud-ready #rider-finder-stack { opacity: 1; translate: 0 0; }
       /* Staggered, top corners first then the bottom ones, so four elements arriving at once read
@@ -2211,10 +2258,10 @@
 
       /* The two top corners land together (the cash and the pause), then the bottom row: the pedals
          and the cargo corner beside them. */
-      body.hud-ready #boost, body.hud-ready #boost-meter, body.hud-ready #brake, body.hud-ready #cargo-dock { transition-delay: 0.2s; }
+      body.hud-ready #boost, body.hud-ready #boost-meter, body.hud-ready #brake, body.hud-ready #stick, body.hud-ready #cargo-dock { transition-delay: 0.2s; }
       /* ...but on their own cue there is nothing to stagger against. */
       body.pedals-ready:not(.hud-ready) #boost, body.pedals-ready:not(.hud-ready) #boost-meter,
-      body.pedals-ready:not(.hud-ready) #brake { transition-delay: 0s; }
+      body.pedals-ready:not(.hud-ready) #brake, body.pedals-ready:not(.hud-ready) #stick { transition-delay: 0s; }
       body.hud-ready #rider-finder-stack { transition-delay: 0.3s; }
       /* --- ...and its exit, for the depot ------------------------------------
          `hud-away` sends everything back off the edge it came in from while the taxi is in the
@@ -2227,22 +2274,22 @@
       body.hud-away #hud { opacity: 0; translate: 0 -160%; }
       body.hud-away #pause { opacity: 0; translate: 0 calc(-100% - var(--hud-top) - 8px); }
       body.hud-away #cargo-dock, body.hud-away #boost, body.hud-away #boost-meter,
-      body.hud-away #brake { opacity: 0; translate: 0 200%; }
+      body.hud-away #brake, body.hud-away #stick { opacity: 0; translate: 0 200%; }
       body.hud-away #rider-finder-stack {
         opacity: 0; translate: calc(-100% - var(--ctl-left) - 8px) 0;
       }
       body.hud-away #hud, body.hud-away #boost-meter, body.hud-away #pause, body.hud-away #boost,
-      body.hud-away #brake, body.hud-away #rider-finder-stack, body.hud-away #cargo-dock { transition-delay: 0s; }
+      body.hud-away #brake, body.hud-away #stick, body.hud-away #rider-finder-stack, body.hud-away #cargo-dock { transition-delay: 0s; }
       /* The chips take taps on their own `pointer-events: auto`, so the stack's none is not enough. */
-      body.hud-away #pause, body.hud-away #boost, body.hud-away #brake,
+      body.hud-away #pause, body.hud-away #boost, body.hud-away #brake, body.hud-away #stick,
       body.hud-away #rider-finder-stack, body.hud-away #rider-finder-stack * { pointer-events: none; }
       #fare-pointers { transition: opacity 0.7s ease; }
       body.hud-away #fare-pointers { opacity: 0; }
       body.hud-away #fare-pointers .fare-pointer { pointer-events: none; }
       @media (prefers-reduced-motion: reduce) {
-        #hud, #boost-meter, #pause, #boost, #brake, #rider-finder-stack, #cargo-dock,
+        #hud, #boost-meter, #pause, #boost, #brake, #stick, #rider-finder-stack, #cargo-dock,
         body.hud-away #hud, body.hud-away #boost-meter, body.hud-away #pause, body.hud-away #boost,
-        body.hud-away #brake, body.hud-away #rider-finder-stack, body.hud-away #cargo-dock { translate: none; }
+        body.hud-away #brake, body.hud-away #stick, body.hud-away #rider-finder-stack, body.hud-away #cargo-dock { translate: none; }
       }
 
       /* --- "Add to Home Screen" screen — see src/game/homescreen.js -------------
@@ -2288,7 +2335,7 @@
       /* The HUD has nothing to say before there is a run — including on `?tutorial=off`, which
          reveals it at boot. */
       body.title-up #hud, body.title-up #cargo-dock, body.title-up #boost-meter, body.title-up #pause, body.title-up #boost,
-      body.title-up #brake, body.title-up #rider-finder-stack, body.title-up #taxi-finder,
+      body.title-up #brake, body.title-up #stick, body.title-up #rider-finder-stack, body.title-up #taxi-finder,
       body.title-up #fare-pointers { visibility: hidden; }
 
       /* The dim behind Settings and Credits: a page of text to read wants the city quieter. The
@@ -3250,6 +3297,8 @@
         </g>
       </svg>
     </button>
+    <!-- The steering stick (game/joystick.js): Pac-Man steering's control, bottom left. -->
+    <div id="stick" role="group" aria-label="Steering stick"><div class="stick-well"></div><div class="stick-knob"></div></div>
     <div id="rider-finder-stack" role="group" aria-label="Waiting riders"></div>
     <!-- Up only while the taxi is completely off-frame; a tap rides the camera back to it. Empty
          here: the car inside it is the real `createTaxiMesh` in a WebGL context of its own, the

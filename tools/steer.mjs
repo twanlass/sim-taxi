@@ -16,6 +16,7 @@ import { findRoute, planOrigin, allIntersections } from '../src/game/route.js';
 import { intersectionCentre, ARRIVE_RADIUS } from '../src/game/fares.js';
 import { steerPlan, readSwipe, decisionLane, exitDirs } from '../src/game/steer.js';
 import { RIGHT, UP, VIEW_DIR } from '../src/game/camera.js';
+import { snapStick } from '../src/game/joystick.js';
 import { DIR } from '../src/city/grid.js';
 
 let passed = 0;
@@ -43,6 +44,13 @@ check('a thumb\'s "down" heading +X turns toward +Z', readSwipe(0, 1, DIR.PX, to
 check('a thumb\'s "up" heading -Z turns toward -X', readSwipe(0, -1, DIR.NZ, toScreen) === DIR.NX);
 check('a thumb\'s "down" heading -Z turns toward +X', readSwipe(0, 1, DIR.NZ, toScreen) === DIR.PX);
 check('a thumb\'s "left" heading -Z is backwards', readSwipe(-1, 0, DIR.NZ, toScreen) === 'back');
+
+// The stick snaps absolutely to the street directions as drawn: right-and-up is -Z, right-and-down
+// +X, left-and-up -X, left-and-down +Z — whatever the heading.
+check('stick up-right is -Z', snapStick(1, -0.5, toScreen) === DIR.NZ);
+check('stick down-right is +X', snapStick(1, 0.5, toScreen) === DIR.PX);
+check('stick up-left is -X', snapStick(-1, -0.5, toScreen) === DIR.NX);
+check('stick down-left is +Z', snapStick(-1, 0.5, toScreen) === DIR.PZ);
 
 // --- 2. A steered taxi arrives -------------------------------------------------------------------
 const STEP = 1 / 60;

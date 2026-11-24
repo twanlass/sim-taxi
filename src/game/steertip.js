@@ -13,6 +13,8 @@ import { createSpeech } from './speech.js';
 
 export const TIP_TITLE = 'Tip';
 export const TIP_LINE = 'Swipe to {turn}';
+// With the stick (game/joystick.js), the tip stands on it rather than over the car.
+export const STICK_LINE = 'Steer with the {stick}';
 // How long the taxi may wait at a dead end before the tip comes back, in seconds of game time.
 const HOLD_PROMPT = 0.8;
 // Over the taxi's roof sign, in world units, so the tail points at the car rather than into it.
@@ -25,12 +27,14 @@ const TEACH_SWIPES = 2;
  * @param taxi      the taxi car
  * @param steer     game/steer.js's controller
  * @param canShow   () => boolean — the run is live and nothing else is framing the camera
+ * @param stickTop  () => {x, y} — the stick's top in viewport px; given, the tip points at the stick
  */
-export function createSteerTip({ project, viewport = null, taxi, steer, canShow }) {
+export function createSteerTip({ project, viewport = null, taxi, steer, canShow, stickTop = null }) {
   const root = document.getElementById('steer-talk');
   if (!root) return { update: () => {} };
   const bubble = createSpeech(root, { viewport });
-  const at = () => project(taxi.x, OVER_ROOF, taxi.z);
+  const at = stickTop ?? (() => project(taxi.x, OVER_ROOF, taxi.z));
+  const line = stickTop ? STICK_LINE : TIP_LINE;
   let open = false;
   let held = 0;
 
@@ -40,7 +44,8 @@ export function createSteerTip({ project, viewport = null, taxi, steer, canShow 
     const want = canShow() && (steer.swipes() < TEACH_SWIPES || held >= HOLD_PROMPT);
     if (want && !open) {
       open = true;
-      bubble.show(TIP_TITLE, TIP_LINE, at);
+      // A control is not a talker, so no tag on the stick's version (as the boost hint).
+      bubble.show(TIP_TITLE, line, at, null, { tag: !stickTop });
     } else if (!want && open) {
       open = false;
       bubble.hide();
