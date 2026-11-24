@@ -9,6 +9,7 @@ import { sightlineClear } from './sightline.js';
 import { cornerFor } from './fares.js';
 import { GRID_I, GRID_J } from '../city/grid.js';
 import { cloneProp, hash01, propMaterial, unlitMaterial } from '../util/geo.js';
+import { warmWreckOf } from './vanish.js';
 import { markOccluder } from './ssao.js';
 import {
   createGarbageTruckMesh, bagGeometry, bagStreakGeometry, HOPPER_MOUTH, LID_OPEN, BAG_R, BAG_CENTRE_Y,
@@ -309,6 +310,7 @@ export function createGarbage({ rng, scene, traffic, plan, blocked = () => false
   // --- The truck -------------------------------------------------------------
   const rig = createGarbageTruckMesh();
   scene.add(rig.group);
+  warmWreckOf(scene, rig.shell, 'garbageTruck');
   markOccluder(rig.group);
   const mouth = new THREE.Vector3();
 
