@@ -22,7 +22,8 @@ import { planLTrain, LTRAIN_DIMENSIONS } from '../game/ltrain.js';
 // up-screen, and a jib up in the air is drawn over whatever is that far behind it. So the jib sits
 // `CLEAR` over the tallest roof it can swing across and no higher, and the site is chosen where
 // that comes out modest (`MAX_LIFT`). Not tappable, and not in the sightline field: the mast and jib
-// are lattices you can see through, and a fare is never put out of reach by a girder.
+// are under a unit across against a 3.5-unit kerb mark, so a girder can cover a slice of a mark but
+// never the whole of one.
 //
 // **Cheap.** The concrete and the mast are static, stamped into the entrance wave with the
 // tower's own anchor so they rise with their building. What moves is four small meshes under two
@@ -43,9 +44,18 @@ export const CRANE_SHADOW = CRANE_PARAM === 'shadow';
 /** Jib, mast to tip. 10 units is ~77px at play zoom: long enough to read as a crane's arm. */
 export const REACH = 10;
 const COUNTER = 3.6;          // counter-jib, mast to the back end
-const MAST_W = 0.8;           // the mast's square section
-const JIB_W = 0.6;            // the jib's triangular section, width and height
-const HEAD_H = 2.8;           // the tower head over the jib root, that the pendants hang off
+// **Chunky, not spindly.** The first cut was a real lattice — chords and zigzag bracing 0.07 to
+// 0.12 across, one or two device pixels at play zoom — and Tyler, 2026-11-23: "busy and clunky ...
+// too spindly ... doesn't really read at this small screen resolution". So every member is now a
+// solid box sized to be several pixels wide, and the segmenting a lattice gives a crane is carried
+// by darker bands round the mast and the jib instead of by the bracing itself.
+const MAST_W = 0.85;          // the mast's square section: ~6.5px at play zoom
+const JIB_W = 0.62;           // the jib's section at the root, tapering to `JIB_TIP` of that
+const JIB_H = 0.62;
+const JIB_TIP = 0.55;
+const BAND = 1.6;             // pitch of the darker bands on the mast and the jib
+const HEAD_H = 1.5;           // the tower head over the jib root, the top lamp on it
+const LAMP = 0.34;            // the aircraft-warning lamps' size: 0.16 at first, a speck
 const STOREY = 2.4;           // the new storey, deck to the top of its slab
 const SLAB = 0.26;
 const COLUMN = 0.3;
@@ -147,42 +157,36 @@ function box(w, h, d, x, y, z, col) {
   return bakeColor(g, col);
 }
 
-/** A square-section member from `a` to `b`. */
-function strut(a, b, s, col) {
-  const len = a.distanceTo(b);
-  const g = new THREE.BoxGeometry(s, len, s);
-  const dir = new THREE.Vector3().subVectors(b, a).normalize();
-  g.applyQuaternion(new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir));
-  const mid = new THREE.Vector3().addVectors(a, b).multiplyScalar(0.5);
-  g.translate(mid.x, mid.y, mid.z);
-  return bakeColor(g, col);
-}
-
-const v = (x, y, z) => new THREE.Vector3(x, y, z);
 
 /**
- * The mast: four corner chords and a zigzag of bracing up each face, from `y0` to `y1`, about
- * (x, z). Members are 0.12 and 0.08: at play zoom a unit is ~7.7px, so these are one or two
- * device pixels at DPR 2 — any thinner and the lattice shimmers as the camera pans.
+ * A solid yellow box from `y0` to `y1` about (x, z), `w` square, banded every `BAND` with a darker
+ * collar standing 0.03 proud all round — proud rather than flush, so no band face shares a plane
+ * with the mast's own.
  */
-function mastParts(x, z, y0, y1, col) {
-  const parts = [];
-  const h = MAST_W / 2;
-  const corners = [[-h, -h], [h, -h], [h, h], [-h, h]];
-  for (const [cx, cz] of corners) parts.push(box(0.12, y1 - y0, 0.12, x + cx, (y0 + y1) / 2, z + cz, col));
-  const step = 1.0;
-  const n = Math.max(1, Math.round((y1 - y0) / step));
-  const dy = (y1 - y0) / n;
-  for (let f = 0; f < 4; f++) {
-    const [ax, az] = corners[f];
-    const [bx, bz] = corners[(f + 1) % 4];
-    for (let i = 0; i < n; i++) {
-      const ya = y0 + i * dy;
-      const flip = (i + f) % 2 === 0;
-      const p = flip ? [ax, az] : [bx, bz];
-      const q = flip ? [bx, bz] : [ax, az];
-      parts.push(strut(v(x + p[0], ya, z + p[1]), v(x + q[0], ya + dy, z + q[1]), 0.08, col));
-    }
+function mastParts(x, z, y0, y1, w, col, bandCol) {
+  const parts = [box(w, y1 - y0, w, x, (y0 + y1) / 2, z, col)];
+  for (let y = y0 + BAND; y < y1 - 0.4; y += BAND) parts.push(box(w + 0.06, 0.12, w + 0.06, x, y, z, bandCol));
+  return parts;
+}
+
+/**
+ * The jib: a box from x = 0 to `len`, `w` wide and `h` tall at the root, narrowed to `tip` of that
+ * at the far end — the taper is what makes a girder read as an arm rather than as a plank.
+ */
+function jibParts(len, w, h, tip, col, bandCol) {
+  const g = new THREE.BoxGeometry(len, h, w);
+  g.translate(len / 2, h / 2, 0);
+  const pos = g.attributes.position;
+  for (let i = 0; i < pos.count; i++) {
+    const k = 1 - (1 - tip) * (pos.getX(i) / len);
+    pos.setY(i, pos.getY(i) * k);
+    pos.setZ(i, pos.getZ(i) * k);
+  }
+  g.computeVertexNormals();
+  const parts = [bakeColor(g, col)];
+  for (let x = BAND; x < len - 0.4; x += BAND) {
+    const k = 1 - (1 - tip) * (x / len);
+    parts.push(box(0.12, h * k + 0.06, w * k + 0.06, x, (h * k) / 2, 0, bandCol));
   }
   return parts;
 }
@@ -236,7 +240,7 @@ export function createCrane(site, rng) {
   }
   parts.push(box(0.8, 0.5, 0.8, deck.cx + deck.cw * 0.28, slabTop + 0.25, deck.cz - deck.cd * 0.28, color('siteFormwork')));
   // The mast, from the deck up through the slab to the slewing ring.
-  parts.push(...mastParts(mast.x, mast.z, floorY, jibY - 0.3, yellow));
+  parts.push(...mastParts(mast.x, mast.z, floorY, jibY - 0.3, MAST_W, yellow, color('craneBand')));
   parts.forEach(stamp);
   const storey = new THREE.Mesh(mergeGeometries(parts, false), propMaterial());
   parts.forEach((p) => p.dispose());
@@ -245,67 +249,50 @@ export function createCrane(site, rng) {
   storey.name = 'crane-site';
 
   // --- The slewing top, in its own frame: origin on the mast at jibY, +X along the jib ---------
+  const band = color('craneBand');
   const top_ = [];
-  top_.push(box(1.0, 0.3, 1.0, 0, -0.15, 0, color('craneDark')));          // the slewing ring
-  // The jib: a triangular lattice, two bottom chords and a top chord, a zigzag down each side.
-  const hw = JIB_W / 2;
-  const jt = JIB_W;
-  top_.push(box(REACH, 0.1, 0.1, REACH / 2, 0.05, -hw, yellow));
-  top_.push(box(REACH, 0.1, 0.1, REACH / 2, 0.05, hw, yellow));
-  top_.push(box(REACH, 0.1, 0.1, REACH / 2, jt, 0, yellow));
-  const seg = 0.8;
-  const segs = Math.round(REACH / seg);
-  for (let i = 0; i < segs; i++) {
-    const xa = (i * REACH) / segs;
-    const xb = ((i + 1) * REACH) / segs;
-    for (const s of [-1, 1]) {
-      const low = i % 2 === 0 ? xa : xb;
-      const high = i % 2 === 0 ? xb : xa;
-      top_.push(strut(v(low, 0.05, s * hw), v(high, jt, 0), 0.07, yellow));
-    }
-    top_.push(box(0.07, 0.07, JIB_W, xa, 0.05, 0, yellow));                // rungs across the bottom
-  }
-  // The counter-jib: a walkway with rails, and the counterweight slabs at its end.
-  top_.push(box(COUNTER, 0.12, 0.9, -COUNTER / 2, 0.06, 0, yellow));
-  for (const s of [-1, 1]) top_.push(box(COUNTER, 0.06, 0.06, -COUNTER / 2, 0.5, s * 0.45, yellow));
-  top_.push(box(1.0, 1.1, 1.1, -COUNTER + 0.6, -0.35, 0, color('craneWeight')));
-  top_.push(box(0.6, 0.5, 0.7, -1.2, 0.37, 0, color('craneDark')));          // the hoist winch
-  // The tower head and the pendant ties off its top to the jib and the counter-jib.
-  top_.push(...mastParts(0, 0, 0, HEAD_H, yellow).map((g) => g.scale(0.75, 1, 0.75)));
-  top_.push(box(0.5, 0.12, 0.5, 0, HEAD_H, 0, yellow));
-  const apex = v(0, HEAD_H, 0);
-  top_.push(strut(apex, v(REACH * 0.62, jt, 0), 0.05, color('craneDark')));
-  top_.push(strut(apex, v(-COUNTER + 0.2, 0.5, 0.45), 0.05, color('craneDark')));
-  top_.push(strut(apex, v(-COUNTER + 0.2, 0.5, -0.45), 0.05, color('craneDark')));
-  // The cab, hung off the side of the jib root, glazed on the jib side.
-  top_.push(box(0.75, 0.8, 0.7, 0.55, -0.35, 0.85, yellow));
-  top_.push(box(0.04, 0.5, 0.56, 0.95, -0.3, 0.85, color('craneGlass')));
+  top_.push(box(1.2, 0.3, 1.2, 0, -0.15, 0, color('craneDark')));          // the slewing ring
+  top_.push(...jibParts(REACH, JIB_W, JIB_H, JIB_TIP, yellow, band));
+  // The counter-jib, a deck as deep as the jib, and the counterweight hung off its end.
+  top_.push(box(COUNTER, 0.32, 0.8, -COUNTER / 2, 0.16, 0, yellow));
+  top_.push(box(1.1, 1.2, 1.1, -COUNTER + 0.6, -0.3, 0, color('craneWeight')));
+  // The tower head over the root: a short block, not the lattice mast it used to be, with the
+  // top lamp on it. No pendant ties off it any more — black lines a pixel wide read as cracks.
+  top_.push(box(0.6, HEAD_H, 0.6, 0, JIB_H + HEAD_H / 2 - 0.1, 0, yellow));
+  // The operator's cab, up at the top where a real one is: a chunky box on the slewing platform
+  // beside the jib's root, glazed on the front and the side the camera sees.
+  const cab = { x: 0.35, y: 0.55, z: 0.95, w: 1.1, h: 1.0, d: 0.9 };
+  top_.push(box(cab.w, cab.h, cab.d, cab.x, cab.y, cab.z, yellow));
+  top_.push(box(0.04, cab.h * 0.55, cab.d * 0.75, cab.x + cab.w / 2 + 0.02, cab.y + 0.1, cab.z, color('craneGlass')));
+  top_.push(box(cab.w * 0.75, cab.h * 0.55, 0.04, cab.x + 0.05, cab.y + 0.1, cab.z + cab.d / 2 + 0.02, color('craneGlass')));
+  top_.push(box(cab.w + 0.12, 0.08, cab.d + 0.12, cab.x, cab.y + cab.h / 2 + 0.04, cab.z, color('craneDark')));
   const slewMesh = new THREE.Mesh(mergeGeometries(top_, false), propMaterial({ ao: false }));
   top_.forEach((p) => p.dispose());
   slewMesh.name = 'crane-jib';
 
   // The aircraft-warning lamps, on the head and the jib's tip: unlit red, and bloomed at night.
-  const lampGeo = [box(0.16, 0.16, 0.16, 0, HEAD_H + 0.14, 0, color('craneLamp')),
-    box(0.16, 0.16, 0.16, REACH - 0.05, jt + 0.12, 0, color('craneLamp'))];
+  const lampGeo = [box(LAMP, LAMP, LAMP, 0, JIB_H + HEAD_H - 0.1 + LAMP / 2, 0, color('craneLamp')),
+    box(LAMP, LAMP, LAMP, REACH - LAMP / 2, JIB_H * JIB_TIP + LAMP / 2, 0, color('craneLamp'))];
   const lamps = new THREE.Mesh(mergeGeometries(lampGeo, false), unlitMaterial({ vertexColors: true }));
   lampGeo.forEach((g) => g.dispose());
   lamps.name = 'crane-lamps';
 
-  // The trolley rides the bottom chords; the rope and the hook hang off a pendulum under it.
-  const trolley = new THREE.Mesh(box(0.7, 0.22, 0.75, 0, -0.08, 0, color('craneDark')), propMaterial({ ao: false }));
+  // The trolley rides under the jib; the rope and the hook hang off a pendulum under it. One rope,
+  // a steel grey rather than black: two black hairlines read as scratches on the screen, and with
+  // no rope at all the beam floats.
+  const trolley = new THREE.Mesh(box(0.7, 0.26, 0.7, 0, -0.1, 0, color('craneDark')), propMaterial({ ao: false }));
   trolley.name = 'crane-trolley';
-  const ropeGeo = mergeGeometries([-0.12, 0.12].map((z) => box(0.06, 1, 0.06, 0, -0.5, z, color('craneRope'))), false);
-  const rope = new THREE.Mesh(ropeGeo, propMaterial({ ao: false }));
+  const rope = new THREE.Mesh(box(0.1, 1, 0.1, 0, -0.5, 0, color('craneRope')), propMaterial({ ao: false }));
   rope.name = 'crane-rope';
   const loadParts = [];
-  loadParts.push(box(0.36, 0.42, 0.3, 0, -0.21, 0, yellow));               // the hook block
-  loadParts.push(box(0.12, 0.2, 0.08, 0, -0.5, 0, color('craneDark')));    // the hook
-  // The beam, an I-section along the jib's cross direction, and its two slings up to the hook.
+  loadParts.push(box(0.42, 0.5, 0.36, 0, -0.25, 0, yellow));               // the hook block
+  // The beam, an I-section along the jib's cross direction, hung straight under the block — the
+  // slings went with the other hairlines.
   const by = -0.6 - SLING;
-  for (const [h, w, y] of [[0.06, 0.34, by + BEAM_H / 2 - 0.03], [0.06, 0.34, by - BEAM_H / 2 + 0.03], [BEAM_H, 0.07, by]]) {
+  for (const [h, w, y] of [[0.08, 0.4, by + BEAM_H / 2 - 0.04], [0.08, 0.4, by - BEAM_H / 2 + 0.04], [BEAM_H, 0.12, by]]) {
     loadParts.push(box(w, h, BEAM_L, 0, y, 0, color('craneLoad')));
   }
-  for (const s of [-1, 1]) loadParts.push(strut(v(0, -0.55, 0), v(0, by + BEAM_H / 2, s * BEAM_L * 0.36), 0.04, color('craneRope')));
+  loadParts.push(box(0.1, SLING - 0.1, 0.1, 0, -0.5 - SLING / 2, 0, color('craneRope')));
   const load = new THREE.Mesh(mergeGeometries(loadParts, false), propMaterial({ ao: false }));
   loadParts.forEach((p) => p.dispose());
   load.name = 'crane-load';

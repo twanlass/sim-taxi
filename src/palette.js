@@ -1245,15 +1245,20 @@ export const PALETTE = {
   // the classic tower-crane yellow goes in dusty — a mustard well under the taxi's saturation, so
   // the eye that is scanning for the one yellow car does not snag on a girder over the rooftops.
   // The beam is in red-oxide primer, which is what steel arrives on site wearing, held down the
-  // same way. The concrete is a step paler than a finished wall, as fresh concrete is.
+  // same way.
   craneYellow: '#C4A456',
   craneWeight: '#8E8B84',
   craneGlass: '#3F5363',
-  craneRope: '#3A3C40',
+  // Steel cable in daylight is a light grey; black read as a scratch on the screen.
+  craneRope: '#9A9EA4',
+  // The collars round the mast and the jib: the yellow a few steps down, so they segment it.
+  craneBand: '#937A3E',
   craneLoad: '#8A5040',
   // Unlit: a lamp, not paint. The bloom picks it up at night.
   craneLamp: '#E04A3A',
-  siteConcrete: '#C3BEB3',
+  // Raw concrete, cool and a step darker than any finished wall in the city, so the new storey reads
+  // as unfinished rather than as more of the building under it (Tyler, 2026-11-23).
+  siteConcrete: '#9A9FA3',
   siteRebar: '#6B4B3B',
   siteFormwork: '#A88A62',
   // --- The harbor (city/harbor.js) -------------------------------------------
