@@ -43,7 +43,8 @@ const LINES = {
   // The rider hailing the cab, in their own voice (Tyler, 2026-10-24). It no longer says "tap", and
   // does not need to: the city is dimmed to a pool on them, the camera has just carried the player
   // there, and the card's tag sits on their head — one lit figure calling out is the thing to press.
-  rider: 'Hey {taxi}! Over here!',
+  // Cut to "Hey! Taxi!" (Tyler, 2026-11-24).
+  rider: 'Hey! {Taxi}!',
   // `?hail=classic`: the game's own instruction, under the "Tip" title.
   riderClassic: 'Pick up {rider} to start',
   // Every showing says this, a repeat included. A second line, "Hold it down — don't tap", was

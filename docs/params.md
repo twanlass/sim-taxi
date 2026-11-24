@@ -134,7 +134,7 @@ doc; what the classic version was, and why it changed, is in that doc's history 
 | `?bubblestyle=card` | The docked speech card as the white Figma card with its blue gradient | | [gameplay.md](gameplay.md#speech-bubbles) |
 | `?questmark=classic` | No purple side-quest "!": the street racer's offer shows the speech tag's typing dots ("…"), the garage door has no "!" while the taxi smokes, and the bank rider waits under the urgency pie | | [gameplay.md](gameplay.md#speech-bubbles) |
 | `?tipfocus=classic` | A speech tag waiting at the screen edge takes no tap; the racer's still asks from where it is, and nothing pans the camera to the talker | | [gameplay.md](gameplay.md#speech-bubbles) |
-| `?hail=classic` | The first tutorial line as a "Tip" ("Pick up rider to start") rather than the rider hailing the cab ("Hey taxi! Over here!") | | [gameplay.md](gameplay.md#the-opening-tutorial) |
+| `?hail=classic` | The first tutorial line as a "Tip" ("Pick up rider to start") rather than the rider hailing the cab ("Hey! Taxi!") | | [gameplay.md](gameplay.md#the-opening-tutorial) |
 | `?bubbles=dock` | The docked card with no tag on the talker | | [gameplay.md](gameplay.md#speech-bubbles) |
 | `?copchat=classic` | The cops' "pull over" and "lost the suspect" bubbles | #492 | [gameplay.md](gameplay.md) |
 | `?renderer=classic` | Draws with three's WebGLRenderer and the GLSL shader patches, as the game did before the WebGPU port. Also what a browser with no WebGPU gets, without being asked | | [rendering.md](rendering.md#the-webgpu-port) |
