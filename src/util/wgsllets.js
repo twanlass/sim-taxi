@@ -193,10 +193,21 @@ export function installVarsToLets(renderer) {
       patched = true;
       const proto = Object.getPrototypeOf(builder);
       const buildCode = proto.buildCode;
+      // Remembered by source: a boot builds ~640 shader stages and only ~250 of them are distinct
+      // (the same vertex stage under dozens of materials, the same material under several
+      // passes), and the rewrite is a pure function of the text. Measured headless (2026-11-24):
+      // ~1 s of rewriting a boot down to the distinct ones. The map lives as long as the renderer,
+      // and holds about what three's own program cache does.
+      const seen = new Map();
+      const rewrite = (code) => {
+        let out = seen.get(code);
+        if (out === undefined) { out = varsToLets(code); seen.set(code, out); }
+        return out;
+      };
       proto.buildCode = function () {
         buildCode.call(this);
         for (const key of ['vertexShader', 'fragmentShader', 'computeShader']) {
-          if (typeof this[key] === 'string') this[key] = varsToLets(this[key]);
+          if (typeof this[key] === 'string') this[key] = rewrite(this[key]);
         }
       };
     }
