@@ -525,6 +525,9 @@ export const PALETTE = {
   racerBody: '#7B3CFF',
   racerWing: '#1B1726',
   racerStripe: '#F6F4EE',
+  // The racer's ghost outline (geometry/ghostoutline.js): racerBody at the same hue and full
+  // saturation, lightness raised from 0.62 to 0.75 so a 2.7px trace reads behind a shadowed tower.
+  racerGhost: '#AA80FF',
   // The underglow: an electric cyan, the colour opposite the violet paint, so the pad reads as a
   // light under the car rather than as the car's own reflection on the road.
   racerGlow: '#2FE6FF',

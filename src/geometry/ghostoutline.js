@@ -168,8 +168,9 @@ export function ghostRimMaterial({ tint = color('taxiGhost'), opacity = 0.85 } =
  * @param mesh  the mesh to trace
  * @param rim   outline thickness in the mesh's local units — smaller for small parts like the
  *              roof sign, where the default would double the part's size
+ * @param tint  rim colour; the taxi's yellow when left out (see ghostRimMaterial)
  */
-export function addGhostOutline(mesh, { rim = RIM } = {}) {
+export function addGhostOutline(mesh, { rim = RIM, tint } = {}) {
   // Pass 1 — stamp the mesh's screen footprint into the stencil. Shares the parent's geometry:
   // the mask must match the silhouette exactly or slivers of rim leak inside it.
   const mask = new THREE.Mesh(mesh.geometry, ghostMaskMaterial());
@@ -179,7 +180,7 @@ export function addGhostOutline(mesh, { rim = RIM } = {}) {
   mesh.add(mask);
 
   // Pass 2 — the rim.
-  const rimMesh = new THREE.Mesh(inflatedGeometry(mesh.geometry, rim), ghostRimMaterial());
+  const rimMesh = new THREE.Mesh(inflatedGeometry(mesh.geometry, rim), ghostRimMaterial({ tint }));
   rimMesh.name = 'ghostRim';
   rimMesh.renderOrder = GHOST_RIM_ORDER;
   rimMesh.raycast = noRaycast;
@@ -243,6 +244,24 @@ export function stampGhostMask(material) {
  */
 export function setGhostOutlines(root, visible) {
   root.traverse((child) => {
-    if (child.name === 'ghostMask' || child.name === 'ghostRim') child.visible = visible;
+    if (isGhostPart(child)) child.visible = visible;
   });
+}
+
+/** Is `object` one of the two passes addGhostOutline / addGhostMask hang off a mesh? */
+export function isGhostPart(object) {
+  return object.name === 'ghostMask' || object.name === 'ghostRim';
+}
+
+/**
+ * Take every ghost outline off a *copy* of a traced group — a wreck cloned from a live car. A
+ * wreck is scenery: it should not keep tracing itself through the building it came to rest
+ * behind, and the clone's material pass (`cloneProp`, opacity forced to 1) would turn the rim
+ * from an outline into a solid hull. Clones only: the live group keeps its outline.
+ */
+export function stripGhostOutlines(root) {
+  const parts = [];
+  root.traverse((child) => { if (isGhostPart(child)) parts.push(child); });
+  for (const part of parts) part.removeFromParent();
+  return root;
 }

@@ -134,7 +134,7 @@ import {
   createTargetRing, ringGrowScale, ringShrinkScale, RING_R, RING_Y,
 } from '../src/geometry/targetring.js';
 import { createParcelPad, PAD_R } from '../src/geometry/parcelpad.js';
-import { underglowGeometry, createPulse, pulseStep, createRace, COUNT_STEP as RACE_COUNT_STEP, ROCKET_COUNT, COUNTDOWN as RACE_COUNTDOWN } from '../src/game/race.js';
+import { createRivalMesh, underglowGeometry, createPulse, pulseStep, createRace, COUNT_STEP as RACE_COUNT_STEP, ROCKET_COUNT, COUNTDOWN as RACE_COUNTDOWN } from '../src/game/race.js';
 import { createHydraulics, LIFT_MIN, LIFT_MAX } from '../src/game/hydraulics.js';
 import { TAXI_DECK_Y, TAXI_TAILPIPE_BACK, TAXI_TAILPIPE_HEIGHT, TAXI_SCALE as TAXI_SCALE_TOP } from '../src/geometry/taxi.js';
 import { createLocoFlame, setFlameStyle } from '../src/game/locoflame.js';
@@ -12949,6 +12949,23 @@ function rideToPickup() {
   // damage pieces include the chequer on the shut bonnet and boot, which go when their lid opens.
   check('every drawn taxi part is in the ghost stencil mask', unmasked.length === 0 && masks.length === 33,
     `${unmasked.length} unmasked, ${masks.length} masks (9 outlined parts + 16 damage pieces + 4 door pieces + 2 bumpers + 2 mirrors)`);
+
+  // The street racer is a guest car (`enterGuest`) — no instance, so game/carghosts.js cannot see
+  // it, and it vanished behind every building until it wore an outline of its own (Tyler: "our
+  // street racer has no ghost outline when it goes behind buildings"). Same two rules as the taxi.
+  // The underglow is the one drawn part left out: additive, no depth write, so it occludes nothing.
+  const rival = createRivalMesh();
+  const rivalRims = [];
+  const rivalUnmasked = [];
+  rival.group.traverse((node) => {
+    if (node.name === 'ghostRim') rivalRims.push(node);
+    if (!node.isMesh || node.name === 'ghostMask' || node.name === 'ghostRim' || node === rival.glow) return;
+    if (!node.children.some((c) => c.name === 'ghostMask')) rivalUnmasked.push(node);
+  });
+  check('the street racer wears a ghost outline, and every solid part is in the mask',
+    rivalRims.length === 5 && rivalUnmasked.length === 0
+      && rivalRims.every((r) => r.material.color.getHex() === new THREE.Color(color('racerGhost')).getHex()),
+    `${rivalRims.length} rims (body + 4 wheels), ${rivalUnmasked.length} unmasked parts`);
 
   // --- A dimming lamp must dim where it stands ---------------------------------------------------
   //
