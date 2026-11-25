@@ -60,6 +60,9 @@ export const BEATS = [
   { name: 'bigair', query: 'bot=bigair', seed: 71624, run: 7, pre: 0.9, post: 2.3, zoom: 34, max: 100 },
   // The drift onto the bridge and the Big Air off it, in one take: ~6 s with the UI (`a` frames).
   { name: 'bigroll', query: 'bot=bigroll', seed: 71624, run: 3, pre: 3.0, post: 3.0, zoom: 30, max: 60, solo: true },
+  // The bank job end to end, with the UI: the last of the cut, the robber's line, the getaway with
+  // the cops coming on. The game's own cameras frame it (no zoom pin), so the cut stays the cut.
+  { name: 'heist', query: 'bot=robbery', seed: 71624, run: 2, pre: 7.2, post: 3.5, zoom: 0, max: 140, solo: true },
   { name: 'mega', query: '', seed: 71624, run: 7, pre: 1.4, post: 2.6, zoom: 40, max: 70 },
   { name: 'robbery', query: 'bot=robbery', seed: 71624, run: 7, pre: 0.3, post: 3.0, zoom: 36, max: 140 },
   { name: 'cops', query: 'bot=cops', seed: 71624, run: 7, pre: 0.5, post: 2.8, zoom: 34, max: 100 },
