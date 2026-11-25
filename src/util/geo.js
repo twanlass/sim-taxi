@@ -7,7 +7,7 @@ import { createCloudNodes } from './gpuclouds.js';
 import { createPaving } from './gpupaving.js';
 import { PALETTE, plazaLook } from '../palette.js';
 import {
-  PITCH, HALF_SPAN_X, HALF_SPAN_Z, HALF_ROAD, HALF_ARTERIAL, GRID_I, GRID_J, isArterialX, isArterialZ, RIVER_EXTRA,
+  PITCH, HALF_SPAN_X, HALF_SPAN_Z, HALF_ROAD, HALF_ARTERIAL, GRID_I, GRID_J, LANE_TO_KERB, isArterialX, isArterialZ, RIVER_EXTRA,
   riverMidZ, riverRow, isUnsignalised, isSegmentClosed, lineX, lineZ,
 } from '../city/grid.js';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
@@ -291,6 +291,18 @@ export const PAINT_UNIFORMS = {
   uJunctionMortar: { value: new THREE.Vector3(1, 1, 1) },    // the joints' ratio
   uJunctionAt: { value: new THREE.Vector2(-99, -99) },       // which junction, as (i, j)
   uJunctionBrick: { value: new THREE.Vector3(0.9, 0.45, 0.07) }, // brick length, width, joint, world units
+  // The asphalt's own colour variation (`setRoadTexture`): x the swing of its broad light and
+  // dark, y the soft mottle, z unused (it was the lane wear), w the city's offset into the hashes.
+  uRoadTex: { value: new THREE.Vector4(0, 0, 0, 0) },
+  uRoadTexFine: { value: new THREE.Vector2(0, 0) }, // x the oil stains, y the grain
+  uRoadTexPixel: { value: new THREE.Vector2(0, 0.1) }, // the pixel street: x its texel in world units (0 is the smooth road), y the palette's step
+  // The levers of the street texture section of the panel (tuneRoadTexture). Tune: x the tone
+  // patches' size, y how warm the pale ones lean, z half the width of the shoulder between pale
+  // and dark, w the light bias. Detail: x the share of cells with a stain, y and z unused (they were
+  // the cracks, removed 2026-11-25), w the share of texels speckled each way.
+  uRoadTexTune: { value: new THREE.Vector4(1, 0.35, 0.12, 0.25) },
+  uRoadTexDetail: { value: new THREE.Vector4(0.08, 0.45, 0.2, 0.04) },
+  uRoadTexGrid: { value: new THREE.Vector3(GRID_I, GRID_J, LANE_TO_KERB) }, // the last real line each way, then kerb to lane centre
   uBrushTile: { value: 8 },     // world units per tile repeat
   uBrushAmt: { value: 0.7 },   // value swing of a stroke (0.22 was invisible at play zoom)
 };
@@ -413,6 +425,119 @@ export function placeJunctionPaving(rng, visible = () => true) {
   return pick;
 }
 
+/**
+ * The asphalt's colour variation (Tyler, 2026-11-23: "It's all one shade of gray ... mostly color /
+ * albedo"). Three things, all a ratio over the lit road in the ground's paint pass, so shadows, wet
+ * sheen and reflections stay the road's, and all worked out from the grid arithmetic the plaza
+ * already does: no texture, no geometry.
+ *
+ * - **Tone.** The broad light and dark: two octaves of value noise at 31 and 13 units, and a third
+ *   at 47 that leans it warm or cool. A function of world position alone, so it has no edge
+ *   anywhere. It was **resurfaced runs** first, lengths of 22 to 48 units a street each its own
+ *   shade and seamed square across the road, with a junction box taking the road that ran through
+ *   it; Tyler read every one of those straight edges as a seam between street meshes (2026-11-23:
+ *   "visible seams where street meshes come together"), and the tone stopping dead at the last
+ *   real street put another along the coast. Nothing in the broad tone asks which road it is on.
+ *   It is pushed toward two plateaus, pale and warm against dark, after Tyler's "some streets are
+ *   paved concrete and some are asphalt" (2026-11-23): per street would be the seams again, so it
+ *   is patches with a soft shoulder.
+ * - **Mottle.** One octave of value noise at 11 units.
+ * - **No wear.** Two pale wheel tracks a lane with a dark drip line between them and a dark gutter
+ *   shipped through five rounds and came out on 2026-11-23: through the pixel grid Tyler found
+ *   they "look pixelated and not quite like tires made them". The stains still cluster on the
+ *   drip line, which is all that is left of it.
+ * - **Oil stains** (Tyler, 2026-11-23: "Keep going! Ruts, oil stains, some general noise"). One
+ *   dark, faintly brown blot at most per 3.2-unit cell, 0.45 to 1.3 across with an edge the grain
+ *   chews: about one cell in twelve anywhere on a road, and one in three down a lane's
+ *   drip line on the way up to a junction, which is where cars stand and drip.
+ * - **Grain.** Two finer octaves, 1.3 and 0.45 units, the second about ten device pixels on a
+ *   phone: below that a world-locked noise crawls as the camera pans.
+ *
+ * `amount` scales all three (`?roadtexamt=`); 0 is the plain road (`?roadtex=classic`).
+ */
+//
+// Cost, tools/gpucost.mjs at 780x1688 on SwiftShader's WebGL, against main: 897 ms to 952 ms a frame,
+// +6.2% (the painted strokes it stands where were about a third). It was +4.3% with the runs, wear
+// and mottle alone: the stains and the two grain octaves are the other 2%. No texture read.
+// Measured again as shipped on 2026-11-25 (pixel grid, tone noise, no wear, no cracks), the same
+// tool with renderer=classic against that day's main, two runs each: 630 ms to 682 ms, +8.3%.
+// Still not timed on a phone.
+// 0.11 of wear ruled a dark comb up to every junction at play zoom while it was the only detail
+// on the road; with the stains and the grain breaking it up it reads as ruts, and is 0.13.
+//
+// `run` went from 0.34 to 0.5 with the two plateaus, for the concrete and asphalt split.
+// Roughly doubled on 2026-11-23 (Tyler, of run 0.16, mottle 0.1, wear 0.13, stain 0.3, grain 0.1:
+// "Still not enough. Way too subtle."). The stains went from one cell in nine to one in four too.
+//
+// Every number the look hangs on is a key here and a uniform in the shader, so the panel's Street
+// texture section (game/debugpanel.js) can move each one with the game running. The first four
+// scale with `amount`; the rest are shapes and densities and do not.
+export const ROAD_TEX_DEFAULTS = Object.freeze({
+  // Tyler's tuning from the panel, 2026-11-25, in two rounds (run, mottle, warmth, shoulder, bias,
+  // speckle, texel, step; then grain); stain, patch and stainDensity are
+  // still the first pass's.
+  run: 0.18, mottle: 0.71, stain: 0.5, grain: 0.25,
+  patch: 1,        // the tone patches' size, as a multiple of the 31, 13 and 47 unit octaves
+  warmth: 0.45,    // how far the pale patches lean warm
+  shoulder: 0.49,  // half the width of the step between pale and dark: small is a hard edge
+  bias: 0.69,      // how far the whole swing sits above the base grey
+  stainDensity: 0.08, // the share of 3.2-unit cells with a stain away from a junction
+  speckle: 0.05,      // the share of texels that are a single light pixel, and again dark
+  texel: 0.15,        // the pixel street's texel (setRoadPixels); 0 is the smooth road
+  step: 0.02,         // the grey ramp's step
+});
+export const ROAD_TEX = { ...ROAD_TEX_DEFAULTS };
+const roadTexApplied = { amount: 0, seed: 0, pixels: true };
+export function setRoadTexture(amount = 1, seed = 0) {
+  const a = Math.max(0, amount);
+  roadTexApplied.amount = a;
+  roadTexApplied.seed = seed;
+  PAINT_UNIFORMS.uRoadTex.value.set(ROAD_TEX.run * a, ROAD_TEX.mottle * a, 0, (seed % 97) + 0.5);
+  PAINT_UNIFORMS.uRoadTexFine.value.set(ROAD_TEX.stain * a, ROAD_TEX.grain * a);
+  PAINT_UNIFORMS.uRoadTexTune.value.set(Math.max(0.05, ROAD_TEX.patch), ROAD_TEX.warmth, Math.max(0.005, ROAD_TEX.shoulder), ROAD_TEX.bias);
+  PAINT_UNIFORMS.uRoadTexDetail.value.set(ROAD_TEX.stainDensity, 0, 0, ROAD_TEX.speckle);
+}
+
+/**
+ * Move one of ROAD_TEX's levers with the game running (the panel's Street texture section). Only
+ * uniforms move, so nothing recompiles. A road switched off by `?roadtex=classic` stays off, and
+ * one on `?roadtex=smooth` keeps its texel at 0.
+ */
+export function tuneRoadTexture(key, value) {
+  if (!(key in ROAD_TEX_DEFAULTS) || !Number.isFinite(value)) return;
+  ROAD_TEX[key] = value;
+  setRoadTexture(roadTexApplied.amount, roadTexApplied.seed);
+  if (roadTexApplied.pixels) PAINT_UNIFORMS.uRoadTexPixel.value.set(Math.max(0, ROAD_TEX.texel), Math.max(0.01, ROAD_TEX.step));
+}
+
+/**
+ * The pixel-art street (Tyler, 2026-11-23: "Can we try something that looks like a pixel art
+ * street?"). The same road, read through a grid of world texels: every layer above is sampled at
+ * its texel's centre, the value is rounded to a short ramp of greys, the stains get a hard edge,
+ * and the grain becomes single light and dark pixels (one texel in twenty-five each way).
+ *
+ * 0.25 because the grid divides by it: a 9-unit street is 36 texels kerb to kerb, the pitch 84
+ * and both half-spans whole numbers, so texel edges land on every kerb line of an ordinary street
+ * (an arterial's 10.67 does not divide, and its outer texel is cut). It is 1.9 CSS pixels at play
+ * zoom, six device pixels on a phone. The texels are square
+ * on the *ground*, so on screen they are the diamonds of a low-resolution texture rather than
+ * screen pixels. `texel` 0 is the smooth road (`?roadtex=smooth`).
+ */
+//
+// 0.375 (24 to a street) was the first cut and Tyler found it "a little too big" (2026-11-23), along
+// with the stains, cracks and speckle being overdone and the street all dark: so 0.25, 36 to a
+// street and still on every kerb line; stains from one cell in four to one in twelve, cracks from
+// half the 9-unit cells to a fifth, speckle from one texel in ten each way to one in twenty-five;
+// and the runs and the mottle biased light (a run is -0.25 to +0.75 of its swing, not -0.5 to 0.5).
+// Then 0.225 (40 to a street) with a grey step of 0.02, Tyler's own from the panel (2026-11-25),
+// and 0.15 (60 to a street, still on every kerb line) the next morning, when the cracks came out.
+export const ROAD_TEXEL = ROAD_TEX_DEFAULTS.texel;
+export function setRoadPixels(texel = ROAD_TEXEL, step = ROAD_TEX_DEFAULTS.step) {
+  roadTexApplied.pixels = texel > 0;
+  if (texel > 0) { ROAD_TEX.texel = texel; ROAD_TEX.step = step; }
+  PAINT_UNIFORMS.uRoadTexPixel.value.set(Math.max(0, texel), step);
+}
+
 if (GPU) {
   let paving = null;
   bindPropNodes({ paving: () => (painterlyEnabled ? (paving ??= createPaving(PAINT_UNIFORMS)) : null) });
@@ -452,6 +577,37 @@ float paintNoise(vec2 p) {
 }
 uniform float uBrushTile;
 uniform float uBrushAmt;
+uniform vec4 uRoadTex;
+uniform vec3 uRoadTexGrid;
+uniform vec2 uRoadTexFine;
+uniform vec2 uRoadTexPixel;
+uniform vec4 uRoadTexTune;
+uniform vec4 uRoadTexDetail;
+// One oil stain a cell at most. lane is how near a drip line this is (0 to 1, already eased off
+// away from a junction), chew a noise that roughens the edge. 1 in the blot, 0 outside.
+float roadStain(vec2 p, float lane, float chew) {
+	vec2 g = p / 3.2;
+	vec2 f = fract(g);
+	float h = paintHash(floor(g) + uRoadTex.w * 3.1);
+	vec2 o = 0.3 + 0.4 * vec2(fract(h * 91.7), fract(h * 513.3));
+	float r = 0.07 + 0.13 * fract(h * 7919.0);
+	float d = length(f - o) / r + (chew - 0.5) * 0.9;
+	return step(1.0 - uRoadTexDetail.x - 0.25 * lane, h) * (1.0 - smoothstep(0.5, 1.0, d));
+}
+// The broad light and dark of the road: x its value, y its hue, both about -0.5 to 0.5. Value
+// noise over the world position and nothing else, so it has no edge anywhere.
+vec2 roadTone(vec2 p) {
+	vec2 q = p / uRoadTexTune.x;
+	float a = paintNoise(q / 31.0 + uRoadTex.w * 1.7);
+	float b = paintNoise(q / 13.0 + uRoadTex.w * 2.9 + 40.0);
+	float c = paintNoise(q / 47.0 + uRoadTex.w * 0.7 + 90.0);
+	// Pushed toward two plateaus, a pale stretch and a dark one with a soft shoulder between, and
+	// the pale one leans warm: concrete beside asphalt, without either having an outline.
+	float t = smoothstep(0.5 - uRoadTexTune.z, 0.5 + uRoadTexTune.z, a * 0.7 + b * 0.3) - 0.5;
+	// 0.7 of warmth took the pale stretches to the pavement's own tan and a block stopped
+	// separating from its street; 0.35 leaves them a grey.
+	return vec2(t, t * uRoadTexTune.y + (c - 0.5) * 0.6);
+}
 `;
 
 // Spliced in after SHADOW_LIGHT. The shade ratio is 0 on a fully lit face and 1 in full shade, so
@@ -517,6 +673,7 @@ const PAINT_FRAGMENT = /* glsl */ `
 					// screen. The two road-tile reads and the junction arithmetic below are skipped
 					// there rather than computed and thrown away (perf pass, 2026-10-18).
 					float hold = (1.0 - grassy) * (1.0 - smoothstep(0.35, 0.6, lum));
+					float plaza = 0.0;
 					if (uJunctionTint.w > 0.0 && vPaintWorld.y < 0.1) {
 						vec2 jp = vPaintWorld.xz - vec2(0.0, vPaintWorld.z > uRiverZ.x ? uRiverZ.y : 0.0);
 						vec2 jl = floor((jp + uRoadGrid.xy) / uRoadGrid.z + 0.5);
@@ -567,7 +724,60 @@ const PAINT_FRAGMENT = /* glsl */ `
 							// Sunlit dry asphalt sits under 0.42 and keeps the whole ratio.
 							float jWet = 1.0 - smoothstep(0.42, 0.7, lum);
 							gl_FragColor.rgb *= mix(vec3(1.0), jt, jBox * uJunctionTint.w * jWet);
+							plaza = jBox * uJunctionTint.w;
 						}
+					}
+					// The asphalt's colour variation (setRoadTexture, where the reasoning is). Held off
+					// the lawns, the lane paint, the plaza, and (like the plaza) anything already
+					// bright, which is the wet road at night.
+					float tHold = (1.0 - grassy) * (1.0 - smoothstep(0.42, 0.7, lum)) * (1.0 - plaza);
+					if (uRoadTex.x + uRoadTex.y + uRoadTex.z > 0.0 && abs(vPaintWorld.y) < 0.1 && tHold > 0.0) {
+						// The pixel street reads every layer at its texel's centre (setRoadPixels).
+						float pix = step(1e-4, uRoadTexPixel.x);
+						vec2 wq = pix > 0.5 ? (floor(vPaintWorld.xz / uRoadTexPixel.x) + 0.5) * uRoadTexPixel.x : vPaintWorld.xz;
+						vec2 tp = wq - vec2(0.0, wq.y > uRiverZ.x ? uRiverZ.y : 0.0);
+						vec2 tl = floor((tp + uRoadGrid.xy) / uRoadGrid.z + 0.5);
+						vec2 td = abs(tp + uRoadGrid.xy - tl * uRoadGrid.z);
+						float aX = mod(floor(uRoadArt.x / exp2(tl.y)), 2.0);  // the road along x at line j
+						float aZ = mod(floor(uRoadArt.y / exp2(tl.x)), 2.0);  // the road along z at line i
+						float hX = mix(uRoadArt.z, uRoadArt.w, aX);
+						float hZ = mix(uRoadArt.z, uRoadArt.w, aZ);
+						// Only the lines the city has: the arithmetic carries on out over the fade skirt.
+						float realX = step(-0.5, tl.y) * step(tl.y, uRoadTexGrid.y + 0.5);
+						float realZ = step(-0.5, tl.x) * step(tl.x, uRoadTexGrid.x + 0.5);
+						float inX = smoothstep(-0.12, 0.12, hX - td.y) * realX;
+						float inZ = smoothstep(-0.12, 0.12, hZ - td.x) * realZ;
+						float tn = paintNoise(wq / 11.0 + uRoadTex.w);
+						vec2 run = roadTone(wq);
+						// Biased light: a street that only ever varies about its base reads as all dark.
+						float tv = (run.x + uRoadTexTune.w) * uRoadTex.x + (tn - 0.35) * uRoadTex.y;
+						vec3 tex = (1.0 + tv) * (1.0 + run.y * uRoadTex.x * 0.6 * vec3(1.0, 0.1, -1.0));
+						if (uRoadTexFine.x + uRoadTexFine.y > 0.0) {
+							float g1 = paintNoise(wq / 1.3 + 7.0);
+							float g2 = paintNoise(wq / 0.45 + 31.0);
+							if (pix > 0.5) {
+								// Single pixels instead of the fine octave: one in 25 light, one in 25 dark.
+								float sp = paintHash(wq * 7.31 + 3.0);
+								g2 = 0.5 + 0.9 * (step(1.0 - uRoadTexDetail.w, sp) - step(sp, uRoadTexDetail.w));
+							}
+							// How near a lane's drip line, and only on the way up to a junction or in it.
+							float lx = (1.0 - smoothstep(0.2, 0.9, abs(td.y - (hX - uRoadTexGrid.z)))) * inX
+								* (1.0 - smoothstep(1.0, 8.0, mix(9.0, td.x - hZ, realZ)));
+							float lz = (1.0 - smoothstep(0.2, 0.9, abs(td.x - (hZ - uRoadTexGrid.z)))) * inZ
+								* (1.0 - smoothstep(1.0, 8.0, mix(9.0, td.y - hX, realX)));
+							float stain = roadStain(wq, max(lx, lz), g1);
+							stain = mix(stain, step(0.4, stain), pix) * max(inX, inZ) * uRoadTexFine.x;
+							// The pixel street keeps only the single pixels: the 1.3-unit octave rounded to the
+							// ramp was a second band pattern over the mottle's, and read as static.
+							tex *= 1.0 + ((g1 - 0.5) * 0.6 * (1.0 - pix) + (g2 - 0.5) * 0.4) * uRoadTexFine.y * 2.0;
+							tex *= 1.0 - stain * vec3(0.9, 1.0, 1.15);
+						}
+						if (pix > 0.5) {
+							// The ramp: the value rounded to the palette's step, the hue left as it was.
+							float lv = (tex.r + tex.g + tex.b) / 3.0;
+							tex *= floor(lv / uRoadTexPixel.y + 0.5) * uRoadTexPixel.y / max(lv, 1e-3);
+						}
+						gl_FragColor.rgb *= mix(vec3(1.0), tex, tHold);
 					}
 					vec2 mq = vPaintWorld.xz / uRoadMaskScale;
 					float m = hold > 0.0 && uRoadAmt > 0.0 ? paintNoise(mq) * 0.65 + paintNoise(mq * 2.3 + 17.1) * 0.35 : 0.0;

@@ -1383,8 +1383,61 @@ default city; `CITY=big npm run check` is the big one's suite.
 | `ground.js` | asphalt slab, road surface, kerbs (`KERB_H = 0.35`), block tops — a park's is a walk around a lawn, [above](#a-park-has-a-frontage) — crosswalks | One merged mesh, plus the edge fade as a child — alpha can't ride in the merge's 3-component colour. Crosswalks are omitted at unsignalised junctions — a crosswalk implies a signal. |
 | `buildings.js` | towers, courtyard blocks, façades, roof furniture | One merged mesh. Height ceiling is deliberately low; tall towers hid the taxi. See [what a building is made of](#what-a-building-is-made-of). |
 | `props.js` | trees, park benches, the statue | Merged per material via `bakeColor`, so hundreds of props cost one draw call. Placement is [above](#benches-and-one-statue). |
+| `markings.js` | worn paint: zebras at three junctions, two STOPs, bike lanes (one street, both river banks), a bike box, a hatched box junction, a TAXI rank | Merged into the ground mesh, so no draw call of its own. [Below](#street-markings). |
 | `manholes.js` | seven or eight manhole covers, three of them venting steam (`game/manholesteam.js`) | Its own mesh, wet in the rain, not brushed. [Below](#manhole-covers). |
 | `game/streetprops.js`, `geometry/streetprops.js` | two blue post boxes and a hot dog cart on the kerb | Their own meshes, since they fall over. [Below](#the-post-box-and-the-hot-dog-cart). |
+
+### Street markings
+
+`city/markings.js`. The rule (Tyler, 2026-11-25) is **a few of each, and none of it fresh**: the
+first cut put a zebra, a stop line and a STOP on every all-way-stop approach, and at the city's
+framing that was a wallpaper of white rather than a street. Now, off the ground's seed:
+
+- **Zebra crossings at three junctions** (`CROSSING_JUNCTIONS`, at least 30 apart), across ordinary
+  streets only, with a **stop line** on each approach — 1.55..1.85 off the box edge, under the nose
+  of a car holding at `STOP_SETBACK`, so it reads as pulled up to the line.
+- **STOP on two approaches** elsewhere (`STOP_WORDS`), each with its line, chosen to read the right
+  way up from this camera. 3×5 pixel letters stretched 1.75× along the lane. Nothing checks they are
+  in clear view, so one can land behind a building.
+- **Bike lanes** on one ordinary street running along Z (never the garage's), and down the river side
+  of both bank roads for their whole length (Tyler, 2026-11-25). A white edge line 1.3 in from the kerb
+  (3.2 off an ordinary street's centreline; measured from the kerb so it lands right on a bank road
+  that is a main road), a dull red lane running up to each junction box (or to a zebra) and a bicycle
+  past each junction. On a bank road the lane runs straight on through every junction with nothing
+  on its river side, and stops only at the bridges. A brighter red band across each junction mouth
+  was cut (Tyler, 2026-11-25).
+- **Three one-offs**: a **green bike box** ahead of the stop line on one bike-street approach (the car
+  line moves back 2.2), an **amber hatched keep-clear box** across the road in front of the garage door,
+  as a landmark for the depot (stripes one way only: a cross-hatch overlaps itself, and two worn cells
+  on one plane are a z-fight; the centre dashes stop either side of it), and a **TAXI rank** on the
+  garage's kerb past the door.
+- **Cobbled median strips**: a main road's planted islands are joined across a junction by a flush
+  strip of setts the island's width (running bond, each sett its own shade, a pale soldier course down
+  both edges), so the median reads as one line rather than a row of planters. Only where the crossing
+  road leaves one side (a T, which is every bank junction without a bridge): at a four-way the islands
+  just end (Tyler, 2026-11-25: "no cobble stone at 4-way intersections"). At the fill level so a manhole
+  lies on top; it runs under each island's nose so the rounded cap hides its square end; and where two
+  main roads cross, the z strip is cut round the x one so the two never share a plane.
+- **Kerbs**: the kerb stone is a cooler grey a step darker than the warm pavement (`kerb`), so a block
+  reads as an edge and a top rather than one tan slab, and five lengths of it are painted (Tyler,
+  2026-11-25): three red no-parking runs just past a corner and two green loading runs mid-block, only
+  on ordinary built blocks and only on the +x/+z faces the camera sees; yellow all the way round the
+  cemetery; and red down one camera-facing side of one park. Each is a row of short boxes 0.012 proud
+  of the stone, worn piece by piece, stopping short of the rounded corners.
+- **No median stubs.** The double line between an arterial island's nose and the junction (1.8..3.7
+  units) read as stray dashes, so outside `?markings=classic` the island's nose is the only divider there.
+
+**Everything is worn**, baked into vertex colour rather than a shader (the road-texture shader is on
+an unmerged branch, and this way it is the same on both renderers for no fragment cost): each mark is
+cut into 0.25-unit cells (the road texture's texel and an art pixel) faded toward `asphalt` by its own
+amount plus a per-cell speckle, with 7% of cells worn through. A narrow mark is one cell across —
+cut both ways, a lost cell halved a zebra stripe and the crossing read as scattered blocks. The centre
+dashes and double lines get the same through `wornPaint`.
+
+Heights: paint at `MARK_Y`; the two fills (bike lane, amber hatch) at `MARK_Y − 0.005`, because a
+bicycle and a manhole sit on them and 0.01 is the asphalt patches' level (`PATCH_Y`). One triangle
+soup merged into the ground: ground mesh 11.6k → 20.1k triangles on seed 1, no draw call or shader.
+`?markings=classic` is the first pass: four 0.72 bars at every signalised crossing, clean paint.
 
 ### Manhole covers
 

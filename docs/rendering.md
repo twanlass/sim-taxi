@@ -1258,6 +1258,28 @@ What the WebGPU path draws today, and what it does not:
   rewrites every var that is written once and read only after it, in the same block, as a `let`
   (not counted: it is not storage), on every shader three builds; the busiest is then 580 bytes and
   the frame is pixel-identical. Anything it cannot prove stays a var.
+- **Most of a WebGPU boot is three writing WGSL, and most of that is one uncached question.**
+  A CPU profile of a headless boot (2026-11-24) put ~70% of it inside `NodeBuilder.build`, ~310
+  builds, and the hottest single function in the boot was `getTypeLength` — the leaf of
+  `getNodeType`, which no node caches and which an operator answers by asking all its inputs, so a
+  node deep in a lit material is asked once per path down to it. `util/nodememo.js` memoises it
+  during `analyze` and `generate` (not `setup`, where a node's answer can still change), keyed on
+  the stage, shader stage, node cache, context and sub-build, plus the pure type-name helpers; and
+  `util/wgsllets.js` remembers each rewrite by its source. Measured with `tools/boottime.mjs`:
+  12.6 s to 9.0 s headless, 247 modules byte-identical. `?nodememo=classic` turns it off.
+- **On a real Mac the GPU is cheap until it has never seen the shaders.** Measured on an M5 in
+  Chrome with the real Metal adapter (headless Chrome on a Mac gets it; 2026-11-24): a cached boot
+  reaches `taxi:ready` in ~2.1 s, about 70% of it node building, with pipeline creation ~0.16 s.
+  A boot of shaders the Mac has never compiled took ~10 s, and clearing the browser profile does
+  not reproduce that: macOS keeps compiled Metal shaders per app, outside Chrome, in
+  `$(getconf DARWIN_USER_CACHE_DIR)/<bundle>.helper/com.apple.metal`. Two things learned there:
+  - A material must not grow an enumerable property while it builds. three's material cache key
+    walks every own property not starting with `_`, so `PaintNodeMaterial` assigning
+    `this.paintNodes` in setup re-keyed itself and every later draw of it built again — 28 builds
+    and 10 shader modules a boot. It is `_paintNodes` now.
+  - `createRenderPipelineAsync` for the warm-up's pipelines was tried and made a never-seen boot
+    **slower** (7.5-11 s against 3.8-4.9 s, Chrome for Testing with its Metal cache cleared each
+    run) with no change to a cached one, so the warm-up still builds them synchronously.
 
 Things the WebGL renderer does without being asked, each of which showed up as a wrong
 picture and each of which the node path now does by hand:
@@ -1625,13 +1647,61 @@ pavement a paler, warmer `#CDBFA6`, because the old pair (`#636972` against `#9E
 same khaki under the low warm sun and a block did not separate from its street. Against that, three
 things break the run of tarmac. `?roads=classic` brings back the old road and drops all three.
 
+The asphalt itself is not one grey either (`setRoadTexture`, util/geo.js; `?roadtex=classic` is the
+flat road and `?roadtexamt=` scales it). It is albedo only, a ratio over the lit road in the
+ground's paint pass, worked out from the grid arithmetic with no texture and no geometry:
+
+- **Tone.** The broad light and dark, biased light so the street is not all at its darkest: value
+  noise over world position alone (31 and 13 units, a 47-unit octave leaning it warm or cool), so
+  it has no edge anywhere. It was resurfaced runs first (lengths of 22 to 48 units a street, each
+  its own shade, seamed square across the road); every one of those straight edges read as a seam
+  between street meshes, and the reasoning is beside `setRoadTexture`.
+  It is pushed toward two plateaus, a pale warm one and a dark one with a soft shoulder between,
+  so stretches read as concrete beside asphalt without either having an outline.
+- **Mottle.** One octave of value noise at 11 units.
+- **No lane wear.** Wheel tracks, a drip line and a gutter were drawn until 2026-11-23; through the
+  pixel grid they did not read as made by tyres, and came out.
+- **Oil stains.** At most one dark, faintly brown blot per 3.2-unit cell, 0.45 to 1.3 across, its
+  edge chewed by the grain: about one cell in twelve anywhere on a road, one in three down
+  a lane's drip line on the way up to a junction, where cars stand.
+- **Grain.** Two finer octaves at 1.3 and 0.45 units. The finer is about ten device pixels on a
+  phone; a world-locked noise much below that crawls as the camera pans.
+
+**It is drawn as a pixel-art street** (`setRoadPixels`; `?roadtex=smooth` is the same road without
+the grid, `?roadpx=` the texel's size). Every layer above is read at the centre of a 0.15-unit
+world texel, 60 to an ordinary street and landing on its kerb lines, and the value is rounded to a
+ramp of greys a fiftieth apart. The stains get a hard edge, the grain becomes single light and dark
+pixels (one texel in twenty-five each way; the 1.3-unit octave rounded to the ramp read as static
+and is left out). The first cut was a 0.375 texel with three times the stains and speckle, which
+Tyler found too big and overdone; then 0.25, 0.225 and 0.15. Cracks were tried and taken out
+(Tyler, 2026-11-25: "they don't work yet"). The texels are square on the ground, so on screen they are a low-resolution texture's
+diamonds, not screen pixels. Lane paint, kerbs and everything standing on the road stay smooth.
+
+**Every number of it is a slider.** The ⚙️ panel's Visuals tab has a Street texture section (`?dev`
+opens the panel): the light and dark swing and its bias, the patches' size, edge and warmth, the
+mottle, the stains' and speckle's strength and count, the texel and the grey ramp's step.
+They are all uniforms (`ROAD_TEX` and `tuneRoadTexture` in util/geo.js), so they move with the game
+running on either renderer; the panel remembers the look across reloads, in debug mode only, and
+its box holds the changed values as JSON to copy out or paste in. A look worth keeping goes into
+`ROAD_TEX_DEFAULTS`. `__taxi.roadTex(key, value)` is the same lever for a headless tool.
+
+Held off the lane paint, the lawns, the plaza and (like the plaza) a road that is already bright,
+which is the wet road at night. The asphalt patches and manhole covers are their own meshes and
+keep their own colour. It costs +8.3% of a SwiftShader WebGL frame at phone size as shipped (630 ms to 682 ms against main, 2026-11-25;
++6.2% before the pixel grid and the tone noise, +4.3% before the stains and grain); the same code
+runs as nodes on WebGPU (util/gpupaving.js).
+
 - **Light bridge decks.** Every crossing, fixed or lifting, wears one light pavement grey
   (`bridgeDeck`, `drawbridgeDeck`), so the river row reads as a different material rather than as
   more street; `bridgeTrim` went paler with it so the parapets still outline the deck.
-- **No marks where the road meets a bridge.** The asphalt runs straight onto the light deck. The
-  expansion joints that used to sit there (`jointParts`, geometry/bridge.js) read as a chunky
-  crossing band at play zoom and are off by default; `?bridgemarks=classic` brings them back
-  ([history](rendering-history.md#bridge-expansion-joints)).
+- **A steel finger joint where the road meets a bridge** (since 2026-11-25, Tyler: "a shiny dark
+  metal"). `jointParts` (geometry/bridge.js): two dark steel plates with a row of interlocking fingers
+  between them, 0.4 deep across the carriageway on the road side of each bank, on the gloss material
+  with the paint finish. Metal and chrome were tried first and mirror the sky: on a flat plate under
+  this camera they read as a pale blue line, not dark steel. The plates are mid steel (`bridgeSteel`) and the slots near black: plates as dark as the asphalt disappeared at whichever end stood in sun. Kept to three pixels at play zoom because
+  the painted joints before it (a dark strip and a pale approach slab) read as a chunky crossing band
+  and were turned off on 2026-10-25; `?bridgemarks=classic` brings those back, and `?markings=classic`
+  takes the steel away ([history](rendering-history.md#bridge-expansion-joints)).
 - **One paved plaza** (`setJunctionPaving`, util/geo.js): a random full signalised crossing of two
   side streets, drawn per city off its own stream and only where the camera sees the whole box
   (`placeJunctionPaving`, after the occluders exist). It was the one nearest the middle until
@@ -2383,6 +2453,16 @@ there under the fog, and what `?city=big` shows, since the fog is island-only.
   (`FOG_WARP`, up to 16 units of bend). The first cut slid one layer along one heading, which reads as
   a texture on a conveyor; the warp is what makes a billow swell, curl and pinch off instead. All of it
   stays outward-only, so the motion never brings the fog onto the road.
+- **Mixed in linear light, with an unshaded rim.** Tyler, 2026-11-25: an "awkward seam between
+  the end of the pavement road and the clouds" — the south coast read as the road casting a blurred
+  shadow onto the bank. Two causes, both fixed. The bank's own mix ran on display values, so the
+  ramp from asphalt to fog spent most of its width in a dark olive grey (155/255 half way across,
+  against 190 mixed in linear); it now converts both ends to linear, mixes, and converts back (the
+  haze above it does not, since every haze colour was picked against display values). And the edge
+  is an iso-line of the same noise the [weather](#the-fog-of-war--gameedgefogjs) shading reads, so
+  stepping from it toward a northern sun always climbs the field: the whole near rim sat on a
+  shaded flank, a lavender band hugging the coast. The shading now fades in over `FOG_SHADE_IN`
+  units past `FOG_END`, and the rim sits at `FOG_RIM_LIT`, a touch on the lit side.
 - **A sloped top.** The distance is taken minus 1.1 × the fragment's height, so the outermost
   buildings' roofs stand up out of the bank rather than being washed flat with their own pavement.
 - **A floor for it to swallow.** Past the coast there is nothing to fog, so a plain plane sits at
@@ -2390,7 +2470,21 @@ there under the fog, and what `?city=big` shows, since the fog is island-only.
   It is what stands in for the sky everywhere past the island.
 - **Colour follows the sky.** `daylight.js` calls `setEdgeFogSky` on every keyframe: the dome's
   horizon colour lifted 45% toward white, so it greys under rain and darkens at night with no wiring
-  of its own. The noise shades it ±10% so the bank has bodies in it.
+  of its own.
+- **Weather in the bank.** Tyler, 2026-11-24: the fog "reads as just pure white". The bank is lit
+  like a cloud layer: the coarse billow field is read a second time a step toward the sun
+  (`FOG_LIGHT_STEP`), and where it climbs that way the fragment is on a billow's shadowed flank,
+  the one-sample version of how a cloud renderer lights a density field. Lit sides go a touch cream
+  and shaded ones blue-lavender (`FOG_SHADE_LIT/DARK`), crests stay brighter than hollows
+  (`FOG_BODY`), and the warp field, already computed to bend the billows, tints whole stretches
+  warmer or cooler (`FOG_REGION_*`). Every tint *multiplies* the fog's own colour, so dusk, rain and
+  night keep their hue. The sun direction and strength come from `daylight.js` through a second
+  shared plain-object uniform, `edgeFogSun` (`setEdgeFogSun`), so the lit sides agree with the
+  city's shadows, swing round with the day and fade out at night. Cost: one extra value-noise read,
+  on fogged fragments only. `?fogshade=classic` (`FOGSHADE=classic` headless) puts back the flat
+  bank ([history](rendering-history.md#the-flat-white-fog-bank-557-until-2026-11-24-fogshadeclassic)).
+  The marketing site's page colour is this fog's, and the bank's mean now sits a few levels
+  bluer at the frame edges than the flat colour did.
 - **Sim time** drives it (`tickEdgeFog`), so a paused game holds its fog still and shots repeat;
   `__taxi.edgeFogAt(seconds)` sets the clock and redraws, for filming the drift from a frozen shot.
 - **No city in the fog.** A ring of pale towers standing in the bank to the west and north was
@@ -4923,7 +5017,14 @@ of four](rendering-history.md#car-motion).
 
 ### The city entrance — `game/cityentry.js`
 
-**Prototype.** When a run opens, the streets and ground are already in place and the buildings and
+**Off by default** (Tyler, 2026-11-25): the city is standing from the first frame and the run opens
+on the garage door. `?entry=classic` brings the wave back, along with the L's own intro (bents
+rising, track laid), which rides its levers. Off, no material is patched at all: measured headless
+under WebGPU (seed 7, 3 runs each) that is 25 fewer shader modules (247 to 222) and ~0.8 s off
+`taxi:ready` (11.0 to 10.2 s median). The ⚙️ panel's City entrance sliders do nothing without it.
+Everything below describes the wave as it runs under `?entry=classic`.
+
+When a run opens, the streets and ground are already in place and the buildings and
 trees grow out of them in a wave that spreads from the taxi's spawn — the run starts where the
 player's car is, and the city builds itself outward from them. Each object rises from the kerb
 while it fades in, overshoots its full size (easeOutBack, peak +37%) and settles, with a puff of

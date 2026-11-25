@@ -4,6 +4,7 @@ import { WebGPURenderer } from 'three/webgpu';
 import { gpuCompat, unported } from './game/gpucompat.js';
 import { GPU, fallBackToWebGL, gpuNote } from './util/gpu.js';
 import { installVarsToLets } from './util/wgsllets.js';
+import { installNodeMemo } from './util/nodememo.js';
 import { createGpuCapture } from './game/gpucapture.js';
 import { createGpuFrame } from './game/gpuframe.js';
 import { createGpuCrt } from './game/gpucrt.js';
@@ -160,6 +161,7 @@ import { markEmissive } from './game/bloom.js';
 import { renderBudget, decideLooks, createRenderPath } from './game/renderpath.js';
 import {
   propMaterial, setGlossCity, setGlossGlobal, PAINT_UNIFORMS, placeJunctionPaving,
+  tuneRoadTexture,
 } from './util/geo.js';
 import * as difficulty from './game/difficulty.js';
 import { DAYS, dayByKey, loadWeek, clearDay, resetWeek } from './game/days.js';
@@ -341,6 +343,9 @@ const renderer = GPU ? new WebGPURenderer({ antialias: budget.msaa, stencil: tru
 // Safari refuses any WGSL function whose `var`s add up past 8 KB, and three declares one for every
 // node it caches: see util/wgsllets.js.
 if (GPU) installVarsToLets(renderer);
+// Three's node builder asks the same type questions of the same nodes thousands of times per
+// material, and that — not the GPU — is most of a WebGPU boot: see util/nodememo.js.
+if (GPU && new URLSearchParams(window.location.search).get('nodememo') !== 'classic') installNodeMemo(renderer);
 perfMark('renderer');
 // NOT `window.innerWidth/innerHeight`: on an installed iOS app those stop short of the physical
 // bottom of the screen, and the strip the canvas doesn't cover shows as bare sky under the game.
@@ -385,7 +390,7 @@ document.body.appendChild(renderer.domElement);
 // AO, painterly, the paint look, the rim and cloud shadows: all baked into the
 // shader `propMaterial()` builds, so all decided here, before a single mesh exists. In
 // game/renderpath.js because the model workshop's bench takes the same decisions.
-decideLooks(budget);
+decideLooks(budget, seed);
 const aoEnabled = budget.ao;
 // Which brush a static mesh wears (see PAINT_FRAGMENT): 1 buildings, 2 ground (lawns only).
 const brush = (mesh, kind) => {
@@ -752,7 +757,11 @@ if (river) {
   const jointRng = makeRng(seed + 58);
   const joints = bridgeLines().flatMap((line) => jointParts(bridgeSpan(line), jointRng));
   if (joints.length) {
-    const jointMesh = new THREE.Mesh(mergeGeometries(joints, false), propMaterial());
+    // Steel (the default) shines: the gloss material reads each vertex's `FINISH.METAL`. The classic
+    // painted strips carry no finish and keep the plain one.
+    const jointGeo = mergeGeometries(joints, false);
+    const steel = !!jointGeo.attributes.aFinish;
+    const jointMesh = new THREE.Mesh(jointGeo, steel ? propMaterial({ gloss: { geometry: jointGeo } }) : propMaterial());
     joints.forEach((part) => part.dispose());
     jointMesh.receiveShadow = true;
     jointMesh.name = 'bridge-joints';
@@ -908,6 +917,11 @@ const skaters = (skaterFlag === 'classic' ? createClassicSkaters : createSkaters
 // since 2026-10-11 (Tyler); `?ltrain=classic` takes it out for comparison. Built here rather than beside the boats because the entrance wave below has to
 // be handed it. Run seed: where the line runs is the arterial's, so the map's already; which way
 // the first train goes and how long the line stands empty is the situation.
+// The city opens already standing (Tyler, 2026-11-25): no buildings growing out of the ground, no L
+// track being laid. The garage door is the opening shot. `?entry=classic` is the old entrance wave.
+// Off, `createCityEntry` patches no material at all, which is the point: measured headless (WebGPU,
+// seed 7), 25 fewer shader modules (247 -> 222) and ~0.8 s off `taxi:ready` (11.0 -> 10.2 s median).
+const CITY_ENTRY = new URLSearchParams(window.location.search).get('entry') === 'classic';
 const ltrain = new URLSearchParams(window.location.search).get('ltrain') !== 'classic' || shot?.atLTrain
   ? createLTrain(scene, makeRng(runSeed + 421), {
     // Wheel sparks through the shared pool, which is built further down — only ever called from
@@ -917,7 +931,8 @@ const ltrain = new URLSearchParams(window.location.search).get('ltrain') !== 'cl
     lights: new URLSearchParams(window.location.search).get('trainlights') !== 'classic',
     // Its own intro, bents then track (2026-10-13, Tyler); `?trainintro=classic` grows the whole
     // structure with the city's wave instead. Started and driven beside `cityEntry` below.
-    intro: new URLSearchParams(window.location.search).get('trainintro') !== 'classic',
+    // Off with the city's own entrance (`?entry=classic` brings both back).
+    intro: CITY_ENTRY && new URLSearchParams(window.location.search).get('trainintro') !== 'classic',
   }) : null;
 
 // The taxi's garage — the block `createLayout` took out of the tower generator's hands, and the
@@ -1889,6 +1904,7 @@ const roboDebug = robotaxis && new URLSearchParams(window.location.search).has('
 // below, next to the markers — a frozen frame of half-grown city is never the screenshot anybody
 // asked for.
 const cityEntry = createCityEntry({
+  enabled: CITY_ENTRY,
   // The garage rises with everything else, shell and shutter alike — both are stamped with the one
   // anchor, so it comes up as a building rather than as a building and a door.
   meshes: [city.mesh, ...city.glass, ...(city.frames ? [city.frames] : []), ...(city.domeMesh ? [city.domeMesh] : []), ...(westEdge ? [westEdge.towers, ...westEdge.glass] : []), ...(westEdge?.frames ? [westEdge.frames] : []), propsMesh, grass.mesh, canopyFuzz.mesh, ...(garage?.meshes ?? []),
@@ -1917,6 +1933,8 @@ const cityEntry = createCityEntry({
 // The L's intro runs on the city entry's wave and levers, but on its own clock, since the track
 // is still being laid after the last building has landed.
 const replayLTrainIntro = (from) => ltrain?.intro?.start(from, cityEntry.tuning());
+// Play again opens on the standing city; `?rerunentry=classic` grows it again every run (see `rerun`).
+const RERUN_ENTRY = new URLSearchParams(window.location.search).get('rerunentry') === 'classic';
 replayLTrainIntro(traffic.taxi);
 if (litPanes || lamps || depotPanes) {
   rainLightsOn = () => {
@@ -6707,8 +6725,15 @@ const titleReel = title && TITLE_CAM === 'reel'
 // A slow slide along screen-right past the garage door, wider than the door shot Play lands on.
 let storyCam = null;
 const STORY_ZOOM = 24;
-const STORY_DRIFT = 0.35;   // world units a second along screen-right
+const STORY_DRIFT = 0.35;   // world units a second along screen-right, at the start
 const STORY_FROM = -3;      // where the slide starts, along screen-right of the door
+// How far the slide goes before it comes to rest. Each line waits for a tap, so the story lasts as
+// long as the player lets it, and a slide that never stopped walked the door off the left of the
+// screen (reported 2026-11-25). It decays instead: it leaves at `STORY_DRIFT` and settles
+// `STORY_TRAVEL` along, 4 units right of the door. The four voiced lines run ~19.5 s of audio,
+// ~25 s read through with taps, which takes it ~5 units of the way, where the linear slide
+// had gone 8.75; left alone it is within 0.1 of rest by ~85 s.
+const STORY_TRAVEL = 7;
 /**
  * Seconds for the flight from the title's slide down to the story's shot. A blend of the two moving
  * frames rather than an ease toward the second: the weight runs 0 to 1 on a smootherstep, so the
@@ -6721,7 +6746,7 @@ const STORY_GLIDE = 3.5;
 function storyFrame(dt) {
   storyCam.t += dt;
   const door = opening.doorAt();
-  const across = STORY_FROM + storyCam.t * STORY_DRIFT;
+  const across = STORY_FROM + STORY_TRAVEL * (1 - Math.exp(-storyCam.t * STORY_DRIFT / STORY_TRAVEL));
   return { x: door.x + RIGHT.x * across, z: door.z + RIGHT.z * across, zoom: STORY_ZOOM };
 }
 // The camera cuts onto the drift on the first frame the title holds, rather than easing to it from
@@ -7127,11 +7152,16 @@ function resetRun({ toTitle = false } = {}) {
     sfx?.offAir();
     title.reopen();
   } else {
-    // The top of the show: the station on its intro, the city building out from the garage, the door.
+    // The top of the show: the station on its intro and the door. The city is already standing, so
+    // a replay opens straight on the garage rather than building the city out of the ground a
+    // second time (Tyler, 2026-11-25): the wave is a first-load flourish, and on run two it was two
+    // seconds of waiting before the door. `?rerunentry=classic` builds it again, L track and all.
     sfx?.newRun({ dash: dashRadio });
     opening?.cutToDoor();
-    cityEntry.replay(traffic.taxi);
-    replayLTrainIntro(traffic.taxi);
+    if (RERUN_ENTRY) {
+      cityEntry.replay(traffic.taxi);
+      replayLTrainIntro(traffic.taxi);
+    }
   }
   updateHud(0);
   perfMark('rerun:end');
@@ -9218,6 +9248,8 @@ window.__taxi = {
   unported,
   renderer: GPU ? 'webgpu' : 'webgl',
   gpuCapture: (options) => gpuCapture?.capture(options),
+  /** Move one lever of the street texture (ROAD_TEX in util/geo.js), as the panel does. */
+  roadTex: tuneRoadTexture,
   /** The `?bot` scripted session, or null — `scene()` and `log` (game/perfbot.js). */
   get perfBot() { return perfBot; },
   /** Whether the boot's GPU warm-up is done and the run has started — see `warmedUp`. */

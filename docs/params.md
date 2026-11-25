@@ -19,6 +19,7 @@ doc; what the classic version was, and why it changed, is in that doc's history 
 |---|---|---|---|
 | `?streets=classic` | 8-unit streets, the width they were before 2026-10-17. The default is 9. Blocks keep their size, so the map shrinks with the streets. Headless tools take `STREETS=` | | [city.md](city.md#street-width-streets) |
 | `?river=classic` | The 12-unit river, the width it was before 2026-10-18. The default is 15 (25% wider); the blocks keep their size, so the map is 3 units taller. `?city=big` keeps the 12-unit river either way. Headless tools take `RIVER=classic` | | [river.md](river.md#the-channel-is-wider-than-a-block-row-riverclassic) |
+| `?nodememo=classic` | Turns off the memoised type queries in three's node builder, so a WebGPU boot builds its ~310 node graphs the slow way (~12.6 s to `taxi:ready` headless against ~9.0 s; same WGSL either way). For A/B timing | | [rendering.md](rendering.md) |
 | `?mirrorwarm=classic` | Skips drawing the wet road's mirror during the boot warm-up, so the first squall builds the mirror pass's pipelines mid-run (a 3.2 s freeze on an iPhone 16 Pro under WebGPU) as it did before 2026-11-23. For A/B timing on a device | | [testing.md](testing.md) |
 | `?fadewarm=classic` | Skips warming the faded (transparent) program variants at boot, so the first fade of a rider, a boat or the roadworks links its shader mid-run as it did before 2026-11-22. For A/B timing on a device | | [testing.md](testing.md) |
 | `?bridges=classic` | The island's old four crossings: both ring roads and the L's line bridged beside the drawbridge. The default (2026-10-18) is three: fixed bridges one line in from each coast and the drawbridge between them. `?city=big` is unaffected. Headless tools take `BRIDGES=classic` | | [river.md](river.md#which-crossings-bridge) |
@@ -28,6 +29,7 @@ doc; what the classic version was, and why it changed, is in that doc's history 
 | `?westedge=classic` | No high rises past the west ring road: the island ends at the old west coast. Headless tools take `WESTEDGE=classic` | #510 | [city.md](city.md#the-west-edge-high-rises-default-westedgeclassic-to-drop-them) |
 | `?westcorner=classic` | No mid-rises in the northwest corner: open asphalt between the west edge and the north park, which keeps its old west strip and feather. Headless tools take `WESTCORNER=classic` | | [city.md](city.md#the-west-edge-high-rises-default-westedgeclassic-to-drop-them) |
 | `?edgefog=classic` | The island feathering into the sky, with no fog bank round it. Headless tools take `EDGEFOG=classic` | | [rendering.md](rendering.md#the-island-edge--gameedgefogjs-citygroundjs) |
+| `?fogshade=classic` | The fog bank round the island as one flat near-white colour, with no sunlit or shaded sides and no warm and cool stretches. Headless tools take `FOGSHADE=classic` | | [rendering.md](rendering.md#the-fog-of-war--gameedgefogjs) |
 | `?horizon=classic` | The bare edge of the map: no city carrying on past the west towers and the north park, the ground fading straight into the sky. Headless tools take `HORIZON=classic` | | [rendering.md](rendering.md#past-the-edge-of-the-map--cityhorizonjs) |
 | `?parkdrive=classic` | No arched drives round statues in the north park's wall | | [city.md](city.md) |
 | `?parkshore=classic` | The harbor's seawall curling west and stopping at the north park's corner, instead of running on north beside it. Headless tools take `PARKSHORE=classic` | #512 | [river.md](river.md#the-park-shore) |
@@ -47,6 +49,7 @@ doc; what the classic version was, and why it changed, is in that doc's history 
 | `?trainfade=classic` | The L's deck dithering out over the taxi as well as over the fare pins, instead of staying solid and leaving the taxi to its ghost outline | | [city.md](city.md#the-elevated-train-on-by-default-ltrainclassic-to-compare) |
 | `?trainlights=classic` | The L's deck without its lamps | #489 | [city.md](city.md) |
 | `?trainintro=classic` | The L without its own intro | #494 | [city.md](city.md) |
+| `?entry=classic` | The city grows out of the ground in a wave from the taxi when a run opens (and the L lays its track), instead of standing from the first frame | | [rendering.md](rendering.md#the-city-entrance--gamecityentryjs) |
 | `?depot=classic` / `=model` | The depot's wrench sign / a 3D taxi on its roof (default is the neon cutout) | #479 | [city.md](city.md) |
 | `?signflames=classic` | The depot's cutout taxi without its tailpipe and painted flame (default: a static hot-rod flame cut from board off the tail) | | [city.md](city.md#the-roof-sign-and-what-is-derived-from-it) |
 | `?depotneon=classic` | No blue neon tube round the depot's roofline (default traces the two visible faces under the coping, like the burger joint's) | | [city.md](city.md#the-livery) |
@@ -91,6 +94,7 @@ doc; what the classic version was, and why it changed, is in that doc's history 
 | `?camreturn=classic` | The camera stays where the player panned it, instead of riding back to the taxi after 1.5s with no touch on the map | #530 | [rendering.md](rendering.md#getting-back-to-the-taxi) |
 | `?taxidamage=classic` | The taxi's paint dulls toward `taxiGrime` as it takes damage, instead of chipping to bare metal at the struck corner | #632 | [traffic.md](traffic.md) |
 | `?taxichips=classic` | The taxi's paint chips anywhere on the body, roof and lids included, instead of only at the bumpers, wings and body corners | #729 | [traffic.md](traffic.md) |
+| `?markings=classic` | The street paint before 2026-11-24: four fat bars at every signalised crossing, clean centre dashes. The default is worn paint with a few of each: zebras at three junctions, two STOPs, bike lanes on one street and down the river side of both bank roads, a green bike box, and an amber keep-clear box and a TAXI rank at the garage; no median stubs at the arterial islands' noses; cobbled strips joining the main roads' flower islands across T junctions (never a four-way); steel finger joints where the road meets each bridge. Also the kerb stone a cooler grey than the pavement (classic: #B3A994), with three red and two green painted kerbs, a yellow kerb round the cemetery and one red park side. Headless tools take `MARKINGS=classic` | | [city.md](city.md#street-markings) |
 | `?mirrors=classic` | No wing mirrors on the taxi, the fleet cars or the box trucks | | [rendering.md](rendering.md#wing-mirrors--geometrymirrorsjs) |
 | `?taxiroof=classic` | The taxi's cabin is one dark glass box again, instead of a yellow roof over a band of windows | #530 | [rendering.md](rendering.md#the-taxis-roof--geometrytaxijs) |
 | `?locogrey=classic` | The fuel arc's climb out of empty in muted gold rather than grey, with no flash when Loco Mode wakes | — | [gameplay.md](gameplay.md#crazy-taxi-mode) |
@@ -103,6 +107,7 @@ doc; what the classic version was, and why it changed, is in that doc's history 
 | `?introvo=classic` | The backstory in text alone, with no recorded voice reading each line | | [gameplay.md](gameplay.md#the-backstory) |
 | `?settings=classic` | Settings shows every row from the start, with only Demo mode hidden until revealed, instead of Sound, Music, SFX, Quality and Antialiasing alone until five taps on its heading | | [gameplay.md](gameplay.md#the-title-screen) |
 | `?intro=classic` | Play goes straight to the garage door, with no dispatch backstory first. `?intro=always` tells the story on every Play instead of once per device | | [gameplay.md](gameplay.md#the-backstory) |
+| `?texticons=classic` | Speech lines without their inline pictures (the robo-taxi after "rolling toasters" in the backstory) | | [gameplay.md](gameplay.md#speech-bubbles) |
 | `?titleintro=blur` | The title's city fades up out of black blurred, the menu fades in and then the blur clears, instead of a sharp city with only the menu fading in | | [gameplay.md](gameplay.md#the-title-screen) |
 | `?titleintro=classic` | The title menu and a sharp city are both on screen the moment the black lifts, with no fade at all | | [gameplay.md](gameplay.md#the-title-screen) |
 | `?titlecam=reel` | The title screen's backdrop jump cuts between landmarks (court, skatepark, L, burger joint) and Play cuts to the depot, instead of one slow slide across the city | | [gameplay.md](gameplay.md#the-title-screen) |
@@ -112,6 +117,7 @@ doc; what the classic version was, and why it changed, is in that doc's history 
 | `?eject=classic` | The wrecked taxi's driver appearing full size in the air above the bonnet and fading in, instead of squeezing out through the windscreen | | [traffic.md](traffic.md) |
 | `?poptext=classic` | The flying prices, combo words, checkpoints and race count with their old soft drop shadow instead of the speech card's dark outline | | [gameplay.md](gameplay.md#economy) |
 | `?rerun=classic` | Play again and Quit reload the page (a new city, and the whole load again) instead of resetting the run on the same page | | [gameplay.md](gameplay.md#play-again) |
+| `?rerunentry=classic` | Play again grows the city out of the ground again (the entrance wave and the L's track) instead of opening on the city already standing | | [gameplay.md](gameplay.md#play-again) |
 | `?playagain=classic` | The run-end card ending on the yellow Play again pill instead of a pulsing "Tap to continue" (tap anywhere to play again) | | [gameplay.md](gameplay.md#the-polaroid) |
 | `?musicfade=classic` | The music fading over 1.5s as the run-end card appears, instead of playing under the stats and fading over 2.5s once "Tap to continue" comes up | | [audio.md](audio.md) |
 | `?statcount=classic` | The run-end stats' old pace: each value fades in with its label and rolls in 0.34s, in yellow, instead of appearing after the label lands and counting for 0.46s in white | | [gameplay.md](gameplay.md#the-polaroid) |
@@ -134,7 +140,7 @@ doc; what the classic version was, and why it changed, is in that doc's history 
 | `?bubblestyle=card` | The docked speech card as the white Figma card with its blue gradient | | [gameplay.md](gameplay.md#speech-bubbles) |
 | `?questmark=classic` | No purple side-quest "!": the street racer's offer shows the speech tag's typing dots ("…"), the garage door has no "!" while the taxi smokes, and the bank rider waits under the urgency pie | | [gameplay.md](gameplay.md#speech-bubbles) |
 | `?tipfocus=classic` | A speech tag waiting at the screen edge takes no tap; the racer's still asks from where it is, and nothing pans the camera to the talker | | [gameplay.md](gameplay.md#speech-bubbles) |
-| `?hail=classic` | The first tutorial line as a "Tip" ("Pick up rider to start") rather than the rider hailing the cab ("Hey taxi! Over here!") | | [gameplay.md](gameplay.md#the-opening-tutorial) |
+| `?hail=classic` | The first tutorial line as a "Tip" ("Pick up rider to start") rather than the rider hailing the cab ("Hey! Taxi!") | | [gameplay.md](gameplay.md#the-opening-tutorial) |
 | `?bubbles=dock` | The docked card with no tag on the talker | | [gameplay.md](gameplay.md#speech-bubbles) |
 | `?copchat=classic` | The cops' "pull over" and "lost the suspect" bubbles | #492 | [gameplay.md](gameplay.md) |
 | `?renderer=classic` | Draws with three's WebGLRenderer and the GLSL shader patches, as the game did before the WebGPU port. Also what a browser with no WebGPU gets, without being asked | | [rendering.md](rendering.md#the-webgpu-port) |
@@ -245,10 +251,14 @@ doc; what the classic version was, and why it changed, is in that doc's history 
 |---|---|
 | `?roads=classic` | The roads before the grey was broken up: the lighter blue-grey asphalt, the darker pavement and kerb, asphalt bridge decks with no joints, no brick plaza and no asphalt patches |
 | `?seamstripes=classic` | The split drawbridge's noses plain concrete with only the black seam line, without the black and yellow hazard stripes either side of it. Striped by default since 2026-10-26 |
-| `?bridgemarks=classic` | The dark expansion joint and pale approach slab back across the road at each end of every bridge. Off by default since 2026-10-25 |
+| `?bridgemarks=classic` | The dark expansion joint and pale approach slab back across the road at each end of every bridge, in place of the steel finger joints (2026-11-25) |
 | `?plazaspot=classic` | The paved plaza on the side-street four-way nearest the middle of the map (beside the garage in most cities) rather than a random one the camera can see. See `placeJunctionPaving` in util/geo.js |
 | `?plaza=granite` / `tan` / `classic` | The one paved junction in another stone: warm grey or buff paving in a dark frame, or `classic`, the first plaza's red brick with its faint border. The default is charcoal setts in a pale frame. See `PLAZA_LOOKS` in palette.js |
 | `?bridgenormals=classic` | The arched bridge decks lit facet by facet again: ten bands of shading down the carriageway over the hump. By default (2026-10-25) the deck, footways, paint and soffit carry the arch's own smooth normals |
+| `?roadtex=classic` | The asphalt as one flat grey, without its colour variation (broad tone, mottle, stains). See `setRoadTexture` in util/geo.js ([rendering.md](rendering.md#roads-bridges-and-the-paved-junction)) |
+| `?roadtex=smooth` | The same road variation without the pixel grid: soft runs, wear, stains and grain, as it was before the pixel-art street. See `setRoadPixels` in util/geo.js ([rendering.md](rendering.md#roads-bridges-and-the-paved-junction)) |
+| `?roadpx=<n>` | The pixel street's texel in world units: 0.15 as shipped (60 across an ordinary street), 0.5 for chunkier pixels, 0 the same as `?roadtex=smooth` ([rendering.md](rendering.md#roads-bridges-and-the-paved-junction)) |
+| `?roadtexamt=<n>` | Scales that variation: 1 is as shipped, 2 twice as strong, 0 the same as `?roadtex=classic` ([rendering.md](rendering.md#roads-bridges-and-the-paved-junction)) |
 | `?roadstrokes=classic` | The painted brush strokes back on the streets, each a little lighter or darker and a little red or blue, fading in and out in block-sized patches. Off by default since 2026-10-25 |
 | `?painterly=classic` | Without the painterly pass at all: no road strokes even with `?roadstrokes=classic`, and no paved junction |
 | `?bloom=off` | No emissive bloom |
