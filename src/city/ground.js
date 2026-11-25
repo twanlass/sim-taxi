@@ -592,7 +592,7 @@ export function createGround(rng, blocks) {
 
   // --- Crosswalks, stop lines and bike lanes (city/markings.js); the loop below is the first pass,
   // kept for `?markings=classic`.
-  if (!MARKINGS_CLASSIC) parts.push(streetMarkings(rng, MARK_Y, blocks));
+  if (!MARKINGS_CLASSIC) parts.push(streetMarkings(rng, MARK_Y, blocks, KERB_H));
 
   // --- Crosswalks (classic).
   //

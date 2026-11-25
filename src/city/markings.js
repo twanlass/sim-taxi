@@ -151,7 +151,7 @@ function spreadPick(rng, pool, n, minSep, pos) {
  * Builds the markings as one non-indexed geometry with baked colour, ready to merge into the ground.
  * `y` is the paint height (`MARK_Y`); `blocks` is the layout (for the garage).
  */
-export function streetMarkings(rng, y, blocks = null) {
+export function streetMarkings(rng, y, blocks = null, kerbH = 0.35) {
   const net = cityNetwork();
   const FILL_Y = y - FILL_DROP;
   const positions = [];
@@ -625,6 +625,68 @@ export function streetMarkings(rng, y, blocks = null) {
       lettering('TAXI', (a0, a1, yb, yt) => worldRect(base - yt * px, base - yb * px,
         wz1 - a1 * pz, wz1 - a0 * pz, taxiYellow));
     }
+  }
+
+  // --- Painted kerbs ------------------------------------------------------------------------
+  // A few lengths of kerb painted red (no parking) or green (loading), Tyler, 2026-11-25. Only on the
+  // kerb faces this camera sees, the +x and +z sides of a block (`VIEW_DIR` (1, 0.92, 1)), and only
+  // on ordinary built blocks, so none lands on a driveway or the garage. Red just past a corner,
+  // where a no-parking kerb is; green mid-block. Drawn last, so the picks above don't move.
+  //
+  // Each length is a row of short boxes over the kerb: the face 0.012 proud of the kerb's own, the
+  // top 0.005 over the kerb's rim and stopping where the pavement starts (`PAVE_INSET` in ground.js,
+  // 0.15 in), so nothing shares a plane with the stone under it. Each box its own shade toward the
+  // stone, so the paint is as worn as the rest.
+  if (blocks) {
+    const kerbStone = new THREE.Color(color('kerb'));
+    const red = new THREE.Color(color('kerbRed'));
+    const green = new THREE.Color(color('kerbGreen'));
+    const PROUD = 0.012;
+    const RIM = 0.15;
+    const PIECE = 0.5;
+    const top = kerbH + 0.005;
+    const quad = (a, b, c, d, col) => {
+      for (const v of [a, b, c, a, c, d]) {
+        positions.push(v[0], v[1], v[2]);
+        colors.push(col.r, col.g, col.b);
+      }
+    };
+    // A box from (x0, z0) to (x1, z1) in plan, ground to `top`: the top and the four sides, each
+    // wound outward (counter-clockwise seen from outside).
+    const kerbBox = (x0, x1, z0, z1, col) => {
+      quad([x0, top, z0], [x0, top, z1], [x1, top, z1], [x1, top, z0], col);
+      quad([x1, 0, z0], [x1, top, z0], [x1, top, z1], [x1, 0, z1], col);
+      quad([x0, 0, z1], [x0, top, z1], [x0, top, z0], [x0, 0, z0], col);
+      quad([x0, 0, z1], [x1, 0, z1], [x1, top, z1], [x0, top, z1], col);
+      quad([x1, 0, z0], [x0, 0, z0], [x0, top, z0], [x1, top, z0], col);
+    };
+    const candidates = [];
+    for (const block of blocks) {
+      if (block.type !== 'built') continue;
+      for (const side of ['x', 'z']) candidates.push({ block, side });
+    }
+    const sidePos = (c) => (c.side === 'x'
+      ? { x: c.block.bounds.x1, z: c.block.bounds.cz } : { x: c.block.bounds.cx, z: c.block.bounds.z1 });
+    const picks = spreadPick(rng, candidates, 5, 20, sidePos);
+    picks.forEach((c, n) => {
+      const isRed = n < 3;
+      const base = isRed ? red : green;
+      const { x0, x1, z0, z1 } = c.block.bounds;
+      const lo = c.side === 'x' ? z0 : x0;
+      const hi = c.side === 'x' ? z1 : x1;
+      // Red from just clear of the rounded corner at the block's far end (the end toward the camera);
+      // green, six units centred on the side. (3.5 and 4 were lost at play zoom in a building's shadow.)
+      const [a0, a1] = isRed ? [hi - 0.8 - 5, hi - 0.8] : [(lo + hi) / 2 - 3, (lo + hi) / 2 + 3];
+      const pieces = Math.round((a1 - a0) / PIECE);
+      for (let k = 0; k < pieces; k++) {
+        const s0 = a0 + (k / pieces) * (a1 - a0);
+        const s1 = a0 + ((k + 1) / pieces) * (a1 - a0);
+        const h = hash2(s0, c.side === 'x' ? x1 : z1, 9);
+        const tone = new THREE.Color().copy(base).lerp(kerbStone, 0.05 + 0.25 * h * h);
+        if (c.side === 'x') kerbBox(x1 - RIM, x1 + PROUD, s0, s1, tone);
+        else kerbBox(s0, s1, z1 - RIM, z1 + PROUD, tone);
+      }
+    });
   }
 
   const geo = new THREE.BufferGeometry();

@@ -108,7 +108,13 @@ export const PALETTE = {
   cobbleFrame: '#A39C90',
   // The one paved junction's colours are a look of their own, PLAZA_LOOKS below.
   sidewalk: '#CDBFA6',
-  kerb: '#B3A994',
+  // A cooler, greyer stone than the warm pavement it edges, and a step darker, so a block reads
+  // as kerb plus pavement rather than one tan slab (Tyler, 2026-11-25: "a subtle color shift to
+  // create some structure"). `?markings=classic` keeps #B3A994, the pavement's own hue a step down.
+  kerb: '#999891',
+  // The few painted kerbs (city/markings.js): red for no parking, green for loading.
+  kerbRed: '#D8412F',
+  kerbGreen: '#3DB05A',
   park: '#6F9A5A',
   // The tips of the parks' long grass (city/grass.js); the roots are `park` itself so a tuft grows
   // out of the lawn rather than sitting on it. Lighter and warmer — sun through a blade's tip.
@@ -1511,6 +1517,11 @@ if (ROADS_CLASSIC) {
   });
 }
 export const roadsClassic = () => ROADS_CLASSIC;
+// `?markings=classic` (city/markings.js) keeps the kerb in the pavement's own warm hue.
+if (!ROADS_CLASSIC && typeof location !== 'undefined'
+  && new URLSearchParams(location.search).get('markings') === 'classic') {
+  PALETTE.kerb = '#B3A994';
+}
 
 // The one paved junction (`setJunctionPaving` in util/geo.js), one look per `?plaza=`. Each is the
 // field's units, the joints between them, the soldier course framing the field, and the outer band
