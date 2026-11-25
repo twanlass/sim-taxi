@@ -907,6 +907,11 @@ const skaters = (skaterFlag === 'classic' ? createClassicSkaters : createSkaters
 // since 2026-10-11 (Tyler); `?ltrain=classic` takes it out for comparison. Built here rather than beside the boats because the entrance wave below has to
 // be handed it. Run seed: where the line runs is the arterial's, so the map's already; which way
 // the first train goes and how long the line stands empty is the situation.
+// The city opens already standing (Tyler, 2026-11-25): no buildings growing out of the ground, no L
+// track being laid. The garage door is the opening shot. `?entry=classic` is the old entrance wave.
+// Off, `createCityEntry` patches no material at all, which is the point: measured headless (WebGPU,
+// seed 7), 25 fewer shader modules (247 -> 222) and ~0.8 s off `taxi:ready` (11.0 -> 10.2 s median).
+const CITY_ENTRY = new URLSearchParams(window.location.search).get('entry') === 'classic';
 const ltrain = new URLSearchParams(window.location.search).get('ltrain') !== 'classic' || shot?.atLTrain
   ? createLTrain(scene, makeRng(runSeed + 421), {
     // Wheel sparks through the shared pool, which is built further down — only ever called from
@@ -916,7 +921,8 @@ const ltrain = new URLSearchParams(window.location.search).get('ltrain') !== 'cl
     lights: new URLSearchParams(window.location.search).get('trainlights') !== 'classic',
     // Its own intro, bents then track (2026-10-13, Tyler); `?trainintro=classic` grows the whole
     // structure with the city's wave instead. Started and driven beside `cityEntry` below.
-    intro: new URLSearchParams(window.location.search).get('trainintro') !== 'classic',
+    // Off with the city's own entrance (`?entry=classic` brings both back).
+    intro: CITY_ENTRY && new URLSearchParams(window.location.search).get('trainintro') !== 'classic',
   }) : null;
 
 // The taxi's garage — the block `createLayout` took out of the tower generator's hands, and the
@@ -1888,6 +1894,7 @@ const roboDebug = robotaxis && new URLSearchParams(window.location.search).has('
 // below, next to the markers — a frozen frame of half-grown city is never the screenshot anybody
 // asked for.
 const cityEntry = createCityEntry({
+  enabled: CITY_ENTRY,
   // The garage rises with everything else, shell and shutter alike — both are stamped with the one
   // anchor, so it comes up as a building rather than as a building and a door.
   meshes: [city.mesh, ...city.glass, ...(city.frames ? [city.frames] : []), ...(city.domeMesh ? [city.domeMesh] : []), ...(westEdge ? [westEdge.towers, ...westEdge.glass] : []), ...(westEdge?.frames ? [westEdge.frames] : []), propsMesh, grass.mesh, canopyFuzz.mesh, ...(garage?.meshes ?? []),

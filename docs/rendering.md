@@ -4946,7 +4946,14 @@ of four](rendering-history.md#car-motion).
 
 ### The city entrance — `game/cityentry.js`
 
-**Prototype.** When a run opens, the streets and ground are already in place and the buildings and
+**Off by default** (Tyler, 2026-11-25): the city is standing from the first frame and the run opens
+on the garage door. `?entry=classic` brings the wave back, along with the L's own intro (bents
+rising, track laid), which rides its levers. Off, no material is patched at all: measured headless
+under WebGPU (seed 7, 3 runs each) that is 25 fewer shader modules (247 to 222) and ~0.8 s off
+`taxi:ready` (11.0 to 10.2 s median). The ⚙️ panel's City entrance sliders do nothing without it.
+Everything below describes the wave as it runs under `?entry=classic`.
+
+When a run opens, the streets and ground are already in place and the buildings and
 trees grow out of them in a wave that spreads from the taxi's spawn — the run starts where the
 player's car is, and the city builds itself outward from them. Each object rises from the kerb
 while it fades in, overshoots its full size (easeOutBack, peak +37%) and settles, with a puff of
