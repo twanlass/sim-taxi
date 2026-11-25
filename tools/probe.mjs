@@ -19,6 +19,7 @@ import {
 import { coastArcStart, coastArcZ, SEA_CORNER, southShore, parkShore } from '../src/city/harborplan.js';
 import { createLayout } from '../src/city/layout.js';
 import { createNorthPark } from '../src/city/northpark.js';
+import { EDGE_WALK, EDGE_WALK_W, edgeWalkKerbs, edgeWalkParts } from '../src/city/edgewalk.js';
 import {
   createGround, KERB_H, SLAB_X, SLAB_Z, SLAB_RADIUS, EDGE_FADE, PARK_EDGE, MEDIAN_EDGE,
 } from '../src/city/ground.js';
@@ -371,6 +372,64 @@ console.log(`  triangles: ground ${tris(ground)}, buildings ${tris(buildings.mes
   // Translucent asphalt over a road would show sky through the tarmac the ring road drives on.
   check('the fade never reaches back over the city', inside > -FLOAT32,
     `${inside.toExponential(1)} units inside`);
+}
+
+// --- The pavement round the outside of the ring road (city/edgewalk.js) -----
+//
+// It is laid flush against the ring road's outer kerb, so the two things that can go wrong are the
+// road and the river: a vertex inside the kerb line is pavement standing in the outer lane, and a
+// run that does not stop at the bank is a kerb box across the channel. And its surfaces are Shape
+// triangulations, so their winding is asserted from the index rather than trusted.
+if (EDGE_WALK) {
+  const parts = edgeWalkParts({
+    kerbH: KERB_H, paveInset: 0.15, kerbRadius: 0.6, kerbCol: 0xffffff, walkCol: 0xffffff,
+  });
+  const k = edgeWalkKerbs();
+  const banks = riverBanks();
+  const FLOAT32 = 1e-4;
+  let intrude = -Infinity;   // furthest any vertex gets inside the ring's outer kerb line
+  let reach = 0;             // furthest any vertex gets outside it
+  let inChannel = 0;         // vertices strictly between the two banks
+  let downFaces = 0;
+  for (const g of parts) {
+    const p = g.attributes.position;
+    for (let n = 0; n < p.count; n++) {
+      const x = p.getX(n);
+      const z = p.getZ(n);
+      // Signed distance outside the ring's outer kerb (positive out). Along the straights that is
+      // the kerb line; in each corner it is the kerb's 0.6 radius, which rounds into the square
+      // corner of the asphalt the way any kerb round a junction does (0.18 at the diagonal) — so
+      // the corner is measured from its own arc rather than from the square it fills.
+      const r = 0.6;
+      const cx = Math.min(Math.max(x, k.west + r), k.east - r);
+      const cz = Math.min(Math.max(z, k.north + r), k.south - r);
+      const inCorner = Math.abs(cx - x) > 0 && Math.abs(cz - z) > 0;
+      const out = inCorner
+        ? Math.hypot(x - cx, z - cz) - r
+        : Math.max(k.west - x, x - k.east, k.north - z, z - k.south);
+      intrude = Math.max(intrude, -out);
+      reach = Math.max(reach, out);
+      if (banks && z > banks.z0 + FLOAT32 && z < banks.z1 - FLOAT32) inChannel++;
+    }
+  }
+  // The pavement surface (every second part): each triangle's normal from its own winding.
+  for (let n = 1; n < parts.length; n += 2) {
+    const g = parts[n];
+    const p = g.attributes.position;
+    const idx = g.index ? g.index.array : [...Array(p.count).keys()];
+    const a = new THREE.Vector3(), b = new THREE.Vector3(), c = new THREE.Vector3();
+    for (let t = 0; t < idx.length; t += 3) {
+      a.fromBufferAttribute(p, idx[t]); b.fromBufferAttribute(p, idx[t + 1]); c.fromBufferAttribute(p, idx[t + 2]);
+      const ny = b.clone().sub(a).cross(c.clone().sub(a)).y;
+      if (ny <= 0) downFaces++;
+    }
+  }
+  check('the edge pavement stays off the ring road', intrude < FLOAT32,
+    `${Math.max(intrude, 0).toExponential(1)} units inside the outer kerb`);
+  check('the edge pavement reaches its full width', Math.abs(reach - EDGE_WALK_W) < FLOAT32,
+    `${reach.toFixed(2)} units out`);
+  check('the edge pavement stops at the river banks', inChannel === 0, `${inChannel} vertices over the channel`);
+  check('the edge pavement faces up', downFaces === 0, `${downFaces} down-facing triangles`);
 }
 
 check('layout covers every block', layout.length === GRID_I * GRID_J, `${layout.length} blocks`);

@@ -2430,6 +2430,28 @@ there under the fog, and what `?city=big` shows, since the fog is island-only.
   tried and dropped (Tyler, 2026-10-17: "let's not add the buildings in the distance then and just
   keep the fog"); towers can only go up-screen, so seen whole they bunched into one corner.
 
+### The pavement round the edge — `city/edgewalk.js`
+
+The ring road has a pavement on its outer side, the way every block presents one to the street:
+the same `kerb` box and `sidewalk` surface at the same heights, bent round the ring with its corners
+concentric about the junction's `CURB_RADIUS`, merged into the ground mesh. Tyler, 2026-11-25: "add a
+sidewalk around the edges of the map ... would partially fade into our cloud edges". Before it the
+asphalt ran on past the last lane into the bank, and the edge of the city read as a road that had been
+cut off.
+
+- **The fog comes in to cover it.** The walk is a block's width, 3.5, and with it on the bank's ramp
+  ends at 4 past the kerb rather than 7 and the billows push out 4 rather than 8 (`FOG_END`,
+  `FOG_BILLOW`). The walk's far edge lands at ~0.9 fog on an average billow and ~0.5 on the deepest,
+  so it shows in places without ending on a hard line. `FOG_START` does not move, so the road gets
+  no more fog than before. No alpha of its own, so nothing to sort against the skirt or the decals.
+- **A wider walk was tried first.** Leaving the fog where it was, a 3.5 walk ended half fogged with a
+  strip of dark asphalt before the bank, which drew the line the fog is there to hide; 6 wide fixed
+  that by reaching up the ramp, but read as a promenade. Tyler, 2026-11-25: "make it sidewalk width
+  and then bring the clouds in to cover the outer edge".
+- **It stops at the river**, on the embankment walk's kerb line (`riverBanks`), and butts into that
+  walk, which already runs out to the coast at the same height and in the same materials.
+- Island only, and `?edgewalk=classic` (`EDGEWALK=classic` headless) is the bare asphalt.
+
 ### The feathered skirt — `city/ground.js`
 
 The asphalt doesn't end on a line. A **fade skirt** hangs off the slab — `EDGE_FADE = 16` units of
