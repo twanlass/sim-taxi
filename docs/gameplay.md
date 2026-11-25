@@ -1405,8 +1405,9 @@ turn in the run-up (`retakeCrossing`) exactly as a routed one did, and it is nev
 *empty* route while moving, which would hand its exits to the ambient dice (`rollExit`).
 
 **The stick points at streets.** It snaps to the nearest of the four street directions *as they
-lie on screen* (about 30° above and below the horizontal, measured off the live camera), and a
-notch on its rim marks each one, the queued one lit yellow. Snapping absolutely is what makes a
+lie on screen* (about 30° above and below the horizontal, measured off the live camera). Notches
+on its rim marking the four were tried and cut — they read as pointing in odd directions rather
+than along the diagonal streets. Snapping absolutely is what makes a
 held stick mean something: held toward up-right, the taxi turns up-right at the next corner that
 has it and keeps going that way, where a heading-relative reading would treat the same hold as a
 fresh turn after every corner and staircase across town. Held, it is re-asserted every frame;
@@ -1423,13 +1424,25 @@ sits between two of them. (Heading up-right, a thumb's "left" is backwards; up a
 direction survives corners that do not have it and is spent once the car heads that way, so a
 swipe made too late for one corner lands on the next. Arrow keys and WASD do the same on a desktop.
 
-**A dead end waits for the player.** At a T with nothing queued, straight on is not an exit, so the
-taxi holds at the line (`car.steerHold`, read by `entryRefused` and the hold-line commit in
-`traffic.js`) — the Pac-Man wall, rather than a turn the player did not choose. It brakes for it
-like a red. "Steer with the stick" (`game/steertip.js`) stands on the stick until the player has
-pushed it twice, and comes back whenever a dead-end hold lasts 0.8s ("Swipe to turn", over the
-taxi, under `?steer=swipe`). The map still pans with the stick; under `?steer=swipe` it does not,
-since the swipe is the steering.
+**Hands off, it drives itself.** With nothing queued, a taxi carrying a rider takes the exit the
+best route to the drop-off takes (`autoTarget`, re-planned per decision lane from wherever the car
+is, so after a steered detour it drives on from there); an empty taxi carries straight on and takes
+the first exit at a dead end. The stick only ever overrides the next corner. The first cut held at
+a dead end until the player chose — the Pac-Man wall — and it read as the car stalling (Tyler:
+"something feels weird about the taxi not moving unless you've chosen a direction").
+
+**The band is a suggestion, fixed at the pickup.** On boarding, the best route to the drop-off is
+planned once and drawn as the route band (`steerGuide` in `main.js`), and then left alone — "a
+Google Maps route to your drop-off". It does not follow the player's detours or redraw from the
+car; only a getaway's next checkpoint replans it. The empty taxi has no band.
+
+**The tank is bottomless while this is on test** (Tyler: "unlimited loco for now while we test
+this mechanic"), so how much Loco the driving takes is not tangled up with how it steers.
+`?fuel=limited` puts the tank back.
+
+"Steer with the stick" (`game/steertip.js`) stands on the stick until the player has pushed it
+twice ("Swipe to turn", over the taxi, under `?steer=swipe`). The map still pans with the stick;
+under `?steer=swipe` it does not, since the swipe is the steering.
 
 **Trips that drive themselves still do.** The garage, the drive-through, the depot and the street
 race arrive by a lane a thumb cannot be asked to find, so they route as before (`scriptedRouteTo`

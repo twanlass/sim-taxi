@@ -5,8 +5,8 @@
  * 2. A steered taxi arrives: a "player" who queues the next turn of the best route at every corner
  *    — through the real `steerPlan`, the real one-step route and the real traffic model — reaches
  *    every target, with no red run and no route desync.
- * 3. With nothing queued it goes straight on wherever it can, and at a dead end it holds at the
- *    line instead of choosing for the player — and one queued exit lets it go.
+ * 3. Hands off and empty, it goes straight on wherever it can and never stops at a dead end.
+ * 4. Hands off with a rider aboard, it drives itself to the drop-off (`auto`).
  */
 import * as THREE from 'three';
 import { makeRng } from '../src/util/rng.js';
@@ -60,13 +60,12 @@ const traffic = createTraffic(makeRng(71624 + 44), new THREE.Scene(), 7);
 const taxi = traffic.taxi;
 traffic.warmup(10);
 
-function drive(queueFor) {
+function drive(queueFor, autoFor = () => null) {
   const at = decisionLane(taxi);
   const queued = at ? queueFor(at) : null;
-  const plan = steerPlan(taxi, queued);
+  const plan = steerPlan(taxi, queued, undefined, at ? autoFor(at) : null);
   taxi.route = plan.route;
   taxi.routeConsumed = false;
-  taxi.steerHold = plan.hold;
   traffic.update(STEP);
 }
 
@@ -96,45 +95,47 @@ check(`steered taxi reaches every target (${arrived}/${RUNS})`, arrived === RUNS
 check('no red run while steering', traffic.stats.violations === 0, `${traffic.stats.violations}`);
 check('no route desync while steering', traffic.stats.routeDesync === 0, `${traffic.stats.routeDesync}`);
 
-// --- 3. Hands off --------------------------------------------------------------------------------
+// --- 3. Hands off, empty ------------------------------------------------------------------------
 let turnedWithStraight = 0;
-let heldAtDeadEnd = 0;
-let enteredWhileHeld = 0;
-let commits = 0;
+let deadEnds = 0;
+let emptyRoute = 0;
+let stillFor = 0;
+let longestStill = 0;
 let lastState = taxi.state;
-let released = 0;
-let lastHeld = -Infinity;
-let pick = null;
 for (let t = 0; t < 240; t += STEP) {
   const at = decisionLane(taxi);
   const straightThere = at ? exitDirs(at.lane).includes(at.d) : true;
-  const heldBefore = Boolean(taxi.steerHold);
-  // Nothing queued — except that after two seconds parked at a dead end, the "player" swipes
-  // toward the first exit there.
-  const stuck = heldBefore && taxi.v < 0.05;
-  drive((here) => {
-    if (stuck && (taxi.stuckFor ?? 0) >= 2 && pick == null) pick = exitDirs(here.lane)[0];
-    return pick;
-  });
-  taxi.stuckFor = stuck ? (taxi.stuckFor ?? 0) + STEP : 0;
+  drive(() => null);
+  if (taxi.state === 'drive' && !taxi.route.length) emptyRoute += 1;
   if (lastState === 'drive' && taxi.state === 'turn') {
-    commits += 1;
-    pick = null;
-    if (taxi.turn.hand !== 'straight' && straightThere && !heldBefore) turnedWithStraight += 1;
-    if (heldBefore && (taxi.stuckFor ?? 0) < 2 && taxi.route.length === 0) enteredWhileHeld += 1;
-    if (t - lastHeld < 1) released += 1;
+    if (!straightThere) deadEnds += 1;
+    if (taxi.turn.hand !== 'straight' && straightThere) turnedWithStraight += 1;
   }
-  if (stuck && (taxi.stuckFor ?? 0) > 1) heldAtDeadEnd += 1;
-  if (heldBefore) lastHeld = t;
+  stillFor = taxi.v < 0.05 ? stillFor + STEP : 0;
+  longestStill = Math.max(longestStill, stillFor);
   lastState = taxi.state;
   if (taxi.crashed) break;
 }
-check(`hands off, the taxi goes straight on wherever it can (${commits} junctions)`,
-  turnedWithStraight === 0, `${turnedWithStraight} turns taken with straight on available`);
-check('a dead end with nothing queued holds at the line', heldAtDeadEnd > 0 && enteredWhileHeld === 0,
-  `held ${heldAtDeadEnd} frames, entered ${enteredWhileHeld} times unasked`);
-check('one queued exit releases a dead-end hold', released > 0);
+check('hands off, the taxi goes straight on wherever it can', turnedWithStraight === 0,
+  `${turnedWithStraight} turns taken with straight on available`);
+check(`hands off, it turns out of a dead end on its own (${deadEnds} met)`, deadEnds > 0 && emptyRoute === 0,
+  `${emptyRoute} frames with no route`);
+// A red is 30s at most here; anything near a minute standing still is a car waiting on nobody.
+check('hands off, it is never parked waiting for input', longestStill < 45, `${longestStill.toFixed(1)}s still`);
 check('no red run hands off', traffic.stats.violations === 0, `${traffic.stats.violations}`);
+
+// --- 4. Hands off, a rider aboard ----------------------------------------------------------------
+let selfArrived = 0;
+const SELF = 10;
+for (let run = 0; run < SELF; run++) {
+  const target = ints[rng.int(0, ints.length - 1)];
+  const centre = intersectionCentre(target.i, target.j);
+  for (let t = 0; t < 120; t += STEP) {
+    drive(() => null, () => findRoute(planOrigin(taxi), target)?.[0] ?? null);
+    if (Math.hypot(taxi.x - centre.x, taxi.z - centre.z) < ARRIVE_RADIUS) { selfArrived += 1; break; }
+  }
+}
+check(`hands off with a rider, it drives itself to the drop-off (${selfArrived}/${SELF})`, selfArrived === SELF);
 
 console.log(`steered trips: mean ${(total / Math.max(1, arrived)).toFixed(1)}s`);
 console.log(`${passed}/${passed + failed} checks passed`);

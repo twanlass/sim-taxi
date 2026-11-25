@@ -174,6 +174,7 @@ doc; what the classic version was, and why it changed, is in that doc's history 
 | `?swerve=classic` | The overtake combo is for a car in front only: a car stopped or creeping in the junction ahead is hit rather than swerved round | | [traffic.md](traffic.md#swerving-round-a-car-stood-in-the-junction) |
 | `?passpace=classic` | The overtaking taxi held back to the passed car's speed while it swings out, and to a truck's through every junction of the pass | #520 | [traffic.md](traffic.md) |
 | `?hop=classic` | A hop can stall in mid-air: braking (or crawling) over the hump hangs the taxi in the air | | [river.md](river.md) |
+| `?fuel=limited` | Steering's bottomless Loco tank (on while steering is tested) back to the ordinary one that drains and refills | | [gameplay.md](gameplay.md#steering) |
 | `?steer=swipe` | Pac-Man steering by swiping on the map (the prototype's first cut) instead of the stick bottom left; the pedals go back to the middle and the map stops panning | | [gameplay.md](gameplay.md#steering) |
 | `?steer=classic` | Tap-a-rider auto-routing instead of Pac-Man steering: tap a rider and the taxi drives there, the drop-off dispatches itself, a tapped street bends the route, and the map pans under a drag | | [gameplay.md](gameplay.md#steering) |
 | `?route=classic` | The route stops dead at the rider's kerb, with no stub past the pickup | #480 | [gameplay.md](gameplay.md) |

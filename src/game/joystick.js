@@ -6,8 +6,9 @@
  * **It points at streets, not at screen directions.** The camera looks down the city's diagonal, so
  * the four ways a car can drive lie on screen at roughly 30° above and below the horizontal, right
  * and left — and a stick's "up" sits exactly between two of them. So the stick snaps to the nearest
- * of the four *as they are drawn*, measured off the live camera (`toScreen`), and its rim carries a
- * notch at each one so the thumb can see where the four answers are. Snapping absolutely rather
+ * of the four *as they are drawn*, measured off the live camera (`toScreen`). (Its rim carried a
+ * notch at each of the four; Tyler found them confusing — they read as pointing in odd directions
+ * rather than along the diagonal streets — and they went.) Snapping absolutely rather
  * than relative to the heading is what makes *holding* the stick mean something: held toward
  * up-right, the taxi takes up-right at the next corner that has it and keeps going that way, where
  * a heading-relative reading would read the same hold as a fresh turn after every corner and
@@ -23,8 +24,6 @@ const DIR_VEC = [[1, 0], [0, 1], [-1, 0], [0, -1]];
 // How far the knob travels, and how far it has to go before it says anything, in CSS pixels.
 const KNOB_TRAVEL = 34;
 const DEAD_ZONE = 12;
-// The notches sit just inside the well's rim.
-const NOTCH_R = 47;
 
 /**
  * Which street direction a stick vector `(sx, sy)` (screen pixels, y down) points at: the one whose
@@ -49,21 +48,7 @@ export function snapStick(sx, sy, toScreen) {
  */
 export function createJoystick({ el, toScreen, onPush }) {
   const knob = el.querySelector('.stick-knob');
-  const notches = DIR_VEC.map(() => {
-    const n = document.createElement('div');
-    n.className = 'stick-notch';
-    el.insertBefore(n, knob);
-    return n;
-  });
   let press = null;
-
-  function placeNotches() {
-    for (let d = 0; d < 4; d++) {
-      const v = toScreen(DIR_VEC[d][0], DIR_VEC[d][1]);
-      const a = Math.atan2(v.y, v.x);
-      notches[d].style.transform = `translate(${Math.cos(a) * NOTCH_R}px, ${Math.sin(a) * NOTCH_R}px) rotate(${a + Math.PI / 2}rad)`;
-    }
-  }
 
   function read(event) {
     const dx = event.clientX - press.cx;
@@ -100,11 +85,6 @@ export function createJoystick({ el, toScreen, onPush }) {
     { passive: false });
 
   return {
-    /** Light the notch for the queued direction (or none). Call each frame; places the notches too. */
-    update(queued) {
-      placeNotches();
-      for (let d = 0; d < 4; d++) notches[d].classList.toggle('is-queued', d === queued);
-    },
     held: () => Boolean(press),
     /** The stick's centre and top, in viewport pixels — where the tip points. */
     top: () => {

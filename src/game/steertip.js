@@ -1,12 +1,10 @@
 import { createSpeech } from './speech.js';
 
-// "Swipe to turn" — the one line that teaches Pac-Man steering (game/steer.js), pinned over the taxi.
+// "Steer with the stick" — the one line that teaches Pac-Man steering (game/steer.js), standing on
+// the stick ("Swipe to turn" over the taxi under `?steer=swipe`).
 //
-// Two moments need it. The first is the start of a run: nothing on screen says the map takes a
-// swipe now, and the taxi drives off on its own whether or not the player knows. So the tip stands
-// over the car until the player has swiped twice — once could be an accident, twice is the idea.
-// The second is the dead end: a taxi waiting at a T for a turn nobody has queued looks broken, so
-// a hold that lasts HOLD_PROMPT seconds says it again, every time, until the player answers it.
+// The taxi drives off on its own whether or not the player knows it can be steered, so the tip
+// stays up until the stick has been used twice — once could be an accident, twice is the idea.
 //
 // It waits for the tutorial's camera beats (the pan to the first rider) rather than talking over
 // them: the player cannot steer a car they are not looking at.
@@ -15,8 +13,6 @@ export const TIP_TITLE = 'Tip';
 export const TIP_LINE = 'Swipe to {turn}';
 // With the stick (game/joystick.js), the tip stands on it rather than over the car.
 export const STICK_LINE = 'Steer with the {stick}';
-// How long the taxi may wait at a dead end before the tip comes back, in seconds of game time.
-const HOLD_PROMPT = 0.8;
 // Over the taxi's roof sign, in world units, so the tail points at the car rather than into it.
 const OVER_ROOF = 3.2;
 const TEACH_SWIPES = 2;
@@ -36,12 +32,10 @@ export function createSteerTip({ project, viewport = null, taxi, steer, canShow,
   const at = stickTop ?? (() => project(taxi.x, OVER_ROOF, taxi.z));
   const line = stickTop ? STICK_LINE : TIP_LINE;
   let open = false;
-  let held = 0;
 
   function update(dt) {
     bubble.update(dt);
-    held = steer.holding() ? held + dt : 0;
-    const want = canShow() && (steer.swipes() < TEACH_SWIPES || held >= HOLD_PROMPT);
+    const want = canShow() && steer.swipes() < TEACH_SWIPES;
     if (want && !open) {
       open = true;
       // A control is not a talker, so no tag on the stick's version (as the boost hint).

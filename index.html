@@ -1181,9 +1181,7 @@
          Pac-Man steering's control, bottom left for the left thumb, so the pedals move to the
          right thumb: the gas pinned to the right inset and the brake hanging off its left as ever.
          The cargo box that sat right of the gas goes over the brake instead. Flat, no shine: a dark
-         well and a darker knob. The four notches round the rim are the four street directions as
-         they actually lie on screen (placed by JS from the camera), and the one the taxi has
-         queued lights yellow. `?steer=swipe` and `?steer=classic` have no stick. */
+         well and a darker knob. `?steer=swipe` and `?steer=classic` have no stick. */
       body.steer-stick {
         /* 24px further in than the inset: the fuel arc's crown reaches past the button's box. */
         --gas-left: calc(100% - var(--ctl-right) - var(--gas-d) - 24px);
@@ -1209,14 +1207,6 @@
         -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px);
         pointer-events: none;
       }
-      #stick .stick-notch {
-        position: absolute; left: 50%; top: 50%; width: 0; height: 0;
-        border-left: 7px solid transparent; border-right: 7px solid transparent;
-        border-bottom: 9px solid rgba(255, 255, 255, 0.45);
-        margin: -5px 0 0 -7px; pointer-events: none;
-        transition: border-bottom-color 0.12s ease;
-      }
-      #stick .stick-notch.is-queued { border-bottom-color: #F5C130; }
       #stick .stick-knob {
         position: absolute; left: 50%; top: 50%; width: 54px; height: 54px; margin: -27px 0 0 -27px;
         border-radius: 50%; background: #23262E; box-shadow: 0 0 0 3px #0B0C10, 0 3px 0 3px rgba(0, 0, 0, 0.35);

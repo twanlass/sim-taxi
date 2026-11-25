@@ -74,7 +74,7 @@ import { createDriveThru } from './game/drivethru.js';
 import { createBurgerRun } from './game/burgerrun.js';
 import { createDepotRun } from './game/depotrun.js';
 import {
-  createBoost, BOOST_FARE_REWARD, BOOST_PARCEL_REWARD, BOOST_BURGER_REWARD,
+  createBoost, BOOST_FARE_REWARD, BOOST_PARCEL_REWARD, BOOST_BURGER_REWARD, BOOST_DURATION,
 } from './game/boost.js';
 import { createBoostMeter } from './game/boostmeter.js';
 import { bandPath as fuelBandPath, frontAt as fuelFrontAt, glintAt as fuelGlintAt, RIM as FUEL_RIM, CAP as FUEL_CAP, useClassicArc as useClassicFuelArc, useClassicGap as useClassicFuelGap, flameRadius as fuelFlameRadius, bendFlame as fuelBendFlame, flameAngle as fuelFlameAngle } from './game/fuelarc.js';
@@ -305,6 +305,7 @@ const steerOn = (() => {
 })();
 // Steered with the stick bottom left (game/joystick.js), the default; `?steer=swipe` reads swipes on
 // the map instead, the first cut of the prototype (Tyler: "No swipe", 2026-11-24).
+const fuelLimited = new URLSearchParams(window.location.search).get('fuel') === 'limited';
 const steerStick = steerOn && new URLSearchParams(window.location.search).get('steer') !== 'swipe';
 if (steerStick) document.body.classList.add('steer-stick');
 /** `routeTo` for the trips that drive themselves even when the player steers — see `routeTo`. */
@@ -1878,7 +1879,28 @@ const steer = steerOn ? createSteer({
   toScreen: steerToScreen,
   canSteer: steerLive,
   swipe: !steerStick,
+  // Hands off, a taxi with a rider aboard drives itself toward the drop-off (or the getaway's next
+  // checkpoint) — the player's stick only ever overrides the next corner.
+  autoTarget: () => fares.carrying()?.target ?? null,
 }) : null;
+// The route to the drop-off, planned once at the pickup and then left alone — "a Google Maps route
+// to your drop-off" (Tyler, 2026-11-24). It does not follow the player's detours; it is a
+// suggestion drawn on the city, re-planned only when the ride's target itself moves (a getaway's
+// next checkpoint). `pendingTarget` on the stand-in car is what keys the band's one rollout sweep.
+let rideGuide = null;
+function steerGuide() {
+  const riding = fares.carrying();
+  if (!riding) { rideGuide = null; return null; }
+  if (rideGuide?.target !== riding.target) {
+    const route = findRoute(planOrigin(traffic.taxi), riding.target);
+    rideGuide = {
+      target: riding.target,
+      car: { pendingTarget: riding.target },
+      path: route ? routePath(traffic.taxi, route, { onward: false }) : null,
+    };
+  }
+  return rideGuide.path ? rideGuide : null;
+}
 const stickEl = document.getElementById('stick');
 const stick = steerStick && stickEl ? createJoystick({
   el: stickEl,
@@ -7537,6 +7559,10 @@ function tick() {
   // is handed back, the taxi is being driven by the vignette.
   if (burgerRun?.holdsTaxi() || opening?.visiting()) boost.release();
   boost.update(dt);
+  // Steering is on test with a bottomless tank (Tyler, 2026-11-24: "unlimited loco for now while we
+  // test this mechanic"), so how much Loco the driving takes is not mixed up with how it steers.
+  // `?fuel=limited` puts the tank back.
+  if (steerOn && !fuelLimited) boost.state.fuel = BOOST_DURATION;
   // A stall waits on a press of the pill (sim/collisions.js BUMP_STOP), so it cannot outlast a
   // pill that will not press: a tank run dry gets driven on, rather than parked for the five
   // seconds the floor takes to come back. And a cut scene owns a staged taxi outright.
@@ -7708,7 +7734,6 @@ function tick() {
   // The steered taxi's one-step route, from the turn the player has queued — read by this very
   // `traffic.update` at the hold line.
   steer?.update();
-  stick?.update(steer.queued());
   traffic.update(dt);
   if (traffic.taxi.overtakes > overtakesFelt) {
     overtakesFelt = traffic.taxi.overtakes;
@@ -8374,10 +8399,10 @@ function tick() {
   if (selected && traffic.taxi.pendingTarget && !fares.state.gameOver) {
     paintRouteBand();
     routeLine.update(traffic.taxi, traffic.taxi.route, dt);
-  } else if (steer && steerLive() && traffic.taxi.route.length) {
-    // Steered, the band is the queued turn: down this lane, round the corner, one block on.
+  } else if (steer && steerLive() && steerGuide()) {
+    // Steered, the band is the ride's suggested route, fixed from the pickup — see `steerGuide`.
     paintRouteBand();
-    routeLine.update(traffic.taxi, traffic.taxi.route, dt);
+    routeLine.update(rideGuide.car, null, dt, rideGuide.path);
   } else {
     routeLine.hide();
   }
