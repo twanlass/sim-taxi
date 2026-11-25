@@ -39,6 +39,12 @@ import {
   isArterialX, isArterialZ, isRiverGap, riverBanks, medianRuns,
 } from './grid.js';
 
+// The bike streets this city drew, for the bridge deck to carry the lane across the river
+// (geometry/bridge.js). Set by `streetMarkings`, which main.js runs (inside the ground) before any
+// bridge is built.
+let currentBikes = { z: null, x: null };
+export const bikeLines = () => currentBikes;
+
 export const MARKINGS_CLASSIC = typeof location !== 'undefined'
   ? new URLSearchParams(location.search).get('markings') === 'classic'
   : globalThis.process?.env?.MARKINGS === 'classic';
@@ -68,9 +74,9 @@ const WORD_GAP = 0.5;
 const WORD_MIN_LANE = 8;
 // The bike lane: an edge line 3.2..3.34 off the centreline (a car in its lane has its flank at 3.1),
 // and the lane beyond it to the kerb.
-const BIKE_LINE_IN = 3.2;
-const BIKE_LINE_OUT = 3.34;
-const BIKE_KERB_GAP = 0.08;
+export const BIKE_LINE_IN = 3.2;
+export const BIKE_LINE_OUT = 3.34;
+export const BIKE_KERB_GAP = 0.08;
 // The green bike box: the stretch of the car lane between the stop line and the crossing's red band,
 // pushed back so a car stops behind it. Real ones are ~4m deep; this is the scale the lane allows.
 const BIKE_BOX_DEPTH = 2.2;
@@ -211,6 +217,7 @@ export function streetMarkings(rng, y, blocks = null) {
   const overWater = (p) => banks !== null && p.z > banks.z0 - 0.05 && p.z < banks.z1 + 0.05;
   const garage = blocks?.garageBlock ?? null;
   const bikes = pickBikeLines(rng, garage ? garage.bi + 1 : null);
+  currentBikes = bikes;
 
   const gridOf = (lane) => {
     const a = net.nodeById.get(lane.edge.a);
@@ -460,41 +467,34 @@ export function streetMarkings(rng, y, blocks = null) {
   }
 
   // --- Cobbled median strips ----------------------------------------------------------------
-  // A main road's planted islands are joined across each junction by a strip of setts the island's
-  // own width, flush with the road (Tyler, 2026-11-25, with a sketch: "run between the flower
-  // dividers"). It carries the median through the junction as one line instead of a row of
-  // separate planters. Running bond in courses along the strip, each sett its own shade with the
+  // A main road's planted islands run on to the junction as a flush strip of setts the island's own
+  // width (Tyler, 2026-11-25, with a sketch: "run between the flower dividers"), filling the stretch
+  // the painted median stubs were taken out of. Running bond in courses along the strip, each sett its own shade with the
   // asphalt in the joints, and a pale soldier course down both long edges. At `FILL_Y` so a manhole,
   // at `MARK_Y`, lies on top. The strip runs `CAP` under each island so its square end is hidden by
   // the island's rounded nose rather than leaving two triangles of asphalt beside it.
   //
-  // Where two main roads cross, both strips pass through one box. Two worn surfaces on one plane
-  // would z-fight, so the z-running strip is cut where the x-running one crosses it.
   {
     const CAP = MEDIAN_W / 2;
     const SETT_L = 0.45;    // along the strip
     const SETT_W = 0.3;     // across it
     const JOINT = 0.06;
     const EDGE = 0.22;
-    const runs = medianRuns();
-    const byLine = new Map();
-    for (const r of runs) {
-      const key = `${r.axis}|${r.line}`;
-      if (!byLine.has(key)) byLine.set(key, new Map());
-      byLine.get(key).set(r.k, r);
-    }
+    // One strip off each end of every island, from the island's nose to the junction box edge —
+    // and not through the box (Tyler, 2026-11-25: "no cobble strips in intersections"). 1.8 units of
+    // road (`MEDIAN_END_GAP`) plus the `CAP` hidden under the nose. Nothing in a box means two main
+    // roads' strips never meet, so nothing here can share a plane with anything else.
+    const BOX_AIR = 0.1;
     const strips = [];
-    for (const [key, ks] of byLine) {
-      const axis = key[0];
-      for (const [k, a] of ks) {
-        const b = ks.get(k + 1);
-        if (!b) continue;
-        if (axis === 'x') strips.push({ axis, x0: a.x1 - CAP, x1: b.x0 + CAP, z0: a.z0, z1: a.z1 });
-        else strips.push({ axis, x0: a.x0, x1: a.x1, z0: a.z1 - CAP, z1: b.z0 + CAP });
+    for (const r of medianRuns()) {
+      if (r.axis === 'x') {
+        strips.push({ axis: 'x', x0: lineX(r.k) + halfRoadZ(r.k) + BOX_AIR, x1: r.x0 + CAP, z0: r.z0, z1: r.z1 });
+        strips.push({ axis: 'x', x0: r.x1 - CAP, x1: lineX(r.k + 1) - halfRoadZ(r.k + 1) - BOX_AIR, z0: r.z0, z1: r.z1 });
+      } else {
+        strips.push({ axis: 'z', x0: r.x0, x1: r.x1, z0: lineZ(r.k) + halfRoadX(r.k) + BOX_AIR, z1: r.z0 + CAP });
+        strips.push({ axis: 'z', x0: r.x0, x1: r.x1, z0: r.z1 - CAP, z1: lineZ(r.k + 1) - halfRoadX(r.k + 1) - BOX_AIR });
       }
     }
-    // The x strips' bands, which the z strips step over.
-    const xBands = strips.filter((t) => t.axis === 'x');
 
     const flat = (xa, xb, za, zb, col) => {
       tri({ x: xa, z: za }, { x: xa, z: zb }, { x: xb, z: zb }, col, FILL_Y);
@@ -527,22 +527,9 @@ export function streetMarkings(rng, y, blocks = null) {
           flat(ua, ub, t.z0 + va, t.z0 + vb, tone(ua, t.z0 + va, base)));
         continue;
       }
-      // Cut the z strip round every x strip it crosses.
-      const cuts = xBands.filter((x) => x.x0 < t.x1 && x.x1 > t.x0 && x.z0 < t.z1 && x.z1 > t.z0)
-        .map((x) => [x.z0, x.z1]).sort((p, q) => p[0] - q[0]);
-      let z = t.z0;
-      const pieces = [];
-      for (const [c0, c1] of cuts) {
-        if (c0 > z) pieces.push([z, c0]);
-        z = Math.max(z, c1);
-      }
-      if (z < t.z1) pieces.push([z, t.z1]);
       const width = t.x1 - t.x0;
-      for (const [za, zb] of pieces) {
-        if (zb - za < 0.2) continue;
-        layPiece(za, zb, width, (ua, ub, va, vb, base) =>
-          flat(t.x0 + va, t.x0 + vb, ua, ub, tone(t.x0 + va, ua, base)));
-      }
+      layPiece(t.z0, t.z1, width, (ua, ub, va, vb, base) =>
+        flat(t.x0 + va, t.x0 + vb, ua, ub, tone(t.x0 + va, ua, base)));
     }
   }
 

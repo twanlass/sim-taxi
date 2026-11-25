@@ -1401,17 +1401,19 @@ framing that was a wallpaper of white rather than a street. Now, off the ground'
   in clear view, so one can land behind a building.
 - **A bike lane** on one ordinary street per axis (never the garage's): white edge line 3.2 off the
   centreline, a dull red lane running up to each junction box (or to a zebra) and a bicycle past
-  each junction. A brighter red band across each junction mouth was cut (Tyler, 2026-11-25).
+  each junction. A brighter red band across each junction mouth was cut (Tyler, 2026-11-25). Where a
+  bike street crosses the river, the bridge deck carries the line and the lane over the arch or the
+  leaf (`bridgeParts` in geometry/bridge.js reads `bikeLines()`).
 - **Three one-offs**: a **green bike box** ahead of the stop line on one bike-street approach (the car
   line moves back 2.2), an **amber hatched keep-clear box** across the road in front of the garage door,
   as a landmark for the depot (stripes one way only: a cross-hatch overlaps itself, and two worn cells
   on one plane are a z-fight; the centre dashes stop either side of it), and a **TAXI rank** on the
   garage's kerb past the door.
-- **Cobbled median strips**: a main road's planted islands are joined across each junction by a flush
+- **Cobbled median strips**: each planted island on a main road runs on to the junction as a flush
   strip of setts the island's width (running bond, each sett its own shade, a pale soldier course down
-  both edges), so the median reads as one line rather than a row of planters. At the fill level so a
-  manhole lies on top; it runs under each island's nose so the rounded cap hides its square end; and
-  where two main roads cross, the z strip is cut round the x one so the two never share a plane.
+  both edges), filling the 1.8 units the painted stubs used to. Not through the junction box (Tyler,
+  2026-11-25). At the fill level, and run under the island's nose so its rounded cap hides the
+  square end.
 - **No median stubs.** The double line between an arterial island's nose and the junction (1.8..3.7
   units) read as stray dashes, so outside `?markings=classic` the island's nose is the only divider there.
 

@@ -6,6 +6,9 @@ import {
   archAt, ARCH_RISE, DECK_THICK, DECK_OVERHANG, WATER_Y, RAIL_H, RAIL_W, RAIL_POST_PITCH,
 } from '../city/river.js';
 import { KERB_H, MARK_Y } from '../city/ground.js';
+import {
+  BIKE_KERB_GAP, BIKE_LINE_IN, BIKE_LINE_OUT, MARKINGS_CLASSIC, bikeLines,
+} from '../city/markings.js';
 
 // A bridge across the river: deck, edge beams, parapets, abutments and the paint down the middle.
 //
@@ -425,6 +428,22 @@ export function bridgeParts(span, rng, range = [0, 1], { capCut = false } = {}) 
       const [x0, x1] = sign > 0
         ? [span.half + IN, span.outer - IN] : [-span.outer + IN, -span.half - IN];
       cap(x0, x1, -DECK_THICK + IN, KERB_H - IN, trimCol);
+    }
+  }
+
+  // The bike lane, where this crossing carries a bike street (city/markings.js): the edge line and
+  // the dull red lane each side, the same offsets off the centreline as on the road either end, so
+  // the lane runs straight over the river (Tyler, 2026-11-25). Plain paint like the dashes below; the
+  // fill a hair under the line so the two never share a plane.
+  if (!MARKINGS_CLASSIC && bikeLines().z === span.line) {
+    const fillCol = color('bikeLaneFill');
+    for (const sign of [-1, 1]) {
+      const strip = (a, b, col, lift) => {
+        const [x0, x1] = sign > 0 ? [a, b] : [-b, -a];
+        parts.push(profiled(loftedStrip(x0, x1, length, rise, lift, from, to), col));
+      };
+      strip(BIKE_LINE_IN, BIKE_LINE_OUT, markCol, PAINT_LIFT);
+      strip(BIKE_LINE_OUT, span.half - BIKE_KERB_GAP, fillCol, PAINT_LIFT - 0.005);
     }
   }
 
