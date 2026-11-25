@@ -1407,6 +1407,10 @@ framing that was a wallpaper of white rather than a street. Now, off the ground'
   as a landmark for the depot (stripes one way only: a cross-hatch overlaps itself, and two worn cells
   on one plane are a z-fight; the centre dashes stop either side of it), and a **TAXI rank** on the
   garage's kerb past the door.
+- **Cobbled bridgeheads**: the junction box where a main road meets each river-bank road is laid in
+  setts (running bond, each sett its own shade, a pale soldier course round it), at the fill level so
+  a manhole lies on top. Two per city, so it reads as the bridge's approach and not as the junction
+  paving that was turned down in October.
 - **No median stubs.** The double line between an arterial island's nose and the junction (1.8..3.7
   units) read as stray dashes, so outside `?markings=classic` the island's nose is the only divider there.
 

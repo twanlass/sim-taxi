@@ -36,7 +36,7 @@ import { color } from '../palette.js';
 import { cityNetwork } from './roadnet.js';
 import {
   GRID_I, GRID_J, MEDIAN_W, lineX, lineZ, halfRoadX, halfRoadZ,
-  isArterialX, isArterialZ, isRiverGap, riverBanks,
+  isArterialX, isArterialZ, isRiverGap, riverBanks, riverRow,
 } from './grid.js';
 
 export const MARKINGS_CLASSIC = typeof location !== 'undefined'
@@ -156,6 +156,8 @@ export function streetMarkings(rng, y, blocks = null) {
   const bikeBox = new THREE.Color(color('bikeBox'));
   const amber = new THREE.Color(color('cautionHatch'));
   const taxiYellow = new THREE.Color(color('taxiRank'));
+  const sett = new THREE.Color(color('cobble'));
+  const settFrame = new THREE.Color(color('cobbleFrame'));
   const asphalt = new THREE.Color(color('asphalt'));
   const scratch = new THREE.Color();
 
@@ -453,6 +455,54 @@ export function streetMarkings(rng, y, blocks = null) {
           };
         };
         wornPatch(f, xb - xa, sh * 2, amber, FILL_Y);
+      }
+    }
+  }
+
+  // --- Cobbled bridgeheads ------------------------------------------------------------------
+  // Where a main road meets the river-bank road, the junction box between its flower islands is
+  // laid in setts (Tyler, 2026-11-25: "could we do cobble stone here between the flower islands?").
+  // Two per city, one each side of the bridge, which reads as the bridge's own approach rather than
+  // as paving sprinkled round town (paving every junction was turned down in October). Running bond
+  // in courses along x, each sett its own shade, the asphalt showing in the joints, inside a pale
+  // soldier course like the plaza's. At `FILL_Y`: a manhole cover lies on top at `MARK_Y`.
+  const row = riverRow();
+  if (row !== null) {
+    const SETT_X = 0.45;
+    const SETT_Z = 0.3;
+    const JOINT = 0.06;
+    const FRAME = 0.3;
+    for (let i = 1; i < GRID_I; i++) {
+      if (!isArterialZ(i)) continue;
+      for (const j of [row, row + 1]) {
+        const cx = lineX(i);
+        const cz = lineZ(j);
+        const x0 = cx - halfRoadZ(i) + 0.12;
+        const x1 = cx + halfRoadZ(i) - 0.12;
+        const z0 = cz - halfRoadX(j) + 0.12;
+        const z1 = cz + halfRoadX(j) - 0.12;
+        const flat = (xa, xb, za, zb, col) => {
+          tri({ x: xa, z: za }, { x: xa, z: zb }, { x: xb, z: zb }, col, FILL_Y);
+          tri({ x: xa, z: za }, { x: xb, z: zb }, { x: xb, z: za }, col, FILL_Y);
+        };
+        const tone = (x, z, base) => scratch.copy(base).lerp(asphalt, (hash2(x, z, 7) - 0.3) * 0.35);
+        // The frame: four strips that meet without overlapping.
+        flat(x0, x1, z0, z0 + FRAME, tone(cx, z0, settFrame));
+        flat(x0, x1, z1 - FRAME, z1, tone(cx, z1, settFrame));
+        flat(x0, x0 + FRAME, z0 + FRAME, z1 - FRAME, tone(x0, cz, settFrame));
+        flat(x1 - FRAME, x1, z0 + FRAME, z1 - FRAME, tone(x1, cz, settFrame));
+        const fx0 = x0 + FRAME + JOINT;
+        const fx1 = x1 - FRAME - JOINT;
+        let course = 0;
+        for (let z = z0 + FRAME + JOINT; z + SETT_Z <= z1 - FRAME - JOINT + 1e-6; z += SETT_Z + JOINT, course++) {
+          // Half a sett's offset on alternate courses; the end setts are cut to the frame.
+          for (let x = fx0 - (course % 2) * (SETT_X + JOINT) / 2; x < fx1; x += SETT_X + JOINT) {
+            const xa = Math.max(fx0, x);
+            const xb = Math.min(fx1, x + SETT_X);
+            if (xb - xa < 0.08) continue;
+            flat(xa, xb, z, z + SETT_Z, tone(xa, z, sett));
+          }
+        }
       }
     }
   }

@@ -102,6 +102,10 @@ export const PALETTE = {
   cautionHatch: '#D98E2B',
   // The TAXI rank outside the garage: the taxi's own yellow family, paler, as paint.
   taxiRank: '#E8C341',
+  // The cobbled bridgeheads (city/markings.js): warm grey setts a step lighter than the asphalt, so the
+  // joints read, in a pale soldier course like the plaza's frame.
+  cobble: '#6E6964',
+  cobbleFrame: '#A39C90',
   // The one paved junction's colours are a look of their own, PLAZA_LOOKS below.
   sidewalk: '#CDBFA6',
   kerb: '#B3A994',
