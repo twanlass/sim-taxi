@@ -2430,6 +2430,25 @@ there under the fog, and what `?city=big` shows, since the fog is island-only.
   tried and dropped (Tyler, 2026-10-17: "let's not add the buildings in the distance then and just
   keep the fog"); towers can only go up-screen, so seen whole they bunched into one corner.
 
+### The pavement round the edge — `city/edgewalk.js`
+
+The ring road has a pavement on its outer side, the way every block presents one to the street:
+the same `kerb` box and `sidewalk` surface at the same heights, bent round the ring with its corners
+concentric about the junction's `CURB_RADIUS`, merged into the ground mesh. Tyler, 2026-11-25: "add a
+sidewalk around the edges of the map ... would partially fade into our cloud edges". Before it the
+asphalt ran on past the last lane into the bank, and the edge of the city read as a road that had been
+cut off.
+
+- **The fade is the fog's.** `EDGE_WALK_W` (6) puts the far edge most of the way up the bank's ramp,
+  so the pavement is clear at the kerb and gone at its far side, and the billows decide where along the
+  coast it shows whole. No alpha of its own, so nothing to sort against the skirt or the road's decals.
+- **Wide on purpose.** The first cut was 3.5, a block's worth of pavement. Its far edge sat half fogged
+  with a strip of dark asphalt past it before the bank, and pale-to-dark-to-pale drew exactly the hard
+  line the fog is there to hide. Pale pavement into pale fog is what melts.
+- **It stops at the river**, on the embankment walk's kerb line (`riverBanks`), and butts into that
+  walk, which already runs out to the coast at the same height and in the same materials.
+- Island only, and `?edgewalk=classic` (`EDGEWALK=classic` headless) is the bare asphalt.
+
 ### The feathered skirt — `city/ground.js`
 
 The asphalt doesn't end on a line. A **fade skirt** hangs off the slab — `EDGE_FADE = 16` units of

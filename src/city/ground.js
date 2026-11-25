@@ -3,6 +3,7 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { bakeColor, propMaterial } from '../util/geo.js';
 import { PALETTE, color, jitterColor } from '../palette.js';
 import { centralParkGround } from './centralpark.js';
+import { edgeWalkParts } from './edgewalk.js';
 import {
   GRID_I, GRID_J, ROAD_W, SPAN_X, SPAN_Z, lineX, lineZ,
   isUnsignalised, isSegmentClosed, halfRoadX, halfRoadZ, isArterialX, isArterialZ,
@@ -631,6 +632,14 @@ export function createGround(rng, blocks) {
       }
     }
   }
+
+  // --- The pavement round the outside of the ring road (city/edgewalk.js). Last, so its two colour
+  // draws come after every block's and reshuffle none of them.
+  parts.push(...edgeWalkParts({
+    kerbH: KERB_H, paveInset: PAVE_INSET, kerbRadius: CURB_RADIUS,
+    kerbCol: jitterColor(PALETTE.kerb, rng, { l: 0.02 }),
+    walkCol: jitterColor(PALETTE.sidewalk, rng, { l: 0.03 }),
+  }));
 
   const merged = mergeGeometries(parts, false);
   parts.forEach((p) => p.dispose());
