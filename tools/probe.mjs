@@ -53,10 +53,11 @@ import { createAsphaltPatches, planPatches, patchGeometry, patchRoadHalf, PATCH_
 import { createStreetProps, planStreetProps } from '../src/game/streetprops.js';
 import { createGarbage, planTrashPiles } from '../src/game/garbage.js';
 import { createRoboTaxis } from '../src/game/robotaxi.js';
-import { roboShellParts, roboBandGeometry, roboWellLiners } from '../src/geometry/robotaxi.js';
+import { roboShellParts, roboBandGeometry, roboWellLiners, createRoboTaxiMesh } from '../src/geometry/robotaxi.js';
 import { setFareSeconds } from '../src/game/fares.js';
 import { ROBO_SPEED } from '../src/sim/traffic.js';
-import { HOPPER_MOUTH } from '../src/geometry/garbage.js';
+import { HOPPER_MOUTH, createGarbageTruckMesh } from '../src/geometry/garbage.js';
+import { createFireTruckMesh } from '../src/geometry/firetruck.js';
 import { truckPaint } from '../src/sim/traffic.js';
 import { createCarWash } from '../src/city/carwash.js';
 import { createGasStation } from '../src/city/gasstation.js';
@@ -12950,22 +12951,37 @@ function rideToPickup() {
   check('every drawn taxi part is in the ghost stencil mask', unmasked.length === 0 && masks.length === 33,
     `${unmasked.length} unmasked, ${masks.length} masks (9 outlined parts + 16 damage pieces + 4 door pieces + 2 bumpers + 2 mirrors)`);
 
-  // The street racer is a guest car (`enterGuest`) — no instance, so game/carghosts.js cannot see
-  // it, and it vanished behind every building until it wore an outline of its own (Tyler: "our
-  // street racer has no ghost outline when it goes behind buildings"). Same two rules as the taxi.
-  // The underglow is the one drawn part left out: additive, no depth write, so it occludes nothing.
-  const rival = createRivalMesh();
-  const rivalRims = [];
-  const rivalUnmasked = [];
-  rival.group.traverse((node) => {
-    if (node.name === 'ghostRim') rivalRims.push(node);
-    if (!node.isMesh || node.name === 'ghostMask' || node.name === 'ghostRim' || node === rival.glow) return;
-    if (!node.children.some((c) => c.name === 'ghostMask')) rivalUnmasked.push(node);
-  });
-  check('the street racer wears a ghost outline, and every solid part is in the mask',
-    rivalRims.length === 5 && rivalUnmasked.length === 0
-      && rivalRims.every((r) => r.material.color.getHex() === new THREE.Color(color('racerGhost')).getHex()),
-    `${rivalRims.length} rims (body + 4 wheels), ${rivalUnmasked.length} unmasked parts`);
+  // Every vehicle drawn as ordinary meshes — a `skin` in sim/traffic.js — wears its own outline
+  // (`outlineVehicle`): the instanced pool in game/carghosts.js reads instances, and these have
+  // none, so each went behind a building and vanished (Tyler: "our street racer has no ghost
+  // outline when it goes behind buildings" ... "all the vehicles should get this"). Same two rules
+  // as the taxi: a hull on the parts that carry one, a mask on every other solid part. Parts that
+  // write no depth (an underglow) occlude nothing and are left out.
+  const skinned = {
+    racer: [createRivalMesh().group, 5],
+    'fire engine': [createFireTruckMesh().group, 4],
+    'garbage truck': [createGarbageTruckMesh().group, 4],
+    'robo-taxi': [createRoboTaxiMesh(CAR_LEN, CAR_W).group, 5],
+  };
+  for (const [name, [root, expected]] of Object.entries(skinned)) {
+    const rims = [];
+    const unmasked = [];
+    root.traverse((node) => {
+      if (node.name === 'ghostRim') rims.push(node);
+      if (!node.isMesh || node.name === 'ghostMask' || node.name === 'ghostRim') return;
+      const m = node.material;
+      if (m.visible === false || m.transparent || m.depthWrite === false || m.colorWrite === false) return;
+      if (!node.children.some((c) => c.name === 'ghostMask')) unmasked.push(node);
+    });
+    const ghost = root.userData.ghost;
+    const hidden = rims.every((r) => !r.visible);
+    ghost?.set(0.5);
+    const shown = rims.every((r) => r.visible && r.material.opacity === 0.5);
+    ghost?.set(0);
+    check(`the ${name} wears a ghost outline, and every solid part is in the mask`,
+      rims.length === expected && unmasked.length === 0 && ghost && hidden && shown,
+      `${rims.length}/${expected} rims, ${unmasked.length} unmasked parts, starts hidden ${hidden}, set() drives it ${shown}`);
+  }
 
   // --- A dimming lamp must dim where it stands ---------------------------------------------------
   //

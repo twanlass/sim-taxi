@@ -16,7 +16,7 @@ import { color } from '../palette.js';
 import { wheelAnchors, wheelGeometry, SILL_Y, CHASSIS_LIFT } from '../geometry/wheels.js';
 import { createTargetRing, RING_Y } from '../geometry/targetring.js';
 import { createRaceFlag } from '../geometry/raceflag.js';
-import { addGhostOutline, addGhostMask, stripGhostOutlines } from '../geometry/ghostoutline.js';
+import { outlineVehicle, stripGhostOutlines, VEHICLE_RIM, WHEEL_RIM } from '../geometry/ghostoutline.js';
 import { BOOST_START_FRACTION } from './boost.js';
 import { markOccluder } from './ssao.js';
 import { createHydraulics, LIFT_MIN } from './hydraulics.js';
@@ -509,21 +509,20 @@ export function createRivalMesh() {
   });
   const wheels = allWheels.filter((w) => w.userData.front);
 
-  // The ghost outline: traced where a building hides the car, the way the taxi's is. The ambient
-  // traffic gets its outlines from game/carghosts.js, but that pool reads instances, and the racer
-  // is a guest (`enterGuest`) with no instance at all — so it went behind a tower and simply
-  // vanished, in the one event where the player is meant to be watching where it is. Per-mesh,
-  // as geometry/ghostoutline.js offers to any car drawn as ordinary meshes, and every opaque part
-  // is in the stencil mask (the taxi's rule: a part left out is an occluder of its own car's rim).
+  // The ghost outline (`outlineVehicle`, geometry/ghostoutline.js). The wheels get rims of their
+  // own, not just masks, because the body rides away from them on the hydraulics and a hop lifts
+  // the hull clear of the tyres. Its own violet, lifted the way PALETTE.carBodyGhost lifts the
+  // fleet's paints: yellow is the player's, and the fleet's lavender (#AC96C7) is a third of this
+  // saturation.
   //
-  // Rim widths are the taxi's *as drawn*: its 0.3 and 0.12 sit under TAXI_SCALE = 1.18, and this
-  // group carries no scale. The wheels get rims of their own, not just masks, because the body
-  // rides away from them on the hydraulics and a hop lifts the hull clear of the tyres.
-  // Its own violet, lifted for the rim the way PALETTE.carBodyGhost lifts the fleet's paints:
-  // yellow is the player's, and the fleet's lavender (#AC96C7) is a third of this saturation.
-  addGhostOutline(body, { rim: 0.35, tint: color('racerGhost') });
-  addGhostMask(stripe);
-  for (const wheel of allWheels) addGhostOutline(wheel, { rim: 0.14, tint: color('racerGhost') });
+  // `always`: unlike every other vehicle the racer is traced wherever it is, not only near the
+  // taxi. It is the one car the player is chasing, and mid-race it is usually more than the street
+  // traffic's radius ahead — exactly where a tower can swallow it.
+  outlineVehicle(group, {
+    rims: [[body, VEHICLE_RIM], ...allWheels.map((w) => [w, WHEEL_RIM])],
+    tint: color('racerGhost'),
+    always: true,
+  });
 
   // Dissolved in and out rather than blended — the cruiser's and the engine's `alphaHash`.
   const faders = [body.material, stripe.material, wheelMat];

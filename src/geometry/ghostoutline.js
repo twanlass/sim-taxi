@@ -60,6 +60,11 @@ export const CAR_GHOST_RIM_ORDER = 9993;
 // still read as an outline of the car rather than a blob wearing its shape.
 const RIM = 0.3;
 
+// The same trace on a vehicle with no group scale (every `outlineVehicle` car): the taxi's 0.3 and
+// its wheels' 0.12 *as drawn*, under TAXI_SCALE = 1.18. game/carghosts.js's 0.35 is the same number.
+export const VEHICLE_RIM = 0.35;
+export const WHEEL_RIM = 0.14;
+
 // The stencil ref shared by mask and rim — and by every ghost in the scene. The only other writer
 // is stampGhostMask, which stamps this same ref for the things that fly.
 //
@@ -246,6 +251,63 @@ export function setGhostOutlines(root, visible) {
   root.traverse((child) => {
     if (isGhostPart(child)) child.visible = visible;
   });
+}
+
+/**
+ * Outline a vehicle drawn as ordinary meshes — every `skin` in sim/traffic.js: the racer, the
+ * patrol cruiser, the fire engine, the garbage truck, the robo-taxis. The instanced pool in
+ * game/carghosts.js reads instances, and a skinned car has none (a guest never had one; the
+ * cruiser's is collapsed under it), so each of these went behind a building and vanished.
+ *
+ * `rims` are the parts that get a hull — the body, the wheels, anything that swings out past the
+ * body (a ladder, a lid). Every *other* opaque, depth-writing mesh under `root` gets a mask only,
+ * found by walking the tree rather than listed by hand: the taxi's rule is that any part left out
+ * of the mask is an occluder of its own car's rim, and a hand-written list goes stale the day a
+ * part is added. Lamps switched by `visible` are walked too; their masks ride their visibility.
+ *
+ * Starts **off**. game/carghosts.js drives `set(alpha)` every frame with the same rules as the
+ * street traffic — near the taxi, faded by distance — and off means the mask is hidden too, since
+ * a mask stamps the stencil whether its rim shows or not (see the strength floor there).
+ *
+ * @param root    the group the skin draws into (what `wearSkin` is handed)
+ * @param rims    `[mesh, thickness]` pairs, in the mesh's local units
+ * @param tint    rim colour — the vehicle's paint, lifted the way PALETTE.carBodyGhost is
+ * @param always  trace at full strength wherever it is, rather than only near the taxi
+ */
+export function outlineVehicle(root, { rims, tint, always = false }) {
+  const hulled = new Set(rims.map(([mesh]) => mesh));
+  const solid = [];
+  root.traverse((object) => {
+    if (!object.isMesh || hulled.has(object) || isGhostPart(object)) return;
+    const m = object.material;
+    if (!m || Array.isArray(m) || m.visible === false || m.transparent) return;
+    if (m.colorWrite === false || m.depthWrite === false) return;
+    solid.push(object);
+  });
+  const parts = [];
+  const rimMeshes = [];
+  for (const [mesh, rim] of rims) {
+    const pair = addGhostOutline(mesh, { rim, tint });
+    parts.push(pair.mask, pair.rim);
+    rimMeshes.push(pair.rim);
+  }
+  for (const mesh of solid) parts.push(addGhostMask(mesh));
+  let shown = null;
+  const handle = {
+    always,
+    /** 0 hides the outline outright; anything above it is the rim's opacity. */
+    set(alpha) {
+      const on = alpha > 0.002;
+      if (on !== shown) {
+        for (const part of parts) part.visible = on;
+        shown = on;
+      }
+      if (on) for (const rim of rimMeshes) rim.material.opacity = alpha;
+    },
+  };
+  handle.set(0);
+  root.userData.ghost = handle;
+  return handle;
 }
 
 /** Is `object` one of the two passes addGhostOutline / addGhostMask hang off a mesh? */

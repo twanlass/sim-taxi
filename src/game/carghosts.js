@@ -327,7 +327,7 @@ function createPool(scene, {
  */
 export function createCarGhosts(scene, traffic) {
   const {
-    mesh, wheelMesh, ambient, wheelsPerCar, taxi,
+    mesh, wheelMesh, ambient, wheelsPerCar, taxi, cars = [],
     truckMesh, truckWheelMesh, truckBoxMesh, trucks, truckWheelsPerCar,
     classicMeshes = {}, modelOf = () => null, classicInteriorMesh = null,
   } = traffic;
@@ -407,7 +407,7 @@ export function createCarGhosts(scene, traffic) {
   let found = 0;
 
   const state = {
-    strength: 0, active: 0, cars: 0, trucks: 0,
+    strength: 0, active: 0, cars: 0, trucks: 0, skins: 0,
   };
 
   function consider(car, dist, pool) {
@@ -434,12 +434,51 @@ export function createCarGhosts(scene, traffic) {
       // half of the rim drew in the open, round the crates, all the time. It sits out of the
       // outlines rather than getting a cab-only pool of its own for one vehicle.
       if (car.flatbed) continue;
+      // A car wearing a skin (the patrol cruiser) has its instance collapsed under the skin, so
+      // tracing it would spend a slot on nothing. Its outline is the skin's own — see skins below.
+      if (car.skin) continue;
       const dx = car.x - taxi.x;
       const dz = car.z - taxi.z;
       const d2 = dx * dx + dz * dz;
       if (d2 > limit) continue;
       consider(car, Math.sqrt(d2), typeof pool === 'function' ? pool(car) : pool);
     }
+  }
+
+  // --- Skins: every vehicle drawn as ordinary meshes rather than an instance (the racer, the
+  // patrol cruiser, the fire engine, the garbage truck, the robo-taxis). Each wears a per-mesh
+  // outline (`outlineVehicle` in geometry/ghostoutline.js) and this sets its strength on the same
+  // rules as the pool's: the boost-independent envelope, the radius and its fade band. Outside the
+  // MAX_GHOSTS cap, because a skin costs no pool slot, and there are a handful at most.
+  //
+  // Every handle seen is kept, so one whose car has left the road (retired, or a wreck taking
+  // over) is switched off rather than left at the alpha it last had.
+  const skinGhosts = new Set();
+  const liveSkins = new Set();
+  function updateSkins(envelope) {
+    liveSkins.clear();
+    if (envelope > 0) {
+      const limit = GHOST_RADIUS * GHOST_RADIUS;
+      for (const car of cars) {
+        const ghost = car.skinRoot?.userData.ghost;
+        if (!ghost || car.crashed) continue;
+        skinGhosts.add(ghost);
+        let alpha;
+        if (ghost.always) {
+          alpha = smoothstep(envelope) * GHOST_OPACITY;
+        } else {
+          const dx = car.x - taxi.x;
+          const dz = car.z - taxi.z;
+          const d2 = dx * dx + dz * dz;
+          if (d2 > limit) continue;
+          alpha = smoothstep(envelope) * GHOST_OPACITY * smoothstep((GHOST_RADIUS - Math.sqrt(d2)) / FADE_BAND);
+        }
+        ghost.set(alpha);
+        liveSkins.add(ghost);
+      }
+    }
+    for (const ghost of skinGhosts) if (!liveSkins.has(ghost)) ghost.set(0);
+    return liveSkins.size;
   }
 
   /**
@@ -468,7 +507,9 @@ export function createCarGhosts(scene, traffic) {
       state.active = 0;
       state.cars = 0;
       state.trucks = 0;
+      state.skins = 0;
       for (const pool of pools) pool.clear();
+      updateSkins(0);
       return;
     }
 
@@ -486,6 +527,7 @@ export function createCarGhosts(scene, traffic) {
     for (const pool of Object.values(classicPools)) state.cars += pool.commit();
     state.trucks = truckPool.commit();
     state.active = found;
+    state.skins = updateSkins(state.strength);
   }
 
   return {

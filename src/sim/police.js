@@ -3,6 +3,7 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { propMaterial, BODY_EULER_ORDER, FINISH, countInEveryPass } from '../util/geo.js';
 import { PALETTE, color } from '../palette.js';
 import { SILL_Y } from '../geometry/wheels.js';
+import { outlineVehicle, VEHICLE_RIM, WHEEL_RIM } from '../geometry/ghostoutline.js';
 import {
   sirenOn, patrolSwing, sirenPodGeometry, sirenRedAnchor, sirenBlueAnchor, sirenBaseGeometry, sirenBaseAnchor,
   sirenRedMaterial, sirenBlueMaterial,
@@ -218,6 +219,12 @@ export function createPolice(scene, { lamps = true, patrolLights = false } = {})
   const faders = [body.material, lights.housing.material, lights.red.material, lights.blue.material,
     wheels[0].material];
   for (const material of faders) material.alphaHash = true;
+  // Its ghost outline, traced near the taxi like the street traffic's (game/carghosts.js). The
+  // cop cars of the robbery are instances and get theirs from the pool; this one is a skin.
+  outlineVehicle(group, {
+    rims: [[body, VEHICLE_RIM], ...wheels.map((w) => [w, WHEEL_RIM])],
+    tint: color('policeGhost'),
+  });
   shell.visible = false;
   // 'YXZ', not the default — see the note by the ambient euler in sim/traffic.js. The pose arrives
   // as a quaternion from the traffic model, but anything reading `rotation` back gets it in the

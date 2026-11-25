@@ -4,6 +4,7 @@ import { KERB_H } from '../city/ground.js';
 import { lineX, lineZ } from '../city/grid.js';
 import { cloneProp, unlitMaterial } from '../util/geo.js';
 import { warmWreckOf } from './vanish.js';
+import { stripGhostOutlines } from '../geometry/ghostoutline.js';
 import { PALETTE } from '../palette.js';
 import { CAR_LEN, CAR_W, ROBO_SPEED, STOP_SETBACK, stopDistance } from '../sim/traffic.js';
 import { createRoboTaxiMesh, ROBO_SCALE, ROBO_BAND_TIME, BALL_R } from '../geometry/robotaxi.js';
@@ -109,7 +110,7 @@ export function createRoboTaxis({ rng, scene, traffic, fares, blocked = () => fa
   const wreckFor = (robo) => () => {
     const { rig } = robo;
     rig.group.updateMatrixWorld(true);
-    const shell = rig.shell.clone(true);
+    const shell = stripGhostOutlines(rig.shell.clone(true));
     shell.traverse((o) => {
       if (o.isMesh) {
         // `cloneProp`, not `clone()`: a plain clone drops the paint patch (see util/geo.js).
