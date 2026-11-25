@@ -114,6 +114,7 @@ doc; what the classic version was, and why it changed, is in that doc's history 
 | `?eject=classic` | The wrecked taxi's driver appearing full size in the air above the bonnet and fading in, instead of squeezing out through the windscreen | | [traffic.md](traffic.md) |
 | `?poptext=classic` | The flying prices, combo words, checkpoints and race count with their old soft drop shadow instead of the speech card's dark outline | | [gameplay.md](gameplay.md#economy) |
 | `?rerun=classic` | Play again and Quit reload the page (a new city, and the whole load again) instead of resetting the run on the same page | | [gameplay.md](gameplay.md#play-again) |
+| `?rerunentry=classic` | Play again grows the city out of the ground again (the entrance wave and the L's track) instead of opening on the city already standing | | [gameplay.md](gameplay.md#play-again) |
 | `?playagain=classic` | The run-end card ending on the yellow Play again pill instead of a pulsing "Tap to continue" (tap anywhere to play again) | | [gameplay.md](gameplay.md#the-polaroid) |
 | `?musicfade=classic` | The music fading over 1.5s as the run-end card appears, instead of playing under the stats and fading over 2.5s once "Tap to continue" comes up | | [audio.md](audio.md) |
 | `?statcount=classic` | The run-end stats' old pace: each value fades in with its label and rolls in 0.34s, in yellow, instead of appearing after the label lands and counting for 0.46s in white | | [gameplay.md](gameplay.md#the-polaroid) |
