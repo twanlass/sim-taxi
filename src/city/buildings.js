@@ -12,6 +12,7 @@ import {
   GLASS_RECESS, RECESS_PIER, WALLS_CLASSIC, WALL_STYLE, fillWalls, frameMesh, patchWalls, recessShell, stampWall,
   windowFrames,
 } from './facade.js';
+import { patchWallGrain } from './wallgrain.js';
 
 const FLOOR_H = 2.6;
 // The ground floor is its own storey height. A shopfront is taller than the flats above it, and
@@ -1130,9 +1131,9 @@ export { splitLot };
 
 /** The towers' material: `propMaterial({ smooth })` with the wall detail patched on (city/facade.js). */
 export function wallMaterial() {
-  return patchWalls(propMaterial({ smooth: true }), {
+  return patchWallGrain(patchWalls(propMaterial({ smooth: true }), {
     floorH: FLOOR_H, groundTop: KERB_H + GROUND_H,
-  });
+  }));
 }
 export { fillWalls, frameMesh };
 
