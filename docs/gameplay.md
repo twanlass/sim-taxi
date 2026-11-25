@@ -202,8 +202,9 @@ story. A finished line left untapped for `NUDGE_AFTER` = 3 s gives the card a
 dock-icon bounce (a 12 px hop and a 5 px one), and again every 3 s until the tap; not under reduced
 motion. When the story starts the camera flies from the title's slide down to the garage in one
 move (`STORY_GLIDE` = 3.5 s, a smootherstep blend of the two moving shots, so it leaves and arrives
-at their own speeds) and slides slowly past its door (`storyFrame` in `main.js`, zoom 24, 0.35 units
-a second). Under `?titlecam=reel`, and under reduced motion, it cuts there under the wipe instead.
+at their own speeds) and slides slowly past its door (`storyFrame` in `main.js`, zoom 24), leaving at 0.35 units
+a second and easing to rest 7 units along, so however long the player sits on a line the door
+stays in frame. Under `?titlecam=reel`, and under reduced motion, it cuts there under the wipe instead.
 Either way the last tap eases straight down onto the door rather than cutting there. Otherwise it lets the
 run go exactly as Play used to. The title screen's gate stays
 shut the whole time (`beforePlay` in `titlescreen.js`), so the fare board, the vignette and the
