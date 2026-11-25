@@ -19,7 +19,8 @@ import { createRain, GRIP } from './game/rain.js';
 import { createStorm } from './game/storm.js';
 import { createComboMeter, comboScope, comboValue, formatMult } from './game/combometer.js';
 import { createSquall, RAMP, RAMP_CLASSIC, CELL_EDGE } from './game/squall.js';
-import { createSnow, GRIP as SNOW_GRIP, SNOW_DARK, SNOW_HAZE } from './game/snow.js';
+import { createSnow, GRIP as SNOW_GRIP, SNOW_DARK, SNOW_HAZE, SNOW_ROUTE_OPACITY } from './game/snow.js';
+import { createHolidayLights } from './game/holidaylights.js';
 import { pedalZones as growPedalZones, pedalAfterMove } from './game/pedalzones.js';
 import {
   collectPanes, litWindows, streetLamps, entrances, lampKeepOff, switchedLights, createTaxiHeadlights, setCityLights,
@@ -45,7 +46,7 @@ import { createBoats } from './game/boats.js';
 import { createHarborShips } from './game/harborships.js';
 import { createBridge, jointParts, BRIDGE_NORMALS_CLASSIC } from './geometry/bridge.js';
 import { createBuildings } from './city/buildings.js';
-import { createProps, parkPlots, setAutumn } from './city/props.js';
+import { createProps, parkPlots, setAutumn, setHoliday } from './city/props.js';
 import { createLeaves } from './game/leaves.js';
 import { createGrass } from './city/grass.js';
 import { createCanopyFuzz } from './city/canopyfuzz.js';
@@ -61,7 +62,7 @@ import {
   boostCruise, locoTuning, setLocoTuning, resetLocoTuning, locoRamp, LOCO_DEFAULTS, driftTaxi, kickDrift, driftHolds, DRIFT_CHAIN,
   onDriftLaunch, hopProgress, setSpinStyle, setBarrelRoll, setMegaFlip, setBridgeStunt, setPassTurnGate, setPassPace, setHopStyle, setDodge, setOvertakeStyle, setPeek, setTaxiScatter,
   configureSignals, setGrip, setRunningLights, setRunningLightsAt, runningLightsAt, isLaneClosed, FISHTAIL_TIME,
-  airborneHeight,
+  airborneHeight, setSlip,
 } from './sim/traffic.js';
 import { createCollisions, TAXI_HP, setCrush, setCrushSplash } from './sim/collisions.js';
 import { createVanish } from './game/vanish.js';
@@ -686,10 +687,14 @@ const LENS_REACH = 15;
  * The tyre tracks are pressed by `snowTracks`, which needs the traffic and so is set once it exists.
  */
 let snowTracks = null;
+// The bulbs on the rooflines and the fir (game/holidaylights.js), once the city exists.
+let holidayLights = null;
 // The camera, once it exists: the first `applyWeather` below runs before it does.
 let snowCamera = null;
 function applySnow(dt) {
   snowTracks?.();
+  holidayLights?.update(dt);
+  setSlip(Math.min(1, snow.state.level));
   // The flakes dim with the light, so a dusk flake is not a white dot on a dark street.
   snow.update(dt, snowCamera, THREE.MathUtils.clamp(0.35 + 0.5 * hemi.intensity + 0.1 * sun.intensity, 0.35, 1));
   const cover = Math.min(1, snow.state.level);
@@ -826,6 +831,8 @@ const stopPanes = rain.enabled ? collectPanes() : null;
 // same broadleaf, and autumn is one fact about the whole city (`autumnBase` in city/props.js).
 const fall = getFall();
 setAutumn(fall, { classicColours: getFoliageClassic() });
+// The holidays come with the snow: the fir in the park where the statue stands (city/props.js).
+setHoliday(Boolean(snow));
 const city = createBuildings(makeRng(seed + 22), layout);
 scene.add(markOccluder(city.mesh));
 // The window frames: not occluders, on purpose (`frameMesh` in city/facade.js).
@@ -1747,6 +1754,10 @@ if (snow) {
     for (const car of traffic.cars) tracked.push(car);
     snow.stamp(tracked, { airborne: airborneHeight, lift: (car) => deckHeightAt(car.x, car.z).y });
   };
+  holidayLights = createHolidayLights({ decks: city.decks, tree: props.holidayTree });
+  scene.add(holidayLights.group);
+  for (const mesh of holidayLights.meshes) markEmissive(mesh, 'pod');
+  if (holidayLights.star) markEmissive(holidayLights.star, 'pod');
 }
 for (const mesh of cruisers.flatMap((c) => c.emissiveMeshes)) markEmissive(mesh, 'siren');
 if (ltrain?.lamps) markEmissive(ltrain.lamps, 'pod');
@@ -3381,6 +3392,14 @@ if (rivalLine) {
 // ⚙️ dropdown because a screenshot has to be able to pin it: the panel doesn't exist in shot mode.
 const blendParam = new URLSearchParams(window.location.search).get('blend');
 if (blendParam) routeLine.setBlend(blendParam);
+// On snow the additive band has nothing to add to: white plus green is white, and the band washed
+// out to a glare. Painted over the snow instead, and stronger, so it reads as the clock's colour.
+else if (snow) {
+  routeLine.setBlend('normal');
+  routeLine.setOpacity(SNOW_ROUTE_OPACITY);
+  rivalLine?.setBlend('normal');
+  rivalLine?.setOpacity(SNOW_ROUTE_OPACITY * 0.6);
+}
 
 /**
  * Paint the band in the clock the drive is spending, so the road ahead, the crystal at the end of
@@ -9320,6 +9339,8 @@ window.__taxi = {
   squall,
   /** The snowstorm — `state`, `pin(v)`, `trackAt(x, z)`, `clearTracks()`. Null unless it is snowing. */
   snow,
+  /** The holiday lights and the fir's star — `update(dt)`, `count`. Null unless it is snowing. */
+  get holidayLights() { return holidayLights; },
   /** The squall's falling leaves — `stats()`, `positions()`. Null with `?fall=off` or no squall. */
   leaves,
   /**

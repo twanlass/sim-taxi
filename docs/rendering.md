@@ -1973,11 +1973,31 @@ Three parts, none of them geometry on the city:
   the rain, dimmed with the light so a dusk flake is not a white dot. `game/gpusnowfall.js` is the
   WebGPU twin.
 
-Around them: a pale, flat overcast grade (`grade`, the `snow*` palette entries; the sun at 55% and
-the fill at 115%, because snow light is soft and the ground throws it back), the haze at 0.3, the
-city's lights at a level of 0.3 so a few windows come on, the trees summer green unless `?fall` is
-given (snow on gold leaves reads as a mistake), and the grip: `GRIP` 0.65 at full cover, applied to
-every car's braking the way the rain's is, so traffic stays consistent and nobody runs a red.
+Around them: a pale, low overcast grade (`grade`, the `snow*` palette entries; the sun at 42% and
+the fill at 95%, dimmed from a first 55% and 115% so the holiday lights have a frame to glow
+against), the haze at 0.3, the city's lights at a level of 0.42 so most windows and every headlight
+are on, and the trees summer green unless `?fall` is given (snow on gold leaves reads as a mistake).
+
+**Slippery.** Two parts. Everyone's brakes go to `GRIP` 0.55 at full cover, the rain's mechanism, so
+traffic stays consistent and nobody runs a red. And the taxi alone oversteers (`setSlip` in
+sim/traffic.js, driven off the cover): its body lags its heading through a corner, the nose turned
+in and the tail swung wide, then catches and wobbles back once. A spring chasing
+`SLIP_GAIN × turn rate × speed`, capped at 0.24 rad (0.3 with the overshoot) and pivoted about the nose like the race's
+fishtail, so the lane and `car.s` carry on and nothing about routing changes.
+
+**The route band** is painted over snow rather than added (`SNOW_ROUTE_OPACITY` 0.62, normal
+blend): additive over white is white, and the band went to a glare. `?blend=` still wins.
+
+### The holidays — `game/holidaylights.js`, the fir in `city/props.js`
+
+With the snow (`setHoliday`): the statue's plaza holds a 10-unit fir instead of the figure
+(`treeParts(..., { fir: true })`: four stacked cones with soft normals and a leaf-card lobe each,
+so it is drawn the way every tree is; built off a stream of its own so the rest of the park is the
+same park), and its clearing grows to fit. String lights swag along the rooflines of about half
+the flat roofs (picked by a hash of the roof), just out past the cornice, sagging between hooks
+every 2.2 units; another string spirals the fir six times, with a gold star turning on top. Two
+instanced meshes deal the bulbs alternately, so the city's lights are two draws and the twinkle is
+one colour per mesh per frame; all of it is in the bloom.
 
 It costs less than the squall it replaces, which brings a second full render of the city for the
 mirror: the cover is a few ALU and one texture fetch per lit fragment, the flakes are one draw, and

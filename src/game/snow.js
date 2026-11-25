@@ -32,8 +32,12 @@ import { flakeTwin } from './gpusnowfall.js';
  * little softer on snow, and plans its stops against the softer brake, so nobody runs a red.
  */
 
-/** What braking is worth on full snow cover, as a fraction of dry — a little more than the wet's 0.6. */
-export const GRIP = 0.65;
+/**
+ * What braking is worth on full snow cover, as a fraction of dry — a little less than the wet's 0.6.
+ * The rest of the slippery is the taxi's own: its tail steps out through corners (`setSlip` in
+ * sim/traffic.js), which main.js drives off the same cover.
+ */
+export const GRIP = 0.55;
 
 /** The cover the run opens on (it snowed overnight), and the seconds of snowfall to add one more. */
 const START = 0.6;
@@ -66,8 +70,13 @@ const WIND = new THREE.Vector2(2.6, 1.3);
 const FLAKE_SIZE = 0.24;
 const FLAKE_OPACITY = 0.9;
 
-/** How much the sky darkens for the city's lights: enough for some windows, not for night. */
-export const SNOW_DARK = 0.3;
+/** How dark the city reads to its lights: most windows and every headlight on, the sky still day. */
+export const SNOW_DARK = 0.42;
+/**
+ * The route band over snow: painted rather than added (white plus anything is white), at more than
+ * the dry road's ROUTE_OPACITY 0.38 so the clock's colour survives the pale ground.
+ */
+export const SNOW_ROUTE_OPACITY = 0.62;
 /** The haze under falling snow (HAZE_TOP is the clear afternoon's). */
 export const SNOW_HAZE = 0.3;
 
@@ -264,14 +273,16 @@ export function createSnow({ pin = null } = {}) {
    */
   function grade(look) {
     const bright = Math.min(1, look.fill / 1.2);
-    const sky = 0.3 + 0.7 * bright;
+    const sky = (0.3 + 0.7 * bright) * 0.85;
     look.top.lerp(tmp.copy(top).multiplyScalar(sky), 0.7);
     look.bottom.lerp(tmp.copy(bottom).multiplyScalar(sky), 0.7);
     look.sun.lerp(sun, 0.5);
     look.hemiSky.lerp(tmp.copy(hemiSky).multiplyScalar(sky), 0.65);
     look.hemiGround.lerp(tmp.copy(hemiGround).multiplyScalar(sky), 0.7);
-    look.power *= 0.55;
-    look.fill *= 1.15;
+    // Dimmed past the first cut (0.55 and 1.15, Tyler: "dim the light a lil"): a snowstorm afternoon
+    // is a low, grey one, and the holiday lights want a frame they can glow against.
+    look.power *= 0.42;
+    look.fill *= 0.95;
   }
 
   // --- the loop ---------------------------------------------------------------------------------

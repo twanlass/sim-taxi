@@ -1458,6 +1458,15 @@ export const PALETTE = {
   // The cover itself, a touch blue of white so a sunlit roof does not clip to paper; and the flakes.
   snowCover: '#E2E8EE',
   snowFlake: '#F2F5F8',
+  // The holidays (game/holidaylights.js): the fir in the park, its star, and the bulbs on it and on
+  // the rooflines. Saturated on purpose: they are lamps, and a lamp at 2 px has only its hue.
+  firNeedles: '#2F5A3A',
+  holidayStar: '#FFD25A',
+  holidayRed: '#FF3B3B',
+  holidayGreen: '#3BFF6A',
+  holidayGold: '#FFC23B',
+  holidayBlue: '#3B9BFF',
+  holidayWhite: '#FFF4D6',
   // The streaks and the crowns. Pale and a touch blue, never white: at 0.3 alpha over asphalt a
   // white streak reads as snow.
   rainStreak: '#C8D6E6',

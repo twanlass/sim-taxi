@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { bakeColor, hash01, jitterVertices, propMaterial, stampEntry } from '../util/geo.js';
 import { PALETTE, jitterColor } from '../palette.js';
+import { makeRng } from '../util/rng.js';
 import { KERB_H, MEDIAN_EDGE, PARK_EDGE, roundedRectShape } from './ground.js';
 import { MEDIAN_W, medianRuns } from './grid.js';
 import { planPond, pondParts, pondWaterMesh } from './pond.js';
@@ -66,6 +67,9 @@ export function treeShape(height, trunk = 0.42) {
  */
 const planted = [];
 
+/** A stream of its own for the holiday fir, so the city's draws are the same with it or without. */
+const firRng = (x, z) => makeRng(Math.floor(hash01(x, z) * 1e9) + 7);
+
 /** Every canopy lobe `treeParts` has grown since the city was laid out — the leaf cards' input. */
 export function plantedCrowns() {
   return planted;
@@ -77,8 +81,9 @@ export function clearPlantedCrowns() {
 }
 
 export function treeParts(x, z, rng, {
-  low = 3.4, high = 5.6, height, trunk = 0.42, crowns = null, canopy: canopyBase = null,
+  low = 3.4, high = 5.6, height, trunk = 0.42, crowns = null, canopy: canopyBase = null, fir = false,
 } = {}) {
+  if (fir) return firParts(x, z, rng, { height: height ?? rng.range(low, high), crowns, canopy: canopyBase });
   const parts = [];
   const shape = treeShape(height ?? rng.range(low, high), trunk);
   const { trunkH, crownR: r, crownY: base } = shape;
@@ -127,6 +132,50 @@ export function treeParts(x, z, rng, {
   return parts;
 }
 
+/**
+ * The fir: `treeParts(..., { fir: true })`, the holiday tree in the park (`setHoliday`). The same
+ * tree in every way that matters to the rule above — one trunk, crowns that carry soft normals
+ * under the smooth material, every tier recorded for the leaf cards — with the crown stacked as
+ * cones rather than heaped as blobs, because a Christmas tree is a shape before it is a colour.
+ * Answers the parts; `firTiers` (below) says where the tiers are, for whatever decorates it.
+ */
+const FIR_TIERS = 4;
+export function firTiers(x, z, height) {
+  const trunkH = height * 0.12;
+  const tiers = [];
+  // Each tier overlaps the one under it by a third of its height, and narrows as it climbs.
+  const tierH = (height - trunkH) / (FIR_TIERS * 0.72 + 0.28);
+  for (let k = 0; k < FIR_TIERS; k++) {
+    const y0 = KERB_H + trunkH + k * tierH * 0.72;
+    const r = height * 0.27 * (1 - k * 0.2);
+    tiers.push({ x, z, y0, h: tierH, r });
+  }
+  return { trunkH, tiers, top: tiers[FIR_TIERS - 1].y0 + tierH };
+}
+function firParts(x, z, rng, { height, crowns, canopy }) {
+  const parts = [];
+  const { trunkH, tiers } = firTiers(x, z, height);
+  const trunkGeo = new THREE.CylinderGeometry(height * 0.03, height * 0.045, trunkH + 0.4, 6);
+  trunkGeo.translate(x, KERB_H + (trunkH + 0.4) / 2, z);
+  parts.push(bakeColor(trunkGeo, jitterColor(PALETTE.trunk, rng, { l: 0.05 })));
+  const base = new THREE.Color(canopy ?? PALETTE.firNeedles);
+  for (const tier of tiers) {
+    const geo = new THREE.ConeGeometry(tier.r, tier.h, 10, 1, false);
+    jitterVertices(geo, rng, tier.r * 0.05);
+    const cy = tier.y0 + tier.h / 2;
+    geo.translate(x, cy, z);
+    const tint = jitterColor(base, rng, { h: 0.01, l: 0.04 });
+    // Soft about a point low in the tier, so the normals lean out more than up and the cone lights
+    // as a skirt of branches rather than as a smooth dome.
+    parts.push(softCrown(bakeColor(geo, tint), x, tier.y0 + tier.h * 0.2, z));
+    // The leaf cards dress a sphere: a small one in the fat lower half of each tier.
+    const lobe = { x, y: tier.y0 + tier.h * 0.32, z, r: tier.r * 0.62, color: tint, tx: x, tz: z };
+    crowns?.push(lobe);
+    planted.push(lobe);
+  }
+  return parts;
+}
+
 // Fall: most broadleaves have turned. Which colour a tree went is a hash of its trunk position, on
 // a hash of its own so it is independent of the tint jitter above, and spends no draw — so the
 // season can be switched off (`?fall=off`) without moving a single tree. A third stay green: a
@@ -139,6 +188,15 @@ export function treeParts(x, z, rng, {
 let autumn = true;
 let classic = false;
 // `classic` is the first, higher-contrast autumn (`?foliage=classic`, palette.js).
+// The holidays (`setHoliday`, the snowstorm's city): the statue's plaza holds a fir instead of the
+// figure, decorated by game/holidaylights.js. A switch on the module for the season's reason.
+let holiday = false;
+export function setHoliday(on) {
+  holiday = Boolean(on);
+}
+/** How tall the holiday fir stands. A landmark: twice a park tree, clear of every roof but a few. */
+export const HOLIDAY_TREE_H = 10;
+
 export function setAutumn(on, { classicColours = false } = {}) {
   autumn = Boolean(on);
   classic = Boolean(classicColours);
@@ -694,8 +752,19 @@ export function createProps(rng, blocks) {
     for (const part of built) stampEntry(part, bench.x, bench.z, hash01(bench.x, bench.z));
     parts.push(...built);
   }
+  let holidayTree = null;
   if (statue) {
-    const built = statueParts(statue.x, statue.z, SURFACE_Y, rng);
+    // Built either way, so the stream's draws are the same and every tree after it is the tree it
+    // always was; at the holidays only the plaza (the first part) stays, and the fir takes the
+    // figure's place off a stream of its own.
+    let built = statueParts(statue.x, statue.z, SURFACE_Y, rng);
+    if (holiday) {
+      built.slice(1).forEach((part) => part.dispose());
+      built = [built[0], ...treeParts(statue.x, statue.z, firRng(statue.x, statue.z), {
+        fir: true, height: HOLIDAY_TREE_H, crowns,
+      })];
+      holidayTree = { x: statue.x, z: statue.z, height: HOLIDAY_TREE_H, ...firTiers(statue.x, statue.z, HOLIDAY_TREE_H) };
+    }
     for (const part of built) stampEntry(part, statue.x, statue.z, hash01(statue.x, statue.z));
     parts.push(...built);
   }
@@ -748,7 +817,8 @@ export function createProps(rng, blocks) {
 
   // The plaza's own square, plus a pace: a trunk right on the paving's edge leans its crown over
   // the figure, and the whole point of standing a statue in a clearing is that it is in a clearing.
-  const CLEAR = STATUE_PLAZA / 2 + 0.7;
+  // At the holidays the fir's lowest tier reaches 2.7 from the trunk, so the clearing grows to match.
+  const CLEAR = holiday ? HOLIDAY_TREE_H * 0.27 + 1.3 : STATUE_PLAZA / 2 + 0.7;
   const clearOfStatue = (x, z) => !statue
     || Math.abs(x - statue.x) > CLEAR || Math.abs(z - statue.z) > CLEAR;
 
@@ -843,6 +913,6 @@ export function createProps(rng, blocks) {
   // which one. Null on a city with no park big enough — no pond, no ducks. The benches and the
   // statue ride along for `city/grass.js`, which has to keep its tufts out of them.
   return {
-    mesh, pond, pondMesh, benches, statue, crowns, court, courtMesh, skatepark, skateMesh, boombox,
+    mesh, pond, pondMesh, benches, statue, holidayTree, crowns, court, courtMesh, skatepark, skateMesh, boombox,
   };
 }

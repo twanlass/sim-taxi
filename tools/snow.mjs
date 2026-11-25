@@ -94,6 +94,24 @@ setSnow(false);
 const dry = compile(propMaterial());
 check('nothing is compiled in without snow', !dry.shader.fragmentShader.includes('snowCover') && !dry.key.includes('snow'));
 
+// --- The holidays -------------------------------------------------------------------------------
+
+const { treeParts, firTiers, HOLIDAY_TREE_H } = await import('../src/city/props.js');
+const { createHolidayLights } = await import('../src/game/holidaylights.js');
+const { makeRng } = await import('../src/util/rng.js');
+const firCrowns = [];
+const fir = treeParts(5, 5, makeRng(3), { fir: true, height: HOLIDAY_TREE_H, crowns: firCrowns });
+const tiers = firTiers(5, 5, HOLIDAY_TREE_H);
+check('the fir is a treeParts tree with a leaf-card lobe per tier', fir.length === 1 + tiers.tiers.length
+  && firCrowns.length === tiers.tiers.length);
+check('the fir stands its full height', Math.abs(tiers.top - HOLIDAY_TREE_H - 0.15) < 1.5, `top ${tiers.top.toFixed(2)}`);
+const decks = Array.from({ length: 40 }, (_, k) => ({ cx: k * 13.1 - 200, cz: (k % 7) * 9.3, cw: 6, cd: 5, deck: 7 }));
+const lights = createHolidayLights({ decks, tree: { x: 5, z: 5, ...tiers } });
+const strung = lights.count - 150;
+check('about half the roofs are strung', strung > 0.3 * 40 * 46 * 0.5 && strung < 0.8 * 40 * 46, `${strung} roof bulbs`);
+check('a star on top of the fir', lights.star && lights.star.position.y > tiers.top, `${lights.star?.position.y.toFixed(2)}`);
+check('the lights are two draws', lights.meshes.length === 2);
+
 // --- The season ---------------------------------------------------------------------------------
 
 const on = ['2026-12-01', '2026-12-25', '2027-01-01', '2027-01-06'];
