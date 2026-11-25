@@ -1394,18 +1394,25 @@ position, a heading and a speed, off the lanes altogether. Tyler asked for "the 
 that just uses real physics... fully responsive to the joystick" after the queued-turn steering
 below still made last-minute turns hard.
 
-- **Speed.** Hands off, it holds its heading and rolls at cruise (8.5 u/s). Loco is 15 u/s, under
-  the rails' 18.7 because here the thumb does the aiming. The brake stops it.
-- **Turning.** The swing is limited to a 3.2-unit turning circle and 3.4 rad/s, so a 9-unit street
-  takes a U-turn. The direction of travel trails the nose a little (`GRIP`), which is the slide,
-  and it is looser under Loco.
+- **Speed.** Hands off, it holds its heading and rolls at cruise (8.5 u/s). Loco is the game's own
+  Loco top (`boostCruise()`, 18.7 u/s); the first cut ran 15 and Tyler called it too slow. The
+  brake stops it.
+- **Weight.** The taxi carries a velocity, and turning the nose does not turn it: what was forward
+  becomes partly sideways, and the tyres take that back at `LAT_GRIP` (46 u/s²) and no faster. The
+  swing itself has inertia (`YAW_LAG`) and is capped by what the tyres can hold at that speed, so
+  at cruise the taxi turns in a 2.7-unit circle and at full Loco in 8.4. Measured: a quarter turn
+  at full Loco takes 0.83s and carries 13.5 units before the nose is round, and the course is back
+  on the nose 0.08s after that, so it does not skate. A hard turn above cruise scrubs speed
+  (`TURN_SCRUB`). Lifting off Loco or braking is how a tight corner is made.
 - **The heading magnet.** Streets lie ~29° off the horizontal on screen and a thumb can't hold that
   to a degree, so a push within 16° of a street's direction is that direction, and a hands-off
   heading that close settles onto it. `?freeassist=off` drives it raw.
-- **The road.** The body's centre stays inside the road corridors (each network edge's half-width
-  less 0.55, which is a wheel on the pavement). A move that would leave them slides along the wall
-  and keeps only the speed that ran along it, so a glancing kerb costs a little and a wall square
-  on stops the car at a 1 u/s crawl.
+- **The ground.** The whole island is open: roads, pavements, lawns, plazas. Off the road the taxi
+  rides up 0.35 (`taxi.kerbLift`). What stops it is a building (a height field of the buildings
+  alone, anything over 1.2 tall; trees, lamp posts and street furniture are driven through), the
+  river away from a bridge, and the coast outside the ring road. A wall met at a slant swings the
+  nose along itself and the taxi scrapes on at nearly full speed; square on, it stops at a 1 u/s
+  crawl. Not handled yet: the park lake and duck pond are driven over.
 - **What it keeps.** Collisions and damage, pickups and drop-offs by driving through the junction,
   the fixed route band, cops, and the scripted trips (garage, drive-through, depot, race), which
   take the wheel back onto a lane (`taxi.free = false`) and return it afterwards.

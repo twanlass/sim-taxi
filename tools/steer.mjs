@@ -9,14 +9,14 @@
  */
 import * as THREE from 'three';
 import { makeRng } from '../src/util/rng.js';
-import { createTraffic } from '../src/sim/traffic.js';
+import { createTraffic, boostCruise, SPEED } from '../src/sim/traffic.js';
 import { createLayout } from '../src/city/layout.js';
 import { findRoute, planOrigin, allIntersections } from '../src/game/route.js';
 import { intersectionCentre, ARRIVE_RADIUS } from '../src/game/fares.js';
 import { steerPlan, readSwipe, decisionLane, exitDirs } from '../src/game/steer.js';
 import { RIGHT, UP, VIEW_DIR } from '../src/game/camera.js';
 import { snapStick } from '../src/game/joystick.js';
-import { DIR, leftOf } from '../src/city/grid.js';
+import { DIR, leftOf, lineX, lineZ, GRID_I } from '../src/city/grid.js';
 import { createFreeDrive, roadCorridors, screenToGround, magnet } from '../src/game/freedrive.js';
 import { cityNetwork } from '../src/city/roadnet.js';
 
@@ -246,9 +246,11 @@ taxi.stickNudge = 0;
 
 // --- 6. Free driving (game/freedrive.js) ----------------------------------------------------------
 // The stick as a heading, the taxi as a body off the lanes. A screen push comes back as the ground
-// direction it was drawn from; the body never leaves the road; a "player" who points the stick at
-// the next junction of the best route gets everywhere; hands off into a wall it stops against it;
-// and handed back, the traffic model picks the car up on a lane and drives it on.
+// direction it was drawn from; the body stays on the island, out of the river and out of anything
+// solid, and is free to cross a pavement; a "player" who points the stick at the next junction of
+// the best route gets everywhere; hands off it stops against whatever ends the ground; a turn at
+// Loco carries on before it bites and then grips; and handed back, the traffic model picks the car
+// up on a lane and drives it on.
 {
   const back = (dx, dz) => { const v = toScreen(dx, dz); return screenToGround(v.x, v.y, toScreen); };
   const round = [[1, 0], [0, 1], [-1, 0], [0, -1], [0.6, -0.8]].every(([dx, dz]) => {
@@ -260,14 +262,15 @@ taxi.stickNudge = 0;
   check('the magnet leaves a 30° heading alone', Math.abs(magnet(0.52) - 0.52) < 1e-9);
 
   const net = cityNetwork();
-  const roads = roadCorridors(net);
   let aim = null;      // world point the "thumb" is pointing the taxi at, or null for hands off
   let isLive = true;
+  let push = null;     // a raw stick vector, for the tests that hold a direction rather than aim
   const free = createFreeDrive({
     taxi,
     toScreen,
     live: () => isLive,
     stick: () => {
+      if (push) return push;
       if (!aim) return null;
       const v = toScreen(aim.x - taxi.x, aim.z - taxi.z);
       const l = Math.hypot(v.x, v.y) || 1;
@@ -275,6 +278,7 @@ taxi.stickNudge = 0;
     },
   });
   const tick = () => { free.update(STEP); traffic.update(STEP); };
+  const roads = { inside: free.drivable };
 
   let offRoad = 0;
   let freeArrived = 0;
@@ -299,10 +303,10 @@ taxi.stickNudge = 0;
     }
   }
   check(`free-driven, the taxi reaches every target (${freeArrived}/${FREE_RUNS})`, freeArrived === FREE_RUNS);
-  check('free-driven, the body never leaves the road', offRoad === 0, `${offRoad} frames`);
+  check('free-driven, the body never leaves the island or enters the river', offRoad === 0, `${offRoad} frames`);
   check('free-driven, the taxi is off the traffic model', taxi.free === true);
 
-  // Hands off: it rolls on its heading until the road runs out, and stops against the wall.
+  // Hands off: it rolls on its heading until the ground runs out, and stops against the edge.
   aim = null;
   taxi.stalled = false;
   let rolled = 0;
@@ -313,8 +317,86 @@ taxi.stickNudge = 0;
     if (!roads.inside(taxi.x, taxi.z)) offRoad += 1;
   }
   check('hands off, it keeps rolling', rolled > 20, `${rolled.toFixed(1)} units`);
-  check('hands off, it ends up stopped against a wall, on the road', taxi.v <= 1.01 && offRoad === 0,
+  check('hands off, it ends up stopped against the edge of the ground', taxi.v <= 1.01 && offRoad === 0,
     `v ${taxi.v.toFixed(2)}`);
+
+  // Weight and grip. From a straight run at full Loco, snap the stick a quarter turn left. The taxi
+  // must carry on a while before its course comes round (momentum), and once the nose is round the
+  // velocity must be back on it within half a second (no ice).
+  {
+    const corridors = roadCorridors(net);
+    const lane = net.lanes.filter((l) => l.path && l.length > 12)[0];
+    const p0 = lane.path.at(0);
+    const p1 = lane.path.at(lane.length);
+    const yaw0 = Math.atan2(-(p1.z - p0.z), p1.x - p0.x);
+    const open = createFreeDrive({ taxi, toScreen, live: () => true, stick: () => push, net,
+      locoSpeed: () => boostCruise() });
+    // An open plain: this instance has no `solid`, and the test is over before the island ends.
+    open.update(STEP);
+    open.place(p0.x, p0.z, yaw0);
+    taxi.boost = true;
+    taxi.braking = false;
+    taxi.stalled = false;
+    const hold = (yaw) => { const v = toScreen(Math.cos(yaw), -Math.sin(yaw)); push = { dx: v.x, dy: v.y, len: 30 }; };
+    hold(yaw0);
+    taxi.v = boostCruise();
+    for (let t = 0; t < 0.3; t += STEP) open.update(STEP);
+    const topSeen = taxi.v;
+    const at = { x: taxi.x, z: taxi.z };
+    hold(yaw0 + Math.PI / 2);
+    let carried = 0;       // distance along the old heading before the nose is 80° round
+    let roundAt = null;
+    let settled = null;    // seconds after the nose came round that the course matched it
+    let px = taxi.x; let pz = taxi.z;
+    for (let t = 0; t < 3; t += STEP) {
+      open.update(STEP);
+      const course = Math.atan2(-(taxi.z - pz), taxi.x - px);
+      px = taxi.x; pz = taxi.z;
+      const turned = Math.abs(Math.atan2(Math.sin(taxi.yaw - yaw0), Math.cos(taxi.yaw - yaw0)));
+      if (roundAt == null && turned > (80 * Math.PI) / 180) {
+        roundAt = t;
+        carried = (taxi.x - at.x) * Math.cos(yaw0) - (taxi.z - at.z) * Math.sin(yaw0);
+      }
+      const off = Math.abs(Math.atan2(Math.sin(course - taxi.yaw), Math.cos(course - taxi.yaw)));
+      if (roundAt != null && settled == null && turned > (88 * Math.PI) / 180 && off < (3 * Math.PI) / 180) settled = t - roundAt;
+    }
+    push = null;
+    taxi.boost = false;
+    check('free-driven, Loco tops out at the game\'s own Loco speed', Math.abs(topSeen - boostCruise()) < 0.5,
+      `${topSeen.toFixed(1)} of ${boostCruise().toFixed(1)}`);
+    check('a quarter turn at Loco carries the taxi on before it comes round (weight)',
+      roundAt != null && roundAt > 0.5 && carried > 6, `${roundAt?.toFixed(2)}s, ${carried.toFixed(1)} units`);
+    check('...and once the nose is round, the course is back on it within half a second (grip)',
+      settled != null && settled < 0.5, `${settled?.toFixed(2)}s`);
+    // A pavement is open ground and a building is not.
+    console.log(`free quarter turn at Loco: nose round in ${roundAt?.toFixed(2)}s, ${carried.toFixed(1)} units carried, course back on the nose ${settled?.toFixed(2)}s later`);
+    // The first spot off the side of any lane that is not road and not river or coast.
+    let kerb = null;
+    for (const l of net.lanes) {
+      if (kerb || !l.path) continue;
+      const a0 = l.path.at(0);
+      const a1 = l.path.at(l.length);
+      const mid = l.path.at(l.length / 2);
+      const side = { x: -(a1.z - a0.z) / l.length, z: (a1.x - a0.x) / l.length };
+      for (let r = 0; r < 12 && !kerb; r += 0.25) {
+        const q = { x: mid.x + side.x * r, z: mid.z + side.z * r };
+        if (!corridors.onRoad(q.x, q.z)) { if (corridors.inside(q.x, q.z)) kerb = q; break; }
+      }
+    }
+    const walled = roadCorridors(net, (x, z) => kerb && Math.hypot(x - kerb.x, z - kerb.z) < 0.5);
+    check('a pavement is open ground', kerb && corridors.inside(kerb.x, kerb.z));
+    check('...and a building standing on it is not', kerb && !walled.inside(kerb.x, kerb.z));
+    // A wall met at a slant is a scrape along it, not a stop: into the east coast at 45°.
+    open.place(lineX(GRID_I) - 1, lineZ(0) + 3, -Math.PI / 4);
+    taxi.v = SPEED;
+    hold(-Math.PI / 4);
+    const z0 = lineZ(0) + 3;
+    for (let t = 0; t < 1.5; t += STEP) open.update(STEP);
+    push = null;
+    check('a wall met at a slant is a scrape along it, not a stop', taxi.v > 0.6 * SPEED && taxi.z - z0 > 6,
+      `v ${taxi.v.toFixed(1)}, ${(taxi.z - z0).toFixed(1)} units along`);
+    free.place(taxi.x, taxi.z, taxi.yaw);
+  }
 
   // Handed back (a scripted trip takes the wheel): on a lane, in the model, and moving again.
   isLive = false;

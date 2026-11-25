@@ -195,7 +195,7 @@ import { createRobberLine, ROBBER_LINES } from './game/robberline.js';
 import { createBankJob } from './game/bankjob.js';
 import { createCopLights } from './game/coplights.js';
 import { createCashTrail } from './game/cashtrail.js';
-import { setCityOccluders, sightlineClear } from './game/sightline.js';
+import { setCityOccluders, sightlineClear, buildHeightField, fieldHeight } from './game/sightline.js';
 import { createBootleg, COMBO_GAP_MS as BOOTLEG_GAP_MS } from './game/bootleg.js';
 import { createSteer, decisionLane } from './game/steer.js';
 import { createJoystick, KNOB_TRAVEL as STICK_TRAVEL, DEAD_ZONE as STICK_DEAD_ZONE } from './game/joystick.js';
@@ -1932,7 +1932,18 @@ const stick = steerStick && stickEl ? createJoystick({
   back: () => { const at = decisionLane(traffic.taxi); return at ? opposite(at.d) : null; },
 }) : null;
 fares.setSteered(steerOn);
+// What a free taxi cannot drive through: the buildings, and nothing smaller. A field of its own
+// rather than the sightline's, which has every tree and lamp post in it — Tyler on the first cut:
+// "it gets stuck on everything". Anything under `FREE_SOLID_H` is a kerb, a forecourt or a lawn.
+const FREE_SOLID_H = 1.2;
+const freeSolid = steerFree && stick ? buildHeightField(
+  city.mesh, ...(city.domeMesh ? [city.domeMesh] : []), ...(garage?.meshes ?? []),
+  ...(burger?.meshes ?? []), ...(graveyard?.meshes ?? []), ...(roadside?.meshes ?? []),
+  ...(vet ? [vet.shell] : []),
+) : null;
 const freeDrive = steerFree && stick ? createFreeDrive({
+  solid: (x, z) => fieldHeight(freeSolid, x, z) > FREE_SOLID_H,
+  locoSpeed: () => boostCruise(),
   taxi: traffic.taxi,
   stick: () => { const v = stick.vector(); return v && v.len >= STICK_DEAD_ZONE ? v : null; },
   toScreen: steerToScreen,
