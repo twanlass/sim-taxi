@@ -63,6 +63,15 @@ export const FOG_RADIUS = 14;
  */
 export const FOG_START = -1;
 export const FOG_END = 7;
+/*
+ * **The mix is in linear light, not display values** (the FOG_MIX_LINEAR the shaders mention). Fog
+ * is light scattered in front of the ground, so it adds the way light adds; mixed on display values
+ * the ramp from asphalt (75/255) to the bank (~235) spent most of its width in a dark olive grey —
+ * half way across it read 155, against 190 in linear — and that grey is what made the coast look
+ * like the road had a blurred drop shadow under it. Measured on the south coast at zoom 52: the same
+ * ramp, the same billows, and the dark lip gone. Only the bank's own term; the distance haze above it
+ * keeps mixing as it always has, because every haze colour in the game was picked against that.
+ */
 /**
  * How far the noise pushes the edge **outward**, in world units. Outward only, and that is a
  * gameplay rule rather than a look: the first cut billowed ±7 either way, and on the near (south
@@ -113,6 +122,18 @@ export const FOG_WARP_SPEED = 0.6;
  */
 export const FOG_LIGHT_STEP = 0.35;
 export const FOG_LIGHT_GAIN = 1.7;
+/**
+ * **The bank's near edge is not shaded** (Tyler, 2026-11-25: "this awkward seam between the end of
+ * the pavement road and the clouds"). The edge is an iso-line of the same noise the shading reads,
+ * pushed out where the billow value is high — so stepping from the edge towards a sun in the north
+ * always climbs it, and the whole south rim of the bank, the side the camera looks at, came out on
+ * a shadowed flank. A lavender band hugging the coast, under the dark-to-white ramp: it read as the
+ * road casting a soft shadow onto the cloud. The shading now fades in over `FOG_SHADE_IN` units past
+ * `FOG_END` and the rim sits at `FOG_RIM_LIT` (0.5 is neutral; a touch over, so the edge reads as a
+ * sunlit cloud top rather than as a grey one).
+ */
+export const FOG_RIM_LIT = 0.6;
+export const FOG_SHADE_IN = 12;
 /** The two ends of the light ramp, multiplied into the fog colour. */
 export const FOG_SHADE_LIT = [1.04, 1.02, 0.97];
 export const FOG_SHADE_DARK = [0.85, 0.88, 0.95];
@@ -168,6 +189,14 @@ const PARS_FRAGMENT = /* glsl */ `
 	uniform vec4 edgeFog;
 	uniform vec4 edgeFogSun;
 	varying vec3 vEdgeFogWorld;
+	// sRGB to linear and back, for the mix (FOG_MIX_LINEAR). Our own, because a ShaderMaterial that
+	// pulls in the fog chunks need not have pulled in colorspace_pars_fragment as well.
+	vec3 edgeFogToLinear( vec3 c ) {
+		return mix( pow( c * 0.9478672986 + 0.0521327014, vec3( 2.4 ) ), c * 0.0773993808, vec3( lessThanEqual( c, vec3( 0.04045 ) ) ) );
+	}
+	vec3 edgeFogToDisplay( vec3 c ) {
+		return mix( pow( c, vec3( 0.41666 ) ) * 1.055 - 0.055, c * 12.92, vec3( lessThanEqual( c, vec3( 0.0031308 ) ) ) );
+	}
 	float edgeFogHash( vec2 p ) {
 		return fract( sin( dot( p, vec2( 127.1, 311.7 ) ) ) * 43758.5453 );
 	}
@@ -189,7 +218,8 @@ const vec3 = (a) => `vec3( ${a.map(f).join(', ')} )`;
 // efnc, its read towards the sun, and the warp field efwn) — see FOG_SHADE.
 const SHADE_GLSL = FOG_SHADE ? /* glsl */ `
 		float efl = edgeFogNoise( efcp + edgeFogSun.xy * ${f(FOG_LIGHT_STEP)} );
-		float eflit = clamp( 0.5 + ( efnc - efl ) * ${f(FOG_LIGHT_GAIN * 2)} * edgeFogSun.z, 0.0, 1.0 );
+		float eflit = mix( ${f(FOG_RIM_LIT)}, clamp( 0.5 + ( efnc - efl ) * ${f(FOG_LIGHT_GAIN * 2)} * edgeFogSun.z, 0.0, 1.0 ),
+			smoothstep( ${f(FOG_END)}, ${f(FOG_END + FOG_SHADE_IN)}, efe ) );
 		vec3 efc = edgeFog.xyz * ( ${f(FOG_BODY[0])} + ${f(FOG_BODY[1])} * efn )
 			* mix( ${vec3(FOG_SHADE_DARK)}, ${vec3(FOG_SHADE_LIT)}, eflit )
 			* mix( ${vec3(FOG_REGION_COOL)}, ${vec3(FOG_REGION_WARM)}, smoothstep( 0.25, 0.75, efwn.x ) );` : /* glsl */ `
@@ -214,13 +244,14 @@ const FRAGMENT = /* glsl */ `
 		float efn = efnc * 0.65
 			+ edgeFogNoise( ( efw - vec2( ${f(FOG_DRIFT_FINE[0])}, ${f(FOG_DRIFT_FINE[1])} ) * eft ) * 0.17 + 7.3 ) * 0.35;
 		float efh = max( vEdgeFogWorld.y, 0.0 ) * ${f(FOG_SLOPE)};
-		float efa = smoothstep( ${f(FOG_START)}, ${f(FOG_END)}, efd - efn * ${f(FOG_BILLOW)} - efh );
+		float efe = efd - efn * ${f(FOG_BILLOW)} - efh;
+		float efa = smoothstep( ${f(FOG_START)}, ${f(FOG_END)}, efe );
 		// The floor is the fog itself, wherever it shows: through the island's feathered skirt as
 		// much as past it. Partly fogged it would show its own plain colour as a pale band.
 		if ( vEdgeFogWorld.y < ${f(FLOOR_Y + 1)} ) efa = 1.0;
 		efa = 1.0 - ( 1.0 - efa ) * ( 1.0 - efa ) * ( 1.0 - efa );
 ${SHADE_GLSL}
-		gl_FragColor.rgb = mix( gl_FragColor.rgb, efc, efa );
+		gl_FragColor.rgb = edgeFogToDisplay( mix( edgeFogToLinear( max( gl_FragColor.rgb, 0.0 ) ), edgeFogToLinear( efc ), efa ) );
 		}
 	}
 #endif
