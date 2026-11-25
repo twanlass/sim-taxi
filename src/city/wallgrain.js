@@ -6,12 +6,12 @@ import {
 // The pixel grain on the buildings (Tyler, 2026-11-24: "could we add a similar pixel noise effect
 // to buildings to give them some texture too?"). The pixel street's idea (`setRoadPixels` in
 // util/geo.js) carried onto every wall and roof of the towers' merged mesh: a grid of world texels
-// at the street's own 0.25, so the whole city reads at one pixel resolution, and each texel takes
+// a touch coarser than the street's (0.175 against 0.15, Tyler's pick), so the whole city reads at about one pixel resolution, and each texel takes
 // one value from
 //
-// - a **tone drift**, value noise at 2.5 and 0.7 units, so a wall is a little lighter in one
+// - a **tone drift**, value noise at 8.6 and 0.3 units, so a wall is a little lighter in one
 //   patch and darker in the next, and clumps of texels break up the flat colour;
-// - **speckle**, single light and dark texels, about one in 22 of each;
+// - **speckle**, single light and dark texels, about one in 17 of each;
 //
 // rounded to a short ramp, with a 2x2 ordered dither where the ramp steps, so a tone change is a
 // checker of pixels rather than a smooth edge. A multiply on the diffuse colour (the facade courses'
@@ -34,8 +34,11 @@ import {
 
 // `coarse`/`fine` are the drift's two octaves in world units, `fineMix` the fine octave's share,
 // `speckRate` the share of texels that go light (and the same again dark).
-export const WALL_GRAIN = { drift: 0.36, speck: 0.16, step: 0.06, coarse: 2.5, fine: 0.7, fineMix: 0.4, speckRate: 0.045 };
-export const WALL_TEXEL = 0.25;
+// Tyler's look from the ⚙️ panel (2026-11-25), replacing drift 0.36 / speck 0.16 / step 0.06 /
+// octaves 2.5 and 0.7 at 0.4 / rate 0.045 / texel 0.15: broad soft patches, a fine clumpy
+// octave, fewer and fainter speckles, and a finer ramp.
+export const WALL_GRAIN = { drift: 0.41, speck: 0.08, step: 0.035, coarse: 8.6, fine: 0.3, fineMix: 0.28, speckRate: 0.06 };
+export const WALL_TEXEL = 0.175;
 
 // uWallGrain: x the drift, y the speckle, z the ramp's step, w the texel. uWallGrainShape: x the
 // coarse octave, y the fine one, z the fine one's share, w the speckle rate. Shared by every

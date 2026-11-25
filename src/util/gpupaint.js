@@ -296,7 +296,13 @@ export class PaintNodeMaterial extends PropPhongNodeMaterial {
     const lean = hash3(id.add(17.17)).xy.mul(2).sub(1).mul(finC.z).toVar();
     const flakeN = normalize(reflN.add(t.mul(lean.x)).add(cross(n, t).mul(lean.y))).toVar();
 
-    this.paintNodes = {
+    // Underscored so three's material cache key skips it (`RenderObject.getMaterialCacheKey` walks
+    // every own property but `_`-prefixed ones). Named plainly it appeared on the material *during*
+    // its first build, so every later draw of the same material — the shadow pass, the AO prepass,
+    // the next mesh wearing it — keyed differently and built it again: 57 paint builds on a boot
+    // where 29 do, and 218 shader modules where 208 do. Same pictures (four WebGPU shots
+    // pixel-identical); `taxi:ready` 2.45 s -> 2.10 s on a cached boot (M5, Chrome, 2026-11-24).
+    this._paintNodes = {
       finA, finB, finC, finD, isPaint, isWindow: is(6), isChrome: is(7),
       specN, reflN, tint, flakeVis, flakeDisc, flakeN, obj, world: positionWorld, centre, invHalf,
       amount: own(g.amount, (o) => o.amount), mirror: own(g.mirror, (o) => o.mirror),
@@ -310,7 +316,7 @@ export class PaintNodeMaterial extends PropPhongNodeMaterial {
 
   setupLightingModel(builder) {
     const Base = super.setupLightingModel(builder).constructor;
-    return new (paintLighting(Base, this.paintNodes))();
+    return new (paintLighting(Base, this._paintNodes))();
   }
 
   copy(source) {

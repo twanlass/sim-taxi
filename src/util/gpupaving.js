@@ -29,21 +29,24 @@ export function createPaving(U) {
   const texGrid = uniform(U.uRoadTexGrid.value);
   const fine = uniform(U.uRoadTexFine.value);
   const pixel = uniform(U.uRoadTexPixel.value);
+  const tune = uniform(U.uRoadTexTune.value);
+  const detail = uniform(U.uRoadTexDetail.value);
   const roadStain = (p, lane, chew) => {
     const g = p.div(3.2).toVar();
     const h = hash(floor(g).add(tex.w.mul(3.1))).toVar();
     const o = vec2(fract(h.mul(91.7)), fract(h.mul(513.3))).mul(0.4).add(0.3);
     const r = fract(h.mul(7919)).mul(0.13).add(0.07);
     const d = length(fract(g).sub(o)).div(r).add(chew.sub(0.5).mul(0.9));
-    return step(float(1 - 0.08).sub(lane.mul(0.25)), h).mul(float(1).sub(smoothstep(0.5, 1.0, d)));
+    return step(float(1).sub(detail.x).sub(lane.mul(0.25)), h).mul(float(1).sub(smoothstep(0.5, 1.0, d)));
   };
   // roadTone in PAINT_COMMON (util/geo.js), where the reasoning is.
-  const roadTone = (q) => {
+  const roadTone = (p) => {
+    const q = p.div(tune.x).toVar();
     const a = noise(q.div(31).add(tex.w.mul(1.7)));
     const b = noise(q.div(13).add(tex.w.mul(2.9)).add(40));
     const c = noise(q.div(47).add(tex.w.mul(0.7)).add(90));
-    const t = smoothstep(0.38, 0.62, a.mul(0.7).add(b.mul(0.3))).sub(0.5).toVar();
-    return vec2(t, t.mul(0.35).add(c.sub(0.5).mul(0.6)));
+    const t = smoothstep(float(0.5).sub(tune.z), float(0.5).add(tune.z), a.mul(0.7).add(b.mul(0.3))).sub(0.5).toVar();
+    return vec2(t, t.mul(tune.y).add(c.sub(0.5).mul(0.6)));
   };
   const grid = uniform(U.uRoadGrid.value);
   const riverZ = uniform(U.uRiverZ.value);
@@ -121,12 +124,12 @@ export function createPaving(U) {
       const inZ = smoothstep(-0.12, 0.12, hZ.sub(td.x)).mul(realZ).toVar();
       const tn = noise(wq.div(11).add(tex.w)).toVar();
       const run = roadTone(wq).toVar();
-      const tv = run.x.add(0.25).mul(tex.x).add(tn.sub(0.35).mul(tex.y));
+      const tv = run.x.add(tune.w).mul(tex.x).add(tn.sub(0.35).mul(tex.y));
       const ratio = tv.add(1).mul(vec3(1, 0.1, -1).mul(run.y.mul(tex.x).mul(0.6)).add(1)).toVar();
       If(fine.x.add(fine.y).greaterThan(0), () => {
         const g1 = noise(wq.div(1.3).add(7)).toVar();
         const sp = hash(wq.mul(7.31).add(3)).toVar();
-        const g2 = mix(noise(wq.div(0.45).add(31)), step(0.96, sp).sub(step(sp, 0.04)).mul(0.9).add(0.5), pix);
+        const g2 = mix(noise(wq.div(0.45).add(31)), step(float(1).sub(detail.w), sp).sub(step(sp, detail.w)).mul(0.9).add(0.5), pix);
         const lx = float(1).sub(smoothstep(0.2, 0.9, abs(td.y.sub(hX.sub(texGrid.z))))).mul(inX)
           .mul(float(1).sub(smoothstep(1.0, 8.0, mix(9.0, td.x.sub(hZ), realZ))));
         const lz = float(1).sub(smoothstep(0.2, 0.9, abs(td.x.sub(hZ.sub(texGrid.z))))).mul(inZ)
@@ -137,8 +140,6 @@ export function createPaving(U) {
         ratio.mulAssign(float(1).sub(stain.mul(vec3(0.9, 1.0, 1.15))));
       });
       If(pix.greaterThan(0.5), () => {
-        const crack = step(abs(tn.sub(0.5)), 0.018).mul(step(0.8, hash(floor(wq.div(9)).add(5)))).mul(inX.max(inZ));
-        ratio.mulAssign(float(1).sub(crack.mul(0.45)));
         const lv = ratio.r.add(ratio.g).add(ratio.b).div(3).toVar();
         ratio.mulAssign(floor(lv.div(pixel.y).add(0.5)).mul(pixel.y).div(lv.max(1e-3)));
       });
