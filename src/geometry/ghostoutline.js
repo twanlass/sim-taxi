@@ -272,9 +272,8 @@ export function setGhostOutlines(root, visible) {
  * @param root    the group the skin draws into (what `wearSkin` is handed)
  * @param rims    `[mesh, thickness]` pairs, in the mesh's local units
  * @param tint    rim colour — the vehicle's paint, lifted the way PALETTE.carBodyGhost is
- * @param always  trace at full strength wherever it is, rather than only near the taxi
  */
-export function outlineVehicle(root, { rims, tint, always = false }) {
+export function outlineVehicle(root, { rims, tint }) {
   const hulled = new Set(rims.map(([mesh]) => mesh));
   const solid = [];
   root.traverse((object) => {
@@ -294,7 +293,6 @@ export function outlineVehicle(root, { rims, tint, always = false }) {
   for (const mesh of solid) parts.push(addGhostMask(mesh));
   let shown = null;
   const handle = {
-    always,
     /** 0 hides the outline outright; anything above it is the rim's opacity. */
     set(alpha) {
       const on = alpha > 0.002;

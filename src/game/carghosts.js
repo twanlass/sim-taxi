@@ -463,17 +463,11 @@ export function createCarGhosts(scene, traffic) {
         const ghost = car.skinRoot?.userData.ghost;
         if (!ghost || car.crashed) continue;
         skinGhosts.add(ghost);
-        let alpha;
-        if (ghost.always) {
-          alpha = smoothstep(envelope) * GHOST_OPACITY;
-        } else {
-          const dx = car.x - taxi.x;
-          const dz = car.z - taxi.z;
-          const d2 = dx * dx + dz * dz;
-          if (d2 > limit) continue;
-          alpha = smoothstep(envelope) * GHOST_OPACITY * smoothstep((GHOST_RADIUS - Math.sqrt(d2)) / FADE_BAND);
-        }
-        ghost.set(alpha);
+        const dx = car.x - taxi.x;
+        const dz = car.z - taxi.z;
+        const d2 = dx * dx + dz * dz;
+        if (d2 > limit) continue;
+        ghost.set(smoothstep(envelope) * GHOST_OPACITY * smoothstep((GHOST_RADIUS - Math.sqrt(d2)) / FADE_BAND));
         liveSkins.add(ghost);
       }
     }

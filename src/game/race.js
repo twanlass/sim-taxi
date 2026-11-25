@@ -513,15 +513,11 @@ export function createRivalMesh() {
   // own, not just masks, because the body rides away from them on the hydraulics and a hop lifts
   // the hull clear of the tyres. Its own violet, lifted the way PALETTE.carBodyGhost lifts the
   // fleet's paints: yellow is the player's, and the fleet's lavender (#AC96C7) is a third of this
-  // saturation.
-  //
-  // `always`: unlike every other vehicle the racer is traced wherever it is, not only near the
-  // taxi. It is the one car the player is chasing, and mid-race it is usually more than the street
-  // traffic's radius ahead — exactly where a tower can swallow it.
+  // saturation. Near the taxi only, like every other vehicle (Tyler: "race car outline should
+  // behave like all others").
   outlineVehicle(group, {
     rims: [[body, VEHICLE_RIM], ...allWheels.map((w) => [w, WHEEL_RIM])],
     tint: color('racerGhost'),
-    always: true,
   });
 
   // Dissolved in and out rather than blended — the cruiser's and the engine's `alphaHash`.
