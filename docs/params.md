@@ -106,6 +106,7 @@ doc; what the classic version was, and why it changed, is in that doc's history 
 | `?introvo=classic` | The backstory in text alone, with no recorded voice reading each line | | [gameplay.md](gameplay.md#the-backstory) |
 | `?settings=classic` | Settings shows every row from the start, with only Demo mode hidden until revealed, instead of Sound, Music, SFX, Quality and Antialiasing alone until five taps on its heading | | [gameplay.md](gameplay.md#the-title-screen) |
 | `?intro=classic` | Play goes straight to the garage door, with no dispatch backstory first. `?intro=always` tells the story on every Play instead of once per device | | [gameplay.md](gameplay.md#the-backstory) |
+| `?texticons=classic` | Speech lines without their inline pictures (the robo-taxi after "rolling toasters" in the backstory) | | [gameplay.md](gameplay.md#speech-bubbles) |
 | `?titleintro=blur` | The title's city fades up out of black blurred, the menu fades in and then the blur clears, instead of a sharp city with only the menu fading in | | [gameplay.md](gameplay.md#the-title-screen) |
 | `?titleintro=classic` | The title menu and a sharp city are both on screen the moment the black lifts, with no fade at all | | [gameplay.md](gameplay.md#the-title-screen) |
 | `?titlecam=reel` | The title screen's backdrop jump cuts between landmarks (court, skatepark, L, burger joint) and Play cuts to the depot, instead of one slow slide across the city | | [gameplay.md](gameplay.md#the-title-screen) |

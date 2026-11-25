@@ -23749,6 +23749,32 @@ for (const viewName of ['side', 'quarter']) {
   check('speech: a card with no room above still hangs below', card.py === 0, `pointer at ${card.py}`);
 }
 
+// Inline pictures in a speech line (`{:robotaxi}`): one character of the typed text each, with its
+// own run; an unknown name, or `?texticons=classic`, drops it and one of the spaces beside it, so the
+// line reads as it did before. And every icon names a file that has been rendered.
+{
+  const { parseLine, ICON_CHAR, INLINE_ICONS } = await import('../src/game/speech.js');
+  const { BACKSTORY_LINES } = await import('../src/game/backstory.js');
+  const { existsSync } = await import('node:fs');
+  const { fileURLToPath } = await import('node:url');
+  const on = parseLine('Those toasters {:robotaxi} brake');
+  const iconRuns = on.runs.filter((r) => r.icon);
+  check('speech: an inline icon types as a single character of its own run',
+    on.text === `Those toasters ${ICON_CHAR} brake` && iconRuns.length === 1 && iconRuns[0].e - iconRuns[0].s === 1,
+    JSON.stringify(on));
+  const off = parseLine('Those toasters {:robotaxi} brake', { icons: false });
+  const bogus = parseLine('Those toasters {:nothing} brake');
+  check('speech: a line without its icon closes the gap it leaves',
+    off.text === 'Those toasters brake' && bogus.text === off.text
+      && off.runs.every((r, i) => r.e > r.s && (i === 0 || r.s === off.runs[i - 1].e)) && off.runs.at(-1).e === off.text.length,
+    `${JSON.stringify(off.text)} / ${JSON.stringify(bogus.text)}`);
+  const missing = Object.entries(INLINE_ICONS).filter(([, url]) => !existsSync(fileURLToPath(url))).map(([n]) => n);
+  check('speech: every inline icon has its rendered PNG (node tools/make-inline-icons.mjs)', !missing.length,
+    missing.join(', '));
+  check('speech: the backstory puts the robo-taxi after "rolling toasters"',
+    BACKSTORY_LINES.some((l) => l.includes('rolling toasters {:robotaxi}')));
+}
+
 // The shadow-pass cull (game/shadowcull.js): a caster sits the pass out only when neither it nor
 // its shadow can reach the view, it hands every flag back afterwards, and the warm-up holds it off.
 {
