@@ -37,7 +37,7 @@ import { color } from '../palette.js';
 import { cityNetwork } from './roadnet.js';
 import {
   GRID_I, GRID_J, HALF_ROAD, MEDIAN_W, lineX, lineZ, halfRoadX, halfRoadZ,
-  isArterialZ, isRiverGap, riverBanks, medianRuns,
+  coastWest, isArterialZ, isRiverGap, riverBanks, medianRuns,
 } from './grid.js';
 
 export const MARKINGS_CLASSIC = typeof location !== 'undefined'
@@ -446,11 +446,28 @@ export function streetMarkings(rng, y, blocks = null, kerbH = 0.35) {
         const t = lane.path.tangentAt(L);
         s1 = L + (n0.x - e.x) * t.x + (n0.z - e.z) * t.z;
       }
+      const glyphS = s0 + 1.6;
+      // At the west ring road the bank road's lane carries on past the last junction, over the open
+      // tarmac to the coast and into the edge fog (Tyler, 2026-11-25: "extend the bike lanes ... off
+      // screen through the fog"), so it never visibly ends. It stops `COAST_AIR` short of the slab's
+      // edge: past it is the feathered skirt (`asphaltFade`), and paint out there would hang over sky.
+      // Not east: past the east ring road is the harbor's quays.
+      const COAST_AIR = 0.3;
+      const coastX = coastWest() + COAST_AIR;
+      if (isBank && toNode.gi === 0) {
+        const e = lane.path.at(L);
+        const t = lane.path.tangentAt(L);
+        if (t.x < -0.9) s1 = L + (coastX - e.x) / t.x;
+      }
+      if (isBank && fromNode.gi === 0) {
+        const b = lane.path.at(0);
+        const t = lane.path.tangentAt(0);
+        if (t.x > 0.9) s0 = (coastX - b.x) / t.x;
+      }
       if (s1 > s0) {
         rect(lane, s0, s1, bikeIn(half), bikeOut(half), line);
         rect(lane, s0, s1, bikeOut(half), half - BIKE_KERB_GAP, bikeFill, FILL_Y, 0.5);
       }
-      const glyphS = s0 + 1.6;
       if (glyphS + 1.2 < s1) bicycle(lane, glyphS, half - BIKE_KERB_GAP - 0.45);
     }
   }
