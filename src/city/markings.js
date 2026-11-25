@@ -36,7 +36,7 @@ import { color } from '../palette.js';
 import { cityNetwork } from './roadnet.js';
 import {
   GRID_I, GRID_J, MEDIAN_W, lineX, lineZ, halfRoadX, halfRoadZ,
-  isArterialX, isArterialZ, isRiverGap, riverBanks, riverRow,
+  isArterialX, isArterialZ, isRiverGap, riverBanks, medianRuns,
 } from './grid.js';
 
 export const MARKINGS_CLASSIC = typeof location !== 'undefined'
@@ -459,50 +459,89 @@ export function streetMarkings(rng, y, blocks = null) {
     }
   }
 
-  // --- Cobbled bridgeheads ------------------------------------------------------------------
-  // Where a main road meets the river-bank road, the junction box between its flower islands is
-  // laid in setts (Tyler, 2026-11-25: "could we do cobble stone here between the flower islands?").
-  // Two per city, one each side of the bridge, which reads as the bridge's own approach rather than
-  // as paving sprinkled round town (paving every junction was turned down in October). Running bond
-  // in courses along x, each sett its own shade, the asphalt showing in the joints, inside a pale
-  // soldier course like the plaza's. At `FILL_Y`: a manhole cover lies on top at `MARK_Y`.
-  const row = riverRow();
-  if (row !== null) {
-    const SETT_X = 0.45;
-    const SETT_Z = 0.3;
+  // --- Cobbled median strips ----------------------------------------------------------------
+  // A main road's planted islands are joined across each junction by a strip of setts the island's
+  // own width, flush with the road (Tyler, 2026-11-25, with a sketch: "run between the flower
+  // dividers"). It carries the median through the junction as one line instead of a row of
+  // separate planters. Running bond in courses along the strip, each sett its own shade with the
+  // asphalt in the joints, and a pale soldier course down both long edges. At `FILL_Y` so a manhole,
+  // at `MARK_Y`, lies on top. The strip runs `CAP` under each island so its square end is hidden by
+  // the island's rounded nose rather than leaving two triangles of asphalt beside it.
+  //
+  // Where two main roads cross, both strips pass through one box. Two worn surfaces on one plane
+  // would z-fight, so the z-running strip is cut where the x-running one crosses it.
+  {
+    const CAP = MEDIAN_W / 2;
+    const SETT_L = 0.45;    // along the strip
+    const SETT_W = 0.3;     // across it
     const JOINT = 0.06;
-    const FRAME = 0.3;
-    for (let i = 1; i < GRID_I; i++) {
-      if (!isArterialZ(i)) continue;
-      for (const j of [row, row + 1]) {
-        const cx = lineX(i);
-        const cz = lineZ(j);
-        const x0 = cx - halfRoadZ(i) + 0.12;
-        const x1 = cx + halfRoadZ(i) - 0.12;
-        const z0 = cz - halfRoadX(j) + 0.12;
-        const z1 = cz + halfRoadX(j) - 0.12;
-        const flat = (xa, xb, za, zb, col) => {
-          tri({ x: xa, z: za }, { x: xa, z: zb }, { x: xb, z: zb }, col, FILL_Y);
-          tri({ x: xa, z: za }, { x: xb, z: zb }, { x: xb, z: za }, col, FILL_Y);
-        };
-        const tone = (x, z, base) => scratch.copy(base).lerp(asphalt, (hash2(x, z, 7) - 0.3) * 0.35);
-        // The frame: four strips that meet without overlapping.
-        flat(x0, x1, z0, z0 + FRAME, tone(cx, z0, settFrame));
-        flat(x0, x1, z1 - FRAME, z1, tone(cx, z1, settFrame));
-        flat(x0, x0 + FRAME, z0 + FRAME, z1 - FRAME, tone(x0, cz, settFrame));
-        flat(x1 - FRAME, x1, z0 + FRAME, z1 - FRAME, tone(x1, cz, settFrame));
-        const fx0 = x0 + FRAME + JOINT;
-        const fx1 = x1 - FRAME - JOINT;
-        let course = 0;
-        for (let z = z0 + FRAME + JOINT; z + SETT_Z <= z1 - FRAME - JOINT + 1e-6; z += SETT_Z + JOINT, course++) {
-          // Half a sett's offset on alternate courses; the end setts are cut to the frame.
-          for (let x = fx0 - (course % 2) * (SETT_X + JOINT) / 2; x < fx1; x += SETT_X + JOINT) {
-            const xa = Math.max(fx0, x);
-            const xb = Math.min(fx1, x + SETT_X);
-            if (xb - xa < 0.08) continue;
-            flat(xa, xb, z, z + SETT_Z, tone(xa, z, sett));
-          }
+    const EDGE = 0.22;
+    const runs = medianRuns();
+    const byLine = new Map();
+    for (const r of runs) {
+      const key = `${r.axis}|${r.line}`;
+      if (!byLine.has(key)) byLine.set(key, new Map());
+      byLine.get(key).set(r.k, r);
+    }
+    const strips = [];
+    for (const [key, ks] of byLine) {
+      const axis = key[0];
+      for (const [k, a] of ks) {
+        const b = ks.get(k + 1);
+        if (!b) continue;
+        if (axis === 'x') strips.push({ axis, x0: a.x1 - CAP, x1: b.x0 + CAP, z0: a.z0, z1: a.z1 });
+        else strips.push({ axis, x0: a.x0, x1: a.x1, z0: a.z1 - CAP, z1: b.z0 + CAP });
+      }
+    }
+    // The x strips' bands, which the z strips step over.
+    const xBands = strips.filter((t) => t.axis === 'x');
+
+    const flat = (xa, xb, za, zb, col) => {
+      tri({ x: xa, z: za }, { x: xa, z: zb }, { x: xb, z: zb }, col, FILL_Y);
+      tri({ x: xa, z: za }, { x: xb, z: zb }, { x: xb, z: za }, col, FILL_Y);
+    };
+    const tone = (x, z, base) => scratch.copy(base).lerp(asphalt, (hash2(x, z, 7) - 0.3) * 0.35);
+
+    // One piece of strip in strip space: `u` along it (u0..u1), `v` across it (0..width). `toWorld`
+    // turns a (u, v) rectangle into world bounds.
+    const layPiece = (u0, u1, width, rectAt) => {
+      rectAt(u0, u1, 0, EDGE, settFrame);
+      rectAt(u0, u1, width - EDGE, width, settFrame);
+      const v0 = EDGE + JOINT;
+      const v1 = width - EDGE - JOINT;
+      let course = 0;
+      for (let v = v0; v + SETT_W <= v1 + 1e-6; v += SETT_W + JOINT, course++) {
+        for (let u = u0 - (course % 2) * (SETT_L + JOINT) / 2; u < u1; u += SETT_L + JOINT) {
+          const ua = Math.max(u0, u);
+          const ub = Math.min(u1, u + SETT_L);
+          if (ub - ua < 0.08) continue;
+          rectAt(ua, ub, v, v + SETT_W, sett);
         }
+      }
+    };
+
+    for (const t of strips) {
+      if (t.axis === 'x') {
+        const width = t.z1 - t.z0;
+        layPiece(t.x0, t.x1, width, (ua, ub, va, vb, base) =>
+          flat(ua, ub, t.z0 + va, t.z0 + vb, tone(ua, t.z0 + va, base)));
+        continue;
+      }
+      // Cut the z strip round every x strip it crosses.
+      const cuts = xBands.filter((x) => x.x0 < t.x1 && x.x1 > t.x0 && x.z0 < t.z1 && x.z1 > t.z0)
+        .map((x) => [x.z0, x.z1]).sort((p, q) => p[0] - q[0]);
+      let z = t.z0;
+      const pieces = [];
+      for (const [c0, c1] of cuts) {
+        if (c0 > z) pieces.push([z, c0]);
+        z = Math.max(z, c1);
+      }
+      if (z < t.z1) pieces.push([z, t.z1]);
+      const width = t.x1 - t.x0;
+      for (const [za, zb] of pieces) {
+        if (zb - za < 0.2) continue;
+        layPiece(za, zb, width, (ua, ub, va, vb, base) =>
+          flat(t.x0 + va, t.x0 + vb, ua, ub, tone(t.x0 + va, ua, base)));
       }
     }
   }

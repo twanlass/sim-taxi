@@ -1407,10 +1407,11 @@ framing that was a wallpaper of white rather than a street. Now, off the ground'
   as a landmark for the depot (stripes one way only: a cross-hatch overlaps itself, and two worn cells
   on one plane are a z-fight; the centre dashes stop either side of it), and a **TAXI rank** on the
   garage's kerb past the door.
-- **Cobbled bridgeheads**: the junction box where a main road meets each river-bank road is laid in
-  setts (running bond, each sett its own shade, a pale soldier course round it), at the fill level so
-  a manhole lies on top. Two per city, so it reads as the bridge's approach and not as the junction
-  paving that was turned down in October.
+- **Cobbled median strips**: a main road's planted islands are joined across each junction by a flush
+  strip of setts the island's width (running bond, each sett its own shade, a pale soldier course down
+  both edges), so the median reads as one line rather than a row of planters. At the fill level so a
+  manhole lies on top; it runs under each island's nose so the rounded cap hides its square end; and
+  where two main roads cross, the z strip is cut round the x one so the two never share a plane.
 - **No median stubs.** The double line between an arterial island's nose and the junction (1.8..3.7
   units) read as stray dashes, so outside `?markings=classic` the island's nose is the only divider there.
 
