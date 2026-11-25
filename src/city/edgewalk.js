@@ -17,10 +17,10 @@ import {
 // ring meets a block across the road the two read as one material. It follows the ring road's outer
 // kerb all the way round, with its corners concentric about the junction's own `CURB_RADIUS`.
 //
-// **The fade is the fog's, not its own.** The bank starts a unit inside the outer kerb and is opaque
-// seven units past it (`FOG_START`/`FOG_END` in game/edgefog.js), with billows pushing it further out
-// in places. `EDGE_WALK_W` puts the pavement's outer edge most of the way up that ramp, so it is clear
-// at the kerb, mostly lost at its far side, and the billows decide where along the coast it shows whole
+// **The fade is the fog's, not its own.** With the walk on, the bank starts a unit inside the outer
+// kerb and is opaque four units past it (`FOG_START`/`FOG_END` in game/edgefog.js), with billows
+// pushing it further out in places. That puts the pavement's outer edge up near the top of the ramp,
+// so it is clear at the kerb, mostly lost at its far side, and the billows decide where along the coast it shows whole
 // — which is the "partially fades" of the brief with no second fade to keep in step with the first.
 // A pavement of its own alpha would also have to sort against the skirt and every decal on the road.
 //
@@ -39,12 +39,12 @@ const PARAM = typeof location !== 'undefined'
 export const EDGE_WALK = !BIG_CITY && PARAM !== 'classic';
 
 /**
- * How far the pavement reaches past the ring road's outer kerb. 6 puts its far edge most of the way
- * up the fog's ramp. The first cut was 3.5, a block's worth of pavement, and it read worse: its far
- * edge sat half fogged with a band of dark asphalt beyond it before the bank, so the pale walk ended
- * on a hard tan-to-grey line instead of melting into the white. Pale into pale is what fades.
+ * How far the pavement reaches past the ring road's outer kerb: a block's worth of pavement. The
+ * fog is pulled in to cover its far edge (`FOG_END`, `FOG_BILLOW` in game/edgefog.js). A first round
+ * left the fog where it was and widened the walk to 6 instead, to get its far edge up the ramp;
+ * Tyler preferred a real sidewalk width with the clouds brought in over it.
  */
-export const EDGE_WALK_W = 6;
+export const EDGE_WALK_W = 3.5;
 
 /** Points per corner arc. The arc is 4.1 units round at the outside: eight is smooth at play zoom. */
 const ARC_STEPS = 8;

@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { BIG_CITY, HALF_SPAN_X, HALF_SPAN_Z, HALF_ROAD } from '../city/grid.js';
 import { unlitMaterial } from '../util/geo.js';
+import { EDGE_WALK } from '../city/edgewalk.js';
 
 // --- The fog of war round the island -------------------------------------------------------------
 //
@@ -62,7 +63,15 @@ export const FOG_RADIUS = 14;
  * this is meant to hide.
  */
 export const FOG_START = -1;
-export const FOG_END = 7;
+export const FOG_END = EDGE_WALK ? 4 : 7;
+/*
+ * **With the edge pavement (city/edgewalk.js) the bank comes in to cover its outer edge.** Tyler,
+ * 2026-11-25: "make it sidewalk width and then bring the clouds in to cover the outer edge". The
+ * walk is 3.5 wide, so the ramp ends at 4 rather than 7 and the billows push half as far (below):
+ * with the cubic ease the walk's far edge sits at ~0.9 fog on an average billow and ~0.5 on the
+ * deepest, which is what lets it show in places without ever ending on a hard line. FOG_START does
+ * not move, so the road gets no more fog than it had. `?edgewalk=classic` keeps the old 7 and 8.
+ */
 /*
  * **The mix is in linear light, not display values** (the FOG_MIX_LINEAR the shaders mention). Fog
  * is light scattered in front of the ground, so it adds the way light adds; mixed on display values
@@ -78,7 +87,7 @@ export const FOG_END = 7;
  * and east) side a hollow in the noise rolled the bank right across the ring road the taxi drives.
  * Pushing one way keeps `FOG_START` a hard limit on how far in the fog can ever reach.
  */
-export const FOG_BILLOW = 8;
+export const FOG_BILLOW = EDGE_WALK ? 4 : 8;
 /** How much a unit of height pushes the bank back: 1 = a 45° slope off the ground. */
 export const FOG_SLOPE = 1.1;
 /**
