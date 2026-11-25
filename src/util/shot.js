@@ -766,6 +766,37 @@ export function getCrt(fallback = true) {
   return raw !== 'classic' && !isOff(raw);
 }
 
+/**
+ * The pixel-art screen (game/pixelart.js): CSS px per art pixel, or null for the smooth frame.
+ * On by default at `fallback`; `?pixel=classic` (or `off`) turns it off, `?pixelsize=` sizes it
+ * (1 to 8, fractions allowed, though only a whole number keeps every art pixel the same width).
+ */
+export function getPixel(fallback) {
+  const params = new URLSearchParams(window.location.search);
+  const raw = params.get('pixel');
+  if (raw === 'classic' || (raw !== null && isOff(raw))) return null;
+  const size = Number.parseFloat(params.get('pixelsize'));
+  return Number.isFinite(size) ? Math.max(1, Math.min(8, size)) : fallback;
+}
+
+/**
+ * The pixel look's dither (game/dither.js): steps per channel, or 0 for smooth colour. On with the
+ * pixel look at `fallback`; `?dither=classic` (or `off`) turns it off, `?ditherlevels=` sets 2 to 32.
+ */
+export function getDither(fallback) {
+  const params = new URLSearchParams(window.location.search);
+  const raw = params.get('dither');
+  if (raw === 'classic' || (raw !== null && isOff(raw))) return 0;
+  const levels = Number.parseInt(params.get('ditherlevels'), 10);
+  return Number.isFinite(levels) ? Math.max(2, Math.min(32, levels)) : fallback;
+}
+
+/** `?ditherstrength=` (0 to 1): how much of the dither's step is kept, or `fallback`. */
+export function getDitherStrength(fallback) {
+  const v = Number.parseFloat(new URLSearchParams(window.location.search).get('ditherstrength'));
+  return Number.isFinite(v) ? Math.max(0, Math.min(1, v)) : fallback;
+}
+
 /** `off` / `0` / `false` — the spelling every switch above takes. */
 function isOff(raw) {
   return raw === 'off' || raw === '0' || raw === 'false';

@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { canvasRect } from './pixelart.js';
 
 /**
  * Click picking against tagged objects.
@@ -111,7 +112,7 @@ export function createPicker(
 
   function pickAt(event) {
     if (shouldIgnore()) return;
-    const rect = domElement.getBoundingClientRect();
+    const rect = canvasRect(domElement);
     ndc.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
     ndc.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
     raycaster.setFromCamera(ndc, camera);

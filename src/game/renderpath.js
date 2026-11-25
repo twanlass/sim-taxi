@@ -98,7 +98,8 @@ export function createRenderPath(renderer, budget, { still = false } = {}) {
   });
   // The CRT screen over the finished frame — see game/crt.js. Only the game's budget carries
   // `crt`; the workshop's bench leaves it undefined and gets the clean frame.
-  const crt = createCrt(renderer, { enabled: Boolean(budget.crt), still });
+  // The pixel look's dither rides the same pass (game/dither.js), with or without the CRT.
+  const crt = createCrt(renderer, { enabled: Boolean(budget.crt), still, dither: budget.dither ?? 0, ditherStrength: budget.ditherStrength });
 
   return {
     ao, bloom, crt,

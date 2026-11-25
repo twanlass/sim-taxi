@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { DITHER_GLSL, DITHER_STRENGTH } from './dither.js';
 
 /**
  * The CRT screen — on by default, `?crt=classic` for the clean frame. Ported from Grog
@@ -77,6 +78,8 @@ uniform float uVignette;
 uniform float uAberration;
 uniform float uAperture;
 uniform float uFlicker;
+uniform float uDither;
+uniform float uDitherStrength;
 varying vec2 vUv;
 
 vec2 crtCurve(vec2 uv) {
@@ -122,6 +125,9 @@ void main() {
   // luma 116 to 99 on shot 0) — undoing the colour grade's exposure.
   col /= 1.0 - uScanline * 0.5;
 
+  // The pixel look's palette (game/dither.js), on the finished colour.
+${DITHER_GLSL}
+
   // The frame is premultiplied, so colour can never exceed its own alpha.
   gl_FragColor = vec4(min(col, vec3(mid.a)), mid.a);
 }
@@ -131,10 +137,13 @@ void main() {
  * @param renderer  the one WebGLRenderer
  * @param enabled   false allocates nothing and leaves `render` a no-op for good — `?crt=classic`
  * @param still     shot mode: the flicker is pinned at its midpoint, so a screenshot is repeatable
+ * @param dither    the pixel look's steps per channel (game/dither.js), 0 for none. With the CRT
+ *                  off the pass still runs for it, every CRT term at zero.
  */
-export function createCrt(renderer, { enabled = true, still = false } = {}) {
+export function createCrt(renderer, { enabled = true, still = false, dither = 0, ditherStrength = DITHER_STRENGTH } = {}) {
   const state = { enabled, ...CRT_DEFAULTS };
-  if (!enabled) {
+  const screenOn = enabled;
+  if (!enabled && dither <= 1) {
     return { state, render: () => {}, set: () => {}, preset: () => {}, dispose: () => {} };
   }
 
@@ -149,6 +158,8 @@ export function createCrt(renderer, { enabled = true, still = false } = {}) {
     uAberration: { value: 0 },
     uAperture: { value: 0 },
     uFlicker: { value: 0 },
+    uDither: { value: dither > 1 ? dither : 0 },
+    uDitherStrength: { value: ditherStrength },
   };
   const screen = new THREE.Scene();
   const screenCam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
@@ -179,8 +190,8 @@ export function createCrt(renderer, { enabled = true, still = false } = {}) {
 
   /** After everything else has drawn, the rain's lens included: the glass is in front of the drops. */
   function render() {
-    const s = state.strength;
-    if (!state.enabled || s <= 0) return;
+    const s = screenOn && state.enabled ? state.strength : 0;
+    if (s <= 0 && !uniforms.uDither.value) return;
     renderer.getDrawingBufferSize(drawingBuffer);
     if (!frameTex || frameTex.image.width !== drawingBuffer.x || frameTex.image.height !== drawingBuffer.y) {
       frameTex?.dispose();
