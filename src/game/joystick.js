@@ -14,9 +14,22 @@
  * a heading-relative reading would read the same hold as a fresh turn after every corner and
  * staircase across the city.
  *
+ * **The screen's own axes are where the snap is least sure.** With the streets at ±29°, the borders
+ * between the four directions fall exactly on screen up, down, left and right — the pushes a thumb
+ * makes most. Tyler, 2026-11-24: "when I'm kind of pointing it in the direction I want to go, it's
+ * not quite right." Two things were costing those pushes:
+ *
+ * - **Backwards was a candidate.** Heading down-right, a push straight up is a coin toss between
+ *   up-right (a left turn) and up-left (backwards) — and backwards is ignored, so half of them did
+ *   nothing at all. The snap now leaves out the way back, so every push past the dead zone names a
+ *   turn or straight on: up is the left turn, left is the right turn.
+ * - **No hysteresis.** A thumb resting near a border wobbles across it, and the queue flipped with
+ *   it. Once a hold has picked a direction it keeps it until the push is `HOLD_MARGIN` past the
+ *   border.
+ *
  * Holding pushes the direction every frame; letting go leaves the last one queued (the Pac-Man
  * buffer), so a flick is enough and the thumb can come off. Pushing toward the way the car is
- * already going clears the queue; pushing backwards is ignored — the U-turn is the brake's move.
+ * already going clears the queue — the U-turn stays the brake's move.
  */
 
 // Grid direction vectors (DIR: PX, PZ, NX, NZ).
@@ -24,20 +37,26 @@ const DIR_VEC = [[1, 0], [0, 1], [-1, 0], [0, -1]];
 // How far the knob travels, and how far it has to go before it says anything, in CSS pixels.
 const KNOB_TRAVEL = 34;
 const DEAD_ZONE = 12;
+// How far past a border a held push has to go before the stick changes its mind, in radians.
+const HOLD_MARGIN = (15 * Math.PI) / 180;
 
 /**
  * Which street direction a stick vector `(sx, sy)` (screen pixels, y down) points at: the one whose
- * on-screen direction is nearest by angle.
+ * on-screen direction is nearest by angle, never `exclude` (the way back), and `prev` for as long as
+ * it is within `HOLD_MARGIN` of the nearest.
  */
-export function snapStick(sx, sy, toScreen) {
-  let best = 0;
-  let bestDot = -Infinity;
+export function snapStick(sx, sy, toScreen, { exclude = null, prev = null } = {}) {
   const sl = Math.hypot(sx, sy) || 1;
+  const angle = new Array(4).fill(Infinity);
+  let best = null;
   for (let d = 0; d < 4; d++) {
+    if (d === exclude) continue;
     const v = toScreen(DIR_VEC[d][0], DIR_VEC[d][1]);
-    const dot = (v.x * sx + v.y * sy) / ((Math.hypot(v.x, v.y) || 1) * sl);
-    if (dot > bestDot) { bestDot = dot; best = d; }
+    const cos = (v.x * sx + v.y * sy) / ((Math.hypot(v.x, v.y) || 1) * sl);
+    angle[d] = Math.acos(Math.max(-1, Math.min(1, cos)));
+    if (best == null || angle[d] < angle[best]) best = d;
   }
+  if (prev != null && prev !== exclude && angle[prev] - angle[best] < HOLD_MARGIN) return prev;
   return best;
 }
 
@@ -45,10 +64,12 @@ export function snapStick(sx, sy, toScreen) {
  * @param el        the #stick element (well + knob inside it)
  * @param toScreen  `(dx, dz) => { x, y }`, a world ground vector in screen pixels
  * @param onPush    called with a grid direction while the stick is pushed, and with null on release
+ * @param back      () => the grid direction straight back from the taxi's next decision, or null
  */
-export function createJoystick({ el, toScreen, onPush }) {
+export function createJoystick({ el, toScreen, onPush, back = () => null }) {
   const knob = el.querySelector('.stick-knob');
   let press = null;
+  let picked = null;
 
   function read(event) {
     const dx = event.clientX - press.cx;
@@ -56,7 +77,8 @@ export function createJoystick({ el, toScreen, onPush }) {
     const len = Math.hypot(dx, dy);
     const k = len > KNOB_TRAVEL ? KNOB_TRAVEL / len : 1;
     knob.style.transform = `translate(${dx * k}px, ${dy * k}px)`;
-    onPush(len >= DEAD_ZONE ? snapStick(dx, dy, toScreen) : null, len >= DEAD_ZONE);
+    picked = len >= DEAD_ZONE ? snapStick(dx, dy, toScreen, { exclude: back(), prev: picked }) : null;
+    onPush(picked, len >= DEAD_ZONE);
   }
 
   el.addEventListener('pointerdown', (event) => {
@@ -74,6 +96,7 @@ export function createJoystick({ el, toScreen, onPush }) {
   const release = (event) => {
     if (!press || event.pointerId !== press.id) return;
     press = null;
+    picked = null;
     el.classList.remove('is-held');
     knob.style.transform = '';
     onPush(null, false);

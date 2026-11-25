@@ -5,8 +5,7 @@
  * 2. A steered taxi arrives: a "player" who queues the next turn of the best route at every corner
  *    — through the real `steerPlan`, the real one-step route and the real traffic model — reaches
  *    every target, with no red run and no route desync.
- * 3. Hands off and empty, it goes straight on wherever it can and never stops at a dead end.
- * 4. Hands off with a rider aboard, it drives itself to the drop-off (`auto`).
+ * 3. Hands off, it goes straight on wherever it can and never stops at a dead end.
  */
 import * as THREE from 'three';
 import { makeRng } from '../src/util/rng.js';
@@ -51,6 +50,22 @@ check('stick up-right is -Z', snapStick(1, -0.5, toScreen) === DIR.NZ);
 check('stick down-right is +X', snapStick(1, 0.5, toScreen) === DIR.PX);
 check('stick up-left is -X', snapStick(-1, -0.5, toScreen) === DIR.NX);
 check('stick down-left is +Z', snapStick(-1, 0.5, toScreen) === DIR.PZ);
+// Heading +X (down-right), the way back is -X (up-left). Straight up sits on the border between
+// -Z and -X; leaving the way back out makes it the left turn rather than a push that does nothing.
+const fromPX = { exclude: DIR.NX };
+check('heading +X, stick straight up is the left turn (-Z)', snapStick(0, -1, toScreen, fromPX) === DIR.NZ);
+check('heading +X, stick straight left is the right turn (+Z)', snapStick(-1, 0.05, toScreen, fromPX) === DIR.PZ);
+check('the way back is never picked', [0, 1, 2, 3, 4, 5, 6, 7].every((k) => {
+  const a = (k * Math.PI) / 4 + 0.1;
+  return snapStick(Math.cos(a), Math.sin(a), toScreen, fromPX) !== DIR.NX;
+}));
+// A held push keeps its direction across a wobble over the border, and lets go of it well past it.
+const nearRight = (deg) => [Math.cos((deg * Math.PI) / 180), -Math.sin((deg * Math.PI) / 180)];
+check('a hold keeps -Z through a wobble just below the horizontal',
+  snapStick(...nearRight(-5), toScreen, { prev: DIR.NZ }) === DIR.NZ);
+check('fresh, the same push reads +X', snapStick(...nearRight(-5), toScreen) === DIR.PX);
+check('a hold gives -Z up once the push is well past the border',
+  snapStick(...nearRight(-20), toScreen, { prev: DIR.NZ }) === DIR.PX);
 
 // --- 2. A steered taxi arrives -------------------------------------------------------------------
 const STEP = 1 / 60;
@@ -60,10 +75,10 @@ const traffic = createTraffic(makeRng(71624 + 44), new THREE.Scene(), 7);
 const taxi = traffic.taxi;
 traffic.warmup(10);
 
-function drive(queueFor, autoFor = () => null) {
+function drive(queueFor) {
   const at = decisionLane(taxi);
   const queued = at ? queueFor(at) : null;
-  const plan = steerPlan(taxi, queued, undefined, at ? autoFor(at) : null);
+  const plan = steerPlan(taxi, queued);
   taxi.route = plan.route;
   taxi.routeConsumed = false;
   traffic.update(STEP);
@@ -95,7 +110,7 @@ check(`steered taxi reaches every target (${arrived}/${RUNS})`, arrived === RUNS
 check('no red run while steering', traffic.stats.violations === 0, `${traffic.stats.violations}`);
 check('no route desync while steering', traffic.stats.routeDesync === 0, `${traffic.stats.routeDesync}`);
 
-// --- 3. Hands off, empty ------------------------------------------------------------------------
+// --- 3. Hands off ------------------------------------------------------------------------
 let turnedWithStraight = 0;
 let deadEnds = 0;
 let emptyRoute = 0;
@@ -123,19 +138,6 @@ check(`hands off, it turns out of a dead end on its own (${deadEnds} met)`, dead
 // A red is 30s at most here; anything near a minute standing still is a car waiting on nobody.
 check('hands off, it is never parked waiting for input', longestStill < 45, `${longestStill.toFixed(1)}s still`);
 check('no red run hands off', traffic.stats.violations === 0, `${traffic.stats.violations}`);
-
-// --- 4. Hands off, a rider aboard ----------------------------------------------------------------
-let selfArrived = 0;
-const SELF = 10;
-for (let run = 0; run < SELF; run++) {
-  const target = ints[rng.int(0, ints.length - 1)];
-  const centre = intersectionCentre(target.i, target.j);
-  for (let t = 0; t < 120; t += STEP) {
-    drive(() => null, () => findRoute(planOrigin(taxi), target)?.[0] ?? null);
-    if (Math.hypot(taxi.x - centre.x, taxi.z - centre.z) < ARRIVE_RADIUS) { selfArrived += 1; break; }
-  }
-}
-check(`hands off with a rider, it drives itself to the drop-off (${selfArrived}/${SELF})`, selfArrived === SELF);
 
 console.log(`steered trips: mean ${(total / Math.max(1, arrived)).toFixed(1)}s`);
 console.log(`${passed}/${passed + failed} checks passed`);

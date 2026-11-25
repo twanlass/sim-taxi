@@ -1412,7 +1412,15 @@ held stick mean something: held toward up-right, the taxi turns up-right at the 
 has it and keeps going that way, where a heading-relative reading would treat the same hold as a
 fresh turn after every corner and staircase across town. Held, it is re-asserted every frame;
 let go, the last push stays queued, so a flick is enough. Toward the current heading clears the
-queue; backwards is ignored. A swipe on the map read the way below was the first cut; Tyler
+queue.
+
+With the streets at ±29°, the borders between the four directions land exactly on screen up, down,
+left and right, which are the pushes a thumb makes most. Tyler said it was "not quite right", and two
+things were costing those pushes. First, the way back was a candidate. Heading down-right, a push
+straight up was a coin toss between the left turn and backwards, and backwards is ignored, so half of
+those pushes did nothing. The snap now leaves the way back out, so up is the left turn and left is the
+right turn. Second, a thumb resting near a border flipped the queue as it wobbled. A held push now
+keeps its direction until it is 15° past the border (`HOLD_MARGIN` in `game/joystick.js`). A swipe on the map read the way below was the first cut; Tyler
 dropped it ("No swipe") and `?steer=swipe` keeps it.
 
 **The queue is a direction on the map, and it waits.** Under `?steer=swipe` a swipe is read against the heading the car
@@ -1424,12 +1432,12 @@ sits between two of them. (Heading up-right, a thumb's "left" is backwards; up a
 direction survives corners that do not have it and is spent once the car heads that way, so a
 swipe made too late for one corner lands on the next. Arrow keys and WASD do the same on a desktop.
 
-**Hands off, it drives itself.** With nothing queued, a taxi carrying a rider takes the exit the
-best route to the drop-off takes (`autoTarget`, re-planned per decision lane from wherever the car
-is, so after a steered detour it drives on from there); an empty taxi carries straight on and takes
-the first exit at a dead end. The stick only ever overrides the next corner. The first cut held at
-a dead end until the player chose — the Pac-Man wall — and it read as the car stalling (Tyler:
-"something feels weird about the taxi not moving unless you've chosen a direction").
+**Hands off, it keeps rolling.** With nothing queued, the taxi carries straight on and takes the
+first exit at a dead end. It never navigates, rider or not, and it still stops for signals and
+traffic like any car. The first cut held at a dead end until the player chose — the Pac-Man wall —
+and it read as the car stalling (Tyler: "something feels weird about the taxi not moving unless
+you've chosen a direction"). A second cut drove a rider to the drop-off on its own; Tyler meant
+"it kind of just continues forward motion", not that it navigates.
 
 **The band is a suggestion, fixed at the pickup.** On boarding, the best route to the drop-off is
 planned once and drawn as the route band (`steerGuide` in `main.js`), and then left alone — "a

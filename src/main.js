@@ -197,7 +197,7 @@ import { createCopLights } from './game/coplights.js';
 import { createCashTrail } from './game/cashtrail.js';
 import { setCityOccluders, sightlineClear } from './game/sightline.js';
 import { createBootleg, COMBO_GAP_MS as BOOTLEG_GAP_MS } from './game/bootleg.js';
-import { createSteer } from './game/steer.js';
+import { createSteer, decisionLane } from './game/steer.js';
 import { createJoystick } from './game/joystick.js';
 import { createSteerTip } from './game/steertip.js';
 import { createOvertakeCombo, OVERTAKE_GRACE } from './game/overtake.js';
@@ -223,7 +223,7 @@ import { isNative } from './util/platform.js';
 import { tap as haptic, setHapticPrefs } from './util/haptics.js';
 import { createSfx, DASH, MUSIC_FADE_AT_HINT } from './game/sfx.js';
 import { attachContextRecovery } from './game/recovery.js';
-import { isCityConnected, GRID_I, GRID_J, MAX_SPAN, lineX, lineZ } from './city/grid.js';
+import { isCityConnected, GRID_I, GRID_J, MAX_SPAN, lineX, lineZ, opposite } from './city/grid.js';
 import { cityNetwork } from './city/roadnet.js';
 import { PALETTE, color as paletteColor, roadsClassic } from './palette.js';
 import { createPerfBot } from './game/perfbot.js';
@@ -1879,9 +1879,6 @@ const steer = steerOn ? createSteer({
   toScreen: steerToScreen,
   canSteer: steerLive,
   swipe: !steerStick,
-  // Hands off, a taxi with a rider aboard drives itself toward the drop-off (or the getaway's next
-  // checkpoint) — the player's stick only ever overrides the next corner.
-  autoTarget: () => fares.carrying()?.target ?? null,
 }) : null;
 // The route to the drop-off, planned once at the pickup and then left alone — "a Google Maps route
 // to your drop-off" (Tyler, 2026-11-24). It does not follow the player's detours; it is a
@@ -1906,6 +1903,7 @@ const stick = steerStick && stickEl ? createJoystick({
   el: stickEl,
   toScreen: steerToScreen,
   onPush: (dir) => steer.push(dir),
+  back: () => { const at = decisionLane(traffic.taxi); return at ? opposite(at.d) : null; },
 }) : null;
 fares.setSteered(steerOn);
 

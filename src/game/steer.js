@@ -16,11 +16,11 @@
  * turns. Like Pac-Man it waits: a turn queued where the corner has no such exit carries on to the
  * next corner that does, and is spent the moment the car is heading that way.
  *
- * **Hands off, it drives itself** (Tyler, 2026-11-24: "something feels weird about the taxi not moving
- * unless you've chosen a direction"). With nothing queued, a taxi carrying a rider takes the turn
- * the best route to the drop-off takes (`autoTarget`, re-planned from wherever it is); an empty
- * taxi carries straight on, and at a dead end takes the first exit. The first cut held at a dead
- * end for the player instead — the Pac-Man wall — and it read as the car stalling.
+ * **Hands off, it keeps rolling** (Tyler, 2026-11-24: "something feels weird about the taxi not moving
+ * unless you've chosen a direction"). With nothing queued the taxi carries straight on, and at a
+ * dead end takes the first exit; it never navigates. The first cut held at a dead end for the
+ * player instead — the Pac-Man wall — and it read as the car stalling. A second cut drove a rider
+ * to the drop-off on its own; Tyler wanted "just continues forward motion", not a chauffeur.
  *
  * **Why the swipe is read relative to the heading.** The camera looks down the city's diagonal, so
  * no street runs along a screen axis: foreshortened, each lies ~29° off the horizontal, the two
@@ -32,7 +32,6 @@
  */
 import { cityNetwork } from '../city/roadnet.js';
 import { opposite, rightOf, leftOf } from '../city/grid.js';
-import { findRoute, planOrigin } from './route.js';
 
 // How far a finger has to travel before the gesture counts as a swipe, in CSS pixels. Fired on the
 // move that crosses it rather than on lift, so a turn queued late in the run-up still lands.
@@ -65,16 +64,14 @@ export function exitDirs(lane, net = cityNetwork()) {
 /**
  * What the taxi does at its next junction, given the queued direction (or null).
  *
- * `auto` is the hands-off answer (the exit toward the drop-off), taken when nothing is queued.
  * Returns `{ route }`, the one-step plan for `car.route` — never empty while the junction has an
  * exit, because an empty route hands the car to the ambient dice.
  */
-export function steerPlan(car, queued, net = cityNetwork(), auto = null) {
+export function steerPlan(car, queued, net = cityNetwork()) {
   const at = decisionLane(car, net);
   if (!at) return { route: [] };
   const exits = exitDirs(at.lane, net);
   if (queued != null && queued !== at.d && exits.includes(queued)) return { route: [queued] };
-  if (auto != null && exits.includes(auto)) return { route: [auto] };
   if (exits.includes(at.d)) return { route: [at.d] };
   // A dead end with nothing asked of it: the first exit in the network's order (right before left).
   return { route: exits.length ? [exits[0]] : [] };
@@ -114,7 +111,7 @@ export function readSwipe(sx, sy, d, toScreen) {
  * @param onQueue    called with the grid direction (or null) whenever the queue changes
  */
 export function createSteer({ dom, taxi, toScreen, canSteer = () => true, onQueue = () => {},
-  swipe = true, autoTarget = () => null }) {
+  swipe = true }) {
   let queued = null;
   let press = null;
   // The click the browser synthesises after a swipe must not also reach the picker.
@@ -202,22 +199,6 @@ export function createSteer({ dom, taxi, toScreen, canSteer = () => true, onQueu
     apply(v[0], v[1]);
   });
 
-  // Auto-drive: with nothing queued, the exit the best route to `autoTarget()` takes at the next
-  // decision — re-planned from wherever the car is, so a detour the player steered is driven on
-  // from where it left the car. Asked once per decision lane and target, not every frame.
-  let autoKey = null;
-  let autoAnswer = null;
-  function autoDir(at) {
-    const target = autoTarget();
-    if (!target) return null;
-    const key = `${at.lane.id}|${target.i},${target.j}|${at.d}`;
-    if (key !== autoKey) {
-      autoKey = key;
-      autoAnswer = findRoute(planOrigin(taxi), target)?.[0] ?? null;
-    }
-    return autoAnswer;
-  }
-
   /** Rewrite the taxi's one-step route from the queue. Call before `traffic.update`. */
   function update() {
     if (!canSteer() || taxi.crashed || taxi.uturn || taxi.staged) return;
@@ -226,7 +207,7 @@ export function createSteer({ dom, taxi, toScreen, canSteer = () => true, onQueu
     // Spent: the car is heading the way that was queued. A queue that has come to point backwards
     // (the car turned the other way through a corner) can never be taken, so it goes too.
     if (at && (queued === at.d || queued === opposite(at.d))) setQueue(null);
-    const plan = steerPlan(taxi, queued, undefined, at ? autoDir(at) : null);
+    const plan = steerPlan(taxi, queued);
     taxi.route = plan.route;
     taxi.routeConsumed = false;
     if (plan.route.length) taxi.parked = false;
@@ -234,7 +215,6 @@ export function createSteer({ dom, taxi, toScreen, canSteer = () => true, onQueu
 
   function reset() {
     setQueue(null);
-    autoKey = null;
   }
 
   return {
