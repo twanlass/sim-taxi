@@ -5704,7 +5704,7 @@ export function createTraffic(
     // taxi is off the lane grid: releasing its priority hold lets signals run.
     // ...and a staged one is off it too — it is standing in its garage, off the road network
     // entirely — so it must claim no junction either.
-    const taxiActive = !taxi.crashed && !taxi.staged;
+    const taxiActive = !taxi.crashed && !taxi.staged && !taxi.free;
     const taxiTurningLeft = taxi.route?.length > 0 && taxi.route[0] === leftOf(taxi.d);
     // ...and a taxi on the drift launch keeps it however the pill is held: the far bank's junction
     // goes by underneath it, and a red there would stop a distance-paced arc in mid-air.
@@ -5810,7 +5810,7 @@ export function createTraffic(
       // on the frame it was mid-turn kept that junction held for as long as it stayed hidden — a
       // stand-down cop and an ordinary car sat at the line under it for the whole 90s the probe
       // watched, on the 5 × 5 island's first seed to put the depot beside a ring junction.
-      if (car.state !== 'turn' || car.staged) continue;
+      if (car.state !== 'turn' || car.staged || car.free) continue;
       // The ordinary case: a car that has run out of arc and is waiting for room to land.
       // The brake pedal is the other way into the box and out of it — a taxi hauled to a stop
       // half way across a junction is stranded in exactly the sense this set means, at any `turnT`,
@@ -5834,7 +5834,7 @@ export function createTraffic(
       //
       // A *staged* car is skipped on the crashed car's terms: it is off the network, so a queue
       // must not form behind the lane position it happens to still be holding.
-      if (car.crashed || car.staged) continue;
+      if (car.crashed || car.staged || car.free) continue;
 
       let lane = car.lane;
       let laneS = car.s;
@@ -6833,7 +6833,7 @@ export function createTraffic(
     // heading rather than its lane, as the cop's is, because a pass through a straight crossing
     // is on two lanes at once.
     for (const car of cars) {
-      if (car.crashed || car.staged) continue;
+      if (car.crashed || car.staged || car.free) continue;
       if (!car.dragStart && !car.racePass && car.racer && car.state === 'drive' && !car.uturn
           && car.pass === 0) {
         const leader = leaderOf.get(car);
@@ -7029,7 +7029,7 @@ export function createTraffic(
     for (const car of cars) {
       // Staged alongside crashed: whoever is driving this car by hand owns its position, and the
       // physics below would drag it straight back onto a lane.
-      if (car.crashed || car.staged) continue;
+      if (car.crashed || car.staged || car.free) continue;
 
       // A car the taxi has just shunted sits on its brakes until it has gathered itself. Through
       // `braking` rather than a speed clamp of its own, so it gets everything the pedal already
@@ -7792,8 +7792,10 @@ export function createTraffic(
       // it — everything below the position derivation is suspension, and a car being driven by
       // hand should still bob, dip its nose under braking and bounce off a kerb. Only where its
       // `x/z/yaw` come from changes: from whoever is staging it rather than from a lane.
-      if (car.staged) {
-        // Nothing here — the position derivation is the whole of what is skipped.
+      if (car.staged || car.free) {
+        // Nothing here — the position derivation is the whole of what is skipped. A `free` car is
+        // the free-driven taxi (game/freedrive.js): off the network on the staged car's terms, but
+        // not a cut scene's — collisions, boost and the fare loop all still see it.
       } else if (car.uturn?.sp) {
         // The handbrake turn: round the hairpin, the body on its heading plus the slip.
         const { p, h, dir, yaw0, sp } = car.uturn;
@@ -7953,7 +7955,7 @@ export function createTraffic(
         }
       }
 
-      if (car.isTaxi && car.boost && car.state === 'drive' && car.hopFrom == null
+      if (car.isTaxi && !car.free && car.boost && car.state === 'drive' && car.hopFrom == null
         && (!hopFloorOn || car.v >= HOP_MIN_V)) {
         // `toCrest` is signed in +z and the span runs along Z, so `dirSign` turns it into a
         // distance *ahead* to the top. Infinity off a bridge, so a flat road never satisfies it.

@@ -289,6 +289,8 @@ export function createSteer({ dom, taxi, toScreen, canSteer = () => true, onQueu
     lane: () => taxi.stickLane ?? null,
     /** The stick: a grid direction while pushed, null when let go (the queue stands). */
     push,
+    /** A use of the stick that queues nothing (free driving, game/freedrive.js) — for the tip. */
+    count: () => { swipes += 1; },
     /** True for the click that ends a swipe, so the picker can ignore it. */
     didSwipe: () => swiped,
     /** How many swipes the player has made this page — the tip stops once they have the idea. */

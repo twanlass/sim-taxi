@@ -1387,7 +1387,35 @@ renderer. Flat fill in `taxiBody` with a `taxiTrim` outline and no gloss, and it
 
 ## Steering
 
-`src/game/steer.js`. **The player drives the taxi**, Pac-Man style: a virtual stick bottom left
+**The player drives the taxi, freely** (`src/game/freedrive.js`, on test). A virtual stick bottom
+left (`src/game/joystick.js`) is a heading: its direction on screen is turned back into a ground
+direction through the live camera, and the taxi swings toward it. The taxi is a body with a
+position, a heading and a speed, off the lanes altogether. Tyler asked for "the maximalist version
+that just uses real physics... fully responsive to the joystick" after the queued-turn steering
+below still made last-minute turns hard.
+
+- **Speed.** Hands off, it holds its heading and rolls at cruise (8.5 u/s). Loco is 15 u/s, under
+  the rails' 18.7 because here the thumb does the aiming. The brake stops it.
+- **Turning.** The swing is limited to a 3.2-unit turning circle and 3.4 rad/s, so a 9-unit street
+  takes a U-turn. The direction of travel trails the nose a little (`GRIP`), which is the slide,
+  and it is looser under Loco.
+- **The heading magnet.** Streets lie ~29° off the horizontal on screen and a thumb can't hold that
+  to a degree, so a push within 16° of a street's direction is that direction, and a hands-off
+  heading that close settles onto it. `?freeassist=off` drives it raw.
+- **The road.** The body's centre stays inside the road corridors (each network edge's half-width
+  less 0.55, which is a wheel on the pavement). A move that would leave them slides along the wall
+  and keeps only the speed that ran along it, so a glancing kerb costs a little and a wall square
+  on stops the car at a 1 u/s crawl.
+- **What it keeps.** Collisions and damage, pickups and drop-offs by driving through the junction,
+  the fixed route band, cops, and the scripted trips (garage, drive-through, depot, race), which
+  take the wheel back onto a lane (`taxi.free = false`) and return it afterwards.
+- **What it gives up.** The taxi is out of the traffic model (`taxi.free`, on a staged car's terms
+  in `sim/traffic.js`), so signals and stop lines don't bind it, cars behind don't queue for it,
+  and the lane moves (overtake, U-turn, drift, bridge hop, Big Air) don't exist in this mode.
+
+`?steer=rails` puts back the queued-turn stick, which the rest of this section describes.
+
+`src/game/steer.js`. **Under `?steer=rails` the player drives the taxi** Pac-Man style: a virtual stick bottom left
 (`src/game/joystick.js`) queues the next turn, and the taxi takes it at the first corner that has
 that exit, carrying straight on through every corner until then. Boost and brake are unchanged,
 and moved to the right thumb: the gas sits at the right edge, the brake hangs off its left as

@@ -198,7 +198,8 @@ import { createCashTrail } from './game/cashtrail.js';
 import { setCityOccluders, sightlineClear } from './game/sightline.js';
 import { createBootleg, COMBO_GAP_MS as BOOTLEG_GAP_MS } from './game/bootleg.js';
 import { createSteer, decisionLane } from './game/steer.js';
-import { createJoystick, KNOB_TRAVEL as STICK_TRAVEL } from './game/joystick.js';
+import { createJoystick, KNOB_TRAVEL as STICK_TRAVEL, DEAD_ZONE as STICK_DEAD_ZONE } from './game/joystick.js';
+import { createFreeDrive } from './game/freedrive.js';
 import { createSteerLine } from './game/steerline.js';
 import { createSteerTip } from './game/steertip.js';
 import { createOvertakeCombo, OVERTAKE_GRACE } from './game/overtake.js';
@@ -308,6 +309,9 @@ const steerOn = (() => {
 // the map instead, the first cut of the prototype (Tyler: "No swipe", 2026-11-24).
 const fuelLimited = new URLSearchParams(window.location.search).get('fuel') === 'limited';
 const steerStick = steerOn && new URLSearchParams(window.location.search).get('steer') !== 'swipe';
+// Free driving (game/freedrive.js): the stick is a heading and the taxi a body, off the lanes
+// altogether. The default under the stick; `?steer=rails` puts back the queued-turn steering.
+const steerFree = steerStick && new URLSearchParams(window.location.search).get('steer') !== 'rails';
 if (steerStick) document.body.classList.add('steer-stick');
 /** `routeTo` for the trips that drive themselves even when the player steers — see `routeTo`. */
 // The trips that drive themselves hand the taxi back to the job they interrupted by routing at it
@@ -1895,7 +1899,8 @@ const steer = steerOn ? createSteer({
   swipe: !steerStick,
   // The overtake moves to the stick with it: flick left round a car, flick right to tuck back in.
   // `?stickpass=classic` keeps the Loco blip combo instead.
-  laneFlick: steerStick && new URLSearchParams(window.location.search).get('stickpass') !== 'classic',
+  laneFlick: steerStick && !steerFree
+    && new URLSearchParams(window.location.search).get('stickpass') !== 'classic',
 }) : null;
 // The route to the drop-off, planned once at the pickup and then left alone — "a Google Maps route
 // to your drop-off" (Tyler, 2026-11-24). It does not follow the player's detours; it is a
@@ -1919,10 +1924,21 @@ const stickEl = document.getElementById('stick');
 const stick = steerStick && stickEl ? createJoystick({
   el: stickEl,
   toScreen: steerToScreen,
-  onPush: (dir) => steer.push(dir),
+  // Free, the stick queues nothing: it is read as a heading every frame (`freeDrive` below), and
+  // a push only counts toward the tip.
+  onPush: steerFree
+    ? (() => { let last = null; return (dir) => { if (dir != null && dir !== last) steer.count(); last = dir; }; })()
+    : (dir) => steer.push(dir),
   back: () => { const at = decisionLane(traffic.taxi); return at ? opposite(at.d) : null; },
 }) : null;
 fares.setSteered(steerOn);
+const freeDrive = steerFree && stick ? createFreeDrive({
+  taxi: traffic.taxi,
+  stick: () => { const v = stick.vector(); return v && v.len >= STICK_DEAD_ZONE ? v : null; },
+  toScreen: steerToScreen,
+  live: steerLive,
+  assist: new URLSearchParams(window.location.search).get('freeassist') !== 'off',
+}) : null;
 
 const dust = createDust(scene, camera, makeRng(seed + 77));
 const spray = createSpray(scene, makeRng(seed + 78));
@@ -4303,7 +4319,7 @@ const steerTip = steer ? createSteerTip({
 }) : null;
 // The stick's debug line off the taxi's nose — see game/steerline.js. On while the prototype is on
 // test; `?steerline=off` hides it.
-const steerLine = stick && new URLSearchParams(window.location.search).get('steerline') !== 'off'
+const steerLine = stick && !steerFree && new URLSearchParams(window.location.search).get('steerline') !== 'off'
   ? createSteerLine({
     project: projectToScreen, toScreen: steerToScreen, taxi: traffic.taxi, stick, steer,
     canShow: () => steerLive() && !traffic.taxi.crashed,
@@ -7761,14 +7777,15 @@ function tick() {
   streetProps.update(dt, traffic.taxi);
   // The steered taxi's one-step route, from the turn the player has queued — read by this very
   // `traffic.update` at the hold line.
-  steer?.update();
+  if (freeDrive) freeDrive.update(dt);
+  else steer?.update();
   // The stick's nudge: how far the thumb is pushed across the taxi rather than along it, read
   // against the taxi's own left on screen (sim/traffic.js leans it across its lane by that much).
   if (stick) {
     const v = stick.vector();
     const t = traffic.taxi;
     let nudge = 0;
-    if (v && v.len > 0 && steerLive()) {
+    if (v && v.len > 0 && steerLive() && !freeDrive) {
       const left = steerToScreen(-Math.sin(t.yaw), -Math.cos(t.yaw));
       const ll = Math.hypot(left.x, left.y) || 1;
       nudge = ((v.dx * left.x + v.dy * left.y) / (v.len * ll)) * Math.min(1, v.len / STICK_TRAVEL);

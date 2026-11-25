@@ -17,6 +17,8 @@ import { steerPlan, readSwipe, decisionLane, exitDirs } from '../src/game/steer.
 import { RIGHT, UP, VIEW_DIR } from '../src/game/camera.js';
 import { snapStick } from '../src/game/joystick.js';
 import { DIR, leftOf } from '../src/city/grid.js';
+import { createFreeDrive, roadCorridors, screenToGround, magnet } from '../src/game/freedrive.js';
+import { cityNetwork } from '../src/city/roadnet.js';
 
 let passed = 0;
 let failed = 0;
@@ -241,6 +243,92 @@ check('a sideways push leans the taxi across its lane', leaned, `peak ${peakNudg
 check('the lean never passes NUDGE_MAX', peakNudge <= 0.6 + 1e-6, peakNudge.toFixed(3));
 check('let go, it settles back to the middle', Math.abs(taxi.nudge) < 0.05, taxi.nudge.toFixed(3));
 taxi.stickNudge = 0;
+
+// --- 6. Free driving (game/freedrive.js) ----------------------------------------------------------
+// The stick as a heading, the taxi as a body off the lanes. A screen push comes back as the ground
+// direction it was drawn from; the body never leaves the road; a "player" who points the stick at
+// the next junction of the best route gets everywhere; hands off into a wall it stops against it;
+// and handed back, the traffic model picks the car up on a lane and drives it on.
+{
+  const back = (dx, dz) => { const v = toScreen(dx, dz); return screenToGround(v.x, v.y, toScreen); };
+  const round = [[1, 0], [0, 1], [-1, 0], [0, -1], [0.6, -0.8]].every(([dx, dz]) => {
+    const g = back(dx, dz);
+    return g && Math.hypot(g.x - dx, g.z - dz) < 1e-6;
+  });
+  check('a screen push comes back as the ground direction it was drawn from', round);
+  check('the magnet takes a heading 10° off a street onto it', Math.abs(magnet(0.17)) < 1e-9);
+  check('the magnet leaves a 30° heading alone', Math.abs(magnet(0.52) - 0.52) < 1e-9);
+
+  const net = cityNetwork();
+  const roads = roadCorridors(net);
+  let aim = null;      // world point the "thumb" is pointing the taxi at, or null for hands off
+  let isLive = true;
+  const free = createFreeDrive({
+    taxi,
+    toScreen,
+    live: () => isLive,
+    stick: () => {
+      if (!aim) return null;
+      const v = toScreen(aim.x - taxi.x, aim.z - taxi.z);
+      const l = Math.hypot(v.x, v.y) || 1;
+      return { dx: (v.x / l) * 30, dy: (v.y / l) * 30, len: 30 };
+    },
+  });
+  const tick = () => { free.update(STEP); traffic.update(STEP); };
+
+  let offRoad = 0;
+  let freeArrived = 0;
+  let freeTime = 0;
+  const FREE_RUNS = 10;
+  for (let run = 0; run < FREE_RUNS; run++) {
+    const target = ints[rng.int(0, ints.length - 1)];
+    const centre = intersectionCentre(target.i, target.j);
+    for (let t = 0; t < 120; t += STEP) {
+      // Aim at the junction the route goes through next — the one ahead, or the target itself.
+      const route = findRoute(planOrigin(taxi), target);
+      const next = intersectionCentre(taxi.i, taxi.j);
+      aim = route && route.length ? next : centre;
+      if (Math.hypot(taxi.x - next.x, taxi.z - next.z) < 3 && route?.length) {
+        // In the box: point down the street the route leaves by.
+        const [vx, vz] = [[1, 0], [0, 1], [-1, 0], [0, -1]][route[0]];
+        aim = { x: taxi.x + vx * 10, z: taxi.z + vz * 10 };
+      }
+      tick();
+      if (!roads.inside(taxi.x, taxi.z)) offRoad += 1;
+      if (Math.hypot(taxi.x - centre.x, taxi.z - centre.z) < ARRIVE_RADIUS) { freeArrived += 1; freeTime += t; break; }
+    }
+  }
+  check(`free-driven, the taxi reaches every target (${freeArrived}/${FREE_RUNS})`, freeArrived === FREE_RUNS);
+  check('free-driven, the body never leaves the road', offRoad === 0, `${offRoad} frames`);
+  check('free-driven, the taxi is off the traffic model', taxi.free === true);
+
+  // Hands off: it rolls on its heading until the road runs out, and stops against the wall.
+  aim = null;
+  taxi.stalled = false;
+  let rolled = 0;
+  for (let t = 0; t < 40; t += STEP) {
+    const px = taxi.x; const pz = taxi.z;
+    tick();
+    rolled += Math.hypot(taxi.x - px, taxi.z - pz);
+    if (!roads.inside(taxi.x, taxi.z)) offRoad += 1;
+  }
+  check('hands off, it keeps rolling', rolled > 20, `${rolled.toFixed(1)} units`);
+  check('hands off, it ends up stopped against a wall, on the road', taxi.v <= 1.01 && offRoad === 0,
+    `v ${taxi.v.toFixed(2)}`);
+
+  // Handed back (a scripted trip takes the wheel): on a lane, in the model, and moving again.
+  isLive = false;
+  free.update(STEP);
+  const handed = taxi.free === false && taxi.lane && taxi.s >= 0 && taxi.s <= taxi.lane.length;
+  let moved = 0;
+  for (let t = 0; t < 20; t += STEP) {
+    const px = taxi.x; const pz = taxi.z;
+    drive(() => null);
+    moved += Math.hypot(taxi.x - px, taxi.z - pz);
+  }
+  check('handed back, the traffic model drives it on from a lane', handed && moved > 20, `${moved.toFixed(1)} units`);
+  console.log(`free trips: mean ${(freeTime / Math.max(1, freeArrived)).toFixed(1)}s`);
+}
 
 console.log(`steered trips: mean ${(total / Math.max(1, arrived)).toFixed(1)}s`);
 console.log(`${passed}/${passed + failed} checks passed`);
