@@ -1658,7 +1658,7 @@ diamonds, not screen pixels. Lane paint, kerbs and everything standing on the ro
 **Every number of it is a slider.** The ⚙️ panel's Visuals tab has a Street texture section (`?dev`
 opens the panel): the light and dark swing and its bias, the patches' size, edge and warmth, the
 mottle, the stains', cracks' and speckle's strength and count, the cracks' size and thickness, the
-share of the city that has cracks at all and the size of those districts, the shine's four, the
+share of the city that has cracks at all and the size of those districts, the glare's three and the shine's four, the
 texel and the grey ramp's step.
 They are all uniforms (`ROAD_TEX` and `tuneRoadTexture` in util/geo.js), so they move with the game
 running on either renderer; the panel remembers the look across reloads, in debug mode only, and
@@ -1672,9 +1672,22 @@ its centre, so a few texels in each patch of road catch the sun, and which ones 
 crosses the sky. It only lands where the sun does: the direct light at the fragment is measured
 against what an unshadowed flat road of that albedo would get, which carries the shadow map and the
 cloud shadows. It fades out as the rain's sheen comes in (globally, off `uRainWet`, so a squall
-anywhere on the map dims it everywhere), and `?roadtex=classic` has none. Levers: Shine (0.3),
-Shine tightness (60), Shine roughness (1) and Shine on dark (0.5, the dark patches shinier than the
-pale). Roughness 1 is measured: a sweep of the sun's path lights 3 to 7% of texels at every hour,
+anywhere on the map dims it everywhere), and `?roadtex=classic` has none. Levers: Shine (1),
+Shine tightness (30), Shine roughness (1) and Shine on dark (0.5, the dark patches shinier than the
+pale). The first default, 0.3 at tightness 60, was invisible at phone size ("i actually can't see or
+tell the shine on the road", Tyler, 2026-11-25), because sparkle alone never reads as a highlight.
+
+**The glare** is what does: a broad, soft lobe of sunlight across the road, tinted by the sun and
+broken up by the same scattered texel normals, so the dark asphalt and the stains catch it hardest.
+It is *placed*, not ray-exact. On flat ground the sun's mirror point is seen along (-Lx, Ly, -Lz),
+and over the day cycle that heading is 50 to 174 degrees off the camera's (159 at 07:00, 72 at
+16:24, 50 at 18:00), so the true glare is never on screen. The lobe is centred on the camera's
+target, so it follows the pan, moved up or down the screen by the sun's height as a virtual eye 40
+units back along the view would see it (the sun clamped to 15 to 70 degrees: at 8 the 18:00 sun put
+it 66 units up the screen, off a phone's 55), and sideways by how far the mirror heading is off the
+camera's. Levers: Glare (0.35 of the sun's light at its centre), Glare size (a radius of 16 world
+units across the screen, about a third of a phone's width) and Glare position (0.4, how far the
+sun's heading pulls it sideways). Roughness 1 is measured: a sweep of the sun's path lights 3 to 7% of texels at every hour,
 where 0.4 lights none before 10:00 or after 16:00 because the half vector never comes nearer than 36
 degrees to straight up. The bloom is layer-based (game/bloom.js), so no road glint can bloom.
 

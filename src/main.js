@@ -510,7 +510,7 @@ function renderFrame(cam = camera) {
   shadowCull.cull(cam);
   // The dry road's shine follows the sun, and gives the highlight to the rain's sheen while the
   // ground is wet (uRainWet starts at 1 and means nothing until a storm or squall is running).
-  syncRoadShine(sun, VIEW_DIR, storm || squall ? rain.uniforms.ground.uRainWet.value : 0);
+  syncRoadShine(sun, VIEW_DIR, storm || squall ? rain.uniforms.ground.uRainWet.value : 0, cam);
   // The pass order lives in game/renderpath.js, shared with the workshop's bench; the weather and
   // the diagnostics are the game's own and ride in with it.
   if (GPU) gpuCompat(scene);

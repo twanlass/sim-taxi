@@ -316,6 +316,10 @@ export const PAINT_UNIFORMS = {
   uRoadShine: { value: new THREE.Vector4(0, 60, 1, 0.5) },
   uRoadShineLight: { value: new THREE.Vector4(0, 1, 0, 1) },
   uRoadShineColor: { value: new THREE.Vector4(0, 0, 0, 1) },
+  // The glare (syncRoadShine): x its strength, y its radius in screen-sized world units, zw the
+  // centre of the lobe on the ground. Axes: xy the ground direction up the screen, zw across it.
+  uRoadGlare: { value: new THREE.Vector4(0, 14, 0, 0) },
+  uRoadGlareAxes: { value: new THREE.Vector4(-0.7071, -0.7071, 0.7071, -0.7071) },
   uRoadTexGrid: { value: new THREE.Vector3(GRID_I, GRID_J, LANE_TO_KERB) }, // the last real line each way, then kerb to lane centre
   uBrushTile: { value: 8 },     // world units per tile repeat
   uBrushAmt: { value: 0.7 },   // value swing of a stroke (0.22 was invisible at play zoom)
@@ -503,10 +507,16 @@ export const ROAD_TEX_DEFAULTS = Object.freeze({
   // in late-afternoon sun; roughness 1 and tightness 60 light 3 to 7% of texels at any hour of the
   // day (a sweep of the sun's path: at roughness 0.4 the lobe misses every texel before 10:00 and
   // after 16:00, because the half vector never comes nearer than 36 degrees to straight up).
-  shine: 0.3,
-  shineTight: 60,
+  // Tyler couldn't see 0.3 at all ("i actually can't see or tell the shine on the road",
+  // 2026-11-25), so the sparkle went to 1 and the broad glare below carries the highlight.
+  shine: 1,
+  shineTight: 30,
   shineRough: 1,
   shineDark: 0.5,
+  // The glare: a broad lobe of sun on the road (syncRoadShine, where its placement is measured).
+  glare: 0.35,        // its strength at the centre, as a share of the sun's light
+  glareSize: 16,      // its radius in world units across the screen (the phone's width is about 50)
+  glarePos: 0.4,      // how far the sun's heading pulls it sideways off the middle of the screen
   speckle: 0.05,      // the share of texels that are a single light pixel, and again dark
   texel: 0.225,       // the pixel street's texel (setRoadPixels); 0 is the smooth road
   step: 0.02,         // the grey ramp's step
@@ -525,6 +535,8 @@ export function setRoadTexture(amount = 1, seed = 0) {
     Math.max(1, ROAD_TEX.crackAreaSize), crackAreaThreshold(ROAD_TEX.crackAreas));
   PAINT_UNIFORMS.uRoadShine.value.set(Math.max(0, ROAD_TEX.shine), Math.max(1, ROAD_TEX.shineTight),
     Math.max(0, ROAD_TEX.shineRough), Math.max(0, ROAD_TEX.shineDark));
+  PAINT_UNIFORMS.uRoadGlare.value.x = Math.max(0, ROAD_TEX.glare);
+  PAINT_UNIFORMS.uRoadGlare.value.y = Math.max(1, ROAD_TEX.glareSize);
 }
 
 /**
@@ -535,11 +547,39 @@ export function setRoadTexture(amount = 1, seed = 0) {
  * direction the camera never leaves, and how wet the road is: the rain's sheen owns the highlight
  * on a wet road, so this one fades out as it comes in.
  */
+//
+// The glare cannot be placed where the physics puts it. On flat ground the sun's mirror point is
+// seen along (-Lx, Ly, -Lz), and measured over the day cycle that heading is 50 to 174 degrees off
+// the camera's (159 at 07:00, 72 at 16:24, 50 at 18:00): the true glare is never on screen. So the
+// lobe is placed. Its centre is the camera's target, moved up or down the screen by the sun's
+// height as a virtual eye 40 units back along the view would see it (a sun lower than the view's
+// 33 degrees puts it further up the screen, a higher one nearer the bottom; clamped to 15 to 70,
+// since at 8 the 18:00 sun put it 66 units up the screen, off a phone's 55),
+// and sideways by how far the mirror heading is off the camera's, times glarePos. It follows the
+// player's pan, and it moves with the time of day.
 const shineL = new THREE.Vector3();
 const shineH = new THREE.Vector3();
-export function syncRoadShine(sun, viewDir, wet = 0) {
+const GLARE_EYE = 40;
+export function syncRoadShine(sun, viewDir, wet = 0, camera = null) {
   shineL.subVectors(sun.position, sun.target.position).normalize();
   shineH.addVectors(shineL, viewDir).normalize();
+  const g = PAINT_UNIFORMS.uRoadGlare.value, ax = PAINT_UNIFORMS.uRoadGlareAxes.value;
+  const fl = Math.hypot(viewDir.x, viewDir.z);
+  const ux = -viewDir.x / fl, uz = -viewDir.z / fl;         // up the screen, on the ground
+  ax.set(ux, uz, -uz, ux);
+  let tx = 0, tz = 0;
+  if (camera && Math.abs(viewDir.y) > 1e-4) {                // where the view's centre meets the ground
+    const t = camera.position.y / viewDir.y;
+    tx = camera.position.x - viewDir.x * t;
+    tz = camera.position.z - viewDir.z * t;
+  }
+  const h = GLARE_EYE * viewDir.y;
+  const elev = Math.min(70, Math.max(15, THREE.MathUtils.radToDeg(Math.asin(Math.min(1, Math.max(-1, shineL.y))))));
+  const up = h / Math.tan(THREE.MathUtils.degToRad(elev)) - h * fl / viewDir.y;   // 0 at the view's own 33 degrees
+  const off = Math.atan2(-shineL.z, -shineL.x) - Math.atan2(viewDir.z, viewDir.x);
+  const across = Math.sin(off) * ROAD_TEX.glarePos * Math.max(1, ROAD_TEX.glareSize) * 1.5;
+  g.z = tx + ux * up + ax.z * across;
+  g.w = tz + uz * up + ax.w * across;
   PAINT_UNIFORMS.uRoadShineLight.value.set(shineH.x, shineH.y, shineH.z, Math.max(0, shineL.y));
   PAINT_UNIFORMS.uRoadShineColor.value.set(sun.color.r * sun.intensity, sun.color.g * sun.intensity,
     sun.color.b * sun.intensity, 1 - Math.min(1, Math.max(0, wet)));
@@ -657,6 +697,8 @@ uniform vec4 uRoadTexCrack;
 uniform vec4 uRoadShine;
 uniform vec4 uRoadShineLight;
 uniform vec4 uRoadShineColor;
+uniform vec4 uRoadGlare;
+uniform vec4 uRoadGlareAxes;
 // One oil stain a cell at most. lane is how near a drip line this is (0 to 1, already eased off
 // away from a junction), chew a noise that roughens the edge. 1 in the blot, 0 outside.
 float roadStain(vec2 p, float lane, float chew) {
@@ -863,7 +905,7 @@ const PAINT_FRAGMENT = /* glsl */ `
 						// normal per texel, Blinn-Phong on it with the real sun, read only where the sun
 						// actually lands: the direct light measured against what an unshadowed flat road of
 						// this albedo would get, which carries the shadow map and the cloud shadows with it.
-						if (uRoadShine.x > 0.0 && uRoadShineColor.a > 0.0) {
+						if (uRoadShine.x + uRoadGlare.x > 0.0 && uRoadShineColor.a > 0.0) {
 							vec2 sq = pix > 0.5 ? wq : floor(wq / 0.2);
 							vec3 sn = normalize(vec3((paintHash(sq * 1.37 + 61.0) - 0.5) * 2.0 * uRoadShine.z, 1.0,
 								(paintHash(sq * 2.11 + 83.0) - 0.5) * 2.0 * uRoadShine.z));
@@ -872,7 +914,12 @@ const PAINT_FRAGMENT = /* glsl */ `
 							float sunExpect = dot(diffuseColor.rgb * uRoadShineColor.rgb, sLumaW) * uRoadShineLight.w * RECIPROCAL_PI;
 							float sunShare = clamp(dot(reflectedLight.directDiffuse, sLumaW) / max(sunExpect, 1e-4), 0.0, 1.0);
 							float dark = mix(1.0, 2.0 * clamp(0.5 - tv * 2.5, 0.0, 1.0), uRoadShine.w);
-							gl_FragColor.rgb += uRoadShineColor.rgb * (uRoadShine.x * spec * uRoadShineLight.w * sunShare * dark
+							// The glare: a soft lobe round its placed centre, round on screen (the ground is
+							// foreshortened to 0.545 up the screen), broken up by the same texel normals.
+							vec2 gd = vPaintWorld.xz - uRoadGlare.zw;
+							vec2 gs = vec2(dot(gd, uRoadGlareAxes.xy) * 0.545, dot(gd, uRoadGlareAxes.zw)) / uRoadGlare.y;
+							float glare = uRoadGlare.x * exp(-dot(gs, gs)) * (0.45 + 1.1 * sn.y * sn.y * paintHash(sq * 3.7 + 19.0));
+							gl_FragColor.rgb += uRoadShineColor.rgb * ((uRoadShine.x * spec * uRoadShineLight.w + glare) * sunShare * dark
 								* uRoadShineColor.a * tHold);
 						}
 					}
