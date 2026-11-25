@@ -115,6 +115,7 @@ export const PALETTE = {
   // The few painted kerbs (city/markings.js): red for no parking, green for loading.
   kerbRed: '#D8412F',
   kerbGreen: '#3DB05A',
+  kerbYellow: '#E5B92E',
   park: '#6F9A5A',
   // The tips of the parks' long grass (city/grass.js); the roots are `park` itself so a tuft grows
   // out of the lawn rather than sitting on it. Lighter and warmer — sun through a blade's tip.

@@ -1421,8 +1421,9 @@ framing that was a wallpaper of white rather than a street. Now, off the ground'
 - **Kerbs**: the kerb stone is a cooler grey a step darker than the warm pavement (`kerb`), so a block
   reads as an edge and a top rather than one tan slab, and five lengths of it are painted (Tyler,
   2026-11-25): three red no-parking runs just past a corner and two green loading runs mid-block, only
-  on ordinary built blocks and only on the +x/+z faces the camera sees. Each is a row of short boxes
-  0.012 proud of the stone, worn piece by piece.
+  on ordinary built blocks and only on the +x/+z faces the camera sees; yellow all the way round the
+  cemetery; and red down one camera-facing side of one park. Each is a row of short boxes 0.012 proud
+  of the stone, worn piece by piece, stopping short of the rounded corners.
 - **No median stubs.** The double line between an arterial island's nose and the junction (1.8..3.7
   units) read as stray dashes, so outside `?markings=classic` the island's nose is the only divider there.
 

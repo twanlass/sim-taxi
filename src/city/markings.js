@@ -628,7 +628,8 @@ export function streetMarkings(rng, y, blocks = null, kerbH = 0.35) {
   }
 
   // --- Painted kerbs ------------------------------------------------------------------------
-  // A few lengths of kerb painted red (no parking) or green (loading), Tyler, 2026-11-25. Only on the
+  // A few lengths of kerb painted red (no parking) or green (loading), Tyler, 2026-11-25, plus a
+  // yellow kerb round the cemetery and one red park side (below). Only on the
   // kerb faces this camera sees, the +x and +z sides of a block (`VIEW_DIR` (1, 0.92, 1)), and only
   // on ordinary built blocks, so none lands on a driveway or the garage. Red just past a corner,
   // where a no-parking kerb is; green mid-block. Drawn last, so the picks above don't move.
@@ -668,25 +669,49 @@ export function streetMarkings(rng, y, blocks = null, kerbH = 0.35) {
     const sidePos = (c) => (c.side === 'x'
       ? { x: c.block.bounds.x1, z: c.block.bounds.cz } : { x: c.block.bounds.cx, z: c.block.bounds.z1 });
     const picks = spreadPick(rng, candidates, 5, 20, sidePos);
-    picks.forEach((c, n) => {
-      const isRed = n < 3;
-      const base = isRed ? red : green;
-      const { x0, x1, z0, z1 } = c.block.bounds;
-      const lo = c.side === 'x' ? z0 : x0;
-      const hi = c.side === 'x' ? z1 : x1;
-      // Red from just clear of the rounded corner at the block's far end (the end toward the camera);
-      // green, six units centred on the side. (3.5 and 4 were lost at play zoom in a building's shadow.)
-      const [a0, a1] = isRed ? [hi - 0.8 - 5, hi - 0.8] : [(lo + hi) / 2 - 3, (lo + hi) / 2 + 3];
-      const pieces = Math.round((a1 - a0) / PIECE);
+    // One painted run along one side of `bounds` ('x0', 'x1', 'z0' or 'z1'), from a0 to a1 along it.
+    const paintRun = (bounds, side, a0, a1, base) => {
+      const pieces = Math.max(1, Math.round((a1 - a0) / PIECE));
+      const edge = bounds[side];
+      const out = side.endsWith('1') ? 1 : -1;
+      const [e0, e1] = out > 0 ? [edge - RIM, edge + PROUD] : [edge - PROUD, edge + RIM];
       for (let k = 0; k < pieces; k++) {
         const s0 = a0 + (k / pieces) * (a1 - a0);
         const s1 = a0 + ((k + 1) / pieces) * (a1 - a0);
-        const h = hash2(s0, c.side === 'x' ? x1 : z1, 9);
+        const h = hash2(s0, edge, 9);
         const tone = new THREE.Color().copy(base).lerp(kerbStone, 0.05 + 0.25 * h * h);
-        if (c.side === 'x') kerbBox(x1 - RIM, x1 + PROUD, s0, s1, tone);
-        else kerbBox(s0, s1, z1 - RIM, z1 + PROUD, tone);
+        if (side[0] === 'x') kerbBox(e0, e1, s0, s1, tone);
+        else kerbBox(s0, s1, e0, e1, tone);
       }
+    };
+    // The straight of a side, clear of the rounded corners (`CURB_RADIUS` 0.6 in ground.js).
+    const straight = (bounds, side) => (side[0] === 'x'
+      ? [bounds.z0 + 0.7, bounds.z1 - 0.7] : [bounds.x0 + 0.7, bounds.x1 - 0.7]);
+
+    picks.forEach((c, n) => {
+      const isRed = n < 3;
+      const side = c.side === 'x' ? 'x1' : 'z1';
+      const [lo, hi] = straight(c.block.bounds, side);
+      // Red from just clear of the rounded corner at the block's far end (the end toward the camera);
+      // green, six units centred on the side. (3.5 and 4 were lost at play zoom in a building's shadow.)
+      const [a0, a1] = isRed ? [hi - 0.1 - 5, hi - 0.1] : [(lo + hi) / 2 - 3, (lo + hi) / 2 + 3];
+      paintRun(c.block.bounds, side, a0, a1, isRed ? red : green);
     });
+
+    // Yellow all the way round the cemetery, and red down one camera-facing side of one park (Tyler,
+    // 2026-11-25). Drawn after the five above so adding them moved none of those.
+    const grave = blocks.graveyardBlock ?? null;
+    if (grave) {
+      const yellow = new THREE.Color(color('kerbYellow'));
+      for (const side of ['x0', 'x1', 'z0', 'z1']) paintRun(grave.bounds, side, ...straight(grave.bounds, side), yellow);
+    }
+    const parks = [...(blocks.districts ?? []), ...blocks.filter((b) => b.type === 'park'
+      && (b.districtId === null || b.districtId === undefined))];
+    if (parks.length) {
+      const park = rng.pick(parks);
+      const side = rng.chance(0.5) ? 'x1' : 'z1';
+      paintRun(park.bounds, side, ...straight(park.bounds, side), red);
+    }
   }
 
   const geo = new THREE.BufferGeometry();
