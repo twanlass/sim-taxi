@@ -921,6 +921,16 @@ as a black slab, a rendering bug rather than a bridge (Tyler: "the black looks l
 bug"). The current `drawbridgeSoffit` sits between the two, under the trim so the edge beams still
 outline it.
 
+
+## Dry-road specular (tried 2026-11-24, removed)
+
+A shine on the dry street was tried in the street-texture PR (#798) and removed at Tyler's call:
+first per-texel glints (each texel's normal scattered by a hash, Blinn-Phong off the real sun),
+which were invisible at phone size, then a broad sun glare that followed the camera. The glare had
+to be *placed*, not ray-traced: on flat ground the sun's mirror point is seen along (-Lx, Ly, -Lz),
+and over the day cycle that heading is 50 to 174 degrees off the camera's (159 at 07:00, 72 at
+16:24, 50 at 18:00), so for this camera and sun path the true reflection is never on screen.
+
 ## The flat white fog bank (#557 until 2026-11-24, `?fogshade=classic`)
 
 The fog of war's colour was the sky's horizon lifted 45% toward white, shaded only by its own billow

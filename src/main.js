@@ -161,6 +161,7 @@ import { markEmissive } from './game/bloom.js';
 import { renderBudget, decideLooks, createRenderPath } from './game/renderpath.js';
 import {
   propMaterial, setGlossCity, setGlossGlobal, PAINT_UNIFORMS, placeJunctionPaving,
+  tuneRoadTexture,
 } from './util/geo.js';
 import * as difficulty from './game/difficulty.js';
 import { DAYS, dayByKey, loadWeek, clearDay, resetWeek } from './game/days.js';
@@ -389,7 +390,7 @@ document.body.appendChild(renderer.domElement);
 // AO, painterly, the paint look, the rim and cloud shadows: all baked into the
 // shader `propMaterial()` builds, so all decided here, before a single mesh exists. In
 // game/renderpath.js because the model workshop's bench takes the same decisions.
-decideLooks(budget);
+decideLooks(budget, seed);
 const aoEnabled = budget.ao;
 // Which brush a static mesh wears (see PAINT_FRAGMENT): 1 buildings, 2 ground (lawns only).
 const brush = (mesh, kind) => {
@@ -9232,6 +9233,8 @@ window.__taxi = {
   unported,
   renderer: GPU ? 'webgpu' : 'webgl',
   gpuCapture: (options) => gpuCapture?.capture(options),
+  /** Move one lever of the street texture (ROAD_TEX in util/geo.js), as the panel does. */
+  roadTex: tuneRoadTexture,
   /** The `?bot` scripted session, or null — `scene()` and `log` (game/perfbot.js). */
   get perfBot() { return perfBot; },
   /** Whether the boot's GPU warm-up is done and the run has started — see `warmedUp`. */

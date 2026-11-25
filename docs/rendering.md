@@ -1647,6 +1647,50 @@ pavement a paler, warmer `#CDBFA6`, because the old pair (`#636972` against `#9E
 same khaki under the low warm sun and a block did not separate from its street. Against that, three
 things break the run of tarmac. `?roads=classic` brings back the old road and drops all three.
 
+The asphalt itself is not one grey either (`setRoadTexture`, util/geo.js; `?roadtex=classic` is the
+flat road and `?roadtexamt=` scales it). It is albedo only, a ratio over the lit road in the
+ground's paint pass, worked out from the grid arithmetic with no texture and no geometry:
+
+- **Tone.** The broad light and dark, biased light so the street is not all at its darkest: value
+  noise over world position alone (31 and 13 units, a 47-unit octave leaning it warm or cool), so
+  it has no edge anywhere. It was resurfaced runs first (lengths of 22 to 48 units a street, each
+  its own shade, seamed square across the road); every one of those straight edges read as a seam
+  between street meshes, and the reasoning is beside `setRoadTexture`.
+  It is pushed toward two plateaus, a pale warm one and a dark one with a soft shoulder between,
+  so stretches read as concrete beside asphalt without either having an outline.
+- **Mottle.** One octave of value noise at 11 units.
+- **No lane wear.** Wheel tracks, a drip line and a gutter were drawn until 2026-11-23; through the
+  pixel grid they did not read as made by tyres, and came out.
+- **Oil stains.** At most one dark, faintly brown blot per 3.2-unit cell, 0.45 to 1.3 across, its
+  edge chewed by the grain: about one cell in twelve anywhere on a road, one in three down
+  a lane's drip line on the way up to a junction, where cars stand.
+- **Grain.** Two finer octaves at 1.3 and 0.45 units. The finer is about ten device pixels on a
+  phone; a world-locked noise much below that crawls as the camera pans.
+
+**It is drawn as a pixel-art street** (`setRoadPixels`; `?roadtex=smooth` is the same road without
+the grid, `?roadpx=` the texel's size). Every layer above is read at the centre of a 0.15-unit
+world texel, 60 to an ordinary street and landing on its kerb lines, and the value is rounded to a
+ramp of greys a fiftieth apart. The stains get a hard edge, the grain becomes single light and dark
+pixels (one texel in twenty-five each way; the 1.3-unit octave rounded to the ramp read as static
+and is left out). The first cut was a 0.375 texel with three times the stains and speckle, which
+Tyler found too big and overdone; then 0.25, 0.225 and 0.15. Cracks were tried and taken out
+(Tyler, 2026-11-25: "they don't work yet"). The texels are square on the ground, so on screen they are a low-resolution texture's
+diamonds, not screen pixels. Lane paint, kerbs and everything standing on the road stay smooth.
+
+**Every number of it is a slider.** The ⚙️ panel's Visuals tab has a Street texture section (`?dev`
+opens the panel): the light and dark swing and its bias, the patches' size, edge and warmth, the
+mottle, the stains' and speckle's strength and count, the texel and the grey ramp's step.
+They are all uniforms (`ROAD_TEX` and `tuneRoadTexture` in util/geo.js), so they move with the game
+running on either renderer; the panel remembers the look across reloads, in debug mode only, and
+its box holds the changed values as JSON to copy out or paste in. A look worth keeping goes into
+`ROAD_TEX_DEFAULTS`. `__taxi.roadTex(key, value)` is the same lever for a headless tool.
+
+Held off the lane paint, the lawns, the plaza and (like the plaza) a road that is already bright,
+which is the wet road at night. The asphalt patches and manhole covers are their own meshes and
+keep their own colour. It costs +8.3% of a SwiftShader WebGL frame at phone size as shipped (630 ms to 682 ms against main, 2026-11-25;
++6.2% before the pixel grid and the tone noise, +4.3% before the stains and grain); the same code
+runs as nodes on WebGPU (util/gpupaving.js).
+
 - **Light bridge decks.** Every crossing, fixed or lifting, wears one light pavement grey
   (`bridgeDeck`, `drawbridgeDeck`), so the river row reads as a different material rather than as
   more street; `bridgeTrim` went paler with it so the parapets still outline the deck.
