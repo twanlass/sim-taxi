@@ -32,24 +32,53 @@ import {
 // First pass at drift 0.16 / speck 0.1 / a single 2.5-unit octave was invisible at play zoom; a
 // 0.7-unit second octave and roughly double the swing is what makes the pixels read.
 
-export const WALL_GRAIN = { drift: 0.36, speck: 0.16, step: 0.06 };
+// `coarse`/`fine` are the drift's two octaves in world units, `fineMix` the fine octave's share,
+// `speckRate` the share of texels that go light (and the same again dark).
+export const WALL_GRAIN = { drift: 0.36, speck: 0.16, step: 0.06, coarse: 2.5, fine: 0.7, fineMix: 0.4, speckRate: 0.045 };
 export const WALL_TEXEL = 0.25;
 
-// x the drift, y the speckle, z the ramp's step, w the texel. Shared by every program.
-export const WALL_GRAIN_UNIFORMS = { uWallGrain: { value: new THREE.Vector4(0, 0, WALL_GRAIN.step, WALL_TEXEL) } };
+// uWallGrain: x the drift, y the speckle, z the ramp's step, w the texel. uWallGrainShape: x the
+// coarse octave, y the fine one, z the fine one's share, w the speckle rate. Shared by every
+// program, so the ⚙️ panel's Building grain section moves them live (`wallGrainTuning`).
+export const WALL_GRAIN_UNIFORMS = {
+  uWallGrain: { value: new THREE.Vector4(0, 0, WALL_GRAIN.step, WALL_TEXEL) },
+  uWallGrainShape: { value: new THREE.Vector4(WALL_GRAIN.coarse, WALL_GRAIN.fine, WALL_GRAIN.fineMix, WALL_GRAIN.speckRate) },
+};
 let enabled = false;
+let amount = 1;
 
 /** Decided before the city's materials compile (game/renderpath.js). `amount` 0 compiles nothing. */
 export function setWallGrain(amount = 1, texel = WALL_TEXEL) {
   const a = Math.max(0, amount);
   const t = texel > 0 ? texel : WALL_TEXEL;
   enabled = a > 0;
+  amount = a;
   WALL_GRAIN_UNIFORMS.uWallGrain.value.set(WALL_GRAIN.drift * a, WALL_GRAIN.speck * a, WALL_GRAIN.step, t);
 }
 export const wallGrainOn = () => enabled;
 
+/**
+ * The live knobs, for the ⚙️ panel: `get()` the current values (drift and speck before `?bldgtexamt=`
+ * scaled them), `set(key, value)` one of them. Nothing recompiles; a city built with the grain off
+ * has no program to move.
+ */
+const live = { ...WALL_GRAIN, texel: WALL_TEXEL };
+export const wallGrainTuning = {
+  get: () => ({ ...live }),
+  set(key, value) {
+    live[key] = value;
+    WALL_GRAIN_UNIFORMS.uWallGrain.value.set(live.drift * amount, live.speck * amount, live.step, live.texel);
+    WALL_GRAIN_UNIFORMS.uWallGrainShape.value.set(live.coarse, live.fine, live.fineMix, live.speckRate);
+  },
+  reset() {
+    for (const key of Object.keys(WALL_GRAIN)) this.set(key, WALL_GRAIN[key]);
+    this.set('texel', WALL_TEXEL);
+  },
+};
+
 const GLSL_COMMON = /* glsl */ `
 uniform vec4 uWallGrain;
+uniform vec4 uWallGrainShape;
 varying vec3 vGrainPos;
 varying vec3 vGrainN;
 float grainHash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
@@ -72,9 +101,9 @@ const GLSL_FRAGMENT = /* glsl */ `
 		float salt = fract(floor(across * 2.0 + 0.5) * 0.1373 + facing * 0.291) * 97.0;
 		vec2 gc = floor(gp / uWallGrain.w);
 		vec2 gq = (gc + 0.5) * uWallGrain.w;
-		float drift = grainNoise(gq / 2.5 + salt) * 0.6 + grainNoise(gq / 0.7 + salt + 11.0) * 0.4 - 0.5;
+		float drift = mix(grainNoise(gq / uWallGrainShape.x + salt), grainNoise(gq / uWallGrainShape.y + salt + 11.0), uWallGrainShape.z) - 0.5;
 		float sp = grainHash(gc + salt * 1.7);
-		float speck = step(0.955, sp) - step(sp, 0.045);
+		float speck = step(1.0 - uWallGrainShape.w, sp) - step(sp, uWallGrainShape.w);
 		float gv = 1.0 + drift * 2.0 * uWallGrain.x + speck * uWallGrain.y;
 		vec2 bm = mod(gc, 2.0);
 		float bayer = (bm.x * 2.0 + abs(bm.x - bm.y)) * 0.25 + 0.125;
@@ -92,6 +121,7 @@ const noise = (p) => {
 /** The GLSL above as nodes: one factor on the diffuse colour. */
 function grainNode() {
   const U = uniform(WALL_GRAIN_UNIFORMS.uWallGrain.value);
+  const S = uniform(WALL_GRAIN_UNIFORMS.uWallGrainShape.value);
   const pos = varying(positionGeometry);
   const n = varying(normalGeometry);
   const gn = abs(n);
@@ -103,9 +133,9 @@ function grainNode() {
   const salt = fract(floor(across.mul(2).add(0.5)).mul(0.1373).add(facing.mul(0.291))).mul(97).toVar();
   const gc = floor(gp.div(U.w)).toVar();
   const gq = gc.add(0.5).mul(U.w);
-  const drift = noise(gq.div(2.5).add(salt)).mul(0.6).add(noise(gq.div(0.7).add(salt).add(11)).mul(0.4)).sub(0.5);
+  const drift = mix(noise(gq.div(S.x).add(salt)), noise(gq.div(S.y).add(salt).add(11)), S.z).sub(0.5);
   const sp = hash(gc.add(salt.mul(1.7))).toVar();
-  const speck = step(0.955, sp).sub(step(sp, 0.045));
+  const speck = step(float(1).sub(S.w), sp).sub(step(sp, S.w));
   const gv = drift.mul(2).mul(U.x).add(speck.mul(U.y)).add(1);
   const bm = mod(gc, 2.0).toVar();
   const bayer = bm.x.mul(2).add(abs(bm.x.sub(bm.y))).mul(0.25).add(0.125);

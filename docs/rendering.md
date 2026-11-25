@@ -203,6 +203,8 @@ Cost about 2 to 3% of a SwiftShader frame (`tools/gpucost.mjs`); not measured on
 
 `?bldgtex=classic` compiles none of it; `?bldgtexamt=` scales it; `?bldgpx=` sets the texel.
 
+Every number is a uniform, so the ⚙️ panel (`?debug`) has a **Building grain** section that moves them live (`wallGrainTuning`): drift, both octave sizes and the fine one's share, speckle and its rate, the ramp step and the texel. It remembers a tweak in this browser and copies it as JSON for `WALL_GRAIN`.
+
 ### Wheel wells — `archedBodyGeometries` in `geometry/wheels.js`
 
 Every road vehicle's lower body — the fleet's cars, truck chassis, the cop cars and cruiser (through
