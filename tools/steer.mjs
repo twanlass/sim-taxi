@@ -112,6 +112,34 @@ check(`steered taxi reaches every target (${arrived}/${RUNS})`, arrived === RUNS
 check('no red run while steering', traffic.stats.violations === 0, `${traffic.stats.violations}`);
 check('no route desync while steering', traffic.stats.routeDesync === 0, `${traffic.stats.routeDesync}`);
 
+// --- 2b. A push a beat late still wins the corner ------------------------------------------------
+// Committed to a turn at the hold line, the taxi can still be asked for another exit in the run-up
+// — straight on, or the other way — and takes it (`retakeCrossing` in sim/traffic.js). Before, a
+// turn committed at the line overruled the stick and the car turned against it.
+let retakes = 0;
+let retaken = 0;
+for (let t = 0; t < 240 && retakes < 12; t += STEP) {
+  // Steer for turns, so the line commits to plenty of them.
+  drive((at) => {
+    const ex = exitDirs(at.lane).filter((d) => d !== at.d);
+    return ex.length ? ex[0] : null;
+  });
+  if (taxi.state === 'turn' && taxi.turn.hand !== 'straight' && taxi.turnT * taxi.turnLen < 0.5) {
+    const ex = exitDirs(taxi.lane).filter((d) => d !== taxi.dOut);
+    if (!ex.length) continue;
+    const want = ex[0];
+    retakes += 1;
+    taxi.lateTurn = [want];
+    traffic.update(STEP);
+    t += STEP;
+    if (taxi.dOut === want) retaken += 1;
+  }
+}
+// A left into oncoming traffic or a full exit lane may refuse, as at the line; most must not.
+check(`a committed turn can be retaken in the run-up (${retaken}/${retakes})`,
+  retakes >= 6 && retaken >= retakes * 0.6);
+check('no red run after retakes', traffic.stats.violations === 0, `${traffic.stats.violations}`);
+
 // --- 3. Hands off ------------------------------------------------------------------------
 let turnedWithStraight = 0;
 let deadEnds = 0;

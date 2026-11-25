@@ -1453,7 +1453,16 @@ this mechanic"), so how much Loco the driving takes is not tangled up with how i
 **A debug line off the taxi's nose shows what the stick is saying** (`game/steerline.js`, while the
 prototype is on test; `?steerline=off` hides it). A thin white line follows the raw thumb. A thick
 yellow one runs along the street that push snapped to, and stays dimmer for the turn still queued
-after the thumb lifts.
+after the thumb lifts. A short cyan one always shows what the taxi will actually do at the junction
+ahead, so a disagreement between yellow and cyan is the car not doing what the stick says.
+
+**A push a beat late still wins the corner.** The taxi commits to its exit at the hold line, 3.4
+units short of the junction. A turn committed there used to overrule the stick: Tyler pushed for one
+street and watched the car turn the other way. Through that run-up the steered taxi now asks for the
+exit the stick names on every frame (`retake` in `game/steer.js`), and `retakeCrossing` in
+`sim/traffic.js` swaps any exit for any other. It still refuses a left into oncoming traffic or a
+full exit lane, exactly as the line would. Routed play only ever used it to turn a straight
+crossing.
 
 "Steer with the stick" (`game/steertip.js`) stands on the stick until the player has pushed it
 twice ("Swipe to turn", over the taxi, under `?steer=swipe`). The map still pans with the stick;

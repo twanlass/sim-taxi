@@ -9,6 +9,9 @@
  * - **thin white:** the raw thumb, the exact angle the knob is pushed, while held.
  * - **thick yellow:** the street that push snapped to, along that street as drawn; after the thumb
  *   lifts, the turn still queued, dimmer. Nothing queued and nothing held, no line.
+ * - **cyan, always:** what the taxi will actually do at the junction ahead — the exit it has
+ *   committed to once it is past the hold line, the one its route names before that. Where yellow
+ *   and cyan disagree, the car is not doing what the stick says, which is the thing to report.
  *
  * An SVG over the canvas rather than a mesh: it is a debug aid, it wants to sit on top of
  * everything, and it is drawn in the same pixels the stick is read in.
@@ -19,6 +22,7 @@ import { TAXI_TAILPIPE_BACK } from '../geometry/taxi.js';
 const DIR_VEC = [[1, 0], [0, 1], [-1, 0], [0, -1]];
 const RAW_PX = 64;
 const STREET_PX = 88;
+const PLAN_PX = 48;
 const NS = 'http://www.w3.org/2000/svg';
 
 /**
@@ -45,6 +49,7 @@ export function createSteerLine({ project, toScreen, taxi, stick, steer, canShow
     svg.appendChild(el);
     return el;
   };
+  const plan = line(PALETTE.steerLinePlan, 4);
   const street = line(PALETTE.steerLineStreet, 5);
   const raw = line(PALETTE.steerLineStick, 2);
   const tip = document.createElementNS(NS, 'circle');
@@ -67,6 +72,14 @@ export function createSteerLine({ project, toScreen, taxi, stick, steer, canShow
     const fx = Math.cos(taxi.yaw);
     const fz = -Math.sin(taxi.yaw);
     const nose = project(taxi.x + fx * TAXI_TAILPIPE_BACK, 0.6, taxi.z + fz * TAXI_TAILPIPE_BACK);
+
+    // The junction ahead: committed past the hold line (`dOut`), otherwise the one-step route.
+    const next = taxi.state === 'turn' ? taxi.dOut : (taxi.route?.[0] ?? taxi.d);
+    if (next != null) {
+      const s = toScreen(DIR_VEC[next][0], DIR_VEC[next][1]);
+      const l = Math.hypot(s.x, s.y) || 1;
+      draw(plan, nose.x, nose.y, s.x / l, s.y / l, PLAN_PX, true);
+    } else draw(plan, 0, 0, 0, 0, 0, false);
 
     const v = stick.vector();
     const held = Boolean(v && v.len > 0);

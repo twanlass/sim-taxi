@@ -6077,11 +6077,11 @@ export function createTraffic(
     };
 
     /**
-     * Swap a straight-on crossing for the turn `car.lateTurn` asks for, if it still can be.
+     * Swap a crossing for the exit `car.lateTurn` asks for, if it still can be.
      *
      * The hold line is where a car commits, but it sits `STOP_SETBACK` short of the junction and the
      * run-up from one to the other is the same straight line whatever the car does next. So a
-     * crossing still in its `leadIn` can become a turn by replacing everything *after* the run-up:
+     * crossing still in its `leadIn` can take another exit by replacing everything *after* the run-up:
      * the arc, the exit, `dOut`. `hold` and `entry` are untouched and `turnT` is rescaled so the
      * distance travelled is too — the car does not move on the frame it changes its mind.
      *
@@ -6091,15 +6091,21 @@ export function createTraffic(
      * signal needs no second look — the car crossed on the green for its approach, and a turn out of
      * that approach runs on the same one. A refusal leaves the crossing and the fallback route
      * `main.js` already installed, which plans from the junction after this one.
+     *
+     * Routed play only ever asks to turn a straight crossing (`crossingOrigin` in game/route.js).
+     * The steered taxi asks for any change — a turn back to straight, a right for a left — because
+     * a stick pushed a beat late used to be overruled by the turn already committed at the line,
+     * and the car turned one way with the stick plainly pointing the other (Tyler, 2026-11-24).
      */
     const retakeCrossing = (car) => {
       const late = car.lateTurn;
       car.lateTurn = null;
-      if (car.turn?.hand !== 'straight') return;
+      if (!car.turn) return;
       const travelled = Math.min(car.turnT, 1) * car.turnLen;
       if (travelled >= car.leadIn) return;
       const next = exitToward(net, car.lane, late[0]);
-      if (!next || next.hand === 'straight' || closedLanes.has(next.outLane)) return;
+      if (!next || next === car.turn || next.hand === car.turn.hand
+        || closedLanes.has(next.outLane)) return;
       const exitLane = net.laneById.get(next.outLane);
       if (!bargesThrough(car)) {
         if (next.hand === 'left' && leftYieldBlocked(car)) return;

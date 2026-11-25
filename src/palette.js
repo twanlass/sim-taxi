@@ -67,6 +67,8 @@ export const PALETTE = {
   // snapped to in the taxi's yellow.
   steerLineStick: '#FFFFFF',
   steerLineStreet: '#F5C130',
+  // …and what the taxi itself is going to do at the junction ahead.
+  steerLinePlan: '#4FD1FF',
   // The startup screen's logo (game/splashlogo.js): white faces, and the cool grey its extrusion's
   // sides fall to away from the light. Lit by its own neutral light rather than the scene's: the
   // late-afternoon sun and the warm fill turned even pure white into cardboard tan.

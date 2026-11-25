@@ -128,13 +128,18 @@ export function createSteer({ dom, taxi, toScreen, canSteer = () => true, onQueu
   function queueTurn(dir) {
     if (dir === queued) return;
     setQueue(dir);
-    // In the run-up to a junction the car is crossing straight on, it can still take the corner —
-    // the same late turn a tap used to buy (`retakeCrossing` in traffic.js decides). Refused, the
-    // queue stands for the next corner.
-    if (taxi.state === 'turn' && taxi.turn?.hand === 'straight'
-      && Math.min(taxi.turnT, 1) * taxi.turnLen < taxi.leadIn) {
-      taxi.lateTurn = [dir];
-    }
+  }
+
+  // In the run-up from the hold line to the junction the car can still change its mind about the
+  // junction in front of it — the same late swap a tap used to buy, now for any exit
+  // (`retakeCrossing` in traffic.js decides, and can refuse a left into oncoming traffic). Asked on
+  // every frame of the run-up while the stick is held or a turn is queued, so a push that lands a
+  // beat after the line still wins the corner. Refused, the queue stands for the next corner.
+  function retake(dir) {
+    if (dir == null || taxi.state !== 'turn' || !taxi.turn) return;
+    if (dir === taxi.dOut || dir === opposite(taxi.d)) return;
+    if (Math.min(taxi.turnT, 1) * taxi.turnLen >= taxi.leadIn) return;
+    taxi.lateTurn = [dir];
   }
 
   function apply(sx, sy) {
@@ -152,6 +157,7 @@ export function createSteer({ dom, taxi, toScreen, canSteer = () => true, onQueu
   let held = null;
   function pushDir(dir) {
     if (dir == null || !canSteer()) return;
+    retake(dir);
     const at = decisionLane(taxi);
     if (!at) return;
     if (dir === opposite(at.d)) return;
@@ -203,6 +209,7 @@ export function createSteer({ dom, taxi, toScreen, canSteer = () => true, onQueu
   function update() {
     if (!canSteer() || taxi.crashed || taxi.uturn || taxi.staged) return;
     if (held != null) pushDir(held);
+    else retake(queued);
     const at = decisionLane(taxi);
     // Spent: the car is heading the way that was queued. A queue that has come to point backwards
     // (the car turned the other way through a corner) can never be taken, so it goes too.
