@@ -1628,10 +1628,14 @@ things break the run of tarmac. `?roads=classic` brings back the old road and dr
 - **Light bridge decks.** Every crossing, fixed or lifting, wears one light pavement grey
   (`bridgeDeck`, `drawbridgeDeck`), so the river row reads as a different material rather than as
   more street; `bridgeTrim` went paler with it so the parapets still outline the deck.
-- **No marks where the road meets a bridge.** The asphalt runs straight onto the light deck. The
-  expansion joints that used to sit there (`jointParts`, geometry/bridge.js) read as a chunky
-  crossing band at play zoom and are off by default; `?bridgemarks=classic` brings them back
-  ([history](rendering-history.md#bridge-expansion-joints)).
+- **A steel finger joint where the road meets a bridge** (since 2026-11-25, Tyler: "a shiny dark
+  metal"). `jointParts` (geometry/bridge.js): two dark steel plates with a row of interlocking fingers
+  between them, 0.4 deep across the carriageway on the road side of each bank, on the gloss material
+  with the paint finish. Metal and chrome were tried first and mirror the sky: on a flat plate under
+  this camera they read as a pale blue line, not dark steel. Kept to three pixels at play zoom because
+  the painted joints before it (a dark strip and a pale approach slab) read as a chunky crossing band
+  and were turned off on 2026-10-25; `?bridgemarks=classic` brings those back, and `?markings=classic`
+  takes the steel away ([history](rendering-history.md#bridge-expansion-joints)).
 - **One paved plaza** (`setJunctionPaving`, util/geo.js): a random full signalised crossing of two
   side streets, drawn per city off its own stream and only where the camera sees the whole box
   (`placeJunctionPaving`, after the occluders exist). It was the one nearest the middle until

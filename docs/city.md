@@ -1383,7 +1383,7 @@ default city; `CITY=big npm run check` is the big one's suite.
 | `ground.js` | asphalt slab, road surface, kerbs (`KERB_H = 0.35`), block tops — a park's is a walk around a lawn, [above](#a-park-has-a-frontage) — crosswalks | One merged mesh, plus the edge fade as a child — alpha can't ride in the merge's 3-component colour. Crosswalks are omitted at unsignalised junctions — a crosswalk implies a signal. |
 | `buildings.js` | towers, courtyard blocks, façades, roof furniture | One merged mesh. Height ceiling is deliberately low; tall towers hid the taxi. See [what a building is made of](#what-a-building-is-made-of). |
 | `props.js` | trees, park benches, the statue | Merged per material via `bakeColor`, so hundreds of props cost one draw call. Placement is [above](#benches-and-one-statue). |
-| `markings.js` | worn paint: zebras at three junctions, two STOPs, a bike lane per axis, a bike box, a hatched box junction, a TAXI rank | Merged into the ground mesh, so no draw call of its own. [Below](#street-markings). |
+| `markings.js` | worn paint: zebras at three junctions, two STOPs, bike lanes (one street, both river banks), a bike box, a hatched box junction, a TAXI rank | Merged into the ground mesh, so no draw call of its own. [Below](#street-markings). |
 | `manholes.js` | seven or eight manhole covers, three of them venting steam (`game/manholesteam.js`) | Its own mesh, wet in the rain, not brushed. [Below](#manhole-covers). |
 | `game/streetprops.js`, `geometry/streetprops.js` | two blue post boxes and a hot dog cart on the kerb | Their own meshes, since they fall over. [Below](#the-post-box-and-the-hot-dog-cart). |
 
@@ -1399,19 +1399,25 @@ framing that was a wallpaper of white rather than a street. Now, off the ground'
 - **STOP on two approaches** elsewhere (`STOP_WORDS`), each with its line, chosen to read the right
   way up from this camera. 3×5 pixel letters stretched 1.75× along the lane. Nothing checks they are
   in clear view, so one can land behind a building.
-- **A bike lane** on one ordinary street per axis (never the garage's): white edge line 3.2 off the
-  centreline, a dull red lane running up to each junction box (or to a zebra) and a bicycle past
-  each junction. A brighter red band across each junction mouth was cut (Tyler, 2026-11-25).
+- **Bike lanes** on one ordinary street running along Z (never the garage's), and down the river side
+  of both bank roads for their whole length (Tyler, 2026-11-25). A white edge line 1.3 in from the kerb
+  (3.2 off an ordinary street's centreline; measured from the kerb so it lands right on a bank road
+  that is a main road), a dull red lane running up to each junction box (or to a zebra) and a bicycle
+  past each junction. On a bank road the lane runs straight on through every junction with nothing
+  on its river side, and stops only at the bridges. A brighter red band across each junction mouth
+  was cut (Tyler, 2026-11-25).
 - **Three one-offs**: a **green bike box** ahead of the stop line on one bike-street approach (the car
   line moves back 2.2), an **amber hatched keep-clear box** across the road in front of the garage door,
   as a landmark for the depot (stripes one way only: a cross-hatch overlaps itself, and two worn cells
   on one plane are a z-fight; the centre dashes stop either side of it), and a **TAXI rank** on the
   garage's kerb past the door.
-- **Cobbled median strips**: a main road's planted islands are joined across each junction by a flush
+- **Cobbled median strips**: a main road's planted islands are joined across a junction by a flush
   strip of setts the island's width (running bond, each sett its own shade, a pale soldier course down
-  both edges), so the median reads as one line rather than a row of planters. At the fill level so a
-  manhole lies on top; it runs under each island's nose so the rounded cap hides its square end; and
-  where two main roads cross, the z strip is cut round the x one so the two never share a plane.
+  both edges), so the median reads as one line rather than a row of planters. Only where the crossing
+  road leaves one side (a T, which is every bank junction without a bridge): at a four-way the islands
+  just end (Tyler, 2026-11-25: "no cobble stone at 4-way intersections"). At the fill level so a manhole
+  lies on top; it runs under each island's nose so the rounded cap hides its square end; and where two
+  main roads cross, the z strip is cut round the x one so the two never share a plane.
 - **No median stubs.** The double line between an arterial island's nose and the junction (1.8..3.7
   units) read as stray dashes, so outside `?markings=classic` the island's nose is the only divider there.
 

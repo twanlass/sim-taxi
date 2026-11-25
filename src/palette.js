@@ -1218,6 +1218,10 @@ export const PALETTE = {
   asphaltPatch: '#3B4047',
   asphaltSeal: '#050506',
   bridgeApproach: '#C4C0B6',
+  // The steel finger joint that replaced them (2026-11-25, Tyler: "a little transition ... a shiny
+  // dark metal"): dark steel plates on the gloss material, the slots between the fingers near black.
+  bridgeSteel: '#2C3035',
+  bridgeSteelSlot: '#121417',
 
   // --- Boats ----------------------------------------------------------------
   //

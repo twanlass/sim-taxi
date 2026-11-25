@@ -7,7 +7,8 @@
 //
 //   - zebra crossings at `CROSSING_JUNCTIONS` junctions, with stop lines on their approaches;
 //   - STOP on `STOP_WORDS` approaches elsewhere, each with its own line;
-//   - a bike lane down one ordinary street per axis (the part that was liked, unchanged in count);
+//   - a bike lane down one ordinary street running along Z, and down the river side of both bank
+//     roads for their whole length (Tyler, 2026-11-25: "continue the length of river front");
 //   - and one each of three one-offs: an amber hatched box junction on a main road, a TAXI rank on
 //     the kerb outside the garage, and a green bike box ahead of the stop line on the bike street.
 //
@@ -35,8 +36,8 @@ import * as THREE from 'three';
 import { color } from '../palette.js';
 import { cityNetwork } from './roadnet.js';
 import {
-  GRID_I, GRID_J, MEDIAN_W, lineX, lineZ, halfRoadX, halfRoadZ,
-  isArterialX, isArterialZ, isRiverGap, riverBanks, medianRuns,
+  GRID_I, GRID_J, HALF_ROAD, MEDIAN_W, lineX, lineZ, halfRoadX, halfRoadZ,
+  isArterialZ, isRiverGap, riverBanks, medianRuns,
 } from './grid.js';
 
 export const MARKINGS_CLASSIC = typeof location !== 'undefined'
@@ -70,6 +71,11 @@ const WORD_MIN_LANE = 8;
 // and the lane beyond it to the kerb.
 const BIKE_LINE_IN = 3.2;
 const BIKE_LINE_OUT = 3.34;
+// Those two are an ordinary street's. A bank road can be a main road, a third wider with all of the
+// extra in the middle, so the lane is placed off its own kerb: the same 1.3 in from it on either
+// (CLAUDE.md: a constant measured from the kerb survives the arterials; one across the road doesn't).
+const bikeIn = (half) => half - (HALF_ROAD - BIKE_LINE_IN);
+const bikeOut = (half) => half - (HALF_ROAD - BIKE_LINE_OUT);
 const BIKE_KERB_GAP = 0.08;
 // The green bike box: the stretch of the car lane between the stop line and the crossing's red band,
 // pushed back so a car stops behind it. Real ones are ~4m deep; this is the scale the lane allows.
@@ -116,16 +122,16 @@ function hash2(x, z, salt = 0) {
   return s - Math.floor(s);
 }
 
-/** The lines that carry a bike lane: one ordinary street on each axis, never the garage's. */
+/**
+ * The lines that carry a bike lane: one ordinary street along Z, never the garage's, and the two
+ * roads along the river banks (`banks`, j values), on their river side only.
+ */
 function pickBikeLines(rng, garageLine) {
   const zLines = [];
   for (let i = 1; i < GRID_I; i++) if (!isArterialZ(i) && i !== garageLine) zLines.push(i);
-  const xLines = [];
-  for (let j = 1; j < GRID_J; j++) if (!isArterialX(j)) xLines.push(j);
-  return {
-    z: zLines.length ? rng.pick(zLines) : null,
-    x: xLines.length ? rng.pick(xLines) : null,
-  };
+  const banks = [];
+  for (let k = 0; k < GRID_J; k++) if (isRiverGap(k)) banks.push(k, k + 1);
+  return { z: zLines.length ? rng.pick(zLines) : null, banks };
 }
 
 /** Up to `n` picks from `pool`, each at least `minSep` (world units) from the ones before it. */
@@ -212,15 +218,40 @@ export function streetMarkings(rng, y, blocks = null) {
   const garage = blocks?.garageBlock ?? null;
   const bikes = pickBikeLines(rng, garage ? garage.bi + 1 : null);
 
+  const riverMid = banks ? (banks.z0 + banks.z1) / 2 : 0;
+  // A bank road's lane whose kerb is the river's side: its kerb lies between its centreline and the water.
+  const riverSide = (lane) => {
+    const f = frameAt(lane, lane.length / 2);
+    const c = f(0, 0);
+    return (f(0, 1).z - c.z) * (riverMid - c.z) > 0;
+  };
+  const gridCache = new Map();
   const gridOf = (lane) => {
+    if (gridCache.has(lane)) return gridCache.get(lane);
     const a = net.nodeById.get(lane.edge.a);
     const b = net.nodeById.get(lane.edge.b);
-    if (a?.gi === undefined || b?.gi === undefined) return { bike: false, bridge: false };
-    const alongZ = a.gi === b.gi;
-    const bike = alongZ ? a.gi === bikes.z : a.gj === bikes.x;
-    const bridge = alongZ && isRiverGap(Math.min(a.gj, b.gj));
-    return { bike, bridge };
+    let out = { bike: false, bridge: false };
+    if (a?.gi !== undefined && b?.gi !== undefined) {
+      const alongZ = a.gi === b.gi;
+      const bridge = alongZ && isRiverGap(Math.min(a.gj, b.gj));
+      const bike = alongZ ? a.gi === bikes.z
+        : banks !== null && a.gj === b.gj && bikes.banks.includes(a.gj) && !!lane.path && riverSide(lane);
+      out = { bike, bridge };
+    }
+    gridCache.set(lane, out);
+    return out;
   };
+  // Does a junction have an arm heading over the water (a bridge)? A bank road's river-side bike lane
+  // runs straight on through every junction that doesn't.
+  const armOverRiver = (node) => node.arms.some((arm) => {
+    const dz = arm.toward.z - node.z;
+    return Math.abs(dz) > 1 && dz * (riverMid - node.z) > 0;
+  });
+  // The bike lane leaving `node` that carries on from `lane`.
+  const nextBike = (lane, node) => net.lanes.find((l) => l !== lane && l.from === node.id && l.path
+    && !l.degenerate && l.edge !== lane.edge && gridOf(l).bike
+    && l.path.tangentAt(0).x * lane.path.tangentAt(lane.length).x
+      + l.path.tangentAt(0).z * lane.path.tangentAt(lane.length).z > 0.9);
 
   /**
    * A frame on a lane at distance `s` along it: `at(along, across)` maps an offset along the lane
@@ -259,7 +290,7 @@ export function streetMarkings(rng, y, blocks = null) {
     const s1 = edgeS + dir * ZEBRA_FAR;
     const lo = Math.min(s0, s1);
     const hi = Math.max(s0, s1);
-    const reach = bike ? BIKE_LINE_IN - 0.15 : lane.edge.halfWidth - 0.15;
+    const reach = bike ? bikeIn(lane.edge.halfWidth) - 0.15 : lane.edge.halfWidth - 0.15;
     for (let b = STRIPE_PITCH / 2; b + STRIPE_W / 2 <= reach; b += STRIPE_PITCH) {
       rect(lane, lo, hi, b - STRIPE_W / 2, b + STRIPE_W / 2, white);
     }
@@ -376,7 +407,7 @@ export function streetMarkings(rng, y, blocks = null) {
 
     // The approach: a line where there's a crossing, a STOP or the bike box; the word on two of them.
     const inner = lane.edge.klass === 'arterial' ? MEDIAN_W / 2 + 0.05 : 0.12;
-    const carOuter = bike ? BIKE_LINE_IN - 0.06 : half - 0.15;
+    const carOuter = bike ? bikeIn(half) - 0.06 : half - 0.15;
     const boxed = lane === bikeBoxLane;
     const stopped = toNode.signal && (crossNodes.has(toNode.id) || stopLanes.has(lane) || boxed)
       && !nearHere(L - STOP_FAR);
@@ -398,11 +429,26 @@ export function streetMarkings(rng, y, blocks = null) {
       // The lane runs right up to the junction box unless a zebra is in the way. (It used to stop
       // short at every junction for a brighter red band across the mouth; Tyler, 2026-11-25: cut.)
       // A stop line doesn't stop it: the line ends at `carOuter`, short of the edge line.
-      const s0 = crossStart ? ZEBRA_FAR + 0.2 : 0.3;
-      const s1 = crossEnd ? L - ZEBRA_FAR - 0.2 : L - 0.3;
+      //
+      // On a bank road it runs on through any junction with nothing on its river side (no bridge):
+      // this lane carries it across the box to where the next one starts, and the next one starts
+      // at 0. Nothing crosses a kerb that has no road leaving it.
+      const isBank = !gridOf(lane).bridge && fromNode.gj === toNode.gj && bikes.banks.includes(toNode.gj);
+      const throughEnd = isBank && !crossEnd && !armOverRiver(toNode) ? nextBike(lane, toNode) : null;
+      const throughStart = isBank && !crossStart && !armOverRiver(fromNode)
+        && net.lanes.some((l) => gridOf(l).bike && l.to === fromNode.id && l.edge !== lane.edge);
+      let s0 = crossStart ? ZEBRA_FAR + 0.2 : 0.3;
+      let s1 = crossEnd ? L - ZEBRA_FAR - 0.2 : L - 0.3;
+      if (throughStart) s0 = 0;
+      if (throughEnd) {
+        const e = lane.path.at(L);
+        const n0 = throughEnd.path.at(0);
+        const t = lane.path.tangentAt(L);
+        s1 = L + (n0.x - e.x) * t.x + (n0.z - e.z) * t.z;
+      }
       if (s1 > s0) {
-        rect(lane, s0, s1, BIKE_LINE_IN, BIKE_LINE_OUT, line);
-        rect(lane, s0, s1, BIKE_LINE_OUT, half - BIKE_KERB_GAP, bikeFill, FILL_Y, 0.5);
+        rect(lane, s0, s1, bikeIn(half), bikeOut(half), line);
+        rect(lane, s0, s1, bikeOut(half), half - BIKE_KERB_GAP, bikeFill, FILL_Y, 0.5);
       }
       const glyphS = s0 + 1.6;
       if (glyphS + 1.2 < s1) bicycle(lane, glyphS, half - BIKE_KERB_GAP - 0.45);
@@ -489,6 +535,14 @@ export function streetMarkings(rng, y, blocks = null) {
       for (const [k, a] of ks) {
         const b = ks.get(k + 1);
         if (!b) continue;
+        // Not across a four-way junction (Tyler, 2026-11-25: "no cobble stone at 4-way
+        // intersections; have it stop at edge of planter dividers"): there the islands simply end.
+        // Where the crossing road only leaves one side, the strip still carries the median past it.
+        const line = Number(key.slice(2));
+        const gi = axis === 'x' ? k + 1 : line;
+        const gj = axis === 'x' ? line : k + 1;
+        const node = net.nodes.find((n) => n.gi === gi && n.gj === gj);
+        if (node && node.arms.length >= 4) continue;
         if (axis === 'x') strips.push({ axis, x0: a.x1 - CAP, x1: b.x0 + CAP, z0: a.z0, z1: a.z1 });
         else strips.push({ axis, x0: a.x0, x1: a.x1, z0: a.z1 - CAP, z1: b.z0 + CAP });
       }
