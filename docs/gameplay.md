@@ -1465,6 +1465,26 @@ into a full exit lane goes ahead, and the player owns the crash (Tyler: "they'll
 but they'll be in total control"). Routed play only ever used it to turn a straight
 crossing.
 
+**The overtake is on the stick too** (Tyler: "flicking left around a car will pop the taxi into
+the other lane then flicking back right brings it in the lane"). A flick to the taxi's own left
+with a car within 30 units ahead (`OVERTAKE_ARM_RANGE`) pulls out into the oncoming lane, and a
+flick to its right tucks back in (`flickLane` in `game/steer.js`, read by the pass block in
+`sim/traffic.js` as `taxi.stickLane`). Out is out until the player says otherwise. No Loco and no
+leader are needed to stay there, and tucking in level with a car is the player's call. With no car
+ahead, a flick left is still the left turn, which keeps one gesture from meaning two things most of
+the time. The one case it can't tell apart is a car ahead *and* a left wanted at the corner, where
+it overtakes. While out, the taxi goes straight and a queued turn waits. A junction ahead with no
+straight on brings it back in by itself. The Loco blip no longer throws anything. Only the grace
+for a newly caught car is kept, so holding Loco behind a car in lane still rams it once that grace
+runs out. `?stickpass=classic` keeps the blip.
+
+**Landscape.** A phone held sideways keeps the portrait phone's scale, 844 px for `2 * PLAY_ZOOM`
+units (`landscapeFit` in `main.js`), so the extra width is more city on each side and not a smaller
+one. It also pans and follows like a phone. Before this, the frustum's 104 units of height were
+squeezed into ~390 px and the whole map showed at under half size. The stick stays far left and the
+pedals far right without any change. The iOS shell still locks portrait ([ios.md](ios.md)), so this
+is the web build only for now. `?landscape=classic` turns it off.
+
 "Steer with the stick" (`game/steertip.js`) stands on the stick until the player has pushed it
 twice ("Swipe to turn", over the taxi, under `?steer=swipe`). The map still pans with the stick;
 under `?steer=swipe` it does not, since the swipe is the steering.

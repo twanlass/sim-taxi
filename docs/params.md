@@ -177,6 +177,8 @@ doc; what the classic version was, and why it changed, is in that doc's history 
 | `?fuel=limited` | Steering's bottomless Loco tank (on while steering is tested) back to the ordinary one that drains and refills | | [gameplay.md](gameplay.md#steering) |
 | `?steer=swipe` | Pac-Man steering by swiping on the map (the prototype's first cut) instead of the stick bottom left; the pedals go back to the middle and the map stops panning | | [gameplay.md](gameplay.md#steering) |
 | `?steerline=off` | Hides the stick's debug line off the taxi's nose (thin white = raw thumb, yellow = the street it snapped to) | | [gameplay.md](gameplay.md#steering) |
+| `?stickpass=classic` | Under the stick, keeps the overtake on the Loco blip combo instead of a flick left round a car and a flick right back in | | [gameplay.md](gameplay.md#steering) |
+| `?landscape=classic` | A phone held sideways frames the city the old way, the whole map squeezed into the short side, and stops panning and following | | [gameplay.md](gameplay.md#steering) |
 | `?steer=classic` | Tap-a-rider auto-routing instead of Pac-Man steering: tap a rider and the taxi drives there, the drop-off dispatches itself, a tapped street bends the route, and the map pans under a drag | | [gameplay.md](gameplay.md#steering) |
 | `?route=classic` | The route stops dead at the rider's kerb, with no stub past the pickup | #480 | [gameplay.md](gameplay.md) |
 | `?newmove=classic` | New Move cards mid-run instead of after the run | #493 | [gameplay.md](gameplay.md) |

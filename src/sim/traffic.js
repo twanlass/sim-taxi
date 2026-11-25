@@ -6399,9 +6399,16 @@ export function createTraffic(
       // And a car the taxi has only just caught (`passGrace`, game/
       // overtake.js): most cars come into range too late to react to before the ram.
       const asking = taxi.passArmed === true || taxi.passPending === true || taxi.passGrace === true;
-      taxi.canPass = (locoHeld || taxi.passPending === true) && gap !== undefined
-        && (room || asking)
-        && (taxi.passArmed !== false || taxi.passing || asking);
+      // The stick's lane (`stickLane`, game/steer.js): steered by the stick, the overtake is a flick
+      // out and a flick back, and the lane is the player's. Out, the taxi has a way round whatever
+      // is in front; in, behind a car with Loco held, it rams — as with the combo unthrown — once
+      // the grace for a newly caught car is spent.
+      const stickLane = taxi.stickLane;
+      taxi.canPass = stickLane !== undefined
+        ? gap !== undefined && ((stickLane === 'out' && room) || taxi.passGrace === true)
+        : (locoHeld || taxi.passPending === true) && gap !== undefined
+          && (room || asking)
+          && (taxi.passArmed !== false || taxi.passing || asking);
 
       // ...except a thrown combo (`setOvertakeStyle`), which may pull out half way across a
       // straight-through crossing as well as on a lane. Behind a truck the taxi spends a good
@@ -6430,7 +6437,22 @@ export function createTraffic(
       const cornerOut = overtakeDumb && taxi.passArmed === true && !taxi.passing && cornerLane !== null
         && near && cornerLeader !== undefined && cornerLeader === taxi.passArmedFor
         && cornerLeader.v < DODGE_CREEP;
-      if (taxi.state === 'drive' || thrownInBox || cornerOut) {
+      // Steered by the stick, out is out for as long as the player leaves it there and the road has
+      // an oncoming lane: no leader needed, no Loco held, no `alongside` — tucking back in level with
+      // a car is the player's call too. Decided on a lane or a straight crossing, like the thrown
+      // combo; through a corner the offset stays frozen as for any pass.
+      if (stickLane !== undefined) {
+        const decides = taxi.state === 'drive' || (taxi.state === 'turn' && taxi.turn?.hand === 'straight');
+        if (decides) {
+          const was = taxi.passing;
+          taxi.passing = stickLane === 'out' && room;
+          if (taxi.passing && !was) {
+            taxi.passTarget = leader ?? null;
+            if (leader) taxi.overtakes += 1;
+          }
+          if (!taxi.passing) taxi.passTarget = null;
+        }
+      } else if (taxi.state === 'drive' || thrownInBox || cornerOut) {
         const was = taxi.passing;
         // Pulling out wants the overtake combo (game/overtake.js) where main.js runs one — a blip
         // off the pill and back on behind the car. `passArmed` undefined is the old rule, holding

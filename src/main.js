@@ -23,7 +23,7 @@ import {
   collectPanes, litWindows, streetLamps, entrances, lampKeepOff, switchedLights, createTaxiHeadlights, setCityLights,
 } from './game/citylights.js';
 import {
-  createCityCamera, attachDragPan, VIEW_DIR, PLAY_ZOOM, LOCO_PUNCH_HOLD, RIGHT,
+  createCityCamera, attachDragPan, VIEW_DIR, PLAY_ZOOM, PHONE_PX_PER_UNIT, LOCO_PUNCH_HOLD, RIGHT,
 } from './game/camera.js';
 import { createLayout } from './city/layout.js';
 import { createGround, KERB_H } from './city/ground.js';
@@ -1747,9 +1747,21 @@ for (const slot of fares.slots) markOccluder(slot.passenger.group);
 // the game is playable without ever touching it on a desktop — but in portrait the frustum is
 // sized by height, so a phone cuts off both sides of the map and panning stops being optional.
 const aspect = () => viewport.width() / viewport.height();
+// A phone held sideways (Tyler, 2026-11-24: "support a landscape mode so we can see if that's more
+// comfortable"). The frustum is sized by height, so PLAY_ZOOM's 104 units squeezed into a landscape
+// phone's ~390px drew the whole city at under half the portrait scale — a map, not a street. Sideways,
+// the frame keeps the portrait phone's pixels per unit (844px for `2 * PLAY_ZOOM`), so the taxi and
+// the riders are the size they always were and the extra width is simply more city either side.
+// `?landscape=classic` draws it the old way. (The iOS shell still locks portrait — docs/ios.md.)
+const landscapeOn = new URLSearchParams(window.location.search).get('landscape') !== 'classic';
+const LANDSCAPE_MAX_H = 600;
+const isLandscapePhone = () => landscapeOn && !shot
+  && viewport.width() > viewport.height() && viewport.height() < LANDSCAPE_MAX_H;
+const landscapeFit = () => (isLandscapePhone() ? viewport.height() / (2 * PLAY_ZOOM * PHONE_PX_PER_UNIT) : 1);
 const controller = createCityCamera(aspect(), {
   zoom: shot?.zoom ?? PLAY_ZOOM,
   target: shot?.target ?? [0, 0],
+  fit: landscapeFit,
 });
 const { camera } = controller;
 controller.update(aspect());
@@ -1760,7 +1772,8 @@ controller.update(aspect());
 // only move things around for no reason. Live viewport width rather than a media query lets a
 // resize flip modes without a reload.
 const NARROW_VIEWPORT = 768;
-const isNarrow = () => viewport.width() < NARROW_VIEWPORT;
+// A phone held sideways is wider than this and is still a phone: same follow, same pan.
+const isNarrow = () => viewport.width() < NARROW_VIEWPORT || isLandscapePhone();
 
 // The camera trails the taxi from the first frame of the run, and keeps doing it until the player
 // takes the framing over — a swipe, or a tap on a rider-finder chip. Both are the player saying
@@ -1880,6 +1893,9 @@ const steer = steerOn ? createSteer({
   toScreen: steerToScreen,
   canSteer: steerLive,
   swipe: !steerStick,
+  // The overtake moves to the stick with it: flick left round a car, flick right to tuck back in.
+  // `?stickpass=classic` keeps the Loco blip combo instead.
+  laneFlick: steerStick && new URLSearchParams(window.location.search).get('stickpass') !== 'classic',
 }) : null;
 // The route to the drop-off, planned once at the pickup and then left alone — "a Google Maps route
 // to your drop-off" (Tyler, 2026-11-24). It does not follow the player's detours; it is a
@@ -7598,6 +7614,12 @@ function tick() {
     // the pill comes back the tap is a brake (see holdBrake).
     const bootlegBrake = bootleg.update(dt, { brakeHeld: brakeHeld && !fares.state.gameOver });
     overtake.update(dt, { held: boost.isActive() && !traffic.taxi.staged, brakeHeld });
+    // On the stick, the blip no longer throws anything — only the grace for a newly caught car is
+    // kept, which sim/traffic.js reads with `stickLane` (game/steer.js).
+    if (traffic.taxi.stickLane !== undefined) {
+      traffic.taxi.passArmed = false;
+      traffic.taxi.passPending = false;
+    }
     const drifting = driftHolds(traffic.taxi) && traffic.taxi.drift.phase !== 'carry';
     // Or the street race's, for the finale: the winner pulling up and the loser skidding in. Through
     // the pedal because `parked` stops a car dead on the frame it is set (game/race.js).

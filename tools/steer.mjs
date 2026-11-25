@@ -169,6 +169,27 @@ check(`hands off, it turns out of a dead end on its own (${deadEnds} met)`, dead
 check('hands off, it is never parked waiting for input', longestStill < 45, `${longestStill.toFixed(1)}s still`);
 check('no red run hands off', traffic.stats.violations === 0, `${traffic.stats.violations}`);
 
+// --- 4. The stick's lane ---------------------------------------------------------------------
+// Steered by the stick, `stickLane` is the overtake: out pulls into the oncoming lane with no car
+// and no Loco needed, in tucks back. Rams stay the player's (`canPass`).
+let outAt = null;
+let backAt = null;
+taxi.stickLane = 'in';
+for (let t = 0, phase = 'wait'; t < 120; t += STEP) {
+  drive(() => null);
+  const onLane = taxi.state === 'drive' && taxi.s < 2 && taxi.lane.length > 10;
+  if (phase === 'wait' && onLane) { taxi.stickLane = 'out'; phase = 'out'; outAt = null; }
+  else if (phase === 'out' && taxi.pass >= 0.99) { outAt = t; taxi.stickLane = 'in'; phase = 'in'; }
+  else if (phase === 'in' && taxi.pass <= 0.01 && !taxi.passing) { backAt = t; break; }
+  // A dead end or a corner while out sends it back in (steer.js) — start over on the next lane.
+  if (phase === 'out' && taxi.state === 'turn' && taxi.turn.hand !== 'straight') {
+    taxi.stickLane = 'in'; phase = 'wait';
+  }
+}
+check('stick out pulls the taxi fully into the oncoming lane', outAt !== null);
+check('stick in tucks it back', backAt !== null);
+taxi.stickLane = undefined;
+
 console.log(`steered trips: mean ${(total / Math.max(1, arrived)).toFixed(1)}s`);
 console.log(`${passed}/${passed + failed} checks passed`);
 process.exit(failed ? 1 : 0);
