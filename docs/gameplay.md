@@ -1416,10 +1416,12 @@ queue.
 
 With the streets at ±29°, the borders between the four directions land exactly on screen up, down,
 left and right, which are the pushes a thumb makes most. Tyler said it was "not quite right", and two
-things were costing those pushes. First, the way back was a candidate. Heading down-right, a push
+things were costing those pushes. First, the way back won the border. Heading down-right, a push
 straight up was a coin toss between the left turn and backwards, and backwards is ignored, so half of
-those pushes did nothing. The snap now leaves the way back out, so up is the left turn and left is the
-right turn. Second, a thumb resting near a border flipped the queue as it wobbled. A held push now
+those pushes did nothing. A push within 20° of the border between the way back and a turn now takes
+the turn (`BACK_GRACE`), so up is the left turn and left is the right turn. A push squarely backwards
+still says nothing. Leaving the way back out altogether was tried first, and the debug line below
+showed a thumb pushed straight back getting a perpendicular turn. Second, a thumb resting near a border flipped the queue as it wobbled. A held push now
 keeps its direction until it is 15° past the border (`HOLD_MARGIN` in `game/joystick.js`). A swipe on the map read the way below was the first cut; Tyler
 dropped it ("No swipe") and `?steer=swipe` keeps it.
 
@@ -1447,6 +1449,11 @@ car; only a getaway's next checkpoint replans it. The empty taxi has no band.
 **The tank is bottomless while this is on test** (Tyler: "unlimited loco for now while we test
 this mechanic"), so how much Loco the driving takes is not tangled up with how it steers.
 `?fuel=limited` puts the tank back.
+
+**A debug line off the taxi's nose shows what the stick is saying** (`game/steerline.js`, while the
+prototype is on test; `?steerline=off` hides it). A thin white line follows the raw thumb. A thick
+yellow one runs along the street that push snapped to, and stays dimmer for the turn still queued
+after the thumb lifts.
 
 "Steer with the stick" (`game/steertip.js`) stands on the stick until the player has pushed it
 twice ("Swipe to turn", over the taxi, under `?steer=swipe`). The map still pans with the stick;

@@ -199,6 +199,7 @@ import { setCityOccluders, sightlineClear } from './game/sightline.js';
 import { createBootleg, COMBO_GAP_MS as BOOTLEG_GAP_MS } from './game/bootleg.js';
 import { createSteer, decisionLane } from './game/steer.js';
 import { createJoystick } from './game/joystick.js';
+import { createSteerLine } from './game/steerline.js';
 import { createSteerTip } from './game/steertip.js';
 import { createOvertakeCombo, OVERTAKE_GRACE } from './game/overtake.js';
 import { createNewMove, createSeenFlag, MOVES, REPAIR, SHOW_DELAY } from './game/newmove.js';
@@ -4284,6 +4285,13 @@ const steerTip = steer ? createSteerTip({
   canShow: () => steerLive() && tipsOn() && !tutorial?.holdsCamera(),
   stickTop: stick ? stick.top : null,
 }) : null;
+// The stick's debug line off the taxi's nose — see game/steerline.js. On while the prototype is on
+// test; `?steerline=off` hides it.
+const steerLine = stick && new URLSearchParams(window.location.search).get('steerline') !== 'off'
+  ? createSteerLine({
+    project: projectToScreen, toScreen: steerToScreen, taxi: traffic.taxi, stick, steer,
+    canShow: () => steerLive() && !traffic.taxi.crashed,
+  }) : null;
 
 // The boost meter, the money counter and the rider chips start off their own screen edge and
 // slide in together — see the HUD entrance block in index.html. A run used to open with all of them
@@ -8067,6 +8075,7 @@ function tick() {
   radioCue?.update(dt, { over: fares.state.gameOver });
   copShout?.update(dt, { over: fares.state.gameOver });
   steerTip?.update(dt);
+  steerLine?.update();
   orderTalk?.update(dt, { over: fares.state.gameOver });
   hitCue?.update(dt, traffic.taxi);
   // The depot's card: SHOW_DELAY after the car starts smoking, so the hit that did it has landed

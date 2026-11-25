@@ -63,6 +63,10 @@ export const PALETTE = {
   // Flat, no gloss — the HUD's rule (no white shine) holds for the one thing on screen at boot too.
   loadTrack: '#2A2A2E',
   loadFill: '#F5C130',
+  // The stick's debug line off the taxi's nose (game/steerline.js): the raw thumb, and the street it
+  // snapped to in the taxi's yellow.
+  steerLineStick: '#FFFFFF',
+  steerLineStreet: '#F5C130',
   // The startup screen's logo (game/splashlogo.js): white faces, and the cool grey its extrusion's
   // sides fall to away from the light. Lit by its own neutral light rather than the scene's: the
   // late-afternoon sun and the warm fill turned even pure white into cardboard tan.

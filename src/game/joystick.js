@@ -19,10 +19,12 @@
  * makes most. Tyler, 2026-11-24: "when I'm kind of pointing it in the direction I want to go, it's
  * not quite right." Two things were costing those pushes:
  *
- * - **Backwards was a candidate.** Heading down-right, a push straight up is a coin toss between
+ * - **Backwards won the border.** Heading down-right, a push straight up is a coin toss between
  *   up-right (a left turn) and up-left (backwards) — and backwards is ignored, so half of them did
- *   nothing at all. The snap now leaves out the way back, so every push past the dead zone names a
- *   turn or straight on: up is the left turn, left is the right turn.
+ *   nothing at all. A push within `BACK_GRACE` of the border between the way back and a turn now
+ *   takes the turn: up is the left turn, left is the right turn. A push squarely backwards still
+ *   says nothing. The first cut left the way back out altogether, and the debug line showed what
+ *   that cost: a thumb pushed straight back got a perpendicular turn nobody asked for.
  * - **No hysteresis.** A thumb resting near a border wobbles across it, and the queue flipped with
  *   it. Once a hold has picked a direction it keeps it until the push is `HOLD_MARGIN` past the
  *   border.
@@ -39,23 +41,29 @@ const KNOB_TRAVEL = 34;
 const DEAD_ZONE = 12;
 // How far past a border a held push has to go before the stick changes its mind, in radians.
 const HOLD_MARGIN = (15 * Math.PI) / 180;
+// How near the border with a turn a push toward the way back has to be to take that turn, in radians.
+const BACK_GRACE = (20 * Math.PI) / 180;
 
 /**
  * Which street direction a stick vector `(sx, sy)` (screen pixels, y down) points at: the one whose
- * on-screen direction is nearest by angle, never `exclude` (the way back), and `prev` for as long as
- * it is within `HOLD_MARGIN` of the nearest.
+ * on-screen direction is nearest by angle, and `prev` for as long as it is within `HOLD_MARGIN` of
+ * the nearest. `exclude` (the way back) is never answered: a push nearest it takes the runner-up if
+ * it is within `BACK_GRACE` of the border between them, and is null otherwise.
  */
 export function snapStick(sx, sy, toScreen, { exclude = null, prev = null } = {}) {
   const sl = Math.hypot(sx, sy) || 1;
   const angle = new Array(4).fill(Infinity);
   let best = null;
   for (let d = 0; d < 4; d++) {
-    if (d === exclude) continue;
     const v = toScreen(DIR_VEC[d][0], DIR_VEC[d][1]);
     const cos = (v.x * sx + v.y * sy) / ((Math.hypot(v.x, v.y) || 1) * sl);
     angle[d] = Math.acos(Math.max(-1, Math.min(1, cos)));
-    if (best == null || angle[d] < angle[best]) best = d;
+    if (d !== exclude && (best == null || angle[d] < angle[best])) best = d;
   }
+  // The border between two directions is where their angles are equal, so a push sits half their
+  // difference from it.
+  if (exclude != null && angle[exclude] < angle[best]
+    && (angle[best] - angle[exclude]) / 2 > BACK_GRACE) return null;
   if (prev != null && prev !== exclude && angle[prev] - angle[best] < HOLD_MARGIN) return prev;
   return best;
 }
@@ -70,11 +78,13 @@ export function createJoystick({ el, toScreen, onPush, back = () => null }) {
   const knob = el.querySelector('.stick-knob');
   let press = null;
   let picked = null;
+  let vec = null;
 
   function read(event) {
     const dx = event.clientX - press.cx;
     const dy = event.clientY - press.cy;
     const len = Math.hypot(dx, dy);
+    vec = { dx, dy, len };
     const k = len > KNOB_TRAVEL ? KNOB_TRAVEL / len : 1;
     knob.style.transform = `translate(${dx * k}px, ${dy * k}px)`;
     picked = len >= DEAD_ZONE ? snapStick(dx, dy, toScreen, { exclude: back(), prev: picked }) : null;
@@ -97,6 +107,7 @@ export function createJoystick({ el, toScreen, onPush, back = () => null }) {
     if (!press || event.pointerId !== press.id) return;
     press = null;
     picked = null;
+    vec = null;
     el.classList.remove('is-held');
     knob.style.transform = '';
     onPush(null, false);
@@ -109,6 +120,10 @@ export function createJoystick({ el, toScreen, onPush, back = () => null }) {
 
   return {
     held: () => Boolean(press),
+    /** The knob's push from the stick's centre while held, in CSS px (`{ dx, dy, len }`), else null. */
+    vector: () => vec,
+    /** The street direction the current push snapped to, or null (released or in the dead zone). */
+    picked: () => picked,
     /** The stick's centre and top, in viewport pixels — where the tip points. */
     top: () => {
       const r = el.getBoundingClientRect();

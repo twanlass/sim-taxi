@@ -59,6 +59,8 @@ check('the way back is never picked', [0, 1, 2, 3, 4, 5, 6, 7].every((k) => {
   const a = (k * Math.PI) / 4 + 0.1;
   return snapStick(Math.cos(a), Math.sin(a), toScreen, fromPX) !== DIR.NX;
 }));
+// Squarely backwards (up-left, along -X) says nothing rather than handing over a turn.
+check('heading +X, stick squarely backwards is nothing', snapStick(-1, -0.55, toScreen, fromPX) === null);
 // A held push keeps its direction across a wobble over the border, and lets go of it well past it.
 const nearRight = (deg) => [Math.cos((deg * Math.PI) / 180), -Math.sin((deg * Math.PI) / 180)];
 check('a hold keeps -Z through a wobble just below the horizontal',
