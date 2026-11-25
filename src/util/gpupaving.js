@@ -31,6 +31,7 @@ export function createPaving(U) {
   const pixel = uniform(U.uRoadTexPixel.value);
   const tune = uniform(U.uRoadTexTune.value);
   const detail = uniform(U.uRoadTexDetail.value);
+  const crackShape = uniform(U.uRoadTexCrack.value);
   const roadStain = (p, lane, chew) => {
     const g = p.div(3.2).toVar();
     const h = hash(floor(g).add(tex.w.mul(3.1))).toVar();
@@ -140,7 +141,8 @@ export function createPaving(U) {
         ratio.mulAssign(float(1).sub(stain.mul(vec3(0.9, 1.0, 1.15))));
       });
       If(pix.greaterThan(0.5), () => {
-        const crack = step(abs(tn.sub(0.5)), 0.018).mul(step(float(1).sub(detail.z), hash(floor(wq.div(9)).add(5)))).mul(inX.max(inZ));
+        const cn = noise(wq.div(crackShape.x).add(tex.w));
+        const crack = step(abs(cn.sub(0.5)), crackShape.y).mul(step(float(1).sub(detail.z), hash(floor(wq.div(crackShape.x.mul(0.818))).add(5)))).mul(inX.max(inZ));
         ratio.mulAssign(float(1).sub(crack.mul(detail.y)));
         const lv = ratio.r.add(ratio.g).add(ratio.b).div(3).toVar();
         ratio.mulAssign(floor(lv.div(pixel.y).add(0.5)).mul(pixel.y).div(lv.max(1e-3)));

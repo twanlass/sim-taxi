@@ -1052,6 +1052,8 @@ export function createDebugPanel({
       ['stainDensity', 'Stain count', 0, 0.6, 0.01],
       ['crack', 'Crack darkness', 0, 1, 0.01],
       ['crackDensity', 'Crack count', 0, 1, 0.01],
+      ['crackScale', 'Crack size', 2, 40, 0.5],
+      ['crackWidth', 'Crack thickness', 0.004, 0.08, 0.001],
       ['grain', 'Speckle strength', 0, 0.8, 0.01],
       ['speckle', 'Speckle count', 0, 0.3, 0.005],
       ['texel', 'Pixel size', 0, 1, 0.025],

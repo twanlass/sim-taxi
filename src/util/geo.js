@@ -302,6 +302,10 @@ export const PAINT_UNIFORMS = {
   // z the share of cells with one, w the share of texels speckled each way.
   uRoadTexTune: { value: new THREE.Vector4(1, 0.35, 0.12, 0.25) },
   uRoadTexDetail: { value: new THREE.Vector4(0.08, 0.45, 0.2, 0.04) },
+  // The cracks' own shape: x the period of the noise whose 0.5 contour draws them (world units; the
+  // cell that decides whether one is drawn scales with it, 9 at the original 11), y the line's
+  // half-width in that noise's units.
+  uRoadTexCrack: { value: new THREE.Vector2(11, 0.018) },
   uRoadTexGrid: { value: new THREE.Vector3(GRID_I, GRID_J, LANE_TO_KERB) }, // the last real line each way, then kerb to lane centre
   uBrushTile: { value: 8 },     // world units per tile repeat
   uBrushAmt: { value: 0.7 },   // value swing of a stroke (0.22 was invisible at play zoom)
@@ -470,17 +474,21 @@ export function placeJunctionPaving(rng, visible = () => true) {
 // texture section (game/debugpanel.js) can move each one with the game running. The first four
 // scale with `amount`; the rest are shapes and densities and do not.
 export const ROAD_TEX_DEFAULTS = Object.freeze({
-  run: 0.5, mottle: 0.22, stain: 0.5, grain: 0.2,
+  // Tyler's tuning from the panel, 2026-11-25 (run, mottle, warmth, shoulder, bias, crack,
+  // crackDensity, speckle, texel, step); the rest are the first pass's.
+  run: 0.18, mottle: 0.71, stain: 0.5, grain: 0.2,
   patch: 1,        // the tone patches' size, as a multiple of the 31, 13 and 47 unit octaves
-  warmth: 0.35,    // how far the pale patches lean warm
-  shoulder: 0.12,  // half the width of the step between pale and dark: small is a hard edge
-  bias: 0.25,      // how far the whole swing sits above the base grey
+  warmth: 0.45,    // how far the pale patches lean warm
+  shoulder: 0.5,   // half the width of the step between pale and dark: small is a hard edge
+  bias: 0.69,      // how far the whole swing sits above the base grey
   stainDensity: 0.08, // the share of 3.2-unit cells with a stain away from a junction
-  crack: 0.45,        // how dark a crack is
-  crackDensity: 0.2,  // the share of 9-unit cells that have one
-  speckle: 0.04,      // the share of texels that are a single light pixel, and again dark
-  texel: 0.25,        // the pixel street's texel (setRoadPixels); 0 is the smooth road
-  step: 0.1,          // the grey ramp's step
+  crack: 0.71,        // how dark a crack is
+  crackDensity: 0.98, // the share of crack cells (9 units at crackScale 11) that have one
+  crackScale: 11,     // the period of the noise the cracks are traced from: bigger is longer, lazier cracks
+  crackWidth: 0.018,  // how thick a crack is, in that noise's units (so it thickens as crackScale shrinks)
+  speckle: 0.05,      // the share of texels that are a single light pixel, and again dark
+  texel: 0.225,       // the pixel street's texel (setRoadPixels); 0 is the smooth road
+  step: 0.02,         // the grey ramp's step
 });
 export const ROAD_TEX = { ...ROAD_TEX_DEFAULTS };
 const roadTexApplied = { amount: 0, seed: 0, pixels: true };
@@ -492,6 +500,7 @@ export function setRoadTexture(amount = 1, seed = 0) {
   PAINT_UNIFORMS.uRoadTexFine.value.set(ROAD_TEX.stain * a, ROAD_TEX.grain * a);
   PAINT_UNIFORMS.uRoadTexTune.value.set(Math.max(0.05, ROAD_TEX.patch), ROAD_TEX.warmth, Math.max(0.005, ROAD_TEX.shoulder), ROAD_TEX.bias);
   PAINT_UNIFORMS.uRoadTexDetail.value.set(ROAD_TEX.stainDensity, ROAD_TEX.crack, ROAD_TEX.crackDensity, ROAD_TEX.speckle);
+  PAINT_UNIFORMS.uRoadTexCrack.value.set(Math.max(0.5, ROAD_TEX.crackScale), Math.max(0, ROAD_TEX.crackWidth));
 }
 
 /**
@@ -526,8 +535,9 @@ export function tuneRoadTexture(key, value) {
 // street and still on every kerb line; stains from one cell in four to one in twelve, cracks from
 // half the 9-unit cells to a fifth, speckle from one texel in ten each way to one in twenty-five;
 // and the runs and the mottle biased light (a run is -0.25 to +0.75 of its swing, not -0.5 to 0.5).
-export const ROAD_TEXEL = 0.25;
-export function setRoadPixels(texel = ROAD_TEXEL, step = 0.1) {
+// Then 0.225 (40 to a street) with a grey step of 0.02, Tyler's own from the panel (2026-11-25).
+export const ROAD_TEXEL = ROAD_TEX_DEFAULTS.texel;
+export function setRoadPixels(texel = ROAD_TEXEL, step = ROAD_TEX_DEFAULTS.step) {
   roadTexApplied.pixels = texel > 0;
   if (texel > 0) { ROAD_TEX.texel = texel; ROAD_TEX.step = step; }
   PAINT_UNIFORMS.uRoadTexPixel.value.set(Math.max(0, texel), step);
@@ -578,6 +588,7 @@ uniform vec2 uRoadTexFine;
 uniform vec2 uRoadTexPixel;
 uniform vec4 uRoadTexTune;
 uniform vec4 uRoadTexDetail;
+uniform vec2 uRoadTexCrack;
 // One oil stain a cell at most. lane is how near a drip line this is (0 to 1, already eased off
 // away from a junction), chew a noise that roughens the edge. 1 in the blot, 0 outside.
 float roadStain(vec2 p, float lane, float chew) {
@@ -768,7 +779,9 @@ const PAINT_FRAGMENT = /* glsl */ `
 							tex *= 1.0 - stain * vec3(0.9, 1.0, 1.15);
 						}
 						if (pix > 0.5) {
-							float crack = step(abs(tn - 0.5), 0.018) * step(1.0 - uRoadTexDetail.z, paintHash(floor(wq / 9.0) + 5.0)) * max(inX, inZ);
+							// Their own noise, so their size moves without the mottle (which reads tn) moving too.
+							float cn = paintNoise(wq / uRoadTexCrack.x + uRoadTex.w);
+							float crack = step(abs(cn - 0.5), uRoadTexCrack.y) * step(1.0 - uRoadTexDetail.z, paintHash(floor(wq / (uRoadTexCrack.x * 0.818)) + 5.0)) * max(inX, inZ);
 							tex *= 1.0 - uRoadTexDetail.y * crack;
 							// The ramp: the value rounded to the palette's step, the hue left as it was.
 							float lv = (tex.r + tex.g + tex.b) / 3.0;
