@@ -476,20 +476,21 @@ export function placeJunctionPaving(rng, visible = () => true) {
 // texture section (game/debugpanel.js) can move each one with the game running. The first four
 // scale with `amount`; the rest are shapes and densities and do not.
 export const ROAD_TEX_DEFAULTS = Object.freeze({
-  // Tyler's tuning from the panel, 2026-11-25 (run, mottle, warmth, shoulder, bias, crack,
-  // crackDensity, speckle, texel, step); the rest are the first pass's.
-  run: 0.18, mottle: 0.71, stain: 0.5, grain: 0.2,
+  // Tyler's tuning from the panel, 2026-11-25, in two rounds (run, mottle, warmth, shoulder, bias,
+  // speckle, texel, step; then grain and the six crack levers); stain, patch and stainDensity are
+  // still the first pass's.
+  run: 0.18, mottle: 0.71, stain: 0.5, grain: 0.25,
   patch: 1,        // the tone patches' size, as a multiple of the 31, 13 and 47 unit octaves
   warmth: 0.45,    // how far the pale patches lean warm
-  shoulder: 0.5,   // half the width of the step between pale and dark: small is a hard edge
+  shoulder: 0.49,  // half the width of the step between pale and dark: small is a hard edge
   bias: 0.69,      // how far the whole swing sits above the base grey
   stainDensity: 0.08, // the share of 3.2-unit cells with a stain away from a junction
-  crack: 0.71,        // how dark a crack is
-  crackDensity: 0.98, // the share of crack cells (9 units at crackScale 11) that have one
-  crackScale: 11,     // the period of the noise the cracks are traced from: bigger is longer, lazier cracks
-  crackWidth: 0.018,  // how thick a crack is, in that noise's units (so it thickens as crackScale shrinks)
-  crackAreas: 1,      // the share of the city that has cracks at all: 1 everywhere, 0 nowhere
-  crackAreaSize: 60,  // the size of those districts in world units (a block pitch is about 20)
+  crack: 0.53,        // how dark a crack is
+  crackDensity: 0.28, // the share of crack cells (9 units at crackScale 11) that have one
+  crackScale: 2,      // the period of the noise the cracks are traced from: bigger is longer, lazier cracks
+  crackWidth: 0.021,  // how thick a crack is, in that noise's units (so it thickens as crackScale shrinks)
+  crackAreas: 0.68,   // the share of the city that has cracks at all: 1 everywhere, 0 nowhere
+  crackAreaSize: 63,  // the size of those districts in world units (a block pitch is about 20)
   speckle: 0.05,      // the share of texels that are a single light pixel, and again dark
   texel: 0.225,       // the pixel street's texel (setRoadPixels); 0 is the smooth road
   step: 0.02,         // the grey ramp's step
