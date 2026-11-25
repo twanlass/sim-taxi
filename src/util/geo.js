@@ -304,8 +304,10 @@ export const PAINT_UNIFORMS = {
   uRoadTexDetail: { value: new THREE.Vector4(0.08, 0.45, 0.2, 0.04) },
   // The cracks' own shape: x the period of the noise whose 0.5 contour draws them (world units; the
   // cell that decides whether one is drawn scales with it, 9 at the original 11), y the line's
-  // half-width in that noise's units.
-  uRoadTexCrack: { value: new THREE.Vector2(11, 0.018) },
+  // half-width in that noise's units, z the size of the districts that have cracks at all (a
+  // low-frequency noise, world units), w the threshold under which that noise is a cracked district
+  // (crackAreaThreshold: 2 is everywhere, -1 nowhere).
+  uRoadTexCrack: { value: new THREE.Vector4(11, 0.018, 60, 2) },
   uRoadTexGrid: { value: new THREE.Vector3(GRID_I, GRID_J, LANE_TO_KERB) }, // the last real line each way, then kerb to lane centre
   uBrushTile: { value: 8 },     // world units per tile repeat
   uBrushAmt: { value: 0.7 },   // value swing of a stroke (0.22 was invisible at play zoom)
@@ -486,6 +488,8 @@ export const ROAD_TEX_DEFAULTS = Object.freeze({
   crackDensity: 0.98, // the share of crack cells (9 units at crackScale 11) that have one
   crackScale: 11,     // the period of the noise the cracks are traced from: bigger is longer, lazier cracks
   crackWidth: 0.018,  // how thick a crack is, in that noise's units (so it thickens as crackScale shrinks)
+  crackAreas: 1,      // the share of the city that has cracks at all: 1 everywhere, 0 nowhere
+  crackAreaSize: 60,  // the size of those districts in world units (a block pitch is about 20)
   speckle: 0.05,      // the share of texels that are a single light pixel, and again dark
   texel: 0.225,       // the pixel street's texel (setRoadPixels); 0 is the smooth road
   step: 0.02,         // the grey ramp's step
@@ -500,7 +504,31 @@ export function setRoadTexture(amount = 1, seed = 0) {
   PAINT_UNIFORMS.uRoadTexFine.value.set(ROAD_TEX.stain * a, ROAD_TEX.grain * a);
   PAINT_UNIFORMS.uRoadTexTune.value.set(Math.max(0.05, ROAD_TEX.patch), ROAD_TEX.warmth, Math.max(0.005, ROAD_TEX.shoulder), ROAD_TEX.bias);
   PAINT_UNIFORMS.uRoadTexDetail.value.set(ROAD_TEX.stainDensity, ROAD_TEX.crack, ROAD_TEX.crackDensity, ROAD_TEX.speckle);
-  PAINT_UNIFORMS.uRoadTexCrack.value.set(Math.max(0.5, ROAD_TEX.crackScale), Math.max(0, ROAD_TEX.crackWidth));
+  PAINT_UNIFORMS.uRoadTexCrack.value.set(Math.max(0.5, ROAD_TEX.crackScale), Math.max(0, ROAD_TEX.crackWidth),
+    Math.max(1, ROAD_TEX.crackAreaSize), crackAreaThreshold(ROAD_TEX.crackAreas));
+}
+
+// Value noise is not uniform: it piles up around 0.5, so thresholding it at the coverage itself
+// would make 0.3 cover about a fifth of the map and 0.7 four-fifths. The threshold is read off the
+// noise's own distribution instead, measured once (smoothstep-blended corners, as paintNoise and
+// gpupaving's noise both are), so the slider's 0.5 is half the city.
+const CRACK_AREA_QUANTILES = (() => {
+  let s = 0x9e3779b9;
+  const r = () => ((s = (s * 1664525 + 1013904223) >>> 0) / 4294967296);
+  const n = 40000, v = new Float64Array(n);
+  for (let k = 0; k < n; k++) {
+    const fx = r(), fy = r(), ux = fx * fx * (3 - 2 * fx), uy = fy * fy * (3 - 2 * fy);
+    const a = r(), b = r(), c = r(), d = r();
+    v[k] = (a + (b - a) * ux) * (1 - uy) + (c + (d - c) * ux) * uy;
+  }
+  v.sort();
+  return Array.from({ length: 101 }, (_, q) => v[Math.min(n - 1, Math.round((q / 100) * (n - 1)))]);
+})();
+export function crackAreaThreshold(share) {
+  if (!(share > 0)) return -1;
+  if (share >= 1) return 2;
+  const x = share * 100, q = Math.floor(x);
+  return CRACK_AREA_QUANTILES[q] + (CRACK_AREA_QUANTILES[q + 1] - CRACK_AREA_QUANTILES[q]) * (x - q);
 }
 
 /**
@@ -588,7 +616,7 @@ uniform vec2 uRoadTexFine;
 uniform vec2 uRoadTexPixel;
 uniform vec4 uRoadTexTune;
 uniform vec4 uRoadTexDetail;
-uniform vec2 uRoadTexCrack;
+uniform vec4 uRoadTexCrack;
 // One oil stain a cell at most. lane is how near a drip line this is (0 to 1, already eased off
 // away from a junction), chew a noise that roughens the edge. 1 in the blot, 0 outside.
 float roadStain(vec2 p, float lane, float chew) {
@@ -781,7 +809,10 @@ const PAINT_FRAGMENT = /* glsl */ `
 						if (pix > 0.5) {
 							// Their own noise, so their size moves without the mottle (which reads tn) moving too.
 							float cn = paintNoise(wq / uRoadTexCrack.x + uRoadTex.w);
-							float crack = step(abs(cn - 0.5), uRoadTexCrack.y) * step(1.0 - uRoadTexDetail.z, paintHash(floor(wq / (uRoadTexCrack.x * 0.818)) + 5.0)) * max(inX, inZ);
+							// Only in some districts: a hard cut through a low-frequency noise, read at the
+							// texel so its edge steps along the pixel grid rather than drawing a straight seam.
+							float area = step(paintNoise(wq / uRoadTexCrack.z + uRoadTex.w * 1.7 + 41.0), uRoadTexCrack.w);
+							float crack = area * step(abs(cn - 0.5), uRoadTexCrack.y) * step(1.0 - uRoadTexDetail.z, paintHash(floor(wq / (uRoadTexCrack.x * 0.818)) + 5.0)) * max(inX, inZ);
 							tex *= 1.0 - uRoadTexDetail.y * crack;
 							// The ramp: the value rounded to the palette's step, the hue left as it was.
 							float lv = (tex.r + tex.g + tex.b) / 3.0;

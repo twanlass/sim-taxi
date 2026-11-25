@@ -1658,6 +1658,7 @@ diamonds, not screen pixels. Lane paint, kerbs and everything standing on the ro
 **Every number of it is a slider.** The ⚙️ panel's Visuals tab has a Street texture section (`?dev`
 opens the panel): the light and dark swing and its bias, the patches' size, edge and warmth, the
 mottle, the stains', cracks' and speckle's strength and count, the cracks' size and thickness, the
+share of the city that has cracks at all and the size of those districts, the
 texel and the grey ramp's step.
 They are all uniforms (`ROAD_TEX` and `tuneRoadTexture` in util/geo.js), so they move with the game
 running on either renderer; the panel remembers the look across reloads, in debug mode only, and

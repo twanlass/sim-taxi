@@ -142,7 +142,8 @@ export function createPaving(U) {
       });
       If(pix.greaterThan(0.5), () => {
         const cn = noise(wq.div(crackShape.x).add(tex.w));
-        const crack = step(abs(cn.sub(0.5)), crackShape.y).mul(step(float(1).sub(detail.z), hash(floor(wq.div(crackShape.x.mul(0.818))).add(5)))).mul(inX.max(inZ));
+        const area = step(noise(wq.div(crackShape.z).add(tex.w.mul(1.7)).add(41)), crackShape.w);
+        const crack = area.mul(step(abs(cn.sub(0.5)), crackShape.y)).mul(step(float(1).sub(detail.z), hash(floor(wq.div(crackShape.x.mul(0.818))).add(5)))).mul(inX.max(inZ));
         ratio.mulAssign(float(1).sub(crack.mul(detail.y)));
         const lv = ratio.r.add(ratio.g).add(ratio.b).div(3).toVar();
         ratio.mulAssign(floor(lv.div(pixel.y).add(0.5)).mul(pixel.y).div(lv.max(1e-3)));
