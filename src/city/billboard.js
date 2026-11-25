@@ -3,7 +3,7 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { bakeColor, hash01, propMaterial, stampEntry, unlitMaterial } from '../util/geo.js';
 import { color } from '../palette.js';
 import { clearOf } from './vetclinic.js';
-import { ADS, posterTexture } from './billboardart.js';
+import { ADS, ART_H, ART_W, OUTLINES, posterTexture } from './billboardart.js';
 
 // The rooftop billboards: up to two flat roofs per city carry a big steel-legged advertising hoarding,
 // the kind that stands over a low warehouse beside an expressway. Tyler asked for "a fun little
@@ -48,6 +48,8 @@ const LIP = 0.28;               // the roof's lip (LIP_W in buildings.js)
 const PANEL_D = 0.2;            // the panel's thickness
 /** How much of the art lights itself (`emissiveIntensity`), for the lamps on the catwalk. */
 const POSTER_GLOW = 0.22;
+/** ...and for a cut-out board, which has no lamps (`OUTLINES` in city/billboardart.js). */
+const SHAPED_GLOW = 0.45;
 const BORDER = 0.18;            // the steel frame showing round the poster
 const POST = 0.16;              // the posts' section
 /** How far apart two boards' feet have to be: about a block and a half, so they never share a view. */
@@ -95,6 +97,39 @@ function beamGeometry(from, to, radius) {
   const dir = new THREE.Vector3().subVectors(to, from).normalize();
   geo.applyQuaternion(new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir));
   geo.translate(from.x, from.y, from.z);
+  return geo;
+}
+
+/**
+ * A shaped poster's outline (`OUTLINES` in city/billboardart.js) as `THREE.Shape`s in the board's
+ * frame, w × h centred on the origin: the canvas's pixels mapped onto the face, y flipped.
+ */
+function outlineShapes(outline, w, h) {
+  const X = (px) => (px / ART_W - 0.5) * w;
+  const Y = (py) => (0.5 - py / ART_H) * h;
+  const shapes = [];
+  let shape = null;
+  outline({
+    moveTo: (x, y) => { shape = new THREE.Shape(); shapes.push(shape); shape.moveTo(X(x), Y(y)); },
+    lineTo: (x, y) => shape.lineTo(X(x), Y(y)),
+    quadraticCurveTo: (a, b, x, y) => shape.quadraticCurveTo(X(a), Y(b), X(x), Y(y)),
+    bezierCurveTo: (a, b, c, d, x, y) => shape.bezierCurveTo(X(a), Y(b), X(c), Y(d), X(x), Y(y)),
+    closePath: () => shape.closePath(),
+  });
+  return shapes;
+}
+
+/** The face of a shaped poster: the outline filled, UVs straight off the board frame. */
+function shapedPaperGeometry(shapes, w, h) {
+  const geo = new THREE.ShapeGeometry(shapes, 10).toNonIndexed();
+  const pos = geo.attributes.position;
+  const uv = new Float32Array(pos.count * 2);
+  for (let i = 0; i < pos.count; i++) uv.set([pos.getX(i) / w + 0.5, pos.getY(i) / h + 0.5], i * 2);
+  for (const name of Object.keys(geo.attributes)) if (name !== 'position') geo.deleteAttribute(name);
+  geo.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
+  geo.computeVertexNormals();
+  geo.setAttribute('color', new THREE.BufferAttribute(new Float32Array(pos.count * 3).fill(1), 3));
+  geo.translate(0, 0, 0.01);
   return geo;
 }
 
@@ -222,23 +257,38 @@ export function createBillboard(site) {
   const steel = color('billboardSteel');
   const deck = site.deck;
   const steelParts = [];
+  // A shaped board (the hot dog) is a cut-out: the panel is its outline extruded, and there is no
+  // catwalk, lamp or beam — they belong to a rectangle. Its posts stand in to 30% of the width and
+  // stop at 45% of the height, so they stay behind the bun rather than poking past the legs.
+  const outline = OUTLINES[site.ad];
+  const shapes = outline ? outlineShapes(outline, w, h) : null;
+  const postU = outline ? Math.min(half, w * 0.3) : half;
+  const postTop = outline ? h * 0.5 : h - 0.3;
   // The panel, its front face at v = 0.
-  steelParts.push(place(bakeColor(new THREE.BoxGeometry(w, h, PANEL_D), color('billboardBack')), -PANEL_D / 2));
+  if (shapes) {
+    const panel = new THREE.ExtrudeGeometry(shapes, { depth: PANEL_D, bevelEnabled: false, curveSegments: 10 });
+    panel.translate(0, 0, -PANEL_D);
+    steelParts.push(place(bakeColor(panel, color('billboardBack'))));
+  } else {
+    steelParts.push(place(bakeColor(new THREE.BoxGeometry(w, h, PANEL_D), color('billboardBack')), -PANEL_D / 2));
+  }
   // Two posts behind it, from the deck to just under its top edge, and a raking brace off each.
-  for (const u of [-half, half]) {
+  for (const u of [-postU, postU]) {
     const foot = toWorld(at, u, deck, -PANEL_D - POST / 2);
-    steelParts.push(strut(foot, toWorld(at, u, y0 + h - 0.3, -PANEL_D - POST / 2), POST, steel));
-    steelParts.push(strut(toWorld(at, u, deck, -RAKE), toWorld(at, u, y0 + h * 0.45, -PANEL_D - POST), POST * 0.8, steel));
+    steelParts.push(strut(foot, toWorld(at, u, y0 + postTop, -PANEL_D - POST / 2), POST, steel));
+    steelParts.push(strut(toWorld(at, u, deck, -RAKE), toWorld(at, u, y0 + Math.min(h * 0.45, postTop - 0.2), -PANEL_D - POST), POST * 0.8, steel));
   }
   // A cross rail behind the panel's foot, tying the posts.
-  steelParts.push(strut(toWorld(at, -half, y0 + 0.2, -PANEL_D - POST * 1.5),
-    toWorld(at, half, y0 + 0.2, -PANEL_D - POST * 1.5), POST * 0.7, steel));
+  // On a cut-out it rides up behind the bun: at the foot it drew a bar across the gap between the legs.
+  const railY = y0 + (outline ? h * 0.35 : 0.2);
+  steelParts.push(strut(toWorld(at, -postU, railY, -PANEL_D - POST * 1.5),
+    toWorld(at, postU, railY, -PANEL_D - POST * 1.5), POST * 0.7, steel));
   // The catwalk along the foot, a grate the lamps stand on, and its brackets back to the posts.
   const walk = new THREE.BoxGeometry(w * 0.96, 0.06, 0.55);
   walk.translate(0, -h / 2 - 0.08, 0.3);
-  steelParts.push(place(bakeColor(walk, color('billboardWalk'))));
+  if (!outline) steelParts.push(place(bakeColor(walk, color('billboardWalk'))));
   // The lamp arms: three goosenecks up off the catwalk's front edge, leaning in over the poster.
-  const lampAt = [-w / 3, 0, w / 3];
+  const lampAt = outline ? [] : [-w / 3, 0, w / 3];
   const lamps = [];
   for (const u of lampAt) {
     const base = toWorld(at, u, y0 - 0.06, 0.55);
@@ -275,13 +325,19 @@ export function createBillboard(site) {
     paperMaterial.map = art;
     paperMaterial.emissive = new THREE.Color(0xffffff);
     paperMaterial.emissiveMap = art;
-    paperMaterial.emissiveIntensity = POSTER_GLOW;
+    // A cut-out has no lamps to be lit by, so it carries more of its own light: at the rectangle's
+    // 0.22 the hot dog came out a dull pink against the roof.
+    paperMaterial.emissiveIntensity = OUTLINES[site.ad] ? SHAPED_GLOW : POSTER_GLOW;
   } else {
     paperMaterial.color = new THREE.Color(color('billboardPaper'));
   }
-  const poster = new THREE.Mesh(stamp(place(paperGeometry(w, h))), paperMaterial);
+  const poster = new THREE.Mesh(stamp(place(shapes ? shapedPaperGeometry(shapes, w, h) : paperGeometry(w, h))),
+    paperMaterial);
   poster.receiveShadow = true;
   poster.name = 'billboard-poster';
+  // A shaped face is the union of overlapping sub-paths, so it overlaps itself — on the same plane,
+  // under the same material, at the same UVs: the same texel either way, which cannot shimmer.
+  if (shapes) poster.userData.zfight = false;
 
   // The beams, one per lamp, from just under its glass up onto the poster. Not in the shadow or AO
   // passes (`markOccluder` is for solids), and not lights: see `drawWash` in city/billboardart.js
@@ -291,7 +347,7 @@ export function createBillboard(site) {
     // paper hides the rest: aimed over the top edge, the first cut stood its open end in the sky.
     toWorld(at, u, y0 + 0.5, 0.82), toWorld(at, u * 1.05, y0 + h * 0.6, -0.4), w / 8,
   )));
-  const beams = new THREE.Mesh(mergeGeometries(beamGeo, false), unlitMaterial({
+  const beams = new THREE.Mesh(beamGeo.length ? mergeGeometries(beamGeo, false) : new THREE.BufferGeometry(), unlitMaterial({
     vertexColors: true, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
     side: THREE.DoubleSide,
   }));
@@ -302,16 +358,18 @@ export function createBillboard(site) {
   beams.userData.zfight = false;
 
   lamps.forEach(stamp);
-  const glow = new THREE.Mesh(mergeGeometries(lamps, false), unlitMaterial({ vertexColors: true }));
+  const glow = new THREE.Mesh(lamps.length ? mergeGeometries(lamps, false) : new THREE.BufferGeometry(),
+    unlitMaterial({ vertexColors: true }));
   lamps.forEach((p) => p.dispose());
   glow.name = 'billboard-lamps';
 
   const group = new THREE.Group();
   group.name = 'billboard';
-  group.add(shell, poster, glow, beams);
+  group.add(shell, poster);
+  if (!outline) group.add(glow, beams);
   return {
     site, group, shell, poster, glow, beams,
     /** Stamped meshes, for the entrance wave. Shell and poster are the solids (AO, sightline). */
-    meshes: [shell, poster, glow, beams],
+    meshes: outline ? [shell, poster] : [shell, poster, glow, beams],
   };
 }
