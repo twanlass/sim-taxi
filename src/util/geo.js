@@ -308,6 +308,14 @@ export const PAINT_UNIFORMS = {
   // low-frequency noise, world units), w the threshold under which that noise is a cracked district
   // (crackAreaThreshold: 2 is everywhere, -1 nowhere).
   uRoadTexCrack: { value: new THREE.Vector4(11, 0.018, 60, 2) },
+  // The dry road's shine (syncRoadShine): x its strength, y the lobe's exponent, z how far each
+  // texel's normal is scattered off straight up, w how much more the dark patches shine than the
+  // pale ones. Light: xyz the half vector between the sun and the fixed view, world space, w the
+  // sun's height (its N.L on flat ground). Colour: rgb the sun's colour times its intensity, as the
+  // lit materials receive it, a how dry the road is (1 dry, 0 under the rain's sheen).
+  uRoadShine: { value: new THREE.Vector4(0, 60, 1, 0.5) },
+  uRoadShineLight: { value: new THREE.Vector4(0, 1, 0, 1) },
+  uRoadShineColor: { value: new THREE.Vector4(0, 0, 0, 1) },
   uRoadTexGrid: { value: new THREE.Vector3(GRID_I, GRID_J, LANE_TO_KERB) }, // the last real line each way, then kerb to lane centre
   uBrushTile: { value: 8 },     // world units per tile repeat
   uBrushAmt: { value: 0.7 },   // value swing of a stroke (0.22 was invisible at play zoom)
@@ -491,6 +499,14 @@ export const ROAD_TEX_DEFAULTS = Object.freeze({
   crackWidth: 0.021,  // how thick a crack is, in that noise's units (so it thickens as crackScale shrinks)
   crackAreas: 0.68,   // the share of the city that has cracks at all: 1 everywhere, 0 nowhere
   crackAreaSize: 63,  // the size of those districts in world units (a block pitch is about 20)
+  // The dry road's shine (syncRoadShine). 0.3 puts a glinting texel about +0.3 over its neighbours
+  // in late-afternoon sun; roughness 1 and tightness 60 light 3 to 7% of texels at any hour of the
+  // day (a sweep of the sun's path: at roughness 0.4 the lobe misses every texel before 10:00 and
+  // after 16:00, because the half vector never comes nearer than 36 degrees to straight up).
+  shine: 0.3,
+  shineTight: 60,
+  shineRough: 1,
+  shineDark: 0.5,
   speckle: 0.05,      // the share of texels that are a single light pixel, and again dark
   texel: 0.225,       // the pixel street's texel (setRoadPixels); 0 is the smooth road
   step: 0.02,         // the grey ramp's step
@@ -507,6 +523,26 @@ export function setRoadTexture(amount = 1, seed = 0) {
   PAINT_UNIFORMS.uRoadTexDetail.value.set(ROAD_TEX.stainDensity, ROAD_TEX.crack, ROAD_TEX.crackDensity, ROAD_TEX.speckle);
   PAINT_UNIFORMS.uRoadTexCrack.value.set(Math.max(0.5, ROAD_TEX.crackScale), Math.max(0, ROAD_TEX.crackWidth),
     Math.max(1, ROAD_TEX.crackAreaSize), crackAreaThreshold(ROAD_TEX.crackAreas));
+  PAINT_UNIFORMS.uRoadShine.value.set(Math.max(0, ROAD_TEX.shine), Math.max(1, ROAD_TEX.shineTight),
+    Math.max(0, ROAD_TEX.shineRough), Math.max(0, ROAD_TEX.shineDark));
+}
+
+/**
+ * The dry road's shine follows the real sun. Under this camera N, L and V are the same over the
+ * whole flat road, so a plain Blinn-Phong term would be one flat brightening; what makes it shine is
+ * that every texel's normal is scattered (uRoadShine.z), so a few of them catch the sun, and which
+ * ones moves as the sun crosses the sky. Called every frame with the scene's sun, the view
+ * direction the camera never leaves, and how wet the road is: the rain's sheen owns the highlight
+ * on a wet road, so this one fades out as it comes in.
+ */
+const shineL = new THREE.Vector3();
+const shineH = new THREE.Vector3();
+export function syncRoadShine(sun, viewDir, wet = 0) {
+  shineL.subVectors(sun.position, sun.target.position).normalize();
+  shineH.addVectors(shineL, viewDir).normalize();
+  PAINT_UNIFORMS.uRoadShineLight.value.set(shineH.x, shineH.y, shineH.z, Math.max(0, shineL.y));
+  PAINT_UNIFORMS.uRoadShineColor.value.set(sun.color.r * sun.intensity, sun.color.g * sun.intensity,
+    sun.color.b * sun.intensity, 1 - Math.min(1, Math.max(0, wet)));
 }
 
 // Value noise is not uniform: it piles up around 0.5, so thresholding it at the coverage itself
@@ -618,6 +654,9 @@ uniform vec2 uRoadTexPixel;
 uniform vec4 uRoadTexTune;
 uniform vec4 uRoadTexDetail;
 uniform vec4 uRoadTexCrack;
+uniform vec4 uRoadShine;
+uniform vec4 uRoadShineLight;
+uniform vec4 uRoadShineColor;
 // One oil stain a cell at most. lane is how near a drip line this is (0 to 1, already eased off
 // away from a junction), chew a noise that roughens the edge. 1 in the blot, 0 outside.
 float roadStain(vec2 p, float lane, float chew) {
@@ -820,6 +859,22 @@ const PAINT_FRAGMENT = /* glsl */ `
 							tex *= floor(lv / uRoadTexPixel.y + 0.5) * uRoadTexPixel.y / max(lv, 1e-3);
 						}
 						gl_FragColor.rgb *= mix(vec3(1.0), tex, tHold);
+						// The shine (syncRoadShine): light added on top, so after the ratio. A scattered
+						// normal per texel, Blinn-Phong on it with the real sun, read only where the sun
+						// actually lands: the direct light measured against what an unshadowed flat road of
+						// this albedo would get, which carries the shadow map and the cloud shadows with it.
+						if (uRoadShine.x > 0.0 && uRoadShineColor.a > 0.0) {
+							vec2 sq = pix > 0.5 ? wq : floor(wq / 0.2);
+							vec3 sn = normalize(vec3((paintHash(sq * 1.37 + 61.0) - 0.5) * 2.0 * uRoadShine.z, 1.0,
+								(paintHash(sq * 2.11 + 83.0) - 0.5) * 2.0 * uRoadShine.z));
+							float spec = pow(max(dot(sn, uRoadShineLight.xyz), 0.0), uRoadShine.y);
+							vec3 sLumaW = vec3(0.2126, 0.7152, 0.0722);
+							float sunExpect = dot(diffuseColor.rgb * uRoadShineColor.rgb, sLumaW) * uRoadShineLight.w * RECIPROCAL_PI;
+							float sunShare = clamp(dot(reflectedLight.directDiffuse, sLumaW) / max(sunExpect, 1e-4), 0.0, 1.0);
+							float dark = mix(1.0, 2.0 * clamp(0.5 - tv * 2.5, 0.0, 1.0), uRoadShine.w);
+							gl_FragColor.rgb += uRoadShineColor.rgb * (uRoadShine.x * spec * uRoadShineLight.w * sunShare * dark
+								* uRoadShineColor.a * tHold);
+						}
 					}
 					vec2 mq = vPaintWorld.xz / uRoadMaskScale;
 					float m = hold > 0.0 && uRoadAmt > 0.0 ? paintNoise(mq) * 0.65 + paintNoise(mq * 2.3 + 17.1) * 0.35 : 0.0;

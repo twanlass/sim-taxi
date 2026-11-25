@@ -1658,12 +1658,25 @@ diamonds, not screen pixels. Lane paint, kerbs and everything standing on the ro
 **Every number of it is a slider.** The ⚙️ panel's Visuals tab has a Street texture section (`?dev`
 opens the panel): the light and dark swing and its bias, the patches' size, edge and warmth, the
 mottle, the stains', cracks' and speckle's strength and count, the cracks' size and thickness, the
-share of the city that has cracks at all and the size of those districts, the
+share of the city that has cracks at all and the size of those districts, the shine's four, the
 texel and the grey ramp's step.
 They are all uniforms (`ROAD_TEX` and `tuneRoadTexture` in util/geo.js), so they move with the game
 running on either renderer; the panel remembers the look across reloads, in debug mode only, and
 its box holds the changed values as JSON to copy out or paste in. A look worth keeping goes into
 `ROAD_TEX_DEFAULTS`. `__taxi.roadTex(key, value)` is the same lever for a headless tool.
+
+**The dry road shines** (`syncRoadShine`, util/geo.js): a Blinn-Phong glint off the real sun, added
+on top of the texture. Under this camera N, L and V are the same over the whole flat road, so a plain
+specular term would only brighten it evenly; instead every texel's normal is scattered by a hash of
+its centre, so a few texels in each patch of road catch the sun, and which ones moves as the sun
+crosses the sky. It only lands where the sun does: the direct light at the fragment is measured
+against what an unshadowed flat road of that albedo would get, which carries the shadow map and the
+cloud shadows. It fades out as the rain's sheen comes in (globally, off `uRainWet`, so a squall
+anywhere on the map dims it everywhere), and `?roadtex=classic` has none. Levers: Shine (0.3),
+Shine tightness (60), Shine roughness (1) and Shine on dark (0.5, the dark patches shinier than the
+pale). Roughness 1 is measured: a sweep of the sun's path lights 3 to 7% of texels at every hour,
+where 0.4 lights none before 10:00 or after 16:00 because the half vector never comes nearer than 36
+degrees to straight up. The bloom is layer-based (game/bloom.js), so no road glint can bloom.
 
 Held off the lane paint, the lawns, the plaza and (like the plaza) a road that is already bright,
 which is the wet road at night. The asphalt patches and manhole covers are their own meshes and

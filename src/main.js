@@ -160,7 +160,7 @@ import { markEmissive } from './game/bloom.js';
 import { renderBudget, decideLooks, createRenderPath } from './game/renderpath.js';
 import {
   propMaterial, setGlossCity, setGlossGlobal, PAINT_UNIFORMS, placeJunctionPaving,
-  tuneRoadTexture,
+  tuneRoadTexture, syncRoadShine,
 } from './util/geo.js';
 import * as difficulty from './game/difficulty.js';
 import { DAYS, dayByKey, loadWeek, clearDay, resetWeek } from './game/days.js';
@@ -508,6 +508,9 @@ function renderFrame(cam = camera) {
   perfPhase('pre');
   // Casters whose shadow cannot reach this camera's view sit the shadow pass out (game/shadowcull.js).
   shadowCull.cull(cam);
+  // The dry road's shine follows the sun, and gives the highlight to the rain's sheen while the
+  // ground is wet (uRainWet starts at 1 and means nothing until a storm or squall is running).
+  syncRoadShine(sun, VIEW_DIR, storm || squall ? rain.uniforms.ground.uRainWet.value : 0);
   // The pass order lives in game/renderpath.js, shared with the workshop's bench; the weather and
   // the diagnostics are the game's own and ride in with it.
   if (GPU) gpuCompat(scene);

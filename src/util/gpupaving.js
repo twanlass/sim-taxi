@@ -10,7 +10,10 @@
  * The GLSL multiplies the finished pixel in display space; `paving(display, world)` takes and
  * answers a display-space colour, and the caller does the encode and decode around it.
  */
-import { abs, dot, exp2, float, floor, fract, If, length, min, mix, mod, select, sin, smoothstep, step, uniform, vec2, vec3 } from 'three/tsl';
+import {
+  abs, clamp, diffuseColor, dot, exp2, float, floor, fract, If, length, max, min, mix, mod, normalize, pow, select, sin, smoothstep, step,
+  uniform, vec2, vec3,
+} from 'three/tsl';
 
 const LUMA = vec3(0.2126, 0.7152, 0.0722);
 
@@ -32,6 +35,9 @@ export function createPaving(U) {
   const tune = uniform(U.uRoadTexTune.value);
   const detail = uniform(U.uRoadTexDetail.value);
   const crackShape = uniform(U.uRoadTexCrack.value);
+  const shine = uniform(U.uRoadShine.value);
+  const shineLight = uniform(U.uRoadShineLight.value);
+  const shineColor = uniform(U.uRoadShineColor.value);
   const roadStain = (p, lane, chew) => {
     const g = p.div(3.2).toVar();
     const h = hash(floor(g).add(tex.w.mul(3.1))).toVar();
@@ -60,7 +66,9 @@ export function createPaving(U) {
   const at = uniform(U.uJunctionAt.value);
   const brick = uniform(U.uJunctionBrick.value);
 
-  return function paving(display, world) {
+  // sunlit is the fragment's direct diffuse light, after the cloud shadows: the shine's measure of
+  // whether the sun lands here (the GLSL reads reflectedLight.directDiffuse for the same thing).
+  return function paving(display, world, sunlit = vec3(0)) {
     const out = display.toVar();
     const plaza = float(0).toVar();
     // Before the plaza multiplies it: the two holds below read the bare road.
@@ -149,6 +157,17 @@ export function createPaving(U) {
         ratio.mulAssign(floor(lv.div(pixel.y).add(0.5)).mul(pixel.y).div(lv.max(1e-3)));
       });
       out.mulAssign(mix(vec3(1), ratio, hold));
+      // The shine (syncRoadShine in util/geo.js, and the GLSL beside the road texture there).
+      If(shine.x.greaterThan(0).and(shineColor.w.greaterThan(0)), () => {
+        const sq = select(pix.greaterThan(0.5), wq, floor(wq.div(0.2)));
+        const sn = normalize(vec3(hash(sq.mul(1.37).add(61)).sub(0.5).mul(2).mul(shine.z), 1.0,
+          hash(sq.mul(2.11).add(83)).sub(0.5).mul(2).mul(shine.z)));
+        const spec = pow(max(dot(sn, shineLight.xyz), 0.0), shine.y);
+        const sunExpect = dot(diffuseColor.rgb.mul(shineColor.rgb), LUMA).mul(shineLight.w).mul(1 / Math.PI);
+        const sunShare = clamp(dot(sunlit, LUMA).div(max(sunExpect, 1e-4)), 0.0, 1.0);
+        const dark = mix(float(1), clamp(float(0.5).sub(tv.mul(2.5)), 0.0, 1.0).mul(2), shine.w);
+        out.addAssign(shineColor.rgb.mul(shine.x.mul(spec).mul(shineLight.w).mul(sunShare).mul(dark).mul(shineColor.w).mul(hold)));
+      });
     });
     return out;
   };
