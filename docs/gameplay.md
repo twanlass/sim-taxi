@@ -177,7 +177,7 @@ through.
 
 > Dispatch to Car 9. You there?
 > City council signed that **robo-taxi** deal. They'll be on the streets by Monday.
-> Those rolling toasters brake for pigeons. I have no idea why people like 'em.
+> Those rolling toasters *(robo-taxi icon)* brake for pigeons. I have no idea why people like 'em.
 > Let's get out there and show people what a rocket-powered cab ride is all about.
 
 **Dispatch talks.** Each line is read out as its card comes up: Tyler's own recordings
@@ -500,6 +500,11 @@ little at the bottom-right, with a faint glint that slowly traces the top rim (a
 `?bubbleglass=classic` is the near-opaque white card it replaced. The thing a line is about — the garage, the rider, the race — is written `{garage}`
 in its source and called out in yellow type with a black outline (bare yellow on white is
 unreadable; the outline is what carries it), with one wiggle as its last letter lands.
+A line can also carry a picture in its text: `{:robotaxi}` is a little robo-taxi, rendered from the
+game's own mesh under the game's camera and sun (`node tools/make-inline-icons.mjs` writes
+`assets/hud/inline-robotaxi.png`; `INLINE_ICONS` in `speech.js` names them). It types in as one
+letter and pops up from small when the caret reaches it, sized at 1.3em so it reads as a word.
+`?texticons=classic` leaves the pictures out.
 `?bubblestyle=classic` is the see-through black card with white type it replaced;
 `?bubblestyle=card` is the white Figma card. Every line types
 itself out behind a caret, dispatch and the racer included, and the card grows with the line rather
