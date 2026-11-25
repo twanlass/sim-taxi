@@ -1267,6 +1267,19 @@ What the WebGPU path draws today, and what it does not:
   the stage, shader stage, node cache, context and sub-build, plus the pure type-name helpers; and
   `util/wgsllets.js` remembers each rewrite by its source. Measured with `tools/boottime.mjs`:
   12.6 s to 9.0 s headless, 247 modules byte-identical. `?nodememo=classic` turns it off.
+- **On a real Mac the GPU is cheap until it has never seen the shaders.** Measured on an M5 in
+  Chrome with the real Metal adapter (headless Chrome on a Mac gets it; 2026-11-24): a cached boot
+  reaches `taxi:ready` in ~2.1 s, about 70% of it node building, with pipeline creation ~0.16 s.
+  A boot of shaders the Mac has never compiled took ~10 s, and clearing the browser profile does
+  not reproduce that: macOS keeps compiled Metal shaders per app, outside Chrome, in
+  `$(getconf DARWIN_USER_CACHE_DIR)/<bundle>.helper/com.apple.metal`. Two things learned there:
+  - A material must not grow an enumerable property while it builds. three's material cache key
+    walks every own property not starting with `_`, so `PaintNodeMaterial` assigning
+    `this.paintNodes` in setup re-keyed itself and every later draw of it built again — 28 builds
+    and 10 shader modules a boot. It is `_paintNodes` now.
+  - `createRenderPipelineAsync` for the warm-up's pipelines was tried and made a never-seen boot
+    **slower** (7.5-11 s against 3.8-4.9 s, Chrome for Testing with its Metal cache cleared each
+    run) with no change to a cached one, so the warm-up still builds them synchronously.
 
 Things the WebGL renderer does without being asked, each of which showed up as a wrong
 picture and each of which the node path now does by hand:
