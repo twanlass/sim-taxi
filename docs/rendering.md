@@ -2392,6 +2392,16 @@ there under the fog, and what `?city=big` shows, since the fog is island-only.
   (`FOG_WARP`, up to 16 units of bend). The first cut slid one layer along one heading, which reads as
   a texture on a conveyor; the warp is what makes a billow swell, curl and pinch off instead. All of it
   stays outward-only, so the motion never brings the fog onto the road.
+- **Mixed in linear light, with an unshaded rim.** Tyler, 2026-11-25: an "awkward seam between
+  the end of the pavement road and the clouds" — the south coast read as the road casting a blurred
+  shadow onto the bank. Two causes, both fixed. The bank's own mix ran on display values, so the
+  ramp from asphalt to fog spent most of its width in a dark olive grey (155/255 half way across,
+  against 190 mixed in linear); it now converts both ends to linear, mixes, and converts back (the
+  haze above it does not, since every haze colour was picked against display values). And the edge
+  is an iso-line of the same noise the [weather](#the-fog-of-war--gameedgefogjs) shading reads, so
+  stepping from it toward a northern sun always climbs the field: the whole near rim sat on a
+  shaded flank, a lavender band hugging the coast. The shading now fades in over `FOG_SHADE_IN`
+  units past `FOG_END`, and the rim sits at `FOG_RIM_LIT`, a touch on the lit side.
 - **A sloped top.** The distance is taken minus 1.1 × the fragment's height, so the outermost
   buildings' roofs stand up out of the bank rather than being washed flat with their own pavement.
 - **A floor for it to swallow.** Past the coast there is nothing to fog, so a plain plane sits at
