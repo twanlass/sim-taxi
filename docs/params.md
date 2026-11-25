@@ -49,6 +49,7 @@ doc; what the classic version was, and why it changed, is in that doc's history 
 | `?trainfade=classic` | The L's deck dithering out over the taxi as well as over the fare pins, instead of staying solid and leaving the taxi to its ghost outline | | [city.md](city.md#the-elevated-train-on-by-default-ltrainclassic-to-compare) |
 | `?trainlights=classic` | The L's deck without its lamps | #489 | [city.md](city.md) |
 | `?trainintro=classic` | The L without its own intro | #494 | [city.md](city.md) |
+| `?entry=classic` | The city grows out of the ground in a wave from the taxi when a run opens (and the L lays its track), instead of standing from the first frame | | [rendering.md](rendering.md#the-city-entrance--gamecityentryjs) |
 | `?depot=classic` / `=model` | The depot's wrench sign / a 3D taxi on its roof (default is the neon cutout) | #479 | [city.md](city.md) |
 | `?signflames=classic` | The depot's cutout taxi without its tailpipe and painted flame (default: a static hot-rod flame cut from board off the tail) | | [city.md](city.md#the-roof-sign-and-what-is-derived-from-it) |
 | `?depotneon=classic` | No blue neon tube round the depot's roofline (default traces the two visible faces under the coping, like the burger joint's) | | [city.md](city.md#the-livery) |
