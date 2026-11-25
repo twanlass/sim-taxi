@@ -1668,20 +1668,18 @@ ground's paint pass, worked out from the grid arithmetic with no texture and no 
   phone; a world-locked noise much below that crawls as the camera pans.
 
 **It is drawn as a pixel-art street** (`setRoadPixels`; `?roadtex=smooth` is the same road without
-the grid, `?roadpx=` the texel's size). Every layer above is read at the centre of a 0.225-unit
-world texel, 40 to an ordinary street and landing on its kerb lines, and the value is rounded to a
+the grid, `?roadpx=` the texel's size). Every layer above is read at the centre of a 0.15-unit
+world texel, 60 to an ordinary street and landing on its kerb lines, and the value is rounded to a
 ramp of greys a fiftieth apart. The stains get a hard edge, the grain becomes single light and dark
 pixels (one texel in twenty-five each way; the 1.3-unit octave rounded to the ramp read as static
-and is left out), and a one-texel crack runs where the mottle crosses its middle, in about a fifth
-of the 9-unit cells. The first cut was a 0.375 texel with three times the stains, cracks and
-speckle, which Tyler found too big and overdone. The texels are square on the ground, so on screen they are a low-resolution texture's
+and is left out). The first cut was a 0.375 texel with three times the stains and speckle, which
+Tyler found too big and overdone; then 0.25, 0.225 and 0.15. Cracks were tried and taken out
+(Tyler, 2026-11-25: "they don't work yet"). The texels are square on the ground, so on screen they are a low-resolution texture's
 diamonds, not screen pixels. Lane paint, kerbs and everything standing on the road stay smooth.
 
 **Every number of it is a slider.** The ⚙️ panel's Visuals tab has a Street texture section (`?dev`
 opens the panel): the light and dark swing and its bias, the patches' size, edge and warmth, the
-mottle, the stains', cracks' and speckle's strength and count, the cracks' size and thickness, the
-share of the city that has cracks at all and the size of those districts, the
-texel and the grey ramp's step.
+mottle, the stains' and speckle's strength and count, the texel and the grey ramp's step.
 They are all uniforms (`ROAD_TEX` and `tuneRoadTexture` in util/geo.js), so they move with the game
 running on either renderer; the panel remembers the look across reloads, in debug mode only, and
 its box holds the changed values as JSON to copy out or paste in. A look worth keeping goes into
