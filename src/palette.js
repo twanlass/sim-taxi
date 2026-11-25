@@ -92,9 +92,30 @@ export const PALETTE = {
   manholeLid: '#3B3F45',
   manholeFrame: '#8C9097',
   crosswalk: '#DAD7CB',
+  // A bike lane down the length of the block (city/markings.js): a dull brick red, darker than the
+  // paint and warmer than the asphalt, so it reads as coloured surfacing rather than as a mark.
+  bikeLaneFill: '#6F4A45',
+  // The bike box ahead of one stop line (city/markings.js): a muted green, the one green on the road.
+  bikeBox: '#4F8A5B',
+  // The hatched box junction: amber rather than `hazardYellow`, so it reads as road paint and not as
+  // the drawbridge's warning plates.
+  cautionHatch: '#D98E2B',
+  // The TAXI rank outside the garage: the taxi's own yellow family, paler, as paint.
+  taxiRank: '#E8C341',
+  // The cobbled bridgeheads (city/markings.js): warm grey setts a step lighter than the asphalt, so the
+  // joints read, in a pale soldier course like the plaza's frame.
+  cobble: '#6E6964',
+  cobbleFrame: '#A39C90',
   // The one paved junction's colours are a look of their own, PLAZA_LOOKS below.
   sidewalk: '#CDBFA6',
-  kerb: '#B3A994',
+  // A cooler, greyer stone than the warm pavement it edges, and a step darker, so a block reads
+  // as kerb plus pavement rather than one tan slab (Tyler, 2026-11-25: "a subtle color shift to
+  // create some structure"). `?markings=classic` keeps #B3A994, the pavement's own hue a step down.
+  kerb: '#999891',
+  // The few painted kerbs (city/markings.js): red for no parking, green for loading.
+  kerbRed: '#D8412F',
+  kerbGreen: '#3DB05A',
+  kerbYellow: '#E5B92E',
   park: '#6F9A5A',
   // The tips of the parks' long grass (city/grass.js); the roots are `park` itself so a tuft grows
   // out of the lawn rather than sitting on it. Lighter and warmer — sun through a blade's tip.
@@ -1208,6 +1229,14 @@ export const PALETTE = {
   asphaltPatch: '#3B4047',
   asphaltSeal: '#050506',
   bridgeApproach: '#C4C0B6',
+  // The steel finger joint that replaced them (2026-11-25, Tyler: "a little transition ... a shiny
+  // dark metal"): steel plates on the gloss material, the slots between the fingers near black.
+  // The plates first went down at #2C3035 and vanished at whichever end was in sun: lit dark steel
+  // lands on the lit asphalt's own value, so only the end in shadow showed (Tyler: "why is one side
+  // so much darker"). Mid steel keeps the plates lighter than the road in sun and shade alike, and
+  // the near-black slots carry the dark.
+  bridgeSteel: '#6E747C',
+  bridgeSteelSlot: '#121417',
 
   // --- Boats ----------------------------------------------------------------
   //
@@ -1497,6 +1526,11 @@ if (ROADS_CLASSIC) {
   });
 }
 export const roadsClassic = () => ROADS_CLASSIC;
+// `?markings=classic` (city/markings.js) keeps the kerb in the pavement's own warm hue.
+if (!ROADS_CLASSIC && typeof location !== 'undefined'
+  && new URLSearchParams(location.search).get('markings') === 'classic') {
+  PALETTE.kerb = '#B3A994';
+}
 
 // The one paved junction (`setJunctionPaving` in util/geo.js), one look per `?plaza=`. Each is the
 // field's units, the joints between them, the soldier course framing the field, and the outer band

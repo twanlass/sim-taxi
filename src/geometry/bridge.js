@@ -1,11 +1,12 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import { bakeColor } from '../util/geo.js';
+import { FINISH, bakeColor, setFinish } from '../util/geo.js';
 import { PALETTE, color, jitterColor, roadsClassic } from '../palette.js';
 import {
   archAt, ARCH_RISE, DECK_THICK, DECK_OVERHANG, WATER_Y, RAIL_H, RAIL_W, RAIL_POST_PITCH,
 } from '../city/river.js';
 import { KERB_H, MARK_Y } from '../city/ground.js';
+import { MARKINGS_CLASSIC } from '../city/markings.js';
 
 // A bridge across the river: deck, edge beams, parapets, abutments and the paint down the middle.
 //
@@ -538,9 +539,71 @@ export const JOINT_Y = MARK_Y;
 const BRIDGEMARKS_CLASSIC = typeof location !== 'undefined'
   && new URLSearchParams(location.search).get('bridgemarks') === 'classic';
 
-/** Both ends' joint and approach strips for one span, in world coordinates. Empty unless `?bridgemarks=classic`, and under `?roads=classic`. */
+// **Steel finger joints, the default since 2026-11-25** (Tyler: "where our bridges and streets meet,
+// can we add a little transition? I'm thinking like a shiny dark metal"). Learning from the strips
+// above, which were turned down as chunky: no pale slab, and the whole joint is `STEEL_W` deep, about
+// three pixels at play zoom. What makes it read is the finish rather than the size: it goes on the
+// gloss material as `FINISH.METAL` (main.js), so the sun catches it where the matte road beside it
+// doesn't. Two plates with a row of interlocking fingers between them, each finger and each slot its
+// own quad laid edge to edge (adjacent, never overlapping, so nothing on the plane fights). On the
+// road side of the bank, where the strips sat and at their height, for the same reasons.
+// `?markings=classic` takes it away along with the rest of the street-markings pass.
+const STEEL_W = 0.4;
+const PLATE_W = 0.12;
+const FINGER_PITCH = 0.3;
+const SLOT_W = 0.07;
+
+/** One end's steel joint, flat at `JOINT_Y`, from the bank `bank` outward (`out` = ±1) across the carriageway. */
+function steelJoint(span, bank, out) {
+  const steel = color('bridgeSteel');
+  const slot = color('bridgeSteelSlot');
+  const parts = [];
+  // A flat quad over x0..x1 and d0..d1 out from the bank, wound to face up.
+  const quad = (x0, x1, d0, d1, col) => {
+    const za = bank + out * d0;
+    const zb = bank + out * d1;
+    const [z0, z1] = za < zb ? [za, zb] : [zb, za];
+    const geo = new THREE.PlaneGeometry(x1 - x0, z1 - z0);
+    geo.rotateX(-Math.PI / 2);
+    geo.translate(span.cx + (x0 + x1) / 2, JOINT_Y, (z0 + z1) / 2);
+    parts.push(setFinish(bakeColor(geo, col), FINISH.PAINT));
+  };
+  const x0 = -span.half;
+  const x1 = span.half;
+  quad(x0, x1, 0, PLATE_W, steel);
+  quad(x0, x1, STEEL_W - PLATE_W, STEEL_W, steel);
+  // The finger band: fingers alternately reach from either plate, so the band is a row of steel
+  // teeth with a slot running round each in a zigzag. Laid as columns, each split once along d.
+  const b0 = PLATE_W;
+  const b1 = STEEL_W - PLATE_W;
+  const mid = (b0 + b1) / 2;
+  const n = Math.max(2, Math.round((x1 - x0) / FINGER_PITCH));
+  const pitch = (x1 - x0) / n;
+  for (let k = 0; k < n; k++) {
+    const fa = x0 + k * pitch;
+    const fb = fa + pitch - SLOT_W;
+    // A finger from the near plate on even columns, from the far one on odd ones, reaching past the
+    // middle; the rest of the column is the slot it fits into.
+    const [s0, s1] = k % 2 === 0 ? [b0, mid + 0.02] : [mid - 0.02, b1];
+    if (s0 > b0) quad(fa, fb, b0, s0, slot);
+    quad(fa, fb, s0, s1, steel);
+    if (s1 < b1) quad(fa, fb, s1, b1, slot);
+    quad(fb, fa + pitch, b0, b1, slot);
+  }
+  return parts;
+}
+
+/**
+ * Both ends' joints for one span, in world coordinates: the steel finger joints by default, the old
+ * dark joint and pale approach strip under `?bridgemarks=classic`, and nothing under
+ * `?markings=classic` or `?roads=classic`.
+ */
 export function jointParts(span, rng) {
-  if (!BRIDGEMARKS_CLASSIC || roadsClassic()) return [];
+  if (roadsClassic()) return [];
+  if (!BRIDGEMARKS_CLASSIC) {
+    if (MARKINGS_CLASSIC) return [];
+    return [...steelJoint(span, span.z0, -1), ...steelJoint(span, span.z1, 1)];
+  }
   const parts = [];
   for (const [bank, out] of [[span.z0, -1], [span.z1, 1]]) {
     // Outward from the bank, away from the water: -z at the near bank, +z at the far one.

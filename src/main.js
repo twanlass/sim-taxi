@@ -752,7 +752,11 @@ if (river) {
   const jointRng = makeRng(seed + 58);
   const joints = bridgeLines().flatMap((line) => jointParts(bridgeSpan(line), jointRng));
   if (joints.length) {
-    const jointMesh = new THREE.Mesh(mergeGeometries(joints, false), propMaterial());
+    // Steel (the default) shines: the gloss material reads each vertex's `FINISH.METAL`. The classic
+    // painted strips carry no finish and keep the plain one.
+    const jointGeo = mergeGeometries(joints, false);
+    const steel = !!jointGeo.attributes.aFinish;
+    const jointMesh = new THREE.Mesh(jointGeo, steel ? propMaterial({ gloss: { geometry: jointGeo } }) : propMaterial());
     joints.forEach((part) => part.dispose());
     jointMesh.receiveShadow = true;
     jointMesh.name = 'bridge-joints';
