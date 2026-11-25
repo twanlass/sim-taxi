@@ -101,6 +101,12 @@ export function createPerfBot({
   let brakeUntil = -1;
   let robberySeen = false;
   let robberyEnded = 0;
+  /** How the scene's robbery began: 'rider' (the bank rider, with the shove) or 'forced' (none on the board). */
+  let robberyVia = null;
+  /** The overtake combo on the getaway: the pill is let go until this scene time, and when it last was. */
+  let blipUntil = 0;
+  let lastBlip = -Infinity;
+  let blips = 0;
   let wrecked = false;
   const log = [];
   // What each scene actually managed — a drift that never kicked or a bridge never hopped is a
@@ -264,15 +270,35 @@ export function createPerfBot({
     if (robberySeen && !robbery.state.active && !robberyEnded) robberyEnded = sceneT;
     if (!robberySeen) {
       const bank = fares.state.fares.find((f) => f.bank && f.stage === 'waiting');
-      if (bank && !bank.directed && !fares.carrying()) { dispatchToRider(bank); return; }
-      // No bank rider on the board in time: stage the getaway directly once the seat is empty.
-      if (sceneT > 15 && !fares.carrying() && robbery.force()) return;
+      if (bank && !bank.directed && !fares.carrying()) { dispatchToRider(bank); robberyVia = 'rider'; return; }
+      // No bank rider on the board in time: stage the getaway directly once the seat is empty. Wherever
+      // the taxi happens to be — so the bank cut can be framing a cab blocks away, shove off screen.
+      if (sceneT > 15 && !fares.carrying() && !bank) { robbery.force(); if (robbery.state.active) { robberyVia = 'forced'; return; } }
     }
     if (bank() && !robberySeen) return;
     autopilot();
     // The getaway on Loco, as a player plays it: four cop cars and the flame together is the frame
     // this scene is here to measure.
-    if (robberySeen && robbery.state.active && fares.carrying()) locoOn();
+    if (robberySeen && robbery.state.active && fares.carrying()) getawayPedals();
+  }
+
+  /**
+   * Loco, and the overtake combo when a car comes up ahead (game/overtake.js): a blip off the pill
+   * and straight back on, as a player throws it. Held on through a car without it, the taxi rams it.
+   * 0.15s is the lift that measured 97% passes in tools/overtakebot.mjs; it fires inside 24 units,
+   * short of OVERTAKE_ARM_RANGE (30), so the car is still there when the pill goes back down.
+   */
+  function getawayPedals() {
+    if (sceneT < blipUntil) return;
+    const gap = Math.min(taxi.passGap ?? Infinity, taxi.dodgeGap ?? Infinity);
+    if (boost.isActive() && gap < 24 && !taxi.passing && !taxi.passArmed && sceneT - lastBlip > 1) {
+      releaseLoco();
+      blipUntil = sceneT + 0.15;
+      lastBlip = sceneT;
+      blips += 1;
+      return;
+    }
+    locoOn();
   }
   const bank = () => fares.state.fares.some((f) => f.bank && f.directed);
 
@@ -306,6 +332,8 @@ export function createPerfBot({
     stats,
     /** The bot's own destination and how many bridge runs it has set, for debugging a scene. */
     errand: () => errand && { ...errand, hops },
+    /** How the robbery scene's robbery began ('rider' or 'forced'), and how many overtake blips its getaway threw. */
+    robbery: () => ({ via: robberyVia, blips }),
     /** Call once per frame, before `tick`. */
     update(t) {
       // Under `?fixedstep` the scene clocks run on game time too, so a scene is the same frames everywhere.

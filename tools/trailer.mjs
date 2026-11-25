@@ -62,7 +62,9 @@ export const BEATS = [
   { name: 'bigroll', query: 'bot=bigroll', seed: 71624, run: 3, pre: 3.0, post: 3.0, zoom: 30, max: 60, solo: true },
   // The bank job end to end, with the UI: the last of the cut, the robber's line, the getaway with
   // the cops coming on. The game's own cameras frame it (no zoom pin), so the cut stays the cut.
-  { name: 'heist', query: 'bot=robbery', seed: 71624, run: 2, pre: 7.2, post: 3.5, zoom: 0, max: 140, solo: true },
+  // From the bank cut (the shove) to seven seconds of the helicopter on the taxi (`until`: the
+  // director's end), at play zoom.
+  { name: 'heist', query: 'bot=robbery', seed: 71624, run: 2, pre: 0.4, post: 1.0, until: true, zoom: 0, max: 200, solo: true },
   { name: 'mega', query: '', seed: 71624, run: 7, pre: 1.4, post: 2.6, zoom: 40, max: 70 },
   { name: 'robbery', query: 'bot=robbery', seed: 71624, run: 7, pre: 0.3, post: 3.0, zoom: 36, max: 140 },
   { name: 'cops', query: 'bot=cops', seed: 71624, run: 7, pre: 0.5, post: 2.8, zoom: 34, max: 100 },
@@ -141,14 +143,30 @@ async function findMoment(page, beat) {
     if (r.event) {
       console.log('  at the moment', JSON.stringify(await page.evaluate(() => window.__director.info())).slice(0, 300));
       // Play on through the rest of the take: a ram after the moment spoils it as much as one before.
+      // A beat with an `until` runs on to the director's `end` (plus `post`) rather than a fixed length.
       const at = await page.evaluate(() => window.__director.frames);
-      for (let k = 0; k < Math.round(beat.post * FPS); k++) {
+      let after = Math.round(beat.post * FPS);
+      if (beat.until) {
+        let k = 0;
+        for (; k < limit - f; k++) {
+          const e = await page.evaluate(async () => { await window.__trailer.step(1); return window.__director.update(); });
+          if (e.end) break;
+          if (k % 600 === 0 && k) console.log(`  …+${k / FPS}s`, JSON.stringify(await page.evaluate(() => window.__director.info())).slice(0, 300));
+        }
+        if (k >= limit - f) { console.log('  the take never reached its end'); return -1; }
+        console.log('  at the end', JSON.stringify(await page.evaluate(() => window.__director.info())).slice(0, 400));
+        after += k + 1;
+      }
+      for (let k = beat.until ? Math.round(beat.post * FPS) : 0; k > 0; k--) {
+        await page.evaluate(async () => { await window.__trailer.step(1); window.__director.update(); });
+      }
+      if (!beat.until) for (let k = 0; k < after; k++) {
         await page.evaluate(async () => { await window.__trailer.step(1); window.__director.update(); });
       }
       const stalls = await page.evaluate(() => window.__director.stalls());
-      const rams = stalls.filter((s) => s >= at - Math.round(beat.pre * FPS) - 30 && s <= at + Math.round(beat.post * FPS));
-      if (rams.length) console.log(`  the taxi rams something ${rams.length}× inside the take`);
-      return rams.length && !flag('allow-rams') ? -2 : f;
+      const rams = stalls.filter((s) => s >= at - Math.round(beat.pre * FPS) - 30 && s <= at + after);
+      if (rams.length) console.log(`  the taxi rams something ${rams.length}× inside the take (at +${rams.map((s) => ((s - at) / FPS).toFixed(1)).join(', +')}s)`);
+      return rams.length && !flag('allow-rams') ? -2 : { f, after };
     }
     if (f % (beat.name === "mega" ? 120 : 600) === 0 && f) console.log(`  …${f / FPS}s`, JSON.stringify(await page.evaluate(() => window.__director.info())));
   }
@@ -159,12 +177,15 @@ async function shootBeat(browser, beat) {
   // `--runs 3,5,8`: run seeds to try in turn until one gives the moment with no ram inside the take.
   const runs = (arg('runs', null)?.split(',').map(Number)) ?? [Number(arg('run', beat.run))];
   let moment = -1;
+  let after = 0;
   let a;
   for (const run of runs) {
     beat = { ...beat, run };
     console.log(`\n${beat.name}: finding the moment (run ${run})`);
     a = await openBeat(browser, beat);
-    moment = await findMoment(a.page, beat);
+    const found = await findMoment(a.page, beat);
+    moment = typeof found === 'object' ? found.f : found;
+    after = found?.after ?? 0;
     await a.context.close();
     if (moment >= 0) break;
   }
@@ -173,7 +194,7 @@ async function shootBeat(browser, beat) {
   if (flag('find-only')) return { moment };
 
   const from = Math.max(0, moment - Math.round(beat.pre * FPS));
-  const to = moment + Math.round(beat.post * FPS);
+  const to = moment + after;
   const dir = join(OUT, beat.name);
   rmSync(dir, { recursive: true, force: true });
   mkdirSync(dir, { recursive: true });

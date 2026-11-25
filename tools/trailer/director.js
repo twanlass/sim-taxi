@@ -79,22 +79,22 @@
       const frozen = cls.contains('bankjob') || cls.contains('robber-talk');
       return held('getaway', Boolean(!frozen && r?.state.active && t.fares.carrying() && t.traffic.taxi.v > 6)) === 20;
     },
-    // The whole job in one take: the getaway moment, with the recorder's `pre` reaching back over
-    // the end of the bank cut and the robber's line. Logs when each part began, to size `pre`.
+    // The whole job in one take: from the bank cut (the shove) through the robber's line and the
+    // getaway until the police helicopter has been on the taxi a while. The moment is the cut's
+    // first frame; the take's end is `heistEnd` below, so the recorder runs on to it.
     heist() {
       const t = T();
       const r = t.robbery;
       const cls = document.body.classList;
-      if (rose('h-cut', cls.contains('bankjob'))) heistLog.push(['cut', frames]);
+      const cut = rose('h-cut', cls.contains('bankjob'));
+      if (cut) heistLog.push([`cut (range ${t.robbery?.range?.().toFixed?.(1)}, ${t.perfBot?.robbery?.().via})`, frames]);
       if (rose('h-cutend', !cls.contains('bankjob') && heistLog.some(([k]) => k === 'cut'))) heistLog.push(['cut end', frames]);
       if (rose('h-line', cls.contains('robber-talk'))) heistLog.push(['line', frames]);
       if (rose('h-lineend', !cls.contains('robber-talk') && heistLog.some(([k]) => k === 'line'))) heistLog.push(['line end', frames]);
       if (rose('h-active', Boolean(r?.state.active))) heistLog.push(['active', frames]);
       if (rose('h-ride', Boolean(r?.state.active && t.fares.carrying()))) heistLog.push(['robber in', frames]);
-      // The world is frozen under the cut and the line with the taxi's speed still on it, so speed
-      // alone fires inside the cut (which is what the rough cut's robbery shot was).
-      const frozen = cls.contains('bankjob') || cls.contains('robber-talk');
-      return held('h-getaway', Boolean(!frozen && r?.state.active && t.fares.carrying() && t.traffic.taxi.v > 6)) === 20;
+      if (rose('h-heli', t.policeHeli?.state.mode === 'track')) heistLog.push(['heli', frames]);
+      return cut;
     },
     bankjob() {
       const t = T();
@@ -151,6 +151,13 @@
     if (mega.held && taxi.hopKind === 'bridge' && taxi.hopFrom == null && frames % 2) key('Space', 'keyup');
   }
 
+  /** Ends of takes that run to a second event rather than a fixed length: true on the take's last frame. */
+  const ENDS = {
+    // The helicopter flies in from off screen (ENTRY_DIST in game/policeheli.js); seven seconds of
+    // it brings it over the taxi with the searchlight down and a moment of chase under it.
+    heist: () => held('h-heli-on', T().policeHeli?.state.mode === 'track') === 420,
+  };
+
   function frame() {
     const t = T();
     if (!t?.warmedUp) return {};
@@ -166,7 +173,8 @@
     if (rose('stall', Boolean(t.traffic.taxi.stalled))) stalls.push(frames);
     const fn = EVENTS[beat];
     const event = fn ? Boolean(fn()) : false;
-    return { event };
+    const end = ENDS[beat] ? Boolean(ENDS[beat]()) : false;
+    return { event, end };
   }
 
   window.__director = {
@@ -178,7 +186,7 @@
     info: () => {
       const t = T();
       const taxi = t?.traffic?.taxi;
-      return taxi && { heist: heistLog.map(([k, f]) => `${k}@${frames - f}f ago`).join(', '), kickBefore, errand: t.perfBot?.errand?.(), scene: t.perfBot?.scene(), x: +taxi.x.toFixed(1), z: +taxi.z.toFixed(1), v: +taxi.v.toFixed(1), st: taxi.state, route: taxi.route?.length, mega, db: t.drawbridge?.state?.phase, span: t.drawbridge && [t.drawbridge.line, t.drawbridge.span.cx, +t.drawbridge.span.z0.toFixed(1), +t.drawbridge.span.z1.toFixed(1), t.drawbridge.span.row] };
+      return taxi && { heist: heistLog.map(([k, f]) => `${k}@${frames - f}f ago`).join(', '), kickBefore, errand: t.perfBot?.errand?.(), bot: t.perfBot?.robbery?.(), heli: t.policeHeli?.state.mode, scene: t.perfBot?.scene(), x: +taxi.x.toFixed(1), z: +taxi.z.toFixed(1), v: +taxi.v.toFixed(1), st: taxi.state, route: taxi.route?.length, mega, db: t.drawbridge?.state?.phase, span: t.drawbridge && [t.drawbridge.line, t.drawbridge.span.cx, +t.drawbridge.span.z0.toFixed(1), +t.drawbridge.span.z1.toFixed(1), t.drawbridge.span.row] };
     },
   };
 })();
