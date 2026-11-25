@@ -1642,7 +1642,7 @@ const TAB_KEY = 'dbg-tab';
  */
 const TABS = [
   ['Audio', ['Audio', 'Engine sound', 'Sounds', 'Music', 'Audio export']],
-  ['Visuals', ['Light', 'Car finish', 'Bloom', 'CRT', 'Colour grade', 'Haze', 'Clouds', 'City entrance']],
+  ['Visuals', ['Light', 'Car finish', 'Bloom', 'CRT', 'Colour grade', 'Haze', 'Clouds', 'Building grain', 'City entrance']],
   ['Game', ['Game', 'Loco Mode', 'Loco weave', 'Restart to apply', 'Scores', 'Export']],
 ];
 const tabOf = (title) => TABS.find(([, titles]) => titles.includes(title))?.[0] ?? 'Game';
