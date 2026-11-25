@@ -389,6 +389,10 @@ export const PALETTE = {
   //     saturation where it is, is what reserves it. tools/probe.mjs asserts the clearance.
   carBodyGhost: ['#DA887D', '#71CDD2', '#85A7D4', '#D0CABE', '#80C5A1', '#AC96C7', '#D0C7B4', '#8D9BAD'],
   carGlass: '#2E3640',
+  // Wing mirror housings and stalks (geometry/mirrors.js): black plastic on every car, so the mirror
+  // is a different material from the paint it sticks out of and reads as a part, not a lump of body
+  // (Tyler, 2026-11-24). Lifted off pure black so the chamfers still shade.
+  mirrorBlack: '#18191C',
   // The inside of a wheel arch (geometry/wheels.js): the well's back wall, seen past the tyre. Darker
   // than the tyre (linear 0.08, `TYRE` in geometry/wheels.js) so the tread still has an edge against it, and
   // dark enough that the fleet's instance tint leaves it dark on every paint.
