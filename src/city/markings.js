@@ -86,6 +86,20 @@ const WEAR = {
 };
 const NARROW = 0.6;
 
+/**
+ * The keep-clear box in front of the garage door, as world bounds, or null. Shared with ground.js,
+ * which leaves the centre dashes out of it. On a divided arterial it covers only the near carriageway.
+ */
+export function keepClearBox(blocks) {
+  const garage = blocks?.garageBlock;
+  if (!garage || MARKINGS_CLASSIC) return null;
+  const { z0, x1 } = garage.bounds;
+  const line = garage.bi + 1;
+  const far = isArterialZ(line) ? lineX(line) - MEDIAN_W / 2 - 0.25 : lineX(line) + halfRoadZ(line) - 0.3;
+  // The door is 5.4 wide centred 4.5 in from the block's −z edge (`DOOR_W`, `DOOR_OFF` in garage.js).
+  return { x0: x1 + 0.3, x1: far, z0: z0 + 1.8, z1: z0 + 7.2 };
+}
+
 const FONT = {
   S: ['111', '100', '111', '001', '111'],
   T: ['111', '010', '010', '010', '010'],
@@ -138,7 +152,6 @@ export function streetMarkings(rng, y, blocks = null) {
   const colors = [];
   const white = new THREE.Color(color('crosswalk'));
   const line = new THREE.Color(color('laneMark'));
-  const bikeRed = new THREE.Color(color('bikeLane'));
   const bikeFill = new THREE.Color(color('bikeLaneFill'));
   const bikeBox = new THREE.Color(color('bikeBox'));
   const amber = new THREE.Color(color('cautionHatch'));
@@ -250,15 +263,6 @@ export function streetMarkings(rng, y, blocks = null) {
     }
   };
 
-  // The red band where the bike lane crosses a junction mouth — at every junction on the bike street,
-  // crossing or not: it is the bike lane's own marking, and the part Tyler liked.
-  const bikeBand = (lane, edgeS, dir) => {
-    const s0 = edgeS + dir * ZEBRA_NEAR;
-    const s1 = edgeS + dir * ZEBRA_FAR;
-    rect(lane, Math.min(s0, s1), Math.max(s0, s1), BIKE_LINE_IN, lane.edge.halfWidth - BIKE_KERB_GAP,
-      bikeRed, y, 0.7);
-  };
-
   /**
    * Pixel lettering. `place(px, py)` maps glyph space — px across the word left to right, py up the
    * letters, both in pixels from the word's bottom-left — to a world rectangle builder.
@@ -367,8 +371,6 @@ export function streetMarkings(rng, y, blocks = null) {
     const crossStart = crossNodes.has(fromNode.id) && lane.edge.klass === 'side' && !nearHere(ZEBRA_FAR);
     if (crossEnd) zebra(lane, L, -1, bike);
     if (crossStart) zebra(lane, 0, 1, bike);
-    if (bike && !nearHere(L - ZEBRA_FAR)) bikeBand(lane, L, -1);
-    if (bike && !nearHere(ZEBRA_FAR)) bikeBand(lane, 0, 1);
 
     // The approach: a line where there's a crossing, a STOP or the bike box; the word on two of them.
     const inner = lane.edge.klass === 'arterial' ? MEDIAN_W / 2 + 0.05 : 0.12;
@@ -391,8 +393,11 @@ export function streetMarkings(rng, y, blocks = null) {
     }
 
     if (bike) {
-      const s0 = ZEBRA_FAR + 0.2;
-      const s1 = stopped ? L - lineAt - 0.2 : L - ZEBRA_FAR - 0.2;
+      // The lane runs right up to the junction box unless a zebra is in the way. (It used to stop
+      // short at every junction for a brighter red band across the mouth; Tyler, 2026-11-25: cut.)
+      // A stop line doesn't stop it: the line ends at `carOuter`, short of the edge line.
+      const s0 = crossStart ? ZEBRA_FAR + 0.2 : 0.3;
+      const s1 = crossEnd ? L - ZEBRA_FAR - 0.2 : L - 0.3;
       if (s1 > s0) {
         rect(lane, s0, s1, BIKE_LINE_IN, BIKE_LINE_OUT, line);
         rect(lane, s0, s1, BIKE_LINE_OUT, half - BIKE_KERB_GAP, bikeFill, FILL_Y, 0.5);
@@ -402,19 +407,18 @@ export function streetMarkings(rng, y, blocks = null) {
     }
   }
 
-  // --- The amber box junction ---------------------------------------------------------------
-  // On a main road, where real ones go, and away from the plaza (which is only ever on a side-street
-  // four-way, `plazaJunctions` in util/geo.js) and from the crossings. Diagonal stripes one way only:
-  // a cross-hatch overlaps itself, and with each cell its own shade two overlapping cells on one
-  // plane are a z-fight. Below the paint (`FILL_Y`) so a manhole cover, at `MARK_Y`, lies on top.
-  const boxPoolJ = net.nodes.filter((n) => n.signal && n.gi !== undefined && !crossNodes.has(n.id)
-    && (isArterialX(n.gj) || isArterialZ(n.gi)) && n.gi > 0 && n.gi < GRID_I && n.gj > 0 && n.gj < GRID_J);
-  if (boxPoolJ.length) {
-    const n = rng.pick(boxPoolJ);
-    const cx = lineX(n.gi);
-    const cz = lineZ(n.gj);
-    const hx = halfRoadZ(n.gi) - 0.35;
-    const hz = halfRoadX(n.gj) - 0.35;
+  // --- The amber keep-clear box in front of the garage door ----------------------------------
+  // Across the road the door opens onto, the width of the door (Tyler, 2026-11-25: "put this in
+  // front of the taxi depot ... help create a visual landmark"). It started on a main-road junction.
+  // Diagonal stripes one way only: a cross-hatch overlaps itself, and with each cell its own shade
+  // two overlapping cells on one plane are a z-fight. Below the paint (`FILL_Y`), and the centre
+  // dashes stop either side of it (`keepClearBox`, used by ground.js).
+  const keep = keepClearBox(blocks);
+  if (keep) {
+    const cx = (keep.x0 + keep.x1) / 2;
+    const cz = (keep.z0 + keep.z1) / 2;
+    const hx = (keep.x1 - keep.x0) / 2;
+    const hz = (keep.z1 - keep.z0) / 2;
     const B = 0.2;
     // The border, as four strips that meet without overlapping.
     worldRect(cx - hx, cx + hx, cz - hz, cz - hz + B, amber, FILL_Y);

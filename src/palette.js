@@ -92,10 +92,8 @@ export const PALETTE = {
   manholeLid: '#3B3F45',
   manholeFrame: '#8C9097',
   crosswalk: '#DAD7CB',
-  // A bike lane where it crosses a junction (city/markings.js): a brick red, darker than the paint
-  // beside it and warmer than the asphalt, so it reads as coloured surfacing rather than as a mark.
-  bikeLane: '#A8503F',
-  // ...and down the length of the block, a duller, darker red so the crossings stay the loud part.
+  // A bike lane down the length of the block (city/markings.js): a dull brick red, darker than the
+  // paint and warmer than the asphalt, so it reads as coloured surfacing rather than as a mark.
   bikeLaneFill: '#6F4A45',
   // The bike box ahead of one stop line (city/markings.js): a muted green, the one green on the road.
   bikeBox: '#4F8A5B',

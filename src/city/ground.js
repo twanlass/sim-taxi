@@ -3,7 +3,7 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { bakeColor, propMaterial } from '../util/geo.js';
 import { PALETTE, color, jitterColor } from '../palette.js';
 import { centralParkGround } from './centralpark.js';
-import { MARKINGS_CLASSIC, streetMarkings, wornPaint } from './markings.js';
+import { MARKINGS_CLASSIC, keepClearBox, streetMarkings, wornPaint } from './markings.js';
 import {
   GRID_I, GRID_J, ROAD_W, SPAN_X, SPAN_Z, lineX, lineZ,
   isUnsignalised, isSegmentClosed, halfRoadX, halfRoadZ, isArterialX, isArterialZ,
@@ -519,6 +519,7 @@ export function createGround(rng, blocks) {
   const DASH = 1.6;
   const GAP = 1.4;
   const markColor = color('laneMark');
+  const keep = keepClearBox(blocks);
   // Worn like the rest of the paint (city/markings.js) unless the markings are classic.
   const linePaint = MARKINGS_CLASSIC ? paint : (w, d, x, z, col) => wornPaint(w, d, x, z, col, MARK_Y);
 
@@ -563,8 +564,14 @@ export function createGround(rng, blocks) {
       if (arterial) {
         const island = islands.get(`${axis}|${line}|${k}`);
         if (island) {
-          doubleLine(axis, c, from, island.from);
-          doubleLine(axis, c, island.to, to);
+          // The stub between an island's nose and the junction is 1.8..3.7 units: at play zoom two
+          // short parallel strokes floating in front of a kerb, which read as stray dashes rather than
+          // as a divider (Tyler, 2026-11-25: "do road lines make sense here?"). The island's own nose
+          // says where the median is, so outside `?markings=classic` the stubs go.
+          if (MARKINGS_CLASSIC) {
+            doubleLine(axis, c, from, island.from);
+            doubleLine(axis, c, island.to, to);
+          }
         } else {
           doubleLine(axis, c, from, to);
         }
@@ -572,6 +579,8 @@ export function createGround(rng, blocks) {
       }
 
       for (let s = from + GAP; s + DASH < to; s += DASH + GAP) {
+        // No dash through the garage's keep-clear box (city/markings.js).
+        if (keep && axis === 'z' && c > keep.x0 && c < keep.x1 && s < keep.z1 && s + DASH > keep.z0) continue;
         if (axis === 'z') parts.push(linePaint(0.18, DASH, c, s + DASH / 2, markColor));
         else parts.push(linePaint(DASH, 0.18, s + DASH / 2, c, markColor));
       }

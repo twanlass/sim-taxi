@@ -1400,12 +1400,15 @@ framing that was a wallpaper of white rather than a street. Now, off the ground'
   way up from this camera. 3×5 pixel letters stretched 1.75× along the lane. Nothing checks they are
   in clear view, so one can land behind a building.
 - **A bike lane** on one ordinary street per axis (never the garage's): white edge line 3.2 off the
-  centreline, a dull red lane, a bicycle past each junction and a brighter red band across every
-  junction mouth on that street.
+  centreline, a dull red lane running up to each junction box (or to a zebra) and a bicycle past
+  each junction. A brighter red band across each junction mouth was cut (Tyler, 2026-11-25).
 - **Three one-offs**: a **green bike box** ahead of the stop line on one bike-street approach (the car
-  line moves back 2.2), an **amber hatched box junction** on one main-road junction (stripes one way
-  only: a cross-hatch overlaps itself, and two worn cells on one plane are a z-fight), and a **TAXI
-  rank** on the garage's kerb past the door, never on the driveway.
+  line moves back 2.2), an **amber hatched keep-clear box** across the road in front of the garage door,
+  as a landmark for the depot (stripes one way only: a cross-hatch overlaps itself, and two worn cells
+  on one plane are a z-fight; the centre dashes stop either side of it), and a **TAXI rank** on the
+  garage's kerb past the door.
+- **No median stubs.** The double line between an arterial island's nose and the junction (1.8..3.7
+  units) read as stray dashes, so outside `?markings=classic` the island's nose is the only divider there.
 
 **Everything is worn**, baked into vertex colour rather than a shader (the road-texture shader is on
 an unmerged branch, and this way it is the same on both renderers for no fragment cost): each mark is
