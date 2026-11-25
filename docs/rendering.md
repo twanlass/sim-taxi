@@ -1655,6 +1655,14 @@ of the 9-unit cells. The first cut was a 0.375 texel with three times the stains
 speckle, which Tyler found too big and overdone. The texels are square on the ground, so on screen they are a low-resolution texture's
 diamonds, not screen pixels. Lane paint, kerbs and everything standing on the road stay smooth.
 
+**Every number of it is a slider.** The ⚙️ panel's Visuals tab has a Street texture section (`?dev`
+opens the panel): the light and dark swing and its bias, the patches' size, edge and warmth, the
+mottle, the stains', cracks' and speckle's strength and count, the texel and the grey ramp's step.
+They are all uniforms (`ROAD_TEX` and `tuneRoadTexture` in util/geo.js), so they move with the game
+running on either renderer; the panel remembers the look across reloads, in debug mode only, and
+its box holds the changed values as JSON to copy out or paste in. A look worth keeping goes into
+`ROAD_TEX_DEFAULTS`. `__taxi.roadTex(key, value)` is the same lever for a headless tool.
+
 Held off the lane paint, the lawns, the plaza and (like the plaza) a road that is already bright,
 which is the wet road at night. The asphalt patches and manhole covers are their own meshes and
 keep their own colour. It costs +6.2% of a SwiftShader WebGL frame at phone size (+4.3% before the stains and grain); the same code

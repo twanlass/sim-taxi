@@ -5,7 +5,7 @@ import { SPEED, MPH_PER_UNIT, CAR_W } from '../sim/traffic.js';
 import { PITCH, LANE } from '../city/grid.js';
 import {
   setShadowTint, shadowTint, FINISH_NAMES, glossTuning, setGlossFinish, setGlossGlobal, rimTuning, setRimTuning,
-  resetGlossTuning,
+  resetGlossTuning, ROAD_TEX, ROAD_TEX_DEFAULTS, tuneRoadTexture,
 } from '../util/geo.js';
 import { MIN_ELEVATION } from './daylight.js';
 import { BLOOM_INTENSITY, BLOOM_KINDS } from './bloom.js';
@@ -1027,6 +1027,100 @@ export function createDebugPanel({
     });
   }
 
+  // --- Street texture ---------------------------------------------------------
+  // Every lever of the asphalt's colour variation (ROAD_TEX in util/geo.js), live: they are all
+  // uniforms, so nothing recompiles. Remembered across reloads like the colour grade, because a
+  // look is settled over several sessions, and the panel fades while a finger is on a slider so
+  // the road under it can be judged as it moves. The box at the bottom is the whole look as JSON:
+  // copy it out to hand the numbers over, or paste one in.
+  heading('Street texture');
+  {
+    const KEY = 'simtaxi-roadtex';
+    try {
+      const saved = JSON.parse(localStorage.getItem(KEY) || 'null');
+      for (const [k, v] of Object.entries(saved || {})) tuneRoadTexture(k, Number(v));
+    } catch { /* private mode, or a look from an older build */ }
+    // key, label, min, max, step
+    const LEVERS = [
+      ['run', 'Light / dark', 0, 1.2, 0.01],
+      ['bias', 'Lighter overall', -0.5, 1, 0.01],
+      ['patch', 'Patch size', 0.2, 4, 0.05],
+      ['shoulder', 'Patch edge', 0.01, 0.5, 0.01],
+      ['warmth', 'Pale warmth', 0, 1.5, 0.01],
+      ['mottle', 'Mottle', 0, 0.8, 0.01],
+      ['stain', 'Stain darkness', 0, 1, 0.01],
+      ['stainDensity', 'Stain count', 0, 0.6, 0.01],
+      ['crack', 'Crack darkness', 0, 1, 0.01],
+      ['crackDensity', 'Crack count', 0, 1, 0.01],
+      ['grain', 'Speckle strength', 0, 0.8, 0.01],
+      ['speckle', 'Speckle count', 0, 0.3, 0.005],
+      ['texel', 'Pixel size', 0, 1, 0.025],
+      ['step', 'Grey steps', 0.02, 0.4, 0.01],
+    ];
+    const code = document.createElement('textarea');
+    code.className = 'dbg-wide';
+    code.rows = 4;
+    code.spellcheck = false;
+    const changed = () => Object.fromEntries(
+      Object.keys(ROAD_TEX_DEFAULTS).filter((k) => ROAD_TEX[k] !== ROAD_TEX_DEFAULTS[k]).map((k) => [k, ROAD_TEX[k]]),
+    );
+    const syncs = [];
+    const store = () => {
+      code.value = JSON.stringify(changed());
+      try { localStorage.setItem(KEY, code.value); } catch { /* private mode */ }
+    };
+    for (const [key, label, min, max, step] of LEVERS) {
+      const input = slider(min, max, step, ROAD_TEX[key]);
+      const value = row(panel, label, input);
+      const show = () => {
+        input.value = String(ROAD_TEX[key]);
+        value.textContent = ROAD_TEX[key].toFixed(step < 0.01 ? 3 : 2) + (ROAD_TEX[key] === ROAD_TEX_DEFAULTS[key] ? '' : ' *');
+      };
+      input.addEventListener('input', () => { tuneRoadTexture(key, Number(input.value)); show(); store(); });
+      input.addEventListener('pointerdown', () => {
+        panel.classList.add('dbg-scrub');
+        const holder = input.closest('.dbg-row') ?? input;
+        holder.classList.add('is-scrubbing');
+        const end = () => {
+          panel.classList.remove('dbg-scrub');
+          holder.classList.remove('is-scrubbing');
+          window.removeEventListener('pointerup', end, true);
+          window.removeEventListener('pointercancel', end, true);
+        };
+        window.addEventListener('pointerup', end, true);
+        window.addEventListener('pointercancel', end, true);
+      });
+      show();
+      syncs.push(show);
+    }
+    panel.append(code);
+    const apply = (look) => {
+      for (const k of Object.keys(ROAD_TEX_DEFAULTS)) tuneRoadTexture(k, Number(look[k] ?? ROAD_TEX_DEFAULTS[k]));
+      syncs.forEach((f) => f());
+      store();
+    };
+    code.addEventListener('change', () => {
+      try { apply(JSON.parse(code.value || '{}')); } catch { store(); }
+    });
+    const tools = document.createElement('div');
+    tools.className = 'dbg-wide';
+    const copy = document.createElement('button');
+    copy.type = 'button';
+    copy.textContent = 'Copy look';
+    copy.addEventListener('click', async () => {
+      try { await navigator.clipboard.writeText(code.value); copy.textContent = 'Copied'; }
+      catch { code.select(); copy.textContent = 'Selected above'; }
+      setTimeout(() => { copy.textContent = 'Copy look'; }, 1200);
+    });
+    const reset = document.createElement('button');
+    reset.type = 'button';
+    reset.textContent = 'Reset street';
+    reset.addEventListener('click', () => apply({}));
+    tools.append(copy, reset);
+    panel.append(tools);
+    code.value = JSON.stringify(changed());
+  }
+
   // --- Clouds -----------------------------------------------------------------
   // Every one of these is a judgement about a whole frame and none of them can be made from the
   // numbers, which is the same argument the haze sliders above are here for — with one extra reason
@@ -1579,7 +1673,7 @@ const TAB_KEY = 'dbg-tab';
  */
 const TABS = [
   ['Audio', ['Audio', 'Engine sound', 'Sounds', 'Music', 'Audio export']],
-  ['Visuals', ['Light', 'Car finish', 'Bloom', 'CRT', 'Colour grade', 'Haze', 'Clouds', 'City entrance']],
+  ['Visuals', ['Light', 'Car finish', 'Bloom', 'CRT', 'Colour grade', 'Street texture', 'Haze', 'Clouds', 'City entrance']],
   ['Game', ['Game', 'Loco Mode', 'Loco weave', 'Restart to apply', 'Scores', 'Export']],
 ];
 const tabOf = (title) => TABS.find(([, titles]) => titles.includes(title))?.[0] ?? 'Game';

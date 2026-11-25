@@ -160,6 +160,7 @@ import { markEmissive } from './game/bloom.js';
 import { renderBudget, decideLooks, createRenderPath } from './game/renderpath.js';
 import {
   propMaterial, setGlossCity, setGlossGlobal, PAINT_UNIFORMS, placeJunctionPaving,
+  tuneRoadTexture,
 } from './util/geo.js';
 import * as difficulty from './game/difficulty.js';
 import { DAYS, dayByKey, loadWeek, clearDay, resetWeek } from './game/days.js';
@@ -9207,6 +9208,8 @@ window.__taxi = {
   unported,
   renderer: GPU ? 'webgpu' : 'webgl',
   gpuCapture: (options) => gpuCapture?.capture(options),
+  /** Move one lever of the street texture (ROAD_TEX in util/geo.js), as the panel does. */
+  roadTex: tuneRoadTexture,
   /** The `?bot` scripted session, or null — `scene()` and `log` (game/perfbot.js). */
   get perfBot() { return perfBot; },
   /** Whether the boot's GPU warm-up is done and the run has started — see `warmedUp`. */
