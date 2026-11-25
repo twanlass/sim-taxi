@@ -1955,10 +1955,10 @@ Three parts, none of them geometry on the city:
   (`userData.snow = false`, set by each patch in city/riverwater.js), because a white river reads as
   a road.
 - **The tracks** (`stamp` in game/snow.js). A 512² byte map over `MAX_SPAN + 10` units, 0.27 a
-  texel, painted on the CPU where each car's four tyres rolled since the last frame (a 0.45-wide
+  texel, painted on the CPU where each car's four tyres rolled since the last frame (a 0.5-wide
   tread, max-blended, so a lane driven twice is no deeper than once) and uploaded at most 12 times a
   second. The cover reads it below y 0.3 to 0.6 and turns the snow there into dark slush: the street's
-  own colour at 62%, a third of the way to grey. A CPU map rather than a GPU render target because
+  own colour at 60%, three tenths of the way to grey. A CPU map rather than a GPU render target because
   it is one code path on both renderers, adds no render pass (the phone pays per draw call), and can
   be asked what it holds (`trackAt`, tools/snow.mjs). Snowfall fills a track back in linearly over
   `REFILL` 60 s, so the lanes in use stay carved and a quiet street goes white again. Crashed,

@@ -978,8 +978,8 @@ vec3 snowCover(vec3 base, vec3 w, float up) {
 	// carved it: trodden snow, not fresh.
 	float road = 1.0 - smoothstep(0.08, 0.2, w.y);
 	vec3 snow = uSnowColor * (0.93 + 0.07 * n) * (1.0 - road * (0.08 + 0.12 * n));
-	vec3 slush = mix(base * 0.7, uSnowColor * 0.5, 0.35);
-	return mix(base, mix(snow, slush, 0.9 * smoothstep(0.05, 0.8, track)), amt);
+	vec3 slush = mix(base * 0.6, uSnowColor * 0.45, 0.3);
+	return mix(base, mix(snow, slush, smoothstep(0.05, 0.65, track)), amt);
 }
 `;
 const SNOW_FRAGMENT = /* glsl */ `

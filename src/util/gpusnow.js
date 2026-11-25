@@ -37,7 +37,7 @@ export function createSnowNodes(U) {
     const track = snow.y.mul(low).mul(tracks.sample(w.xz.div(snow.z).add(0.5)).r);
     const road = float(1).sub(smoothstep(0.08, 0.2, w.y));
     const white = color.mul(n.mul(0.07).add(0.93)).mul(float(1).sub(road.mul(n.mul(0.12).add(0.08))));
-    const slush = mix(base.mul(0.7), color.mul(0.5), 0.35);
-    return mix(base, mix(white, slush, smoothstep(0.05, 0.8, track).mul(0.9)), amt);
+    const slush = mix(base.mul(0.6), color.mul(0.45), 0.3);
+    return mix(base, mix(white, slush, smoothstep(0.05, 0.65, track)), amt);
   };
 }

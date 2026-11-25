@@ -42,13 +42,13 @@ const LEVEL_MAX = 1.1;
 
 /**
  * The track map: resolution and extent (the island and its ring road, with room to spare). 512
- * over ~139 units is 0.27 a texel, so a 0.45-wide tread is a texel and a half and the pair of
+ * over ~139 units is 0.27 a texel, so a 0.5-wide tread is nearly two texels and the pair of
  * tracks under one car (1.4 apart) stays two tracks at play zoom, where a unit is ~7.7 px.
  */
 export const TRACK_RES = 512;
 export const TRACK_EXTENT = MAX_SPAN + 10;
 const TEXEL = TRACK_EXTENT / TRACK_RES;
-const TREAD = 0.45;
+const TREAD = 0.5;
 /** Seconds of steady snowfall to fill a fresh track back in, and how often the map is uploaded. */
 export const REFILL = 60;
 const UPLOAD = 1 / 12;
