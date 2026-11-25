@@ -19,6 +19,7 @@ import { snapStick } from '../src/game/joystick.js';
 import { DIR, leftOf, lineX, lineZ, GRID_I } from '../src/city/grid.js';
 import { createFreeDrive, roadCorridors, screenToGround, magnet } from '../src/game/freedrive.js';
 import { cityNetwork } from '../src/city/roadnet.js';
+import { deadZone, nearestInDirection, STICK_DEAD } from '../src/game/gamepad.js';
 
 let passed = 0;
 let failed = 0;
@@ -410,6 +411,30 @@ taxi.stickNudge = 0;
   }
   check('handed back, the traffic model drives it on from a lane', handed && moved > 20, `${moved.toFixed(1)} units`);
   console.log(`free trips: mean ${(freeTime / Math.max(1, freeArrived)).toFixed(1)}s`);
+}
+
+// --- The game controller (src/game/gamepad.js) -------------------------------------------------
+{
+  check('pad: a resting stick says nothing', deadZone(0.1, -0.12) === null);
+  const up = deadZone(0, -1);
+  check('pad: full up is full length straight up', up && Math.abs(up.mag - 1) < 1e-9 && up.y < -0.99);
+  const edge = deadZone(STICK_DEAD + 1e-6, 0);
+  check('pad: the push grows from zero at the dead zone', edge && edge.mag < 1e-4);
+  // Pad screen-up drives the same ground heading as the touch stick pushed up.
+  const g = screenToGround(0, -1, toScreen);
+  const back = toScreen(g.x, g.z);
+  check('pad: stick up steers screen-up', back.y < 0 && Math.abs(back.x) < 1e-6 * Math.hypot(back.x, back.y) + 1e-6,
+    `${back.x.toFixed(3)}, ${back.y.toFixed(3)}`);
+  // A menu: Play over Settings over Credits in a column, a Board button off to the right of Play.
+  const play = { el: 'play', x: 200, y: 300 };
+  const settings = { el: 'settings', x: 200, y: 360 };
+  const credits = { el: 'credits', x: 200, y: 420 };
+  const board = { el: 'board', x: 330, y: 300 };
+  const menu = [play, settings, credits, board];
+  check('pad: down from Play is Settings', nearestInDirection(play, menu, [0, 1])?.el === 'settings');
+  check('pad: right from Play is the button beside it', nearestInDirection(play, menu, [1, 0])?.el === 'board');
+  check('pad: down from the side button lands in the column', nearestInDirection(board, menu, [0, 1])?.el === 'settings');
+  check('pad: up from the top stays put', nearestInDirection(play, menu, [0, -1]) === null);
 }
 
 console.log(`steered trips: mean ${(total / Math.max(1, arrived)).toFixed(1)}s`);

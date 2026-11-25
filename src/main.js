@@ -200,6 +200,7 @@ import { createBootleg, COMBO_GAP_MS as BOOTLEG_GAP_MS } from './game/bootleg.js
 import { createSteer, decisionLane } from './game/steer.js';
 import { createJoystick, KNOB_TRAVEL as STICK_TRAVEL, DEAD_ZONE as STICK_DEAD_ZONE } from './game/joystick.js';
 import { createFreeDrive } from './game/freedrive.js';
+import { createGamepad } from './game/gamepad.js';
 import { createSteerLine } from './game/steerline.js';
 import { createSteerTip } from './game/steertip.js';
 import { createOvertakeCombo, OVERTAKE_GRACE } from './game/overtake.js';
@@ -1759,8 +1760,19 @@ const aspect = () => viewport.width() / viewport.height();
 // `?landscape=classic` draws it the old way. (The iOS shell still locks portrait — docs/ios.md.)
 const landscapeOn = new URLSearchParams(window.location.search).get('landscape') !== 'classic';
 const LANDSCAPE_MAX_H = 600;
+// A game controller (game/gamepad.js) — the PS4 pad on a TV. Built this early because it changes
+// the framing below: a TV is a big landscape screen, so on the desktop rules it would get the whole
+// city at once with the taxi a few pixels long from the sofa. Once the pad is in use the frame is
+// the landscape phone's instead — the same slice of city, scaled up to the screen's height — and
+// the camera follows the taxi as it does on a phone. A finger on the glass hands back to touch.
+// `?padview=classic` keeps the desktop framing with a pad in hand.
+const padViewOn = new URLSearchParams(window.location.search).get('padview') !== 'classic';
+const gamepad = shot ? null : createGamepad({
+  travel: STICK_TRAVEL, minLen: STICK_DEAD_ZONE,
+});
+const isCouch = () => padViewOn && Boolean(gamepad?.active()) && viewport.width() > viewport.height();
 const isLandscapePhone = () => landscapeOn && !shot
-  && viewport.width() > viewport.height() && viewport.height() < LANDSCAPE_MAX_H;
+  && viewport.width() > viewport.height() && (viewport.height() < LANDSCAPE_MAX_H || isCouch());
 const landscapeFit = () => (isLandscapePhone() ? viewport.height() / (2 * PLAY_ZOOM * PHONE_PX_PER_UNIT) : 1);
 const controller = createCityCamera(aspect(), {
   zoom: shot?.zoom ?? PLAY_ZOOM,
@@ -1945,7 +1957,13 @@ const freeDrive = steerFree && stick ? createFreeDrive({
   solid: (x, z) => fieldHeight(freeSolid, x, z) > FREE_SOLID_H,
   locoSpeed: () => boostCruise(),
   taxi: traffic.taxi,
-  stick: () => { const v = stick.vector(); return v && v.len >= STICK_DEAD_ZONE ? v : null; },
+  // The pad's left stick first, in the touch stick's own units (game/gamepad.js).
+  stick: () => {
+    const p = gamepad?.vector();
+    if (p) return p;
+    const v = stick.vector();
+    return v && v.len >= STICK_DEAD_ZONE ? v : null;
+  },
   toScreen: steerToScreen,
   live: steerLive,
   assist: new URLSearchParams(window.location.search).get('freeassist') !== 'off',
@@ -3068,6 +3086,12 @@ const taxiDamage = createTaxiDamage({
   // The paint dulling toward `taxiGrime` instead of chipping to the metal (geometry/taxiscratches.js).
   tint: new URLSearchParams(window.location.search).get('taxidamage') === 'classic',
 });
+// Every hit the taxi takes goes through `hit`, so the pad's rumble hangs off it here rather than
+// beside each of its callers.
+{
+  const hit = taxiDamage.hit;
+  taxiDamage.hit = (...args) => { gamepad?.rumble(0.8, 220); return hit(...args); };
+}
 // ...and what the cars it hits wear: the same lids, lamps and bumper, on a pool of rigs. See
 // game/cardamage.js.
 const carDamageRng = makeRng(runSeed + 137);

@@ -1213,6 +1213,15 @@
         pointer-events: none; transition: transform 0.12s ease;
       }
       #stick.is-held .stick-knob { transition: none; }
+      /* --- A game controller (game/gamepad.js) ---------------------------------
+         With a pad in hand the touch stick has nothing to say, so it goes; the pedals stay, because
+         they show the hold. The ring is the pad's focus on a menu: a thick yellow outline clear of
+         the button so it reads from across a room, flat like the rest of the UI. */
+      body.pad-active #stick { display: none; }
+      .pad-focus {
+        outline: 4px solid #FFC93C !important; outline-offset: 5px;
+        border-radius: 12px;
+      }
 
       /* The reach. Each pedal takes a thumb `--pedal-reach` past its drawn edge, because a thumb's
          contact point is not where its pad is and a thumb sliding back from the brake does not come

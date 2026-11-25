@@ -1546,6 +1546,36 @@ to the job it interrupted, that job's corner plans nothing — it is the player'
 Prototype, and the numbers have not caught up: rider clocks are still budgeted from the router's
 best route ([The clock is budgeted](#the-clock-is-budgeted)), and robo-taxis still route perfectly.
 
+### A game controller
+
+A PS4 DualShock 4, or any pad the browser reports with the standard mapping, plays the whole game
+(`game/gamepad.js`). Tyler wanted to play on a TV with one. tvOS has no web view, so there is no
+Apple TV build; the pad is what lets a Mac on the TV, or a phone AirPlaying to it, be played from
+the sofa.
+
+| Pad | In a run | On a menu |
+|---|---|---|
+| Left stick | Steer, as the touch stick (free driving) | Move the focus ring |
+| D-pad | | Move the focus ring |
+| ✕, R2, R1 | Loco | ✕ presses the ringed button |
+| □, L2, L1 | Brake | |
+| ○ | | Back |
+| Options | Pause | Back / resume |
+
+- **In a run it presses the keyboard's keys.** Loco is Space and the brake is B, and the pad
+  dispatches those events rather than calling the pedals itself, so it inherits every guard on them
+  (paused, the Home Screen tip, the robber's line).
+- **Menus are whatever a finger could hit.** The ring's candidates are the buttons whose own centre
+  `elementFromPoint` lands on, so whatever a veil covers or hides is left out with no list to keep.
+  It starts on the first in document order (Story, Resume, Play again). With nothing to ring, ✕ is Enter, which skips the run-end tally.
+- **The framing becomes the landscape phone's** once the pad is used on a landscape screen: the same
+  slice of city scaled to the screen's height, with the camera following the taxi. A TV on the
+  desktop rules would show the whole map with a taxi a few pixels long. `?padview=classic` keeps the
+  desktop framing.
+- The touch stick hides while the pad is in use, and a finger on the glass hands back to touch.
+- A hit rumbles the pad where the browser exposes its motors (Chrome does; Safari may not).
+- Browsers only expose a pad after one of its buttons is pressed with the page in front.
+
 ## Routing
 
 `src/game/route.js` is Dijkstra over the road network's **lanes**, instant at this size.
