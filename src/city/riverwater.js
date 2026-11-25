@@ -486,6 +486,8 @@ const compose = () => /* glsl */ `
  *                  south shore's sea lies, if there is one.
  */
 export function patchRiverWater(material, { edges, banks, bridges, wall, sea = null }) {
+  // Water takes no snow (`SNOW_UNIFORMS` in util/geo.js): a white river reads as a road.
+  material.userData.snow = false;
   UNIFORMS.uWaterEdges.value.set(edges.z0, edges.z1);
   UNIFORMS.uWaterSea.value.set(sea?.x0 ?? 0, sea ? 1 : 0);
   if (sea) UNIFORMS.uWaterBasin.value.set(sea.z0, sea.z1, sea.xEnd);
@@ -700,6 +702,7 @@ export function patchLakeWater(material, lake) {
  * about source), so every lake shares one program.
  */
 function patchStillWater(material, kind, shape, edgeGlsl, tune, edgeNode) {
+  material.userData.snow = false;
   if (material.isNodeMaterial) {
     material.userData.sharedWater = kind;
     return waterNodeMaterial(material, nodes(), tslConstants(), { edge: edgeNode, tune });
@@ -750,6 +753,7 @@ function patchStillWater(material, kind, shape, edgeGlsl, tune, edgeNode) {
 
 /** Layer the river's surface onto the sea round the harbor (after `patchRiverWater`). */
 export function patchHarborWater(material) {
+  material.userData.snow = false;
   return patchWater(material);
 }
 

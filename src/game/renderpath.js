@@ -14,11 +14,11 @@
 import {
   setAmbientOcclusion, setPainterly, setPaintBrushes, setJunctionPaving, setRoadStrokes, setRoadTexture, setRoadPixels, ROAD_TEXEL,
   setClassicPaint,
-  setPaintLook, setRim, rimTuning, setRimTuning, setFlip, setVehiclePaint, setCloudShadows, rimPaintOn, setRimDepth,
+  setPaintLook, setRim, rimTuning, setRimTuning, setFlip, setVehiclePaint, setCloudShadows, setSnow, rimPaintOn, setRimDepth,
 } from '../util/geo.js';
 import {
   getAmbientOcclusion, getMsaa, getShadowMapSize, getBloom, getRain,
-  getStorm, getSquall, getPaintClassic, getPaintLook, getRimColor, getRimTune, getFlip, getVehiclePaintClassic,
+  getStorm, getSquall, getSnow, getPaintClassic, getPaintLook, getRimColor, getRimTune, getFlip, getVehiclePaintClassic,
 } from '../util/shot.js';
 import { createBrushTiles } from './brushtiles.js';
 import { createAmbientOcclusion } from './ssao.js';
@@ -92,6 +92,8 @@ export function decideLooks(budget, seed = 0) {
   // Cloud shadows are compiled into every lit material, so they are decided here with the look
   // modes. See CLOUD_UNIFORMS in util/geo.js; with no weather driving them they cover nothing.
   setCloudShadows(Boolean(getRain() ?? getStorm() ?? getSquall()));
+  // Snow is compiled into every lit material the same way (SNOW_UNIFORMS in util/geo.js).
+  setSnow(Boolean(getSnow()));
 }
 
 /**

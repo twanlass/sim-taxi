@@ -19,6 +19,7 @@ import { createRain, GRIP } from './game/rain.js';
 import { createStorm } from './game/storm.js';
 import { createComboMeter, comboScope, comboValue, formatMult } from './game/combometer.js';
 import { createSquall, RAMP, RAMP_CLASSIC, CELL_EDGE } from './game/squall.js';
+import { createSnow, GRIP as SNOW_GRIP, SNOW_DARK, SNOW_HAZE } from './game/snow.js';
 import { pedalZones as growPedalZones, pedalAfterMove } from './game/pedalzones.js';
 import {
   collectPanes, litWindows, streetLamps, entrances, lampKeepOff, switchedLights, createTaxiHeadlights, setCityLights,
@@ -60,6 +61,7 @@ import {
   boostCruise, locoTuning, setLocoTuning, resetLocoTuning, locoRamp, LOCO_DEFAULTS, driftTaxi, kickDrift, driftHolds, DRIFT_CHAIN,
   onDriftLaunch, hopProgress, setSpinStyle, setBarrelRoll, setMegaFlip, setBridgeStunt, setPassTurnGate, setPassPace, setHopStyle, setDodge, setOvertakeStyle, setPeek, setTaxiScatter,
   configureSignals, setGrip, setRunningLights, setRunningLightsAt, runningLightsAt, isLaneClosed, FISHTAIL_TIME,
+  airborneHeight,
 } from './sim/traffic.js';
 import { createCollisions, TAXI_HP, setCrush, setCrushSplash } from './sim/collisions.js';
 import { createVanish } from './game/vanish.js';
@@ -182,7 +184,7 @@ import { streetAt, routeDrives, STREET_TAP_MAX_DETOUR } from './game/streettap.j
 import { createPathDrag } from './game/pathdrag.js';
 import { getActiveShot, getSeed, getRunSeed, getCarCount, getDifficultyPin, getDifficultyMode,
   getSafeMode, safeModeSource, getPixelRatioCap,
-  getDiagnostics, getParcelsPin, getRain, getStorm, getSquall, getSquallRampClassic, getSunRaysClassic, getWetTyres, getWreckStyle, getFall, getFoliageClassic, getWater, getUturnStyle, getCrt } from './util/shot.js';
+  getDiagnostics, getParcelsPin, getRain, getStorm, getSquall, getSnow, getSquallRampClassic, getSunRaysClassic, getWetTyres, getWreckStyle, getFall, getFoliageClassic, getWater, getUturnStyle, getCrt } from './util/shot.js';
 import { createParcelSystem, TAP_MAX_DETOUR } from './game/parcels.js';
 import { createRobbery } from './game/robbery.js';
 import { createRadio, LOST_CALL, ROBBERY_CALL } from './game/radio.js';
@@ -424,6 +426,10 @@ const squallRampClassic = getSquallRampClassic();
 const squall = squallFlag ? createSquall({
   ...squallFlag, rng: () => squallRng.next(), ramp: squallRampClassic ? RAMP_CLASSIC : RAMP,
 }) : null;
+// The snowstorm, the holiday weather (game/snow.js): in place of the squall for the whole run, from
+// 1 December to 6 January or under `?snow`. `getSquall` already stood down for it.
+const snowFlag = getSnow();
+const snow = snowFlag ? createSnow(snowFlag) : null;
 const rain = createRain(renderer, {
   enabled: Boolean(storm || squall),
   mood: stormFlag?.mood,
@@ -464,6 +470,7 @@ renderPath.addOverlays(scene);
 
 // The falling rain, and the two overlays that must stay out of its mirror pass.
 rain.addTo(scene);
+if (snow) scene.add(snow.flakes);
 rain.hideInMirror(bloom.overlay, scene.getObjectByName('sky'));
 
 // A GPU that takes the context away gets the budget turned down rather than the player getting a
@@ -560,6 +567,7 @@ const daylight = createDaylight({ sun, hemi, sky, fog, clouds });
 daylight.setDayLength(DAY_SECONDS);
 daylight.setCycling(false);
 if (rain.grade) daylight.setGrade(rain.grade);
+if (snow) daylight.setGrade(snow.grade);
 
 /**
  * Hand the storm's three levels (game/storm.js) to everything that reads them. Every frame while a
@@ -673,9 +681,31 @@ const LENS_WET = 0.5;
 const LENS_DRY_SQUALL = 5;
 const LENS_REACH = 15;
 
+/**
+ * The snowstorm's half of `applyWeather`: one city-wide overcast, so everything here is a level.
+ * The tyre tracks are pressed by `snowTracks`, which needs the traffic and so is set once it exists.
+ */
+let snowTracks = null;
+// The camera, once it exists: the first `applyWeather` below runs before it does.
+let snowCamera = null;
+function applySnow(dt) {
+  snowTracks?.();
+  // The flakes dim with the light, so a dusk flake is not a white dot on a dark street.
+  snow.update(dt, snowCamera, THREE.MathUtils.clamp(0.35 + 0.5 * hemi.intensity + 0.1 * sun.intensity, 0.35, 1));
+  const cover = Math.min(1, snow.state.level);
+  setGrip(THREE.MathUtils.lerp(1, SNOW_GRIP, cover));
+  runningLevel = THREE.MathUtils.smoothstep(SNOW_DARK, 0.25, 0.42);
+  setRunningLights(runningLevel);
+  setTaxiHeadlights(runningLevel);
+  setCityLights(SNOW_DARK, dt);
+  setHazeTop(fog, SNOW_HAZE);
+  daylight.apply();
+}
+
 // The storm's one city-wide wetness, for the tyres (`groundWetAt`).
 let stormWet = 0;
 function applyWeather(dt = 0) {
+  if (snow) { applySnow(dt); return; }
   if (squall) { applySquall(dt); return; }
   if (!storm) return;
   const w = storm.update(dt);
@@ -1700,7 +1730,7 @@ for (const mesh of traffic.emissiveMeshes) markEmissive(mesh, mesh.userData.bloo
 if (litPanes) markEmissive(litPanes, 'window');
 // The taxi's own headlights and their cones, hung on its group so they ride the body. The group is
 // also what becomes the wreck (see `wreckShell` in sim/traffic.js), so they go dark while it is one.
-taxiHeadlights = rain.enabled ? createTaxiHeadlights() : null;
+taxiHeadlights = rain.enabled || snow ? createTaxiHeadlights() : null;
 if (taxiHeadlights) {
   taxiNow = () => traffic.taxi;
   setTaxiHeadlights(runningLevel);
@@ -1708,6 +1738,16 @@ if (taxiHeadlights) {
   markEmissive(taxiHeadlights.pods, 'pod');
 }
 if (lamps) markEmissive(lamps.heads, 'bay');
+// Every car's tyres in the snow, each frame (game/snow.js). Bridge decks are left clean: the map is
+// read at street level, and a deck is not.
+if (snow) {
+  const tracked = [traffic.taxi];
+  snowTracks = () => {
+    tracked.length = 1;
+    for (const car of traffic.cars) tracked.push(car);
+    snow.stamp(tracked, { airborne: airborneHeight, lift: (car) => deckHeightAt(car.x, car.z).y });
+  };
+}
 for (const mesh of cruisers.flatMap((c) => c.emissiveMeshes)) markEmissive(mesh, 'siren');
 if (ltrain?.lamps) markEmissive(ltrain.lamps, 'pod');
 // The landmarks name their own lit meshes (`LANDMARK.glow` in each module), the same list the
@@ -1738,6 +1778,7 @@ const controller = createCityCamera(aspect(), {
   target: shot?.target ?? [0, 0],
 });
 const { camera } = controller;
+snowCamera = camera;
 controller.update(aspect());
 
 // Below this viewport width the frustum is sized by height, so the city runs off both sides and
@@ -9277,6 +9318,8 @@ window.__taxi = {
   storm,
   /** The squall — its `cell`, `state`, `pin(v)`, `seek(t)`, `wetAt`, `rainAt`. Null unless `?squall`. */
   squall,
+  /** The snowstorm — `state`, `pin(v)`, `trackAt(x, z)`, `clearTracks()`. Null unless it is snowing. */
+  snow,
   /** The squall's falling leaves — `stats()`, `positions()`. Null with `?fall=off` or no squall. */
   leaves,
   /**

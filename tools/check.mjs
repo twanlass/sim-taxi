@@ -17,7 +17,7 @@ const BOOT = ['../src/game/scene.js', '../src/game/debugpanel.js', '../src/geome
   '../src/game/soundpins.js', '../src/game/phoneframe.js', '../src/game/quicktips.js', '../src/game/quicktips.js',
   '../src/game/dust.js', '../src/game/spray.js', '../src/game/blast.js', '../src/game/flyover.js', '../src/game/birds.js', '../src/game/ducks.js',
   '../src/city/blacktop.js', '../src/game/hoopers.js', '../src/game/tubeman.js', '../src/city/carwash.js', '../src/city/gasstation.js', '../src/city/skatepark.js', '../src/city/northpark.js', '../src/city/southshore.js', '../src/city/parkshore.js', '../src/game/harborships.js', '../src/game/skaters.js', '../src/game/skatersclassic.js',
-  '../src/game/clouds.js', '../src/geometry/cloud.js', '../src/game/rain.js', '../src/game/citylights.js', '../src/game/storm.js', '../src/game/squall.js',
+  '../src/game/clouds.js', '../src/geometry/cloud.js', '../src/game/rain.js', '../src/game/citylights.js', '../src/game/storm.js', '../src/game/squall.js', '../src/game/snow.js',
   '../src/game/cityentry.js', '../src/city/garage.js', '../src/game/opening.js',
   '../src/city/burgerjoint.js', '../src/game/drivethru.js',
   '../src/city/bank.js', '../src/game/robbery.js', '../src/game/radio.js', '../src/game/radiocue.js', '../src/game/race.js', '../src/geometry/raceflag.js',
@@ -78,6 +78,9 @@ const TOOLS = [
   // The passing lab at /lab/. Nothing else imports `src/lab/`, so without this the one page in
   // the project whose entire job is to be looked at could stop working silently.
   { name: 'lab',     args: ['tools/lab.mjs'],          pick: /(\d+\/\d+) checks passed/ },
+  // The snowstorm's tyre tracks are a CPU map: asked directly whether a driven street has a tread
+  // under each wheel and none between, and whether the snow fills it back in (game/snow.js).
+  { name: 'snow',    args: ['tools/snow.mjs'],         pick: /(\d+\/\d+) checks passed/ },
   // The model workshop at /workshop/, for the same reason: every model on its bench is built, so a
   // builder whose signature moved fails here rather than on the one model someone opened it for.
   { name: 'workshop', args: ['tools/workshop.mjs'],    pick: /(\d+\/\d+) checks passed/ },

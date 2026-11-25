@@ -1935,6 +1935,54 @@ Everything that was a level in the storm becomes a position here:
 
 History: [the wet map's first drying rate, and windows that wiped on](rendering-history.md#a-squall--the-default-weather-gamesqualljs).
 
+### A snowstorm — the holiday weather, `game/snow.js`
+
+**On for every run from 1 December to 6 January** by the device's date (`getSnow` in
+util/shot.js), in place of the squall; `?snow` forces it any day, `?snow=0.8` pins the cover, and
+`?snow=off` drops it. It stands down where the squall does (shot mode, safe mode, `?rain`/`?storm`)
+and for an explicit `?squall`. It is decided at boot because it is compiled in, so a Story day
+changing under Play again does not change the weather.
+
+Three parts, none of them geometry on the city:
+
+- **The cover** (`SNOW_UNIFORMS`/`SNOW_GLSL` in util/geo.js, `util/gpusnow.js` for WebGPU). One mix
+  on the diffuse colour of every lit `propMaterial()`, after the facade's courses, by how far the
+  screen-space face normal points up (absolute y, as the wet ground reads it): roofs, pavements,
+  lawns, crowns, ledges and streets all go white off the same lines. `uSnow.x` is the depth: two
+  octaves of noise make it patchy at half and solid past one. A run opens on 0.6 (it snowed
+  overnight) and builds by one per 150 s of full snowfall, to 1.1. Out of it: the vehicles (`gloss`),
+  which would wear the street's tracks on their roofs, and every body of water
+  (`userData.snow = false`, set by each patch in city/riverwater.js), because a white river reads as
+  a road.
+- **The tracks** (`stamp` in game/snow.js). A 512² byte map over `MAX_SPAN + 10` units, 0.27 a
+  texel, painted on the CPU where each car's four tyres rolled since the last frame (a 0.45-wide
+  tread, max-blended, so a lane driven twice is no deeper than once) and uploaded at most 12 times a
+  second. The cover reads it below y 0.3 to 0.6 and turns the snow there into dark slush: the street's
+  own colour at 62%, a third of the way to grey. A CPU map rather than a GPU render target because
+  it is one code path on both renderers, adds no render pass (the phone pays per draw call), and can
+  be asked what it holds (`trackAt`, tools/snow.mjs). Snowfall fills a track back in linearly over
+  `REFILL` 60 s, so the lanes in use stay carved and a quiet street goes white again. Crashed,
+  parked and airborne cars leave nothing, and a wheel that moved more than 4 units in a frame (a
+  respawn) draws no line. Bridge decks stay clean: a car on one is skipped, and the map is only read
+  at street level.
+- **The fall** (`flakes`). 9,000 soft round flakes, instanced quads placed wholly in the vertex
+  shader in a 140 × 45 × 140 box that wraps round the ground under the middle of the frame (the
+  rain's arrangement), falling at 3.4 u/s on a wind of (2.6, 1.3) and each swaying on its own cycle.
+  Gusts thin the fall to a flurry and back on two slow, unrelated sines (`state.fall`, 0.3 to 1),
+  dropping the flakes a gust does not need off the screen in the vertex shader. Display values like
+  the rain, dimmed with the light so a dusk flake is not a white dot. `game/gpusnowfall.js` is the
+  WebGPU twin.
+
+Around them: a pale, flat overcast grade (`grade`, the `snow*` palette entries; the sun at 55% and
+the fill at 115%, because snow light is soft and the ground throws it back), the haze at 0.3, the
+city's lights at a level of 0.3 so a few windows come on, the trees summer green unless `?fall` is
+given (snow on gold leaves reads as a mistake), and the grip: `GRIP` 0.65 at full cover, applied to
+every car's braking the way the rain's is, so traffic stays consistent and nobody runs a red.
+
+It costs less than the squall it replaces, which brings a second full render of the city for the
+mirror: the cover is a few ALU and one texture fetch per lit fragment, the flakes are one draw, and
+the map is ~0.3 ms of JS a few times a second to fill in (not yet timed on a phone).
+
 ### Autumn, and the leaves a squall strips — `autumnBase` in `city/props.js`, `game/leaves.js`
 
 The city is in autumn: about two thirds of the broadleaves have turned gold, orange or red, the

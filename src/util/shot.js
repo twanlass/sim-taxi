@@ -557,7 +557,8 @@ export function getWetTyres() {
  * Returns null when off, otherwise `{ pin }`.
  */
 export function getSquall(
-  fallback = !getSafeMode() && getActiveShot() === null && getRain() === null && getStorm() === null,
+  fallback = !getSafeMode() && getActiveShot() === null && getRain() === null && getStorm() === null
+    && getSnow() === null,
 ) {
   const raw = new URLSearchParams(window.location.search).get('squall');
   if (raw === null) return fallback ? { pin: null } : null;
@@ -586,7 +587,37 @@ export function getSunRaysClassic() {
  * so the switch moves no tree. The leaves are game/leaves.js.
  */
 export function getFall() {
-  return !isOff(new URLSearchParams(window.location.search).get('fall') ?? '');
+  const raw = new URLSearchParams(window.location.search).get('fall');
+  // Under snow the trees default to green: snow on gold reads as a mistake, snow on green as winter.
+  if (raw === null) return getSnow() === null;
+  return !isOff(raw);
+}
+
+/**
+ * The snowstorm (game/snow.js): the holiday weather. **On for every run from 1 December to
+ * 6 January** by the device's own date, in place of the squall. `?snow` forces it any day,
+ * `?snow=0.8` pins the cover that deep for a still frame, and `?snow=off` drops it. The season
+ * stands down where the squall does — shot mode, safe mode, `?rain`/`?storm` — and for an explicit
+ * `?squall`. Returns null when off, otherwise `{ pin }`.
+ */
+export const SNOW_SEASON = { from: [12, 1], to: [1, 6] };
+export function inSnowSeason(now = new Date()) {
+  const m = now.getMonth() + 1;
+  const d = now.getDate();
+  return (m === SNOW_SEASON.from[0] && d >= SNOW_SEASON.from[1]) || (m === SNOW_SEASON.to[0] && d <= SNOW_SEASON.to[1]);
+}
+export function getSnow() {
+  const params = new URLSearchParams(window.location.search);
+  const raw = params.get('snow');
+  if (raw !== null) {
+    if (isOff(raw)) return null;
+    const pin = Number(raw);
+    return { pin: raw !== '' && Number.isFinite(pin) ? Math.min(1.1, Math.max(0, pin)) : null };
+  }
+  const squall = params.get('squall');
+  if (getSafeMode() || getActiveShot() !== null || getRain() !== null || getStorm() !== null
+    || (squall !== null && !isOff(squall))) return null;
+  return inSnowSeason() ? { pin: null } : null;
 }
 
 /**

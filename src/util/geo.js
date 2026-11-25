@@ -5,6 +5,7 @@ import { bindPropNodes, PropLambertNodeMaterial } from './gpumaterial.js';
 import { bindPaint, PaintNodeMaterial } from './gpupaint.js';
 import { createCloudNodes } from './gpuclouds.js';
 import { createPaving } from './gpupaving.js';
+import { createSnowNodes } from './gpusnow.js';
 import { PALETTE, plazaLook } from '../palette.js';
 import {
   PITCH, HALF_SPAN_X, HALF_SPAN_Z, HALF_ROAD, HALF_ARTERIAL, GRID_I, GRID_J, LANE_TO_KERB, isArterialX, isArterialZ, RIVER_EXTRA,
@@ -918,6 +919,76 @@ export function setCloudShadows(enabled) {
 if (GPU) {
   let cloudLight = null;
   bindPropNodes({ clouds: () => (cloudsEnabled ? (cloudLight ??= createCloudNodes(CLOUD_UNIFORMS)) : null) });
+}
+
+/**
+ * Snow on the city (game/snow.js, where the reasoning lives). One multiply-and-mix on the diffuse
+ * colour of every `propMaterial()`: whatever faces up goes white, patchily while the cover is thin
+ * (`uSnow.x`), and at ground level the tyre-track map (`tSnowTracks`) cuts it back to dark slush
+ * where the cars have been. No geometry, no texture per surface: a roof, a lawn, a tree crown and a
+ * street all take it from the same few lines, which is the whole point of doing it here.
+ *
+ * - `uSnow`: x the cover, 0..~1.1; y 1 while the track map is live; z the side of the square of
+ *   ground the map covers, centred on the origin; w unused.
+ * - Faces are judged by the screen-space face normal (the material is flat-shaded anyway), and by
+ *   its absolute y, as the wet ground does: a face pointing down is never one the camera sees.
+ * - Out of it: the vehicles (`gloss`), which move and would wear the street's tracks, and the
+ *   water (`userData.snow = false`, set by every patch in city/riverwater.js).
+ *
+ * `util/gpusnow.js` is the WebGPU twin; keep the two in step.
+ */
+export const SNOW_UNIFORMS = {
+  uSnow: { value: new THREE.Vector4(0, 0, 160, 0) },
+  uSnowColor: { value: new THREE.Color(PALETTE.snowCover) },
+  // No tracks until game/snow.js hands its map over.
+  tSnowTracks: { value: (() => {
+    const t = new THREE.DataTexture(new Uint8Array([0, 0, 0, 255]), 1, 1);
+    t.needsUpdate = true;
+    return t;
+  })() },
+};
+let snowEnabled = false;
+export function setSnow(enabled) {
+  snowEnabled = enabled;
+}
+export const snowOn = () => snowEnabled;
+const SNOW_GLSL = /* glsl */ `
+uniform vec4 uSnow;
+uniform vec3 uSnowColor;
+uniform sampler2D tSnowTracks;
+float snowHash(vec2 p) {
+	p = fract(p * vec2(123.34, 456.21));
+	p += dot(p, p + 45.32);
+	return fract(p.x * p.y);
+}
+float snowNoise(vec2 p) {
+	vec2 i = floor(p);
+	vec2 f = fract(p);
+	f = f * f * (3.0 - 2.0 * f);
+	return mix(mix(snowHash(i), snowHash(i + vec2(1.0, 0.0)), f.x),
+		mix(snowHash(i + vec2(0.0, 1.0)), snowHash(i + vec2(1.0, 1.0)), f.x), f.y);
+}
+vec3 snowCover(vec3 base, vec3 w, float up) {
+	float face = smoothstep(0.5, 0.85, up);
+	float n = snowNoise(w.xz * 0.21) * 0.65 + snowNoise(w.xz * 1.3 + 7.0) * 0.35;
+	float amt = face * smoothstep(0.0, 0.12, uSnow.x * 1.15 - n * 0.9);
+	float low = 1.0 - smoothstep(0.3, 0.6, w.y);
+	float track = uSnow.y * low * texture2D(tSnowTracks, w.xz / uSnow.z + 0.5).r;
+	// The street a shade greyer than the kerb and the roofs, so the grid still reads before a car has
+	// carved it: trodden snow, not fresh.
+	float road = 1.0 - smoothstep(0.08, 0.2, w.y);
+	vec3 snow = uSnowColor * (0.93 + 0.07 * n) * (1.0 - road * (0.08 + 0.12 * n));
+	vec3 slush = mix(base * 0.7, uSnowColor * 0.5, 0.35);
+	return mix(base, mix(snow, slush, 0.9 * smoothstep(0.05, 0.8, track)), amt);
+}
+`;
+const SNOW_FRAGMENT = /* glsl */ `
+	diffuseColor.rgb = snowCover(diffuseColor.rgb, vSnowWorld,
+		abs(normalize(cross(dFdx(vSnowWorld), dFdy(vSnowWorld))).y));
+`;
+if (GPU) {
+  let nodes = null;
+  bindPropNodes({ snow: () => (snowEnabled ? (nodes ??= createSnowNodes(SNOW_UNIFORMS)) : null) });
 }
 
 /**
@@ -1975,15 +2046,40 @@ function patchProp(material, { ao = true, gloss = null } = {}) {
     + `${cloudsEnabled ? '-clouds' : ''}${painterlyEnabled ? '-paint10' : ''}`;
   // The painterly part is read when three asks, not now: the brush is tagged on the material after
   // `propMaterial()` returns (main.js `brush`), and it decides what compiles (see `paintPlan`).
+  // Snow is read when three asks too: the water opts out on the material after it is made.
+  const snowy = () => snowEnabled && !gloss && material.userData.snow !== false;
   material.customProgramCacheKey = painterlyEnabled
-    ? () => { const p = paintPlan(material); return `${key}-b${p.kind}${p.edge ? '-edge' : ''}${p.foot ? '-foot' : ''}`; }
-    : () => key;
+    ? () => { const p = paintPlan(material); return `${key}-b${p.kind}${p.edge ? '-edge' : ''}${p.foot ? '-foot' : ''}${snowy() ? '-snow' : ''}`; }
+    : () => `${key}${snowy() ? '-snow' : ''}`;
 
   material.onBeforeCompile = (shader) => {
     Object.assign(shader.uniforms, AO_UNIFORMS, SHADOW_UNIFORMS);
     if (cloudsEnabled) Object.assign(shader.uniforms, CLOUD_UNIFORMS);
     const paint = painterlyEnabled ? paintPlan(material) : null;
     if (paint) Object.assign(shader.uniforms, PAINT_UNIFORMS);
+    const snow = snowy();
+    if (snow) {
+      Object.assign(shader.uniforms, SNOW_UNIFORMS);
+      shader.vertexShader = shader.vertexShader
+        .replace('#include <common>', `#include <common>
+varying vec3 vSnowWorld;`)
+        .replace('#include <project_vertex>', `#include <project_vertex>
+	{
+		vec4 sw = vec4(transformed, 1.0);
+		#ifdef USE_INSTANCING
+		sw = instanceMatrix * sw;
+		#endif
+		vSnowWorld = (modelMatrix * sw).xyz;
+	}`);
+      shader.fragmentShader = shader.fragmentShader
+        .replace('#include <common>', `#include <common>
+varying vec3 vSnowWorld;
+${SNOW_GLSL}`)
+        .replace('#include <color_fragment>', `#include <color_fragment>
+${SNOW_FRAGMENT}`);
+      if (!shader.vertexShader.includes('vSnowWorld = (modelMatrix')) throw new Error('snow: vertex hook missed');
+      if (!shader.fragmentShader.includes('diffuseColor.rgb = snowCover')) throw new Error('snow: fragment hook missed');
+    }
     if (paint?.world) {
       shader.vertexShader = shader.vertexShader
         .replace('#include <common>', `#include <common>

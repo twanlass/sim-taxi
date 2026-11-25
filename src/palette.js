@@ -1448,6 +1448,16 @@ export const PALETTE = {
   rainSun: '#C9CCD2',
   rainHemiSky: '#9FB0C4',
   rainHemiGround: '#3A3F46',
+  // A snowstorm (game/snow.js). A brighter lid than the rain's: snow light is flat and pale, and
+  // the ground bounces more of it back up (`snowHemiGround` is the snow itself, seen from below).
+  snowSkyTop: '#8E9BAA',
+  snowSkyBottom: '#C9D1D9',
+  snowSun: '#E4E8EE',
+  snowHemiSky: '#B9C6D4',
+  snowHemiGround: '#9AA3AD',
+  // The cover itself, a touch blue of white so a sunlit roof does not clip to paper; and the flakes.
+  snowCover: '#E2E8EE',
+  snowFlake: '#F2F5F8',
   // The streaks and the crowns. Pale and a touch blue, never white: at 0.3 alpha over asphalt a
   // white streak reads as snow.
   rainStreak: '#C8D6E6',
