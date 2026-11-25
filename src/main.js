@@ -223,6 +223,7 @@ import { tap as haptic, setHapticPrefs } from './util/haptics.js';
 import { createSfx, DASH, MUSIC_FADE_AT_HINT } from './game/sfx.js';
 import { attachContextRecovery } from './game/recovery.js';
 import { isCityConnected, GRID_I, GRID_J, MAX_SPAN, lineX, lineZ } from './city/grid.js';
+import { installRoadPaint, createRoadBrush, brush as roadBrushState } from './game/roadpaint.js';
 import { cityNetwork } from './city/roadnet.js';
 import { PALETTE, color as paletteColor, roadsClassic } from './palette.js';
 import { createPerfBot } from './game/perfbot.js';
@@ -1820,6 +1821,14 @@ const debugMode = (() => {
   const params = new URLSearchParams(window.location.search);
   return !shot && (devMode || params.has('debug') || params.has('settings') || params.has('audio'));
 })();
+
+// The hand-painted road (game/roadpaint.js): the bake sized to this island before the first frame,
+// and in debug mode a map to paint into and the brush that paints it (⚙️ Visuals > Road paint).
+const roadPaintReady = installRoadPaint({ always: debugMode });
+const roadBrush = debugMode ? createRoadBrush({
+  camera, canvas: renderer.domElement, scene, active: () => roadBrushState.on,
+  onChange: () => debugPanel?.syncRoadPaint?.(),
+}) : null;
 
 /**
  * Freeze or free every fare's countdown. Three things hold it and any is enough: debug mode, for
@@ -9001,6 +9010,8 @@ if (shot) {
   // be in the state a run is actually played in, which is shut, the car long gone and the door
   // come down behind it.
   garage?.setDoor(0);
+  // The road paint bake decodes off the main thread; a still taken before it lands has no paint.
+  await roadPaintReady;
   renderFrame();
   if (wreckStep) window.__wreckStep = (frames = 1) => { wreckStep(frames); renderFrame(); };
   // A still cannot say whether steam billows, and shot mode never draws a second frame: this steps
@@ -9229,6 +9240,7 @@ if (!shot && wantsDebugPanel) {
     soundHolds,
     soundPlace,
     wreck: { styles: Object.keys(WRECK_STYLES), current: getWreckStyle(), set: blast.setStyle },
+    roadBrush,
   });
 }
 
@@ -9237,6 +9249,8 @@ window.__taxi = {
   unported,
   renderer: GPU ? 'webgpu' : 'webgl',
   gpuCapture: (options) => gpuCapture?.capture(options),
+  /** The road paint brush's settings (game/roadpaint.js): size, strength, channel, erase, on. */
+  roadBrush: roadBrushState,
   /** Move one lever of the street texture (ROAD_TEX in util/geo.js), as the panel does. */
   roadTex: tuneRoadTexture,
   /** The `?bot` scripted session, or null — `scene()` and `log` (game/perfbot.js). */

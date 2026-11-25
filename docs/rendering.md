@@ -1709,6 +1709,37 @@ keep their own colour. It costs +8.3% of a SwiftShader WebGL frame at phone size
 +6.2% before the pixel grid and the tone noise, +4.3% before the stains and grain); the same code
 runs as nodes on WebGPU (util/gpupaving.js).
 
+### The hand-painted road — `game/roadpaint.js`
+
+On top of the street texture, the road can be painted by hand (Tyler, 2026-11-25: "Make me a vertex
+paint tool for the road"). It is a **splat map, not vertex colour**: one RGBA texture laid over the
+whole island in world space at `PAINT_TEXEL` = 0.15, the pixel street's own texel, snapped to the
+same origin, so a painted texel is exactly one road pixel. The road's paint pass reads it at each
+pixel's centre and multiplies it in *before* the grey ramp, so a stroke comes out in the street's
+own pixels and greys. Four channels: dark, light, warm and cool (`ROAD_PAINT_LOOK` in util/geo.js
+says how far each goes; `uRoadPaintAmt` scales them live). Vertex paint at that detail would have
+meant cutting every road quad into 0.15-unit cells, millions of triangles where the ground is ~20k,
+for the same picture; this is one texture read on fragments the road shader already shades.
+
+- **Painting.** ⚙️ Visuals > Road paint (`?dev`). Tick Paint (or press **G**) and a left press on
+  the road paints instead of panning or picking; hold **Shift** to pan (Space is boost and B the
+  brake). **1-4** pick the channel, **E** or Alt erases, **[ ]** resize, **Cmd/Ctrl+Z** undoes
+  (30 strokes). Size, strength and hardness are sliders; a second Clear inside three seconds wipes it.
+- **Keeping it.** Every stroke autosaves to the browser (debug mode only, and it wins over the bake
+  on load until Revert to repo). **Save to repo** posts the bake to the dev server
+  (`tools/roadpaint-save.mjs`, loopback only), which writes `src/city/roadpaintbake.js` — commit that.
+  Away from a dev server, **Download** gives the same file.
+- **The bake** is the painted rectangle's raw RGBA, deflated (`CompressionStream`) and base64'd, with
+  its world corner, so it lands where it was painted on a city of any size. No PNG: a canvas
+  premultiplies alpha and would lose every colour under a zero cool channel. An empty bake costs
+  nothing: the texture stays 1x1 and the shader skips the read. A painted one is one texture of
+  ~880 x 1040 (3.7 MB on the GPU on the default city) and decodes asynchronously; shot mode waits for it.
+- It lives inside the street texture's branch, so `?roadtex=classic` shows no paint either, and it is
+  held off the lawns, the lane paint and the plaza like the texture, but *not* off bright asphalt:
+  sunlit road reads past the texture's 0.42 hold, and the first cut's strokes only showed in shadow. The paint is in
+  world coordinates, not tied to a seed: the street grid is the same in every city, so a stroke
+  stays on its street, but a segment one seed closes for a park is still painted in another.
+
 - **Light bridge decks.** Every crossing, fixed or lifting, wears one light pavement grey
   (`bridgeDeck`, `drawbridgeDeck`), so the river row reads as a different material rather than as
   more street; `bridgeTrim` went paler with it so the parapets still outline the deck.

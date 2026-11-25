@@ -10,7 +10,7 @@
  * The GLSL multiplies the finished pixel in display space; `paving(display, world)` takes and
  * answers a display-space colour, and the caller does the encode and decode around it.
  */
-import { abs, dot, exp2, float, floor, fract, If, length, min, mix, mod, select, sin, smoothstep, step, uniform, vec2, vec3 } from 'three/tsl';
+import { abs, dot, exp2, float, floor, fract, If, length, min, mix, mod, select, sin, smoothstep, step, texture, uniform, vec2, vec3, vec4 } from 'three/tsl';
 
 const LUMA = vec3(0.2126, 0.7152, 0.0722);
 
@@ -24,7 +24,7 @@ const noise = (p) => {
   return mix(mix(hash(i), hash(i.add(vec2(1, 0))), f.x), mix(hash(i.add(vec2(0, 1))), hash(i.add(vec2(1, 1))), f.x), f.y);
 };
 
-export function createPaving(U) {
+export function createPaving(U, LOOK) {
   const tex = uniform(U.uRoadTex.value);
   const texGrid = uniform(U.uRoadTexGrid.value);
   const fine = uniform(U.uRoadTexFine.value);
@@ -48,6 +48,9 @@ export function createPaving(U) {
     const t = smoothstep(float(0.5).sub(tune.z), float(0.5).add(tune.z), a.mul(0.7).add(b.mul(0.3))).sub(0.5).toVar();
     return vec2(t, t.mul(tune.y).add(c.sub(0.5).mul(0.6)));
   };
+  // The hand-painted road (game/roadpaint.js).
+  const paintBox = uniform(U.uRoadPaintBox.value);
+  const paintAmt = uniform(U.uRoadPaintAmt.value);
   const grid = uniform(U.uRoadGrid.value);
   const riverZ = uniform(U.uRiverZ.value);
   const art = uniform(U.uRoadArt.value);
@@ -106,7 +109,10 @@ export function createPaving(U) {
     });
     // The asphalt's colour variation (setRoadTexture in util/geo.js).
     const hold = float(1).sub(grassy).mul(float(1).sub(smoothstep(0.42, 0.7, lum))).mul(float(1).sub(plaza)).toVar();
-    If(tex.x.add(tex.y).add(tex.z).greaterThan(0).and(abs(world.y).lessThan(0.1)).and(hold.greaterThan(0)), () => {
+    // The painted road ignores the brightness hold (PAINT_FRAGMENT says why).
+    const pHold = select(dot(paintAmt, vec4(1)).greaterThan(0), float(1).sub(grassy).mul(float(1).sub(plaza)), float(0)).toVar();
+    const pMask = float(0).toVar();
+    If(tex.x.add(tex.y).add(tex.z).greaterThan(0).and(abs(world.y).lessThan(0.1)).and(hold.max(pHold).greaterThan(0)), () => {
       // The pixel street (setRoadPixels in util/geo.js): every layer read at its texel's centre.
       const pix = step(1e-4, pixel.x).toVar();
       const texel = pixel.x.max(1e-4);
@@ -139,11 +145,22 @@ export function createPaving(U) {
         ratio.mulAssign(g1.sub(0.5).mul(0.6).mul(float(1).sub(pix)).add(g2.sub(0.5).mul(0.4)).mul(fine.y).mul(2).add(1));
         ratio.mulAssign(float(1).sub(stain.mul(vec3(0.9, 1.0, 1.15))));
       });
+      // The splat map, as in PAINT_FRAGMENT. An explicit level 0: a plain sample is a derivative,
+      // and WGSL refuses one inside this branch (non-uniform control flow).
+      If(dot(paintAmt, vec4(1)).greaterThan(0), () => {
+        const puv = wq.sub(paintBox.xy).mul(paintBox.zw).toVar();
+        const inside = step(0, puv.x).mul(step(0, puv.y)).mul(step(puv.x, 0.9999)).mul(step(puv.y, 0.9999));
+        const pm = texture(U.tRoadPaint.value, puv.clamp(0, 1)).level(0).mul(paintAmt).mul(inside).toVar();
+        pMask.assign(pm.r.max(pm.g).max(pm.b.max(pm.a)).clamp(0, 1));
+        ratio.mulAssign(float(1).sub(pm.r.mul(LOOK.dark)).mul(pm.g.mul(LOOK.light).add(1)));
+        ratio.mulAssign(mix(vec3(1), vec3(...LOOK.warm), pm.b));
+        ratio.mulAssign(mix(vec3(1), vec3(...LOOK.cool), pm.a));
+      });
       If(pix.greaterThan(0.5), () => {
         const lv = ratio.r.add(ratio.g).add(ratio.b).div(3).toVar();
         ratio.mulAssign(floor(lv.div(pixel.y).add(0.5)).mul(pixel.y).div(lv.max(1e-3)));
       });
-      out.mulAssign(mix(vec3(1), ratio, hold));
+      out.mulAssign(mix(vec3(1), ratio, hold.max(pMask.mul(pHold))));
     });
     return out;
   };

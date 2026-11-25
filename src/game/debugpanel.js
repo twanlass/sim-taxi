@@ -18,6 +18,10 @@ import {
 import { buildAudioSections } from './audiopanel.js';
 import { attachQuickTips } from './quicktips.js';
 import { wallGrainOn, wallGrainTuning } from '../city/wallgrain.js';
+import {
+  brush as paintBrush, CHANNELS as PAINT_CHANNELS, setPaintAmount, paintAmount, undoRoadPaint, clearRoadPaint,
+  encodeRoadPaint, bakeSource, revertRoadPaint, hasLocalPaint,
+} from './roadpaint.js';
 
 // A small tweak panel behind a gear button.
 //
@@ -124,6 +128,8 @@ export function createDebugPanel({
   soundPlace = () => null,
   // The wreck fireball's cut — `{ styles, current, set }` over game/blast.js's WRECK_STYLES.
   wreck = null,
+  // The road paint brush (game/roadpaint.js), or null outside debug mode.
+  roadBrush = null,
   // The 🖥 / 📱 switch beside the search (game/phoneframe.js), or null for no switch.
   phoneFrame = null,
 }) {
@@ -1120,6 +1126,101 @@ export function createDebugPanel({
     code.value = JSON.stringify(changed());
   }
 
+  // --- Road paint -------------------------------------------------------------
+  // The brush over the splat map (game/roadpaint.js). Ticking "Paint" turns a left press on the
+  // road into a stroke instead of a pan or a pick; Shift held lets a press pan again. The painting
+  // autosaves to this browser after every stroke; Save to repo writes city/roadpaintbake.js through
+  // the dev server, which is what ships.
+  let syncRoadPaint = () => {};
+  if (roadBrush) {
+    heading('Road paint');
+    const syncs = [];
+    const on = document.createElement('input');
+    on.type = 'checkbox';
+    on.checked = paintBrush.on;
+    row(panel, 'Paint (G)', on);
+    on.addEventListener('change', () => { paintBrush.on = on.checked; roadBrush.sync(); });
+    syncs.push(() => { on.checked = paintBrush.on; });
+
+    const channel = dropdown(PAINT_CHANNELS.map((c, i) => `${i + 1} ${c}`), `${paintBrush.channel + 1} ${PAINT_CHANNELS[paintBrush.channel]}`);
+    row(panel, 'Channel (1-4)', channel);
+    channel.addEventListener('change', () => { paintBrush.channel = channel.selectedIndex; });
+    syncs.push(() => { channel.selectedIndex = paintBrush.channel; });
+
+    const erase = document.createElement('input');
+    erase.type = 'checkbox';
+    row(panel, 'Erase (E / Alt)', erase);
+    erase.addEventListener('change', () => { paintBrush.erase = erase.checked; });
+    syncs.push(() => { erase.checked = paintBrush.erase; });
+
+    // key, label, min, max, step
+    for (const [key, label, min, max, step] of [
+      ['size', 'Size ([ ])', 0.15, 12, 0.05],
+      ['strength', 'Strength', 0.02, 1, 0.01],
+      ['hardness', 'Hardness', 0, 1, 0.01],
+    ]) {
+      const input = slider(min, max, step, paintBrush[key]);
+      const value = row(panel, label, input);
+      const show = () => { input.value = String(paintBrush[key]); value.textContent = paintBrush[key].toFixed(2); };
+      input.addEventListener('input', () => { paintBrush[key] = Number(input.value); show(); });
+      show();
+      syncs.push(show);
+    }
+    PAINT_CHANNELS.forEach((name, c) => {
+      const input = slider(0, 2, 0.01, paintAmount(c));
+      const value = row(panel, `${name} amount`, input);
+      const show = () => { value.textContent = paintAmount(c).toFixed(2); };
+      input.addEventListener('input', () => { setPaintAmount(c, Number(input.value)); show(); });
+      show();
+    });
+
+    const status = document.createElement('div');
+    status.className = 'dbg-wide';
+    const say = (text) => { status.textContent = text; };
+    say(hasLocalPaint() ? 'Showing this browser\'s painting (not yet saved to repo).' : 'Showing the repo bake.');
+    const button = (label, fn) => {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.textContent = label;
+      b.addEventListener('click', fn);
+      return b;
+    };
+    const tools = document.createElement('div');
+    tools.className = 'dbg-wide';
+    const sourceNow = async () => bakeSource(await encodeRoadPaint());
+    tools.append(
+      button('Undo', () => { undoRoadPaint(); }),
+      button('Clear', () => { if (confirmClear()) clearRoadPaint(); }),
+      button('Save to repo', async () => {
+        say('Saving…');
+        try {
+          const res = await fetch('/__roadpaint', { method: 'POST', body: await sourceNow() });
+          // The dev server reloads the page once the bake changes, so this line may not be seen.
+          say(res.ok ? 'Saved to src/city/roadpaintbake.js — commit it.' : `Save refused (${res.status}). Use Download.`);
+        } catch { say('No dev server here. Use Download and send the file over.'); }
+      }),
+      button('Download', async () => {
+        const url = URL.createObjectURL(new Blob([await sourceNow()], { type: 'text/javascript' }));
+        Object.assign(document.createElement('a'), { href: url, download: 'roadpaintbake.js' }).click();
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+      }),
+      button('Revert to repo', async () => { await revertRoadPaint(); say('Showing the repo bake.'); }),
+    );
+    panel.append(tools, status);
+    // A second press inside a few seconds clears: no modal dialog, which would stall the page.
+    let clearArmed = 0;
+    function confirmClear() {
+      if (performance.now() - clearArmed < 3000) return true;
+      clearArmed = performance.now();
+      say('Press Clear again to wipe the whole road.');
+      return false;
+    }
+    syncRoadPaint = () => {
+      syncs.forEach((f) => f());
+      if (hasLocalPaint()) say('Showing this browser\'s painting (not yet saved to repo).');
+    };
+  }
+
   // --- Clouds -----------------------------------------------------------------
   // Every one of these is a judgement about a whole frame and none of them can be made from the
   // numbers, which is the same argument the haze sliders above are here for — with one extra reason
@@ -1707,6 +1808,7 @@ export function createDebugPanel({
 
   return {
     panel, toggle, snapshot, showSound,
+    syncRoadPaint: () => syncRoadPaint(),
     audioFocus: () => audio?.focused() ?? null,
     setPlace: (key, part, value, done) => audio?.setPlace(key, part, value, done),
   };
@@ -1734,7 +1836,7 @@ const TAB_KEY = 'dbg-tab';
  */
 const TABS = [
   ['Audio', ['Audio', 'Engine sound', 'Sounds', 'Music', 'Audio export']],
-  ['Visuals', ['Light', 'Car finish', 'Bloom', 'CRT', 'Colour grade', 'Street texture', 'Haze', 'Clouds', 'Building grain', 'City entrance']],
+  ['Visuals', ['Light', 'Car finish', 'Bloom', 'CRT', 'Colour grade', 'Street texture', 'Road paint', 'Haze', 'Clouds', 'Building grain', 'City entrance']],
   ['Game', ['Game', 'Loco Mode', 'Loco weave', 'Restart to apply', 'Scores', 'Export']],
 ];
 const tabOf = (title) => TABS.find(([, titles]) => titles.includes(title))?.[0] ?? 'Game';
