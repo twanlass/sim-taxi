@@ -1471,10 +1471,14 @@ with a car within 30 units ahead (`OVERTAKE_ARM_RANGE`) pulls out into the oncom
 flick to its right tucks back in (`flickLane` in `game/steer.js`, read by the pass block in
 `sim/traffic.js` as `taxi.stickLane`). Out is out until the player says otherwise. No Loco and no
 leader are needed to stay there, and tucking in level with a car is the player's call. With no car
-ahead, a flick left is still the left turn, which keeps one gesture from meaning two things most of
-the time. The one case it can't tell apart is a car ahead *and* a left wanted at the corner, where
-it overtakes. While out, the taxi goes straight and a queued turn waits. A junction ahead with no
-straight on brings it back in by itself. The Loco blip no longer throws anything. Only the grace
+ahead, a flick left is just the left turn. With a car ahead it is told apart by how long the stick
+stays there. A flick only pulls out, and holding past 250 ms (`FLICK_HOLD_MS`) queues the left turn
+as well. Out in the oncoming lane, a turn is taken from that lane. The offset rides the arc, easing
+between the two roads' widths across the turn so an arterial-to-side-street corner doesn't step
+sideways, and it fades on the lane after the corner, so the turn ends the pass. The first cut kept
+an out taxi going straight and swallowed a left flick, and Tyler found it "messing up turns". A T
+ahead doesn't refuse the pass either. The stick only needs an oncoming lane to borrow. The Loco
+blip no longer throws anything. Only the grace
 for a newly caught car is kept, so holding Loco behind a car in lane still rams it once that grace
 runs out. `?stickpass=classic` keeps the blip.
 

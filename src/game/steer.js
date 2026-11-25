@@ -34,6 +34,10 @@ import { cityNetwork } from '../city/roadnet.js';
 import { opposite, rightOf, leftOf } from '../city/grid.js';
 import { OVERTAKE_ARM_RANGE } from './overtake.js';
 
+// How long a push that pulled out (or tucked in) has to stay held to be the turn as well, in ms. A
+// thumb's flick is out and back in well under this; a turn is held.
+const FLICK_HOLD_MS = 250;
+
 // How far a finger has to travel before the gesture counts as a swipe, in CSS pixels. Fired on the
 // move that crosses it rather than on lift, so a turn queued late in the run-up still lands.
 export const SWIPE_MIN_PX = 22;
@@ -161,18 +165,21 @@ export function createSteer({ dom, taxi, toScreen, canSteer = () => true, onQueu
   // The stick (game/joystick.js) names a street direction outright. Held, it is re-asserted every
   // frame in `update`, so it keeps meaning "that way" through corners.
   let held = null;
-  // A push spent on the lane, not on the map: held, it is not re-asserted as a turn.
+  // A push spent on the lane, not on the map: a flick. Held past FLICK_HOLD_MS it becomes the turn
+  // as well, so one gesture is both — a flick pulls out (or tucks in), a hold turns.
   let consumed = false;
+  let consumedAt = 0;
 
   /**
    * A flick to the taxi's own left with a car within OVERTAKE_ARM_RANGE ahead pulls out round it;
    * a flick to its right while out tucks back in. Only on a lane or a straight crossing, where the
-   * pass is decided. Out, a flick left again is swallowed rather than queued as a left turn — the
-   * taxi is in the wrong lane for one. True when the push was the lane's.
+   * pass is decided. True when the push was the lane's.
    *
-   * "Left around a car" with no car ahead is still the turn, which is what keeps one gesture from
-   * meaning two things most of the time; the case it cannot tell apart is a car ahead *and* a left
-   * wanted at the corner, where it overtakes.
+   * "Left around a car" with no car ahead is the turn. With a car ahead it is both, told apart by
+   * how long the stick stays there: a flick only pulls out, and a hold past FLICK_HOLD_MS queues the
+   * left turn too (`update`). The first cut made the flick the overtake *instead of* the turn and
+   * kept an out taxi going straight, and Tyler found it "messing up turns" — so out in the oncoming
+   * lane a push left is a turn like any other, taken from that lane.
    */
   function flickLane(dir) {
     if (!laneFlick || !canSteer()) return false;
@@ -180,7 +187,7 @@ export function createSteer({ dom, taxi, toScreen, canSteer = () => true, onQueu
     if (!straightOn) return false;
     if (taxi.stickLane === 'out') {
       if (dir === rightOf(taxi.d)) { taxi.stickLane = 'in'; return true; }
-      return dir === leftOf(taxi.d);
+      return false;
     }
     if (dir === leftOf(taxi.d) && (taxi.passGap ?? Infinity) < OVERTAKE_ARM_RANGE) {
       taxi.stickLane = 'out';
@@ -202,6 +209,7 @@ export function createSteer({ dom, taxi, toScreen, canSteer = () => true, onQueu
     if (dir !== held) {
       if (dir != null) swipes += 1;
       consumed = dir != null && flickLane(dir);
+      if (consumed) consumedAt = performance.now();
     }
     held = dir;
     if (!consumed) pushDir(dir);
@@ -248,18 +256,20 @@ export function createSteer({ dom, taxi, toScreen, canSteer = () => true, onQueu
       if (laneFlick) taxi.stickLane = 'in';
       return;
     }
-    const out = taxi.stickLane === 'out';
+    // Held past a flick, the push that pulled out (or tucked in) is the turn too.
+    if (consumed && held != null && performance.now() - consumedAt > FLICK_HOLD_MS) consumed = false;
     if (held != null && !consumed) pushDir(held);
-    else if (!out) retake(queued);
+    else retake(queued);
     const at = decisionLane(taxi);
     // Spent: the car is heading the way that was queued. A queue that has come to point backwards
     // (the car turned the other way through a corner) can never be taken, so it goes too.
     if (at && (queued === at.d || queued === opposite(at.d))) setQueue(null);
-    // Out in the oncoming lane the taxi carries straight on and the queued turn waits for it to
-    // tuck back in. A junction ahead with no straight on brings it back in by itself, so it never
-    // takes a corner from the wrong side of the road.
-    if (out && at && !exitDirs(at.lane).includes(at.d)) taxi.stickLane = 'in';
-    const plan = steerPlan(taxi, taxi.stickLane === 'out' ? null : queued);
+    // Out in the oncoming lane, a corner is taken from there: the offset rides the arc (frozen
+    // through a corner, sim/traffic.js) and fades on the lane after it, so the turn ends the pass.
+    if (taxi.stickLane === 'out' && taxi.state === 'turn' && taxi.turn?.hand !== 'straight') {
+      taxi.stickLane = 'in';
+    }
+    const plan = steerPlan(taxi, queued);
     taxi.route = plan.route;
     taxi.routeConsumed = false;
     if (plan.route.length) taxi.parked = false;

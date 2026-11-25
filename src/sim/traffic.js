@@ -6404,8 +6404,11 @@ export function createTraffic(
       // is in front; in, behind a car with Loco held, it rams — as with the combo unthrown — once
       // the grace for a newly caught car is spent.
       const stickLane = taxi.stickLane;
+      // The stick only needs a lane to borrow: the pass is free to end in a corner, taken from the
+      // oncoming lane (game/steer.js), so a T ahead does not refuse it the way it refuses the combo.
+      const stickRoom = Boolean(net.laneByGrid(opposite(roadD), roadI, roadJ));
       taxi.canPass = stickLane !== undefined
-        ? gap !== undefined && ((stickLane === 'out' && room) || taxi.passGrace === true)
+        ? gap !== undefined && ((stickLane === 'out' && stickRoom) || taxi.passGrace === true)
         : (locoHeld || taxi.passPending === true) && gap !== undefined
           && (room || asking)
           && (taxi.passArmed !== false || taxi.passing || asking);
@@ -6445,7 +6448,7 @@ export function createTraffic(
         const decides = taxi.state === 'drive' || (taxi.state === 'turn' && taxi.turn?.hand === 'straight');
         if (decides) {
           const was = taxi.passing;
-          taxi.passing = stickLane === 'out' && room;
+          taxi.passing = stickLane === 'out' && stickRoom;
           if (taxi.passing && !was) {
             taxi.passTarget = leader ?? null;
             if (leader) taxi.overtakes += 1;
@@ -6577,7 +6580,24 @@ export function createTraffic(
       // on a divided arterial against ~32 on a side street), which the boost speed and the
       // straight-on gate below already give it. Read after the decision, so a dodge's first frame
       // swings by its own latched lateral rather than the lane's.
+      // A corner taken from the oncoming lane on the stick (game/steer.js) holds its offset through
+      // the arc, and the two roads can be different widths — an arterial's swing is 6.67 to a side
+      // street's 4 — so it eases from one to the other across the turn. Read the exit road's swing
+      // from 60% round instead, as the combo's corner pull-out does, and the taxi jumped 2.56 units
+      // sideways on the frame it switched.
+      const stickCorner = taxi.stickLane !== undefined && taxi.dodgeLateral == null
+        && taxi.state === 'turn' && taxi.turn && taxi.turn.hand !== 'straight' && taxi.pass > 0;
+      let stickLateral = null;
+      if (stickCorner) {
+        const exitLane = net.laneById.get(taxi.turn.outLane);
+        const [ei, ej] = gridOf(net, exitLane.to);
+        const from = passLateralOn(taxi);
+        const to = 2 * laneOffsetFor(net.dirOfLane(exitLane), ei, ej);
+        const u = Math.min(Math.max(taxi.turnT, 0), 1);
+        stickLateral = from + (to - from) * u * u * (3 - 2 * u);
+      }
       const passLateral = taxi.dodgeLateral
+        ?? stickLateral
         ?? (cornerLane ? 2 * laneOffsetFor(roadD, roadI, roadJ) : passLateralOn(taxi));
       const passFade = PASS_FADE * (Math.abs(passLateral) / PASS_LATERAL);
       const step = Math.sign(delta) * Math.min(Math.abs(delta), ds / passFade);
@@ -7436,8 +7456,11 @@ export function createTraffic(
             // ...except the taxi still out of its lane from a pass, whose route wanted a corner here.
             // It carries straight on (below, with the unrouted taxi) and main.js re-plans — see
             // `turnsAhead` in the pass block for why the pass was allowed to start at all.
-            if (routed && car === taxi && car.pass > 0 && routed.hand !== 'straight'
-              && options.some((o) => o.hand === 'straight' && !closedLanes.has(o.outLane))) {
+            // Not on the stick: there a corner from the oncoming lane is the player's to take (Tyler,
+            // 2026-11-24: "Why not just support turning left even when in the oncoming lane?"), and
+            // the frozen offset rides the arc and fades on the lane after it.
+            if (routed && car === taxi && car.pass > 0 && car.stickLane === undefined
+              && routed.hand !== 'straight' && options.some((o) => o.hand === 'straight' && !closedLanes.has(o.outLane))) {
               car.route.length = 0;
               car.detoured = true;
               routed = null;

@@ -16,7 +16,7 @@ import { intersectionCentre, ARRIVE_RADIUS } from '../src/game/fares.js';
 import { steerPlan, readSwipe, decisionLane, exitDirs } from '../src/game/steer.js';
 import { RIGHT, UP, VIEW_DIR } from '../src/game/camera.js';
 import { snapStick } from '../src/game/joystick.js';
-import { DIR } from '../src/city/grid.js';
+import { DIR, leftOf } from '../src/city/grid.js';
 
 let passed = 0;
 let failed = 0;
@@ -188,6 +188,42 @@ for (let t = 0, phase = 'wait'; t < 120; t += STEP) {
 }
 check('stick out pulls the taxi fully into the oncoming lane', outAt !== null);
 check('stick in tucks it back', backAt !== null);
+
+// Out in the oncoming lane, a left is taken from there (Tyler: "Why not just support turning left
+// even when in the oncoming lane?"), and the pass ends on the lane after the corner. The path has to
+// stay a path: no frame jumps further than the car can drive, which a frozen offset folding the
+// arc over itself would.
+let leftsFromOut = 0;
+let leftsTried = 0;
+let worstJump = 0;
+let backAfter = 0;
+let crashedOut = false;
+let backwards = 0;
+for (let t = 0, phase = 'wait', want = null, px = taxi.x, pz = taxi.z; t < 240 && leftsFromOut < 6; t += STEP) {
+  drive((at) => (phase === 'turning' ? want : null));
+  const step = Math.hypot(taxi.x - px, taxi.z - pz);
+  worstJump = Math.max(worstJump, step - taxi.v * STEP);
+  // An offset bigger than the arc's radius folds the path back on itself: the car runs backwards.
+  if (step > 1e-4 && ((taxi.x - px) * Math.cos(taxi.yaw) - (taxi.z - pz) * Math.sin(taxi.yaw)) < -0.25 * step) backwards += 1;
+  px = taxi.x; pz = taxi.z;
+  if (taxi.crashed) { crashedOut = true; break; }
+  const at = decisionLane(taxi);
+  if (phase === 'wait' && taxi.state === 'drive' && taxi.s < 2 && at
+    && exitDirs(at.lane).includes(leftOf(at.d))) {
+    taxi.stickLane = "out"; want = leftOf(at.d); phase = "turning"; leftsTried += 1;
+  } else if (phase === 'turning' && taxi.state === 'turn' && taxi.turn.hand !== 'straight') {
+    if (taxi.dOut === want && taxi.pass > 0.9) leftsFromOut += 1;
+    taxi.stickLane = 'in'; phase = 'after';
+  } else if (phase === 'after' && taxi.state === 'drive') {
+    if (taxi.pass <= 0.01) { backAfter += 1; phase = 'wait'; }
+  }
+}
+check(`out in the oncoming lane, the left is taken from there (${leftsFromOut}/${leftsTried})`,
+  leftsFromOut >= 4 && leftsFromOut >= leftsTried - 1);
+check('and the pass ends on the lane after the corner', backAfter >= leftsFromOut - 1, `${backAfter}`);
+check('a corner from the oncoming lane never runs backwards', backwards === 0, `${backwards} frames`);
+check('a corner from the oncoming lane never jumps', worstJump < 0.3 && !crashedOut,
+  `${worstJump.toFixed(2)} units${crashedOut ? ', crashed' : ''}`);
 taxi.stickLane = undefined;
 
 console.log(`steered trips: mean ${(total / Math.max(1, arrived)).toFixed(1)}s`);
