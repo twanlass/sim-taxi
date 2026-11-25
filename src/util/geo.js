@@ -459,6 +459,9 @@ export function placeJunctionPaving(rng, visible = () => true) {
 // Cost, tools/gpucost.mjs at 780x1688 on SwiftShader's WebGL, against main: 897 ms to 952 ms a frame,
 // +6.2% (the painted strokes it stands where were about a third). It was +4.3% with the runs, wear
 // and mottle alone: the stains and the two grain octaves are the other 2%. No texture read.
+// Measured again as shipped on 2026-11-25 (pixel grid, tone noise, no wear, no cracks), the same
+// tool with renderer=classic against that day's main, two runs each: 630 ms to 682 ms, +8.3%.
+// Still not timed on a phone.
 // 0.11 of wear ruled a dark comb up to every junction at play zoom while it was the only detail
 // on the road; with the stains and the grain breaking it up it reads as ruts, and is 0.13.
 //

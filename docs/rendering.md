@@ -1687,7 +1687,8 @@ its box holds the changed values as JSON to copy out or paste in. A look worth k
 
 Held off the lane paint, the lawns, the plaza and (like the plaza) a road that is already bright,
 which is the wet road at night. The asphalt patches and manhole covers are their own meshes and
-keep their own colour. It costs +6.2% of a SwiftShader WebGL frame at phone size (+4.3% before the stains and grain); the same code
+keep their own colour. It costs +8.3% of a SwiftShader WebGL frame at phone size as shipped (630 ms to 682 ms against main, 2026-11-25;
++6.2% before the pixel grid and the tone noise, +4.3% before the stains and grain); the same code
 runs as nodes on WebGPU (util/gpupaving.js).
 
 - **Light bridge decks.** Every crossing, fixed or lifting, wears one light pavement grey
