@@ -101,8 +101,18 @@ const ENTRY_VERTEX = `#include <begin_vertex>
 	vEntryFade = smoothstep(0.0, ${f(FADE_IN)}, eT);`;
 
 export function createCityEntry({
-  meshes, objects = [], sites = [], dust = null, from = { x: 0, z: 0 },
+  meshes, objects = [], sites = [], dust = null, from = { x: 0, z: 0 }, enabled = true,
 } = {}) {
+  // Off by default (`?entry=classic` in main.js turns it on): the city is simply there. Nothing is
+  // patched, stamped attributes go unread, and no transparent variant is warmed, which is where the
+  // boot saving comes from. Same interface, so every caller's `running()` guard just reads false.
+  if (!enabled) {
+    const levers = { wave: WAVE, jitter: JITTER, grow: ENTRY_DUR, overshoot: OVERSHOOT, dust: 1 };
+    return {
+      update() {}, settle() {}, replay() {}, tune() {},
+      tuning: () => ({ ...levers }), running: () => false, time: () => 0,
+    };
+  }
   // One clock, shared by reference into every patched shader — Three reads `.value` at draw time,
   // the same way the AO uniforms fan out from one bag in util/geo.js. The origin travels the same
   // way, so `replay` can re-aim the wave without touching a single compiled program.

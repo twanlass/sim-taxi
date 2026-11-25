@@ -19,6 +19,7 @@ doc; what the classic version was, and why it changed, is in that doc's history 
 |---|---|---|---|
 | `?streets=classic` | 8-unit streets, the width they were before 2026-10-17. The default is 9. Blocks keep their size, so the map shrinks with the streets. Headless tools take `STREETS=` | | [city.md](city.md#street-width-streets) |
 | `?river=classic` | The 12-unit river, the width it was before 2026-10-18. The default is 15 (25% wider); the blocks keep their size, so the map is 3 units taller. `?city=big` keeps the 12-unit river either way. Headless tools take `RIVER=classic` | | [river.md](river.md#the-channel-is-wider-than-a-block-row-riverclassic) |
+| `?nodememo=classic` | Turns off the memoised type queries in three's node builder, so a WebGPU boot builds its ~310 node graphs the slow way (~12.6 s to `taxi:ready` headless against ~9.0 s; same WGSL either way). For A/B timing | | [rendering.md](rendering.md) |
 | `?mirrorwarm=classic` | Skips drawing the wet road's mirror during the boot warm-up, so the first squall builds the mirror pass's pipelines mid-run (a 3.2 s freeze on an iPhone 16 Pro under WebGPU) as it did before 2026-11-23. For A/B timing on a device | | [testing.md](testing.md) |
 | `?fadewarm=classic` | Skips warming the faded (transparent) program variants at boot, so the first fade of a rider, a boat or the roadworks links its shader mid-run as it did before 2026-11-22. For A/B timing on a device | | [testing.md](testing.md) |
 | `?bridges=classic` | The island's old four crossings: both ring roads and the L's line bridged beside the drawbridge. The default (2026-10-18) is three: fixed bridges one line in from each coast and the drawbridge between them. `?city=big` is unaffected. Headless tools take `BRIDGES=classic` | | [river.md](river.md#which-crossings-bridge) |
@@ -28,6 +29,7 @@ doc; what the classic version was, and why it changed, is in that doc's history 
 | `?westedge=classic` | No high rises past the west ring road: the island ends at the old west coast. Headless tools take `WESTEDGE=classic` | #510 | [city.md](city.md#the-west-edge-high-rises-default-westedgeclassic-to-drop-them) |
 | `?westcorner=classic` | No mid-rises in the northwest corner: open asphalt between the west edge and the north park, which keeps its old west strip and feather. Headless tools take `WESTCORNER=classic` | | [city.md](city.md#the-west-edge-high-rises-default-westedgeclassic-to-drop-them) |
 | `?edgefog=classic` | The island feathering into the sky, with no fog bank round it. Headless tools take `EDGEFOG=classic` | | [rendering.md](rendering.md#the-island-edge--gameedgefogjs-citygroundjs) |
+| `?fogshade=classic` | The fog bank round the island as one flat near-white colour, with no sunlit or shaded sides and no warm and cool stretches. Headless tools take `FOGSHADE=classic` | | [rendering.md](rendering.md#the-fog-of-war--gameedgefogjs) |
 | `?horizon=classic` | The bare edge of the map: no city carrying on past the west towers and the north park, the ground fading straight into the sky. Headless tools take `HORIZON=classic` | | [rendering.md](rendering.md#past-the-edge-of-the-map--cityhorizonjs) |
 | `?parkdrive=classic` | No arched drives round statues in the north park's wall | | [city.md](city.md) |
 | `?parkshore=classic` | The harbor's seawall curling west and stopping at the north park's corner, instead of running on north beside it. Headless tools take `PARKSHORE=classic` | #512 | [river.md](river.md#the-park-shore) |
@@ -47,6 +49,7 @@ doc; what the classic version was, and why it changed, is in that doc's history 
 | `?trainfade=classic` | The L's deck dithering out over the taxi as well as over the fare pins, instead of staying solid and leaving the taxi to its ghost outline | | [city.md](city.md#the-elevated-train-on-by-default-ltrainclassic-to-compare) |
 | `?trainlights=classic` | The L's deck without its lamps | #489 | [city.md](city.md) |
 | `?trainintro=classic` | The L without its own intro | #494 | [city.md](city.md) |
+| `?entry=classic` | The city grows out of the ground in a wave from the taxi when a run opens (and the L lays its track), instead of standing from the first frame | | [rendering.md](rendering.md#the-city-entrance--gamecityentryjs) |
 | `?depot=classic` / `=model` | The depot's wrench sign / a 3D taxi on its roof (default is the neon cutout) | #479 | [city.md](city.md) |
 | `?signflames=classic` | The depot's cutout taxi without its tailpipe and painted flame (default: a static hot-rod flame cut from board off the tail) | | [city.md](city.md#the-roof-sign-and-what-is-derived-from-it) |
 | `?depotneon=classic` | No blue neon tube round the depot's roofline (default traces the two visible faces under the coping, like the burger joint's) | | [city.md](city.md#the-livery) |
@@ -112,6 +115,7 @@ doc; what the classic version was, and why it changed, is in that doc's history 
 | `?eject=classic` | The wrecked taxi's driver appearing full size in the air above the bonnet and fading in, instead of squeezing out through the windscreen | | [traffic.md](traffic.md) |
 | `?poptext=classic` | The flying prices, combo words, checkpoints and race count with their old soft drop shadow instead of the speech card's dark outline | | [gameplay.md](gameplay.md#economy) |
 | `?rerun=classic` | Play again and Quit reload the page (a new city, and the whole load again) instead of resetting the run on the same page | | [gameplay.md](gameplay.md#play-again) |
+| `?rerunentry=classic` | Play again grows the city out of the ground again (the entrance wave and the L's track) instead of opening on the city already standing | | [gameplay.md](gameplay.md#play-again) |
 | `?playagain=classic` | The run-end card ending on the yellow Play again pill instead of a pulsing "Tap to continue" (tap anywhere to play again) | | [gameplay.md](gameplay.md#the-polaroid) |
 | `?musicfade=classic` | The music fading over 1.5s as the run-end card appears, instead of playing under the stats and fading over 2.5s once "Tap to continue" comes up | | [audio.md](audio.md) |
 | `?statcount=classic` | The run-end stats' old pace: each value fades in with its label and rolls in 0.34s, in yellow, instead of appearing after the label lands and counting for 0.46s in white | | [gameplay.md](gameplay.md#the-polaroid) |
@@ -134,7 +138,7 @@ doc; what the classic version was, and why it changed, is in that doc's history 
 | `?bubblestyle=card` | The docked speech card as the white Figma card with its blue gradient | | [gameplay.md](gameplay.md#speech-bubbles) |
 | `?questmark=classic` | No purple side-quest "!": the street racer's offer shows the speech tag's typing dots ("…"), the garage door has no "!" while the taxi smokes, and the bank rider waits under the urgency pie | | [gameplay.md](gameplay.md#speech-bubbles) |
 | `?tipfocus=classic` | A speech tag waiting at the screen edge takes no tap; the racer's still asks from where it is, and nothing pans the camera to the talker | | [gameplay.md](gameplay.md#speech-bubbles) |
-| `?hail=classic` | The first tutorial line as a "Tip" ("Pick up rider to start") rather than the rider hailing the cab ("Hey taxi! Over here!") | | [gameplay.md](gameplay.md#the-opening-tutorial) |
+| `?hail=classic` | The first tutorial line as a "Tip" ("Pick up rider to start") rather than the rider hailing the cab ("Hey! Taxi!") | | [gameplay.md](gameplay.md#the-opening-tutorial) |
 | `?bubbles=dock` | The docked card with no tag on the talker | | [gameplay.md](gameplay.md#speech-bubbles) |
 | `?copchat=classic` | The cops' "pull over" and "lost the suspect" bubbles | #492 | [gameplay.md](gameplay.md) |
 | `?renderer=classic` | Draws with three's WebGLRenderer and the GLSL shader patches, as the game did before the WebGPU port. Also what a browser with no WebGPU gets, without being asked | | [rendering.md](rendering.md#the-webgpu-port) |
