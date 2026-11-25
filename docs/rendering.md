@@ -1632,7 +1632,7 @@ things break the run of tarmac. `?roads=classic` brings back the old road and dr
   metal"). `jointParts` (geometry/bridge.js): two dark steel plates with a row of interlocking fingers
   between them, 0.4 deep across the carriageway on the road side of each bank, on the gloss material
   with the paint finish. Metal and chrome were tried first and mirror the sky: on a flat plate under
-  this camera they read as a pale blue line, not dark steel. Kept to three pixels at play zoom because
+  this camera they read as a pale blue line, not dark steel. The plates are mid steel (`bridgeSteel`) and the slots near black: plates as dark as the asphalt disappeared at whichever end stood in sun. Kept to three pixels at play zoom because
   the painted joints before it (a dark strip and a pale approach slab) read as a chunky crossing band
   and were turned off on 2026-10-25; `?bridgemarks=classic` brings those back, and `?markings=classic`
   takes the steel away ([history](rendering-history.md#bridge-expansion-joints)).

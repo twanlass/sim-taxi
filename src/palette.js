@@ -1225,8 +1225,12 @@ export const PALETTE = {
   asphaltSeal: '#050506',
   bridgeApproach: '#C4C0B6',
   // The steel finger joint that replaced them (2026-11-25, Tyler: "a little transition ... a shiny
-  // dark metal"): dark steel plates on the gloss material, the slots between the fingers near black.
-  bridgeSteel: '#2C3035',
+  // dark metal"): steel plates on the gloss material, the slots between the fingers near black.
+  // The plates first went down at #2C3035 and vanished at whichever end was in sun: lit dark steel
+  // lands on the lit asphalt's own value, so only the end in shadow showed (Tyler: "why is one side
+  // so much darker"). Mid steel keeps the plates lighter than the road in sun and shade alike, and
+  // the near-black slots carry the dark.
+  bridgeSteel: '#6E747C',
   bridgeSteelSlot: '#121417',
 
   // --- Boats ----------------------------------------------------------------
