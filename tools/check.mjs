@@ -151,6 +151,13 @@ try {
         || THREE.UniformsUtils.clone(THREE.ShaderLib.lambert.uniforms).edgeFog.value !== fog.edgeFogUniform) {
         throw new Error('edgefog: a built-in shader does not share the one fog uniform');
       }
+      // The bank's sun (FOG_SHADE): the same by-reference rule, or the lit sides freeze facing
+      // wherever the sun was on the first frame.
+      if (fog.FOG_SHADE && (THREE.ShaderLib.standard.uniforms.edgeFogSun?.value !== fog.edgeFogSun
+        || THREE.UniformsUtils.clone(THREE.ShaderLib.lambert.uniforms).edgeFogSun.value !== fog.edgeFogSun
+        || !THREE.ShaderChunk.fog_fragment.includes('edgeFogSun'))) {
+        throw new Error('edgefog: the fog bank\'s sun is not shared by every built-in shader');
+      }
       if (fog.FOG_START <= -LANE_TO_KERB) throw new Error(`edgefog: FOG_START ${fog.FOG_START} reaches the outer lane`);
     }
   }

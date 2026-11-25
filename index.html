@@ -1864,6 +1864,19 @@
         display: inline-block; color: #FFC93C;
         -webkit-text-stroke: 3.5px #121318; paint-order: stroke fill;
       }
+      /* A picture in the line — "{:robotaxi}" in its source, game/speech.js `INLINE_ICONS`. Sized off
+         the type so it reads as a word (the PNG is 72px tall, a 3x phone's worth at this size), sat
+         a little under the baseline the way an emoji sits, and popped in when the typing reaches
+         it: up from small with an overshoot, the callout's spring. */
+      .speech-icon img {
+        display: inline-block; height: 1.3em; width: auto; vertical-align: -0.3em;
+        margin: -0.1em 0; pointer-events: none;
+      }
+      .speech-icon.is-said img { animation: speech-icon-pop 0.42s cubic-bezier(0.34, 1.56, 0.64, 1) both; }
+      @keyframes speech-icon-pop {
+        from { transform: scale(0.3) translateY(0.2em); opacity: 0; }
+        to { transform: none; opacity: 1; }
+      }
       .speech-hl.is-said { animation: speech-hl-wiggle 0.5s cubic-bezier(0.34, 1.56, 0.64, 1); }
       @keyframes speech-hl-wiggle {
         0% { transform: none; }
@@ -1958,7 +1971,7 @@
       }
       @keyframes speech-quest-hop { 0%, 55%, 100% { transform: none; } 20% { transform: translateY(-2.5px) rotate(-6deg); } 38% { transform: translateY(0.5px) rotate(3deg); } }
       @media (prefers-reduced-motion: reduce) {
-        .speech-tag i, .speech-tag b, .speech-hl.is-said, #radio-cue .speech-hl.is-said, .speech-style-white.speech-liquid .speech-card { animation: none; }
+        .speech-tag i, .speech-tag b, .speech-hl.is-said, .speech-icon.is-said img, #radio-cue .speech-hl.is-said, .speech-style-white.speech-liquid .speech-card { animation: none; }
         .speech-docked > .speech > .speech-body, .speech-docked.is-open > .speech > .speech-body,
         .speech-docked.is-closing > .speech > .speech-body, .speech-tag-body { transform: none; }
       }

@@ -1258,6 +1258,28 @@ What the WebGPU path draws today, and what it does not:
   rewrites every var that is written once and read only after it, in the same block, as a `let`
   (not counted: it is not storage), on every shader three builds; the busiest is then 580 bytes and
   the frame is pixel-identical. Anything it cannot prove stays a var.
+- **Most of a WebGPU boot is three writing WGSL, and most of that is one uncached question.**
+  A CPU profile of a headless boot (2026-11-24) put ~70% of it inside `NodeBuilder.build`, ~310
+  builds, and the hottest single function in the boot was `getTypeLength` — the leaf of
+  `getNodeType`, which no node caches and which an operator answers by asking all its inputs, so a
+  node deep in a lit material is asked once per path down to it. `util/nodememo.js` memoises it
+  during `analyze` and `generate` (not `setup`, where a node's answer can still change), keyed on
+  the stage, shader stage, node cache, context and sub-build, plus the pure type-name helpers; and
+  `util/wgsllets.js` remembers each rewrite by its source. Measured with `tools/boottime.mjs`:
+  12.6 s to 9.0 s headless, 247 modules byte-identical. `?nodememo=classic` turns it off.
+- **On a real Mac the GPU is cheap until it has never seen the shaders.** Measured on an M5 in
+  Chrome with the real Metal adapter (headless Chrome on a Mac gets it; 2026-11-24): a cached boot
+  reaches `taxi:ready` in ~2.1 s, about 70% of it node building, with pipeline creation ~0.16 s.
+  A boot of shaders the Mac has never compiled took ~10 s, and clearing the browser profile does
+  not reproduce that: macOS keeps compiled Metal shaders per app, outside Chrome, in
+  `$(getconf DARWIN_USER_CACHE_DIR)/<bundle>.helper/com.apple.metal`. Two things learned there:
+  - A material must not grow an enumerable property while it builds. three's material cache key
+    walks every own property not starting with `_`, so `PaintNodeMaterial` assigning
+    `this.paintNodes` in setup re-keyed itself and every later draw of it built again — 28 builds
+    and 10 shader modules a boot. It is `_paintNodes` now.
+  - `createRenderPipelineAsync` for the warm-up's pipelines was tried and made a never-seen boot
+    **slower** (7.5-11 s against 3.8-4.9 s, Chrome for Testing with its Metal cache cleared each
+    run) with no change to a cached one, so the warm-up still builds them synchronously.
 
 Things the WebGL renderer does without being asked, each of which showed up as a wrong
 picture and each of which the node path now does by hand:
@@ -2383,6 +2405,16 @@ there under the fog, and what `?city=big` shows, since the fog is island-only.
   (`FOG_WARP`, up to 16 units of bend). The first cut slid one layer along one heading, which reads as
   a texture on a conveyor; the warp is what makes a billow swell, curl and pinch off instead. All of it
   stays outward-only, so the motion never brings the fog onto the road.
+- **Mixed in linear light, with an unshaded rim.** Tyler, 2026-11-25: an "awkward seam between
+  the end of the pavement road and the clouds" — the south coast read as the road casting a blurred
+  shadow onto the bank. Two causes, both fixed. The bank's own mix ran on display values, so the
+  ramp from asphalt to fog spent most of its width in a dark olive grey (155/255 half way across,
+  against 190 mixed in linear); it now converts both ends to linear, mixes, and converts back (the
+  haze above it does not, since every haze colour was picked against display values). And the edge
+  is an iso-line of the same noise the [weather](#the-fog-of-war--gameedgefogjs) shading reads, so
+  stepping from it toward a northern sun always climbs the field: the whole near rim sat on a
+  shaded flank, a lavender band hugging the coast. The shading now fades in over `FOG_SHADE_IN`
+  units past `FOG_END`, and the rim sits at `FOG_RIM_LIT`, a touch on the lit side.
 - **A sloped top.** The distance is taken minus 1.1 × the fragment's height, so the outermost
   buildings' roofs stand up out of the bank rather than being washed flat with their own pavement.
 - **A floor for it to swallow.** Past the coast there is nothing to fog, so a plain plane sits at
@@ -2390,7 +2422,21 @@ there under the fog, and what `?city=big` shows, since the fog is island-only.
   It is what stands in for the sky everywhere past the island.
 - **Colour follows the sky.** `daylight.js` calls `setEdgeFogSky` on every keyframe: the dome's
   horizon colour lifted 45% toward white, so it greys under rain and darkens at night with no wiring
-  of its own. The noise shades it ±10% so the bank has bodies in it.
+  of its own.
+- **Weather in the bank.** Tyler, 2026-11-24: the fog "reads as just pure white". The bank is lit
+  like a cloud layer: the coarse billow field is read a second time a step toward the sun
+  (`FOG_LIGHT_STEP`), and where it climbs that way the fragment is on a billow's shadowed flank,
+  the one-sample version of how a cloud renderer lights a density field. Lit sides go a touch cream
+  and shaded ones blue-lavender (`FOG_SHADE_LIT/DARK`), crests stay brighter than hollows
+  (`FOG_BODY`), and the warp field, already computed to bend the billows, tints whole stretches
+  warmer or cooler (`FOG_REGION_*`). Every tint *multiplies* the fog's own colour, so dusk, rain and
+  night keep their hue. The sun direction and strength come from `daylight.js` through a second
+  shared plain-object uniform, `edgeFogSun` (`setEdgeFogSun`), so the lit sides agree with the
+  city's shadows, swing round with the day and fade out at night. Cost: one extra value-noise read,
+  on fogged fragments only. `?fogshade=classic` (`FOGSHADE=classic` headless) puts back the flat
+  bank ([history](rendering-history.md#the-flat-white-fog-bank-557-until-2026-11-24-fogshadeclassic)).
+  The marketing site's page colour is this fog's, and the bank's mean now sits a few levels
+  bluer at the frame edges than the flat colour did.
 - **Sim time** drives it (`tickEdgeFog`), so a paused game holds its fog still and shots repeat;
   `__taxi.edgeFogAt(seconds)` sets the clock and redraws, for filming the drift from a frozen shot.
 - **No city in the fog.** A ring of pale towers standing in the bank to the west and north was
@@ -4923,7 +4969,14 @@ of four](rendering-history.md#car-motion).
 
 ### The city entrance — `game/cityentry.js`
 
-**Prototype.** When a run opens, the streets and ground are already in place and the buildings and
+**Off by default** (Tyler, 2026-11-25): the city is standing from the first frame and the run opens
+on the garage door. `?entry=classic` brings the wave back, along with the L's own intro (bents
+rising, track laid), which rides its levers. Off, no material is patched at all: measured headless
+under WebGPU (seed 7, 3 runs each) that is 25 fewer shader modules (247 to 222) and ~0.8 s off
+`taxi:ready` (11.0 to 10.2 s median). The ⚙️ panel's City entrance sliders do nothing without it.
+Everything below describes the wave as it runs under `?entry=classic`.
+
+When a run opens, the streets and ground are already in place and the buildings and
 trees grow out of them in a wave that spreads from the taxi's spawn — the run starts where the
 player's car is, and the city builds itself outward from them. Each object rises from the kerb
 while it fades in, overshoots its full size (easeOutBack, peak +37%) and settles, with a puff of

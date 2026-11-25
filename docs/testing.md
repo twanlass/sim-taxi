@@ -105,6 +105,7 @@ node tools/alloc.mjs 6000 110                 # bytes of garbage per simulated f
 node tools/links.mjs --url http://localhost:5173   # shaders compiled *during* a run
 node tools/perf.mjs --url http://localhost:5173    # draws/tris per pass, JS per frame (counts exact, times not)
 node tools/gpucost.mjs --flags msaa=off ao=off     # whole-frame draw cost per flag set, GPU included (relative)
+node tools/boottime.mjs --runs 3 --compare 'nodememo=classic' ''   # WebGPU boot to taxi:ready, and same-shaders check
 node tools/smoke.mjs --url http://localhost:4173   # real browser, real DOM
 node tools/native-smoke.mjs --url http://localhost:4173   # the iOS fork, both ways
 ./shots.sh                                    # render the screenshot set
@@ -126,6 +127,18 @@ the wrong reason. And **both probes spoof an iPhone UA**, because `game/homescre
 most important assertion in the file passes against a completely broken build.
 
 Like `smoke.mjs`, it needs a browser and a served bundle, so it is not in `npm run check`.
+
+### How long the boot takes — `boottime.mjs`
+
+`boottime.mjs` boots the production bundle under headless WebGPU, a fresh browser and profile per
+run, pinned to one city, and prints the `?perf` startup marks and the median `taxi:ready`. With
+`--compare A B` it boots two query strings interleaved and also checks that both handed
+`createShaderModule` the same WGSL, module for module — the test for any change meant to make
+three's node builder faster without changing what it writes (`util/nodememo.js`). Headless WebGPU is
+SwiftShader, so read the split and the difference, not the absolute seconds: the boot is mostly
+JavaScript (three building node graphs), which a desktop core runs at about desktop speed, but a
+phone's own number needs `?perf` on the phone. Measured 2026-11-24 (390 × 844, seed 7, three runs
+each): 12.6 s with `?nodememo=classic`, 9.0 s without, 247 identical modules.
 
 ### The two performance tools
 
