@@ -1923,6 +1923,8 @@ const cityEntry = createCityEntry({
 // The L's intro runs on the city entry's wave and levers, but on its own clock, since the track
 // is still being laid after the last building has landed.
 const replayLTrainIntro = (from) => ltrain?.intro?.start(from, cityEntry.tuning());
+// Play again opens on the standing city; `?rerunentry=classic` grows it again every run (see `rerun`).
+const RERUN_ENTRY = new URLSearchParams(window.location.search).get('rerunentry') === 'classic';
 replayLTrainIntro(traffic.taxi);
 if (litPanes || lamps || depotPanes) {
   rainLightsOn = () => {
@@ -7133,11 +7135,16 @@ function resetRun({ toTitle = false } = {}) {
     sfx?.offAir();
     title.reopen();
   } else {
-    // The top of the show: the station on its intro, the city building out from the garage, the door.
+    // The top of the show: the station on its intro and the door. The city is already standing, so
+    // a replay opens straight on the garage rather than building the city out of the ground a
+    // second time (Tyler, 2026-11-25): the wave is a first-load flourish, and on run two it was two
+    // seconds of waiting before the door. `?rerunentry=classic` builds it again, L track and all.
     sfx?.newRun({ dash: dashRadio });
     opening?.cutToDoor();
-    cityEntry.replay(traffic.taxi);
-    replayLTrainIntro(traffic.taxi);
+    if (RERUN_ENTRY) {
+      cityEntry.replay(traffic.taxi);
+      replayLTrainIntro(traffic.taxi);
+    }
   }
   updateHud(0);
   perfMark('rerun:end');

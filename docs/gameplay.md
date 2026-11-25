@@ -4651,9 +4651,16 @@ chance to put a name on the run.
 `rerun`/`resetRun` in `src/main.js`. **Play again starts the next run on the same page**, and Quit
 goes back to the title the same way: under a wipe (`RERUN_HOLD_MS` of black), every system the run
 touched is put back the way the boot left it, the opening vignette is staged again, and the run
-starts inside the garage with the city's entrance wave building outward from it — the shot a fresh
-load opens on. Quit does the same reset and puts the title menu back up instead, with the station
-off the air until Play (`sfx.offAir`) and no entrance wave.
+starts inside the garage, the camera on the door, with the city **already standing**: the entrance
+wave (buildings and trees growing out of the ground, the L's track being laid) is a first-load
+flourish and does not replay. Quit does the same reset and puts the title menu back up instead, with
+the station off the air until Play (`sfx.offAir`).
+
+Play again used to replay the wave from the garage, the shot a fresh load opens on; on the second
+run it was two seconds of watching the same city build before the door could open (Tyler,
+2026-11-25). `?rerunentry=classic` brings it back. It was never a load or caching cost: the replay
+reuses the programs and pipelines the first run built, so cutting it saves only the wave's own
+seconds of transparent drawing.
 
 It used to be `location.reload()`, and that threw the GPU context away with the page: the replay
 paid the whole load again, the city rebuilt and every shader linked and pipeline warmed. Measured
