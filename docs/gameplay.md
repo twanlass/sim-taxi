@@ -1482,6 +1482,16 @@ blip no longer throws anything. Only the grace
 for a newly caught car is kept, so holding Loco behind a car in lane still rams it once that grace
 runs out. `?stickpass=classic` keeps the blip.
 
+**The stick leans the taxi.** How far the thumb is pushed *across* the taxi, read against the
+taxi's own left on screen, leans it across its lane by up to 0.6 units (`NUDGE_MAX` in
+`sim/traffic.js`), and the nose points where it is sliding. Tyler wanted "a little bit of tap and
+wiggle from the joystick would feed into... the motion" so that steering stops feeling on rails. It
+is paced by road distance like the weave (2.5 units to close most of the gap, about 0.3 s at
+cruise), so a car stopped at a red doesn't slide. It is frozen through a junction, and it is a
+render offset only, so stop lines, following distance and turns are unchanged. The room comes from
+the weave's budget: a side street's lane leaves about 1.1 between the body and the line, and the
+weave peaks at 0.52.
+
 **Landscape.** A phone held sideways keeps the portrait phone's scale, 844 px for `2 * PLAY_ZOOM`
 units (`landscapeFit` in `main.js`), so the extra width is more city on each side and not a smaller
 one. It also pans and follows like a phone. Before this, the frustum's 104 units of height were

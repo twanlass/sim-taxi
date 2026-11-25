@@ -80,6 +80,14 @@ const SWERVE_PHASE2 = 1.7;    // offset so the two waves don't start out in step
 // Units of road over which the weave fades in and out with the boost. Paced by distance, like
 // the weave itself, so releasing the button at a red doesn't drift the parked car straight.
 const SWERVE_FADE = 7;
+// The stick's nudge (game/steer.js): the thumb's sideways push, felt as the taxi leaning across its
+// lane. Tyler, 2026-11-24: "a little bit of tap and wiggle from the joystick would feed into a little
+// bit of the motion and movement of the taxi... to create that connection". Room budget as the weave's:
+// a side street's lane leaves ~1.1 between the body and the line, the weave peaks at 0.52, so the
+// nudge gets the rest. Paced by distance like everything else here, so a car held at a red does not
+// slide; NUDGE_EASE units of road to close most of the gap — ~0.3s at cruise.
+const NUDGE_MAX = 0.6;
+const NUDGE_EASE = 2.5;
 
 /**
  * The Loco Mode weave, as a function of distance driven straight (`u`, world units). Returns the
@@ -3741,6 +3749,7 @@ export function stageCar(car, x, z, yaw) {
   car.parked = false;
   car.stalled = false;
   car.lateral = 0;
+  car.nudge = 0;
   car.steer = 0;
   car.pass = 0;
   car.passing = false;
@@ -5762,7 +5771,17 @@ export function createTraffic(
       }
 
       const wave = locoWeave(taxi.swervePhase);
-      taxi.lateral = taxi.swerve * wave.lateral;
+      // The stick's nudge, + toward the centreline like every lateral here. Frozen through a
+      // junction, like the weave, so a corner ends on the offset it started on.
+      let nudgeSlope = 0;
+      if (taxi.state === 'drive') {
+        const ds = taxi.v * dt;
+        const want = Math.max(-1, Math.min(1, taxi.stickNudge ?? 0)) * NUDGE_MAX;
+        const before = taxi.nudge ?? 0;
+        taxi.nudge = before + (want - before) * Math.min(1, ds / NUDGE_EASE);
+        nudgeSlope = ds > 1e-4 ? (taxi.nudge - before) / ds : 0;
+      }
+      taxi.lateral = taxi.swerve * wave.lateral + (taxi.nudge ?? 0);
 
       // Point where it is sliding. Without a yaw offset the car crabs — translating sideways
       // across the road while still aimed straight down it — and that is what read as broken
@@ -5771,7 +5790,7 @@ export function createTraffic(
       // nothing to divide by v here: atan(0.40·k1 + 0.12·k2) ≈ 12° at the peak, against the 13°
       // the old lane change held. Mid-corner the yaw belongs to the arc, so the weave's share of
       // it eases out; the 0.1s ease is only so the wheel straightens instead of snapping.
-      const slope = taxi.state === 'drive' ? taxi.swerve * wave.slope : 0;
+      const slope = taxi.state === 'drive' ? taxi.swerve * wave.slope + nudgeSlope : 0;
       taxi.steer += (Math.atan(slope) - taxi.steer) * Math.min(1, dt / 0.1);
     }
 

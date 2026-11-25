@@ -37,7 +37,7 @@
 // Grid direction vectors (DIR: PX, PZ, NX, NZ).
 const DIR_VEC = [[1, 0], [0, 1], [-1, 0], [0, -1]];
 // How far the knob travels, and how far it has to go before it says anything, in CSS pixels.
-const KNOB_TRAVEL = 34;
+export const KNOB_TRAVEL = 34;
 const DEAD_ZONE = 12;
 // How far past a border a held push has to go before the stick changes its mind, in radians.
 const HOLD_MARGIN = (15 * Math.PI) / 180;

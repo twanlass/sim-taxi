@@ -226,6 +226,22 @@ check('a corner from the oncoming lane never jumps', worstJump < 0.3 && !crashed
   `${worstJump.toFixed(2)} units${crashedOut ? ', crashed' : ''}`);
 taxi.stickLane = undefined;
 
+// --- 5. The stick's nudge -----------------------------------------------------------------------
+// The thumb's sideways push leans the taxi across its lane, paced by road: full lean within a few
+// units, never more than NUDGE_MAX, back to the middle when let go, and no slide while stopped.
+let peakNudge = 0;
+let leaned = false;
+for (let t = 0; t < 30; t += STEP) {
+  taxi.stickNudge = t < 4 ? 1 : 0;
+  drive(() => null);
+  peakNudge = Math.max(peakNudge, Math.abs(taxi.nudge));
+  if (t > 1 && t < 4 && taxi.state === 'drive' && taxi.v > 3 && taxi.nudge > 0.5) leaned = true;
+}
+check('a sideways push leans the taxi across its lane', leaned, `peak ${peakNudge.toFixed(2)}`);
+check('the lean never passes NUDGE_MAX', peakNudge <= 0.6 + 1e-6, peakNudge.toFixed(3));
+check('let go, it settles back to the middle', Math.abs(taxi.nudge) < 0.05, taxi.nudge.toFixed(3));
+taxi.stickNudge = 0;
+
 console.log(`steered trips: mean ${(total / Math.max(1, arrived)).toFixed(1)}s`);
 console.log(`${passed}/${passed + failed} checks passed`);
 process.exit(failed ? 1 : 0);

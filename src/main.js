@@ -198,7 +198,7 @@ import { createCashTrail } from './game/cashtrail.js';
 import { setCityOccluders, sightlineClear } from './game/sightline.js';
 import { createBootleg, COMBO_GAP_MS as BOOTLEG_GAP_MS } from './game/bootleg.js';
 import { createSteer, decisionLane } from './game/steer.js';
-import { createJoystick } from './game/joystick.js';
+import { createJoystick, KNOB_TRAVEL as STICK_TRAVEL } from './game/joystick.js';
 import { createSteerLine } from './game/steerline.js';
 import { createSteerTip } from './game/steertip.js';
 import { createOvertakeCombo, OVERTAKE_GRACE } from './game/overtake.js';
@@ -7762,6 +7762,19 @@ function tick() {
   // The steered taxi's one-step route, from the turn the player has queued — read by this very
   // `traffic.update` at the hold line.
   steer?.update();
+  // The stick's nudge: how far the thumb is pushed across the taxi rather than along it, read
+  // against the taxi's own left on screen (sim/traffic.js leans it across its lane by that much).
+  if (stick) {
+    const v = stick.vector();
+    const t = traffic.taxi;
+    let nudge = 0;
+    if (v && v.len > 0 && steerLive()) {
+      const left = steerToScreen(-Math.sin(t.yaw), -Math.cos(t.yaw));
+      const ll = Math.hypot(left.x, left.y) || 1;
+      nudge = ((v.dx * left.x + v.dy * left.y) / (v.len * ll)) * Math.min(1, v.len / STICK_TRAVEL);
+    }
+    t.stickNudge = nudge;
+  }
   traffic.update(dt);
   if (traffic.taxi.overtakes > overtakesFelt) {
     overtakesFelt = traffic.taxi.overtakes;
