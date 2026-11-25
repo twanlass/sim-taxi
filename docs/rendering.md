@@ -1442,7 +1442,9 @@ hard-edged square. `?pixel=classic` is the smooth frame at the full Quality reso
   dither rounds R, G and B different ways on a flat colour and scatters it into coloured dots. It
   runs in the frame's last pass, after the occlusion and the bloom so their gradients dither too:
   the occlusion composite on WebGPU, the CRT's copy pass on WebGL (which runs for the dither alone
-  with the CRT off). `?dither=classic` is smooth colour, `?ditherlevels=` the step count.
+  with the CRT off). 20% of the smooth shade is blended back in (`DITHER_STRENGTH` 0.8) to soften
+  the checker. `?dither=classic` is smooth colour, `?ditherlevels=` the step count,
+  `?ditherstrength=` the blend.
 - **The HUD is DOM** and stays sharp.
 
 ## The CRT screen — `game/crt.js`

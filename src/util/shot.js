@@ -791,6 +791,12 @@ export function getDither(fallback) {
   return Number.isFinite(levels) ? Math.max(2, Math.min(32, levels)) : fallback;
 }
 
+/** `?ditherstrength=` (0 to 1): how much of the dither's step is kept, or `fallback`. */
+export function getDitherStrength(fallback) {
+  const v = Number.parseFloat(new URLSearchParams(window.location.search).get('ditherstrength'));
+  return Number.isFinite(v) ? Math.max(0, Math.min(1, v)) : fallback;
+}
+
 /** `off` / `0` / `false` — the spelling every switch above takes. */
 function isOff(raw) {
   return raw === 'off' || raw === '0' || raw === 'false';

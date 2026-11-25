@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { DITHER_GLSL } from './dither.js';
+import { DITHER_GLSL, DITHER_STRENGTH } from './dither.js';
 
 /**
  * The CRT screen — on by default, `?crt=classic` for the clean frame. Ported from Grog
@@ -79,6 +79,7 @@ uniform float uAberration;
 uniform float uAperture;
 uniform float uFlicker;
 uniform float uDither;
+uniform float uDitherStrength;
 varying vec2 vUv;
 
 vec2 crtCurve(vec2 uv) {
@@ -139,7 +140,7 @@ ${DITHER_GLSL}
  * @param dither    the pixel look's steps per channel (game/dither.js), 0 for none. With the CRT
  *                  off the pass still runs for it, every CRT term at zero.
  */
-export function createCrt(renderer, { enabled = true, still = false, dither = 0 } = {}) {
+export function createCrt(renderer, { enabled = true, still = false, dither = 0, ditherStrength = DITHER_STRENGTH } = {}) {
   const state = { enabled, ...CRT_DEFAULTS };
   const screenOn = enabled;
   if (!enabled && dither <= 1) {
@@ -158,6 +159,7 @@ export function createCrt(renderer, { enabled = true, still = false, dither = 0 
     uAperture: { value: 0 },
     uFlicker: { value: 0 },
     uDither: { value: dither > 1 ? dither : 0 },
+    uDitherStrength: { value: ditherStrength },
   };
   const screen = new THREE.Scene();
   const screenCam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);

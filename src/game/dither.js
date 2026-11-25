@@ -24,7 +24,7 @@
  * alone when the CRT is off. The pattern is fixed to the art pixels of the *screen*, and the camera
  * snap keeps the city fixed to them too, so a static wall's dither holds still while the camera pans.
  */
-import { abs, clamp, dot, floor, float, min, mod, screenCoordinate, vec3, vec4 } from 'three/tsl';
+import { abs, clamp, dot, floor, float, min, mix, mod, screenCoordinate, vec3, vec4 } from 'three/tsl';
 
 /**
  * Brightness steps. 12 puts a fine checker on the asphalt and the walls and a clear ramp in the
@@ -32,10 +32,20 @@ import { abs, clamp, dot, floor, float, min, mod, screenCoordinate, vec3, vec4 }
  */
 export const DITHER_LEVELS = 12;
 
+/**
+ * How much of the stepped brightness is kept: the rest is the smooth shade blended back in, which
+ * shrinks the checker's contrast without moving its pattern. 1 is the full step between the two
+ * levels a pixel dithers across; 0.8 at Tyler's ask (2026-11-24, "a little too contrasted").
+ */
+export const DITHER_STRENGTH = 0.8;
+
 /** Steps per unit of each chroma axis (YCoCg), rounded with no dither. */
 export const CHROMA_STEPS = 64;
 
-/** The GLSL, for a fragment with `col` (display rgb) in scope and a `uDither` uniform (0 off). */
+/**
+ * The GLSL, for a fragment with `col` (display rgb) in scope, a `uDither` uniform (steps, 0 off)
+ * and a `uDitherStrength` uniform (`DITHER_STRENGTH`).
+ */
 export const DITHER_GLSL = /* glsl */ `
   if (uDither > 1.5) {
     vec2 dp = floor(gl_FragCoord.xy);
@@ -45,20 +55,21 @@ export const DITHER_GLSL = /* glsl */ `
     float dl = uDither - 1.0;
     float dy = dot(col, vec3(0.25, 0.5, 0.25));
     vec2 dc = vec2((col.r - col.b) * 0.5, (2.0 * col.g - col.r - col.b) * 0.25);
-    dy = floor(dy * dl + (dm + 0.5) / 16.0) / dl;
+    dy = mix(dy, floor(dy * dl + (dm + 0.5) / 16.0) / dl, uDitherStrength);
     dc = floor(dc * CHROMA_STEPS + 0.5) / CHROMA_STEPS;
     col = clamp(vec3(dy + dc.x - dc.y, dy + dc.y, dy - dc.x - dc.y), 0.0, 1.0);
   }
 `.replace(/CHROMA_STEPS/g, CHROMA_STEPS.toFixed(1));
 
-/** The same as nodes: `texel` premultiplied display rgba in, dithered out. `levels` a JS number. */
-export function ditherNode(texel, levels) {
+/** The same as nodes: `texel` premultiplied display rgba in, dithered out. `levels`, `strength` JS numbers. */
+export function ditherNode(texel, levels, strength = DITHER_STRENGTH) {
   const p = floor(screenCoordinate.xy);
   const b2 = (q) => abs(q.x.sub(q.y)).mul(2).add(q.y);
   const m = b2(mod(p, 2)).mul(4).add(b2(mod(floor(p.mul(0.5)), 2)));
   const l = float(levels - 1);
   const c = texel.rgb;
-  const y = floor(dot(c, vec3(0.25, 0.5, 0.25)).mul(l).add(m.add(0.5).div(16))).div(l);
+  const smooth = dot(c, vec3(0.25, 0.5, 0.25)).toVar();
+  const y = mix(smooth, floor(smooth.mul(l).add(m.add(0.5).div(16))).div(l), strength);
   const co = floor(c.r.sub(c.b).mul(0.5).mul(CHROMA_STEPS).add(0.5)).div(CHROMA_STEPS);
   const cg = floor(c.g.mul(2).sub(c.r).sub(c.b).mul(0.25).mul(CHROMA_STEPS).add(0.5)).div(CHROMA_STEPS);
   const rgb = clamp(vec3(y.add(co).sub(cg), y.add(cg), y.sub(co).sub(cg)), 0, 1);

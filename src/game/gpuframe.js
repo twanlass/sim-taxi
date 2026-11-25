@@ -49,7 +49,7 @@ const MAX_RADIUS_TEXELS = 6.0;
 // half-resolution upsample. Three quarters of it lands on WebGL's figure.
 const STRENGTH = 0.45;
 
-export function createGpuFrame(renderer, { strength = STRENGTH, crt = null, dither = 0 } = {}) {
+export function createGpuFrame(renderer, { strength = STRENGTH, crt = null, dither = 0, ditherStrength } = {}) {
   const depthTexture = new THREE.DepthTexture(1, 1);
   depthTexture.format = THREE.DepthStencilFormat;
   depthTexture.type = THREE.UnsignedInt248Type;
@@ -144,7 +144,7 @@ export function createGpuFrame(renderer, { strength = STRENGTH, crt = null, dith
   // The pixel look's palette (game/dither.js) on the finished texel, at art resolution; 0 is off.
   material.fragmentNode = Fn(() => {
     const out = crt ? crt.screen(finish, screenOn) : finish({ at: uv() });
-    return dither > 1 ? ditherNode(vec4(out).toVar(), dither) : out;
+    return dither > 1 ? ditherNode(vec4(out).toVar(), dither, ditherStrength) : out;
   })();
   const quad = new QuadMesh(material);
 

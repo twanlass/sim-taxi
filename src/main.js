@@ -8,7 +8,7 @@ import { createGpuCapture } from './game/gpucapture.js';
 import { createGpuFrame } from './game/gpuframe.js';
 import { createGpuCrt } from './game/gpucrt.js';
 import { createPixelArt, canvasRect, PIXEL_SIZE } from './game/pixelart.js';
-import { DITHER_LEVELS } from './game/dither.js';
+import { DITHER_LEVELS, DITHER_STRENGTH } from './game/dither.js';
 import { enableGlow } from './game/gpubloom.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 // First, before anything builds a material: it patches three's fog chunk for every program.
@@ -182,7 +182,7 @@ import { streetAt, routeDrives, STREET_TAP_MAX_DETOUR } from './game/streettap.j
 import { createPathDrag } from './game/pathdrag.js';
 import { getActiveShot, getSeed, getRunSeed, getCarCount, getDifficultyPin, getDifficultyMode,
   getSafeMode, safeModeSource, getPixelRatioCap,
-  getDiagnostics, getParcelsPin, getRain, getStorm, getSquall, getSquallRampClassic, getSunRaysClassic, getWetTyres, getWreckStyle, getFall, getFoliageClassic, getWater, getUturnStyle, getCrt, getPixel, getDither } from './util/shot.js';
+  getDiagnostics, getParcelsPin, getRain, getStorm, getSquall, getSquallRampClassic, getSunRaysClassic, getWetTyres, getWreckStyle, getFall, getFoliageClassic, getWater, getUturnStyle, getCrt, getPixel, getDither, getDitherStrength } from './util/shot.js';
 import { createParcelSystem, TAP_MAX_DETOUR } from './game/parcels.js';
 import { createRobbery } from './game/robbery.js';
 import { createRadio, LOST_CALL, ROBBERY_CALL } from './game/radio.js';
@@ -321,6 +321,7 @@ const budget = {
   crt: getCrt(!pixelSize),
   // The pixel look's palette and dither (game/dither.js): steps per channel, 0 for none.
   dither: pixelSize ? getDither(DITHER_LEVELS) : 0,
+  ditherStrength: getDitherStrength(DITHER_STRENGTH),
 };
 // The Antialiasing setting, as it stood at launch (MSAA is a context attribute). `?msaa=` beats it,
 // as `?dpr=` beats Quality, and shot mode keeps MSAA so screenshots don't depend on a saved setting.
@@ -370,7 +371,7 @@ if (GPU) {
 }
 const gpuCapture = GPU ? createGpuCapture(renderer, { samples: budget.msaa ? 4 : 0 }) : null;
 const gpuCrt = gpuCrtOn ? createGpuCrt(renderer, { still: Boolean(shot) }) : null;
-let gpuFrame = gpuAo ? createGpuFrame(renderer, { crt: gpuCrt, dither: gpuDither }) : null;
+let gpuFrame = gpuAo ? createGpuFrame(renderer, { crt: gpuCrt, dither: gpuDither, ditherStrength: budget.ditherStrength }) : null;
 // A validation error on the device does not throw: the frame is just black from then on. Before
 // the game is up the page reloads on WebGL (`fallBackToWebGL`), since a shader that failed to
 // compile leaves its material undrawn whatever happens next. After, the frame's target is the
