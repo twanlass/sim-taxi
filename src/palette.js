@@ -97,6 +97,13 @@ export const PALETTE = {
   bikeLane: '#A8503F',
   // ...and down the length of the block, a duller, darker red so the crossings stay the loud part.
   bikeLaneFill: '#6F4A45',
+  // The bike box ahead of one stop line (city/markings.js): a muted green, the one green on the road.
+  bikeBox: '#4F8A5B',
+  // The hatched box junction: amber rather than `hazardYellow`, so it reads as road paint and not as
+  // the drawbridge's warning plates.
+  cautionHatch: '#D98E2B',
+  // The TAXI rank outside the garage: the taxi's own yellow family, paler, as paint.
+  taxiRank: '#E8C341',
   // The one paved junction's colours are a look of their own, PLAZA_LOOKS below.
   sidewalk: '#CDBFA6',
   kerb: '#B3A994',

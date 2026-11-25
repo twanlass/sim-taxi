@@ -3,7 +3,7 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { bakeColor, propMaterial } from '../util/geo.js';
 import { PALETTE, color, jitterColor } from '../palette.js';
 import { centralParkGround } from './centralpark.js';
-import { MARKINGS_CLASSIC, streetMarkings } from './markings.js';
+import { MARKINGS_CLASSIC, streetMarkings, wornPaint } from './markings.js';
 import {
   GRID_I, GRID_J, ROAD_W, SPAN_X, SPAN_Z, lineX, lineZ,
   isUnsignalised, isSegmentClosed, halfRoadX, halfRoadZ, isArterialX, isArterialZ,
@@ -519,6 +519,8 @@ export function createGround(rng, blocks) {
   const DASH = 1.6;
   const GAP = 1.4;
   const markColor = color('laneMark');
+  // Worn like the rest of the paint (city/markings.js) unless the markings are classic.
+  const linePaint = MARKINGS_CLASSIC ? paint : (w, d, x, z, col) => wornPaint(w, d, x, z, col, MARK_Y);
 
   // Where an arterial has no island — the stretch either side of each junction — the median is
   // painted instead. Set at the island's own half-width rather than the 0.45 of an ordinary double
@@ -527,8 +529,8 @@ export function createGround(rng, blocks) {
   const doubleLine = (axis, c, from, to) => {
     if (to - from < 0.05) return;
     for (const off of [-DOUBLE_OFF, DOUBLE_OFF]) {
-      if (axis === 'x') parts.push(paint(to - from, 0.16, (from + to) / 2, c + off, markColor));
-      else parts.push(paint(0.16, to - from, c + off, (from + to) / 2, markColor));
+      if (axis === 'x') parts.push(linePaint(to - from, 0.16, (from + to) / 2, c + off, markColor));
+      else parts.push(linePaint(0.16, to - from, c + off, (from + to) / 2, markColor));
     }
   };
 
@@ -570,8 +572,8 @@ export function createGround(rng, blocks) {
       }
 
       for (let s = from + GAP; s + DASH < to; s += DASH + GAP) {
-        if (axis === 'z') parts.push(paint(0.18, DASH, c, s + DASH / 2, markColor));
-        else parts.push(paint(DASH, 0.18, s + DASH / 2, c, markColor));
+        if (axis === 'z') parts.push(linePaint(0.18, DASH, c, s + DASH / 2, markColor));
+        else parts.push(linePaint(DASH, 0.18, s + DASH / 2, c, markColor));
       }
     }
   };
@@ -581,7 +583,7 @@ export function createGround(rng, blocks) {
 
   // --- Crosswalks, stop lines and bike lanes (city/markings.js); the loop below is the first pass,
   // kept for `?markings=classic`.
-  if (!MARKINGS_CLASSIC) parts.push(streetMarkings(rng, MARK_Y));
+  if (!MARKINGS_CLASSIC) parts.push(streetMarkings(rng, MARK_Y, blocks));
 
   // --- Crosswalks (classic).
   //
