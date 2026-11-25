@@ -1267,19 +1267,6 @@ What the WebGPU path draws today, and what it does not:
   the stage, shader stage, node cache, context and sub-build, plus the pure type-name helpers; and
   `util/wgsllets.js` remembers each rewrite by its source. Measured with `tools/boottime.mjs`:
   12.6 s to 9.0 s headless, 247 modules byte-identical. `?nodememo=classic` turns it off.
-- **Under the title screen, the load bar waits only for what the title shows.** The title is the
-  finished city with its traffic running, so the boot lands the entrance (the title would on its
-  first frame anyway) and warms just the visible meshes, opaque, with culling off. Everything else —
-  the effect pools, the state variants (`util/warmvariants.js`), the wet mirror — is warmed in 30
-  slices behind the menu once the startup screen has gone (`warmBehindTitle` in main.js), each
-  slice followed by a real frame in the same task so it is never what gets presented. Play does not
-  wait for it. Headless (`tools/boottime.mjs`, 2026-11-24): 9.3 s to 5.4 s to `taxi:ready`; a bot
-  run after Play (fares, Loco, drift, Big Air, a patrol chase, the squall) then built **no**
-  pipeline and no node graph with either setting. The cost moves rather than vanishes: a slice is a
-  dropped frame or two in the menu's drift, not yet measured on a phone. No title (Play again,
-  `?title=off`, shot mode, `?dev`) warms everything up front as before; `?warmdefer=classic` does
-  that under the title too. The city entrance's variant is "the other state" either way round
-  (`game/cityentry.js`), so a deferred boot warms the see-through city that Play again replays.
 
 Things the WebGL renderer does without being asked, each of which showed up as a wrong
 picture and each of which the node path now does by hand:

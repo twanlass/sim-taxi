@@ -325,12 +325,8 @@ export function createCityEntry({
   // WebGPU builds a pipeline per state (util/warmvariants.js): the warm-up also draws the city as
   // it stands once landed, opaque and with the grown objects at their own size. A mirrored object
   // is wound the other way at its rest scale than at zero, which is a pipeline of its own.
-  //
-  // "The other state" either way round: a boot under the title screen lands the entrance before it
-  // warms (the title would land it on its first frame anyway), so there the variant is the
-  // see-through one the next Play again replays the entrance in.
   alsoWarm(() => {
-    for (const material of materials) material.transparent = done;
+    for (const material of materials) material.transparent = false;
     for (const g of grown) g.object.scale.copy(g.rest);
   }, () => {
     for (const material of materials) material.transparent = !done;

@@ -62,10 +62,7 @@ function fadeVariants(roots, renderer) {
   return swaps;
 }
 
-export function warmFirstDraws(scene, draw, roots = [scene], { renderer = null, visibleOnly = false } = {}) {
-  // `visibleOnly`: the first half of a deferred warm-up (`warmFirstDrawsInSteps`) — what is showing
-  // now, drawn once with culling off, and nothing else: no pool shown, no variant, no faded copy.
-  if (visibleOnly) return warmVisible(roots, draw);
+export function warmFirstDraws(scene, draw, roots = [scene], { renderer = null } = {}) {
   const lit = new Set();
   scene.traverseVisible((o) => { if (o.isLight) lit.add(o); });
 
@@ -109,19 +106,6 @@ export function warmFirstDraws(scene, draw, roots = [scene], { renderer = null, 
   return { culled: culled.length, shown: shown.length };
 }
 
-function warmVisible(roots, draw) {
-  const culled = [];
-  for (const root of roots) root.traverse((o) => {
-    if (!o.isLight && o.frustumCulled) { o.frustumCulled = false; culled.push(o); }
-  });
-  try {
-    withAllCasters(draw);
-  } finally {
-    for (const o of culled) o.frustumCulled = true;
-  }
-  return { culled: culled.length, shown: 0 };
-}
-
 /**
  * The same warm-up in `steps` slices, a frame apart, so the load bar has something true to say.
  *
@@ -145,9 +129,7 @@ function warmVisible(roots, draw) {
  * `onStep(from, to, children)` is called a frame before each slice draws, with the fraction done
  * before and after it and the slice's scene children; the draw itself blocks, so whatever is told `to` has to animate there on the compositor.
  */
-export async function warmFirstDrawsInSteps(scene, draw, {
-  steps = 10, onStep = () => {}, yieldFrame, renderer = null, visibleOnly = false, afterSlice = null,
-} = {}) {
+export async function warmFirstDrawsInSteps(scene, draw, { steps = 10, onStep = () => {}, yieldFrame, renderer = null } = {}) {
   const drawable = (o) => o.isMesh || o.isPoints || o.isLine || o.isSprite;
   const seen = new Set();
   const units = [];
@@ -201,14 +183,10 @@ export async function warmFirstDrawsInSteps(scene, draw, {
       child.traverse((o) => { if (drawable(o) && o.visible && o !== receiver) { o.visible = false; hidden.push(o); } });
     }
     try {
-      warmFirstDraws(scene, draw, slices[i], { renderer, visibleOnly });
+        warmFirstDraws(scene, draw, slices[i], { renderer });
     } finally {
       for (const o of hidden) o.visible = true;
     }
-    // A slice drawn while the game is on screen (the deferred half, behind the title) is followed by
-    // a real frame in the same task, so the slice — one corner of the city with its pools showing —
-    // is never what gets presented.
-    afterSlice?.();
   }
   return slices.length;
 }
