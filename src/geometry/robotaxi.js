@@ -7,6 +7,7 @@ import { PALETTE, color } from '../palette.js';
 import { attribute, float, fract, materialColor, uniform, varying } from 'three/tsl';
 import { gpuMaterials } from '../util/gpu.js';
 import { SILL_Y, WHEEL_W, wheelAnchors } from './wheels.js';
+import { outlineVehicle, VEHICLE_RIM, WHEEL_RIM } from './ghostoutline.js';
 
 // The robo-taxi: a pod, not a car. An elongated rounded box — a superellipsoid, square-ish in every
 // section with soft corners — whose whole upper half is one continuous piece of tinted glass, roof,
@@ -495,6 +496,12 @@ export function createRoboTaxiMesh(len, width) {
 
   const faders = [body.material, wheelMat, glowMat, band.material];
   for (const material of faders) material.alphaHash = true;
+  // Ghost outline (geometry/ghostoutline.js), in its own silver. The rims are divided by the
+  // group's scale so they draw at the same width as every other vehicle's.
+  outlineVehicle(group, {
+    rims: [[body, VEHICLE_RIM / ROBO_SCALE], ...wheels.map((w) => [w, WHEEL_RIM / ROBO_SCALE])],
+    tint: color('roboGhost'),
+  });
   shell.visible = false;
 
   return { group, shell, body, wheels, band, glow, faders, occluders: [body, ...wheels] };

@@ -9,6 +9,7 @@ import { findRoute, findRouteOnto, planOrigin, setHazardLanes, serviceLaneCost }
 import { heightAt, sightlineClear } from './sightline.js';
 import { unlitMaterial, cloneProp } from '../util/geo.js';
 import { warmWreckOf } from './vanish.js';
+import { stripGhostOutlines } from '../geometry/ghostoutline.js';
 import { color } from '../palette.js';
 import { markEmissive } from './bloom.js';
 import { markOccluder } from './ssao.js';
@@ -599,7 +600,7 @@ export function createFire({
   /** The engine's body for the wreck effects, if the taxi ever writes it off. */
   function wreck() {
     engine.group.updateMatrixWorld(true);
-    const shell = engine.shell.clone(true);
+    const shell = stripGhostOutlines(engine.shell.clone(true));
     shell.traverse((o) => {
       if (o.isMesh) {
         // `cloneProp`, not `clone()`: a plain clone drops the paint patch (see util/geo.js).

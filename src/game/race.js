@@ -16,6 +16,7 @@ import { color } from '../palette.js';
 import { wheelAnchors, wheelGeometry, SILL_Y, CHASSIS_LIFT } from '../geometry/wheels.js';
 import { createTargetRing, RING_Y } from '../geometry/targetring.js';
 import { createRaceFlag } from '../geometry/raceflag.js';
+import { outlineVehicle, stripGhostOutlines, VEHICLE_RIM, WHEEL_RIM } from '../geometry/ghostoutline.js';
 import { BOOST_START_FRACTION } from './boost.js';
 import { markOccluder } from './ssao.js';
 import { createHydraulics, LIFT_MIN } from './hydraulics.js';
@@ -507,6 +508,17 @@ export function createRivalMesh() {
     return wheel;
   });
   const wheels = allWheels.filter((w) => w.userData.front);
+
+  // The ghost outline (`outlineVehicle`, geometry/ghostoutline.js). The wheels get rims of their
+  // own, not just masks, because the body rides away from them on the hydraulics and a hop lifts
+  // the hull clear of the tyres. Its own violet, lifted the way PALETTE.carBodyGhost lifts the
+  // fleet's paints: yellow is the player's, and the fleet's lavender (#AC96C7) is a third of this
+  // saturation. Near the taxi only, like every other vehicle (Tyler: "race car outline should
+  // behave like all others").
+  outlineVehicle(group, {
+    rims: [[body, VEHICLE_RIM], ...allWheels.map((w) => [w, WHEEL_RIM])],
+    tint: color('racerGhost'),
+  });
 
   // Dissolved in and out rather than blended — the cruiser's and the engine's `alphaHash`.
   const faders = [body.material, stripe.material, wheelMat];
@@ -1420,7 +1432,7 @@ export function createRace({
   /** The rival's body for the wreck effects, if the taxi ever writes it off. */
   function wreck() {
     rival.group.updateMatrixWorld(true);
-    const shell = rival.shell.clone(true);
+    const shell = stripGhostOutlines(rival.shell.clone(true));
     shell.traverse((o) => {
       if (o.isMesh) {
         o.material = cloneProp(o.material);

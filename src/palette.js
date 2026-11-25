@@ -432,6 +432,9 @@ export const PALETTE = {
   roboGlass: '#2B3C4E',
   roboSensor: '#22262C',
   roboGlow: '#3FE9FF',
+  // Ghost outline (geometry/ghostoutline.js): the silver itself, already at the lightness the
+  // other vehicles' ghosts are lifted to.
+  roboGhost: '#BCC2C9',
   // `?robodebug` (game/robodebug.js): a robo-taxi's route while it hunts, and while it carries.
   roboDebugHunt: '#3FE9FF',
   roboDebugRide: '#FF4FD8',
@@ -508,6 +511,9 @@ export const PALETTE = {
   // See policeCabGeometry() in sim/traffic.js. (A first pass ran it the other way round, white
   // under baby blue; a pastel cab rendered grey-teal under the low warm sun.)
   policeBody: '#0091FF',
+  // The patrol cruiser's ghost outline: policeBody at its own hue and saturation, lightness raised
+  // from 0.50 to 0.72 — the carBodyGhost rule.
+  policeGhost: '#70C1FF',
   // Cooler and brighter than the two cream civilians (#E4E1DA, #D9D2C3).
   policeCab: '#F2F4F7',
 
@@ -525,6 +531,9 @@ export const PALETTE = {
   racerBody: '#7B3CFF',
   racerWing: '#1B1726',
   racerStripe: '#F6F4EE',
+  // The racer's ghost outline (geometry/ghostoutline.js): racerBody at the same hue and full
+  // saturation, lightness raised from 0.62 to 0.75 so a 2.7px trace reads behind a shadowed tower.
+  racerGhost: '#AA80FF',
   // The underglow: an electric cyan, the colour opposite the violet paint, so the pad reads as a
   // light under the car rather than as the car's own reflection on the road.
   racerGlow: '#2FE6FF',
@@ -532,6 +541,8 @@ export const PALETTE = {
   raceFlagDark: '#17171C',
   raceFlagLight: '#F6F4EE',
   fireTruckBody: '#C8261E',
+  // Its ghost outline: same hue and saturation, lightness 0.45 to 0.72 (the carBodyGhost rule).
+  fireTruckGhost: '#EC8883',
   fireTruckTrim: '#F3EFE6',
   fireTruckLadder: '#C9CFD6',
   fireTruckLocker: '#9E1E18',
@@ -1030,6 +1041,8 @@ export const PALETTE = {
   garbageBeacon: '#8A6A1E',
   garbageBeaconLit: '#FFC21A',
   garbageBody: '#46A05A',
+  // Its ghost outline: same hue and saturation, lightness 0.45 to 0.72 (the carBodyGhost rule).
+  garbageGhost: '#9CD4A8',
   garbageHopper: '#2D6A3A',
   garbageCab: '#EEEDE6',
   garbageStripe: '#F3EFE6',

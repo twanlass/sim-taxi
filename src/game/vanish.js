@@ -28,6 +28,7 @@
 import * as THREE from 'three';
 import { carryTravel } from '../util/carry.js';
 import { cloneProp } from '../util/geo.js';
+import { isGhostPart } from '../geometry/ghostoutline.js';
 
 const VANISH_TIME = 0.34;
 
@@ -51,6 +52,9 @@ export function warmWreckOf(scene, shell, name) {
   warm.visible = false;
   shell.traverse((o) => {
     if (!o.isMesh || Array.isArray(o.material) || !o.material.visible) return;
+    // A ghost outline's mask and rim (geometry/ghostoutline.js) are not part of any wreck — see
+    // stripGhostOutlines — so there is nothing of theirs to warm.
+    if (isGhostPart(o)) return;
     // Two copies, opaque and already faded: born see-through, the faded one is drawn by every
     // pass of the warm-up's main frame rather than only the variant frame.
     for (const faded of [false, true]) {

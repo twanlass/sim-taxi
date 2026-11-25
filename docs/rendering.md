@@ -4158,6 +4158,26 @@ exactly in step with the car being traced. It is called last in the frame, after
 for two reasons: a frame's lag is 0.31 units ≈ 2.4px of rim sliding off its own car at boost speed,
 and a car wrecked on this frame must not wear a ghost over its own fireball.
 
+### Special-vehicle ghost outlines — `outlineVehicle` in `geometry/ghostoutline.js`
+
+Every vehicle drawn as ordinary meshes rather than an instance (a `skin` in `sim/traffic.js`: the
+street racer, the patrol cruiser, the fire engine, the garbage truck, the robo-taxis) wears the
+taxi's per-mesh outline instead of a pool slot. The pool above reads instances, and these have
+none (a guest never had one, and the cruiser's is collapsed under it), so until each was given its
+own outline it went behind a building and vanished.
+
+`outlineVehicle(root, { rims, tint })` puts a hull on the parts listed (body, wheels, and anything
+that swings out past the body: the engine's ladder, the garbage truck's lid) and a mask on every
+other opaque, depth-writing mesh it finds by walking the group, so a part added later cannot be
+left out of the stencil. Each wears its own paint lifted by the `carBodyGhost` rule
+(`racerGhost`, `policeGhost`, `fireTruckGhost`, `garbageGhost`, `roboGhost`).
+
+They follow the street traffic's rules: `carghosts.js` sets each one's strength every frame from
+the same envelope, `GHOST_RADIUS` and fade band, and off means hidden, mask included. They are
+outside `MAX_GHOSTS`, since a skin costs no pool slot. The racer follows the same rules: an
+`always`-on racer outline was tried and dropped (Tyler: it "should behave like all others"). Wreck copies have their outlines stripped
+(`stripGhostOutlines`), so a wreck doesn't keep tracing itself.
+
 ### The pie — `geometry/diamond.js`
 
 The marker a waiting rider floats: a **pie**, a thick disc, bouncing, in a thin black outline, cut into
