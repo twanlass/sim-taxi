@@ -6716,8 +6716,15 @@ const titleReel = title && TITLE_CAM === 'reel'
 // A slow slide along screen-right past the garage door, wider than the door shot Play lands on.
 let storyCam = null;
 const STORY_ZOOM = 24;
-const STORY_DRIFT = 0.35;   // world units a second along screen-right
+const STORY_DRIFT = 0.35;   // world units a second along screen-right, at the start
 const STORY_FROM = -3;      // where the slide starts, along screen-right of the door
+// How far the slide goes before it comes to rest. Each line waits for a tap, so the story lasts as
+// long as the player lets it, and a slide that never stopped walked the door off the left of the
+// screen (reported 2026-11-25). It decays instead: it leaves at `STORY_DRIFT` and settles
+// `STORY_TRAVEL` along, 4 units right of the door. The four voiced lines run ~19.5 s of audio,
+// ~25 s read through with taps, which takes it ~5 units of the way, where the linear slide
+// had gone 8.75; left alone it is within 0.1 of rest by ~85 s.
+const STORY_TRAVEL = 7;
 /**
  * Seconds for the flight from the title's slide down to the story's shot. A blend of the two moving
  * frames rather than an ease toward the second: the weight runs 0 to 1 on a smootherstep, so the
@@ -6730,7 +6737,7 @@ const STORY_GLIDE = 3.5;
 function storyFrame(dt) {
   storyCam.t += dt;
   const door = opening.doorAt();
-  const across = STORY_FROM + storyCam.t * STORY_DRIFT;
+  const across = STORY_FROM + STORY_TRAVEL * (1 - Math.exp(-storyCam.t * STORY_DRIFT / STORY_TRAVEL));
   return { x: door.x + RIGHT.x * across, z: door.z + RIGHT.z * across, zoom: STORY_ZOOM };
 }
 // The camera cuts onto the drift on the first frame the title holds, rather than easing to it from

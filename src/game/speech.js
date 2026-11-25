@@ -154,15 +154,50 @@ function liquidOff() {
 }
 
 /**
- * A line with the thing it is about called out: `'Tap the {garage} for repairs'` is the text
- * "Tap the garage for repairs" with "garage" highlighted. Answers the plain text and its runs,
- * each `{ s, e, hl }` over that text, covering it end to end.
+ * Pictures a line can put inside its text, by the name it uses: `{:robotaxi}` is the robo-taxi,
+ * rendered from the game's own mesh by `node tools/make-inline-icons.mjs` (Tyler, 2026-11-25:
+ * "render a little robo taxi inline here"). The `new URL(…, import.meta.url)` form is the one Vite
+ * rewrites to the hashed asset, and it still evaluates under the headless checks, which never fetch it.
  */
-export function parseLine(line) {
+export const INLINE_ICONS = {
+  robotaxi: new URL('../../assets/hud/inline-robotaxi.png', import.meta.url).href,
+};
+// What an icon stands for in the line's plain text: one character, so it types in as one letter.
+export const ICON_CHAR = '\uFFFC';
+
+// `?texticons=classic`: the line without its pictures, as it read before they existed.
+function textIconsOff() {
+  if (typeof window === 'undefined') return false;
+  return new URLSearchParams(window.location.search).get('texticons') === 'classic';
+}
+
+/**
+ * A line with the thing it is about called out: `'Tap the {garage} for repairs'` is the text
+ * "Tap the garage for repairs" with "garage" highlighted. `{:name}` puts one of `INLINE_ICONS` in
+ * the text instead, counted as a single `ICON_CHAR`. Answers the plain text and its runs, each
+ * `{ s, e, hl, icon }` over that text, covering it end to end.
+ */
+export function parseLine(line, { icons = !textIconsOff() } = {}) {
   const runs = [];
   let text = '';
   for (const [i, part] of String(line).split(/\{([^{}]*)\}/).entries()) {
     if (!part) continue;
+    const icon = i % 2 === 1 && part.startsWith(':') ? part.slice(1) : null;
+    if (icon !== null) {
+      if (!icons || !INLINE_ICONS[icon]) {
+        // An icon left out takes one of the spaces round it along, so "toasters  brake" closes up.
+        if (text.endsWith(' ')) {
+          text = text.slice(0, -1);
+          const last = runs[runs.length - 1];
+          last.e -= 1;
+          if (last.e === last.s) runs.pop();
+        }
+        continue;
+      }
+      runs.push({ s: text.length, e: text.length + 1, hl: false, icon });
+      text += ICON_CHAR;
+      continue;
+    }
     runs.push({ s: text.length, e: text.length + part.length, hl: i % 2 === 1 });
     text += part;
   }
@@ -449,13 +484,19 @@ export function createSpeech(root, { viewport = null, typing = false, onDismiss 
     ({ text, runs } = parseLine(line));
     textEl.replaceChildren(...runs.map((r) => {
       const el = document.createElement('span');
-      el.className = r.hl ? 'speech-run speech-hl' : 'speech-run';
+      el.className = r.hl ? 'speech-run speech-hl' : r.icon ? 'speech-run speech-icon' : 'speech-run';
       r.typed = document.createElement('span');
       r.typed.className = 'speech-typed';
       r.rest = document.createElement('span');
       r.rest.className = 'speech-rest';
       el.append(r.typed, r.rest);
       r.el = el;
+      if (r.icon) {
+        r.img = document.createElement('img');
+        r.img.src = INLINE_ICONS[r.icon];
+        r.img.alt = '';
+        r.img.draggable = false;
+      }
       return el;
     }));
   };
@@ -464,8 +505,15 @@ export function createSpeech(root, { viewport = null, typing = false, onDismiss 
     let caret = runs[0];
     for (const r of runs) {
       const k = Math.min(Math.max(n - r.s, 0), r.e - r.s);
-      r.typed.textContent = text.slice(r.s, r.s + k);
-      r.rest.textContent = text.slice(r.s + k, r.e);
+      if (r.img) {
+        // Moved between the two halves rather than copied, so it is one element that has either
+        // been typed or not, and the rest's hiding (index.html) covers it like a letter.
+        (k ? r.typed : r.rest).replaceChildren(r.img);
+        (k ? r.rest : r.typed).replaceChildren();
+      } else {
+        r.typed.textContent = text.slice(r.s, r.s + k);
+        r.rest.textContent = text.slice(r.s + k, r.e);
+      }
       if (r.s < n) caret = r;
       r.el.classList.toggle('is-said', k === r.e - r.s && r.e > r.s);
     }
