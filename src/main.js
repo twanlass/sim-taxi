@@ -4,6 +4,7 @@ import { WebGPURenderer } from 'three/webgpu';
 import { gpuCompat, unported } from './game/gpucompat.js';
 import { GPU, fallBackToWebGL, gpuNote } from './util/gpu.js';
 import { installVarsToLets } from './util/wgsllets.js';
+import { installNodeMemo } from './util/nodememo.js';
 import { createGpuCapture } from './game/gpucapture.js';
 import { createGpuFrame } from './game/gpuframe.js';
 import { createGpuCrt } from './game/gpucrt.js';
@@ -341,6 +342,9 @@ const renderer = GPU ? new WebGPURenderer({ antialias: budget.msaa, stencil: tru
 // Safari refuses any WGSL function whose `var`s add up past 8 KB, and three declares one for every
 // node it caches: see util/wgsllets.js.
 if (GPU) installVarsToLets(renderer);
+// Three's node builder asks the same type questions of the same nodes thousands of times per
+// material, and that — not the GPU — is most of a WebGPU boot: see util/nodememo.js.
+if (GPU && new URLSearchParams(window.location.search).get('nodememo') !== 'classic') installNodeMemo(renderer);
 perfMark('renderer');
 // NOT `window.innerWidth/innerHeight`: on an installed iOS app those stop short of the physical
 // bottom of the screen, and the strip the canvas doesn't cover shows as bare sky under the game.

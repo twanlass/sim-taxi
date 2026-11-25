@@ -1258,6 +1258,15 @@ What the WebGPU path draws today, and what it does not:
   rewrites every var that is written once and read only after it, in the same block, as a `let`
   (not counted: it is not storage), on every shader three builds; the busiest is then 580 bytes and
   the frame is pixel-identical. Anything it cannot prove stays a var.
+- **Most of a WebGPU boot is three writing WGSL, and most of that is one uncached question.**
+  A CPU profile of a headless boot (2026-11-24) put ~70% of it inside `NodeBuilder.build`, ~310
+  builds, and the hottest single function in the boot was `getTypeLength` — the leaf of
+  `getNodeType`, which no node caches and which an operator answers by asking all its inputs, so a
+  node deep in a lit material is asked once per path down to it. `util/nodememo.js` memoises it
+  during `analyze` and `generate` (not `setup`, where a node's answer can still change), keyed on
+  the stage, shader stage, node cache, context and sub-build, plus the pure type-name helpers; and
+  `util/wgsllets.js` remembers each rewrite by its source. Measured with `tools/boottime.mjs`:
+  12.6 s to 9.0 s headless, 247 modules byte-identical. `?nodememo=classic` turns it off.
 
 Things the WebGL renderer does without being asked, each of which showed up as a wrong
 picture and each of which the node path now does by hand:
