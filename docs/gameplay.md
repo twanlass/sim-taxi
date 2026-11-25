@@ -1460,8 +1460,9 @@ ahead, so a disagreement between yellow and cyan is the car not doing what the s
 units short of the junction. A turn committed there used to overrule the stick: Tyler pushed for one
 street and watched the car turn the other way. Through that run-up the steered taxi now asks for the
 exit the stick names on every frame (`retake` in `game/steer.js`), and `retakeCrossing` in
-`sim/traffic.js` swaps any exit for any other. It still refuses a left into oncoming traffic or a
-full exit lane, exactly as the line would. Routed play only ever used it to turn a straight
+`sim/traffic.js` swaps any exit for any other. The swap is forced: a left into oncoming traffic or
+into a full exit lane goes ahead, and the player owns the crash (Tyler: "they'll just ram into a car
+but they'll be in total control"). Routed play only ever used it to turn a straight
 crossing.
 
 "Steer with the stick" (`game/steertip.js`) stands on the stick until the player has pushed it

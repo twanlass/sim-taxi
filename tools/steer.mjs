@@ -129,15 +129,15 @@ for (let t = 0; t < 240 && retakes < 12; t += STEP) {
     if (!ex.length) continue;
     const want = ex[0];
     retakes += 1;
-    taxi.lateTurn = [want];
+    taxi.lateTurn = Object.assign([want], { force: true });
     traffic.update(STEP);
     t += STEP;
     if (taxi.dOut === want) retaken += 1;
   }
 }
-// A left into oncoming traffic or a full exit lane may refuse, as at the line; most must not.
+// Forced, nothing refuses it — not oncoming traffic, not a full exit lane.
 check(`a committed turn can be retaken in the run-up (${retaken}/${retakes})`,
-  retakes >= 6 && retaken >= retakes * 0.6);
+  retakes >= 6 && retaken === retakes);
 check('no red run after retakes', traffic.stats.violations === 0, `${traffic.stats.violations}`);
 
 // --- 3. Hands off ------------------------------------------------------------------------

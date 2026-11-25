@@ -6096,6 +6096,8 @@ export function createTraffic(
      * The steered taxi asks for any change — a turn back to straight, a right for a left — because
      * a stick pushed a beat late used to be overruled by the turn already committed at the line,
      * and the car turned one way with the stick plainly pointing the other (Tyler, 2026-11-24).
+     * Its ask is tagged `force` and skips the yield and the box check as a boosting taxi does —
+     * "we should let users do that. they'll just ram into a car but they'll be in total control".
      */
     const retakeCrossing = (car) => {
       const late = car.lateTurn;
@@ -6107,7 +6109,7 @@ export function createTraffic(
       if (!next || next === car.turn || next.hand === car.turn.hand
         || closedLanes.has(next.outLane)) return;
       const exitLane = net.laneById.get(next.outLane);
-      if (!bargesThrough(car)) {
+      if (!bargesThrough(car) && !late.force) {
         if (next.hand === 'left' && leftYieldBlocked(car)) return;
         if (exitLaneFull(car, exitLane)) return;
       }

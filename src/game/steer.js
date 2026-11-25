@@ -132,14 +132,15 @@ export function createSteer({ dom, taxi, toScreen, canSteer = () => true, onQueu
 
   // In the run-up from the hold line to the junction the car can still change its mind about the
   // junction in front of it — the same late swap a tap used to buy, now for any exit
-  // (`retakeCrossing` in traffic.js decides, and can refuse a left into oncoming traffic). Asked on
+  // (`retakeCrossing` in traffic.js, forced: the player gets the turn even into oncoming traffic or a
+  // full exit lane, and owns the crash — Tyler, 2026-11-24). Asked on
   // every frame of the run-up while the stick is held or a turn is queued, so a push that lands a
   // beat after the line still wins the corner. Refused, the queue stands for the next corner.
   function retake(dir) {
     if (dir == null || taxi.state !== 'turn' || !taxi.turn) return;
     if (dir === taxi.dOut || dir === opposite(taxi.d)) return;
     if (Math.min(taxi.turnT, 1) * taxi.turnLen >= taxi.leadIn) return;
-    taxi.lateTurn = [dir];
+    taxi.lateTurn = Object.assign([dir], { force: true });
   }
 
   function apply(sx, sy) {
