@@ -1174,6 +1174,10 @@ export const PALETTE = {
   // it stands on (136) and a long way under `concrete` (178), so a sunlit parapet cannot be
   // mistaken for the pale façade of a building behind it.
   riverWall: '#8D8B84',
+  // The tide mark the wall is mixed toward at the waterline (city/grime.js): wet concrete with silt
+  // and algae in it, so dark and a little green-brown rather than a darker grey, which read as a
+  // shadow line instead of weathering.
+  riverGrime: '#3F4234',
   // The bridge deck. Asphalt, because it is road, and near enough the `asphalt` slab it continues
   // to be the same material — a shade darker, which is what a span in the shadow of its own
   // parapets is, and no more than that. The first cut went to luma 92 against the road's 104 and

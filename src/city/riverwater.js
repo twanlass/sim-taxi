@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { PALETTE } from '../palette.js';
 import { KERB_H } from './ground.js';
 import { WATER_Y, RAIL_H, RAIL_W, DECK_THICK } from './river.js';
+import { GRIME_RISE, GRIME_DEPTH } from './grime.js';
 import { createWaterNodes, waterNodeMaterial, pondEdgeNode, lakeEdgeNode, rinkEdgeNode } from './gpuwater.js';
 
 // The river's surface: facets that move, a bed you can see into, and the far wall and the bridges
@@ -111,6 +112,8 @@ const UNIFORMS = {
   uWaterTime: { value: 0 },
   uWaterSky: { value: new THREE.Color(PALETTE.fog) },
   uWaterWall: { value: new THREE.Color(PALETTE.riverWall) },
+  // The tide mark on the walls (city/grime.js), so the mirrored wall and the sunk one carry it too.
+  uWaterGrime: { value: new THREE.Color(PALETTE.riverGrime) },
   uWaterTrim: { value: new THREE.Color(PALETTE.bridgeTrim) },
   uWaterSoffit: { value: new THREE.Color(PALETTE.bridgeSoffit) },
   uWaterBed: { value: new THREE.Color(PALETTE.riverBed) },
@@ -149,6 +152,7 @@ ${style === 'smooth' ? '#define WATER_SMOOTH' : ''}
 uniform float uWaterTime;
 uniform vec3 uWaterSky;
 uniform vec3 uWaterWall;
+uniform vec3 uWaterGrime;
 uniform vec3 uWaterTrim;
 uniform vec3 uWaterSoffit;
 uniform vec3 uWaterBed;
@@ -320,8 +324,11 @@ vec3 waterReflect(vec3 p, vec3 r) {
   int face = waterBasinHit(p, r, best);
   if (face > 0) wallHere = 1.0;
   float y = p.y + r.y * best;
-  vec3 wall = face == 0 ? waterLit(uWaterWall, vec3(0.0, 0.0, 1.0))
-    : waterLit(uWaterQuay, face == 1 ? vec3(1.0, 0.0, 0.0) : vec3(0.0, 0.0, 1.0));
+  // The tide mark, on the same curve the walls bake into their vertices (grimeAt, city/grime.js).
+  float grimeT = 1.0 - clamp((y - ${num(WATER_Y)}) / ${num(GRIME_RISE)}, 0.0, 1.0);
+  float grimeW = ${num(GRIME_DEPTH)} * grimeT * grimeT;
+  vec3 wall = face == 0 ? waterLit(mix(uWaterWall, uWaterGrime, grimeW), vec3(0.0, 0.0, 1.0))
+    : waterLit(mix(uWaterQuay, uWaterGrime, grimeW), face == 1 ? vec3(1.0, 0.0, 0.0) : vec3(0.0, 0.0, 1.0));
   // The wall's top edge, softened over a few hundredths so a facet tipping across it fades rather
   // than flips a whole triangle from concrete to sky.
   #ifdef WATER_SMOOTH
@@ -442,7 +449,8 @@ const compose = () => /* glsl */ `
     vec3 under;
     if (sWall < sBed) {
       // Pour lines on the wall, so it reads as carrying on rather than as a tint.
-      under = (sunk == 0 ? uWaterWall : uWaterQuay) * (0.82 + 0.18 * step(0.5, fract(seen.y * 1.6)));
+      // Under the surface it is all below the tide line, so it wears the grime at full depth.
+      under = mix(sunk == 0 ? uWaterWall : uWaterQuay, uWaterGrime, ${num(GRIME_DEPTH)}) * (0.82 + 0.18 * step(0.5, fract(seen.y * 1.6)));
     } else {
       vec2 cell = floor(seen.xz * 1.3);
       under = uWaterBed * (0.75 + 0.5 * waterHash(cell).x);
@@ -510,7 +518,7 @@ export function patchRiverWater(material, { edges, banks, bridges, wall, sea = n
 // still in its dead zone while this module's top level runs.
 let tsl = null;
 const tslConstants = () => (tsl ??= {
-  KERB_H, WATER_Y, RAIL_H, RAIL_W, DECK_THICK, BED_EDGE, BED_MID, RIM_W, RIM_REFLECT, RIM_GLOW, RIM_GLOW_W,
+  KERB_H, WATER_Y, GRIME_RISE, GRIME_DEPTH, RAIL_H, RAIL_W, DECK_THICK, BED_EDGE, BED_MID, RIM_W, RIM_REFLECT, RIM_GLOW, RIM_GLOW_W,
   SMOOTH_AMP, SMOOTH_DETAIL, EDGE_SOFT, SEA_BED, SEA_RUN_IN, F0, REFLECT_FLOOR, ABSORB, SHINE, GLINT, CAUSTIC,
 });
 let waterNodes = null;
