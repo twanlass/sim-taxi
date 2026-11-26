@@ -1218,6 +1218,15 @@ What the WebGPU path draws today, and what it does not:
     real wet frame then drew into the two-attachment layout, a validation error that switches
     occlusion off for the session.
 
+    **Since 2026-11-26 the mirror is the frame's own format** (eight bits, the same attachments),
+    so it draws with the frame's pipelines instead of a second set. A pipeline is keyed on its
+    target's colour format, and the half-float mirror had been giving every material in the city a
+    pipeline nothing else used: **153 of the boot's 344** (headless, seed 7), each one a Metal
+    compile on a phone's first launch after an update. Half float was a WebGL precaution against
+    banding in linear values; under WebGPU every node material writes display values, the same
+    eight bits the screen gets, and the ground blurs what it samples. `?mirrorhalf=classic` is the
+    half-float target, for an A/B.
+
   - **A node id in the shader source makes every build a new shader.** three names a
     `uniformArray`'s buffer `NodeBuffer_<node id>` unless it is given a name, and the id is new on
     every build, so two builds of the same material came out as two WGSL sources that no cache
