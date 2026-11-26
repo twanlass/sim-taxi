@@ -25,6 +25,8 @@
  */
 
 // No closing `\b`: `nodeUniform5_sampler` is one word to a regex, and it has to follow its texture.
+import * as THREE from 'three';
+
 const COUNTED = /\b(nodeUniform|nodeVarying|nodeVar|NodeBuffer_)(\d+)(?!\d)/g;
 
 /** Renumber three's counter-named identifiers by order of first appearance, per family. */
@@ -61,6 +63,19 @@ export function installShaderText(renderer) {
       varyingsOwner.getVaryings = function compactVaryings(shaderStage) {
         let next = 0;
         return getVaryings.call(this, shaderStage).replace(/@location\( \d+ \)/g, () => `@location( ${next++} )`);
+      };
+      // An instanced mesh with no per-instance colour is handed a white one before it builds, so it
+      // compiles the same shader as its tinted twin (x 1 is no change): six fragment modules of
+      // 99 on a headless boot differed by nothing else.
+      const buildOwner = owner('build');
+      const build = buildOwner.build;
+      buildOwner.build = function whiteInstances(...rest) {
+        const object = this.object;
+        if (object?.isInstancedMesh && !object.instanceColor) {
+          const n = object.instanceMatrix.count;
+          object.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(n * 3).fill(1), 3);
+        }
+        return build.apply(this, rest);
       };
       const codeOwner = owner('buildCode');
       const buildCode = codeOwner.buildCode;

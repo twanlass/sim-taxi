@@ -7,6 +7,7 @@ import { installVarsToLets } from './util/wgsllets.js';
 import { installNodeMemo } from './util/nodememo.js';
 import { installShaderText } from './util/shadertext.js';
 import { installFadeShader } from './util/fadeshader.js';
+import { installNormalShader } from './util/normalshader.js';
 import { createGpuCapture } from './game/gpucapture.js';
 import { createGpuFrame } from './game/gpuframe.js';
 import { createGpuCrt } from './game/gpucrt.js';
@@ -351,6 +352,7 @@ if (GPU) installVarsToLets(renderer);
 if (GPU && new URLSearchParams(window.location.search).get('nodememo') !== 'classic') installNodeMemo(renderer);
 if (GPU && new URLSearchParams(window.location.search).get('shadertext') !== 'classic') installShaderText(renderer);
 if (GPU && new URLSearchParams(window.location.search).get('fadeshader') !== 'classic') installFadeShader();
+if (GPU && new URLSearchParams(window.location.search).get('normalshader') !== 'classic') installNormalShader(renderer);
 perfMark('renderer');
 // NOT `window.innerWidth/innerHeight`: on an installed iOS app those stop short of the physical
 // bottom of the screen, and the strip the canvas doesn't cover shows as bare sky under the game.
