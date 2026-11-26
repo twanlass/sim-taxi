@@ -230,7 +230,7 @@ doc; what the classic version was, and why it changed, is in that doc's history 
 | `?cars=N` | Total vehicles, taxi included. `?cars=1` leaves the taxi alone on the road | [testing.md](testing.md) |
 | `?d=0..1` | Pins the difficulty curve instead of the delivery count | [difficulty.md](difficulty.md) |
 | `?difficulty=easy\|regular\|hard` | Pins the Settings Difficulty mode for this load, leaving the saved choice alone | [difficulty.md](difficulty.md#modes) |
-| `?seed=N` | Pins the city. Random each load otherwise | [architecture.md](architecture.md) |
+| `?seed=N` | Pins the city. Random each load otherwise, unless the road paint bake locks one (⚙️ Road paint > Lock game to this seed), which also beats shot mode's default; `?seed=N` beats the lock | [architecture.md](architecture.md) |
 | `?run=N` | Pins the situation (start, riders, events). Random each load otherwise | [architecture.md](architecture.md) |
 
 ## Skipping the front of a run

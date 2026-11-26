@@ -66,6 +66,16 @@ export function setPaintColor(c, hex) {
 export const paintColor = (c) => colors[c];
 
 /** The colours and amounts a bake carries, applied (a bake from before they existed keeps the defaults). */
+/**
+ * The city seed the game is locked to (null: random each load). Rides in the bake and is read by
+ * `getSeed` in util/shot.js at boot, so a change takes effect after Save to repo.
+ */
+let lockedSeed = null;
+export function setLockedSeed(n) { lockedSeed = Number.isInteger(n) ? n >>> 0 : null; scheduleStore(); }
+export const lockedSeedValue = () => lockedSeed;
+/** The seed the repo bake locks the game to, as it stands on disk. */
+export const bakedSeed = () => (Number.isInteger(ROAD_PAINT_BAKE?.seed) ? ROAD_PAINT_BAKE.seed : null);
+
 function applyLook(saved) {
   (saved?.colors ?? PAINT_COLOR_DEFAULTS).forEach((hex, c) => {
     colors[c] = hex;
@@ -75,6 +85,7 @@ function applyLook(saved) {
   applyAmounts();
   setRoadTextureOpacity(saved?.texture ?? 1);
   setAsphaltColor(saved?.asphalt ?? null);
+  lockedSeed = Number.isInteger(saved?.seed) ? saved.seed : null;
 }
 
 function upload() {
@@ -160,7 +171,7 @@ export async function encodeRoadPaint() {
       }
     }
   }
-  const look = { colors: [...colors], amounts: [...amounts], texture: roadTextureOpacity(), ...(asphaltOverridden() ? { asphalt: asphaltColor() } : {}) };
+  const look = { colors: [...colors], amounts: [...amounts], texture: roadTextureOpacity(), ...(asphaltOverridden() ? { asphalt: asphaltColor() } : {}), ...(lockedSeed !== null ? { seed: lockedSeed } : {}) };
   if (x1 < 0) return { texel: PAINT_TEXEL, minX: 0, minZ: 0, width: 0, height: 0, ...look, data: '' };
   const w = x1 - x0 + 1, h = z1 - z0 + 1;
   const out = new Uint8Array(w * h * 4);

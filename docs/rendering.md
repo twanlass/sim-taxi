@@ -1727,7 +1727,12 @@ the whole texture toward plain asphalt or exaggerates it past 1, ahead of the pa
 (`setRoadTextureOpacity`, riding `uRoadTexDetail.y`). Asphalt colour moves the base colour live (`setAsphaltColor`): PALETTE.asphalt is baked
 into vertex colours, so the ground shader multiplies every fragment whose albedo sits near it by the
 ratio to the chosen colour (lane paint, pavement and lawns are too far off to follow). Saved in the
-bake as `asphalt` only when changed; the settled colour belongs in palette.js. Vertex paint at that detail would have
+bake as `asphalt` only when changed; the settled colour belongs in palette.js.
+
+**One city.** The paint is world-space, so it only lines up on the city it was painted on. City seed
+loads another city (`?seed=N`, or Random); Lock game to this seed writes `seed` into the bake, and
+`getSeed` (util/shot.js) then boots every game, shot mode included, on that city unless `?seed=` says
+otherwise. The lock takes hold once saved to the repo. Vertex paint at that detail would have
 meant cutting every road quad into 0.15-unit cells, millions of triangles where the ground is ~20k,
 for the same picture; this is one texture read on fragments the road shader already shades.
 
@@ -1754,8 +1759,8 @@ for the same picture; this is one texture read on fragments the road shader alre
 - It lives inside the street texture's branch, so `?roadtex=classic` shows no paint either, and it is
   held off the lawns, the lane paint and the plaza like the texture, but *not* off bright asphalt:
   sunlit road reads past the texture's 0.42 hold, and the first cut's strokes only showed in shadow. The paint is in
-  world coordinates, not tied to a seed: the street grid is the same in every city, so a stroke
-  stays on its street, but a segment one seed closes for a park is still painted in another.
+  world coordinates, and streets move between seeds (the arterial's line, the river row shifts
+  everything south of it, closures and landmarks), which is why the game locks to the painted city.
 
 - **Light bridge decks.** Every crossing, fixed or lifting, wears one light pavement grey
   (`bridgeDeck`, `drawbridgeDeck`), so the river row reads as a different material rather than as

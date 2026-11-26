@@ -19,7 +19,7 @@ import { buildAudioSections } from './audiopanel.js';
 import { attachQuickTips } from './quicktips.js';
 import { wallGrainOn, wallGrainTuning } from '../city/wallgrain.js';
 import {
-  brush as paintBrush, CHANNELS as PAINT_CHANNELS, setPaintAmount, paintAmount, undoRoadPaint, clearRoadPaint,
+  brush as paintBrush, CHANNELS as PAINT_CHANNELS, setPaintAmount, paintAmount, undoRoadPaint, clearRoadPaint, setLockedSeed, lockedSeedValue, bakedSeed,
   encodeRoadPaint, bakeSource, revertRoadPaint, hasLocalPaint, setAlbedoView, albedoView, setPaintColor, paintColor,
 } from './roadpaint.js';
 
@@ -78,6 +78,7 @@ const clockLabel = (hour) => {
 };
 
 export function createDebugPanel({
+  citySeed: bootSeed = null,
   sun, hemi, sky, daylight, fares, carCount, routeLine, ao,
   // The emissive bloom's live uniforms — `{ state, set }` over game/bloom.js. Defaulted like the
   // rest of the optional systems below so the `npm run check` boot pass can build the panel
@@ -1225,6 +1226,44 @@ export function createDebugPanel({
     texAmt.addEventListener('input', () => { setRoadTextureOpacity(Number(texAmt.value)); showTexAmt(); });
     showTexAmt();
     syncs.push(showTexAmt);
+    // The city seed: paint is laid in world space, so it belongs to one city. Pick one (a reload
+    // with ?seed=N), paint it, then lock the game to it; the lock rides in the bake (getSeed in
+    // util/shot.js reads it at boot), so it takes hold once saved to the repo.
+    const citySeed = () => window.__taxi?.seed ?? bootSeed;
+    const seedInput = document.createElement('input');
+    seedInput.type = 'text';
+    seedInput.inputMode = 'numeric';
+    seedInput.size = 10;
+    seedInput.value = String(citySeed() ?? '');
+    const goSeed = (n) => {
+      const url = new URL(window.location.href);
+      url.searchParams.set('seed', String(n >>> 0));
+      window.location.href = url.toString();
+    };
+    const seedBtn = (label, fn) => { const b = document.createElement('button'); b.type = 'button'; b.textContent = label; b.addEventListener('click', fn); return b; };
+    const seedGo = seedBtn('Load', () => { const n = Number.parseInt(seedInput.value, 10); if (!Number.isNaN(n)) goSeed(n); });
+    const seedRandom = seedBtn('Random', () => goSeed((Math.random() * 0xffffffff) >>> 0));
+    seedInput.addEventListener('keydown', (e) => { e.stopPropagation(); if (e.key === 'Enter') seedGo.click(); });
+    const seedBox = document.createElement('span');
+    seedBox.append(seedInput, ' ', seedGo, ' ', seedRandom);
+    row(panel, 'City seed', seedBox);
+    const seedLock = document.createElement('input');
+    seedLock.type = 'checkbox';
+    const seedNote = document.createElement('div');
+    seedNote.className = 'dbg-wide';
+    const showSeed = () => {
+      seedLock.checked = lockedSeedValue() !== null && lockedSeedValue() === citySeed();
+      const baked = bakedSeed();
+      const want = lockedSeedValue();
+      seedNote.textContent = baked === want
+        ? (baked === null ? 'Game city: random each load.' : `Game city: locked to ${baked}.`)
+        : `Lock ${want === null ? 'off' : `to ${want}`} applies after Save to repo (repo: ${baked === null ? 'random' : baked}).`;
+    };
+    row(panel, 'Lock game to this seed', seedLock);
+    panel.append(seedNote);
+    seedLock.addEventListener('change', () => { setLockedSeed(seedLock.checked ? citySeed() : null); seedLock.blur(); showSeed(); });
+    showSeed();
+    syncs.push(showSeed);
     // The asphalt's base colour (setAsphaltColor in util/geo.js), live; saved in the bake.
     const asphaltWell = document.createElement('input');
     asphaltWell.type = 'color';

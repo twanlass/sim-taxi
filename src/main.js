@@ -9211,6 +9211,7 @@ function startRun() {
 
 if (!shot && wantsDebugPanel) {
   debugPanel = createDebugPanel({
+    citySeed: seed,
     phoneFrame,
     sun,
     hemi,
