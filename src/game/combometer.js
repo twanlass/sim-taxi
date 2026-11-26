@@ -64,6 +64,10 @@ export const COMBO_STEPS = {
   // half, like an overtake: the swipe is automatic once the taxi is boosting down the right lane.
   mailbox: { label: 'Return to Sender', step: 0.5 },
   hotdog: { label: 'Hot Diggity', step: 0.5 },
+  // Picking up a rider a robo-taxi had locked on to (Arcade's rider race, game/robotaxi.js `RACE`).
+  // A half, like an overtake: it is the payoff for taking the race rather than the free rider, and
+  // the combo meter is where a fare gets its value (Tyler, 2026-11-26).
+  snatch: { label: 'Snatched!', step: 0.5 },
 };
 
 /** The meter's scope: 'run' when `?combo=run` asks for it, 'meter' otherwise. */

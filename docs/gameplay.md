@@ -2225,6 +2225,12 @@ road distance from the robot and never by anything the taxi does, and it holds u
 leaves the board. Lose the race and the rider is gone — "Rider stolen!", the streak breaks, no
 strike.
 
+**Win it and it is a combo.** Picking up a rider a robo-taxi had locked on to lands **Snatched!**, a
+half step on the [combo meter](#the-combo-meter) like an overtake (`COMBO_STEPS.snatch`, main.js on
+the pickup event; Tyler, 2026-11-26). It is the payoff for taking the race rather than a free rider,
+and it goes through the meter rather than the price because the meter is where a fare gets its
+value.
+
 ## Robo-taxis
 
 The city council's driverless cabs (game/robotaxi.js, body in geometry/robotaxi.js): two of them,

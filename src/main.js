@@ -8076,6 +8076,9 @@ function tick() {
     }
     if (type === 'pickup') {
       boardSound();
+      // Beat a robo-taxi to the rider it had locked on to: a combo (COMBO_STEPS.snatch). Read before
+      // the robots' next update, which is what lets go of the claim on a rider who has left the board.
+      if (riderRace() && robotaxis?.claimOf(fare)) landCombo('snatch');
       traffic.taxi.route = [];
       traffic.taxi.pendingTarget = null;
       // The roof sign lights up while the rider is aboard.

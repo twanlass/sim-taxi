@@ -254,7 +254,7 @@ import {
 } from '../src/game/boost.js';
 import { createBoostMeter } from '../src/game/boostmeter.js';
 import * as fuelArc from '../src/game/fuelarc.js';
-import { createComboMeter, comboScope, COMBO_MAX } from '../src/game/combometer.js';
+import { createComboMeter, comboScope, comboValue, COMBO_MAX } from '../src/game/combometer.js';
 import { ORDER_LINES } from '../src/game/ordertalk.js';
 import { createSfx, SHIPPED_MIX, SFX_EVENTS, SOUNDS, LOOPS, RADIO, radioBetween, DRIVE_THRU_SECONDS, DRIVE_THRU_TAIL, GROUPS, BUSES, MIX_PARENT, monitorPass } from '../src/game/sfx.js';
 import MIX_FILE from '../assets/audio/mix.json' with { type: 'json' };
@@ -23005,6 +23005,10 @@ let chopperOrder; // likewise
     && !bystander.lost && bystander.mult === 3
     && !createComboMeter().walkout({ stage: 'riding' }),
     `aboard ×${aboard.mult}, en route ×${enRoute.mult}, bystander ×${bystander.mult}`);
+
+  // Beating a robo-taxi to its rider (the rider race) is a half step, like an overtake.
+  check('snatching a robo-taxi\'s rider is Snatched!, a half step',
+    comboValue('snatch')?.label === 'Snatched!' && comboValue('snatch').step === 0.5);
 
   m = createComboMeter();
   const stunt = m.land('stuntman');
