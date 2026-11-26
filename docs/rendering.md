@@ -1307,6 +1307,14 @@ What the WebGPU path draws today, and what it does not:
   - `createRenderPipelineAsync` for the warm-up's pipelines was tried and made a never-seen boot
     **slower** (7.5-11 s against 3.8-4.9 s, Chrome for Testing with its Metal cache cleared each
     run) with no change to a cached one, so the warm-up still builds them synchronously.
+  - **A cold boot pays per distinct shader, not per byte.** `tools/shadercost.mjs` replays every
+    pipeline a boot built, one at a time, on a blank page, against an empty Metal cache and then a
+    warm one (2026-11-26, M5): 17.8 s of driver compile one by one, ~110 ms for a 5 KB fragment
+    shader and ~340 ms for the biggest (126 KB), and close to nothing for a second pipeline on a
+    module already compiled. So the lever is fewer modules, and three wrote near-duplicates:
+    varying locations that skip a slot, identifiers off a per-build counter (`util/shadertext.js`),
+    and a second shader for every material's faded state (`util/fadeshader.js`). 116 fragment
+    modules to 99 headless, same pixels. `?shadertext=classic` and `?fadeshader=classic` for A/B.
 
 Things the WebGL renderer does without being asked, each of which showed up as a wrong
 picture and each of which the node path now does by hand:

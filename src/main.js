@@ -5,6 +5,8 @@ import { gpuCompat, unported } from './game/gpucompat.js';
 import { GPU, fallBackToWebGL, gpuNote } from './util/gpu.js';
 import { installVarsToLets } from './util/wgsllets.js';
 import { installNodeMemo } from './util/nodememo.js';
+import { installShaderText } from './util/shadertext.js';
+import { installFadeShader } from './util/fadeshader.js';
 import { createGpuCapture } from './game/gpucapture.js';
 import { createGpuFrame } from './game/gpuframe.js';
 import { createGpuCrt } from './game/gpucrt.js';
@@ -347,6 +349,8 @@ if (GPU) installVarsToLets(renderer);
 // Three's node builder asks the same type questions of the same nodes thousands of times per
 // material, and that — not the GPU — is most of a WebGPU boot: see util/nodememo.js.
 if (GPU && new URLSearchParams(window.location.search).get('nodememo') !== 'classic') installNodeMemo(renderer);
+if (GPU && new URLSearchParams(window.location.search).get('shadertext') !== 'classic') installShaderText(renderer);
+if (GPU && new URLSearchParams(window.location.search).get('fadeshader') !== 'classic') installFadeShader();
 perfMark('renderer');
 // NOT `window.innerWidth/innerHeight`: on an installed iOS app those stop short of the physical
 // bottom of the screen, and the strip the canvas doesn't cover shows as bare sky under the game.
