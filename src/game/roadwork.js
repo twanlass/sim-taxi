@@ -222,7 +222,13 @@ function laneFrame(lane, s) {
   return { matrix: m, forward: f, across: l, x: p.x, z: p.z };
 }
 
-export function createRoadwork(rng, scene, camera = null) {
+/**
+ * @param {object} [opts]
+ * @param {{x: number, z: number}[]} [opts.keepClear]  Points no zone may be built beside — the
+ *   donut shop's parked cruiser (city/donutshop.js), which is up on the kerb of one street for the
+ *   whole run and would stand in the middle of the works.
+ */
+export function createRoadwork(rng, scene, camera = null, { keepClear = [] } = {}) {
   const group = new THREE.Group();
   group.name = 'roadwork';
   scene.add(group);
@@ -399,6 +405,17 @@ export function createRoadwork(rng, scene, camera = null) {
     // under the tarmac at the middle and sticking out of it at both ends. There is also nothing
     // under a bridge deck to dig a hole *in*.
     if (a.gi === b.gi && isRiverGap(Math.min(a.gj, b.gj))) return false;
+
+    // Nothing parked along it: inside a unit past its kerb, between its two junctions. A unit and
+    // not more, or a cruiser parked near a corner also closes the street crossing in front of it.
+    const ex = b.x - a.x;
+    const ez = b.z - a.z;
+    const len2 = ex * ex + ez * ez;
+    if (keepClear.some((p) => {
+      const t = ((p.x - a.x) * ex + (p.z - a.z) * ez) / len2;
+      if (t < 0 || t > 1) return false;
+      return Math.hypot(a.x + ex * t - p.x, a.z + ez * t - p.z) < edge.halfWidth + 1;
+    })) return false;
 
     // A rider standing on a kerb corner at either end would be picked up from inside the zone.
     if (busy.some((spot) => (spot.i === a.gi && spot.j === a.gj)

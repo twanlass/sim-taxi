@@ -51,6 +51,7 @@ import { createCanopyFuzz } from './city/canopyfuzz.js';
 import { createGarage, LANDMARK as GARAGE_LANDMARK } from './city/garage.js';
 import { createBurgerJoint, SIGN_SPIN, LANDMARK as BURGER_LANDMARK } from './city/burgerjoint.js';
 import { createVetClinic, VET_CLASSIC } from './city/vetclinic.js';
+import { createDonutShop, DONUT_CLASSIC } from './city/donutshop.js';
 import { createBillboard, BILLBOARD_CLASSIC } from './city/billboard.js';
 import { createGraveyard, LANDMARK as GRAVEYARD_LANDMARK } from './city/graveyard.js';
 import { plantedCrowns } from './city/props.js';
@@ -64,7 +65,7 @@ import {
 import { createCollisions, TAXI_HP, setCrush, setCrushSplash } from './sim/collisions.js';
 import { createVanish } from './game/vanish.js';
 import { createCrushSlowMo } from './game/crushslowmo.js';
-import { createPolice } from './sim/police.js';
+import { createPolice, parkedCruiser } from './sim/police.js';
 import {
   createFareSystem, cornerFor, kerbFor, setFareSeconds, getFareSeconds, isFareClockPinned, BURGER_PRICE, REPAIR_PRICE,
   BOARD_SECONDS, MAX_STRIKES, RATING_FLOOR, ratingFor, SHIFT_SECONDS,
@@ -797,6 +798,9 @@ const stopPanes = rain.enabled ? collectPanes() : null;
 const fall = getFall();
 setAutumn(fall, { classicColours: getFoliageClassic() });
 const city = createBuildings(makeRng(seed + 22), layout);
+// The donut shop's site, or null (city/donutshop.js). Read this early because the street lamps,
+// post boxes and bag piles below keep off its parked cruiser; built further down beside the vet.
+const donutSite = DONUT_CLASSIC ? null : city.donut;
 scene.add(markOccluder(city.mesh));
 // The window frames: not occluders, on purpose (`frameMesh` in city/facade.js).
 if (city.frames) scene.add(city.frames);
@@ -837,7 +841,7 @@ scene.add(markOccluder(propsMesh));
 // pond — a park's lamp stands on its walk, and any of the three can run right up to it. A lamp
 // pole once stood in the middle of a basketball court.
 const lamps = rain.enabled
-  ? streetLamps(makeRng(seed + 392), layout, entrances(paneFaces ?? [], city.bank), lampKeepOff(props))
+  ? streetLamps(makeRng(seed + 392), layout, entrances(paneFaces ?? [], city.bank), [...lampKeepOff(props), ...(donutSite ? [donutSite.carRect] : [])])
   : null;
 if (lamps) {
   scene.add(markOccluder(lamps.posts), lamps.heads, lamps.pools);
@@ -998,6 +1002,14 @@ if (vet) {
   scene.add(vet.group);
   markOccluder(vet.shell);
 }
+// The donut shop: another ordinary corner shop with a cake donut stood on its roof and a cruiser
+// parked out front, two wheels on the kerb, bar dark (city/donutshop.js). Scenery only — the car is
+// not in the traffic model and nothing drives into it, because it is parked clear of the lane.
+const donut = donutSite ? createDonutShop(donutSite, { makeCruiser: parkedCruiser }) : null;
+if (donut) {
+  scene.add(donut.group);
+  donut.occluders.forEach(markOccluder);
+}
 // The rooftop billboards: the robo-taxis' teaser and the Dub Burger ad, on the widest flat roofs (city/billboard.js).
 // Scenery only, and in the sightline field below, so no fare lands on a corner it hides. Null on
 // `?billboard=classic` or a city with no roof that fits.
@@ -1033,7 +1045,7 @@ const manholeSteam = createManholeSteam(scene, manholes?.userData.spots, makeRng
 const occluders = setCityOccluders(
   city.mesh, ...(city.domeMesh ? [city.domeMesh] : []), propsMesh, ...(garage?.meshes ?? []),
   ...(burger?.meshes ?? []), ...(graveyard?.meshes ?? []), ...(roadside?.meshes ?? []),
-  ...(vet ? [vet.shell] : []), ...billboards.flatMap((b) => [b.shell, b.poster]),
+  ...(vet ? [vet.shell] : []), ...(donut ? [donut.sign] : []), ...billboards.flatMap((b) => [b.shell, b.poster]),
 );
 // The same field is what the cars' paint reflects (`propMaterial({ gloss })`, util/geo.js).
 setGlossCity(occluders, SKYLINE_CEILING);
@@ -1854,7 +1866,7 @@ const spray = createSpray(scene, makeRng(seed + 78));
 // game/streetprops.js. City seed for where they stand, after the sightline field exists (they only
 // go where the camera can see them) and clear of the rain's street lamps. Run seed for the spray.
 const lampSpots = lamps?.spots.map((p) => ({ x: p.px, z: p.pz })) ?? [];
-const streetPropPlan = planStreetProps(makeRng(seed + 211), layout, lampSpots);
+const streetPropPlan = planStreetProps(makeRng(seed + 211), layout, [...lampSpots, ...(donutSite?.carPoints ?? [])]);
 const streetProps = createStreetProps(scene, streetPropPlan, { dust, rng: makeRng(runSeed + 212) });
 
 // Bags piled on the kerb at street corners, and the garbage truck that drives round collecting them
@@ -1865,7 +1877,8 @@ const streetProps = createStreetProps(scene, streetPropPlan, { dust, rng: makeRn
 const garbage = createGarbage({
   rng: makeRng(runSeed + 731), scene, traffic,
   plan: planTrashPiles(makeRng(seed + 733), layout,
-    [...lampSpots, ...streetPropPlan.map((p) => ({ x: p.x, z: p.z, r: PROP_KEEP_OUT }))]),
+    [...lampSpots, ...streetPropPlan.map((p) => ({ x: p.x, z: p.z, r: PROP_KEEP_OUT })),
+      ...(donutSite?.carPoints ?? []).map((p) => ({ ...p, r: PROP_KEEP_OUT }))]),
   blocked: () => Boolean(shot) || traffic.taxi.staged,
   soon: new URLSearchParams(window.location.search).get('garbage') === 'soon',
 });
@@ -1904,7 +1917,7 @@ const cityEntry = createCityEntry({
   // anchor, so it comes up as a building rather than as a building and a door.
   meshes: [city.mesh, ...city.glass, ...(city.frames ? [city.frames] : []), ...(city.domeMesh ? [city.domeMesh] : []), ...(westEdge ? [westEdge.towers, ...westEdge.glass] : []), ...(westEdge?.frames ? [westEdge.frames] : []), propsMesh, grass.mesh, canopyFuzz.mesh, ...(garage?.meshes ?? []),
     ...(burger?.meshes ?? []), ...(graveyard?.meshes ?? []), ...(roadside?.meshes ?? []),
-    ...(vet?.meshes ?? []), ...billboards.flatMap((b) => b.meshes),
+    ...(vet?.meshes ?? []), ...(donut?.meshes ?? []), ...billboards.flatMap((b) => b.meshes),
     ...(lamps ? [lamps.posts, lamps.heads] : []),
     ...(props.courtMesh ? [props.courtMesh] : []), ...(props.skateMesh ? [props.skateMesh] : []),
     ...(props.pondMesh ? [props.pondMesh] : [])],
@@ -1912,7 +1925,7 @@ const cityEntry = createCityEntry({
   // depot's sign and the burger over the drive-through. See the `objects` note in
   // game/cityentry.js.
   objects: [...(garage ? [garage.entryObject] : []), ...(burger ? [burger.entryObject] : []),
-    ...(vet ? [vet.entryObject] : []),
+    ...(vet ? [vet.entryObject] : []), ...(donut?.entryObjects ?? []),
     ...(graveyard ? [graveyard.entryObject] : []),
     ...hoopers.entryObjects, ...boombox.entryObjects, ...skaters.entryObjects,
     ...tubeMan.entryObjects, ...(roadside?.entryObjects ?? []), ...(ltrain?.entryObjects ?? []),
@@ -2254,7 +2267,7 @@ const harborShips = createHarborShips(scene, makeRng(runSeed + 431), harbor?.ber
 // Ambient traffic routes around it and the taxi has never heard of it, so the closed street is the
 // emptiest road in the city with a ramp at each end. Run seed, like the flyover: which street and
 // when is part of the situation rather than part of the map.
-const roadwork = createRoadwork(makeRng(runSeed + 177), scene, camera);
+const roadwork = createRoadwork(makeRng(runSeed + 177), scene, camera, { keepClear: donutSite?.carPoints ?? [] });
 // Stuntman (Tyler, 2026-10-14): smashing through a barricade is a combo, and pays Loco back the way
 // a drift's first kick does. Any smash counts, at any speed — the taxi only gets there by being
 // routed down a street the city has closed, which is the choice; the hop off the trestle is what
@@ -8696,6 +8709,14 @@ if (shot) {
   if (billboards[(shot.atBillboard ?? 0) - 1]) {
     const { focus } = billboards[shot.atBillboard - 1].site;
     controller.state.target.set(focus.x - focus.y / 0.92, 0, focus.z - focus.y / 0.92);
+    controller.update(aspect());
+  }
+  // The donut shop: half way between the cruiser on the kerb and the ground point the donut sits
+  // over on screen (its height back along VIEW_DIR, as the billboard's above), so both are in frame.
+  if (shot.atDonut && donut) {
+    const { centre } = donut;
+    const { car } = donut.site;
+    controller.state.target.set((car.x + centre.x - centre.y / 0.92) / 2, 0, (car.z + centre.z - centre.y / 0.92) / 2);
     controller.update(aspect());
   }
   // The roadside business, framed on its lot; and its tube man, close enough to see his face.

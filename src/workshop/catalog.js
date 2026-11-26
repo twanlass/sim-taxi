@@ -31,7 +31,7 @@ import {
 import {
   convertibleGeometry, convertibleInteriorGeometry, westfaliaGeometry,
 } from '../geometry/classics.js';
-import { createPolice } from '../sim/police.js';
+import { createPolice, parkedCruiser } from '../sim/police.js';
 import { createFireTruckMesh } from '../geometry/firetruck.js';
 import { createGarbageTruckMesh } from '../geometry/garbage.js';
 import { createRoboTaxiMesh } from '../geometry/robotaxi.js';
@@ -47,6 +47,7 @@ import { createFoodOrder } from '../geometry/food.js';
 import { buildBank, bankDomeMesh } from '../city/bank.js';
 import { INSET, buildLotTower } from '../city/buildings.js';
 import { chooseVetSite, createVetClinic } from '../city/vetclinic.js';
+import { donutGeometry } from '../city/donutshop.js';
 import { makeRng } from '../util/rng.js';
 
 const shadowed = (mesh) => {
@@ -337,6 +338,26 @@ export const CATALOG = [
         return { object: landmark(block, group), update: (dt) => vet.update(dt), glow: [[vet.glow, 'window']] };
       }
       throw new Error('vet bench: no flat-roofed shop in 40 tries');
+    },
+  },
+
+  {
+    // The donut shop's sign on its own, stood on edge the way the roof has it, with the cruiser that
+    // parks outside beside it. The site picking needs the city's road network, which the bench does
+    // not have, so the bench shows the two models rather than the shop.
+    id: 'donut', label: 'Donut shop', kind: 'Landmarks',
+    source: 'src/city/donutshop.js · donutGeometry',
+    build: () => {
+      const group = new THREE.Group();
+      const donut = new THREE.Mesh(donutGeometry(), propMaterial({ smooth: true }));
+      donut.rotation.set(-0.28, Math.PI / 4 - 0.3, 0, 'YXZ');
+      donut.position.set(0, 2.5, 0);
+      donut.castShadow = true;
+      const car = parkedCruiser({ kerbLock: 0.32 });
+      car.group.position.set(2.2, 0, 2.2);
+      car.group.rotation.y = -Math.PI / 2;
+      group.add(donut, car.group);
+      return { object: group };
     },
   },
 

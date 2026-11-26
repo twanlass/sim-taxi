@@ -1105,6 +1105,18 @@ export const PALETTE = {
   dogTag: '#F2C14E',
   vetNeonBlue: '#3D8BFF',
   vetNeonRed: '#FF3348',
+  // The donut shop (city/donutshop.js): a cake donut, the paler band round its middle where it
+  // floated in the fryer, strawberry frosting, and sprinkles in five colours. The frosting is a
+  // pink well off the dog's tongue (`dogTongue`) so a seed that puts the two shops near each other
+  // does not paint them as one chain's.
+  donutCake: '#C2803F',
+  donutBand: '#E8C38A',
+  donutFrosting: '#FF74B4',
+  donutSprinkleA: '#FFF6E0',
+  donutSprinkleB: '#FFD23F',
+  donutSprinkleC: '#3DB2FF',
+  donutSprinkleD: '#5FD068',
+  donutSprinkleE: '#FF6A3D',
   // The rooftop billboards (city/billboard.js; the posters' own colours are in city/billboardart.js,
   // which paints them). The steel is painted a dark bottle green, as hoarding structures often are:
   // galvanised grey was `rooftop` to within 3 in every channel and the frame vanished into the roof

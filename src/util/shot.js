@@ -302,6 +302,10 @@ export const SHOTS = [
   { name: 'billboard-far', description: 'the robo-taxi billboard at play zoom', target: [0, 0], zoom: 52, warmup: 12, atBillboard: 1 },
   { name: 'billboard-burger', description: 'the Dub Burger billboard, close', target: [0, 0], zoom: 12, warmup: 12, atBillboard: 2 },
   { name: 'billboard-burger-far', description: 'the Dub Burger billboard at play zoom', target: [0, 0], zoom: 52, warmup: 12, atBillboard: 2 },
+  // The donut shop (city/donutshop.js): the donut on the roof and the cruiser parked under it, close
+  // and at play zoom, both framed on the point between the two. Appended, for the index reason.
+  { name: 'donut', description: 'the donut shop and its parked cruiser, close', target: [0, 0], zoom: 13, warmup: 12, atDonut: true },
+  { name: 'donut-far', description: 'the donut shop at play zoom', target: [0, 0], zoom: 52, warmup: 12, atDonut: true },
 ];
 
 export function getActiveShot() {

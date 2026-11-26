@@ -112,7 +112,8 @@ import { createCarDamage } from '../src/game/cardamage.js';
 import { BODY_TOP } from '../src/geometry/damage.js';
 import { BUMPER_H as BUMPER_H_PROBE, bumperLength as bumperLengthProbe } from '../src/geometry/bumpers.js';
 import { createTaxiDoor } from '../src/game/taxidoor.js';
-import { createPolice, SPOT_RANGE, FADE_TIME } from '../src/sim/police.js';
+import { createPolice, parkedCruiser, SPOT_RANGE, FADE_TIME } from '../src/sim/police.js';
+import { createDonutShop, donutGeometry, DONUT_BODY_TRIS, RING_R as DONUT_RING_R, CORNER_CLEAR as DONUT_CORNER_CLEAR } from '../src/city/donutshop.js';
 import { sirenOn, patrolSwing } from '../src/geometry/lights.js';
 import {
   edgeGlow, sirenWash, GLOW_NEAR, GLOW_FAR, GLOW_FLOOR, SIREN_DIM, PATROL_WASH,
@@ -23901,6 +23902,66 @@ for (const viewName of ['side', 'quarter']) {
   const bytes = (code) => Math.max(...functionVarBytes(code).map((r) => r.bytes));
   check('wgsl lets: the byte count WebKit checks goes down by the lets it made',
     bytes(src) - bytes(out) === 8 + 4, `${bytes(src)} -> ${bytes(out)}`);
+}
+
+// The donut shop (city/donutshop.js): the probe city has one, its ring faces out from the winding,
+// its feet are on its own deck, and the cruiser outside is clear of the lane beside it with its
+// kerb-side wheels up on the pavement. Measured against the grid's constants and the road network,
+// not against the module's own numbers.
+{
+  const site = buildings.donut;
+  check('donut: the probe city has a donut shop', Boolean(site));
+  if (site) {
+    const geo = donutGeometry();
+    const pos = geo.attributes.position;
+    const a = new THREE.Vector3(); const b = new THREE.Vector3(); const c = new THREE.Vector3();
+    const n = new THREE.Vector3(); const mid = new THREE.Vector3();
+    let inward = 0;
+    for (let t = 0; t < DONUT_BODY_TRIS; t++) {
+      a.fromBufferAttribute(pos, t * 3); b.fromBufferAttribute(pos, t * 3 + 1); c.fromBufferAttribute(pos, t * 3 + 2);
+      n.subVectors(b, a).cross(c.clone().sub(a));
+      mid.addVectors(a, b).add(c).divideScalar(3);
+      // Outward is away from the nearest point on the ring's centre circle.
+      const k = DONUT_RING_R / Math.hypot(mid.x, mid.y);
+      const out = new THREE.Vector3(mid.x - mid.x * k, mid.y - mid.y * k, mid.z);
+      if (n.dot(out) <= 0) inward++;
+    }
+    check('donut: every triangle of the ring faces out, from its winding', inward === 0, `${inward} of ${DONUT_BODY_TRIS} inward`);
+    geo.dispose();
+
+    const { car, roof } = site;
+    const net = cityNetwork();
+    const lane = net.lanes.find((l) => l.id === car.lane);
+    const lp = lane.path.at(lane.length / 2);
+    const lateral = car.side === 0 ? Math.abs(lp.x - car.x) : Math.abs(lp.z - car.z);
+    // CAR_W either side: half of the parked car's, half of the passing one's.
+    check('donut: the parked cruiser is clear of the lane beside it', lateral - CAR_W >= 0.1,
+      `${(lateral - CAR_W).toFixed(2)} between flanks`);
+    const kerbGap = car.side === 0 ? car.x - site.tower.block.bounds.x1 : car.z - site.tower.block.bounds.z1;
+    check('donut: the cruiser\'s kerb-side wheels are up on the pavement',
+      kerbGap - 0.7 < -0.1 && kerbGap > 0, `wheel ${(kerbGap - 0.7).toFixed(2)} off the kerb line`);
+    const toCorner = car.side === 0 ? site.tower.block.bounds.z1 - car.z : car.x - site.tower.block.bounds.x0;
+    check('donut: the cruiser\'s nose is clear of the corner a rider stands on', toCorner - CAR_LEN / 2 >= DONUT_CORNER_CLEAR - 0.5,
+      `${(toCorner - CAR_LEN / 2).toFixed(2)} from the corner`);
+
+    const shop = createDonutShop(site, { makeCruiser: parkedCruiser });
+    shop.group.updateMatrixWorld(true);
+    const kerbSide = new THREE.Vector3(0, 0, 0.7).applyMatrix4(shop.cruiser.group.matrixWorld);
+    const roadSide = new THREE.Vector3(0, 0, -0.7).applyMatrix4(shop.cruiser.group.matrixWorld);
+    const kerbward = car.side === 0 ? roadSide.x - kerbSide.x : roadSide.z - kerbSide.z;
+    check('donut: the cruiser leans away from the kerb, kerb side up by a kerb', kerbward > 0
+      && Math.abs(kerbSide.y - roadSide.y - KERB_H) < 0.02, `rise ${(kerbSide.y - roadSide.y).toFixed(3)}`);
+    // Its feet: the legs' lowest vertices, on the deck and inside it.
+    const sp = shop.sign.geometry.attributes.position;
+    let feetOn = true;
+    for (let i = 0; i < sp.count; i++) {
+      const y = sp.getY(i);
+      if (y > roof.deck + 0.01) continue;
+      if (Math.abs(y - roof.deck) > 0.01 || Math.abs(sp.getX(i) - roof.cx) > roof.cw / 2
+        || Math.abs(sp.getZ(i) - roof.cz) > roof.cd / 2) feetOn = false;
+    }
+    check('donut: the sign stands on its own deck and nothing of it goes below', feetOn);
+  }
 }
 
 // Average speed per car over the whole run — a stable throughput number, unlike a snapshot of
