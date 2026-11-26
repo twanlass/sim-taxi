@@ -10,6 +10,13 @@
   const params = new URLSearchParams(location.search);
   const beat = params.get('trailer') || '';
   const zoomPin = Number(params.get('trailerzoom') || 0);
+  // The T-bone's staging: seconds out from the junction when the cop is stood at its line, which
+  // side it pulls out from (1 = rightOf, 3 = leftOf the taxi's heading), and how far back from the
+  // junction it stands (under STOP_SETBACK, 3.4, so it runs the stop).
+  const leadT = Number(params.get('trailerlead') || 1.5);
+  const side = Number(params.get('trailerside') || 1);
+  const copBack = Number(params.get('trailerback') || 2);
+  const ahead = Number(params.get('trailerahead') || 1);
 
   let prev = {};
   let since = {};
@@ -21,6 +28,7 @@
   const heistLog = [];
   let kickBefore = null;
   let worksDelivered = null;
+  let tbone = { cop: null, at: null, j: null, closing: null };
 
   const T = () => window.__taxi;
   const key = (code, type) => window.dispatchEvent(new KeyboardEvent(type, { code, key: code === 'Space' ? ' ' : 'b', bubbles: true }));
@@ -79,6 +87,14 @@
       kickBefore = lastKick < 0 ? null : (frames - lastKick) / 60;
       worksDelivered = t.fares.state.delivered;
       return kickBefore != null && kickBefore < 3;
+    },
+    // Boosting down a straight, a cop pulls out across the junction ahead and the taxi T-bones it:
+    // the wreck, the driver thrown, the crash replay. Staged by `stageTbone`; only a wreck into
+    // that cop counts.
+    tbone() {
+      const t = T();
+      const taxi = t.traffic.taxi;
+      return rose('tb-crash', Boolean(taxi.crashed)) && tbone.cop != null;
     },
     mega() {
       const taxi = T().traffic.taxi;
@@ -173,11 +189,36 @@
     works: () => worksDelivered != null && T().fares.state.delivered > worksDelivered,
   };
 
+  /**
+   * Once the taxi is on Loco at speed and going straight through the junction its lane ends at,
+   * `leadT` seconds out, stand a cop at that junction's cross line and let the bot stop keeping
+   * the taxi alive.
+   */
+  function stageTbone() {
+    const t = T();
+    const taxi = t.traffic.taxi;
+    if (tbone.cop || frames < 300 || !t.boost.isActive() || taxi.v < 14) return;
+    if (taxi.state !== 'drive' || !taxi.lane || taxi.drift || taxi.passing) return;
+    // Straight on through every junction up to and including the one the cop pulls into.
+    for (let k = 0; k <= ahead; k++) if (taxi.route?.[k] !== taxi.d) return;
+    const toJ = taxi.lane.length - taxi.s;
+    const cop = t.stageCop(side, copBack, ahead, leadT);
+    if (!cop) return;
+    tbone = { cop, at: frames, toJ: +toJ.toFixed(1), v: +taxi.v.toFixed(1) };
+    t.perfBot?.letCrash();
+    taxi.hp = 1;
+  }
+
   function frame() {
     const t = T();
     if (!t?.warmedUp) return {};
     frames += 1;
     if (beat === 'mega') stageMega();
+    if (beat === 'tbone') stageTbone();
+    if (tbone.cop && frames - tbone.at < 120 && (frames - tbone.at) % 10 === 0) {
+      const taxi = t.traffic.taxi; const c = tbone.cop;
+      (tbone.trace ??= []).push([frames - tbone.at, +taxi.x.toFixed(1), +taxi.z.toFixed(1), +taxi.v.toFixed(1), taxi.state, +c.x.toFixed(1), +c.z.toFixed(1), +c.v.toFixed(1), c.state, c.crashed ? 'X' : '']);
+    }
     // The wreck's own camera (the pull-in, the replay) owns the framing from the crash on.
     if (zoomPin && t.camera?.state && !t.traffic.taxi.crashed) {
       zoomNow = zoomNow == null ? t.camera.state.zoom : zoomNow + (zoomPin - zoomNow) * 0.08;
@@ -201,7 +242,7 @@
     info: () => {
       const t = T();
       const taxi = t?.traffic?.taxi;
-      return taxi && { heist: heistLog.map(([k, f]) => `${k}@${frames - f}f ago`).join(', '), kickBefore, errand: t.perfBot?.errand?.(), works: t.roadwork?.state.phase, delivered: t.fares.state.delivered, bot: t.perfBot?.robbery?.(), heli: t.policeHeli?.state.mode, scene: t.perfBot?.scene(), x: +taxi.x.toFixed(1), z: +taxi.z.toFixed(1), v: +taxi.v.toFixed(1), st: taxi.state, route: taxi.route?.length, mega, db: t.drawbridge?.state?.phase, span: t.drawbridge && [t.drawbridge.line, t.drawbridge.span.cx, +t.drawbridge.span.z0.toFixed(1), +t.drawbridge.span.z1.toFixed(1), t.drawbridge.span.row] };
+      return taxi && { heist: heistLog.map(([k, f]) => `${k}@${frames - f}f ago`).join(', '), kickBefore, errand: t.perfBot?.errand?.(), tbone: tbone.cop && { ...tbone, cop: undefined, copAt: [+tbone.cop.x.toFixed(1), +tbone.cop.z.toFixed(1)], hit: tbone.cop.crashed, eject: taxi.ejected ?? null }, works: t.roadwork?.state.phase, delivered: t.fares.state.delivered, bot: t.perfBot?.robbery?.(), heli: t.policeHeli?.state.mode, scene: t.perfBot?.scene(), x: +taxi.x.toFixed(1), z: +taxi.z.toFixed(1), v: +taxi.v.toFixed(1), st: taxi.state, route: taxi.route?.length, mega, db: t.drawbridge?.state?.phase, span: t.drawbridge && [t.drawbridge.line, t.drawbridge.span.cx, +t.drawbridge.span.z0.toFixed(1), +t.drawbridge.span.z1.toFixed(1), t.drawbridge.span.row] };
     },
   };
 })();

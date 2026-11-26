@@ -56,7 +56,7 @@ import { createBillboard, BILLBOARD_CLASSIC } from './city/billboard.js';
 import { createGraveyard, LANDMARK as GRAVEYARD_LANDMARK } from './city/graveyard.js';
 import { plantedCrowns } from './city/props.js';
 import {
-  createTraffic, placeCar, TRUCK_CHANCE, CLASSIC_CHANCE, TRUCK_LEN, TRUCK_W, laysPassRubber, copLaysRubber, SPEED,
+  createTraffic, placeCar, releaseCar, TRUCK_CHANCE, CLASSIC_CHANCE, TRUCK_LEN, TRUCK_W, laysPassRubber, copLaysRubber, SPEED,
   ROAD_Y, CAR_LEN, CAR_W, wheelAnchors,
   boostCruise, locoTuning, setLocoTuning, resetLocoTuning, locoRamp, LOCO_DEFAULTS, driftTaxi, kickDrift, driftHolds, DRIFT_CHAIN,
   onDriftLaunch, hopProgress, setSpinStyle, setBarrelRoll, setMegaFlip, setBridgeStunt, setPassTurnGate, setPassPace, setHopStyle, setDodge, setOvertakeStyle, setPeek, setTaxiScatter,
@@ -9535,6 +9535,34 @@ window.__taxi = {
     if (!near) return false;
     taxi.hp = 1;
     return collisions.strike(near);
+  },
+  /**
+   * Bring a cop car on and stand it, at rest, just past the hold line of a cross street into the
+   * junction the taxi's lane ends at: `side` 1 or 3 turns the taxi's heading to the cop's. Released
+   * inside its own stop line, it pulls out across the junction without looking (the trap in
+   * CLAUDE.md, used on purpose). `ahead` junctions further on than the one the taxi's lane ends at,
+   * and only once the taxi is within `lead` seconds of it at its present speed. For
+   * tools/trailer's T-bone; nothing in the game calls it. Answers the car, or null.
+   */
+  stageCop: (side = 1, back = 2, ahead = 1, lead = 1.5) => {
+    const taxi = traffic.taxi;
+    const net = cityNetwork();
+    let node = taxi.lane && net.nodeById.get(taxi.lane.to);
+    if (!node || node.gi == null || taxi.v <= 0) return null;
+    const step = [[1, 0], [0, 1], [-1, 0], [0, -1]][taxi.d];
+    for (let k = 0; k < ahead; k++) {
+      const next = net.laneByGrid(taxi.d, node.gi + step[0], node.gj + step[1]);
+      if (!next || next.from !== node.id) return null;
+      node = net.nodeById.get(next.to);
+      if (!node || node.gi == null) return null;
+    }
+    if (Math.hypot(node.x - taxi.x, node.z - taxi.z) / taxi.v > lead) return null;
+    const d = (taxi.d + side) % 4;
+    const [i, j] = [node.gi, node.gj];
+    if (!net.laneByGrid(d, i, j)) return null;
+    if (!traffic.enterPolice(1, taxi)) return null;
+    const cop = traffic.cars[traffic.cars.length - 1];
+    return cop?.police && releaseCar(cop, d, i, j, back) ? cop : null;
   },
   /** The run-end card's Play again, from the console or a headless check. See `rerun`. */
   playAgain: () => playAgain(),

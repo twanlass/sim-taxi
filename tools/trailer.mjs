@@ -67,6 +67,9 @@ export const BEATS = [
   { name: 'heist', query: 'bot=robbery', seed: 71624, run: 2, pre: 0.4, post: 1.0, until: true, zoom: 0, max: 200, solo: true },
   // A drift into the roadworks street, through the trestles, on to the drop-off (`until`).
   { name: 'works', query: 'bot=works', seed: 71624, run: 2, pre: 3.2, post: 3.0, until: true, zoom: 0, max: 150, solo: true },
+  // Boosting down a straight, a cop pulls out ahead, the T-bone and the crash replay. `stage` is
+  // extra query for the staging (director.js `stageTbone`).
+  { name: 'tbone', query: 'bot=loco', seed: 71624, run: 1, pre: 2.5, post: 7.0, zoom: 0, max: 40, solo: true },
   { name: 'mega', query: '', seed: 71624, run: 7, pre: 1.4, post: 2.6, zoom: 40, max: 70 },
   { name: 'robbery', query: 'bot=robbery', seed: 71624, run: 7, pre: 0.3, post: 3.0, zoom: 36, max: 140 },
   { name: 'cops', query: 'bot=cops', seed: 71624, run: 7, pre: 0.5, post: 2.8, zoom: 34, max: 100 },
@@ -117,7 +120,7 @@ async function openBeat(browser, beat) {
   page.on('console', (m) => { if (m.type() === 'error') console.log(`  [console] ${m.text().slice(0, 240)}`); });
   const base = beat.title ? BASE.replace('title=off&', '') : BASE;
   const query = [base, `dpr=${DPR}`, `seed=${seed}`, `run=${run}`, `trailer=${beat.name}`,
-    beat.zoom ? `trailerzoom=${beat.zoom}` : '', `trailermax=${beat.max + 20}`, beat.query].filter(Boolean).join('&');
+    beat.zoom ? `trailerzoom=${beat.zoom}` : '', `trailermax=${beat.max + 20}`, beat.query, arg('q', '')].filter(Boolean).join('&');
   await page.goto(`${URL_BASE}/?${query}`, { timeout: 180_000 });
   // Pump the boot: modules load on wall time, the warm-up yields on frames.
   for (let i = 0; i < 6000; i++) {
@@ -143,7 +146,7 @@ async function findMoment(page, beat) {
     const r = await page.evaluate(async () => { await window.__trailer.step(1); return window.__director.update(); });
     if (r.error) throw new Error(r.error);
     if (r.event) {
-      console.log('  at the moment', JSON.stringify(await page.evaluate(() => window.__director.info())).slice(0, 300));
+      console.log('  at the moment', JSON.stringify(await page.evaluate(() => window.__director.info())).slice(0, Number(arg("infolen", 300))));
       // Play on through the rest of the take: a ram after the moment spoils it as much as one before.
       // A beat with an `until` runs on to the director's `end` (plus `post`) rather than a fixed length.
       const at = await page.evaluate(() => window.__director.frames);
@@ -153,7 +156,7 @@ async function findMoment(page, beat) {
         for (; k < limit - f; k++) {
           const e = await page.evaluate(async () => { await window.__trailer.step(1); return window.__director.update(); });
           if (e.end) break;
-          if (k % 600 === 0 && k) console.log(`  …+${k / FPS}s`, JSON.stringify(await page.evaluate(() => window.__director.info())).slice(0, 300));
+          if (k % 600 === 0 && k) console.log(`  …+${k / FPS}s`, JSON.stringify(await page.evaluate(() => window.__director.info())).slice(0, Number(arg("infolen", 300))));
         }
         if (k >= limit - f) { console.log('  the take never reached its end'); return -1; }
         console.log('  at the end', JSON.stringify(await page.evaluate(() => window.__director.info())).slice(0, 400));

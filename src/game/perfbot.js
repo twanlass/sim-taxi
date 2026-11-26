@@ -102,6 +102,8 @@ export function createPerfBot({
   let brakeUntil = -1;
   let robberySeen = false;
   let robberyEnded = 0;
+  /** Set by `letCrash()`: the next hit is allowed to wreck the taxi, whatever the scene. */
+  let mortal = false;
   /** How the scene's robbery began: 'rider' (the bank rider, with the shove) or 'forced' (none on the board). */
   let robberyVia = null;
   /** The overtake combo on the getaway: the pill is let go until this scene time, and when it last was. */
@@ -158,7 +160,7 @@ export function createPerfBot({
 
   /** Keep the run alive until the crash scene: HP, clocks, and no arrest. */
   function immortal() {
-    if (scene() === 'crash' || done) return;
+    if (scene() === 'crash' || done || mortal) return;
     taxi.hp = TAXI_HP;
     fares.setPaused(true);
     for (const p of patrols) {
@@ -349,6 +351,8 @@ export function createPerfBot({
     stats,
     /** The bot's own destination and how many bridge runs it has set, for debugging a scene. */
     errand: () => errand && { ...errand, hops },
+    /** Stop keeping the taxi alive, so a staged hit (tools/trailer's T-bone) can wreck it. */
+    letCrash: () => { mortal = true; },
     /** How the robbery scene's robbery began ('rider' or 'forced'), and how many overtake blips its getaway threw. */
     robbery: () => ({ via: robberyVia, blips }),
     /** Call once per frame, before `tick`. */
