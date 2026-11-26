@@ -33,7 +33,7 @@ import {
 import { createLeaves } from '../src/game/leaves.js';
 import { createSquall } from '../src/game/squall.js';
 import { pedalZones, pedalAfterMove, PEDAL_SLOP } from '../src/game/pedalzones.js';
-import { planPond, pondParts, pondRadiusAt, POND_WATER_Y, POND_SET } from '../src/city/pond.js';
+import { planPond, pondDist, pondNear, pondParts, pondRadiusAt, POND_WATER_Y, POND_SET } from '../src/city/pond.js';
 import { createGrass, planGrass, grassGeometry } from '../src/city/grass.js';
 import { createCanopyFuzz } from '../src/city/canopyfuzz.js';
 import { createDucks } from '../src/game/ducks.js';
@@ -855,6 +855,9 @@ const onGrass = (city, i, j) => {
   let inABench = 0;
   let tightest = Infinity;         // least lawn to spare between a pond's edge and the paving
   let smallest = Infinity;
+  let smallestArea = Infinity;
+  let tooSmall = 0;
+  let bigOnes = 0;
 
   const SEEDS = 40;
   for (let s = 0; s < SEEDS; s++) {
@@ -874,11 +877,17 @@ const onGrass = (city, i, j) => {
     smallest = Math.min(smallest, pond.r);
 
     if (plan.statue && pond.plot === plan.statue.plot) onTheStatuesLawn += 1;
+    // The rink-shaped pond (the default) is never smaller than the round one's floor, and on a
+    // district it is bigger than the round one at its largest ever was.
+    const area = 4 * pond.hx * pond.hz - (4 - Math.PI) * pond.rc * pond.rc;
+    smallestArea = Math.min(smallestArea, area);
+    if (pond.shape !== 'rink' || area < Math.PI * 2.9 * 2.9) tooSmall += 1;
+    if (Math.max(pond.hx, pond.hz) > 6) bigOnes += 1;
 
-    // The whole circle inside the grass: the outline never exceeds `r`, so the nearest block edge
-    // less the radius is where the water gets closest to the walk round the park.
+    // The whole outline inside the grass: the nearest block edge less the half-extent on that axis
+    // is where the water gets closest to the walk round the park.
     const { x0, x1, z0, z1 } = pond.plot.bounds;
-    const room = Math.min(pond.x - x0, x1 - pond.x, pond.z - z0, z1 - pond.z) - pond.r;
+    const room = Math.min(pond.x - pond.hx - x0, x1 - pond.x - pond.hx, pond.z - pond.hz - z0, z1 - pond.z - pond.hz);
     tightest = Math.min(tightest, room - PARK_EDGE);
     if (room < PARK_EDGE) overTheWalk += 1;
 
@@ -889,19 +898,23 @@ const onGrass = (city, i, j) => {
     for (const bench of plan.benches) {
       const cos = Math.cos(bench.yaw);
       const sin = Math.sin(bench.yaw);
-      const dx = pond.x - bench.x;
-      const dz = pond.z - bench.z;
-      // Distance from the pond's centre to the bench's rectangle: the overshoot past each of its
-      // own half-extents, taken together.
-      const along = Math.max(0, Math.abs(dx * cos - dz * sin) - BENCH_LEN / 2);
-      const across = Math.max(0, Math.abs(dx * sin + dz * cos) - 0.34);
-      if (Math.hypot(along, across) < pond.r) inABench += 1;
+      // Any corner of the bench's footprint, or its middle, inside the outline. A bench is 1.9 by
+      // 0.645 against a pond at least 6 across, so it cannot straddle an edge with all five out.
+      const corners = [[0, 0], [1, 1], [1, -1], [-1, 1], [-1, -1]].map(([a, c]) => {
+        const lx = a * BENCH_LEN / 2;
+        const lz = c * 0.34;
+        return [bench.x + lx * cos + lz * sin, bench.z - lx * sin + lz * cos];
+      });
+      if (corners.some(([x, z]) => pondDist(pond, x, z) < 0)) inABench += 1;
     }
   }
   createLayout(makeRng(seed));     // `createLayout` installs its network — put the probe's city back
 
   check('every city that can hold a pond gets exactly one', ponds === cities,
-    `${ponds} across ${cities} cities, smallest ${smallest.toFixed(2)} in radius`);
+    `${ponds} across ${cities} cities, smallest ${smallest.toFixed(2)} on its long side`);
+  check('the pond is rink-shaped, never under the round one\'s floor, and long in most cities',
+    tooSmall === 0 && bigOnes > ponds * 0.6,
+    `${tooSmall} too small (smallest ${smallestArea.toFixed(1)} sq units), ${bigOnes}/${ponds} over 12 long`);
   check('and it is never in the statue\'s park', onTheStatuesLawn === 0,
     `${onTheStatuesLawn} sharing a lawn with the statue`);
   check('the water lies entirely on the grass', overTheWalk === 0,
@@ -1172,7 +1185,7 @@ const onGrass = (city, i, j) => {
         && z > bounds.z0 + PARK_EDGE && z < bounds.z1 - PARK_EDGE))
         || lawns.some((lawn) => ends.every(([x, z]) => pointInPolygon(x, z, lawn)));
       if (!inside) offLawn += 1;
-      if (pond && Math.hypot(t.x - pond.x, t.z - pond.z) < pond.r) inWater += 1;
+      if (pond && pondDist(pond, t.x, t.z) < 0) inWater += 1;
       if (statue && Math.abs(t.x - statue.x) < STATUE_PLAZA / 2
         && Math.abs(t.z - statue.z) < STATUE_PLAZA / 2) onPlaza += 1;
       for (const bench of benches) {
@@ -1450,7 +1463,7 @@ const onGrass = (city, i, j) => {
       const az = entry.getY(i);          // the anchor's z rides in the attribute's y
       // A crown reaches ~1.8 past its trunk and a tree leaning over water is a tree growing out of
       // it, so the margin is the one `createProps` plants by rather than the bare radius.
-      if (Math.hypot(ax - pond.x, az - pond.z) > pond.r + 1.8) continue;
+      if (pondDist(pond, ax, az) > 1.8) continue;
       if (known.some((p) => isAt(ax, az, p))) continue;
       inTheWater += 1;
     }
@@ -1493,11 +1506,7 @@ const onGrass = (city, i, j) => {
     const half = STATUE_PLAZA / 2;
     if (plan.statue && r.x0 < plan.statue.x + half && r.x1 > plan.statue.x - half
       && r.z0 < plan.statue.z + half && r.z1 > plan.statue.z - half) onPlaza += 1;
-    if (pond) {
-      const dx = Math.max(r.x0 - pond.x, 0, pond.x - r.x1);
-      const dz = Math.max(r.z0 - pond.z, 0, pond.z - r.z1);
-      if (Math.hypot(dx, dz) < pond.r) inPond += 1;
-    }
+    if (pond && pondNear(pond, r)) inPond += 1;
     for (const bench of clearBenches(court, plan.benches, BENCH_LEN)) {
       // Any corner of the bench's footprint on the slab.
       const along = Math.abs(Math.cos(bench.yaw)) > 0.5;
@@ -2094,11 +2103,7 @@ const onGrass = (city, i, j) => {
     const half = STATUE_PLAZA / 2;
     if (plan.statue && r.x0 < plan.statue.x + half && r.x1 > plan.statue.x - half
       && r.z0 < plan.statue.z + half && r.z1 > plan.statue.z - half) clash += 1;
-    if (pond) {
-      const dx = Math.max(r.x0 - pond.x, 0, pond.x - r.x1);
-      const dz = Math.max(r.z0 - pond.z, 0, pond.z - r.z1);
-      if (Math.hypot(dx, dz) < pond.r) clash += 1;
-    }
+    if (pond && pondNear(pond, r)) clash += 1;
     if (court) {
       const c = courtRect(court);
       if (r.x0 < c.x1 && r.x1 > c.x0 && r.z0 < c.z1 && r.z1 > c.z0) clash += 1;
@@ -2334,7 +2339,7 @@ const onGrass = (city, i, j) => {
   let aground = 0;
   let stacked = 0;                 // two of them parked in the same place
   let sunk = 0;                    // ...or riding at a height the water would not hold them at
-  let worst = 0;                   // the furthest any of them got from the middle
+  let worst = -Infinity;           // the nearest any of them got to the waterline (negative: inside)
   let dabbles = 0;
   let travelled = 0;
   const was = flotilla.ducks.map((d) => ({ x: d.x, z: d.z }));
@@ -2343,9 +2348,10 @@ const onGrass = (city, i, j) => {
     flotilla.update(1 / 60);
     for (let i = 0; i < flotilla.ducks.length; i++) {
       const duck = flotilla.ducks[i];
-      const out = Math.hypot(duck.x - pond.x, duck.z - pond.z);
+      // Past the waterline: the outline less the shore band (`pondDist`, either shape).
+      const out = pondDist(pond, duck.x, duck.z) + pond.bank;
       worst = Math.max(worst, out);
-      if (out > pond.water) aground += 1;
+      if (out > 0) aground += 1;
       if (Math.abs(duck.y - POND_WATER_Y) > 0.12) sunk += 1;
       if (duck.pitch < -0.5) dabbles += 1;
       travelled += Math.hypot(duck.x - was[i].x, duck.z - was[i].z);
@@ -2363,7 +2369,7 @@ const onGrass = (city, i, j) => {
   check('the pond carries ducks', !!pond && flotilla.ducks.length >= 2,
     pond ? `${flotilla.ducks.length} on ${(2 * pond.r).toFixed(1)} units of water` : 'no pond');
   check('and none of them ever paddles onto the bank', aground === 0,
-    `furthest out ${worst.toFixed(2)} of ${pond ? pond.water.toFixed(2) : '?'} of open water`);
+    `closest to the bank ${(-worst).toFixed(2)} inside the waterline`);
   check('they sit in the surface rather than under it or over it', sunk === 0, `${sunk} frames adrift in y`);
   check('they get about, and they dabble', travelled > 20 && dabbles > 0,
     `${travelled.toFixed(0)} units paddled in 5 min, ${(dabbles / 60).toFixed(0)}s spent nose-down`);
@@ -17869,7 +17875,7 @@ let chopperOrder; // likewise
     const inRect = (r) => px > r.x0 && px < r.x1 && pz > r.z0 && pz < r.z1;
     return (props.court && inRect(courtRect(props.court)))
       || (props.skatepark && inRect(skateRect(props.skatepark)))
-      || (props.pond && Math.hypot(px - props.pond.x, pz - props.pond.z) < props.pond.r);
+      || (props.pond && pondDist(props.pond, px, pz) < 0);
   }).length;
   let placed = 0;
   let on = 0;

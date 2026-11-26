@@ -884,6 +884,30 @@ export function createPerson({
   }
 
   /**
+   * On ice skates (game/rink.js): facing along +Z, gliding on one bent leg while the other pushes
+   * out to the side and back, then the other way, on `phase` (one stroke each side per 2π). The
+   * body folds forward at the waist with the shoulders turning against the stride and the arms
+   * swinging across, and `lean` tips the whole figure into a turn about the feet.
+   */
+  function iceSkate(phase, lean = 0) {
+    const s = Math.sin(phase);
+    const pushL = Math.max(0, s);
+    const pushR = Math.max(0, -s);
+    const drop = 0.22;
+    const sink = crouch(drop);
+    // The glide leg is the crouch; the push leg straightens and swings back (+x) and out.
+    legL.rotation.set(-sink * (1 - pushL) + 0.35 * pushL, 0, -0.06 - 0.5 * pushL);
+    legR.rotation.set(-sink * (1 - pushR) + 0.35 * pushR, 0, 0.06 + 0.5 * pushR);
+    bend(2 * sink * (1 - pushL), 2 * sink * (1 - pushR), -0.35, -0.35);
+    armL.rotation.set(0.4 * s, 0, -0.25);
+    armR.rotation.set(-0.4 * s, 0, 0.25);
+    chest.rotation.set(0.28, 0.15 * s, 0);
+    group.rotation.set(0.06, 0, -lean);
+    group.position.set(0, -drop, 0);
+    group.scale.setScalar(1);
+  }
+
+  /**
    * The back (−X) foot's sole, in the frame `group` hangs in — for a skater, the stance on the
    * deck. Read after `ride()` has posed the figure: it is where `plantFoot` starts from and goes
    * back to, so taking the foot off the board and putting it back never jumps.
@@ -965,6 +989,6 @@ export function createPerson({
   // the limb above them.
   return {
     group, meshes, wave, board, run, hopIn, exit, bail, rest, idle, flee, surrender, highlight, setRobber,
-    setOpacity, dribble, shoot, chase, watch, tumble, skate, ride, footAt, plantFoot,
+    setOpacity, dribble, shoot, chase, watch, tumble, skate, ride, iceSkate, footAt, plantFoot,
   };
 }

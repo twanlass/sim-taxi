@@ -306,6 +306,16 @@ export const pondEdgeNode = (pond) => (world) => {
   return max(f.mul(pond.r).sub(pond.bank).sub(length(off)), 0);
 };
 
+/** The rink-shaped pond: inside distance to the waterline's rounded rectangle. */
+export const rinkEdgeNode = (pond) => (world) => {
+  const b = pond.bank;
+  const rc = Math.max(pond.rc - b, 0.1);
+  const off = world.xz.sub(vec2(pond.x, pond.z));
+  const q = abs(off).sub(vec2(pond.hx - b, pond.hz - b)).add(rc);
+  const d = length(max(q, vec2(0))).add(min(max(q.x, q.y), 0)).sub(rc);
+  return max(d.negate(), 0);
+};
+
 /** The north park's lake: a lobed ellipse. */
 export const lakeEdgeNode = (lake) => (world) => {
   const off = world.xz.sub(vec2(lake.x, lake.z));

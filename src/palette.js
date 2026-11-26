@@ -1467,6 +1467,19 @@ export const PALETTE = {
   holidayGold: '#FFC23B',
   holidayBlue: '#3B9BFF',
   holidayWhite: '#FFF4D6',
+  // The pond frozen into a rink (game/rink.js). The ice a clear step darker and bluer than the snow
+  // round it, or the rink is a patch of the same white; the boards white with a red cap, and the
+  // skaters in winter coats.
+  rinkIce: '#AFC8DA',
+  rinkIceEdge: '#97B4CA',
+  rinkBoard: '#EEF1F4',
+  rinkBoardCap: '#C8343A',
+  skaterCoatA: '#B8323A',
+  skaterCoatB: '#2F5F8F',
+  skaterCoatC: '#3C7A4E',
+  skaterCoatD: '#D49A2A',
+  skaterCoatE: '#6A4C8C',
+  skaterTrousers: '#2C2F38',
   // The streaks and the crowns. Pale and a touch blue, never white: at 0.3 alpha over asphalt a
   // white streak reads as snow.
   rainStreak: '#C8D6E6',

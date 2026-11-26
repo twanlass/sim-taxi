@@ -112,6 +112,7 @@ import { createPoliceHeli } from './game/policeheli.js';
 import { createBirds, chooseRoosts } from './game/birds.js';
 import { createDucks } from './game/ducks.js';
 import { createHoopers } from './game/hoopers.js';
+import { createRink } from './game/rink.js';
 import { createBoombox } from './game/boombox.js';
 import { createTubeMan } from './game/tubeman.js';
 import { createCarWash, LANDMARK as CARWASH_LANDMARK } from './city/carwash.js';
@@ -119,6 +120,7 @@ import { createGasStation, LANDMARK as GAS_LANDMARK } from './city/gasstation.js
 import { roadsideKind } from './city/roadside.js';
 import { createLTrain, planLTrain, LTRAIN_DIMENSIONS } from './game/ltrain.js';
 import { courtRect } from './city/blacktop.js';
+import { pondKeepOut } from './city/pond.js';
 import { createSkaters } from './game/skaters.js';
 import { createClassicSkaters } from './game/skatersclassic.js';
 import { skateRect } from './city/skatepark.js';
@@ -928,6 +930,11 @@ scene.add(canopyFuzz.mesh);
 // game/hoopers.js.
 if (props.courtMesh) scene.add(markOccluder(props.courtMesh));
 const hoopers = createHoopers(scene, makeRng(runSeed + 313), props.court);
+// At the holidays the rink-shaped pond is frozen (city/pond.js) and people skate on it instead of
+// ducks floating on it (game/rink.js). Run seed, like the ducks: who is out on the ice is the
+// situation.
+const frozenPond = snow && props.pond?.shape === 'rink' ? props.pond : null;
+const rink = createRink(scene, makeRng(runSeed + 353), frozenPond);
 // And the boom box on the lawn beside it, playing to them. Where it stands is the map's
 // (`planBoombox`, in the props stream without a draw); which notes it puts out is the run's.
 const boombox = createBoombox(scene, makeRng(runSeed + 317), props.boombox);
@@ -1966,7 +1973,7 @@ const cityEntry = createCityEntry({
   objects: [...(garage ? [garage.entryObject] : []), ...(burger ? [burger.entryObject] : []),
     ...(vet ? [vet.entryObject] : []),
     ...(graveyard ? [graveyard.entryObject] : []),
-    ...hoopers.entryObjects, ...boombox.entryObjects, ...skaters.entryObjects,
+    ...hoopers.entryObjects, ...rink.entryObjects, ...boombox.entryObjects, ...skaters.entryObjects,
     ...tubeMan.entryObjects, ...(roadside?.entryObjects ?? []), ...(ltrain?.entryObjects ?? []),
     ...streetProps.entryObjects, ...garbage.entryObjects],
   sites: [...city.entrySites, ...(garage ? [garage.entrySite] : []),
@@ -2232,7 +2239,7 @@ for (const offset of [199, 211]) {
   flocks.push(createBirds(scene, makeRng(runSeed + offset), layout, {
     avoid: (state) => flocks.filter((f) => f.state !== state).map((f) => f.state.area),
     keepOut: [
-      ...(props.pond ? [{ x: props.pond.x, z: props.pond.z, r: props.pond.r + 0.7 }] : []),
+      ...(props.pond ? [pondKeepOut(props.pond, 0.7)] : []),
       // And the basketball court, with the same bird's length to spare.
       ...(props.court ? [courtRect(props.court, 0.5)] : []),
       ...(props.skatepark ? [skateRect(props.skatepark, 0.5)] : []),
@@ -2244,7 +2251,7 @@ for (const offset of [199, 211]) {
 // And the birds that are already on it. Their own life, and a much smaller one than a flock's: they
 // paddle about, sit, dabble, and never leave. Run seed like the flocks — which park has the water
 // in it is the map, and what the birds on it are doing is the situation. See game/ducks.js.
-const ducks = createDucks(scene, makeRng(runSeed + 299), props.pond);
+const ducks = createDucks(scene, makeRng(runSeed + 299), frozenPond ? null : props.pond);
 // Leaves the squall strips off the park trees (game/leaves.js). Park crowns only — a median tree
 // shedding onto a carriageway is litter rather than autumn, and a courtyard's falls where no one
 // sees it. Run seed: which leaf comes off when is the situation, not the map.
@@ -7635,6 +7642,7 @@ function tick() {
   ducks.update(dt);
   leaves?.update(dt);
   hoopers.update(dt);
+  rink.update(dt);
   // No track yet: the box keeps its own time. Once it plays music, pass the track's playback time as
   // the second argument so the bounce and the notes land on the track's beat (game/boombox.js).
   boombox.update(dt);
@@ -8718,8 +8726,10 @@ if (shot) {
   // this is one flag and not two: the question the far shot asks is whether the thing you can see
   // close up is still legible in the frame the game is actually played in, and that only means
   // anything if both are pointed at the same water.
-  if (shot.atPond && ducks.pond) {
-    controller.state.target.set(ducks.pond.x, 0, ducks.pond.z);
+  // (At the holidays the ducks have no pond — it is the rink's.)
+  const pondAt = ducks.pond ?? rink.pond;
+  if (shot.atPond && pondAt) {
+    controller.state.target.set(pondAt.x, 0, pondAt.z);
     controller.update(aspect());
   }
 
@@ -9467,6 +9477,8 @@ window.__taxi = {
   flocks,
   /** The birds on the park pond, and `ducks.pond` the water they are on — null if the city has none. */
   ducks,
+  /** The skaters on the frozen pond at the holidays (game/rink.js); `rink.skaters` empty otherwise. */
+  rink,
   /** The players on the basketball court, and `hoopers.court` the court — absent if the city has none. */
   hoopers,
   /** The boom box beside the court — `boombox.emitter` is where its music will play from. */

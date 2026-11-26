@@ -1138,6 +1138,15 @@ never gets to spend time meshing a broken city.
 
 ### A duck pond
 
+**A rounded rectangle, up to 17 by 7.4, laid along a park district's long axis** (Tyler, 2026-11-25:
+"a larger pond that maybe more rectangular with rounded edges"). `planRink` prefers a district the
+statue did not take and fills its 12-unit short side to the same `POND_SET` from the walk the round
+pond kept; on a single block the plot clamps it back to about a square. Its shape is what lets it
+freeze into a believable ice rink at the holidays ([rendering.md](rendering.md#the-holidays--gameholidaylightsjs-the-fir-in-citypropsjs)).
+Everything that keeps off the water — the trees, the grass, the court, the skatepark, the lamps, the
+walking birds — asks `pondDist`, `pondNear` or `pondKeepOut`, which answer for either shape, rather
+than reading a radius. `?pond=classic` keeps the lobed round pond the rest of this section describes.
+
 **Exactly one a city, and never in the statue's park.** Those are the two things a municipality puts
 in the middle of a green, and standing them in the same one leaves every other park with nothing —
 the same argument that keeps the two flocks off one lawn. `planPond` (`city/pond.js`) takes a plot

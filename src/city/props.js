@@ -5,7 +5,8 @@ import { PALETTE, jitterColor } from '../palette.js';
 import { makeRng } from '../util/rng.js';
 import { KERB_H, MEDIAN_EDGE, PARK_EDGE, roundedRectShape } from './ground.js';
 import { MEDIAN_W, medianRuns } from './grid.js';
-import { planPond, pondParts, pondWaterMesh } from './pond.js';
+import { planPond, pondDist, pondParts, pondWaterMesh, rinkBoardParts, rinkIceMesh } from './pond.js';
+import { getPondClassic } from '../util/shot.js';
 import { getWaterStyle } from './riverwater.js';
 import { clearBenches, courtParts, courtRect, planBoombox, planCourt } from './blacktop.js';
 import { planSkatepark, skateparkParts, skateRect } from './skatepark.js';
@@ -724,7 +725,7 @@ export function createProps(rng, blocks) {
   // there were ponds: two draws land in this stream ahead of them now. Everything *outside*
   // `createProps` runs on its own offset and has not moved, which is the separation that matters
   // (see the seeding note in docs/architecture.md).
-  const pond = planPond(rng, plots, statue);
+  const pond = planPond(rng, plots, statue, { classic: getPondClassic() });
   let pondMesh = null;
   // And the basketball court, last of the three and for the pond's reason: drawn after it, it cannot
   // move the water, and the trees below keep out of it. It is placed *around* the statue and the
@@ -773,11 +774,20 @@ export function createProps(rng, blocks) {
     // park in the city's entrance wave rather than being the one thing already there. The bank and
     // the water share one anchor: they are two halves of a single object, and given separate ones
     // they would arrive on separate frames with the shore ring briefly hanging round nothing.
-    const built = pondParts(pond, rng);
+    // At the holidays the rink-shaped pond is frozen: ice in place of water, and boards round it
+    // (city/pond.js). The boards draw off a stream of their own, so the trees after it are the
+    // trees they always were.
+    const frozen = holiday && pond.shape === 'rink';
+    const built = pondParts(pond, rng, { ice: frozen });
+    if (frozen) built.push(...rinkBoardParts(pond, makeRng(Math.floor(hash01(pond.z, pond.x) * 1e9) + 11)));
     for (const part of built) stampEntry(part, pond.x, pond.z, hash01(pond.x, pond.z));
     // The water wears the river's surface, which needs a mesh of its own (`pondWaterMesh`). The
     // faceted `?water=classic` build keeps the old flat fan here in the merge, as it always was.
-    if (getWaterStyle() === 'classic') {
+    if (frozen) {
+      const [shore, ice, ...boards] = built;
+      parts.push(shore, ...boards);
+      pondMesh = rinkIceMesh(ice);
+    } else if (getWaterStyle() === 'classic') {
       parts.push(...built);
     } else {
       const [shore, water] = built;
@@ -838,12 +848,12 @@ export function createProps(rng, blocks) {
       || Math.abs(dx * sin + dz * cos) > BENCH_CLEAR_Z;
   });
 
-  // And clear of the water. A radius, not a frame: the pond genuinely is round-ish, and it is the
-  // one thing here where the *crown* has to miss as well as the trunk — a tree leaning over a bench
-  // is shade and a tree leaning over a pond is a tree growing out of it. Hence the pond's nominal
-  // radius (which its wobbled outline never exceeds) plus a crown's own reach, ~1.8 at the top of
-  // `treeParts`' height range.
-  const clearOfPond = (x, z) => !pond || Math.hypot(x - pond.x, z - pond.z) > pond.r + 1.8;
+  // And clear of the water. The one thing here where the *crown* has to miss as well as the trunk —
+  // a tree leaning over a bench is shade and a tree leaning over a pond is a tree growing out of
+  // it. Hence the distance to the pond's outline (`pondDist`: the round pond's nominal radius,
+  // which its wobbled outline never exceeds, or the rink's rounded rectangle) against a crown's own
+  // reach, ~1.8 at the top of `treeParts`' height range.
+  const clearOfPond = (x, z) => !pond || pondDist(pond, x, z) > 1.8;
 
   // And off the court, by a crown's reach on every side: a trunk on the blacktop is the obvious
   // failure, and a crown hanging over the hoops is the one the camera would actually show.

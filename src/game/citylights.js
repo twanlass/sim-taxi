@@ -10,6 +10,7 @@ import { createLitOn, litSwitchNodes, poolTwin } from './gpulit.js';
 import { KERB_H } from '../city/ground.js';
 import { courtRect } from '../city/blacktop.js';
 import { skateRect } from '../city/skatepark.js';
+import { pondKeepOut } from '../city/pond.js';
 import { CAR_LEN, CAR_W } from '../sim/traffic.js';
 import {
   headlightGeometry, headlightAnchors, headlightMaterial, coneGeometry, coneMaterial, coneQuat,
@@ -319,7 +320,7 @@ export function lampKeepOff(props) {
   return [
     ...(props.court ? [courtRect(props.court)] : []),
     ...(props.skatepark ? [skateRect(props.skatepark)] : []),
-    ...(props.pond ? [{ x: props.pond.x, z: props.pond.z, r: props.pond.r }] : []),
+    ...(props.pond ? [pondKeepOut(props.pond)] : []),
   ];
 }
 

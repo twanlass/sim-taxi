@@ -2001,6 +2001,14 @@ bulbs over the outer face of their crowns. Another string spirals the fir six ti
 instanced meshes deal the bulbs alternately, so the city's lights are two draws and the twinkle is
 one colour per mesh per frame; all of it is in the bloom.
 
+**The pond freezes into a rink** (the rink-shaped default, [city.md](city.md#a-duck-pond)). The
+water's fan is kept in `rinkIce`/`rinkIceEdge` under a plain lit material out of the snow cover
+(`rinkIceMesh`), a clear step bluer and darker than the snow round it or the rink is a patch of the
+same white; white boards half a unit high with a red cap stand just inside the shore. The ducks are
+gone and four to six skaters go round it (`game/rink.js`), all anticlockwise, on lanes 1.1 apart
+pulled in from the boards, leaning into the ends and easing behind whoever is ahead on their lane.
+They are the ordinary person posed by `iceSkate`, about a third of them at children's size.
+
 It costs less than the squall it replaces, which brings a second full render of the city for the
 mirror: the cover is a few ALU and one texture fetch per lit fragment, the flakes are one draw, and
 the map is ~0.3 ms of JS a few times a second to fill in (not yet timed on a phone).

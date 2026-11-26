@@ -576,6 +576,11 @@ export function getSquallRampClassic() {
   return new URLSearchParams(window.location.search).get('squallramp') === 'classic';
 }
 
+/** `?pond=classic` — the lobed round duck pond instead of the rink-shaped one (city/pond.js). */
+export function getPondClassic() {
+  return new URLSearchParams(globalThis.window?.location?.search ?? '').get('pond') === 'classic';
+}
+
 /** `?sunrays=classic` — no sun rays in a squall's wake (`SUN_RAYS` in game/rain.js). */
 export function getSunRaysClassic() {
   return new URLSearchParams(window.location.search).get('sunrays') === 'classic';

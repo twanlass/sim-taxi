@@ -116,6 +116,54 @@ check('about half the trees carry lights', lit.count > 0.25 * 200 * 10 && lit.co
 check('a star on top of the fir', lights.star && lights.star.position.y > tiers.top, `${lights.star?.position.y.toFixed(2)}`);
 check('the lights are two draws', lights.meshes.length === 2);
 
+// --- The rink -----------------------------------------------------------------------------------
+
+const { rinkBoardParts, rinkSurface, roundRectDist } = await import('../src/city/pond.js');
+const { createRink, lanePoint, laneLength } = await import('../src/game/rink.js');
+const rinkPond = { shape: 'rink', x: 10, z: -5, hx: 8, hz: 3.5, rc: 1.8, bank: 0.4, r: 8 };
+const rink = createRink(new THREE.Scene(), makeRng(5), rinkPond);
+const ice = rinkSurface(rinkPond);
+let offIce = 0;
+let worstIn = -Infinity;
+let touching = 0;
+for (let k = 0; k < 30 * 60; k++) {
+  rink.update(1 / 30);
+  for (const sk of rink.skaters) {
+    const d = roundRectDist(sk.holder.position.x - rinkPond.x, sk.holder.position.z - rinkPond.z, ice.hx, ice.hz, ice.rc);
+    worstIn = Math.max(worstIn, d);
+    if (d > -0.4) offIce += 1;
+  }
+  const at = rink.skaters.map((sk) => sk.holder.position);
+  for (let a = 0; a < at.length; a++) for (let b = a + 1; b < at.length; b++) if (at[a].distanceTo(at[b]) < 0.8) touching += 1;
+}
+check('skaters on the frozen pond', rink.skaters.length >= 4, `${rink.skaters.length}`);
+check('and they never skate through each other', touching === 0, `${touching} frames of two skaters within 0.8`);
+check('and none of them ever reaches the boards', offIce === 0, `closest ${(-worstIn).toFixed(2)} in from the boards`);
+const lane = { hx: 5, hz: 2, r: 1 };
+let jump = 0;
+let prev = lanePoint(lane, 0);
+const L = laneLength(lane);
+for (let s = 0.01; s <= L + 0.01; s += 0.01) {
+  const p = lanePoint(lane, s);
+  jump = Math.max(jump, Math.hypot(p.x - prev.x, p.z - prev.z));
+  prev = p;
+}
+check('a lane runs round without a jump', jump < 0.0101, `largest step ${jump.toFixed(4)} for 0.01 of arclength`);
+// The boards are wound by ExtrudeGeometry; their top faces must face up all the same.
+const [wall] = rinkBoardParts(rinkPond, makeRng(2));
+const pos = wall.attributes.position;
+let up = 0;
+let down = 0;
+wall.computeBoundingBox();
+const top = wall.boundingBox.max.y;
+const A = new THREE.Vector3(); const B = new THREE.Vector3(); const C = new THREE.Vector3();
+for (let i = 0; i < pos.count; i += 3) {
+  A.fromBufferAttribute(pos, i); B.fromBufferAttribute(pos, i + 1); C.fromBufferAttribute(pos, i + 2);
+  const n = B.clone().sub(A).cross(C.clone().sub(A)).normalize();
+  if (Math.abs(A.y - B.y) < 1e-6 && Math.abs(A.y - C.y) < 1e-6 && Math.abs(A.y - top) < 1e-6) (n.y > 0.99 ? up++ : down++);
+}
+check('the boards\' top faces point at the sky', up > 0 && down === 0, `${up} up, ${down} down`);
+
 // --- The season ---------------------------------------------------------------------------------
 
 const on = ['2026-12-01', '2026-12-25', '2027-01-01', '2027-01-06'];

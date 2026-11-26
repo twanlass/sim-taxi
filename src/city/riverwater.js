@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { PALETTE } from '../palette.js';
 import { KERB_H } from './ground.js';
 import { WATER_Y, RAIL_H, RAIL_W, DECK_THICK } from './river.js';
-import { createWaterNodes, waterNodeMaterial, pondEdgeNode, lakeEdgeNode } from './gpuwater.js';
+import { createWaterNodes, waterNodeMaterial, pondEdgeNode, lakeEdgeNode, rinkEdgeNode } from './gpuwater.js';
 
 // The river's surface: facets that move, a bed you can see into, and the far wall and the bridges
 // mirrored in it.
@@ -596,6 +596,12 @@ const pondEdge = () => /* glsl */ `
     float edge = max(uPond.z * f - uPond.w - length(off), 0.0);
 `;
 
+const rinkEdge = () => /* glsl */ `
+    vec2 off = vWaterWorld.xz - uPond.xy;
+    vec2 q = abs(off) - uPond.zw + uPondLobes.x;
+    float edge = max(-(length(max(q, 0.0)) + min(max(q.x, q.y), 0.0) - uPondLobes.x), 0.0);
+`;
+
 const POND_TUNE = {
   bedEdge: POND_BED_EDGE, bedMid: POND_BED_MID, shelf: POND_SHELF_W,
   reflect: POND_REFLECT, rim: POND_RIM_W, glow: POND_RIM_GLOW, glowW: POND_RIM_GLOW_W,
@@ -635,6 +641,15 @@ ${edgeGlsl}
  * @param pond      the pond as `planPond` returns it.
  */
 export function patchPondWater(material, pond) {
+  if (pond.shape === 'rink') {
+    // The rink-shaped pond (city/pond.js): the same compose, its shelf measured off a rounded
+    // rectangle — the waterline's half-extents and corner — rather than off the lobed circle.
+    const b = pond.bank;
+    return patchStillWater(material, 'rinkpond', {
+      uPond: { value: new THREE.Vector4(pond.x, pond.z, pond.hx - b, pond.hz - b) },
+      uPondLobes: { value: new THREE.Vector4(Math.max(pond.rc - b, 0.1), 0, 0, 0) },
+    }, rinkEdge(), POND_TUNE, rinkEdgeNode(pond));
+  }
   const [l2, l3] = pond.lobes;
   return patchStillWater(material, 'pond', {
     // x, z, nominal radius, shore width — `pond` as planned.
