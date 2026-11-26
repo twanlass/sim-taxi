@@ -1460,23 +1460,6 @@
       }
       body.shot-mode .fare-pointer, body.game-over .fare-pointer { display: none; }
 
-      /* Arcade's rider race: the cyan robot over a rider a robo-taxi has locked on to
-         (game/ridertags.js). Pops in on the claim. Under the HUD and the arrows, never in the way
-         of a tap. */
-      .rider-tag {
-        position: fixed; z-index: 15; pointer-events: none; user-select: none;
-        height: 26px; width: auto; transform: translate(-50%, -100%);
-        filter: drop-shadow(0 0 1.5px #121318) drop-shadow(0 0 1px #121318);
-        transition: opacity 0.3s ease;
-      }
-      .rider-tag[hidden] { display: none; }
-      .rider-tag.is-dim { opacity: 0.45; }
-      .rider-tag.is-new { animation: rider-tag-lock 0.45s cubic-bezier(0.3, 1.6, 0.5, 1); }
-      @keyframes rider-tag-lock { from { scale: 1.9; opacity: 0; } to { scale: 1; opacity: 1; } }
-      @media (prefers-reduced-motion: reduce) { .rider-tag.is-new { animation: none; } }
-      body.replaying .rider-tag, body.shot-mode .rider-tag, body.game-over .rider-tag { display: none; }
-      #rider-tags { transition: opacity 0.7s ease; }
-      body.hud-away #rider-tags { opacity: 0; }
 
       /* --- the off-screen police warning -------------------------------------
          Red and blue washing in over the frame edge the cruiser is coming from, strobing in step
@@ -3292,7 +3275,6 @@
          are is a fact about the board. The arrows are `position: fixed` themselves, so this host
          needs no layout of its own. See src/game/farepointers.js. -->
     <div id="fare-pointers" aria-hidden="true"></div>
-    <div id="rider-tags" aria-hidden="true"></div>
     <div id="siren-glow" aria-hidden="true" hidden></div>
     <div id="hit-edge" aria-hidden="true" hidden></div>
     <div id="hit-chip" aria-hidden="true" hidden></div>

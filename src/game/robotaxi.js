@@ -40,14 +40,16 @@ import { markOccluder } from './ssao.js';
 export const ROBO_COUNT = 2;
 
 /**
- * Arcade's rider race (fares.js RACE_WAITING): the same two, quicker, so a rider one of them has
- * claimed is a race the taxi can lose. The classic robot — ROBO_SPEED with a
+ * Arcade's rider race (fares.js RACE_WAITING): quicker, so a rider one of them has claimed is a race
+ * the taxi can lose, and **ramped** rather than all at once (Tyler, 2026-11-26: "starting with a few
+ * is chaotic"): `ramp[n]` is the drop-offs it takes before the (n + 1)th comes on — one after the
+ * first, a second after the fourth, a third after the eighth. Untuned; Tyler expects to tune it. The classic robot — ROBO_SPEED with a
  * two-second halt at every all-way stop — was so slow that "a rider marked cyan is a race the taxi
  * nearly always wins if it goes", which made the claim something to ignore. `pace` scales its
  * cruise and corner speed (sim/traffic.js `car.roboPace`); `dwell` is an ordinary car's halt.
  * Every number is still a fixed rule of the car, set when it arrives: it never reacts to the taxi.
  */
-export const RACE = Object.freeze({ count: 2, pace: 0.78 / 0.55, dwell: STOP_DWELL });
+export const RACE = Object.freeze({ count: 3, ramp: Object.freeze([1, 4, 8]), pace: 0.78 / 0.55, dwell: STOP_DWELL });
 
 /** The robo-taxi stays stopped at the drop-off while the rider gets out and clears the car. */
 const DROP_HOLD = 1.6;
@@ -89,7 +91,9 @@ const LOCK_FAR = 60;           // units: at the slow beat from here
 export function createRoboTaxis({ rng, scene, traffic, fares, blocked = () => false, soon = false, count = ROBO_COUNT, race = () => false }) {
   // Built for the bigger of the two fleets; the race decides how many of them come on.
   const built = Math.max(count, RACE.count);
-  const fleet = () => (race() ? RACE.count : count);
+  // `?robotaxi=soon` is for looking at them, so it skips the ramp.
+  const fleet = () => (!race() ? count
+    : soon ? RACE.count : RACE.ramp.filter((at) => fares.state.delivered >= at).length);
   const taxi = traffic.taxi;
   const ringGeo = new THREE.RingGeometry(CLAIM_R - CLAIM_W, CLAIM_R, 48);
   ringGeo.rotateX(-Math.PI / 2);

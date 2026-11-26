@@ -154,7 +154,6 @@ import { createOpening, entryPath } from './game/opening.js';
 import { createGlint } from './game/glint.js';
 import { createWipe } from './game/wipe.js';
 import { createFarePointers } from './game/farepointers.js';
-import { createRiderTags } from './game/ridertags.js';
 import { createSirenGlow } from './game/sirenglow.js';
 import { createRobberyGlow } from './game/robberyglow.js';
 import { createRouteLine, routePath, pointAlongPath } from './game/routeline.js';
@@ -3360,30 +3359,6 @@ if (rivalLine) {
   rain.hideInMirror(rivalLine.mesh);
 }
 
-// The race's claim lines (game/robotaxi.js RACE): the robot's own route to the rider it is after,
-// laid as the same band in its cyan, so "which rider is that one going for" is answered by a line
-// on the road rather than by a ring at the far end of it. Fainter than the taxi's own, like the
-// racer's, so where they cross the player's still reads on top. Only while it hunts a rider.
-const CLAIM_LINE_OPACITY = 0.32;
-const claimLines = robotaxis ? robotaxis.state.robos.map(() => {
-  const line = createRouteLine(scene);
-  line.setColor(PALETTE.roboGlow);
-  line.setOpacity(CLAIM_LINE_OPACITY);
-  rain.hideInMirror(line.mesh);
-  return line;
-}) : [];
-function updateClaimLines(dt) {
-  robotaxis?.state.robos.forEach((robo, k) => {
-    const car = robo.car;
-    const on = riderRace() && !fares.state.gameOver && car && robo.phase === 'hunt' && robo.target
-      && car.route?.length;
-    if (!on) { claimLines[k].hide(); return; }
-    // The band's rollout keys on `pendingTarget`, which nothing in the sim reads on a robo-taxi.
-    car.pendingTarget = robo.target;
-    claimLines[k].update(car, car.route, dt);
-  });
-}
-
 // `?blend=additive` picks how the band combines with the road. A URL parameter as well as the
 // ⚙️ dropdown because a screenshot has to be able to pin it: the panel doesn't exist in shot mode.
 const blendParam = new URLSearchParams(window.location.search).get('blend');
@@ -4134,8 +4109,6 @@ const farePointers = createFarePointers({
   // rather than a boolean so a resize flips it without a reload.
   tappable: isNarrow,
 });
-
-const riderTags = createRiderTags({ camera, viewport });
 
 // The other half of the same problem, aimed the other way: the drop-off is somewhere the player is
 // driving to, and the police car is something driving at them. See game/sirenglow.js.
@@ -8381,7 +8354,6 @@ function tick() {
   const rivalCar = race?.state.phase === 'racing' ? race.state.car : null;
   if (rivalCar && !fares.state.gameOver) rivalLine.update(rivalCar, rivalCar.route, dt);
   else rivalLine?.hide();
-  updateClaimLines(dt);
 
   layRubber(dt);
   wetTyres(dt);
@@ -8437,10 +8409,6 @@ function tick() {
   // what keeps an off-screen fare findable at all.
   const aboard = fares.carrying();
   farePointers.update(aboard, fares.state.gameOver ? [] : fares.waitingAll(), fares.colorOf);
-  // The race's marks over the kerb: who a robot is after, and the combo rider (game/ridertags.js).
-  if (riderRace() && !fares.state.gameOver) {
-    riderTags.update(fares.waitingAll(), kerbFor, (f) => robotaxis?.claimOf(f), Boolean(aboard));
-  } else riderTags.hide();
   // After the police update above, so the wash is aimed at where the cruiser is this frame rather
   // than trailing it by one.
   // With more than one cruiser out, the wash warns about the nearest one with its bar up.

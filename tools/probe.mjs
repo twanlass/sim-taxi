@@ -22901,6 +22901,20 @@ let chopperOrder; // likewise
   for (let step = 0; step < 120; step++) rTraffic.update(1 / 60);
   const rFares = createFareSystem(makeRng(seed + 771), rScene, { race: () => true });
   rFares.state.delivered = 1;
+  // The ramp first (RACE.ramp): no robot before the first drop-off, then one more at each step.
+  {
+    const rampFares = createFareSystem(makeRng(seed + 773), new THREE.Scene(), { race: () => true });
+    const ramped = createRoboTaxis({ rng: makeRng(seed + 774), scene: new THREE.Scene(), traffic: rTraffic, fares: rampFares, race: () => true });
+    const onAt = (delivered) => {
+      rampFares.state.delivered = delivered;
+      for (let step = 0; step < 60 * 30; step++) ramped.update(1 / 60);
+      return ramped.cars().length;
+    };
+    const counts = [0, 1, 3, 4, 8].map(onAt);
+    check('rider race: the robo-taxis ramp in with the drop-offs (RACE.ramp)',
+      counts.join(',') === '0,1,1,2,3', `on at 0/1/3/4/8 drop-offs: ${counts.join(',')}`);
+    for (const car of ramped.cars()) rTraffic.retireGuest?.(car);
+  }
   const robos = createRoboTaxis({ rng: makeRng(seed + 772), scene: rScene, traffic: rTraffic, fares: rFares, soon: true, race: () => true });
   let most = 0;
   let waitingSum = 0;
@@ -22908,6 +22922,7 @@ let chopperOrder; // likewise
   let steals = 0;
   let fastest = 0;
   const patience = [];
+  let crowded = 0;
   let onAtOnce = 0;
   const seen = new Set();
   const frames = 60 * 240;
@@ -22920,6 +22935,8 @@ let chopperOrder; // likewise
     robos.update(1 / 60);
     const kerb = rFares.state.fares.filter((f) => f.stage === 'waiting');
     most = Math.max(most, kerb.length);
+    // Never two riders waiting at one building (Tyler, 2026-11-26).
+    if (kerb.some((a, x) => kerb.some((b, y) => y > x && onSameBlock(a.pickup, b.pickup)))) crowded += 1;
     if (step > 60 * 20) waitingSum += kerb.length;
     for (const f of kerb) {
       if (seen.has(f)) continue;
@@ -22933,6 +22950,7 @@ let chopperOrder; // likewise
   check('rider race: the kerb holds three riders, and one passed over walks off with no strike',
     most === RACE_WAITING && meanWaiting > 2 && walked > 0 && rFares.state.strikes === 0,
     `most ${most}, mean ${meanWaiting.toFixed(2)} waiting, ${walked} walked off, ${rFares.state.strikes} strikes`);
+  check('rider race: never two riders waiting on one block', crowded === 0, `${crowded} frames with two on one block`);
   const [pLo, pHi] = [Math.min(...patience), Math.max(...patience)];
   check('rider race: each rider waits on a patience of their own, spread across RACE_PATIENCE',
     patience.length >= 6 && pLo >= RACE_PATIENCE[0] && pHi <= RACE_PATIENCE[1] && pHi - pLo > 0.4,

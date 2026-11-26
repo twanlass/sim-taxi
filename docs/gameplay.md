@@ -2198,6 +2198,9 @@ only, and all of it off under `?riders=classic`:
   (`RACE_WAITING`), one every `RACE_GAP` (4 s), instead of rationing riders on the pressure curve.
   `MAX_FARES` is still four — three on the kerb, one in the car — and the mesh pool carries
   `RACE_SPARE_SLOTS` more, because a rider a robo-taxi is carrying holds their slot for the ride.
+  **Never two at one building** (Tyler, 2026-11-26): `freeCorner` rules out every block a rider is
+  already waiting on, the bank rider's included (they stand on the bank's steps, not a corner), and
+  the bank rider holds off while someone waits at the bank. This holds in every mode.
 - **Each on a patience of their own.** A rider's clock is the ordinary budget times a draw from
   `RACE_PATIENCE` (0.6–1.5), floored at the curve's clock floor, so three riders put up together
   drain visibly differently. The crystal is still the read.
@@ -2205,17 +2208,16 @@ only, and all of it off under `?riders=classic`:
   you chose not to take, so a rider the taxi was never sent for leaves with no strike (`'walked'`).
   Sent for and missed, or given up aboard, is a strike as before, which is what still ends a run.
 
-**The lock-on is drawn three ways**, all in the robot's cyan:
+**The lock-on is the ring under the rider**, in the robot's cyan: twice as heavy as the classic
+claim ring, it snaps in from wide on the frame of the claim like a reticle closing, and beats faster
+as the robot closes (`LOCK_*` in game/robotaxi.js; driven by straight-line distance, which only
+drives the look). Tried and cut the same day (Tyler: "too much noise", and the robot icon "looks too
+much like a real one"): the robot's route laid on the road as a cyan route band, and the robo-taxi
+picture over the rider's crystal.
 
-- **Its route to the rider is on the road**, as the route band (main.js `claimLines`), fainter than
-  the taxi's own like the racer's ghost route, rolling out from the car on each new claim.
-- **The ring under the rider** is twice as heavy, snaps in from wide on the frame of the claim like
-  a reticle closing, and beats faster as the robot closes (`LOCK_*` in game/robotaxi.js; driven by
-  straight-line distance, which only drives the look).
-- **The robot over the rider's crystal** (game/ridertags.js), the dispatch line's `{:robotaxi}`
-  picture, popping in on the claim.
-
-**And the robo-taxis are quicker** (game/robotaxi.js `RACE`): 0.78 of a car's cruise rather than
+**And the robo-taxis are quicker, and ramp in** (game/robotaxi.js `RACE`): one after the first
+drop-off, a second after the fourth, a third after the eighth (`RACE.ramp`, untuned — all at once
+was "chaotic"), each at 0.78 of a car's cruise rather than
 0.55, with an ordinary car's halt at an all-way stop rather than two seconds of it (`car.roboPace`,
 `car.roboDwell` in sim/traffic.js). The classic robot was slow enough that a claimed rider was a race
 the taxi nearly always won, which made the claim something to ignore. A claim is still chosen by

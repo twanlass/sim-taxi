@@ -422,7 +422,7 @@ const SPAWN_RADIUS = 3;
 
 // Arcade's rider race (Tyler, 2026-11-26: "fare choice feels indifferent", the loop's only
 // challenge was speed). Three riders on the kerb at once, each on a different patience, and
-// robo-taxis visibly racing for them (game/robotaxi.js `RACE`, game/ridertags.js). Nothing about
+// robo-taxis visibly racing for them (game/robotaxi.js `RACE`). Nothing about
 // the price changes: the pick is made in a split second, so what decides it is how long each rider
 // will wait and which ones a robot is already after (Tyler, 2026-11-26: "start simple"). With more riders than one taxi can serve, the
 // ones you pass over have to be free to leave: a rider left on the kerb who was never sent for
@@ -622,6 +622,22 @@ export const intersectionCentre = (i, j) => ({ x: lineX(i), z: lineZ(j) });
  */
 function blockFor(i, j) {
   return { bi: i === 0 ? 0 : i - 1, bj: j === 0 ? 0 : j - 1 };
+}
+
+const sameBlock = (a, b) => a.bi === b.bi && a.bj === b.bj;
+
+/** The block a world point stands on, in `blockFor`'s indices: the one between lines bi and bi + 1. */
+function blockAt(x, z) {
+  let bi = 0;
+  let bj = 0;
+  for (let i = 1; i < GRID_I; i++) if (x > lineX(i)) bi = i;
+  for (let j = 1; j < GRID_J; j++) if (z > lineZ(j)) bj = j;
+  return { bi, bj };
+}
+
+/** The block a waiting rider is standing on: the bank's for the bank rider, else their corner's. */
+function riderBlock(fare) {
+  return fare.stand ? blockAt(fare.stand.x, fare.stand.z) : blockFor(fare.pickup.i, fare.pickup.j);
 }
 
 /**
@@ -1050,6 +1066,13 @@ export function createFareSystem(rng, scene, {
     // invariant is symmetric and can be asserted as one: `cornerFor` flips its corner inward at
     // `i === 0`, so two intersections a whole block apart can still park their markers on one slab.
     const held = reserved();
+    // ...and every block a rider is already waiting on (Tyler, 2026-11-26: "don't spawn multiple
+    // riders at a single landmark/building"). Two riders on one building read as one crowd, and the
+    // bank rider stands on the bank's steps rather than the corner's, so a corner pin on the same
+    // block was a second figure on the same steps' kerb. Per block, not per junction: a block has
+    // four corners and only the junction itself was ruled out.
+    const taken = state.fares.filter((f) => f.stage === 'waiting').map(riderBlock);
+    const onTaken = (i, j) => taken.some((t) => sameBlock(t, blockFor(i, j)));
     // ...and every corner the camera cannot see (`cornerSeen`). A rider behind a tower is a rider
     // the player hunts for with a clock draining, and their drop-off ring is the only thing saying
     // where the trip ends. Unlike the rest of this predicate it is a fact about the *city* rather
@@ -1059,6 +1082,7 @@ export function createFareSystem(rng, scene, {
     const free = (i, j) => !avoid.some((a) => a.i === i && a.j === j)
       && !held.some((a) => (a.i === i && a.j === j) || onSameBlock({ i, j }, a))
       && (!avoidBlockOf || !onSameBlock({ i, j }, avoidBlockOf))
+      && !onTaken(i, j)
       && !onWaterBlock({ i, j })
       && !isParkwayMid(i, j)
       && cornerSeen(i, j);
@@ -1212,6 +1236,9 @@ export function createFareSystem(rng, scene, {
     // rider stands — the bank's front faces the camera by construction (city/bank.js).
     if (spokenFor(taxiCar).some((a) => a.i === junction.i && a.j === junction.j)) return false;
     if (reserved().some((a) => (a.i === junction.i && a.j === junction.j) || onSameBlock(junction, a))) return false;
+    // ...and not onto a building a rider is already waiting at (see `freeCorner`).
+    const bank = blockAt(bankStop.x, bankStop.z);
+    if (state.fares.some((f) => f.stage === 'waiting' && sameBlock(riderBlock(f), bank))) return false;
     return forced || rng.chance(BANK_CHANCE);
   }
 
