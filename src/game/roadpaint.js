@@ -9,8 +9,11 @@
  * ground is ~20k triangles; that would be millions) for the same picture; this is one texture read
  * on fragments the road shader was already shading.
  *
- * Four channels, each 0..255 of "how much": r darkens, g lightens, b pulls warm, a pulls cool
- * (ROAD_PAINT_LOOK in util/geo.js says how far). `uRoadPaintAmt` scales each one live.
+ * Four channels, each 0..255 of "how much", because one RGBA texel is four bytes. Each channel has
+ * a colour (`uRoadPaintC0..3`, display-space sRGB): a full-strength stroke turns the road's albedo
+ * into that colour, with the road's own light, shadow and AO kept, and the four mix in order on
+ * top of one another. The colours and each channel's amount are part of the bake, not the bytes,
+ * so a channel can be recoloured after it is painted.
  *
  * The bake is `city/roadpaintbake.js`: the box it was painted in and its bytes, deflated and
  * base64'd. An empty bake costs nothing — the texture stays 1x1 and the shader skips the read —
@@ -19,13 +22,16 @@
  * `/__roadpaint` endpoint (tools/roadpaint-save.mjs) writes the bake straight into the repo.
  */
 import * as THREE from 'three';
-import { PAINT_UNIFORMS, unlitMaterial } from '../util/geo.js';
+import { PAINT_UNIFORMS, unlitMaterial, displayColor } from '../util/geo.js';
 import { coastWest, coastEast, coastNorth, coastSouth } from '../city/grid.js';
 import { ROAD_PAINT_BAKE } from '../city/roadpaintbake.js';
 
 /** World units per texel: the pixel street's own, so a painted texel is one road pixel exactly. */
 export const PAINT_TEXEL = 0.15;
-export const CHANNELS = ['Dark', 'Light', 'Warm', 'Cool'];
+export const CHANNELS = ['1', '2', '3', '4'];
+/** The four colours a fresh bake starts with: grime, pale concrete, rust, blue. */
+export const PAINT_COLOR_DEFAULTS = Object.freeze(['#2a2c31', '#b8b3a8', '#8a5a3c', '#4f6c94']);
+const colors = [...PAINT_COLOR_DEFAULTS];
 const STORE_KEY = 'simtaxi-roadpaint';
 const UNDO_DEPTH = 30;
 
@@ -41,13 +47,33 @@ function applyAmounts() {
   PAINT_UNIFORMS.uRoadPaintAmt.value.set(amounts[0] * on, amounts[1] * on, amounts[2] * on, amounts[3] * on);
 }
 
-/** How hard channel `c` lands, 0..2 (1 is ROAD_PAINT_LOOK's full strength). */
+/** How hard channel `c` lands, 0..1 (1: a full stroke is exactly its colour). */
 export function setPaintAmount(c, v) {
   if (!Number.isFinite(v)) return;
-  amounts[c] = Math.max(0, v);
+  amounts[c] = Math.min(1, Math.max(0, v));
   applyAmounts();
+  scheduleStore();
 }
 export const paintAmount = (c) => amounts[c];
+
+/** Channel `c`'s colour, as '#rrggbb'. */
+export function setPaintColor(c, hex) {
+  if (!/^#[0-9a-f]{6}$/i.test(hex)) return;
+  colors[c] = hex.toLowerCase();
+  displayColor(colors[c], PAINT_UNIFORMS[`uRoadPaintC${c}`].value);
+  scheduleStore();
+}
+export const paintColor = (c) => colors[c];
+
+/** The colours and amounts a bake carries, applied (a bake from before they existed keeps the defaults). */
+function applyLook(saved) {
+  (saved?.colors ?? PAINT_COLOR_DEFAULTS).forEach((hex, c) => {
+    colors[c] = hex;
+    displayColor(hex, PAINT_UNIFORMS[`uRoadPaintC${c}`].value);
+  });
+  (saved?.amounts ?? [1, 1, 1, 1]).forEach((v, c) => { amounts[c] = Math.min(1, Math.max(0, Number(v) || 0)); });
+  applyAmounts();
+}
 
 function upload() {
   const tex = PAINT_UNIFORMS.tRoadPaint.value;
@@ -63,7 +89,7 @@ function upload() {
 export function installRoadPaint({ always = false } = {}) {
   const bake = ROAD_PAINT_BAKE;
   const stored = always ? readStored() : null;
-  if (!always && !bake?.data) { applyAmounts(); return Promise.resolve(false); }
+  if (!always && !bake?.data) { applyLook(bake); return Promise.resolve(false); }
   // Snapped to the texel grid at the world origin, the grid the pixel street rounds to.
   const minX = Math.floor(coastWest() / PAINT_TEXEL) * PAINT_TEXEL;
   const minZ = Math.floor(coastNorth() / PAINT_TEXEL) * PAINT_TEXEL;
@@ -77,6 +103,7 @@ export function installRoadPaint({ always = false } = {}) {
   PAINT_UNIFORMS.uRoadPaintBox.value.set(minX, minZ, 1 / (width * PAINT_TEXEL), 1 / (height * PAINT_TEXEL));
   applyAmounts();
   const source = stored ?? bake;
+  applyLook(source);
   if (!source?.data) return Promise.resolve(true);
   return decode(source).then(() => true, (err) => { console.warn('road paint: bake did not load', err); return false; });
 }
@@ -131,14 +158,15 @@ export async function encodeRoadPaint() {
       }
     }
   }
-  if (x1 < 0) return { texel: PAINT_TEXEL, minX: 0, minZ: 0, width: 0, height: 0, data: '' };
+  const look = { colors: [...colors], amounts: [...amounts] };
+  if (x1 < 0) return { texel: PAINT_TEXEL, minX: 0, minZ: 0, width: 0, height: 0, ...look, data: '' };
   const w = x1 - x0 + 1, h = z1 - z0 + 1;
   const out = new Uint8Array(w * h * 4);
   for (let z = 0; z < h; z++) out.set(map.data.subarray(((z + z0) * map.width + x0) * 4, ((z + z0) * map.width + x1 + 1) * 4), z * w * 4);
   const round = (n) => Math.round(n * 1e6) / 1e6;
   return {
     texel: PAINT_TEXEL, minX: round(map.minX + x0 * PAINT_TEXEL), minZ: round(map.minZ + z0 * PAINT_TEXEL),
-    width: w, height: h, data: await deflate(out),
+    width: w, height: h, ...look, data: await deflate(out),
   };
 }
 
@@ -171,6 +199,7 @@ export async function revertRoadPaint() {
   if (!map.data) return;
   map.data.fill(0);
   undoStack.length = 0;
+  applyLook(ROAD_PAINT_BAKE);
   if (ROAD_PAINT_BAKE?.data) await decode(ROAD_PAINT_BAKE); else upload();
 }
 

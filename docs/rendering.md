@@ -1716,8 +1716,13 @@ paint tool for the road"). It is a **splat map, not vertex colour**: one RGBA te
 whole island in world space at `PAINT_TEXEL` = 0.15, the pixel street's own texel, snapped to the
 same origin, so a painted texel is exactly one road pixel. The road's paint pass reads it at each
 pixel's centre and multiplies it in *before* the grey ramp, so a stroke comes out in the street's
-own pixels and greys. Four channels: dark, light, warm and cool (`ROAD_PAINT_LOOK` in util/geo.js
-says how far each goes; `uRoadPaintAmt` scales them live). Vertex paint at that detail would have
+own pixels and greys. Four channels, because a texel is four bytes, and each
+has a colour picked in the panel (`uRoadPaintC0..3`, display-space sRGB): a full-strength stroke
+turns the road's albedo into that colour, keeping the road's own sun, shadow and AO, and the four
+mix in order over one another. The colours and each channel's amount (`uRoadPaintAmt`) ride in the
+bake beside the bytes, so a painted channel can be recoloured. More than four would be a second
+texture (another 3.7 MB) and a second read. The panel's Street texture box switches the texture
+off under the paint without losing its look (`setRoadTextureOn`); the paint and its pixel grid stay. Vertex paint at that detail would have
 meant cutting every road quad into 0.15-unit cells, millions of triangles where the ground is ~20k,
 for the same picture; this is one texture read on fragments the road shader already shades.
 

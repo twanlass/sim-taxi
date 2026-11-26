@@ -256,6 +256,15 @@ export function setPainterly(enabled) {
   painterlyEnabled = enabled;
 }
 
+/**
+ * A colour kept as the sRGB numbers it was written in. `new THREE.Color(hex)` linearises (colour
+ * management is on), and the road paint mixes in display space, where the paint pass runs.
+ */
+export function displayColor(hex, out = new THREE.Color()) {
+  const n = parseInt(String(hex).replace('#', ''), 16);
+  return out.setRGB(((n >> 16) & 255) / 255, ((n >> 8) & 255) / 255, (n & 255) / 255, THREE.LinearSRGBColorSpace);
+}
+
 function roadPaintTexture() {
   const tex = new THREE.DataTexture(new Uint8Array(4), 1, 1, THREE.RGBAFormat);
   tex.magFilter = THREE.NearestFilter;
@@ -320,6 +329,12 @@ export const PAINT_UNIFORMS = {
   tRoadPaint: { value: roadPaintTexture() },
   uRoadPaintBox: { value: new THREE.Vector4(0, 0, 1, 1) },
   uRoadPaintAmt: { value: new THREE.Vector4(0, 0, 0, 0) },
+  // Each channel's colour, display-space sRGB: a full-strength stroke turns the road's albedo into
+  // it, and the lighting stays the road's (game/roadpaint.js, PAINT_CHANNEL_DEFAULTS).
+  uRoadPaintC0: { value: displayColor('#2a2c31') },
+  uRoadPaintC1: { value: displayColor('#b8b3a8') },
+  uRoadPaintC2: { value: displayColor('#8a5a3c') },
+  uRoadPaintC3: { value: displayColor('#4f6c94') },
   // The road paint's albedo view (⚙️ Road paint > No lighting): 1 swaps the lit ground for its bare
   // colour before the paint pass multiplies it, so a stroke can be judged without sun or shadow.
   uAlbedoView: { value: 0 },
@@ -507,16 +522,23 @@ export const ROAD_TEX_DEFAULTS = Object.freeze({
   step: 0.02,         // the grey ramp's step
 });
 export const ROAD_TEX = { ...ROAD_TEX_DEFAULTS };
-const roadTexApplied = { amount: 0, seed: 0, pixels: true };
+const roadTexApplied = { amount: 0, seed: 0, pixels: true, off: false };
 export function setRoadTexture(amount = 1, seed = 0) {
-  const a = Math.max(0, amount);
-  roadTexApplied.amount = a;
+  roadTexApplied.amount = Math.max(0, amount);
+  const a = roadTexApplied.off ? 0 : roadTexApplied.amount;
   roadTexApplied.seed = seed;
   PAINT_UNIFORMS.uRoadTex.value.set(ROAD_TEX.run * a, ROAD_TEX.mottle * a, 0, (seed % 97) + 0.5);
   PAINT_UNIFORMS.uRoadTexFine.value.set(ROAD_TEX.stain * a, ROAD_TEX.grain * a);
   PAINT_UNIFORMS.uRoadTexTune.value.set(Math.max(0.05, ROAD_TEX.patch), ROAD_TEX.warmth, Math.max(0.005, ROAD_TEX.shoulder), ROAD_TEX.bias);
   PAINT_UNIFORMS.uRoadTexDetail.value.set(ROAD_TEX.stainDensity, 0, 0, ROAD_TEX.speckle);
 }
+
+/** The road paint's Street texture box: the texture off (paint and pixel grid stay), and back. */
+export function setRoadTextureOn(on) {
+  roadTexApplied.off = !on;
+  setRoadTexture(roadTexApplied.amount, roadTexApplied.seed);
+}
+export const roadTextureOn = () => !roadTexApplied.off;
 
 /**
  * Move one of ROAD_TEX's levers with the game running (the panel's Street texture section). Only
@@ -560,18 +582,8 @@ export function setRoadPixels(texel = ROAD_TEXEL, step = ROAD_TEX_DEFAULTS.step)
 
 if (GPU) {
   let paving = null;
-  bindPropNodes({ paving: () => (painterlyEnabled ? (paving ??= createPaving(PAINT_UNIFORMS, ROAD_PAINT_LOOK)) : null) });
+  bindPropNodes({ paving: () => (painterlyEnabled ? (paving ??= createPaving(PAINT_UNIFORMS)) : null) });
 }
-
-/**
- * What each channel of the hand-painted road does at full strength (game/roadpaint.js): dark and
- * light are how far the value moves, warm and cool the ratio a texel's colour is pulled toward.
- * Shared by the GLSL and the node path (util/gpupaving.js) so the two renderers paint alike.
- */
-export const ROAD_PAINT_LOOK = Object.freeze({
-  dark: 0.75, light: 0.9, warm: Object.freeze([1.22, 1.0, 0.72]), cool: Object.freeze([0.8, 0.95, 1.2]),
-});
-const glslNum = (n) => (Number.isInteger(n) ? `${n}.0` : String(n));
 
 const PAINT_COMMON = /* glsl */ `
 uniform vec3 uEdgeTint;
@@ -616,6 +628,10 @@ uniform vec4 uRoadTexDetail;
 uniform sampler2D tRoadPaint;
 uniform vec4 uRoadPaintBox;
 uniform vec4 uRoadPaintAmt;
+uniform vec3 uRoadPaintC0;
+uniform vec3 uRoadPaintC1;
+uniform vec3 uRoadPaintC2;
+uniform vec3 uRoadPaintC3;
 uniform float uAlbedoView;
 // One oil stain a cell at most. lane is how near a drip line this is (0 to 1, already eased off
 // away from a junction), chew a noise that roughens the edge. 1 in the blot, 0 outside.
@@ -770,7 +786,8 @@ const PAINT_FRAGMENT = /* glsl */ `
 					// at play, and a stroke the brush just laid that only shows in shadow is a broken brush.
 					float pHold = dot(uRoadPaintAmt, vec4(1.0)) > 0.0 ? (1.0 - grassy) * (1.0 - plaza) : 0.0;
 					float pMask = 0.0;
-					if (uRoadTex.x + uRoadTex.y + uRoadTex.z > 0.0 && abs(vPaintWorld.y) < 0.1 && max(tHold, pHold) > 0.0) {
+					// Entered for the paint alone too, so the street texture can be switched off under it.
+					if ((uRoadTex.x + uRoadTex.y + uRoadTex.z > 0.0 || pHold > 0.0) && abs(vPaintWorld.y) < 0.1 && max(tHold, pHold) > 0.0) {
 						// The pixel street reads every layer at its texel's centre (setRoadPixels).
 						float pix = step(1e-4, uRoadTexPixel.x);
 						vec2 wq = pix > 0.5 ? (floor(vPaintWorld.xz / uRoadTexPixel.x) + 0.5) * uRoadTexPixel.x : vPaintWorld.xz;
@@ -818,9 +835,14 @@ const PAINT_FRAGMENT = /* glsl */ `
 							if (puv.x >= 0.0 && puv.y >= 0.0 && puv.x < 1.0 && puv.y < 1.0) {
 								vec4 pm = texture2D(tRoadPaint, puv) * uRoadPaintAmt;
 								pMask = clamp(max(max(pm.r, pm.g), max(pm.b, pm.a)), 0.0, 1.0);
-								tex *= (1.0 - ${glslNum(ROAD_PAINT_LOOK.dark)} * pm.r) * (1.0 + ${glslNum(ROAD_PAINT_LOOK.light)} * pm.g);
-								tex *= mix(vec3(1.0), vec3(${ROAD_PAINT_LOOK.warm.map(glslNum)}), pm.b);
-								tex *= mix(vec3(1.0), vec3(${ROAD_PAINT_LOOK.cool.map(glslNum)}), pm.a);
+								// Each channel pulls the textured albedo toward its colour, in order; the change
+								// goes back in as a ratio so the sun, shadow and AO stay the road's.
+								vec3 alb = linearToOutputTexel(vec4(diffuseColor.rgb, 1.0)).rgb * tex;
+								vec3 painted = mix(alb, uRoadPaintC0, pm.r);
+								painted = mix(painted, uRoadPaintC1, pm.g);
+								painted = mix(painted, uRoadPaintC2, pm.b);
+								painted = mix(painted, uRoadPaintC3, pm.a);
+								tex *= painted / max(alb, vec3(1e-3));
 							}
 						}
 						if (pix > 0.5) {

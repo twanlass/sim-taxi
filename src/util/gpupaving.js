@@ -10,7 +10,7 @@
  * The GLSL multiplies the finished pixel in display space; `paving(display, world)` takes and
  * answers a display-space colour, and the caller does the encode and decode around it.
  */
-import { abs, dot, exp2, float, floor, fract, If, length, min, mix, mod, select, sin, smoothstep, step, texture, uniform, vec2, vec3, vec4 } from 'three/tsl';
+import { abs, dot, exp2, float, floor, fract, If, length, min, mix, mod, select, sin, smoothstep, sRGBTransferOETF, step, texture, uniform, vec2, vec3, vec4, diffuseColor } from 'three/tsl';
 
 const LUMA = vec3(0.2126, 0.7152, 0.0722);
 
@@ -24,7 +24,7 @@ const noise = (p) => {
   return mix(mix(hash(i), hash(i.add(vec2(1, 0))), f.x), mix(hash(i.add(vec2(0, 1))), hash(i.add(vec2(1, 1))), f.x), f.y);
 };
 
-export function createPaving(U, LOOK) {
+export function createPaving(U) {
   const tex = uniform(U.uRoadTex.value);
   const texGrid = uniform(U.uRoadTexGrid.value);
   const fine = uniform(U.uRoadTexFine.value);
@@ -51,6 +51,7 @@ export function createPaving(U, LOOK) {
   // The hand-painted road (game/roadpaint.js).
   const paintBox = uniform(U.uRoadPaintBox.value);
   const paintAmt = uniform(U.uRoadPaintAmt.value);
+  const paintC = [0, 1, 2, 3].map((i) => uniform(U[`uRoadPaintC${i}`].value));
   const grid = uniform(U.uRoadGrid.value);
   const riverZ = uniform(U.uRiverZ.value);
   const art = uniform(U.uRoadArt.value);
@@ -112,7 +113,7 @@ export function createPaving(U, LOOK) {
     // The painted road ignores the brightness hold (PAINT_FRAGMENT says why).
     const pHold = select(dot(paintAmt, vec4(1)).greaterThan(0), float(1).sub(grassy).mul(float(1).sub(plaza)), float(0)).toVar();
     const pMask = float(0).toVar();
-    If(tex.x.add(tex.y).add(tex.z).greaterThan(0).and(abs(world.y).lessThan(0.1)).and(hold.max(pHold).greaterThan(0)), () => {
+    If(tex.x.add(tex.y).add(tex.z).greaterThan(0).or(pHold.greaterThan(0)).and(abs(world.y).lessThan(0.1)).and(hold.max(pHold).greaterThan(0)), () => {
       // The pixel street (setRoadPixels in util/geo.js): every layer read at its texel's centre.
       const pix = step(1e-4, pixel.x).toVar();
       const texel = pixel.x.max(1e-4);
@@ -152,9 +153,10 @@ export function createPaving(U, LOOK) {
         const inside = step(0, puv.x).mul(step(0, puv.y)).mul(step(puv.x, 0.9999)).mul(step(puv.y, 0.9999));
         const pm = texture(U.tRoadPaint.value, puv.clamp(0, 1)).level(0).mul(paintAmt).mul(inside).toVar();
         pMask.assign(pm.r.max(pm.g).max(pm.b.max(pm.a)).clamp(0, 1));
-        ratio.mulAssign(float(1).sub(pm.r.mul(LOOK.dark)).mul(pm.g.mul(LOOK.light).add(1)));
-        ratio.mulAssign(mix(vec3(1), vec3(...LOOK.warm), pm.b));
-        ratio.mulAssign(mix(vec3(1), vec3(...LOOK.cool), pm.a));
+        // Toward each channel's colour, as PAINT_FRAGMENT does.
+        const alb = sRGBTransferOETF(diffuseColor.rgb).mul(ratio).toVar();
+        const painted = mix(mix(mix(mix(alb, paintC[0], pm.r), paintC[1], pm.g), paintC[2], pm.b), paintC[3], pm.a);
+        ratio.mulAssign(painted.div(alb.max(vec3(1e-3))));
       });
       If(pix.greaterThan(0.5), () => {
         const lv = ratio.r.add(ratio.g).add(ratio.b).div(3).toVar();

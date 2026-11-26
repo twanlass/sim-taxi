@@ -5,7 +5,7 @@ import { SPEED, MPH_PER_UNIT, CAR_W } from '../sim/traffic.js';
 import { PITCH, LANE } from '../city/grid.js';
 import {
   setShadowTint, shadowTint, FINISH_NAMES, glossTuning, setGlossFinish, setGlossGlobal, rimTuning, setRimTuning,
-  resetGlossTuning, ROAD_TEX, ROAD_TEX_DEFAULTS, tuneRoadTexture,
+  resetGlossTuning, ROAD_TEX, ROAD_TEX_DEFAULTS, tuneRoadTexture, setRoadTextureOn, roadTextureOn,
 } from '../util/geo.js';
 import { MIN_ELEVATION } from './daylight.js';
 import { BLOOM_INTENSITY, BLOOM_KINDS } from './bloom.js';
@@ -20,7 +20,7 @@ import { attachQuickTips } from './quicktips.js';
 import { wallGrainOn, wallGrainTuning } from '../city/wallgrain.js';
 import {
   brush as paintBrush, CHANNELS as PAINT_CHANNELS, setPaintAmount, paintAmount, undoRoadPaint, clearRoadPaint,
-  encodeRoadPaint, bakeSource, revertRoadPaint, hasLocalPaint, setAlbedoView, albedoView,
+  encodeRoadPaint, bakeSource, revertRoadPaint, hasLocalPaint, setAlbedoView, albedoView, setPaintColor, paintColor,
 } from './roadpaint.js';
 
 // A small tweak panel behind a gear button.
@@ -1142,7 +1142,7 @@ export function createDebugPanel({
     on.addEventListener('change', () => { paintBrush.on = on.checked; roadBrush.sync(); });
     syncs.push(() => { on.checked = paintBrush.on; });
 
-    const channel = dropdown(PAINT_CHANNELS.map((c, i) => `${i + 1} ${c}`), `${paintBrush.channel + 1} ${PAINT_CHANNELS[paintBrush.channel]}`);
+    const channel = dropdown(PAINT_CHANNELS, PAINT_CHANNELS[paintBrush.channel]);
     row(panel, 'Channel (1-4)', channel);
     channel.addEventListener('change', () => { paintBrush.channel = channel.selectedIndex; });
     syncs.push(() => { channel.selectedIndex = paintBrush.channel; });
@@ -1198,13 +1198,26 @@ export function createDebugPanel({
       show();
       syncs.push(show);
     }
+    // Each channel's colour and how hard it lands. Both live in the bake beside the strokes, so a
+    // channel can be recoloured after it is painted.
     PAINT_CHANNELS.forEach((name, c) => {
-      const input = slider(0, 2, 0.01, paintAmount(c));
-      const value = row(panel, `${name} amount`, input);
-      const show = () => { value.textContent = paintAmount(c).toFixed(2); };
+      const well = swatch(paintColor(c));
+      row(panel, `Channel ${name} colour`, well);
+      well.addEventListener('input', () => setPaintColor(c, well.value));
+      const input = slider(0, 1, 0.01, paintAmount(c));
+      const value = row(panel, `Channel ${name} amount`, input);
+      const show = () => { input.value = String(paintAmount(c)); value.textContent = paintAmount(c).toFixed(2); well.value = paintColor(c); };
       input.addEventListener('input', () => { setPaintAmount(c, Number(input.value)); show(); });
       show();
+      syncs.push(show);
     });
+    // The street texture under the paint (ROAD_TEX in util/geo.js), off without losing its look.
+    const texOn = document.createElement('input');
+    texOn.type = 'checkbox';
+    texOn.checked = roadTextureOn();
+    row(panel, 'Street texture', texOn);
+    texOn.addEventListener('change', () => { setRoadTextureOn(texOn.checked); texOn.blur(); });
+    syncs.push(() => { texOn.checked = roadTextureOn(); });
 
     const status = document.createElement('div');
     status.className = 'dbg-wide';
@@ -1236,7 +1249,7 @@ export function createDebugPanel({
         Object.assign(document.createElement('a'), { href: url, download: 'roadpaintbake.js' }).click();
         setTimeout(() => URL.revokeObjectURL(url), 1000);
       }),
-      button('Revert to repo', async () => { await revertRoadPaint(); say('Showing the repo bake.'); }),
+      button('Revert to repo', async () => { await revertRoadPaint(); syncs.forEach((f) => f()); say('Showing the repo bake.'); }),
     );
     panel.append(tools, status);
     // A second press inside a few seconds clears: no modal dialog, which would stall the page.
