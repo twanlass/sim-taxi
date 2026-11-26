@@ -11765,6 +11765,38 @@ function rideToPickup() {
   check('a drag mid-ride cancels the trip back to the taxi',
     !cam.isGliding() && arrived === 0,
     'the ride survived a drag, or reported arriving anyway');
+
+  // --- The tour: the rider race's lock-on beat ------------------------------
+  // Out to a robo-taxi that keeps driving, followed through its hold; over to the rider, whose
+  // landing is what turns the disc cyan; home to the taxi. The order is the lesson — the colour
+  // arriving before the camera reaches the rider would show the effect without its cause.
+  arrived = 0;
+  car.x = -20; car.z = -20;
+  const robo = { x: 30, z: 30 };
+  const rider = { x: -30, z: 10 };
+  const log = [];
+  cam.cancelGlide();
+  cam.state.target.set(car.x, 0, car.z);
+  cam.tour([
+    { at: () => robo, hold: 0.7, onLand: () => log.push('robo') },
+    { at: rider, onLand: () => log.push(`rider@${cam.state.target.x.toFixed(3)},${cam.state.target.z.toFixed(3)}`) },
+  ], () => car, () => { arrived += 1; log.push('home'); });
+  // Measured over the hold only: the frames after the robo landing, short of 0.7s.
+  let roboMiss = Infinity;
+  let roboHeld = 0;
+  for (let i = 0; i < 1200 && cam.isGliding(); i++) {
+    driveCar(STEP);
+    robo.z += 6 * STEP;
+    cam.updateGlide(STEP, 1.5);
+    if (log.length === 1 && (roboHeld += 1) * STEP < 0.65) roboMiss = Math.max(roboMiss === Infinity ? 0 : roboMiss,
+      Math.hypot(cam.state.target.x - robo.x, cam.state.target.z - robo.z));
+  }
+  check('the lock-on tour visits the robo-taxi, then the rider, then comes home',
+    log.length === 3 && log[0] === 'robo' && log[1] === 'rider@-30.000,10.000' && log[2] === 'home'
+    && arrived === 1 && Math.hypot(cam.state.target.x - car.x, cam.state.target.z - car.z) < 1e-9,
+    log.join(' > '));
+  check('the tour follows a moving robo-taxi through its hold',
+    roboMiss < 1e-9, `${roboMiss.toFixed(6)} units off the robo-taxi during the hold`);
 }
 
 // --- Is the taxi off screen? ------------------------------------------------

@@ -3916,6 +3916,46 @@ function panToTaxi() {
   });
 }
 
+// The rider race's lock-on, taught once a run (Tyler: "a beat that pans to a robo then back to a
+// rider and turns the rider disk cyan"). The first time a robo-taxi locks on to a rider, the camera
+// rides out to the robo-taxi, holds on it, crosses to the rider it is after, and the disc turns
+// cyan on the frame it lands, so the colour arrives with its cause on screen; then it rides home
+// to the taxi like any peek. After that, every lock just paints the disc.
+//
+// Only on a *fresh* lock (`lockSeen`), and only when nothing else owns the camera. A beat that
+// waited for its moment would land on a lock seconds old, with the robo-taxi nearly there and the
+// disc already cyan. Loco Mode is the big one: its follow cancels any pan, and pulling the frame
+// off a boosting taxi is how it ends up in a wall, so a lock during a boost is skipped and the next
+// fresh one tries again. Narrow screens only, like every other camera move: a desktop has the whole
+// city in frame already, and the disc simply turns.
+//
+// Holds: 0.7s on the robo-taxi (followed, since it keeps driving) and the usual peek beat on the
+// rider. With the three legs at 0.32-0.75s each that is 3-4s off the taxi, which drives itself on
+// its route the whole time; fare clocks keep running, because the race is the point.
+const LOCK_BEAT_ROBO_HOLD = 0.7;
+let lockTaught = false;
+let lockBeat = null;
+let lockSeen = new WeakSet();
+function startLockBeat(fare, robo) {
+  if (!isNarrow()) { lockTaught = true; return; }
+  if (boost.isActive() || boost.isEngaged() || fingersOnMap > 0 || controller.isGliding()
+    || opening?.holdsCamera() || tutorial?.holdsCamera() || endSpot || raceShot || raceWatch
+    || fares.state.gameOver) return;
+  lockTaught = true;
+  const beat = { fare, landed: false };
+  lockBeat = beat;
+  let last = { x: robo.car.x, z: robo.car.z };
+  const roboAt = () => {
+    if (robo.car) last = { x: robo.car.x, z: robo.car.z };
+    return last;
+  };
+  releaseCameraToPlayer();
+  controller.tour([
+    { at: roboAt, hold: LOCK_BEAT_ROBO_HOLD },
+    { at: kerbFor(fare), onLand: () => { beat.landed = true; haptic('snap'); } },
+  ], () => traffic.taxi, () => { cameraTakenOver = false; });
+}
+
 // The camera comes home on its own, too. A swipe hands the framing to the player, and for a long time
 // nothing took it back: on a phone the city is bigger than the frame, so a look across town ended
 // with the taxi lost somewhere in a busy frame or off it entirely, found again by dragging the map
@@ -7146,6 +7186,9 @@ function resetRun({ toTitle = false } = {}) {
   cameraIdle = 0;
   arrowLookOut = false;
   tipLook = null;
+  lockTaught = false;
+  lockBeat = null;
+  lockSeen = new WeakSet();
   dayAnnounced = false;
   repairCardIn = -1;
   newMoveIn = -1;
@@ -8412,9 +8455,19 @@ function tick() {
   // what keeps an off-screen fare findable at all.
   const aboard = fares.carrying();
   farePointers.update(aboard, fares.state.gameOver ? [] : fares.waitingAll(), fares.colorOf);
-  // The race's lock-on: a rider a robo-taxi is after wears its cyan on their disc.
+  // The race's lock-on: a rider a robo-taxi is after wears its cyan on their disc. The first lock
+  // of a run is shown rather than just painted (`startLockBeat`): the disc stays its own colour
+  // until the camera has been to the robo-taxi and lands on the rider.
+  if (lockBeat && !lockBeat.landed && !controller.isGliding()) lockBeat.landed = true;
   for (const f of fares.state.fares) {
-    if (f.stage === 'waiting') f.slot.marker.setClaimed?.(riderRace() && Boolean(robotaxis?.claimOf(f)));
+    if (f.stage !== 'waiting') continue;
+    const robo = riderRace() ? robotaxis?.claimOf(f) : null;
+    if (robo && !lockSeen.has(f)) {
+      lockSeen.add(f);
+      if (!lockTaught) startLockBeat(f, robo);
+    }
+    const held = lockBeat?.fare === f && !lockBeat.landed;
+    f.slot.marker.setClaimed?.(Boolean(robo) && !held);
   }
   // After the police update above, so the wash is aimed at where the cruiser is this frame rather
   // than trailing it by one.
