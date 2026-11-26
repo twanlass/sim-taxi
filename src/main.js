@@ -1735,6 +1735,8 @@ for (const [built, landmark] of [
 if (depotPanes) markEmissive(depotPanes, 'window');
 // The vet's OPEN sign, at the strength the depot's and the burger joint's neon bloom at.
 if (vet) markEmissive(vet.glow, 'window');
+// ...and the donut shop's, which is the same sign.
+if (donut?.glow) markEmissive(donut.glow, 'window');
 // The billboard's three lamps, the same.
 for (const board of billboards) markEmissive(board.glow, 'window');
 // The riders. They receive AO through `propMaterial()` either way, so leaving them out of the

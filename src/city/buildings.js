@@ -595,7 +595,8 @@ function groundFloor(parts, cx, cz, w, d, streetSides, rng, body = null) {
   const sky = color('windowSky');
   // What went where, handed back for anything that dresses a shopfront afterwards (the vet's OPEN
   // sign, city/vetclinic.js). Recorded, not drawn: it touches no `rng`.
-  const front = { shops: [], door: door && { side, ...door } };
+  // The door's height rides along for the donut shop's glass door, which stands over this one.
+  const front = { shops: [], door: door && { side, ...door, h: GROUND_H - 0.45, base } };
   for (const s of streetSides) {
     const faceW = s % 2 === 0 ? d : w;
     if (faceW < 1.6) continue;

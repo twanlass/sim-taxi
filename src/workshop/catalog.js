@@ -18,7 +18,7 @@
 
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import { bakeColor, propMaterial } from '../util/geo.js';
+import { bakeColor, propMaterial, unlitMaterial } from '../util/geo.js';
 import { PALETTE } from '../palette.js';
 import { blockBounds } from '../city/grid.js';
 import { KERB_H } from '../city/ground.js';
@@ -47,7 +47,7 @@ import { createFoodOrder } from '../geometry/food.js';
 import { buildBank, bankDomeMesh } from '../city/bank.js';
 import { INSET, buildLotTower } from '../city/buildings.js';
 import { chooseVetSite, createVetClinic } from '../city/vetclinic.js';
-import { donutGeometry } from '../city/donutshop.js';
+import { donutSignGeometry } from '../city/donutshop.js';
 import { makeRng } from '../util/rng.js';
 
 const shadowed = (mesh) => {
@@ -349,10 +349,10 @@ export const CATALOG = [
     source: 'src/city/donutshop.js · donutGeometry',
     build: () => {
       const group = new THREE.Group();
-      const donut = new THREE.Mesh(donutGeometry(), propMaterial({ smooth: true }));
-      donut.rotation.set(-0.28, Math.PI / 4 - 0.3, 0, 'YXZ');
-      donut.position.set(0, 2.5, 0);
+      const built = donutSignGeometry({ x: 0, z: 0 }, 0);
+      const donut = new THREE.Mesh(built.geometry, propMaterial({ smooth: true }));
       donut.castShadow = true;
+      donut.add(new THREE.Mesh(built.text, unlitMaterial({ vertexColors: true })));
       const car = parkedCruiser({ kerbLock: 0.32 });
       car.group.position.set(2.2, 0, 2.2);
       car.group.rotation.y = -Math.PI / 2;

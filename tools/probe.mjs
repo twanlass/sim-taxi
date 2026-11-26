@@ -113,7 +113,7 @@ import { BODY_TOP } from '../src/geometry/damage.js';
 import { BUMPER_H as BUMPER_H_PROBE, bumperLength as bumperLengthProbe } from '../src/geometry/bumpers.js';
 import { createTaxiDoor } from '../src/game/taxidoor.js';
 import { createPolice, parkedCruiser, SPOT_RANGE, FADE_TIME } from '../src/sim/police.js';
-import { createDonutShop, donutGeometry, DONUT_BODY_TRIS, RING_R as DONUT_RING_R, CORNER_CLEAR as DONUT_CORNER_CLEAR } from '../src/city/donutshop.js';
+import { createDonutShop, donutGeometry, donutSignGeometry, DONUT_BODY_TRIS, RING_R as DONUT_RING_R, CORNER_CLEAR as DONUT_CORNER_CLEAR } from '../src/city/donutshop.js';
 import { sirenOn, patrolSwing } from '../src/geometry/lights.js';
 import {
   edgeGlow, sirenWash, GLOW_NEAR, GLOW_FAR, GLOW_FLOOR, SIREN_DIM, PATROL_WASH,
@@ -23952,7 +23952,8 @@ for (const viewName of ['side', 'quarter']) {
     check('donut: the cruiser leans away from the kerb, kerb side up by a kerb', kerbward > 0
       && Math.abs(kerbSide.y - roadSide.y - KERB_H) < 0.02, `rise ${(kerbSide.y - roadSide.y).toFixed(3)}`);
     // Its feet: the legs' lowest vertices, on the deck and inside it.
-    const sp = shop.sign.geometry.attributes.position;
+    const roofSign = donutSignGeometry(site.spot, roof.deck);
+    const sp = roofSign.geometry.attributes.position;
     let feetOn = true;
     for (let i = 0; i < sp.count; i++) {
       const y = sp.getY(i);
@@ -23961,6 +23962,12 @@ for (const viewName of ['side', 'quarter']) {
         || Math.abs(sp.getZ(i) - roof.cz) > roof.cd / 2) feetOn = false;
     }
     check('donut: the sign stands on its own deck and nothing of it goes below', feetOn);
+    // The glass door stands on the pavement in front of a door the generator drew on a face the
+    // camera sees, and the OPEN sign and the DONUTS letters are there to read.
+    check('donut: the glass door is on a camera-facing face, on the pavement',
+      site.door && (site.door.side === 0 || site.door.side === 1) && Math.abs(site.door.base - KERB_H) < 1e-9);
+    check('donut: the shop wears an OPEN sign and the board has its letters',
+      Boolean(shop.glow) && shop.letters.geometry.attributes.position.count > 0);
   }
 }
 

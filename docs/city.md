@@ -961,8 +961,8 @@ exactly the way the vet is (`chooseDonutSite`, after `chooseVetSite`, by hash, n
 tower), so it moves nothing in the skyline. The billboards are chosen after it and skip its roof.
 `?donut=classic` leaves both additions off. 40 seeds out of 40 get one.
 
-**Which shop.** A one-tier flat roof (any wall style) on a block's **+X+Z corner lot**, with three
-things true: the donut's two feet land on the deck clear of the plant room, a ray towards the camera
+**Which shop.** A one-tier flat roof (any wall style) on a block's **+X+Z corner lot**, with these
+things true: its generated door and a shopfront pane are on faces the camera sees, the donut's two feet land on the deck clear of the plant room, a ray towards the camera
 from the donut gets out past every other tower (`clearOf`, shared with the vet), and the cruiser has
 somewhere to park that the camera can also see.
 
@@ -977,6 +977,15 @@ pixel of the donut to say the same 2px thing. It faces the camera's bearing swun
 to clear any plant room, so only its feet need room on the roof. It is static, so unlike the dog and
 the burger it rides the entrance wave's shader as one stamped mesh, and it goes in the sightline
 field like the vet's pole.
+
+**The shopfront.** The shop also gets the vet's neon OPEN sign in a shopfront pane (`signSpot`,
+blooms as a `window`), and a glass door over the dark one `groundFloor` drew (`glassDoorGeometry`):
+an aluminium frame, a glass pane and a push bar, layered 0.11, 0.15 and 0.245 off the wall so no
+two faces share a plane. That is why the shop has to be one whose generated door is on a face the
+camera sees. Under the donut hangs a chocolate **DONUTS** board with white unlit letters in the
+roadside pixel font, which overlaps the bottom of the ring. It hangs 1.0 in front of the legs, because
+the ring's tilt brings its bottom forward, and a board level with the legs had the tube in front of
+its middle letters. The letters don't bloom: blooming white turns the word into a smear at play zoom.
 
 **The cruiser** is the patrol cruiser's own body, housing and steered wheels (`parkedCruiser`,
 sim/police.js), no lamps, front wheels turned in to the kerb. It parks the way traffic beside that

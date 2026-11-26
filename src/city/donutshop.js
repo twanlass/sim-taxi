@@ -1,11 +1,12 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import { BODY_EULER_ORDER, bakeColor, hash01, propMaterial, stampEntry } from '../util/geo.js';
+import { BODY_EULER_ORDER, bakeColor, hash01, propMaterial, stampEntry, unlitMaterial } from '../util/geo.js';
 import { color } from '../palette.js';
 import { LANE_TO_KERB } from './grid.js';
 import { KERB_H } from './ground.js';
 import { cityNetwork } from './roadnet.js';
-import { clearOf } from './vetclinic.js';
+import { clearOf, openSignParts, signSpot } from './vetclinic.js';
+import { wordParts } from './roadside.js';
 
 // The donut shop: one of the city's ordinary corner shops with a giant cake donut standing on its
 // roof — pink frosting, sprinkles — and a police cruiser parked out front with two wheels up on the
@@ -66,6 +67,12 @@ const SEG_TUBE = 18;
 /** The ring's own triangles, which come first in `donutGeometry` — the probe's winding check walks these. */
 export const DONUT_BODY_TRIS = SEG_RING * SEG_TUBE * 2;
 const SPRINKLES = 64;
+/** The DONUTS board under the ring: wider than the hole and the legs, short, a slab. */
+const BOARD_W = 3.4;
+const BOARD_H = 0.85;
+const BOARD_D = 0.14;
+/** The board's centre out in front of the legs: past the ring's bottom (0.6 forward) and its tube. */
+const BOARD_OUT = 1.0;
 const SPRINKLE_LEN = 0.26;
 const SPRINKLE_W = 0.065;
 
@@ -195,6 +202,28 @@ export function donutSignGeometry(spot, deck) {
   donut.applyMatrix4(new THREE.Matrix4().makeRotationFromEuler(turn));
   donut.translate(centre.x, centre.y, centre.z);
   const parts = [donut];
+  // The DONUTS board (Tyler, 2026-11-25: "a simple horizontal sign just below the donut, or maybe
+  // clipping the bottom, with white text"): upright, square to the donut's bearing, its top edge 0.2
+  // over the bottom of the ring so the two read as one sign. Hung on the front of the legs rather
+  // than between them: the tilt brings the bottom of the ring 0.6 *forward* of the legs, and with
+  // the board in their plane the tube stood in front of the middle letters — "D..UTS".
+  const panel = new THREE.BoxGeometry(BOARD_W, BOARD_H, BOARD_D);
+  const boardY = deck + LIFT + 0.2 - BOARD_H / 2;
+  const bx = centre.x + Math.sin(DONUT_YAW) * BOARD_OUT;
+  const bz = centre.z + Math.cos(DONUT_YAW) * BOARD_OUT;
+  panel.rotateY(DONUT_YAW);
+  panel.translate(bx, boardY, bz);
+  parts.push(bakeColor(panel, color('donutSignPanel')));
+  // The letters, white and unlit (so they read at dusk too), standing 0.03 proud of its face.
+  const pixel = (BOARD_W - 0.35) / 28;                  // DONUTS is 28 pixels wide in wordParts' font
+  const letters = wordParts('DONUTS', 0.03, color('donutSignText'), pixel);
+  for (const g of letters) {
+    g.translate(0, 0, BOARD_D / 2);
+    g.rotateY(DONUT_YAW);
+    g.translate(bx, boardY, bz);
+  }
+  const text = mergeGeometries(letters, false);
+  letters.forEach((g) => g.dispose());
   // The legs: either side of the bottom of the ring, along its own across-axis, each rising to meet
   // the tube where it is still well inside it.
   const across = new THREE.Vector3(1, 0, 0).applyEuler(turn);
@@ -217,7 +246,44 @@ export function donutSignGeometry(spot, deck) {
   const geo = mergeGeometries(parts, false);
   parts.slice(1).forEach((g) => g.dispose());
   donut.dispose();
-  return { geometry: geo, centre };
+  return { geometry: geo, centre, text };
+}
+
+// --- The front door ---------------------------------------------------------------------------
+
+const SIDE_OUT = [[1, 0], [0, 1], [-1, 0], [0, -1]];     // as city/buildings.js numbers its faces
+const SIDE_TAN = [[0, -1], [1, 0], [0, 1], [-1, 0]];
+
+/**
+ * A glass shop door over the one `groundFloor` drew (city/buildings.js): an aluminium frame, a pane
+ * of glass inset in it, and a push bar across at hand height. Built in layers off the wall so that
+ * no two faces share a plane: the generator's dark door is at 0.09 and is buried inside the frame
+ * (0.08..0.14), the glass's face stands at 0.16 and the bar at 0.245.
+ */
+export function glassDoorGeometry(tower, door) {
+  const { side, u, w, h, base } = door;
+  const [nx, nz] = SIDE_OUT[side];
+  const [tx, tz] = SIDE_TAN[side];
+  const reach = (side === 0 || side === 2 ? tower.w : tower.d) / 2;
+  const turn = Math.PI / 2 * ((4 - side + 1) % 4);       // local +Z onto the face's outward normal
+  const place = (bw, bh, bd, along, y, out, col) => {
+    const box = new THREE.BoxGeometry(bw, bh, bd);
+    box.rotateY(turn);
+    box.translate(tower.cx + nx * (reach + out) + tx * (u + along), y, tower.cz + nz * (reach + out) + tz * (u + along));
+    return bakeColor(box, col);
+  };
+  const BORDER = 0.08;
+  const parts = [
+    place(w, h, 0.06, 0, base + h / 2, 0.11, color('donutDoorFrame')),
+    place(w - BORDER * 2, h - BORDER * 2, 0.02, 0, base + h / 2 + 0.01, 0.15, color('donutDoorGlass')),
+    // The bar and the two stand-offs it is bolted on by.
+    place(w - 0.3, 0.06, 0.05, 0, base + 1.0, 0.245, color('donutPushBar')),
+    place(0.05, 0.05, 0.06, -(w - 0.4) / 2, base + 1.0, 0.19, color('donutPushBar')),
+    place(0.05, 0.05, 0.06, (w - 0.4) / 2, base + 1.0, 0.19, color('donutPushBar')),
+  ];
+  const geo = mergeGeometries(parts, false);
+  parts.forEach((g) => g.dispose());
+  return geo;
 }
 
 // --- The cruiser's parking space --------------------------------------------------------------
@@ -302,10 +368,15 @@ function donutSpot(deck) {
   const az = Math.max(0, deck.cd / 2 - 1.2);
   const onDeck = (f) => Math.abs(f.x - deck.cx) < deck.cw / 2 - 0.45 && Math.abs(f.z - deck.cz) < deck.cd / 2 - 0.45;
   const free = (f) => deck.keep.every((k) => f.x < k.x0 - 0.25 || f.x > k.x1 + 0.25 || f.z < k.z0 - 0.25 || f.z > k.z1 + 0.25);
+  // The DONUTS board hangs lower than the ring (down to 1.1 off the deck), so a plant room under
+  // either end of it would come through it: five points along it have to be clear too.
+  const board = (x, z) => [-1, -0.5, 0, 0.5, 1].map((k) => ({
+    x: x + Math.cos(DONUT_YAW) * k * BOARD_W / 2, z: z - Math.sin(DONUT_YAW) * k * BOARD_W / 2,
+  }));
   for (const [fx, fz] of tries) {
     const x = deck.cx + fx * ax;
     const z = deck.cz + fz * az;
-    if (feet(x, z).every((f) => onDeck(f) && free(f))) return { x, z };
+    if (feet(x, z).every((f) => onDeck(f) && free(f)) && board(x, z).every(free)) return { x, z };
   }
   return null;
 }
@@ -323,6 +394,12 @@ export function chooseDonutSite(towers, taken = [], { exclude = [] } = {}) {
     if (t.tiers !== 1 || !t.deck || taken.includes(t.deck) || exclude.includes(t)) continue;
     if (!t.streetSides.includes(0) || !t.streetSides.includes(1) || !t.block?.bounds) continue;
     if (Math.min(t.deck.cw, t.deck.cd) < 2.4) continue;
+    // A front door on a face the camera sees, for the glass door to stand over (Tyler, 2026-11-25:
+    // "needs a front door as well"), and a shopfront pane for the OPEN sign.
+    const door = t.front?.door;
+    if (!door || (door.side !== 0 && door.side !== 1)) continue;
+    const open = signSpot(t);
+    if (!open || !clearOf(towers, t, open)) continue;
     const spot = donutSpot(t.deck);
     if (!spot) continue;
     const ring = { x: spot.x, y: t.deck.deck + LIFT + OUTER_R * 0.4, z: spot.z };
@@ -331,19 +408,19 @@ export function chooseDonutSite(towers, taken = [], { exclude = [] } = {}) {
     const car = [0, 1].map((s) => parkingSpot(t, s))
       .find((c) => c && clearOf(towers, t, { x: c.x, y: 1.2, z: c.z }));
     if (!car) continue;
-    candidates.push({ tower: t, spot, car });
+    candidates.push({ tower: t, spot, car, door, open });
   }
   if (!candidates.length) return null;
   // Its own hash, off a different pair of primes from the vet's, so the two do not walk together.
   const sx = candidates.reduce((n, c) => n + c.tower.cx, 0);
   const sz = candidates.reduce((n, c) => n + c.tower.cz, 0);
   const pick = candidates[Math.floor(hash01(sx * 0.53, sz * 0.29) * candidates.length) % candidates.length];
-  const { tower, spot, car } = pick;
+  const { tower, spot, car, door, open } = pick;
   // The birds roost on decks and walk round what stands on them (game/birds.js).
   for (const f of feet(spot.x, spot.z)) tower.deck.keep.push({ x0: f.x - 0.3, x1: f.x + 0.3, z0: f.z - 0.3, z1: f.z + 0.3 });
   const [cx, cz] = car.side === 0 ? [0, 1] : [-1, 0];
   return {
-    spot, car, tower, deck: tower.deck.deck,
+    spot, car, tower, door, open, deck: tower.deck.deck,
     roof: tower.deck,
     bounds: { x0: tower.x0, x1: tower.x1, z0: tower.z0, z1: tower.z1 },
     anchor: { x: tower.cx, z: tower.cz, rand: hash01(tower.cx, tower.cz) },
@@ -375,16 +452,42 @@ export function chooseDonutSite(towers, taken = [], { exclude = [] } = {}) {
  */
 export function createDonutShop(site, { makeCruiser = null } = {}) {
   const { anchor } = site;
-  const { geometry, centre } = donutSignGeometry(site.spot, site.deck);
-  stampEntry(geometry, anchor.x, anchor.z, anchor.rand);
-  const sign = new THREE.Mesh(geometry, propMaterial({ smooth: true }));
+  const stamp = (geo) => stampEntry(geo, anchor.x, anchor.z, anchor.rand);
+  const { geometry, centre, text } = donutSignGeometry(site.spot, site.deck);
+  // The glass door merges in with the donut: one lit, stamped, static mesh for the whole shop.
+  const doorGeo = site.door ? glassDoorGeometry(site.tower, site.door) : null;
+  const shell = doorGeo ? mergeGeometries([geometry, doorGeo], false) : geometry;
+  if (doorGeo) { geometry.dispose(); doorGeo.dispose(); }
+  stamp(shell);
+  const sign = new THREE.Mesh(shell, propMaterial({ smooth: true }));
   sign.castShadow = true;
   sign.receiveShadow = true;
   sign.name = 'donut-sign';
 
+  // What is a light rather than lit: the board's white letters and the OPEN sign in the window,
+  // unlit and stamped, in one mesh. Only the OPEN sign blooms (`glow` is handed to main.js as
+  // `window`, the vet's strength); white letters bloomed into a smear at play zoom would make the
+  // word harder to read, not easier.
+  stamp(text);
+  const letters = new THREE.Mesh(text, unlitMaterial({ vertexColors: true }));
+  letters.name = 'donut-board-letters';
+  let glow = null;
+  if (site.open) {
+    const parts = openSignParts(undefined, site.open.w);
+    const turn = site.open.side === 0 ? Math.PI / 2 : 0;
+    for (const g of parts) {
+      g.rotateY(turn);
+      g.translate(site.open.x, site.open.y, site.open.z);
+      stamp(g);
+    }
+    glow = new THREE.Mesh(mergeGeometries(parts, false), unlitMaterial({ vertexColors: true }));
+    parts.forEach((g) => g.dispose());
+    glow.name = 'donut-open-sign';
+  }
+
   const group = new THREE.Group();
   group.name = 'donut-shop';
-  group.add(sign);
+  group.add(sign, letters, ...(glow ? [glow] : []));
 
   let cruiser = null;
   if (makeCruiser) {
@@ -400,9 +503,9 @@ export function createDonutShop(site, { makeCruiser = null } = {}) {
 
   const carAnchor = { x: site.car.x, z: site.car.z, rand: anchor.rand };
   return {
-    site, group, sign, cruiser, centre,
+    site, group, sign, letters, glow, cruiser, centre,
     /** Stamped meshes, for the entrance wave. */
-    meshes: [sign],
+    meshes: [sign, letters, ...(glow ? [glow] : [])],
     /** For the AO prepass. */
     occluders: [sign, ...(cruiser?.occluders ?? [])],
     entryObjects: cruiser ? [{ object: cruiser.group, x: carAnchor.x, z: carAnchor.z, rand: carAnchor.rand }] : [],

@@ -1117,6 +1117,15 @@ export const PALETTE = {
   donutSprinkleC: '#3DB2FF',
   donutSprinkleD: '#5FD068',
   donutSprinkleE: '#FF6A3D',
+  // Its sign under the donut: chocolate, so the white letters on it read at play zoom (pink on pink
+  // did not have the contrast). And the glass front door: a brushed aluminium frame, glass a shade
+  // lighter and bluer than `shopfront` so it reads as glass and not as the dark `door` it covers,
+  // and a pale steel push bar across it.
+  donutSignPanel: '#4A2A1E',
+  donutSignText: '#FFFFFF',
+  donutDoorFrame: '#B9BEC4',
+  donutDoorGlass: '#6F94AA',
+  donutPushBar: '#E8EAEC',
   // The rooftop billboards (city/billboard.js; the posters' own colours are in city/billboardart.js,
   // which paints them). The steel is painted a dark bottle green, as hoarding structures often are:
   // galvanised grey was `rooftop` to within 3 in every channel and the frame vanished into the roof
