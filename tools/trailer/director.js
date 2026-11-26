@@ -20,6 +20,7 @@
   const stalls = [];
   const heistLog = [];
   let kickBefore = null;
+  let worksDelivered = null;
 
   const T = () => window.__taxi;
   const key = (code, type) => window.dispatchEvent(new KeyboardEvent(type, { code, key: code === 'Space' ? ' ' : 'b', bubbles: true }));
@@ -66,6 +67,18 @@
       const on = taxi.hopFrom != null && taxi.hopBig === true && taxi.hopKind !== 'bridge';
       if (rose('bigroll', on)) { kickBefore = lastKick < 0 ? null : (frames - lastKick) / 60; return true; }
       return false;
+    },
+    // A drift into the roadworks street and through its first trestle (the bot's works scene). Only
+    // a smash with a drift kicked in the three seconds before it counts; the take runs on to the
+    // drop-off (`ENDS.works`).
+    works() {
+      const t = T();
+      const taxi = t.traffic.taxi;
+      if (rose('w-kick', Boolean(taxi.drift?.kicked))) lastKick = frames;
+      if (!rose('w-smash', Boolean(t.roadwork?.state.smashed))) return false;
+      kickBefore = lastKick < 0 ? null : (frames - lastKick) / 60;
+      worksDelivered = t.fares.state.delivered;
+      return kickBefore != null && kickBefore < 3;
     },
     mega() {
       const taxi = T().traffic.taxi;
@@ -156,6 +169,8 @@
     // The helicopter flies in from off screen (ENTRY_DIST in game/policeheli.js); seven seconds of
     // it brings it over the taxi with the searchlight down and a moment of chase under it.
     heist: () => held('h-heli-on', T().policeHeli?.state.mode === 'track') === 420,
+    // The fare that sent the taxi through the works, dropped off.
+    works: () => worksDelivered != null && T().fares.state.delivered > worksDelivered,
   };
 
   function frame() {
@@ -186,7 +201,7 @@
     info: () => {
       const t = T();
       const taxi = t?.traffic?.taxi;
-      return taxi && { heist: heistLog.map(([k, f]) => `${k}@${frames - f}f ago`).join(', '), kickBefore, errand: t.perfBot?.errand?.(), bot: t.perfBot?.robbery?.(), heli: t.policeHeli?.state.mode, scene: t.perfBot?.scene(), x: +taxi.x.toFixed(1), z: +taxi.z.toFixed(1), v: +taxi.v.toFixed(1), st: taxi.state, route: taxi.route?.length, mega, db: t.drawbridge?.state?.phase, span: t.drawbridge && [t.drawbridge.line, t.drawbridge.span.cx, +t.drawbridge.span.z0.toFixed(1), +t.drawbridge.span.z1.toFixed(1), t.drawbridge.span.row] };
+      return taxi && { heist: heistLog.map(([k, f]) => `${k}@${frames - f}f ago`).join(', '), kickBefore, errand: t.perfBot?.errand?.(), works: t.roadwork?.state.phase, delivered: t.fares.state.delivered, bot: t.perfBot?.robbery?.(), heli: t.policeHeli?.state.mode, scene: t.perfBot?.scene(), x: +taxi.x.toFixed(1), z: +taxi.z.toFixed(1), v: +taxi.v.toFixed(1), st: taxi.state, route: taxi.route?.length, mega, db: t.drawbridge?.state?.phase, span: t.drawbridge && [t.drawbridge.line, t.drawbridge.span.cx, +t.drawbridge.span.z0.toFixed(1), +t.drawbridge.span.z1.toFixed(1), t.drawbridge.span.row] };
     },
   };
 })();

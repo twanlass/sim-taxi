@@ -57,7 +57,7 @@ export const BOT_SCENES = [
  * stays what it was. `bigroll`: a drift onto an arched bridge carried straight over its crest — true
  * Big Air, barrel roll and all — which the `bigair` scene only stumbles on (tools/trailer.mjs).
  */
-export const BOT_EXTRA_SCENES = [{ name: 'bigroll', seconds: 45 }];
+export const BOT_EXTRA_SCENES = [{ name: 'bigroll', seconds: 45 }, { name: 'works', seconds: 120 }];
 
 /** `?bot` → the scenes to play, or null without it. */
 export function readBotScenes(search) {
@@ -78,10 +78,11 @@ export function readBotScenes(search) {
  * @param hooks.dispatchToRider
  * @param hooks.wreck       () => boolean — wreck the taxi into the nearest car
  * @param hooks.save        (reason) => void — save the `?perf` capture now
+ * @param hooks.roadwork    game/roadwork.js, for the works scene (optional)
  */
 export function createPerfBot({
   traffic, fares, boost, robbery, patrols, pause = null, robberLine = null, ready, drive, routeTo, holdLoco, releaseLoco, holdBrake,
-  releaseBrake, dispatchToRider, wreck, save, fixedStep = 0, search = typeof window !== 'undefined' ? window.location.search : '',
+  releaseBrake, dispatchToRider, wreck, save, roadwork = null, fixedStep = 0, search = typeof window !== 'undefined' ? window.location.search : '',
 }) {
   const scenes = readBotScenes(search);
   if (!scenes) return null;
@@ -264,6 +265,22 @@ export function createPerfBot({
     }
   }
 
+  /**
+   * Fares on Loco until the roadworks stand up, then a drift into the closed street and through it.
+   * The zone aims the next drop-off past itself and the taxi's router prices its lanes cheap
+   * (docs/traffic.md#getting-the-player-there), so the fare does the routing; the bot only adds the
+   * drift, on corners within reach of the zone, and the overtake combo everywhere else.
+   */
+  function worksStep() {
+    autopilot();
+    const zone = roadwork?.state;
+    const net = cityNetwork();
+    const ends = zone?.phase === 'live' && zone.edge ? [zone.edge.a, zone.edge.b].map((id) => net.nodeById.get(id)).filter(Boolean) : [];
+    const near = ends.some((n) => Math.hypot(n.x - taxi.x, n.z - taxi.z) < 30);
+    if (near || brakeUntil >= 0) driftPedals();
+    else getawayPedals();
+  }
+
   function robberyStep() {
     if (!robbery) { autopilot(); return; }
     if (robbery.state.active) robberySeen = true;
@@ -378,7 +395,8 @@ export function createPerfBot({
       } else if (name === 'bigroll') {
         if (errandOver() && !bigRollErrand()) autopilot();
         if (errand) driftPedals(); else locoOn();
-      } else if (name === 'robbery') robberyStep();
+      } else if (name === 'works') worksStep();
+      else if (name === 'robbery') robberyStep();
       else if (name === 'cops') copsStep();
       else if (name === 'crash' && !wrecked && sceneT > 0.5) wrecked = wreck();
       const limit = scenes[index].seconds;

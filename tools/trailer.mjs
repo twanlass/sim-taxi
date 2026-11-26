@@ -65,6 +65,8 @@ export const BEATS = [
   // From the bank cut (the shove) to seven seconds of the helicopter on the taxi (`until`: the
   // director's end), at play zoom.
   { name: 'heist', query: 'bot=robbery', seed: 71624, run: 2, pre: 0.4, post: 1.0, until: true, zoom: 0, max: 200, solo: true },
+  // A drift into the roadworks street, through the trestles, on to the drop-off (`until`).
+  { name: 'works', query: 'bot=works', seed: 71624, run: 2, pre: 3.2, post: 3.0, until: true, zoom: 0, max: 150, solo: true },
   { name: 'mega', query: '', seed: 71624, run: 7, pre: 1.4, post: 2.6, zoom: 40, max: 70 },
   { name: 'robbery', query: 'bot=robbery', seed: 71624, run: 7, pre: 0.3, post: 3.0, zoom: 36, max: 140 },
   { name: 'cops', query: 'bot=cops', seed: 71624, run: 7, pre: 0.5, post: 2.8, zoom: 34, max: 100 },

@@ -9222,6 +9222,7 @@ function startRun() {
     dispatchToRider,
     wreck: () => window.__taxi.wreck(),
     save: (reason) => perf.save(reason),
+    roadwork,
     fixedStep: FIXED_STEP,
   });
   frame(performance.now());
