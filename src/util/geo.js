@@ -915,13 +915,9 @@ const CLOUD_LIGHT = /* glsl */ `
 export function setCloudShadows(enabled) {
   cloudsEnabled = enabled;
 }
-let gpuCloudLight = null;
 if (GPU) {
-  bindPropNodes({ clouds: () => (cloudsEnabled ? (gpuCloudLight ??= createCloudNodes(CLOUD_UNIFORMS)) : null) });
-}
-/** Redraw the WebGPU cloud-shade map (util/gpuclouds.js), once a frame before anything reads it. */
-export function updateCloudMap(renderer) {
-  gpuCloudLight?.update(renderer);
+  let cloudLight = null;
+  bindPropNodes({ clouds: () => (cloudsEnabled ? (cloudLight ??= createCloudNodes(CLOUD_UNIFORMS)) : null) });
 }
 
 /**

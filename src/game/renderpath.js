@@ -14,7 +14,7 @@
 import {
   setAmbientOcclusion, setPainterly, setPaintBrushes, setJunctionPaving, setRoadStrokes, setRoadTexture, setRoadPixels, ROAD_TEXEL,
   setClassicPaint,
-  setPaintLook, setRim, rimTuning, setRimTuning, setFlip, setVehiclePaint, setCloudShadows, rimPaintOn, setRimDepth, updateCloudMap,
+  setPaintLook, setRim, rimTuning, setRimTuning, setFlip, setVehiclePaint, setCloudShadows, rimPaintOn, setRimDepth,
 } from '../util/geo.js';
 import {
   getAmbientOcclusion, getMsaa, getShadowMapSize, getBloom, getRain,
@@ -141,8 +141,6 @@ export function createRenderPath(renderer, budget, { still = false } = {}) {
       // Before every pass below, so an effect pool with nothing in it skips the shadow, AO and
       // main draws alike — see util/emptypools.js.
       cullEmptyPools();
-      // The cloud shade every lit material reads (util/gpuclouds.js), before the mirror reads it too.
-      updateCloudMap(renderer);
       // The wet road's mirror, before anything reads it. A no-op without `?rain`.
       rainLightsOn?.();
       rain?.update(0, cam);
