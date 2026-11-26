@@ -175,6 +175,30 @@ function lightBar(shell, carrier, lamps) {
 }
 
 /**
+ * The cruiser parked: the same body, bar and steered wheels, with no lamps, no traffic car and no
+ * fade — the donut shop's (city/donutshop.js). About its own origin, nose down +X, front wheels
+ * turned `kerbLock` towards the kerb (local +Z). Static, so it costs three draws and nothing a frame.
+ */
+export function parkedCruiser({ kerbLock = 0 } = {}) {
+  const group = new THREE.Group();
+  const bodyGeometry = policeGeometry();
+  const body = new THREE.Mesh(bodyGeometry, propMaterial({ gloss: { geometry: bodyGeometry, floor: SILL_Y } }));
+  body.castShadow = true;
+  body.receiveShadow = true;
+  group.add(body);
+  const housing = new THREE.Mesh(sirenBaseGeometry(), propMaterial());
+  housing.position.copy(sirenBaseAnchor(CABIN_X, CABIN_TOP));
+  housing.castShadow = true;
+  housing.receiveShadow = true;
+  group.add(housing);
+  const wheels = steeredWheels(group);
+  // A positive yaw about +Y swings a wheel's leading edge from +X towards -Z, so the kerb (+Z)
+  // wants it negative.
+  wheels.forEach((wheel) => { wheel.rotation.y = -kerbLock; });
+  return { group, body, housing, wheels, occluders: [body, housing, ...wheels] };
+}
+
+/**
  * @param {object} [opts]
  * @param {boolean} [opts.lamps]  Hang the two point lights. The extra patrol cruisers the harder
  *   Difficulty modes add (main.js) go without: every point light in the scene is paid for by every
