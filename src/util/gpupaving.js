@@ -62,7 +62,7 @@ export function createPaving(U, LOOK) {
   const at = uniform(U.uJunctionAt.value);
   const brick = uniform(U.uJunctionBrick.value);
 
-  return function paving(display, world) {
+  function paving(display, world) {
     const out = display.toVar();
     const plaza = float(0).toVar();
     // Before the plaza multiplies it: the two holds below read the bare road.
@@ -163,5 +163,8 @@ export function createPaving(U, LOOK) {
       out.mulAssign(mix(vec3(1), ratio, hold.max(pMask.mul(pHold))));
     });
     return out;
-  };
+  }
+  // The albedo view (uAlbedoView in util/geo.js), read by the caller before it paves.
+  paving.albedo = uniform(0).onRenderUpdate(() => U.uAlbedoView.value);
+  return paving;
 }

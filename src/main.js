@@ -223,7 +223,7 @@ import { tap as haptic, setHapticPrefs } from './util/haptics.js';
 import { createSfx, DASH, MUSIC_FADE_AT_HINT } from './game/sfx.js';
 import { attachContextRecovery } from './game/recovery.js';
 import { isCityConnected, GRID_I, GRID_J, MAX_SPAN, lineX, lineZ } from './city/grid.js';
-import { installRoadPaint, createRoadBrush, brush as roadBrushState } from './game/roadpaint.js';
+import { installRoadPaint, createRoadBrush, brush as roadBrushState, roadViewKeep } from './game/roadpaint.js';
 import { cityNetwork } from './city/roadnet.js';
 import { PALETTE, color as paletteColor, roadsClassic } from './palette.js';
 import { createPerfBot } from './game/perfbot.js';
@@ -700,14 +700,15 @@ applyWeather();
 // `markOccluder` is what puts a mesh into the AO depth prepass. The rule it enforces is that
 // anything lit by `propMaterial()` has to be in there: a mesh that receives AO without casting it
 // samples the occlusion of whatever stands behind it. See `game/ssao.js`.
-scene.add(markOccluder(rain.wetGround(brush(createGround(makeRng(seed + 11), layout), 2))));
+// `roadView` keeps it on screen when the road paint's Road only hides the rest (game/roadpaint.js).
+scene.add(markOccluder(rain.wetGround(brush(roadViewKeep(createGround(makeRng(seed + 11), layout)), 2))));
 // A few manhole covers in the streets (city/manholes.js). City seed, its own stream. Wet in the rain
 // like the asphalt they sit in; not brushed, because iron under a road stroke reads as road.
 // Seven or eight, three of them venting steam (game/manholesteam.js); `?manholes=classic` is the
 // four or five that stood there before, with no steam.
 const manholes = createManholes(makeRng(seed + 193),
   { classic: new URLSearchParams(location.search).get('manholes') === 'classic' });
-if (manholes) scene.add(markOccluder(rain.wetGround(manholes)));
+if (manholes) scene.add(markOccluder(rain.wetGround(roadViewKeep(manholes))));
 // The ground past the coast, for the fog of war to swallow — game/edgefog.js.
 if (EDGE_FOG) scene.add(createEdgeFogFloor());
 
@@ -1044,7 +1045,7 @@ setGlossCity(occluders, SKYLINE_CEILING);
 const asphaltPatches = createAsphaltPatches(makeRng(seed + 197), {
   enabled: !roadsClassic(), visible: (x, z) => sightlineClear(x, 0.05, z),
 });
-if (asphaltPatches) scene.add(markOccluder(rain.wetGround(asphaltPatches)));
+if (asphaltPatches) scene.add(markOccluder(rain.wetGround(roadViewKeep(asphaltPatches))));
 // The paved plaza goes to a random side-street junction the camera can see, on its own stream, now
 // that the sightline field exists (`placeJunctionPaving`, util/geo.js). `?plazaspot=classic` keeps it
 // on the one nearest the middle, which was beside the garage in most cities.

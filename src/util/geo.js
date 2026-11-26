@@ -320,6 +320,9 @@ export const PAINT_UNIFORMS = {
   tRoadPaint: { value: roadPaintTexture() },
   uRoadPaintBox: { value: new THREE.Vector4(0, 0, 1, 1) },
   uRoadPaintAmt: { value: new THREE.Vector4(0, 0, 0, 0) },
+  // The road paint's albedo view (⚙️ Road paint > No lighting): 1 swaps the lit ground for its bare
+  // colour before the paint pass multiplies it, so a stroke can be judged without sun or shadow.
+  uAlbedoView: { value: 0 },
   uBrushTile: { value: 8 },     // world units per tile repeat
   uBrushAmt: { value: 0.7 },   // value swing of a stroke (0.22 was invisible at play zoom)
 };
@@ -613,6 +616,7 @@ uniform vec4 uRoadTexDetail;
 uniform sampler2D tRoadPaint;
 uniform vec4 uRoadPaintBox;
 uniform vec4 uRoadPaintAmt;
+uniform float uAlbedoView;
 // One oil stain a cell at most. lane is how near a drip line this is (0 to 1, already eased off
 // away from a junction), chew a noise that roughens the edge. 1 in the blot, 0 outside.
 float roadStain(vec2 p, float lane, float chew) {
@@ -673,6 +677,7 @@ const PAINT_LIGHT = /* glsl */ `
 // no wall path. Same pixels either way; `paintPlan` is the switch.
 const PAINT_FRAGMENT = /* glsl */ `
 	{
+		if (uAlbedoView > 0.5) gl_FragColor.rgb = linearToOutputTexel(vec4(diffuseColor.rgb, 1.0)).rgb;
 		vec3 pN = normalize(inverseTransformDirection(normal, viewMatrix));
 		vec3 an = abs(pN);
 		float wall = 1.0 - an.y;

@@ -174,6 +174,20 @@ export async function revertRoadPaint() {
   if (ROAD_PAINT_BAKE?.data) await decode(ROAD_PAINT_BAKE); else upload();
 }
 
+// --- Viewing aids ----------------------------------------------------------------------------
+
+/** Mark something to stay on screen under Road only: the ground, the manholes, the asphalt patches. */
+export function roadViewKeep(object) {
+  if (object) object.userData.roadView = true;
+  return object;
+}
+
+/** No lighting: the ground drawn as its bare colour times the paint (uAlbedoView in util/geo.js). */
+export function setAlbedoView(on) {
+  PAINT_UNIFORMS.uAlbedoView.value = on ? 1 : 0;
+}
+export const albedoView = () => PAINT_UNIFORMS.uAlbedoView.value > 0.5;
+
 // --- The brush ------------------------------------------------------------------------------
 
 export const brush = {
@@ -354,8 +368,33 @@ export function createRoadBrush({ camera, canvas, scene, active, onChange = () =
     onChange();
   });
   window.addEventListener('keyup', (e) => { if (e.key === 'Shift') panHeld = false; });
+  // Road only: every drawable outside the ground hidden, and put back exactly as it was. Meshes
+  // only, never a group: a light under a hidden group drops out of the light count and recompiles
+  // every lit program in the city (CLAUDE.md). Something spawned while it is on (a new car) shows;
+  // toggling again catches it.
+  let hidden = null;
+  const keeps = (o) => { for (let p = o; p; p = p.parent) if (p.userData.roadView || p === ring) return true; return false; };
+  function setRoadOnly(on) {
+    if (on === Boolean(hidden)) return;
+    if (on) {
+      hidden = [];
+      scene.traverse((o) => {
+        if (!(o.isMesh || o.isPoints || o.isLine || o.isSprite) || !o.visible || keeps(o)) return;
+        let lit = false;
+        o.traverse((c) => { if (c.isLight) lit = true; });
+        if (lit) return;
+        o.visible = false;
+        hidden.push(o);
+      });
+    } else {
+      for (const o of hidden) o.visible = true;
+      hidden = null;
+    }
+  }
   return {
     /** Hide the ring when painting is switched off. */
     sync() { if (!active()) ring.visible = false; },
+    setRoadOnly,
+    roadOnly: () => Boolean(hidden),
   };
 }

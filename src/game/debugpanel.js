@@ -20,7 +20,7 @@ import { attachQuickTips } from './quicktips.js';
 import { wallGrainOn, wallGrainTuning } from '../city/wallgrain.js';
 import {
   brush as paintBrush, CHANNELS as PAINT_CHANNELS, setPaintAmount, paintAmount, undoRoadPaint, clearRoadPaint,
-  encodeRoadPaint, bakeSource, revertRoadPaint, hasLocalPaint,
+  encodeRoadPaint, bakeSource, revertRoadPaint, hasLocalPaint, setAlbedoView, albedoView,
 } from './roadpaint.js';
 
 // A small tweak panel behind a gear button.
@@ -1152,6 +1152,28 @@ export function createDebugPanel({
     row(panel, 'Erase (E / Alt)', erase);
     erase.addEventListener('change', () => { paintBrush.erase = erase.checked; });
     syncs.push(() => { erase.checked = paintBrush.erase; });
+
+    // Viewing aids: the road on its own, the road unlit, and the inspect freeze for getting close.
+    const roadOnly = document.createElement('input');
+    roadOnly.type = 'checkbox';
+    row(panel, 'Road only', roadOnly);
+    roadOnly.addEventListener('change', () => roadBrush.setRoadOnly(roadOnly.checked));
+    syncs.push(() => { roadOnly.checked = roadBrush.roadOnly(); });
+    const unlit = document.createElement('input');
+    unlit.type = 'checkbox';
+    row(panel, 'No lighting', unlit);
+    unlit.addEventListener('change', () => setAlbedoView(unlit.checked));
+    syncs.push(() => { unlit.checked = albedoView(); });
+    if (inspect) {
+      const zoom = document.createElement('button');
+      zoom.type = 'button';
+      zoom.className = 'dbg-wide';
+      const label = () => { zoom.textContent = inspect.state.on ? 'Unfreeze (I)' : 'Freeze & zoom (I): wheel or pinch to zoom, Shift-drag pans'; };
+      zoom.addEventListener('click', () => { inspect.toggle(); label(); });
+      label();
+      panel.append(zoom);
+      syncs.push(label);
+    }
 
     // key, label, min, max, step
     for (const [key, label, min, max, step] of [

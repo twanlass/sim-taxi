@@ -1725,6 +1725,12 @@ for the same picture; this is one texture read on fragments the road shader alre
   the road paints instead of panning or picking; hold **Shift** to pan (Space is boost and B the
   brake). **1-4** pick the channel, **E** or Alt erases, **[ ]** resize, **Cmd/Ctrl+Z** undoes
   (30 strokes). Size, strength and hardness are sliders; a second Clear inside three seconds wipes it.
+- **Seeing it.** Road only hides every drawable except the ground, manholes and asphalt patches
+  (meshes only, never a group, so no light drops out of the count; a car spawned while it is on
+  shows until it is toggled again). No lighting draws the ground as its bare colour times the paint
+  (`uAlbedoView`, both renderers); the colour grade and haze still apply. Freeze & zoom is the
+  inspect freeze (`I`): wheel or pinch zooms to a half-height of 2.5, and painting keeps working,
+  with Shift-drag panning.
 - **Keeping it.** Every stroke autosaves to the browser (debug mode only, and it wins over the bake
   on load until Revert to repo). **Save to repo** posts the bake to the dev server
   (`tools/roadpaint-save.mjs`, loopback only), which writes `src/city/roadpaintbake.js` — commit that.
