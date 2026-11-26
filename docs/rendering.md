@@ -1993,9 +1993,11 @@ blend): additive over white is white, and the band went to a glare. `?blend=` st
 With the snow (`setHoliday`): the statue's plaza holds a 10-unit fir instead of the figure
 (`treeParts(..., { fir: true })`: four stacked cones with soft normals and a leaf-card lobe each,
 so it is drawn the way every tree is; built off a stream of its own so the rest of the park is the
-same park), and its clearing grows to fit. String lights swag along the rooflines of about half
+same park), and its clearing grows to fit. String lights swag along the rooflines of 85% of
 the flat roofs (picked by a hash of the roof), just out past the cornice, sagging between hooks
-every 2.2 units; another string spirals the fir six times, with a gold star turning on top. Two
+every 2.2 units. More than half of those also run a string down each corner, stopping on whatever
+roof or pavement is under it, and some ring the shopfront line at 2.9; about half the trees carry
+bulbs over the outer face of their crowns. Another string spirals the fir six times, with a gold star turning on top. Two
 instanced meshes deal the bulbs alternately, so the city's lights are two draws and the twinkle is
 one colour per mesh per frame; all of it is in the bloom.
 

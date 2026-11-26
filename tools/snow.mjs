@@ -107,8 +107,12 @@ check('the fir is a treeParts tree with a leaf-card lobe per tier', fir.length =
 check('the fir stands its full height', Math.abs(tiers.top - HOLIDAY_TREE_H - 0.15) < 1.5, `top ${tiers.top.toFixed(2)}`);
 const decks = Array.from({ length: 40 }, (_, k) => ({ cx: k * 13.1 - 200, cz: (k % 7) * 9.3, cw: 6, cd: 5, deck: 7 }));
 const lights = createHolidayLights({ decks, tree: { x: 5, z: 5, ...tiers } });
-const strung = lights.count - 150;
-check('about half the roofs are strung', strung > 0.3 * 40 * 46 * 0.5 && strung < 0.8 * 40 * 46, `${strung} roof bulbs`);
+const bare = createHolidayLights({ decks: [], tree: { x: 5, z: 5, ...tiers } }).count;
+const strung = lights.count - bare;
+// A 6 x 5 roof is 46 bulbs round; drops and shopfront rings add to the roofs that have them.
+check('most roofs are strung', strung > 0.6 * 40 * 46 && strung < 40 * 46 * 3, `${strung} building bulbs`);
+const lit = createHolidayLights({ crowns: Array.from({ length: 200 }, (_, k) => ({ x: k * 7, y: 4, z: 0, r: 1.2, tx: k * 7, tz: 0 })) });
+check('about half the trees carry lights', lit.count > 0.25 * 200 * 10 && lit.count < 0.7 * 200 * 10, `${lit.count} crown bulbs`);
 check('a star on top of the fir', lights.star && lights.star.position.y > tiers.top, `${lights.star?.position.y.toFixed(2)}`);
 check('the lights are two draws', lights.meshes.length === 2);
 

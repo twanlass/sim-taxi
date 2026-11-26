@@ -4,8 +4,9 @@ import { hash01, unlitMaterial } from '../util/geo.js';
 
 /**
  * The holiday lights, with the snowstorm (game/snow.js): strings of coloured bulbs swagged along
- * the rooflines of about half the city's flat roofs, a string spiralling the fir in the park
- * (`holidayTree` from city/props.js), and a star on top of it.
+ * the rooflines of most of the city's flat roofs, run down the corners of more than half of those
+ * and round the shopfront line of some, scattered through the crowns of about half the trees, a
+ * string spiralling the fir in the park (`holidayTree` from city/props.js), and a star on top of it.
  *
  * Two instanced meshes, the bulbs dealt alternately between them, so the whole city costs two draws
  * and a twinkle is one colour per mesh per frame: the two sets breathe against each other. Unlit,
@@ -14,8 +15,20 @@ import { hash01, unlitMaterial } from '../util/geo.js';
  */
 
 const COLORS = ['holidayRed', 'holidayGreen', 'holidayGold', 'holidayBlue', 'holidayWhite'];
-/** The share of flat roofs that are strung, picked by a hash of the roof so a seed's city is stable. */
-const ROOF_SHARE = 0.55;
+/**
+ * The share of flat roofs that are strung, picked by a hash of the roof so a seed's city is stable.
+ * 0.55 first (Tyler, 2026-11-25: "can we add some more holiday lights on buildings etc?").
+ */
+const ROOF_SHARE = 0.85;
+/** Of the strung buildings, the share that also run a string down each corner to the street. */
+const DROP_SHARE = 0.6;
+/** And the share with a second ring at the shopfront line, about where the awnings are. */
+const STOREY_SHARE = 0.45;
+const STOREY_Y = 2.9;
+/** Street and park trees with lights in their crowns, and bulbs per square unit of a lobe's radius. */
+const TREE_SHARE = 0.45;
+const CROWN_DENSITY = 7;
+const CROWN_BULB = 0.12;
 /** Bulb spacing along a roofline, and the hooks the string hangs between. */
 const PITCH = 0.55;
 const HOOK = 2.2;
@@ -31,16 +44,26 @@ const TREE_BULB = 0.17;
 /** Seconds for one breath of the twinkle. */
 const TWINKLE = 1.7;
 
-export function createHolidayLights({ decks = [], tree = null } = {}) {
+export function createHolidayLights({ decks = [], tree = null, crowns = [] } = {}) {
   const sets = [[], []];
   let n = 0;
   const add = (x, y, z, size, color) => { sets[n++ % 2].push({ x, y, z, size, color }); };
 
-  for (const deck of decks) {
-    if (hash01(deck.cx * 1.7 + 3.1, deck.cz * 0.9 - 5.3) > ROOF_SHARE) continue;
+  const real = decks.filter((d) => !d.ghost);
+  // What a string hung down from (x, z) at height y lands on: the highest other roof under it, or
+  // the street. A tower's setback deck stands over a wider podium, and a drop that ignored it would
+  // run straight through the podium's roof.
+  const floorAt = (x, z, y, self) => {
+    let f = 0.3;
+    for (const d of real) {
+      if (d === self || d.deck >= y || d.deck <= f) continue;
+      if (Math.abs(x - d.cx) <= d.cw / 2 + OUT && Math.abs(z - d.cz) <= d.cd / 2 + OUT) f = d.deck;
+    }
+    return f;
+  };
+  const ring = (deck, y, sag) => {
     const hx = deck.cw / 2 + OUT;
     const hz = deck.cd / 2 + OUT;
-    const y = deck.deck + 0.02;
     const corners = [[-hx, -hz], [hx, -hz], [hx, hz], [-hx, hz]];
     let k = 0;
     for (let e = 0; e < 4; e++) {
@@ -52,8 +75,45 @@ export function createHolidayLights({ decks = [], tree = null } = {}) {
       for (let i = 0; i < steps; i++) {
         const t = i / steps;
         const swag = Math.sin(Math.PI * ((t * hooks) % 1));
-        add(deck.cx + ax + (bx - ax) * t, y - SAG * swag, deck.cz + az + (bz - az) * t, BULB, COLORS[k++ % COLORS.length]);
+        add(deck.cx + ax + (bx - ax) * t, y - sag * swag, deck.cz + az + (bz - az) * t, BULB, COLORS[k++ % COLORS.length]);
       }
+    }
+    return corners;
+  };
+
+  for (const deck of real) {
+    const pick = hash01(deck.cx * 1.7 + 3.1, deck.cz * 0.9 - 5.3);
+    if (pick > ROOF_SHARE) continue;
+    const y = deck.deck + 0.02;
+    const corners = ring(deck, y, SAG);
+    // Two more draws of the same hash, so which buildings get the extras is stable too.
+    if (hash01(deck.cz * 2.3 - 1.7, deck.cx * 1.1 + 8.9) < DROP_SHARE) {
+      corners.forEach(([ox, oz], c) => {
+        const x = deck.cx + ox;
+        const z = deck.cz + oz;
+        const bottom = floorAt(x, z, deck.deck, deck) + 0.3;
+        const steps = Math.floor((y - bottom) / PITCH);
+        for (let i = 1; i <= steps; i++) add(x, y - i * PITCH, z, BULB, COLORS[(i + c) % COLORS.length]);
+      });
+    }
+    if (deck.deck > STOREY_Y + 2 && floorAt(deck.cx, deck.cz, deck.deck, deck) < 0.5
+      && hash01(deck.cx * 0.7 - 4.1, deck.cz * 1.9 + 2.2) < STOREY_SHARE) ring(deck, STOREY_Y, SAG * 0.7);
+  }
+
+  // The trees: bulbs scattered over the outer, upper face of each lobe of about half the city's
+  // trees, on a golden-angle spiral so they spread evenly rather than clump.
+  for (const lobe of crowns) {
+    if (tree && Math.hypot(lobe.tx - tree.x, lobe.tz - tree.z) < 0.5) continue;
+    if (hash01(lobe.tx * 3.1 + 0.7, lobe.tz * 2.7 - 9.1) > TREE_SHARE) continue;
+    const r = lobe.r * 1.04;
+    const count = Math.max(4, Math.round(CROWN_DENSITY * lobe.r * lobe.r));
+    const spin = hash01(lobe.x, lobe.z) * Math.PI * 2;
+    for (let i = 0; i < count; i++) {
+      const v = 1 - 1.25 * ((i + 0.5) / count); // cos of the polar angle, from the top to a little below the equator
+      const s = Math.sqrt(Math.max(0, 1 - v * v));
+      const a = spin + i * 2.39996;
+      add(lobe.x + Math.cos(a) * s * r * 1.05, lobe.y + v * r * 0.9, lobe.z + Math.sin(a) * s * r * 1.05,
+        CROWN_BULB, COLORS[(i * 3 + Math.floor(spin * 7)) % COLORS.length]);
     }
   }
 

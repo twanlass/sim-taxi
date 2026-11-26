@@ -1754,7 +1754,7 @@ if (snow) {
     for (const car of traffic.cars) tracked.push(car);
     snow.stamp(tracked, { airborne: airborneHeight, lift: (car) => deckHeightAt(car.x, car.z).y });
   };
-  holidayLights = createHolidayLights({ decks: city.decks, tree: props.holidayTree });
+  holidayLights = createHolidayLights({ decks: city.decks, tree: props.holidayTree, crowns: plantedCrowns() });
   scene.add(holidayLights.group);
   for (const mesh of holidayLights.meshes) markEmissive(mesh, 'pod');
   if (holidayLights.star) markEmissive(holidayLights.star, 'pod');
