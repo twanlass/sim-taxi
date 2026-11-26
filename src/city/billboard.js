@@ -129,7 +129,7 @@ function free(deck, p, r) {
  * Pick the city's billboard roofs from the towers `createBuildings` built: one per ad in `ADS`
  * (city/billboardart.js), widest first, as many as fit — possibly none.
  *
- * `taken` is decks already spoken for: the helipad and the vet's. Ties go by hash, after
+ * `taken` is decks already spoken for: the helipad, the vet's and the donut shop's. Ties go by hash, after
  * everything else is decided, so it spends no draw and moves nothing.
  */
 export function chooseBillboardSite(towers, taken = []) {

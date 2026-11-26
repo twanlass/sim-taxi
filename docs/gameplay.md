@@ -177,7 +177,7 @@ through.
 
 > Dispatch to Car 9. You there?
 > City council signed that **robo-taxi** deal. They'll be on the streets by Monday.
-> Those rolling toasters brake for pigeons. I have no idea why people like 'em.
+> Those rolling toasters *(robo-taxi icon)* brake for pigeons. I have no idea why people like 'em.
 > Let's get out there and show people what a rocket-powered cab ride is all about.
 
 **Dispatch talks.** Each line is read out as its card comes up: Tyler's own recordings
@@ -202,8 +202,9 @@ story. A finished line left untapped for `NUDGE_AFTER` = 3 s gives the card a
 dock-icon bounce (a 12 px hop and a 5 px one), and again every 3 s until the tap; not under reduced
 motion. When the story starts the camera flies from the title's slide down to the garage in one
 move (`STORY_GLIDE` = 3.5 s, a smootherstep blend of the two moving shots, so it leaves and arrives
-at their own speeds) and slides slowly past its door (`storyFrame` in `main.js`, zoom 24, 0.35 units
-a second). Under `?titlecam=reel`, and under reduced motion, it cuts there under the wipe instead.
+at their own speeds) and slides slowly past its door (`storyFrame` in `main.js`, zoom 24), leaving at 0.35 units
+a second and easing to rest 7 units along, so however long the player sits on a line the door
+stays in frame. Under `?titlecam=reel`, and under reduced motion, it cuts there under the wipe instead.
 Either way the last tap eases straight down onto the door rather than cutting there. Otherwise it lets the
 run go exactly as Play used to. The title screen's gate stays
 shut the whole time (`beforePlay` in `titlescreen.js`), so the fare board, the vignette and the
@@ -459,7 +460,7 @@ of it** — though the first one is currently switched off:
    the bubble gets the run to its first *instruction* a beat sooner. The beat is intact behind the
    flag — the line, `openOnTaxi`, and the `'taxi'` step in both step sets — because the vignette is
    a prototype and this is what has to come back if it goes.
-2. **"Hey taxi! Over here!"** — the rider hailing the cab, titled "Rider", with the tag on their
+2. **"Hey! Taxi!"** — the rider hailing the cab, titled "Rider", with the tag on their
    head (`?hail=classic`: "Pick up rider to start" under "Tip"). The line never says to tap them;
    the dimmed city, the pan and the tag on the one lit figure carry that. The lights come down and the spotlight lands on the waiting fare as the
    camera sets off for them, so the light is already on the rider and the pan carries the player to
@@ -499,6 +500,11 @@ little at the bottom-right, with a faint glint that slowly traces the top rim (a
 `?bubbleglass=classic` is the near-opaque white card it replaced. The thing a line is about — the garage, the rider, the race — is written `{garage}`
 in its source and called out in yellow type with a black outline (bare yellow on white is
 unreadable; the outline is what carries it), with one wiggle as its last letter lands.
+A line can also carry a picture in its text: `{:robotaxi}` is a little robo-taxi, rendered from the
+game's own mesh under the game's camera and sun (`node tools/make-inline-icons.mjs` writes
+`assets/hud/inline-robotaxi.png`; `INLINE_ICONS` in `speech.js` names them). It types in as one
+letter and pops up from small when the caret reaches it, sized at 1.3em so it reads as a word.
+`?texticons=classic` leaves the pictures out.
 `?bubblestyle=classic` is the see-through black card with white type it replaced;
 `?bubblestyle=card` is the white Figma card. Every line types
 itself out behind a caret, dispatch and the racer included, and the card grows with the line rather
@@ -4651,9 +4657,16 @@ chance to put a name on the run.
 `rerun`/`resetRun` in `src/main.js`. **Play again starts the next run on the same page**, and Quit
 goes back to the title the same way: under a wipe (`RERUN_HOLD_MS` of black), every system the run
 touched is put back the way the boot left it, the opening vignette is staged again, and the run
-starts inside the garage with the city's entrance wave building outward from it — the shot a fresh
-load opens on. Quit does the same reset and puts the title menu back up instead, with the station
-off the air until Play (`sfx.offAir`) and no entrance wave.
+starts inside the garage, the camera on the door, with the city **already standing**: the entrance
+wave (buildings and trees growing out of the ground, the L's track being laid) is a first-load
+flourish and does not replay. Quit does the same reset and puts the title menu back up instead, with
+the station off the air until Play (`sfx.offAir`).
+
+Play again used to replay the wave from the garage, the shot a fresh load opens on; on the second
+run it was two seconds of watching the same city build before the door could open (Tyler,
+2026-11-25). `?rerunentry=classic` brings it back. It was never a load or caching cost: the replay
+reuses the programs and pipelines the first run built, so cutting it saves only the wave's own
+seconds of transparent drawing.
 
 It used to be `location.reload()`, and that threw the GPU context away with the page: the replay
 paid the whole load again, the city rebuilt and every shader linked and pipeline warmed. Measured

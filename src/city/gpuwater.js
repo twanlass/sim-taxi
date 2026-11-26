@@ -40,6 +40,7 @@ export function createWaterNodes(U, K) {
   const time = uniform(0).onRenderUpdate(() => U.uWaterTime.value);
   const sky = uniform(U.uWaterSky.value);
   const wallC = uniform(U.uWaterWall.value);
+  const grimeC = uniform(U.uWaterGrime.value);
   const trim = uniform(U.uWaterTrim.value);
   const soffit = uniform(U.uWaterSoffit.value);
   const bed = uniform(U.uWaterBed.value);
@@ -163,8 +164,13 @@ export function createWaterNodes(U, K) {
     const face = basinHit(p, r, best);
     If(face.greaterThan(0), () => { wallHere.assign(1); });
     const y = p.y.add(r.y.mul(best));
-    const wall = select(face.equal(0), lit(wallC, [0, 0, 1]),
-      select(face.equal(1), lit(quay, [1, 0, 0]), lit(quay, [0, 0, 1])));
+    // The tide mark, on the walls' own curve (grimeAt, city/grime.js).
+    const grimeT = float(1).sub(clamp(y.sub(K.WATER_Y).div(K.GRIME_RISE), 0, 1));
+    const grimeW = grimeT.mul(grimeT).mul(K.GRIME_DEPTH);
+    const wallG = mix(wallC, grimeC, grimeW);
+    const quayG = mix(quay, grimeC, grimeW);
+    const wall = select(face.equal(0), lit(wallG, [0, 0, 1]),
+      select(face.equal(1), lit(quayG, [1, 0, 0]), lit(quayG, [0, 0, 1])));
     const col = mix(wall, sky, smoothstep(K.KERB_H - K.EDGE_SOFT, K.KERB_H + K.EDGE_SOFT, y)).toVar();
     const up = y.sub(K.KERB_H);
     const aa = max(fwidth(up), 1e-4);
@@ -201,7 +207,7 @@ export function createWaterNodes(U, K) {
   const upView = normalize(cameraViewMatrix.mul(vec4(0, 1, 0, 0)).xyz);
 
   return {
-    sky, bed, wallC, quay, edges, sea, shore, hash2, smooth, caustic, edgeDist, reflectChannel,
+    sky, bed, wallC, grimeC, quay, edges, sea, shore, hash2, smooth, caustic, edgeDist, reflectChannel,
     basinHit, wallAt, toCamera, upView,
   };
 }
@@ -276,7 +282,7 @@ export function waterNodeMaterial(material, N, K, still = null) {
       const s = min(sBed, sWall);
       const seen = world.add(rd.mul(s));
       const under = select(sWall.lessThan(sBed),
-        select(sunk.equal(0), N.wallC, N.quay).mul(step(0.5, fract(seen.y.mul(1.6))).mul(0.18).add(0.82)),
+        mix(select(sunk.equal(0), N.wallC, N.quay), N.grimeC, K.GRIME_DEPTH).mul(step(0.5, fract(seen.y.mul(1.6))).mul(0.18).add(0.82)),
         N.bed.mul(N.hash2(floor(seen.xz.mul(1.3))).x.mul(0.5).add(0.75)))
         .mul(irr.add(this.sun.mul(K.CAUSTIC / PI).mul(N.caustic(seen.xz))));
       const body = mix(outgoingLight, under, exp(vec3(...K.ABSORB).negate().mul(s)));

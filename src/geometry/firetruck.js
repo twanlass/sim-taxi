@@ -7,6 +7,7 @@ import {
   extrudeOutlines,
 } from './wheels.js';
 import { sirenPodGeometry, sirenRedMaterial } from './lights.js';
+import { outlineVehicle, VEHICLE_RIM, WHEEL_RIM } from './ghostoutline.js';
 
 // The fire engine: a red cab-forward truck with a white band down each flank, aluminium locker
 // doors, a light bar on the cab roof and a ladder on a turntable at the back that swings round and
@@ -189,6 +190,12 @@ export function createFireTruckMesh() {
   // Dissolved in and out rather than blended — see `faders` in sim/police.js for why alphaHash.
   const faders = [body.material, wheelMat, ladder.material, ...pods.map((p) => p.material)];
   for (const material of faders) material.alphaHash = true;
+  // Ghost outline (geometry/ghostoutline.js). The ladder carries a hull of its own because it
+  // swings up and out past the body's.
+  outlineVehicle(group, {
+    rims: [[body, VEHICLE_RIM], [ladder, WHEEL_RIM], ...wheels.map((w) => [w, WHEEL_RIM])],
+    tint: color('fireTruckGhost'),
+  });
   shell.visible = false;
 
   return {

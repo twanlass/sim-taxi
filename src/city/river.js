@@ -12,6 +12,7 @@ import {
 } from './harborplan.js';
 import { SLAB_X, KERB_H, PAVE_INSET, EDGE_FADE, FADE_RINGS } from './ground.js';
 import { EDGE_FOG } from '../game/edgefog.js';
+import { grimeWall } from './grime.js';
 import { patchRiverWater, patchHarborWater, getWaterStyle, SEA_RUN_IN } from './riverwater.js';
 
 // A river running east-west through the city, and the four crossings that get over it.
@@ -500,12 +501,9 @@ export function createRiver(rng, layout) {
   // meets its bottom edge, which is a seam rather than an overlap.
   const east = channelEast();
   const wallH = -WATER_Y + WALL_FOOT;
+  // Cut into bands so it can carry the tide mark (city/grime.js).
   for (const [z, facing] of [[edges.z0, 1], [edges.z1, -1]]) {
-    const wall = new THREE.PlaneGeometry(bank + east, wallH);
-    wall.translate((east - bank) / 2, -wallH / 2, 0);
-    if (facing < 0) wall.rotateY(Math.PI);
-    wall.translate(0, 0, z);
-    solid.push(bakeColor(wall, wallCol));
+    solid.push(grimeWall(-bank, z, east, z, 0, facing, 0, -wallH, wallCol));
   }
 
   // --- The embankment: a raised walk down each bank, and a railing on the water's edge.

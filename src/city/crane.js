@@ -85,11 +85,12 @@ const ARC = 1.05;
 // --- Choosing the roof ------------------------------------------------------------------------
 
 /** Every flat roof in `towers` that is not spoken for, one of them the crane's — or null. */
-export function chooseCraneSite(towers, { taken = [], bank = null, pad = null, billboards = [] } = {}) {
+export function chooseCraneSite(towers, { taken = [], bank = null, pad = null, billboards = [], extra = [] } = {}) {
   // What the jib could hit: every tower's roof (plus 2.6 for what stands on it, as in `clearOf`),
   // the bank's dome, the billboards' boards.
   const tall = towers.map((t) => ({ x0: t.x0, x1: t.x1, z0: t.z0, z1: t.z1, top: t.top + (t.deck ? 2.6 : 2.4), t }));
   if (bank) tall.push({ ...bank.block, top: bank.domeY });
+  tall.push(...extra);
   for (const b of billboards) {
     tall.push({ x0: b.at.x - b.w / 2, x1: b.at.x + b.w / 2, z0: b.at.z - b.w / 2, z1: b.at.z + b.w / 2, top: b.y0 + b.h });
   }

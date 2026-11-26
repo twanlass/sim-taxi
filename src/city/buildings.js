@@ -7,12 +7,14 @@ import { KERB_H } from './ground.js';
 import { plantedCrowns, treeParts, treeShape } from './props.js';
 import { buildBank, bankDomeMesh, chooseBankLot } from './bank.js';
 import { chooseVetSite } from './vetclinic.js';
+import { chooseDonutSite } from './donutshop.js';
 import { chooseBillboardSite } from './billboard.js';
 import { chooseCraneSite } from './crane.js';
 import {
   GLASS_RECESS, RECESS_PIER, WALLS_CLASSIC, WALL_STYLE, fillWalls, frameMesh, patchWalls, recessShell, stampWall,
   windowFrames,
 } from './facade.js';
+import { patchWallGrain } from './wallgrain.js';
 
 const FLOOR_H = 2.6;
 // The ground floor is its own storey height. A shopfront is taller than the flats above it, and
@@ -594,7 +596,8 @@ function groundFloor(parts, cx, cz, w, d, streetSides, rng, body = null) {
   const sky = color('windowSky');
   // What went where, handed back for anything that dresses a shopfront afterwards (the vet's OPEN
   // sign, city/vetclinic.js). Recorded, not drawn: it touches no `rng`.
-  const front = { shops: [], door: door && { side, ...door } };
+  // The door's height rides along for the donut shop's glass door, which stands over this one.
+  const front = { shops: [], door: door && { side, ...door, h: GROUND_H - 0.45, base } };
   for (const s of streetSides) {
     const faceW = s % 2 === 0 ? d : w;
     if (faceW < 1.6) continue;
@@ -1131,9 +1134,9 @@ export { splitLot };
 
 /** The towers' material: `propMaterial({ smooth })` with the wall detail patched on (city/facade.js). */
 export function wallMaterial() {
-  return patchWalls(propMaterial({ smooth: true }), {
+  return patchWallGrain(patchWalls(propMaterial({ smooth: true }), {
     floorH: FLOOR_H, groundTop: KERB_H + GROUND_H,
-  });
+  }));
 }
 export { fillWalls, frameMesh };
 
@@ -1515,14 +1518,23 @@ export function createBuildings(rng, blocks) {
   // roof and an OPEN sign in its window (city/vetclinic.js). Chosen last and by hash, so it moves
   // nothing; null on a city with no shop that fits.
   const vet = chooseVetSite(towers, site);
+  // The donut shop (city/donutshop.js): another corner shop, the same way, never the vet's.
+  const vetTower = vet ? towers.find((t) => t.deck === vet.roof) : null;
+  const donut = chooseDonutSite(towers, [site, vet?.roof].filter(Boolean), { exclude: vetTower ? [vetTower] : [] });
   // The rooftop billboards (city/billboard.js): the widest flat roofs left, the same way — by rule
   // and by hash, after everything else, so they move nothing either.
-  const billboards = chooseBillboardSite(towers, [site, vet?.roof].filter(Boolean));
+  const billboards = chooseBillboardSite(towers, [site, vet?.roof, donut?.roof].filter(Boolean));
   // The construction crane (city/crane.js): a mid-rise roof that grows a bare storey and a tower
   // crane, chosen last of all and the same way, so it moves nothing either.
   const boardDecks = towers.filter((t) => billboards.some((b) => b.anchor.x === t.cx && b.anchor.z === t.cz)).map((t) => t.deck);
   const crane = chooseCraneSite(towers, {
-    taken: [site, vet?.roof, ...boardDecks].filter(Boolean), bank, pad, billboards,
+    taken: [site, vet?.roof, donut?.roof, ...boardDecks].filter(Boolean), bank, pad, billboards,
+    // The donut on its roof stands ~6 over the deck (LIFT plus the ring across), far past the 2.6 the
+    // crane allows for roof furniture, so it goes in as an obstacle of its own.
+    extra: donut ? [{
+      x0: donut.roof.cx - donut.roof.cw / 2, x1: donut.roof.cx + donut.roof.cw / 2,
+      z0: donut.roof.cz - donut.roof.cd / 2, z1: donut.roof.cz + donut.roof.cd / 2, top: donut.roof.deck + 6.3,
+    }] : [],
   });
 
   const count = parts.length;
@@ -1555,6 +1567,9 @@ export function createBuildings(rng, blocks) {
     bank,
     // The shop that is the vet clinic, or null — see `chooseVetSite`. Its sign is built by main.js.
     vet,
+    // The shop with the donut on its roof and the cruiser outside, or null — see `chooseDonutSite`.
+    // Built by main.js.
+    donut,
     // The roofs that carry billboards, one per ad (maybe none) — see `chooseBillboardSite`. Built
     // by main.js.
     billboards,

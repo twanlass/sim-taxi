@@ -53,10 +53,11 @@ import { createAsphaltPatches, planPatches, patchGeometry, patchRoadHalf, PATCH_
 import { createStreetProps, planStreetProps } from '../src/game/streetprops.js';
 import { createGarbage, planTrashPiles } from '../src/game/garbage.js';
 import { createRoboTaxis } from '../src/game/robotaxi.js';
-import { roboShellParts, roboBandGeometry, roboWellLiners } from '../src/geometry/robotaxi.js';
+import { roboShellParts, roboBandGeometry, roboWellLiners, createRoboTaxiMesh } from '../src/geometry/robotaxi.js';
 import { setFareSeconds } from '../src/game/fares.js';
 import { ROBO_SPEED } from '../src/sim/traffic.js';
-import { HOPPER_MOUTH } from '../src/geometry/garbage.js';
+import { HOPPER_MOUTH, createGarbageTruckMesh } from '../src/geometry/garbage.js';
+import { createFireTruckMesh } from '../src/geometry/firetruck.js';
 import { truckPaint } from '../src/sim/traffic.js';
 import { createCarWash } from '../src/city/carwash.js';
 import { createGasStation } from '../src/city/gasstation.js';
@@ -111,7 +112,8 @@ import { createCarDamage } from '../src/game/cardamage.js';
 import { BODY_TOP } from '../src/geometry/damage.js';
 import { BUMPER_H as BUMPER_H_PROBE, bumperLength as bumperLengthProbe } from '../src/geometry/bumpers.js';
 import { createTaxiDoor } from '../src/game/taxidoor.js';
-import { createPolice, SPOT_RANGE, FADE_TIME } from '../src/sim/police.js';
+import { createPolice, parkedCruiser, SPOT_RANGE, FADE_TIME } from '../src/sim/police.js';
+import { createDonutShop, donutGeometry, donutSignGeometry, DONUT_BODY_TRIS, RING_R as DONUT_RING_R, CORNER_CLEAR as DONUT_CORNER_CLEAR } from '../src/city/donutshop.js';
 import { sirenOn, patrolSwing } from '../src/geometry/lights.js';
 import {
   edgeGlow, sirenWash, GLOW_NEAR, GLOW_FAR, GLOW_FLOOR, SIREN_DIM, PATROL_WASH,
@@ -134,7 +136,7 @@ import {
   createTargetRing, ringGrowScale, ringShrinkScale, RING_R, RING_Y,
 } from '../src/geometry/targetring.js';
 import { createParcelPad, PAD_R } from '../src/geometry/parcelpad.js';
-import { underglowGeometry, createPulse, pulseStep, createRace, COUNT_STEP as RACE_COUNT_STEP, ROCKET_COUNT, COUNTDOWN as RACE_COUNTDOWN } from '../src/game/race.js';
+import { createRivalMesh, underglowGeometry, createPulse, pulseStep, createRace, COUNT_STEP as RACE_COUNT_STEP, ROCKET_COUNT, COUNTDOWN as RACE_COUNTDOWN } from '../src/game/race.js';
 import { createHydraulics, LIFT_MIN, LIFT_MAX } from '../src/game/hydraulics.js';
 import { TAXI_DECK_Y, TAXI_TAILPIPE_BACK, TAXI_TAILPIPE_HEIGHT, TAXI_SCALE as TAXI_SCALE_TOP } from '../src/geometry/taxi.js';
 import { createLocoFlame, setFlameStyle } from '../src/game/locoflame.js';
@@ -12950,6 +12952,38 @@ function rideToPickup() {
   check('every drawn taxi part is in the ghost stencil mask', unmasked.length === 0 && masks.length === 33,
     `${unmasked.length} unmasked, ${masks.length} masks (9 outlined parts + 16 damage pieces + 4 door pieces + 2 bumpers + 2 mirrors)`);
 
+  // Every vehicle drawn as ordinary meshes — a `skin` in sim/traffic.js — wears its own outline
+  // (`outlineVehicle`): the instanced pool in game/carghosts.js reads instances, and these have
+  // none, so each went behind a building and vanished (Tyler: "our street racer has no ghost
+  // outline when it goes behind buildings" ... "all the vehicles should get this"). Same two rules
+  // as the taxi: a hull on the parts that carry one, a mask on every other solid part. Parts that
+  // write no depth (an underglow) occlude nothing and are left out.
+  const skinned = {
+    racer: [createRivalMesh().group, 5],
+    'fire engine': [createFireTruckMesh().group, 4],
+    'garbage truck': [createGarbageTruckMesh().group, 4],
+    'robo-taxi': [createRoboTaxiMesh(CAR_LEN, CAR_W).group, 5],
+  };
+  for (const [name, [root, expected]] of Object.entries(skinned)) {
+    const rims = [];
+    const unmasked = [];
+    root.traverse((node) => {
+      if (node.name === 'ghostRim') rims.push(node);
+      if (!node.isMesh || node.name === 'ghostMask' || node.name === 'ghostRim') return;
+      const m = node.material;
+      if (m.visible === false || m.transparent || m.depthWrite === false || m.colorWrite === false) return;
+      if (!node.children.some((c) => c.name === 'ghostMask')) unmasked.push(node);
+    });
+    const ghost = root.userData.ghost;
+    const hidden = rims.every((r) => !r.visible);
+    ghost?.set(0.5);
+    const shown = rims.every((r) => r.visible && r.material.opacity === 0.5);
+    ghost?.set(0);
+    check(`the ${name} wears a ghost outline, and every solid part is in the mask`,
+      rims.length === expected && unmasked.length === 0 && ghost && hidden && shown,
+      `${rims.length}/${expected} rims, ${unmasked.length} unmasked parts, starts hidden ${hidden}, set() drives it ${shown}`);
+  }
+
   // --- A dimming lamp must dim where it stands ---------------------------------------------------
   //
   // The one assertion behind the pod-per-mesh split (geometry/lights.js). On/off is a *scale*, and a
@@ -23749,6 +23783,32 @@ for (const viewName of ['side', 'quarter']) {
   check('speech: a card with no room above still hangs below', card.py === 0, `pointer at ${card.py}`);
 }
 
+// Inline pictures in a speech line (`{:robotaxi}`): one character of the typed text each, with its
+// own run; an unknown name, or `?texticons=classic`, drops it and one of the spaces beside it, so the
+// line reads as it did before. And every icon names a file that has been rendered.
+{
+  const { parseLine, ICON_CHAR, INLINE_ICONS } = await import('../src/game/speech.js');
+  const { BACKSTORY_LINES } = await import('../src/game/backstory.js');
+  const { existsSync } = await import('node:fs');
+  const { fileURLToPath } = await import('node:url');
+  const on = parseLine('Those toasters {:robotaxi} brake');
+  const iconRuns = on.runs.filter((r) => r.icon);
+  check('speech: an inline icon types as a single character of its own run',
+    on.text === `Those toasters ${ICON_CHAR} brake` && iconRuns.length === 1 && iconRuns[0].e - iconRuns[0].s === 1,
+    JSON.stringify(on));
+  const off = parseLine('Those toasters {:robotaxi} brake', { icons: false });
+  const bogus = parseLine('Those toasters {:nothing} brake');
+  check('speech: a line without its icon closes the gap it leaves',
+    off.text === 'Those toasters brake' && bogus.text === off.text
+      && off.runs.every((r, i) => r.e > r.s && (i === 0 || r.s === off.runs[i - 1].e)) && off.runs.at(-1).e === off.text.length,
+    `${JSON.stringify(off.text)} / ${JSON.stringify(bogus.text)}`);
+  const missing = Object.entries(INLINE_ICONS).filter(([, url]) => !existsSync(fileURLToPath(url))).map(([n]) => n);
+  check('speech: every inline icon has its rendered PNG (node tools/make-inline-icons.mjs)', !missing.length,
+    missing.join(', '));
+  check('speech: the backstory puts the robo-taxi after "rolling toasters"',
+    BACKSTORY_LINES.some((l) => l.includes('rolling toasters {:robotaxi}')));
+}
+
 // The shadow-pass cull (game/shadowcull.js): a caster sits the pass out only when neither it nor
 // its shadow can reach the view, it hands every flag back afterwards, and the warm-up holds it off.
 {
@@ -23842,6 +23902,73 @@ for (const viewName of ['side', 'quarter']) {
   const bytes = (code) => Math.max(...functionVarBytes(code).map((r) => r.bytes));
   check('wgsl lets: the byte count WebKit checks goes down by the lets it made',
     bytes(src) - bytes(out) === 8 + 4, `${bytes(src)} -> ${bytes(out)}`);
+}
+
+// The donut shop (city/donutshop.js): the probe city has one, its ring faces out from the winding,
+// its feet are on its own deck, and the cruiser outside is clear of the lane beside it with its
+// kerb-side wheels up on the pavement. Measured against the grid's constants and the road network,
+// not against the module's own numbers.
+{
+  const site = buildings.donut;
+  check('donut: the probe city has a donut shop', Boolean(site));
+  if (site) {
+    const geo = donutGeometry();
+    const pos = geo.attributes.position;
+    const a = new THREE.Vector3(); const b = new THREE.Vector3(); const c = new THREE.Vector3();
+    const n = new THREE.Vector3(); const mid = new THREE.Vector3();
+    let inward = 0;
+    for (let t = 0; t < DONUT_BODY_TRIS; t++) {
+      a.fromBufferAttribute(pos, t * 3); b.fromBufferAttribute(pos, t * 3 + 1); c.fromBufferAttribute(pos, t * 3 + 2);
+      n.subVectors(b, a).cross(c.clone().sub(a));
+      mid.addVectors(a, b).add(c).divideScalar(3);
+      // Outward is away from the nearest point on the ring's centre circle.
+      const k = DONUT_RING_R / Math.hypot(mid.x, mid.y);
+      const out = new THREE.Vector3(mid.x - mid.x * k, mid.y - mid.y * k, mid.z);
+      if (n.dot(out) <= 0) inward++;
+    }
+    check('donut: every triangle of the ring faces out, from its winding', inward === 0, `${inward} of ${DONUT_BODY_TRIS} inward`);
+    geo.dispose();
+
+    const { car, roof } = site;
+    const net = cityNetwork();
+    const lane = net.lanes.find((l) => l.id === car.lane);
+    const lp = lane.path.at(lane.length / 2);
+    const lateral = car.side === 0 ? Math.abs(lp.x - car.x) : Math.abs(lp.z - car.z);
+    // CAR_W either side: half of the parked car's, half of the passing one's.
+    check('donut: the parked cruiser is clear of the lane beside it', lateral - CAR_W >= 0.1,
+      `${(lateral - CAR_W).toFixed(2)} between flanks`);
+    const kerbGap = car.side === 0 ? car.x - site.tower.block.bounds.x1 : car.z - site.tower.block.bounds.z1;
+    check('donut: the cruiser\'s kerb-side wheels are up on the pavement',
+      kerbGap - 0.7 < -0.1 && kerbGap > 0, `wheel ${(kerbGap - 0.7).toFixed(2)} off the kerb line`);
+    const toCorner = car.side === 0 ? site.tower.block.bounds.z1 - car.z : car.x - site.tower.block.bounds.x0;
+    check('donut: the cruiser\'s nose is clear of the corner a rider stands on', toCorner - CAR_LEN / 2 >= DONUT_CORNER_CLEAR - 0.5,
+      `${(toCorner - CAR_LEN / 2).toFixed(2)} from the corner`);
+
+    const shop = createDonutShop(site, { makeCruiser: parkedCruiser });
+    shop.group.updateMatrixWorld(true);
+    const kerbSide = new THREE.Vector3(0, 0, 0.7).applyMatrix4(shop.cruiser.group.matrixWorld);
+    const roadSide = new THREE.Vector3(0, 0, -0.7).applyMatrix4(shop.cruiser.group.matrixWorld);
+    const kerbward = car.side === 0 ? roadSide.x - kerbSide.x : roadSide.z - kerbSide.z;
+    check('donut: the cruiser leans away from the kerb, kerb side up by a kerb', kerbward > 0
+      && Math.abs(kerbSide.y - roadSide.y - KERB_H) < 0.02, `rise ${(kerbSide.y - roadSide.y).toFixed(3)}`);
+    // Its feet: the legs' lowest vertices, on the deck and inside it.
+    const roofSign = donutSignGeometry(site.spot, roof.deck);
+    const sp = roofSign.geometry.attributes.position;
+    let feetOn = true;
+    for (let i = 0; i < sp.count; i++) {
+      const y = sp.getY(i);
+      if (y > roof.deck + 0.01) continue;
+      if (Math.abs(y - roof.deck) > 0.01 || Math.abs(sp.getX(i) - roof.cx) > roof.cw / 2
+        || Math.abs(sp.getZ(i) - roof.cz) > roof.cd / 2) feetOn = false;
+    }
+    check('donut: the sign stands on its own deck and nothing of it goes below', feetOn);
+    // The glass door stands on the pavement in front of a door the generator drew on a face the
+    // camera sees, and the OPEN sign and the DONUTS letters are there to read.
+    check('donut: the glass door is on a camera-facing face, on the pavement',
+      site.door && (site.door.side === 0 || site.door.side === 1) && Math.abs(site.door.base - KERB_H) < 1e-9);
+    check('donut: the shop wears an OPEN sign and the sign has its letters',
+      Boolean(shop.glow) && shop.letterTris > 0);
+  }
 }
 
 // Average speed per car over the whole run — a stable throughput number, unlike a snapshot of

@@ -9,6 +9,8 @@ import { sightlineClear } from './sightline.js';
 import { cornerFor } from './fares.js';
 import { GRID_I, GRID_J } from '../city/grid.js';
 import { cloneProp, hash01, propMaterial, unlitMaterial } from '../util/geo.js';
+import { warmWreckOf } from './vanish.js';
+import { stripGhostOutlines } from '../geometry/ghostoutline.js';
 import { markOccluder } from './ssao.js';
 import {
   createGarbageTruckMesh, bagGeometry, bagStreakGeometry, HOPPER_MOUTH, LID_OPEN, BAG_R, BAG_CENTRE_Y,
@@ -309,6 +311,7 @@ export function createGarbage({ rng, scene, traffic, plan, blocked = () => false
   // --- The truck -------------------------------------------------------------
   const rig = createGarbageTruckMesh();
   scene.add(rig.group);
+  warmWreckOf(scene, rig.shell, 'garbageTruck');
   markOccluder(rig.group);
   const mouth = new THREE.Vector3();
 
@@ -339,7 +342,7 @@ export function createGarbage({ rng, scene, traffic, plan, blocked = () => false
   /** The truck's body for the wreck effects, if the taxi ever writes it off. */
   function wreck() {
     rig.group.updateMatrixWorld(true);
-    const shell = rig.shell.clone(true);
+    const shell = stripGhostOutlines(rig.shell.clone(true));
     shell.traverse((o) => {
       if (o.isMesh) {
         // `cloneProp`, not `clone()`: a plain clone drops the paint patch (see util/geo.js).
