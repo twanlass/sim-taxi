@@ -8412,6 +8412,10 @@ function tick() {
   // what keeps an off-screen fare findable at all.
   const aboard = fares.carrying();
   farePointers.update(aboard, fares.state.gameOver ? [] : fares.waitingAll(), fares.colorOf);
+  // The race's lock-on: a rider a robo-taxi is after wears its cyan on their disc.
+  for (const f of fares.state.fares) {
+    if (f.stage === 'waiting') f.slot.marker.setClaimed?.(riderRace() && Boolean(robotaxis?.claimOf(f)));
+  }
   // After the police update above, so the wash is aimed at where the cruiser is this frame rather
   // than trailing it by one.
   // With more than one cruiser out, the wash warns about the nearest one with its bar up.

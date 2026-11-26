@@ -2208,12 +2208,13 @@ only, and all of it off under `?riders=classic`:
   you chose not to take, so a rider the taxi was never sent for leaves with no strike (`'walked'`).
   Sent for and missed, or given up aboard, is a strike as before, which is what still ends a run.
 
-**The lock-on is the ring under the rider**, in the robot's cyan: twice as heavy as the classic
-claim ring, it snaps in from wide on the frame of the claim like a reticle closing, and beats faster
-as the robot closes (`LOCK_*` in game/robotaxi.js; driven by straight-line distance, which only
-drives the look). Tried and cut the same day (Tyler: "too much noise", and the robot icon "looks too
-much like a real one"): the robot's route laid on the road as a cyan route band, and the robo-taxi
-picture over the rider's crystal.
+**The lock-on is the rider's own disc turning cyan** (`setClaimed` in game/faremarker.js, set from
+main.js off `robotaxis.claimOf`): the robot's colour replaces the clock's hue on the disc, and the
+crystal keeps the clock. One mark that changes colour rather than a second ring stacked round it
+(Tyler, 2026-11-26: the stacked ring was "duplicative"). Tried and cut the same day: the robot's
+route laid on the road as a cyan route band ("too much noise"), the robo-taxi picture over the
+rider's crystal ("looks too much like a real one"), and a heavy second cyan ring that snapped in on
+the claim and beat faster as the robot closed.
 
 **And the robo-taxis are quicker, and ramp in** (game/robotaxi.js `RACE`): one after the first
 drop-off, a second after the fourth, a third after the eighth (`RACE.ramp`, untuned — all at once

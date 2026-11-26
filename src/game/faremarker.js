@@ -7,6 +7,7 @@ import {
 } from '../geometry/diamond.js';
 import { createQuestionMark, ROCK_ANGLE, ROCK_RATE } from '../geometry/questionmark.js';
 import { createTargetRing, RING_Y } from '../geometry/targetring.js';
+import { PALETTE } from '../palette.js';
 import { RIGHT, BILLBOARD } from './camera.js';
 import { markEmissive, setEmissiveScale } from './bloom.js';
 import { popEnvelope, popHighlight, POP_TIME, POP_SCALE_DIAMOND } from './selectpop.js';
@@ -269,6 +270,10 @@ export function createFareMarker(scene, phase = 0) {
   let level = URGENCY_SEGMENTS;
   // A VIP marker never speaks the urgency scale — see setUrgency and showAt below.
   let vipMarked = false;
+  // A robo-taxi has locked on to this rider (Arcade's rider race): the disc wears the robot's cyan
+  // instead of the clock's hue, and the crystal keeps the clock. One mark that changes colour rather
+  // than a second ring stacked round it (Tyler, 2026-11-26: "duplicative").
+  let claimed = false;
   // Sim times, or null when nothing is running. Both are stamped inside update() off the same clock
   // the bounce reads: a frozen shot has to render the same frame every time, and stamping them at
   // the call site would tie the animation to the order the calls happen in.
@@ -336,7 +341,7 @@ export function createFareMarker(scene, phase = 0) {
     if (vipMarked) return;
     const colour = fareColor(next);
     diamond.setColor(colour);
-    ring.setColor(colour);
+    if (!claimed) ring.setColor(colour);
     kickPending = true;
   }
 
@@ -379,6 +384,12 @@ export function createFareMarker(scene, phase = 0) {
      * arrives; reading `visible` alone would call a shrinking disc "still on the kerb".
      */
     ringLeaving: () => ring.isLeaving(),
+    /** A robo-taxi has (or no longer has) this rider locked — the disc goes cyan. See `claimed`. */
+    setClaimed(on) {
+      if (on === claimed || vipMarked) return;
+      claimed = on;
+      ring.setColor(on ? PALETTE.roboGlow : fareColor(level));
+    },
     /** Put the kerb disc straight into its arrived state — shot mode. See targetring.js. */
     settleRing: () => ring.settle(),
     isVip: () => vipMarked,
@@ -456,6 +467,7 @@ export function createFareMarker(scene, phase = 0) {
       // instead of the urgency scale's top level — see setUrgency.
       level = nextLevel;
       vipMarked = vip;
+      claimed = false;
       const openColour = fareColor(nextLevel, vip);
       diamond.setColor(openColour);
       ring.setColor(openColour);

@@ -71,16 +71,6 @@ const CLAIM_Y = KERB_H + 0.07;
 
 const FADE_TIME = 0.8;
 
-// The race's lock-on (fares.js RACE_WAITING): a ring twice as heavy, which snaps in from wide on the
-// frame of the claim like a reticle closing, and then beats faster as the robot closes on the rider
-// — a slow breathe a long way off, a quick one once it is a block or so out. Read off the robot's
-// straight-line distance, which only drives the look; the claim itself is by road, as always.
-const LOCK_W = 0.5;
-const LOCK_IN = 0.35;          // seconds for the snap
-const LOCK_FROM = 2.6;         // ring scale the snap starts at
-const LOCK_RATE = [3, 12];     // beat, radians per second, far and near
-const LOCK_NEAR = 12;          // units: at the fast beat by here
-const LOCK_FAR = 60;           // units: at the slow beat from here
 
 /**
  * @param traffic  the sim — `enterGuest`, `retireGuest`, `wearSkin`, `taxi`
@@ -97,8 +87,6 @@ export function createRoboTaxis({ rng, scene, traffic, fares, blocked = () => fa
   const taxi = traffic.taxi;
   const ringGeo = new THREE.RingGeometry(CLAIM_R - CLAIM_W, CLAIM_R, 48);
   ringGeo.rotateX(-Math.PI / 2);
-  const lockGeo = new THREE.RingGeometry(CLAIM_R - LOCK_W, CLAIM_R, 48);
-  lockGeo.rotateX(-Math.PI / 2);
 
   const robos = Array.from({ length: built }, (_, k) => {
     const rig = createRoboTaxiMesh(CAR_LEN, CAR_W);
@@ -375,27 +363,15 @@ export function createRoboTaxis({ rng, scene, traffic, fares, blocked = () => fa
 
       // The ring under the claimed rider, breathing on the same beat.
       const fare = robo.phase === 'hunt' ? robo.target : null;
-      robo.ring.visible = Boolean(fare) && !fares.state.gameOver;
+      // In the race the claim is the rider's own disc turning cyan (main.js, `setClaimed` on the
+      // marker), not a second ring round it.
+      robo.ring.visible = Boolean(fare) && !fares.state.gameOver && !race();
       if (fare) {
         const kerb = kerbFor(fare);
         robo.ring.position.set(kerb.x, CLAIM_Y, kerb.z);
-        if (race()) {
-          robo.ring.geometry = lockGeo;
-          const d = Math.hypot(kerb.x - robo.car.x, kerb.z - robo.car.z);
-          const near = Math.min(1, Math.max(0, (LOCK_FAR - d) / (LOCK_FAR - LOCK_NEAR)));
-          robo.beat = (robo.beat ?? 0) + dt * (LOCK_RATE[0] + (LOCK_RATE[1] - LOCK_RATE[0]) * near);
-          const pulse = 0.5 + 0.5 * Math.sin(robo.beat);
-          const since = state.clock - (robo.claimedAt ?? -Infinity);
-          const snap = since < LOCK_IN ? 1 - (since / LOCK_IN) ** 2 : 0;
-          const s = 1 + (LOCK_FROM - 1) * snap + 0.08 * pulse;
-          robo.ring.scale.set(s, 1, s);
-          robo.ring.material.opacity = 0.65 + 0.35 * pulse;
-        } else {
-          robo.ring.geometry = ringGeo;
-          const s = 1 + 0.06 * Math.sin(state.clock * 3 + robo.k * 1.7);
-          robo.ring.scale.set(s, 1, s);
-          robo.ring.material.opacity = 0.5 + 0.35 * breathe;
-        }
+        const s = 1 + 0.06 * Math.sin(state.clock * 3 + robo.k * 1.7);
+        robo.ring.scale.set(s, 1, s);
+        robo.ring.material.opacity = 0.5 + 0.35 * breathe;
       }
     }
   }
