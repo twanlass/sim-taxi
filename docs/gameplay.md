@@ -2220,11 +2220,11 @@ the claim and beat faster as the robot closed.
 `tour`): the camera rides out to the robo-taxi, follows it for 0.7s, crosses to the rider it is
 after, and the disc turns cyan on the frame it lands there, then rides home to the taxi like any
 peek. Tyler asked for exactly that beat so the colour arrives with its cause on screen. Every later
-lock just paints the disc. It fires only on a fresh lock with nothing else holding the camera: a
-lock during Loco Mode is skipped (the boost follow cancels pans, and pulling the frame off a
-boosting taxi puts it in a wall) and the next fresh lock tries again. Narrow screens only, like
-every camera move; a desktop already has the whole city in frame. About 3-4s off the taxi, which
-keeps driving its route, and the fare clocks keep running.
+lock just paints the disc. The world freezes for it, as for the bank job's cut and the robber's
+line, and the tour runs on wall time, about 3-4s. The first build ran over live play and had to
+skip any lock that landed during Loco Mode (the boost follow cancels pans, and pulling the frame off
+a boosting taxi puts it in a wall); frozen, every run gets it, on every viewport. It still fires
+only on a fresh lock with no other cut or finger holding the camera.
 
 **And the robo-taxis are quicker, and ramp in** (game/robotaxi.js `RACE`): one after the first
 drop-off, a second after the fourth, a third after the eighth (`RACE.ramp`, untuned — all at once

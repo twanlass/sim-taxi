@@ -3922,27 +3922,26 @@ function panToTaxi() {
 // cyan on the frame it lands, so the colour arrives with its cause on screen; then it rides home
 // to the taxi like any peek. After that, every lock just paints the disc.
 //
-// Only on a *fresh* lock (`lockSeen`), and only when nothing else owns the camera. A beat that
-// waited for its moment would land on a lock seconds old, with the robo-taxi nearly there and the
-// disc already cyan. Loco Mode is the big one: its follow cancels any pan, and pulling the frame
-// off a boosting taxi is how it ends up in a wall, so a lock during a boost is skipped and the next
-// fresh one tries again. Narrow screens only, like every other camera move: a desktop has the whole
-// city in frame already, and the disc simply turns.
+// **The world freezes for it**, the way it does for the bank job's cut and the robber's line
+// (Tyler: "freeze frame like the race or robbery vignette that way it's consistent and always
+// shows first robo lock"). The first build ran over live play and had to skip any lock that landed
+// during Loco Mode, since the boost follow cancels a pan and pulling the frame off a boosting taxi
+// puts it in a wall; frozen, nothing is driving, so every run gets it, on every viewport. Clocks,
+// traffic and the robo-taxi all hold, and the tour runs on wall time (`tick`).
 //
-// Holds: 0.7s on the robo-taxi (followed, since it keeps driving) and the usual peek beat on the
-// rider. With the three legs at 0.32-0.75s each that is 3-4s off the taxi, which drives itself on
-// its route the whole time; fare clocks keep running, because the race is the point.
+// Still only on a *fresh* lock (`lockSeen`), and not while another cut or a finger owns the
+// camera: a beat that waited for its moment would land on a lock seconds old. Holds: 0.7s on the
+// robo-taxi, the usual peek beat on the rider; with three legs at 0.32-0.75s each, about 3-4s.
 const LOCK_BEAT_ROBO_HOLD = 0.7;
 let lockTaught = false;
 let lockBeat = null;
 let lockSeen = new WeakSet();
 function startLockBeat(fare, robo) {
-  if (!isNarrow()) { lockTaught = true; return; }
-  if (boost.isActive() || boost.isEngaged() || fingersOnMap > 0 || controller.isGliding()
-    || opening?.holdsCamera() || tutorial?.holdsCamera() || endSpot || raceShot || raceWatch
+  if (fingersOnMap > 0 || controller.isGliding() || opening?.holdsCamera() || tutorial?.holdsCamera()
+    || endSpot || raceShot || raceWatch || bankJob?.running() || robberLine?.isOpen()
     || fares.state.gameOver) return;
   lockTaught = true;
-  const beat = { fare, landed: false };
+  const beat = { fare, landed: false, frozen: true };
   lockBeat = beat;
   let last = { x: robo.car.x, z: robo.car.z };
   const roboAt = () => {
@@ -3952,7 +3951,9 @@ function startLockBeat(fare, robo) {
   releaseCameraToPlayer();
   controller.tour([
     { at: roboAt, hold: LOCK_BEAT_ROBO_HOLD },
-    { at: kerbFor(fare), onLand: () => { beat.landed = true; haptic('snap'); } },
+    // Painted here as well as by the per-frame loop, because that loop is not running: the world
+    // is frozen until the tour is home.
+    { at: kerbFor(fare), onLand: () => { beat.landed = true; fare.slot.marker.setClaimed?.(true); haptic('snap'); } },
   ], () => traffic.taxi, () => { cameraTakenOver = false; });
 }
 
@@ -7472,6 +7473,18 @@ function tick() {
     // pins were on the frame the world stopped (`fadePoints` in game/bankjob.js). Left as they are
     // for the robber's line after it, which is about the same cab.
     if (ltrain && !classicRobberyCam) ltrain.setFadePoints(bankJob.fadePoints());
+    renderFrame();
+    return;
+  }
+  // The rider race's first lock-on (`startLockBeat`): the same freeze again, with only the camera's
+  // tour running, on wall time. It ends when the tour is home, or the moment a drag drops it.
+  if (lockBeat?.frozen) {
+    controller.updateGlide(dt, aspect());
+    if (!controller.isGliding()) {
+      lockBeat.frozen = false;
+      lockBeat.landed = true;
+    }
+    sfx?.still();
     renderFrame();
     return;
   }
