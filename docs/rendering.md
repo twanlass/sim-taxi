@@ -187,6 +187,24 @@ are curtain walls or too narrow to take a window.
 
 `?walls=classic` leaves the walls flat and the windows unframed ([history](rendering-history.md#wall-detail--cityfacadejs)).
 
+### Pixel grain — `city/wallgrain.js`
+
+The towers' walls and roofs, and the garage's shell, carry the pixel street's texel grid at nearly its size (0.175 units against 0.15, ~4 device pixels on a
+phone), so a building reads at the same pixel resolution as the road in front of it. Each texel
+takes one value from a tone drift (value noise at 8.6 and 0.3 units) plus single light and dark
+speckle texels (about one in 17 each), rounded to a 0.035 ramp through a 2×2 ordered dither, so a tone
+step is a checker of pixels rather than an edge. It is one multiply on the diffuse colour in the
+courses' seam, after them, so shadow, AO and the courses all sit on top unchanged; the grid is laid
+in each face's own plane and salted by its facing, so neighbouring walls differ. Glass, frames and
+the dressings (billboards, vents, signs) are separate meshes and stay smooth. No stains or colour:
+painted wall strokes and colour blotches were both tried and dropped.
+
+Cost about 2 to 3% of a SwiftShader frame (`tools/gpucost.mjs`); not measured on a phone.
+
+`?bldgtex=classic` compiles none of it; `?bldgtexamt=` scales it; `?bldgpx=` sets the texel.
+
+Every number is a uniform, so the ⚙️ panel (`?debug`) has a **Building grain** section that moves them live (`wallGrainTuning`): drift, both octave sizes and the fine one's share, speckle and its rate, the ramp step and the texel. It remembers a tweak in this browser and copies it as JSON for `WALL_GRAIN`.
+
 ### Wheel wells — `archedBodyGeometries` in `geometry/wheels.js`
 
 Every road vehicle's lower body — the fleet's cars, truck chassis, the cop cars and cruiser (through
@@ -4139,6 +4157,26 @@ does — which is what keeps the bob, corner lean, pitch rock, wheelie, Loco wea
 exactly in step with the car being traced. It is called last in the frame, after `collisions.update()`,
 for two reasons: a frame's lag is 0.31 units ≈ 2.4px of rim sliding off its own car at boost speed,
 and a car wrecked on this frame must not wear a ghost over its own fireball.
+
+### Special-vehicle ghost outlines — `outlineVehicle` in `geometry/ghostoutline.js`
+
+Every vehicle drawn as ordinary meshes rather than an instance (a `skin` in `sim/traffic.js`: the
+street racer, the patrol cruiser, the fire engine, the garbage truck, the robo-taxis) wears the
+taxi's per-mesh outline instead of a pool slot. The pool above reads instances, and these have
+none (a guest never had one, and the cruiser's is collapsed under it), so until each was given its
+own outline it went behind a building and vanished.
+
+`outlineVehicle(root, { rims, tint })` puts a hull on the parts listed (body, wheels, and anything
+that swings out past the body: the engine's ladder, the garbage truck's lid) and a mask on every
+other opaque, depth-writing mesh it finds by walking the group, so a part added later cannot be
+left out of the stencil. Each wears its own paint lifted by the `carBodyGhost` rule
+(`racerGhost`, `policeGhost`, `fireTruckGhost`, `garbageGhost`, `roboGhost`).
+
+They follow the street traffic's rules: `carghosts.js` sets each one's strength every frame from
+the same envelope, `GHOST_RADIUS` and fade band, and off means hidden, mask included. They are
+outside `MAX_GHOSTS`, since a skin costs no pool slot. The racer follows the same rules: an
+`always`-on racer outline was tried and dropped (Tyler: it "should behave like all others"). Wreck copies have their outlines stripped
+(`stripGhostOutlines`), so a wreck doesn't keep tracing itself.
 
 ### The pie — `geometry/diamond.js`
 

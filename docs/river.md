@@ -308,6 +308,17 @@ out, not the pin: `cornerFor` stakes its pin 0.5 past the kerb, which is on pave
 disc reaches 1.75 further and would sit out over the water. It costs the board the row of junctions
 along one bank — 42 junctions less that row is 36, exactly what a 5×5 city offered.
 
+### The tide mark
+
+Every wall that stands in water — the channel's two, the harbor's quays, piers and seawall, the south
+shore's — is darkest at the waterline and fades back to clean concrete over the bottom 1.3 of the
+2.0 that show (`city/grime.js`): mixed toward `PALETTE.riverGrime` by `0.85 · (1 − h/1.3)²`. It is a
+vertex colour, not a shader, so it costs both renderers nothing: each wall is cut into six bands
+packed toward the water, where the curve bends hardest, and the colour is linear between them. The
+water evaluates the same curve exactly where it mirrors the far wall and where it sees the wall
+under the surface (all of which is below the line, so at full depth), so the reflection carries the
+mark too.
+
 ### The abutment stands proud of the channel wall
 
 The wall runs the full width of the map, uninterrupted, and each bridge's abutment reaches forward

@@ -27,6 +27,7 @@ import { createCrt } from './crt.js';
 import { cullEmptyPools } from '../util/emptypools.js';
 import { syncRiverWater } from '../city/riverwater.js';
 import { installColorGrade } from './colorgrade.js';
+import { setWallGrain, WALL_TEXEL } from '../city/wallgrain.js';
 import { perfPhase } from './perf.js';
 
 /**
@@ -74,6 +75,13 @@ export function decideLooks(budget, seed = 0) {
     const texel = Number(params.get('roadpx') ?? ROAD_TEXEL);
     setRoadPixels(params.get('roadtex') === 'smooth' ? 0 : Number.isFinite(texel) ? texel : ROAD_TEXEL);
   }
+  // The buildings' pixel grain (city/wallgrain.js): the street's texel grid on every wall and roof.
+  // Not part of the painterly pass, so it stands outside it. `?bldgtex=classic` compiles none of it,
+  // `?bldgtexamt=` scales it and `?bldgpx=` is its texel.
+  const grainAmt = Number(params.get('bldgtexamt') ?? 1);
+  const grainTexel = Number(params.get('bldgpx') ?? WALL_TEXEL);
+  setWallGrain(params.get('bldgtex') === 'classic' ? 0 : Number.isFinite(grainAmt) ? grainAmt : 1,
+    Number.isFinite(grainTexel) ? grainTexel : WALL_TEXEL);
   setClassicPaint(getPaintClassic());
   setPaintLook(getPaintLook());
   setRim(getRimColor());
