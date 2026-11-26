@@ -1,5 +1,5 @@
 import { ROUTE_BLENDS } from './routeline.js';
-import { HAZE_TOP, setHazeTop, hazeColor, hazeTuning } from './scene.js';
+import { HAZE_TOP, setHazeTop, setHazeOff, hazeColor, hazeTuning } from './scene.js';
 import * as difficulty from './difficulty.js';
 import { SPEED, MPH_PER_UNIT, CAR_W } from '../sim/traffic.js';
 import { PITCH, LANE } from '../city/grid.js';
@@ -1161,15 +1161,25 @@ export function createDebugPanel({
     syncs.push(() => { roadOnly.checked = roadBrush.roadOnly(); });
     const unlit = document.createElement('input');
     unlit.type = 'checkbox';
-    row(panel, 'No lighting', unlit);
-    unlit.addEventListener('change', () => setAlbedoView(unlit.checked));
+    row(panel, 'No lighting (no grade, no haze)', unlit);
+    unlit.addEventListener('change', () => {
+      setAlbedoView(unlit.checked);
+      setGradeBypass(unlit.checked);
+      if (fog) setHazeOff(fog, unlit.checked);
+    });
     syncs.push(() => { unlit.checked = albedoView(); });
     if (inspect) {
       const zoom = document.createElement('button');
       zoom.type = 'button';
       zoom.className = 'dbg-wide';
       const label = () => { zoom.textContent = inspect.state.on ? 'Unfreeze (I)' : 'Freeze & zoom (I): wheel or pinch to zoom, Shift-drag pans'; };
-      zoom.addEventListener('click', () => { inspect.toggle(); label(); });
+      // Freezing from here is for painting, so it turns the brush on with it.
+      zoom.addEventListener('click', () => {
+        inspect.toggle();
+        if (inspect.state.on && !paintBrush.on) { paintBrush.on = true; roadBrush.sync(); }
+        zoom.blur();
+        syncs.forEach((f) => f());
+      });
       label();
       panel.append(zoom);
       syncs.push(label);
@@ -1237,6 +1247,9 @@ export function createDebugPanel({
       say('Press Clear again to wipe the whole road.');
       return false;
     }
+    // A clicked checkbox keeps focus, and a focused input swallows the shortcuts (G here, I in
+    // inspect.js): hand focus back to the page after every toggle in this section.
+    for (const box of [on, erase, roadOnly, unlit]) box.addEventListener('change', () => box.blur());
     syncRoadPaint = () => {
       syncs.forEach((f) => f());
       if (hasLocalPaint()) say('Showing this browser\'s painting (not yet saved to repo).');
@@ -1831,6 +1844,8 @@ export function createDebugPanel({
   return {
     panel, toggle, snapshot, showSound,
     syncRoadPaint: () => syncRoadPaint(),
+    /** Whether the panel is open on its Audio tab: the sound chips on the map show only then. */
+    audioTab: () => !panel.hidden && sections.tab() === 'Audio',
     audioFocus: () => audio?.focused() ?? null,
     setPlace: (key, part, value, done) => audio?.setPlace(key, part, value, done),
   };
@@ -2033,6 +2048,8 @@ function organise(panel, phoneFrame = null) {
   search.addEventListener('keyup', (event) => event.stopPropagation());
 
   return {
+    /** The tab on show: 'Audio', 'Visuals' or 'Game'. */
+    tab: () => tab,
     /** Unfold a section by its heading, clearing any search that might be hiding it. */
     openSection(title) {
       const s = sections.find((x) => x.title === title);

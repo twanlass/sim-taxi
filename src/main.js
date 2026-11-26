@@ -7752,7 +7752,8 @@ function tick() {
   heldSounds();
   // Only the sound being edited in the panel — see `focused` in game/audiopanel.js.
   if (soundRings) {
-    const open = Boolean(debugPanel && !debugPanel.panel.hidden);
+    // Only on the panel's Audio tab (Tyler, 2026-11-25): the chips cover the road while painting it.
+    const open = Boolean(debugPanel?.audioTab());
     const key = open ? debugPanel.audioFocus() : null;
     const sources = soundSources();
     soundRings.update(open, controller.state.target,
@@ -7761,7 +7762,7 @@ function tick() {
     const first = key ? sources.find((s) => s.key === key) : null;
     const place = first ? sfx.tuning().place[key] : null;
     screenRight.setFromMatrixColumn(camera.matrixWorld, 0).setY(0).normalize();
-    soundPins.update(Boolean(debugPanel) && !fares.state.gameOver, sources, key,
+    soundPins.update(open && !fares.state.gameOver, sources, key,
       open ? controller.state.target : null,
       open && place ? { key, x: first.x, z: first.z, near: place.near, far: place.far,
         right: { x: screenRight.x, z: screenRight.z } } : null);

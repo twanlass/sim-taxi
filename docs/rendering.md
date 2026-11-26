@@ -1728,8 +1728,9 @@ for the same picture; this is one texture read on fragments the road shader alre
 - **Seeing it.** Road only hides every drawable except the ground, manholes and asphalt patches
   (meshes only, never a group, so no light drops out of the count; a car spawned while it is on
   shows until it is toggled again). No lighting draws the ground as its bare colour times the paint
-  (`uAlbedoView`, both renderers); the colour grade and haze still apply. Freeze & zoom is the
-  inspect freeze (`I`): wheel or pinch zooms to a half-height of 2.5, and painting keeps working,
+  (`uAlbedoView`, both renderers), with the colour grade bypassed and the haze pushed past
+  everything (`setHazeOff` in scene.js); the edge fog and the CRT still draw. Freeze & zoom is the
+  inspect freeze (`I`), and pressing it here turns the brush on too: wheel or pinch zooms to a half-height of 2.5, and painting keeps working,
   with Shift-drag panning.
 - **Keeping it.** Every stroke autosaves to the browser (debug mode only, and it wins over the bake
   on load until Revert to repo). **Save to repo** posts the bake to the dev server

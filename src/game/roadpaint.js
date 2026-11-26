@@ -350,14 +350,15 @@ export function createRoadBrush({ camera, canvas, scene, active, onChange = () =
   window.addEventListener('click', (e) => { if (active() && e.target === canvas && !panHeld) swallow(e); }, true);
   window.addEventListener('keydown', (e) => {
     if (e.key === 'Shift') panHeld = true;
-    const typing = e.target?.closest?.('input, textarea, select');
+    // Only a field that takes text keeps the keys: a focused checkbox or slider in the panel must not.
+    const typing = e.target?.matches?.('textarea, select, input:not([type=checkbox]):not([type=range]):not([type=button]):not([type=color])');
     if (!typing && !e.metaKey && !e.ctrlKey && e.code === 'KeyG') {
       brush.on = !brush.on;
       if (!brush.on) ring.visible = false;
       onChange();
       return;
     }
-    if (!active() || e.target?.closest?.('input, textarea, select')) return;
+    if (!active() || typing) return;
     if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'z') { swallow(e); undoRoadPaint(); onChange(); return; }
     if (e.key === '[') brush.size = Math.max(0.15, brush.size / 1.2);
     else if (e.key === ']') brush.size = Math.min(12, brush.size * 1.2);
