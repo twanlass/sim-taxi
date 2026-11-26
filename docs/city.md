@@ -1404,7 +1404,9 @@ framing that was a wallpaper of white rather than a street. Now, off the ground'
   (3.2 off an ordinary street's centreline; measured from the kerb so it lands right on a bank road
   that is a main road), a dull red lane running up to each junction box (or to a zebra) and a bicycle
   past each junction. On a bank road the lane runs straight on through every junction with nothing
-  on its river side, and stops only at the bridges. A brighter red band across each junction mouth
+  on its river side, and stops only at the bridges. At the west ring road it carries on past the last
+  junction to the coast, so it runs off into the edge fog rather than ending in view (not east, where
+  the harbor's quays begin). A brighter red band across each junction mouth
   was cut (Tyler, 2026-11-25).
 - **Three one-offs**: a **green bike box** ahead of the stop line on one bike-street approach (the car
   line moves back 2.2), an **amber hatched keep-clear box** across the road in front of the garage door,
