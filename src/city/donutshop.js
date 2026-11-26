@@ -6,7 +6,6 @@ import { LANE_TO_KERB } from './grid.js';
 import { KERB_H } from './ground.js';
 import { cityNetwork } from './roadnet.js';
 import { clearOf, openSignParts, signSpot } from './vetclinic.js';
-import { wordParts } from './roadside.js';
 
 // The donut shop: one of the city's ordinary corner shops with a giant cake donut standing on its
 // roof — pink frosting, sprinkles — and a police cruiser parked out front with two wheels up on the
@@ -68,9 +67,10 @@ const SEG_TUBE = 18;
 export const DONUT_BODY_TRIS = SEG_RING * SEG_TUBE * 2;
 const SPRINKLES = 64;
 /** The DONUTS board under the ring: wider than the hole and the legs, short, a slab. */
-const BOARD_W = 3.4;
-const BOARD_H = 0.85;
-const BOARD_D = 0.14;
+/** The bubble letters' height, the fat tube they are drawn with, and the word's width (measured). */
+const WORD_H = 1.0;
+const STROKE_R = 0.16;
+const BOARD_W = 4.6;
 /** The board's centre out in front of the legs: past the ring's bottom (0.6 forward) and its tube. */
 const BOARD_OUT = 1.0;
 const SPRINKLE_LEN = 0.26;
@@ -191,6 +191,131 @@ export function donutGeometry() {
   return geo;
 }
 
+// --- The bubble letters -----------------------------------------------------------------------
+
+/** Points round an ellipse from angle a0 to a1 (degrees), `n` of them. */
+function arc(cx, cy, rx, ry, a0, a1, n = 14) {
+  const out = [];
+  for (let k = 0; k <= n; k++) {
+    const a = THREE.MathUtils.degToRad(a0 + (a1 - a0) * (k / n));
+    out.push([cx + rx * Math.cos(a), cy + ry * Math.sin(a)]);
+  }
+  return out;
+}
+
+/** A polyline with extra points down every straight, so a centripetal spline through it keeps its line. */
+function dense(points, step = 0.09) {
+  const out = [points[0]];
+  for (let k = 1; k < points.length; k++) {
+    const [x0, y0] = points[k - 1];
+    const [x1, y1] = points[k];
+    const n = Math.max(1, Math.ceil(Math.hypot(x1 - x0, y1 - y0) / step));
+    for (let m = 1; m <= n; m++) out.push([x0 + (x1 - x0) * (m / n), y0 + (y1 - y0) * (m / n)]);
+  }
+  return out;
+}
+
+/**
+ * The strokes of each letter, as centre lines in a box `w` wide and 1 tall, kept STROKE_R inside it.
+ * `closed` strokes loop. A bubble letter is a fat round stroke more than it is an outline, so that
+ * is what these are: one tube down each, with a ball on each open end.
+ */
+function letterStrokes(ch) {
+  const R = STROKE_R;
+  const lo = R;
+  const hi = 1 - R;
+  const mid = 0.5;
+  switch (ch) {
+    case 'D': {
+      const w = 0.74;
+      return { w, strokes: [{ closed: true, points: dense([[R, lo], [R, hi], [0.3, hi]])
+        .concat(arc(0.3, mid, w - R - 0.3, hi - mid, 90, -90).slice(1), dense([[0.3, lo], [R, lo]]).slice(1, -1)) }] };
+    }
+    case 'O': {
+      const w = 0.78;
+      return { w, strokes: [{ closed: true, points: arc(w / 2, mid, w / 2 - R, hi - mid, 90, 450, 28).slice(0, -1) }] };
+    }
+    case 'N': {
+      const w = 0.74;
+      return { w, strokes: [{ points: dense([[R, lo], [R, hi], [w - R, lo], [w - R, hi]]) }] };
+    }
+    case 'U': {
+      const w = 0.74;
+      const by = 0.45;
+      return { w, strokes: [{ points: dense([[R, hi], [R, by]])
+        .concat(arc(w / 2, by, w / 2 - R, by - lo, 180, 360).slice(1), dense([[w - R, by], [w - R, hi]]).slice(1)) }] };
+    }
+    case 'T': {
+      const w = 0.72;
+      return { w, strokes: [{ points: dense([[R, hi], [w - R, hi]]) }, { points: dense([[w / 2, hi], [w / 2, lo]]) }] };
+    }
+    case 'S': {
+      const w = 0.7;
+      const ry = (hi - lo) / 4;
+      return { w, strokes: [{ points: arc(w / 2, mid + ry, w / 2 - R, ry, 15, 270, 16)
+        .concat(arc(w / 2, mid - ry, w / 2 - R, ry, 90, -195, 16).slice(1)) }] };
+    }
+    default: throw new Error(`no bubble letter for ${ch}`);
+  }
+}
+
+/** Soft normals and a flat colour, non-indexed so it merges with the donut. */
+function paintSmooth(geometry, col) {
+  const geo = geometry.index ? geometry.toNonIndexed() : geometry;
+  if (geo !== geometry) geometry.dispose();
+  for (const name of Object.keys(geo.attributes)) {
+    if (name !== 'position' && name !== 'normal') geo.deleteAttribute(name);
+  }
+  const colors = new Float32Array(geo.attributes.position.count * 3);
+  for (let i = 0; i < colors.length; i += 3) colors.set([col.r, col.g, col.b], i);
+  geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+  return geo;
+}
+
+/**
+ * "DONUTS" in smooth white bubble letters, about its own centre, facing +Z, WORD_H tall: every
+ * stroke a tube of STROKE_R through a centripetal spline (so the corners come out rounded, which is
+ * most of what makes a letter a bubble letter), balls on the open ends, letters set close enough to
+ * nearly touch. Each letter is bobbed and tipped a touch, alternately, so the word sits like a row of
+ * balloons rather than a typeset line. 2,864 triangles, in the donut's mesh and draw call.
+ */
+export function bubbleWordGeometry(word = 'DONUTS') {
+  const white = color('donutSignText');
+  const letters = [...word].map(letterStrokes);
+  const GAP = 0.04;
+  const width = letters.reduce((n, l) => n + l.w, 0) + GAP * (letters.length - 1);
+  const parts = [];
+  let x = -width / 2;
+  letters.forEach((letter, k) => {
+    const bob = (k % 2 ? -1 : 1) * 0.04;
+    const tip = (k % 2 ? 1 : -1) * 0.05;
+    const place = new THREE.Matrix4()
+      .makeTranslation(x + letter.w / 2, bob, 0)
+      .multiply(new THREE.Matrix4().makeRotationZ(tip))
+      .multiply(new THREE.Matrix4().makeTranslation(-letter.w / 2, -0.5, 0));
+    for (const stroke of letter.strokes) {
+      const pts = stroke.points.map(([px, py]) => new THREE.Vector3(px, py, 0));
+      const curve = new THREE.CatmullRomCurve3(pts, Boolean(stroke.closed), 'centripetal');
+      const segs = Math.max(8, Math.ceil(curve.getLength() * 12));
+      const tube = new THREE.TubeGeometry(curve, segs, STROKE_R, 8, Boolean(stroke.closed));
+      tube.applyMatrix4(place);
+      parts.push(paintSmooth(tube, white));
+      if (!stroke.closed) {
+        for (const end of [pts[0], pts[pts.length - 1]]) {
+          const ball = new THREE.SphereGeometry(STROKE_R, 8, 6);
+          ball.translate(end.x, end.y, 0);
+          ball.applyMatrix4(place);
+          parts.push(paintSmooth(ball, white));
+        }
+      }
+    }
+    x += letter.w + GAP;
+  });
+  const geo = mergeGeometries(parts, false);
+  parts.forEach((g) => g.dispose());
+  return geo;
+}
+
 /**
  * The donut and its legs, placed on the roof: the ring stood on edge at `spot`, turned and tipped
  * to the camera, on two steel legs from the deck up into the underside of the tube.
@@ -202,28 +327,15 @@ export function donutSignGeometry(spot, deck) {
   donut.applyMatrix4(new THREE.Matrix4().makeRotationFromEuler(turn));
   donut.translate(centre.x, centre.y, centre.z);
   const parts = [donut];
-  // The DONUTS board (Tyler, 2026-11-25: "a simple horizontal sign just below the donut, or maybe
-  // clipping the bottom, with white text"): upright, square to the donut's bearing, its top edge 0.2
-  // over the bottom of the ring so the two read as one sign. Hung on the front of the legs rather
-  // than between them: the tilt brings the bottom of the ring 0.6 *forward* of the legs, and with
-  // the board in their plane the tube stood in front of the middle letters — "D..UTS".
-  const panel = new THREE.BoxGeometry(BOARD_W, BOARD_H, BOARD_D);
-  const boardY = deck + LIFT + 0.2 - BOARD_H / 2;
-  const bx = centre.x + Math.sin(DONUT_YAW) * BOARD_OUT;
-  const bz = centre.z + Math.cos(DONUT_YAW) * BOARD_OUT;
-  panel.rotateY(DONUT_YAW);
-  panel.translate(bx, boardY, bz);
-  parts.push(bakeColor(panel, color('donutSignPanel')));
-  // The letters, white and unlit (so they read at dusk too), standing 0.03 proud of its face.
-  const pixel = (BOARD_W - 0.35) / 28;                  // DONUTS is 28 pixels wide in wordParts' font
-  const letters = wordParts('DONUTS', 0.03, color('donutSignText'), pixel);
-  for (const g of letters) {
-    g.translate(0, 0, BOARD_D / 2);
-    g.rotateY(DONUT_YAW);
-    g.translate(bx, boardY, bz);
-  }
-  const text = mergeGeometries(letters, false);
-  letters.forEach((g) => g.dispose());
+  // The DONUTS sign: smooth white bubble letters, oversized, on no board (Tyler, 2026-11-25 — the
+  // first cut was white pixel letters on a chocolate board). Upright, square to the donut's bearing,
+  // their tops 0.15 over the bottom of the ring so the two read as one sign. Hung in front of the
+  // legs rather than between them: the tilt brings the bottom of the ring 0.6 *forward* of the legs,
+  // and level with them the tube stood in front of the middle letters — "D..UTS".
+  const wordY = deck + LIFT + 0.15 - WORD_H / 2;
+  const text = bubbleWordGeometry();
+  text.rotateY(DONUT_YAW);
+  text.translate(centre.x + Math.sin(DONUT_YAW) * BOARD_OUT, wordY, centre.z + Math.cos(DONUT_YAW) * BOARD_OUT);
   // The legs: either side of the bottom of the ring, along its own across-axis, each rising to meet
   // the tube where it is still well inside it.
   const across = new THREE.Vector3(1, 0, 0).applyEuler(turn);
@@ -455,22 +567,22 @@ export function createDonutShop(site, { makeCruiser = null } = {}) {
   const stamp = (geo) => stampEntry(geo, anchor.x, anchor.z, anchor.rand);
   const { geometry, centre, text } = donutSignGeometry(site.spot, site.deck);
   // The glass door merges in with the donut: one lit, stamped, static mesh for the whole shop.
+  // The bubble letters and the glass door merge in with the donut: one lit, stamped, static mesh for
+  // the whole shop, smooth-normalled for the ring and the letters (the door's boxes keep their faces).
   const doorGeo = site.door ? glassDoorGeometry(site.tower, site.door) : null;
-  const shell = doorGeo ? mergeGeometries([geometry, doorGeo], false) : geometry;
-  if (doorGeo) { geometry.dispose(); doorGeo.dispose(); }
+  const shell = mergeGeometries([geometry, text, ...(doorGeo ? [doorGeo] : [])], false);
+  geometry.dispose();
+  doorGeo?.dispose();
   stamp(shell);
   const sign = new THREE.Mesh(shell, propMaterial({ smooth: true }));
   sign.castShadow = true;
   sign.receiveShadow = true;
   sign.name = 'donut-sign';
 
-  // What is a light rather than lit: the board's white letters and the OPEN sign in the window,
-  // unlit and stamped, in one mesh. Only the OPEN sign blooms (`glow` is handed to main.js as
-  // `window`, the vet's strength); white letters bloomed into a smear at play zoom would make the
-  // word harder to read, not easier.
-  stamp(text);
-  const letters = new THREE.Mesh(text, unlitMaterial({ vertexColors: true }));
-  letters.name = 'donut-board-letters';
+  // The OPEN sign in the window: a light, so unlit, and it blooms (`glow` goes to main.js as
+  // `window`, the vet's strength).
+  const letterTris = text.attributes.position.count / 3;
+  text.dispose();
   let glow = null;
   if (site.open) {
     const parts = openSignParts(undefined, site.open.w);
@@ -487,7 +599,7 @@ export function createDonutShop(site, { makeCruiser = null } = {}) {
 
   const group = new THREE.Group();
   group.name = 'donut-shop';
-  group.add(sign, letters, ...(glow ? [glow] : []));
+  group.add(sign, ...(glow ? [glow] : []));
 
   let cruiser = null;
   if (makeCruiser) {
@@ -503,9 +615,9 @@ export function createDonutShop(site, { makeCruiser = null } = {}) {
 
   const carAnchor = { x: site.car.x, z: site.car.z, rand: anchor.rand };
   return {
-    site, group, sign, letters, glow, cruiser, centre,
+    site, group, sign, glow, cruiser, centre, letterTris,
     /** Stamped meshes, for the entrance wave. */
-    meshes: [sign, letters, ...(glow ? [glow] : [])],
+    meshes: [sign, ...(glow ? [glow] : [])],
     /** For the AO prepass. */
     occluders: [sign, ...(cruiser?.occluders ?? [])],
     entryObjects: cruiser ? [{ object: cruiser.group, x: carAnchor.x, z: carAnchor.z, rand: carAnchor.rand }] : [],

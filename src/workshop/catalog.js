@@ -18,7 +18,7 @@
 
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import { bakeColor, propMaterial, unlitMaterial } from '../util/geo.js';
+import { bakeColor, propMaterial } from '../util/geo.js';
 import { PALETTE } from '../palette.js';
 import { blockBounds } from '../city/grid.js';
 import { KERB_H } from '../city/ground.js';
@@ -352,7 +352,7 @@ export const CATALOG = [
       const built = donutSignGeometry({ x: 0, z: 0 }, 0);
       const donut = new THREE.Mesh(built.geometry, propMaterial({ smooth: true }));
       donut.castShadow = true;
-      donut.add(new THREE.Mesh(built.text, unlitMaterial({ vertexColors: true })));
+      donut.add(new THREE.Mesh(built.text, propMaterial({ smooth: true })));
       const car = parkedCruiser({ kerbLock: 0.32 });
       car.group.position.set(2.2, 0, 2.2);
       car.group.rotation.y = -Math.PI / 2;

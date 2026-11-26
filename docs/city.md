@@ -982,10 +982,13 @@ field like the vet's pole.
 blooms as a `window`), and a glass door over the dark one `groundFloor` drew (`glassDoorGeometry`):
 an aluminium frame, a glass pane and a push bar, layered 0.11, 0.15 and 0.245 off the wall so no
 two faces share a plane. That is why the shop has to be one whose generated door is on a face the
-camera sees. Under the donut hangs a chocolate **DONUTS** board with white unlit letters in the
-roadside pixel font, which overlaps the bottom of the ring. It hangs 1.0 in front of the legs, because
-the ring's tilt brings its bottom forward, and a board level with the legs had the tube in front of
-its middle letters. The letters don't bloom: blooming white turns the word into a smear at play zoom.
+camera sees. Under the donut, **DONUTS** in smooth white bubble letters on no board (`bubbleWordGeometry`):
+each stroke is a tube of 0.16 through a centripetal spline, so corners come out round, with a ball
+on each open end. The letters are 1.0 tall and set nearly touching, each bobbed and tipped a little,
+alternately. The word is 2,864 triangles, lit, and goes in the donut's mesh. The letters overlap the
+bottom of the ring and hang 1.0 in front of the legs. The ring's tilt brings its bottom forward, so
+letters level with the legs had the tube in front of the middle ones. The first cut was pixel
+letters on a chocolate board.
 
 **The cruiser** is the patrol cruiser's own body, housing and steered wheels (`parkedCruiser`,
 sim/police.js), no lamps, front wheels turned in to the kerb. It parks the way traffic beside that

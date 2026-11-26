@@ -23966,8 +23966,8 @@ for (const viewName of ['side', 'quarter']) {
     // camera sees, and the OPEN sign and the DONUTS letters are there to read.
     check('donut: the glass door is on a camera-facing face, on the pavement',
       site.door && (site.door.side === 0 || site.door.side === 1) && Math.abs(site.door.base - KERB_H) < 1e-9);
-    check('donut: the shop wears an OPEN sign and the board has its letters',
-      Boolean(shop.glow) && shop.letters.geometry.attributes.position.count > 0);
+    check('donut: the shop wears an OPEN sign and the sign has its letters',
+      Boolean(shop.glow) && shop.letterTris > 0);
   }
 }
 
