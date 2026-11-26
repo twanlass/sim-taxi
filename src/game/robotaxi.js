@@ -6,7 +6,7 @@ import { cloneProp, unlitMaterial } from '../util/geo.js';
 import { warmWreckOf } from './vanish.js';
 import { stripGhostOutlines } from '../geometry/ghostoutline.js';
 import { PALETTE } from '../palette.js';
-import { CAR_LEN, CAR_W, ROBO_SPEED, STOP_SETBACK, stopDistance } from '../sim/traffic.js';
+import { CAR_LEN, CAR_W, ROBO_SPEED, STOP_DWELL, STOP_SETBACK, stopDistance } from '../sim/traffic.js';
 import { createRoboTaxiMesh, ROBO_SCALE, ROBO_BAND_TIME, BALL_R } from '../geometry/robotaxi.js';
 import { findRoute, planOrigin, serviceLaneCost } from './route.js';
 import { BOARD_SECONDS, cornerFor, kerbFor } from './fares.js';
@@ -39,6 +39,16 @@ import { markOccluder } from './ssao.js';
 /** How many are about at once. */
 export const ROBO_COUNT = 2;
 
+/**
+ * Arcade's rider race (fares.js RACE_WAITING): the same two, quicker, so a rider one of them has
+ * claimed is a race the taxi can lose. The classic robot — ROBO_SPEED with a
+ * two-second halt at every all-way stop — was so slow that "a rider marked cyan is a race the taxi
+ * nearly always wins if it goes", which made the claim something to ignore. `pace` scales its
+ * cruise and corner speed (sim/traffic.js `car.roboPace`); `dwell` is an ordinary car's halt.
+ * Every number is still a fixed rule of the car, set when it arrives: it never reacts to the taxi.
+ */
+export const RACE = Object.freeze({ count: 2, pace: 0.78 / 0.55, dwell: STOP_DWELL });
+
 /** The robo-taxi stays stopped at the drop-off while the rider gets out and clears the car. */
 const DROP_HOLD = 1.6;
 
@@ -59,18 +69,34 @@ const CLAIM_Y = KERB_H + 0.07;
 
 const FADE_TIME = 0.8;
 
+// The race's lock-on (fares.js RACE_WAITING): a ring twice as heavy, which snaps in from wide on the
+// frame of the claim like a reticle closing, and then beats faster as the robot closes on the rider
+// — a slow breathe a long way off, a quick one once it is a block or so out. Read off the robot's
+// straight-line distance, which only drives the look; the claim itself is by road, as always.
+const LOCK_W = 0.5;
+const LOCK_IN = 0.35;          // seconds for the snap
+const LOCK_FROM = 2.6;         // ring scale the snap starts at
+const LOCK_RATE = [3, 12];     // beat, radians per second, far and near
+const LOCK_NEAR = 12;          // units: at the fast beat by here
+const LOCK_FAR = 60;           // units: at the slow beat from here
+
 /**
  * @param traffic  the sim — `enterGuest`, `retireGuest`, `wearSkin`, `taxi`
  * @param fares    the fare board — `stealable`, `steal`, `state`
  * @param blocked  () => true while nothing should come on (shot mode, the opening vignette)
  * @param soon     `?robotaxi=soon`: on the map from the start rather than after the first delivery
  */
-export function createRoboTaxis({ rng, scene, traffic, fares, blocked = () => false, soon = false, count = ROBO_COUNT }) {
+export function createRoboTaxis({ rng, scene, traffic, fares, blocked = () => false, soon = false, count = ROBO_COUNT, race = () => false }) {
+  // Built for the bigger of the two fleets; the race decides how many of them come on.
+  const built = Math.max(count, RACE.count);
+  const fleet = () => (race() ? RACE.count : count);
   const taxi = traffic.taxi;
   const ringGeo = new THREE.RingGeometry(CLAIM_R - CLAIM_W, CLAIM_R, 48);
   ringGeo.rotateX(-Math.PI / 2);
+  const lockGeo = new THREE.RingGeometry(CLAIM_R - LOCK_W, CLAIM_R, 48);
+  lockGeo.rotateX(-Math.PI / 2);
 
-  const robos = Array.from({ length: count }, (_, k) => {
+  const robos = Array.from({ length: built }, (_, k) => {
     const rig = createRoboTaxiMesh(CAR_LEN, CAR_W);
     scene.add(rig.group);
     markOccluder(rig.group);
@@ -136,8 +162,12 @@ export function createRoboTaxis({ rng, scene, traffic, fares, blocked = () => fa
     const car = traffic.enterGuest({ x: near.x, z: near.z }, { isTruck: false });
     if (!car) return false;
     car.robo = true;
-    car.v = ROBO_SPEED;
-    car.prevV = ROBO_SPEED;
+    if (race()) {
+      car.roboPace = RACE.pace;
+      car.roboDwell = RACE.dwell;
+    }
+    car.v = ROBO_SPEED * (car.roboPace ?? 1);
+    car.prevV = car.v;
     car.route = [];
     traffic.wearSkin(car, skinFor(robo), robo.rig.group);
     car.guestWreck = wreckFor(robo);
@@ -227,7 +257,12 @@ export function createRoboTaxis({ rng, scene, traffic, fares, blocked = () => fa
       car.roadblock = 0;
       robo.arrived = false;
     }
-    if (!robo.target) robo.target = choose(robo);
+    if (!robo.target) {
+      robo.target = choose(robo);
+      // A fresh claim, for the race's claim line (main.js): the band's rollout sweep keys on this,
+      // so each new claim draws itself out from the car to the rider.
+      if (robo.target) robo.claimedAt = state.clock;
+    }
     const fare = robo.target;
     if (!fare) { wander(robo); return; }
     const { i, j } = fare.pickup;
@@ -298,7 +333,7 @@ export function createRoboTaxis({ rng, scene, traffic, fares, blocked = () => fa
         robo.wait = RESPAWN_WAIT;
       }
       if (robo.phase === 'off') {
-        const ready = soon || fares.state.delivered >= 1;
+        const ready = (soon || fares.state.delivered >= 1) && robo.k < fleet();
         if (ready && !blocked() && !fares.state.gameOver) {
           robo.wait -= dt;
           if (robo.wait <= 0 && !spawn(robo)) robo.wait = 1;
@@ -340,9 +375,23 @@ export function createRoboTaxis({ rng, scene, traffic, fares, blocked = () => fa
       if (fare) {
         const kerb = kerbFor(fare);
         robo.ring.position.set(kerb.x, CLAIM_Y, kerb.z);
-        const s = 1 + 0.06 * Math.sin(state.clock * 3 + robo.k * 1.7);
-        robo.ring.scale.set(s, 1, s);
-        robo.ring.material.opacity = 0.5 + 0.35 * breathe;
+        if (race()) {
+          robo.ring.geometry = lockGeo;
+          const d = Math.hypot(kerb.x - robo.car.x, kerb.z - robo.car.z);
+          const near = Math.min(1, Math.max(0, (LOCK_FAR - d) / (LOCK_FAR - LOCK_NEAR)));
+          robo.beat = (robo.beat ?? 0) + dt * (LOCK_RATE[0] + (LOCK_RATE[1] - LOCK_RATE[0]) * near);
+          const pulse = 0.5 + 0.5 * Math.sin(robo.beat);
+          const since = state.clock - (robo.claimedAt ?? -Infinity);
+          const snap = since < LOCK_IN ? 1 - (since / LOCK_IN) ** 2 : 0;
+          const s = 1 + (LOCK_FROM - 1) * snap + 0.08 * pulse;
+          robo.ring.scale.set(s, 1, s);
+          robo.ring.material.opacity = 0.65 + 0.35 * pulse;
+        } else {
+          robo.ring.geometry = ringGeo;
+          const s = 1 + 0.06 * Math.sin(state.clock * 3 + robo.k * 1.7);
+          robo.ring.scale.set(s, 1, s);
+          robo.ring.material.opacity = 0.5 + 0.35 * breathe;
+        }
       }
     }
   }
@@ -356,5 +405,7 @@ export function createRoboTaxis({ rng, scene, traffic, fares, blocked = () => fa
     spawnAll: () => robos.filter((r) => r.car || spawn(r)).length,
     /** The traffic cars, for the probe. */
     cars: () => robos.map((r) => r.car).filter(Boolean),
+    /** The robo-taxi hunting `fare`, or null — the race's price tag wears its colour. */
+    claimOf: (fare) => robos.find((r) => r.phase === 'hunt' && r.target === fare && r.car) ?? null,
   };
 }

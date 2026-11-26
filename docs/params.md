@@ -69,6 +69,7 @@ doc; what the classic version was, and why it changed, is in that doc's history 
 | `?windows=classic` | Building windows are the faux sky gradient in vertex colour again, instead of glass meshes with stylised 45° light streaks | #681 | [rendering.md](rendering.md#window-glass--citybuildingsjs) |
 | `?garbage=classic` | No bag piles on the kerb and no garbage truck | `GARBAGE=classic` | [city.md](city.md#the-bag-piles-and-the-garbage-truck) |
 | `?robotaxi=classic` | No robo-taxis: nobody else in town takes your riders | | [gameplay.md](gameplay.md#robo-taxis) |
+| `?riders=classic` | Arcade without the rider race: one to four riders on the pressure curve on ordinary clocks, every rider let go a strike, and the slow robo-taxis with only the thin claim ring | | [gameplay.md](gameplay.md#the-rider-race) |
 | `?vet=classic` | No vet clinic: the corner shop it picks keeps a bare roof and an empty window | | [city.md](city.md#the-vet-clinic) |
 | `?donut=classic` | No donut shop: the corner shop it picks keeps a bare roof, and no cruiser parks outside | | [city.md](city.md#the-donut-shop) |
 | `?billboard=classic` | No rooftop billboards: the robo-taxi and Dub Burger roofs stay bare | | [city.md](city.md#the-rooftop-billboard) |

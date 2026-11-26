@@ -52,7 +52,7 @@ import { isArterialX as gridIsArterialX } from '../src/city/grid.js';
 import { createAsphaltPatches, planPatches, patchGeometry, patchRoadHalf, PATCH_COUNT, SEAL_W } from '../src/city/asphaltpatch.js';
 import { createStreetProps, planStreetProps } from '../src/game/streetprops.js';
 import { createGarbage, planTrashPiles } from '../src/game/garbage.js';
-import { createRoboTaxis } from '../src/game/robotaxi.js';
+import { createRoboTaxis, RACE } from '../src/game/robotaxi.js';
 import { roboShellParts, roboBandGeometry, roboWellLiners, createRoboTaxiMesh } from '../src/geometry/robotaxi.js';
 import { setFareSeconds } from '../src/game/fares.js';
 import { ROBO_SPEED } from '../src/sim/traffic.js';
@@ -122,7 +122,7 @@ import {
   stepLevel, frameWash, RISE as ROB_RISE, FALL as ROB_FALL,
 } from '../src/game/robberyglow.js';
 import {
-  createFareSystem, cornerFor, cornerSeen, intersectionCentre, blockDistance, priceFor, MAX_FARES, MAX_STRIKES, RATING_START, RATING_FLOOR, ratingFor,
+  createFareSystem, cornerFor, cornerSeen, intersectionCentre, blockDistance, priceFor, RACE_WAITING, RACE_PATIENCE, MAX_FARES, MAX_STRIKES, RATING_START, RATING_FLOOR, ratingFor,
   ROBBER_CHECKPOINTS,
   ARRIVE_RADIUS, onSameBlock, onWaterBlock, CURSE_LIFT, BURGER_PRICE, waitingTargets, stampFareMarker, BOARD_SECONDS,
 } from '../src/game/fares.js';
@@ -22887,6 +22887,59 @@ let chopperOrder; // likewise
     fastest <= ROBO_SPEED + 1e-6 && rFares.state.strikes === 0,
     `fastest ${fastest.toFixed(2)} against ${ROBO_SPEED.toFixed(2)}, ${rFares.state.strikes} strikes`);
   setFareSeconds(null);
+  clearCityOccluders();
+}
+
+// Arcade's rider race (fares.js RACE_WAITING, robotaxi.js RACE): the same taxi standing still, on
+// real clocks this time, so every rider leaves the board by walking off or by being taken. Checked:
+// the kerb holds at three and no more, a passed-over rider is never a strike, patience is spread
+// across RACE_PATIENCE, both robots come on and neither breaks its own quicker rule.
+{
+  setCityOccluders(buildings.mesh);
+  const rScene = new THREE.Scene();
+  const rTraffic = createTraffic(makeRng(seed + 770), rScene, 24, 24);
+  for (let step = 0; step < 120; step++) rTraffic.update(1 / 60);
+  const rFares = createFareSystem(makeRng(seed + 771), rScene, { race: () => true });
+  rFares.state.delivered = 1;
+  const robos = createRoboTaxis({ rng: makeRng(seed + 772), scene: rScene, traffic: rTraffic, fares: rFares, soon: true, race: () => true });
+  let most = 0;
+  let waitingSum = 0;
+  let walked = 0;
+  let steals = 0;
+  let fastest = 0;
+  const patience = [];
+  let onAtOnce = 0;
+  const seen = new Set();
+  const frames = 60 * 240;
+  for (let step = 0; step < frames; step++) {
+    rTraffic.update(1 / 60);
+    for (const e of rFares.update(1 / 60, rTraffic.taxi)) {
+      if (e.type === 'walked') walked += 1;
+      if (e.type === 'stolen') steals += 1;
+    }
+    robos.update(1 / 60);
+    const kerb = rFares.state.fares.filter((f) => f.stage === 'waiting');
+    most = Math.max(most, kerb.length);
+    if (step > 60 * 20) waitingSum += kerb.length;
+    for (const f of kerb) {
+      if (seen.has(f)) continue;
+      seen.add(f);
+      if (f.patience !== undefined) patience.push(f.patience);
+    }
+    onAtOnce = Math.max(onAtOnce, robos.cars().length);
+    for (const car of robos.cars()) fastest = Math.max(fastest, car.v);
+  }
+  const meanWaiting = waitingSum / (frames - 60 * 20 - 1);
+  check('rider race: the kerb holds three riders, and one passed over walks off with no strike',
+    most === RACE_WAITING && meanWaiting > 2 && walked > 0 && rFares.state.strikes === 0,
+    `most ${most}, mean ${meanWaiting.toFixed(2)} waiting, ${walked} walked off, ${rFares.state.strikes} strikes`);
+  const [pLo, pHi] = [Math.min(...patience), Math.max(...patience)];
+  check('rider race: each rider waits on a patience of their own, spread across RACE_PATIENCE',
+    patience.length >= 6 && pLo >= RACE_PATIENCE[0] && pHi <= RACE_PATIENCE[1] && pHi - pLo > 0.4,
+    `${patience.length} riders, patience ${pLo.toFixed(2)}–${pHi.toFixed(2)}`);
+  check('rider race: the robo-taxis race for riders, never over their own quicker rule',
+    onAtOnce === RACE.count && steals >= 2 && fastest <= ROBO_SPEED * RACE.pace + 1e-6,
+    `${onAtOnce} on at once, ${steals} taken in 240s, fastest ${fastest.toFixed(2)} against ${(ROBO_SPEED * RACE.pace).toFixed(2)}`);
   clearCityOccluders();
 }
 

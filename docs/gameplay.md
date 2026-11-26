@@ -2185,6 +2185,44 @@ Calibration: median trip in the current city is ~5 blocks, which pays `$20` — 
 so the soak suite's expected earnings are roughly where a flat fare put them. History:
 [priced by the trip](gameplay-history.md#priced-by-the-trip).
 
+## The rider race
+
+**Arcade's board is a race for riders** (`RACE_WAITING` in game/fares.js, Tyler, 2026-11-26: the
+Arcade loop was going stale with speed as its only challenge, and robo-taxis already took riders but
+"it's not obvious though which riders they are targeting"). Kept deliberately simple — "start
+simple": nothing about prices or fare types changes, because the pick is made in a split second and
+what decides it is how long each rider will wait and which ones a robot is already after. Arcade
+only, and all of it off under `?riders=classic`:
+
+- **Three riders wait at once.** After the tutorial fare the board tops the kerb back up to three
+  (`RACE_WAITING`), one every `RACE_GAP` (4 s), instead of rationing riders on the pressure curve.
+  `MAX_FARES` is still four — three on the kerb, one in the car — and the mesh pool carries
+  `RACE_SPARE_SLOTS` more, because a rider a robo-taxi is carrying holds their slot for the ride.
+- **Each on a patience of their own.** A rider's clock is the ordinary budget times a draw from
+  `RACE_PATIENCE` (0.6–1.5), floored at the curve's clock floor, so three riders put up together
+  drain visibly differently. The crystal is still the read.
+- **A rider passed over walks off free.** With three on the kerb and one seat, most riders are ones
+  you chose not to take, so a rider the taxi was never sent for leaves with no strike (`'walked'`).
+  Sent for and missed, or given up aboard, is a strike as before, which is what still ends a run.
+
+**The lock-on is drawn three ways**, all in the robot's cyan:
+
+- **Its route to the rider is on the road**, as the route band (main.js `claimLines`), fainter than
+  the taxi's own like the racer's ghost route, rolling out from the car on each new claim.
+- **The ring under the rider** is twice as heavy, snaps in from wide on the frame of the claim like
+  a reticle closing, and beats faster as the robot closes (`LOCK_*` in game/robotaxi.js; driven by
+  straight-line distance, which only drives the look).
+- **The robot over the rider's crystal** (game/ridertags.js), the dispatch line's `{:robotaxi}`
+  picture, popping in on the claim.
+
+**And the robo-taxis are quicker** (game/robotaxi.js `RACE`): 0.78 of a car's cruise rather than
+0.55, with an ordinary car's halt at an all-way stop rather than two seconds of it (`car.roboPace`,
+`car.roboDwell` in sim/traffic.js). The classic robot was slow enough that a claimed rider was a race
+the taxi nearly always won, which made the claim something to ignore. A claim is still chosen by
+road distance from the robot and never by anything the taxi does, and it holds until that rider
+leaves the board. Lose the race and the rider is gone — "Rider stolen!", the streak breaks, no
+strike.
+
 ## Robo-taxis
 
 The city council's driverless cabs (game/robotaxi.js, body in geometry/robotaxi.js): two of them,

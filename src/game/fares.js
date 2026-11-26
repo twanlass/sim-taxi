@@ -419,6 +419,31 @@ const CHECKPOINT_EXTRA_EACH = 3;
 // approach, so how far away a rider appears changes how long their clock is and not how hard it is,
 // and it is not one of the difficulty dials (`difficulty.pace` and `difficulty.pressure` are).
 const SPAWN_RADIUS = 3;
+
+// Arcade's rider race (Tyler, 2026-11-26: "fare choice feels indifferent", the loop's only
+// challenge was speed). Three riders on the kerb at once, each on a different patience, and
+// robo-taxis visibly racing for them (game/robotaxi.js `RACE`, game/ridertags.js). Nothing about
+// the price changes: the pick is made in a split second, so what decides it is how long each rider
+// will wait and which ones a robot is already after (Tyler, 2026-11-26: "start simple"). With more riders than one taxi can serve, the
+// ones you pass over have to be free to leave: a rider left on the kerb who was never sent for
+// walks off with no strike. Sent for and missed, or given up aboard, is still a strike, so
+// committing still costs something. Off under `?riders=classic` and everywhere but Arcade.
+//
+// How many riders the board keeps waiting, once the tutorial fare is delivered. MAX_FARES (4) is
+// three on the kerb and one in the car, so this needs no bigger board.
+export const RACE_WAITING = 3;
+// Seconds between spawns while it tops up, so a board that just lost two riders refills one at a
+// time rather than in a burst — and it does refill: the scarcity is in the race for each rider, not
+// in an empty map.
+const RACE_GAP = 4;
+// Each race rider's clock is the ordinary budget (`budgetFor`) times a patience drawn from this
+// range, so three riders up at once drain visibly differently: one impatient, one easy-going. The
+// crystal over each is still the read. Floored at the curve's own clock floor.
+export const RACE_PATIENCE = Object.freeze([0.6, 1.5]);
+// Extra slots in the mesh pool for the race: riders a robo-taxi is carrying hold their slot for the
+// ride (`steal`), as a delivered rider holds theirs while climbing out, and the race has up to three
+// robo-taxis and three riders on the kerb at once. A spawn with no free slot is skipped, never wrong.
+const RACE_SPARE_SLOTS = 3;
 const SECOND_FARE_DELAY = 5;         // seconds aboard before the near-the-drop-off bias applies
 const SECOND_FARE_RANGE = 45;        // world units from the taxi to its drop-off
 const SECOND_FARE_MIN_CLOCK = 18;    // seconds the current fare must still have
@@ -786,6 +811,9 @@ export function createFareSystem(rng, scene, {
   target = null,
   // Whether a bank rider may turn up at all — false on the days the bank is shut (days.js `bank`).
   bankOpen = () => true,
+  // Arcade's rider race — see RACE_WAITING. Read live: the title's mode pick lands after this is
+  // built, and Play again keeps the page.
+  race = () => false,
 } = {}) {
   const state = {
     // Active fares, newest last. At most MAX_FARES, and up to MAX_FARES - 1 of them can be
@@ -834,7 +862,7 @@ export function createFareSystem(rng, scene, {
   // What a run starts from, for `reset` — Play again keeps the page and starts the run over.
   const freshState = structuredClone(state);
 
-  const slots = Array.from({ length: MAX_FARES }, (_, index) => createSlot(scene, index));
+  const slots = Array.from({ length: MAX_FARES + RACE_SPARE_SLOTS }, (_, index) => createSlot(scene, index));
 
   // Delivered riders that are still animating out of the taxi. Kept separate from `state.fares` so
   // an exit-in-progress does not gate the next spawn — the puzzle is over the moment a fare is
@@ -1378,6 +1406,12 @@ export function createFareSystem(rng, scene, {
     fare.limit = isFirstEver && !isFareClockPinned()
       ? Math.max(budget.limit, FIRST_FARE_MIN_CLOCK)
       : budget.limit;
+    // The race: a patience of their own (RACE_PATIENCE). Not on the tutorial fare, nor on a pinned
+    // clock, which promises every rider exactly the same.
+    if (race() && !isFirstEver && !isFareClockPinned() && !vip && !bank) {
+      fare.patience = rng.range(RACE_PATIENCE[0], RACE_PATIENCE[1]);
+      fare.limit = Math.max(difficulty.getTuning().clockFloor, Math.round(fare.limit * fare.patience));
+    }
     fare.timeLeft = fare.limit;
 
     if (bank) {
@@ -1917,6 +1951,12 @@ export function createFareSystem(rng, scene, {
     // only spawn that ignores the stagger.
     if (state.fares.length === 0) return true;
     if (state.fares.length >= Math.min(MAX_FARES, difficulty.maxFares(state.delivered))) return false;
+    // The race keeps the kerb at RACE_WAITING on its own short gap, rather than on the pressure
+    // curve, which was built to ration riders for a board where every one let go was a strike.
+    if (race() && state.delivered >= 1) {
+      if (waitingAll().length >= RACE_WAITING) return false;
+      return state.elapsed - state.lastSpawnAt >= RACE_GAP;
+    }
     return state.elapsed - state.lastSpawnAt >= difficulty.spawnGap(state.delivered);
   }
 
@@ -2126,6 +2166,16 @@ export function createFareSystem(rng, scene, {
           if (missed !== -1) state.fares.splice(missed, 1);
           beginBail(fare, taxiCar);
           emit('vip-missed', fare);
+          continue;
+        }
+        // The race's kerb: a rider the taxi was never sent for is one the player passed over, with
+        // two others beside them — they walk off, and it costs nothing but the fare. See
+        // RACE_WAITING.
+        if (race() && fare.stage === 'waiting' && !fare.directed) {
+          const missed = state.fares.indexOf(fare);
+          if (missed !== -1) state.fares.splice(missed, 1);
+          beginBail(fare, taxiCar);
+          emit('walked', fare);
           continue;
         }
         // An ordinary rider running out, on the kerb or aboard: a strike, and the board carries on
@@ -2540,6 +2590,8 @@ export function createFareSystem(rng, scene, {
     /** The robo-taxis' side of the board — see `stealable`, `steal` and `robotDropoff`. */
     stealable,
     steal,
+    /** Arcade's rider race is on — see RACE_WAITING. */
+    racing: () => race(),
     robotDropoff,
     robotLose,
     markDirected,
