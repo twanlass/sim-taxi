@@ -196,11 +196,14 @@ import { createRobberLine, ROBBER_LINES } from './game/robberline.js';
 import { createBankJob } from './game/bankjob.js';
 import { createCopLights } from './game/coplights.js';
 import { createCashTrail } from './game/cashtrail.js';
-import { setCityOccluders, sightlineClear, buildHeightField, fieldHeight } from './game/sightline.js';
+import { setCityOccluders, sightlineClear, buildHeightField } from './game/sightline.js';
 import { createBootleg, COMBO_GAP_MS as BOOTLEG_GAP_MS } from './game/bootleg.js';
 import { createSteer, decisionLane } from './game/steer.js';
 import { createJoystick, KNOB_TRAVEL as STICK_TRAVEL, DEAD_ZONE as STICK_DEAD_ZONE } from './game/joystick.js';
-import { createFreeDrive } from './game/freedrive.js';
+import { createFreeDrive, FREE_TUNING, buildingBoxes } from './game/freedrive.js';
+import { QUARTER_VIEW } from './game/camera.js';
+import { createDriveDebug } from './game/drivedebug.js';
+import { createDriveTune } from './game/drivetune.js';
 import { createGamepad } from './game/gamepad.js';
 import { createSteerLine } from './game/steerline.js';
 import { createSteerTip } from './game/steertip.js';
@@ -1784,10 +1787,15 @@ const isCouch = () => padViewOn && Boolean(gamepad?.active()) && viewport.width(
 const isLandscapePhone = () => landscapeOn && !shot
   && viewport.width() > viewport.height() && (viewport.height() < LANDSCAPE_MAX_H || isCouch());
 const landscapeFit = () => (isLandscapePhone() ? viewport.height() / (2 * PLAY_ZOOM * PHONE_PX_PER_UNIT) : 1);
+// The ¾ views' zoom in free driving (game/camera.js, `QUARTER_VIEW`), as a scale on the frame:
+// eased toward `1 / quarterView.zoom` while the player drives freely and back to 1 otherwise, in the
+// frame loop. Through `fit` rather than `state.zoom`, which a wreck, a shot and the opening all own.
+const quarterView = { ...QUARTER_VIEW };
+let quarterScale = 1;
 const controller = createCityCamera(aspect(), {
   zoom: shot?.zoom ?? PLAY_ZOOM,
   target: shot?.target ?? [0, 0],
-  fit: landscapeFit,
+  fit: () => landscapeFit() * quarterScale,
 });
 const { camera } = controller;
 controller.update(aspect());
@@ -1964,8 +1972,12 @@ const freeSolid = steerFree && stick ? buildHeightField(
   ...(vet ? [vet.shell] : []),
 ) : null;
 const freeDrive = steerFree && stick ? createFreeDrive({
-  solid: (x, z) => fieldHeight(freeSolid, x, z) > FREE_SOLID_H,
+  // One box per cluster of buildings, off their height field (`buildingBoxes` in game/freedrive.js).
+  boxes: buildingBoxes(freeSolid, { minH: FREE_SOLID_H }),
   locoSpeed: () => boostCruise(),
+  // The button, not `taxi.boost`: that one carries the boost's one-second tail for the rules. On the
+  // gas pedal (`gasPedal`) the pill starts no boost at all, so it is the press itself.
+  locoHeld: () => (freeDrive.tune.gasPedal ? boost.state.held : boost.isActive()) && !traffic.taxi.staged,
   taxi: traffic.taxi,
   // The pad's left stick first, in the touch stick's own units (game/gamepad.js).
   stick: () => {
@@ -1979,6 +1991,25 @@ const freeDrive = steerFree && stick ? createFreeDrive({
   assist: new URLSearchParams(window.location.search).get('freeassist') !== 'off',
 }) : null;
 
+// The steering debug overlay, a tool for tuning free driving.
+// Both tools only under `?dev` or `?debug` (or `?driveviz`, which asks for the overlay outright): a
+// player gets neither the 🎛 button nor the overlay, and drives on the shipped values — what the
+// panel saved on this device is only put back when the panel is there to show it.
+const driveTools = !shot && (devMode || new URLSearchParams(window.location.search).has('debug')
+  || new URLSearchParams(window.location.search).has('driveviz'));
+const driveDebug = freeDrive && driveTools ? createDriveDebug({
+  scene, taxi: traffic.taxi, freeDrive,
+  on: new URLSearchParams(window.location.search).has('driveviz'),
+}) : null;
+// The Drive panel (game/drivetune.js): live sliders over `freeDrive.tune` and `quarterView`. `T`
+// or the 🎛 button opens it. Not in a still, which has no one driving.
+const driveTune = freeDrive && driveTools ? createDriveTune({
+  car: freeDrive.tune, carDefault: FREE_TUNING,
+  gameLoco: () => boostCruise(),
+  quarter: quarterView, quarterDefault: QUARTER_VIEW,
+  debugViz: { on: () => driveDebug?.on() ?? false, set: (on) => driveDebug?.set(on) },
+}) : null;
+driveDebug?.onToggle(() => driveTune?.refresh());
 const dust = createDust(scene, camera, makeRng(seed + 77));
 const spray = createSpray(scene, makeRng(seed + 78));
 
@@ -4357,7 +4388,10 @@ tutorial = shot || !wantsTutorial ? null : createTutorial({
 
 // "Swipe to turn" over the taxi until the player has the idea, and again at a dead end — see
 // game/steertip.js. After the tutorial's pan to the first rider, which is framing somewhere else.
-const steerTip = steer ? createSteerTip({
+// Not under free driving: it is a lesson in the queued-turn stick, and it dismisses on pushes that
+// free driving and the pad never count, so it sat on screen for the whole run (Tyler, 2026-11-25:
+// "It just gets stuck on the screen and won't go away").
+const steerTip = steer && !steerFree ? createSteerTip({
   project: projectToScreen,
   viewport,
   taxi: traffic.taxi,
@@ -5388,7 +5422,7 @@ function updateBoostButton(dt) {
   for (const el of [boostButton, boostMeterEl]) {
     if (!el) continue;
     el.classList.toggle('is-active', mode === 'active');
-    el.classList.toggle('is-empty', mode === 'empty');
+    el.classList.toggle('is-empty', mode === 'empty' && !boost.gasOnly());
     el.classList.toggle('is-charging', charging);
     el.classList.toggle('is-filling', boostMeter.state.fill > 0);
     el.style.setProperty('--pct', `${(boostMeter.state.pct * 100).toFixed(1)}%`);
@@ -5408,7 +5442,8 @@ function updateBoostButton(dt) {
   // trickle finishing its climb to a quarter tank (game/boost.js). A pressable-looking pill over a
   // tank with a sixtieth of a second in it would be a lie, so 'empty' covers the whole recharge and
   // the bar climbing behind the dead button is what says it is coming back.
-  boostButton.disabled = mode === 'empty';
+  // ...except as free driving's gas pedal, which burns no fuel and is never dead.
+  boostButton.disabled = mode === 'empty' && !boost.gasOnly();
 }
 
 // The press itself, with no idea what pressed it — the pill, the spacebar and a thumb sliding onto
@@ -5421,6 +5456,9 @@ function updateBoostButton(dt) {
 // down, which answers the narrower "did this press *start* a boost": a re-press during a boost that
 // is already running has the pedal down and nothing to kick.
 function holdLocoMode() {
+  // Free driving's gas pedal: the pill is the accelerator and starts no boost (game/boost.js,
+  // `setGasOnly`). Decided here as well as each frame, so the very first press of a run is gas too.
+  boost.setGasOnly(Boolean(freeDrive?.tune.gasPedal));
   if (fares.state.gameOver || boostButton?.disabled) return false;
   // Not while the HUD is off its edges: the opening, the city building itself, a skip's black, a
   // repair visit. The pill is hidden then and cannot be pressed, but Space can — and it played the
@@ -5903,6 +5941,10 @@ let lastSkidAt = 0;
 const LAUNCH_SKID_TIME = 0.5;
 let launchSkidT = 0;
 let wasSliding = false;
+// Free driving's rubber: the sideways speed, u/s, past which an ordinary turn marks the road, and
+// whether the last frame was drifting (for the screech on the first).
+const FREE_SKID_SLIP = 2.5;
+let freeDriftWas = false;
 
 /** One pair of marks under the rear wheels, at the car's current pose. */
 function stampRearRubber(car) {
@@ -5982,14 +6024,26 @@ function layRubber(dt) {
   // The drift does: all four wheels from the kick press to the exit.
   const skidding = (car.braking && car.v > BRAKE_SKID_V) || (driftHolds(car) && car.drift.phase !== 'carry');
 
+  // Free driving (game/freedrive.js) has no junction turns for `cornering` to catch: what it has is
+  // the slide itself — the sideways speed the tyres have not yet taken back. A drift marks the road
+  // from its first frame to its last; ordinary cornering only once it is sliding hard enough to
+  // see (`FREE_SKID_SLIP`), which at the shipped grip is a hard turn at speed.
+  const freeSliding = Boolean(freeDrive?.active()) && !car.staged
+    && (car.freeDrift || Math.abs(car.freeSlip ?? 0) > FREE_SKID_SLIP);
+  if (car.freeDrift && !freeDriftWas) {
+    sfx?.play('skid');
+    haptic('drift');
+  }
+  freeDriftWas = Boolean(car.freeDrift);
+
   // The screech, once per slide rather than per stamp: on the frame a corner or a lane swap starts
   // breaking traction. Not the launch or the brake, which each already have a sound of their own.
   // A drift screeched on its kick press (holdLocoMode), so its corner doesn't screech a second time.
-  const sliding = (cornering || swapping) && !driftHolds(car);
+  const sliding = (cornering || swapping || (freeSliding && !car.freeDrift)) && !driftHolds(car);
   if (sliding && !wasSliding) sfx?.play('skid');
   wasSliding = sliding;
 
-  if (!cornering && !launching && !swapping && !skidding) { lastSkidAt = car.travelled; return; }
+  if (!cornering && !launching && !swapping && !skidding && !freeSliding) { lastSkidAt = car.travelled; return; }
   // Closer than one mark length, so consecutive stamps overlap into a continuous streak.
   if (car.travelled - lastSkidAt < 0.42) return;
   lastSkidAt = car.travelled;
@@ -7656,6 +7710,8 @@ function tick() {
   // A repair visit is the same claim for longer: from the turn in off the lane until the camera
   // is handed back, the taxi is being driven by the vignette.
   if (burgerRun?.holdsTaxi() || opening?.visiting()) boost.release();
+  // The gas pedal follows the Drive panel's switch live (game/freedrive.js, `gasPedal`).
+  boost.setGasOnly(Boolean(freeDrive?.tune.gasPedal));
   boost.update(dt);
   // Steering is on test with a bottomless tank (Tyler, 2026-11-24: "unlimited loco for now while we
   // test this mechanic"), so how much Loco the driving takes is not mixed up with how it steers.
@@ -8084,6 +8140,12 @@ function tick() {
   // Debug mode follows Loco Mode on a desktop too: the placed sounds are heard from the middle of
   // the screen, so playtesting them while driving means the camera has to come along.
   const locoFollows = isNarrow() || debugMode;
+  // Free driving under the ¾ views (game/camera.js, `QUARTER_VIEW`): whether the camera stays on
+  // the taxi, which is a rung of the chain below, and the zoom eased in while it is driven freely.
+  const freeFollows = Boolean(freeDrive?.active()) && Boolean(quarterView.follow) && !traffic.taxi.crashed
+    && !cameraTakenOver && !fares.state.gameOver;
+  quarterScale += ((freeDrive?.active() && !traffic.taxi.crashed ? 1 / quarterView.zoom : 1) - quarterScale)
+    * Math.min(1, dt * 4);
   if (title?.holding() && storyCam && opening) {
     const p = storyFrame(dt);
     const u = storyCam.glide ? Math.min(storyCam.t / STORY_GLIDE, 1) : 1;
@@ -8129,6 +8191,12 @@ function tick() {
   } else if (momentum && !cameraTakenOver && !fares.state.gameOver && locoFollows) {
     controller.followXZ(traffic.taxi.x, traffic.taxi.z, dt, BOOST_FOLLOW_SMOOTHING, aspect(),
       followAim(traffic.taxi));
+  } else if (freeFollows) {
+    // Free driving under the ¾ views: on the taxi, leading it along its travel by the panel's
+    // `lead` (game/camera.js). A drag on the map still takes the camera over.
+    const aim = followAim(traffic.taxi);
+    controller.followXZ(traffic.taxi.x, traffic.taxi.z, dt, START_FOLLOW_SMOOTHING, aspect(),
+      { ...aim, gain: aim.gain * quarterView.lead });
   } else if (tutorial?.holdsCamera()) {
     tutorial.frameCamera(dt);
   } else if (!cameraTakenOver && !fares.state.gameOver && isNarrow()) {
@@ -8596,6 +8664,7 @@ function tick() {
   // run is over and no replay is coming — a bust or a timeout has nothing to show.
   if (tape && (!fares.state.gameOver || replay.armed())) tape.record(simClock, tapeImpact);
   tapeImpact = false;
+  driveDebug?.update(wallDt);
   renderFrame();
   // The title reel's crossfade takes its still of the outgoing shot here, straight after the draw
   // and in the same task — the only moment the canvas can be read (game/titlereel.js).
@@ -9642,6 +9711,10 @@ window.__taxi = {
   /** The route-band drag, for `tools/smoke.mjs`: `isGrabbing`, `didDrag`, `via`. */
   pathDrag,
   camera: controller,
+  /** Free driving (game/freedrive.js): `tune`, `collider` (`distance`, `normal`), `place`. */
+  freeDrive,
+  // The ¾ views' free-driving camera (`QUARTER_VIEW` in game/camera.js), live.
+  quarterView,
   /**
    * The talk at /talk/ (src/talk/talk.js) drives the game from outside, through a same-origin
    * iframe. `hold(true)` freezes the world the way the pause does but with nothing drawn over it;

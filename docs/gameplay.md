@@ -1400,25 +1400,103 @@ position, a heading and a speed, off the lanes altogether. Tyler asked for "the 
 that just uses real physics... fully responsive to the joystick" after the queued-turn steering
 below still made last-minute turns hard.
 
-- **Speed.** Hands off, it holds its heading and rolls at cruise (8.5 u/s). Loco is the game's own
-  Loco top (`boostCruise()`, 18.7 u/s); the first cut ran 15 and Tyler called it too slow. The
-  brake stops it.
+- **Speed: gas and brake.** No cruise: Loco's pedal is the gas, the brake is the brake, and with
+  neither down the car rolls to a stop (`ROLL`, 3 u/s², ~6s from the top). The gas pulls away at
+  `GAS_ACCEL` (12 u/s²) to Loco's top (`boostCruise()`). On the gas the pill starts no boost at all
+  (`setGasOnly` in game/boost.js): no fuel spent, no flame or wheelie, no boosted rules, and the
+  pill is never dead. Tyler: "get rid of the auto cruise... just have a simple gas brake... where
+  you're fully in control of the car". The Drive panel's Pedals switch (`gasPedal`) puts back the
+  model below.
+- **Speed: cruise and Loco** (`gasPedal` off). Hands off, it holds its heading and rolls at cruise
+  (8.5 u/s). Loco is the game's own Loco top (`boostCruise()`); the first cut ran 15 and Tyler
+  called it too slow. The brake stops it. Loco is the button itself (`locoHeld`, `boost.isActive()`): letting go is back to
+  cruise in ~0.35s (`COAST`, 30 u/s²). It used to read `taxi.boost`, which is `isEngaged` and keeps
+  the boost's one-second tail for the rules (a crash in it still counts as a boosted one), and
+  coasted down at 7 on top — about 2.5s of Loco after the thumb came up.
 - **Weight.** The taxi carries a velocity, and turning the nose does not turn it: what was forward
   becomes partly sideways, and the tyres take that back at `LAT_GRIP` (46 u/s²) and no faster. The
-  swing itself has inertia (`YAW_LAG`) and is capped by what the tyres can hold at that speed, so
-  at cruise the taxi turns in a 2.7-unit circle and at full Loco in 8.4. Measured: a quarter turn
-  at full Loco takes 0.83s and carries 13.5 units before the nose is round, and the course is back
-  on the nose 0.08s after that, so it does not skate. A hard turn above cruise scrubs speed
+  swing itself has inertia (`YAW_LAG`) and is capped by the turning circle at that speed (below).
+  Measured: a quarter turn at full Loco takes 1.28s and carries 20.5 units before the nose is
+  round, and the course is back on the nose 0.13s after that, so it does not skate. A hard turn above cruise scrubs speed
   (`TURN_SCRUB`). Lifting off Loco or braking is how a tight corner is made.
+- **The ¾ stick ignores the camera's tilt.** The camera looks down from 33°, so streets that meet
+  square on the ground are drawn 28.6° off horizontal, and reading a push exactly as drawn put the
+  natural 45° diagonal just outside its street's snap window and made the stick 1.83× as sensitive
+  near horizontal as 0.55× near vertical. So by default (`stickCorrect: 0`) a push is read as if the
+  ground were not squashed: the four streets sit on the stick's four diagonals, each with a centred
+  29°–61° snap window, at an even 1° of heading per 1° of thumb. The Drive panel's "¾ tilt
+  correction" slides back to the exact reading at 1 (`screenToGround` in game/freedrive.js).
+- **The street magnet is measured on the stick.** Its window (`assistDeg`, ±22° in free driving) is
+  judged in thumb degrees (`stickMagnet`), so every street gets the same width of thumb whatever the
+  tilt correction.
+- **Lane assist** (`laneAssist` in game/freedrive.js) holds a car roughly lined up with a street in
+  the lane running that way, like a car's lane-keeping: hands off it will not wander onto a kerb or
+  into a wall, and with the stick it is a pull the stick can overpower (Tyler: "like there is a
+  subtle magnet that's pulling the car into the lane"). It aims at the lane's centre `laneLook`
+  (0.9s) of travel ahead, so it closes a gap over the same time at any speed, and works within
+  `laneWindow` (25°) of a street's direction, fading out across the window under the stick so a
+  deliberate turn passes through. Hands off it steers at its own `laneRate` (2.5/s) rather than the
+  stick's stiffness: measured from three units off at Loco, it overshoots by 0.4 and is within 0.1
+  of the centre in 3.6s. It is independent of the street magnet. The first cut, "road keeping",
+  only ran on a heading the magnet had snapped exactly onto a street, and bent it by a fixed angle
+  per unit off centre, which weaved at speed; with the magnet at 0° it never ran at all.
+- **The shipped values are Tyler's, off the Drive panel** (`FREE_TUNING` in game/freedrive.js,
+  2026-11-25), and several differ from the measured first cut the bullets here describe: a fixed top
+  speed of 24.2; `turnTop` 2, which sits under `turnTight` so the circle is 2.6 at every speed and
+  the 4 rad/s `TURN_MAX` backstop holds the turn above ~10.4 u/s (a 6-unit circle at the top); a
+  near-instant nose (`turnGain` 30, `yawLag` 0.01); the street magnet off, lane assist doing the
+  holding; walls turning the nose at 2.5 rad/s. tools/steer.mjs checks the weight and turn mechanisms
+  against the first cut's values (`CRUISE()`), and everything else against these.
+- **The drift.** Steering at speed (10 u/s and up, `driftMinV`), a tap of the brake — the game's
+  own gesture, a thumb sliding gas → brake → gas — breaks the rear loose: the tyres take a sideways
+  slide back at `driftGrip` (9 u/s² against 46), the nose may swing `driftTurn` (1.4×) as fast,
+  and it costs 2 u/s² of speed. It ends when the stick stops asking for a turn for 0.35s, under
+  6 u/s, on a wall, or on the next brake. Lane assist is off while it lasts. Tyler: "some
+  drifting?". It is free driving's own: the game's drift (`driftTaxi`) needs a junction turn in the
+  lane model, which a free car never has. Measured at 20 u/s, a 70° turn slides the car 6.0 units
+  sideways over the next half second with the tap and 3.4 without — the shipped near-instant nose
+  slides a hard turn some anyway.
+- **Skid marks.** Free driving lays rubber off the slide itself (`taxi.freeSlip`, main.js
+  `layRubber`): from the first frame of a drift to its last, and on any turn sliding faster than
+  `FREE_SKID_SLIP` (2.5 u/s) sideways, with the screech on the frame it starts. Hard braking marks
+  all four wheels as it always has.
+- **Brake to reverse.** Hold the brake once the car has stopped and after 0.3s (`reverseDelay`) it
+  backs up, to 4 u/s (`reverseSpeed`, half cruise), for getting out of a corner — Tyler, nosed into
+  a building: "I can't back up in any way". The delay keeps a brake held to stop from rolling
+  backwards the moment the car does. Letting go rolls it to a stop and the gas pulls it forward. The
+  turn rate is the speed's size, so it steers backing up and still cannot pivot when stopped. In the
+  ¾ views the stick aims the *tail*; in Turn steering it steers like a car's wheel in reverse (right
+  swings the tail right). Against a wall it slides tail first. Lane assist is off while backing.
+  `taxi.v` goes negative for it, which the collision code already reads as a signed speed along the
+  nose; `speedFactor` is its size.
+- **How sharp it turns is two turning circles.** "Tightest turn" (`turnTight`, 2.6 units of radius)
+  is the circle at low speed, and "Turn at top speed" (`turnTop`, 19) the circle flat out; between
+  them the circle grows with the square of the speed, as a grip-limited car's does:
+  `R = max(turnTight, turnTop · (v / top)²)`, ~2.9 at cruise. The nose swings at `v / R`, so a
+  stopped car cannot pivot at all (Tyler: "you shouldn't be able to turn / pivot the car when
+  standing still") and steering comes in with speed, and calms down again near the top (Tyler:
+  "the faster you're going, maybe the steering is less sensitive"). This replaced five sliders that
+  shared the job — a turn-rate ceiling, a low-speed circle, a grip cap, the grip's share and a
+  top-speed scale (Tyler: "can we simplify that lol? that's like 5 controls") — tuned to the same
+  circles. `TURN_MAX` (4 rad/s) stays as a backstop, not a knob.
 - **The heading magnet.** Streets lie ~29° off the horizontal on screen and a thumb can't hold that
   to a degree, so a push within 16° of a street's direction is that direction, and a hands-off
   heading that close settles onto it. `?freeassist=off` drives it raw.
 - **The ground.** The whole island is open: roads, pavements, lawns, plazas. Off the road the taxi
-  rides up 0.35 (`taxi.kerbLift`). What stops it is a building (a height field of the buildings
-  alone, anything over 1.2 tall; trees, lamp posts and street furniture are driven through), the
-  river away from a bridge, and the coast outside the ring road. A wall met at a slant swings the
-  nose along itself and the taxi scrapes on at nearly full speed; square on, it stops at a 1 u/s
-  crawl. Not handled yet: the park lake and duck pond are driven over.
+  rides up 0.35 (`taxi.kerbLift`). What stops it is a building, the river away from a bridge, and
+  the coast outside the ring road; trees, lamp posts and street furniture are driven through. Not
+  handled yet: the park lake and duck pond are driven over.
+- **The walls are ice.** The body is a circle (`bodyR`, 1.1) against one signed distance field
+  (`createCollider`): the road corridors unioned with the open ground, less one box per cluster of
+  buildings (`buildingBoxes`: the buildings' height field, anything over 1.2 tall, flood-filled into
+  footprints, each footprint boxed, and boxes within 3 units merged so no alley narrower than the
+  car is left to catch on). Every seam is blended with a smooth min/max (`wallSmooth`, 2 units), so
+  a bridge mouth or a coast corner is a curve. A contact pushes the body out along the normal and
+  removes only the velocity going *into* the wall; a hit within 60° of the wall's direction keeps
+  all its speed and the nose swings to follow the wall, and only a squarer one gives speed up, down
+  to a stop head-on. The first model tested a point against the half-unit raster, fell back to
+  whichever axis was open and kept half the speed per second of contact: every wall was a staircase,
+  and Tyler's verdict was "the car just comes to a grinding halt... it should just feel like ice".
 - **What it keeps.** Collisions and damage, pickups and drop-offs by driving through the junction,
   the fixed route band, cops, and the scripted trips (garage, drive-through, depot, race), which
   take the wheel back onto a lane (`taxi.free = false`) and return it afterwards.
@@ -1551,6 +1629,37 @@ to the job it interrupted, that job's corner plans nothing — it is the player'
 
 Prototype, and the numbers have not caught up: rider clocks are still budgeted from the router's
 best route ([The clock is budgeted](#the-clock-is-budgeted)), and robo-taxis still route perfectly.
+
+### The camera in free driving
+
+Free driving is seen through the game's own ¾ city camera, with three numbers of its own
+(`QUARTER_VIEW` in game/camera.js, the Drive panel's "¾ camera"), at Tyler's values: a **zoom** of
+1.6 over the play zoom, applied through the city camera's `fit` multiplier rather than
+`state.zoom`, which a wreck, a shot and the opening own, and eased in and out as free driving starts
+and stops; a **follow** that keeps the camera on the taxi; and a **lead** of 1.5 times the game's
+own look-ahead along the taxi's travel. The follow is its own rung in main.js's camera chain,
+because the game's desktop follow only ran under Loco or a pan's momentum, and the gas pedal is not
+Loco, so the taxi drove out of the frame. A drag on the map still takes the camera over. Tyler:
+"add some camera controls for 3/4 view (i want to zoom in a bit)". The chase camera behind the taxi
+and the square ¾ debug view that came before it are in
+[gameplay-history.md](gameplay-history.md#free-drivings-other-cameras).
+
+**The steering overlay** (`game/drivedebug.js`, `V`, the panel's Viz button or `?driveviz`) draws
+what the stick asked for and what the assists did to it, from `freeDrive.debug`. Round the taxi:
+the stick ring (every thumb angle at the ground heading it asks for, solid street colour where it
+snaps, dim where free), the nose, the push as drawn (grey), corrected (blue), the street it snapped
+to, the final heading after lane assist (yellow), the lane lane assist pulls toward with the offset
+to it, and the city's lane (cyan). Top left, the stick itself: the same snap map in thumb angles,
+dotted rays where each street is drawn, the push, the corrected heading, and the numbers.
+
+**The Drive panel** (`game/drivetune.js`, the 🎛 button under pause, or `T`; it and the overlay
+exist only under `?dev`, `?debug` or `?driveviz`, so a player drives on the shipped values) tunes all of it live:
+the ¾ camera (zoom, follow, look-ahead), speed (cruise,
+Loco, acceleration, brake, coast), steering (sensitivity, response curve, stiffness, inertia, turn
+rate and circle, the street magnet), grip and walls. Every slider writes straight into the object
+the simulation reads each frame (`freeDrive.tune`, the copy of `QUARTER_VIEW`), so nothing rebuilds. Moved
+values are saved per device and come back on the next load; a double-click resets one row, Reset
+resets all, and Copy puts every value on the clipboard as JSON.
 
 ### A game controller
 

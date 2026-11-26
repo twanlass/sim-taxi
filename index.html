@@ -2621,7 +2621,7 @@
       /* --- tweak panel (src/game/debugpanel.js) ---
          A tool, so it is styled as one rather than as part of the game: neutral greys, the system
          UI face, hairline borders, one accent. */
-      #dbg-toggle, #dbg-panel {
+      #dbg-toggle, #dbg-panel, #drive-tune-toggle, #drive-tune {
         --dbg-bg: rgba(17, 17, 19, 0.94);
         --dbg-line: rgba(255, 255, 255, 0.08);
         --dbg-fill: rgba(255, 255, 255, 0.05);
@@ -2680,6 +2680,57 @@
         overscroll-behavior: contain; scrollbar-width: thin; scrollbar-color: rgba(255, 255, 255, 0.15) transparent;
       }
       #dbg-panel[hidden] { display: none; }
+
+      /* --- the Drive panel (src/game/drivetune.js) ---
+         The ⚙️ panel's look, on the right under the pause button and clear of the stick (bottom
+         left) and the pedals (bottom right), so you can drive with it open. */
+      #drive-tune-toggle {
+        position: fixed; z-index: 21;
+        right: calc(var(--hud-side) + var(--safe-right));
+        top: calc(var(--hud-top) + var(--hud-row) + 10px);
+        width: 38px; height: 38px; border: 1px solid var(--dbg-line); border-radius: 10px; cursor: pointer;
+        font-size: 17px; line-height: 1; background: var(--dbg-bg); color: var(--dbg-text);
+        -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px);
+      }
+      #drive-tune-toggle.is-open { background: var(--dbg-accent); }
+      #drive-tune {
+        position: fixed; z-index: 21; box-sizing: border-box; width: 300px;
+        right: calc(var(--hud-side) + var(--safe-right) + 46px);
+        top: calc(var(--hud-top) + var(--hud-row) + 10px);
+        max-height: calc(100vh - var(--hud-top) - var(--hud-row) - 150px); overflow: auto;
+        padding: 8px 12px 10px; border: 1px solid var(--dbg-line); border-radius: 12px;
+        background: var(--dbg-bg); color: var(--dbg-text);
+        -webkit-backdrop-filter: blur(16px); backdrop-filter: blur(16px);
+        box-shadow: 0 12px 32px rgba(0, 0, 0, 0.35);
+        font: 400 12px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif;
+        overscroll-behavior: contain; scrollbar-width: thin; scrollbar-color: rgba(255, 255, 255, 0.15) transparent;
+      }
+      #drive-tune[hidden] { display: none; }
+      #drive-tune h4 {
+        margin: 12px 0 6px; font-size: 11px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase;
+        color: var(--dbg-text);
+      }
+      #drive-tune .dbg-row { grid-template-columns: 104px 1fr; }
+      #drive-tune .dt-bar { display: flex; gap: 6px; align-items: center; }
+      #drive-tune .dt-seg { flex: 1; display: flex; border: 1px solid var(--dbg-line); border-radius: 8px; overflow: hidden; }
+      #drive-tune .dt-bar .dt-seg button { flex: 1; border: 0; border-radius: 0; padding: 5px 6px; }
+      #drive-tune .dt-bar .dt-seg button + button { border-left: 1px solid var(--dbg-line); }
+      #drive-tune .dt-bar .dt-seg button.is-active { background: var(--dbg-accent); }
+      #drive-tune .dt-bar > button.is-active { background: var(--dbg-accent); }
+      #drive-tune .dt-seg-row { display: flex; border: 1px solid var(--dbg-line); border-radius: 7px; overflow: hidden; margin: 2px 0; }
+      #drive-tune .dt-seg-row button {
+        flex: 1; border: 0; padding: 3px 6px; cursor: pointer; font: inherit;
+        background: var(--dbg-fill); color: var(--dbg-text);
+      }
+      #drive-tune .dt-seg-row button + button { border-left: 1px solid var(--dbg-line); }
+      #drive-tune .dt-seg-row button.is-active { background: var(--dbg-accent); }
+      #drive-tune .dt-bar button {
+        border: 1px solid var(--dbg-line); border-radius: 7px; padding: 4px 10px; cursor: pointer;
+        background: var(--dbg-fill); color: var(--dbg-text); font: inherit;
+      }
+      #drive-tune .dt-bar button:hover { background: var(--dbg-fill-hi); }
+      #drive-tune .dt-note { margin: 6px 0 0; color: var(--dbg-mute); font-size: 10.5px; }
+      body.shot-mode #drive-tune-toggle, body.shot-mode #drive-tune { display: none; }
 
       /* Search, pinned to the top of the scroll so it is there from any depth. */
       /* Solid, not faded: with the tabs in it, a section heading sliding under a see-through

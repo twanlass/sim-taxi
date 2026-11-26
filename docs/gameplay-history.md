@@ -1453,3 +1453,17 @@ goes on with the press, and that press was spent on a parked car (measured headl
 after the green against 16.6, and 27.4 for the rocket start). Tyler then asked for the Mario Kart
 version, gentler: "a little fish tail then go".
 
+## Free driving's other cameras
+
+Free driving was first drawn through a **chase camera** (`game/chasecam.js`): a perspective camera
+up and behind the taxi, looking down at about 40° like a low helicopter (`?cam=low` put it at
+bumper height), its field of view widening from 50° to 60° between cruise and Loco's top. Under it
+the stick's sideways push turned the car rather than naming a heading on screen. The AO pass and
+the haze both assume the orthographic city camera, so its frames switched AO off and drew a haze
+from the eye. Beside it sat a **square ¾ view** (`game/squarecam.js`, `?cam=square`): the city
+camera swung 45° so the streets ran square to the screen, a debug view built to separate the two
+things the diagonal view does to the stick (the 45° turn and the 33° squash). `C` cycled the three.
+
+Both went on 2026-11-25 (Tyler: "let's remove all the non 3/4 view stuff", then "square debug one
+can go too"), once the ¾ view had a tilt-corrected stick, lane assist and a zoom of its own. What
+the chase camera's steering was survives as the panel's "¾ view steer: Turn" switch (`turnSteer`).

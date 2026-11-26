@@ -181,6 +181,7 @@ doc; what the classic version was, and why it changed, is in that doc's history 
 | `?hop=classic` | A hop can stall in mid-air: braking (or crawling) over the hump hangs the taxi in the air | | [river.md](river.md) |
 | `?fuel=limited` | Steering's bottomless Loco tank (on while steering is tested) back to the ordinary one that drains and refills | | [gameplay.md](gameplay.md#steering) |
 | `?steer=rails` | The queued-turn stick (snap to a street, turn at the next corner, flick to overtake) instead of free driving | | [gameplay.md](gameplay.md#steering) |
+| `?driveviz` | Free driving opens with the steering debug overlay on: the stick ring, magnet windows, raw/corrected/final headings and road keeping round the taxi, and the stick in the top-left corner. `V` toggles it | | [gameplay.md](gameplay.md#the-camera-in-free-driving) |
 | `?freeassist=off` | Free driving without the heading magnet that pulls a push within 16° of a street onto it | | [gameplay.md](gameplay.md#steering) |
 | `?steer=swipe` | Pac-Man steering by swiping on the map (the prototype's first cut) instead of the stick bottom left; the pedals go back to the middle and the map stops panning | | [gameplay.md](gameplay.md#steering) |
 | `?steerline=off` | Hides the stick's debug line off the taxi's nose (thin white = raw thumb, yellow = the street it snapped to) | | [gameplay.md](gameplay.md#steering) |

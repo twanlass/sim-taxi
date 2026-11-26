@@ -9,15 +9,24 @@
  */
 import * as THREE from 'three';
 import { makeRng } from '../src/util/rng.js';
-import { createTraffic, boostCruise, SPEED } from '../src/sim/traffic.js';
+import { createTraffic, boostCruise, SPEED, stageCar, releaseCar } from '../src/sim/traffic.js';
 import { createLayout } from '../src/city/layout.js';
 import { findRoute, planOrigin, allIntersections } from '../src/game/route.js';
 import { intersectionCentre, ARRIVE_RADIUS } from '../src/game/fares.js';
 import { steerPlan, readSwipe, decisionLane, exitDirs } from '../src/game/steer.js';
 import { RIGHT, UP, VIEW_DIR } from '../src/game/camera.js';
 import { snapStick } from '../src/game/joystick.js';
-import { DIR, leftOf, lineX, lineZ, GRID_I } from '../src/city/grid.js';
-import { createFreeDrive, roadCorridors, screenToGround, magnet } from '../src/game/freedrive.js';
+import { DIR, leftOf, lineX, lineZ, GRID_I, GRID_J } from '../src/city/grid.js';
+import { createFreeDrive, roadCorridors, screenToGround, magnet, stickMagnet, FREE_TUNING } from '../src/game/freedrive.js';
+// The cruise-and-Loco model, which every free-driving check here was written against. The gas
+// pedal (the default) gets its own check below.
+// pedal (the default) gets its own check below. They also aim the stick by projecting a heading
+// onto the screen, which is the exact reading (`stickCorrect: 1`); the default gets its own check.
+// And on the first cut's steering, not Tyler's tuned defaults (game/freedrive.js, FREE_TUNING): these
+// check the weight and the turn mechanisms, which his stiffer, sharper values leave nothing of to
+// measure — a quarter turn at the top in 0.33s, on the 4 rad/s backstop.
+const CRUISE = () => ({ ...FREE_TUNING, gasPedal: 0, stickCorrect: 1, magnetOnStick: 0, assistDeg: 16, laneAssist: 0,
+  loco: null, turnTop: 19, turnGain: 8, yawLag: 0.11, relSpan: 0.6, steerCurve: 1, settle: 3, wallTurn: 7, gasAccel: 12 });
 import { cityNetwork } from '../src/city/roadnet.js';
 import { deadZone, nearestInDirection, STICK_DEAD } from '../src/game/gamepad.js';
 
@@ -266,7 +275,7 @@ taxi.stickNudge = 0;
   let aim = null;      // world point the "thumb" is pointing the taxi at, or null for hands off
   let isLive = true;
   let push = null;     // a raw stick vector, for the tests that hold a direction rather than aim
-  const free = createFreeDrive({
+  const free = createFreeDrive({ tune: CRUISE(),
     taxi,
     toScreen,
     live: () => isLive,
@@ -307,7 +316,7 @@ taxi.stickNudge = 0;
   check('free-driven, the body never leaves the island or enters the river', offRoad === 0, `${offRoad} frames`);
   check('free-driven, the taxi is off the traffic model', taxi.free === true);
 
-  // Hands off: it rolls on its heading until the ground runs out, and stops against the edge.
+  // Hands off: it rolls on its heading until the ground runs out.
   aim = null;
   taxi.stalled = false;
   let rolled = 0;
@@ -318,7 +327,9 @@ taxi.stickNudge = 0;
     if (!roads.inside(taxi.x, taxi.z)) offRoad += 1;
   }
   check('hands off, it keeps rolling', rolled > 20, `${rolled.toFixed(1)} units`);
-  check('hands off, it ends up stopped against the edge of the ground', taxi.v <= 1.01 && offRoad === 0,
+  // It used to end up stopped against the edge. The walls are ice now, so where it meets the edge
+  // at a slant it slides along it instead — and either way it never leaves the ground.
+  check('hands off, it never leaves the drivable ground', offRoad === 0,
     `v ${taxi.v.toFixed(2)}`);
 
   // Weight and grip. From a straight run at full Loco, snap the stick a quarter turn left. The taxi
@@ -330,7 +341,7 @@ taxi.stickNudge = 0;
     const p0 = lane.path.at(0);
     const p1 = lane.path.at(lane.length);
     const yaw0 = Math.atan2(-(p1.z - p0.z), p1.x - p0.x);
-    const open = createFreeDrive({ taxi, toScreen, live: () => true, stick: () => push, net,
+    const open = createFreeDrive({ tune: CRUISE(), taxi, toScreen, live: () => true, stick: () => push, net,
       locoSpeed: () => boostCruise() });
     // An open plain: this instance has no `solid`, and the test is over before the island ends.
     open.update(STEP);
@@ -384,7 +395,9 @@ taxi.stickNudge = 0;
         if (!corridors.onRoad(q.x, q.z)) { if (corridors.inside(q.x, q.z)) kerb = q; break; }
       }
     }
-    const walled = roadCorridors(net, (x, z) => kerb && Math.hypot(x - kerb.x, z - kerb.z) < 0.5);
+    // A building-sized box: the field's seams are rounded over WALL_SMOOTH, so a box smaller than
+    // that beside a road would be eaten by the rounding, which no real building is.
+    const walled = roadCorridors(net, kerb ? [{ cx: kerb.x, cz: kerb.z, hx: 2, hz: 2 }] : []);
     check('a pavement is open ground', kerb && corridors.inside(kerb.x, kerb.z));
     check('...and a building standing on it is not', kerb && !walled.inside(kerb.x, kerb.z));
     // A wall met at a slant is a scrape along it, not a stop: into the east coast at 45°.
@@ -394,8 +407,437 @@ taxi.stickNudge = 0;
     const z0 = lineZ(0) + 3;
     for (let t = 0; t < 1.5; t += STEP) open.update(STEP);
     push = null;
-    check('a wall met at a slant is a scrape along it, not a stop', taxi.v > 0.6 * SPEED && taxi.z - z0 > 6,
+    // Ice: the slide keeps its speed. The first wall model kept half per second and ground to a halt.
+    check('a wall met at a slant is a slide along it at full speed', taxi.v > 0.95 * SPEED && taxi.z - z0 > 9,
       `v ${taxi.v.toFixed(1)}, ${(taxi.z - z0).toFixed(1)} units along`);
+
+    // A building box out on open ground: a glancing slide down its face keeps its speed and never
+    // goes inside, a corner clipped on the way past is ridden round rather than snagged on, and a
+    // head-on hit still stops.
+    {
+      const cx = (lineX(1) + lineX(2)) / 2;
+      const cz = (lineZ(0) + lineZ(1)) / 2;
+      const box = { cx, cz, hx: 3, hz: 3 };
+      const boxed = createFreeDrive({ tune: CRUISE(), taxi, toScreen, live: () => true, stick: () => push, net, boxes: [box] });
+      const R = boxed.tune.bodyR;
+      boxed.update(STEP);
+      check('the box test stands on open ground', open.drivable(cx - 3 - R - 3, cz) && open.drivable(cx, cz - 8));
+      const run = (secs) => {
+        let deepest = Infinity;
+        let slowest = Infinity;
+        for (let t = 0; t < secs; t += STEP) {
+          boxed.update(STEP);
+          deepest = Math.min(deepest, boxed.collider.distance(taxi.x, taxi.z));
+          if (t > 0.1) slowest = Math.min(slowest, taxi.v);
+        }
+        return { deepest, slowest };
+      };
+      // 30° into the west face, heading up it.
+      const glance = Math.atan2(-Math.cos(Math.PI / 6), Math.sin(Math.PI / 6));
+      boxed.place(cx - 3 - R - 0.3, cz - 4, glance);
+      taxi.v = SPEED;
+      hold(glance);
+      const slide = run(0.9);
+      check('a 30° glance down a building keeps its speed', slide.slowest > 0.9 * SPEED,
+        `slowest ${slide.slowest.toFixed(2)} of ${SPEED.toFixed(1)}`);
+      check('...and the body never goes into the building', slide.deepest > R - 0.08,
+        `${slide.deepest.toFixed(2)} from the wall against a body of ${R}`);
+      // Straight up past the south-west corner, the body overlapping it by 0.4.
+      boxed.place(cx - 3 - R + 0.4, cz - 3 - 5, -Math.PI / 2);
+      taxi.v = SPEED;
+      hold(-Math.PI / 2);
+      const corner = run(1.5);
+      check('a corner clipped on the way past is ridden round, not snagged on',
+        corner.slowest > 0.85 * SPEED && taxi.z > cz + 3, `slowest ${corner.slowest.toFixed(2)}, z ${(taxi.z - cz).toFixed(1)} past the middle`);
+      // Square on.
+      boxed.place(cx - 3 - R - 3, cz, 0);
+      taxi.v = SPEED;
+      hold(0);
+      run(1);
+      check('a building met head-on still stops the taxi', taxi.v < 1 && taxi.x < cx - 3 - R + 0.1,
+        `v ${taxi.v.toFixed(2)}`);
+      push = null;
+      // ...and the brake held backs it out (brake to reverse).
+      const wallX = taxi.x;
+      taxi.braking = true;
+      run(1.5);
+      taxi.braking = false;
+      check('nosed into a building, the brake held backs the taxi out', wallX - taxi.x > 2,
+        `${(wallX - taxi.x).toFixed(1)} units back off the wall`);
+      run(2);
+    }
+
+    // Loco is the button: down is Loco, up is cruise, at once — not after the boost's one-second
+    // tail for the rules (Tyler: "when you're letting go, it's off").
+    {
+      let held = true;
+      const loco = createFreeDrive({ tune: CRUISE(), taxi, toScreen, live: () => true, stick: () => null, net,
+        locoSpeed: () => boostCruise(), locoHeld: () => held });
+      loco.update(STEP);
+      loco.place(0, lineZ(0) + 30, Math.PI / 2);
+      taxi.v = SPEED;
+      for (let t = 0; t < 1.5; t += STEP) loco.update(STEP);
+      const top = taxi.v;
+      held = false;
+      for (let t = 0; t < 0.5; t += STEP) loco.update(STEP);
+      check('letting go of Loco is back to cruise within half a second', top > boostCruise() - 0.5 && taxi.v < SPEED + 0.3,
+        `${top.toFixed(1)} → ${taxi.v.toFixed(1)} u/s`);
+    }
+    // The gas pedal: no cruise. Off the pedals it rolls to a stop, the gas takes it to the top, the
+    // brake stops it — and the gas never gets a boost involved (that is main.js and game/boost.js).
+    {
+      let gasDown = false;
+      const g = createFreeDrive({ taxi, toScreen, live: () => true, stick: () => null, net,
+        locoSpeed: () => boostCruise(), locoHeld: () => gasDown });
+      // The gas-pedal model, whichever one ships (`gasPedal`).
+      g.tune.gasPedal = 1;
+      // A hold before reverse, so "stopped" can be read at the end of a second of braking rather
+      // than the car already backing away (the shipped `reverseDelay` is 0).
+      g.tune.reverseDelay = 0.3;
+      g.update(STEP);
+      g.place(0, lineZ(0) + 30, Math.PI / 2);
+      taxi.v = SPEED;
+      taxi.braking = false;
+      for (let t = 0; t < 1; t += STEP) g.update(STEP);
+      const rolled = taxi.v;
+      for (let t = 0; t < 4; t += STEP) g.update(STEP);
+      const stopped = taxi.v;
+      gasDown = true;
+      // What the pill's press does in the game (`holdLocoMode`): a stalled car drives on.
+      taxi.stalled = false;
+      taxi.stun = 0;
+      // Each phase gets its own run-up, heading south from the north edge, so none of them meets
+      // the coast (which stops a car head-on, and would read as the pedal doing nothing).
+      g.place(0, lineZ(0) + 4, -Math.PI / 2);
+      taxi.v = 0;
+      for (let t = 0; t < 2.2; t += STEP) g.update(STEP);
+      const floored = taxi.v;
+      gasDown = false;
+      g.place(0, lineZ(0) + 4, -Math.PI / 2);
+      taxi.v = boostCruise();
+      taxi.braking = true;
+      for (let t = 0; t < 1; t += STEP) g.update(STEP);
+      taxi.braking = false;
+      check('gas pedal: off the pedals it rolls, slowing', rolled < SPEED - 1 && rolled > SPEED - 5,
+        `${SPEED.toFixed(1)} → ${rolled.toFixed(1)} in 1s`);
+      check('...and comes to a stop', stopped === 0, `${stopped.toFixed(2)}`);
+      const gasTop = g.tune.loco ?? boostCruise();
+      check('...the gas takes it from a standstill to the top', Math.abs(floored - gasTop) < 0.3,
+        `${floored.toFixed(1)} of ${gasTop.toFixed(1)}`);
+      check('...and the brake stops it', taxi.v === 0, `${taxi.v.toFixed(2)}`);
+      // With no hold before reverse (`reverseDelay` 0, shipped), the brake at speed is still the
+      // brake: a clock that had not started once read 0 >= 0 and braked at `reverseAccel` instead.
+      g.tune.reverseDelay = 0;
+      g.place(0, lineZ(0) + 4, -Math.PI / 2);
+      taxi.v = boostCruise();
+      taxi.braking = true;
+      let stopAt = null;
+      for (let t = 0; t < 2 && stopAt == null; t += STEP) { g.update(STEP); if (taxi.v <= 0) stopAt = t; }
+      taxi.braking = false;
+      const brakeTime = boostCruise() / g.tune.brake;
+      check('...and with no hold before reverse, braking from the top still takes the brake\'s time',
+        stopAt != null && stopAt < brakeTime + 0.1, `${stopAt?.toFixed(2)}s, ${brakeTime.toFixed(2)}s at the brake`);
+    }
+    // Turn steering (`turnSteer`): right is a right turn (yaw falling) whichever
+    // way the taxi is pointing, and a push straight up is no turn at all.
+    {
+      const rel = createFreeDrive({ tune: { ...CRUISE(), turnSteer: 1 }, taxi, toScreen, live: () => true,
+        stick: () => push, net });
+      rel.update(STEP);
+      for (const yawStart of [0, Math.PI / 2, Math.PI, -Math.PI / 2]) {
+        rel.place(0, lineZ(0) + 30, yawStart);
+        taxi.v = SPEED;
+        push = { dx: 34, dy: 0, len: 34 };
+        for (let t = 0; t < 0.3; t += STEP) rel.update(STEP);
+        const right = Math.atan2(Math.sin(taxi.yaw - yawStart), Math.cos(taxi.yaw - yawStart));
+        // Clear of the heading magnet (16°), which would settle a hands-off heading onto the street.
+        rel.place(0, lineZ(0) + 30, yawStart + 0.5);
+        push = { dx: 0, dy: -34, len: 34 };
+        for (let t = 0; t < 0.3; t += STEP) rel.update(STEP);
+        const ahead = Math.atan2(Math.sin(taxi.yaw - yawStart - 0.5), Math.cos(taxi.yaw - yawStart - 0.5));
+        check(`turn steering, facing ${yawStart.toFixed(2)}: a right push turns right`, right < -0.3,
+          `${right.toFixed(2)} rad`);
+        check(`turn steering, facing ${yawStart.toFixed(2)}: a push straight up holds the heading`,
+          Math.abs(ahead) < 0.02, `${ahead.toFixed(3)} rad`);
+      }
+      push = null;
+    }
+    // The ¾ stick with the tilt taken out (`stickCorrect: 0`, the default): a push on the stick's
+    // diagonal is a street, and the stick's axes split the streets evenly.
+    {
+      const deg = Math.PI / 180;
+      const headingFor = (thumbDeg, c) => {
+        const t = thumbDeg * deg;
+        const g = screenToGround(Math.cos(t), -Math.sin(t), toScreen, c);
+        return Math.round(((Math.atan2(-g.z, g.x) / deg) % 360 + 360) % 360);
+      };
+      const diag = [45, 135, 225, 315].map((t) => headingFor(t, 0));
+      check('¾ stick, tilt corrected out: the four thumb diagonals are the four streets',
+        diag.every((h) => h % 90 === 0) && new Set(diag).size === 4, diag.join(', '));
+      const between = [headingFor(90, 0), headingFor(0, 0)];
+      check('...and straight up or across lands halfway between two streets',
+        between.every((h) => h % 90 === 45), between.join(', '));
+      check('...while at 1 the 45° push is off its street, as drawn', headingFor(45, 1) % 90 !== 0,
+        `${headingFor(45, 1)}`);
+    }
+    // The magnet measured on the stick: at the exact reading (`stickCorrect: 1`), every street's snap
+    // window is the same ±16° of thumb centred on where the street is drawn — on the ground it was
+    // lopsided, and the up-right street's window ran 16.8°..44.5°.
+    {
+      const deg = Math.PI / 180;
+      const edges = [];
+      for (const centre of [28.6, 151.4, 208.6, 331.4]) {
+        const at = (t) => stickMagnet(Math.cos(t * deg), -Math.sin(t * deg), toScreen, 1, 16 * deg);
+        edges.push(at(centre) != null && at(centre + 15.5) != null && at(centre - 15.5) != null
+          && at(centre + 16.5) == null && at(centre - 16.5) == null);
+      }
+      check('magnet on the stick: every street snaps over ±16° of thumb round where it is drawn',
+        edges.every(Boolean), edges.join(', '));
+    }
+    // No pivoting on the spot: a stopped car with the stick hard over keeps its heading, and one
+    // rolling at walking pace turns, but slower than at cruise.
+    {
+      let stickPush = null;
+      const pv = createFreeDrive({ taxi, toScreen, live: () => true, stick: () => stickPush, net,
+        locoSpeed: () => boostCruise(), locoHeld: () => false });
+      pv.tune.turnSteer = 1;
+      // On the gas pedal, so a car left at a standstill stays there rather than pulling away to cruise.
+      pv.tune.gasPedal = 1;
+      pv.update(STEP);
+      const turnOver = (speed) => {
+        pv.place(lineX(1) + 2, lineZ(GRID_J) - 30, Math.PI / 2);
+        taxi.v = speed;
+        taxi.stalled = false;
+        pv.tune.roll = 0;
+        pv.update(STEP);
+        const y0 = taxi.yaw;
+        stickPush = { dx: 34, dy: 0, len: 34 };
+        for (let t = 0; t < 0.3; t += STEP) pv.update(STEP);
+        stickPush = null;
+        return Math.abs(Math.atan2(Math.sin(taxi.yaw - y0), Math.cos(taxi.yaw - y0)));
+      };
+      const still = turnOver(0);
+      const walk = turnOver(2);
+      const cruise = turnOver(SPEED);
+      check('a stopped car does not pivot; turning comes in with speed', still < 1e-6 && walk > 0.02 && walk < cruise * 0.5,
+        `${still.toFixed(3)} rad stopped, ${walk.toFixed(3)} at 2 u/s, ${cruise.toFixed(3)} at cruise, in 0.3s`);
+    }
+    // The drift: steering at speed, a tap of the brake breaks the rear loose — the car slides far
+    // further sideways than the same turn without it — and straightening up ends it.
+    {
+      let stickPush = null;
+      let gasDown = true;
+      const corner = (tap) => {
+        const dr = createFreeDrive({ taxi, toScreen, live: () => true, stick: () => stickPush, net,
+          locoSpeed: () => boostCruise(), locoHeld: () => gasDown });
+        dr.update(STEP);
+        // Open ground: the middle of the north edge's road, heading east, at speed.
+        dr.place(lineX(0) + 6, lineZ(0), 0);
+        taxi.v = 20;
+        taxi.stalled = false;
+        taxi.braking = false;
+        dr.update(STEP);
+        // Ask for a turn to the right (south), 70° off the nose.
+        const want = -70 * (Math.PI / 180);
+        const sv = toScreen(Math.cos(want), -Math.sin(want));
+        stickPush = { dx: sv.x * 3, dy: sv.y * 3, len: Math.hypot(sv.x, sv.y) * 3 };
+        dr.update(STEP);
+        if (tap) {
+          taxi.braking = true;
+          for (let t = 0; t < 0.1; t += STEP) dr.update(STEP);
+          taxi.braking = false;
+        }
+        let maxSlip = 0;
+        let drifted = false;
+        for (let t = 0; t < 0.5; t += STEP) {
+          dr.update(STEP);
+          maxSlip += Math.abs(dr.debug.slip) * STEP;
+          drifted ||= dr.debug.drifting;
+        }
+        // Straighten up: the stick let go.
+        stickPush = null;
+        for (let t = 0; t < 0.8; t += STEP) dr.update(STEP);
+        return { maxSlip, drifted, after: dr.debug.drifting };
+      };
+      const grip = corner(false);
+      const slide = corner(true);
+      // Sideways distance over the half second after the tap: a hard turn slides a little at this
+      // grip anyway; a drift keeps sliding.
+      check('drift: a brake tap mid-turn at speed breaks the rear loose', slide.drifted && !grip.drifted
+        && slide.maxSlip > 1.5 * grip.maxSlip,
+        `${slide.maxSlip.toFixed(1)} units slid sideways against ${grip.maxSlip.toFixed(1)} without the tap`);
+      check('...and straightening up ends it', !slide.after, `${slide.after ? 'still drifting' : 'gripping again'}`);
+      gasDown = false;
+    }
+    // Brake to reverse: the brake held on a stopped car backs it up once `reverseDelay` has run,
+    // letting go rolls it to a stop, and backing up the stick aims the tail.
+    {
+      let stickPush = null;
+      const rv = createFreeDrive({ taxi, toScreen, live: () => true, stick: () => stickPush, net,
+        locoSpeed: () => boostCruise(), locoHeld: () => false });
+      // On the gas pedal, so letting go rolls to a stop; and with the hold the first cut had (the
+      // shipped `reverseDelay` is 0, which backs at once), so the hold itself is still tested.
+      rv.tune.gasPedal = 1;
+      rv.tune.reverseDelay = 0.3;
+      rv.update(STEP);
+      rv.place(lineX(1) + 2, lineZ(GRID_J) - 40, Math.PI / 2);
+      taxi.v = 0;
+      taxi.stalled = false;
+      taxi.braking = true;
+      for (let t = 0; t < 0.2; t += STEP) rv.update(STEP);
+      const early = taxi.v;
+      // Read after an update: `place` moves the model, and `taxi.z` follows on its next frame.
+      const z0 = taxi.z;
+      for (let t = 0; t < 1.5; t += STEP) rv.update(STEP);
+      const backing = taxi.v;
+      const backed = taxi.z - z0;
+      taxi.braking = false;
+      for (let t = 0; t < 3; t += STEP) rv.update(STEP);
+      const after = taxi.v;
+      check('brake held at a stop: nothing for the first moment, then it backs up',
+        early === 0 && Math.abs(backing + FREE_TUNING.reverseSpeed) < 0.05 && backed > 2,
+        `v ${early.toFixed(2)} at 0.2s, ${backing.toFixed(2)} at 1.7s, ${backed.toFixed(1)} units backed (south)`);
+      check('...and letting go of the brake rolls it to a stop', after === 0, `v ${after.toFixed(2)}`);
+      // Backing up with the stick pushed east: the tail swings east, the nose round to the west.
+      taxi.braking = true;
+      rv.place(lineX(1) + 2, lineZ(GRID_J) - 40, Math.PI / 2);
+      taxi.v = 0;
+      const east = toScreen(1, 0);
+      stickPush = { dx: east.x * 4, dy: east.y * 4, len: Math.hypot(east.x, east.y) * 4 };
+      for (let t = 0; t < 3; t += STEP) rv.update(STEP);
+      stickPush = null;
+      taxi.braking = false;
+      const noseOff = Math.abs(Math.atan2(Math.sin(taxi.yaw - Math.PI), Math.cos(taxi.yaw - Math.PI)));
+      check('...and backing up, the stick aims the tail', noseOff < 0.3 && taxi.v < 0,
+        `nose ${((taxi.yaw * 180) / Math.PI).toFixed(0)}° (west is 180°), v ${taxi.v.toFixed(2)}`);
+      for (let t = 0; t < 3; t += STEP) rv.update(STEP);
+    }
+    // Lane assist: hands off, a car on a street but off its lane is drawn into the lane without
+    // weaving — with the street magnet off (Tyler's own settings: magnet 0°, magnet pull 0), and
+    // from a heading drifting off the street. And a deliberate turn passes through it.
+    {
+      const laneOf = (rk) => rk.debug.keep;
+      const drive = ({ keep = true, yaw0 = Math.PI / 2, x0 = lineX(1) - 1, stickPush = null, seconds = 4, magnet = true } = {}) => {
+        const rk = createFreeDrive({ taxi, toScreen, live: () => true, stick: () => stickPush, net,
+          locoSpeed: () => boostCruise(), locoHeld: () => true });
+        rk.tune.laneAssist = keep ? FREE_TUNING.laneAssist : 0;
+        if (!magnet) { rk.tune.assistDeg = 0; rk.tune.settle = 0; }
+        rk.update(STEP);
+        rk.place(x0, lineZ(GRID_J) - 4, yaw0);
+        taxi.v = SPEED;
+        taxi.stalled = false;
+        rk.update(STEP);
+        const before = Math.abs(laneOf(rk)?.lat ?? NaN);
+        let side = 0;
+        let worst = 0;
+        let lastLat = laneOf(rk)?.lat ?? 0;
+        for (let t = 0; t < seconds; t += STEP) {
+          rk.update(STEP);
+          const k = laneOf(rk);
+          if (k) {
+            // Overshoot: how far past the centre it swung, on the far side from where it started.
+            if (Math.sign(k.lat) !== Math.sign(lastLat) && lastLat !== 0) side = Math.sign(k.lat);
+            if (side && Math.sign(k.lat) === side) worst = Math.max(worst, Math.abs(k.lat));
+          }
+        }
+        const k = laneOf(rk);
+        return { before, after: k ? Math.abs(k.lat) : Infinity, overshoot: worst, x: taxi.x - lineX(1), drivable: rk.drivable(taxi.x, taxi.z), yaw: taxi.yaw };
+      };
+      const on = drive();
+      check('lane assist, hands off: an off-centre car is drawn into its lane', on.after < 0.15,
+        `${on.before.toFixed(2)} → ${on.after.toFixed(2)} off the lane in 4s`);
+      check('...without weaving', on.overshoot < 0.6, `${on.overshoot.toFixed(2)} past the centre at most`);
+      const bare = drive({ magnet: false });
+      check('...with the street magnet off', bare.after < 0.15, `${bare.before.toFixed(2)} → ${bare.after.toFixed(2)}`);
+      const drifting = drive({ magnet: false, yaw0: Math.PI / 2 + 0.14, x0: lineX(1) + 2 });
+      const loose = drive({ magnet: false, keep: false, yaw0: Math.PI / 2 + 0.14, x0: lineX(1) + 2, seconds: 2 });
+      check('...and a heading drifting 8° off the street is caught before the kerb', drifting.after < 0.3 && drifting.drivable,
+        `${drifting.after.toFixed(2)} off the lane after 4s (without it: ${loose.x.toFixed(1)} off the street's centreline in 2s)`);
+      // A held push 40° off the street, which is outside the window: the car goes where it is told.
+      const deg = Math.PI / 180;
+      const want = Math.PI / 2 + 40 * deg;
+      const s2 = toScreen(Math.cos(want), -Math.sin(want));
+      const turned = drive({ stickPush: { dx: s2.x * 3, dy: s2.y * 3, len: Math.hypot(s2.x, s2.y) * 3 }, x0: lineX(1) + 2, seconds: 0.8 });
+      check('...and a deliberate turn passes through it', Math.abs(turned.yaw - want) < 8 * deg,
+        `heading ${((turned.yaw * 180) / Math.PI).toFixed(0)}° for a push at ${((want * 180) / Math.PI).toFixed(0)}°`);
+    }
+    // The two turning circles: a full push turns the car on `turnTight` at town speed and on
+    // `turnTop` flat out, so the swing is speed ÷ that circle.
+    {
+      const sp = createFreeDrive({ tune: { ...CRUISE(), turnSteer: 1 }, taxi, toScreen, live: () => true,
+        stick: () => push, net, locoSpeed: () => boostCruise() });
+      sp.update(STEP);
+      const rateAt = (speed) => {
+        sp.place(0, lineZ(0) + 30, 0);
+        taxi.v = speed;
+        taxi.boost = speed > SPEED;
+        push = { dx: 34, dy: 0, len: 34 };
+        // Let the swing build, then measure a steady stretch.
+        for (let t = 0; t < 0.4; t += STEP) sp.update(STEP);
+        const y0 = taxi.yaw;
+        for (let t = 0; t < 0.2; t += STEP) sp.update(STEP);
+        push = null;
+        taxi.boost = false;
+        return Math.abs(Math.atan2(Math.sin(taxi.yaw - y0), Math.cos(taxi.yaw - y0))) / 0.2;
+      };
+      const top = boostCruise();
+      const topCircle = sp.tune.turnTop;
+      const wide = rateAt(top);
+      sp.tune.turnTop = 10;
+      const sharp = rateAt(top);
+      sp.tune.turnTop = topCircle;
+      // Held at 2 u/s: in the cruise model the car would otherwise climb to cruise mid-measurement.
+      sp.tune.accel = 0;
+      const slow = rateAt(2);
+      const circle = (rate, v) => v / rate;
+      check('flat out the car turns on the top-speed circle, and a smaller one is sharper',
+        Math.abs(circle(wide, top) - topCircle) < 0.15 * topCircle
+          && Math.abs(circle(sharp, top) - 10) < 1.5,
+        `circle ${circle(wide, top).toFixed(1)} at ${topCircle}, ${circle(sharp, top).toFixed(1)} at 10`);
+      check('...and slow it turns on the tightest circle', Math.abs(circle(slow, 2) - FREE_TUNING.turnTight) < 0.4,
+        `circle ${circle(slow, 2).toFixed(2)} at 2 u/s against ${FREE_TUNING.turnTight}`);
+    }
+    // The Drive panel's switches: Turn steering under the ¾ camera is the follow camera's, and
+    // Invert mirrors it — a right push turns left.
+    {
+      const sw = createFreeDrive({ tune: CRUISE(), taxi, toScreen, live: () => true, stick: () => push, net });
+      sw.tune.turnSteer = 1;
+      sw.update(STEP);
+      const turnOf = () => {
+        sw.place(0, lineZ(0) + 30, 0.5);
+        taxi.v = SPEED;
+        push = { dx: 34, dy: 0, len: 34 };
+        for (let t = 0; t < 0.3; t += STEP) sw.update(STEP);
+        push = null;
+        return Math.atan2(Math.sin(taxi.yaw - 0.5), Math.cos(taxi.yaw - 0.5));
+      };
+      const plain = turnOf();
+      sw.tune.invertSteer = 1;
+      const inverted = turnOf();
+      check('¾ view Turn steering: a right push turns right', plain < -0.3, `${plain.toFixed(2)} rad`);
+      check('...and inverted, a right push turns left', inverted > 0.3, `${inverted.toFixed(2)} rad`);
+    }
+    // A taxi let go of a staged trip (the opening's skip) and taken by free driving before the
+    // traffic model has run: it has to come out on the lane it was released onto, not at the spot
+    // it was staged on — which for the opening is inside the garage, behind a shut door.
+    {
+      let wheel = false;
+      const rel = createFreeDrive({ tune: CRUISE(), taxi, toScreen, live: () => wheel, stick: () => null, net });
+      const lane = net.lanes.find((l) => l.path && l.length > 12);
+      const d = net.dirOfLane(lane);
+      const node = net.nodeById.get(lane.to);
+      stageCar(taxi, lineX(0) - 40, lineZ(0) - 40, 0);
+      rel.update(STEP);
+      const released = releaseCar(taxi, d, node.gi, node.gj, 6);
+      wheel = true;
+      rel.update(STEP);
+      const on = taxi.lane.path.at(taxi.s);
+      check('a taxi released from a staged trip is picked up on its lane, not where it was staged',
+        released && Math.hypot(taxi.x - on.x, taxi.z - on.z) < 1,
+        `${Math.hypot(taxi.x - on.x, taxi.z - on.z).toFixed(2)} units off the lane`);
+      wheel = false;
+      rel.update(STEP);
+    }
     free.place(taxi.x, taxi.z, taxi.yaw);
   }
 
