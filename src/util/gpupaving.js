@@ -146,6 +146,7 @@ export function createPaving(U) {
         ratio.mulAssign(g1.sub(0.5).mul(0.6).mul(float(1).sub(pix)).add(g2.sub(0.5).mul(0.4)).mul(fine.y).mul(2).add(1));
         ratio.mulAssign(float(1).sub(stain.mul(vec3(0.9, 1.0, 1.15))));
       });
+      ratio.assign(mix(vec3(1), ratio, detail.y));  // the texture opacity (setRoadTextureOpacity)
       // The splat map, as in PAINT_FRAGMENT. An explicit level 0: a plain sample is a derivative,
       // and WGSL refuses one inside this branch (non-uniform control flow).
       If(dot(paintAmt, vec4(1)).greaterThan(0), () => {

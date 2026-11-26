@@ -22,7 +22,7 @@
  * `/__roadpaint` endpoint (tools/roadpaint-save.mjs) writes the bake straight into the repo.
  */
 import * as THREE from 'three';
-import { PAINT_UNIFORMS, unlitMaterial, displayColor } from '../util/geo.js';
+import { PAINT_UNIFORMS, unlitMaterial, displayColor, setRoadTextureOpacity, roadTextureOpacity } from '../util/geo.js';
 import { coastWest, coastEast, coastNorth, coastSouth } from '../city/grid.js';
 import { ROAD_PAINT_BAKE } from '../city/roadpaintbake.js';
 
@@ -73,6 +73,7 @@ function applyLook(saved) {
   });
   (saved?.amounts ?? [1, 1, 1, 1]).forEach((v, c) => { amounts[c] = Math.min(1, Math.max(0, Number(v) || 0)); });
   applyAmounts();
+  setRoadTextureOpacity(saved?.texture ?? 1);
 }
 
 function upload() {
@@ -158,7 +159,7 @@ export async function encodeRoadPaint() {
       }
     }
   }
-  const look = { colors: [...colors], amounts: [...amounts] };
+  const look = { colors: [...colors], amounts: [...amounts], texture: roadTextureOpacity() };
   if (x1 < 0) return { texel: PAINT_TEXEL, minX: 0, minZ: 0, width: 0, height: 0, ...look, data: '' };
   const w = x1 - x0 + 1, h = z1 - z0 + 1;
   const out = new Uint8Array(w * h * 4);
@@ -387,8 +388,14 @@ export function createRoadBrush({ camera, canvas, scene, active, onChange = () =
       onChange();
       return;
     }
+    // Undo answers whether or not the brush is armed: the natural moment to press it is right after
+    // switching painting off to look at a stroke. `code` rather than `key` so a non-QWERTY layout
+    // still finds it.
+    if (!typing && (e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey && (e.code === 'KeyZ' || e.key.toLowerCase() === 'z')) {
+      if (undoStack.length) { swallow(e); undoRoadPaint(); onChange(); }
+      return;
+    }
     if (!active() || typing) return;
-    if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'z') { swallow(e); undoRoadPaint(); onChange(); return; }
     if (e.key === '[') brush.size = Math.max(0.15, brush.size / 1.2);
     else if (e.key === ']') brush.size = Math.min(12, brush.size * 1.2);
     else if (e.key >= '1' && e.key <= '4') brush.channel = Number(e.key) - 1;
@@ -396,7 +403,7 @@ export function createRoadBrush({ camera, canvas, scene, active, onChange = () =
     else return;
     ring.scale.setScalar(brush.size);
     onChange();
-  });
+  }, true);
   window.addEventListener('keyup', (e) => { if (e.key === 'Shift') panHeld = false; });
   // Road only: every drawable outside the ground hidden, and put back exactly as it was. Meshes
   // only, never a group: a light under a hidden group drops out of the light count and recompiles

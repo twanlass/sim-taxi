@@ -319,7 +319,7 @@ export const PAINT_UNIFORMS = {
   // and dark, w the light bias. Detail: x the share of cells with a stain, y and z unused (they were
   // the cracks, removed 2026-11-25), w the share of texels speckled each way.
   uRoadTexTune: { value: new THREE.Vector4(1, 0.35, 0.12, 0.25) },
-  uRoadTexDetail: { value: new THREE.Vector4(0.08, 0.45, 0.2, 0.04) },
+  uRoadTexDetail: { value: new THREE.Vector4(0.08, 1, 0, 0.04) },  // y = texture opacity
   uRoadTexGrid: { value: new THREE.Vector3(GRID_I, GRID_J, LANE_TO_KERB) }, // the last real line each way, then kerb to lane centre
   // The hand-painted road (game/roadpaint.js): a world-space splat map the brush paints into, read
   // at the pixel street's texel centres. Box: x, z of its corner, then 1/width, 1/height in world
@@ -522,7 +522,7 @@ export const ROAD_TEX_DEFAULTS = Object.freeze({
   step: 0.02,         // the grey ramp's step
 });
 export const ROAD_TEX = { ...ROAD_TEX_DEFAULTS };
-const roadTexApplied = { amount: 0, seed: 0, pixels: true, off: false };
+const roadTexApplied = { amount: 0, seed: 0, pixels: true, off: false, opacity: 1 };
 export function setRoadTexture(amount = 1, seed = 0) {
   roadTexApplied.amount = Math.max(0, amount);
   const a = roadTexApplied.off ? 0 : roadTexApplied.amount;
@@ -530,7 +530,7 @@ export function setRoadTexture(amount = 1, seed = 0) {
   PAINT_UNIFORMS.uRoadTex.value.set(ROAD_TEX.run * a, ROAD_TEX.mottle * a, 0, (seed % 97) + 0.5);
   PAINT_UNIFORMS.uRoadTexFine.value.set(ROAD_TEX.stain * a, ROAD_TEX.grain * a);
   PAINT_UNIFORMS.uRoadTexTune.value.set(Math.max(0.05, ROAD_TEX.patch), ROAD_TEX.warmth, Math.max(0.005, ROAD_TEX.shoulder), ROAD_TEX.bias);
-  PAINT_UNIFORMS.uRoadTexDetail.value.set(ROAD_TEX.stainDensity, 0, 0, ROAD_TEX.speckle);
+  PAINT_UNIFORMS.uRoadTexDetail.value.set(ROAD_TEX.stainDensity, roadTexApplied.opacity, 0, ROAD_TEX.speckle);
 }
 
 /** The road paint's Street texture box: the texture off (paint and pixel grid stay), and back. */
@@ -539,6 +539,16 @@ export function setRoadTextureOn(on) {
   setRoadTexture(roadTexApplied.amount, roadTexApplied.seed);
 }
 export const roadTextureOn = () => !roadTexApplied.off;
+/**
+ * The road paint's texture opacity: the whole street texture (tone, mottle, stains, single pixels)
+ * faded toward plain asphalt below 1 and pushed past itself above it, ahead of the paint and the
+ * grey ramp, so strokes keep their strength and the pixel steps stay. Rides `uRoadTexDetail.y`.
+ */
+export function setRoadTextureOpacity(v) {
+  roadTexApplied.opacity = Math.min(2, Math.max(0, Number(v) || 0));
+  PAINT_UNIFORMS.uRoadTexDetail.value.y = roadTexApplied.opacity;
+}
+export const roadTextureOpacity = () => roadTexApplied.opacity;
 
 /**
  * Move one of ROAD_TEX's levers with the game running (the panel's Street texture section). Only
@@ -828,6 +838,7 @@ const PAINT_FRAGMENT = /* glsl */ `
 							tex *= 1.0 + ((g1 - 0.5) * 0.6 * (1.0 - pix) + (g2 - 0.5) * 0.4) * uRoadTexFine.y * 2.0;
 							tex *= 1.0 - stain * vec3(0.9, 1.0, 1.15);
 						}
+						tex = mix(vec3(1.0), tex, uRoadTexDetail.y);  // the texture opacity (setRoadTextureOpacity)
 						// The hand-painted splat map (game/roadpaint.js), before the ramp so a stroke comes out
 						// in the street's own pixels and greys.
 						if (dot(uRoadPaintAmt, vec4(1.0)) > 0.0) {

@@ -1722,14 +1722,16 @@ turns the road's albedo into that colour, keeping the road's own sun, shadow and
 mix in order over one another. The colours and each channel's amount (`uRoadPaintAmt`) ride in the
 bake beside the bytes, so a painted channel can be recoloured. More than four would be a second
 texture (another 3.7 MB) and a second read. The panel's Street texture box switches the texture
-off under the paint without losing its look (`setRoadTextureOn`); the paint and its pixel grid stay. Vertex paint at that detail would have
+off under the paint without losing its look (`setRoadTextureOn`); the paint and its pixel grid stay. Street texture opacity (0-2, saved in the bake as `texture`) fades
+the whole texture toward plain asphalt or exaggerates it past 1, ahead of the paint and the grey ramp
+(`setRoadTextureOpacity`, riding `uRoadTexDetail.y`). Vertex paint at that detail would have
 meant cutting every road quad into 0.15-unit cells, millions of triangles where the ground is ~20k,
 for the same picture; this is one texture read on fragments the road shader already shades.
 
 - **Painting.** ⚙️ Visuals > Road paint (`?dev`). Tick Paint (or press **G**) and a left press on
   the road paints instead of panning or picking; hold **Shift** to pan (Space is boost and B the
   brake). **1-4** pick the channel, **E** or Alt erases, **[ ]** resize, **Cmd/Ctrl+Z** undoes
-  (30 strokes). Size, strength and hardness are sliders; a second Clear inside three seconds wipes it.
+  (30 strokes, brush armed or not). Size, strength and hardness are sliders; a second Clear inside three seconds wipes it.
 - **Seeing it.** Road only hides every drawable except the ground, manholes and asphalt patches
   (meshes only, never a group, so no light drops out of the count; a car spawned while it is on
   shows until it is toggled again). No lighting draws the ground as its bare colour times the paint

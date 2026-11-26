@@ -5,7 +5,7 @@ import { SPEED, MPH_PER_UNIT, CAR_W } from '../sim/traffic.js';
 import { PITCH, LANE } from '../city/grid.js';
 import {
   setShadowTint, shadowTint, FINISH_NAMES, glossTuning, setGlossFinish, setGlossGlobal, rimTuning, setRimTuning,
-  resetGlossTuning, ROAD_TEX, ROAD_TEX_DEFAULTS, tuneRoadTexture, setRoadTextureOn, roadTextureOn,
+  resetGlossTuning, ROAD_TEX, ROAD_TEX_DEFAULTS, tuneRoadTexture, setRoadTextureOn, roadTextureOn, setRoadTextureOpacity, roadTextureOpacity,
 } from '../util/geo.js';
 import { MIN_ELEVATION } from './daylight.js';
 import { BLOOM_INTENSITY, BLOOM_KINDS } from './bloom.js';
@@ -1218,6 +1218,13 @@ export function createDebugPanel({
     row(panel, 'Street texture', texOn);
     texOn.addEventListener('change', () => { setRoadTextureOn(texOn.checked); texOn.blur(); });
     syncs.push(() => { texOn.checked = roadTextureOn(); });
+    // How much of that texture shows: 0 is plain asphalt, past 1 exaggerates it. Saved in the bake.
+    const texAmt = slider(0, 2, 0.01, roadTextureOpacity());
+    const texAmtValue = row(panel, 'Street texture opacity', texAmt);
+    const showTexAmt = () => { texAmt.value = String(roadTextureOpacity()); texAmtValue.textContent = roadTextureOpacity().toFixed(2); };
+    texAmt.addEventListener('input', () => { setRoadTextureOpacity(Number(texAmt.value)); showTexAmt(); });
+    showTexAmt();
+    syncs.push(showTexAmt);
 
     const status = document.createElement('div');
     status.className = 'dbg-wide';
@@ -1234,7 +1241,7 @@ export function createDebugPanel({
     tools.className = 'dbg-wide';
     const sourceNow = async () => bakeSource(await encodeRoadPaint());
     tools.append(
-      button('Undo', () => { undoRoadPaint(); }),
+      button('Undo (Ctrl+Z)', () => { undoRoadPaint(); }),
       button('Clear', () => { if (confirmClear()) clearRoadPaint(); }),
       button('Save to repo', async () => {
         say('Saving…');
