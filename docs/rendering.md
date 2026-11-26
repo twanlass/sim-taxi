@@ -1724,7 +1724,10 @@ bake beside the bytes, so a painted channel can be recoloured. More than four wo
 texture (another 3.7 MB) and a second read. The panel's Street texture box switches the texture
 off under the paint without losing its look (`setRoadTextureOn`); the paint and its pixel grid stay. Street texture opacity (0-2, saved in the bake as `texture`) fades
 the whole texture toward plain asphalt or exaggerates it past 1, ahead of the paint and the grey ramp
-(`setRoadTextureOpacity`, riding `uRoadTexDetail.y`). Vertex paint at that detail would have
+(`setRoadTextureOpacity`, riding `uRoadTexDetail.y`). Asphalt colour moves the base colour live (`setAsphaltColor`): PALETTE.asphalt is baked
+into vertex colours, so the ground shader multiplies every fragment whose albedo sits near it by the
+ratio to the chosen colour (lane paint, pavement and lawns are too far off to follow). Saved in the
+bake as `asphalt` only when changed; the settled colour belongs in palette.js. Vertex paint at that detail would have
 meant cutting every road quad into 0.15-unit cells, millions of triangles where the ground is ~20k,
 for the same picture; this is one texture read on fragments the road shader already shades.
 

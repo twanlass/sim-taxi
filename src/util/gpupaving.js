@@ -10,7 +10,7 @@
  * The GLSL multiplies the finished pixel in display space; `paving(display, world)` takes and
  * answers a display-space colour, and the caller does the encode and decode around it.
  */
-import { abs, dot, exp2, float, floor, fract, If, length, min, mix, mod, select, sin, smoothstep, sRGBTransferOETF, step, texture, uniform, vec2, vec3, vec4, diffuseColor } from 'three/tsl';
+import { abs, distance, dot, exp2, float, floor, fract, If, length, min, mix, mod, select, sin, smoothstep, sRGBTransferOETF, step, texture, uniform, vec2, vec3, vec4, diffuseColor } from 'three/tsl';
 
 const LUMA = vec3(0.2126, 0.7152, 0.0722);
 
@@ -52,6 +52,8 @@ export function createPaving(U) {
   const paintBox = uniform(U.uRoadPaintBox.value);
   const paintAmt = uniform(U.uRoadPaintAmt.value);
   const paintC = [0, 1, 2, 3].map((i) => uniform(U[`uRoadPaintC${i}`].value));
+  const asphaltRef = uniform(U.uAsphaltRef.value);
+  const asphaltTint = uniform(U.uAsphaltTint.value);
   const grid = uniform(U.uRoadGrid.value);
   const riverZ = uniform(U.uRiverZ.value);
   const art = uniform(U.uRoadArt.value);
@@ -108,6 +110,10 @@ export function createPaving(U) {
         plaza.assign(box.mul(tint.w));
       });
     });
+    // The asphalt colour (setAsphaltColor in util/geo.js), as in PAINT_FRAGMENT.
+    const aNear = float(1).sub(smoothstep(0.10, 0.18, distance(sRGBTransferOETF(diffuseColor.rgb), asphaltRef))).toVar();
+    const aTint = mix(vec3(1), asphaltTint, aNear.mul(float(1).sub(plaza))).toVar();
+    out.mulAssign(aTint);
     // The asphalt's colour variation (setRoadTexture in util/geo.js).
     const hold = float(1).sub(grassy).mul(float(1).sub(smoothstep(0.42, 0.7, lum))).mul(float(1).sub(plaza)).toVar();
     // The painted road ignores the brightness hold (PAINT_FRAGMENT says why).
@@ -155,7 +161,7 @@ export function createPaving(U) {
         const pm = texture(U.tRoadPaint.value, puv.clamp(0, 1)).level(0).mul(paintAmt).mul(inside).toVar();
         pMask.assign(pm.r.max(pm.g).max(pm.b.max(pm.a)).clamp(0, 1));
         // Toward each channel's colour, as PAINT_FRAGMENT does.
-        const alb = sRGBTransferOETF(diffuseColor.rgb).mul(ratio).toVar();
+        const alb = sRGBTransferOETF(diffuseColor.rgb).mul(aTint).mul(ratio).toVar();
         const painted = mix(mix(mix(mix(alb, paintC[0], pm.r), paintC[1], pm.g), paintC[2], pm.b), paintC[3], pm.a);
         ratio.mulAssign(painted.div(alb.max(vec3(1e-3))));
       });

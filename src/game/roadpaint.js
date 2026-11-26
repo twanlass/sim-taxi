@@ -22,7 +22,7 @@
  * `/__roadpaint` endpoint (tools/roadpaint-save.mjs) writes the bake straight into the repo.
  */
 import * as THREE from 'three';
-import { PAINT_UNIFORMS, unlitMaterial, displayColor, setRoadTextureOpacity, roadTextureOpacity } from '../util/geo.js';
+import { PAINT_UNIFORMS, unlitMaterial, displayColor, setRoadTextureOpacity, roadTextureOpacity, setAsphaltColor, asphaltOverridden, asphaltColor } from '../util/geo.js';
 import { coastWest, coastEast, coastNorth, coastSouth } from '../city/grid.js';
 import { ROAD_PAINT_BAKE } from '../city/roadpaintbake.js';
 
@@ -74,6 +74,7 @@ function applyLook(saved) {
   (saved?.amounts ?? [1, 1, 1, 1]).forEach((v, c) => { amounts[c] = Math.min(1, Math.max(0, Number(v) || 0)); });
   applyAmounts();
   setRoadTextureOpacity(saved?.texture ?? 1);
+  setAsphaltColor(saved?.asphalt ?? null);
 }
 
 function upload() {
@@ -159,7 +160,7 @@ export async function encodeRoadPaint() {
       }
     }
   }
-  const look = { colors: [...colors], amounts: [...amounts], texture: roadTextureOpacity() };
+  const look = { colors: [...colors], amounts: [...amounts], texture: roadTextureOpacity(), ...(asphaltOverridden() ? { asphalt: asphaltColor() } : {}) };
   if (x1 < 0) return { texel: PAINT_TEXEL, minX: 0, minZ: 0, width: 0, height: 0, ...look, data: '' };
   const w = x1 - x0 + 1, h = z1 - z0 + 1;
   const out = new Uint8Array(w * h * 4);

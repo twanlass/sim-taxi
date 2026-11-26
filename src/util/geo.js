@@ -338,6 +338,10 @@ export const PAINT_UNIFORMS = {
   // The road paint's albedo view (⚙️ Road paint > No lighting): 1 swaps the lit ground for its bare
   // colour before the paint pass multiplies it, so a stroke can be judged without sun or shadow.
   uAlbedoView: { value: 0 },
+  // The road paint's asphalt colour (setAsphaltColor): the palette's asphalt as display sRGB, and
+  // the ratio that turns it into the chosen colour (1,1,1 is the palette's own).
+  uAsphaltRef: { value: displayColor(PALETTE.asphalt) },
+  uAsphaltTint: { value: new THREE.Color(1, 1, 1) },
   uBrushTile: { value: 8 },     // world units per tile repeat
   uBrushAmt: { value: 0.7 },   // value swing of a stroke (0.22 was invisible at play zoom)
 };
@@ -549,6 +553,20 @@ export function setRoadTextureOpacity(v) {
   PAINT_UNIFORMS.uRoadTexDetail.value.y = roadTexApplied.opacity;
 }
 export const roadTextureOpacity = () => roadTexApplied.opacity;
+/**
+ * The road paint's asphalt colour: a live stand-in for PALETTE.asphalt, which is baked into the
+ * ground's vertex colours at build time. Null puts the palette's own back. Answers the hex in use.
+ */
+let asphaltOverride = null;
+export function setAsphaltColor(hex) {
+  asphaltOverride = hex ? String(hex).toLowerCase() : null;
+  const ref = displayColor(PALETTE.asphalt, PAINT_UNIFORMS.uAsphaltRef.value);
+  const want = asphaltOverride ? displayColor(asphaltOverride) : ref;
+  PAINT_UNIFORMS.uAsphaltTint.value.setRGB(want.r / Math.max(ref.r, 1e-3), want.g / Math.max(ref.g, 1e-3), want.b / Math.max(ref.b, 1e-3), THREE.LinearSRGBColorSpace);
+  return asphaltColor();
+}
+export const asphaltColor = () => asphaltOverride ?? PALETTE.asphalt.toLowerCase();
+export const asphaltOverridden = () => asphaltOverride !== null;
 
 /**
  * Move one of ROAD_TEX's levers with the game running (the panel's Street texture section). Only
@@ -643,6 +661,8 @@ uniform vec3 uRoadPaintC1;
 uniform vec3 uRoadPaintC2;
 uniform vec3 uRoadPaintC3;
 uniform float uAlbedoView;
+uniform vec3 uAsphaltRef;
+uniform vec3 uAsphaltTint;
 // One oil stain a cell at most. lane is how near a drip line this is (0 to 1, already eased off
 // away from a junction), chew a noise that roughens the edge. 1 in the blot, 0 outside.
 float roadStain(vec2 p, float lane, float chew) {
@@ -788,6 +808,12 @@ const PAINT_FRAGMENT = /* glsl */ `
 							plaza = jBox * uJunctionTint.w;
 						}
 					}
+					// The asphalt colour (setAsphaltColor): every ground fragment whose albedo is near the
+					// palette's asphalt is moved to the chosen colour by a ratio, so the patches, kerb edge
+					// and jittered aprons follow it and the lane paint, pavement and lawns, far off it, do not.
+					float aNear = 1.0 - smoothstep(0.10, 0.18, distance(linearToOutputTexel(vec4(diffuseColor.rgb, 1.0)).rgb, uAsphaltRef));
+					vec3 aTint = mix(vec3(1.0), uAsphaltTint, aNear * (1.0 - plaza));
+					gl_FragColor.rgb *= aTint;
 					// The asphalt's colour variation (setRoadTexture, where the reasoning is). Held off
 					// the lawns, the lane paint, the plaza, and (like the plaza) anything already
 					// bright, which is the wet road at night.
@@ -848,7 +874,7 @@ const PAINT_FRAGMENT = /* glsl */ `
 								pMask = clamp(max(max(pm.r, pm.g), max(pm.b, pm.a)), 0.0, 1.0);
 								// Each channel pulls the textured albedo toward its colour, in order; the change
 								// goes back in as a ratio so the sun, shadow and AO stay the road's.
-								vec3 alb = linearToOutputTexel(vec4(diffuseColor.rgb, 1.0)).rgb * tex;
+								vec3 alb = linearToOutputTexel(vec4(diffuseColor.rgb, 1.0)).rgb * aTint * tex;
 								vec3 painted = mix(alb, uRoadPaintC0, pm.r);
 								painted = mix(painted, uRoadPaintC1, pm.g);
 								painted = mix(painted, uRoadPaintC2, pm.b);

@@ -5,7 +5,7 @@ import { SPEED, MPH_PER_UNIT, CAR_W } from '../sim/traffic.js';
 import { PITCH, LANE } from '../city/grid.js';
 import {
   setShadowTint, shadowTint, FINISH_NAMES, glossTuning, setGlossFinish, setGlossGlobal, rimTuning, setRimTuning,
-  resetGlossTuning, ROAD_TEX, ROAD_TEX_DEFAULTS, tuneRoadTexture, setRoadTextureOn, roadTextureOn, setRoadTextureOpacity, roadTextureOpacity,
+  resetGlossTuning, ROAD_TEX, ROAD_TEX_DEFAULTS, tuneRoadTexture, setRoadTextureOn, roadTextureOn, setRoadTextureOpacity, roadTextureOpacity, setAsphaltColor, asphaltColor,
 } from '../util/geo.js';
 import { MIN_ELEVATION } from './daylight.js';
 import { BLOOM_INTENSITY, BLOOM_KINDS } from './bloom.js';
@@ -1225,6 +1225,19 @@ export function createDebugPanel({
     texAmt.addEventListener('input', () => { setRoadTextureOpacity(Number(texAmt.value)); showTexAmt(); });
     showTexAmt();
     syncs.push(showTexAmt);
+    // The asphalt's base colour (setAsphaltColor in util/geo.js), live; saved in the bake.
+    const asphaltWell = document.createElement('input');
+    asphaltWell.type = 'color';
+    asphaltWell.value = asphaltColor();
+    const asphaltReset = document.createElement('button');
+    asphaltReset.type = 'button';
+    asphaltReset.textContent = 'Reset';
+    const asphaltBox = document.createElement('span');
+    asphaltBox.append(asphaltWell, ' ', asphaltReset);
+    row(panel, 'Asphalt colour', asphaltBox);
+    asphaltWell.addEventListener('input', () => setAsphaltColor(asphaltWell.value));
+    asphaltReset.addEventListener('click', () => { asphaltWell.value = setAsphaltColor(null); });
+    syncs.push(() => { asphaltWell.value = asphaltColor(); });
 
     const status = document.createElement('div');
     status.className = 'dbg-wide';
