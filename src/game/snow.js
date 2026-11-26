@@ -112,8 +112,8 @@ export function createSnow({ pin = null } = {}) {
    * with a one-texel soft edge so the linear filter has something to blend. Max, never add: a
    * track driven twice is no deeper than one driven once.
    */
-  function tread(ax, az, bx, bz) {
-    const r = TREAD / 2 / TEXEL;
+  function tread(ax, az, bx, bz, width = TREAD) {
+    const r = width / 2 / TEXEL;
     const x0 = toTexel(ax), z0 = toTexel(az), x1 = toTexel(bx), z1 = toTexel(bz);
     const lo = (a, b) => Math.max(0, Math.floor(Math.min(a, b) - r - 1));
     const hi = (a, b) => Math.min(TRACK_RES - 1, Math.ceil(Math.max(a, b) + r + 1));
@@ -323,6 +323,11 @@ export function createSnow({ pin = null } = {}) {
     stamp,
     update,
     trackAt,
+    /**
+     * A swath `width` across from (ax, az) to (bx, bz), cleared to the slush a tread leaves: the
+     * snowplow's blade (game/plow.js). It fills back in on the same `REFILL` as a tread.
+     */
+    plow(ax, az, bx, bz, width) { tread(ax, az, bx, bz, width); },
     texture,
     centre,
     /** Hold the cover at `v` (null to let it build again). */

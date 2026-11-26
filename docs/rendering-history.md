@@ -938,3 +938,10 @@ noise: `fog × (0.86 + 0.2 × billow)`. On a colour that close to white that is 
 12/255, and at phone zoom it read as one flat sheet (Tyler: "so they don't read as just pure
 white"). Replaced by sun-lit billows with warm and cool regions, described in
 [rendering.md](rendering.md#the-fog-of-war--gameedgefogjs).
+
+## The snow season by the device's date (until 2026-11-26)
+
+The snowstorm first came on by itself for every run from 1 December to 6 January, read off the
+device's clock. Tyler cut it ("Kill the device date thing", 2026-11-26): a week of the year where
+every run looks the same is a theme, not an event, and it put a reload-sized fork in every mode.
+It became Story's Sunday, the Snow Day, with `?snow` for any other run.

@@ -563,9 +563,18 @@
       /* The day's name before the run (game/daycard.js): big white type with the pop text's dark
          stroke, dead centre, punching in and fading out. Above the title screen and the HUD. */
       #day-card {
-        position: fixed; inset: 0; z-index: 60; display: flex; align-items: center; justify-content: center;
+        position: fixed; inset: 0; z-index: 60; display: flex; flex-direction: column; gap: 10px;
+        align-items: center; justify-content: center;
         cursor: pointer; user-select: none; -webkit-user-select: none;
       }
+      /* A line under the day for a day with something to say about it: the Snow Day. */
+      #day-card .day-card-sub {
+        font: 700 clamp(20px, 6vw, 40px)/1 var(--game-font); color: #fff;
+        text-transform: uppercase; letter-spacing: 0.06em; pointer-events: none;
+        -webkit-text-stroke: clamp(4px, 0.14em, 8px) #121318; paint-order: stroke fill;
+        animation: day-card-in 0.38s 0.12s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+      }
+      #day-card.is-out .day-card-sub { animation: day-card-out 0.42s ease-in both; }
       #day-card .day-card-word {
         font: 700 clamp(40px, 12vw, 84px)/1 var(--game-font); color: #fff;
         text-transform: uppercase; letter-spacing: 0.02em; pointer-events: none;
@@ -576,7 +585,7 @@
       @keyframes day-card-in { from { transform: scale(1.6); opacity: 0; } to { transform: scale(1); opacity: 1; } }
       @keyframes day-card-out { from { transform: scale(1); opacity: 1; } to { transform: scale(0.92); opacity: 0; } }
       @media (prefers-reduced-motion: reduce) {
-        #day-card .day-card-word { animation: none; }
+        #day-card .day-card-word, #day-card .day-card-sub { animation: none; }
         #day-card.is-out .day-card-word { animation: day-card-out 0.42s linear both; transform: none; }
       }
 

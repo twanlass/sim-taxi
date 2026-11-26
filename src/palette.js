@@ -1484,6 +1484,18 @@ export const PALETTE = {
   skaterCoatD: '#D49A2A',
   skaterCoatE: '#6A4C8C',
   skaterTrousers: '#2C2F38',
+  // The snowplow (geometry/plow.js): a municipal orange truck with a yellow blade, its salt hopper
+  // grey, the amber beacon dark in its housing and lit as it works; and Santa, the Snow Day's rider.
+  plowBody: '#E8742A',
+  plowCab: '#F08A3A',
+  plowBlade: '#F2C230',
+  plowBladeEdge: '#3A3C42',
+  plowHopper: '#7E848C',
+  plowGhost: '#F5B27A',
+  santaRed: '#C8202A',
+  santaFur: '#F4F1EA',
+  santaBelt: '#1C1A1A',
+  santaSack: '#8A5A2E',
   // The streaks and the crowns. Pale and a touch blue, never white: at 0.3 alpha over asphalt a
   // white streak reads as snow.
   rainStreak: '#C8D6E6',

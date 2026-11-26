@@ -1937,11 +1937,14 @@ History: [the wet map's first drying rate, and windows that wiped on](rendering-
 
 ### A snowstorm — the holiday weather, `game/snow.js`
 
-**On for every run from 1 December to 6 January** by the device's date (`getSnow` in
-util/shot.js), in place of the squall; `?snow` forces it any day, `?snow=0.8` pins the cover, and
-`?snow=off` drops it. It stands down where the squall does (shot mode, safe mode, `?rain`/`?storm`)
-and for an explicit `?squall`. It is decided at boot because it is compiled in, so a Story day
-changing under Play again does not change the weather.
+**Story's Sunday is the Snow Day** (`snow: true` in game/days.js, read at boot by
+`snowDayAtBoot` through `getSnow` in util/shot.js), in place of the squall; `?snow` forces it on
+any run, `?snow=0.8` pins the cover, and `?snow=off` drops it. Arcade never snows unless asked. It
+stands down where the squall does (shot mode, safe mode, demo, `?rain`/`?storm`) and for an explicit
+`?squall`. It is compiled into the materials, so crossing into or out of Sunday (Play again, or
+picking a mode on the title) reloads the page once and skips the title (`snowMismatch` in main.js).
+The day card says "Snow Day" under the day's name. History:
+[the date season](rendering-history.md#the-snow-season-by-the-devices-date-until-2026-11-26).
 
 Three parts, none of them geometry on the city:
 
@@ -1984,6 +1987,16 @@ sim/traffic.js, driven off the cover): its body lags its heading through a corne
 in and the tail swung wide, then catches and wobbles back once. A spring chasing
 `SLIP_GAIN × turn rate × speed`, capped at 0.24 rad (0.3 with the overshoot) and pivoted about the nose like the race's
 fishtail, so the lane and `car.s` carry on and nothing about routing changes.
+
+**The plow** (`game/plow.js`, `geometry/plow.js`). An orange truck with an angled yellow blade and
+an amber beacon, a guest in traffic like the garbage truck: it comes on 6 to 12 s into the run,
+obeys the signals, can be wrecked (back 25 s later) and roams to a far junction each time its route
+runs out, side streets costing it double so it keeps to the arterials and the ring. Its blade
+clears a 2.5-wide swath into the track map (`snow.plow`), which draws as slush and refills over
+`REFILL` like a tread. **The taxi has no slip on a plowed lane**: main.js samples the map at the
+taxi's middle, which treads never reach, and `PLOWED` 0.5 or more there zeroes `setSlip`. It does
+nothing for the player; a player who follows it gets a dry road. Measured: 158 units of lane in
+40 s on seed 71624 (tools/snow.mjs).
 
 **The route band** is painted over snow rather than added (`SNOW_ROUTE_OPACITY` 0.62, normal
 blend): additive over white is white, and the band went to a glare. `?blend=` still wins.

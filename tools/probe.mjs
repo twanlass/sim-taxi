@@ -8421,7 +8421,16 @@ function rideToPickup() {
   // chest. The head is read off the built figure rather than from a copied constant.
   const figure = createPerson();
   figure.rest();
-  const head = new THREE.Box3().setFromObject(figure.group).max.y;
+  // Visible meshes only: `setFromObject` counts hidden ones too, and the Santa kit's hat (built
+  // hidden on every figure, geometry/person.js) stands a bobble well over an ordinary head.
+  figure.group.updateMatrixWorld(true);
+  const headBox = new THREE.Box3();
+  figure.group.traverseVisible((m) => {
+    if (!m.isMesh) return;
+    m.geometry.computeBoundingBox();
+    headBox.union(m.geometry.boundingBox.clone().applyMatrix4(m.matrixWorld));
+  });
+  const head = headBox.max.y;
   const tip = CURSE_LIFT * SCREEN_PER_WORLD_Y - TAIL_DROP;
   check('the outburst\'s tail points at the rider\'s head rather than through it',
     tip > head * SCREEN_PER_WORLD_Y && tip < head * SCREEN_PER_WORLD_Y + 1.5,
@@ -18966,9 +18975,11 @@ let chopperOrder; // likewise
       // there: the sack hangs off the left *arm*, so that it swings with it. A helper that only
       // looked one level down would score the kit as two pieces and pass while the bag stayed on
       // the next rider's hand.
+      // Only the robber's own pieces are counted: every figure also carries Santa's kit, hidden
+      // (geometry/person.js), which has nothing to do with this event.
       const hidden = (slot) => {
         let n = 0;
-        slot.passenger.standing.group.traverse((m) => { if (m.visible === false) n += 1; });
+        slot.passenger.standing.group.traverse((m) => { if (m.userData.kit === 'robber' && m.visible === false) n += 1; });
         return n;
       };
       check('the robber comes out of the bank in a mask',

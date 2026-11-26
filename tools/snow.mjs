@@ -5,7 +5,7 @@
  * a car driven down a street leaves two treads where its wheels are and nothing between them, a car
  * that teleports or flies leaves nothing, and snowfall fills a track back in over `REFILL`. Then
  * the shader side, as emitted source (nothing headless renders): every lit prop takes the cover,
- * and the water and the vehicles do not. Then the season's dates.
+ * and the water and the vehicles do not. Then the rink, and Story's Snow Day.
  *
  *   node tools/snow.mjs
  */
@@ -15,7 +15,7 @@ globalThis.window ??= { location: { search: '' } };
 
 const { createSnow, REFILL, TRACK_EXTENT, TRACK_RES } = await import('../src/game/snow.js');
 const { setSnow, propMaterial, SNOW_UNIFORMS } = await import('../src/util/geo.js');
-const { inSnowSeason } = await import('../src/util/shot.js');
+const { snowDayAtBoot, DAYS } = await import('../src/game/days.js');
 
 const results = [];
 const check = (name, pass, detail = '') => {
@@ -164,12 +164,85 @@ for (let i = 0; i < pos.count; i += 3) {
 }
 check('the boards\' top faces point at the sky', up > 0 && down === 0, `${up} up, ${down} down`);
 
+// --- The plow -----------------------------------------------------------------------------------
+
+const { cityFor } = await import('./autoplay.mjs');
+const { createTraffic } = await import('../src/sim/traffic.js');
+const { createPlow, PLOWED } = await import('../src/game/plow.js');
+const { createFareSystem } = await import('../src/game/fares.js');
+const { createPerson } = await import('../src/geometry/person.js');
+const { PALETTE } = await import('../src/palette.js');
+
+// The swath on its own: a blade's width cleared, the middle of it past PLOWED, nothing beside it.
+const swath = createSnow({ pin: 1 });
+swath.plow(-10, 30, 10, 30, 2.4);
+check('the blade clears a lane-wide swath', swath.trackAt(0, 30) >= PLOWED && swath.trackAt(0, 30.9) >= PLOWED,
+  `${swath.trackAt(0, 30).toFixed(2)} mid, ${swath.trackAt(0, 30.9).toFixed(2)} at 0.9 out`);
+check('and nothing past its edge', swath.trackAt(0, 32) < 0.05, swath.trackAt(0, 32).toFixed(2));
+
+cityFor(71624);
+const plowScene = new THREE.Scene();
+const plowTraffic = createTraffic(makeRng(71624 + 44), plowScene, 60);
+plowTraffic.warmup(20);
+const plowSnow = createSnow({ pin: 1 });
+const plow = createPlow({ rng: makeRng(9), scene: plowScene, traffic: plowTraffic, snow: plowSnow });
+check('the plow comes on', plow.spawn() && plow.state.phase === 'working');
+const trail = [];
+for (let f = 0; f < 60 * 40; f++) {
+  plowTraffic.update(1 / 60);
+  plowSnow.stamp(plowTraffic.cars);
+  plow.update(1 / 60);
+  if (plow.state.truck && f % 30 === 0) trail.push(plow.state.blade && { ...plow.state.blade });
+}
+check('it works its way across town', plow.state.cleared > 60, `${plow.state.cleared.toFixed(0)} units plowed in 40s`);
+// Behind the blade, a second ago: the lane it just drove is plowed.
+const recent = trail.filter(Boolean).slice(-4, -1);
+const plowedBehind = recent.filter((b) => plowSnow.trackAt(b.x, b.z) >= PLOWED).length;
+check('the lane behind it reads as plowed', recent.length > 0 && plowedBehind === recent.length, `${plowedBehind}/${recent.length}`);
+
+// --- Santa --------------------------------------------------------------------------------------
+
+const santaFig = createPerson({ body: PALETTE.passenger });
+santaFig.setSanta(true);
+const sleeve = santaFig.meshes.find((m) => m.visible && m.material.color.r !== 1 && m.material.color.r !== 0);
+check('Santa\'s kit goes on and his sleeves go red', santaFig.meshes.filter((m) => m.visible).length > 12 && Boolean(sleeve));
+santaFig.setSanta(false);
+check('and comes off again', santaFig.meshes.every((m) => m.material.color.r === 1 && m.material.color.g === 1)
+  && santaFig.meshes.filter((m) => m.visible).length === 9);
+
+const playSanta = (on) => {
+  const fs = createFareSystem(makeRng(71624 + 55), plowScene, { santaOn: () => on });
+  let santas = 0;
+  let ordinary = 0;
+  for (let f = 0; f < 60 * 240; f++) {
+    fs.state.delivered = 3;
+    fs.update(1 / 60, plowTraffic.taxi);
+    for (const fare of fs.state.fares) {
+      if (fare.stage !== 'waiting' || fare.counted) continue;
+      fare.counted = true;
+      if (fare.santa) santas += 1;
+      else ordinary += 1;
+      if (fare.santa && !(fare.vipMultiplier === 3 && fare.quest !== undefined)) santas = -99;
+    }
+    // Clear the board now and then, so new riders keep coming.
+    if (f % 600 === 599) fs.state.fares.length = 0;
+  }
+  return { santas, ordinary };
+};
+const snowyRun = playSanta(true);
+check('Santa turns up once on a snow day, at 3x', snowyRun.santas === 1, `${snowyRun.santas} Santas, ${snowyRun.ordinary} others`);
+check('and never on a dry one', playSanta(false).santas === 0);
+
 // --- The season ---------------------------------------------------------------------------------
 
-const on = ['2026-12-01', '2026-12-25', '2027-01-01', '2027-01-06'];
-const off = ['2026-11-30', '2027-01-07', '2027-07-04'];
-check('snows 1 December to 6 January', on.every((d) => inSnowSeason(new Date(`${d}T12:00`)))
-  && off.every((d) => !inSnowSeason(new Date(`${d}T12:00`))));
+// Story's Snow Day, by the week's save and the mode; never by the date.
+const store = (mode, day) => ({ getItem: (k) => (k === 'simtaxi.mode' ? mode : JSON.stringify({ day, bank: 0, weeks: 0 })) });
+const sunday = DAYS.findIndex((d) => d.key === 'sun');
+check('Sunday is the Snow Day and no other day is', DAYS.every((d, i) => Boolean(d.snow) === (i === sunday)));
+check('it snows on a Story Sunday', snowDayAtBoot('', store('story', sunday)) && snowDayAtBoot('?day=sun', store('arcade', 0)));
+check('and not on Saturday, in Arcade, or with the week off', !snowDayAtBoot('', store('story', sunday - 1))
+  && !snowDayAtBoot('', store('arcade', sunday)) && !snowDayAtBoot('?days=classic', store('story', sunday))
+  && !snowDayAtBoot('?day=reset', store('story', sunday)));
 
 const passed = results.filter((r) => r.pass).length;
 console.log(`\n${passed}/${results.length} checks passed`);

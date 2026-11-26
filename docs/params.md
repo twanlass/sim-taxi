@@ -272,7 +272,7 @@ doc; what the classic version was, and why it changed, is in that doc's history 
 | `?storm` / `=0.6` / `=night` | The passing storm on a loop, pinned at a point, or the darker storm |
 | `?squall=off` / `=0.45` | No squall (on by default) / pinned that far along its crossing |
 | `?wet=spray` / `tracks` / `both` / `off` | What the taxi's tyres do on a wet road (default `both`) |
-| `?snow` / `=0.8` / `=off` | The snowstorm on any date (it is on by itself from 1 December to 6 January, in place of the squall) / its cover pinned that deep (0 to 1.1) / no snow in the season. See [rendering.md](rendering.md#a-snowstorm--the-holiday-weather-gamesnowjs) |
+| `?snow` / `=0.8` / `=off` | The snowstorm, the plow and Santa on any run (on by themselves only on Story's Sunday, the Snow Day) / its cover pinned that deep (0 to 1.1) / no snow on the Snow Day. See [rendering.md](rendering.md#a-snowstorm--the-holiday-weather-gamesnowjs) |
 | `?pond=classic` | The lobed round duck pond instead of the rink-shaped one (which freezes into a skating rink under snow). See [city.md](city.md#a-duck-pond) |
 | `?fall=off` | Summer trees instead of autumn (under snow the trees are green unless `?fall` is given) |
 | `?finishes` | Paints each car finish a flat false colour, to check what the geometry tagged as what |

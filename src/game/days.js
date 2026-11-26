@@ -26,17 +26,24 @@
  * `race`: whether a racer can turn up.
  * `robo`: whether the robo-taxis are on the road. They roll out at Monday's buzzer, so no day in
  * the week has them yet; the first day after it will.
+ * `snow`: a Snow Day — the snowstorm (game/snow.js) for the whole shift, the rink, the plow and
+ * Santa (Tyler, 2026-11-25: "Make it a day like Sunday in the story mode"). Compiled into the
+ * materials, so main.js reloads the page to cross between a snow day and a dry one
+ * (`snowDayAtBoot`).
  */
 export const DAYS = Object.freeze([
   { key: 'fri', name: 'Friday', seconds: 150, target: 150, floor: 0, bank: 'off', race: false, robo: false },
   { key: 'sat', name: 'Saturday', seconds: 150, target: 250, floor: 0.15, bank: 'off', race: true, robo: false },
   // The bank's closed on a Sunday.
-  { key: 'sun', name: 'Sunday', seconds: 150, target: 300, floor: 0.3, bank: 'off', race: true, robo: false },
+  // And it snows (Tyler, 2026-11-25).
+  { key: 'sun', name: 'Sunday', seconds: 150, target: 300, floor: 0.3, bank: 'off', race: true, robo: false, snow: true },
   // The robbery, guaranteed; the robo-taxis roll out at Monday's buzzer (not built yet).
   { key: 'mon', name: 'Monday', seconds: 150, target: 400, floor: 0.4, bank: 'force', race: true, robo: false },
 ]);
 
 const STORE_KEY = 'simtaxi.days';
+/** Story or Arcade, as the title last picked it (main.js `chooseMode`). */
+export const MODE_KEY = 'simtaxi.mode';
 
 /** The day a key names, or null. For `?day=`. */
 export const dayByKey = (key) => DAYS.findIndex((d) => d.key === key);
@@ -73,6 +80,25 @@ export function clearDay(store, dayIndex, earned) {
   else save.day = dayIndex + 1;
   write(store, save);
   return save;
+}
+
+/**
+ * Whether the run this page boots into is a Snow Day: Story (a `?day=` implies it, otherwise the
+ * remembered pick) on a day with `snow`, unless the week is off (`?days=classic`, `?shift=classic`).
+ * Read before anything compiles, which is why it reads the store itself rather than waiting for
+ * main.js to plan the day; `planDay` there answers the same question for the run after this one.
+ */
+export function snowDayAtBoot(search, store) {
+  const params = new URLSearchParams(search);
+  if (params.get('days') === 'classic' || params.get('shift') === 'classic') return false;
+  let mode = 'story';
+  if (!params.has('day')) {
+    try { mode = store?.getItem(MODE_KEY) === 'arcade' ? 'arcade' : 'story'; } catch { /* story */ }
+  }
+  if (mode === 'arcade') return false;
+  const pin = dayByKey(params.get('day'));
+  const index = pin >= 0 ? pin : params.get('day') === 'reset' ? 0 : read(store).day;
+  return Boolean(DAYS[index]?.snow);
 }
 
 /** Back to Friday with nothing banked. The ⚙️ panel's reset and the tools. */

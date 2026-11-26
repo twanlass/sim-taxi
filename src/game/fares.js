@@ -197,6 +197,18 @@ const VIP_MIN_DELIVERED = 1;      // never on the tutorial fare — nothing to d
 const VIP_COOLDOWN = 55;          // seconds between opportunities, so a VIP stays a rare event
 const VIP_CHANCE = 0.16;          // chance a qualifying spawn actually becomes one
 const VIP_PAYOUT = 3;
+
+// --- Santa ---------------------------------------------------------------------
+//
+// The Snow Day's special rider (Tyler, 2026-11-26: "Add a Santa as a special rider pickup"). Once a
+// run, on a snow day only (`santaOn`, which main.js answers from the day), a rider at an ordinary
+// kerb is Santa: the coat, the beard and the toy sack (`setSanta` in geometry/person.js) and the
+// purple "!" over them. He pays SANTA_PAYOUT times the distance price, stamped at spawn like a VIP's,
+// and is otherwise an ordinary fare — the ordinary clock, the ordinary miss. A VIP's cut clock is
+// what makes a VIP a gamble; Santa is a present, and the only decision is whether to go and get him.
+const SANTA_MIN_DELIVERED = 2;   // after the run is under way, never the tutorial fare
+const SANTA_CHANCE = 0.35;       // per qualifying spawn, so he turns up a few rides in, not on the dot
+const SANTA_PAYOUT = 3;
 // Off by default (Tyler, 2026-10-21: "let's not spawn the mystery rider anymore"). Everything
 // below still works — `?vip=classic` (`VIP=classic` headless) brings them back on the old odds.
 const VIP_SPAWNS = typeof location !== 'undefined'
@@ -777,6 +789,8 @@ export const waitingTargets = (slot) => [slot.passenger.group, slot.marker.group
  */
 export function createFareSystem(rng, scene, {
   reserved = () => [], judgeRun = () => ({ runs: [], mult: 1 }), rating = true, risingOdds = true, alwaysRob = BANK_ROBBER_ALWAYS, forceRob = () => false, forceBank = () => false,
+  // Is Santa about today (see SANTA_PAYOUT)? main.js answers it from the day; the tools leave him out.
+  santaOn = () => false,
   quest = questMark,
   // Seconds, or null for no shift. Null by default so the headless tools, which play long runs to
   // measure the ramp, keep the endless loop; main.js hands in SHIFT_SECONDS.
@@ -1133,6 +1147,7 @@ export function createFareSystem(rng, scene, {
   // Never while one is already live on the board, and gated by its own cooldown/chance on top of
   // that — a VIP has to stay a rare thing to be a special one.
   let lastVipAt = -Infinity;
+  let santaSeen = false;
   // The bank's doorstep, set by main.js (`setBankStop`) when the bank rider is on. Null otherwise —
   // the tools and `?bankfare=classic` — and then no bank rider ever spawns.
   let bankStop = null;
@@ -1185,6 +1200,14 @@ export function createFareSystem(rng, scene, {
     if (spokenFor(taxiCar).some((a) => a.i === junction.i && a.j === junction.j)) return false;
     if (reserved().some((a) => (a.i === junction.i && a.j === junction.j) || onSameBlock(junction, a))) return false;
     return forced || rng.chance(BANK_CHANCE);
+  }
+
+  /** Is the next spawn Santa? Once a run, on a snow day, never beside a VIP or the bank rider. */
+  function wantsSanta() {
+    if (santaSeen || !santaOn()) return false;
+    if (state.delivered < SANTA_MIN_DELIVERED) return false;
+    if (state.fares.some((f) => f.vip || f.bank || f.robber)) return false;
+    return rng.chance(SANTA_CHANCE);
   }
 
   function wantsVip() {
@@ -1274,7 +1297,7 @@ export function createFareSystem(rng, scene, {
     return { work, limit };
   }
 
-  function spawnFare(taxiCar, near = null, vip = false, bank = false) {
+  function spawnFare(taxiCar, near = null, vip = false, bank = false, santa = false) {
     const slot = slots.find((s) => !state.fares.some((f) => f.slot === s)
       && !exits.some((e) => e.slot === s));
     if (!slot) return null;
@@ -1302,7 +1325,8 @@ export function createFareSystem(rng, scene, {
       // game/robbery.js). It used to stand over every bank rider and the robbery's fairness gates
       // were read only on arrival, so a "!" rider whose robbery cooldown had not run out, or who
       // arrived with someone else on the kerb running low, just got in (Tyler, 2026-10-26).
-      quest: robberRoll && quest(),
+      quest: (robberRoll || santa) && quest(),
+      santa,
       target: spot,
       // Where they were picked up. `target` moves to the drop-off at `beginRide`, so without a
       // separate copy the trip distance (and its fare) can't be measured later.
@@ -1364,7 +1388,7 @@ export function createFareSystem(rng, scene, {
     //
     // A VIP's flat multiplier is stamped in at the same moment. A run bonus is not: it is read at
     // the drop-off, because it is about how the trip gets driven (see "The combo meter").
-    fare.vipMultiplier = vip ? VIP_PAYOUT : 1;
+    fare.vipMultiplier = vip ? VIP_PAYOUT : santa ? SANTA_PAYOUT : 1;
     fare.value = Math.round(priceFor(spot, fare.dropoff) * fare.vipMultiplier);
 
     // The clock, last: it is budgeted from the trip that was just decided, plus whatever the taxi
@@ -1397,6 +1421,8 @@ export function createFareSystem(rng, scene, {
     // the one piece of pooled figure state `rest()` deliberately does not clear (see `setRobber`
     // in geometry/person.js), so a spawn is the only place they can come off.
     slot.passenger.standing?.setRobber?.(false);
+    slot.passenger.standing?.setSanta?.(santa);
+    if (santa) santaSeen = true;
 
     // Where they're going stays theirs until they're in the car — a pin on the far kerb as well
     // turned the board into three riders and three destinations to read at once.
@@ -1523,6 +1549,7 @@ export function createFareSystem(rng, scene, {
     // not an ordinary fare — their crystal is on the ordinary urgency scale on purpose, because
     // the clock is what the event is about — so it goes on *after* `rest()`, which is the call
     // that would otherwise have put the last rider's pose back and this one's kit with it.
+    passenger.standing?.setSanta?.(false);
     passenger.standing?.setRobber?.(true);
 
     // ...and from here it is `beginRide`, beat for beat: the ring at the far end grows out of its
@@ -1985,7 +2012,8 @@ export function createFareSystem(rng, scene, {
       const near = spawnBias(taxiCar);
       const bank = wantsBank(taxiCar, near);
       const vip = !bank && wantsVip();
-      const spawned = spawnFare(taxiCar, near, vip, bank);
+      const santa = !bank && !vip && wantsSanta();
+      const spawned = spawnFare(taxiCar, near, vip, bank, santa);
       if (spawned) {
         state.lastSpawnAt = state.elapsed;
         if (spawned.vip) lastVipAt = state.elapsed;
@@ -2441,6 +2469,7 @@ export function createFareSystem(rng, scene, {
     dropoffHint = null;
     lastVipAt = -Infinity;
     lastBankAt = -Infinity;
+    santaSeen = false;
   }
 
   /** Which fare owns a picked object, walking up from the hit the way the picker does. */

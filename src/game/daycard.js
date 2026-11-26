@@ -12,7 +12,7 @@ const IN_MS = 380;
 const HOLD_MS = 1500;
 const OUT_MS = 420;
 
-export function showDayCard(parent, name, done) {
+export function showDayCard(parent, name, done, sub = null) {
   const card = document.createElement('div');
   card.id = 'day-card';
   card.setAttribute('role', 'status');
@@ -20,6 +20,12 @@ export function showDayCard(parent, name, done) {
   word.className = 'day-card-word';
   word.textContent = name;
   card.append(word);
+  if (sub) {
+    const line = document.createElement('span');
+    line.className = 'day-card-sub';
+    line.textContent = sub;
+    card.append(line);
+  }
   parent.append(card);
 
   let closed = false;

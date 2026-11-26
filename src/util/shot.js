@@ -4,6 +4,9 @@
 // `select` and `route` put the game into the state a given shot is meant to show — a screenshot
 // of an unselected taxi says nothing about whether selection or routing renders correctly.
 
+import { snowDayAtBoot } from '../game/days.js';
+import { createDemo } from '../game/progress.js';
+
 export const SHOTS = [
   { name: 'city', description: 'whole city, taxi and waiting fare', target: [0, 0], zoom: 52, warmup: 12 },
   { name: 'routed', description: 'taxi selected with its route drawn', target: [0, 0], zoom: 52, warmup: 12, select: true, route: true },
@@ -599,18 +602,23 @@ export function getFall() {
 }
 
 /**
- * The snowstorm (game/snow.js): the holiday weather. **On for every run from 1 December to
- * 6 January** by the device's own date, in place of the squall. `?snow` forces it any day,
- * `?snow=0.8` pins the cover that deep for a still frame, and `?snow=off` drops it. The season
- * stands down where the squall does — shot mode, safe mode, `?rain`/`?storm` — and for an explicit
- * `?squall`. Returns null when off, otherwise `{ pin }`.
+ * The snowstorm (game/snow.js), in place of the squall. **On for Story's Snow Day** (days.js
+ * `snow`, Sunday) and under `?snow`, which forces it on any run; `?snow=0.8` pins the cover that
+ * deep for a still frame, and `?snow=off` drops it. It was on by the device's date from 1 December
+ * to 6 January at first, which made every Story run in that season harder against targets tuned
+ * dry (Tyler, 2026-11-25: "Kill the device date thing").
+ *
+ * A Snow Day stands down where the squall does — shot mode, safe mode, `?rain`/`?storm`, an
+ * explicit `?squall` — and in demo mode (`snowAllowed`). Returns null when off, otherwise `{ pin }`.
  */
-export const SNOW_SEASON = { from: [12, 1], to: [1, 6] };
-export function inSnowSeason(now = new Date()) {
-  const m = now.getMonth() + 1;
-  const d = now.getDate();
-  return (m === SNOW_SEASON.from[0] && d >= SNOW_SEASON.from[1]) || (m === SNOW_SEASON.to[0] && d <= SNOW_SEASON.to[1]);
+export function snowAllowed() {
+  const params = new URLSearchParams(window.location.search);
+  const squall = params.get('squall');
+  return !(getSafeMode() || getActiveShot() !== null || getRain() !== null || getStorm() !== null
+    || (squall !== null && !isOff(squall)) || createDemo().on());
 }
+/** Whether `?snow` (in any form) decides the snow for this load, overriding the day. */
+export const snowForced = () => new URLSearchParams(window.location.search).get('snow') !== null;
 export function getSnow() {
   const params = new URLSearchParams(window.location.search);
   const raw = params.get('snow');
@@ -619,10 +627,10 @@ export function getSnow() {
     const pin = Number(raw);
     return { pin: raw !== '' && Number.isFinite(pin) ? Math.min(1.1, Math.max(0, pin)) : null };
   }
-  const squall = params.get('squall');
-  if (getSafeMode() || getActiveShot() !== null || getRain() !== null || getStorm() !== null
-    || (squall !== null && !isOff(squall))) return null;
-  return inSnowSeason() ? { pin: null } : null;
+  if (!snowAllowed()) return null;
+  let store = null;
+  try { store = globalThis.localStorage ?? null; } catch { /* plays as Friday would */ }
+  return snowDayAtBoot(window.location.search, store) ? { pin: null } : null;
 }
 
 /**

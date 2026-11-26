@@ -130,6 +130,7 @@ import { createRoadwork } from './game/roadwork.js';
 import { createStreetProps, planStreetProps } from './game/streetprops.js';
 import { createFire } from './game/fire.js';
 import { createGarbage, planTrashPiles, PROP_KEEP_OUT } from './game/garbage.js';
+import { createPlow, PLOWED } from './game/plow.js';
 import { createRoboTaxis } from './game/robotaxi.js';
 import { createRoboDebug } from './game/robodebug.js';
 import { createRace, WIN_PAY, LOSE_COST, TANK_FLOOR, COUNT_STEP, COUNTDOWN } from './game/race.js';
@@ -187,7 +188,7 @@ import { streetAt, routeDrives, STREET_TAP_MAX_DETOUR } from './game/streettap.j
 import { createPathDrag } from './game/pathdrag.js';
 import { getActiveShot, getSeed, getRunSeed, getCarCount, getDifficultyPin, getDifficultyMode,
   getSafeMode, safeModeSource, getPixelRatioCap,
-  getDiagnostics, getParcelsPin, getRain, getStorm, getSquall, getSnow, getSquallRampClassic, getSunRaysClassic, getWetTyres, getWreckStyle, getFall, getFoliageClassic, getWater, getUturnStyle, getCrt } from './util/shot.js';
+  getDiagnostics, getParcelsPin, getRain, getStorm, getSquall, getSnow, snowAllowed, snowForced, getSquallRampClassic, getSunRaysClassic, getWetTyres, getWreckStyle, getFall, getFoliageClassic, getWater, getUturnStyle, getCrt } from './util/shot.js';
 import { createParcelSystem, TAP_MAX_DETOUR } from './game/parcels.js';
 import { createRobbery } from './game/robbery.js';
 import { createRadio, LOST_CALL, ROBBERY_CALL } from './game/radio.js';
@@ -429,8 +430,9 @@ const squallRampClassic = getSquallRampClassic();
 const squall = squallFlag ? createSquall({
   ...squallFlag, rng: () => squallRng.next(), ramp: squallRampClassic ? RAMP_CLASSIC : RAMP,
 }) : null;
-// The snowstorm, the holiday weather (game/snow.js): in place of the squall for the whole run, from
-// 1 December to 6 January or under `?snow`. `getSquall` already stood down for it.
+// The snowstorm (game/snow.js): in place of the squall for the whole run, on Story's Snow Day
+// (days.js `snow`) or under `?snow`. `getSquall` already stood down for it. Compiled in, so crossing
+// between a snow day and a dry one is a reload (`snowMismatch`).
 const snowFlag = getSnow();
 const snow = snowFlag ? createSnow(snowFlag) : null;
 const rain = createRain(renderer, {
@@ -693,10 +695,13 @@ let snowTracks = null;
 let holidayLights = null;
 // The camera, once it exists: the first `applyWeather` below runs before it does.
 let snowCamera = null;
+// Whether the taxi is on a lane the snowplow has just cleared (game/plow.js), once the traffic
+// exists: no slide there.
+let taxiPlowed = () => false;
 function applySnow(dt) {
   snowTracks?.();
   holidayLights?.update(dt);
-  setSlip(Math.min(1, snow.state.level));
+  setSlip(taxiPlowed() ? 0 : Math.min(1, snow.state.level));
   // The flakes dim with the light, so a dusk flake is not a white dot on a dark street.
   snow.update(dt, snowCamera, THREE.MathUtils.clamp(0.35 + 0.5 * hemi.intensity + 0.1 * sun.intensity, 0.35, 1));
   const cover = Math.min(1, snow.state.level);
@@ -1184,6 +1189,8 @@ const fares = createFareSystem(makeRng(runSeed + 55), scene, {
   rating: ratingOn,
   shift: shiftSeconds,
   target: today?.target ?? null,
+  // Santa (game/fares.js, SANTA_PAYOUT) comes out with the snow: the Snow Day, or `?snow`.
+  santaOn: () => Boolean(snow),
   bankOpen: () => today === null || today.bank !== 'off',
   // The bank rider's coin loads with every one who rides — BANK_ROBBER_STEP in game/fares.js.
   risingOdds: new URLSearchParams(window.location.search).get('robberyodds') !== 'classic',
@@ -1921,6 +1928,15 @@ const streetProps = createStreetProps(scene, streetPropPlan, { dust, rng: makeRn
 // props' swipe), run seed for the bags and the truck. The truck is a car in traffic like the fire
 // engine, and holds off in shot mode and through the opening vignette. `?garbage=soon` brings it on
 // a second in; `?garbage=classic` has neither.
+// The Snow Day's snowplow (game/plow.js): a car in traffic working the main roads, clearing the
+// lane behind its blade, where the taxi gets its grip back. Run seed; off the snow, nothing.
+const plow = createPlow({
+  rng: makeRng(runSeed + 359), scene, traffic, snow,
+  blocked: () => Boolean(shot) || traffic.taxi.staged,
+});
+for (const mesh of plow.emissiveMeshes) markEmissive(mesh, 'siren');
+if (snow) taxiPlowed = () => snow.trackAt(traffic.taxi.x, traffic.taxi.z) >= PLOWED;
+
 const garbage = createGarbage({
   rng: makeRng(runSeed + 731), scene, traffic,
   plan: planTrashPiles(makeRng(seed + 733), layout,
@@ -4309,6 +4325,17 @@ showModeHud();
  * The title's Story or Arcade, before the run starts: re-plan the day and the shift for it, hand
  * the fare loop its clock and target, and remember the pick for Play again.
  */
+/**
+ * Whether the run `mode` would play next disagrees with the snow this page compiled: a Snow Day on
+ * a dry page or the other way round. The snow is in every lit material's program, so the only
+ * honest way across is a reload into the run (`skipTitleNextLoad`), paid once going into Sunday and
+ * once coming out. `?snow` decides for the whole load and never reloads.
+ */
+function snowMismatch(mode) {
+  if (snowForced() || !snowAllowed()) return false;
+  return Boolean(planDay(mode)?.snow) !== Boolean(snow);
+}
+
 function chooseMode(mode) {
   runMode = mode;
   try { weekStore?.setItem(MODE_KEY, mode); } catch { /* the pick just isn't remembered */ }
@@ -4349,7 +4376,7 @@ let dayAnnounced = false;
 function announceDay() {
   if (dayAnnounced || today === null) return;
   dayAnnounced = true;
-  showDayCard(document.body, today.name);
+  showDayCard(document.body, today.name, null, today.snow ? 'Snow Day' : null);
 }
 
 /**
@@ -6735,7 +6762,15 @@ const title = wantsTitle ? createTitleScreen(document.getElementById('title-scre
   // Story or Arcade (`chooseMode`). `?modes=classic` is the one Play, playing whichever was last
   // picked; demo mode keeps the one Play too, since it scripts a run of its own.
   onChoose: new URLSearchParams(window.location.search).get('modes') === 'classic' || demo.on()
-    ? null : chooseMode,
+    ? null : (mode) => {
+      if (snowMismatch(mode)) {
+        try { weekStore?.setItem(MODE_KEY, mode); } catch { /* the pick just isn't remembered */ }
+        skipTitleNextLoad();
+        location.reload();
+        return;
+      }
+      chooseMode(mode);
+    },
   // The first Play on a device hears dispatch out first, over the backdrop, with the gate still shut —
   // see game/backstory.js. `?intro=classic` goes straight to the garage as before.
   beforePlay: (done) => {
@@ -7015,7 +7050,7 @@ const moveExitClassic = new URLSearchParams(window.location.search).get('moveexi
 // the next; only the run is not. `?rerun=classic` is the reload, which is also a new city.
 const rerunClassic = new URLSearchParams(window.location.search).get('rerun') === 'classic';
 function playAgain() {
-  if (rerunClassic) { skipTitleNextLoad(); location.reload(); return; }
+  if (rerunClassic || snowMismatch(runMode)) { skipTitleNextLoad(); location.reload(); return; }
   rerun();
 }
 
@@ -7901,6 +7936,7 @@ function tick() {
   fire.update(dt);
   // After the traffic step for the same reason: the bags are aimed at the hopper where it now is.
   garbage.update(dt);
+  plow.update(dt);
   // After the traffic step for the same reason: the robo-taxi's skin is posed by it.
   robotaxis?.update(dt);
   roboDebug?.update();
@@ -8121,6 +8157,7 @@ function tick() {
     }
     if (type === 'pickup') {
       boardSound();
+      if (fare.santa) popLabel('Ho ho ho!');
       traffic.taxi.route = [];
       traffic.taxi.pendingTarget = null;
       // The roof sign lights up while the rider is aboard.
@@ -9505,6 +9542,8 @@ window.__taxi = {
   fire,
   /** The bag piles and the garbage truck. `garbage.spawn()` brings the truck on now; `piles`, `state`. */
   garbage,
+  /** The Snow Day's snowplow (game/plow.js). `plow.spawn()` brings it on now; `state.truck`, `state.cleared`. */
+  plow,
   /** The robo-taxis (game/robotaxi.js): `state`, `spawnAll()`, `cars()`. Null under `?robotaxi=classic`. */
   robotaxis,
   pause,
