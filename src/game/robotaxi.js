@@ -11,6 +11,8 @@ import { createRoboTaxiMesh, ROBO_SCALE, ROBO_BAND_TIME, BALL_R } from '../geome
 import { findRoute, planOrigin, serviceLaneCost } from './route.js';
 import { BOARD_SECONDS, cornerFor, kerbFor } from './fares.js';
 import { markOccluder } from './ssao.js';
+import { createDiamond, DIAMOND_HALF_H } from '../geometry/diamond.js';
+import { MARKER_BASE } from './faremarker.js';
 
 // The robo-taxis: the city council's driverless cabs, arriving in town to take your riders.
 //
@@ -71,6 +73,22 @@ const CLAIM_Y = KERB_H + 0.07;
 
 const FADE_TIME = 0.8;
 
+// The gull-wing door (geometry/robotaxi.js `setDoor`), timed off the phase clock: up as the rider
+// closes in, down once they are aboard; up as the car stops at the drop-off, down once they are
+// out. ~72 degrees open. Pure flourish, so render-only: nothing waits on it.
+const DOOR_OPEN = 1.25;
+const DOOR_BOARD_FROM = 0.3 * BOARD_SECONDS;   // opening, as the rider sets off
+const DOOR_BOARD_TO = 0.6 * BOARD_SECONDS;
+const DOOR_SHUT = 0.25;                        // seconds to close
+const DOOR_DROP_OPEN = 0.25;                   // at the drop-off: open over this...
+const DOOR_DROP_SHUT_AT = 1.1;                 // ...and start closing here (DROP_HOLD 1.6)
+
+// The pie over a robo-taxi with a rider aboard (Tyler, 2026-11-27: "show when a robo is occupied.
+// maybe show the pie above them"): the taxi's own aboard marker, in the robot's cyan, at the height
+// a rider's pie hangs. Its fill is the ride left, by straight-line distance to the drop-off, so it
+// also says how soon that car is hunting again.
+const PIE_Y = MARKER_BASE + DIAMOND_HALF_H;
+
 
 /**
  * @param traffic  the sim — `enterGuest`, `retireGuest`, `wearSkin`, `taxi`
@@ -78,7 +96,7 @@ const FADE_TIME = 0.8;
  * @param blocked  () => true while nothing should come on (shot mode, the opening vignette)
  * @param soon     `?robotaxi=soon`: on the map from the start rather than after the first delivery
  */
-export function createRoboTaxis({ rng, scene, traffic, fares, blocked = () => false, soon = false, count = ROBO_COUNT, race = () => false }) {
+export function createRoboTaxis({ rng, scene, traffic, fares, blocked = () => false, soon = false, count = ROBO_COUNT, race = () => false, occupiedPie = true }) {
   // Built for the bigger of the two fleets; the race decides how many of them come on.
   const built = Math.max(count, RACE.count);
   // `?robotaxi=soon` is for looking at them, so it skips the ramp.
@@ -100,7 +118,11 @@ export function createRoboTaxis({ rng, scene, traffic, fares, blocked = () => fa
     ring.visible = false;
     ring.renderOrder = 2;
     scene.add(ring);
+    const pie = createDiamond(PALETTE.roboGlow);
+    pie.mesh.visible = false;
+    scene.add(pie.mesh);
     return {
+      pie, door: { side: 0, angle: 0 },
       k, rig, ring, car: null, phase: 'off', t: 0, target: null, arrived: false, fade: 0, fading: 0,
       wait: soon ? 1 + k * 3 : k * ENTER_GAP,
     };
@@ -263,6 +285,7 @@ export function createRoboTaxis({ rng, scene, traffic, fares, blocked = () => fa
       // Standing at the corner: the rider is theirs.
       const ride = fares.steal(fare, car);
       if (ride) {
+        robo.door.side = sideToward(robo, kerbFor(fare));
         robo.target = null;
         robo.arrived = false;
         robo.ride = ride;
@@ -304,10 +327,53 @@ export function createRoboTaxis({ rng, scene, traffic, fares, blocked = () => fa
     robo.goal = cornerFor(i, j);
     if (!stoppedAt(robo, i, j)) return;
     fares.robotDropoff(robo.ride, robo.car);
+    robo.door.side = sideToward(robo, robo.goal);
     robo.ride = null;
+    robo.rideFrom = null;
     robo.phase = 'drop';
     robo.t = 0;
     state.delivered += 1;
+  }
+
+  /** Which flank of the pod faces world point `p`: +1 its +z flank, -1 the other. */
+  const local = new THREE.Vector3();
+  function sideToward(robo, p) {
+    robo.rig.group.updateMatrixWorld(true);
+    return robo.rig.group.worldToLocal(local.set(p.x, 0, p.z)).z < 0 ? -1 : 1;
+  }
+
+  /** The door's angle for this frame, off the phase clock. */
+  function doorAngle(robo) {
+    const t = robo.t;
+    const ease = (u) => 1 - (1 - u) * (1 - u);
+    if (robo.phase === 'board') {
+      if (t < DOOR_BOARD_FROM) return 0;
+      if (t < BOARD_SECONDS) return DOOR_OPEN * ease(Math.min(1, (t - DOOR_BOARD_FROM) / (DOOR_BOARD_TO - DOOR_BOARD_FROM)));
+      return DOOR_OPEN * Math.max(0, 1 - (t - BOARD_SECONDS) / DOOR_SHUT) ** 2;
+    }
+    if (robo.phase === 'drop') {
+      if (t < DOOR_DROP_SHUT_AT) return DOOR_OPEN * ease(Math.min(1, t / DOOR_DROP_OPEN));
+      return DOOR_OPEN * Math.max(0, 1 - (t - DOOR_DROP_SHUT_AT) / DOOR_SHUT) ** 2;
+    }
+    return 0;
+  }
+
+  /** The cyan pie over a car with a rider aboard: full while they board, draining as it rides. */
+  function poseOccupied(robo) {
+    const aboard = occupiedPie && robo.car && !fares.state.gameOver
+      && (robo.phase === 'board' || robo.phase === 'ride');
+    robo.pie.mesh.visible = Boolean(aboard);
+    if (!aboard) return;
+    const car = robo.car;
+    let fill = 1;
+    if (robo.phase === 'ride' && robo.ride) {
+      const to = cornerFor(robo.ride.dropoff.i, robo.ride.dropoff.j);
+      const d = Math.hypot(to.x - car.x, to.z - car.z);
+      robo.rideFrom ??= Math.max(d, 1);
+      fill = Math.min(1, d / robo.rideFrom);
+    }
+    robo.pie.setFill(fill);
+    robo.pie.mesh.position.set(car.x, PIE_Y, car.z);
   }
 
   function update(dt) {
@@ -319,6 +385,7 @@ export function createRoboTaxis({ rng, scene, traffic, fares, blocked = () => fa
       if (car?.crashed) {
         if (robo.ride) fares.robotLose(robo.ride);
         robo.ride = null;
+        robo.rideFrom = null;
         robo.car = null;
         robo.target = null;
         robo.phase = 'off';
@@ -355,6 +422,13 @@ export function createRoboTaxis({ rng, scene, traffic, fares, blocked = () => fa
       for (const material of robo.rig.faders) material.opacity = robo.fade;
       if (robo.car) robo.car.skinLamps = robo.fade;
       if (!robo.car && robo.phase === 'off') robo.rig.shell.visible = false;
+
+      const angle = robo.car ? doorAngle(robo) : 0;
+      if (angle !== robo.door.angle) {
+        robo.door.angle = angle;
+        robo.rig.setDoor(robo.door.side, angle);
+      }
+      poseOccupied(robo);
 
       // The lamps: a slow breathe while it hunts, steady once it has someone aboard.
       const hunting = robo.phase === 'hunt';

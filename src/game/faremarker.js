@@ -340,8 +340,11 @@ export function createFareMarker(scene, phase = 0) {
     // (a shared scale cue, not a colour) still carries urgency for it.
     if (vipMarked) return;
     const colour = fareColor(next);
-    diamond.setColor(colour);
-    if (!claimed) ring.setColor(colour);
+    // A claimed rider's pie and disc are the robot's cyan, whatever the clock says (`setClaimed`).
+    if (!claimed) {
+      diamond.setColor(colour);
+      ring.setColor(colour);
+    }
     kickPending = true;
   }
 
@@ -384,11 +387,17 @@ export function createFareMarker(scene, phase = 0) {
      * arrives; reading `visible` alone would call a shrinking disc "still on the kerb".
      */
     ringLeaving: () => ring.isLeaving(),
-    /** A robo-taxi has (or no longer has) this rider locked — the disc goes cyan. See `claimed`. */
+    /**
+     * A robo-taxi has (or no longer has) this rider locked — the disc and the pie go cyan (Tyler,
+     * 2026-11-27: "let's make the pie teal as well"). The pie keeps draining, so the clock still
+     * reads off its slices; only its urgency hue gives way. See `claimed`.
+     */
     setClaimed(on) {
       if (on === claimed || vipMarked) return;
       claimed = on;
-      ring.setColor(on ? PALETTE.roboGlow : fareColor(level));
+      const colour = on ? PALETTE.roboGlow : fareColor(level);
+      ring.setColor(colour);
+      diamond.setColor(colour);
     },
     /** Put the kerb disc straight into its arrived state — shot mode. See targetring.js. */
     settleRing: () => ring.settle(),

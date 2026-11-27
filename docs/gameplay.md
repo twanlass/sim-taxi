@@ -2226,6 +2226,18 @@ skip any lock that landed during Loco Mode (the boost follow cancels pans, and p
 a boosting taxi puts it in a wall); frozen, every run gets it, on every viewport. It still fires
 only on a fresh lock with no other cut or finger holding the camera.
 
+**A locked rider's pie goes cyan too** (Tyler, 2026-11-27), not only the disc: the slices still
+drain, so the clock reads off the pie's shape while its colour says "a robot is coming".
+
+**An occupied robo-taxi wears a cyan pie** (`poseOccupied` in game/robotaxi.js): the taxi's own
+aboard marker, at a rider's pie height, full while the rider boards and draining by straight-line
+distance to the drop-off, so it also says how soon that car hunts again. **Its door lifts** for
+the rider getting in and getting out: a gull-wing panel of the kerb-side flank rising about a roof
+hinge (geometry/robotaxi.js `setDoor`), gull-wing because nothing else in town opens that way and
+upward motion reads at play zoom where a swing along the flank would not. **No "Rider stolen!"
+callout** any more ("confusing"): the rider running to the car, the door and the pie say it.
+`?riders=classic` brings the callout back and drops the pie.
+
 **And the robo-taxis are quicker, and ramp in** (game/robotaxi.js `RACE`): one after the first
 drop-off, a second after the fourth, a third after the eighth (`RACE.ramp`, untuned — all at once
 was "chaotic"), each at 0.78 of a car's cruise rather than

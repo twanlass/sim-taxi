@@ -1908,6 +1908,8 @@ const robotaxis = roboParam === 'classic' ? null : createRoboTaxis({
     || (today !== null && !today.robo && roboParam !== 'soon'),
   soon: roboParam === 'soon',
   race: riderRace,
+  // The cyan pie over a car with a rider aboard; `?riders=classic` goes without, as before.
+  occupiedPie: !ridersClassic,
 });
 for (const mesh of robotaxis?.emissiveMeshes ?? []) markEmissive(mesh, 'siren');
 // `?robodebug`: each robo-taxi's route and goal drawn on the map (game/robodebug.js).
@@ -8242,7 +8244,10 @@ function tick() {
       // A robo-taxi got to this rider first (game/robotaxi.js). No strike — the fare is the cost —
       // but the streak goes with them like any rider walking off, and a taxi on its way to collect
       // them has nobody to collect.
-      popLabel('Rider stolen!', 'is-stolen');
+      // No callout any more (Tyler, 2026-11-27: "the 'rider stolen' message is confusing"): the
+      // rider running to the robo-taxi, its door lifting and the cyan pie over it say it.
+      // `?riders=classic` keeps it.
+      if (ridersClassic) popLabel('Rider stolen!', 'is-stolen');
       haptic('perfect-lost');
       if (combo.walkout(fare)) comboTag.lost = true;
       if (fare.directed) {

@@ -53,7 +53,7 @@ import { createAsphaltPatches, planPatches, patchGeometry, patchRoadHalf, PATCH_
 import { createStreetProps, planStreetProps } from '../src/game/streetprops.js';
 import { createGarbage, planTrashPiles } from '../src/game/garbage.js';
 import { createRoboTaxis, RACE } from '../src/game/robotaxi.js';
-import { roboShellParts, roboBandGeometry, roboWellLiners, createRoboTaxiMesh } from '../src/geometry/robotaxi.js';
+import { roboShellParts, roboBandGeometry, roboWellLiners, createRoboTaxiMesh, roboDoorGeometries } from '../src/geometry/robotaxi.js';
 import { setFareSeconds } from '../src/game/fares.js';
 import { ROBO_SPEED } from '../src/sim/traffic.js';
 import { HOPPER_MOUTH, createGarbageTruckMesh } from '../src/geometry/garbage.js';
@@ -22824,6 +22824,49 @@ let chopperOrder; // likewise
   }
   check('robo-taxi: the shell and its glass are wound to face out', tris > 1000 && inward / tris < 0.01,
     `${inward}/${tris} triangles face in`);
+  {
+    // The gull-wing door and the opening it leaves are hand-lofted too: same test, same middle.
+    // Built for the +z flank; the other is a half turn about y (a rotation), so one side covers both.
+    let doorTris = 0;
+    let doorIn = 0;
+    const { panel, gap } = roboDoorGeometries(CAR_LEN);
+    for (const g of [panel, gap]) {
+      const p = g.attributes.position;
+      for (let f = 0; f < p.count; f += 3) {
+        a.fromBufferAttribute(p, f); b.fromBufferAttribute(p, f + 1); c.fromBufferAttribute(p, f + 2);
+        n.subVectors(c, b).cross(a.clone().sub(b));
+        if (n.lengthSq() < 1e-12) continue;
+        const out = new THREE.Vector3(0, (a.y + b.y + c.y) / 3 - 1.45, (a.z + b.z + c.z) / 3);
+        doorTris += 1;
+        if (n.dot(out) <= 0) doorIn += 1;
+      }
+      g.dispose();
+    }
+    check('robo-taxi: the gull-wing door and its opening are wound to face out',
+      doorTris > 200 && doorIn === 0, `${doorIn}/${doorTris} triangles face in`);
+    // And it opens *up and out*: the panel's lowest point, posed open, sits further out and higher.
+    const rig = createRoboTaxiMesh(CAR_LEN, CAR_W);
+    const lowest = (mesh) => {
+      rig.group.updateMatrixWorld(true);
+      const pos = mesh.geometry.attributes.position;
+      let best = null;
+      const v = new THREE.Vector3();
+      for (let i = 0; i < pos.count; i++) {
+        v.fromBufferAttribute(pos, i).applyMatrix4(mesh.matrixWorld);
+        if (!best || v.y < best.y) best = v.clone();
+      }
+      return best;
+    };
+    rig.setDoor(1, 1.25);
+    const plusOpen = lowest(rig.doorPanels[1] ?? rig.doorPanels[0]);
+    rig.setDoor(-1, 1.25);
+    const minusOpen = lowest(rig.doorPanels[0]);
+    rig.setDoor(0, 0);
+    const shut = rig.doorPanels.every((m) => !m.parent.visible);
+    check('robo-taxi: the door lifts up and out on the side asked for, and is put away shut',
+      plusOpen.z > 1.2 && minusOpen.z < -1.2 && plusOpen.y > 0.9 && minusOpen.y > 0.9 && shut,
+      `+z low edge (${plusOpen.z.toFixed(2)}, ${plusOpen.y.toFixed(2)}), -z (${minusOpen.z.toFixed(2)}, ${minusOpen.y.toFixed(2)}), shut ${shut}`);
+  }
   {
     // The belly band is indexed, so the winding is read off the index (CLAUDE.md); out is away
     // from the pod's vertical axis, which the band's outline is star-shaped about.
