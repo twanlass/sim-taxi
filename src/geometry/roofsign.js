@@ -4,10 +4,10 @@
 // **What it says.** Lit while the taxi is free, off while a rider is aboard, the way a real cab's
 // roof light works (the sign is the cab advertising itself to the street). The sign this replaces
 // ran the other way round — lit with a rider aboard — and it came off at the workshop bench for being
-// a dark lump on the yellow roof for most of every run. Two things are different now: off is a
-// grey lens (`taxiSignDark`) rather than a near-black one, lit is a warm amber (`taxiSignLit`)
-// rather than a white, and the change between the two is an
-// event the player sees, which is what earns the part its place on the car. `SIGN_LIT_WHEN_FREE`
+// a dark lump on the yellow roof for most of every run. What is different now: the roof's chequer
+// run comes off under it (geometry/taxi.js), so a dark sign stands on plain yellow rather than on
+// noise; lit is a warm amber (`taxiSignLit`) against a near-black off (`taxiSignDark`); and the
+// change between the two is an event the player sees, which is what earns the part its place on the car. `SIGN_LIT_WHEN_FREE`
 // flips the meaning back in one line if the old reading plays better.
 //
 // **How it moves.** Everything is a transform on three nested groups, so no geometry is added and

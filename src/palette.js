@@ -631,10 +631,11 @@ export const PALETTE = {
   taxiBody: '#F5C130',
   taxiTrim: '#2B2B30',
   taxiSign: '#F2F0E8',
-  // The roof sign's lens while it is off (geometry/roofsign.js): a cool grey rather than a near-black,
-  // because the sign that came off at the workshop bench went because it was a dark lump on the
-  // yellow roof for most of every run. Off reads as unlit plastic, on as `taxiSignLit` with a glow.
-  taxiSignDark: '#8C8F96',
+  // The roof sign's lens while it is off (geometry/roofsign.js): near-black, so off and on are as far
+  // apart as they can be. It was a cool grey first, to dodge the "dark lump" that got the old sign
+  // pulled, and Tyler asked for it darker (2026-11-27): with the roof chequer gone from under it, a
+  // dark sign on plain yellow reads as a sign rather than a lump.
+  taxiSignDark: '#2A2C31',
   // ...and lit: a warm amber-cream rather than `taxiSign`'s off-white, which read as a white blob
   // once the bloom took it (Tyler, 2026-11-27: "too white"). Kept paler than `taxiBody` so a lit sign
   // still stands off the yellow roof it sits on instead of merging into it.

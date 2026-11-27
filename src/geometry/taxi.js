@@ -190,7 +190,7 @@ function lidChequer(run, hingeX) {
  * The parts the taxi's shell merges: body, cabin, chequer stripe and the rear wheels. Shared with
  * `taxiSignGeometry`, so the sign on the depot's roof is this car and cannot drift from it.
  */
-function shellParts({ lids = true } = {}) {
+function shellParts({ lids = true, roofChequer = true } = {}) {
   const parts = [];
 
   // Proportions match the ambient cars so the taxi reads as the same class of vehicle.
@@ -258,7 +258,10 @@ function shellParts({ lids = true } = {}) {
   // The same two colours down the middle of the bonnet, the boot lid and the roof (deckChequer).
   // The bonnet's and the boot's runs are left out of the live taxi's shell (`lids: false`): they
   // ride meshes of their own there, so a wreck that swings a lid open can take them with it.
-  parts.push(...deckChequer(DECK_ROOF));
+  // The roof's run comes off when the roof sign is on: a sign standing on a chequer read as noise on
+  // noise, and with the sign there the roof already says "taxi" from above (Tyler, 2026-11-27).
+  // The depot's cutout (`taxiSignGeometry`) carries no sign, so it keeps the run.
+  if (roofChequer) parts.push(...deckChequer(DECK_ROOF));
   if (lids) parts.push(...deckChequer(DECK_BONNET), ...deckChequer(DECK_BOOT));
 
   // A grill in the middle of the nose: a dark recess with three chrome bars across it. Kept to the
@@ -325,7 +328,7 @@ export function createTaxiMesh() {
   const group = new THREE.Group();
   group.name = 'taxi';
 
-  const parts = shellParts({ lids: false });
+  const parts = shellParts({ lids: false, roofChequer: !ROOF_SIGN });
   const merged = mergeGeometries(parts, false);
   parts.forEach((p) => p.dispose());
 

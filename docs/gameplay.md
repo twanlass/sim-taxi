@@ -1315,7 +1315,8 @@ for by the clock, which is why the figure between them has to stay out of the wa
 
 The **roof sign** (`geometry/roofsign.js`) is lit while the taxi is free and off while a rider is
 aboard, the way a real cab's roof light works — a plain on/off, not a colour. It runs nose to tail
-along the roof. Lit is a warm amber (`taxiSignLit`), off a grey lens rather than a black one. It is never still: it breathes on its mount (a 5% volume-preserving squash
+along the roof. Lit is a warm amber (`taxiSignLit`), off near-black (`taxiSignDark`), and the roof's chequer run comes
+off under it so the sign stands on plain yellow. It is never still: it breathes on its mount (a 5% volume-preserving squash
 at 1.5 Hz), rings like jelly when the taxi brakes or boosts, and leans back under acceleration. On
 pickup and drop-off it **hops**: a crouch, ~1.1 units of air with one forward flip, the lens swapping
 at the top of the flip while it is upside down, and a squash on landing that rings out. The whole
