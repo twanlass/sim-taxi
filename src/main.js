@@ -56,6 +56,7 @@ import { createBurgerJoint, SIGN_SPIN, LANDMARK as BURGER_LANDMARK } from './cit
 import { createVetClinic, VET_CLASSIC } from './city/vetclinic.js';
 import { createDonutShop, DONUT_CLASSIC } from './city/donutshop.js';
 import { createBillboard, BILLBOARD_CLASSIC } from './city/billboard.js';
+import { createCrane, CRANE_CLASSIC } from './city/crane.js';
 import { createGraveyard, LANDMARK as GRAVEYARD_LANDMARK } from './city/graveyard.js';
 import { plantedCrowns } from './city/props.js';
 import {
@@ -1050,6 +1051,15 @@ for (const board of billboards) {
   markOccluder(board.shell);
   markOccluder(board.poster);
 }
+// The construction crane: a mid-rise adding a storey, with a tower crane up through it swinging a
+// beam about (city/crane.js). Where is the city's; where the beam goes is the run's. Scenery only,
+// and left out of the sightline field: a lattice is see-through. Null on `?crane=classic` or a city
+// with no roof that fits.
+const crane = city.crane && !CRANE_CLASSIC ? createCrane(city.crane, makeRng(runSeed + 547)) : null;
+if (crane) {
+  scene.add(crane.group);
+  crane.meshes.forEach(markOccluder);
+}
 // The roadside business — the fourth block `createLayout` took from the towers, a car wash or a gas
 // station as the city seed rolls it (`?roadside=carwash` / `=gas` pins one) — and the inflatable tube man flailing on its corner, which is what
 // it is there for. Scenery only: not tappable, nothing routes into it. `null` on
@@ -1776,6 +1786,8 @@ if (vet) markEmissive(vet.glow, 'window');
 if (donut?.glow) markEmissive(donut.glow, 'window');
 // The billboard's three lamps, the same.
 for (const board of billboards) markEmissive(board.glow, 'window');
+// The crane's two aircraft-warning lamps, the same.
+if (crane) markEmissive(crane.lamps, 'window');
 // The riders. They receive AO through `propMaterial()` either way, so leaving them out of the
 // prepass would paint the kerb's own contact line across whoever is standing in front of it.
 // Only the figure is taken — `markOccluder` filters out the translucent target disc under them.
@@ -1971,7 +1983,7 @@ const cityEntry = createCityEntry({
   // anchor, so it comes up as a building rather than as a building and a door.
   meshes: [city.mesh, ...city.glass, ...(city.frames ? [city.frames] : []), ...(city.domeMesh ? [city.domeMesh] : []), ...(westEdge ? [westEdge.towers, ...westEdge.glass] : []), ...(westEdge?.frames ? [westEdge.frames] : []), propsMesh, grass.mesh, canopyFuzz.mesh, ...(garage?.meshes ?? []),
     ...(burger?.meshes ?? []), ...(graveyard?.meshes ?? []), ...(roadside?.meshes ?? []),
-    ...(vet?.meshes ?? []), ...(donut?.meshes ?? []), ...billboards.flatMap((b) => b.meshes),
+    ...(vet?.meshes ?? []), ...(donut?.meshes ?? []), ...billboards.flatMap((b) => b.meshes), ...(crane?.meshes ?? []),
     ...(lamps ? [lamps.posts, lamps.heads] : []),
     ...(props.courtMesh ? [props.courtMesh] : []), ...(props.skateMesh ? [props.skateMesh] : []),
     ...(props.pondMesh ? [props.pondMesh] : [])],
@@ -1979,7 +1991,7 @@ const cityEntry = createCityEntry({
   // depot's sign and the burger over the drive-through. See the `objects` note in
   // game/cityentry.js.
   objects: [...(garage ? [garage.entryObject] : []), ...(burger ? [burger.entryObject] : []),
-    ...(vet ? [vet.entryObject] : []), ...(donut?.entryObjects ?? []),
+    ...(vet ? [vet.entryObject] : []), ...(donut?.entryObjects ?? []), ...(crane ? [crane.entryObject] : []),
     ...(graveyard ? [graveyard.entryObject] : []),
     ...hoopers.entryObjects, ...boombox.entryObjects, ...skaters.entryObjects,
     ...tubeMan.entryObjects, ...(roadside?.entryObjects ?? []), ...(ltrain?.entryObjects ?? []),
@@ -7661,6 +7673,7 @@ function tick() {
   // The car wash's brushes and curtain, and the tube man on its corner.
   roadside?.update(dt);
   tubeMan.update(dt);
+  crane?.update(dt);
   manholeSteam.update(dt, traffic.taxi, 1 - THREE.MathUtils.smoothstep(sun.intensity, 0.3, 2.6));
   // And the sign on the depot's roof, on the same terms — see DEPOT_SPIN in city/garage.js.
   garage?.update(dt);
@@ -8774,6 +8787,12 @@ if (shot) {
     controller.state.target.set((car.x + centre.x - centre.y / 0.92) / 2, 0, (car.z + centre.z - centre.y / 0.92) / 2);
     controller.update(aspect());
   }
+  // The crane, aimed the way the billboard is: at the ground point its middle sits over on screen.
+  if (shot.atCrane && crane) {
+    const { focus } = crane.site;
+    controller.state.target.set(focus.x - focus.y / 0.92, 0, focus.z - focus.y / 0.92);
+    controller.update(aspect());
+  }
   // The roadside business, framed on its lot; and its tube man, close enough to see his face.
   if (shot.atCarWash && roadside) {
     controller.state.target.set(roadside.site.focus.x, 0, roadside.site.focus.z);
@@ -9087,6 +9106,8 @@ if (shot) {
   // The skater the same way, for filming a trick or a push (shots `skatepark` and `skatepark-far`).
   // The spark pool steps with it, or a grind's sparks hang frozen where they were thrown.
   window.__skateStep = (dt = 1 / 30) => { skaters.update(dt); sparks.update(dt); renderFrame(); };
+  // The crane the same way, for filming the slew and the beam's swing (shots `crane` and `crane-far`).
+  window.__craneStep = (dt = 1 / 30) => { crane?.update(dt); renderFrame(); };
   const shotDone = () => {
     document.body.dataset.shotReady = 'true';
     resolveReady();
