@@ -633,8 +633,12 @@ export const PALETTE = {
   taxiSign: '#F2F0E8',
   // The roof sign's lens while it is off (geometry/roofsign.js): a cool grey rather than a near-black,
   // because the sign that came off at the workshop bench went because it was a dark lump on the
-  // yellow roof for most of every run. Off reads as unlit plastic, on as `taxiSign` with a glow.
+  // yellow roof for most of every run. Off reads as unlit plastic, on as `taxiSignLit` with a glow.
   taxiSignDark: '#8C8F96',
+  // ...and lit: a warm amber-cream rather than `taxiSign`'s off-white, which read as a white blob
+  // once the bloom took it (Tyler, 2026-11-27: "too white"). Kept paler than `taxiBody` so a lit sign
+  // still stands off the yellow roof it sits on instead of merging into it.
+  taxiSignLit: '#FFC873',
   // The painted flame on the depot's cutout taxi (city/garage.js): hot-rod sign paint, red to
   // yellow, and deliberately *not* the Loco plume's locoFlame* — that is the player's boost, and
   // the roof is a sign. The core is a lemon rather than `taxiBody` so it does not merge into the

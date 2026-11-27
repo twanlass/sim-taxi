@@ -5,7 +5,8 @@
 // roof light works (the sign is the cab advertising itself to the street). The sign this replaces
 // ran the other way round — lit with a rider aboard — and it came off at the workshop bench for being
 // a dark lump on the yellow roof for most of every run. Two things are different now: off is a
-// grey lens (`taxiSignDark`) rather than a near-black one, and the change between the two is an
+// grey lens (`taxiSignDark`) rather than a near-black one, lit is a warm amber (`taxiSignLit`)
+// rather than a white, and the change between the two is an
 // event the player sees, which is what earns the part its place on the car. `SIGN_LIT_WHEN_FREE`
 // flips the meaning back in one line if the old reading plays better.
 //
@@ -21,7 +22,7 @@
 // recomputed off the current Y scale every frame (`HALF_H * sy`) rather than scaled about a pivot.
 //
 // **Sized against the camera.** At play zoom a world unit is ~7.7px and the taxi carries
-// `TAXI_SCALE` 1.18, so the sign is ~8px across and ~3px tall. That is why the idle bob is in the
+// `TAXI_SCALE` 1.18, so the sign is ~8px long and ~3px tall. That is why the idle bob is in the
 // *scale* rather than the height — a 0.03 rise is a fifth of a pixel and reads as nothing, while a
 // 5% squash on something this squat reads as the sign breathing — and why the hop goes as high as
 // it does: `HOP_H` 1.1 is ~10px of air, enough to see the sign leave the car at play zoom without it
@@ -38,15 +39,16 @@ export const ROOF_SIGN = typeof location === 'undefined'
 /** Lit when free (a real cab). False puts back the old reading: lit with a rider aboard. */
 export const SIGN_LIT_WHEN_FREE = true;
 
-// The topper, in car-local units before TAXI_SCALE. Wide across the car and short along it, like a
-// real one — side-on from this camera the long face is what shows.
-export const SIGN_ACROSS = 0.9;
-export const SIGN_ALONG = 0.34;
+// The topper, in car-local units before TAXI_SCALE. Long along the car and narrow across it, so it
+// runs parallel to the body (Tyler, 2026-11-27: the first cut sat across the roof like a real cab's
+// and read as a crossbar; parallel lines up with the roof's chequer and the flip turns it end over end).
+export const SIGN_ALONG = 0.9;
+export const SIGN_ACROSS = 0.34;
 const BASE_H = 0.06;
 const LENS_H = 0.24;
 export const SIGN_H = BASE_H + LENS_H;
 const HALF_H = SIGN_H / 2;
-// The lens's top is pulled in this much each way along the car: a wedge, not a brick.
+// The lens's top is pulled in this much each way across the car: a wedge, not a brick.
 const LENS_TAPER = 0.07;
 // Stands this clear of the roof, so the base's underside is not coplanar with the roof's top.
 const ROOF_CLEAR = 0.01;
@@ -82,12 +84,12 @@ const LAND_SQUASH = 0.38;
 const easeInOut = (u) => u * u * (3 - 2 * u);
 
 function lensGeometry(paint) {
-  // A box with its top four corners pulled in along x: the wedge of a topper. Non-indexed through
-  // bakeColor, so every face keeps its own flat normal after the taper.
+  // A box with its top four corners pulled in across the car (z): the wedge of a topper. Non-indexed
+  // through bakeColor, so every face keeps its own flat normal after the taper.
   const g = new THREE.BoxGeometry(SIGN_ALONG, LENS_H, SIGN_ACROSS);
   const pos = g.attributes.position;
   for (let i = 0; i < pos.count; i++) {
-    if (pos.getY(i) > 0) pos.setX(i, pos.getX(i) - Math.sign(pos.getX(i)) * LENS_TAPER);
+    if (pos.getY(i) > 0) pos.setZ(i, pos.getZ(i) - Math.sign(pos.getZ(i)) * LENS_TAPER);
   }
   g.computeVertexNormals();
   g.translate(0, -HALF_H + BASE_H + LENS_H / 2, 0);
@@ -117,9 +119,9 @@ export function createRoofSign({ x, y }) {
   // the same plain emissive Lambert the brake pods are (geometry/lights.js), unpatched, so its bloom
   // copy shares the one program every other lamp draws with (`signLamp`, marked from main.js).
   const litMaterial = new THREE.MeshLambertMaterial({
-    color: color('taxiSign'), emissive: color('taxiSign'), emissiveIntensity: SIGN_GLOW, flatShading: true,
+    color: color('taxiSignLit'), emissive: color('taxiSignLit'), emissiveIntensity: SIGN_GLOW, flatShading: true,
   });
-  const lamp = new THREE.Mesh(lensGeometry('taxiSign'), litMaterial);
+  const lamp = new THREE.Mesh(lensGeometry('taxiSignLit'), litMaterial);
   lamp.userData.bloomKind = 'window';
   const dark = new THREE.Mesh(lensGeometry('taxiSignDark'), propMaterial());
   const parts = [base, lamp, dark];
