@@ -21,6 +21,10 @@ doc; what the classic version was, and why it changed, is in that doc's history 
 | `?river=classic` | The 12-unit river, the width it was before 2026-10-18. The default is 15 (25% wider); the blocks keep their size, so the map is 3 units taller. `?city=big` keeps the 12-unit river either way. Headless tools take `RIVER=classic` | | [river.md](river.md#the-channel-is-wider-than-a-block-row-riverclassic) |
 | `?nodememo=classic` | Turns off the memoised type queries in three's node builder, so a WebGPU boot builds its ~310 node graphs the slow way (~12.6 s to `taxi:ready` headless against ~9.0 s; same WGSL either way). For A/B timing | | [rendering.md](rendering.md) |
 | `?mirrorwarm=classic` | Skips drawing the wet road's mirror during the boot warm-up, so the first squall builds the mirror pass's pipelines mid-run (a 3.2 s freeze on an iPhone 16 Pro under WebGPU) as it did before 2026-11-23. For A/B timing on a device | | [testing.md](testing.md) |
+| `?mirrorhalf=classic` | The wet road's mirror renders into a half-float target, as it did before 2026-11-26, so every material builds a second set of pipelines for it (153 of 344 on a headless boot). The default is the frame's own eight-bit format, which shares the frame's pipelines. For A/B timing on a device | | [rendering.md](rendering.md) |
+| `?shadertext=classic` | three's WGSL as it writes it, with varying locations that skip and identifiers numbered off a per-build counter, so materials that draw the same thing compile as different shaders (116 fragment modules on a headless boot against 103), and an instanced mesh without a per-instance colour builds apart from one with. For A/B timing | | [rendering.md](rendering.md) |
+| `?fadeshader=classic` | A material that fades compiles a second fragment shader for its faded state (three's discard at alpha 0), as before 2026-11-26. The default writes one shader for both states. For A/B timing | | [rendering.md](rendering.md) |
+| `?normalshader=classic` | three's own normal choice, made at build time: a flat-shaded and a smooth material, or a front- and a back-sided one, compile as different shaders. The default builds one and picks the normal with uniforms. For A/B timing | | [rendering.md](rendering.md) |
 | `?fadewarm=classic` | Skips warming the faded (transparent) program variants at boot, so the first fade of a rider, a boat or the roadworks links its shader mid-run as it did before 2026-11-22. For A/B timing on a device | | [testing.md](testing.md) |
 | `?bridges=classic` | The island's old four crossings: both ring roads and the L's line bridged beside the drawbridge. The default (2026-10-18) is three: fixed bridges one line in from each coast and the drawbridge between them. `?city=big` is unaffected. Headless tools take `BRIDGES=classic` | | [river.md](river.md#which-crossings-bridge) |
 | `?city=big` | The 6 × 7 city (36 land blocks) with the central park, harbor, north park, shores, west edge high rises, horizon filler and the L's turn west. The default is the 5 × 5 island with feathered edges. Headless tools take `CITY=big` | #483 | [city.md](city.md) |
@@ -59,6 +63,7 @@ doc; what the classic version was, and why it changed, is in that doc's history 
 | `?skatepush=classic` | The skater never pushes: it only pumps the ramps, as before the kick-push | #752 | [city.md](city.md#a-skatepark) |
 | `?roadside=carwash` / `=gas` | Pin the roadside lot to the car wash or the gas station; by default each city seed rolls one. Headless tools take `ROADSIDE=` | | [city.md](city.md#the-roadside-lot-and-its-tube-man) |
 | `?roadside=classic` | No roadside lot: its block goes back to the towers, and the tube man goes with it | | [city.md](city.md#the-roadside-lot-and-its-tube-man) |
+| `?roadwear=classic` | A clean road: no procedural dirt in the gutters or round the medians, no stain round the manholes, no grit at the bridge ends | | [rendering.md](rendering.md#the-hand-painted-road--gameroadpaintjs) |
 | `?manholes=classic` | The old four or five manhole covers, none of them steaming, instead of seven or eight with three venting steam | | [city.md](city.md#manhole-covers) |
 | `?streetprops=classic` | No post boxes or hot dog cart on the kerb | `STREETPROPS=classic` | [city.md](city.md#the-post-box-and-the-hot-dog-cart) |
 | `?propsmash=classic` | Loco Mode swipes the taxi onto the kerb into every post box and hot dog cart it passes, instead of only an overtake up the kerb hitting them | `PROPSMASH=classic` | [city.md](city.md#the-post-box-and-the-hot-dog-cart) |
@@ -172,6 +177,7 @@ doc; what the classic version was, and why it changed, is in that doc's history 
 | `?barrelroll=classic` | Big Air flown level, no barrel roll | #485 | [river.md](river.md) |
 | `?bridgejump=classic` | The drawbridge is one long leaf again and re-routes the taxi the moment its lamps start: no Mega Air jump over the rising leaves | | [river.md](river.md#jumping-it-mega-air) |
 | `?megaflip=classic` | Mega Air front-flips the taxi once over the drawbridge instead of twice | | [river.md](river.md#jumping-it-mega-air) |
+| `?bigair=classic` | A route turning at an arched bridge's far bank cancels Big Air again (the ordinary hop) instead of flying straight on and re-planning | | [river.md](river.md#the-drift-launch) |
 | `?bigairroute=classic` | The router stops tipping equal-length routes toward going straight on off an arched bridge (room for Big Air) | | [gameplay.md](gameplay.md#routing) |
 | `?vip=classic` | VIP riders (the purple question mark, triple pay) spawn again; off by default | | [gameplay.md](gameplay.md#vip-pickups) |
 | `?bigairfuel=classic` | A Big Air landing pays no Loco back, instead of a sixth of the tank | | [gameplay.md](gameplay.md#the-combo-meter) |
@@ -232,7 +238,7 @@ doc; what the classic version was, and why it changed, is in that doc's history 
 | `?cars=N` | Total vehicles, taxi included. `?cars=1` leaves the taxi alone on the road | [testing.md](testing.md) |
 | `?d=0..1` | Pins the difficulty curve instead of the delivery count | [difficulty.md](difficulty.md) |
 | `?difficulty=easy\|regular\|hard` | Pins the Settings Difficulty mode for this load, leaving the saved choice alone | [difficulty.md](difficulty.md#modes) |
-| `?seed=N` | Pins the city. Random each load otherwise | [architecture.md](architecture.md) |
+| `?seed=N` | Pins the city. Random each load otherwise, unless the road paint bake locks one (⚙️ Road paint > Lock game to this seed), which also beats shot mode's default; `?seed=N` beats the lock | [architecture.md](architecture.md) |
 | `?run=N` | Pins the situation (start, riders, events). Random each load otherwise | [architecture.md](architecture.md) |
 
 ## Skipping the front of a run
@@ -286,6 +292,7 @@ See [rendering.md](rendering.md) for all of these.
 | `?safe` / `=off` | All four budget flags at their cheapest (no MSAA, 1024 shadows, DPR 1, no AO). On by default on Android; `=off` restores the full budget |
 | `?msaa=off` | No multisampling |
 | `?shadows=off` / `=1024` | No sun shadows, or that map size (power of two, 256–4096) |
+| `?shadowsplit=classic` | One 2048² sun shadow map with PCFSoft, redrawn every frame with every caster, instead of the standing city in a 4096² map drawn once plus a per-frame map of what moves (WebGPU; [rendering.md](rendering.md#two-shadow-maps--gamesplitshadowjs)) |
 | `?shadowcull=classic` | Every shadow caster on the island is drawn into the shadow map every frame, instead of only the ones whose shadow can reach the view ([game/shadowcull.js](../src/game/shadowcull.js), [rendering.md](rendering.md#lighting)) |
 | `?dpr=N` | Caps `devicePixelRatio` (0.5–4, default 2) and pins it against the Quality setting |
 | `?ao=off` | No ambient occlusion |

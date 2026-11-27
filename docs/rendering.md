@@ -808,8 +808,8 @@ History: [the old drop-off aim, the 2400ms delay, the timer ring and the invisib
 
 `src/game/scene.js` returns `{ scene, sun, hemi, sky, fog }`:
 
-- **`sun`** — a directional light with shadows (`PCFSoftShadowMap`). Its shadow camera covers the
-  whole island, so three's own culling in the shadow pass passes every caster on the map. Before
+- **`sun`** — a directional light with shadows. Under WebGPU they come from [two maps](#two-shadow-maps--gamesplitshadowjs),
+  the standing city drawn once and what moves drawn every frame. Both cover the whole island, so three's own culling in the shadow pass passes every caster on the map. Before
   each frame `game/shadowcull.js` turns `castShadow` off for the casters whose shadow cannot reach
   the view (the caster and its shadow on the ground, as one capsule, tested against the camera), and
   turns it back on after. That took the 2048² shadow pass from 135 draws to 53 in a headless run
@@ -859,6 +859,46 @@ Two bounds worth knowing:
 - **A low sun throws shadows longer than the shadow camera's own extent** (`MAX_SPAN * 1.05` in
   `scene.js`), so the far end of one can be clipped. The arc has always had this at dawn and dusk;
   the pin just makes it reachable at any hour.
+
+### Two shadow maps — `game/splitshadow.js`
+
+The sun does not move during a run (`daylight.setCycling(false)` in `main.js`; only the ⚙️ panel's
+cycle box moves it), so the city's shadows come out the same on every frame. The sun's shadow is
+therefore two maps, combined with a `min` in a custom `shadowNode` on the sun:
+
+- **The standing city**, 4096² (twice the budget's size, capped at 4096): every building, landmark,
+  bridge, the river walls and the L track. Drawn once, and again only when something in it changes:
+  the sun moves, a static caster is hidden or shown, or one turns out not to be static after all.
+  0.066 units a texel, about half a pixel at play zoom.
+- **Everything else**, 2048² (the budget's size), drawn every frame like the old single map, but
+  only with what moves: traffic, the taxi, people, boats, the train, the turning signs, the
+  drawbridge's leaves. `game/shadowcull.js` still culls this pass, and leaves the static casters
+  alone, since culling one would bake its absence into a map that is not redrawn when the camera
+  comes back round.
+
+**What counts as static is classified, not listed:** a plain mesh that casts with an identity world
+matrix. That is the shape of every merged city builder (geometry baked in world space, which the
+entrance wave depends on too), and nothing that moves has it. The L train's structure, which sits
+under a placed group, opts in with `userData.staticShadow`. The rule is checked every frame: a
+static caster whose matrix changes or whose vertices are rewritten (the garage door) moves to the
+per-frame map for good, and the static map is redrawn without it. So a wrong guess costs a redraw,
+never a frozen or missing shadow. `__taxi.splitShadow.stats()` counts the static casters, the
+demotions and the static map's redraws.
+
+**The filter is four taps, not PCFSoft's sixteen.** Both depth textures are sampled through a
+linear comparison sampler, so each tap is a hardware 2×2 bilinear compare, and four of them on a
+rotated grid make a smooth edge (`tapFilter`). The receivers do 8 compares a pixel across both maps,
+where they did 16 on one. A hard edge would normally shimmer; these cannot, because neither map
+moves with the camera. How soft the edge is is a look decision: ⚙️ `Shadow softness`, in world
+units so both maps match (default 0.066, one static texel; the old PCFSoft edge was about 0.4).
+
+**Not fitted to the camera**, which was the obvious next step for the per-frame map: a portrait
+phone at play zoom sees about 190 units of ground down the view, most of the island, so a fitted
+map would have landed within a few percent of the island-wide texel and added a frustum that moves
+every frame.
+
+WebGL (`?renderer=classic`) keeps the single map. `?shadowsplit=classic` puts it back under WebGPU
+too. History: [the single map](rendering-history.md#one-shadow-map-redrawn-every-frame).
 
 ### Thin casters — `sinkShadowCaster` in `game/scene.js`
 
@@ -1218,6 +1258,15 @@ What the WebGPU path draws today, and what it does not:
     real wet frame then drew into the two-attachment layout, a validation error that switches
     occlusion off for the session.
 
+    **Since 2026-11-26 the mirror is the frame's own format** (eight bits, the same attachments),
+    so it draws with the frame's pipelines instead of a second set. A pipeline is keyed on its
+    target's colour format, and the half-float mirror had been giving every material in the city a
+    pipeline nothing else used: **153 of the boot's 344** (headless, seed 7), each one a Metal
+    compile on a phone's first launch after an update. Half float was a WebGL precaution against
+    banding in linear values; under WebGPU every node material writes display values, the same
+    eight bits the screen gets, and the ground blurs what it samples. `?mirrorhalf=classic` is the
+    half-float target, for an A/B.
+
   - **A node id in the shader source makes every build a new shader.** three names a
     `uniformArray`'s buffer `NodeBuffer_<node id>` unless it is given a name, and the id is new on
     every build, so two builds of the same material came out as two WGSL sources that no cache
@@ -1298,6 +1347,17 @@ What the WebGPU path draws today, and what it does not:
   - `createRenderPipelineAsync` for the warm-up's pipelines was tried and made a never-seen boot
     **slower** (7.5-11 s against 3.8-4.9 s, Chrome for Testing with its Metal cache cleared each
     run) with no change to a cached one, so the warm-up still builds them synchronously.
+  - **A cold boot pays per distinct shader, not per byte.** `tools/shadercost.mjs` replays every
+    pipeline a boot built, one at a time, on a blank page, against an empty Metal cache and then a
+    warm one (2026-11-26, M5): 17.8 s of driver compile one by one, ~110 ms for a 5 KB fragment
+    shader and ~340 ms for the biggest (126 KB), and close to nothing for a second pipeline on a
+    module already compiled. So the lever is fewer modules, and three wrote near-duplicates:
+    varying locations that skip a slot, identifiers off a per-build counter, instanced meshes with
+    and without a per-instance colour (`util/shadertext.js`), a second shader for every material's
+    faded state (`util/fadeshader.js`), and flat against smooth or front against back picked at
+    build time rather than by a uniform (`util/normalshader.js`). 206 modules to 161 headless (116
+    fragment shaders to 93), pixel-identical. `?shadertext=`, `?fadeshader=` and
+    `?normalshader=classic` for A/B.
 
 Things the WebGL renderer does without being asked, each of which showed up as a wrong
 picture and each of which the node path now does by hand:
@@ -1685,8 +1745,9 @@ ground's paint pass, worked out from the grid arithmetic with no texture and no 
 - **Grain.** Two finer octaves at 1.3 and 0.45 units. The finer is about ten device pixels on a
   phone; a world-locked noise much below that crawls as the camera pans.
 
-**It is drawn as a pixel-art street** (`setRoadPixels`; `?roadtex=smooth` is the same road without
-the grid, `?roadpx=` the texel's size). Every layer above is read at the centre of a 0.15-unit
+**The pixel-art grid is off by default.** Tyler's panel tuning of 2026-11-27 set the texel to 0,
+the smooth road, with no tone runs, sparse stains and the swing sat below the base grey
+(`ROAD_TEX_DEFAULTS`). With a texel (`setRoadPixels`, `?roadpx=0.15` for the previous one) every layer above is read at the centre of a 0.15-unit
 world texel, 60 to an ordinary street and landing on its kerb lines, and the value is rounded to a
 ramp of greys a fiftieth apart. The stains get a hard edge, the grain becomes single light and dark
 pixels (one texel in twenty-five each way; the 1.3-unit octave rounded to the ramp read as static
@@ -1708,6 +1769,76 @@ which is the wet road at night. The asphalt patches and manhole covers are their
 keep their own colour. It costs +8.3% of a SwiftShader WebGL frame at phone size as shipped (630 ms to 682 ms against main, 2026-11-25;
 +6.2% before the pixel grid and the tone noise, +4.3% before the stains and grain); the same code
 runs as nodes on WebGPU (util/gpupaving.js).
+
+### The hand-painted road — `game/roadpaint.js`
+
+On top of the street texture, the road can be painted by hand (Tyler, 2026-11-25: "Make me a vertex
+paint tool for the road"). It is a **splat map, not vertex colour**: one RGBA texture laid over the
+whole island in world space at `PAINT_TEXEL` = 0.15, the pixel street's own texel, snapped to the
+same origin, so a painted texel is exactly one road pixel. The road's paint pass reads it at each
+pixel's centre and multiplies it in *before* the grey ramp, so a stroke comes out in the street's
+own pixels and greys. Four channels, because a texel is four bytes, and each
+has a colour picked in the panel (`uRoadPaintC0..3`, display-space sRGB): a full-strength stroke
+turns the road's albedo into that colour, keeping the road's own sun, shadow and AO, and the four
+mix in order over one another. The colours and each channel's amount (`uRoadPaintAmt`) ride in the
+bake beside the bytes, so a painted channel can be recoloured. More than four would be a second
+texture (another 3.7 MB) and a second read. The panel's Street texture box switches the texture
+off under the paint without losing its look (`setRoadTextureOn`); the paint and its pixel grid stay. Street texture opacity (0-2, saved in the bake as `texture`) fades
+the whole texture toward plain asphalt or exaggerates it past 1, ahead of the paint and the grey ramp
+(`setRoadTextureOpacity`, riding `uRoadTexDetail.y`). Asphalt colour moves the base colour live (`setAsphaltColor`): PALETTE.asphalt is baked
+into vertex colours, so the ground shader multiplies every fragment whose albedo sits near it by the
+ratio to the chosen colour (lane paint, pavement and lawns are too far off to follow). Saved in the
+bake as `asphalt` only when changed; the settled colour belongs in palette.js.
+
+**One city.** The paint is world-space, so it only lines up on the city it was painted on. City seed
+loads another city (`?seed=N`, or Random); Lock game to this seed writes `seed` into the bake, and
+`getSeed` (util/shot.js) then boots every game, shot mode included, on that city unless `?seed=` says
+otherwise. The lock takes hold once saved to the repo. Vertex paint at that detail would have
+meant cutting every road quad into 0.15-unit cells, millions of triangles where the ground is ~20k,
+for the same picture; this is one texture read on fragments the road shader already shades.
+
+- **Painting.** ⚙️ Visuals > Road paint (`?dev`). Tick Paint (or press **G**) and a left press on
+  the road paints instead of panning or picking; hold **Shift** to pan (Space is boost and B the
+  brake). **1-4** pick the channel, **E** or Alt erases, **[ ]** resize, **Cmd/Ctrl+Z** undoes
+  (30 strokes, brush armed or not). Size, strength and hardness are sliders; a second Clear inside three seconds wipes it.
+- **Seeing it.** Road only hides every drawable except the ground, manholes and asphalt patches
+  (meshes only, never a group, so no light drops out of the count; a car spawned while it is on
+  shows until it is toggled again). No lighting draws the ground as its bare colour times the paint
+  (`uAlbedoView`, both renderers), with the colour grade bypassed and the haze pushed past
+  everything (`setHazeOff` in scene.js); the edge fog and the CRT still draw. Freeze & zoom is the
+  inspect freeze (`I`), and pressing it here turns the brush on too: wheel or pinch zooms to a half-height of 2.5, and painting keeps working,
+  with Shift-drag panning. Both Road only and the freeze also take the game off the picture
+  (game/cleanview.js): every page overlay but the canvas and the ⚙️ panel, and every effect built
+  under `tagFx` in main.js — skid marks, spray, dust, sparks, flames, glass, the route band, the fare
+  and courier markers. A new effect wants wrapping there to go with them.
+- **Channel controls.** The panel shows only the selected channel's colour and amount; the
+  dropdown or **1-4** swaps which.
+- **Keeping it.** Every stroke autosaves to the browser (debug mode only, and it wins over the bake
+  on load until Revert to repo). **Save to repo** posts the bake to the dev server
+  (`tools/roadpaint-save.mjs`, loopback only), which writes `src/city/roadpaintbake.js` — commit that.
+  Away from a dev server, **Download** gives the same file.
+- **The bake** is the painted rectangle's raw RGBA, deflated (`CompressionStream`) and base64'd, with
+  its world corner, so it lands where it was painted on a city of any size. No PNG: a canvas
+  premultiplies alpha and would lose every colour under a zero cool channel. An empty bake costs
+  nothing: the texture stays 1x1 and the shader skips the read. A painted one is one texture of
+  ~880 x 1040 (3.7 MB on the GPU on the default city) and decodes asynchronously; shot mode waits for it.
+- **Procedural wear** (`game/roadwear.js`, Tyler 2026-11-27) is stamped into the same map at boot
+  from the city itself, so it fits every seed: brown dirt (channel 3) in the gutter of every
+  block, broken into patches, and round every median island, a dark stain (channel 1) round each manhole, and
+  grit in both where each bridge deck lands on the road. It is never baked — it lives in its own
+  buffer and the texture shows the per-byte max of it and the hand paint, so a stroke only adds and
+  Save to repo writes the brush's bytes alone. Every band is a plain distance from an outline (the
+  kerb's rounded rectangle, the median's stadium) with no mask, because the pavement at `KERB_H`
+  is past the shader's ground test and the band stops at the kerb face on its own. The bridge deck
+  is not ground and takes no paint, so only the road half of each joint gets grit. It means the
+  texture is always allocated now (3.7 MB, one read per road fragment), bake or no bake; the panel
+  has a box to hide it and sliders for each feature's strength and reach (live, not saved — settle
+  numbers into `WEAR_DEFAULTS`). `?roadwear=classic` leaves the road clean.
+- It lives inside the street texture's branch, so `?roadtex=classic` shows no paint either, and it is
+  held off the lawns, the lane paint and the plaza like the texture, but *not* off bright asphalt:
+  sunlit road reads past the texture's 0.42 hold, and the first cut's strokes only showed in shadow. The paint is in
+  world coordinates, and streets move between seeds (the arterial's line, the river row shifts
+  everything south of it, closures and landmarks), which is why the game locks to the painted city.
 
 - **Light bridge decks.** Every crossing, fixed or lifting, wears one light pavement grey
   (`bridgeDeck`, `drawbridgeDeck`), so the river row reads as a different material rather than as
@@ -2471,6 +2602,14 @@ there under the fog, and what `?city=big` shows, since the fog is island-only.
   (`FOG_WARP`, up to 16 units of bend). The first cut slid one layer along one heading, which reads as
   a texture on a conveyor; the warp is what makes a billow swell, curl and pinch off instead. All of it
   stays outward-only, so the motion never brings the fog onto the road.
+- **The billows are read along the sightline, at y = 0.** Each fragment slides down its view ray
+  to the ground plane before it reads the noise, so the pattern belongs to the screen pixel rather
+  than to the fragment's own x and z. Read under the fragment, two surfaces at different heights
+  side by side each showed the pattern at their own spot, and the seam between them drew whatever
+  was buried: the river mouth stayed in the clouds as a pale rectangle of channel, walls and
+  railings, fully fogged and still visible (Tyler, 2026-11-27). Ground at y = 0 reads what it
+  always did and the floor a translation of it; the distance and the height slope still use the
+  true position, so the bank's shape is unchanged.
 - **Mixed in linear light, with an unshaded rim.** Tyler, 2026-11-25: an "awkward seam between
   the end of the pavement road and the clouds" — the south coast read as the road casting a blurred
   shadow onto the bank. Two causes, both fixed. The bank's own mix ran on display values, so the
@@ -4679,6 +4818,27 @@ Three things were measured rather than guessed:
 Everything is a cylinder, a box or a squashed hemisphere — nothing here is hand-wound, which is what
 keeps it clear of [the winding trap](#the-courier-pad--geometryparcelpadjs) the pad next door fell
 into.
+
+### The donut order — `geometry/donutorder.js`
+
+The food order's twin, collected at the [donut shop](gameplay.md#two-kinds-of-load-and-one-of-them-has-an-address):
+the roof's own cake donut (`donutGeometry()` from city/donutshop.js, frosting, fried band and
+sprinkles) shrunk to the burger's width, propped against a coffee cup. Built on every rule the burger
+order above is built on — two objects and no container, tall one up-screen on the diagonal, centred on
+its own plan, stood by its own bounding box, and inside the box's envelope (asserted in
+`tools/probe.mjs` beside the burger's).
+
+**Propped, not lying flat.** Flat, the donut is a pink ellipse a quarter of a unit tall beside a cup
+four times its height, and the cup is all that reads. Leaned back 0.62 rad onto the cup it stands about
+half the envelope, shows the frosted face and the hole at once, and the spin swings it side-on for a
+beat each turn, which shows the tube.
+
+**The coffee reaches the envelope's top itself,** having no straw: a cup the soda's off-white under a
+kraft sleeve (`coffeeSleeve`), the sleeve being what says hot drink, and a dark-roast lid with a raised
+rim (`coffeeLid`) — dark rather than the soda's red so the two orders never share a read at 10px.
+
+The mesh is `propMaterial({ smooth: true })` for the donut's tube, as the roof sign is; the cup's
+faces come through `bakeColor` with face normals and light flat regardless.
 
 ### The drop-off ring — `geometry/marker.js`
 

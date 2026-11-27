@@ -113,6 +113,11 @@
          and no input — the site's page is what takes the taps. */
       html.backdrop body > :not(.city-canvas) { display: none !important; }
       html.backdrop, html.backdrop * { pointer-events: none !important; }
+      /* The clean view (game/cleanview.js): Road only and the inspect freeze take every overlay off
+         but the canvas and the ⚙️ panel. `visibility`, so nothing re-lays itself out; `!important`
+         and on every descendant, because the boost flame animates its own visibility back on. */
+      body.clean-view > :not(.city-canvas):not(#dbg-toggle):not(#dbg-panel):not(#phone-frame),
+      body.clean-view > :not(.city-canvas):not(#dbg-toggle):not(#dbg-panel):not(#phone-frame) * { visibility: hidden !important; }
       /* The startup screen (game/splash.js): over everything, the menu included, until it fades. */
       #splash {
         position: fixed; inset: 0; width: 100vw; height: 100vh; z-index: 100;
@@ -2667,7 +2672,7 @@
       .dbg-search::-webkit-search-cancel-button { filter: invert(0.6); }
 
       .dbg-sec { border-top: 1px solid var(--dbg-line); }
-      .dbg-sec[hidden], .dbg-sec-body[hidden], .dbg-miss { display: none !important; }
+      .dbg-sec[hidden], .dbg-sec-body[hidden], .dbg-row[hidden], .dbg-miss { display: none !important; }
       .dbg-sec-head {
         display: flex; align-items: center; gap: 8px; width: 100%; padding: 9px 12px;
         border: 0; background: none; color: var(--dbg-text); cursor: pointer; text-align: left;
