@@ -201,6 +201,44 @@ export function openSignParts(style = OPEN_STYLE, w = SIGN_W) {
 
 // --- Choosing the shop ------------------------------------------------------------------------
 
+/** `?landmarks=classic` — the dog and the donut take any corner shop that fits, as they used to. */
+export const LANDMARKS_CLASSIC = typeof location !== 'undefined'
+  && new URLSearchParams(location.search).get('landmarks') === 'classic';
+
+/**
+ * The tallest a landmark shop may stand, wall top above the ground. Every shop Tyler kept across 24
+ * candidates on three cities (2026-11-27) topped out at 4.53; the ones he struck for height were a
+ * two-storey walk-up at 6.49 and a box at 5.45.
+ */
+export const SHOP_MAX_TOP = 5;
+
+/** Does this roof carry a water tower? A 3.3-tall tank goes straight through a dog or a donut. */
+export const hasWaterTower = (t) => !!t.deck?.keep.some((k) => k.waterTower);
+
+/**
+ * Is `t` the kind of building a roof landmark looks right on — Tyler's picks, as a rule?
+ *
+ * He struck every **whole-block** box (a shop with no neighbour on its own block) and kept every
+ * corner shop that shares its block with other buildings: 8 of 8 struck and 15 of 15 kept, across
+ * the dog's and the donut's candidates on seeds 4242, 71624 and 31337. A sign on a lone box reads as
+ * a warehouse with a mascot; on one shop in a row it reads as *that shop*.
+ *
+ * A preference, not a requirement: about one city in fifteen has no shop that passes (4 of 60 for
+ * each landmark), and a city without its donut shop has nowhere to collect a donut order from. So
+ * `preferLandmarkShops` falls back to every candidate rather than to none.
+ */
+export function landmarkShop(t, towers) {
+  if (LANDMARKS_CLASSIC) return true;
+  if (t.top > SHOP_MAX_TOP) return false;
+  return towers.some((o) => o !== t && o.block === t.block);
+}
+
+/** The candidates on a building `landmarkShop` likes, or all of them if none is. */
+export function preferLandmarkShops(candidates, towers) {
+  const liked = candidates.filter((c) => landmarkShop(c.tower, towers));
+  return liked.length ? liked : candidates;
+}
+
 const RISE = 0.92;              // the view's climb per unit of x (and of z): VIEW_DIR in game/camera.js
 const LIP = 0.28;               // the roof's lip, which the pole keeps inside (LIP_W in buildings.js)
 
@@ -266,12 +304,14 @@ function poleSpot(deck) {
  * Pick the city's vet clinic from the towers `createBuildings` built, or null.
  *
  * By hash, after everything else is decided, so it spends no draw and moves nothing. `pad` is the
- * deck the helicopter lands on, which is not a roof anyone can put a dog on.
+ * deck the helicopter lands on, which is not a roof anyone can put a dog on. Among the shops that
+ * fit, the kind Tyler picked wins (`preferLandmarkShops`).
  */
 export function chooseVetSite(towers, pad) {
   const candidates = [];
   for (const t of towers) {
     if (t.tiers !== 1 || t.style !== 'punched' || !t.deck || t.deck === pad) continue;
+    if (hasWaterTower(t)) continue;
     if (!t.streetSides.includes(0) || !t.streetSides.includes(1) || !t.front) continue;
     if (Math.min(t.deck.cw, t.deck.cd) < 2.4) continue;
     const sign = signSpot(t);
@@ -282,9 +322,10 @@ export function chooseVetSite(towers, pad) {
     candidates.push({ tower: t, sign, pole, head });
   }
   if (!candidates.length) return null;
-  const sx = candidates.reduce((n, c) => n + c.tower.cx, 0);
-  const sz = candidates.reduce((n, c) => n + c.tower.cz, 0);
-  const pick = candidates[Math.floor(hash01(sx * 0.37, sz * 0.61) * candidates.length) % candidates.length];
+  const pool = preferLandmarkShops(candidates, towers);
+  const sx = pool.reduce((n, c) => n + c.tower.cx, 0);
+  const sz = pool.reduce((n, c) => n + c.tower.cz, 0);
+  const pick = pool[Math.floor(hash01(sx * 0.37, sz * 0.61) * pool.length) % pool.length];
   const { tower, sign, pole, head } = pick;
   // The birds roost on decks and walk round what stands on them (game/birds.js).
   tower.deck.keep.push({ x0: pole.x - 0.3, x1: pole.x + 0.3, z0: pole.z - 0.3, z1: pole.z + 0.3 });

@@ -935,6 +935,15 @@ through every other tower's box (taken 2.6 taller than its walls, for what stand
 That is what keeps the clinic off the downtown corners, where a tower across the street hides the
 window. 30 seeds out of 30 get one.
 
+**Which of those.** Never a roof with a water tower on it: the tank is 3.3 tall and the head went
+straight through one. Among the rest, the kind of building Tyler picked off a contact sheet of 24
+candidates (2026-11-27) wins — `landmarkShop`: a shop **sharing its block** with other buildings and
+no taller than `SHOP_MAX_TOP` (5). He struck every whole-block box (a sign on a lone box reads as a
+warehouse with a mascot) and the two-storey walk-ups. It is a preference, not a filter: about one
+city in fifteen has no such shop, and then any shop that fits will do, so the city keeps its
+landmark. The donut shop follows both rules the same way. `?landmarks=classic` drops the preference
+and keeps the water-tower rule, which is a bug fix.
+
 **The head** (`dogHeadGeometry`, `HEAD_R = 1.75`, about 32px across at play zoom) is squashed
 spheres at twelve segments, a toy the way the burger is, turned 0.5 rad off the camera's bearing
 so the muzzle and tongue show in profile — square on, the snout foreshortens away. It cocks slowly
