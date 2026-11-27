@@ -2230,8 +2230,12 @@ only on a fresh lock with no other cut or finger holding the camera.
 drain, so the clock reads off the pie's shape while its colour says "a robot is coming".
 
 **An occupied robo-taxi wears a cyan pie** (`poseOccupied` in game/robotaxi.js): the taxi's own
-aboard marker, at a rider's pie height, full while the rider boards and draining by straight-line
-distance to the drop-off, so it also says how soon that car hunts again. **Its door lifts** for
+aboard marker, at a rider's pie height, always full. It drained by distance to the drop-off for a
+build, and read as a ride that could time out; a robo ride has no clock and never fails, so the pie
+says "occupied" and nothing else. **And a thin cyan route line** (main.js `roboLines`, ~4px, the
+taxi's band at `halfWidth` 0.25) runs from each car to the rider it has claimed and then to their
+drop-off, as the taxi's does; none while it wanders. A lane-wide claim band was cut the day before
+as noise; this is the thin retry (Tyler, 2026-11-27). **Its door lifts** for
 the rider getting in and getting out: a gull-wing panel of the kerb-side flank rising about a roof
 hinge (geometry/robotaxi.js `setDoor`), gull-wing because nothing else in town opens that way and
 upward motion reads at play zoom where a swing along the flank would not. **No "Rider stolen!"

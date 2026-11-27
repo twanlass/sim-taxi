@@ -766,7 +766,11 @@ const GRAB_WHITEN = 0.30;
 const GRAB_RISE = 0.06;
 const GRAB_FALL = 0.18;
 
-export function createRouteLine(scene) {
+/**
+ * `halfWidth` is the band's half-width in world units: lane width by default (the taxi's, the
+ * racer's), and a thin line for the robo-taxis' (main.js, ROBO_LINE_HALF).
+ */
+export function createRouteLine(scene, { halfWidth = HALF_WIDTH } = {}) {
   // Two triangles per segment of the path.
   const positions = new Float32Array(MAX_POINTS * 6 * 3);
   const dists = new Float32Array(MAX_POINTS * 6);
@@ -1045,7 +1049,7 @@ export function createRouteLine(scene) {
     // at 90° corners because the corner was the notch, but obvious across a ten-step arc.
     // Thickens under a grab. Rebuilt every frame anyway, so this costs nothing beyond the multiply
     // — and the mitre keeps the swell even around a bend, which a fixed offset would not.
-    const tris = bandTriangles(path, HALF_WIDTH * (1 + GRAB_WIDEN * grab));
+    const tris = bandTriangles(path, halfWidth * (1 + GRAB_WIDEN * grab));
 
     let v = 0;
     let n = 0;

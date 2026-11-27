@@ -85,8 +85,10 @@ const DOOR_DROP_SHUT_AT = 1.1;                 // ...and start closing here (DRO
 
 // The pie over a robo-taxi with a rider aboard (Tyler, 2026-11-27: "show when a robo is occupied.
 // maybe show the pie above them"): the taxi's own aboard marker, in the robot's cyan, at the height
-// a rider's pie hangs. Its fill is the ride left, by straight-line distance to the drop-off, so it
-// also says how soon that car is hunting again.
+// a rider's pie hangs. **Always full.** It drained by distance to the drop-off for a build, and a
+// draining pie is this game's word for a clock running out, so it read as a robo ride that could
+// time out (Tyler, 2026-11-27: "slow down the urgency ... so that a robo dropoff never fails"). It
+// never could: a robo ride has no clock. Full and still says "occupied" and nothing else.
 const PIE_Y = MARKER_BASE + DIAMOND_HALF_H;
 
 
@@ -329,7 +331,6 @@ export function createRoboTaxis({ rng, scene, traffic, fares, blocked = () => fa
     fares.robotDropoff(robo.ride, robo.car);
     robo.door.side = sideToward(robo, robo.goal);
     robo.ride = null;
-    robo.rideFrom = null;
     robo.phase = 'drop';
     robo.t = 0;
     state.delivered += 1;
@@ -358,22 +359,14 @@ export function createRoboTaxis({ rng, scene, traffic, fares, blocked = () => fa
     return 0;
   }
 
-  /** The cyan pie over a car with a rider aboard: full while they board, draining as it rides. */
+  /** The cyan pie over a car with a rider aboard, from boarding to the drop-off. Always full. */
   function poseOccupied(robo) {
     const aboard = occupiedPie && robo.car && !fares.state.gameOver
       && (robo.phase === 'board' || robo.phase === 'ride');
     robo.pie.mesh.visible = Boolean(aboard);
     if (!aboard) return;
-    const car = robo.car;
-    let fill = 1;
-    if (robo.phase === 'ride' && robo.ride) {
-      const to = cornerFor(robo.ride.dropoff.i, robo.ride.dropoff.j);
-      const d = Math.hypot(to.x - car.x, to.z - car.z);
-      robo.rideFrom ??= Math.max(d, 1);
-      fill = Math.min(1, d / robo.rideFrom);
-    }
-    robo.pie.setFill(fill);
-    robo.pie.mesh.position.set(car.x, PIE_Y, car.z);
+    robo.pie.setFill(1);
+    robo.pie.mesh.position.set(robo.car.x, PIE_Y, robo.car.z);
   }
 
   function update(dt) {
@@ -385,7 +378,6 @@ export function createRoboTaxis({ rng, scene, traffic, fares, blocked = () => fa
       if (car?.crashed) {
         if (robo.ride) fares.robotLose(robo.ride);
         robo.ride = null;
-        robo.rideFrom = null;
         robo.car = null;
         robo.target = null;
         robo.phase = 'off';

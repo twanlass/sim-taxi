@@ -3361,6 +3361,35 @@ if (rivalLine) {
   rain.hideInMirror(rivalLine.mesh);
 }
 
+// The robo-taxis' routes (Tyler, 2026-11-27: "a simple route line for the robo taxis ... 3-4px
+// wide ... teal, shown on pickup and dropoff just like the taxi"): the same band, one per car, in
+// the robot's cyan and thin. 0.25 half-width is 0.5 across, ~3.9px at play zoom (1 unit ~ 7.7px),
+// against the taxi's lane-wide band, so the player's own plan stays the loud one. Drawn while a car
+// drives at a claimed rider and while it carries one; not while it wanders or stands at a corner.
+// A first, lane-wide claim band was cut on 2026-11-26 as "too much noise"; this is the thin retry.
+// Opacity is higher than the racer's 0.22 because a thin line has so few pixels to carry it.
+// `?riders=classic` goes without.
+const ROBO_LINE_HALF = 0.25;
+const ROBO_LINE_OPACITY = 0.7;
+const roboLines = !robotaxis || ridersClassic ? [] : robotaxis.state.robos.map(() => {
+  const line = createRouteLine(scene, { halfWidth: ROBO_LINE_HALF });
+  line.setColor(PALETTE.roboGlow);
+  line.setOpacity(ROBO_LINE_OPACITY);
+  rain.hideInMirror(line.mesh);
+  return line;
+});
+function updateRoboLines(dt) {
+  robotaxis?.state.robos.forEach((robo, k) => {
+    const line = roboLines[k];
+    if (!line) return;
+    const car = robo.car;
+    const going = car && !fares.state.gameOver && car.route?.length
+      && ((robo.phase === 'hunt' && robo.target) || robo.phase === 'ride');
+    if (going) line.update(car, car.route, dt);
+    else line.hide();
+  });
+}
+
 // `?blend=additive` picks how the band combines with the road. A URL parameter as well as the
 // ⚙️ dropdown because a screenshot has to be able to pin it: the panel doesn't exist in shot mode.
 const blendParam = new URLSearchParams(window.location.search).get('blend');
@@ -8416,6 +8445,7 @@ function tick() {
   // Through the finale too while the racer is the one still coming home.
   // Not in the finale: what it is driving then is the staged drive-in, not a line to race.
   const rivalCar = race?.state.phase === 'racing' ? race.state.car : null;
+  updateRoboLines(dt);
   if (rivalCar && !fares.state.gameOver) rivalLine.update(rivalCar, rivalCar.route, dt);
   else rivalLine?.hide();
 
