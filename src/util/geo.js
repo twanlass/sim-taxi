@@ -512,17 +512,16 @@ export function placeJunctionPaving(rng, visible = () => true) {
 // texture section (game/debugpanel.js) can move each one with the game running. The first four
 // scale with `amount`; the rest are shapes and densities and do not.
 export const ROAD_TEX_DEFAULTS = Object.freeze({
-  // Tyler's tuning from the panel, 2026-11-25, in two rounds (run, mottle, warmth, shoulder, bias,
-  // speckle, texel, step; then grain); stain, patch and stainDensity are
-  // still the first pass's.
-  run: 0.18, mottle: 0.71, stain: 0.5, grain: 0.25,
-  patch: 1,        // the tone patches' size, as a multiple of the 31, 13 and 47 unit octaves
-  warmth: 0.45,    // how far the pale patches lean warm
-  shoulder: 0.49,  // half the width of the step between pale and dark: small is a hard edge
-  bias: 0.69,      // how far the whole swing sits above the base grey
-  stainDensity: 0.08, // the share of 3.2-unit cells with a stain away from a junction
-  speckle: 0.05,      // the share of texels that are a single light pixel, and again dark
-  texel: 0.15,        // the pixel street's texel (setRoadPixels); 0 is the smooth road
+  // Tyler's tuning from the panel, 2026-11-27 (all of it): no tone runs, no away-from-junction
+  // stains, the smooth road rather than the pixel grid, the swing sat below the base grey.
+  run: 0, mottle: 0.21, stain: 0.09, grain: 0.1,
+  patch: 0.2,      // the tone patches' size, as a multiple of the 31, 13 and 47 unit octaves
+  warmth: 0.36,    // how far the pale patches lean warm
+  shoulder: 0.01,  // half the width of the step between pale and dark: small is a hard edge
+  bias: -0.5,      // how far the whole swing sits above the base grey (below, when negative)
+  stainDensity: 0,    // the share of 3.2-unit cells with a stain away from a junction
+  speckle: 0.02,      // the share of texels that are a single light pixel, and again dark
+  texel: 0,           // the pixel street's texel (setRoadPixels); 0 is the smooth road
   step: 0.02,         // the grey ramp's step
 });
 export const ROAD_TEX = { ...ROAD_TEX_DEFAULTS };

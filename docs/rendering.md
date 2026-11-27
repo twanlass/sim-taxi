@@ -1685,8 +1685,9 @@ ground's paint pass, worked out from the grid arithmetic with no texture and no 
 - **Grain.** Two finer octaves at 1.3 and 0.45 units. The finer is about ten device pixels on a
   phone; a world-locked noise much below that crawls as the camera pans.
 
-**It is drawn as a pixel-art street** (`setRoadPixels`; `?roadtex=smooth` is the same road without
-the grid, `?roadpx=` the texel's size). Every layer above is read at the centre of a 0.15-unit
+**The pixel-art grid is off by default.** Tyler's panel tuning of 2026-11-27 set the texel to 0,
+the smooth road, with no tone runs, sparse stains and the swing sat below the base grey
+(`ROAD_TEX_DEFAULTS`). With a texel (`setRoadPixels`, `?roadpx=0.15` for the previous one) every layer above is read at the centre of a 0.15-unit
 world texel, 60 to an ordinary street and landing on its kerb lines, and the value is rounded to a
 ramp of greys a fiftieth apart. The stains get a hard edge, the grain becomes single light and dark
 pixels (one texel in twenty-five each way; the 1.3-unit octave rounded to the ramp read as static
