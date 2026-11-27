@@ -503,6 +503,11 @@ function realTree(kit) {
 function cardLobes(kit, crown, clumps, { density = 3.2, cardScale = 1.2, s = null } = {}) {
   for (const c of clumps) {
     const tint = jitterColor(c.color ?? kit.canopy, kit.rng, { h: 0.02, s: 0.04, l: 0.06 });
+    // `?trees=quads`: the same lobes, but each drawn as a few big leaf-mass cards (canopyfuzz.js).
+    if (kit.mass) {
+      kit.record({ x: c.x, y: c.y, z: c.z, r: c.r, color: tint, tx: kit.x, tz: kit.z, crown, mass: true });
+      continue;
+    }
     kit.record({
       x: c.x, y: c.y, z: c.z, r: c.r, color: tint, tx: kit.x, tz: kit.z, crown,
       fill: true, density, cardScale, keepBack: true, s: c.s ?? s,
@@ -625,6 +630,10 @@ const STYLES = {
   species: speciesTree,
   cards: cardTree,
   cardshapes: cardShapeTree,
+  quads: (kit) => {
+    kit.mass = true;
+    return cardShapeTree(kit);
+  },
   lowpoly: lowpolyTree,
   real: realTree,
 };

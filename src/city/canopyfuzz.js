@@ -50,7 +50,19 @@ const scaleOf = (arr) => lobeScale.set(arr[0], arr[1], arr[2]);
 const LOBE_SCALE = new THREE.Vector3(1.05, 0.9, 1.05);
 
 const VARIANTS = 4;
-const CELL_PX = 64;
+// Leaf *masses* (`?trees=quads`): whole clumps of leaves on one card, the usual game trick — a few
+// big quads per crown and the alpha doing the work. They share the atlas with the small cards, in
+// the cells after them, so the two kinds stay one mesh, one texture and one program. The cell is
+// twice the old size because a mass has a hundred leaves to draw where a cluster had a dozen; the
+// small cards' mips are drawn rather than filtered, so the level a small card reads at play zoom
+// is the same rasterisation it always was.
+const MASSES = 4;
+const CELLS = VARIANTS + MASSES;
+const CELL_PX = 128;
+// Cards per mass lobe, how big against the lobe, and how far the corner normals bulge outward.
+const MASS_CARDS = 3;
+const MASS_SIZE = [2.0, 2.5];
+const MASS_BULGE = 0.6;
 
 /**
  * Coverage of one leaf-cluster drawing: rotated ellipses, never thinner than `minHalf` (see
@@ -93,8 +105,33 @@ export function leafAtlas() {
     }
     drawings.push(leaves);
   }
+  // The masses: a lumpy blob (a few overlapping discs) packed with small leaves, sparser toward its
+  // edge so the outline breaks up and with gaps inside so the card behind it shows through.
+  for (let k = 0; k < MASSES; k++) {
+    const blobs = [];
+    const lumps = rng.int(4, 6);
+    for (let n = 0; n < lumps; n++) {
+      const a = rng.range(0, Math.PI * 2);
+      const d = n === 0 ? 0 : rng.range(0.12, 0.2);
+      blobs.push({ x: 0.5 + Math.cos(a) * d, y: 0.5 + Math.sin(a) * d, r: n === 0 ? 0.26 : rng.range(0.13, 0.2) });
+    }
+    const inside = (x, y) => blobs.reduce((m, b) => Math.max(m, 1 - Math.hypot(x - b.x, y - b.y) / b.r), -1);
+    const leaves = [];
+    for (let tries = 0; leaves.length < 150 && tries < 4000; tries++) {
+      const x = rng.range(0.05, 0.95);
+      const y = rng.range(0.05, 0.95);
+      const depth = inside(x, y);
+      // Keep every leaf well inside, fewer toward the rim, and leave holes: `depth` 0 is the rim.
+      if (depth < -0.15 || rng.next() > 0.35 + depth * 1.6) continue;
+      const turn = rng.range(0, Math.PI);
+      leaves.push({
+        x, y, rx: rng.range(0.035, 0.06), ry: rng.range(0.018, 0.032), cos: Math.cos(turn), sin: Math.sin(turn),
+      });
+    }
+    drawings.push(leaves);
+  }
   return cutoutAtlas({
-    variants: VARIANTS,
+    variants: CELLS,
     cellPx: CELL_PX,
     coverage: (k, u, v, minHalf) => leafCoverage(drawings[k], u, v, minHalf),
   });
@@ -112,6 +149,10 @@ export function planCanopyFuzz(rng, crowns) {
   for (const lobe of crowns) {
     // A clumped tree's core (props.js): buried under its clumps, so its cards would be too.
     if (lobe.fuzz === false) continue;
+    if (lobe.mass) {
+      massCards(rng, lobe, cards);
+      continue;
+    }
     // With a floor: area alone gives a median's 0.6-radius ornamental three cards after the cull,
     // which is a smooth crown next to a fuzzy one rather than a smaller fuzzy one.
     // `density` (a style's override, props.js `STYLES`) scales the count on top.
@@ -161,6 +202,37 @@ export function planCanopyFuzz(rng, crowns) {
   return cards;
 }
 
+/**
+ * A mass lobe's few big cards: one in front, the rest a little behind and to the sides, each
+ * covering the whole lobe. Lit by bulged corner normals and shaded per corner (`bulge`, `crown`),
+ * so a card that is one quad still turns from its lit shoulder to its shaded underside.
+ */
+function massCards(rng, lobe, cards) {
+  const n = new THREE.Vector3();
+  if (lobe.crown) {
+    clumpNormal(n, lobe.x, lobe.y, lobe.z, lobe.crown.x, lobe.crown.y, lobe.crown.z, lobe.crown, 1);
+  } else {
+    n.copy(TO_CAMERA);
+  }
+  for (let i = 0; i < MASS_CARDS; i++) {
+    const side = i === 0 ? 0 : (i % 2 ? 1 : -1) * rng.range(0.25, 0.45);
+    const lift = i === 0 ? 0 : rng.range(-0.25, 0.3);
+    const toward = i === 0 ? 0.25 : -0.2;
+    const r = lobe.r;
+    cards.push({
+      x: lobe.x + (VIEW_RIGHT.x * side + VIEW_UP.x * lift + TO_CAMERA.x * toward) * r,
+      y: lobe.y + (VIEW_RIGHT.y * side + VIEW_UP.y * lift + TO_CAMERA.y * toward) * r,
+      z: lobe.z + (VIEW_RIGHT.z * side + VIEW_UP.z * lift + TO_CAMERA.z * toward) * r,
+      nx: n.x, ny: n.y, nz: n.z,
+      size: r * rng.range(MASS_SIZE[0], MASS_SIZE[1]) * (i === 0 ? 1 : 0.85),
+      roll: rng.range(0, Math.PI * 2),
+      variant: VARIANTS + rng.int(0, MASSES - 1),
+      color: jitterColor(lobe.color, rng, { h: 0.015, s: 0.03, l: 0.05 }).multiplyScalar(i === 0 ? 1 : 0.8),
+      tx: lobe.tx, tz: lobe.tz, bulge: MASS_BULGE, crown: lobe.crown ?? null,
+    });
+  }
+}
+
 /** One merged geometry, six vertices a card, each wound to face the camera. */
 export function canopyFuzzGeometry(cards) {
   const count = cards.length;
@@ -171,6 +243,9 @@ export function canopyFuzzGeometry(cards) {
   const entry = new Float32Array(count * 18);
   const r = new THREE.Vector3();
   const u = new THREE.Vector3();
+  const bent = new THREE.Vector3();
+  const base = new THREE.Vector3();
+  const shaded = new THREE.Color();
 
   cards.forEach((card, c) => {
     const half = card.size / 2;
@@ -185,16 +260,26 @@ export function canopyFuzzGeometry(cards) {
     const br = at(1, -1);
     const tr = at(1, 1);
     const tl = at(-1, 1);
-    const u0 = card.variant / VARIANTS;
-    const u1 = (card.variant + 1) / VARIANTS;
+    const u0 = card.variant / CELLS;
+    const u1 = (card.variant + 1) / CELLS;
     const corners = [bl, br, tr, bl, tr, tl];
     const uvs = [[u0, 0], [u1, 0], [u1, 1], [u0, 0], [u1, 1], [u0, 1]];
     const rand = hash01(card.tx, card.tz);
     corners.forEach((p, k) => {
       const v = c * 6 + k;
       pos.set(p, v * 3);
-      nrm.set([card.nx, card.ny, card.nz], v * 3);
-      card.color.toArray(col, v * 3);
+      if (card.bulge) {
+        // A mass card: the normal leans out toward its corner, and the colour takes the crown's
+        // shade there (`massCards`).
+        bent.set(p[0] - card.x, p[1] - card.y, p[2] - card.z).normalize().multiplyScalar(card.bulge)
+          .add(base.set(card.nx, card.ny, card.nz)).normalize();
+        nrm.set([bent.x, bent.y, bent.z], v * 3);
+        const k = card.crown ? crownShade(card.crown, p[0], p[1], p[2]) : 1;
+        shaded.copy(card.color).multiplyScalar(k).toArray(col, v * 3);
+      } else {
+        nrm.set([card.nx, card.ny, card.nz], v * 3);
+        card.color.toArray(col, v * 3);
+      }
       uv.set(uvs[k], v * 2);
       // The tree's own trunk anchor, so the fuzz grows in with its crown in the entrance wave.
       entry.set([card.tx, card.tz, rand], v * 3);
