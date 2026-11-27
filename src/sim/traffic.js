@@ -6115,6 +6115,10 @@ export function createTraffic(
       const late = car.lateTurn;
       car.lateTurn = null;
       if (car.turn?.hand !== 'straight') return;
+      // Not in the air on Big Air: the flight was launched on the promise of crossing straight on,
+      // and the re-plan its own detour asks main.js for (`bigAirDetour`) offers exactly this swap —
+      // in the game it took the corner back on the next frame and bent the arc sideways mid-air.
+      if (car.hopBig && car.hopFrom != null) return;
       const travelled = Math.min(car.turnT, 1) * car.turnLen;
       if (travelled >= car.leadIn) return;
       const next = exitToward(net, car.lane, late[0]);
@@ -7391,8 +7395,9 @@ export function createTraffic(
             const turn = exitToward(net, car.lane, rightOf(car.d));
             const indicatingLeft = !car.route?.length && car.signalHand === 'left';
             // Not for a taxi still out of its lane, which has to carry straight on (see the exit
-            // roll below) — it waits the red out and tucks in while it does.
-            const outOfItsLane = car === taxi && car.pass > 0;
+            // roll below) — it waits the red out and tucks in while it does. Nor for one flying Big
+            // Air over this junction (`bigAirDetour`), which goes straight on whatever its route said.
+            const outOfItsLane = car === taxi && (car.pass > 0 || car.launchDetour === car.lane.id);
             if (turn && !indicatingLeft && !outOfItsLane
               && (!car.route?.length || car.route[0] === rightOf(car.d))) {
               chosen = turn;

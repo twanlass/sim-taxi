@@ -16,13 +16,17 @@ import { cityNetwork } from '../src/city/roadnet.js';
 import { isArchedDeck } from '../src/game/route.js';
 
 const STEP = 1 / 60;
+// Several takes of each city with ambient traffic, so a red at the far bank (and the free right
+// on it) comes up as well as a clear junction.
+const TAKES = 4;
 setBigAirStyle(process.argv[2]);
 let ctl = 0, ctlBig = 0, big = 0, total = 0, detours = 0, wrong = 0;
-for (let s = 0; s < 6; s++) {
-  createLayout(makeRng(10000 + s * 1237));
+for (let s = 0; s < 6 * TAKES; s++) {
+  createLayout(makeRng(10000 + (s % 6) * 1237));
   const net = cityNetwork();
-  const traffic = createTraffic(makeRng(s + 44), new THREE.Scene(), 1);
+  const traffic = createTraffic(makeRng(s + 44), new THREE.Scene(), 12);
   const taxi = traffic.taxi;
+  traffic.warmup(5);
   for (const deck of net.lanes.filter(isArchedDeck)) {
     const far = net.nodeById.get(deck.to);
     const d = net.dirOfLane(deck);
@@ -47,9 +51,9 @@ for (let s = 0; s < 6; s++) {
       }
       if (straight) { ctl += 1; if (sawBig) ctlBig += 1; total -= 1; continue; }
       if (sawBig) big += 1;
-      else console.log('  miss: seed', s, deck.id, tn.hand, 'straight exit:', deck.exits.map((x) => net.turnById.get(x).hand).join(','), 'v', taxi.v.toFixed(1), 'hop', taxi.hopKind ?? '', taxi.archHopLane === deck.id);
+      else if (process.env.VERBOSE) console.log('  miss: seed', s, deck.id, tn.hand, 'straight exit:', deck.exits.map((x) => net.turnById.get(x).hand).join(','), 'v', taxi.v.toFixed(1), 'hop', taxi.hopKind ?? '', taxi.archHopLane === deck.id);
       if (det) detours += 1;
-      if (sawBig && taxi.lane && net.dirOfLane(taxi.lane) !== d) wrong += 1;
+      if (sawBig && taxi.lane && net.dirOfLane(taxi.lane) !== d) { wrong += 1; console.log('  turned in the air: seed', s, deck.id, tn.hand, '->', taxi.lane.id); }
     }
   }
 }

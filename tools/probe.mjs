@@ -20831,7 +20831,7 @@ let chopperOrder; // likewise
   // ?bigair=classic it is the ordinary hop.
   {
     const lLine = bridgeLines().find((i) => riverCrossing(i) === 'fixed');
-    const fly = (exitDir, { release = false, carry = 3 } = {}) => {
+    const fly = (exitDir, { release = false, carry = 3, late = null } = {}) => {
       const lScene = new THREE.Scene();
       const lTraffic = createTraffic(makeRng(seed + 96), lScene, 1);
       const lTaxi = lTraffic.taxi;
@@ -20866,6 +20866,9 @@ let chopperOrder; // likewise
         lTaxi.boostEasing = release && big;
         // Standing on the brake the whole way: the flight must not care.
         lTaxi.braking = big;
+        // `late` is main.js re-planning on the detour mid-crossing, offering the corner back as a
+        // late turn (`retakeCrossing`) — which is what the game does on the frame after the drop.
+        if (late && lTaxi.state === 'turn' && lTaxi.hopFrom != null) { lTaxi.lateTurn = late; late = null; }
         const before = lTaxi.hopFrom;
         lTraffic.update(1 / 60);
         if (before == null && lTaxi.hopFrom != null) {
@@ -20890,7 +20893,7 @@ let chopperOrder; // likewise
       return { big, peak, landing, landLane, landS, air, minUp, landUp, airV, detoured };
     };
     const straight = fly(DIR.PZ);
-    const detour = fly(DIR.PX);
+    const detour = fly(DIR.PX, { late: [DIR.PX, DIR.PX] });
     setBigAirStyle('classic');
     const turning = fly(DIR.PX);
     setBigAirStyle();
@@ -20925,7 +20928,7 @@ let chopperOrder; // likewise
     check('with the brake held the whole way, the flight is still its full length',
       straight.air !== null && straight.air >= DRIFT_LAUNCH_LEN && straight.air < DRIFT_LAUNCH_LEN + 1,
       `${straight.air?.toFixed(2)} of ${DRIFT_LAUNCH_LEN}`);
-    check('a route turning at the far bank still flies Big Air, straight on, and drops the route to re-plan',
+    check('a route turning at the far bank still flies Big Air, straight on, drops the route to re-plan and refuses the corner back',
       detour.big && detour.landing?.big === true && detour.landLane
       && cityNetwork().dirOfLane(detour.landLane) === DIR.PZ && detour.detoured,
       `big ${detour.big}, landed heading ${detour.landLane && cityNetwork().dirOfLane(detour.landLane)}, `

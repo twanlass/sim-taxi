@@ -263,7 +263,9 @@ the far bank (8 wide, 10.67 for an arterial) and comes down 3.25 or 0.6 into the
 units clear of its hold line. So the taxi always crosses the far bank **straight on**: a route that
 turns there no longer cancels the launch (Tyler, 2026-11-27). The kick wins — the junction drops
 the route the way an overtake does (`car.launchDetour`, then `detoured`) and main.js re-plans from
-the street the taxi lands in, at the cost of the block or two that takes. The only crossing left
+the street the taxi lands in, at the cost of the block or two that takes. That re-plan offers the
+corner back as a late turn (`retakeCrossing`), and a free right on red would take it too; both are
+refused while Big Air is in the air, or the arc bends sideways mid-flight (the first in-game take did). The only crossing left
 without Big Air is a far bank with no straight exit at all (a T into a block). Measured with
 `tools/bigair-turn.mjs`, a kicked taxi on every arched deck of six cities with a route for each
 exit: a turning route launched 0 of 48 times before, 42 of 48 now (the 6 are T junctions). The
