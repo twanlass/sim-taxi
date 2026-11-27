@@ -142,6 +142,7 @@ import { TAXI_DECK_Y, TAXI_TAILPIPE_BACK, TAXI_TAILPIPE_HEIGHT, TAXI_SCALE as TA
 import { createLocoFlame, setFlameStyle } from '../src/game/locoflame.js';
 import { createParcel, PARCEL_CENTRE_Y } from '../src/geometry/parcel.js';
 import { createFoodOrder } from '../src/geometry/food.js';
+import { createDonutOrder } from '../src/geometry/donutorder.js';
 import { createCargo, CARGO_KINDS, CARGO_CENTRE_Y } from '../src/geometry/cargo.js';
 import * as difficulty from '../src/game/difficulty.js';
 import { BOARD_MAX } from '../src/game/difficulty.js';
@@ -307,6 +308,10 @@ const traffic = time('traffic init', () => createTraffic(makeRng(seed + 44), sce
 const FOOD_PICKUP = layout.burgerBlock
   ? { i: layout.burgerBlock.bi + 1, j: layout.burgerBlock.bj + 1 }
   : null;
+// ...and where a donut order is: the donut shop's own corner, which city/donutshop.js works out
+// (`pickup`) and main.js passes on unchanged. Both go to every board as `foodPickups`.
+const DONUT_PICKUP = buildings.donut?.pickup ?? null;
+const FOOD_PICKUPS = { food: FOOD_PICKUP, donut: DONUT_PICKUP };
 
 const tris = (mesh) => mesh.geometry.attributes.position.count / 3;
 console.log(`  triangles: ground ${tris(ground)}, buildings ${tris(buildings.mesh)}, props ${tris(props)}`);
@@ -3942,8 +3947,23 @@ const PRESSURE_END = difficulty.getTuning().pressureEnd;
     FOOD_PICKUP
       ? `junction (${FOOD_PICKUP.i}, ${FOOD_PICKUP.j})`
       : 'no joint — every food check below is measuring a board that can only serve boxes');
+  check('...and a donut shop for donut orders to come out of', DONUT_PICKUP !== null,
+    DONUT_PICKUP
+      ? `junction (${DONUT_PICKUP.i}, ${DONUT_PICKUP.j})`
+      : 'no donut shop — every donut check below is measuring a board that can only serve burgers');
+  // The donut shop's pickup is the junction whose kerb pin stands on the shop's own corner: inside
+  // the shop's block, within a road's width of the block's +X+Z corner. Derived from bounds in
+  // city/donutshop.js; asserted here against `cornerFor`, which is what actually places the pad.
+  if (DONUT_PICKUP) {
+    const pin = cornerFor(DONUT_PICKUP.i, DONUT_PICKUP.j);
+    const b = buildings.donut.tower.block.bounds;
+    check('the donut order\u2019s pad stands on the donut shop\u2019s own corner',
+      pin.x > b.x0 && pin.x < b.x1 && pin.z > b.z0 && pin.z < b.z1
+        && b.x1 - pin.x < 1 && b.z1 - pin.z < 1,
+      `pin (${pin.x.toFixed(2)}, ${pin.z.toFixed(2)}), block corner (${b.x1.toFixed(2)}, ${b.z1.toFixed(2)})`);
+  }
 
-  const parcels = createParcelSystem(makeRng(seed + 255), pScene, { foodPickup: FOOD_PICKUP });
+  const parcels = createParcelSystem(makeRng(seed + 255), pScene, { foodPickups: FOOD_PICKUPS });
   pTraffic.warmup(5);
 
   const tagsUnder = (root) => {
@@ -4008,6 +4028,20 @@ const PRESSURE_END = difficulty.getTuning().pressureEnd;
     Math.abs((foodBounds.box.min.y + foodBounds.box.max.y) / 2 - CARGO_CENTRE_Y) < 0.02
     && Math.abs(CARGO_CENTRE_Y - PARCEL_CENTRE_Y) < 1e-9,
     `food centred at ${((foodBounds.box.min.y + foodBounds.box.max.y) / 2).toFixed(3)}, `
+    + `envelope says ${CARGO_CENTRE_Y.toFixed(3)}`);
+
+  // The donut order (geometry/donutorder.js) is held to the same envelope and the same middle, and
+  // for the same three readers.
+  const donutBounds = envelope(createDonutOrder({ pickable: null }).mesh);
+  check('a donut order stands in the same envelope as the box',
+    donutBounds.box.max.y <= boxBounds.box.max.y + 1e-6
+    && donutBounds.box.min.y >= -1e-6
+    && donutBounds.radius <= boxBounds.radius + 1e-6,
+    `${donutBounds.box.max.y.toFixed(3)} tall and ${donutBounds.radius.toFixed(3)} out, `
+    + `against the box's ${boxBounds.box.max.y.toFixed(3)} and ${boxBounds.radius.toFixed(3)}`);
+  check('and is centred on the same point',
+    Math.abs((donutBounds.box.min.y + donutBounds.box.max.y) / 2 - CARGO_CENTRE_Y) < 0.02,
+    `donut order centred at ${((donutBounds.box.min.y + donutBounds.box.max.y) / 2).toFixed(3)}, `
     + `envelope says ${CARGO_CENTRE_Y.toFixed(3)}`);
 
   // The rig itself: exactly one kind on show, `mesh` following it, and the idle riding the **outer**
@@ -4312,6 +4346,7 @@ const PRESSURE_END = difficulty.getTuning().pressureEnd;
   // A run of this length sees a handful, so the draw is sampled here for the same reason the park
   // filter is — one spawn cannot tell a coin flip from a constant.
   let sampledFood = 0;
+  let sampledDonut = 0;
   let sampledWrongMesh = 0;
   let sampledLoosePickup = 0;
   const foodDropoffs = new Set();
@@ -4319,7 +4354,8 @@ const PRESSURE_END = difficulty.getTuning().pressureEnd;
   // ...except off the joint itself. `spotLegal` refuses the corner the taxi is at, and a food order
   // only ever comes from one corner, so a run that happens to finish at the burger joint samples 80
   // boards of nothing but boxes. Move it one junction on.
-  if (FOOD_PICKUP && pTraffic.taxi.i === FOOD_PICKUP.i && pTraffic.taxi.j === FOOD_PICKUP.j) {
+  // (Either shop's corner: the taxi parked on one leaves that shop's orders to the other.)
+  if (Object.values(FOOD_PICKUPS).some((at) => at && pTraffic.taxi.i === at.i && pTraffic.taxi.j === at.j)) {
     const taxi = pTraffic.taxi;
     const on = nextIntersection(taxi.d, taxi.i, taxi.j);
     if (on) placeCar(taxi, taxi.d, on.i, on.j, 6);
@@ -4327,19 +4363,21 @@ const PRESSURE_END = difficulty.getTuning().pressureEnd;
   for (let s = 0; s < BOARDS; s++) {
     const boardScene = new THREE.Scene();
     const board = createParcelSystem(makeRng(seed + 900 + s * 7), boardScene,
-      { foodPickup: FOOD_PICKUP });
+      { foodPickups: FOOD_PICKUPS });
     // `delivered` past the tutorial gate and `nextSpawnAt` still at −Infinity, so the first frame
     // spawns rather than waiting out a drawn gap.
     for (const { type, parcel } of board.update(1 / 60, pTraffic.taxi, { delivered: 99 })) {
       if (type !== 'spawned') continue;
       sampled += 1;
-      if (parcel.kind === 'food') {
+      if (parcel.kind === 'food' || parcel.kind === 'donut') {
         sampledFood += 1;
-        // **A food order comes from the joint, and from nowhere else.** This is the one thing about
-        // the second load that is not cosmetic, and the way it fails is silent: a `foodPickup` that
-        // never passes `spotLegal` — a corner the camera cannot see, say — does not throw, it serves
-        // a box under a different name, and the board goes on looking exactly right.
-        if (parcel.pickup.i !== FOOD_PICKUP?.i || parcel.pickup.j !== FOOD_PICKUP?.j) {
+        if (parcel.kind === 'donut') sampledDonut += 1;
+        // **A food order comes from its shop, and from nowhere else.** This is the one thing about
+        // the food loads that is not cosmetic, and the way it fails is silent: a pickup that never
+        // passes `spotLegal` — a corner the camera cannot see, say — does not throw, it serves a
+        // box (or the other shop's order) under a different name, and the board looks exactly right.
+        const shop = FOOD_PICKUPS[parcel.kind];
+        if (parcel.pickup.i !== shop?.i || parcel.pickup.j !== shop?.j) {
           sampledLoosePickup += 1;
         }
         // ...and the delivery end is still anywhere, which is what makes it a delivery rather than a
@@ -4377,12 +4415,16 @@ const PRESSURE_END = difficulty.getTuning().pressureEnd;
     `${sampledFood} food of ${sampled}`);
   check('and the corner is wearing the load the package says it is',
     sampledWrongMesh === 0, `${sampledWrongMesh} of ${sampled} showing the wrong mesh`);
-  check('every food order is collected at the burger joint',
+  check('every food order is collected at its own shop',
     sampledFood > 0 && sampledLoosePickup === 0,
-    FOOD_PICKUP
-      ? `${sampledFood} orders, ${sampledLoosePickup} from somewhere other than `
-        + `(${FOOD_PICKUP.i}, ${FOOD_PICKUP.j})`
-      : 'no joint in this city');
+    `${sampledFood} orders, ${sampledLoosePickup} from somewhere other than their shop's corner`);
+  // **Both shops get orders, and neither is rare** — the box-or-food check one level down. With both
+  // corners usable the pick is even, so 25–75% of the food is donuts on all but freak seeds; the
+  // failure worth catching is a shop whose orders never come (an unseen corner, a wrong junction).
+  check('food comes from both the burger joint and the donut shop',
+    !DONUT_PICKUP || !FOOD_PICKUP
+      || (sampledDonut > sampledFood * 0.25 && sampledDonut < sampledFood * 0.75),
+    `${sampledDonut} donut orders of ${sampledFood} food`);
   // Ten distinct drop-offs out of the orders drawn is not a distribution test — it is the assertion
   // that the *far* end is still drawn at all. A food order whose delivery was also pinned would be
   // the same drive every time, which is the failure a fixed origin invites.
@@ -4479,7 +4521,7 @@ const PRESSURE_END = difficulty.getTuning().pressureEnd;
   const fares = createFareSystem(makeRng(seed + 55), cScene, {
     reserved: () => parcels.occupiedSpots(),
   });
-  const parcels = createParcelSystem(makeRng(seed + 255), cScene, { foodPickup: FOOD_PICKUP });
+  const parcels = createParcelSystem(makeRng(seed + 255), cScene, { foodPickups: FOOD_PICKUPS });
   cTraffic.warmup(2);
 
   // Get a rider aboard the ordinary way.
@@ -19751,11 +19793,14 @@ let chopperOrder; // likewise
   let mostRejectedInOneCity = 0;
   let jointCorners = 0;
   let jointSeen = 0;
+  let donutCorners = 0;
+  let donutSeen = 0;
   const SEEDS = 4;
   for (let n = 0; n < SEEDS; n++) {
     const s = seed + n * 977;
     const sweepLayout = createLayout(makeRng(s));
-    const sweepCity = createBuildings(makeRng(s + 22), sweepLayout).mesh;
+    const sweepBuilt = createBuildings(makeRng(s + 22), sweepLayout);
+    const sweepCity = sweepBuilt.mesh;
     const sweepProps = createProps(makeRng(s + 33), sweepLayout).mesh;
     const targets = [sweepCity, sweepProps];
     setCityOccluders(sweepCity, sweepProps);
@@ -19768,6 +19813,12 @@ let chopperOrder; // likewise
     if (sweepLayout.burgerBlock) {
       jointCorners += 1;
       if (cornerSeen(sweepLayout.burgerBlock.bi + 1, sweepLayout.burgerBlock.bj + 1)) jointSeen += 1;
+    }
+    // ...and the donut shop's, for the same reason: its corner is the only place a donut order comes
+    // from (city/donutshop.js `pickup`).
+    if (sweepBuilt.donut) {
+      donutCorners += 1;
+      if (cornerSeen(sweepBuilt.donut.pickup.i, sweepBuilt.donut.pickup.j)) donutSeen += 1;
     }
     // Only a block with a building on it hides its own corner: a park or the graveyard lot at
     // (0, 0) leaves it in plain view, and the double graveyard took (0, 0) in one of these four.
@@ -19827,6 +19878,9 @@ let chopperOrder; // likewise
   check('the burger joint\u2019s own corner is visible in every city, so food is always on offer',
     jointCorners === SEEDS && jointSeen === jointCorners,
     `${jointSeen}/${jointCorners} joints with a visible pickup corner`);
+  check('the donut shop\u2019s own corner is visible in every city, so donuts are always on offer',
+    donutCorners === SEEDS && donutSeen === donutCorners,
+    `${donutSeen}/${donutCorners} donut shops with a visible pickup corner`);
   // A filter that eats the board is worse than the bug. Two junctions a city on average, and the
   // worst city in the sweep is the number that would show up as "nowhere to put a fare".
   check('and the filter costs the board a couple of junctions, not a district',

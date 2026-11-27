@@ -4748,6 +4748,27 @@ Everything is a cylinder, a box or a squashed hemisphere — nothing here is han
 keeps it clear of [the winding trap](#the-courier-pad--geometryparcelpadjs) the pad next door fell
 into.
 
+### The donut order — `geometry/donutorder.js`
+
+The food order's twin, collected at the [donut shop](gameplay.md#two-kinds-of-load-and-one-of-them-has-an-address):
+the roof's own cake donut (`donutGeometry()` from city/donutshop.js, frosting, fried band and
+sprinkles) shrunk to the burger's width, propped against a coffee cup. Built on every rule the burger
+order above is built on — two objects and no container, tall one up-screen on the diagonal, centred on
+its own plan, stood by its own bounding box, and inside the box's envelope (asserted in
+`tools/probe.mjs` beside the burger's).
+
+**Propped, not lying flat.** Flat, the donut is a pink ellipse a quarter of a unit tall beside a cup
+four times its height, and the cup is all that reads. Leaned back 0.62 rad onto the cup it stands about
+half the envelope, shows the frosted face and the hole at once, and the spin swings it side-on for a
+beat each turn, which shows the tube.
+
+**The coffee reaches the envelope's top itself,** having no straw: a cup the soda's off-white under a
+kraft sleeve (`coffeeSleeve`), the sleeve being what says hot drink, and a dark-roast lid with a raised
+rim (`coffeeLid`) — dark rather than the soda's red so the two orders never share a read at 10px.
+
+The mesh is `propMaterial({ smooth: true })` for the donut's tube, as the roof sign is; the cup's
+faces come through `bakeColor` with face normals and light flat regardless.
+
 ### The drop-off ring — `geometry/marker.js`
 
 The drop-off is a **filled disc on the kerb corner and nothing else** — no head, no post, so the

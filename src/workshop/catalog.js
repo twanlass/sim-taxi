@@ -44,6 +44,7 @@ import { createTrainMesh } from '../game/ltrain.js';
 import { createPerson } from '../geometry/person.js';
 import { createParcel } from '../geometry/parcel.js';
 import { createFoodOrder } from '../geometry/food.js';
+import { createDonutOrder } from '../geometry/donutorder.js';
 import { buildBank, bankDomeMesh } from '../city/bank.js';
 import { INSET, buildLotTower } from '../city/buildings.js';
 import { chooseVetSite, createVetClinic } from '../city/vetclinic.js';
@@ -376,6 +377,11 @@ export const CATALOG = [
     id: 'food', label: 'Food order', kind: 'People & props',
     source: 'src/geometry/food.js · createFoodOrder',
     build: () => ({ object: asObject(createFoodOrder()) }),
+  },
+  {
+    id: 'donut-order', label: 'Donut order', kind: 'People & props',
+    source: 'src/geometry/donutorder.js · createDonutOrder',
+    build: () => ({ object: asObject(createDonutOrder()) }),
   },
 ];
 

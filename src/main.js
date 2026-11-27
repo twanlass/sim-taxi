@@ -1203,16 +1203,21 @@ const fares = createFareSystem(makeRng(runSeed + 55), scene, {
 // now asserts every offset in this file is distinct, because nothing about the collision was visible:
 // no crash, no failing check, just a package board silently correlated with a helicopter.
 //
-// `foodPickup` is the burger joint's own corner junction, and it is the whole of what that module
-// knows about the city: a food order is collected there and nowhere else (see game/parcels.js). The
+// `foodPickups` are the two food shops' own corner junctions, and they are the whole of what that
+// module knows about the city: a burger order is collected at the joint's, a donut order at the donut
+// shop's, and nowhere else (see game/parcels.js). For the joint, the
 // **+X+Z** corner of the joint's block, because `cornerFor` puts a kerb pin on the −X−Z side of its
 // junction — so junction (bi + 1, bj + 1) is the one whose pin stands on the joint's *own* slab
 // rather than across the road from it. It is also the corner the drive-through's exit crosses, which
 // is as close to "at the window" as a mark on a junction can be. A city that failed to place a joint
-// (`chooseBurgerBlock` can come back empty) passes null and serves boxes only.
+// (`chooseBurgerBlock` can come back empty) passes null, and its food all comes from the other shop.
 const parcels = parcelsEnabled
   ? createParcelSystem(makeRng(runSeed + 255), scene, {
-    foodPickup: burger ? { i: burger.site.bi + 1, j: burger.site.bj + 1 } : null,
+    foodPickups: {
+      food: burger ? { i: burger.site.bi + 1, j: burger.site.bj + 1 } : null,
+      // The donut shop's own corner, which city/donutshop.js works out the same way (`pickup`).
+      donut: donutSite?.pickup ?? null,
+    },
     towardHud: towardCargoDock,
   })
   : null;
