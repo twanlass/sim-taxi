@@ -922,6 +922,9 @@ function roofFurniture(parts, cx, cz, cw, cd, deck, rng, keep = []) {
     const tx = cx + rng.jitter(Math.max(0, cw / 2 - TANK_R - 0.5));
     const tz = cz + rng.jitter(Math.max(0, cd / 2 - TANK_R - 0.5));
     footprint(tx, tz, TANK_R * 2, TANK_R * 2);
+    // Flagged on the keep-out itself: a tank is 3.3 tall, so a roof sign (the vet's dog, the donut)
+    // cannot share the deck with one. The dog's head went straight through it (Tyler, 2026-11-27).
+    keep[keep.length - 1].waterTower = true;
 
     for (const [lx, lz] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) {
       parts.push(box(0.13, LEG_H, 0.13, tx + lx * TANK_R * 0.62, deck, tz + lz * TANK_R * 0.62,
