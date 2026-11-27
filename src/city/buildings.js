@@ -91,25 +91,33 @@ function oklab(c) {
 }
 
 /**
- * The finish on a flat roof's deck: whichever of `roofTar` and `roofGravel` stands further from
- * the wall under it — tar on the light families, gravel on the dark ones.
+ * The deck inside a flat roof's lip: a shade of the wall's own colour, darker on a light wall
+ * and lighter on a dark one, whichever stands further from it as lit (`roofContrast`).
  *
  * Tyler, 2026-11-27: "make sure that building roof color is not the same as the building body."
- * It was a stop darker than the body (`shade(col, 0.86)` inside the lip), and at 4:24 PM the deck
- * takes about as much sun as the lit wall does, so the darkening was spent on the lighting and the
- * two read as one colour (palette.js has the measurement). Temperature is the axis the lighting
- * cannot erase on its own, and lightness only works if the deck clears *both* walls, so the pick
- * is scored as lit (`roofContrast`): OKLab distance to the sunny wall and to the shaded one,
- * whichever is nearer. Worst family after: glass at 0.126 (0.105 at its lightest jitter); before,
- * brick and slate at 0.061.
- * The lip stays the body's own colour, darkened, so the families still tell apart at the
- * roofline; only the deck inside it changes. Held by `tools/probe.mjs` (`roofContrast`).
+ * It was the body at 0.67, and at 4:24 PM the deck takes about as much sun as the lit wall does,
+ * so the darkening was spent on the lighting and the two read as one colour (measurements at
+ * `DECK_LIGHT`). The first fix gave decks a roofing finish of their own (charcoal tar, warm
+ * gravel) and read as random — "pick adjacent shades of the building color vs totally diff
+ * colors" — so the deck keeps the wall's hue and moves only in value, but far enough to clear
+ * both lit walls: half the body on concrete, pale, tan and the bank, `ROOF_LIFT` of HSL lightness
+ * over it on brick, glass and slate. Worst family as drawn: tan, 0.122; before, slate at 0.057. The
+ * lip stays the body darkened, so it frames the deck either way. Held by `tools/probe.mjs`.
  */
+export const ROOF_DARKEN = 0.5;
+export const ROOF_LIFT = 0.16;
 export function roofDeck(wall) {
-  const tar = color('roofTar');
-  const gravel = color('roofGravel');
-  return roofContrast(wall, tar) >= roofContrast(wall, gravel) ? tar : gravel;
+  const darker = wall.clone().multiplyScalar(ROOF_DARKEN);
+  const lighter = wall.clone().offsetHSL(0, 0, ROOF_LIFT);
+  return roofContrast(wall, darker) >= roofContrast(wall, lighter) ? darker : lighter;
 }
+
+// The light on a deck and on a shaded wall, per channel, relative to the sunny wall. Measured off
+// one tan block in a WebGL render (deck (135, 130, 97) at 0.67 of the body, lit wall
+// (157, 149, 109), shaded wall (80, 95, 112)): the deck takes a touch more than the sunny wall,
+// and the shaded wall is lit by sky, so it loses red and keeps its blue.
+const DECK_LIGHT = [1.07, 1.10, 1.15];
+const SHADE_LIGHT = [0.23, 0.37, 1.06];
 
 /**
  * How far a deck sits from the wall under it, as it is lit: the smaller OKLab distance to the
@@ -117,9 +125,10 @@ export function roofDeck(wall) {
  * wall (~1.07, from the tan block in palette.js) and the shaded wall by its own (~0.35).
  */
 export function roofContrast(wall, deck) {
-  const d = oklab(deck.clone().multiplyScalar(1.07));
-  const dist = (k) => Math.hypot(...oklab(wall.clone().multiplyScalar(k)).map((v, i) => v - d[i]));
-  return Math.min(dist(1), dist(0.35));
+  const lit = (c, [r, g, b]) => oklab(new THREE.Color(c.r * r, c.g * g, c.b * b));
+  const d = lit(deck, DECK_LIGHT);
+  const dist = (k) => Math.hypot(...lit(wall, k).map((v, i) => v - d[i]));
+  return Math.min(dist([1, 1, 1]), dist(SHADE_LIGHT));
 }
 
 // `?roofs=classic` keeps the solid cap every flat roof used to be: one box, deck on its top face.
@@ -186,6 +195,8 @@ function capClearance(parts, w, h, d, x, base, z) {
 }
 
 export function lippedCap(parts, w, h, d, x, base, z, col, floorCol = roofDeck(col)) {
+  // `floorCol` defaults to a deck shaded off the lip; a building whose lip is cut from its body
+  // passes `roofDeck(body)` instead, since the contrast that matters is against the walls.
   h += capClearance(parts, w, h, d, x, base, z);
   if (ROOFS_CLASSIC || w < 4 * LIP_W || d < 4 * LIP_W) {
     parts.push(box(w, h, d, x, base, z, col));
@@ -911,7 +922,7 @@ function roofKit(parts, cx, cz, cw, cd, y, style, body, rng, stats) {
   const capH = 0.3;
   // Either way the cap is hollowed into a lip with the deck sunk inside it — see `lippedCap`.
   const deck = style === 'punched'
-    ? lippedCap(parts, cw + 0.36, capH, cd + 0.36, cx, y, cz, shade(body))
+    ? lippedCap(parts, cw + 0.36, capH, cd + 0.36, cx, y, cz, shade(body), roofDeck(body))
     // A curtain wall has no cornice to have — the glass runs to a flush parapet, which is the
     // whole visual difference between the two at a distance.
     : lippedCap(parts, cw, capH, cd, cx, y, cz, color('rooftop'), roofDeck(body));
@@ -1312,7 +1323,7 @@ function buildCourtyard(lot, block, rng, parts) {
       ribbonWindows(parts, wx, KERB_H, wz, ww, wd, h, firstFloorH, windowColor, peak, body, wing.faces);
     }
     // A cornice per wing, so the stepped heights read as four buildings in a terrace.
-    const deck = lippedCap(parts, ww + 0.3, 0.26, wd + 0.3, wx, KERB_H + h, wz, shade(body));
+    const deck = lippedCap(parts, ww + 0.3, 0.26, wd + 0.3, wx, KERB_H + h, wz, shade(body), roofDeck(body));
     wing.deck = deck;
   }
 

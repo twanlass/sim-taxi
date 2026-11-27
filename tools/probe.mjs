@@ -2500,20 +2500,20 @@ const onGrass = (city, i, j) => {
 // --- Roofs stand apart from their walls -------------------------------------
 // Tyler, 2026-11-27: a roof the same colour as the building under it. Scored as lit
 // (`roofContrast`): the deck against the sunny wall and the shaded one. Every family, and the
-// bank, which hands `lippedCap` its own stone, clears 0.10 (worst: the lightest jitter of
-// glass, 0.105; glass as drawn 0.126; the old body-darkened deck scored 0.061 on brick and slate).
+// bank, which hands `lippedCap` its own stone, clears 0.11 (worst: the darkest jitter of
+// concrete, 0.118; the old deck, the body at 0.67, scored 0.057 on slate).
 // Jitter moves a body by up to ±0.06 HSL lightness, so each family is tried at both ends of it.
 {
-  const MIN = 0.10;
+  const MIN = 0.11;
   let worst = { name: '', v: Infinity };
   for (const name of [...BUILDING_COLORS, 'bankColumn']) {
     for (const dl of [-0.06, 0, 0.06]) {
       const body = color(name).offsetHSL(0, 0, dl);
-      const v = roofContrast(body, roofDeck(body.clone().multiplyScalar(0.78)));
+      const v = roofContrast(body, roofDeck(body));
       if (v < worst.v) worst = { name: `${name} ${dl >= 0 ? '+' : ''}${dl}`, v };
     }
   }
-  check('every flat roof deck stands apart from its walls', worst.v >= MIN,
+  check('every flat roof deck is a shade of its walls that stands apart from them', worst.v >= MIN,
     `worst ${worst.name} at ${worst.v.toFixed(3)} (need ${MIN})`);
   const sameAsWall = [['brick', true], ['slate', false], ['glass', false]]
     .filter(([name, tile]) => [-0.06, 0, 0.06].some((dl) => pitchedFinish(color(name).offsetHSL(0, 0, dl), tile) === tile))
