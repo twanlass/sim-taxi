@@ -1,14 +1,16 @@
-// The taxi's roof sign: an orange topper that pops up out of the roof when it lights, bobs on its
-// mount while it is lit, and fades away when it goes out.
+// The taxi's roof sign: a topper that pops up out of the roof with a forward flip when it lights,
+// bobs and pulses on its mount while it is lit, and fades away when it goes out.
 //
 // **What it says.** Lit while the taxi is free, the way a real cab's roof light works (the sign is
 // the cab advertising itself to the street), and *gone* while a rider is aboard. There is no off
 // state to look at. The sign this replaces had one — dark with no rider — and it came off at the
 // workshop bench for being a dark lump on the yellow roof for most of every run; a grey and then a
 // near-black lens were both tried here (2026-11-27) and both fought the roof's chequer, which reads
-// well from the sky and stays. So off is the plain chequered roof, and on is the one thing on it
-// that is not yellow: `taxiSignLit` is an orange, because the first warm cream sat too close to the
-// roof's own yellow to read. `SIGN_LIT_WHEN_FREE` flips the meaning back in one line.
+// well from the sky and stays. So off is the plain chequered roof. Lit, the lens is the chequer's own
+// white (`taxiSign`), so the sign reads as part of the livery standing up off the roof — a warm cream
+// and then an orange were tried first and both sat oddly against the yellow — and what says "lamp"
+// rather than "paint" is the glow pulsing (`PULSE_*`), bloom and all. `SIGN_LIT_WHEN_FREE` flips the
+// meaning back in one line.
 //
 // **How it moves.** Everything is a transform on two nested groups plus one opacity, so no geometry
 // is added and nothing is rebuilt per frame:
@@ -56,8 +58,12 @@ const LENS_TAPER = 0.07;
 // Stands this clear of the roof (and the chequer plates on it), so the base's underside is not
 // coplanar with either.
 const ROOF_CLEAR = 0.02;
-/** The lens's own glow, before the bloom: enough to read as a lamp in the sun. */
-const SIGN_GLOW = 0.45;
+/** The lens's glow, before the bloom, pulsing between these at PULSE_HZ: never fully off, so it
+ *  always reads as lit, and never so hot the bloom turns it into a white blob (the first cut held
+ *  0.45 steady and did). The bloom reads emissiveIntensity, so it pulses with the lens. */
+const PULSE_LOW = 0.12;
+const PULSE_HIGH = 0.5;
+const PULSE_HZ = 1.1;
 
 // --- The idle ------------------------------------------------------------------------------------
 /** Breathing: Y scale ±this, at BOB_HZ. Volume-preserving, so the sign fattens as it squats. */
@@ -73,11 +79,11 @@ const ACCEL_LEAN = 0.006;
 const LEAN_MAX = 0.2;
 const SQUASH_MAX = 0.3;
 
-// --- Lighting up: out of the roof, tall and thin, and down into a squash ---------------------------
-const POP_IN = 0.24;
-/** How tall and thin it is at the top of the pop, and how far off the roof. */
+// --- Lighting up: out of the roof tall and thin, one forward flip in the air, down into a squash ----
+const POP_IN = 0.5;
+/** How tall and thin it is leaving the roof, and how high the arc peaks (~10px at play zoom). */
 const POP_STRETCH = 0.55;
-const POP_RISE = 0.45;
+const POP_RISE = 1.1;
 /** What the landing hands the spring: a squash that rings out over ~0.4s. */
 const LAND_SQUASH = 0.4;
 
@@ -98,7 +104,7 @@ function lensGeometry() {
   }
   g.computeVertexNormals();
   g.translate(0, -HALF_H + BASE_H + LENS_H / 2, 0);
-  return bakeColor(g, color('taxiSignLit'));
+  return bakeColor(g, color('taxiSign'));
 }
 
 function baseGeometry() {
@@ -127,7 +133,7 @@ export function createRoofSign({ x, y }) {
   }));
   // Lit from inside, so the whole lens glows its own colour rather than catching a white shine.
   const lamp = new THREE.Mesh(lensGeometry(), new THREE.MeshLambertMaterial({
-    color: color('taxiSignLit'), emissive: color('taxiSignLit'), emissiveIntensity: SIGN_GLOW,
+    color: color('taxiSign'), emissive: color('taxiSign'), emissiveIntensity: PULSE_LOW,
     flatShading: true, transparent: true,
   }));
   lamp.userData.bloomKind = 'window';
@@ -181,13 +187,19 @@ export function createRoofSign({ x, y }) {
     let sy = 1 + state.squash + BOB_AMP * Math.sin(state.t * Math.PI * 2 * BOB_HZ);
     let sxzMul = 1;
     let rise = 0;
+    let flip = 0;
     if (state.phase === 'in') {
       const u = Math.min(1, state.phaseT / POP_IN);
-      const grow = easeOut(u);
-      // Out of the roof tall and thin, the stretch easing off as it reaches the top of its rise.
-      sy = grow * (1 + POP_STRETCH * (1 - u * 0.6));
-      sxzMul = grow / Math.sqrt(Math.max(0.2, 1 + POP_STRETCH * (1 - u * 0.6)));
-      rise = POP_RISE * Math.sin(Math.PI * u * 0.5) * (1 - u * u) * 1.6;
+      // Full size by a third of the way up, so the flip is of the whole sign, not of a speck.
+      const grow = easeOut(Math.min(1, u * 3));
+      // Stretched along its travel at both ends of the arc, round at the top.
+      const stretch = 1 + POP_STRETCH * Math.abs(1 - 2 * u);
+      sy = grow * stretch;
+      sxzMul = grow / Math.sqrt(stretch);
+      rise = POP_RISE * 4 * u * (1 - u);
+      // One forward flip — negative about local Z is nose over, the taxi's own bridge flip's sign —
+      // eased so it hangs at the top of the arc.
+      flip = -Math.PI * 2 * u * u * (3 - 2 * u);
     } else if (state.phase === 'out') {
       const u = Math.min(1, state.phaseT / FADE_OUT);
       sxzMul = 1 + FADE_SWELL * easeOut(u);
@@ -199,7 +211,9 @@ export function createRoofSign({ x, y }) {
     const sxz = (state.phase === 'in' ? sxzMul : sxzMul / Math.sqrt(Math.max(0.5, sy)));
     pop.scale.set(Math.max(0.001, sxz), sy, Math.max(0.001, sxz));
     pop.position.y = HALF_H * sy + rise;
-    pop.rotation.set(0, 0, state.lean);
+    pop.rotation.set(0, 0, flip + state.lean);
+    lamp.material.emissiveIntensity = PULSE_LOW
+      + (PULSE_HIGH - PULSE_LOW) * (0.5 + 0.5 * Math.sin(state.t * Math.PI * 2 * PULSE_HZ));
   }
 
   function update(dt, speed = 0) {

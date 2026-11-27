@@ -358,7 +358,8 @@ already said "taxi" from above. It came back (2026-11-27) with the real-world me
 free. The first cut hopped off the roof with a flip between a lit lens and a grey (then near-black)
 off one, with the roof's chequer taken out from under it so the dark sign would read. Tyler preferred
 the chequer, which reads well from the sky, so the off state went instead: the sign pops up when it
-lights and fades away when it goes out, in orange so it stands off the yellow roof.
+lights and fades away when it goes out. Orange and a warm cream were both tried for the lens; it
+settled on the chequer's own white with a pulsing glow, and kept the flip, now inside the pop-up.
 
 ### The drop-off is a ring, and it wears the rider's clock
 

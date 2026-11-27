@@ -631,10 +631,6 @@ export const PALETTE = {
   taxiBody: '#F5C130',
   taxiTrim: '#2B2B30',
   taxiSign: '#F2F0E8',
-  // The roof sign's lens (geometry/roofsign.js), which only exists while it is lit. An orange, because
-  // the first warm cream sat too close to the roof's own yellow to read against it (Tyler,
-  // 2026-11-27), and off-white before that bloomed to a white blob.
-  taxiSignLit: '#FF9533',
   // The painted flame on the depot's cutout taxi (city/garage.js): hot-rod sign paint, red to
   // yellow, and deliberately *not* the Loco plume's locoFlame* — that is the player's boost, and
   // the roof is a sign. The core is a lemon rather than `taxiBody` so it does not merge into the

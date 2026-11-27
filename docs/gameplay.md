@@ -1315,11 +1315,12 @@ for by the clock, which is why the figure between them has to stay out of the wa
 
 The **roof sign** (`geometry/roofsign.js`) is lit while the taxi is free and simply not there while a
 rider is aboard, the way a real cab's roof light says "free" — there is no off state to look at, so
-off is the plain chequered roof. It runs nose to tail along the roof and is orange (`taxiSignLit`),
-the one thing on the roof that is not yellow. On drop-off it **pops up** out of the roof, tall and
-thin, and lands in a squash that rings out (0.24s); on pickup it **fades out**, swelling and lifting
-a touch as it goes (0.32s). While lit it breathes on its mount (a 5% volume-preserving squash at
-1.5 Hz), wobbles when the taxi brakes or boosts, and leans back under acceleration.
+off is the plain chequered roof. It runs nose to tail along the roof, in the chequer's own white
+(`taxiSign`), and its glow pulses at 1.1 Hz so it reads as a lamp rather than paint. On drop-off it
+**pops up** out of the roof, tall and thin, does one forward flip at the top of a ~1.1-unit arc and
+lands in a squash that rings out (0.5s); on pickup it **fades out**, swelling and lifting a touch as
+it goes (0.32s). While lit it breathes on its mount (a 5% volume-preserving squash at 1.5 Hz),
+wobbles when the taxi brakes or boosts, and leans back under acceleration.
 `?roofsign=classic` takes it off the car. History:
 [the roof sign](gameplay-history.md#the-taxis-roof-sign).
 
