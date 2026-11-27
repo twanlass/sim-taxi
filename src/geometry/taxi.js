@@ -190,7 +190,7 @@ function lidChequer(run, hingeX) {
  * The parts the taxi's shell merges: body, cabin, chequer stripe and the rear wheels. Shared with
  * `taxiSignGeometry`, so the sign on the depot's roof is this car and cannot drift from it.
  */
-function shellParts({ lids = true, roofChequer = true } = {}) {
+function shellParts({ lids = true } = {}) {
   const parts = [];
 
   // Proportions match the ambient cars so the taxi reads as the same class of vehicle.
@@ -258,10 +258,7 @@ function shellParts({ lids = true, roofChequer = true } = {}) {
   // The same two colours down the middle of the bonnet, the boot lid and the roof (deckChequer).
   // The bonnet's and the boot's runs are left out of the live taxi's shell (`lids: false`): they
   // ride meshes of their own there, so a wreck that swings a lid open can take them with it.
-  // The roof's run comes off when the roof sign is on: a sign standing on a chequer read as noise on
-  // noise, and with the sign there the roof already says "taxi" from above (Tyler, 2026-11-27).
-  // The depot's cutout (`taxiSignGeometry`) carries no sign, so it keeps the run.
-  if (roofChequer) parts.push(...deckChequer(DECK_ROOF));
+  parts.push(...deckChequer(DECK_ROOF));
   if (lids) parts.push(...deckChequer(DECK_BONNET), ...deckChequer(DECK_BOOT));
 
   // A grill in the middle of the nose: a dark recess with three chrome bars across it. Kept to the
@@ -328,7 +325,7 @@ export function createTaxiMesh() {
   const group = new THREE.Group();
   group.name = 'taxi';
 
-  const parts = shellParts({ lids: false, roofChequer: !ROOF_SIGN });
+  const parts = shellParts({ lids: false });
   const merged = mergeGeometries(parts, false);
   parts.forEach((p) => p.dispose());
 
@@ -418,8 +415,8 @@ export function createTaxiMesh() {
   hit.userData.pickable = 'taxi';
   group.add(hit);
 
-  // The roof sign (geometry/roofsign.js): lit while the taxi is free, off while a rider is aboard,
-  // and it hops off the roof with a flip to change between the two. `?roofsign=classic` leaves it off
+  // The roof sign (geometry/roofsign.js): lit while the taxi is free and gone while a rider is
+  // aboard — it pops up out of the roof as it lights and fades away as it goes out. `?roofsign=classic` leaves it off
   // the car, as it was after it first came off at the workshop bench (see that file for why it came
   // back and what it does differently this time).
   const sign = ROOF_SIGN ? createRoofSign({

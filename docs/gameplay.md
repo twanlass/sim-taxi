@@ -1313,14 +1313,14 @@ rider, so a colour on the *person* would imply a commitment that doesn't exist. 
 their head and [the disc under their feet](#the-disc-says-it-again-on-the-ground) are both spoken
 for by the clock, which is why the figure between them has to stay out of the way.
 
-The **roof sign** (`geometry/roofsign.js`) is lit while the taxi is free and off while a rider is
-aboard, the way a real cab's roof light works — a plain on/off, not a colour. It runs nose to tail
-along the roof. Lit is a warm amber (`taxiSignLit`), off near-black (`taxiSignDark`), and the roof's chequer run comes
-off under it so the sign stands on plain yellow. It is never still: it breathes on its mount (a 5% volume-preserving squash
-at 1.5 Hz), rings like jelly when the taxi brakes or boosts, and leans back under acceleration. On
-pickup and drop-off it **hops**: a crouch, ~1.1 units of air with one forward flip, the lens swapping
-at the top of the flip while it is upside down, and a squash on landing that rings out. The whole
-hop is 0.55s. `?roofsign=classic` takes it off the car. History:
+The **roof sign** (`geometry/roofsign.js`) is lit while the taxi is free and simply not there while a
+rider is aboard, the way a real cab's roof light says "free" — there is no off state to look at, so
+off is the plain chequered roof. It runs nose to tail along the roof and is orange (`taxiSignLit`),
+the one thing on the roof that is not yellow. On drop-off it **pops up** out of the roof, tall and
+thin, and lands in a squash that rings out (0.24s); on pickup it **fades out**, swelling and lifting
+a touch as it goes (0.32s). While lit it breathes on its mount (a 5% volume-preserving squash at
+1.5 Hz), wobbles when the taxi brakes or boosts, and leans back under acceleration.
+`?roofsign=classic` takes it off the car. History:
 [the roof sign](gameplay-history.md#the-taxis-roof-sign).
 
 #### The drop-off is a ring, and it wears the rider's clock

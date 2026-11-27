@@ -1,34 +1,37 @@
-// The taxi's roof sign: a lit topper that bobs on its mount, and hops off the roof with a flip to
-// change state.
+// The taxi's roof sign: an orange topper that pops up out of the roof when it lights, bobs on its
+// mount while it is lit, and fades away when it goes out.
 //
-// **What it says.** Lit while the taxi is free, off while a rider is aboard, the way a real cab's
-// roof light works (the sign is the cab advertising itself to the street). The sign this replaces
-// ran the other way round — lit with a rider aboard — and it came off at the workshop bench for being
-// a dark lump on the yellow roof for most of every run. What is different now: the roof's chequer
-// run comes off under it (geometry/taxi.js), so a dark sign stands on plain yellow rather than on
-// noise; lit is a warm amber (`taxiSignLit`) against a near-black off (`taxiSignDark`); and the
-// change between the two is an event the player sees, which is what earns the part its place on the car. `SIGN_LIT_WHEN_FREE`
-// flips the meaning back in one line if the old reading plays better.
+// **What it says.** Lit while the taxi is free, the way a real cab's roof light works (the sign is
+// the cab advertising itself to the street), and *gone* while a rider is aboard. There is no off
+// state to look at. The sign this replaces had one — dark with no rider — and it came off at the
+// workshop bench for being a dark lump on the yellow roof for most of every run; a grey and then a
+// near-black lens were both tried here (2026-11-27) and both fought the roof's chequer, which reads
+// well from the sky and stays. So off is the plain chequered roof, and on is the one thing on it
+// that is not yellow: `taxiSignLit` is an orange, because the first warm cream sat too close to the
+// roof's own yellow to read. `SIGN_LIT_WHEN_FREE` flips the meaning back in one line.
 //
-// **How it moves.** Everything is a transform on three nested groups, so no geometry is added and
-// nothing is rebuilt per frame:
+// **How it moves.** Everything is a transform on two nested groups plus one opacity, so no geometry
+// is added and nothing is rebuilt per frame:
 //
 //   anchor  on the roof, at the sign's footprint centre — never moves
-//   hop     carries the height off the roof, the flip, and the squash/stretch scale
-//   parts   the trim base and the two lenses, centred on the hop's origin
+//   pop     the rise off the roof, the lean and the squash/stretch scale
+//   parts   the trim base and the lens, centred on the pop's origin
 //
-// The flip turns about the sign's *middle* (a box somersaulting about its base swings through the
-// roof), and the squash has to keep the sign standing on its *base* — so the hop's height is
-// recomputed off the current Y scale every frame (`HALF_H * sy`) rather than scaled about a pivot.
+// The squash keeps the sign standing on its *base*: the pop's height is recomputed off the current
+// Y scale every frame (`HALF_H * sy`) rather than scaled about a pivot.
+//
+// The two materials are `transparent` for the whole life of the car, at opacity 1 almost all of it,
+// rather than flipped on for the fade: three bakes the opaque/transparent choice into the compiled
+// program, so a flip links a second program on the first fade, which is a stall at exactly the frame
+// the player is watching (the drop-off). One program, always.
 //
 // **Sized against the camera.** At play zoom a world unit is ~7.7px and the taxi carries
 // `TAXI_SCALE` 1.18, so the sign is ~8px long and ~3px tall. That is why the idle bob is in the
 // *scale* rather than the height — a 0.03 rise is a fifth of a pixel and reads as nothing, while a
-// 5% squash on something this squat reads as the sign breathing — and why the hop goes as high as
-// it does: `HOP_H` 1.1 is ~10px of air, enough to see the sign leave the car at play zoom without it
-// crossing the yellow taxi marker overhead.
+// 5% squash on something this squat reads as the sign breathing — and why the pop-in overshoots as
+// far as it does.
 import * as THREE from 'three';
-import { bakeColor, propMaterial } from '../util/geo.js';
+import { bakeColor } from '../util/geo.js';
 import { color } from '../palette.js';
 import { addGhostOutline, addGhostMask } from './ghostoutline.js';
 
@@ -40,26 +43,27 @@ export const ROOF_SIGN = typeof location === 'undefined'
 export const SIGN_LIT_WHEN_FREE = true;
 
 // The topper, in car-local units before TAXI_SCALE. Long along the car and narrow across it, so it
-// runs parallel to the body (Tyler, 2026-11-27: the first cut sat across the roof like a real cab's
-// and read as a crossbar; parallel lines up with the roof's chequer and the flip turns it end over end).
-export const SIGN_ALONG = 0.9;
-export const SIGN_ACROSS = 0.34;
+// runs parallel to the body and the roof's chequer (Tyler, 2026-11-27: across the roof like a real
+// cab's, it read as a crossbar).
+const SIGN_ALONG = 0.9;
+const SIGN_ACROSS = 0.34;
 const BASE_H = 0.06;
 const LENS_H = 0.24;
-export const SIGN_H = BASE_H + LENS_H;
+const SIGN_H = BASE_H + LENS_H;
 const HALF_H = SIGN_H / 2;
 // The lens's top is pulled in this much each way across the car: a wedge, not a brick.
 const LENS_TAPER = 0.07;
-// Stands this clear of the roof, so the base's underside is not coplanar with the roof's top.
-const ROOF_CLEAR = 0.01;
-/** The lit lens's own glow, before the bloom: enough to read as a lamp in the sun, not a white blob. */
+// Stands this clear of the roof (and the chequer plates on it), so the base's underside is not
+// coplanar with either.
+const ROOF_CLEAR = 0.02;
+/** The lens's own glow, before the bloom: enough to read as a lamp in the sun. */
 const SIGN_GLOW = 0.45;
 
 // --- The idle ------------------------------------------------------------------------------------
 /** Breathing: Y scale ±this, at BOB_HZ. Volume-preserving, so the sign fattens as it squats. */
 const BOB_AMP = 0.05;
 const BOB_HZ = 1.5;
-/** The jelly spring the hop's landing and the car's own speed changes ring. */
+/** The jelly spring the pop-in's landing and the car's own speed changes ring. */
 const SPRING_K = 260;
 const SPRING_DAMP = 11;
 /** Squash per (u/s²) of the taxi's acceleration, either sign — a hard brake or a boost both jolt it. */
@@ -69,21 +73,22 @@ const ACCEL_LEAN = 0.006;
 const LEAN_MAX = 0.2;
 const SQUASH_MAX = 0.3;
 
-// --- The hop -------------------------------------------------------------------------------------
-/** Crouch before take-off. */
-const HOP_CROUCH = 0.09;
-/** In the air: up, one full forward flip, down. */
-const HOP_AIR = 0.46;
-const HOP_H = 1.1;
-/** The crouch's depth, and the stretch at take-off and touchdown. */
-const CROUCH_SQUASH = 0.32;
-const AIR_STRETCH = 0.28;
+// --- Lighting up: out of the roof, tall and thin, and down into a squash ---------------------------
+const POP_IN = 0.24;
+/** How tall and thin it is at the top of the pop, and how far off the roof. */
+const POP_STRETCH = 0.55;
+const POP_RISE = 0.45;
 /** What the landing hands the spring: a squash that rings out over ~0.4s. */
-const LAND_SQUASH = 0.38;
+const LAND_SQUASH = 0.4;
 
-const easeInOut = (u) => u * u * (3 - 2 * u);
+// --- Going out: a puff — it swells a touch, lifts and fades -----------------------------------------
+const FADE_OUT = 0.32;
+const FADE_SWELL = 0.18;
+const FADE_RISE = 0.25;
 
-function lensGeometry(paint) {
+const easeOut = (u) => 1 - (1 - u) * (1 - u);
+
+function lensGeometry() {
   // A box with its top four corners pulled in across the car (z): the wedge of a topper. Non-indexed
   // through bakeColor, so every face keeps its own flat normal after the taper.
   const g = new THREE.BoxGeometry(SIGN_ALONG, LENS_H, SIGN_ACROSS);
@@ -93,7 +98,7 @@ function lensGeometry(paint) {
   }
   g.computeVertexNormals();
   g.translate(0, -HALF_H + BASE_H + LENS_H / 2, 0);
-  return bakeColor(g, color(paint));
+  return bakeColor(g, color('taxiSignLit'));
 }
 
 function baseGeometry() {
@@ -105,95 +110,96 @@ function baseGeometry() {
 
 /**
  * Build the sign at `(x, y)` in car-local space — `y` the roof's top face.
- * Returns `{ anchor, parts, lamp, setOccupied, update, settle, state }`.
+ * Returns `{ anchor, parts, lamp, setOccupied, update, settle, douse, state }`.
  */
 export function createRoofSign({ x, y }) {
   const anchor = new THREE.Group();
   anchor.name = 'roofSign';
   anchor.position.set(x, y + ROOF_CLEAR, 0);
-  const hop = new THREE.Group();
-  anchor.add(hop);
+  const pop = new THREE.Group();
+  anchor.add(pop);
 
-  const base = new THREE.Mesh(baseGeometry(), propMaterial());
-  // Lit from inside, so the whole lens glows its own colour rather than catching a white shine —
-  // the same plain emissive Lambert the brake pods are (geometry/lights.js), unpatched, so its bloom
-  // copy shares the one program every other lamp draws with (`signLamp`, marked from main.js).
-  const litMaterial = new THREE.MeshLambertMaterial({
-    color: color('taxiSignLit'), emissive: color('taxiSignLit'), emissiveIntensity: SIGN_GLOW, flatShading: true,
-  });
-  const lamp = new THREE.Mesh(lensGeometry('taxiSignLit'), litMaterial);
+  // Plain Lambert rather than `propMaterial()`, for the lens because its bloom copy then shares the
+  // one program every other lamp draws with (`signLamp`, marked from main.js), and for the base so the
+  // two fade on the same terms.
+  const base = new THREE.Mesh(baseGeometry(), new THREE.MeshLambertMaterial({
+    vertexColors: true, flatShading: true, transparent: true,
+  }));
+  // Lit from inside, so the whole lens glows its own colour rather than catching a white shine.
+  const lamp = new THREE.Mesh(lensGeometry(), new THREE.MeshLambertMaterial({
+    color: color('taxiSignLit'), emissive: color('taxiSignLit'), emissiveIntensity: SIGN_GLOW,
+    flatShading: true, transparent: true,
+  }));
   lamp.userData.bloomKind = 'window';
-  const dark = new THREE.Mesh(lensGeometry('taxiSignDark'), propMaterial());
-  const parts = [base, lamp, dark];
+  const parts = [base, lamp];
   for (const part of parts) {
     part.castShadow = true;
     part.receiveShadow = true;
-    hop.add(part);
+    pop.add(part);
   }
   // Every opaque part of the taxi is in the ghost mask, or it occludes the shell's rim (taxi.js).
   addGhostMask(base);
   addGhostOutline(lamp, { rim: 0.1 });
-  addGhostOutline(dark, { rim: 0.1 });
 
   const state = {
-    lit: SIGN_LIT_WHEN_FREE,   // what the lens shows now
-    want: SIGN_LIT_WHEN_FREE,  // what it should show once any hop lands
-    hopT: null,                // seconds into the hop, or null on the roof
-    swapped: false,
+    want: SIGN_LIT_WHEN_FREE,  // lit or not, once any transition lands
+    phase: null,               // 'in' | 'out' | null
+    phaseT: 0,
     t: 0,
     squash: 0, squashV: 0,     // the spring, as Y scale − 1
     lean: 0,
     lastSpeed: null,
   };
 
-  const show = (lit) => {
-    state.lit = lit;
-    lamp.visible = lit;
-    dark.visible = !lit;
-  };
-  show(state.lit);
+  const setOpacity = (a) => { for (const part of parts) part.material.opacity = a; };
+  const setShown = (on) => { pop.visible = on; for (const part of parts) part.visible = on; };
+  setShown(state.want);
 
-  const startHop = () => {
-    state.hopT = 0;
-    state.swapped = false;
-  };
+  function begin(phase) {
+    state.phase = phase;
+    state.phaseT = 0;
+    if (phase === 'in') { setShown(true); setOpacity(1); state.squash = state.squashV = 0; }
+  }
 
   function setOccupied(occupied, instant = false) {
-    state.want = SIGN_LIT_WHEN_FREE ? !occupied : Boolean(occupied);
+    const want = SIGN_LIT_WHEN_FREE ? !occupied : Boolean(occupied);
+    const was = state.want;
+    state.want = want;
     if (instant) {
-      state.hopT = null;
+      state.phase = null;
       state.squash = state.squashV = 0;
-      show(state.want);
+      setOpacity(1);
+      setShown(want);
+      pose();
       return;
     }
-    // Mid-hop, the lens takes whatever `want` says at the top of the flip; if `want` changes again
-    // after that, the landing starts the next hop.
-    if (state.hopT === null && state.want !== state.lit) startHop();
+    if (want !== was) begin(want ? 'in' : 'out');
   }
 
   /** Write the transforms for the current state. */
   function pose() {
     let sy = 1 + state.squash + BOB_AMP * Math.sin(state.t * Math.PI * 2 * BOB_HZ);
-    let air = 0;
-    let flip = 0;
-    if (state.hopT !== null) {
-      const h = state.hopT;
-      if (h < HOP_CROUCH) {
-        sy = 1 - CROUCH_SQUASH * Math.sin((h / HOP_CROUCH) * Math.PI / 2);
-      } else {
-        const u = Math.min(1, (h - HOP_CROUCH) / HOP_AIR);
-        air = HOP_H * 4 * u * (1 - u);
-        // Negative about local Z is nose over — the taxi's own bridge flip uses the same sign.
-        flip = -Math.PI * 2 * easeInOut(u);
-        // Stretched along its travel at both ends of the arc, round at the top.
-        sy = 1 + AIR_STRETCH * Math.abs(1 - 2 * u);
-      }
+    let sxzMul = 1;
+    let rise = 0;
+    if (state.phase === 'in') {
+      const u = Math.min(1, state.phaseT / POP_IN);
+      const grow = easeOut(u);
+      // Out of the roof tall and thin, the stretch easing off as it reaches the top of its rise.
+      sy = grow * (1 + POP_STRETCH * (1 - u * 0.6));
+      sxzMul = grow / Math.sqrt(Math.max(0.2, 1 + POP_STRETCH * (1 - u * 0.6)));
+      rise = POP_RISE * Math.sin(Math.PI * u * 0.5) * (1 - u * u) * 1.6;
+    } else if (state.phase === 'out') {
+      const u = Math.min(1, state.phaseT / FADE_OUT);
+      sxzMul = 1 + FADE_SWELL * easeOut(u);
+      sy *= 1 + FADE_SWELL * 0.5 * easeOut(u);
+      rise = FADE_RISE * easeOut(u);
+      setOpacity(1 - u * u);
     }
-    sy = Math.max(0.5, sy);
-    const sxz = 1 / Math.sqrt(sy);
-    hop.scale.set(sxz, sy, sxz);
-    hop.position.y = HALF_H * sy + air;
-    hop.rotation.set(0, 0, flip + state.lean);
+    sy = Math.max(0.001, sy);
+    const sxz = (state.phase === 'in' ? sxzMul : sxzMul / Math.sqrt(Math.max(0.5, sy)));
+    pop.scale.set(Math.max(0.001, sxz), sy, Math.max(0.001, sxz));
+    pop.position.y = HALF_H * sy + rise;
+    pop.rotation.set(0, 0, state.lean);
   }
 
   function update(dt, speed = 0) {
@@ -208,21 +214,19 @@ export function createRoofSign({ x, y }) {
     state.lean += (leanTo - state.lean) * Math.min(1, dt * 8);
     const kick = THREE.MathUtils.clamp(-Math.abs(accel) * ACCEL_SQUASH, -SQUASH_MAX, 0);
 
-    if (state.hopT !== null) {
-      state.hopT += dt;
-      const u = (state.hopT - HOP_CROUCH) / HOP_AIR;
-      // Swap at the top of the flip, upside down and as far off the roof as it gets.
-      if (!state.swapped && u >= 0.5) {
-        state.swapped = true;
-        show(state.want);
-      }
-      if (u >= 1) {
-        state.hopT = null;
+    if (state.phase) {
+      state.phaseT += dt;
+      if (state.phase === 'in' && state.phaseT >= POP_IN) {
+        state.phase = null;
         state.squash = -LAND_SQUASH;
         state.squashV = 0;
-        if (state.want !== state.lit) startHop();
+      } else if (state.phase === 'out' && state.phaseT >= FADE_OUT) {
+        state.phase = null;
+        setShown(false);
+        setOpacity(1);
       }
-    } else {
+    }
+    if (!state.phase && pop.visible) {
       // Semi-implicit Euler, substepped so a 30fps frame cannot blow the spring up.
       const steps = Math.ceil(dt / (1 / 120));
       const h = dt / steps;
@@ -231,28 +235,26 @@ export function createRoofSign({ x, y }) {
         state.squash += state.squashV * h;
       }
     }
-    pose();
+    if (pop.visible) pose();
   }
 
-  /** Put the lamp out where it is, mid-hop or not — a wreck (sim/traffic.js, beside its pods). */
+  /** Put it out where it is, mid-pop or not — a wreck (sim/traffic.js, beside its pods). */
   function douse() {
-    state.hopT = null;
+    state.phase = null;
     state.want = false;
-    show(false);
-    pose();
+    setShown(false);
+    setOpacity(1);
   }
 
-  /** Finish any hop at once: shot mode ticks the fare loop once and freezes. */
+  /** Land any transition at once: shot mode ticks the fare loop once and freezes. */
   function settle() {
-    state.hopT = null;
+    state.phase = null;
     state.squash = state.squashV = 0;
-    show(state.want);
+    setOpacity(1);
+    setShown(state.want);
     pose();
   }
 
   pose();
   return { anchor, parts, lamp, setOccupied, update, settle, douse, state };
 }
-
-/** Exposed for the probe: the hop's length in seconds, crouch to touchdown. */
-export const SIGN_HOP_SECONDS = HOP_CROUCH + HOP_AIR;

@@ -354,9 +354,11 @@ the sign's job shrank to the one thing still worth saying at a glance: is the ta
 
 Then it came off altogether, at the workshop bench: lit only with a rider aboard and near-black
 otherwise, it was a dark lump on the newly painted yellow roof for most of every run, and the roof
-already said "taxi" from above. It came back (2026-11-27) with the real-world meaning — lit when
-free — a grey rather than black off state, and an animated hop between the two, so the state change
-is something the player sees happen rather than a lamp quietly switching.
+already said "taxi" from above. It came back (2026-11-27) with the real-world meaning, lit when
+free. The first cut hopped off the roof with a flip between a lit lens and a grey (then near-black)
+off one, with the roof's chequer taken out from under it so the dark sign would read. Tyler preferred
+the chequer, which reads well from the sky, so the off state went instead: the sign pops up when it
+lights and fades away when it goes out, in orange so it stands off the yellow roof.
 
 ### The drop-off is a ring, and it wears the rider's clock
 

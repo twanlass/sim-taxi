@@ -12939,9 +12939,9 @@ function rideToPickup() {
   // than one that stopped mattering. And it was seven until each lamp became two meshes: a pair
   // merged into one geometry cannot be dimmed by a scale without walking up the car
   // (geometry/lights.js), so the pair is two pods pivoting on their own anchors. It was ten while
-  // the roof sign was on, and it is eleven now the sign is back: one rim per lens, lit and dark (only
-  // one is ever drawn), with the trim base masked rather than rimmed.
-  check('taxi wears a ghost outline on every opaque part', rims.length === 11,
+  // the roof sign was on, and it is ten again now the sign is back: one rim on its lens, with the trim
+  // base masked rather than rimmed.
+  check('taxi wears a ghost outline on every opaque part', rims.length === 10,
     `${rims.length} rims`);
 
   // ...and every part that draws at all is in the mask, rim or not. The damage pieces (boot lid,
@@ -12958,8 +12958,8 @@ function rideToPickup() {
   // Two more for the chrome bumpers (geometry/bumpers.js), masked without a rim for the reason the
   // damage pieces are: a 0.2 bar inside the shell's hull, too thin to carry one of its own. The
   // damage pieces include the chequer on the shut bonnet and boot, which go when their lid opens.
-  check('every drawn taxi part is in the ghost stencil mask', unmasked.length === 0 && masks.length === 36,
-    `${unmasked.length} unmasked, ${masks.length} masks (11 outlined parts + 16 damage pieces + 4 door pieces + 2 bumpers + 2 mirrors + the roof sign's base)`);
+  check('every drawn taxi part is in the ghost stencil mask', unmasked.length === 0 && masks.length === 35,
+    `${unmasked.length} unmasked, ${masks.length} masks (10 outlined parts + 16 damage pieces + 4 door pieces + 2 bumpers + 2 mirrors + the roof sign's base)`);
 
   // Every vehicle drawn as ordinary meshes — a `skin` in sim/traffic.js — wears its own outline
   // (`outlineVehicle`): the instanced pool in game/carghosts.js reads instances, and these have
