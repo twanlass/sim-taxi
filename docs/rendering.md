@@ -1218,6 +1218,15 @@ What the WebGPU path draws today, and what it does not:
     real wet frame then drew into the two-attachment layout, a validation error that switches
     occlusion off for the session.
 
+    **Since 2026-11-26 the mirror is the frame's own format** (eight bits, the same attachments),
+    so it draws with the frame's pipelines instead of a second set. A pipeline is keyed on its
+    target's colour format, and the half-float mirror had been giving every material in the city a
+    pipeline nothing else used: **153 of the boot's 344** (headless, seed 7), each one a Metal
+    compile on a phone's first launch after an update. Half float was a WebGL precaution against
+    banding in linear values; under WebGPU every node material writes display values, the same
+    eight bits the screen gets, and the ground blurs what it samples. `?mirrorhalf=classic` is the
+    half-float target, for an A/B.
+
   - **A node id in the shader source makes every build a new shader.** three names a
     `uniformArray`'s buffer `NodeBuffer_<node id>` unless it is given a name, and the id is new on
     every build, so two builds of the same material came out as two WGSL sources that no cache
@@ -1298,6 +1307,17 @@ What the WebGPU path draws today, and what it does not:
   - `createRenderPipelineAsync` for the warm-up's pipelines was tried and made a never-seen boot
     **slower** (7.5-11 s against 3.8-4.9 s, Chrome for Testing with its Metal cache cleared each
     run) with no change to a cached one, so the warm-up still builds them synchronously.
+  - **A cold boot pays per distinct shader, not per byte.** `tools/shadercost.mjs` replays every
+    pipeline a boot built, one at a time, on a blank page, against an empty Metal cache and then a
+    warm one (2026-11-26, M5): 17.8 s of driver compile one by one, ~110 ms for a 5 KB fragment
+    shader and ~340 ms for the biggest (126 KB), and close to nothing for a second pipeline on a
+    module already compiled. So the lever is fewer modules, and three wrote near-duplicates:
+    varying locations that skip a slot, identifiers off a per-build counter, instanced meshes with
+    and without a per-instance colour (`util/shadertext.js`), a second shader for every material's
+    faded state (`util/fadeshader.js`), and flat against smooth or front against back picked at
+    build time rather than by a uniform (`util/normalshader.js`). 206 modules to 161 headless (116
+    fragment shaders to 93), pixel-identical. `?shadertext=`, `?fadeshader=` and
+    `?normalshader=classic` for A/B.
 
 Things the WebGL renderer does without being asked, each of which showed up as a wrong
 picture and each of which the node path now does by hand:

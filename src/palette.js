@@ -1105,6 +1105,25 @@ export const PALETTE = {
   dogTag: '#F2C14E',
   vetNeonBlue: '#3D8BFF',
   vetNeonRed: '#FF3348',
+  // The donut shop (city/donutshop.js): a cake donut, the paler band round its middle where it
+  // floated in the fryer, strawberry frosting, and sprinkles in five colours. The frosting is a
+  // pink well off the dog's tongue (`dogTongue`) so a seed that puts the two shops near each other
+  // does not paint them as one chain's.
+  donutCake: '#C2803F',
+  donutBand: '#E8C38A',
+  donutFrosting: '#FF74B4',
+  donutSprinkleA: '#FFF6E0',
+  donutSprinkleB: '#FFD23F',
+  donutSprinkleC: '#3DB2FF',
+  donutSprinkleD: '#5FD068',
+  donutSprinkleE: '#FF6A3D',
+  // Its bubble-letter DONUTS sign, lit white. And the glass front door: a brushed aluminium frame,
+  // glass a shade lighter and bluer than `shopfront` so it reads as glass and not as the dark `door`
+  // it covers, and a pale steel push bar across it.
+  donutSignText: '#FFFFFF',
+  donutDoorFrame: '#B9BEC4',
+  donutDoorGlass: '#6F94AA',
+  donutPushBar: '#E8EAEC',
   // The rooftop billboards (city/billboard.js; the posters' own colours are in city/billboardart.js,
   // which paints them). The steel is painted a dark bottle green, as hoarding structures often are:
   // galvanised grey was `rooftop` to within 3 in every channel and the frame vanished into the roof
@@ -1174,6 +1193,10 @@ export const PALETTE = {
   // it stands on (136) and a long way under `concrete` (178), so a sunlit parapet cannot be
   // mistaken for the pale façade of a building behind it.
   riverWall: '#8D8B84',
+  // The tide mark the wall is mixed toward at the waterline (city/grime.js): wet concrete with silt
+  // and algae in it, so dark and a little green-brown rather than a darker grey, which read as a
+  // shadow line instead of weathering.
+  riverGrime: '#3F4234',
   // The bridge deck. Asphalt, because it is road, and near enough the `asphalt` slab it continues
   // to be the same material — a shade darker, which is what a span in the shadow of its own
   // parapets is, and no more than that. The first cut went to luma 92 against the road's 104 and

@@ -952,6 +952,57 @@ units, under half a screen pixel, so the word lands as the same red smudge the b
 The model workshop has it as **Vet clinic**: the city's own tower generator building a shop on
 the bench block, with the sign on it.
 
+## The donut shop
+
+Another ordinary corner shop per city is a donut shop (`city/donutshop.js`): a giant cake donut
+stood on edge on its roof — pink frosting with a drippy edge, sprinkles, the paler fried band round
+the outside — and a police cruiser parked out front, bar dark, two wheels up on the kerb. Picked
+exactly the way the vet is (`chooseDonutSite`, after `chooseVetSite`, by hash, never the vet's own
+tower), so it moves nothing in the skyline. The billboards are chosen after it and skip its roof.
+`?donut=classic` leaves both additions off. 40 seeds out of 40 get one.
+
+**Which shop.** A one-tier flat roof (any wall style) on a block's **+X+Z corner lot**, with these
+things true: its generated door and a shopfront pane are on faces the camera sees, the donut's two feet land on the deck clear of the plant room, a ray towards the camera
+from the donut gets out past every other tower (`clearOf`, shared with the vet), and the cruiser has
+somewhere to park that the camera can also see.
+
+**The donut** (`donutGeometry`, ring 1.35, tube 0.8 — 4.3 units across, the dog's head's size) is
+one indexed torus at 44 × 18, smooth-normalled, with its colour put on per face afterwards. The
+frosting is the *same surface* lifted 0.07 where it is frosted, not a second shell, so nothing is
+coplanar and the step between the two radii is the frosting's edge; `frostReach` makes that edge
+wavy and lets it drip in a few places. The 64 sprinkles are tiny boxes half sunk into the frosting,
+in the same mesh: 768 triangles and no extra draw, where a shader fleck would cost a lookup on every
+pixel of the donut to say the same 2px thing. It faces the camera's bearing swung 0.3 rad towards
++Z — towards the golden-hour sun, so the frosting is lit rather than mauve — so the tube's flank shows, tipped back 0.28, and stands 1.75 up on two steel legs — high enough
+to clear any plant room, so only its feet need room on the roof. It is static, so unlike the dog and
+the burger it rides the entrance wave's shader as one stamped mesh, and it goes in the sightline
+field like the vet's pole.
+
+**The shopfront.** The shop also gets the vet's neon OPEN sign in a shopfront pane (`signSpot`,
+blooms as a `window`), and a glass door over the dark one `groundFloor` drew (`glassDoorGeometry`):
+an aluminium frame, a glass pane and a push bar, layered 0.11, 0.15 and 0.245 off the wall so no
+two faces share a plane. That is why the shop has to be one whose generated door is on a face the
+camera sees. Under the donut, **DONUTS** in smooth white bubble letters on no board (`bubbleWordGeometry`):
+each stroke is a tube of 0.16 through a centripetal spline, so corners come out round, with a ball
+on each open end. The letters are 1.0 tall and set nearly touching, each bobbed and tipped a little,
+alternately. The word is 2,864 triangles, lit, and goes in the donut's mesh. The letters overlap the
+bottom of the ring and hang 1.0 in front of the legs. The ring's tilt brings its bottom forward, so
+letters level with the legs had the tube in front of the middle ones. The first cut was pixel
+letters on a chocolate board.
+
+**The cruiser** is the patrol cruiser's own body, housing and steered wheels (`parkedCruiser`,
+sim/police.js), no lamps, front wheels turned in to the kerb. It parks the way traffic beside that
+kerb drives (+Z on a +X face, −X on a +Z face), nose 3 back from the block corner — riders stand on
+the corner — and **up on the kerb** for an arithmetic reason as well as a comic one: the lane is
+2.25 from the kerb, so a car parked *at* the kerb overlaps a passing car by 0.35, and ambient cars do
+not collide with scenery. At 0.35 out, its kerb-side wheels are on the pavement and its road-side
+flank leaves 0.2 to a passing car's. Kerb side up by `KERB_H` over the 1.4 track is a 14° lean. It is
+not in the traffic model. The lamps, the post boxes, the bag piles and the roadworks all keep off it
+(`carRect`, `carPoints`).
+
+The model workshop has it as **Donut shop**: the donut and the parked cruiser side by side (the site
+picking needs the city's road network, which the bench does not have).
+
 ## The rooftop billboard
 
 Up to two flat roofs per city carry an advertising hoarding (`city/billboard.js`), one per ad: the
@@ -1404,7 +1455,9 @@ framing that was a wallpaper of white rather than a street. Now, off the ground'
   (3.2 off an ordinary street's centreline; measured from the kerb so it lands right on a bank road
   that is a main road), a dull red lane running up to each junction box (or to a zebra) and a bicycle
   past each junction. On a bank road the lane runs straight on through every junction with nothing
-  on its river side, and stops only at the bridges. A brighter red band across each junction mouth
+  on its river side, and stops only at the bridges. At the west ring road it carries on past the last
+  junction to the coast, so it runs off into the edge fog rather than ending in view (not east, where
+  the harbor's quays begin). A brighter red band across each junction mouth
   was cut (Tyler, 2026-11-25).
 - **Three one-offs**: a **green bike box** ahead of the stop line on one bike-street approach (the car
   line moves back 2.2), an **amber hatched keep-clear box** across the road in front of the garage door,

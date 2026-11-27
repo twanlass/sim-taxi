@@ -53,6 +53,8 @@ import { createProps } from '../src/city/props.js';
 import { createGarage } from '../src/city/garage.js';
 import { createBurgerJoint } from '../src/city/burgerjoint.js';
 import { createVetClinic } from '../src/city/vetclinic.js';
+import { createDonutShop } from '../src/city/donutshop.js';
+import { parkedCruiser } from '../src/sim/police.js';
 import { createBillboard } from '../src/city/billboard.js';
 import { createGraveyard } from '../src/city/graveyard.js';
 import { createCarWash } from '../src/city/carwash.js';
@@ -135,6 +137,7 @@ function buildCity(seed) {
   if (layout.garageBlock) add('garage', createGarage(layout.garageBlock, makeRng(seed + 99), {}).group);
   if (layout.burgerBlock) add('burger', createBurgerJoint(layout.burgerBlock, makeRng(seed + 111)).group);
   if (city.vet) add('vet', createVetClinic(city.vet).group);
+  if (city.donut) add('donut', createDonutShop(city.donut, { makeCruiser: parkedCruiser }).group);
   city.billboards.forEach((b, i) => add(`billboard-${i}`, createBillboard(b).group));
   if (layout.roadsideBlock) {
     const create = roadsideKind(seed) === 'gas' ? createGasStation : createCarWash;
