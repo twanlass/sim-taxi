@@ -143,6 +143,21 @@ export const FOG_REGION_WARM = [1.03, 1.0, 0.96];
 /** The crest-to-hollow brightness range: base + span × billow. Classic was 0.86 + 0.2. */
 export const FOG_BODY = [0.84, 0.24];
 
+/**
+ * **The billows are read where the fragment's sightline meets the ground, not under the fragment.**
+ * The noise is a pattern on the map, and in solid fog the pattern is all there is to see — so two
+ * surfaces at different heights side by side on screen each showed the pattern at *their own* x and
+ * z, and the seam between the two patterns drew the outline of whatever was buried. The river mouth
+ * is where it showed (Tyler, 2026-11-27, "can we better fade out the river mesh?"): the floor sits
+ * 6 under the ground and the water 2, and under this camera a unit of drop moves a point 1.09 units
+ * along both x and z, so the floor beside the channel read the billows 4.3 units diagonally away from
+ * the water beside it. The channel's end, walls and railings stayed as a pale rectangle in the
+ * clouds, fully fogged and still visible. Sliding every fragment along the view ray to y = 0 first
+ * makes the pattern a property of the screen pixel, so a buried thing is fog-coloured *and*
+ * fog-patterned. Ground at y = 0 reads exactly what it always did; the floor reads a constant shift
+ * of its old pattern, which is the same pattern. The distance to the kerb (`efd`) and the height
+ * slope (`FOG_SLOPE`) still use the true position, so the bank's shape is unchanged.
+ */
 /** The floor's depth: under the river's bed (the channel is 2 down), so it never covers it. */
 export const FLOOR_Y = -6;
 
@@ -236,9 +251,12 @@ const FRAGMENT = /* glsl */ `
 		// not an approximation: it skips the five noise reads only where they could not matter.
 		if ( efd > ${f(FOG_START)} || vEdgeFogWorld.y < ${f(FLOOR_Y + 1)} ) {
 		float eft = edgeFog.w;
-		vec2 efs = efp * 0.022 + vec2( 0.0, ${f(FOG_WARP_SPEED * 0.022)} ) * eft;
+		// The view axis in world space (camera +Z), so this follows a yawed camera too.
+		vec3 efv = vec3( viewMatrix[ 0 ][ 2 ], viewMatrix[ 1 ][ 2 ], viewMatrix[ 2 ][ 2 ] );
+		vec2 efg = efp - efv.xz * ( vEdgeFogWorld.y / max( efv.y, 0.05 ) );
+		vec2 efs = efg * 0.022 + vec2( 0.0, ${f(FOG_WARP_SPEED * 0.022)} ) * eft;
 		vec2 efwn = vec2( edgeFogNoise( efs ), edgeFogNoise( efs.yx + 4.7 ) );
-		vec2 efw = efp + ( efwn - 0.5 ) * ${f(2 * FOG_WARP)};
+		vec2 efw = efg + ( efwn - 0.5 ) * ${f(2 * FOG_WARP)};
 		vec2 efcp = ( efw - vec2( ${f(FOG_DRIFT[0])}, ${f(FOG_DRIFT[1])} ) * eft ) * 0.06;
 		float efnc = edgeFogNoise( efcp );
 		float efn = efnc * 0.65

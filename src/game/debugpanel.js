@@ -85,6 +85,9 @@ export function createDebugPanel({
   // The scene's haze (game/scene.js). Defaulted to null for the same reason `scores` is defaulted:
   // the `npm run check` boot pass builds this panel against nothing.
   fog = null,
+  // The two shadow maps' edge width (game/splitshadow.js) — null under `?shadowsplit=classic` and on
+  // WebGL, where the row is left out.
+  shadows = null,
   // `{ load, clear }` over game/highscores.js. Defaulted so the panel still constructs in the
   // `npm run check` boot pass, which builds it against nothing.
   scores = { load: () => [], clear: () => {} },
@@ -268,6 +271,19 @@ export function createDebugPanel({
     shadowAmountValue.textContent = Number(shadowAmount.value).toFixed(2);
   });
   shadowAmountValue.textContent = tint.amount.toFixed(2);
+
+  // How wide a shadow's edge is, in world units: 0 is one texel of the 4096² city map (~0.5px at
+  // play zoom), and the old 2048² PCFSoft edge was about 0.4. A look decision, not a cost one: the
+  // filter takes four taps whatever the width.
+  if (shadows) {
+    const softness = slider(0, 0.5, 0.01, shadows.softness());
+    const softnessValue = row(panel, 'Shadow softness', softness);
+    softness.addEventListener('input', () => {
+      shadows.setSoftness(Number(softness.value));
+      softnessValue.textContent = Number(softness.value).toFixed(2);
+    });
+    softnessValue.textContent = shadows.softness().toFixed(2);
+  }
 
   // Filled in by the haze section below. A stub rather than a direct call because that section is
   // built after this one, so naming its `const` here would be a temporal dead zone waiting for

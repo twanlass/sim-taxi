@@ -5,6 +5,9 @@ import { gpuCompat, unported } from './game/gpucompat.js';
 import { GPU, fallBackToWebGL, gpuNote } from './util/gpu.js';
 import { installVarsToLets } from './util/wgsllets.js';
 import { installNodeMemo } from './util/nodememo.js';
+import { installShaderText } from './util/shadertext.js';
+import { installFadeShader } from './util/fadeshader.js';
+import { installNormalShader } from './util/normalshader.js';
 import { createGpuCapture } from './game/gpucapture.js';
 import { createGpuFrame } from './game/gpuframe.js';
 import { createGpuCrt } from './game/gpucrt.js';
@@ -215,6 +218,7 @@ import { createHitchLogger, getHitchLogger } from './game/hitch.js';
 import { createPerfCapture, perfMark, perfPhase } from './game/perf.js';
 import { warmFirstDraws, warmFirstDrawsInSteps, awaitPrograms } from './game/warmup.js';
 import { createShadowCull } from './game/shadowcull.js';
+import { createSplitShadow } from './game/splitshadow.js';
 import { LOADER, warmStep, compileProgress } from './game/loadbar.js';
 import { createBench } from './game/bench.js';
 import { createSoak } from './game/soak.js';
@@ -348,6 +352,9 @@ if (GPU) installVarsToLets(renderer);
 // Three's node builder asks the same type questions of the same nodes thousands of times per
 // material, and that — not the GPU — is most of a WebGPU boot: see util/nodememo.js.
 if (GPU && new URLSearchParams(window.location.search).get('nodememo') !== 'classic') installNodeMemo(renderer);
+if (GPU && new URLSearchParams(window.location.search).get('shadertext') !== 'classic') installShaderText(renderer);
+if (GPU && new URLSearchParams(window.location.search).get('fadeshader') !== 'classic') installFadeShader();
+if (GPU && new URLSearchParams(window.location.search).get('normalshader') !== 'classic') installNormalShader(renderer);
 perfMark('renderer');
 // NOT `window.innerWidth/innerHeight`: on an installed iOS app those stop short of the physical
 // bottom of the screen, and the strip the canvas doesn't cover shows as bare sky under the game.
@@ -460,6 +467,19 @@ gpuFrame?.setSun(sun);   // the rim line on the cars follows it (game/gpuframe.j
 // the island (game/shadowcull.js). `?shadowcull=classic` draws them all, as before.
 const shadowCull = createShadowCull(scene, sun);
 if (new URLSearchParams(location.search).get('shadowcull') === 'classic') shadowCull.setEnabled(false);
+// Two shadow maps (WebGPU): the standing city drawn once at twice the resolution, and only what moves
+// drawn every frame (game/splitshadow.js). `?shadowsplit=classic` is the one 2048² map that redrew
+// the whole island every frame. `busy` is the classic entrance wave, which grows static geometry in
+// its vertex shader — declared further down, so read through a function.
+const splitShadow = GPU && sun.castShadow
+  && new URLSearchParams(location.search).get('shadowsplit') !== 'classic'
+  ? createSplitShadow(sun, {
+    staticSize: Math.min(4096, budget.shadowMapSize * 2),
+    dynamicSize: budget.shadowMapSize,
+    busy: () => cityEntry.running() || Boolean(ltrain?.intro?.running()),
+  })
+  : null;
+if (splitShadow) shadowCull.skipStatic(splitShadow.isStatic);
 
 // The bloom composite, over the city and under every read-out.
 renderPath.addOverlays(scene);
@@ -9052,8 +9072,32 @@ if (shot) {
   window.__skateStep = (dt = 1 / 30) => { skaters.update(dt); renderFrame(); };
   // The crane the same way, for filming the slew and the beam's swing (shots `crane` and `crane-far`).
   window.__craneStep = (dt = 1 / 30) => { crane?.update(dt); renderFrame(); };
-  document.body.dataset.shotReady = 'true';
-  resolveReady();
+  const shotDone = () => {
+    document.body.dataset.shotReady = 'true';
+    resolveReady();
+  };
+  // **Under WebGPU the render above is only a primer, and the shot is the one a frame later.** The
+  // first time three draws the sun's shadow map it comes out unusable: 125 casters, 116k triangles,
+  // the right camera and the right target, and not one shadow on the ground — not in that frame,
+  // and not in a later one that samples the same map without redrawing it. A second draw on a later
+  // frame is fine. A live run never shows it because the warm-up draws a dozen frames before the
+  // first one anyone sees; a shot draws exactly one, so every WebGPU screenshot came out
+  // pixel-identical to `&shadows=off` (measured on `?shot=2`, cloud SwiftShader and a Mac GPU alike).
+  //
+  // It has to be a *frame* later, not just a second `renderFrame()`: three redraws a shadow map at
+  // most once per frame id (ShadowNode.updateBefore), so a second render in the same task samples
+  // the same empty map. The frame id moves on three's own animation loop, i.e. on rAF. WebGL draws
+  // its shadow map correctly first time, so it keeps its single render.
+  if (GPU) {
+    let done = false;
+    const second = () => { if (done) return; done = true; renderFrame(); shotDone(); };
+    requestAnimationFrame(() => requestAnimationFrame(second));
+    // A background tab runs no frames: don't hold the shot until somebody looks at it. The frame id
+    // only moves on rAF, so this fallback would still draw shadowless — it exists to not hang.
+    setTimeout(second, 2000);
+  } else {
+    shotDone();
+  }
 } else {
   traffic.warmup(10);
   // The opening vignette, and it is built here rather than up with everything else for one
@@ -9205,6 +9249,8 @@ function startRun() {
   perfMark('warmup:end');
   warmedUp = true;
   pinWarmedNodes();
+  // Everything standing has been built and drawn: the static shadow map's set closes here.
+  splitShadow?.settle();
   const benchHooks = {
     renderer,
     ready: () => Boolean(traffic.taxi) && !traffic.taxi.staged,
@@ -9244,6 +9290,7 @@ if (!shot && wantsDebugPanel) {
   debugPanel = createDebugPanel({
     phoneFrame,
     sun,
+    shadows: splitShadow,
     hemi,
     sky,
     fog,
@@ -9289,6 +9336,9 @@ window.__taxi = {
   get warmedUp() { return warmedUp; },
   // The shadow-pass cull — `stats()` says how many casters the last frame skipped (game/shadowcull.js).
   shadowCull,
+  // The two shadow maps — `stats()` counts the static casters and the static map's redraws
+  // (game/splitshadow.js). Null under `?shadowsplit=classic` and on WebGL.
+  splitShadow,
   traffic,
   // The CRT screen's `{ state, set, preset }` — see game/crt.js.
   crt,
