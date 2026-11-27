@@ -224,11 +224,25 @@ export function hazeColor(top, bottom, out = new THREE.Color()) {
   return out.setHSL(hazeHSL.h, Math.min(1, hazeHSL.s * hazeTuning.saturation), hazeHSL.l);
 }
 
-/** Retune the haze's strength in place — the ⚙️ panel, and nothing else. */
+/** Retune the haze's strength in place — the ⚙️ panel, and the weather each frame. */
+let hazeTopNow = HAZE_TOP;
+let hazeOff = false;
 export function setHazeTop(fog, top) {
+  hazeTopNow = top;
+  if (hazeOff) {
+    // Pushed past everything rather than switched off: `scene.fog` is in every program's key.
+    fog.near = 1e6;
+    fog.far = 1e6 + 1;
+    return;
+  }
   const { near, far } = hazeRange(top);
   fog.near = near;
   fog.far = far;
+}
+/** No haze at all, for the road paint's No lighting view (game/roadpaint.js). */
+export function setHazeOff(fog, off) {
+  hazeOff = Boolean(off);
+  setHazeTop(fog, hazeTopNow);
 }
 
 // Captured from the in-game tweak panel. Expressed as elevation/azimuth rather than a raw

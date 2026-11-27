@@ -63,6 +63,7 @@ doc; what the classic version was, and why it changed, is in that doc's history 
 | `?skatepush=classic` | The skater never pushes: it only pumps the ramps, as before the kick-push | #752 | [city.md](city.md#a-skatepark) |
 | `?roadside=carwash` / `=gas` | Pin the roadside lot to the car wash or the gas station; by default each city seed rolls one. Headless tools take `ROADSIDE=` | | [city.md](city.md#the-roadside-lot-and-its-tube-man) |
 | `?roadside=classic` | No roadside lot: its block goes back to the towers, and the tube man goes with it | | [city.md](city.md#the-roadside-lot-and-its-tube-man) |
+| `?roadwear=classic` | A clean road: no procedural dirt in the gutters or round the medians, no stain round the manholes, no grit at the bridge ends | | [rendering.md](rendering.md#the-hand-painted-road--gameroadpaintjs) |
 | `?manholes=classic` | The old four or five manhole covers, none of them steaming, instead of seven or eight with three venting steam | | [city.md](city.md#manhole-covers) |
 | `?streetprops=classic` | No post boxes or hot dog cart on the kerb | `STREETPROPS=classic` | [city.md](city.md#the-post-box-and-the-hot-dog-cart) |
 | `?propsmash=classic` | Loco Mode swipes the taxi onto the kerb into every post box and hot dog cart it passes, instead of only an overtake up the kerb hitting them | `PROPSMASH=classic` | [city.md](city.md#the-post-box-and-the-hot-dog-cart) |
@@ -176,6 +177,7 @@ doc; what the classic version was, and why it changed, is in that doc's history 
 | `?barrelroll=classic` | Big Air flown level, no barrel roll | #485 | [river.md](river.md) |
 | `?bridgejump=classic` | The drawbridge is one long leaf again and re-routes the taxi the moment its lamps start: no Mega Air jump over the rising leaves | | [river.md](river.md#jumping-it-mega-air) |
 | `?megaflip=classic` | Mega Air front-flips the taxi once over the drawbridge instead of twice | | [river.md](river.md#jumping-it-mega-air) |
+| `?bigair=classic` | A route turning at an arched bridge's far bank cancels Big Air again (the ordinary hop) instead of flying straight on and re-planning | | [river.md](river.md#the-drift-launch) |
 | `?bigairroute=classic` | The router stops tipping equal-length routes toward going straight on off an arched bridge (room for Big Air) | | [gameplay.md](gameplay.md#routing) |
 | `?vip=classic` | VIP riders (the purple question mark, triple pay) spawn again; off by default | | [gameplay.md](gameplay.md#vip-pickups) |
 | `?bigairfuel=classic` | A Big Air landing pays no Loco back, instead of a sixth of the tank | | [gameplay.md](gameplay.md#the-combo-meter) |
@@ -236,7 +238,7 @@ doc; what the classic version was, and why it changed, is in that doc's history 
 | `?cars=N` | Total vehicles, taxi included. `?cars=1` leaves the taxi alone on the road | [testing.md](testing.md) |
 | `?d=0..1` | Pins the difficulty curve instead of the delivery count | [difficulty.md](difficulty.md) |
 | `?difficulty=easy\|regular\|hard` | Pins the Settings Difficulty mode for this load, leaving the saved choice alone | [difficulty.md](difficulty.md#modes) |
-| `?seed=N` | Pins the city. Random each load otherwise | [architecture.md](architecture.md) |
+| `?seed=N` | Pins the city. Random each load otherwise, unless the road paint bake locks one (⚙️ Road paint > Lock game to this seed), which also beats shot mode's default; `?seed=N` beats the lock | [architecture.md](architecture.md) |
 | `?run=N` | Pins the situation (start, riders, events). Random each load otherwise | [architecture.md](architecture.md) |
 
 ## Skipping the front of a run
