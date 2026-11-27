@@ -58,6 +58,8 @@ const STRUT = 0.11;           // a cross strut
 const BAY = 1.7;              // the struts' pitch along the mast and the jib
 const HEAD_H = 1.6;           // the tower head's apex over the jib's top, the top lamp on it
 const LAMP = 0.34;            // the aircraft-warning lamps' size: 0.16 at first, a speck
+const BLINK = 1.5;      // seconds per aircraft-lamp cycle
+const BLINK_ON = 0.6;   // of which lit
 const STOREY = 2.4;           // the new storey, deck to the top of its slab
 const SLAB = 0.26;
 const COLUMN = 0.3;
@@ -311,7 +313,9 @@ export function createCrane(site, rng) {
   top_.forEach((p) => p.dispose());
   slewMesh.name = 'crane-jib';
 
-  // The aircraft-warning lamps, on the head and the jib's tip: unlit red, and bloomed at night.
+  // The aircraft-warning lamps, on the head and the jib's tip: unlit red, bloomed, and blinking.
+  // The blink dims the material's colour rather than hiding the mesh: the bloom copy reads its light
+  // off this colour every frame (`refreshEmissive`), so the glow blinks with it for free.
   const lampGeo = [box(LAMP, LAMP, LAMP, 0, apex.y + LAMP / 2, 0, color('craneLamp')),
     box(LAMP, LAMP, LAMP, REACH, JIB_W * JIB_TIP + LAMP / 2, 0, color('craneLamp'))];
   const lamps = new THREE.Mesh(mergeGeometries(lampGeo, false), unlitMaterial({ vertexColors: true }));
@@ -416,6 +420,8 @@ export function createCrane(site, rng) {
     }
     t += dt;
     clock += dt;
+    // Aviation-style: 0.6s on in every 1.5s, lit at clock 0 so a still shows the lamps on.
+    lamps.material.color.setScalar((clock % BLINK) < BLINK_ON ? 1 : 0.12);
     const k = ease(Math.min(1, t / move.dur));
     for (const key of ['yaw', 'r', 'drop']) {
       if (move.to[key] !== undefined) state[key] = from[key] + (move.to[key] - from[key]) * k;

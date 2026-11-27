@@ -1070,7 +1070,7 @@ in height. The beam hangs on a damped pendulum driven by
 the trolley's radial and tangential acceleration plus a faint breeze, so it swings when the crane starts and stops and never hangs dead still.
 While it is out over the neighbours, its underside stays a unit above the tallest roof in reach.
 The moving parts use `propMaterial({ ao: false })` and stay out of the AO prepass. By default they
-cast no shadow (`?crane=shadow` turns that on). The two red aircraft lamps bloom as `window`. Shots
+cast no shadow (`?crane=shadow` turns that on). The two red aircraft lamps bloom as `window` and blink (0.6s lit in every 1.5s) by dimming their colour, which the bloom copy follows. Shots
 `crane`/`crane-far` frame it, and `window.__craneStep(dt)` steps it for filming.
 
 ## The roadside lot, and its tube man
