@@ -63,6 +63,7 @@ doc; what the classic version was, and why it changed, is in that doc's history 
 | `?skatepush=classic` | The skater never pushes: it only pumps the ramps, as before the kick-push | #752 | [city.md](city.md#a-skatepark) |
 | `?roadside=carwash` / `=gas` | Pin the roadside lot to the car wash or the gas station; by default each city seed rolls one. Headless tools take `ROADSIDE=` | | [city.md](city.md#the-roadside-lot-and-its-tube-man) |
 | `?roadside=classic` | No roadside lot: its block goes back to the towers, and the tube man goes with it | | [city.md](city.md#the-roadside-lot-and-its-tube-man) |
+| `?roadwear=classic` | A clean road: no procedural dirt in the gutters or round the medians, no stain round the manholes, no grit at the bridge ends | | [rendering.md](rendering.md#the-hand-painted-road--gameroadpaintjs) |
 | `?manholes=classic` | The old four or five manhole covers, none of them steaming, instead of seven or eight with three venting steam | | [city.md](city.md#manhole-covers) |
 | `?streetprops=classic` | No post boxes or hot dog cart on the kerb | `STREETPROPS=classic` | [city.md](city.md#the-post-box-and-the-hot-dog-cart) |
 | `?propsmash=classic` | Loco Mode swipes the taxi onto the kerb into every post box and hot dog cart it passes, instead of only an overtake up the kerb hitting them | `PROPSMASH=classic` | [city.md](city.md#the-post-box-and-the-hot-dog-cart) |
@@ -236,7 +237,7 @@ doc; what the classic version was, and why it changed, is in that doc's history 
 | `?cars=N` | Total vehicles, taxi included. `?cars=1` leaves the taxi alone on the road | [testing.md](testing.md) |
 | `?d=0..1` | Pins the difficulty curve instead of the delivery count | [difficulty.md](difficulty.md) |
 | `?difficulty=easy\|regular\|hard` | Pins the Settings Difficulty mode for this load, leaving the saved choice alone | [difficulty.md](difficulty.md#modes) |
-| `?seed=N` | Pins the city. Random each load otherwise | [architecture.md](architecture.md) |
+| `?seed=N` | Pins the city. Random each load otherwise, unless the road paint bake locks one (⚙️ Road paint > Lock game to this seed), which also beats shot mode's default; `?seed=N` beats the lock | [architecture.md](architecture.md) |
 | `?run=N` | Pins the situation (start, riders, events). Random each load otherwise | [architecture.md](architecture.md) |
 
 ## Skipping the front of a run

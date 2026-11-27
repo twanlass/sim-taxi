@@ -179,6 +179,7 @@ import { BACKDROP } from './game/backdrop.js';
 import { createSettings, qualityOf } from './game/settings.js';
 import { createPause } from './game/pause.js';
 import { createInspect } from './game/inspect.js';
+import { tagFx, createCleanView } from './game/cleanview.js';
 import {
   findRoute, findRouteVia, findRouteOnto, findRouteAlong, planOrigin, crossingOrigin, carryOn, setBigAirRoute,
 } from './game/route.js';
@@ -228,6 +229,7 @@ import { tap as haptic, setHapticPrefs } from './util/haptics.js';
 import { createSfx, DASH, MUSIC_FADE_AT_HINT } from './game/sfx.js';
 import { attachContextRecovery } from './game/recovery.js';
 import { isCityConnected, GRID_I, GRID_J, MAX_SPAN, lineX, lineZ } from './city/grid.js';
+import { installRoadPaint, createRoadBrush, brush as roadBrushState, roadViewKeep } from './game/roadpaint.js';
 import { cityNetwork } from './city/roadnet.js';
 import { PALETTE, color as paletteColor, roadsClassic } from './palette.js';
 import { createPerfBot } from './game/perfbot.js';
@@ -465,6 +467,8 @@ gpuFrame?.setSun(sun);   // the rim line on the cars follows it (game/gpuframe.j
 // The shadow pass draws only the casters whose shadow can reach the view, instead of every caster on
 // the island (game/shadowcull.js). `?shadowcull=classic` draws them all, as before.
 const shadowCull = createShadowCull(scene, sun);
+// The road paint's Road only and the inspect freeze take the HUD and the effects off — game/cleanview.js.
+const cleanView = createCleanView(scene);
 if (new URLSearchParams(location.search).get('shadowcull') === 'classic') shadowCull.setEnabled(false);
 // Two shadow maps (WebGPU): the standing city drawn once at twice the resolution, and only what moves
 // drawn every frame (game/splitshadow.js). `?shadowsplit=classic` is the one 2048² map that redrew
@@ -720,14 +724,15 @@ applyWeather();
 // `markOccluder` is what puts a mesh into the AO depth prepass. The rule it enforces is that
 // anything lit by `propMaterial()` has to be in there: a mesh that receives AO without casting it
 // samples the occlusion of whatever stands behind it. See `game/ssao.js`.
-scene.add(markOccluder(rain.wetGround(brush(createGround(makeRng(seed + 11), layout), 2))));
+// `roadView` keeps it on screen when the road paint's Road only hides the rest (game/roadpaint.js).
+scene.add(markOccluder(rain.wetGround(brush(roadViewKeep(createGround(makeRng(seed + 11), layout)), 2))));
 // A few manhole covers in the streets (city/manholes.js). City seed, its own stream. Wet in the rain
 // like the asphalt they sit in; not brushed, because iron under a road stroke reads as road.
 // Seven or eight, three of them venting steam (game/manholesteam.js); `?manholes=classic` is the
 // four or five that stood there before, with no steam.
 const manholes = createManholes(makeRng(seed + 193),
   { classic: new URLSearchParams(location.search).get('manholes') === 'classic' });
-if (manholes) scene.add(markOccluder(rain.wetGround(manholes)));
+if (manholes) scene.add(markOccluder(rain.wetGround(roadViewKeep(manholes))));
 // The ground past the coast, for the fog of war to swallow — game/edgefog.js.
 if (EDGE_FOG) scene.add(createEdgeFogFloor());
 
@@ -1075,7 +1080,7 @@ setGlossCity(occluders, SKYLINE_CEILING);
 const asphaltPatches = createAsphaltPatches(makeRng(seed + 197), {
   enabled: !roadsClassic(), visible: (x, z) => sightlineClear(x, 0.05, z),
 });
-if (asphaltPatches) scene.add(markOccluder(rain.wetGround(asphaltPatches)));
+if (asphaltPatches) scene.add(markOccluder(rain.wetGround(roadViewKeep(asphaltPatches))));
 // The paved plaza goes to a random side-street junction the camera can see, on its own stream, now
 // that the sightline field exists (`placeJunctionPaving`, util/geo.js). `?plazaspot=classic` keeps it
 // on the one nearest the middle, which was beside the garage in most cities.
@@ -1168,7 +1173,7 @@ const shiftScores = {
   record: (run, store) => recordRun(run, store, scoreTable),
   clear: (store) => clearScores(store, scoreTable),
 };
-const fares = createFareSystem(makeRng(runSeed + 55), scene, {
+const fares = tagFx(scene, () => createFareSystem(makeRng(runSeed + 55), scene, {
   rating: ratingOn,
   shift: shiftSeconds,
   target: today?.target ?? null,
@@ -1183,7 +1188,7 @@ const fares = createFareSystem(makeRng(runSeed + 55), scene, {
   forceBank: () => demo.on() || today?.bank === 'force' || Boolean(perfBot?.wantsBank()),
   reserved: () => parcels?.occupiedSpots() ?? [],
   judgeRun: () => combo.judge(),
-});
+}));
 // The package courier — see game/parcels.js. Its own stream off the run seed, so adding this layer
 // does not reshuffle where every rider spawns. `?parcels=0` turns it off.
 //
@@ -1202,14 +1207,14 @@ const fares = createFareSystem(makeRng(runSeed + 55), scene, {
 // is as close to "at the window" as a mark on a junction can be. A city that failed to place a joint
 // (`chooseBurgerBlock` can come back empty) passes null, and its food all comes from the other shop.
 const parcels = parcelsEnabled
-  ? createParcelSystem(makeRng(runSeed + 255), scene, {
+  ? tagFx(scene, () => createParcelSystem(makeRng(runSeed + 255), scene, {
     foodPickups: {
       food: burger ? { i: burger.site.bi + 1, j: burger.site.bj + 1 } : null,
       // The donut shop's own corner, which city/donutshop.js works out the same way (`pickup`).
       donut: donutSite?.pickup ?? null,
     },
     towardHud: towardCargoDock,
-  })
+  }))
   : null;
 // Seconds since the taxi's flourish was fired, or null when it is not running. See the frame loop —
 // it lights the whole car for the length of a select pop.
@@ -1861,6 +1866,21 @@ const debugMode = (() => {
   return !shot && (devMode || params.has('debug') || params.has('settings') || params.has('audio'));
 })();
 
+// The hand-painted road (game/roadpaint.js): the bake sized to this island before the first frame,
+// and in debug mode a map to paint into and the brush that paints it (⚙️ Visuals > Road paint).
+// Plus the procedural wear stamped into the same map — dirt in the gutters and round the medians,
+// a stain round each manhole, grit where the bridges land (game/roadwear.js). City seed: it is a
+// fact about the streets. `?roadwear=classic` leaves the road clean.
+const roadWearOn = new URLSearchParams(location.search).get('roadwear') !== 'classic';
+const roadPaintReady = installRoadPaint({
+  always: debugMode,
+  wear: roadWearOn ? { blocks: layout, manholes: manholes?.userData.spots ?? [], seed } : null,
+});
+const roadBrush = debugMode ? createRoadBrush({
+  camera, canvas: renderer.domElement, scene, active: () => roadBrushState.on, cleanView,
+  onChange: () => debugPanel?.syncRoadPaint?.(),
+}) : null;
+
 /**
  * Freeze or free every fare's countdown. Three things hold it and any is enough: debug mode, for
  * good; the tutorial while it talks; and a repair visit to the depot. One place decides, so none
@@ -1887,8 +1907,8 @@ const pan = shot
   : attachDragPan(controller, renderer.domElement, aspect, () => isNarrow() || debugMode,
     releaseCameraToPlayer);
 
-const dust = createDust(scene, camera, makeRng(seed + 77));
-const spray = createSpray(scene, makeRng(seed + 78));
+const dust = tagFx(scene, () => createDust(scene, camera, makeRng(seed + 77)));
+const spray = tagFx(scene, () => createSpray(scene, makeRng(seed + 78)));
 
 // A post box and a hot dog cart on the kerb, which an overtake up onto the pavement takes out — see
 // game/streetprops.js. City seed for where they stand, after the sightline field exists (they only
@@ -1982,23 +2002,23 @@ if (litPanes || lamps || depotPanes) {
 // The whole crash detonation — shockwave, fireball and shards — behind one `fire()` per car. One
 // pool serves both cars: nothing here is re-shot from a stored position, so a second call cannot
 // drag the first car's wreckage across to the second the way the old debris pools could.
-const blast = createBlast(scene, makeRng(runSeed + 88));
+const blast = tagFx(scene, () => createBlast(scene, makeRng(runSeed + 88)));
 blast.setStyle(getWreckStyle());
-const flames = createFlames(scene, makeRng(runSeed + 133));
+const flames = tagFx(scene, () => createFlames(scene, makeRng(runSeed + 133)));
 // Sparks off the underside of the car as it lands a jump — see game/sparks.js and `landedHard`
 // below. Run seed, like the flames: which way a shower scatters is part of the situation, and a
 // stunt landing is not something a screenshot is ever staged on.
-const sparks = createSparks(scene, makeRng(runSeed + 134));
+const sparks = tagFx(scene, () => createSparks(scene, makeRng(runSeed + 134)));
 // The depot at work during a repair visit: arc light, sparks and grit out from under a door left a
 // fifth open. Off the same two pools as everything else — see game/repairfx.js. Not in shot mode,
 // which never builds the vignette that drives it.
 const repairFx = garage && !shot
-  ? createRepairFx({ scene, site: garage.site, sparks, dust, rng: makeRng(runSeed + 135) })
+  ? tagFx(scene, () => createRepairFx({ scene, site: garage.site, sparks, dust, rng: makeRng(runSeed + 135) }))
   : null;
 // A glint off the front-right fender as the taxi rolls out of the garage, at the top of a run and
 // after every repair — see game/glint.js. `?glint=classic` leaves the car plain.
 const glint = garage && !shot && new URLSearchParams(window.location.search).get('glint') !== 'classic'
-  ? createGlint({ scene, taxiGroup: traffic.taxiGroup })
+  ? tagFx(scene, () => createGlint({ scene, taxiGroup: traffic.taxiGroup }))
   : null;
 // The red and blue a cop car throws on the road during a robbery — the half of a siren that the
 // bar on the roof cannot do. Two point lights, parked on the nearest cop cars each frame; off
@@ -2006,7 +2026,7 @@ const glint = garage && !shot && new URLSearchParams(window.location.search).get
 const copLights = createCopLights(scene, { enabled: !budget.safe });
 // Banknotes off the back of a boosting getaway — the one part of the robbery that pays the player
 // back while the risk is being taken rather than at the drop-off. See game/cashtrail.js.
-const cashTrail = createCashTrail(scene, makeRng(runSeed + 211));
+const cashTrail = tagFx(scene, () => createCashTrail(scene, makeRng(runSeed + 211)));
 // The bank job's cut — see `robberyIntro` above and game/bankjob.js. Null under `?robbery=classic`,
 // and on a city with no robbery.
 const bankJob = robbery && robberyIntro
@@ -2040,12 +2060,12 @@ if (bankJob && bankFare) {
 // The other half of the tailpipe: `flames` is the bark on the press, this is the plume that burns
 // for as long as the button is held. No seed — the flicker is a flipbook on a clock, and a flame
 // that came out differently on two runs of the same seed would take the screenshots with it.
-const locoFlame = createLocoFlame(scene);
+const locoFlame = tagFx(scene, () => createLocoFlame(scene));
 // The street racer's Loco Mode (Tyler: "racer should use loco, show flames out tailpipe"). Its pace is
 // its own (`RIVAL_CHASE`, a lifted cruise ceiling), so what it shows is when it is spending it: lit
 // above RACER_FLAME_SPEED, out as it brakes for a corner, the way the player's thumb goes on and off
 // the pill. Off an ordinary car body, so the pipe is at the back of CAR_LEN rather than the taxi's.
-const racerFlame = createLocoFlame(scene, { back: CAR_LEN / 2 + 0.05 });
+const racerFlame = tagFx(scene, () => createLocoFlame(scene, { back: CAR_LEN / 2 + 0.05 }));
 // 1.5× ordinary cruise (8.5): well clear of anything traffic does, and reached a second or so off
 // every corner on the racer's 21.7 ceiling.
 const RACER_FLAME_SPEED = 12.75;
@@ -2067,21 +2087,21 @@ const wreckage = createWreckage({
 // EJECT_CLOSING. Each time they hit the road: a small grey puff, and the taxi's own landing thud
 // turned down (there is no recording of a person landing; the jump's is the softest impact in the
 // set).
-const ejection = createEjection(scene, {
+const ejection = tagFx(scene, () => createEjection(scene, {
   roadY: ROAD_Y,
   onLand: (x, z, hard) => {
     dust.burst(x, z, traffic.taxi.yaw, 4 + Math.round(hard * 6), 0.35 + hard * 0.3,
       { tint: PALETTE.wreckSmoke, linger: 0.6 });
     sfx?.play('land', { gain: 0.25 + hard * 0.45 });
   },
-});
+}));
 // And the windscreen they went through: a spray of glass along the throw, left glinting on the
 // road. See game/windshield.js.
-const windshield = createWindshield(scene, { rng: makeRng(runSeed + 919), roadY: ROAD_Y });
+const windshield = tagFx(scene, () => createWindshield(scene, { rng: makeRng(runSeed + 919), roadY: ROAD_Y }));
 // And the car the taxi hit loses its glass too, on every wreck rather than only an ejection: it is
 // the one that took the blow. Blown out along the taxi's heading, the way its shell slides, with no
 // flash — one burst of light per crash is the taxi's.
-const struckGlass = createWindshield(scene, { rng: makeRng(runSeed + 921), roadY: ROAD_Y, withFlash: false });
+const struckGlass = tagFx(scene, () => createWindshield(scene, { rng: makeRng(runSeed + 921), roadY: ROAD_Y, withFlash: false }));
 
 // The crash replay's recording and its director — see game/replay.js, and REPLAY_LEAD for how the
 // two endings fit together. The boats' wake is left off the tape because the boats are: the world
@@ -2995,7 +3015,7 @@ const collisions = createCollisions(traffic.cars, traffic.taxi, {
 // Hit points. Arming `hp` is what turns every contact but the last into a bump rather than the
 // wreck — see TAXI_HP in sim/collisions.js. A retry reloads the page, so this is also the refill.
 traffic.taxi.hp = TAXI_HP;
-const impact = createImpact(scene, camera);
+const impact = tagFx(scene, () => createImpact(scene, camera));
 // What the car wears for it — a crushed corner and a crooked sign, then a boot lid up and a bumper
 // dragging sparks, then smoke, a sputtering sign and a list. Tiered off the HP bar's own steps; see
 // game/taxidamage.js.
@@ -3349,17 +3369,17 @@ function bustByPolice(ram) {
 // Orthographic camera: the vertical world span is exactly 2 * zoom, so world-units-per-pixel
 // falls straight out of the frustum height.
 const boost = createBoost();
-const skids = createSkidMarks(scene);
+const skids = tagFx(scene, () => createSkidMarks(scene));
 // The squall's tyre tracks: the rubber's streak machinery, repainted per stamp (`wetTyres` below).
 // A bigger pool than the rubber's because it is laid on every straight, not only in a slide: two
 // stamps per TRACK_STEP at the 34 u/s Loco top is ~162 a second, ~450 alive across a 2.8s life.
-const wetTracks = createSkidMarks(scene, {
+const wetTracks = tagFx(scene, () => createSkidMarks(scene, {
   tint: paletteColor('wetTrack'), max: 512, life: 2.8, alpha: 0.5, width: 0.55,
-});
+}));
 
 // Lane-width, so it is sized in world units and needs no pixel factor: it is paint on the road
 // rather than an overlay drawn at a constant screen weight.
-const routeLine = createRouteLine(scene);
+const routeLine = tagFx(scene, () => createRouteLine(scene));
 // Out of the rain's mirror, like the lamp pools: it is paint on the road, and it sits at exactly the
 // mirror's clip height (both 0.03), so whether it made the reflection came down to rounding. Measured
 // headless: 3,128 mirror pixels at its own height, none 0.5mm lower. On a phone that tie flipped as
@@ -3370,7 +3390,7 @@ rain.hideInMirror(routeLine.mesh);
 // taxi's, so the two can cross without the player losing which one is theirs.
 // 0.22 against the taxi's ROUTE_OPACITY 0.38: where the two bands overlap, the taxi's still reads on top.
 const RIVAL_LINE_OPACITY = 0.22;
-const rivalLine = race ? createRouteLine(scene) : null;
+const rivalLine = race ? tagFx(scene, () => createRouteLine(scene)) : null;
 if (rivalLine) {
   rivalLine.setColor(PALETTE.racerBody);
   rivalLine.setOpacity(RIVAL_LINE_OPACITY);
@@ -6410,7 +6430,7 @@ const soundHolds = Object.fromEntries(['plane', 'heli', 'birdsUp', 'birdsDown', 
 
 // The falloff circles for the ⚙️ panel (game/soundrings.js): every placed source the frame can
 // name, so the panel's "Full within"/"Silent past" sliders have something to move.
-const soundRings = sfx && debugMode ? createSoundRings(scene) : null;
+const soundRings = sfx && debugMode ? tagFx(scene, () => createSoundRings(scene)) : null;
 // ...and a 🔊 pin over each, whose chips open the ⚙️ panel on that sound (game/soundpins.js).
 const soundPins = sfx && debugMode ? createSoundPins({
   project: projectToScreen,
@@ -7783,7 +7803,8 @@ function tick() {
   heldSounds();
   // Only the sound being edited in the panel — see `focused` in game/audiopanel.js.
   if (soundRings) {
-    const open = Boolean(debugPanel && !debugPanel.panel.hidden);
+    // Only on the panel's Audio tab (Tyler, 2026-11-25): the chips cover the road while painting it.
+    const open = Boolean(debugPanel?.audioTab());
     const key = open ? debugPanel.audioFocus() : null;
     const sources = soundSources();
     soundRings.update(open, controller.state.target,
@@ -7792,7 +7813,7 @@ function tick() {
     const first = key ? sources.find((s) => s.key === key) : null;
     const place = first ? sfx.tuning().place[key] : null;
     screenRight.setFromMatrixColumn(camera.matrixWorld, 0).setY(0).normalize();
-    soundPins.update(Boolean(debugPanel) && !fares.state.gameOver, sources, key,
+    soundPins.update(open && !fares.state.gameOver, sources, key,
       open ? controller.state.target : null,
       open && place ? { key, x: first.x, z: first.z, near: place.near, far: place.far,
         right: { x: screenRight.x, z: screenRight.z } } : null);
@@ -8471,7 +8492,7 @@ const inspect = !shot && wantsDebugPanel ? createInspect({
   },
   // Same release the pause does on the way in: a held boost or brake would otherwise resume into a
   // pedal nobody is holding.
-  onChange: (on) => { if (on) { boost.release(); releaseBrake(); dropPedalGesture(); } },
+  onChange: (on) => { if (on) { boost.release(); releaseBrake(); dropPedalGesture(); } cleanView.set('freeze', on); },
 }) : null;
 // `?finishes` opens on the car finishes' false-colour view (util/geo.js) — the same switch as the
 // panel's "Show finishes", reachable from a screenshot URL, which has no panel.
@@ -9050,6 +9071,8 @@ if (shot) {
   // be in the state a run is actually played in, which is shut, the car long gone and the door
   // come down behind it.
   garage?.setDoor(0);
+  // The road paint bake decodes off the main thread; a still taken before it lands has no paint.
+  await roadPaintReady;
   renderFrame();
   if (wreckStep) window.__wreckStep = (frames = 1) => { wreckStep(frames); renderFrame(); };
   // A still cannot say whether steam billows, and shot mode never draws a second frame: this steps
@@ -9273,6 +9296,7 @@ function startRun() {
 
 if (!shot && wantsDebugPanel) {
   debugPanel = createDebugPanel({
+    citySeed: seed,
     phoneFrame,
     sun,
     shadows: splitShadow,
@@ -9305,6 +9329,7 @@ if (!shot && wantsDebugPanel) {
     soundHolds,
     soundPlace,
     wreck: { styles: Object.keys(WRECK_STYLES), current: getWreckStyle(), set: blast.setStyle },
+    roadBrush,
   });
 }
 
@@ -9313,6 +9338,8 @@ window.__taxi = {
   unported,
   renderer: GPU ? 'webgpu' : 'webgl',
   gpuCapture: (options) => gpuCapture?.capture(options),
+  /** The road paint brush's settings (game/roadpaint.js): size, strength, channel, erase, on. */
+  roadBrush: roadBrushState,
   /** Move one lever of the street texture (ROAD_TEX in util/geo.js), as the panel does. */
   roadTex: tuneRoadTexture,
   /** The `?bot` scripted session, or null — `scene()` and `log` (game/perfbot.js). */
