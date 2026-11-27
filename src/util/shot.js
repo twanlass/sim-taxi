@@ -307,6 +307,12 @@ export const SHOTS = [
   // and at play zoom, both framed on the point between the two. Appended, for the index reason.
   { name: 'donut', description: 'the donut shop and its parked cruiser, close', target: [0, 0], zoom: 13, warmup: 12, atDonut: true },
   { name: 'donut-far', description: 'the donut shop at play zoom', target: [0, 0], zoom: 52, warmup: 12, atDonut: true },
+  // A donut order on the donut shop's corner (geometry/donutorder.js), close and at play zoom —
+  // `food`'s question for the second shop: does a donut and a coffee read as food, and as *that*
+  // shop's, at this size. `untilParcel` frames it on the shop for the reason it frames `food` on the
+  // drive-through. Appended, for the index reason.
+  { name: 'donut-order', description: 'a donut order waiting on the donut shop\u2019s corner — needs ?parcels=1', target: [0, 0], zoom: 11, warmup: 12, untilParcel: true, cargoKind: 'donut' },
+  { name: 'donut-order-far', description: 'a donut order on the donut shop\u2019s corner at play zoom — needs ?parcels=1', target: [0, 0], zoom: 52, warmup: 12, untilParcel: true, cargoKind: 'donut' },
 ];
 
 export function getActiveShot() {
