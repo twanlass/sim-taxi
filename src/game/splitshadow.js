@@ -39,7 +39,8 @@ import { Fn, add, min, nodeObject, reference, renderGroup, texture, vec2 } from 
  * are rewritten (the garage door rolls up that way), is demoted to the dynamic map for good and the
  * static map redrawn; one that is hidden, shown, detached or stops
  * casting just redraws it (and is demoted after `MAX_TOGGLES`, so something that flickers cannot
- * keep redrawing the city). New meshes are classified every `SCAN_FRAMES`. Anything that is not
+ * keep redrawing the city). New meshes are classified every `SCAN_FRAMES` until the run starts
+ * (`settle`), and drawn per frame after that. Anything that is not
  * classified static is drawn in the dynamic map, so the failure mode of a wrong guess is cost,
  * never a missing or frozen shadow.
  *
@@ -52,6 +53,9 @@ import { Fn, add, min, nodeObject, reference, renderGroup, texture, vec2 } from 
 export const STATIC_SHADOW_LAYER = 6;
 
 const SCAN_FRAMES = 60;
+// Frames after the first one drawn before the static set closes, unless `settle()` closes it first.
+// The city is built before the first frame, so this only has to outlast the warm-up's slices.
+const PROMOTE_FRAMES = 300;
 const MAX_TOGGLES = 4;
 // World units of filter spread. One static texel: crisp, and still smooth on a slope.
 const DEFAULT_SOFTNESS = 0.066;
@@ -149,11 +153,14 @@ export function createSplitShadow(sun, { staticSize = 4096, dynamicSize = 2048, 
   const demoted = new WeakSet();
   const known = new WeakSet();
   let framesToScan = 0;
+  let framesToClose = PROMOTE_FRAMES;
+  let promoting = true;
   let lastFrame = -1;
+  let sceneRef = null;
   let dirtyReason = 'boot';
   const sunPos = new THREE.Vector3();
   const sunAim = new THREE.Vector3();
-  const stats = { statics: 0, demoted: 0, staticDraws: 0, lastReason: '' };
+  const stats = { statics: 0, demoted: 0, staticDraws: 0, lastReason: '', joined: [], open: true };
   let softness = DEFAULT_SOFTNESS;
 
   function applySoftness() {
@@ -172,6 +179,10 @@ export function createSplitShadow(sun, { staticSize = 4096, dynamicSize = 2048, 
       if (!o.isMesh || o.isInstancedMesh || o.isSkinnedMesh || known.has(o)) return;
       if (!o.castShadow || !shown(o)) return;   // classified once it first casts and is drawn
       known.add(o);
+      // Closed after boot. Measured on a Mac's GPU (2026-11-27): left open, something joined the set
+      // about every 15s on the title screen, and each join redraws the whole 4096² map. What turns
+      // up later (roadworks, pooled props) is cheaper drawn per frame than redrawing the city for it.
+      if (!promoting) return;
       if (demoted.has(o) || o.userData.dynamicShadow) return;
       if (!o.userData.staticShadow && !isIdentity(o.matrixWorld)) return;
       o.layers.enable(STATIC_SHADOW_LAYER);
@@ -180,6 +191,8 @@ export function createSplitShadow(sun, { staticSize = 4096, dynamicSize = 2048, 
         version: o.geometry.attributes.position?.version ?? 0, on: true, toggles: 0,
       });
       dirty('new static');
+      stats.joined.push(o.name || o.parent?.name || o.geometry.type);
+      if (stats.joined.length > 8) stats.joined.shift();
     });
     framesToScan = SCAN_FRAMES;
   }
@@ -205,6 +218,7 @@ export function createSplitShadow(sun, { staticSize = 4096, dynamicSize = 2048, 
       dirty('sun');
     }
     if (framesToScan-- <= 0) scan(scene);
+    if (promoting && framesToClose-- <= 0) settle();
 
     let kept = 0;
     for (let i = 0; i < statics.length; i++) {
@@ -235,6 +249,14 @@ export function createSplitShadow(sun, { staticSize = 4096, dynamicSize = 2048, 
       stats.lastReason = dirtyReason;
       dirtyReason = '';
     }
+  }
+
+  /** Close the static set: from now on a new caster is drawn per frame, however still it stands. */
+  function settle() {
+    if (!promoting) return;
+    scan(sceneRef ?? new THREE.Scene());
+    promoting = false;
+    stats.open = false;
   }
 
   // The dynamic pass draws every caster except the static ones.
@@ -271,6 +293,7 @@ export function createSplitShadow(sun, { staticSize = 4096, dynamicSize = 2048, 
     updateBefore(frame) {
       if (frame.frameId === lastFrame) return;
       lastFrame = frame.frameId;
+      sceneRef = frame.scene;
       check(frame.scene);
     }
   }
@@ -283,6 +306,8 @@ export function createSplitShadow(sun, { staticSize = 4096, dynamicSize = 2048, 
     /** World units of edge spread, both maps. 0 is a one-texel edge. */
     setSoftness(value) { softness = Math.max(0, value); applySoftness(); },
     softness: () => softness,
+    /** The run has started: close the static set (it closes by itself `PROMOTE_FRAMES` in otherwise). */
+    settle,
     /** Redraw the standing city's map on the next frame. */
     invalidate(reason = 'asked') { dirty(reason); },
     /** Whether a mesh is drawn into the static map. */
@@ -290,7 +315,7 @@ export function createSplitShadow(sun, { staticSize = 4096, dynamicSize = 2048, 
     stats: () => ({ ...stats, staticSize: staticShadow.mapSize.x, dynamicSize: dynamicShadow.mapSize.x }),
     /** For the probe: run one frame's bookkeeping, and the dynamic pass's hide and restore, without a GPU. */
     debug: {
-      check: (scene) => check(scene),
+      check: (scene) => { sceneRef = scene; check(scene); },
       hide: hideStatics,
       restore: restoreStatics,
       staticShadow,

@@ -23935,6 +23935,14 @@ for (const viewName of ['side', 'quarter']) {
   for (let i = 0; i < 6; i++) { flicker.visible = !flicker.visible; debug.check(sc); }
   check('split shadow: one that keeps flickering is demoted rather than redrawing the city', !split.isStatic(flicker));
 
+  split.settle();
+  debug.check(sc);
+  debug.staticShadow.needsUpdate = false;
+  const late = mesh([30, 1, 30]);
+  for (let i = 0; i < 61; i++) debug.check(sc);
+  check('split shadow: once the run has started, a new caster goes in the per-frame map', !split.isStatic(late));
+  check('split shadow: and does not redraw the city', debug.staticShadow.needsUpdate === false);
+
   const radius = (s) => s.radius * ((s.camera.right - s.camera.left) / s.mapSize.x);
   split.setSoftness(0.2);
   check('split shadow: softness is the same world width in both maps',

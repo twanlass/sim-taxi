@@ -9204,6 +9204,8 @@ function startRun() {
   perfMark('warmup:end');
   warmedUp = true;
   pinWarmedNodes();
+  // Everything standing has been built and drawn: the static shadow map's set closes here.
+  splitShadow?.settle();
   const benchHooks = {
     renderer,
     ready: () => Boolean(traffic.taxi) && !traffic.taxi.staged,
