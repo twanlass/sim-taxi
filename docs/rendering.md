@@ -2491,6 +2491,14 @@ there under the fog, and what `?city=big` shows, since the fog is island-only.
   (`FOG_WARP`, up to 16 units of bend). The first cut slid one layer along one heading, which reads as
   a texture on a conveyor; the warp is what makes a billow swell, curl and pinch off instead. All of it
   stays outward-only, so the motion never brings the fog onto the road.
+- **The billows are read along the sightline, at y = 0.** Each fragment slides down its view ray
+  to the ground plane before it reads the noise, so the pattern belongs to the screen pixel rather
+  than to the fragment's own x and z. Read under the fragment, two surfaces at different heights
+  side by side each showed the pattern at their own spot, and the seam between them drew whatever
+  was buried: the river mouth stayed in the clouds as a pale rectangle of channel, walls and
+  railings, fully fogged and still visible (Tyler, 2026-11-27). Ground at y = 0 reads what it
+  always did and the floor a translation of it; the distance and the height slope still use the
+  true position, so the bank's shape is unchanged.
 - **Mixed in linear light, with an unshaded rim.** Tyler, 2026-11-25: an "awkward seam between
   the end of the pavement road and the clouds" — the south coast read as the road casting a blurred
   shadow onto the bank. Two causes, both fixed. The bank's own mix ran on display values, so the
