@@ -29,6 +29,7 @@ import { syncRiverWater } from '../city/riverwater.js';
 import { installColorGrade } from './colorgrade.js';
 import { setWallGrain, WALL_TEXEL } from '../city/wallgrain.js';
 import { perfPhase } from './perf.js';
+import { drawCallFrameStart } from './drawcalls.js';
 
 /**
  * The URL's say in how the frame is drawn. The game adds what only it decides (the safe mode, the
@@ -138,6 +139,8 @@ export function createRenderPath(renderer, budget, { still = false } = {}) {
     render(scene, cam, { rain = null, rainLightsOn = null, diag = null } = {}) {
       // `?diag` counts the whole frame's draws, every pass below included.
       diag?.frameStart();
+      // The ⚙️ panel's draw-call census (game/drawcalls.js) — a null check unless it is counting.
+      drawCallFrameStart();
       // Before every pass below, so an effect pool with nothing in it skips the shadow, AO and
       // main draws alike — see util/emptypools.js.
       cullEmptyPools();

@@ -201,6 +201,28 @@ lengthens a route by more than a leg, and that an aimed drop-off lands on the zo
 cleanly. The percentages live in the comments they justify — `EDGE_COST.roadwork` in `route.js` and
 the table in [traffic.md](traffic.md#getting-the-player-there).
 
+### Who the draw calls are — ⚙️ Visuals › Draw calls
+
+On a phone the frame tracks its draw-call count more than anything else measured (WebKit forwards
+every call to its GPU process), so the ⚙️ panel (`?debug`) can count them live
+([game/drawcalls.js](../src/game/drawcalls.js)). Tick **Count draw calls** for this frame's total,
+its average and peak since counting started, and the split by pass: `main`, `shadow 2048` (the movers'
+map, every frame), `shadow 4096 (last drawn)` (the standing city's map, which redraws once in a while)
+and `post` (the full-screen quads). Below that, every object drawn while counting, grouped by
+**material** (same shader *and* uniforms: instanceable if they share a geometry, mergeable if they
+stand still or ride one parent rigidly) or by **shader** (the next ring out: one material once the
+colour moves into vertex colours). Each row says draws / meshes / estimated saving. **Tint by group**
+recolours the main pass by group, and a row isolates its group with everything else grey. **Copy
+report** puts the table on the clipboard. `__taxi.drawCalls` is the same object for a headless run
+(`setCounting(true)`, wait, `report('material')`).
+
+The saving column is an estimate, not a plan. It cannot see that fourteen tube men with fourteen
+geometries are one geometry with a phase, and it counts a still object as mergeable whatever the
+entrance wave or the static shadow map needs from it. Under `?renderer=classic` the AO prepass draws
+with its own depth materials, so the WebGL list shows a `MeshDepth` group that is really the
+prepass. Measured 2026-11-27, WebGPU, phone viewport, `?bot` for a minute: 228 calls a frame on
+average, peak 264 — main ~140, movers' shadow ~70, post 7.
+
 ## Screenshots
 
 `shots.sh` / `tools/shoot.mjs` drive headless Chrome over CDP. `?shot=<name>` puts the app in
