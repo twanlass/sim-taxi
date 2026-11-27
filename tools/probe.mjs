@@ -22974,7 +22974,9 @@ let chopperOrder; // likewise
   const rScene = new THREE.Scene();
   const rTraffic = createTraffic(makeRng(seed + 770), rScene, 24, 24);
   for (let step = 0; step < 120; step++) rTraffic.update(1 / 60);
-  const rFares = createFareSystem(makeRng(seed + 771), rScene, { race: () => true });
+  // A locked rider's clock holds (main.js wires the same thing): filled in once `robos` exists.
+  let rClaim = () => null;
+  const rFares = createFareSystem(makeRng(seed + 771), rScene, { race: () => true, clockHeld: (f) => Boolean(rClaim(f)) });
   rFares.state.delivered = 1;
   // The ramp first (RACE.ramp): no robot before the first drop-off, then one more at each step.
   {
@@ -22991,6 +22993,10 @@ let chopperOrder; // likewise
     for (const car of ramped.cars()) rTraffic.retireGuest?.(car);
   }
   const robos = createRoboTaxis({ rng: makeRng(seed + 772), scene: rScene, traffic: rTraffic, fares: rFares, soon: true, race: () => true });
+  rClaim = robos.claimOf;
+  let lockedTicked = 0;
+  let lockedFrames = 0;
+  let lockedWalked = 0;
   let most = 0;
   let waitingSum = 0;
   let walked = 0;
@@ -23003,9 +23009,16 @@ let chopperOrder; // likewise
   const frames = 60 * 240;
   for (let step = 0; step < frames; step++) {
     rTraffic.update(1 / 60);
+    const lockedBefore = new Map(rFares.state.fares.filter((f) => f.stage === 'waiting' && robos.claimOf(f))
+      .map((f) => [f, f.timeLeft]));
     for (const e of rFares.update(1 / 60, rTraffic.taxi)) {
       if (e.type === 'walked') walked += 1;
+      if (e.type === 'walked' && lockedBefore.has(e.fare)) lockedWalked += 1;
       if (e.type === 'stolen') steals += 1;
+    }
+    for (const [f, left] of lockedBefore) {
+      lockedFrames += 1;
+      if (f.timeLeft < left) lockedTicked += 1;
     }
     robos.update(1 / 60);
     const kerb = rFares.state.fares.filter((f) => f.stage === 'waiting');
@@ -23033,6 +23046,9 @@ let chopperOrder; // likewise
   check('rider race: the robo-taxis race for riders, never over their own quicker rule',
     onAtOnce === RACE.count && steals >= 2 && fastest <= ROBO_SPEED * RACE.pace + 1e-6,
     `${onAtOnce} on at once, ${steals} taken in 240s, fastest ${fastest.toFixed(2)} against ${(ROBO_SPEED * RACE.pace).toFixed(2)}`);
+  check('rider race: a rider a robo-taxi has locked on to never times out — their clock holds',
+    lockedFrames > 600 && lockedTicked === 0 && lockedWalked === 0,
+    `${lockedFrames} locked rider-frames, ${lockedTicked} with the clock moving, ${lockedWalked} walked off locked`);
   clearCityOccluders();
 }
 

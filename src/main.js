@@ -1154,8 +1154,12 @@ const shiftScores = {
 // mode after this is built; `?riders=classic` is Arcade as it was.
 const ridersClassic = new URLSearchParams(window.location.search).get('riders') === 'classic';
 const riderRace = () => !ridersClassic && runMode === 'arcade' && !shot && !demo.on();
+// Who a robo-taxi is after, filled in once the robo-taxis exist (they are built off the board, so
+// after it). A locked rider's clock holds; `?riders=classic` lets it run.
+let roboClaimOf = () => null;
 const fares = createFareSystem(makeRng(runSeed + 55), scene, {
   race: riderRace,
+  clockHeld: (fare) => !ridersClassic && Boolean(roboClaimOf(fare)),
   rating: ratingOn,
   shift: shiftSeconds,
   target: today?.target ?? null,
@@ -1911,6 +1915,7 @@ const robotaxis = roboParam === 'classic' ? null : createRoboTaxis({
   // The cyan pie over a car with a rider aboard; `?riders=classic` goes without, as before.
   occupiedPie: !ridersClassic,
 });
+if (robotaxis) roboClaimOf = robotaxis.claimOf;
 for (const mesh of robotaxis?.emissiveMeshes ?? []) markEmissive(mesh, 'siren');
 // `?robodebug`: each robo-taxi's route and goal drawn on the map (game/robodebug.js).
 const roboDebug = robotaxis && new URLSearchParams(window.location.search).has('robodebug')

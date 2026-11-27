@@ -2226,6 +2226,12 @@ skip any lock that landed during Loco Mode (the boost follow cancels pans, and p
 a boosting taxi puts it in a wall); frozen, every run gets it, on every viewport. It still fires
 only on a fresh lock with no other cut or finger holding the camera.
 
+**A locked rider never times out** (fares.js `clockHeld`, wired in main.js off
+`robotaxis.claimOf`): their clock stops where it stands for as long as a robo-taxi is after them
+and runs on from there if the lock lapses (Tyler, 2026-11-27). Someone is coming for them, so a
+walk-off would read as a bug; the race clock is the robot's distance instead. `?riders=classic`
+lets it run.
+
 **A locked rider's pie goes cyan too** (Tyler, 2026-11-27), not only the disc: the slices still
 drain, so the clock reads off the pie's shape while its colour says "a robot is coming".
 

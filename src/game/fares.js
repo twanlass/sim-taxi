@@ -830,6 +830,9 @@ export function createFareSystem(rng, scene, {
   // Arcade's rider race — see RACE_WAITING. Read live: the title's mode pick lands after this is
   // built, and Play again keeps the page.
   race = () => false,
+  // A waiting rider whose clock is held — a robo-taxi has locked on to them (main.js). Read every
+  // frame; true stops their countdown where it stands, false lets it run on from there.
+  clockHeld = () => false,
 } = {}) {
   const state = {
     // Active fares, newest last. At most MAX_FARES, and up to MAX_FARES - 1 of them can be
@@ -2128,7 +2131,10 @@ export function createFareSystem(rng, scene, {
         }
       }
 
-      if (!state.paused && !fare.clockless && !(hush && fare.stage === 'waiting')) fare.timeLeft -= dt;
+      // A locked rider waits for their ride (Tyler, 2026-11-27: "make sure a robo rider that's
+      // locked doesn't time out"): someone is coming for them, so walking off would read as a bug.
+      const held = fare.stage === 'waiting' && clockHeld(fare);
+      if (!state.paused && !fare.clockless && !(hush && fare.stage === 'waiting') && !held) fare.timeLeft -= dt;
 
       // One clock, one body, wherever the fare currently is. The seconds never reset across the
       // hand-off and neither does the marker — see beginRide.
