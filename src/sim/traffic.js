@@ -4134,7 +4134,8 @@ export function createTraffic(
   const {
     group: taxiGroup, setOccupied: setTaxiOccupied, lights: taxiLights,
     setHighlight: setTaxiHighlight, setSteer: setTaxiSteer, setLights: setTaxiLights,
-    damage: taxiDamage, setDoor: setTaxiDoor,
+    damage: taxiDamage, setDoor: setTaxiDoor, signLamp: taxiSignLamp, updateSign: updateTaxiSign,
+    settleSign: settleTaxiSign, douseSign: douseTaxiSign,
   } = createTaxiMesh();
   scene.add(taxiGroup);
 
@@ -5136,6 +5137,8 @@ export function createTraffic(
       // magnitude wider than the pods themselves, and pulling the eye off the two cars the shot
       // exists to show.
       setTaxiLights(0, 0, 0);
+      // ...and the roof sign with them, for the same close-up's sake.
+      douseTaxiSign();
       return taxiGroup;
     }
 
@@ -8362,6 +8365,7 @@ export function createTraffic(
           taxiGroup.position.add(barrelUp).sub(barrelPivot);
         }
         setTaxiSteer(car.driftAmt ? car.driftSteer : car.wheelAngle);
+        updateTaxiSign(dt, car.v);
         setTaxiLights(Math.max(car.brakeLevel, runningFor(car) * TAIL_FLOOR),
           car.turnLeftLevel, car.turnRightLevel);
         continue;
@@ -8449,6 +8453,7 @@ export function createTraffic(
 
   return {
     cars, taxi, taxiGroup, taxiDamage, setTaxiOccupied, setTaxiHighlight, setTaxiDoor, setCarCount, mesh,
+    settleTaxiSign,
     wheelMesh, barMesh, update, warmup,
     /**
      * The rare classics' body meshes, index-aligned with `mesh` — see `classicMeshes`. A car is
@@ -8551,6 +8556,6 @@ export function createTraffic(
      * zero scale by `writeAmbient`, and a degenerate triangle rasterises nothing whichever
      * material it is wearing — so the bloom switches off exactly when the lamp does.
      */
-    emissiveMeshes: [...lightMeshes, ...taxiLights],
+    emissiveMeshes: [...lightMeshes, ...taxiLights, ...(taxiSignLamp ? [taxiSignLamp] : [])],
   };
 }

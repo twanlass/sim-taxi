@@ -11,6 +11,7 @@ import {
   turnSignalMaterial,
 } from './lights.js';
 import { addGhostOutline, addGhostMask } from './ghostoutline.js';
+import { createRoofSign, ROOF_SIGN } from './roofsign.js';
 import { mirrorParts, MIRRORS } from './mirrors.js';
 import { chipPaint } from './taxiscratches.js';
 import { bumperGeometry, bumperLength, BUMPER_D, BUMPER_H } from './bumpers.js';
@@ -414,10 +415,17 @@ export function createTaxiMesh() {
   hit.userData.pickable = 'taxi';
   group.add(hit);
 
-  // **No roof sign.** There was one — a box on the roof, dark when empty and lit off-white while a
-  // rider was aboard — and it came off at the workshop bench: the painted yellow roof already says
-  // "taxi" from above, and the sign was a dark lump sitting on it for most of every run. Who is aboard
-  // is said by the rider's pin and the HUD. `setOccupied` stays as a no-op so its callers need not care.
+  // The roof sign (geometry/roofsign.js): lit while the taxi is free, off while a rider is aboard,
+  // and it hops off the roof with a flip to change between the two. `?roofsign=classic` leaves it off
+  // the car, as it was after it first came off at the workshop bench (see that file for why it came
+  // back and what it does differently this time).
+  const sign = ROOF_SIGN ? createRoofSign({
+    x: -0.2 + CABIN_GROW / 2, y: 1.75 + CHASSIS_LIFT,
+  }) : null;
+  if (sign) {
+    group.add(sign.anchor);
+    for (const part of sign.parts) part.userData.pickable = 'taxi';
+  }
 
   // **No parcel on the rear deck.** There was one — a `PARCEL_DECK_SCALE` box behind the cabin, shown
   // while a package was aboard — and it was the honest answer to "does the car have one" at a size
@@ -478,8 +486,8 @@ export function createTaxiMesh() {
   group.scale.setScalar(TAXI_SCALE);
   group.rotation.order = 'YXZ';   // so roll applies about the car's own long axis
 
-  /** Used to light the roof sign while a rider was aboard; the sign is gone (see above). */
-  const setOccupied = () => {};
+  /** A rider aboard or not: the roof sign hops over to say so. `instant` snaps it (a run reset). */
+  const setOccupied = (occupied, { instant = false } = {}) => sign?.setOccupied(occupied, instant);
 
   /**
    * Light the whole car, 0..1 — the flourish that says a courier box has been accepted
@@ -541,6 +549,16 @@ export function createTaxiMesh() {
      * this module is built by tools too, and the draw list is module state.
      */
     lights: lightPods,
+    /** The roof sign's lit lens, for the bloom — handed back for the reason `lights` is. */
+    signLamp: sign?.lamp ?? null,
+    /** Advance the roof sign's bob and hop: `(dt, speed)`, from the traffic write. */
+    updateSign: (dt, speed) => sign?.update(dt, speed),
+    /** Land a hop that is mid-air, for shot mode (which never ticks it on). */
+    settleSign: () => sign?.settle(),
+    /** Put the sign's lamp out — a wreck. The next `setOccupied(…, { instant })` relights it. */
+    douseSign: () => sign?.douse(),
+    /** The sign itself, for the probe and the bench. */
+    sign,
     setOccupied,
     setHighlight,
     setSteer,

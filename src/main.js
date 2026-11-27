@@ -7110,7 +7110,7 @@ function resetRun({ toTitle = false } = {}) {
   taxi.route = [];
   taxiDamage.reset();
   hitCue?.clear();
-  traffic.setTaxiOccupied(false);
+  traffic.setTaxiOccupied(false, { instant: true });
   traffic.setTaxiHighlight(0);
   taxiFlashAge = null;
   driftsPaid = taxi.drifts;
@@ -9013,6 +9013,7 @@ if (shot) {
   }
   fares.settleMarkers();
   parcels?.settleMarkers();
+  traffic.settleTaxiSign();
   // The river's own two, for the drive-through's reason: a shot ticks the world once, so a boat
   // that has not been spawned yet never will be and every screenshot of the river is of an empty
   // one. `settle` places one of each beside the lifting span instead of waiting a minute for a tug.
