@@ -78,16 +78,16 @@ export function clearPlantedCrowns() {
 }
 
 export function treeParts(x, z, rng, options = {}) {
-  if (classicTrees) return classicTree(x, z, rng, options, true).parts;
-  return clumpedTree(x, z, rng, options);
+  if (treeStyle === 'classic') return classicTree(x, z, rng, options, true).parts;
+  return (STYLES[treeStyle] ?? STYLES.clumped)(treeKit(x, z, rng, options));
 }
 
-// `?trees=classic`: the crown as two or three big lobes. A switch on the module for the season's
-// reason — five generators plant this tree and the style is one fact about the whole city. Set it
-// before the city is built.
-let classicTrees = false;
-export function setTreeStyle({ classic = false } = {}) {
-  classicTrees = Boolean(classic);
+// `?trees=<style>`: `classic` is the crown as two or three big lobes, and the rest are listed in
+// `STYLES` below. A switch on the module for the season's reason — five generators plant this tree
+// and the style is one fact about the whole city. Set it before the city is built.
+let treeStyle = 'clumped';
+export function setTreeStyle({ classic = false, style = null } = {}) {
+  treeStyle = classic ? 'classic' : (style && TREE_STYLES.includes(style) ? style : 'clumped');
 }
 
 /**
@@ -180,103 +180,129 @@ const CLUMP_BLEND = 0.45;
 const CORE_SHADE = 0.55;
 const GOLDEN = Math.PI * (3 - Math.sqrt(5));
 
+// A crown's envelope scale: `s` on the crown if it has one (a column, a spreading crown), else the
+// lobe scale every crown had.
+const envelope = (crown) => crown.s ?? CROWN_SCALE;
+
 /**
  * How much light reaches a point inside a crown, as a multiplier on its colour. Outer and upper is
- * lit; the middle and the underside are inside the foliage. `crown` is `{ x, y, z, r }`.
+ * lit; the middle and the underside are inside the foliage. `crown` is `{ x, y, z, r, s? }`.
  */
 export function crownShade(crown, px, py, pz) {
-  const dx = (px - crown.x) / (crown.r * CROWN_SCALE[0]);
-  const dy = (py - crown.y) / (crown.r * CROWN_SCALE[1]);
-  const dz = (pz - crown.z) / (crown.r * CROWN_SCALE[2]);
+  const e = envelope(crown);
+  const dx = (px - crown.x) / (crown.r * e[0]);
+  const dy = (py - crown.y) / (crown.r * e[1]);
+  const dz = (pz - crown.z) / (crown.r * e[2]);
   const radial = Math.hypot(dx, dy, dz);
-  return THREE.MathUtils.clamp(0.48 + 0.44 * radial + 0.2 * dy, 0.5, 1.04);
+  const k = crown.shadeDepth ?? 1;
+  return THREE.MathUtils.clamp(1 - k * (0.52 - 0.44 * radial - 0.2 * dy), 0.5 - 0.1 * (k - 1), 1.04);
 }
 
 /** A point's normal on a clump: its own ellipsoid's, bent toward the whole crown's. */
-export function clumpNormal(out, px, py, pz, cx, cy, cz, crown, blend = CLUMP_BLEND) {
+export function clumpNormal(out, px, py, pz, cx, cy, cz, crown, blend = crown.blend ?? CLUMP_BLEND) {
   const own = new THREE.Vector3(
     (px - cx) / CROWN_SCALE[0] ** 2, (py - cy) / CROWN_SCALE[1] ** 2, (pz - cz) / CROWN_SCALE[2] ** 2,
   ).normalize();
-  out.set(
-    (px - crown.x) / CROWN_SCALE[0] ** 2, (py - crown.y) / CROWN_SCALE[1] ** 2,
-    (pz - crown.z) / CROWN_SCALE[2] ** 2,
-  ).normalize();
+  const e = envelope(crown);
+  out.set((px - crown.x) / e[0] ** 2, (py - crown.y) / e[1] ** 2, (pz - crown.z) / e[2] ** 2).normalize();
   return out.multiplyScalar(blend).addScaledVector(own, 1 - blend).normalize();
 }
 
-function clumpedTree(x, z, rng, options) {
-  const { crowns = null } = options;
+// --- The kit every style builds from ---------------------------------------------
+
+function treeKit(x, z, rng, options) {
   const classic = classicTree(x, z, rng, options, false);
   for (const geo of classic.parts) geo.dispose();
-  const { shape, canopy } = classic;
-  const { height, trunkH, crownR: r, crownY: cy } = shape;
-  const local = makeRng(Math.floor(hash01(x * 1.31 + 7.7, z * 0.83 - 2.9) * 0xffffffff));
-  const parts = [];
-  const crown = { x, y: cy, z, r };
-  const record = (lobe) => {
-    crowns?.push(lobe);
-    planted.push(lobe);
+  const crowns = options.crowns ?? null;
+  return {
+    x, z, shape: classic.shape, canopy: classic.canopy, parts: [],
+    pick: hash01(x * 0.71 - 3.3, z * 1.17 + 9.1),
+    rng: makeRng(Math.floor(hash01(x * 1.31 + 7.7, z * 0.83 - 2.9) * 0xffffffff)),
+    record(lobe) {
+      crowns?.push(lobe);
+      planted.push(lobe);
+    },
   };
+}
 
-  // Where the clumps sit: a golden-angle spiral down the envelope, from the top to a little under
-  // the equator (an underside clump is one nobody sees and a gap the trunk shows through is the
-  // point). Offsets stay inside 0.66 r and radii under 0.52 r, so the crown reaches 1.25 r at
-  // most against the classic tree's 1.33 r — the median and courtyard budgets still hold.
-  const count = THREE.MathUtils.clamp(Math.round(3.5 + r * 2.4), 5, 9);
-  const spin = local.range(0, Math.PI * 2);
+function addTrunk(kit, top, rBase, rTop, color, segments = 6) {
+  const geo = new THREE.CylinderGeometry(rTop, rBase, top, segments);
+  geo.translate(kit.x, KERB_H + top / 2, kit.z);
+  kit.parts.push(bakeColor(geo, color));
+}
+
+function addLimb(kit, from, to, rBase, rTop, color) {
+  const dir = to.clone().sub(from);
+  const len = dir.length();
+  const limb = new THREE.CylinderGeometry(rTop, rBase, len, 5);
+  limb.translate(0, len / 2, 0);
+  limb.applyQuaternion(new THREE.Quaternion().setFromUnitVectors(THREE.Object3D.DEFAULT_UP, dir.normalize()));
+  limb.translate(from.x, from.y, from.z);
+  kit.parts.push(bakeColor(limb, color));
+}
+
+/** Limbs from a fork on the trunk out toward the lowest `n` clumps, stopping inside them. */
+function addLimbs(kit, clumps, forkY, n, color) {
+  const h = kit.shape.height;
+  const from = new THREE.Vector3(kit.x, forkY, kit.z);
+  for (const c of [...clumps].sort((a, b) => a.y - b.y).slice(0, n)) {
+    const to = new THREE.Vector3(kit.x + (c.x - kit.x) * 0.8, c.y, kit.z + (c.z - kit.z) * 0.8);
+    addLimb(kit, from, to, h * 0.022, h * 0.012, color);
+  }
+}
+
+function addCore(kit, crown, { frac = 0.74, shade = CORE_SHADE, record = true } = {}) {
+  const { x, z, rng } = kit;
+  const r = crown.r * frac;
+  const y = crown.y - crown.r * 0.05;
+  const e = envelope(crown);
+  const core = new THREE.IcosahedronGeometry(r, 1);
+  jitterVertices(core, rng, r * 0.08);
+  core.scale(e[0], e[1], e[2]);
+  core.translate(crown.x, y, crown.z);
+  const tint = kit.canopy.clone().multiplyScalar(shade);
+  // softCrown assumes the default lobe scale; close enough for a lobe nobody sees the edge of.
+  kit.parts.push(softCrown(bakeColor(core, tint), crown.x, y, crown.z));
+  if (record) kit.record({ x: crown.x, y, z: crown.z, r, color: tint, tx: x, tz: z, fuzz: false });
+}
+
+/** Clump centres on a golden-angle spiral over the crown's envelope, from `top` down to `bottom`. */
+function placeClumps(kit, crown, { count, top = 1, bottom = -0.4, reach = [0.56, 0.66], size = [0.4, 0.52] }) {
+  const { rng } = kit;
+  const e = envelope(crown);
+  const spin = rng.range(0, Math.PI * 2);
   const clumps = [];
   for (let k = 0; k < count; k++) {
-    const dy = THREE.MathUtils.clamp(1 - ((k + 0.5) / count) * 1.4 + local.jitter(0.08), -0.45, 1);
+    const t = (k + 0.5) / count;
+    const dy = THREE.MathUtils.clamp(top - t * (top - bottom) + rng.jitter(0.08), -1, 1);
     const ring = Math.sqrt(Math.max(0, 1 - dy * dy));
-    const phi = spin + k * GOLDEN + local.jitter(0.35);
-    const reach = r * local.range(0.56, 0.66);
+    const phi = spin + k * GOLDEN + rng.jitter(0.35);
+    const far = crown.r * rng.range(reach[0], reach[1]);
     clumps.push({
-      x: x + Math.cos(phi) * ring * reach * CROWN_SCALE[0],
-      y: cy + dy * reach * CROWN_SCALE[1],
-      z: z + Math.sin(phi) * ring * reach * CROWN_SCALE[2],
-      r: r * local.range(0.4, 0.52),
+      x: crown.x + Math.cos(phi) * ring * far * e[0],
+      y: crown.y + dy * far * e[1],
+      z: crown.z + Math.sin(phi) * ring * far * e[2],
+      r: crown.r * rng.range(size[0], size[1]),
     });
   }
+  return clumps;
+}
 
-  // Trunk and limbs, in one bark colour.
-  const bark = jitterColor(PALETTE.trunk, local, { l: 0.05 });
-  const trunkTop = trunkH + r * 0.4;
-  const trunkGeo = new THREE.CylinderGeometry(height * 0.03, height * 0.055, trunkTop, 6);
-  trunkGeo.translate(x, KERB_H + trunkTop / 2, z);
-  parts.push(bakeColor(trunkGeo, bark));
-  const from = new THREE.Vector3(x, KERB_H + trunkH * 0.78, z);
-  const to = new THREE.Vector3();
-  const dir = new THREE.Vector3();
-  const turn = new THREE.Quaternion();
-  for (const c of [...clumps].sort((a, b) => a.y - b.y).slice(0, 3)) {
-    to.set(x + (c.x - x) * 0.8, c.y, z + (c.z - z) * 0.8);
-    dir.copy(to).sub(from);
-    const len = dir.length();
-    const limb = new THREE.CylinderGeometry(height * 0.012, height * 0.022, len, 5);
-    limb.translate(0, len / 2, 0);
-    limb.applyQuaternion(turn.setFromUnitVectors(THREE.Object3D.DEFAULT_UP, dir.normalize()));
-    limb.translate(from.x, from.y, from.z);
-    parts.push(bakeColor(limb, bark));
-  }
-
-  // The core.
-  const coreY = cy - r * 0.05;
-  const core = new THREE.IcosahedronGeometry(r * 0.74, 1);
-  jitterVertices(core, local, r * 0.06);
-  core.scale(...CROWN_SCALE);
-  core.translate(x, coreY, z);
-  const coreTint = canopy.clone().multiplyScalar(CORE_SHADE);
-  parts.push(softCrown(bakeColor(core, coreTint), x, coreY, z));
-  record({ x, y: coreY, z, r: r * 0.74, color: coreTint, tx: x, tz: z, fuzz: false });
-
-  // The clumps.
+/**
+ * The clumps themselves. `faceted` leaves the face normals alone (the low-poly look); otherwise
+ * each clump's normal is bent toward the crown's and its colour is shaded by depth.
+ */
+function addClumps(kit, crown, clumps, {
+  detail = 1, faceted = false, jitter = { h: 0.02, s: 0.04, l: 0.06 }, cards = {}, record = true,
+} = {}) {
+  const { rng } = kit;
   const n = new THREE.Vector3();
   for (const c of clumps) {
-    const geo = new THREE.IcosahedronGeometry(c.r, 1);
-    jitterVertices(geo, local, c.r * 0.12);
+    const geo = new THREE.IcosahedronGeometry(c.r, detail);
+    jitterVertices(geo, rng, c.r * (faceted ? 0.18 : 0.12));
     geo.scale(...CROWN_SCALE);
     geo.translate(c.x, c.y, c.z);
-    const tint = jitterColor(canopy, local, { h: 0.02, s: 0.04, l: 0.06 });
+    const tint = jitterColor(c.color ?? kit.canopy, rng, jitter);
     const flat = bakeColor(geo, tint);
     const pos = flat.attributes.position;
     const col = flat.attributes.color;
@@ -287,15 +313,195 @@ function clumpedTree(x, z, rng, options) {
       const pz = pos.getZ(i);
       const k = crownShade(crown, px, py, pz);
       col.setXYZ(i, tint.r * k, tint.g * k, tint.b * k);
+      if (faceted) continue;
       clumpNormal(n, px, py, pz, c.x, c.y, c.z, crown);
       nrm.setXYZ(i, n.x, n.y, n.z);
     }
-    parts.push(flat);
-    record({ x: c.x, y: c.y, z: c.z, r: c.r, color: tint, tx: x, tz: z, crown });
+    kit.parts.push(flat);
+    if (record) kit.record({ x: c.x, y: c.y, z: c.z, r: c.r, color: tint, tx: kit.x, tz: kit.z, crown, ...cards });
   }
-
-  return parts;
 }
+
+// --- The styles --------------------------------------------------------------------
+//
+// `?trees=<style>`. `clumped` is the default; the rest are explorations to look at side by side,
+// all sharing the kit above so each is a handful of numbers rather than a generator of its own.
+
+/** The default: clumps round a dark core on a crown-shaped envelope, limbs into it. */
+function clumpedTree(kit, crown = null, opts = {}) {
+  const { height, trunkH, crownR: r, crownY: cy } = kit.shape;
+  crown ??= { x: kit.x, y: cy, z: kit.z, r };
+  const bark = opts.bark ?? jitterColor(PALETTE.trunk, kit.rng, { l: 0.05 });
+  const count = opts.count ?? THREE.MathUtils.clamp(Math.round(3.5 + r * 2.4), 5, 9);
+  const clumps = placeClumps(kit, crown, { count, ...opts.place });
+  addTrunk(kit, opts.trunkTop ?? trunkH + r * 0.4, height * (opts.trunkBase ?? 0.055), height * 0.03, bark);
+  addLimbs(kit, clumps, KERB_H + trunkH * 0.78, opts.limbs ?? 3, bark);
+  addCore(kit, crown, opts.core);
+  addClumps(kit, crown, clumps, opts.clumps);
+  return kit.parts;
+}
+
+/** Shapes: the same clumped tree on four envelopes — round, column, spreading, weeping. */
+function shapedTree(kit, which = kit.pick) {
+  const { trunkH, crownR: r, crownY: cy } = kit.shape;
+  const base = { x: kit.x, z: kit.z, r };
+  if (which < 0.25) return clumpedTree(kit);
+  if (which < 0.5) {
+    // A column: narrow and tall, carried higher so its foot still clears the trunk's fork.
+    const crown = { ...base, y: cy + r * 0.45, s: [0.6, 1.55, 0.6] };
+    return clumpedTree(kit, crown, { count: 9, trunkTop: trunkH + r, place: { size: [0.34, 0.44] }, limbs: 2 });
+  }
+  if (which < 0.75) {
+    // Spreading: wide and flat on a taller trunk, the shape of a big street plane or an oak.
+    const crown = { ...base, y: cy + r * 0.15, s: [1.4, 0.6, 1.4] };
+    return clumpedTree(kit, crown, {
+      count: 11, limbs: 5, trunkTop: trunkH + r * 0.5, place: { top: 0.9, bottom: -0.2, size: [0.36, 0.48] },
+    });
+  }
+  // Weeping: clumps carried round and down the sides, hanging below where a crown would stop.
+  const crown = { ...base, y: cy + r * 0.1, s: [1.15, 1.05, 1.15] };
+  return clumpedTree(kit, crown, {
+    count: 11, limbs: 4, place: { top: 0.85, bottom: -0.95, reach: [0.66, 0.78], size: [0.32, 0.44] },
+    core: { frac: 0.68 },
+  });
+}
+
+/** A conifer: stacked cones, evergreen whatever the season. No cards: a cone's facets are its needles. */
+function coniferTree(kit) {
+  const { rng, x, z } = kit;
+  const h = kit.shape.height * 1.1;
+  const bark = jitterColor(PALETTE.trunk, rng, { l: 0.05 });
+  addTrunk(kit, h * 0.5, h * 0.05, h * 0.025, bark);
+  const green = jitterColor(PALETTE.conifer, rng, { h: 0.015, l: 0.05 });
+  const tiers = 4;
+  const foot = KERB_H + h * 0.24;
+  const span = h - (foot - KERB_H);
+  // Recorded so the tree counts as a tree to anything reading the crowns (the shot framing), with
+  // no cards — see above.
+  kit.record({ x, y: foot + span * 0.4, z, r: h * 0.2, color: green, tx: x, tz: z, fuzz: false });
+  for (let k = 0; k < tiers; k++) {
+    const t = k / tiers;
+    const radius = h * 0.21 * (1 - t * 0.55);
+    const tall = span * 0.4;
+    const y = foot + span * t * 0.8 + tall / 2;
+    const cone = new THREE.ConeGeometry(radius, tall, 8, 1);
+    jitterVertices(cone, rng, radius * 0.08);
+    cone.rotateY(rng.range(0, Math.PI));
+    cone.translate(x, y, z);
+    const tint = jitterColor(green, rng, { l: 0.04 });
+    const geo = bakeColor(cone, tint);
+    // Darker low and inside, like the clumps.
+    const pos = geo.attributes.position;
+    const col = geo.attributes.color;
+    for (let i = 0; i < pos.count; i++) {
+      const up = (pos.getY(i) - foot) / span;
+      const out = Math.hypot(pos.getX(i) - x, pos.getZ(i) - z) / (h * 0.21);
+      const k2 = THREE.MathUtils.clamp(0.62 + 0.3 * up + 0.25 * out, 0.55, 1.05);
+      col.setXYZ(i, tint.r * k2, tint.g * k2, tint.b * k2);
+    }
+    kit.parts.push(geo);
+  }
+  return kit.parts;
+}
+
+/** A birch: slim pale trunk, a narrow airy crown of small clumps that goes gold in the fall. */
+function birchTree(kit) {
+  const { trunkH, crownR: r, crownY: cy } = kit.shape;
+  const crown = { x: kit.x, y: cy + r * 0.35, z: kit.z, r: r * 0.9, s: [0.72, 1.35, 0.72] };
+  const bark = jitterColor(PALETTE.birchBark, kit.rng, { l: 0.04 });
+  kit.canopy = kit.canopy.clone().lerp(new THREE.Color(autumn ? PALETTE.foliageGold : PALETTE.birchLeaf), 0.7);
+  return clumpedTree(kit, crown, {
+    bark, trunkBase: 0.038, count: 8, limbs: 2, trunkTop: trunkH + r * 0.9,
+    place: { size: [0.3, 0.4], reach: [0.62, 0.72] }, core: { frac: 0.55, shade: 0.7 },
+    clumps: { cards: { density: 0.8 } },
+  });
+}
+
+/** Species: a park's mix — oak, maple, conifer, birch — picked off the trunk's position. */
+function speciesTree(kit) {
+  const p = kit.pick;
+  if (p < 0.32) {
+    // Oak: broad, lumpy, a lot of clumps, a heavy trunk.
+    const { crownR: r, crownY: cy } = kit.shape;
+    const crown = { x: kit.x, y: cy + r * 0.05, z: kit.z, r, s: [1.22, 0.82, 1.22] };
+    return clumpedTree(kit, crown, { count: 11, limbs: 4, trunkBase: 0.07, place: { size: [0.36, 0.5], bottom: -0.3 } });
+  }
+  if (p < 0.6) {
+    // Maple: the round crown, denser.
+    return clumpedTree(kit, null, { count: 10, place: { size: [0.38, 0.48] } });
+  }
+  if (p < 0.8) return coniferTree(kit);
+  return birchTree(kit);
+}
+
+/** All cards: no solid crown but a small dark heart for depth and a shadow; the leaves are the tree. */
+function cardTree(kit) {
+  const { height, trunkH, crownR: r, crownY: cy } = kit.shape;
+  const crown = { x: kit.x, y: cy, z: kit.z, r };
+  const bark = jitterColor(PALETTE.trunk, kit.rng, { l: 0.05 });
+  addTrunk(kit, trunkH + r * 0.5, height * 0.055, height * 0.03, bark);
+  const clumps = placeClumps(kit, crown, { count: 7, size: [0.42, 0.55] });
+  addLimbs(kit, clumps, KERB_H + trunkH * 0.78, 4, bark);
+  addCore(kit, crown, { frac: 0.45, shade: 0.45, record: false });
+  for (const c of clumps) {
+    const tint = jitterColor(kit.canopy, kit.rng, { h: 0.02, s: 0.04, l: 0.06 });
+    kit.record({ x: c.x, y: c.y, z: c.z, r: c.r, color: tint, tx: kit.x, tz: kit.z, crown,
+      fill: true, density: 3.2, cardScale: 1.2, keepBack: true });
+  }
+  return kit.parts;
+}
+
+/** Stylised: big faceted gems, flat-lit, two-tone, no cards — the low-poly toy look. */
+function lowpolyTree(kit) {
+  const { height, trunkH, crownR: r, crownY: cy } = kit.shape;
+  const crown = { x: kit.x, y: cy, z: kit.z, r, shadeDepth: 1.3 };
+  const bark = jitterColor(PALETTE.trunk, kit.rng, { l: 0.05 });
+  addTrunk(kit, trunkH + r * 0.3, height * 0.06, height * 0.04, bark, 5);
+  const clumps = [{ x: kit.x, y: cy, z: kit.z, r: r * 0.95 }];
+  const angle = kit.rng.range(0, Math.PI * 2);
+  for (let k = 0; k < 2; k++) {
+    const a = angle + k * 2.4;
+    clumps.push({ x: kit.x + Math.cos(a) * r * 0.5, y: cy + r * (k ? 0.35 : -0.15), z: kit.z + Math.sin(a) * r * 0.5, r: r * 0.6 });
+  }
+  addClumps(kit, crown, clumps, { detail: 0, faceted: true, cards: { fuzz: false } });
+  return kit.parts;
+}
+
+/** More real: an uneven, leaning crown of many small clumps, deep shade, finer and denser leaves. */
+function realTree(kit) {
+  const { rng } = kit;
+  const { crownR: r, crownY: cy } = kit.shape;
+  const lean = rng.range(0, Math.PI * 2);
+  const crown = {
+    x: kit.x + Math.cos(lean) * r * 0.12, y: cy + r * 0.05, z: kit.z + Math.sin(lean) * r * 0.12, r,
+    s: [rng.range(1.0, 1.2), rng.range(0.8, 1.0), rng.range(1.0, 1.2)], blend: 0.35, shadeDepth: 1.25,
+  };
+  const clumps = placeClumps(kit, crown, { count: 13, bottom: -0.55, reach: [0.5, 0.75], size: [0.26, 0.44] });
+  // Every other clump gets a smaller one budding off it, so the outline goes lumpy at two scales.
+  for (const c of clumps.slice(0, 13).filter((_, i) => i % 2 === 0)) {
+    const a = rng.range(0, Math.PI * 2);
+    clumps.push({ x: c.x + Math.cos(a) * c.r * 0.7, y: c.y + rng.range(-0.2, 0.5) * c.r, z: c.z + Math.sin(a) * c.r * 0.7, r: c.r * 0.6 });
+  }
+  const { height, trunkH } = kit.shape;
+  const bark = jitterColor(PALETTE.trunk, rng, { l: 0.06 });
+  addTrunk(kit, trunkH + r * 0.5, height * 0.06, height * 0.028, bark, 7);
+  addLimbs(kit, clumps, KERB_H + trunkH * 0.72, 5, bark);
+  addCore(kit, crown, { frac: 0.7, shade: 0.42 });
+  addClumps(kit, crown, clumps, {
+    jitter: { h: 0.035, s: 0.06, l: 0.09 }, cards: { density: 1.5, cardScale: 1.15 },
+  });
+  return kit.parts;
+}
+
+const STYLES = {
+  clumped: (kit) => clumpedTree(kit),
+  shapes: (kit) => shapedTree(kit),
+  species: speciesTree,
+  cards: cardTree,
+  lowpoly: lowpolyTree,
+  real: realTree,
+};
+export const TREE_STYLES = ['classic', ...Object.keys(STYLES)];
 
 // Fall: most broadleaves have turned. Which colour a tree went is a hash of its trunk position, on
 // a hash of its own so it is independent of the tint jitter above, and spends no draw — so the

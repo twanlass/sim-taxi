@@ -186,7 +186,7 @@ import { streetAt, routeDrives, STREET_TAP_MAX_DETOUR } from './game/streettap.j
 import { createPathDrag } from './game/pathdrag.js';
 import { getActiveShot, getSeed, getRunSeed, getCarCount, getDifficultyPin, getDifficultyMode,
   getSafeMode, safeModeSource, getPixelRatioCap,
-  getDiagnostics, getParcelsPin, getRain, getStorm, getSquall, getSquallRampClassic, getSunRaysClassic, getWetTyres, getWreckStyle, getFall, getFoliageClassic, getTreesClassic, getWater, getUturnStyle, getCrt } from './util/shot.js';
+  getDiagnostics, getParcelsPin, getRain, getStorm, getSquall, getSquallRampClassic, getSunRaysClassic, getWetTyres, getWreckStyle, getFall, getFoliageClassic, getTreesClassic, getTreeStyle, getWater, getUturnStyle, getCrt } from './util/shot.js';
 import { createParcelSystem, TAP_MAX_DETOUR } from './game/parcels.js';
 import { createRobbery } from './game/robbery.js';
 import { createRadio, LOST_CALL, ROBBERY_CALL } from './game/radio.js';
@@ -817,7 +817,7 @@ const stopPanes = rain.enabled ? collectPanes() : null;
 // same broadleaf, and autumn is one fact about the whole city (`autumnBase` in city/props.js).
 const fall = getFall();
 setAutumn(fall, { classicColours: getFoliageClassic() });
-setTreeStyle({ classic: getTreesClassic() });
+setTreeStyle({ classic: getTreesClassic(), style: getTreeStyle() });
 const city = createBuildings(makeRng(seed + 22), layout);
 // The donut shop's site, or null (city/donutshop.js). Read this early because the street lamps,
 // post boxes and bag piles below keep off its parked cruiser; built further down beside the vet.

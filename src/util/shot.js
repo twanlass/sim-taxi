@@ -606,11 +606,16 @@ export function getFoliageClassic() {
 }
 
 /**
- * The trees — `?trees=classic` brings back the crown of two or three big lobes; anything else is
- * the clumped crown (`clumpedTree` in city/props.js).
+ * The trees — `?trees=classic` brings back the crown of two or three big lobes; `?trees=shapes`,
+ * `species`, `cards`, `lowpoly` and `real` are the explorations (`STYLES` in city/props.js).
  */
 export function getTreesClassic() {
   return new URLSearchParams(window.location.search).get('trees') === 'classic';
+}
+
+/** `?trees=<style>` — any of `TREE_STYLES` in city/props.js; null for the default. */
+export function getTreeStyle() {
+  return new URLSearchParams(window.location.search).get('trees');
 }
 
 /**

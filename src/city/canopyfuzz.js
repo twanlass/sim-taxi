@@ -111,7 +111,8 @@ export function planCanopyFuzz(rng, crowns) {
     if (lobe.fuzz === false) continue;
     // With a floor: area alone gives a median's 0.6-radius ornamental three cards after the cull,
     // which is a smooth crown next to a fuzzy one rather than a smaller fuzzy one.
-    const count = Math.max(MIN_CARDS, Math.round(lobe.r * lobe.r * PER_R2));
+    // `density` (a style's override, props.js `STYLES`) scales the count on top.
+    const count = Math.round(Math.max(MIN_CARDS, lobe.r * lobe.r * PER_R2) * (lobe.density ?? 1));
     for (let i = 0; i < count; i++) {
       // Every draw taken whether the card survives or not, so the cull can change freely.
       const y = rng.range(-1, 1);
@@ -119,8 +120,11 @@ export function planCanopyFuzz(rng, crowns) {
       const ring = Math.sqrt(1 - y * y);
       // A clump (props.js `clumpedTree`) is a third of a classic lobe's radius, so its cards grow
       // and stand further out to fringe it the way they fringe a big lobe — the same draws, rescaled.
-      const sink = rng.range(SINK[0], SINK[1]) + (lobe.crown ? CLUMP_PROUD : 0);
-      const size = lobe.r * rng.range(CARD[0], CARD[1]) * (lobe.crown ? CLUMP_CARD : 1);
+      // A `fill` lobe (the all-cards tree) spreads its cards through the volume, not over a shell.
+      const drawnSink = rng.range(SINK[0], SINK[1]);
+      const sink = lobe.fill ? 0.2 + (drawnSink - SINK[0]) / (SINK[1] - SINK[0]) * 0.9
+        : drawnSink + (lobe.crown ? CLUMP_PROUD : 0);
+      const size = lobe.r * rng.range(CARD[0], CARD[1]) * (lobe.cardScale ?? (lobe.crown ? CLUMP_CARD : 1));
       const roll = rng.range(0, Math.PI * 2);
       const variant = rng.int(0, VARIANTS - 1);
       const color = jitterColor(lobe.color, rng, { h: 0.015, s: 0.03, l: 0.05 });
@@ -131,7 +135,7 @@ export function planCanopyFuzz(rng, crowns) {
       // scaled sphere is the direction divided by the scale).
       n.set(ux / LOBE_SCALE.x, y / LOBE_SCALE.y, uz / LOBE_SCALE.z).normalize();
       // The cull stays on the lobe's own normal, so it drops the same cards whatever the crown.
-      if (n.dot(TO_CAMERA) < BACK) continue;
+      if (!lobe.keepBack && n.dot(TO_CAMERA) < BACK) continue;
       p.set(
         lobe.x + ux * LOBE_SCALE.x * lobe.r * sink,
         lobe.y + y * LOBE_SCALE.y * lobe.r * sink,
