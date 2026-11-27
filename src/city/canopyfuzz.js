@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { hash01, propMaterial } from '../util/geo.js';
 import { makeRng } from '../util/rng.js';
 import { jitterColor } from '../palette.js';
+import { clumpNormal, crownShade } from './props.js';
 import { cutoutAtlas, TO_CAMERA, VIEW_RIGHT, VIEW_UP } from '../util/cutout.js';
 
 // Leaf fuzz on the tree crowns: alpha-cut cards of leaf clusters scattered over each canopy lobe,
@@ -37,6 +38,10 @@ const SINK = [0.84, 0.98];
 // How far round the back a card may stand and still be kept. Slightly past the silhouette, because
 // a card there is what pokes out of the outline.
 const BACK = -0.22;
+
+// On a clumped tree's clump: cards this much bigger against the lobe, and sunk this much less.
+const CLUMP_CARD = 1.45;
+const CLUMP_PROUD = 0.1;
 
 // `blob` in props.js scales every lobe by this before placing it.
 const LOBE_SCALE = new THREE.Vector3(1.05, 0.9, 1.05);
@@ -100,7 +105,10 @@ export function leafAtlas() {
 export function planCanopyFuzz(rng, crowns) {
   const cards = [];
   const n = new THREE.Vector3();
+  const p = new THREE.Vector3();
   for (const lobe of crowns) {
+    // A clumped tree's core (props.js): buried under its clumps, so its cards would be too.
+    if (lobe.fuzz === false) continue;
     // With a floor: area alone gives a median's 0.6-radius ornamental three cards after the cull,
     // which is a smooth crown next to a fuzzy one rather than a smaller fuzzy one.
     const count = Math.max(MIN_CARDS, Math.round(lobe.r * lobe.r * PER_R2));
@@ -109,8 +117,10 @@ export function planCanopyFuzz(rng, crowns) {
       const y = rng.range(-1, 1);
       const phi = rng.range(0, Math.PI * 2);
       const ring = Math.sqrt(1 - y * y);
-      const sink = rng.range(SINK[0], SINK[1]);
-      const size = lobe.r * rng.range(CARD[0], CARD[1]);
+      // A clump (props.js `clumpedTree`) is a third of a classic lobe's radius, so its cards grow
+      // and stand further out to fringe it the way they fringe a big lobe — the same draws, rescaled.
+      const sink = rng.range(SINK[0], SINK[1]) + (lobe.crown ? CLUMP_PROUD : 0);
+      const size = lobe.r * rng.range(CARD[0], CARD[1]) * (lobe.crown ? CLUMP_CARD : 1);
       const roll = rng.range(0, Math.PI * 2);
       const variant = rng.int(0, VARIANTS - 1);
       const color = jitterColor(lobe.color, rng, { h: 0.015, s: 0.03, l: 0.05 });
@@ -120,11 +130,20 @@ export function planCanopyFuzz(rng, crowns) {
       // The point on the scaled lobe, and the ellipsoid's normal there (the gradient, which for a
       // scaled sphere is the direction divided by the scale).
       n.set(ux / LOBE_SCALE.x, y / LOBE_SCALE.y, uz / LOBE_SCALE.z).normalize();
+      // The cull stays on the lobe's own normal, so it drops the same cards whatever the crown.
       if (n.dot(TO_CAMERA) < BACK) continue;
+      p.set(
+        lobe.x + ux * LOBE_SCALE.x * lobe.r * sink,
+        lobe.y + y * LOBE_SCALE.y * lobe.r * sink,
+        lobe.z + uz * LOBE_SCALE.z * lobe.r * sink,
+      );
+      // On a clump, a card lights and shades the way the clump does at that point (props.js).
+      if (lobe.crown) {
+        clumpNormal(n, p.x, p.y, p.z, lobe.x, lobe.y, lobe.z, lobe.crown);
+        color.multiplyScalar(crownShade(lobe.crown, p.x, p.y, p.z));
+      }
       cards.push({
-        x: lobe.x + ux * LOBE_SCALE.x * lobe.r * sink,
-        y: lobe.y + y * LOBE_SCALE.y * lobe.r * sink,
-        z: lobe.z + uz * LOBE_SCALE.z * lobe.r * sink,
+        x: p.x, y: p.y, z: p.z,
         nx: n.x, ny: n.y, nz: n.z,
         size, roll, variant, color, tx: lobe.tx, tz: lobe.tz,
       });

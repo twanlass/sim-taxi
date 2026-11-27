@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { bakeColor, hash01, jitterVertices, propMaterial, stampEntry } from '../util/geo.js';
 import { PALETTE, jitterColor } from '../palette.js';
+import { makeRng } from '../util/rng.js';
 import { KERB_H, MEDIAN_EDGE, PARK_EDGE, roundedRectShape } from './ground.js';
 import { MEDIAN_W, medianRuns } from './grid.js';
 import { planPond, pondParts, pondWaterMesh } from './pond.js';
@@ -76,9 +77,28 @@ export function clearPlantedCrowns() {
   planted.length = 0;
 }
 
-export function treeParts(x, z, rng, {
+export function treeParts(x, z, rng, options = {}) {
+  if (classicTrees) return classicTree(x, z, rng, options, true).parts;
+  return clumpedTree(x, z, rng, options);
+}
+
+// `?trees=classic`: the crown as two or three big lobes. A switch on the module for the season's
+// reason — five generators plant this tree and the style is one fact about the whole city. Set it
+// before the city is built.
+let classicTrees = false;
+export function setTreeStyle({ classic = false } = {}) {
+  classicTrees = Boolean(classic);
+}
+
+/**
+ * The classic tree: a trunk and two or three jittered lobes. Still run for every clumped tree too,
+ * with `record` off and its geometry thrown away, because what it spends from `rng` is what every
+ * draw after it in that stream was laid out against — the courtyards share a stream with the
+ * buildings, so a tree that drew differently would move the city around it.
+ */
+function classicTree(x, z, rng, {
   low = 3.4, high = 5.6, height, trunk = 0.42, crowns = null, canopy: canopyBase = null,
-} = {}) {
+} = {}, record = true) {
   const parts = [];
   const shape = treeShape(height ?? rng.range(low, high), trunk);
   const { trunkH, crownR: r, crownY: base } = shape;
@@ -110,6 +130,7 @@ export function treeParts(x, z, rng, {
     geo.translate(x + ox, base + oy, z + oz);
     const tint = jitterColor(canopy, rng, { h: 0.02, l: 0.07 });
     parts.push(softCrown(bakeColor(geo, tint), x + ox, base + oy, z + oz));
+    if (!record) return;
     const lobe = { x: x + ox, y: base + oy, z: z + oz, r: radius, color: tint, tx: x, tz: z };
     crowns?.push(lobe);
     planted.push(lobe);
@@ -122,6 +143,155 @@ export function treeParts(x, z, rng, {
     const reach = r * rng.range(0.32, 0.5);   // less than r, so they always intersect the core
     blob(r * rng.range(0.55, 0.72), Math.cos(angle) * reach, rng.range(-0.1, 0.45) * r,
       Math.sin(angle) * reach, 0);
+  }
+
+  return { parts, shape, canopy };
+}
+
+// --- The clumped crown ---------------------------------------------------------
+//
+// The default tree. The classic crown was two or three big lobes lit as smooth ellipsoids, which at
+// play zoom reads as one ball with leaf cards stuck in it (Tyler: "a sphere with alphad meshes
+// tucked in"). A real broadleaf reads as **clumps**: masses of foliage each with its own lit top and
+// shaded underside, with dark gaps between them where you see into the tree. So:
+//
+// - Five to nine small clumps on a spiral over a crown-sized envelope, top to just under the
+//   equator, each its own ico lobe and its own leaf cards (which come out smaller with it — finer
+//   leaf texture for free).
+// - A dark **core** inside them, so a gap between clumps shows the inside of the tree rather than
+//   the sky or the lawn behind it. Recorded as a lobe so the soft-normal probe knows it, but with
+//   `fuzz: false` — its cards would all be buried under the clumps.
+// - Every clump's normal is part its own sphere and part the whole crown's (`CLUMP_BLEND`): own
+//   sphere alone and the tree is a bunch of grapes; crown alone and it is the ball again.
+// - The shading the lights can't do, baked into the vertex colour (`crownShade`): the inside and
+//   the underside of the crown are in the foliage's own shade. This is the cue that the classic tree
+//   lacked entirely, and it costs nothing at draw time.
+// - The trunk carries on up into the crown, and forks into limbs toward the lowest clumps, so the
+//   short stretch between trunk and canopy is a Y rather than a pole stuck in a ball.
+//
+// No new material and no new shader: it is the same `propMaterial({ smooth: true })` mesh, so
+// cold boot compiles exactly what it did. The cost is triangles — see `CLUMP_DETAIL`.
+//
+// All of its randomness comes off a stream seeded from the trunk's position, not the caller's
+// `rng`: the caller's stream is spent exactly as the classic tree spends it (see `classicTree`).
+
+const CLUMP_BLEND = 0.45;
+// The core is the canopy colour at this fraction: dark enough to read as the inside of the tree.
+const CORE_SHADE = 0.55;
+const GOLDEN = Math.PI * (3 - Math.sqrt(5));
+
+/**
+ * How much light reaches a point inside a crown, as a multiplier on its colour. Outer and upper is
+ * lit; the middle and the underside are inside the foliage. `crown` is `{ x, y, z, r }`.
+ */
+export function crownShade(crown, px, py, pz) {
+  const dx = (px - crown.x) / (crown.r * CROWN_SCALE[0]);
+  const dy = (py - crown.y) / (crown.r * CROWN_SCALE[1]);
+  const dz = (pz - crown.z) / (crown.r * CROWN_SCALE[2]);
+  const radial = Math.hypot(dx, dy, dz);
+  return THREE.MathUtils.clamp(0.48 + 0.44 * radial + 0.2 * dy, 0.5, 1.04);
+}
+
+/** A point's normal on a clump: its own ellipsoid's, bent toward the whole crown's. */
+export function clumpNormal(out, px, py, pz, cx, cy, cz, crown, blend = CLUMP_BLEND) {
+  const own = new THREE.Vector3(
+    (px - cx) / CROWN_SCALE[0] ** 2, (py - cy) / CROWN_SCALE[1] ** 2, (pz - cz) / CROWN_SCALE[2] ** 2,
+  ).normalize();
+  out.set(
+    (px - crown.x) / CROWN_SCALE[0] ** 2, (py - crown.y) / CROWN_SCALE[1] ** 2,
+    (pz - crown.z) / CROWN_SCALE[2] ** 2,
+  ).normalize();
+  return out.multiplyScalar(blend).addScaledVector(own, 1 - blend).normalize();
+}
+
+function clumpedTree(x, z, rng, options) {
+  const { crowns = null } = options;
+  const classic = classicTree(x, z, rng, options, false);
+  for (const geo of classic.parts) geo.dispose();
+  const { shape, canopy } = classic;
+  const { height, trunkH, crownR: r, crownY: cy } = shape;
+  const local = makeRng(Math.floor(hash01(x * 1.31 + 7.7, z * 0.83 - 2.9) * 0xffffffff));
+  const parts = [];
+  const crown = { x, y: cy, z, r };
+  const record = (lobe) => {
+    crowns?.push(lobe);
+    planted.push(lobe);
+  };
+
+  // Where the clumps sit: a golden-angle spiral down the envelope, from the top to a little under
+  // the equator (an underside clump is one nobody sees and a gap the trunk shows through is the
+  // point). Offsets stay inside 0.66 r and radii under 0.52 r, so the crown reaches 1.25 r at
+  // most against the classic tree's 1.33 r — the median and courtyard budgets still hold.
+  const count = THREE.MathUtils.clamp(Math.round(3.5 + r * 2.4), 5, 9);
+  const spin = local.range(0, Math.PI * 2);
+  const clumps = [];
+  for (let k = 0; k < count; k++) {
+    const dy = THREE.MathUtils.clamp(1 - ((k + 0.5) / count) * 1.4 + local.jitter(0.08), -0.45, 1);
+    const ring = Math.sqrt(Math.max(0, 1 - dy * dy));
+    const phi = spin + k * GOLDEN + local.jitter(0.35);
+    const reach = r * local.range(0.56, 0.66);
+    clumps.push({
+      x: x + Math.cos(phi) * ring * reach * CROWN_SCALE[0],
+      y: cy + dy * reach * CROWN_SCALE[1],
+      z: z + Math.sin(phi) * ring * reach * CROWN_SCALE[2],
+      r: r * local.range(0.4, 0.52),
+    });
+  }
+
+  // Trunk and limbs, in one bark colour.
+  const bark = jitterColor(PALETTE.trunk, local, { l: 0.05 });
+  const trunkTop = trunkH + r * 0.4;
+  const trunkGeo = new THREE.CylinderGeometry(height * 0.03, height * 0.055, trunkTop, 6);
+  trunkGeo.translate(x, KERB_H + trunkTop / 2, z);
+  parts.push(bakeColor(trunkGeo, bark));
+  const from = new THREE.Vector3(x, KERB_H + trunkH * 0.78, z);
+  const to = new THREE.Vector3();
+  const dir = new THREE.Vector3();
+  const turn = new THREE.Quaternion();
+  for (const c of [...clumps].sort((a, b) => a.y - b.y).slice(0, 3)) {
+    to.set(x + (c.x - x) * 0.8, c.y, z + (c.z - z) * 0.8);
+    dir.copy(to).sub(from);
+    const len = dir.length();
+    const limb = new THREE.CylinderGeometry(height * 0.012, height * 0.022, len, 5);
+    limb.translate(0, len / 2, 0);
+    limb.applyQuaternion(turn.setFromUnitVectors(THREE.Object3D.DEFAULT_UP, dir.normalize()));
+    limb.translate(from.x, from.y, from.z);
+    parts.push(bakeColor(limb, bark));
+  }
+
+  // The core.
+  const coreY = cy - r * 0.05;
+  const core = new THREE.IcosahedronGeometry(r * 0.74, 1);
+  jitterVertices(core, local, r * 0.06);
+  core.scale(...CROWN_SCALE);
+  core.translate(x, coreY, z);
+  const coreTint = canopy.clone().multiplyScalar(CORE_SHADE);
+  parts.push(softCrown(bakeColor(core, coreTint), x, coreY, z));
+  record({ x, y: coreY, z, r: r * 0.74, color: coreTint, tx: x, tz: z, fuzz: false });
+
+  // The clumps.
+  const n = new THREE.Vector3();
+  for (const c of clumps) {
+    const geo = new THREE.IcosahedronGeometry(c.r, 1);
+    jitterVertices(geo, local, c.r * 0.12);
+    geo.scale(...CROWN_SCALE);
+    geo.translate(c.x, c.y, c.z);
+    const tint = jitterColor(canopy, local, { h: 0.02, s: 0.04, l: 0.06 });
+    const flat = bakeColor(geo, tint);
+    const pos = flat.attributes.position;
+    const col = flat.attributes.color;
+    const nrm = flat.attributes.normal;
+    for (let i = 0; i < pos.count; i++) {
+      const px = pos.getX(i);
+      const py = pos.getY(i);
+      const pz = pos.getZ(i);
+      const k = crownShade(crown, px, py, pz);
+      col.setXYZ(i, tint.r * k, tint.g * k, tint.b * k);
+      clumpNormal(n, px, py, pz, c.x, c.y, c.z, crown);
+      nrm.setXYZ(i, n.x, n.y, n.z);
+    }
+    parts.push(flat);
+    record({ x: c.x, y: c.y, z: c.z, r: c.r, color: tint, tx: x, tz: z, crown });
   }
 
   return parts;

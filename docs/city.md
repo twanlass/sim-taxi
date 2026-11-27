@@ -1382,13 +1382,43 @@ spread evenly, because an even scatter reads as a texture laid over the park.
   stone's face. About 90 tufts a lot, so ~180 triangles in the same draw. The probe checks the
   built cards against the fence, the path and the stones the graveyard reports.
 
+### The tree — `treeParts` in `city/props.js`
+
+Every tree in the city is one generator (`treeParts`), and its crown is **clumped**: five to nine
+small lobes on a golden-angle spiral over a crown-sized envelope, top to just under the equator,
+around a dark **core** (the canopy colour at 0.55) that fills the gaps between them, so looking
+into the tree shows its inside rather than the lawn behind it. Three things make the clumps read as
+foliage rather than as a bunch of grapes or as one ball:
+
+- **Normals bent toward the crown.** Each clump's normal is 55% its own ellipsoid's and 45% the
+  whole crown's (`CLUMP_BLEND`), so every clump has a lit top and a shaded underside while the
+  light still falls across the tree as one mass.
+- **Shade baked into the vertex colour** (`crownShade`): the middle and underside of a crown are
+  inside its own foliage, 0.5 against 1.04 at the sunlit top. The lights cannot do this, and it
+  costs nothing at draw time.
+- **Smaller leaf cards.** A clump is a third of a classic lobe's radius, so its cards come out
+  smaller (scaled back up by `CLUMP_CARD`, and standing `CLUMP_PROUD` further out) — finer leaf
+  texture with the same atlas.
+
+The trunk carries on up into the crown and forks into three limbs toward the lowest clumps. It is
+the same `propMaterial({ smooth: true })` mesh as before, so it compiles no new shader; what it
+costs is triangles — about 500 more a tree (seed 7: props 18.6k → 42.1k, courtyard trees 4.7k →
+7.1k) and 40% more leaf cards (1,616 → 2,281). The crown reaches 1.25 r at most against the
+classic tree's 1.33, so the median and courtyard budgets hold unchanged.
+
+**It spends the caller's `rng` exactly as the classic tree did.** The courtyard shares its stream
+with the buildings, so a tree that drew differently would move the city around it; `clumpedTree`
+runs the classic tree with recording off, throws its geometry away, and takes all of its own
+randomness from a stream seeded off the trunk's position. `?trees=classic` brings back the crown of
+two or three big lobes ([rendering-history.md](rendering-history.md#the-tree-crown--treeparts-in-citypropsjs)).
+
 ### Leaf fuzz on the crowns
 
 `city/canopyfuzz.js` is the same card technique on the trees: leaf-cluster cards scattered over
 every canopy lobe, half sunk into it, so a crown's silhouette goes ragged while its facets still
 read through the middle. `treeParts` records each lobe as it builds it (`crowns`) — a record, not
 a draw, so the probe asserts a tree grown with it is identical to one grown without. Each card
-carries the **lobe's outward normal** where it stands, so the fuzz lights with the crown's own
+carries the **lobe's outward normal** where it stands (bent toward the crown's, and shaded, on a clump), so the fuzz lights with the crown's own
 light direction rather than as a pale crust; cards on the far side of a lobe, which the fixed
 camera never sees, are dropped after the draw. Covers the parks', the medians' and the courtyard's
 trees; `seed + 144`. The atlas builder both share is `util/cutout.js`.

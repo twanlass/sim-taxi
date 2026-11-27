@@ -306,6 +306,10 @@ export const SHOTS = [
   // and at play zoom, both framed on the point between the two. Appended, for the index reason.
   { name: 'donut', description: 'the donut shop and its parked cruiser, close', target: [0, 0], zoom: 13, warmup: 12, atDonut: true },
   { name: 'donut-far', description: 'the donut shop at play zoom', target: [0, 0], zoom: 52, warmup: 12, atDonut: true },
+  // The park trees, close and at play zoom, framed on the densest stand (main.js `atTrees`).
+  // Appended, so every index above keeps its shot.
+  { name: 'trees', description: 'a stand of park trees, close', target: [0, 0], zoom: 8, warmup: 12, atTrees: true },
+  { name: 'trees-far', description: 'park trees at play zoom', target: [0, 0], zoom: 52, warmup: 12, atTrees: true },
 ];
 
 export function getActiveShot() {
@@ -599,6 +603,14 @@ export function getFall() {
  */
 export function getFoliageClassic() {
   return new URLSearchParams(window.location.search).get('foliage') === 'classic';
+}
+
+/**
+ * The trees — `?trees=classic` brings back the crown of two or three big lobes; anything else is
+ * the clumped crown (`clumpedTree` in city/props.js).
+ */
+export function getTreesClassic() {
+  return new URLSearchParams(window.location.search).get('trees') === 'classic';
 }
 
 /**
