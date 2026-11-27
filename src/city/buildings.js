@@ -13,7 +13,6 @@ import {
   GLASS_RECESS, RECESS_PIER, WALLS_CLASSIC, WALL_STYLE, fillWalls, frameMesh, patchWalls, recessShell, stampWall,
   windowFrames,
 } from './facade.js';
-import { patchWallGrain } from './wallgrain.js';
 
 const FLOOR_H = 2.6;
 // The ground floor is its own storey height. A shopfront is taller than the flats above it, and
@@ -79,6 +78,50 @@ function shade(col, amount = 0.78) {
   return col.clone().multiplyScalar(amount);
 }
 
+// sRGB-linear to OKLab, for the roof's contrast test below. Three's colours are linear already.
+function oklab(c) {
+  const l = Math.cbrt(0.4122214708 * c.r + 0.5363325363 * c.g + 0.0514459929 * c.b);
+  const m = Math.cbrt(0.2119034982 * c.r + 0.6806995451 * c.g + 0.1073969566 * c.b);
+  const s = Math.cbrt(0.0883024619 * c.r + 0.2817188376 * c.g + 0.6299787005 * c.b);
+  return [
+    0.2104542553 * l + 0.793617785 * m - 0.0040720468 * s,
+    1.9779984951 * l - 2.428592205 * m + 0.4505937099 * s,
+    0.0259040371 * l + 0.7827717662 * m - 0.808675766 * s,
+  ];
+}
+
+/**
+ * The finish on a flat roof's deck: whichever of `roofTar` and `roofGravel` stands further from
+ * the wall under it — tar on the light families, gravel on the dark ones.
+ *
+ * Tyler, 2026-11-27: "make sure that building roof color is not the same as the building body."
+ * It was a stop darker than the body (`shade(col, 0.86)` inside the lip), and at 4:24 PM the deck
+ * takes about as much sun as the lit wall does, so the darkening was spent on the lighting and the
+ * two read as one colour (palette.js has the measurement). Temperature is the axis the lighting
+ * cannot erase on its own, and lightness only works if the deck clears *both* walls, so the pick
+ * is scored as lit (`roofContrast`): OKLab distance to the sunny wall and to the shaded one,
+ * whichever is nearer. Worst family after: glass at 0.126 (0.105 at its lightest jitter); before,
+ * brick and slate at 0.061.
+ * The lip stays the body's own colour, darkened, so the families still tell apart at the
+ * roofline; only the deck inside it changes. Held by `tools/probe.mjs` (`roofContrast`).
+ */
+export function roofDeck(wall) {
+  const tar = color('roofTar');
+  const gravel = color('roofGravel');
+  return roofContrast(wall, tar) >= roofContrast(wall, gravel) ? tar : gravel;
+}
+
+/**
+ * How far a deck sits from the wall under it, as it is lit: the smaller OKLab distance to the
+ * sunny wall and to the shaded one. The deck is scaled by the light it takes against the sunny
+ * wall (~1.07, from the tan block in palette.js) and the shaded wall by its own (~0.35).
+ */
+export function roofContrast(wall, deck) {
+  const d = oklab(deck.clone().multiplyScalar(1.07));
+  const dist = (k) => Math.hypot(...oklab(wall.clone().multiplyScalar(k)).map((v, i) => v - d[i]));
+  return Math.min(dist(1), dist(0.35));
+}
+
 // `?roofs=classic` keeps the solid cap every flat roof used to be: one box, deck on its top face.
 // Headless tools have no `location` and take `ROOFS=classic` from the environment.
 export const ROOFS_CLASSIC = typeof location !== 'undefined'
@@ -142,7 +185,7 @@ function capClearance(parts, w, h, d, x, base, z) {
   return grow;
 }
 
-export function lippedCap(parts, w, h, d, x, base, z, col, floorCol = shade(col, 0.86)) {
+export function lippedCap(parts, w, h, d, x, base, z, col, floorCol = roofDeck(col)) {
   h += capClearance(parts, w, h, d, x, base, z);
   if (ROOFS_CLASSIC || w < 4 * LIP_W || d < 4 * LIP_W) {
     parts.push(box(w, h, d, x, base, z, col));
@@ -786,6 +829,17 @@ function choosePad(decks, rng) {
  * the merged city: courtyard trees ship in the same mesh and half of every canopy points downward,
  * which is exactly the false negative a whole-mesh sweep gives you.
  */
+/**
+ * Whether a pitched roof is tile (true) or slate, given the drawn choice: never tile on a red
+ * wall (OKLab a > 0.03: brick, 0.058) and never slate on a blue-grey one (b < 0: slate, glass).
+ */
+export function pitchedFinish(body, drawnTile) {
+  const [, a, b] = oklab(body);
+  if (a > 0.03) return false;
+  if (b < 0) return true;
+  return drawnTile;
+}
+
 export function pitchedRoof(parts, cx, cz, cw, cd, y, body, rng) {
   // The eaves the roof sits on, overhanging the walls by 0.2 all round.
   parts.push(box(cw + 0.4, 0.16, cd + 0.4, cx, y, cz, shade(body, 0.86)));
@@ -806,7 +860,15 @@ export function pitchedRoof(parts, cx, cz, cw, cd, y, body, rng) {
   // Mixed rather than picked per building family: a brick building with a slate roof and a tan one
   // with a tile roof are both ordinary, and tying the two together made a street of low-rise read
   // as two kinds of building rather than as a dozen different ones.
-  const col = rng.chance(0.45)
+  //
+  // Except where that lands the roof on its own wall: a tile roof on brick is the same clay a stop
+  // darker, and a slate roof on a slate or glass building is the same blue-grey — the two Tyler
+  // pointed at (2026-11-27). Those swap to the other finish. Decided on hue rather than on
+  // `roofContrast`, which undersells a pitched roof: its faces tilt toward the sun and a
+  // terracotta hip over a concrete wall reads clearly while scoring 0.062, so a score test
+  // swapped roofs that were fine. The draw is still made, so the city's `rng` stream is unchanged.
+  const tile = pitchedFinish(body, rng.chance(0.45));
+  const col = tile
     ? jitterColor(shade(color('brick'), 0.72), rng, { h: 0.012, l: 0.05 })
     : jitterColor(color('roof'), rng, { h: 0.02, l: 0.07 });
 
@@ -852,7 +914,7 @@ function roofKit(parts, cx, cz, cw, cd, y, style, body, rng, stats) {
     ? lippedCap(parts, cw + 0.36, capH, cd + 0.36, cx, y, cz, shade(body))
     // A curtain wall has no cornice to have — the glass runs to a flush parapet, which is the
     // whole visual difference between the two at a distance.
-    : lippedCap(parts, cw, capH, cd, cx, y, cz, color('rooftop'));
+    : lippedCap(parts, cw, capH, cd, cx, y, cz, color('rooftop'), roofDeck(body));
 
   // Every flat deck in the city, with the slice of `parts` its furniture is about to occupy. One of
   // them becomes the helipad once they are all known — see `choosePad` — and the slice is why the
@@ -1133,9 +1195,9 @@ export { splitLot };
 
 /** The towers' material: `propMaterial({ smooth })` with the wall detail patched on (city/facade.js). */
 export function wallMaterial() {
-  return patchWallGrain(patchWalls(propMaterial({ smooth: true }), {
+  return patchWalls(propMaterial({ smooth: true }), {
     floorH: FLOOR_H, groundTop: KERB_H + GROUND_H,
-  }));
+  });
 }
 export { fillWalls, frameMesh };
 

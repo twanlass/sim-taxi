@@ -67,9 +67,6 @@ doc; what the classic version was, and why it changed, is in that doc's history 
 | `?streetprops=classic` | No post boxes or hot dog cart on the kerb | `STREETPROPS=classic` | [city.md](city.md#the-post-box-and-the-hot-dog-cart) |
 | `?propsmash=classic` | Loco Mode swipes the taxi onto the kerb into every post box and hot dog cart it passes, instead of only an overtake up the kerb hitting them | `PROPSMASH=classic` | [city.md](city.md#the-post-box-and-the-hot-dog-cart) |
 | `?walls=classic` | Flat building walls: no plinth, storey ledges, cornice, and no frames round the punched windows | `WALLS=classic` | [rendering.md](rendering.md#wall-detail--cityfacadejs) |
-| `?bldgtex=classic` | Building walls and roofs without their pixel grain (tone drift and speckle on the street's texel grid) | | [rendering.md](rendering.md#pixel-grain--citywallgrainjs) |
-| `?bldgtexamt=<n>` | Scales the buildings' pixel grain: 1 as shipped, 2 twice as strong, 0 the same as `?bldgtex=classic` | | [rendering.md](rendering.md#pixel-grain--citywallgrainjs) |
-| `?bldgpx=<n>` | The buildings' texel in world units: 0.175 as shipped, a touch coarser than the pixel street's 0.15 | | [rendering.md](rendering.md#pixel-grain--citywallgrainjs) |
 | `?windows=classic` | Building windows are the faux sky gradient in vertex colour again, instead of glass meshes with stylised 45° light streaks | #681 | [rendering.md](rendering.md#window-glass--citybuildingsjs) |
 | `?garbage=classic` | No bag piles on the kerb and no garbage truck | `GARBAGE=classic` | [city.md](city.md#the-bag-piles-and-the-garbage-truck) |
 | `?robotaxi=classic` | No robo-taxis: nobody else in town takes your riders | | [gameplay.md](gameplay.md#robo-taxis) |

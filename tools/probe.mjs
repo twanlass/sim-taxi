@@ -25,6 +25,7 @@ import {
 import { FRAME_TRIS_PER_WINDOW, GLASS_RECESS, recessShell, windowFrames } from '../src/city/facade.js';
 import {
   createBuildings, facadeQuads, pitchedRoof, wallCeiling, WINDOWS_CLASSIC, SKYLINE_CEILING, INSET as BANK_LOT_INSET,
+  roofDeck, roofContrast, pitchedFinish,
 } from '../src/city/buildings.js';
 import {
   createProps, parkPlots, planParkFurniture, planMedianBeds, MEDIAN_BED_ROOM,
@@ -2494,6 +2495,30 @@ const onGrass = (city, i, j) => {
     `${wound} vertices wound inward`);
   check('and every opening stands proud of it', sunk === 0,
     `${sunk} vertices at or behind the wall plane`);
+}
+
+// --- Roofs stand apart from their walls -------------------------------------
+// Tyler, 2026-11-27: a roof the same colour as the building under it. Scored as lit
+// (`roofContrast`): the deck against the sunny wall and the shaded one. Every family, and the
+// bank, which hands `lippedCap` its own stone, clears 0.10 (worst: the lightest jitter of
+// glass, 0.105; glass as drawn 0.126; the old body-darkened deck scored 0.061 on brick and slate).
+// Jitter moves a body by up to ±0.06 HSL lightness, so each family is tried at both ends of it.
+{
+  const MIN = 0.10;
+  let worst = { name: '', v: Infinity };
+  for (const name of [...BUILDING_COLORS, 'bankColumn']) {
+    for (const dl of [-0.06, 0, 0.06]) {
+      const body = color(name).offsetHSL(0, 0, dl);
+      const v = roofContrast(body, roofDeck(body.clone().multiplyScalar(0.78)));
+      if (v < worst.v) worst = { name: `${name} ${dl >= 0 ? '+' : ''}${dl}`, v };
+    }
+  }
+  check('every flat roof deck stands apart from its walls', worst.v >= MIN,
+    `worst ${worst.name} at ${worst.v.toFixed(3)} (need ${MIN})`);
+  const sameAsWall = [['brick', true], ['slate', false], ['glass', false]]
+    .filter(([name, tile]) => [-0.06, 0, 0.06].some((dl) => pitchedFinish(color(name).offsetHSL(0, 0, dl), tile) === tile))
+    .map(([name, tile]) => `${tile ? 'tile' : 'slate'} on ${name}`);
+  check('no pitched roof is the same finish as its walls', sameAsWall.length === 0, sameAsWall.join(', '));
 }
 
 // --- Faux window reflections ------------------------------------------------

@@ -130,6 +130,17 @@ export const PALETTE = {
   slate: '#767B85',
   roof: '#565A61',
   rooftop: '#6B6F76',
+  // The deck inside a flat roof's lip, one of two finishes picked against the walls under it
+  // (`roofDeck` in city/buildings.js). A roof here takes about as much light as the sunny wall
+  // beside it (the sun is 29° up at 4:24 PM and the deck faces it more squarely than most walls
+  // do), so a deck cut from the body's own colour, even darkened by a third, came out the same
+  // tone as the wall: measured on a tan block, deck (135, 130, 97) against lit wall
+  // (157, 149, 109). Value alone cannot clear both walls, because the shaded one is far darker,
+  // so the finish moves in value *and* temperature: cool charcoal tar on the light families
+  // (concrete, pale, tan), pale warm gravel on the dark ones (brick, glass, slate). Both matte;
+  // the gravel stays under a lit pale wall's value, so it reads as stone chippings, not a shine.
+  roofTar: '#3F444B',
+  roofGravel: '#B4A27F',
 
   // Windows stay dark in every lighting condition, which is what sells scale on a blocky mass.
   // This is the *bottom* of a pane now rather than the whole of it — see `windowSky`.

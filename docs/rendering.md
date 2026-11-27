@@ -187,23 +187,23 @@ are curtain walls or too narrow to take a window.
 
 `?walls=classic` leaves the walls flat and the windows unframed ([history](rendering-history.md#wall-detail--cityfacadejs)).
 
-### Pixel grain — `city/wallgrain.js`
+### Roofs — `roofDeck` in `city/buildings.js`
 
-The towers' walls and roofs, and the garage's shell, carry the pixel street's texel grid at nearly its size (0.175 units against 0.15, ~4 device pixels on a
-phone), so a building reads at the same pixel resolution as the road in front of it. Each texel
-takes one value from a tone drift (value noise at 8.6 and 0.3 units) plus single light and dark
-speckle texels (about one in 17 each), rounded to a 0.035 ramp through a 2×2 ordered dither, so a tone
-step is a checker of pixels rather than an edge. It is one multiply on the diffuse colour in the
-courses' seam, after them, so shadow, AO and the courses all sit on top unchanged; the grid is laid
-in each face's own plane and salted by its facing, so neighbouring walls differ. Glass, frames and
-the dressings (billboards, vents, signs) are separate meshes and stay smooth. No stains or colour:
-painted wall strokes and colour blotches were both tried and dropped.
+A flat roof's lip is the body's own colour a stop darker, so the families still tell apart at the
+roofline, and the deck inside it is a roofing finish picked to stand apart from the walls: charcoal
+tar (`roofTar`) on the light families (concrete, pale, tan, and the bank) and pale warm gravel
+(`roofGravel`) on the dark ones (brick, glass, slate). The garage keeps its dark trim deck. The pick is scored as lit
+(`roofContrast`): at 4:24 PM a deck takes about as much sun as the sunny wall beside it, so the old
+deck, the body darkened by a third, came out the same tone as that wall. The score is the OKLab
+distance to the sunny wall and to the shaded one, whichever is nearer; `tools/probe.mjs` holds every
+family at 0.10 or more across its jitter (the old deck scored 0.061 on brick and slate).
 
-Cost about 2 to 3% of a SwiftShader frame (`tools/gpucost.mjs`); not measured on a phone.
+A pitched roof keeps its tile-or-slate draw unless that lands on its own wall (tile on brick, slate
+on slate and glass), where it takes the other (`pitchedFinish`, decided on hue: a tilted roof
+catches more sun than a deck, so the lit score undersells it).
 
-`?bldgtex=classic` compiles none of it; `?bldgtexamt=` scales it; `?bldgpx=` sets the texel.
-
-Every number is a uniform, so the ⚙️ panel (`?debug`) has a **Building grain** section that moves them live (`wallGrainTuning`): drift, both octave sizes and the fine one's share, speckle and its rate, the ramp step and the texel. It remembers a tweak in this browser and copies it as JSON for `WALL_GRAIN`.
+The buildings carried a pixel grain from #800 until 2026-11-27; it was removed
+([history](rendering-history.md#building-pixel-grain--removed-2026-11-27)).
 
 ### Wheel wells — `archedBodyGeometries` in `geometry/wheels.js`
 
