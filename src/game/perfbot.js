@@ -52,13 +52,22 @@ export const BOT_SCENES = [
   { name: 'crash', seconds: 14 },
 ];
 
+/**
+ * Scenes a list can ask for that the full session does not play, so the profiling loop's timing
+ * stays what it was. `bigroll`: a drift onto an arched bridge carried straight over its crest — true
+ * Big Air, barrel roll and all — which the `bigair` scene only stumbles on (tools/trailer.mjs).
+ */
+export const BOT_EXTRA_SCENES = [{ name: 'bigroll', seconds: 45 }, { name: 'works', seconds: 120 }];
+
 /** `?bot` → the scenes to play, or null without it. */
 export function readBotScenes(search) {
   const params = new URLSearchParams(search);
   if (!params.has('bot')) return null;
   const only = (params.get('bot') ?? '').split(',').map((s) => s.trim()).filter(Boolean);
   if (!only.length || only.includes('all') || only.includes('on')) return BOT_SCENES;
-  return BOT_SCENES.filter((s) => s.name === 'warm' || s.name === 'crash' || only.includes(s.name));
+  const extra = BOT_EXTRA_SCENES.filter((s) => only.includes(s.name));
+  const picked = BOT_SCENES.filter((s) => s.name === 'warm' || only.includes(s.name));
+  return [...picked, ...extra, BOT_SCENES.at(-1)];
 }
 
 /**
@@ -69,10 +78,11 @@ export function readBotScenes(search) {
  * @param hooks.dispatchToRider
  * @param hooks.wreck       () => boolean — wreck the taxi into the nearest car
  * @param hooks.save        (reason) => void — save the `?perf` capture now
+ * @param hooks.roadwork    game/roadwork.js, for the works scene (optional)
  */
 export function createPerfBot({
   traffic, fares, boost, robbery, patrols, pause = null, robberLine = null, ready, drive, routeTo, holdLoco, releaseLoco, holdBrake,
-  releaseBrake, dispatchToRider, wreck, save, search = typeof window !== 'undefined' ? window.location.search : '',
+  releaseBrake, dispatchToRider, wreck, save, roadwork = null, fixedStep = 0, search = typeof window !== 'undefined' ? window.location.search : '',
 }) {
   const scenes = readBotScenes(search);
   if (!scenes) return null;
@@ -92,6 +102,14 @@ export function createPerfBot({
   let brakeUntil = -1;
   let robberySeen = false;
   let robberyEnded = 0;
+  /** Set by `letCrash()`: the next hit is allowed to wreck the taxi, whatever the scene. */
+  let mortal = false;
+  /** How the scene's robbery began: 'rider' (the bank rider, with the shove) or 'forced' (none on the board). */
+  let robberyVia = null;
+  /** The overtake combo on the getaway: the pill is let go until this scene time, and when it last was. */
+  let blipUntil = 0;
+  let lastBlip = -Infinity;
+  let blips = 0;
   let wrecked = false;
   const log = [];
   // What each scene actually managed — a drift that never kicked or a bridge never hopped is a
@@ -142,7 +160,7 @@ export function createPerfBot({
 
   /** Keep the run alive until the crash scene: HP, clocks, and no arrest. */
   function immortal() {
-    if (scene() === 'crash' || done) return;
+    if (scene() === 'crash' || done || mortal) return;
     taxi.hp = TAXI_HP;
     fares.setPaused(true);
     for (const p of patrols) {
@@ -206,6 +224,30 @@ export function createPerfBot({
     return goTo(end, { along: { a: { i: a.gi, j: a.gj }, b: { i: b.gi, j: b.gj } } });
   }
 
+  /**
+   * Big Air, staged: an arched deck entered by a *turn* at its near bank, so the drift on that corner
+   * is still being carried when the taxi reaches the crest, with the route going straight on past the
+   * far bank (`launchHop(car, big)` in sim/traffic.js). Routed via the junction beside the near bank
+   * on the bank road, then on to one block past the far one; driftPedals does the corner.
+   */
+  function bigRollErrand() {
+    const net = cityNetwork();
+    const decks = net.lanes.filter((l) => isArchedDeck(l));
+    if (!decks.length) return false;
+    for (let tries = 0; tries < decks.length * 2; tries++) {
+      const k = hops++;
+      const lane = decks[k % decks.length];
+      const a = net.nodeById.get(lane.from);
+      const b = net.nodeById.get(lane.to);
+      const side = (Math.floor(k / decks.length) % 2) ? 1 : -1;
+      const si = a.gi + side;
+      if (si < 0 || si > GRID_I) continue;
+      const end = { i: b.gi, j: Math.max(0, Math.min(GRID_J, b.gj + Math.sign(b.gj - a.gj))) };
+      if (goTo(end, { via: { i: si, j: a.gj }, maxDetour: 99 })) return true;
+    }
+    return false;
+  }
+
   /** Loco on; a brake tap just before a corner the route turns at, then Loco again (the kick). */
   function driftPedals() {
     if (brakeUntil >= 0) {
@@ -225,21 +267,57 @@ export function createPerfBot({
     }
   }
 
+  /**
+   * Fares on Loco until the roadworks stand up, then a drift into the closed street and through it.
+   * The zone aims the next drop-off past itself and the taxi's router prices its lanes cheap
+   * (docs/traffic.md#getting-the-player-there), so the fare does the routing; the bot only adds the
+   * drift, on corners within reach of the zone, and the overtake combo everywhere else.
+   */
+  function worksStep() {
+    autopilot();
+    const zone = roadwork?.state;
+    const net = cityNetwork();
+    const ends = zone?.phase === 'live' && zone.edge ? [zone.edge.a, zone.edge.b].map((id) => net.nodeById.get(id)).filter(Boolean) : [];
+    const near = ends.some((n) => Math.hypot(n.x - taxi.x, n.z - taxi.z) < 30);
+    if (near || brakeUntil >= 0) driftPedals();
+    else getawayPedals();
+  }
+
   function robberyStep() {
     if (!robbery) { autopilot(); return; }
     if (robbery.state.active) robberySeen = true;
     if (robberySeen && !robbery.state.active && !robberyEnded) robberyEnded = sceneT;
     if (!robberySeen) {
       const bank = fares.state.fares.find((f) => f.bank && f.stage === 'waiting');
-      if (bank && !bank.directed && !fares.carrying()) { dispatchToRider(bank); return; }
-      // No bank rider on the board in time: stage the getaway directly once the seat is empty.
-      if (sceneT > 15 && !fares.carrying() && robbery.force()) return;
+      if (bank && !bank.directed && !fares.carrying()) { dispatchToRider(bank); robberyVia = 'rider'; return; }
+      // No bank rider on the board in time: stage the getaway directly once the seat is empty. Wherever
+      // the taxi happens to be — so the bank cut can be framing a cab blocks away, shove off screen.
+      if (sceneT > 15 && !fares.carrying() && !bank) { robbery.force(); if (robbery.state.active) { robberyVia = 'forced'; return; } }
     }
     if (bank() && !robberySeen) return;
     autopilot();
     // The getaway on Loco, as a player plays it: four cop cars and the flame together is the frame
     // this scene is here to measure.
-    if (robberySeen && robbery.state.active && fares.carrying()) locoOn();
+    if (robberySeen && robbery.state.active && fares.carrying()) getawayPedals();
+  }
+
+  /**
+   * Loco, and the overtake combo when a car comes up ahead (game/overtake.js): a blip off the pill
+   * and straight back on, as a player throws it. Held on through a car without it, the taxi rams it.
+   * 0.15s is the lift that measured 97% passes in tools/overtakebot.mjs; it fires inside 24 units,
+   * short of OVERTAKE_ARM_RANGE (30), so the car is still there when the pill goes back down.
+   */
+  function getawayPedals() {
+    if (sceneT < blipUntil) return;
+    const gap = Math.min(taxi.passGap ?? Infinity, taxi.dodgeGap ?? Infinity);
+    if (boost.isActive() && gap < 24 && !taxi.passing && !taxi.passArmed && sceneT - lastBlip > 1) {
+      releaseLoco();
+      blipUntil = sceneT + 0.15;
+      lastBlip = sceneT;
+      blips += 1;
+      return;
+    }
+    locoOn();
   }
   const bank = () => fares.state.fares.some((f) => f.bank && f.directed);
 
@@ -273,9 +351,14 @@ export function createPerfBot({
     stats,
     /** The bot's own destination and how many bridge runs it has set, for debugging a scene. */
     errand: () => errand && { ...errand, hops },
+    /** Stop keeping the taxi alive, so a staged hit (tools/trailer's T-bone) can wreck it. */
+    letCrash: () => { mortal = true; },
+    /** How the robbery scene's robbery began ('rider' or 'forced'), and how many overtake blips its getaway threw. */
+    robbery: () => ({ via: robberyVia, blips }),
     /** Call once per frame, before `tick`. */
     update(t) {
-      const dt = lastT ? Math.min((t - lastT) / 1000, 0.1) : 0;
+      // Under `?fixedstep` the scene clocks run on game time too, so a scene is the same frames everywhere.
+      const dt = fixedStep && lastT ? fixedStep : lastT ? Math.min((t - lastT) / 1000, 0.1) : 0;
       lastT = t;
       if (done) return;
       if (!started) {
@@ -313,7 +396,11 @@ export function createPerfBot({
       else if (name === 'bigair') {
         if (errandOver() && !bridgeErrand()) autopilot();
         if (errand) locoOn();
-      } else if (name === 'robbery') robberyStep();
+      } else if (name === 'bigroll') {
+        if (errandOver() && !bigRollErrand()) autopilot();
+        if (errand) driftPedals(); else locoOn();
+      } else if (name === 'works') worksStep();
+      else if (name === 'robbery') robberyStep();
       else if (name === 'cops') copsStep();
       else if (name === 'crash' && !wrecked && sceneT > 0.5) wrecked = wreck();
       const limit = scenes[index].seconds;

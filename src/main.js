@@ -59,7 +59,7 @@ import { createBillboard, BILLBOARD_CLASSIC } from './city/billboard.js';
 import { createGraveyard, LANDMARK as GRAVEYARD_LANDMARK } from './city/graveyard.js';
 import { plantedCrowns } from './city/props.js';
 import {
-  createTraffic, placeCar, TRUCK_CHANCE, CLASSIC_CHANCE, TRUCK_LEN, TRUCK_W, laysPassRubber, copLaysRubber, SPEED,
+  createTraffic, placeCar, releaseCar, TRUCK_CHANCE, CLASSIC_CHANCE, TRUCK_LEN, TRUCK_W, laysPassRubber, copLaysRubber, SPEED,
   ROAD_Y, CAR_LEN, CAR_W, wheelAnchors,
   boostCruise, locoTuning, setLocoTuning, resetLocoTuning, locoRamp, LOCO_DEFAULTS, driftTaxi, kickDrift, driftHolds, DRIFT_CHAIN,
   onDriftLaunch, hopProgress, setSpinStyle, setBarrelRoll, setMegaFlip, setBridgeStunt, setPassTurnGate, setPassPace, setHopStyle, setDodge, setOvertakeStyle, setPeek, setTaxiScatter,
@@ -528,7 +528,12 @@ settings.onChange((v) => {
  * clip through a camera of its own (game/uturnclip.js), which wants the whole frame — the AO, the
  * bloom, the haze — and not a lesser render of its own.
  */
+// `__taxi.holdRender(true)` — tick everything, draw nothing. tools/trailer.mjs fast-forwards a take
+// to its moment this way: under a software renderer the draw is ~99% of a frame, so a 40-second
+// approach costs seconds instead of half an hour.
+let renderHeld = false;
 function renderFrame(cam = camera) {
+  if (renderHeld) return;
   // `?perf`: everything `tick` did before this is the frame's `sim`; the passes name themselves.
   perfPhase('pre');
   // Casters whose shadow cannot reach this camera's view sit the shadow pass out (game/shadowcull.js).
@@ -7319,6 +7324,7 @@ let presenterHeld = false;
 const fpsPin = Number.parseInt(new URLSearchParams(window.location.search).get('fps'), 10);
 const frameRateCap = () => (shot ? 60 : fpsPin > 0 ? fpsPin : qualityOf(settings.get()).frameRate);
 let lastFrameAt = 0;
+const FIXED_STEP = new URLSearchParams(window.location.search).has('fixedstep') ? 1 / 60 : 0;
 
 function frame(t) {
   requestAnimationFrame(frame);
@@ -7379,6 +7385,10 @@ function tick() {
   // caps that at 0.05s — not a teleport, but still a frame of city the player never saw, and the
   // clamp is there to survive a stalled tab rather than to license stalling on purpose.
   let dt = Math.min(clock.getDelta(), 0.05);
+  // `?fixedstep`: every frame is 1/60 s of game time however long it took, so the same seeds play
+  // the same session on any device (slow frames run in slow motion instead of taking bigger steps).
+  // For A/B profiling with `?bot`, and the trailer recorder's frames (tools/trailer.mjs).
+  if (FIXED_STEP) dt = FIXED_STEP;
 
   // Paused. Nothing updates — not the traffic, not the clocks, not the sky — but the frame is still
   // drawn: with `preserveDrawingBuffer` off, a resize or a rotation with the veil up repaints the
@@ -9234,6 +9244,8 @@ function startRun() {
     dispatchToRider,
     wreck: () => window.__taxi.wreck(),
     save: (reason) => perf.save(reason),
+    roadwork,
+    fixedStep: FIXED_STEP,
   });
   frame(performance.now());
   // When the run could start, for timing a load from the console: performance.getEntriesByName(...).
@@ -9550,6 +9562,34 @@ window.__taxi = {
     taxi.hp = 1;
     return collisions.strike(near);
   },
+  /**
+   * Bring a cop car on and stand it, at rest, just past the hold line of a cross street into the
+   * junction the taxi's lane ends at: `side` 1 or 3 turns the taxi's heading to the cop's. Released
+   * inside its own stop line, it pulls out across the junction without looking (the trap in
+   * CLAUDE.md, used on purpose). `ahead` junctions further on than the one the taxi's lane ends at,
+   * and only once the taxi is within `lead` seconds of it at its present speed. For
+   * tools/trailer's T-bone; nothing in the game calls it. Answers the car, or null.
+   */
+  stageCop: (side = 1, back = 2, ahead = 1, lead = 1.5) => {
+    const taxi = traffic.taxi;
+    const net = cityNetwork();
+    let node = taxi.lane && net.nodeById.get(taxi.lane.to);
+    if (!node || node.gi == null || taxi.v <= 0) return null;
+    const step = [[1, 0], [0, 1], [-1, 0], [0, -1]][taxi.d];
+    for (let k = 0; k < ahead; k++) {
+      const next = net.laneByGrid(taxi.d, node.gi + step[0], node.gj + step[1]);
+      if (!next || next.from !== node.id) return null;
+      node = net.nodeById.get(next.to);
+      if (!node || node.gi == null) return null;
+    }
+    if (Math.hypot(node.x - taxi.x, node.z - taxi.z) / taxi.v > lead) return null;
+    const d = (taxi.d + side) % 4;
+    const [i, j] = [node.gi, node.gj];
+    if (!net.laneByGrid(d, i, j)) return null;
+    if (!traffic.enterPolice(1, taxi)) return null;
+    const cop = traffic.cars[traffic.cars.length - 1];
+    return cop?.police && releaseCar(cop, d, i, j, back) ? cop : null;
+  },
   /** The run-end card's Play again, from the console or a headless check. See `rerun`. */
   playAgain: () => playAgain(),
   hurt: (damage = 24) => {
@@ -9601,6 +9641,8 @@ window.__taxi = {
    * capture. Harmless while the loop is running, since the next frame overwrites it anyway.
    */
   redraw: () => renderFrame(),
+  /** Skip every draw while on (tools/trailer.mjs's fast-forward); the world still ticks. */
+  holdRender: (on) => { renderHeld = Boolean(on); },
   // The fog of war's clock, for filming its drift from a frozen shot: `edgeFogAt(12.5)` sets it and
   // redraws (game/edgefog.js).
   edgeFogAt: (seconds) => { tickEdgeFog(seconds); renderFrame(); },
