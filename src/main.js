@@ -9051,8 +9051,32 @@ if (shot) {
   window.__steamStep = (dt = 1 / 30) => { manholeSteam.update(dt, null); renderFrame(); };
   // The skater the same way, for filming a trick or a push (shots `skatepark` and `skatepark-far`).
   window.__skateStep = (dt = 1 / 30) => { skaters.update(dt); renderFrame(); };
-  document.body.dataset.shotReady = 'true';
-  resolveReady();
+  const shotDone = () => {
+    document.body.dataset.shotReady = 'true';
+    resolveReady();
+  };
+  // **Under WebGPU the render above is only a primer, and the shot is the one a frame later.** The
+  // first time three draws the sun's shadow map it comes out unusable: 125 casters, 116k triangles,
+  // the right camera and the right target, and not one shadow on the ground — not in that frame,
+  // and not in a later one that samples the same map without redrawing it. A second draw on a later
+  // frame is fine. A live run never shows it because the warm-up draws a dozen frames before the
+  // first one anyone sees; a shot draws exactly one, so every WebGPU screenshot came out
+  // pixel-identical to `&shadows=off` (measured on `?shot=2`, cloud SwiftShader and a Mac GPU alike).
+  //
+  // It has to be a *frame* later, not just a second `renderFrame()`: three redraws a shadow map at
+  // most once per frame id (ShadowNode.updateBefore), so a second render in the same task samples
+  // the same empty map. The frame id moves on three's own animation loop, i.e. on rAF. WebGL draws
+  // its shadow map correctly first time, so it keeps its single render.
+  if (GPU) {
+    let done = false;
+    const second = () => { if (done) return; done = true; renderFrame(); shotDone(); };
+    requestAnimationFrame(() => requestAnimationFrame(second));
+    // A background tab runs no frames: don't hold the shot until somebody looks at it. The frame id
+    // only moves on rAF, so this fallback would still draw shadowless — it exists to not hang.
+    setTimeout(second, 2000);
+  } else {
+    shotDone();
+  }
 } else {
   traffic.warmup(10);
   // The opening vignette, and it is built here rather than up with everything else for one
