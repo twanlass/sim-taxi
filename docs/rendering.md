@@ -808,8 +808,8 @@ History: [the old drop-off aim, the 2400ms delay, the timer ring and the invisib
 
 `src/game/scene.js` returns `{ scene, sun, hemi, sky, fog }`:
 
-- **`sun`** — a directional light with shadows (`PCFSoftShadowMap`). Its shadow camera covers the
-  whole island, so three's own culling in the shadow pass passes every caster on the map. Before
+- **`sun`** — a directional light with shadows. Under WebGPU they come from [two maps](#two-shadow-maps--gamesplitshadowjs),
+  the standing city drawn once and what moves drawn every frame. Both cover the whole island, so three's own culling in the shadow pass passes every caster on the map. Before
   each frame `game/shadowcull.js` turns `castShadow` off for the casters whose shadow cannot reach
   the view (the caster and its shadow on the ground, as one capsule, tested against the camera), and
   turns it back on after. That took the 2048² shadow pass from 135 draws to 53 in a headless run
@@ -859,6 +859,46 @@ Two bounds worth knowing:
 - **A low sun throws shadows longer than the shadow camera's own extent** (`MAX_SPAN * 1.05` in
   `scene.js`), so the far end of one can be clipped. The arc has always had this at dawn and dusk;
   the pin just makes it reachable at any hour.
+
+### Two shadow maps — `game/splitshadow.js`
+
+The sun does not move during a run (`daylight.setCycling(false)` in `main.js`; only the ⚙️ panel's
+cycle box moves it), so the city's shadows come out the same on every frame. The sun's shadow is
+therefore two maps, combined with a `min` in a custom `shadowNode` on the sun:
+
+- **The standing city**, 4096² (twice the budget's size, capped at 4096): every building, landmark,
+  bridge, the river walls and the L track. Drawn once, and again only when something in it changes:
+  the sun moves, a static caster is hidden or shown, or one turns out not to be static after all.
+  0.066 units a texel, about half a pixel at play zoom.
+- **Everything else**, 2048² (the budget's size), drawn every frame like the old single map, but
+  only with what moves: traffic, the taxi, people, boats, the train, the turning signs, the
+  drawbridge's leaves. `game/shadowcull.js` still culls this pass, and leaves the static casters
+  alone, since culling one would bake its absence into a map that is not redrawn when the camera
+  comes back round.
+
+**What counts as static is classified, not listed:** a plain mesh that casts with an identity world
+matrix. That is the shape of every merged city builder (geometry baked in world space, which the
+entrance wave depends on too), and nothing that moves has it. The L train's structure, which sits
+under a placed group, opts in with `userData.staticShadow`. The rule is checked every frame: a
+static caster whose matrix changes or whose vertices are rewritten (the garage door) moves to the
+per-frame map for good, and the static map is redrawn without it. So a wrong guess costs a redraw,
+never a frozen or missing shadow. `__taxi.splitShadow.stats()` counts the static casters, the
+demotions and the static map's redraws.
+
+**The filter is four taps, not PCFSoft's sixteen.** Both depth textures are sampled through a
+linear comparison sampler, so each tap is a hardware 2×2 bilinear compare, and four of them on a
+rotated grid make a smooth edge (`tapFilter`). The receivers do 8 compares a pixel across both maps,
+where they did 16 on one. A hard edge would normally shimmer; these cannot, because neither map
+moves with the camera. How soft the edge is is a look decision: ⚙️ `Shadow softness`, in world
+units so both maps match (default 0.066, one static texel; the old PCFSoft edge was about 0.4).
+
+**Not fitted to the camera**, which was the obvious next step for the per-frame map: a portrait
+phone at play zoom sees about 190 units of ground down the view, most of the island, so a fitted
+map would have landed within a few percent of the island-wide texel and added a frustum that moves
+every frame.
+
+WebGL (`?renderer=classic`) keeps the single map. `?shadowsplit=classic` puts it back under WebGPU
+too. History: [the single map](rendering-history.md#one-shadow-map-redrawn-every-frame).
 
 ### Thin casters — `sinkShadowCaster` in `game/scene.js`
 
@@ -2491,6 +2531,14 @@ there under the fog, and what `?city=big` shows, since the fog is island-only.
   (`FOG_WARP`, up to 16 units of bend). The first cut slid one layer along one heading, which reads as
   a texture on a conveyor; the warp is what makes a billow swell, curl and pinch off instead. All of it
   stays outward-only, so the motion never brings the fog onto the road.
+- **The billows are read along the sightline, at y = 0.** Each fragment slides down its view ray
+  to the ground plane before it reads the noise, so the pattern belongs to the screen pixel rather
+  than to the fragment's own x and z. Read under the fragment, two surfaces at different heights
+  side by side each showed the pattern at their own spot, and the seam between them drew whatever
+  was buried: the river mouth stayed in the clouds as a pale rectangle of channel, walls and
+  railings, fully fogged and still visible (Tyler, 2026-11-27). Ground at y = 0 reads what it
+  always did and the floor a translation of it; the distance and the height slope still use the
+  true position, so the bank's shape is unchanged.
 - **Mixed in linear light, with an unshaded rim.** Tyler, 2026-11-25: an "awkward seam between
   the end of the pavement road and the clouds" — the south coast read as the road casting a blurred
   shadow onto the bank. Two causes, both fixed. The bank's own mix ran on display values, so the

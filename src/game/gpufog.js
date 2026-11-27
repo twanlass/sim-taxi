@@ -15,7 +15,7 @@
 import * as THREE from 'three';
 import { NodeMaterial } from 'three/webgpu';
 import {
-  Fn, abs, dot, float, floor, fract, length, max, min, mix, output, positionWorld, rangeFogFactor,
+  Fn, abs, cameraWorldMatrix, dot, float, floor, fract, length, max, min, mix, output, positionWorld, rangeFogFactor,
   reference, sRGBTransferEOTF, sRGBTransferOETF, select, sin, smoothstep, texture3D, uniform, vec2, vec3,
   vec4, clamp,
 } from 'three/tsl';
@@ -90,9 +90,12 @@ export function createFogNode(fog) {
       const t = edge.w;
       const q = abs(p).sub(vec2(FOG_HALF_X - FOG_RADIUS, FOG_HALF_Z - FOG_RADIUS));
       const d = length(max(q, 0)).add(min(max(q.x, q.y), 0)).sub(FOG_RADIUS);
-      const s = p.mul(0.022).add(vec2(0, FOG_WARP_SPEED * 0.022).mul(t));
+      // The billows are read where the sightline meets y = 0 (edgefog.js, above FLOOR_Y).
+      const v = cameraWorldMatrix.mul(vec4(0, 0, 1, 0)).xyz;
+      const g = p.sub(v.xz.mul(positionWorld.y.div(max(v.y, 0.05)))).toVar();
+      const s = g.mul(0.022).add(vec2(0, FOG_WARP_SPEED * 0.022).mul(t));
       const wn = vec2(noise(s), noise(s.yx.add(4.7))).toVar();
-      const w = p.add(wn.sub(0.5).mul(2 * FOG_WARP));
+      const w = g.add(wn.sub(0.5).mul(2 * FOG_WARP));
       const cp = w.sub(vec2(...FOG_DRIFT).mul(t)).mul(0.06).toVar();
       const nc = noise(cp).toVar();
       const n = nc.mul(0.65)
