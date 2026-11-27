@@ -710,6 +710,13 @@ export const PALETTE = {
   foodCup: '#EFEBDF',
   foodCupLid: '#B0433B',
 
+  // The donut order's coffee (geometry/donutorder.js): the same off-white cup body as the soda, so
+  // the two orders read as one chain of takeaway, under a kraft sleeve and a dark roast lid. The lid
+  // does the soda lid's job — the part of the cup that is neither paper nor the thing beside it —
+  // and dark rather than red so a coffee is never mistaken for the burger's soda at 10px.
+  coffeeSleeve: '#A9773F',
+  coffeeLid: '#3B2A22',
+
   // Urgency, indexed by how much of the clock is left, in quarters. Deliberately not a ramp: a
   // colour that changes imperceptibly tells the player nothing, so it snaps at each quarter lost.
   // 1 and 0 share red — by then there is nothing redder to go to.

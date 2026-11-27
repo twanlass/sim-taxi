@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { BODY_EULER_ORDER, bakeColor, hash01, propMaterial, stampEntry, unlitMaterial } from '../util/geo.js';
 import { color } from '../palette.js';
-import { LANE_TO_KERB } from './grid.js';
+import { GRID_I, GRID_J, LANE_TO_KERB, lineX, lineZ } from './grid.js';
 import { KERB_H } from './ground.js';
 import { cityNetwork } from './roadnet.js';
 import { clearOf, openSignParts, signSpot } from './vetclinic.js';
@@ -531,7 +531,20 @@ export function chooseDonutSite(towers, taken = [], { exclude = [] } = {}) {
   // The birds roost on decks and walk round what stands on them (game/birds.js).
   for (const f of feet(spot.x, spot.z)) tower.deck.keep.push({ x0: f.x - 0.3, x1: f.x + 0.3, z0: f.z - 0.3, z1: f.z + 0.3 });
   const [cx, cz] = car.side === 0 ? [0, 1] : [-1, 0];
+  // The junction off the shop's own corner. The shop is on its block's +X+Z corner lot, and a kerb
+  // pin goes on the −X−Z side of its junction (`cornerFor`, game/fares.js), so the junction just past
+  // the block's +X and +Z edges is the one whose pin stands on the shop's own corner — where a donut
+  // order is collected (game/parcels.js). Read off the block's bounds rather than its indices, since
+  // a merged block carries its first block's.
+  const b = tower.block.bounds;
+  const nearest = (n, at, v) => {
+    let best = 0;
+    for (let k = 1; k <= n; k++) if (Math.abs(at(k) - v) < Math.abs(at(best) - v)) best = k;
+    return best;
+  };
+  const pickup = { i: nearest(GRID_I, lineX, b.x1), j: nearest(GRID_J, lineZ, b.z1) };
   return {
+    pickup,
     spot, car, tower, door, open, deck: tower.deck.deck,
     roof: tower.deck,
     bounds: { x0: tower.x0, x1: tower.x1, z0: tower.z0, z1: tower.z1 },
