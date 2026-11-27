@@ -32,8 +32,10 @@ import { instanceAlpha } from '../util/gpunodes.js';
 // A landing spends four to six per wheel off all four wheels — 16 at cruise, 24 at the Loco top —
 // and a second landing can start while the first is still fading: the life is 0.55s, and a bridge
 // and a barricade can be a second apart. 64 covers two full-strength landings overlapping with
-// room to spare, and a wrapped slot silently truncates a burst.
-const MAX_SPARKS = 64;
+// room to spare, and a wrapped slot silently truncates a burst. The skatepark's grinds share the
+// pool (game/skaters.js): one or two sparks every ~40 ms off a truck, ~25 alive through a long
+// coping grind, so another 32 slots keep a landing on the far side of the map whole while one runs.
+const MAX_SPARKS = 96;
 
 const LIFE = 0.55;
 const SPARK_GRAVITY = 26;     // exaggerated, as game/blast.js's shards are: a real 9.8 arc floats

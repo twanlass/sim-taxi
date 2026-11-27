@@ -1296,7 +1296,36 @@ only trees it moves are the ones its keep-out turns away. Over 80 seeds every ci
 - Benches go through the court's `clearBenches`, grass through `onCourt` and birds get a keep-out
   rectangle; all three only read a slab's centre, axis and size, which the two share.
 
-The rider is `game/skaters.js`, on the run seed (`+349`): **one**, using the whole park. Still a
+The riders are `game/skaters.js`, on the run seed (`+349`): **a crew of two or three taking turns**,
+one on the ramp at a time, which is how a mini ramp is actually skated and what keeps them out of
+each other's way by construction.
+
+- **The session.** The ones not riding wait on the decks, out past the lanes (`WAIT_OUT`) and back
+  from the coping (`WAIT_IN`), board stood on its tail on the side away from the middle, watching
+  whoever is up and throwing an arm up when they land something. A turn ends in a rest on the deck
+  (`handover`): the rider steps off, kicks the board up into a hand and walks to a free spot; the
+  next one lays theirs down, hops on and drops in. Whoever is standing on the spot the rider is
+  walking to goes first, so nobody walks into anybody; otherwise the longest waiter goes once the
+  deck is clear (`stepSession`). Each rider has a style of their own (`makeStyle`) — how low they
+  ride, how deep they load a pop, how long a turn lasts, which tricks they like.
+- **Grinds throw sparks.** A 50-50, a 5-0 (back truck, nose up) and a nosegrind on the rail, and a
+  50-50 along the coping from one lane to the other. Steel on steel only — a boardslide throws none.
+  The sparks go through the taxi's own pool (`game/sparks.js`, grown 64 → 96 for it) at about a
+  third of its throw, so a grind costs no draw call of its own.
+- **Bails.** About one kickflip or shove-it over the funbox in five (per rider, 12–26%) does not come
+  back under the feet: the board is late and the rider has jumped clear of it. They land running,
+  the board rolls on up the transition alone and back down, and they trap it with a foot and hop
+  on — or walk to it if it stopped short — then push off toward the near end.
+- **Knees.** Every beat goes deeper than the solo rider's: a pop is loaded lower and for longer
+  (`POP_LOAD`, `POP_WINDOW`), including on the way up to the lip for an air, and leaves with the
+  legs snapping straight (`POP_SNAP`); every landing sinks further (`LAND_SINK`); manuals (and now
+  nose manuals) ride in the deep crouch.
+- **What reads at play zoom.** The figure is ~25px tall there. The turn-taking, the walk with the
+  board, the drop-ins, a bail's runaway board and the bigger crouch-and-pop all read. The grind
+  sparks read as a flicker of orange off the rail or the coping — the bloom does most of that work.
+  The 5-0/nosegrind tilt, the nose manual and the board stood beside a waiter are close-up details.
+
+`?skaters=classic` is the solo rider below, as it was before the session. Each rider is still a
 pendulum on the lane's surface (`surfaceAt`), pumped on entering the flat so the far end peaks
 where its trick wants it, but now with its energy kept (`E`) so a hop or a grind can take it off the
 surface and hand it back at the budgeted speed. Between passes it carves across the transition to
@@ -1333,7 +1362,10 @@ travelling toward the tail, and a rock or a 360 is what toggles it.
   other way round it is hidden behind the rider's back for the whole pass.
   `?skatepush=classic` leaves the rider pumping only.
 
-The probe runs five minutes over four runs: one rider, no wheel ever under the concrete, the board
+The probe runs the session for five minutes over four runs: two or three riders, never two on the
+ramp at once, every one of them getting turns, coping grinds and sparks thrown, bails that end
+back on the board, and no two figures ever closer than 0.9. Then the solo rider, the same
+way: one rider, no wheel ever under the concrete, the board
 never more than 0.12 rad of pitch in a frame, both lanes and at least ten tricks, and pushes whose
 foot sits on the floor without sliding and leave the rider at least 1.4× faster. `?skater=classic`
 is the first cut (`game/skatersclassic.js`): two riders in 75% of runs, each in its own lane, airs

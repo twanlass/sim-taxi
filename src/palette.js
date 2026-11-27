@@ -1166,7 +1166,13 @@ export const PALETTE = {
   skaterA: '#5E7A8C',
   skaterB: '#D8D2C4',
   skaterPants: '#3A3832',
+  // The rest of the crew (`?skaters=classic` is one rider in A or B): a rust tee, denim and two
+  // more decks, so three riders on one ramp read as three people and not one person thrice.
+  skaterC: '#B5553F',
+  skaterPantsB: '#4F5F70',
   skateDeck: '#A4573C',
+  skateDeckB: '#34404A',
+  skateDeckC: '#C99A3A',
   skateTruck: '#9AA0A6',
   skateWheel: '#E5DFCF',
 
