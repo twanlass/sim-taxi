@@ -23852,6 +23852,120 @@ for (const viewName of ['side', 'quarter']) {
   cull.restore();
 }
 
+// The two shadow maps (game/splitshadow.js): what goes in the standing city's map, and that the rule
+// is checked rather than trusted. No GPU here, so this drives the per-frame bookkeeping by hand.
+{
+  const { createSplitShadow, STATIC_SHADOW_LAYER } = await import('../src/game/splitshadow.js');
+  const { createShadowCull } = await import('../src/game/shadowcull.js');
+  const sc = new THREE.Scene();
+  const sunL = new THREE.DirectionalLight();
+  sunL.castShadow = true;
+  sunL.position.set(50, 30, 20);
+  sc.add(sunL, sunL.target);
+  const mesh = (geoAt) => {
+    const geo = new THREE.BoxGeometry(1, 1, 1);
+    if (geoAt) geo.translate(...geoAt);
+    const m = new THREE.Mesh(geo, new THREE.MeshBasicMaterial());
+    m.castShadow = true;
+    sc.add(m);
+    return m;
+  };
+  // A merged city builder's shape: geometry baked in world space, identity transform.
+  const building = mesh([10, 2, 10]);
+  const flicker = mesh([-10, 2, 10]);
+  // A car's shape: geometry about its own origin, placed by its transform.
+  const car = mesh();
+  car.position.set(5, 0.5, 5);
+  const notCasting = mesh([0, 0, -10]);
+  notCasting.castShadow = false;
+  const split = createSplitShadow(sunL, { staticSize: 4096, dynamicSize: 2048 });
+  const { debug } = split;
+  debug.check(sc);
+  check('split shadow: an identity-transform caster goes in the static map',
+    split.isStatic(building) && building.layers.isEnabled(STATIC_SHADOW_LAYER));
+  check('split shadow: a caster placed by its own transform stays in the per-frame map', !split.isStatic(car));
+  check('split shadow: a mesh that casts nothing is in neither', !split.isStatic(notCasting));
+  check('split shadow: the static map is drawn once classified', debug.staticShadow.needsUpdate === true);
+  check('split shadow: the static map renders only the static layer',
+    debug.staticShadow.camera.layers.mask === (1 << STATIC_SHADOW_LAYER));
+  check('split shadow: the static map is not redrawn every frame', debug.staticShadow.autoUpdate === false);
+  check('split shadow: the static map is twice the per-frame one',
+    split.stats().staticSize === 4096 && split.stats().dynamicSize === 2048);
+  debug.staticShadow.needsUpdate = false;
+  debug.check(sc);
+  check('split shadow: nothing changed, nothing redrawn', debug.staticShadow.needsUpdate === false);
+
+  debug.hide();
+  check('split shadow: the per-frame pass leaves the static casters out',
+    building.castShadow === false && car.castShadow === true);
+  debug.restore();
+  check('split shadow: and hands their flags back', building.castShadow === true && notCasting.castShadow === false);
+
+  sunL.position.x += 1;
+  debug.check(sc);
+  check('split shadow: the sun moving redraws the static map', debug.staticShadow.needsUpdate === true);
+  debug.staticShadow.needsUpdate = false;
+
+  building.position.y = 0.1;
+  debug.check(sc);
+  check('split shadow: a "static" caster that moves is demoted for good',
+    !split.isStatic(building) && !building.layers.isEnabled(STATIC_SHADOW_LAYER));
+  check('split shadow: and the static map is redrawn without it', debug.staticShadow.needsUpdate === true);
+  building.position.y = 0;
+  debug.check(sc);
+  check('split shadow: a demoted caster does not come back', !split.isStatic(building));
+  debug.staticShadow.needsUpdate = false;
+
+  // The garage door rolls up by rewriting its vertices, which no matrix shows.
+  const door = mesh([0, 1, 20]);
+  const placed = mesh();
+  placed.position.set(0, 0, 30);
+  placed.userData.staticShadow = true;
+  for (let i = 0; i < 61; i++) debug.check(sc);   // past the rescan
+  check('split shadow: a placed mesh that says it stands still goes in the static map', split.isStatic(placed));
+  door.geometry.attributes.position.needsUpdate = true;
+  debug.check(sc);
+  check('split shadow: a static caster whose vertices are rewritten is demoted', !split.isStatic(door));
+  debug.staticShadow.needsUpdate = false;
+
+  flicker.visible = false;
+  debug.check(sc);
+  check('split shadow: hiding a static caster redraws the map, and keeps it static',
+    debug.staticShadow.needsUpdate === true && split.isStatic(flicker));
+  for (let i = 0; i < 6; i++) { flicker.visible = !flicker.visible; debug.check(sc); }
+  check('split shadow: one that keeps flickering is demoted rather than redrawing the city', !split.isStatic(flicker));
+
+  split.settle();
+  debug.check(sc);
+  debug.staticShadow.needsUpdate = false;
+  const late = mesh([30, 1, 30]);
+  for (let i = 0; i < 61; i++) debug.check(sc);
+  check('split shadow: once the run has started, a new caster goes in the per-frame map', !split.isStatic(late));
+  check('split shadow: and does not redraw the city', debug.staticShadow.needsUpdate === false);
+
+  const radius = (s) => s.radius * ((s.camera.right - s.camera.left) / s.mapSize.x);
+  split.setSoftness(0.2);
+  check('split shadow: softness is the same world width in both maps',
+    Math.abs(radius(debug.staticShadow) - 0.2) < 1e-9 && Math.abs(radius(debug.dynamicShadow) - 0.2) < 1e-9);
+  check('split shadow: the sun\'s own map is replaced by the pair', sunL.shadow.shadowNode?.isShadowBaseNode === true);
+
+  // The cull must leave static casters alone: culling one would bake its absence into a map that is
+  // not redrawn when the camera comes back round.
+  const fresh = mesh([200, 2, 200]);
+  const split2 = createSplitShadow(sunL, {});
+  split2.debug.check(sc);
+  const cull = createShadowCull(sc, sunL);
+  cull.skipStatic(split2.isStatic);
+  const cam = new THREE.OrthographicCamera(-10, 10, 10, -10, 0.1, 1000);
+  cam.position.set(0, 100, 0);
+  cam.lookAt(0, 0, 0);
+  cam.updateProjectionMatrix();
+  cull.cull(cam);
+  check('split shadow: the shadow cull never culls a static caster, however far off screen',
+    split2.isStatic(fresh) && fresh.castShadow === true);
+  cull.restore();
+}
+
 // Safari's 8 KB cap on a WGSL function's `var`s (util/wgsllets.js). The rewrite has to make a `let`
 // of what it can prove and leave everything else exactly as three wrote it: a wrong `let` is a
 // compile error on every browser, and a missed one is only bytes.
