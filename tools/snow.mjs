@@ -115,6 +115,21 @@ const lit = createHolidayLights({ crowns: Array.from({ length: 200 }, (_, k) => 
 check('about half the trees carry lights', lit.count > 0.25 * 200 * 10 && lit.count < 0.7 * 200 * 10, `${lit.count} crown bulbs`);
 check('a star on top of the fir', lights.star && lights.star.position.y > tiers.top, `${lights.star?.position.y.toFixed(2)}`);
 check('the lights are two draws', lights.meshes.length === 2);
+// The greenery: some strung roofs wound with garland, some hung with wreaths, two more draws.
+const wreathPos = [];
+const wm = lights.greenery.find((m) => m.name === 'holiday-wreaths');
+const wmat = new THREE.Matrix4(); const wp = new THREE.Vector3();
+for (let j = 0; wm && j < wm.count; j++) { wm.getMatrixAt(j, wmat); wreathPos.push(wp.setFromMatrixPosition(wmat).clone()); }
+check('garland on some roofs, wreaths on others', lights.tufts > 40 * 30 * 0.2 && lights.wreaths >= 40 * 4 * 0.2
+  && lights.wreaths <= 40 * 4 * 0.65, `${lights.tufts} tufts, ${lights.wreaths} wreaths`);
+check('and the greenery is two draws', lights.greenery.length === 2);
+// Each wreath's back clears its wall: the face is at cw/2 or cd/2 from the deck's middle.
+const clear = wreathPos.every((p) => {
+  const d = decks.find((dk) => Math.abs(p.x - dk.cx) < 4 && Math.abs(p.z - dk.cz) < 4);
+  const off = Math.max(Math.abs(p.x - d.cx) - d.cw / 2, Math.abs(p.z - d.cz) - d.cd / 2);
+  return off > 0.14 && off < 0.3;
+});
+check('every wreath hangs just off its wall', wreathPos.length > 0 && clear);
 
 // --- The rink -----------------------------------------------------------------------------------
 

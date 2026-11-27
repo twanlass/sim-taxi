@@ -1471,6 +1471,11 @@ export const PALETTE = {
   holidayGold: '#FFC23B',
   holidayBlue: '#3B9BFF',
   holidayWhite: '#FFF4D6',
+  // The greenery hung with them (game/holidaylights.js): fir garland in two greens, wreaths, red bows.
+  garlandDark: '#1F4A2C',
+  garlandLight: '#2E6B3A',
+  wreathGreen: '#25553A',
+  wreathBow: '#C42430',
   // The pond frozen into a rink (game/rink.js). The ice a clear step darker and bluer than the snow
   // round it, or the rink is a patch of the same white; the boards white with a red cap, and the
   // skaters in winter coats.
