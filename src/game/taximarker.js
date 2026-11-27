@@ -1,4 +1,5 @@
 import { PALETTE } from '../palette.js';
+import { MARKER_OUTLINE_PX } from './camera.js';
 
 // "Which one is me?" — a yellow down-pointing triangle hovering over the taxi while it is empty.
 //
@@ -35,8 +36,9 @@ const GAP_PX = 10;
 const W = 18;
 const H = 15;
 // Outline width in px. The fill alone vanishes against the yellow garage and the pale pavement; the
-// dark rim is what holds it on every ground.
-const STROKE = 2.5;
+// dark rim is what holds it on every ground. Every marker's weight (game/camera.js); this was 2.5
+// until 2026-11-26 and read heavier than the arrows and the pie beside it.
+const STROKE = MARKER_OUTLINE_PX;
 
 /**
  * @param root     the element to put the marker in (the page body, or a test stub)

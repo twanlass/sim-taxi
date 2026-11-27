@@ -53,10 +53,11 @@ import { createAsphaltPatches, planPatches, patchGeometry, patchRoadHalf, PATCH_
 import { createStreetProps, planStreetProps } from '../src/game/streetprops.js';
 import { createGarbage, planTrashPiles } from '../src/game/garbage.js';
 import { createRoboTaxis } from '../src/game/robotaxi.js';
-import { roboShellParts, roboBandGeometry, roboWellLiners } from '../src/geometry/robotaxi.js';
+import { roboShellParts, roboBandGeometry, roboWellLiners, createRoboTaxiMesh } from '../src/geometry/robotaxi.js';
 import { setFareSeconds } from '../src/game/fares.js';
 import { ROBO_SPEED } from '../src/sim/traffic.js';
-import { HOPPER_MOUTH } from '../src/geometry/garbage.js';
+import { HOPPER_MOUTH, createGarbageTruckMesh } from '../src/geometry/garbage.js';
+import { createFireTruckMesh } from '../src/geometry/firetruck.js';
 import { truckPaint } from '../src/sim/traffic.js';
 import { createCarWash } from '../src/city/carwash.js';
 import { createGasStation } from '../src/city/gasstation.js';
@@ -80,7 +81,7 @@ import { createBurgerRun } from '../src/game/burgerrun.js';
 import { createOvertakeCombo, OVERTAKE_BLIP_MS, OVERTAKE_GRACE } from '../src/game/overtake.js';
 import { createOpening, exitPath, entryPath, REPAIR_GAP } from '../src/game/opening.js';
 import { createDepotRun } from '../src/game/depotrun.js';
-import { spinTaxi, driftTaxi, kickDrift, DRIFT_KICK_WINDOW, DRIFT_MIN_V, DRIFT_ANGLE, DRIFT_EXIT, DRIFT_CHAIN, createTraffic, lightPhase, displayPhase, setPriorityJunction, isUnsignalised, ringAxisAt, placeCar, approachRoom, setClosedLanes, isLaneClosed, ROAD_Y, HOP_LEN, DRIFT_LAUNCH_LEN, DRIFT_LAUNCH_HEIGHT, onDriftLaunch, setBarrelRoll, setHopStyle, setDodge, setOvertakeStyle, setPeek, setTaxiScatter, HOP_MIN_V, STOP_SETBACK, SIGNAL_LEAD, SIGNAL_LINGER, wheelAnchors, WHEEL_R, STEER_MAX, SPEED, CAR_LEN, CAR_W, landingBounce, landingRoll, BOUNCE_DUR, TRUCK_W, SPAWN_CLEARANCE, POLICE_FLEET,
+import { spinTaxi, driftTaxi, kickDrift, DRIFT_KICK_WINDOW, DRIFT_MIN_V, DRIFT_ANGLE, DRIFT_EXIT, DRIFT_CHAIN, createTraffic, lightPhase, displayPhase, setPriorityJunction, isUnsignalised, ringAxisAt, placeCar, approachRoom, setClosedLanes, isLaneClosed, ROAD_Y, HOP_LEN, DRIFT_LAUNCH_LEN, DRIFT_LAUNCH_HEIGHT, onDriftLaunch, setBarrelRoll, setBigAirStyle, setHopStyle, setDodge, setOvertakeStyle, setPeek, setTaxiScatter, HOP_MIN_V, STOP_SETBACK, SIGNAL_LEAD, SIGNAL_LINGER, wheelAnchors, WHEEL_R, STEER_MAX, SPEED, CAR_LEN, CAR_W, landingBounce, landingRoll, BOUNCE_DUR, TRUCK_W, SPAWN_CLEARANCE, POLICE_FLEET,
   LOCO_DEFAULTS, locoTuning, setLocoTuning, resetLocoTuning, locoRamp, boostCruise, overdriveTop, MPH_PER_UNIT, locoWeave, locoWeaveFade, MIN_GAP, ENVELOPE, CIRCLE_OFFSET, DODGE_MARGIN, carGeometry, CABIN_TOP, copLaysRubber, uturnWindow } from '../src/sim/traffic.js';
 import { loadLocoTuning, saveLocoTuning, clearLocoTuning } from '../src/game/locostash.js';
 import { createRoadwork, BARRIER_S, CONE_ROW, ROADWORKS_MODE } from '../src/game/roadwork.js';
@@ -111,7 +112,8 @@ import { createCarDamage } from '../src/game/cardamage.js';
 import { BODY_TOP } from '../src/geometry/damage.js';
 import { BUMPER_H as BUMPER_H_PROBE, bumperLength as bumperLengthProbe } from '../src/geometry/bumpers.js';
 import { createTaxiDoor } from '../src/game/taxidoor.js';
-import { createPolice, SPOT_RANGE, FADE_TIME } from '../src/sim/police.js';
+import { createPolice, parkedCruiser, SPOT_RANGE, FADE_TIME } from '../src/sim/police.js';
+import { createDonutShop, donutGeometry, donutSignGeometry, DONUT_BODY_TRIS, RING_R as DONUT_RING_R, CORNER_CLEAR as DONUT_CORNER_CLEAR } from '../src/city/donutshop.js';
 import { sirenOn, patrolSwing } from '../src/geometry/lights.js';
 import {
   edgeGlow, sirenWash, GLOW_NEAR, GLOW_FAR, GLOW_FLOOR, SIREN_DIM, PATROL_WASH,
@@ -134,12 +136,13 @@ import {
   createTargetRing, ringGrowScale, ringShrinkScale, RING_R, RING_Y,
 } from '../src/geometry/targetring.js';
 import { createParcelPad, PAD_R } from '../src/geometry/parcelpad.js';
-import { underglowGeometry, createPulse, pulseStep, createRace, COUNT_STEP as RACE_COUNT_STEP, ROCKET_COUNT, COUNTDOWN as RACE_COUNTDOWN } from '../src/game/race.js';
+import { createRivalMesh, underglowGeometry, createPulse, pulseStep, createRace, COUNT_STEP as RACE_COUNT_STEP, ROCKET_COUNT, COUNTDOWN as RACE_COUNTDOWN } from '../src/game/race.js';
 import { createHydraulics, LIFT_MIN, LIFT_MAX } from '../src/game/hydraulics.js';
 import { TAXI_DECK_Y, TAXI_TAILPIPE_BACK, TAXI_TAILPIPE_HEIGHT, TAXI_SCALE as TAXI_SCALE_TOP } from '../src/geometry/taxi.js';
 import { createLocoFlame, setFlameStyle } from '../src/game/locoflame.js';
 import { createParcel, PARCEL_CENTRE_Y } from '../src/geometry/parcel.js';
 import { createFoodOrder } from '../src/geometry/food.js';
+import { createDonutOrder } from '../src/geometry/donutorder.js';
 import { createCargo, CARGO_KINDS, CARGO_CENTRE_Y } from '../src/geometry/cargo.js';
 import * as difficulty from '../src/game/difficulty.js';
 import { BOARD_MAX } from '../src/game/difficulty.js';
@@ -305,6 +308,10 @@ const traffic = time('traffic init', () => createTraffic(makeRng(seed + 44), sce
 const FOOD_PICKUP = layout.burgerBlock
   ? { i: layout.burgerBlock.bi + 1, j: layout.burgerBlock.bj + 1 }
   : null;
+// ...and where a donut order is: the donut shop's own corner, which city/donutshop.js works out
+// (`pickup`) and main.js passes on unchanged. Both go to every board as `foodPickups`.
+const DONUT_PICKUP = buildings.donut?.pickup ?? null;
+const FOOD_PICKUPS = { food: FOOD_PICKUP, donut: DONUT_PICKUP };
 
 const tris = (mesh) => mesh.geometry.attributes.position.count / 3;
 console.log(`  triangles: ground ${tris(ground)}, buildings ${tris(buildings.mesh)}, props ${tris(props)}`);
@@ -3940,8 +3947,23 @@ const PRESSURE_END = difficulty.getTuning().pressureEnd;
     FOOD_PICKUP
       ? `junction (${FOOD_PICKUP.i}, ${FOOD_PICKUP.j})`
       : 'no joint — every food check below is measuring a board that can only serve boxes');
+  check('...and a donut shop for donut orders to come out of', DONUT_PICKUP !== null,
+    DONUT_PICKUP
+      ? `junction (${DONUT_PICKUP.i}, ${DONUT_PICKUP.j})`
+      : 'no donut shop — every donut check below is measuring a board that can only serve burgers');
+  // The donut shop's pickup is the junction whose kerb pin stands on the shop's own corner: inside
+  // the shop's block, within a road's width of the block's +X+Z corner. Derived from bounds in
+  // city/donutshop.js; asserted here against `cornerFor`, which is what actually places the pad.
+  if (DONUT_PICKUP) {
+    const pin = cornerFor(DONUT_PICKUP.i, DONUT_PICKUP.j);
+    const b = buildings.donut.tower.block.bounds;
+    check('the donut order\u2019s pad stands on the donut shop\u2019s own corner',
+      pin.x > b.x0 && pin.x < b.x1 && pin.z > b.z0 && pin.z < b.z1
+        && b.x1 - pin.x < 1 && b.z1 - pin.z < 1,
+      `pin (${pin.x.toFixed(2)}, ${pin.z.toFixed(2)}), block corner (${b.x1.toFixed(2)}, ${b.z1.toFixed(2)})`);
+  }
 
-  const parcels = createParcelSystem(makeRng(seed + 255), pScene, { foodPickup: FOOD_PICKUP });
+  const parcels = createParcelSystem(makeRng(seed + 255), pScene, { foodPickups: FOOD_PICKUPS });
   pTraffic.warmup(5);
 
   const tagsUnder = (root) => {
@@ -4006,6 +4028,20 @@ const PRESSURE_END = difficulty.getTuning().pressureEnd;
     Math.abs((foodBounds.box.min.y + foodBounds.box.max.y) / 2 - CARGO_CENTRE_Y) < 0.02
     && Math.abs(CARGO_CENTRE_Y - PARCEL_CENTRE_Y) < 1e-9,
     `food centred at ${((foodBounds.box.min.y + foodBounds.box.max.y) / 2).toFixed(3)}, `
+    + `envelope says ${CARGO_CENTRE_Y.toFixed(3)}`);
+
+  // The donut order (geometry/donutorder.js) is held to the same envelope and the same middle, and
+  // for the same three readers.
+  const donutBounds = envelope(createDonutOrder({ pickable: null }).mesh);
+  check('a donut order stands in the same envelope as the box',
+    donutBounds.box.max.y <= boxBounds.box.max.y + 1e-6
+    && donutBounds.box.min.y >= -1e-6
+    && donutBounds.radius <= boxBounds.radius + 1e-6,
+    `${donutBounds.box.max.y.toFixed(3)} tall and ${donutBounds.radius.toFixed(3)} out, `
+    + `against the box's ${boxBounds.box.max.y.toFixed(3)} and ${boxBounds.radius.toFixed(3)}`);
+  check('and is centred on the same point',
+    Math.abs((donutBounds.box.min.y + donutBounds.box.max.y) / 2 - CARGO_CENTRE_Y) < 0.02,
+    `donut order centred at ${((donutBounds.box.min.y + donutBounds.box.max.y) / 2).toFixed(3)}, `
     + `envelope says ${CARGO_CENTRE_Y.toFixed(3)}`);
 
   // The rig itself: exactly one kind on show, `mesh` following it, and the idle riding the **outer**
@@ -4310,6 +4346,7 @@ const PRESSURE_END = difficulty.getTuning().pressureEnd;
   // A run of this length sees a handful, so the draw is sampled here for the same reason the park
   // filter is — one spawn cannot tell a coin flip from a constant.
   let sampledFood = 0;
+  let sampledDonut = 0;
   let sampledWrongMesh = 0;
   let sampledLoosePickup = 0;
   const foodDropoffs = new Set();
@@ -4317,7 +4354,8 @@ const PRESSURE_END = difficulty.getTuning().pressureEnd;
   // ...except off the joint itself. `spotLegal` refuses the corner the taxi is at, and a food order
   // only ever comes from one corner, so a run that happens to finish at the burger joint samples 80
   // boards of nothing but boxes. Move it one junction on.
-  if (FOOD_PICKUP && pTraffic.taxi.i === FOOD_PICKUP.i && pTraffic.taxi.j === FOOD_PICKUP.j) {
+  // (Either shop's corner: the taxi parked on one leaves that shop's orders to the other.)
+  if (Object.values(FOOD_PICKUPS).some((at) => at && pTraffic.taxi.i === at.i && pTraffic.taxi.j === at.j)) {
     const taxi = pTraffic.taxi;
     const on = nextIntersection(taxi.d, taxi.i, taxi.j);
     if (on) placeCar(taxi, taxi.d, on.i, on.j, 6);
@@ -4325,19 +4363,21 @@ const PRESSURE_END = difficulty.getTuning().pressureEnd;
   for (let s = 0; s < BOARDS; s++) {
     const boardScene = new THREE.Scene();
     const board = createParcelSystem(makeRng(seed + 900 + s * 7), boardScene,
-      { foodPickup: FOOD_PICKUP });
+      { foodPickups: FOOD_PICKUPS });
     // `delivered` past the tutorial gate and `nextSpawnAt` still at −Infinity, so the first frame
     // spawns rather than waiting out a drawn gap.
     for (const { type, parcel } of board.update(1 / 60, pTraffic.taxi, { delivered: 99 })) {
       if (type !== 'spawned') continue;
       sampled += 1;
-      if (parcel.kind === 'food') {
+      if (parcel.kind === 'food' || parcel.kind === 'donut') {
         sampledFood += 1;
-        // **A food order comes from the joint, and from nowhere else.** This is the one thing about
-        // the second load that is not cosmetic, and the way it fails is silent: a `foodPickup` that
-        // never passes `spotLegal` — a corner the camera cannot see, say — does not throw, it serves
-        // a box under a different name, and the board goes on looking exactly right.
-        if (parcel.pickup.i !== FOOD_PICKUP?.i || parcel.pickup.j !== FOOD_PICKUP?.j) {
+        if (parcel.kind === 'donut') sampledDonut += 1;
+        // **A food order comes from its shop, and from nowhere else.** This is the one thing about
+        // the food loads that is not cosmetic, and the way it fails is silent: a pickup that never
+        // passes `spotLegal` — a corner the camera cannot see, say — does not throw, it serves a
+        // box (or the other shop's order) under a different name, and the board looks exactly right.
+        const shop = FOOD_PICKUPS[parcel.kind];
+        if (parcel.pickup.i !== shop?.i || parcel.pickup.j !== shop?.j) {
           sampledLoosePickup += 1;
         }
         // ...and the delivery end is still anywhere, which is what makes it a delivery rather than a
@@ -4375,12 +4415,16 @@ const PRESSURE_END = difficulty.getTuning().pressureEnd;
     `${sampledFood} food of ${sampled}`);
   check('and the corner is wearing the load the package says it is',
     sampledWrongMesh === 0, `${sampledWrongMesh} of ${sampled} showing the wrong mesh`);
-  check('every food order is collected at the burger joint',
+  check('every food order is collected at its own shop',
     sampledFood > 0 && sampledLoosePickup === 0,
-    FOOD_PICKUP
-      ? `${sampledFood} orders, ${sampledLoosePickup} from somewhere other than `
-        + `(${FOOD_PICKUP.i}, ${FOOD_PICKUP.j})`
-      : 'no joint in this city');
+    `${sampledFood} orders, ${sampledLoosePickup} from somewhere other than their shop's corner`);
+  // **Both shops get orders, and neither is rare** — the box-or-food check one level down. With both
+  // corners usable the pick is even, so 25–75% of the food is donuts on all but freak seeds; the
+  // failure worth catching is a shop whose orders never come (an unseen corner, a wrong junction).
+  check('food comes from both the burger joint and the donut shop',
+    !DONUT_PICKUP || !FOOD_PICKUP
+      || (sampledDonut > sampledFood * 0.25 && sampledDonut < sampledFood * 0.75),
+    `${sampledDonut} donut orders of ${sampledFood} food`);
   // Ten distinct drop-offs out of the orders drawn is not a distribution test — it is the assertion
   // that the *far* end is still drawn at all. A food order whose delivery was also pinned would be
   // the same drive every time, which is the failure a fixed origin invites.
@@ -4477,7 +4521,7 @@ const PRESSURE_END = difficulty.getTuning().pressureEnd;
   const fares = createFareSystem(makeRng(seed + 55), cScene, {
     reserved: () => parcels.occupiedSpots(),
   });
-  const parcels = createParcelSystem(makeRng(seed + 255), cScene, { foodPickup: FOOD_PICKUP });
+  const parcels = createParcelSystem(makeRng(seed + 255), cScene, { foodPickups: FOOD_PICKUPS });
   cTraffic.warmup(2);
 
   // Get a rider aboard the ordinary way.
@@ -12950,6 +12994,38 @@ function rideToPickup() {
   check('every drawn taxi part is in the ghost stencil mask', unmasked.length === 0 && masks.length === 33,
     `${unmasked.length} unmasked, ${masks.length} masks (9 outlined parts + 16 damage pieces + 4 door pieces + 2 bumpers + 2 mirrors)`);
 
+  // Every vehicle drawn as ordinary meshes — a `skin` in sim/traffic.js — wears its own outline
+  // (`outlineVehicle`): the instanced pool in game/carghosts.js reads instances, and these have
+  // none, so each went behind a building and vanished (Tyler: "our street racer has no ghost
+  // outline when it goes behind buildings" ... "all the vehicles should get this"). Same two rules
+  // as the taxi: a hull on the parts that carry one, a mask on every other solid part. Parts that
+  // write no depth (an underglow) occlude nothing and are left out.
+  const skinned = {
+    racer: [createRivalMesh().group, 5],
+    'fire engine': [createFireTruckMesh().group, 4],
+    'garbage truck': [createGarbageTruckMesh().group, 4],
+    'robo-taxi': [createRoboTaxiMesh(CAR_LEN, CAR_W).group, 5],
+  };
+  for (const [name, [root, expected]] of Object.entries(skinned)) {
+    const rims = [];
+    const unmasked = [];
+    root.traverse((node) => {
+      if (node.name === 'ghostRim') rims.push(node);
+      if (!node.isMesh || node.name === 'ghostMask' || node.name === 'ghostRim') return;
+      const m = node.material;
+      if (m.visible === false || m.transparent || m.depthWrite === false || m.colorWrite === false) return;
+      if (!node.children.some((c) => c.name === 'ghostMask')) unmasked.push(node);
+    });
+    const ghost = root.userData.ghost;
+    const hidden = rims.every((r) => !r.visible);
+    ghost?.set(0.5);
+    const shown = rims.every((r) => r.visible && r.material.opacity === 0.5);
+    ghost?.set(0);
+    check(`the ${name} wears a ghost outline, and every solid part is in the mask`,
+      rims.length === expected && unmasked.length === 0 && ghost && hidden && shown,
+      `${rims.length}/${expected} rims, ${unmasked.length} unmasked parts, starts hidden ${hidden}, set() drives it ${shown}`);
+  }
+
   // --- A dimming lamp must dim where it stands ---------------------------------------------------
   //
   // The one assertion behind the pod-per-mesh split (geometry/lights.js). On/off is a *scale*, and a
@@ -19717,11 +19793,14 @@ let chopperOrder; // likewise
   let mostRejectedInOneCity = 0;
   let jointCorners = 0;
   let jointSeen = 0;
+  let donutCorners = 0;
+  let donutSeen = 0;
   const SEEDS = 4;
   for (let n = 0; n < SEEDS; n++) {
     const s = seed + n * 977;
     const sweepLayout = createLayout(makeRng(s));
-    const sweepCity = createBuildings(makeRng(s + 22), sweepLayout).mesh;
+    const sweepBuilt = createBuildings(makeRng(s + 22), sweepLayout);
+    const sweepCity = sweepBuilt.mesh;
     const sweepProps = createProps(makeRng(s + 33), sweepLayout).mesh;
     const targets = [sweepCity, sweepProps];
     setCityOccluders(sweepCity, sweepProps);
@@ -19734,6 +19813,12 @@ let chopperOrder; // likewise
     if (sweepLayout.burgerBlock) {
       jointCorners += 1;
       if (cornerSeen(sweepLayout.burgerBlock.bi + 1, sweepLayout.burgerBlock.bj + 1)) jointSeen += 1;
+    }
+    // ...and the donut shop's, for the same reason: its corner is the only place a donut order comes
+    // from (city/donutshop.js `pickup`).
+    if (sweepBuilt.donut) {
+      donutCorners += 1;
+      if (cornerSeen(sweepBuilt.donut.pickup.i, sweepBuilt.donut.pickup.j)) donutSeen += 1;
     }
     // Only a block with a building on it hides its own corner: a park or the graveyard lot at
     // (0, 0) leaves it in plain view, and the double graveyard took (0, 0) in one of these four.
@@ -19793,6 +19878,9 @@ let chopperOrder; // likewise
   check('the burger joint\u2019s own corner is visible in every city, so food is always on offer',
     jointCorners === SEEDS && jointSeen === jointCorners,
     `${jointSeen}/${jointCorners} joints with a visible pickup corner`);
+  check('the donut shop\u2019s own corner is visible in every city, so donuts are always on offer',
+    donutCorners === SEEDS && donutSeen === donutCorners,
+    `${donutSeen}/${donutCorners} donut shops with a visible pickup corner`);
   // A filter that eats the board is worse than the bug. Two junctions a city on average, and the
   // worst city in the sweep is the number that would show up as "nowhere to put a fare".
   check('and the filter costs the board a couple of junctions, not a district',
@@ -20792,11 +20880,12 @@ let chopperOrder; // likewise
   // What has to hold is the chain DRIFT_LAUNCH_LEN is derived from — off the hump, clear over the
   // far bank's junction, down on the next street *before its hold line* — plus the two promises
   // that make a long flight safe to have at all: the brake cannot park it in mid-air, and what
-  // drives under it is not a collision. The routed exit is straight on, which the launch requires;
-  // the same crossing with a turn there is the ordinary hop.
+  // drives under it is not a collision. The routed exit is straight on; the same crossing with a
+  // turn there flies straight over anyway and drops the route (`bigAirDetour`), and under
+  // ?bigair=classic it is the ordinary hop.
   {
     const lLine = bridgeLines().find((i) => riverCrossing(i) === 'fixed');
-    const fly = (exitDir, { release = false, carry = 3 } = {}) => {
+    const fly = (exitDir, { release = false, carry = 3, late = null } = {}) => {
       const lScene = new THREE.Scene();
       const lTraffic = createTraffic(makeRng(seed + 96), lScene, 1);
       const lTaxi = lTraffic.taxi;
@@ -20831,6 +20920,9 @@ let chopperOrder; // likewise
         lTaxi.boostEasing = release && big;
         // Standing on the brake the whole way: the flight must not care.
         lTaxi.braking = big;
+        // `late` is main.js re-planning on the detour mid-crossing, offering the corner back as a
+        // late turn (`retakeCrossing`) — which is what the game does on the frame after the drop.
+        if (late && lTaxi.state === 'turn' && lTaxi.hopFrom != null) { lTaxi.lateTurn = late; late = null; }
         const before = lTaxi.hopFrom;
         lTraffic.update(1 / 60);
         if (before == null && lTaxi.hopFrom != null) {
@@ -20850,11 +20942,15 @@ let chopperOrder; // likewise
           air = lTaxi.travelled - launchTravelled;
         }
       }
+      const detoured = lTaxi.detoured === true;
       lTraffic.dispose?.();
-      return { big, peak, landing, landLane, landS, air, minUp, landUp, airV };
+      return { big, peak, landing, landLane, landS, air, minUp, landUp, airV, detoured };
     };
     const straight = fly(DIR.PZ);
+    const detour = fly(DIR.PX, { late: [DIR.PX, DIR.PX] });
+    setBigAirStyle('classic');
     const turning = fly(DIR.PX);
+    setBigAirStyle();
     setBarrelRoll('classic');
     const level = fly(DIR.PZ);
     setBarrelRoll();
@@ -20886,7 +20982,12 @@ let chopperOrder; // likewise
     check('with the brake held the whole way, the flight is still its full length',
       straight.air !== null && straight.air >= DRIFT_LAUNCH_LEN && straight.air < DRIFT_LAUNCH_LEN + 1,
       `${straight.air?.toFixed(2)} of ${DRIFT_LAUNCH_LEN}`);
-    check('a route turning at the far bank gets the ordinary hop instead',
+    check('a route turning at the far bank still flies Big Air, straight on, drops the route to re-plan and refuses the corner back',
+      detour.big && detour.landing?.big === true && detour.landLane
+      && cityNetwork().dirOfLane(detour.landLane) === DIR.PZ && detour.detoured,
+      `big ${detour.big}, landed heading ${detour.landLane && cityNetwork().dirOfLane(detour.landLane)}, `
+        + `detoured ${detour.detoured}`);
+    check('...and under ?bigair=classic it gets the ordinary hop instead',
       !turning.big && turning.landing && turning.landing.big === false,
       `big ${turning.big}`);
 
@@ -23818,6 +23919,120 @@ for (const viewName of ['side', 'quarter']) {
   cull.restore();
 }
 
+// The two shadow maps (game/splitshadow.js): what goes in the standing city's map, and that the rule
+// is checked rather than trusted. No GPU here, so this drives the per-frame bookkeeping by hand.
+{
+  const { createSplitShadow, STATIC_SHADOW_LAYER } = await import('../src/game/splitshadow.js');
+  const { createShadowCull } = await import('../src/game/shadowcull.js');
+  const sc = new THREE.Scene();
+  const sunL = new THREE.DirectionalLight();
+  sunL.castShadow = true;
+  sunL.position.set(50, 30, 20);
+  sc.add(sunL, sunL.target);
+  const mesh = (geoAt) => {
+    const geo = new THREE.BoxGeometry(1, 1, 1);
+    if (geoAt) geo.translate(...geoAt);
+    const m = new THREE.Mesh(geo, new THREE.MeshBasicMaterial());
+    m.castShadow = true;
+    sc.add(m);
+    return m;
+  };
+  // A merged city builder's shape: geometry baked in world space, identity transform.
+  const building = mesh([10, 2, 10]);
+  const flicker = mesh([-10, 2, 10]);
+  // A car's shape: geometry about its own origin, placed by its transform.
+  const car = mesh();
+  car.position.set(5, 0.5, 5);
+  const notCasting = mesh([0, 0, -10]);
+  notCasting.castShadow = false;
+  const split = createSplitShadow(sunL, { staticSize: 4096, dynamicSize: 2048 });
+  const { debug } = split;
+  debug.check(sc);
+  check('split shadow: an identity-transform caster goes in the static map',
+    split.isStatic(building) && building.layers.isEnabled(STATIC_SHADOW_LAYER));
+  check('split shadow: a caster placed by its own transform stays in the per-frame map', !split.isStatic(car));
+  check('split shadow: a mesh that casts nothing is in neither', !split.isStatic(notCasting));
+  check('split shadow: the static map is drawn once classified', debug.staticShadow.needsUpdate === true);
+  check('split shadow: the static map renders only the static layer',
+    debug.staticShadow.camera.layers.mask === (1 << STATIC_SHADOW_LAYER));
+  check('split shadow: the static map is not redrawn every frame', debug.staticShadow.autoUpdate === false);
+  check('split shadow: the static map is twice the per-frame one',
+    split.stats().staticSize === 4096 && split.stats().dynamicSize === 2048);
+  debug.staticShadow.needsUpdate = false;
+  debug.check(sc);
+  check('split shadow: nothing changed, nothing redrawn', debug.staticShadow.needsUpdate === false);
+
+  debug.hide();
+  check('split shadow: the per-frame pass leaves the static casters out',
+    building.castShadow === false && car.castShadow === true);
+  debug.restore();
+  check('split shadow: and hands their flags back', building.castShadow === true && notCasting.castShadow === false);
+
+  sunL.position.x += 1;
+  debug.check(sc);
+  check('split shadow: the sun moving redraws the static map', debug.staticShadow.needsUpdate === true);
+  debug.staticShadow.needsUpdate = false;
+
+  building.position.y = 0.1;
+  debug.check(sc);
+  check('split shadow: a "static" caster that moves is demoted for good',
+    !split.isStatic(building) && !building.layers.isEnabled(STATIC_SHADOW_LAYER));
+  check('split shadow: and the static map is redrawn without it', debug.staticShadow.needsUpdate === true);
+  building.position.y = 0;
+  debug.check(sc);
+  check('split shadow: a demoted caster does not come back', !split.isStatic(building));
+  debug.staticShadow.needsUpdate = false;
+
+  // The garage door rolls up by rewriting its vertices, which no matrix shows.
+  const door = mesh([0, 1, 20]);
+  const placed = mesh();
+  placed.position.set(0, 0, 30);
+  placed.userData.staticShadow = true;
+  for (let i = 0; i < 61; i++) debug.check(sc);   // past the rescan
+  check('split shadow: a placed mesh that says it stands still goes in the static map', split.isStatic(placed));
+  door.geometry.attributes.position.needsUpdate = true;
+  debug.check(sc);
+  check('split shadow: a static caster whose vertices are rewritten is demoted', !split.isStatic(door));
+  debug.staticShadow.needsUpdate = false;
+
+  flicker.visible = false;
+  debug.check(sc);
+  check('split shadow: hiding a static caster redraws the map, and keeps it static',
+    debug.staticShadow.needsUpdate === true && split.isStatic(flicker));
+  for (let i = 0; i < 6; i++) { flicker.visible = !flicker.visible; debug.check(sc); }
+  check('split shadow: one that keeps flickering is demoted rather than redrawing the city', !split.isStatic(flicker));
+
+  split.settle();
+  debug.check(sc);
+  debug.staticShadow.needsUpdate = false;
+  const late = mesh([30, 1, 30]);
+  for (let i = 0; i < 61; i++) debug.check(sc);
+  check('split shadow: once the run has started, a new caster goes in the per-frame map', !split.isStatic(late));
+  check('split shadow: and does not redraw the city', debug.staticShadow.needsUpdate === false);
+
+  const radius = (s) => s.radius * ((s.camera.right - s.camera.left) / s.mapSize.x);
+  split.setSoftness(0.2);
+  check('split shadow: softness is the same world width in both maps',
+    Math.abs(radius(debug.staticShadow) - 0.2) < 1e-9 && Math.abs(radius(debug.dynamicShadow) - 0.2) < 1e-9);
+  check('split shadow: the sun\'s own map is replaced by the pair', sunL.shadow.shadowNode?.isShadowBaseNode === true);
+
+  // The cull must leave static casters alone: culling one would bake its absence into a map that is
+  // not redrawn when the camera comes back round.
+  const fresh = mesh([200, 2, 200]);
+  const split2 = createSplitShadow(sunL, {});
+  split2.debug.check(sc);
+  const cull = createShadowCull(sc, sunL);
+  cull.skipStatic(split2.isStatic);
+  const cam = new THREE.OrthographicCamera(-10, 10, 10, -10, 0.1, 1000);
+  cam.position.set(0, 100, 0);
+  cam.lookAt(0, 0, 0);
+  cam.updateProjectionMatrix();
+  cull.cull(cam);
+  check('split shadow: the shadow cull never culls a static caster, however far off screen',
+    split2.isStatic(fresh) && fresh.castShadow === true);
+  cull.restore();
+}
+
 // Safari's 8 KB cap on a WGSL function's `var`s (util/wgsllets.js). The rewrite has to make a `let`
 // of what it can prove and leave everything else exactly as three wrote it: a wrong `let` is a
 // compile error on every browser, and a missed one is only bytes.
@@ -23868,6 +24083,73 @@ for (const viewName of ['side', 'quarter']) {
   const bytes = (code) => Math.max(...functionVarBytes(code).map((r) => r.bytes));
   check('wgsl lets: the byte count WebKit checks goes down by the lets it made',
     bytes(src) - bytes(out) === 8 + 4, `${bytes(src)} -> ${bytes(out)}`);
+}
+
+// The donut shop (city/donutshop.js): the probe city has one, its ring faces out from the winding,
+// its feet are on its own deck, and the cruiser outside is clear of the lane beside it with its
+// kerb-side wheels up on the pavement. Measured against the grid's constants and the road network,
+// not against the module's own numbers.
+{
+  const site = buildings.donut;
+  check('donut: the probe city has a donut shop', Boolean(site));
+  if (site) {
+    const geo = donutGeometry();
+    const pos = geo.attributes.position;
+    const a = new THREE.Vector3(); const b = new THREE.Vector3(); const c = new THREE.Vector3();
+    const n = new THREE.Vector3(); const mid = new THREE.Vector3();
+    let inward = 0;
+    for (let t = 0; t < DONUT_BODY_TRIS; t++) {
+      a.fromBufferAttribute(pos, t * 3); b.fromBufferAttribute(pos, t * 3 + 1); c.fromBufferAttribute(pos, t * 3 + 2);
+      n.subVectors(b, a).cross(c.clone().sub(a));
+      mid.addVectors(a, b).add(c).divideScalar(3);
+      // Outward is away from the nearest point on the ring's centre circle.
+      const k = DONUT_RING_R / Math.hypot(mid.x, mid.y);
+      const out = new THREE.Vector3(mid.x - mid.x * k, mid.y - mid.y * k, mid.z);
+      if (n.dot(out) <= 0) inward++;
+    }
+    check('donut: every triangle of the ring faces out, from its winding', inward === 0, `${inward} of ${DONUT_BODY_TRIS} inward`);
+    geo.dispose();
+
+    const { car, roof } = site;
+    const net = cityNetwork();
+    const lane = net.lanes.find((l) => l.id === car.lane);
+    const lp = lane.path.at(lane.length / 2);
+    const lateral = car.side === 0 ? Math.abs(lp.x - car.x) : Math.abs(lp.z - car.z);
+    // CAR_W either side: half of the parked car's, half of the passing one's.
+    check('donut: the parked cruiser is clear of the lane beside it', lateral - CAR_W >= 0.1,
+      `${(lateral - CAR_W).toFixed(2)} between flanks`);
+    const kerbGap = car.side === 0 ? car.x - site.tower.block.bounds.x1 : car.z - site.tower.block.bounds.z1;
+    check('donut: the cruiser\'s kerb-side wheels are up on the pavement',
+      kerbGap - 0.7 < -0.1 && kerbGap > 0, `wheel ${(kerbGap - 0.7).toFixed(2)} off the kerb line`);
+    const toCorner = car.side === 0 ? site.tower.block.bounds.z1 - car.z : car.x - site.tower.block.bounds.x0;
+    check('donut: the cruiser\'s nose is clear of the corner a rider stands on', toCorner - CAR_LEN / 2 >= DONUT_CORNER_CLEAR - 0.5,
+      `${(toCorner - CAR_LEN / 2).toFixed(2)} from the corner`);
+
+    const shop = createDonutShop(site, { makeCruiser: parkedCruiser });
+    shop.group.updateMatrixWorld(true);
+    const kerbSide = new THREE.Vector3(0, 0, 0.7).applyMatrix4(shop.cruiser.group.matrixWorld);
+    const roadSide = new THREE.Vector3(0, 0, -0.7).applyMatrix4(shop.cruiser.group.matrixWorld);
+    const kerbward = car.side === 0 ? roadSide.x - kerbSide.x : roadSide.z - kerbSide.z;
+    check('donut: the cruiser leans away from the kerb, kerb side up by a kerb', kerbward > 0
+      && Math.abs(kerbSide.y - roadSide.y - KERB_H) < 0.02, `rise ${(kerbSide.y - roadSide.y).toFixed(3)}`);
+    // Its feet: the legs' lowest vertices, on the deck and inside it.
+    const roofSign = donutSignGeometry(site.spot, roof.deck);
+    const sp = roofSign.geometry.attributes.position;
+    let feetOn = true;
+    for (let i = 0; i < sp.count; i++) {
+      const y = sp.getY(i);
+      if (y > roof.deck + 0.01) continue;
+      if (Math.abs(y - roof.deck) > 0.01 || Math.abs(sp.getX(i) - roof.cx) > roof.cw / 2
+        || Math.abs(sp.getZ(i) - roof.cz) > roof.cd / 2) feetOn = false;
+    }
+    check('donut: the sign stands on its own deck and nothing of it goes below', feetOn);
+    // The glass door stands on the pavement in front of a door the generator drew on a face the
+    // camera sees, and the OPEN sign and the DONUTS letters are there to read.
+    check('donut: the glass door is on a camera-facing face, on the pavement',
+      site.door && (site.door.side === 0 || site.door.side === 1) && Math.abs(site.door.base - KERB_H) < 1e-9);
+    check('donut: the shop wears an OPEN sign and the sign has its letters',
+      Boolean(shop.glow) && shop.letterTris > 0);
+  }
 }
 
 // Average speed per car over the whole run — a stable throughput number, unlike a snapshot of

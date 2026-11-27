@@ -12,7 +12,7 @@
 // has none of them.
 
 import {
-  setAmbientOcclusion, setPainterly, setPaintBrushes, setJunctionPaving, setRoadStrokes,
+  setAmbientOcclusion, setPainterly, setPaintBrushes, setJunctionPaving, setRoadStrokes, setRoadTexture, setRoadPixels, ROAD_TEXEL,
   setClassicPaint,
   setPaintLook, setRim, rimTuning, setRimTuning, setFlip, setVehiclePaint, setCloudShadows, rimPaintOn, setRimDepth,
 } from '../util/geo.js';
@@ -27,6 +27,7 @@ import { createCrt } from './crt.js';
 import { cullEmptyPools } from '../util/emptypools.js';
 import { syncRiverWater } from '../city/riverwater.js';
 import { installColorGrade } from './colorgrade.js';
+import { setWallGrain, WALL_TEXEL } from '../city/wallgrain.js';
 import { perfPhase } from './perf.js';
 
 /**
@@ -46,7 +47,7 @@ export function renderBudget() {
  * Every decision `propMaterial()` bakes into the shader it builds, so all of it has to be taken
  * before a single mesh exists: none of it can move afterwards.
  */
-export function decideLooks(budget) {
+export function decideLooks(budget, seed = 0) {
   // The colour grade (game/colorgrade.js) goes on the end of three's fog chunk, after the edge
   // fog's own term — which is why here, once every import has run, and not at its own import.
   installColorGrade();
@@ -65,7 +66,22 @@ export function decideLooks(budget) {
     setPaintBrushes(tiles.wall, tiles.ground, tiles.road);
     setJunctionPaving(params.get('roads') !== 'classic');
     setRoadStrokes(params.get('roadstrokes') === 'classic');
+    // The asphalt's colour variation (`setRoadTexture`): resurfaced runs, wear and mottle, worked
+    // out in the same pass. `?roadtex=classic` is the one flat grey; `?roadtexamt=` scales it.
+    // It is drawn as a pixel-art street, through a grid of world texels (`setRoadPixels`);
+    // `?roadtex=smooth` is the same road without the grid, and `?roadpx=` the texel's size.
+    const texAmt = Number(params.get('roadtexamt') ?? 1);
+    setRoadTexture(params.get('roadtex') === 'classic' ? 0 : Number.isFinite(texAmt) ? texAmt : 1, seed);
+    const texel = Number(params.get('roadpx') ?? ROAD_TEXEL);
+    setRoadPixels(params.get('roadtex') === 'smooth' ? 0 : Number.isFinite(texel) ? texel : ROAD_TEXEL);
   }
+  // The buildings' pixel grain (city/wallgrain.js): the street's texel grid on every wall and roof.
+  // Not part of the painterly pass, so it stands outside it. `?bldgtex=classic` compiles none of it,
+  // `?bldgtexamt=` scales it and `?bldgpx=` is its texel.
+  const grainAmt = Number(params.get('bldgtexamt') ?? 1);
+  const grainTexel = Number(params.get('bldgpx') ?? WALL_TEXEL);
+  setWallGrain(params.get('bldgtex') === 'classic' ? 0 : Number.isFinite(grainAmt) ? grainAmt : 1,
+    Number.isFinite(grainTexel) ? grainTexel : WALL_TEXEL);
   setClassicPaint(getPaintClassic());
   setPaintLook(getPaintLook());
   setRim(getRimColor());

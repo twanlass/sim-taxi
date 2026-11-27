@@ -4,6 +4,7 @@ import {
   bakeColor, bakeColors, propMaterial, unlitMaterial, setFinish, FINISH, BODY_EULER_ORDER,
 } from '../util/geo.js';
 import { PALETTE, color } from '../palette.js';
+import { outlineVehicle, VEHICLE_RIM, WHEEL_RIM } from './ghostoutline.js';
 import {
   SILL_Y, CHASSIS_LIFT, wheelAnchors, wheelGeometry, wheelGeometries, archedBodyGeometries,
 } from './wheels.js';
@@ -173,6 +174,12 @@ export function createGarbageTruckMesh() {
   // Dissolved in and out rather than blended — see `faders` in sim/police.js for why alphaHash.
   const faders = [body.material, wheelMat, lid.material];
   for (const material of faders) material.alphaHash = true;
+  // Ghost outline (geometry/ghostoutline.js). The lid gets a hull of its own: it swings up off
+  // the hopper while the truck collects.
+  outlineVehicle(group, {
+    rims: [[body, VEHICLE_RIM], [lid, WHEEL_RIM], ...wheels.map((w) => [w, WHEEL_RIM])],
+    tint: color('garbageGhost'),
+  });
   shell.visible = false;
 
   return {

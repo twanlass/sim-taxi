@@ -98,9 +98,30 @@ export const PALETTE = {
   manholeLid: '#3B3F45',
   manholeFrame: '#8C9097',
   crosswalk: '#DAD7CB',
+  // A bike lane down the length of the block (city/markings.js): a dull brick red, darker than the
+  // paint and warmer than the asphalt, so it reads as coloured surfacing rather than as a mark.
+  bikeLaneFill: '#6F4A45',
+  // The bike box ahead of one stop line (city/markings.js): a muted green, the one green on the road.
+  bikeBox: '#4F8A5B',
+  // The hatched box junction: amber rather than `hazardYellow`, so it reads as road paint and not as
+  // the drawbridge's warning plates.
+  cautionHatch: '#D98E2B',
+  // The TAXI rank outside the garage: the taxi's own yellow family, paler, as paint.
+  taxiRank: '#E8C341',
+  // The cobbled bridgeheads (city/markings.js): warm grey setts a step lighter than the asphalt, so the
+  // joints read, in a pale soldier course like the plaza's frame.
+  cobble: '#6E6964',
+  cobbleFrame: '#A39C90',
   // The one paved junction's colours are a look of their own, PLAZA_LOOKS below.
   sidewalk: '#CDBFA6',
-  kerb: '#B3A994',
+  // A cooler, greyer stone than the warm pavement it edges, and a step darker, so a block reads
+  // as kerb plus pavement rather than one tan slab (Tyler, 2026-11-25: "a subtle color shift to
+  // create some structure"). `?markings=classic` keeps #B3A994, the pavement's own hue a step down.
+  kerb: '#999891',
+  // The few painted kerbs (city/markings.js): red for no parking, green for loading.
+  kerbRed: '#D8412F',
+  kerbGreen: '#3DB05A',
+  kerbYellow: '#E5B92E',
   park: '#6F9A5A',
   // The tips of the parks' long grass (city/grass.js); the roots are `park` itself so a tuft grows
   // out of the lawn rather than sitting on it. Lighter and warmer — sun through a blade's tip.
@@ -417,6 +438,9 @@ export const PALETTE = {
   roboGlass: '#2B3C4E',
   roboSensor: '#22262C',
   roboGlow: '#3FE9FF',
+  // Ghost outline (geometry/ghostoutline.js): the silver itself, already at the lightness the
+  // other vehicles' ghosts are lifted to.
+  roboGhost: '#BCC2C9',
   // `?robodebug` (game/robodebug.js): a robo-taxi's route while it hunts, and while it carries.
   roboDebugHunt: '#3FE9FF',
   roboDebugRide: '#FF4FD8',
@@ -493,6 +517,9 @@ export const PALETTE = {
   // See policeCabGeometry() in sim/traffic.js. (A first pass ran it the other way round, white
   // under baby blue; a pastel cab rendered grey-teal under the low warm sun.)
   policeBody: '#0091FF',
+  // The patrol cruiser's ghost outline: policeBody at its own hue and saturation, lightness raised
+  // from 0.50 to 0.72 — the carBodyGhost rule.
+  policeGhost: '#70C1FF',
   // Cooler and brighter than the two cream civilians (#E4E1DA, #D9D2C3).
   policeCab: '#F2F4F7',
 
@@ -510,6 +537,9 @@ export const PALETTE = {
   racerBody: '#7B3CFF',
   racerWing: '#1B1726',
   racerStripe: '#F6F4EE',
+  // The racer's ghost outline (geometry/ghostoutline.js): racerBody at the same hue and full
+  // saturation, lightness raised from 0.62 to 0.75 so a 2.7px trace reads behind a shadowed tower.
+  racerGhost: '#AA80FF',
   // The underglow: an electric cyan, the colour opposite the violet paint, so the pad reads as a
   // light under the car rather than as the car's own reflection on the road.
   racerGlow: '#2FE6FF',
@@ -517,6 +547,8 @@ export const PALETTE = {
   raceFlagDark: '#17171C',
   raceFlagLight: '#F6F4EE',
   fireTruckBody: '#C8261E',
+  // Its ghost outline: same hue and saturation, lightness 0.45 to 0.72 (the carBodyGhost rule).
+  fireTruckGhost: '#EC8883',
   fireTruckTrim: '#F3EFE6',
   fireTruckLadder: '#C9CFD6',
   fireTruckLocker: '#9E1E18',
@@ -683,6 +715,13 @@ export const PALETTE = {
   // waiting rider, and nothing else in the game should reach for it.
   foodCup: '#EFEBDF',
   foodCupLid: '#B0433B',
+
+  // The donut order's coffee (geometry/donutorder.js): the same off-white cup body as the soda, so
+  // the two orders read as one chain of takeaway, under a kraft sleeve and a dark roast lid. The lid
+  // does the soda lid's job — the part of the cup that is neither paper nor the thing beside it —
+  // and dark rather than red so a coffee is never mistaken for the burger's soda at 10px.
+  coffeeSleeve: '#A9773F',
+  coffeeLid: '#3B2A22',
 
   // Urgency, indexed by how much of the clock is left, in quarters. Deliberately not a ramp: a
   // colour that changes imperceptibly tells the player nothing, so it snaps at each quarter lost.
@@ -1015,6 +1054,8 @@ export const PALETTE = {
   garbageBeacon: '#8A6A1E',
   garbageBeaconLit: '#FFC21A',
   garbageBody: '#46A05A',
+  // Its ghost outline: same hue and saturation, lightness 0.45 to 0.72 (the carBodyGhost rule).
+  garbageGhost: '#9CD4A8',
   garbageHopper: '#2D6A3A',
   garbageCab: '#EEEDE6',
   garbageStripe: '#F3EFE6',
@@ -1077,6 +1118,25 @@ export const PALETTE = {
   dogTag: '#F2C14E',
   vetNeonBlue: '#3D8BFF',
   vetNeonRed: '#FF3348',
+  // The donut shop (city/donutshop.js): a cake donut, the paler band round its middle where it
+  // floated in the fryer, strawberry frosting, and sprinkles in five colours. The frosting is a
+  // pink well off the dog's tongue (`dogTongue`) so a seed that puts the two shops near each other
+  // does not paint them as one chain's.
+  donutCake: '#C2803F',
+  donutBand: '#E8C38A',
+  donutFrosting: '#FF74B4',
+  donutSprinkleA: '#FFF6E0',
+  donutSprinkleB: '#FFD23F',
+  donutSprinkleC: '#3DB2FF',
+  donutSprinkleD: '#5FD068',
+  donutSprinkleE: '#FF6A3D',
+  // Its bubble-letter DONUTS sign, lit white. And the glass front door: a brushed aluminium frame,
+  // glass a shade lighter and bluer than `shopfront` so it reads as glass and not as the dark `door`
+  // it covers, and a pale steel push bar across it.
+  donutSignText: '#FFFFFF',
+  donutDoorFrame: '#B9BEC4',
+  donutDoorGlass: '#6F94AA',
+  donutPushBar: '#E8EAEC',
   // The rooftop billboards (city/billboard.js; the posters' own colours are in city/billboardart.js,
   // which paints them). The steel is painted a dark bottle green, as hoarding structures often are:
   // galvanised grey was `rooftop` to within 3 in every channel and the frame vanished into the roof
@@ -1146,6 +1206,10 @@ export const PALETTE = {
   // it stands on (136) and a long way under `concrete` (178), so a sunlit parapet cannot be
   // mistaken for the pale façade of a building behind it.
   riverWall: '#8D8B84',
+  // The tide mark the wall is mixed toward at the waterline (city/grime.js): wet concrete with silt
+  // and algae in it, so dark and a little green-brown rather than a darker grey, which read as a
+  // shadow line instead of weathering.
+  riverGrime: '#3F4234',
   // The bridge deck. Asphalt, because it is road, and near enough the `asphalt` slab it continues
   // to be the same material — a shade darker, which is what a span in the shadow of its own
   // parapets is, and no more than that. The first cut went to luma 92 against the road's 104 and
@@ -1214,6 +1278,14 @@ export const PALETTE = {
   asphaltPatch: '#3B4047',
   asphaltSeal: '#050506',
   bridgeApproach: '#C4C0B6',
+  // The steel finger joint that replaced them (2026-11-25, Tyler: "a little transition ... a shiny
+  // dark metal"): steel plates on the gloss material, the slots between the fingers near black.
+  // The plates first went down at #2C3035 and vanished at whichever end was in sun: lit dark steel
+  // lands on the lit asphalt's own value, so only the end in shadow showed (Tyler: "why is one side
+  // so much darker"). Mid steel keeps the plates lighter than the road in sun and shade alike, and
+  // the near-black slots carry the dark.
+  bridgeSteel: '#6E747C',
+  bridgeSteelSlot: '#121417',
 
   // --- Boats ----------------------------------------------------------------
   //
@@ -1503,6 +1575,11 @@ if (ROADS_CLASSIC) {
   });
 }
 export const roadsClassic = () => ROADS_CLASSIC;
+// `?markings=classic` (city/markings.js) keeps the kerb in the pavement's own warm hue.
+if (!ROADS_CLASSIC && typeof location !== 'undefined'
+  && new URLSearchParams(location.search).get('markings') === 'classic') {
+  PALETTE.kerb = '#B3A994';
+}
 
 // The one paved junction (`setJunctionPaving` in util/geo.js), one look per `?plaza=`. Each is the
 // field's units, the joints between them, the soldier course framing the field, and the outer band
