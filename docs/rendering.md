@@ -189,16 +189,16 @@ are curtain walls or too narrow to take a window.
 
 ### Roofs — `roofDeck` in `city/buildings.js`
 
-A flat roof's lip is the body's own colour a stop darker, and the deck inside it is another shade
-of that same colour, pushed far enough in value to clear the walls: half the body on the light
-families (concrete, pale, tan, and the bank), `ROOF_LIFT` (0.16) of HSL lightness over it on the
-dark ones (brick, glass, slate). The garage keeps its dark trim deck. The direction is picked by
-a lit score (`roofContrast`): at 4:24 PM a deck takes about as much sun as the sunny wall beside it,
-so the old deck, the body at 0.67, came out the same tone as that wall. The score is the OKLab
-distance to the sunny wall and to the shaded one (lit by sky: per-channel factors measured off a
-render, `DECK_LIGHT`/`SHADE_LIGHT`), whichever is nearer; `tools/probe.mjs` holds every family at
-0.11 or more across its jitter (the old deck scored 0.057 on slate). A roofing finish of its own,
-charcoal tar or warm gravel, was tried first and read as random: Tyler wanted adjacent shades.
+A flat roof's lip is the body's own colour a stop darker, and the deck inside it is a neutral grey
+off a seven-step ladder (`ROOF_GREYS`): the step nearest the middle that clears the walls by
+`ROOF_MIN_CONTRAST`, so the city's roofs are a family of greys and only their value varies with
+the building under them. The garage keeps its dark trim deck. Clearance is a lit score
+(`roofContrast`): at 4:24 PM a deck takes about as much sun as the sunny wall beside it, so the old
+deck, the body at 0.67, came out the same tone as that wall. The score is the OKLab distance to the
+sunny wall and to the shaded one (lit by sky: per-channel factors measured off a render,
+`DECK_LIGHT`/`SHADE_LIGHT`), whichever is nearer; the old deck scored 0.057 on slate. Two tries
+came first and were dropped the same afternoon: roofing finishes of their own (charcoal tar, warm
+gravel) read as random, and shades of the wall's own colour put pink and sage decks on top.
 
 A pitched roof keeps its tile-or-slate draw unless that lands on its own wall (tile on brick, slate
 on slate and glass), where it takes the other (`pitchedFinish`, decided on hue: a tilted roof

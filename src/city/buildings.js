@@ -91,25 +91,31 @@ function oklab(c) {
 }
 
 /**
- * The deck inside a flat roof's lip: a shade of the wall's own colour, darker on a light wall
- * and lighter on a dark one, whichever stands further from it as lit (`roofContrast`).
+ * The deck inside a flat roof's lip: one grey off `ROOF_GREYS`, the one nearest the middle of the
+ * ladder that stands at least `ROOF_MIN_CONTRAST` from the walls as lit (`roofContrast`).
  *
  * Tyler, 2026-11-27: "make sure that building roof color is not the same as the building body."
  * It was the body at 0.67, and at 4:24 PM the deck takes about as much sun as the lit wall does,
  * so the darkening was spent on the lighting and the two read as one colour (measurements at
- * `DECK_LIGHT`). The first fix gave decks a roofing finish of their own (charcoal tar, warm
- * gravel) and read as random — "pick adjacent shades of the building color vs totally diff
- * colors" — so the deck keeps the wall's hue and moves only in value, but far enough to clear
- * both lit walls: half the body on concrete, pale, tan and the bank, `ROOF_LIFT` of HSL lightness
- * over it on brick, glass and slate. Worst family as drawn: tan, 0.122; before, slate at 0.057. The
- * lip stays the body darkened, so it frames the deck either way. Held by `tools/probe.mjs`.
+ * `DECK_LIGHT`). Two tries came first. A roofing finish of its own, charcoal tar or warm gravel,
+ * read as random; a shade of the wall's own colour (half the body, or lighter on dark walls) put
+ * pink-brick and sage decks on top and he liked a slate tower's old grey deck better: "lets just
+ * try shades of gray for rooftops instead". So every deck is neutral, and only its value is
+ * picked. Nearest the middle rather than the most contrasting, because the most contrasting is
+ * always an end of the ladder: charcoal on every light building and near-white on every dark one.
+ * As drawn: concrete, brick and glass take the third grey, pale and the bank the fourth, tan the
+ * fifth, slate the second (jitter moves a building a step either way). The lip stays the body darkened, so it frames the deck in the
+ * building's own colour. Held by `tools/probe.mjs`.
  */
-export const ROOF_DARKEN = 0.5;
-export const ROOF_LIFT = 0.16;
+export const ROOF_GREYS = ['#3E4146', '#4F5257', '#606368', '#72757A', '#85888C', '#9A9C9F', '#AEB0B2'];
+export const ROOF_MIN_CONTRAST = 0.09;
+const ROOF_ORDER = [3, 2, 4, 1, 5, 0, 6];
 export function roofDeck(wall) {
-  const darker = wall.clone().multiplyScalar(ROOF_DARKEN);
-  const lighter = wall.clone().offsetHSL(0, 0, ROOF_LIFT);
-  return roofContrast(wall, darker) >= roofContrast(wall, lighter) ? darker : lighter;
+  const greys = ROOF_GREYS.map((h) => color(h));
+  const score = greys.map((g) => roofContrast(wall, g));
+  const pick = ROOF_ORDER.find((i) => score[i] >= ROOF_MIN_CONTRAST)
+    ?? score.indexOf(Math.max(...score));
+  return greys[pick];
 }
 
 // The light on a deck and on a shaded wall, per channel, relative to the sunny wall. Measured off
