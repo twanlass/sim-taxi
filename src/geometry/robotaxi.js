@@ -7,7 +7,7 @@ import { PALETTE, color } from '../palette.js';
 import { attribute, float, fract, materialColor, uniform, varying } from 'three/tsl';
 import { gpuMaterials } from '../util/gpu.js';
 import { SILL_Y, WHEEL_W, wheelAnchors } from './wheels.js';
-import { outlineVehicle, addGhostMask, VEHICLE_RIM, WHEEL_RIM } from './ghostoutline.js';
+import { outlineVehicle, VEHICLE_RIM, WHEEL_RIM } from './ghostoutline.js';
 
 // The robo-taxi: a pod, not a car. An elongated rounded box — a superellipsoid, square-ish in every
 // section with soft corners — whose whole upper half is one continuous piece of tinted glass, roof,
@@ -510,8 +510,8 @@ function buildRoboDoors(shell, len) {
     hinge.add(panel);
     const gap = new THREE.Mesh(gapGeo, gapMat);
     flank.add(hinge, gap);
-    addGhostMask(panel);
-    addGhostMask(gap);
+    // No masks of their own: `outlineVehicle` walks the shell after this and masks every opaque
+    // part it finds, these included, under the handle that switches them with the rim.
     shell.add(flank);
     doors.set(side, { flank, hinge, panel, gap });
   }

@@ -463,6 +463,15 @@ export function createCarGhosts(scene, traffic) {
         const ghost = car.skinRoot?.userData.ghost;
         if (!ghost || car.crashed) continue;
         skinGhosts.add(ghost);
+        // A robo-taxi is outlined wherever it is (Tyler, 2026-11-27: "robos don't have a ghost
+        // outline when behind buildings"). The radius is a *collision* warning, sized for things
+        // the taxi might hit; a robo-taxi is a rival the player is racing to a rider, and the one
+        // it matters to track is usually the far one, past GHOST_RADIUS, heading for a kerb.
+        if (car.robo) {
+          ghost.set(smoothstep(envelope) * GHOST_OPACITY);
+          liveSkins.add(ghost);
+          continue;
+        }
         const dx = car.x - taxi.x;
         const dz = car.z - taxi.z;
         const d2 = dx * dx + dz * dz;
