@@ -1,3 +1,4 @@
+import { ROAD_PAINT_BAKE } from '../city/roadpaintbake.js';
 // Deterministic review framings. ?shot=N pins the seed, warms the sim up a fixed amount, freezes
 // it and fixes the camera, so before/after screenshots differ only by the change under review.
 //
@@ -414,6 +415,10 @@ export function getRunSeed(citySeed, deterministic) {
  * The city itself. Random by default so no two loads share a layout, `?seed=N` to pin one you
  * want back. Shot mode always pins it to the same historical default so review screenshots
  * don't move — a random city per screenshot would make every diff also a layout diff.
+ *
+ * A road paint bake that carries a `seed` (⚙️ Road paint > Lock game to this seed) beats both the
+ * random draw and shot mode's default: the paint is laid in world space, so it only lines up on
+ * the city it was painted on. `?seed=N` still wins, which is how the painter looks at other cities.
  */
 export function getSeed({ deterministic = false } = {}) {
   const params = new URLSearchParams(window.location.search);
@@ -422,6 +427,7 @@ export function getSeed({ deterministic = false } = {}) {
     const parsed = Number.parseInt(raw, 10);
     if (!Number.isNaN(parsed)) return parsed;
   }
+  if (Number.isInteger(ROAD_PAINT_BAKE?.seed)) return ROAD_PAINT_BAKE.seed;
   if (deterministic) return 71624;
   return (Math.random() * 0xffffffff) >>> 0;
 }

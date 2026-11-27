@@ -82,7 +82,7 @@ import { createBurgerRun } from '../src/game/burgerrun.js';
 import { createOvertakeCombo, OVERTAKE_BLIP_MS, OVERTAKE_GRACE } from '../src/game/overtake.js';
 import { createOpening, exitPath, entryPath, REPAIR_GAP } from '../src/game/opening.js';
 import { createDepotRun } from '../src/game/depotrun.js';
-import { spinTaxi, driftTaxi, kickDrift, DRIFT_KICK_WINDOW, DRIFT_MIN_V, DRIFT_ANGLE, DRIFT_EXIT, DRIFT_CHAIN, createTraffic, lightPhase, displayPhase, setPriorityJunction, isUnsignalised, ringAxisAt, placeCar, approachRoom, setClosedLanes, isLaneClosed, ROAD_Y, HOP_LEN, DRIFT_LAUNCH_LEN, DRIFT_LAUNCH_HEIGHT, onDriftLaunch, setBarrelRoll, setHopStyle, setDodge, setOvertakeStyle, setPeek, setTaxiScatter, HOP_MIN_V, STOP_SETBACK, SIGNAL_LEAD, SIGNAL_LINGER, wheelAnchors, WHEEL_R, STEER_MAX, SPEED, CAR_LEN, CAR_W, landingBounce, landingRoll, BOUNCE_DUR, TRUCK_W, SPAWN_CLEARANCE, POLICE_FLEET,
+import { spinTaxi, driftTaxi, kickDrift, DRIFT_KICK_WINDOW, DRIFT_MIN_V, DRIFT_ANGLE, DRIFT_EXIT, DRIFT_CHAIN, createTraffic, lightPhase, displayPhase, setPriorityJunction, isUnsignalised, ringAxisAt, placeCar, approachRoom, setClosedLanes, isLaneClosed, ROAD_Y, HOP_LEN, DRIFT_LAUNCH_LEN, DRIFT_LAUNCH_HEIGHT, onDriftLaunch, setBarrelRoll, setBigAirStyle, setHopStyle, setDodge, setOvertakeStyle, setPeek, setTaxiScatter, HOP_MIN_V, STOP_SETBACK, SIGNAL_LEAD, SIGNAL_LINGER, wheelAnchors, WHEEL_R, STEER_MAX, SPEED, CAR_LEN, CAR_W, landingBounce, landingRoll, BOUNCE_DUR, TRUCK_W, SPAWN_CLEARANCE, POLICE_FLEET,
   LOCO_DEFAULTS, locoTuning, setLocoTuning, resetLocoTuning, locoRamp, boostCruise, overdriveTop, MPH_PER_UNIT, locoWeave, locoWeaveFade, MIN_GAP, ENVELOPE, CIRCLE_OFFSET, DODGE_MARGIN, carGeometry, CABIN_TOP, copLaysRubber, uturnWindow } from '../src/sim/traffic.js';
 import { loadLocoTuning, saveLocoTuning, clearLocoTuning } from '../src/game/locostash.js';
 import { createRoadwork, BARRIER_S, CONE_ROW, ROADWORKS_MODE } from '../src/game/roadwork.js';
@@ -20905,11 +20905,12 @@ let chopperOrder; // likewise
   // What has to hold is the chain DRIFT_LAUNCH_LEN is derived from — off the hump, clear over the
   // far bank's junction, down on the next street *before its hold line* — plus the two promises
   // that make a long flight safe to have at all: the brake cannot park it in mid-air, and what
-  // drives under it is not a collision. The routed exit is straight on, which the launch requires;
-  // the same crossing with a turn there is the ordinary hop.
+  // drives under it is not a collision. The routed exit is straight on; the same crossing with a
+  // turn there flies straight over anyway and drops the route (`bigAirDetour`), and under
+  // ?bigair=classic it is the ordinary hop.
   {
     const lLine = bridgeLines().find((i) => riverCrossing(i) === 'fixed');
-    const fly = (exitDir, { release = false, carry = 3 } = {}) => {
+    const fly = (exitDir, { release = false, carry = 3, late = null } = {}) => {
       const lScene = new THREE.Scene();
       const lTraffic = createTraffic(makeRng(seed + 96), lScene, 1);
       const lTaxi = lTraffic.taxi;
@@ -20944,6 +20945,9 @@ let chopperOrder; // likewise
         lTaxi.boostEasing = release && big;
         // Standing on the brake the whole way: the flight must not care.
         lTaxi.braking = big;
+        // `late` is main.js re-planning on the detour mid-crossing, offering the corner back as a
+        // late turn (`retakeCrossing`) — which is what the game does on the frame after the drop.
+        if (late && lTaxi.state === 'turn' && lTaxi.hopFrom != null) { lTaxi.lateTurn = late; late = null; }
         const before = lTaxi.hopFrom;
         lTraffic.update(1 / 60);
         if (before == null && lTaxi.hopFrom != null) {
@@ -20963,11 +20967,15 @@ let chopperOrder; // likewise
           air = lTaxi.travelled - launchTravelled;
         }
       }
+      const detoured = lTaxi.detoured === true;
       lTraffic.dispose?.();
-      return { big, peak, landing, landLane, landS, air, minUp, landUp, airV };
+      return { big, peak, landing, landLane, landS, air, minUp, landUp, airV, detoured };
     };
     const straight = fly(DIR.PZ);
+    const detour = fly(DIR.PX, { late: [DIR.PX, DIR.PX] });
+    setBigAirStyle('classic');
     const turning = fly(DIR.PX);
+    setBigAirStyle();
     setBarrelRoll('classic');
     const level = fly(DIR.PZ);
     setBarrelRoll();
@@ -20999,7 +21007,12 @@ let chopperOrder; // likewise
     check('with the brake held the whole way, the flight is still its full length',
       straight.air !== null && straight.air >= DRIFT_LAUNCH_LEN && straight.air < DRIFT_LAUNCH_LEN + 1,
       `${straight.air?.toFixed(2)} of ${DRIFT_LAUNCH_LEN}`);
-    check('a route turning at the far bank gets the ordinary hop instead',
+    check('a route turning at the far bank still flies Big Air, straight on, drops the route to re-plan and refuses the corner back',
+      detour.big && detour.landing?.big === true && detour.landLane
+      && cityNetwork().dirOfLane(detour.landLane) === DIR.PZ && detour.detoured,
+      `big ${detour.big}, landed heading ${detour.landLane && cityNetwork().dirOfLane(detour.landLane)}, `
+        + `detoured ${detour.detoured}`);
+    check('...and under ?bigair=classic it gets the ordinary hop instead',
       !turning.big && turning.landing && turning.landing.big === false,
       `big ${turning.big}`);
 

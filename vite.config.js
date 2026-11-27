@@ -1,6 +1,7 @@
 import { defineConfig } from 'vite';
 import { fileURLToPath } from 'node:url';
 import { workshopAgent } from './tools/workshop-agent.mjs';
+import { roadPaintSaver } from './tools/roadpaint-save.mjs';
 
 // Three pages, not one. The game is `/`, the passing lab is `/lab/` — see docs/lab.md for what
 // the lab is and why it isn't reachable from the game — and the talk is `/talk/` (docs/talk.md).
@@ -12,7 +13,8 @@ import { workshopAgent } from './tools/workshop-agent.mjs';
 export default defineConfig({
   // The model workshop's chat (`/workshop/`, docs/workshop.md). Dev server only: the plugin is
   // `apply: 'serve'`, and the workshop page is deliberately not one of the build inputs below.
-  plugins: [workshopAgent()],
+  // The road paint tool's Save to repo (tools/roadpaint-save.mjs), likewise dev server only.
+  plugins: [workshopAgent(), roadPaintSaver()],
   build: {
     rollupOptions: {
       input: {
