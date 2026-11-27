@@ -9,6 +9,16 @@ The sections follow rendering.md's order and headings, and each links back to th
 Pull-request numbers and dates are given where the git history records them — most of this
 predates the repository's first commit here (2026-10-08) and is undated.
 
+## The tree crown — `treeParts` in `city/props.js`
+
+Until 2026-11-27 every crown was a main lobe of the crown's full radius (an icosahedron at detail 1)
+with one or two smaller detail-0 lobes pushed into it, all lit with smooth ellipsoid normals and
+dressed in leaf cards. Lit that softly, two or three overlapping balls read as one ball, and the
+cards only showed at its edge: Tyler described it as "a sphere with alphad meshes tucked in". It had
+no shade of its own inside the crown and no gaps to see into, and the trunk ended where the ball
+began. `?trees=classic` brings it back; the clumped crown that replaced it is in
+[city.md](city.md#the-tree--treeparts-in-citypropsjs).
+
 ## Wall detail — `city/facade.js`
 
 [Current](rendering.md#wall-detail--cityfacadejs). Until 2026-10-24 every tower wall was one baked

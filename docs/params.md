@@ -83,6 +83,7 @@ doc; what the classic version was, and why it changed, is in that doc's history 
 | `?roofs=classic` | Solid flat roof caps, with no lip and no sunk deck | #511 | [city.md](city.md) |
 | `?flames=classic` | The drift kick's two plumes splayed into a V off the pipe (0.6 out, 0.32 rad each side) instead of running parallel 0.65 out | | [rendering.md](rendering.md#the-tailpipe-plume--gamelocoflamejs) |
 | `?foliage=classic` | The first, louder autumn palette | #486 | [rendering.md](rendering.md) |
+| `?trees=classic\|shapes\|species\|cards\|cardshapes\|quads\|lowpoly\|real` | `classic`: the crown as two or three big lobes instead of clumps over a dark core. The rest are explorations: four crown shapes, a mixed-species park, an all-card crown, all-card crowns in seven shapes, the same shapes as a few big leaf-mass quads each, faceted low-poly, a more realistic crown | — | [city.md](city.md#the-tree--treeparts-in-citypropsjs) |
 | `?water=classic` | The faceted first river surface | | [river.md](river.md) |
 | `?paint=classic` / `=layered` / `=chameleon` / `=satin` / `=toon` / `=rim` | Car paint before the layered finish, or one of the explored looks (default is `real`: sharp glint, flakes, flip colour, painted reflection streaks; `rim` was the default before it, `toon` before that) | #501 | [rendering.md](rendering.md) |
 | `?rim=off` / `=magenta` / `=cyan` / `=gold` / `=white` | The rim line every paint look wears: off, or one tint for every car (default: each car's own colour) | | [rendering.md](rendering.md#car-paint--the-layered-finish) |

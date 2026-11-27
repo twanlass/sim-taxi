@@ -47,7 +47,7 @@ import { createBoats } from './game/boats.js';
 import { createHarborShips } from './game/harborships.js';
 import { createBridge, jointParts, BRIDGE_NORMALS_CLASSIC } from './geometry/bridge.js';
 import { createBuildings } from './city/buildings.js';
-import { createProps, parkPlots, setAutumn } from './city/props.js';
+import { createProps, parkPlots, setAutumn, setTreeStyle } from './city/props.js';
 import { createLeaves } from './game/leaves.js';
 import { createGrass } from './city/grass.js';
 import { createCanopyFuzz } from './city/canopyfuzz.js';
@@ -188,7 +188,7 @@ import { streetAt, routeDrives, STREET_TAP_MAX_DETOUR } from './game/streettap.j
 import { createPathDrag } from './game/pathdrag.js';
 import { getActiveShot, getSeed, getRunSeed, getCarCount, getDifficultyPin, getDifficultyMode,
   getSafeMode, safeModeSource, getPixelRatioCap,
-  getDiagnostics, getParcelsPin, getRain, getStorm, getSquall, getSquallRampClassic, getSunRaysClassic, getWetTyres, getWreckStyle, getFall, getFoliageClassic, getWater, getUturnStyle, getCrt } from './util/shot.js';
+  getDiagnostics, getParcelsPin, getRain, getStorm, getSquall, getSquallRampClassic, getSunRaysClassic, getWetTyres, getWreckStyle, getFall, getFoliageClassic, getTreesClassic, getTreeStyle, getWater, getUturnStyle, getCrt } from './util/shot.js';
 import { createParcelSystem, TAP_MAX_DETOUR } from './game/parcels.js';
 import { createRobbery } from './game/robbery.js';
 import { createRadio, LOST_CALL, ROBBERY_CALL } from './game/radio.js';
@@ -823,6 +823,7 @@ const stopPanes = rain.enabled ? collectPanes() : null;
 // same broadleaf, and autumn is one fact about the whole city (`autumnBase` in city/props.js).
 const fall = getFall();
 setAutumn(fall, { classicColours: getFoliageClassic() });
+setTreeStyle({ classic: getTreesClassic(), style: getTreeStyle() });
 const city = createBuildings(makeRng(seed + 22), layout);
 // The donut shop's site, or null (city/donutshop.js). Read this early because the street lamps,
 // post boxes and bag piles below keep off its parked cruiser; built further down beside the vet.
@@ -8735,6 +8736,16 @@ if (shot) {
   // anything if both are pointed at the same water.
   if (shot.atPond && ducks.pond) {
     controller.state.target.set(ducks.pond.x, 0, ducks.pond.z);
+    controller.update(aspect());
+  }
+
+  // The park trees (`clumpedTree` in city/props.js): framed on the trunk with the most other
+  // trunks around it, so a close shot is a stand of trees rather than one tree on a lawn.
+  if (shot.atTrees && props.crowns.length) {
+    const trunks = [...new Map(props.crowns.map((c) => [`${c.tx},${c.tz}`, c])).values()];
+    const near = (t) => trunks.filter((o) => Math.hypot(o.tx - t.tx, o.tz - t.tz) < 7).length;
+    const best = trunks.reduce((a, b) => (near(b) > near(a) ? b : a));
+    controller.state.target.set(best.tx, 2, best.tz);
     controller.update(aspect());
   }
 

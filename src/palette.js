@@ -932,6 +932,11 @@ export const PALETTE = {
 
   trunk: '#6B4E35',
   foliage: '#4F8F4A',
+  // Tree species (`?trees=species`, city/props.js): an evergreen that stays green through the fall,
+  // and a birch's pale bark and its lighter summer leaf.
+  conifer: '#2F5E43',
+  birchBark: '#D9D2C3',
+  birchLeaf: '#7FA650',
   // Autumn (`autumnBase` in city/props.js): the colours a broadleaf turns. Still spread across
   // value as well as hue so a park reads as several trees rather than one tree in four tints — gold
   // above the green's luma 116, rust under it, orange between — but held to a narrow band. The
