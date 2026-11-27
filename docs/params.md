@@ -74,10 +74,13 @@ doc; what the classic version was, and why it changed, is in that doc's history 
 | `?windows=classic` | Building windows are the faux sky gradient in vertex colour again, instead of glass meshes with stylised 45° light streaks | #681 | [rendering.md](rendering.md#window-glass--citybuildingsjs) |
 | `?garbage=classic` | No bag piles on the kerb and no garbage truck | `GARBAGE=classic` | [city.md](city.md#the-bag-piles-and-the-garbage-truck) |
 | `?robotaxi=classic` | No robo-taxis: nobody else in town takes your riders | | [gameplay.md](gameplay.md#robo-taxis) |
-| `?riders=classic` | Arcade without the rider race: one to four riders on the pressure curve on ordinary clocks, every rider let go a strike, and the two slow robo-taxis with the thin claim ring, both on from the first drop-off | | [gameplay.md](gameplay.md#the-rider-race) |
+| `?riders=classic` | Arcade without the rider race: one to four riders on the pressure curve on ordinary clocks, every rider let go a strike, and the two slow robo-taxis with the thin claim ring, both on from the first drop-off; and, in every mode, no cyan pie over an occupied robo-taxi, no robo-taxi route lines, the "Rider stolen!" callout back, and a locked rider's clock running on | | [gameplay.md](gameplay.md#the-rider-race) |
+| `?landmarks=classic` | The vet's dog and the donut shop take any corner shop that fits, whole-block boxes and two-storey walk-ups included, rather than only a low shop sharing its block | | [city.md](city.md#the-vet-clinic) |
 | `?vet=classic` | No vet clinic: the corner shop it picks keeps a bare roof and an empty window | | [city.md](city.md#the-vet-clinic) |
 | `?donut=classic` | No donut shop: the corner shop it picks keeps a bare roof, and no cruiser parks outside | | [city.md](city.md#the-donut-shop) |
 | `?billboard=classic` | No rooftop billboards: the robo-taxi and Dub Burger roofs stay bare | | [city.md](city.md#the-rooftop-billboard) |
+| `?crane=classic` | No construction crane: the mid-rise it stands on keeps a plain roof | | [city.md](city.md#the-construction-crane) |
+| `?crane=shadow` | The crane's moving parts (jib, trolley, rope, beam) cast shadows too; by default only the storey and mast do | | [city.md](city.md#the-construction-crane) |
 | `?vetopen=word` | The vet's OPEN sign spells the word in red neon letters inside its blue frame, instead of one red bar | | [city.md](city.md#the-vet-clinic) |
 | `?roofs=classic` | Solid flat roof caps, with no lip and no sunk deck | #511 | [city.md](city.md) |
 | `?flames=classic` | The drift kick's two plumes splayed into a V off the pipe (0.6 out, 0.32 rad each side) instead of running parallel 0.65 out | | [rendering.md](rendering.md#the-tailpipe-plume--gamelocoflamejs) |

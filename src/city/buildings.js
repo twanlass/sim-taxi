@@ -9,6 +9,7 @@ import { buildBank, bankDomeMesh, chooseBankLot } from './bank.js';
 import { chooseVetSite } from './vetclinic.js';
 import { chooseDonutSite } from './donutshop.js';
 import { chooseBillboardSite } from './billboard.js';
+import { chooseCraneSite } from './crane.js';
 import {
   GLASS_RECESS, RECESS_PIER, WALLS_CLASSIC, WALL_STYLE, fillWalls, frameMesh, patchWalls, recessShell, stampWall,
   windowFrames,
@@ -921,6 +922,9 @@ function roofFurniture(parts, cx, cz, cw, cd, deck, rng, keep = []) {
     const tx = cx + rng.jitter(Math.max(0, cw / 2 - TANK_R - 0.5));
     const tz = cz + rng.jitter(Math.max(0, cd / 2 - TANK_R - 0.5));
     footprint(tx, tz, TANK_R * 2, TANK_R * 2);
+    // Flagged on the keep-out itself: a tank is 3.3 tall, so a roof sign (the vet's dog, the donut)
+    // cannot share the deck with one. The dog's head went straight through it (Tyler, 2026-11-27).
+    keep[keep.length - 1].waterTower = true;
 
     for (const [lx, lz] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) {
       parts.push(box(0.13, LEG_H, 0.13, tx + lx * TANK_R * 0.62, deck, tz + lz * TANK_R * 0.62,
@@ -1523,6 +1527,18 @@ export function createBuildings(rng, blocks) {
   // The rooftop billboards (city/billboard.js): the widest flat roofs left, the same way — by rule
   // and by hash, after everything else, so they move nothing either.
   const billboards = chooseBillboardSite(towers, [site, vet?.roof, donut?.roof].filter(Boolean));
+  // The construction crane (city/crane.js): a mid-rise roof that grows a bare storey and a tower
+  // crane, chosen last of all and the same way, so it moves nothing either.
+  const boardDecks = towers.filter((t) => billboards.some((b) => b.anchor.x === t.cx && b.anchor.z === t.cz)).map((t) => t.deck);
+  const crane = chooseCraneSite(towers, {
+    taken: [site, vet?.roof, donut?.roof, ...boardDecks].filter(Boolean), bank, pad, billboards,
+    // The donut on its roof stands ~6 over the deck (LIFT plus the ring across), far past the 2.6 the
+    // crane allows for roof furniture, so it goes in as an obstacle of its own.
+    extra: donut ? [{
+      x0: donut.roof.cx - donut.roof.cw / 2, x1: donut.roof.cx + donut.roof.cw / 2,
+      z0: donut.roof.cz - donut.roof.cd / 2, z1: donut.roof.cz + donut.roof.cd / 2, top: donut.roof.deck + 6.3,
+    }] : [],
+  });
 
   const count = parts.length;
   const { solid: unframed, frames } = frameMesh(parts, 'buildings');
@@ -1560,6 +1576,8 @@ export function createBuildings(rng, blocks) {
     // The roofs that carry billboards, one per ad (maybe none) — see `chooseBillboardSite`. Built
     // by main.js.
     billboards,
+    // The roof the construction crane stands on, or null — see `chooseCraneSite`. Built by main.js.
+    crane,
     // Every flat roof that is still a roof — the helipad's deck is spoken for — with the footprint
     // of what stands on it. The flocks pick their rooftop roosts from these; see `chooseRoosts` in
     // game/birds.js.

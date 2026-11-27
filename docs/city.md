@@ -935,6 +935,15 @@ through every other tower's box (taken 2.6 taller than its walls, for what stand
 That is what keeps the clinic off the downtown corners, where a tower across the street hides the
 window. 30 seeds out of 30 get one.
 
+**Which of those.** Never a roof with a water tower on it: the tank is 3.3 tall and the head went
+straight through one. Among the rest, the kind of building Tyler picked off a contact sheet of 24
+candidates (2026-11-27) wins — `landmarkShop`: a shop **sharing its block** with other buildings and
+no taller than `SHOP_MAX_TOP` (5). He struck every whole-block box (a sign on a lone box reads as a
+warehouse with a mascot) and the two-storey walk-ups. It is a preference, not a filter: about one
+city in fifteen has no such shop, and then any shop that fits will do, so the city keeps its
+landmark. The donut shop follows both rules the same way. `?landmarks=classic` drops the preference
+and keeps the water-tower rule, which is a bug fix.
+
 **The head** (`dogHeadGeometry`, `HEAD_R = 1.75`, about 32px across at play zoom) is squashed
 spheres at twelve segments, a toy the way the burger is, turned 0.5 rad off the camera's bearing
 so the muzzle and tongue show in profile — square on, the snout foreshortens away. It cocks slowly
@@ -1030,6 +1039,48 @@ the two never share a view. Over 30 seeds every city gets the robo-taxi board an
 as well. The steel and the poster go into the sightline field, so no fare is placed on a corner a
 board hides. Shots `billboard`/`billboard-far` frame the first, `billboard-burger`/`billboard-burger-far`
 the second.
+
+## The construction crane
+
+One mid-rise per city is adding floors (`city/crane.js`): its flat roof grows a bare concrete storey,
+columns and a slab in raw grey concrete a step darker than any finished wall, with the next storey's
+column stubs and rebar on top. A dusty-mustard tower crane stands up through the middle swinging a
+red-oxide steel beam about. Pure background; not tappable. `?crane=classic` leaves the roof a roof.
+
+**Four bars and a few struts.** The mast and the jib are each four main bars (0.17) tied by a ring of
+cross struts every 1.7, with one diagonal per face per bay. The jib tapers to 55% at its tip. Two
+earlier looks were rejected. A full lattice of 0.07–0.12 members was one or two pixels of shimmer at
+play zoom ("too spindly"), and solid banded boxes read as "just blocks". The operator's cab is a blue
+steel box with glass all round, on the slewing platform where the mast meets the jib. There are two
+0.34 red lamps, on the tower head's apex and the jib tip. There are no pendant ties or slings,
+because black hairlines read as scratches. Only the hoist rope is left, one 0.1 grey line.
+
+**It uses a roof rather than a lot.** A fenced pit would mean `createLayout` taking a block and every
+draw after it moving; instead `chooseCraneSite` picks a tower after the billboards, by rule and hash,
+like the vet and the boards, so no draw moves. A real city crane climbs up the building's own core,
+so the mast going down through the slab is the true arrangement.
+
+**Which roof.** A deck at least 3.6 wide on a building 3.2 to 8.5 tall, nowhere near the helipad.
+The jib's underside sits 3.4 over the tallest thing in the circle it sweeps: every tower's roof
+plus 2.6 for its furniture, the bank's dome, the billboards, and the L train's car roofs (8.35).
+The lowest crane wins, because under this camera every unit of height hides 1.09 units of ground
+up-screen. The outer ring of blocks is penalised, since that is where the neighbours are lowest and the
+first cut kept choosing the fog. Every one of 40 seeds gets a crane, with the jib at 10 to 14.4.
+It stays out of the sightline field: a member under a unit across can cover a slice of a 3.5-unit kerb mark, never the whole of one.
+
+**The motion is transforms, not geometry.** The storey and mast are one static mesh, stamped into
+the entrance wave. The slewing top (jib, counter-jib, head, cab), the trolley, the rope (a unit box
+scaled to the drop) and the hook with its beam are four meshes under two groups, grown on the CPU
+by the wave (`entryObject`) because they turn. The crane holds a big I-beam (4 units) out near the tip and
+slews it slowly between headings, 6–9s a move, pausing between moves to let it dangle. The run's
+seed picks the headings. A crane within reach of the L only swings through a 120° arc turned away
+from the line (`ARC`), because a jib over the train read as clipping it even though it cleared it
+in height. The beam hangs on a damped pendulum driven by
+the trolley's radial and tangential acceleration plus a faint breeze, so it swings when the crane starts and stops and never hangs dead still.
+While it is out over the neighbours, its underside stays a unit above the tallest roof in reach.
+The moving parts use `propMaterial({ ao: false })` and stay out of the AO prepass. By default they
+cast no shadow (`?crane=shadow` turns that on). The two red aircraft lamps bloom as `window` and blink (0.6s lit in every 1.5s) by dimming their colour, which the bloom copy follows. Shots
+`crane`/`crane-far` frame it, and `window.__craneStep(dt)` steps it for filming.
 
 ## The roadside lot, and its tube man
 

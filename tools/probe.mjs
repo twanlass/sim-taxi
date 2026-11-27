@@ -19827,6 +19827,9 @@ let chopperOrder; // likewise
   let jointSeen = 0;
   let donutCorners = 0;
   let donutSeen = 0;
+  // Roof landmarks standing on a water tower's deck — the dog's head went through one (2026-11-27).
+  let tankRoofs = 0;
+  let landmarkRoofs = 0;
   const SEEDS = 4;
   for (let n = 0; n < SEEDS; n++) {
     const s = seed + n * 977;
@@ -19848,6 +19851,11 @@ let chopperOrder; // likewise
     }
     // ...and the donut shop's, for the same reason: its corner is the only place a donut order comes
     // from (city/donutshop.js `pickup`).
+    for (const site of [sweepBuilt.vet, sweepBuilt.donut]) {
+      if (!site) continue;
+      landmarkRoofs += 1;
+      if (site.roof.keep.some((k) => k.waterTower)) tankRoofs += 1;
+    }
     if (sweepBuilt.donut) {
       donutCorners += 1;
       if (cornerSeen(sweepBuilt.donut.pickup.i, sweepBuilt.donut.pickup.j)) donutSeen += 1;
@@ -19913,6 +19921,8 @@ let chopperOrder; // likewise
   check('the donut shop\u2019s own corner is visible in every city, so donuts are always on offer',
     donutCorners === SEEDS && donutSeen === donutCorners,
     `${donutSeen}/${donutCorners} donut shops with a visible pickup corner`);
+  check('landmarks: no dog or donut shares its roof with a water tower', landmarkRoofs > 0 && tankRoofs === 0,
+    `${tankRoofs} of ${landmarkRoofs} roofs carry a tank`);
   // A filter that eats the board is worse than the bug. Two junctions a city on average, and the
   // worst city in the sweep is the number that would show up as "nowhere to put a fare".
   check('and the filter costs the board a couple of junctions, not a district',

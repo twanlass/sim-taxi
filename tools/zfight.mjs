@@ -56,6 +56,7 @@ import { createVetClinic } from '../src/city/vetclinic.js';
 import { createDonutShop } from '../src/city/donutshop.js';
 import { parkedCruiser } from '../src/sim/police.js';
 import { createBillboard } from '../src/city/billboard.js';
+import { createCrane } from '../src/city/crane.js';
 import { createGraveyard } from '../src/city/graveyard.js';
 import { createCarWash } from '../src/city/carwash.js';
 import { createGasStation } from '../src/city/gasstation.js';
@@ -139,6 +140,7 @@ function buildCity(seed) {
   if (city.vet) add('vet', createVetClinic(city.vet).group);
   if (city.donut) add('donut', createDonutShop(city.donut, { makeCruiser: parkedCruiser }).group);
   city.billboards.forEach((b, i) => add(`billboard-${i}`, createBillboard(b).group));
+  if (city.crane) add('crane', createCrane(city.crane, makeRng(seed + 547)).group);
   if (layout.roadsideBlock) {
     const create = roadsideKind(seed) === 'gas' ? createGasStation : createCarWash;
     add('roadside', create(layout.roadsideBlock, makeRng(seed + 141)).group);
