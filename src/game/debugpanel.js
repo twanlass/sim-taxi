@@ -21,6 +21,7 @@ import { wallGrainOn, wallGrainTuning } from '../city/wallgrain.js';
 import {
   brush as paintBrush, CHANNELS as PAINT_CHANNELS, setPaintAmount, paintAmount, undoRoadPaint, clearRoadPaint, setLockedSeed, lockedSeedValue, bakedSeed,
   encodeRoadPaint, bakeSource, revertRoadPaint, hasLocalPaint, setAlbedoView, albedoView, setPaintColor, paintColor,
+  hasWear, wearEnabled, setWearEnabled, wearParams, setWearParam, resetWear,
 } from './roadpaint.js';
 
 // A small tweak panel behind a gear button.
@@ -1144,8 +1145,8 @@ export function createDebugPanel({
     syncs.push(() => { on.checked = paintBrush.on; });
 
     const channel = dropdown(PAINT_CHANNELS, PAINT_CHANNELS[paintBrush.channel]);
-    row(panel, 'Channel (1-4)', channel);
-    channel.addEventListener('change', () => { paintBrush.channel = channel.selectedIndex; });
+    row(panel, 'Channel', channel);
+    channel.addEventListener('change', () => { paintBrush.channel = channel.selectedIndex; syncs.forEach((f) => f()); });
     syncs.push(() => { channel.selectedIndex = paintBrush.channel; });
 
     const erase = document.createElement('input');
@@ -1200,14 +1201,18 @@ export function createDebugPanel({
       syncs.push(show);
     }
     // Each channel's colour and how hard it lands. Both live in the bake beside the strokes, so a
-    // channel can be recoloured after it is painted.
+    // channel can be recoloured after it is painted. Only the selected channel's pair is shown;
+    // the dropdown (or keys 1-4) swaps which.
     PAINT_CHANNELS.forEach((name, c) => {
       const well = swatch(paintColor(c));
-      row(panel, `Channel ${name} colour`, well);
+      const wellRow = row(panel, `Channel ${name} colour`, well).parentElement;
       well.addEventListener('input', () => setPaintColor(c, well.value));
       const input = slider(0, 1, 0.01, paintAmount(c));
       const value = row(panel, `Channel ${name} amount`, input);
-      const show = () => { input.value = String(paintAmount(c)); value.textContent = paintAmount(c).toFixed(2); well.value = paintColor(c); };
+      const show = () => {
+        input.value = String(paintAmount(c)); value.textContent = paintAmount(c).toFixed(2); well.value = paintColor(c);
+        wellRow.hidden = value.parentElement.hidden = paintBrush.channel !== c;
+      };
       input.addEventListener('input', () => { setPaintAmount(c, Number(input.value)); show(); });
       show();
       syncs.push(show);
@@ -1226,6 +1231,45 @@ export function createDebugPanel({
     texAmt.addEventListener('input', () => { setRoadTextureOpacity(Number(texAmt.value)); showTexAmt(); });
     showTexAmt();
     syncs.push(showTexAmt);
+    // The procedural wear under the brush (game/roadwear.js): live, not saved — the defaults are
+    // WEAR_DEFAULTS. It lands in channels 1 (manholes, bridge grit) and 3 (the brown dirt), so the
+    // channel colours and amounts above recolour it too.
+    if (hasWear()) {
+      const wearOn = document.createElement('input');
+      wearOn.type = 'checkbox';
+      wearOn.checked = wearEnabled();
+      row(panel, 'Procedural wear', wearOn);
+      wearOn.addEventListener('change', () => { setWearEnabled(wearOn.checked); wearOn.blur(); });
+      syncs.push(() => { wearOn.checked = wearEnabled(); });
+      for (const [key, label, min, max, step] of [
+        ['kerb', 'Wear: kerb', 0, 1, 0.01],
+        ['kerbWidth', 'Wear: kerb width', 0.2, 4, 0.05],
+        ['kerbShare', 'Wear: kerb blocks', 0, 1, 0.05],
+        ['patchy', 'Wear: patchiness', 0, 1, 0.01],
+        ['patchScale', 'Wear: patch size', 1, 16, 0.1],
+        ['median', 'Wear: median', 0, 1, 0.01],
+        ['medianWidth', 'Wear: median width', 0.2, 4, 0.05],
+        ['manhole', 'Wear: manhole', 0, 1, 0.01],
+        ['manholeWidth', 'Wear: manhole width', 0.2, 3, 0.05],
+        ['bridge', 'Wear: bridge', 0, 1, 0.01],
+        ['bridgeLength', 'Wear: bridge length', 0.5, 8, 0.1],
+      ]) {
+        const input = slider(min, max, step, wearParams()[key]);
+        const value = row(panel, label, input);
+        const show = () => { input.value = String(wearParams()[key]); value.textContent = wearParams()[key].toFixed(2); };
+        // On release, not on every tick: a regenerate walks the whole map.
+        input.addEventListener('input', () => { value.textContent = Number(input.value).toFixed(2); });
+        input.addEventListener('change', () => { setWearParam(key, Number(input.value)); show(); input.blur(); });
+        show();
+        syncs.push(show);
+      }
+      const wearReset = document.createElement('button');
+      wearReset.type = 'button';
+      wearReset.className = 'dbg-wide';
+      wearReset.textContent = 'Reset wear';
+      wearReset.addEventListener('click', () => { resetWear(); syncs.forEach((f) => f()); });
+      panel.append(wearReset);
+    }
     // The city seed: paint is laid in world space, so it belongs to one city. Pick one (a reload
     // with ?seed=N), paint it, then lock the game to it; the lock rides in the bake (getSeed in
     // util/shot.js reads it at boot), so it takes hold once saved to the repo.

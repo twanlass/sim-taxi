@@ -25,6 +25,7 @@ import * as THREE from 'three';
 import { PAINT_UNIFORMS, unlitMaterial, displayColor, setRoadTextureOpacity, roadTextureOpacity, setAsphaltColor, asphaltOverridden, asphaltColor } from '../util/geo.js';
 import { coastWest, coastEast, coastNorth, coastSouth } from '../city/grid.js';
 import { ROAD_PAINT_BAKE } from '../city/roadpaintbake.js';
+import { buildRoadWear, WEAR_DEFAULTS } from './roadwear.js';
 
 /** World units per texel: the pixel street's own, so a painted texel is one road pixel exactly. */
 export const PAINT_TEXEL = 0.15;
@@ -41,6 +42,10 @@ const map = {
   version: 0,
 };
 const amounts = [1, 1, 1, 1];
+
+// The procedural wear (game/roadwear.js): its own buffer, never part of the bake. While it exists
+// the texture shows `shown`, the per-byte max of the hand paint and the wear, rebuilt on upload.
+const wear = { data: null, shown: null, inputs: null, params: { ...WEAR_DEFAULTS }, on: true };
 
 function applyAmounts() {
   const on = map.width > 1 ? 1 : 0;
@@ -90,8 +95,38 @@ function applyLook(saved) {
 
 function upload() {
   const tex = PAINT_UNIFORMS.tRoadPaint.value;
+  if (wear.shown) {
+    const a = map.data, b = wear.data, o = wear.shown;
+    if (wear.on) for (let i = 0; i < o.length; i++) o[i] = a[i] > b[i] ? a[i] : b[i];
+    else o.set(a);
+  }
   tex.needsUpdate = true;
   map.version += 1;
+}
+
+function regenerateWear() {
+  if (!wear.data) return;
+  buildRoadWear(wear.data, { width: map.width, height: map.height, minX: map.minX, minZ: map.minZ, texel: PAINT_TEXEL },
+    { ...wear.inputs, params: wear.params });
+  upload();
+}
+
+/** The procedural wear's parameters (WEAR_DEFAULTS), live. Debug panel only; not saved. */
+export const wearParams = () => wear.params;
+export const wearEnabled = () => Boolean(wear.data) && wear.on;
+export const hasWear = () => Boolean(wear.data);
+export function setWearParam(key, v) {
+  if (!(key in WEAR_DEFAULTS) || !Number.isFinite(v)) return;
+  wear.params[key] = v;
+  regenerateWear();
+}
+export function setWearEnabled(on) {
+  wear.on = Boolean(on);
+  upload();
+}
+export function resetWear() {
+  Object.assign(wear.params, WEAR_DEFAULTS);
+  regenerateWear();
 }
 
 /**
@@ -99,19 +134,26 @@ function upload() {
  * exists (coastNorth reads it) and before the first frame, so the one texture object is resized
  * before anything has uploaded it. `always` allocates even with an empty bake — debug mode.
  */
-export function installRoadPaint({ always = false } = {}) {
+export function installRoadPaint({ always = false, wear: wearInputs = null } = {}) {
   const bake = ROAD_PAINT_BAKE;
   const stored = always ? readStored() : null;
-  if (!always && !bake?.data) { applyLook(bake); return Promise.resolve(false); }
+  if (!always && !bake?.data && !wearInputs) { applyLook(bake); return Promise.resolve(false); }
   // Snapped to the texel grid at the world origin, the grid the pixel street rounds to.
   const minX = Math.floor(coastWest() / PAINT_TEXEL) * PAINT_TEXEL;
   const minZ = Math.floor(coastNorth() / PAINT_TEXEL) * PAINT_TEXEL;
   const width = Math.ceil((coastEast() - minX) / PAINT_TEXEL);
   const height = Math.ceil((coastSouth() - minZ) / PAINT_TEXEL);
   Object.assign(map, { data: new Uint8Array(width * height * 4), width, height, minX, minZ });
+  if (wearInputs) {
+    wear.inputs = wearInputs;
+    wear.data = new Uint8Array(map.data.length);
+    wear.shown = new Uint8Array(map.data.length);
+    buildRoadWear(wear.data, { width, height, minX, minZ, texel: PAINT_TEXEL }, { ...wearInputs, params: wear.params });
+    wear.shown.set(wear.data);
+  }
   const tex = PAINT_UNIFORMS.tRoadPaint.value;
   tex.dispose();
-  tex.image = { data: map.data, width, height };
+  tex.image = { data: wear.shown ?? map.data, width, height };
   tex.needsUpdate = true;
   PAINT_UNIFORMS.uRoadPaintBox.value.set(minX, minZ, 1 / (width * PAINT_TEXEL), 1 / (height * PAINT_TEXEL));
   applyAmounts();
@@ -323,7 +365,7 @@ function dab(x, z, erase) {
  * canvas's own listeners regardless of who registered first (CLAUDE.md, "Two listeners on the
  * same element fire in registration order").
  */
-export function createRoadBrush({ camera, canvas, scene, active, onChange = () => {} }) {
+export function createRoadBrush({ camera, canvas, scene, active, cleanView = null, onChange = () => {} }) {
   const raycaster = new THREE.Raycaster();
   const ndc = new THREE.Vector2();
   const ground = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
@@ -425,6 +467,9 @@ export function createRoadBrush({ camera, canvas, scene, active, onChange = () =
   const keeps = (o) => { for (let p = o; p; p = p.parent) if (p.userData.roadView || p === ring) return true; return false; };
   function setRoadOnly(on) {
     if (on === Boolean(hidden)) return;
+    // The HUD and the effects go with it (game/cleanview.js) — and first, so the effects are that
+    // module's to put back rather than this one's, and stay hidden if the freeze still wants them.
+    cleanView?.set('roadOnly', on);
     if (on) {
       hidden = [];
       scene.traverse((o) => {

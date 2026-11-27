@@ -1767,7 +1767,12 @@ for the same picture; this is one texture read on fragments the road shader alre
   (`uAlbedoView`, both renderers), with the colour grade bypassed and the haze pushed past
   everything (`setHazeOff` in scene.js); the edge fog and the CRT still draw. Freeze & zoom is the
   inspect freeze (`I`), and pressing it here turns the brush on too: wheel or pinch zooms to a half-height of 2.5, and painting keeps working,
-  with Shift-drag panning.
+  with Shift-drag panning. Both Road only and the freeze also take the game off the picture
+  (game/cleanview.js): every page overlay but the canvas and the ⚙️ panel, and every effect built
+  under `tagFx` in main.js — skid marks, spray, dust, sparks, flames, glass, the route band, the fare
+  and courier markers. A new effect wants wrapping there to go with them.
+- **Channel controls.** The panel shows only the selected channel's colour and amount; the
+  dropdown or **1-4** swaps which.
 - **Keeping it.** Every stroke autosaves to the browser (debug mode only, and it wins over the bake
   on load until Revert to repo). **Save to repo** posts the bake to the dev server
   (`tools/roadpaint-save.mjs`, loopback only), which writes `src/city/roadpaintbake.js` — commit that.
@@ -1777,6 +1782,18 @@ for the same picture; this is one texture read on fragments the road shader alre
   premultiplies alpha and would lose every colour under a zero cool channel. An empty bake costs
   nothing: the texture stays 1x1 and the shader skips the read. A painted one is one texture of
   ~880 x 1040 (3.7 MB on the GPU on the default city) and decodes asynchronously; shot mode waits for it.
+- **Procedural wear** (`game/roadwear.js`, Tyler 2026-11-27) is stamped into the same map at boot
+  from the city itself, so it fits every seed: brown dirt (channel 3) in the gutter of every
+  block, broken into patches, and round every median island, a dark stain (channel 1) round each manhole, and
+  grit in both where each bridge deck lands on the road. It is never baked — it lives in its own
+  buffer and the texture shows the per-byte max of it and the hand paint, so a stroke only adds and
+  Save to repo writes the brush's bytes alone. Every band is a plain distance from an outline (the
+  kerb's rounded rectangle, the median's stadium) with no mask, because the pavement at `KERB_H`
+  is past the shader's ground test and the band stops at the kerb face on its own. The bridge deck
+  is not ground and takes no paint, so only the road half of each joint gets grit. It means the
+  texture is always allocated now (3.7 MB, one read per road fragment), bake or no bake; the panel
+  has a box to hide it and sliders for each feature's strength and reach (live, not saved — settle
+  numbers into `WEAR_DEFAULTS`). `?roadwear=classic` leaves the road clean.
 - It lives inside the street texture's branch, so `?roadtex=classic` shows no paint either, and it is
   held off the lawns, the lane paint and the plaza like the texture, but *not* off bright asphalt:
   sunlit road reads past the texture's 0.42 hold, and the first cut's strokes only showed in shadow. The paint is in
