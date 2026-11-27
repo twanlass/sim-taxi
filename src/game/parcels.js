@@ -100,15 +100,17 @@ import { popEnvelope } from './selectpop.js';
 //
 // ## Two kinds of load, and one of them has an address
 //
-// A courier job is carrying a **box** or a **food order** (geometry/parcel.js, geometry/food.js),
-// drawn per package at `FOOD_CHANCE`. Everything about the errand is the same either way — same pad,
+// A courier job is carrying a **box** or a **food order** — a burger and a soda, or a donut and a
+// coffee (geometry/parcel.js, geometry/food.js, geometry/donutorder.js) — drawn per package at
+// `FOOD_CHANCE`. Everything about the errand is the same either way — same pad,
 // same cyan, same gestures, same money, same fuel, same absence of a clock — with **one** exception,
 // and it is the reason the second kind is worth having at all:
 //
-// **A food order is collected at the burger joint.** Not at a corner the draw liked: at the one place
-// in this city that sells food (`foodPickup`, injected). The city has had a drive-through for a long
-// time and it has been scenery with one secret in it (game/burgerrun.js); this makes it an *address*
-// — a building the player learns the position of because jobs come out of it. The delivery end is
+// **A food order is collected at the shop that sells it.** Not at a corner the draw liked: a burger
+// at the burger joint, a donut at the donut shop (`foodPickups`, injected). The city has had a
+// drive-through for a long time and it has been scenery with one secret in it (game/burgerrun.js); this makes it an *address*
+// — a building the player learns the position of because jobs come out of it — and the donut shop,
+// the same way. The delivery end is
 // still anywhere, which is what a food delivery is: one origin, and the whole map to take it to.
 //
 // It also costs something honest. A box is an errand between two corners the draw chose to be near
@@ -223,7 +225,7 @@ export const PARCEL_PAY_FACTOR = 1;
  * collection, and a load the player has to be lucky to see is one nobody ever learns is there.
  *
  * The chance of *asking* for food rather than the share of packages that are food: an order whose
- * pickup — the burger joint's corner — is unusable this frame is served as a box instead (see
+ * pickup — its shop's corner — is unusable this frame is served as a box instead (see
  * `spawn`). In a shipped city that is a rare correction, and `tools/probe.mjs` measures what is
  * actually served rather than trusting this number to describe it.
  */
@@ -465,8 +467,16 @@ function createSlot(scene, index, board = scene) {
 }
 
 /**
- * @param foodPickup  the one intersection a **food order** is collected from — the burger joint's own
- *                    corner — or null for a city with no joint, which serves boxes only.
+ * The food a courier job can be carrying, each with the one shop it comes out of: a burger order from
+ * the burger joint and a donut order from the donut shop (`foodPickups`). A food draw is split evenly
+ * between whichever of them can be collected right now — see `spawn`.
+ */
+export const FOOD_KINDS = ['food', 'donut'];
+
+/**
+ * @param foodPickups  where each kind of **food order** is collected — `{ food, donut }`, each the one
+ *                    intersection at that shop's own corner (the burger joint's, the donut shop's),
+ *                    or null for a city that has no such shop. A city with neither serves boxes only.
  *
  *                    Injected rather than imported, the same way `fares.js` learns about this
  *                    module's corners through `reserved`: this file holds no reference to the city
@@ -474,7 +484,7 @@ function createSlot(scene, index, board = scene) {
  *                    is `main.js`'s to know. It is a plain `{i, j}` rather than a getter because a
  *                    building does not move.
  */
-export function createParcelSystem(rng, scene, { foodPickup = null, towardHud = null } = {}) {
+export function createParcelSystem(rng, scene, { foodPickups = {}, towardHud = null } = {}) {
   const state = {
     /** Live packages: on a corner (`waiting`) or aboard the taxi (`carried`). */
     parcels: [],
@@ -596,8 +606,8 @@ export function createParcelSystem(rng, scene, { foodPickup = null, towardHud = 
    */
   /**
    * Whether one intersection may carry a courier mark at all. Split out of the draw below because
-   * the food order does not *draw* its pickup — it has exactly one (`foodPickup`, the burger joint's
-   * own corner) — and the one thing that must not differ between the two is what counts as a corner
+   * a food order does not *draw* its pickup — it has exactly one (`foodPickups`, its shop's own
+   * corner) — and the one thing that must not differ between the two is what counts as a corner
    * a package can stand on. A second copy of this list is a second answer to "can a pad go here",
    * and the half that would rot is the one with a single candidate that almost always passes.
    */
@@ -661,12 +671,20 @@ export function createParcelSystem(rng, scene, { foodPickup = null, towardHud = 
     // is parked on it, or this city has no joint — and none of them is a reason for the board to sit
     // empty. `FOOD_CHANCE` is the chance of *asking* for food; what is actually served is asserted in
     // `tools/probe.mjs` rather than assumed to be the same number.
-    const wanted = kindPin ?? (rng.chance(FOOD_CHANCE) ? 'food' : 'parcel');
+    //
+    // **Two shops sell food, and a food draw goes to either.** The burger joint and the donut shop
+    // (`FOOD_KINDS`). `FOOD_CHANCE` still decides box-or-food, so adding the second shop did not make
+    // boxes rarer; which shop is then an even pick between the ones whose corner is usable right now,
+    // so a rider on the donut shop's corner hands the order to the burger joint rather than to a box.
+    // The pick spends a draw only when there is a choice to make.
+    const asked = kindPin ?? (rng.chance(FOOD_CHANCE) ? 'meal' : 'parcel');
     let kind = 'parcel';
     let pickup = null;
-    if (wanted === 'food' && foodPickup && spotLegal(foodPickup, taxiCar, taken)) {
-      pickup = { ...foodPickup };
-      kind = 'food';
+    const menu = asked === 'parcel' ? [] : FOOD_KINDS.filter((k) => (asked === 'meal' || asked === k)
+      && foodPickups[k] && spotLegal(foodPickups[k], taxiCar, taken));
+    if (menu.length) {
+      kind = menu.length > 1 ? rng.pick(menu) : menu[0];
+      pickup = { ...foodPickups[kind] };
     }
     if (!pickup) pickup = pickIntersection(taxiCar, taken, { avoid });
     if (!pickup) return null;

@@ -290,6 +290,7 @@ See [rendering.md](rendering.md) for all of these.
 | `?safe` / `=off` | All four budget flags at their cheapest (no MSAA, 1024 shadows, DPR 1, no AO). On by default on Android; `=off` restores the full budget |
 | `?msaa=off` | No multisampling |
 | `?shadows=off` / `=1024` | No sun shadows, or that map size (power of two, 256–4096) |
+| `?shadowsplit=classic` | One 2048² sun shadow map with PCFSoft, redrawn every frame with every caster, instead of the standing city in a 4096² map drawn once plus a per-frame map of what moves (WebGPU; [rendering.md](rendering.md#two-shadow-maps--gamesplitshadowjs)) |
 | `?shadowcull=classic` | Every shadow caster on the island is drawn into the shadow map every frame, instead of only the ones whose shadow can reach the view ([game/shadowcull.js](../src/game/shadowcull.js), [rendering.md](rendering.md#lighting)) |
 | `?dpr=N` | Caps `devicePixelRatio` (0.5–4, default 2) and pins it against the Quality setting |
 | `?ao=off` | No ambient occlusion |

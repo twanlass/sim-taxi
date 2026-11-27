@@ -218,6 +218,7 @@ import { createHitchLogger, getHitchLogger } from './game/hitch.js';
 import { createPerfCapture, perfMark, perfPhase } from './game/perf.js';
 import { warmFirstDraws, warmFirstDrawsInSteps, awaitPrograms } from './game/warmup.js';
 import { createShadowCull } from './game/shadowcull.js';
+import { createSplitShadow } from './game/splitshadow.js';
 import { LOADER, warmStep, compileProgress } from './game/loadbar.js';
 import { createBench } from './game/bench.js';
 import { createSoak } from './game/soak.js';
@@ -469,6 +470,19 @@ const shadowCull = createShadowCull(scene, sun);
 // The road paint's Road only and the inspect freeze take the HUD and the effects off — game/cleanview.js.
 const cleanView = createCleanView(scene);
 if (new URLSearchParams(location.search).get('shadowcull') === 'classic') shadowCull.setEnabled(false);
+// Two shadow maps (WebGPU): the standing city drawn once at twice the resolution, and only what moves
+// drawn every frame (game/splitshadow.js). `?shadowsplit=classic` is the one 2048² map that redrew
+// the whole island every frame. `busy` is the classic entrance wave, which grows static geometry in
+// its vertex shader — declared further down, so read through a function.
+const splitShadow = GPU && sun.castShadow
+  && new URLSearchParams(location.search).get('shadowsplit') !== 'classic'
+  ? createSplitShadow(sun, {
+    staticSize: Math.min(4096, budget.shadowMapSize * 2),
+    dynamicSize: budget.shadowMapSize,
+    busy: () => cityEntry.running() || Boolean(ltrain?.intro?.running()),
+  })
+  : null;
+if (splitShadow) shadowCull.skipStatic(splitShadow.isStatic);
 
 // The bloom composite, over the city and under every read-out.
 renderPath.addOverlays(scene);
@@ -1184,16 +1198,21 @@ const fares = tagFx(scene, () => createFareSystem(makeRng(runSeed + 55), scene, 
 // now asserts every offset in this file is distinct, because nothing about the collision was visible:
 // no crash, no failing check, just a package board silently correlated with a helicopter.
 //
-// `foodPickup` is the burger joint's own corner junction, and it is the whole of what that module
-// knows about the city: a food order is collected there and nowhere else (see game/parcels.js). The
+// `foodPickups` are the two food shops' own corner junctions, and they are the whole of what that
+// module knows about the city: a burger order is collected at the joint's, a donut order at the donut
+// shop's, and nowhere else (see game/parcels.js). For the joint, the
 // **+X+Z** corner of the joint's block, because `cornerFor` puts a kerb pin on the −X−Z side of its
 // junction — so junction (bi + 1, bj + 1) is the one whose pin stands on the joint's *own* slab
 // rather than across the road from it. It is also the corner the drive-through's exit crosses, which
 // is as close to "at the window" as a mark on a junction can be. A city that failed to place a joint
-// (`chooseBurgerBlock` can come back empty) passes null and serves boxes only.
+// (`chooseBurgerBlock` can come back empty) passes null, and its food all comes from the other shop.
 const parcels = parcelsEnabled
   ? tagFx(scene, () => createParcelSystem(makeRng(runSeed + 255), scene, {
-    foodPickup: burger ? { i: burger.site.bi + 1, j: burger.site.bj + 1 } : null,
+    foodPickups: {
+      food: burger ? { i: burger.site.bi + 1, j: burger.site.bj + 1 } : null,
+      // The donut shop's own corner, which city/donutshop.js works out the same way (`pickup`).
+      donut: donutSite?.pickup ?? null,
+    },
     towardHud: towardCargoDock,
   }))
   : null;
@@ -9060,8 +9079,32 @@ if (shot) {
   window.__steamStep = (dt = 1 / 30) => { manholeSteam.update(dt, null); renderFrame(); };
   // The skater the same way, for filming a trick or a push (shots `skatepark` and `skatepark-far`).
   window.__skateStep = (dt = 1 / 30) => { skaters.update(dt); renderFrame(); };
-  document.body.dataset.shotReady = 'true';
-  resolveReady();
+  const shotDone = () => {
+    document.body.dataset.shotReady = 'true';
+    resolveReady();
+  };
+  // **Under WebGPU the render above is only a primer, and the shot is the one a frame later.** The
+  // first time three draws the sun's shadow map it comes out unusable: 125 casters, 116k triangles,
+  // the right camera and the right target, and not one shadow on the ground — not in that frame,
+  // and not in a later one that samples the same map without redrawing it. A second draw on a later
+  // frame is fine. A live run never shows it because the warm-up draws a dozen frames before the
+  // first one anyone sees; a shot draws exactly one, so every WebGPU screenshot came out
+  // pixel-identical to `&shadows=off` (measured on `?shot=2`, cloud SwiftShader and a Mac GPU alike).
+  //
+  // It has to be a *frame* later, not just a second `renderFrame()`: three redraws a shadow map at
+  // most once per frame id (ShadowNode.updateBefore), so a second render in the same task samples
+  // the same empty map. The frame id moves on three's own animation loop, i.e. on rAF. WebGL draws
+  // its shadow map correctly first time, so it keeps its single render.
+  if (GPU) {
+    let done = false;
+    const second = () => { if (done) return; done = true; renderFrame(); shotDone(); };
+    requestAnimationFrame(() => requestAnimationFrame(second));
+    // A background tab runs no frames: don't hold the shot until somebody looks at it. The frame id
+    // only moves on rAF, so this fallback would still draw shadowless — it exists to not hang.
+    setTimeout(second, 2000);
+  } else {
+    shotDone();
+  }
 } else {
   traffic.warmup(10);
   // The opening vignette, and it is built here rather than up with everything else for one
@@ -9213,6 +9256,8 @@ function startRun() {
   perfMark('warmup:end');
   warmedUp = true;
   pinWarmedNodes();
+  // Everything standing has been built and drawn: the static shadow map's set closes here.
+  splitShadow?.settle();
   const benchHooks = {
     renderer,
     ready: () => Boolean(traffic.taxi) && !traffic.taxi.staged,
@@ -9253,6 +9298,7 @@ if (!shot && wantsDebugPanel) {
     citySeed: seed,
     phoneFrame,
     sun,
+    shadows: splitShadow,
     hemi,
     sky,
     fog,
@@ -9301,6 +9347,9 @@ window.__taxi = {
   get warmedUp() { return warmedUp; },
   // The shadow-pass cull — `stats()` says how many casters the last frame skipped (game/shadowcull.js).
   shadowCull,
+  // The two shadow maps — `stats()` counts the static casters and the static map's redraws
+  // (game/splitshadow.js). Null under `?shadowsplit=classic` and on WebGL.
+  splitShadow,
   traffic,
   // The CRT screen's `{ state, set, preset }` — see game/crt.js.
   crt,
