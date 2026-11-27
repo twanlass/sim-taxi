@@ -175,6 +175,7 @@ doc; what the classic version was, and why it changed, is in that doc's history 
 | `?barrelroll=classic` | Big Air flown level, no barrel roll | #485 | [river.md](river.md) |
 | `?bridgejump=classic` | The drawbridge is one long leaf again and re-routes the taxi the moment its lamps start: no Mega Air jump over the rising leaves | | [river.md](river.md#jumping-it-mega-air) |
 | `?megaflip=classic` | Mega Air front-flips the taxi once over the drawbridge instead of twice | | [river.md](river.md#jumping-it-mega-air) |
+| `?bigair=classic` | A route turning at an arched bridge's far bank cancels Big Air again (the ordinary hop) instead of flying straight on and re-planning | | [river.md](river.md#the-drift-launch) |
 | `?bigairroute=classic` | The router stops tipping equal-length routes toward going straight on off an arched bridge (room for Big Air) | | [gameplay.md](gameplay.md#routing) |
 | `?vip=classic` | VIP riders (the purple question mark, triple pay) spawn again; off by default | | [gameplay.md](gameplay.md#vip-pickups) |
 | `?bigairfuel=classic` | A Big Air landing pays no Loco back, instead of a sixth of the tank | | [gameplay.md](gameplay.md#the-combo-meter) |

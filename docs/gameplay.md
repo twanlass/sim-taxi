@@ -1411,8 +1411,8 @@ Two details are load-bearing and easy to lose:
   An editor-drawn arterial has no line index to look either up by.
 
 **Near-ties go straight off an arched bridge**, so there is room for
-[Big Air](river.md#the-drift-launch), which only fires when the route goes straight on at the far
-bank. The taxi's router knocks `BIG_AIR_TILT` (0.11) off the move "straight on past an arched deck"
+[Big Air](river.md#the-drift-launch), which flies straight over the far bank and, when the route
+wanted to turn there, drops it and re-plans from where it lands. The taxi's router knocks `BIG_AIR_TILT` (0.11) off the move "straight on past an arched deck"
 — less than any block costs, so it never lengthens a trip, only picks between routes the hierarchy
 weights already call near enough equal. Over every trip on 12 cities (`tools/bigair-route.mjs`) the
 share of bridge crossings that go straight on rose from 35% to 69%, against a ceiling of 75% (the
