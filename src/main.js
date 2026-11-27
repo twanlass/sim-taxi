@@ -8554,13 +8554,20 @@ function tick() {
   // game/farepointers.js. The waiting riders get one too now that the chips are gone, which is
   // what keeps an off-screen fare findable at all.
   const aboard = fares.carrying();
-  farePointers.update(aboard, fares.state.gameOver ? [] : fares.waitingAll(), fares.colorOf);
+  // A rider a robo-taxi is after points in its cyan off-screen too, so a robot heading for one of
+  // your riders shows from the edge of the frame (Tyler, 2026-11-27).
+  const pointerColour = (f) => (f.stage === 'waiting' && riderRace() && robotaxis?.claimOf(f)
+    ? PALETTE.roboGlow : fares.colorOf(f));
+  farePointers.update(aboard, fares.state.gameOver ? [] : fares.waitingAll(), pointerColour);
   // The race's lock-on: a rider a robo-taxi is after wears its cyan on their disc. The first lock
   // of a run is shown rather than just painted (`startLockBeat`): the disc stays its own colour
   // until the camera has been to the robo-taxi and lands on the rider.
   if (lockBeat && !lockBeat.landed && !controller.isGliding()) lockBeat.landed = true;
   for (const f of fares.state.fares) {
-    if (f.stage !== 'waiting') continue;
+    // Every fare, not only the waiting ones: a rider snatched from a robo-taxi gets into the cab
+    // with their marker still painted cyan, and it has to go back to the clock's colour there
+    // (Tyler, 2026-11-27: "the pie stayed teal when it got into my cab").
+    if (f.stage !== 'waiting') { f.slot.marker.setClaimed?.(false); continue; }
     const robo = riderRace() ? robotaxis?.claimOf(f) : null;
     if (robo && !lockSeen.has(f)) {
       lockSeen.add(f);
