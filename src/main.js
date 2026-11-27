@@ -4,6 +4,10 @@ import { WebGPURenderer } from 'three/webgpu';
 import { gpuCompat, unported } from './game/gpucompat.js';
 import { GPU, fallBackToWebGL, gpuNote } from './util/gpu.js';
 import { installVarsToLets } from './util/wgsllets.js';
+import { installNodeMemo } from './util/nodememo.js';
+import { installShaderText } from './util/shadertext.js';
+import { installFadeShader } from './util/fadeshader.js';
+import { installNormalShader } from './util/normalshader.js';
 import { createGpuCapture } from './game/gpucapture.js';
 import { createGpuFrame } from './game/gpuframe.js';
 import { createGpuCrt } from './game/gpucrt.js';
@@ -50,6 +54,7 @@ import { createCanopyFuzz } from './city/canopyfuzz.js';
 import { createGarage, LANDMARK as GARAGE_LANDMARK } from './city/garage.js';
 import { createBurgerJoint, SIGN_SPIN, LANDMARK as BURGER_LANDMARK } from './city/burgerjoint.js';
 import { createVetClinic, VET_CLASSIC } from './city/vetclinic.js';
+import { createDonutShop, DONUT_CLASSIC } from './city/donutshop.js';
 import { createBillboard, BILLBOARD_CLASSIC } from './city/billboard.js';
 import { createGraveyard, LANDMARK as GRAVEYARD_LANDMARK } from './city/graveyard.js';
 import { plantedCrowns } from './city/props.js';
@@ -57,13 +62,13 @@ import {
   createTraffic, placeCar, TRUCK_CHANCE, CLASSIC_CHANCE, TRUCK_LEN, TRUCK_W, laysPassRubber, copLaysRubber, SPEED,
   ROAD_Y, CAR_LEN, CAR_W, wheelAnchors,
   boostCruise, locoTuning, setLocoTuning, resetLocoTuning, locoRamp, LOCO_DEFAULTS, driftTaxi, kickDrift, driftHolds, DRIFT_CHAIN,
-  onDriftLaunch, hopProgress, setSpinStyle, setBarrelRoll, setMegaFlip, setBridgeStunt, setPassTurnGate, setPassPace, setHopStyle, setDodge, setOvertakeStyle, setPeek, setTaxiScatter,
+  onDriftLaunch, hopProgress, setSpinStyle, setBarrelRoll, setMegaFlip, setBridgeStunt, setPassTurnGate, setPassPace, setHopStyle, setBigAirStyle, setDodge, setOvertakeStyle, setPeek, setTaxiScatter,
   configureSignals, setGrip, setRunningLights, setRunningLightsAt, runningLightsAt, isLaneClosed, FISHTAIL_TIME,
 } from './sim/traffic.js';
 import { createCollisions, TAXI_HP, setCrush, setCrushSplash } from './sim/collisions.js';
 import { createVanish } from './game/vanish.js';
 import { createCrushSlowMo } from './game/crushslowmo.js';
-import { createPolice } from './sim/police.js';
+import { createPolice, parkedCruiser } from './sim/police.js';
 import {
   createFareSystem, cornerFor, kerbFor, setFareSeconds, getFareSeconds, isFareClockPinned, BURGER_PRICE, REPAIR_PRICE,
   BOARD_SECONDS, MAX_STRIKES, RATING_FLOOR, ratingFor, SHIFT_SECONDS,
@@ -160,6 +165,7 @@ import { markEmissive } from './game/bloom.js';
 import { renderBudget, decideLooks, createRenderPath } from './game/renderpath.js';
 import {
   propMaterial, setGlossCity, setGlossGlobal, PAINT_UNIFORMS, placeJunctionPaving,
+  tuneRoadTexture,
 } from './util/geo.js';
 import * as difficulty from './game/difficulty.js';
 import { DAYS, dayByKey, loadWeek, clearDay, resetWeek } from './game/days.js';
@@ -216,6 +222,7 @@ import { createHitchLogger, getHitchLogger } from './game/hitch.js';
 import { createPerfCapture, perfMark, perfPhase } from './game/perf.js';
 import { warmFirstDraws, warmFirstDrawsInSteps, awaitPrograms } from './game/warmup.js';
 import { createShadowCull } from './game/shadowcull.js';
+import { createSplitShadow } from './game/splitshadow.js';
 import { LOADER, warmStep, compileProgress } from './game/loadbar.js';
 import { createBench } from './game/bench.js';
 import { createSoak } from './game/soak.js';
@@ -374,6 +381,12 @@ const renderer = GPU ? new WebGPURenderer({ antialias: budget.msaa, stencil: tru
 // Safari refuses any WGSL function whose `var`s add up past 8 KB, and three declares one for every
 // node it caches: see util/wgsllets.js.
 if (GPU) installVarsToLets(renderer);
+// Three's node builder asks the same type questions of the same nodes thousands of times per
+// material, and that — not the GPU — is most of a WebGPU boot: see util/nodememo.js.
+if (GPU && new URLSearchParams(window.location.search).get('nodememo') !== 'classic') installNodeMemo(renderer);
+if (GPU && new URLSearchParams(window.location.search).get('shadertext') !== 'classic') installShaderText(renderer);
+if (GPU && new URLSearchParams(window.location.search).get('fadeshader') !== 'classic') installFadeShader();
+if (GPU && new URLSearchParams(window.location.search).get('normalshader') !== 'classic') installNormalShader(renderer);
 perfMark('renderer');
 // NOT `window.innerWidth/innerHeight`: on an installed iOS app those stop short of the physical
 // bottom of the screen, and the strip the canvas doesn't cover shows as bare sky under the game.
@@ -418,7 +431,7 @@ document.body.appendChild(renderer.domElement);
 // AO, painterly, the paint look, the rim and cloud shadows: all baked into the
 // shader `propMaterial()` builds, so all decided here, before a single mesh exists. In
 // game/renderpath.js because the model workshop's bench takes the same decisions.
-decideLooks(budget);
+decideLooks(budget, seed);
 const aoEnabled = budget.ao;
 // Which brush a static mesh wears (see PAINT_FRAGMENT): 1 buildings, 2 ground (lawns only).
 const brush = (mesh, kind) => {
@@ -486,6 +499,19 @@ gpuFrame?.setSun(sun);   // the rim line on the cars follows it (game/gpuframe.j
 // the island (game/shadowcull.js). `?shadowcull=classic` draws them all, as before.
 const shadowCull = createShadowCull(scene, sun);
 if (new URLSearchParams(location.search).get('shadowcull') === 'classic') shadowCull.setEnabled(false);
+// Two shadow maps (WebGPU): the standing city drawn once at twice the resolution, and only what moves
+// drawn every frame (game/splitshadow.js). `?shadowsplit=classic` is the one 2048² map that redrew
+// the whole island every frame. `busy` is the classic entrance wave, which grows static geometry in
+// its vertex shader — declared further down, so read through a function.
+const splitShadow = GPU && sun.castShadow
+  && new URLSearchParams(location.search).get('shadowsplit') !== 'classic'
+  ? createSplitShadow(sun, {
+    staticSize: Math.min(4096, budget.shadowMapSize * 2),
+    dynamicSize: budget.shadowMapSize,
+    busy: () => cityEntry.running() || Boolean(ltrain?.intro?.running()),
+  })
+  : null;
+if (splitShadow) shadowCull.skipStatic(splitShadow.isStatic);
 
 // The bloom composite, over the city and under every read-out.
 renderPath.addOverlays(scene);
@@ -780,7 +806,11 @@ if (river) {
   const jointRng = makeRng(seed + 58);
   const joints = bridgeLines().flatMap((line) => jointParts(bridgeSpan(line), jointRng));
   if (joints.length) {
-    const jointMesh = new THREE.Mesh(mergeGeometries(joints, false), propMaterial());
+    // Steel (the default) shines: the gloss material reads each vertex's `FINISH.METAL`. The classic
+    // painted strips carry no finish and keep the plain one.
+    const jointGeo = mergeGeometries(joints, false);
+    const steel = !!jointGeo.attributes.aFinish;
+    const jointMesh = new THREE.Mesh(jointGeo, steel ? propMaterial({ gloss: { geometry: jointGeo } }) : propMaterial());
     joints.forEach((part) => part.dispose());
     jointMesh.receiveShadow = true;
     jointMesh.name = 'bridge-joints';
@@ -821,6 +851,9 @@ const stopPanes = rain.enabled ? collectPanes() : null;
 const fall = getFall();
 setAutumn(fall, { classicColours: getFoliageClassic() });
 const city = createBuildings(makeRng(seed + 22), layout);
+// The donut shop's site, or null (city/donutshop.js). Read this early because the street lamps,
+// post boxes and bag piles below keep off its parked cruiser; built further down beside the vet.
+const donutSite = DONUT_CLASSIC ? null : city.donut;
 scene.add(markOccluder(city.mesh));
 // The window frames: not occluders, on purpose (`frameMesh` in city/facade.js).
 if (city.frames) scene.add(city.frames);
@@ -861,7 +894,7 @@ scene.add(markOccluder(propsMesh));
 // pond — a park's lamp stands on its walk, and any of the three can run right up to it. A lamp
 // pole once stood in the middle of a basketball court.
 const lamps = rain.enabled
-  ? streetLamps(makeRng(seed + 392), layout, entrances(paneFaces ?? [], city.bank), lampKeepOff(props))
+  ? streetLamps(makeRng(seed + 392), layout, entrances(paneFaces ?? [], city.bank), [...lampKeepOff(props), ...(donutSite ? [donutSite.carRect] : [])])
   : null;
 if (lamps) {
   scene.add(markOccluder(lamps.posts), lamps.heads, lamps.pools);
@@ -936,6 +969,11 @@ const skaters = (skaterFlag === 'classic' ? createClassicSkaters : createSkaters
 // since 2026-10-11 (Tyler); `?ltrain=classic` takes it out for comparison. Built here rather than beside the boats because the entrance wave below has to
 // be handed it. Run seed: where the line runs is the arterial's, so the map's already; which way
 // the first train goes and how long the line stands empty is the situation.
+// The city opens already standing (Tyler, 2026-11-25): no buildings growing out of the ground, no L
+// track being laid. The garage door is the opening shot. `?entry=classic` is the old entrance wave.
+// Off, `createCityEntry` patches no material at all, which is the point: measured headless (WebGPU,
+// seed 7), 25 fewer shader modules (247 -> 222) and ~0.8 s off `taxi:ready` (11.0 -> 10.2 s median).
+const CITY_ENTRY = new URLSearchParams(window.location.search).get('entry') === 'classic';
 const ltrain = new URLSearchParams(window.location.search).get('ltrain') !== 'classic' || shot?.atLTrain
   ? createLTrain(scene, makeRng(runSeed + 421), {
     // Wheel sparks through the shared pool, which is built further down — only ever called from
@@ -945,7 +983,8 @@ const ltrain = new URLSearchParams(window.location.search).get('ltrain') !== 'cl
     lights: new URLSearchParams(window.location.search).get('trainlights') !== 'classic',
     // Its own intro, bents then track (2026-10-13, Tyler); `?trainintro=classic` grows the whole
     // structure with the city's wave instead. Started and driven beside `cityEntry` below.
-    intro: new URLSearchParams(window.location.search).get('trainintro') !== 'classic',
+    // Off with the city's own entrance (`?entry=classic` brings both back).
+    intro: CITY_ENTRY && new URLSearchParams(window.location.search).get('trainintro') !== 'classic',
   }) : null;
 
 // The taxi's garage — the block `createLayout` took out of the tower generator's hands, and the
@@ -1016,6 +1055,14 @@ if (vet) {
   scene.add(vet.group);
   markOccluder(vet.shell);
 }
+// The donut shop: another ordinary corner shop with a cake donut stood on its roof and a cruiser
+// parked out front, two wheels on the kerb, bar dark (city/donutshop.js). Scenery only — the car is
+// not in the traffic model and nothing drives into it, because it is parked clear of the lane.
+const donut = donutSite ? createDonutShop(donutSite, { makeCruiser: parkedCruiser }) : null;
+if (donut) {
+  scene.add(donut.group);
+  donut.occluders.forEach(markOccluder);
+}
 // The rooftop billboards: the robo-taxis' teaser and the Dub Burger ad, on the widest flat roofs (city/billboard.js).
 // Scenery only, and in the sightline field below, so no fare lands on a corner it hides. Null on
 // `?billboard=classic` or a city with no roof that fits.
@@ -1051,7 +1098,7 @@ const manholeSteam = createManholeSteam(scene, manholes?.userData.spots, makeRng
 const occluders = setCityOccluders(
   city.mesh, ...(city.domeMesh ? [city.domeMesh] : []), propsMesh, ...(garage?.meshes ?? []),
   ...(burger?.meshes ?? []), ...(graveyard?.meshes ?? []), ...(roadside?.meshes ?? []),
-  ...(vet ? [vet.shell] : []), ...billboards.flatMap((b) => [b.shell, b.poster]),
+  ...(vet ? [vet.shell] : []), ...(donut ? [donut.sign] : []), ...billboards.flatMap((b) => [b.shell, b.poster]),
 );
 // The same field is what the cars' paint reflects (`propMaterial({ gloss })`, util/geo.js).
 setGlossCity(occluders, SKYLINE_CEILING);
@@ -1179,16 +1226,21 @@ const fares = createFareSystem(makeRng(runSeed + 55), scene, {
 // now asserts every offset in this file is distinct, because nothing about the collision was visible:
 // no crash, no failing check, just a package board silently correlated with a helicopter.
 //
-// `foodPickup` is the burger joint's own corner junction, and it is the whole of what that module
-// knows about the city: a food order is collected there and nowhere else (see game/parcels.js). The
+// `foodPickups` are the two food shops' own corner junctions, and they are the whole of what that
+// module knows about the city: a burger order is collected at the joint's, a donut order at the donut
+// shop's, and nowhere else (see game/parcels.js). For the joint, the
 // **+X+Z** corner of the joint's block, because `cornerFor` puts a kerb pin on the −X−Z side of its
 // junction — so junction (bi + 1, bj + 1) is the one whose pin stands on the joint's *own* slab
 // rather than across the road from it. It is also the corner the drive-through's exit crosses, which
 // is as close to "at the window" as a mark on a junction can be. A city that failed to place a joint
-// (`chooseBurgerBlock` can come back empty) passes null and serves boxes only.
+// (`chooseBurgerBlock` can come back empty) passes null, and its food all comes from the other shop.
 const parcels = parcelsEnabled
   ? createParcelSystem(makeRng(runSeed + 255), scene, {
-    foodPickup: burger ? { i: burger.site.bi + 1, j: burger.site.bj + 1 } : null,
+    foodPickups: {
+      food: burger ? { i: burger.site.bi + 1, j: burger.site.bj + 1 } : null,
+      // The donut shop's own corner, which city/donutshop.js works out the same way (`pickup`).
+      donut: donutSite?.pickup ?? null,
+    },
     towardHud: towardCargoDock,
   })
   : null;
@@ -1654,6 +1706,7 @@ setPassPace(new URLSearchParams(window.location.search).get('passpace'));
 setDodge(new URLSearchParams(window.location.search).get('swerve'));
 // A hop always comes down; `?hop=classic` lets the brake park the taxi in mid-air again.
 setHopStyle(new URLSearchParams(window.location.search).get('hop'));
+setBigAirStyle(new URLSearchParams(window.location.search).get('bigair'));
 const bootleg = createBootleg({
   taxi: traffic.taxi,
   destination: () => traffic.taxi.pendingTarget ?? null,
@@ -1741,6 +1794,8 @@ for (const [built, landmark] of [
 if (depotPanes) markEmissive(depotPanes, 'window');
 // The vet's OPEN sign, at the strength the depot's and the burger joint's neon bloom at.
 if (vet) markEmissive(vet.glow, 'window');
+// ...and the donut shop's, which is the same sign.
+if (donut?.glow) markEmissive(donut.glow, 'window');
 // The billboard's three lamps, the same.
 for (const board of billboards) markEmissive(board.glow, 'window');
 // The riders. They receive AO through `propMaterial()` either way, so leaving them out of the
@@ -1958,7 +2013,7 @@ const spray = createSpray(scene, makeRng(seed + 78));
 // game/streetprops.js. City seed for where they stand, after the sightline field exists (they only
 // go where the camera can see them) and clear of the rain's street lamps. Run seed for the spray.
 const lampSpots = lamps?.spots.map((p) => ({ x: p.px, z: p.pz })) ?? [];
-const streetPropPlan = planStreetProps(makeRng(seed + 211), layout, lampSpots);
+const streetPropPlan = planStreetProps(makeRng(seed + 211), layout, [...lampSpots, ...(donutSite?.carPoints ?? [])]);
 const streetProps = createStreetProps(scene, streetPropPlan, { dust, rng: makeRng(runSeed + 212) });
 
 // Bags piled on the kerb at street corners, and the garbage truck that drives round collecting them
@@ -1969,7 +2024,8 @@ const streetProps = createStreetProps(scene, streetPropPlan, { dust, rng: makeRn
 const garbage = createGarbage({
   rng: makeRng(runSeed + 731), scene, traffic,
   plan: planTrashPiles(makeRng(seed + 733), layout,
-    [...lampSpots, ...streetPropPlan.map((p) => ({ x: p.x, z: p.z, r: PROP_KEEP_OUT }))]),
+    [...lampSpots, ...streetPropPlan.map((p) => ({ x: p.x, z: p.z, r: PROP_KEEP_OUT })),
+      ...(donutSite?.carPoints ?? []).map((p) => ({ ...p, r: PROP_KEEP_OUT }))]),
   blocked: () => Boolean(shot) || traffic.taxi.staged,
   soon: new URLSearchParams(window.location.search).get('garbage') === 'soon',
 });
@@ -2003,11 +2059,12 @@ const roboDebug = robotaxis && new URLSearchParams(window.location.search).has('
 // below, next to the markers — a frozen frame of half-grown city is never the screenshot anybody
 // asked for.
 const cityEntry = createCityEntry({
+  enabled: CITY_ENTRY,
   // The garage rises with everything else, shell and shutter alike — both are stamped with the one
   // anchor, so it comes up as a building rather than as a building and a door.
   meshes: [city.mesh, ...city.glass, ...(city.frames ? [city.frames] : []), ...(city.domeMesh ? [city.domeMesh] : []), ...(westEdge ? [westEdge.towers, ...westEdge.glass] : []), ...(westEdge?.frames ? [westEdge.frames] : []), propsMesh, grass.mesh, canopyFuzz.mesh, ...(garage?.meshes ?? []),
     ...(burger?.meshes ?? []), ...(graveyard?.meshes ?? []), ...(roadside?.meshes ?? []),
-    ...(vet?.meshes ?? []), ...billboards.flatMap((b) => b.meshes),
+    ...(vet?.meshes ?? []), ...(donut?.meshes ?? []), ...billboards.flatMap((b) => b.meshes),
     ...(lamps ? [lamps.posts, lamps.heads] : []),
     ...(props.courtMesh ? [props.courtMesh] : []), ...(props.skateMesh ? [props.skateMesh] : []),
     ...(props.pondMesh ? [props.pondMesh] : [])],
@@ -2015,7 +2072,7 @@ const cityEntry = createCityEntry({
   // depot's sign and the burger over the drive-through. See the `objects` note in
   // game/cityentry.js.
   objects: [...(garage ? [garage.entryObject] : []), ...(burger ? [burger.entryObject] : []),
-    ...(vet ? [vet.entryObject] : []),
+    ...(vet ? [vet.entryObject] : []), ...(donut?.entryObjects ?? []),
     ...(graveyard ? [graveyard.entryObject] : []),
     ...hoopers.entryObjects, ...boombox.entryObjects, ...skaters.entryObjects,
     ...tubeMan.entryObjects, ...(roadside?.entryObjects ?? []), ...(ltrain?.entryObjects ?? []),
@@ -2031,6 +2088,8 @@ const cityEntry = createCityEntry({
 // The L's intro runs on the city entry's wave and levers, but on its own clock, since the track
 // is still being laid after the last building has landed.
 const replayLTrainIntro = (from) => ltrain?.intro?.start(from, cityEntry.tuning());
+// Play again opens on the standing city; `?rerunentry=classic` grows it again every run (see `rerun`).
+const RERUN_ENTRY = new URLSearchParams(window.location.search).get('rerunentry') === 'classic';
 replayLTrainIntro(traffic.taxi);
 if (litPanes || lamps || depotPanes) {
   rainLightsOn = () => {
@@ -2355,7 +2414,7 @@ const harborShips = createHarborShips(scene, makeRng(runSeed + 431), harbor?.ber
 // Ambient traffic routes around it and the taxi has never heard of it, so the closed street is the
 // emptiest road in the city with a ramp at each end. Run seed, like the flyover: which street and
 // when is part of the situation rather than part of the map.
-const roadwork = createRoadwork(makeRng(runSeed + 177), scene, camera);
+const roadwork = createRoadwork(makeRng(runSeed + 177), scene, camera, { keepClear: donutSite?.carPoints ?? [] });
 // Stuntman (Tyler, 2026-10-14): smashing through a barricade is a combo, and pays Loco back the way
 // a drift's first kick does. Any smash counts, at any speed — the taxi only gets there by being
 // routed down a street the city has closed, which is the choice; the hop off the trestle is what
@@ -6848,8 +6907,15 @@ const titleReel = title && TITLE_CAM === 'reel'
 // A slow slide along screen-right past the garage door, wider than the door shot Play lands on.
 let storyCam = null;
 const STORY_ZOOM = 24;
-const STORY_DRIFT = 0.35;   // world units a second along screen-right
+const STORY_DRIFT = 0.35;   // world units a second along screen-right, at the start
 const STORY_FROM = -3;      // where the slide starts, along screen-right of the door
+// How far the slide goes before it comes to rest. Each line waits for a tap, so the story lasts as
+// long as the player lets it, and a slide that never stopped walked the door off the left of the
+// screen (reported 2026-11-25). It decays instead: it leaves at `STORY_DRIFT` and settles
+// `STORY_TRAVEL` along, 4 units right of the door. The four voiced lines run ~19.5 s of audio,
+// ~25 s read through with taps, which takes it ~5 units of the way, where the linear slide
+// had gone 8.75; left alone it is within 0.1 of rest by ~85 s.
+const STORY_TRAVEL = 7;
 /**
  * Seconds for the flight from the title's slide down to the story's shot. A blend of the two moving
  * frames rather than an ease toward the second: the weight runs 0 to 1 on a smootherstep, so the
@@ -6862,7 +6928,7 @@ const STORY_GLIDE = 3.5;
 function storyFrame(dt) {
   storyCam.t += dt;
   const door = opening.doorAt();
-  const across = STORY_FROM + storyCam.t * STORY_DRIFT;
+  const across = STORY_FROM + STORY_TRAVEL * (1 - Math.exp(-storyCam.t * STORY_DRIFT / STORY_TRAVEL));
   return { x: door.x + RIGHT.x * across, z: door.z + RIGHT.z * across, zoom: STORY_ZOOM };
 }
 // The camera cuts onto the drift on the first frame the title holds, rather than easing to it from
@@ -7269,11 +7335,16 @@ function resetRun({ toTitle = false } = {}) {
     sfx?.offAir();
     title.reopen();
   } else {
-    // The top of the show: the station on its intro, the city building out from the garage, the door.
+    // The top of the show: the station on its intro and the door. The city is already standing, so
+    // a replay opens straight on the garage rather than building the city out of the ground a
+    // second time (Tyler, 2026-11-25): the wave is a first-load flourish, and on run two it was two
+    // seconds of waiting before the door. `?rerunentry=classic` builds it again, L track and all.
     sfx?.newRun({ dash: dashRadio });
     opening?.cutToDoor();
-    cityEntry.replay(traffic.taxi);
-    replayLTrainIntro(traffic.taxi);
+    if (RERUN_ENTRY) {
+      cityEntry.replay(traffic.taxi);
+      replayLTrainIntro(traffic.taxi);
+    }
   }
   updateHud(0);
   perfMark('rerun:end');
@@ -8848,6 +8919,14 @@ if (shot) {
     controller.state.target.set(focus.x - focus.y / 0.92, 0, focus.z - focus.y / 0.92);
     controller.update(aspect());
   }
+  // The donut shop: half way between the cruiser on the kerb and the ground point the donut sits
+  // over on screen (its height back along VIEW_DIR, as the billboard's above), so both are in frame.
+  if (shot.atDonut && donut) {
+    const { centre } = donut;
+    const { car } = donut.site;
+    controller.state.target.set((car.x + centre.x - centre.y / 0.92) / 2, 0, (car.z + centre.z - centre.y / 0.92) / 2);
+    controller.update(aspect());
+  }
   // The roadside business, framed on its lot; and its tube man, close enough to see his face.
   if (shot.atCarWash && roadside) {
     controller.state.target.set(roadside.site.focus.x, 0, roadside.site.focus.z);
@@ -9158,8 +9237,32 @@ if (shot) {
   window.__steamStep = (dt = 1 / 30) => { manholeSteam.update(dt, null); renderFrame(); };
   // The skater the same way, for filming a trick or a push (shots `skatepark` and `skatepark-far`).
   window.__skateStep = (dt = 1 / 30) => { skaters.update(dt); renderFrame(); };
-  document.body.dataset.shotReady = 'true';
-  resolveReady();
+  const shotDone = () => {
+    document.body.dataset.shotReady = 'true';
+    resolveReady();
+  };
+  // **Under WebGPU the render above is only a primer, and the shot is the one a frame later.** The
+  // first time three draws the sun's shadow map it comes out unusable: 125 casters, 116k triangles,
+  // the right camera and the right target, and not one shadow on the ground — not in that frame,
+  // and not in a later one that samples the same map without redrawing it. A second draw on a later
+  // frame is fine. A live run never shows it because the warm-up draws a dozen frames before the
+  // first one anyone sees; a shot draws exactly one, so every WebGPU screenshot came out
+  // pixel-identical to `&shadows=off` (measured on `?shot=2`, cloud SwiftShader and a Mac GPU alike).
+  //
+  // It has to be a *frame* later, not just a second `renderFrame()`: three redraws a shadow map at
+  // most once per frame id (ShadowNode.updateBefore), so a second render in the same task samples
+  // the same empty map. The frame id moves on three's own animation loop, i.e. on rAF. WebGL draws
+  // its shadow map correctly first time, so it keeps its single render.
+  if (GPU) {
+    let done = false;
+    const second = () => { if (done) return; done = true; renderFrame(); shotDone(); };
+    requestAnimationFrame(() => requestAnimationFrame(second));
+    // A background tab runs no frames: don't hold the shot until somebody looks at it. The frame id
+    // only moves on rAF, so this fallback would still draw shadowless — it exists to not hang.
+    setTimeout(second, 2000);
+  } else {
+    shotDone();
+  }
 } else {
   traffic.warmup(10);
   // The opening vignette, and it is built here rather than up with everything else for one
@@ -9311,6 +9414,8 @@ function startRun() {
   perfMark('warmup:end');
   warmedUp = true;
   pinWarmedNodes();
+  // Everything standing has been built and drawn: the static shadow map's set closes here.
+  splitShadow?.settle();
   const benchHooks = {
     renderer,
     ready: () => Boolean(traffic.taxi) && !traffic.taxi.staged,
@@ -9350,6 +9455,7 @@ if (!shot && wantsDebugPanel) {
   debugPanel = createDebugPanel({
     phoneFrame,
     sun,
+    shadows: splitShadow,
     hemi,
     sky,
     fog,
@@ -9391,12 +9497,17 @@ window.__taxi = {
       target: Boolean(traffic.taxi.pendingTarget), paused: Boolean(pause?.state.paused) }) },
   renderer: GPU ? 'webgpu' : 'webgl',
   gpuCapture: (options) => gpuCapture?.capture(options),
+  /** Move one lever of the street texture (ROAD_TEX in util/geo.js), as the panel does. */
+  roadTex: tuneRoadTexture,
   /** The `?bot` scripted session, or null — `scene()` and `log` (game/perfbot.js). */
   get perfBot() { return perfBot; },
   /** Whether the boot's GPU warm-up is done and the run has started — see `warmedUp`. */
   get warmedUp() { return warmedUp; },
   // The shadow-pass cull — `stats()` says how many casters the last frame skipped (game/shadowcull.js).
   shadowCull,
+  // The two shadow maps — `stats()` counts the static casters and the static map's redraws
+  // (game/splitshadow.js). Null under `?shadowsplit=classic` and on WebGL.
+  splitShadow,
   traffic,
   // The CRT screen's `{ state, set, preset }` — see game/crt.js.
   crt,

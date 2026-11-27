@@ -5,7 +5,7 @@ import { SPEED, MPH_PER_UNIT, CAR_W } from '../sim/traffic.js';
 import { PITCH, LANE } from '../city/grid.js';
 import {
   setShadowTint, shadowTint, FINISH_NAMES, glossTuning, setGlossFinish, setGlossGlobal, rimTuning, setRimTuning,
-  resetGlossTuning,
+  resetGlossTuning, ROAD_TEX, ROAD_TEX_DEFAULTS, tuneRoadTexture,
 } from '../util/geo.js';
 import { MIN_ELEVATION } from './daylight.js';
 import { BLOOM_INTENSITY, BLOOM_KINDS } from './bloom.js';
@@ -17,6 +17,7 @@ import {
 } from './colorgrade.js';
 import { buildAudioSections } from './audiopanel.js';
 import { attachQuickTips } from './quicktips.js';
+import { wallGrainOn, wallGrainTuning } from '../city/wallgrain.js';
 
 // A small tweak panel behind a gear button.
 //
@@ -84,6 +85,9 @@ export function createDebugPanel({
   // The scene's haze (game/scene.js). Defaulted to null for the same reason `scores` is defaulted:
   // the `npm run check` boot pass builds this panel against nothing.
   fog = null,
+  // The two shadow maps' edge width (game/splitshadow.js) — null under `?shadowsplit=classic` and on
+  // WebGL, where the row is left out.
+  shadows = null,
   // `{ load, clear }` over game/highscores.js. Defaulted so the panel still constructs in the
   // `npm run check` boot pass, which builds it against nothing.
   scores = { load: () => [], clear: () => {} },
@@ -267,6 +271,19 @@ export function createDebugPanel({
     shadowAmountValue.textContent = Number(shadowAmount.value).toFixed(2);
   });
   shadowAmountValue.textContent = tint.amount.toFixed(2);
+
+  // How wide a shadow's edge is, in world units: 0 is one texel of the 4096² city map (~0.5px at
+  // play zoom), and the old 2048² PCFSoft edge was about 0.4. A look decision, not a cost one: the
+  // filter takes four taps whatever the width.
+  if (shadows) {
+    const softness = slider(0, 0.5, 0.01, shadows.softness());
+    const softnessValue = row(panel, 'Shadow softness', softness);
+    softness.addEventListener('input', () => {
+      shadows.setSoftness(Number(softness.value));
+      softnessValue.textContent = Number(softness.value).toFixed(2);
+    });
+    softnessValue.textContent = shadows.softness().toFixed(2);
+  }
 
   // Filled in by the haze section below. A stub rather than a direct call because that section is
   // built after this one, so naming its `const` here would be a temporal dead zone waiting for
@@ -1027,6 +1044,98 @@ export function createDebugPanel({
     });
   }
 
+  // --- Street texture ---------------------------------------------------------
+  // Every lever of the asphalt's colour variation (ROAD_TEX in util/geo.js), live: they are all
+  // uniforms, so nothing recompiles. Remembered across reloads like the colour grade, because a
+  // look is settled over several sessions, and the panel fades while a finger is on a slider so
+  // the road under it can be judged as it moves. The box at the bottom is the whole look as JSON:
+  // copy it out to hand the numbers over, or paste one in.
+  heading('Street texture');
+  {
+    const KEY = 'simtaxi-roadtex';
+    try {
+      const saved = JSON.parse(localStorage.getItem(KEY) || 'null');
+      for (const [k, v] of Object.entries(saved || {})) tuneRoadTexture(k, Number(v));
+    } catch { /* private mode, or a look from an older build */ }
+    // key, label, min, max, step
+    const LEVERS = [
+      ['run', 'Light / dark', 0, 1.2, 0.01],
+      ['bias', 'Lighter overall', -0.5, 1, 0.01],
+      ['patch', 'Patch size', 0.2, 4, 0.05],
+      ['shoulder', 'Patch edge', 0.01, 0.5, 0.01],
+      ['warmth', 'Pale warmth', 0, 1.5, 0.01],
+      ['mottle', 'Mottle', 0, 0.8, 0.01],
+      ['stain', 'Stain darkness', 0, 1, 0.01],
+      ['stainDensity', 'Stain count', 0, 0.6, 0.01],
+      ['grain', 'Speckle strength', 0, 0.8, 0.01],
+      ['speckle', 'Speckle count', 0, 0.3, 0.005],
+      ['texel', 'Pixel size', 0, 1, 0.025],
+      ['step', 'Grey steps', 0.02, 0.4, 0.01],
+    ];
+    const code = document.createElement('textarea');
+    code.className = 'dbg-wide';
+    code.rows = 4;
+    code.spellcheck = false;
+    const changed = () => Object.fromEntries(
+      Object.keys(ROAD_TEX_DEFAULTS).filter((k) => ROAD_TEX[k] !== ROAD_TEX_DEFAULTS[k]).map((k) => [k, ROAD_TEX[k]]),
+    );
+    const syncs = [];
+    const store = () => {
+      code.value = JSON.stringify(changed());
+      try { localStorage.setItem(KEY, code.value); } catch { /* private mode */ }
+    };
+    for (const [key, label, min, max, step] of LEVERS) {
+      const input = slider(min, max, step, ROAD_TEX[key]);
+      const value = row(panel, label, input);
+      const show = () => {
+        input.value = String(ROAD_TEX[key]);
+        value.textContent = ROAD_TEX[key].toFixed(step < 0.01 ? 3 : 2) + (ROAD_TEX[key] === ROAD_TEX_DEFAULTS[key] ? '' : ' *');
+      };
+      input.addEventListener('input', () => { tuneRoadTexture(key, Number(input.value)); show(); store(); });
+      input.addEventListener('pointerdown', () => {
+        panel.classList.add('dbg-scrub');
+        const holder = input.closest('.dbg-row') ?? input;
+        holder.classList.add('is-scrubbing');
+        const end = () => {
+          panel.classList.remove('dbg-scrub');
+          holder.classList.remove('is-scrubbing');
+          window.removeEventListener('pointerup', end, true);
+          window.removeEventListener('pointercancel', end, true);
+        };
+        window.addEventListener('pointerup', end, true);
+        window.addEventListener('pointercancel', end, true);
+      });
+      show();
+      syncs.push(show);
+    }
+    panel.append(code);
+    const apply = (look) => {
+      for (const k of Object.keys(ROAD_TEX_DEFAULTS)) tuneRoadTexture(k, Number(look[k] ?? ROAD_TEX_DEFAULTS[k]));
+      syncs.forEach((f) => f());
+      store();
+    };
+    code.addEventListener('change', () => {
+      try { apply(JSON.parse(code.value || '{}')); } catch { store(); }
+    });
+    const tools = document.createElement('div');
+    tools.className = 'dbg-wide';
+    const copy = document.createElement('button');
+    copy.type = 'button';
+    copy.textContent = 'Copy look';
+    copy.addEventListener('click', async () => {
+      try { await navigator.clipboard.writeText(code.value); copy.textContent = 'Copied'; }
+      catch { code.select(); copy.textContent = 'Selected above'; }
+      setTimeout(() => { copy.textContent = 'Copy look'; }, 1200);
+    });
+    const reset = document.createElement('button');
+    reset.type = 'button';
+    reset.textContent = 'Reset street';
+    reset.addEventListener('click', () => apply({}));
+    tools.append(copy, reset);
+    panel.append(tools);
+    code.value = JSON.stringify(changed());
+  }
+
   // --- Clouds -----------------------------------------------------------------
   // Every one of these is a judgement about a whole frame and none of them can be made from the
   // numbers, which is the same argument the haze sliders above are here for — with one extra reason
@@ -1371,6 +1480,68 @@ export function createDebugPanel({
   replayEntry.addEventListener('click', () => cityEntry.replay());
   panel.append(replayEntry);
 
+  // --- Building grain ---------------------------------------------------------
+  // The pixel grain on the towers and the garage (city/wallgrain.js). All uniforms, so every slider
+  // is live. Remembered across reloads in this browser, so a look survives a refresh while it is
+  // being judged; "Copy values" puts the numbers on the clipboard to paste back into the thread,
+  // and they go into WALL_GRAIN. Drift and speckle here are before `?bldgtexamt=` scales them.
+  heading('Building grain');
+  if (!wallGrainOn()) {
+    row(panel, 'Grain', document.createTextNode('')).textContent = 'off (?bldgtex=classic)';
+  } else {
+    const GRAIN_KEY = 'simtaxi.grainTune';
+    try {
+      const saved = JSON.parse(localStorage.getItem(GRAIN_KEY) ?? 'null');
+      if (saved) for (const [k, v] of Object.entries(saved)) if (Number.isFinite(v)) wallGrainTuning.set(k, v);
+    } catch { /* storage blocked: start from shipped */ }
+    const saveGrain = () => {
+      try { localStorage.setItem(GRAIN_KEY, JSON.stringify(wallGrainTuning.get())); } catch { /* fine */ }
+    };
+    const grainSyncs = [];
+    for (const [key, label, min, max, stepSize, digits, unit] of [
+      ['drift', 'Tone drift', 0, 1, 0.01, 2, ''],
+      ['coarse', 'Drift size', 0.5, 10, 0.1, 1, 'u'],
+      ['fine', 'Fine size', 0.2, 4, 0.05, 2, 'u'],
+      ['fineMix', 'Fine share', 0, 1, 0.01, 2, ''],
+      ['speck', 'Speckle', 0, 0.6, 0.01, 2, ''],
+      ['speckRate', 'Speckle rate', 0, 0.25, 0.005, 3, ''],
+      ['step', 'Ramp step', 0.01, 0.25, 0.005, 3, ''],
+      ['texel', 'Texel', 0.05, 1, 0.025, 3, 'u'],
+    ]) {
+      const input = slider(min, max, stepSize, wallGrainTuning.get()[key]);
+      const value = row(panel, label, input);
+      const show = () => {
+        const v = wallGrainTuning.get()[key];
+        input.value = String(v);
+        value.textContent = `${v.toFixed(digits)}${unit}`;
+      };
+      input.addEventListener('input', () => { wallGrainTuning.set(key, Number(input.value)); show(); saveGrain(); });
+      show();
+      grainSyncs.push(show);
+    }
+    const grainButtons = document.createElement('div');
+    grainButtons.className = 'dbg-wide';
+    const copyGrain = document.createElement('button');
+    copyGrain.type = 'button';
+    copyGrain.textContent = 'Copy values';
+    copyGrain.addEventListener('click', async () => {
+      const text = JSON.stringify(wallGrainTuning.get());
+      console.log('[grain]', text);
+      try { await navigator.clipboard.writeText(text); copyGrain.textContent = 'Copied'; } catch { copyGrain.textContent = 'See console'; }
+      setTimeout(() => { copyGrain.textContent = 'Copy values'; }, 1500);
+    });
+    const resetGrain = document.createElement('button');
+    resetGrain.type = 'button';
+    resetGrain.textContent = 'Reset';
+    resetGrain.addEventListener('click', () => {
+      wallGrainTuning.reset();
+      try { localStorage.removeItem(GRAIN_KEY); } catch { /* fine */ }
+      grainSyncs.forEach((sync) => sync());
+    });
+    grainButtons.append(copyGrain, resetGrain);
+    panel.append(grainButtons);
+  }
+
   // --- Needs a rebuild ------------------------------------------------------
   heading('Restart to apply');
 
@@ -1579,7 +1750,7 @@ const TAB_KEY = 'dbg-tab';
  */
 const TABS = [
   ['Audio', ['Audio', 'Engine sound', 'Sounds', 'Music', 'Audio export']],
-  ['Visuals', ['Light', 'Car finish', 'Bloom', 'CRT', 'Colour grade', 'Haze', 'Clouds', 'City entrance']],
+  ['Visuals', ['Light', 'Car finish', 'Bloom', 'CRT', 'Colour grade', 'Street texture', 'Haze', 'Clouds', 'Building grain', 'City entrance']],
   ['Game', ['Game', 'Loco Mode', 'Loco weave', 'Restart to apply', 'Scores', 'Export']],
 ];
 const tabOf = (title) => TABS.find(([, titles]) => titles.includes(title))?.[0] ?? 'Game';

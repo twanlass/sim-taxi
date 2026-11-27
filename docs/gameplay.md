@@ -177,7 +177,7 @@ through.
 
 > Dispatch to Car 9. You there?
 > City council signed that **robo-taxi** deal. They'll be on the streets by Monday.
-> Those rolling toasters brake for pigeons. I have no idea why people like 'em.
+> Those rolling toasters *(robo-taxi icon)* brake for pigeons. I have no idea why people like 'em.
 > Let's get out there and show people what a rocket-powered cab ride is all about.
 
 **Dispatch talks.** Each line is read out as its card comes up: Tyler's own recordings
@@ -202,8 +202,9 @@ story. A finished line left untapped for `NUDGE_AFTER` = 3 s gives the card a
 dock-icon bounce (a 12 px hop and a 5 px one), and again every 3 s until the tap; not under reduced
 motion. When the story starts the camera flies from the title's slide down to the garage in one
 move (`STORY_GLIDE` = 3.5 s, a smootherstep blend of the two moving shots, so it leaves and arrives
-at their own speeds) and slides slowly past its door (`storyFrame` in `main.js`, zoom 24, 0.35 units
-a second). Under `?titlecam=reel`, and under reduced motion, it cuts there under the wipe instead.
+at their own speeds) and slides slowly past its door (`storyFrame` in `main.js`, zoom 24), leaving at 0.35 units
+a second and easing to rest 7 units along, so however long the player sits on a line the door
+stays in frame. Under `?titlecam=reel`, and under reduced motion, it cuts there under the wipe instead.
 Either way the last tap eases straight down onto the door rather than cutting there. Otherwise it lets the
 run go exactly as Play used to. The title screen's gate stays
 shut the whole time (`beforePlay` in `titlescreen.js`), so the fare board, the vignette and the
@@ -499,6 +500,11 @@ little at the bottom-right, with a faint glint that slowly traces the top rim (a
 `?bubbleglass=classic` is the near-opaque white card it replaced. The thing a line is about — the garage, the rider, the race — is written `{garage}`
 in its source and called out in yellow type with a black outline (bare yellow on white is
 unreadable; the outline is what carries it), with one wiggle as its last letter lands.
+A line can also carry a picture in its text: `{:robotaxi}` is a little robo-taxi, rendered from the
+game's own mesh under the game's camera and sun (`node tools/make-inline-icons.mjs` writes
+`assets/hud/inline-robotaxi.png`; `INLINE_ICONS` in `speech.js` names them). It types in as one
+letter and pops up from small when the caret reaches it, sized at 1.3em so it reads as a word.
+`?texticons=classic` leaves the pictures out.
 `?bubblestyle=classic` is the see-through black card with white type it replaced;
 `?bubblestyle=card` is the white Figma card. Every line types
 itself out behind a caret, dispatch and the racer included, and the card grows with the line rather
@@ -1567,8 +1573,8 @@ Two details are load-bearing and easy to lose:
   An editor-drawn arterial has no line index to look either up by.
 
 **Near-ties go straight off an arched bridge**, so there is room for
-[Big Air](river.md#the-drift-launch), which only fires when the route goes straight on at the far
-bank. The taxi's router knocks `BIG_AIR_TILT` (0.11) off the move "straight on past an arched deck"
+[Big Air](river.md#the-drift-launch), which flies straight over the far bank and, when the route
+wanted to turn there, drops it and re-plans from where it lands. The taxi's router knocks `BIG_AIR_TILT` (0.11) off the move "straight on past an arched deck"
 — less than any block costs, so it never lengthens a trip, only picks between routes the hierarchy
 weights already call near enough equal. Over every trip on 12 cities (`tools/bigair-route.mjs`) the
 share of bridge crossings that go straight on rose from 35% to 69%, against a ceiling of 75% (the
@@ -3596,13 +3602,20 @@ from under a player already driving at it.
 ### Two kinds of load, and one of them has an address
 
 A courier job is carrying a **box** or a **food order** — an oversized burger with a soda cup behind
-it (`geometry/parcel.js`, `geometry/food.js`), drawn per package at even odds (`FOOD_CHANCE`).
+it, or the donut shop's pink donut propped against a coffee (`geometry/parcel.js`, `geometry/food.js`,
+`geometry/donutorder.js`), box or food drawn per package at even odds (`FOOD_CHANCE`).
 Everything about the errand is the same either way — same pad, same cyan, same gestures, same money,
 same fuel, same absence of a clock — with **one** exception, and it is the reason the second kind is
 worth having at all:
 
-**A food order is collected at the [burger joint](#the-burger-run).** Not at a corner the draw
-liked: at the one place in the city that sells food. The junction is the joint's own +X+Z corner, so
+**A food order is collected at the shop that sells it.** Not at a corner the draw liked: a burger at
+the [burger joint](#the-burger-run), a donut at the donut shop — the two places in the city that sell
+food. A food draw goes to either at even odds between whichever of the two corners is usable this
+frame (`FOOD_KINDS` in `game/parcels.js`), so a rider standing on one shop's corner hands its order to
+the other shop rather than to a box. There is no `?classic` toggle: a donut order needs the shop, so
+`?donut=classic` (no shop) is also the burger-only board.
+
+For the burger joint The junction is the joint's own +X+Z corner, so
 the pad lands on the lot itself, by the drive-through's exit — `cornerFor` puts a kerb pin on the
 −X−Z side of its junction, which makes `(bi + 1, bj + 1)` the one corner of that block whose pin
 stands on the joint's slab rather than across the road from it. `main.js` derives it and injects it;
@@ -3620,9 +3633,16 @@ in the same place, so how good a job it is depends on where the taxi happens to 
 that never goes near that block, the food half of the board is not for you. That is a landmark
 working, not a bug in the placement.
 
-**A food order that cannot be collected is served as a box.** The joint's corner is unusable in three
-ordinary ways — a rider is standing on it, the taxi is parked on it, or the city failed to place a
-joint at all — and none of them is a reason for the board to sit empty. So `FOOD_CHANCE` is the
+**The donut shop's corner is its own.** The shop stands on its block's +X+Z corner lot, so the
+junction just past that block's +X and +Z edges is the one whose kerb pin lands on the shop's own
+pavement, in front of its door and ahead of the parked cruiser (which already stands `CORNER_CLEAR`
+back from that corner for a rider). `chooseDonutSite` reads it off the block's bounds as `pickup`;
+`tools/probe.mjs` asserts the pin lands inside the shop's block at its corner, and sweeps cities to
+assert the corner is always one the camera can see.
+
+**A food order that cannot be collected is served as a box.** Both shops' corners are unusable in
+three ordinary ways — a rider is standing on one, the taxi is parked on it, or the city failed to place
+that shop at all — and none of them is a reason for the board to sit empty. So `FOOD_CHANCE` is the
 chance of *asking* for food, and what actually gets served is measured in `tools/probe.mjs` rather
 than assumed to match it (43 of 80 on the probe's city). The one thing that would make the whole
 feature vanish silently is a joint whose corner the camera cannot see — the
@@ -4813,9 +4833,16 @@ chance to put a name on the run.
 `rerun`/`resetRun` in `src/main.js`. **Play again starts the next run on the same page**, and Quit
 goes back to the title the same way: under a wipe (`RERUN_HOLD_MS` of black), every system the run
 touched is put back the way the boot left it, the opening vignette is staged again, and the run
-starts inside the garage with the city's entrance wave building outward from it — the shot a fresh
-load opens on. Quit does the same reset and puts the title menu back up instead, with the station
-off the air until Play (`sfx.offAir`) and no entrance wave.
+starts inside the garage, the camera on the door, with the city **already standing**: the entrance
+wave (buildings and trees growing out of the ground, the L's track being laid) is a first-load
+flourish and does not replay. Quit does the same reset and puts the title menu back up instead, with
+the station off the air until Play (`sfx.offAir`).
+
+Play again used to replay the wave from the garage, the shot a fresh load opens on; on the second
+run it was two seconds of watching the same city build before the door could open (Tyler,
+2026-11-25). `?rerunentry=classic` brings it back. It was never a load or caching cost: the replay
+reuses the programs and pipelines the first run built, so cutting it saves only the wave's own
+seconds of transparent drawing.
 
 It used to be `location.reload()`, and that threw the GPU context away with the page: the replay
 paid the whole load again, the city rebuilt and every shader linked and pipeline warmed. Measured

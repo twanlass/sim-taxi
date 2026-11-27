@@ -1053,6 +1053,8 @@ export function createLTrain(scene, rng, { sparks = null, lights = true, intro =
   }
   const deck = new THREE.Mesh(addIntro(buildDeck(plan)), deckMaterial);
   deck.castShadow = true;
+  // Still for the whole run: drawn into the standing city's shadow map (game/splitshadow.js).
+  deck.userData.staticShadow = true;
   deck.receiveShadow = true;
   // The deck is a thin shell 3 units over the road: its slab, ties and rails are each a few tenths
   // thick, which is the bridge deck's acne all over again. Sunk along the sun's rays — free here
@@ -1074,6 +1076,8 @@ export function createLTrain(scene, rng, { sparks = null, lights = true, intro =
     truss = new THREE.Mesh(addIntro(trussGeo), trussMaterial);
     truss.name = 'ltrain-truss';
     truss.castShadow = true;
+    // Still for the whole run: drawn into the standing city's shadow map (game/splitshadow.js).
+    truss.userData.staticShadow = true;
     truss.receiveShadow = true;
     // A node material's intro is its `positionNode`, which the shadow pass is handed too.
     if (intro && !trussMaterial.isNodeMaterial) truss.customDepthMaterial = introDepth();
@@ -1083,6 +1087,8 @@ export function createLTrain(scene, rng, { sparks = null, lights = true, intro =
   // The columns are not sunk: their shadow starts at their own foot, and sinking it would detach it.
   const columns = new THREE.Mesh(addIntro(buildColumns(plan)), material);
   columns.castShadow = true;
+  // Still for the whole run: drawn into the standing city's shadow map (game/splitshadow.js).
+  columns.userData.staticShadow = true;
   columns.receiveShadow = true;
   if (intro && !material.isNodeMaterial) columns.customDepthMaterial = introDepth();
   group.add(columns);

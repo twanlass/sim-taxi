@@ -163,6 +163,15 @@ The golden-hour sun and fill started at `#FFDEBB` and 1.50 and were held down (t
 over a 1.20 fill) to leave the shadow tint something to work against. The shadow tint's knee (0.45)
 was measured against the 1.50 fill.
 
+### One shadow map, redrawn every frame
+
+Until 2026-11-27 the sun cast into a single 2048² map over the whole island (0.132 units a texel),
+filtered by three's `PCFSoftShadowMap` (16 compares per pixel), and redrawn every frame with every
+caster in it, because the cars move. The sun never moves during a run, so almost all of that work
+reproduced the previous frame's answer, and shadows were the most expensive thing on the phone
+(shadows > AO ≈ MSAA > bloom). It was replaced by [two maps](rendering.md#two-shadow-maps--gamesplitshadowjs):
+the city drawn once at 4096², the movers drawn every frame. `?shadowsplit=classic` is the single map.
+
 ### The shadow tint — `SHADOW_UNIFORMS` in `util/geo.js`
 
 [Current](rendering.md#the-shadow-tint--shadow_uniforms-in-utilgeojs).
@@ -921,3 +930,20 @@ as a black slab, a rendering bug rather than a bridge (Tyler: "the black looks l
 bug"). The current `drawbridgeSoffit` sits between the two, under the trim so the edge beams still
 outline it.
 
+
+## Dry-road specular (tried 2026-11-24, removed)
+
+A shine on the dry street was tried in the street-texture PR (#798) and removed at Tyler's call:
+first per-texel glints (each texel's normal scattered by a hash, Blinn-Phong off the real sun),
+which were invisible at phone size, then a broad sun glare that followed the camera. The glare had
+to be *placed*, not ray-traced: on flat ground the sun's mirror point is seen along (-Lx, Ly, -Lz),
+and over the day cycle that heading is 50 to 174 degrees off the camera's (159 at 07:00, 72 at
+16:24, 50 at 18:00), so for this camera and sun path the true reflection is never on screen.
+
+## The flat white fog bank (#557 until 2026-11-24, `?fogshade=classic`)
+
+The fog of war's colour was the sky's horizon lifted 45% toward white, shaded only by its own billow
+noise: `fog × (0.86 + 0.2 × billow)`. On a colour that close to white that is a range of about
+12/255, and at phone zoom it read as one flat sheet (Tyler: "so they don't read as just pure
+white"). Replaced by sun-lit billows with warm and cool regions, described in
+[rendering.md](rendering.md#the-fog-of-war--gameedgefogjs).

@@ -280,8 +280,16 @@ export function createRain(renderer, { enabled = false, mood: moodName = 'shower
       // The frame's attachments by name, `output` first: the one the ground reads.
       const names = Object.keys(layout.outputNodes);
       names.sort((a, b) => (b === 'output') - (a === 'output'));
+      // Eight bits, the frame's own format, so the mirror draws with the frame's *pipelines*. A
+      // pipeline is keyed on its target's colour format, and a half-float mirror gave every material
+      // in the city a second one that nothing else used: 153 of the boot's 344 (headless, seed 7,
+      // 2026-11-26), every one a Metal compile on a phone's first launch. Half float was for the
+      // darks banding, which was a WebGL worry: there the target held linear values. Under WebGPU
+      // every node material writes display values (game/gpufog.js), the same eight bits the screen
+      // shows, and the ground blurs what it samples. `?mirrorhalf=classic` is the half-float target.
+      const half = new URLSearchParams(window.location.search).get('mirrorhalf') === 'classic';
       mirrorPair = new THREE.RenderTarget(2, 2, {
-        count: names.length, type: THREE.HalfFloatType, stencilBuffer: true, depthBuffer: true,
+        count: names.length, type: half ? THREE.HalfFloatType : THREE.UnsignedByteType, stencilBuffer: true, depthBuffer: true,
       });
       names.forEach((name, i) => { mirrorPair.textures[i].name = name; });
     }
@@ -291,7 +299,7 @@ export function createRain(renderer, { enabled = false, mood: moodName = 'shower
   /**
    * While the boot warms up (`warmMirror`), the mirror is drawn dry, so its pipelines are built
    * behind the load bar rather than on the first wet frame of the run. Every material in the city
-   * gets a pipeline of its own for this target (half float, the frame's attachments, no MSAA), and
+   * needs its pipeline for this target too (the frame's own format and attachments, so they are the frame's), and
    * nothing else draws into it: on an iPhone 16 Pro under `?bot` the squall's first wet frame built
    * 95 of them at once, a **3.2 s** freeze, and each thing the mirror then saw for the first time
    * (the bank's dome, the helicopter, a robotaxi) cost another 250–380 ms (2026-11-23).

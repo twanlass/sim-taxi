@@ -5,6 +5,7 @@ import { PALETTE, jitterColor } from '../palette.js';
 import { riverBanks, coastWest, GRID_J, isArterialX, lineZ, LTRAIN_NS } from './grid.js';
 import { KERB_H, PAVE_INSET, SLAB_RADIUS } from './ground.js';
 import { WATER_Y, waterEdges } from './river.js';
+import { grimeWall } from './grime.js';
 import {
   harborPiers, islandHalf, seaStartX, insidePolygon, onShoreline, parkShoreClosure,
 } from './harborplan.js';
@@ -510,17 +511,8 @@ export function createHarbor(rng) {
  * rather than trusted (CLAUDE.md, the roadworks ramp).
  */
 export function wallQuad(ax, az, bx, bz, nx, nz, top, bottom, col) {
-  const A = [ax, top, az]; const B = [bx, top, bz]; const C = [bx, bottom, bz]; const D = [ax, bottom, az];
-  let tris = [A, C, B, A, D, C];
-  // Face normal of the first triangle from its winding: (C - A) x (B - A).
-  const u = [C[0] - A[0], C[1] - A[1], C[2] - A[2]];
-  const v = [B[0] - A[0], B[1] - A[1], B[2] - A[2]];
-  const fx = u[1] * v[2] - u[2] * v[1];
-  const fz = u[0] * v[1] - u[1] * v[0];
-  if (fx * nx + fz * nz < 0) tris = [A, B, C, A, C, D];
-  const g = new THREE.BufferGeometry();
-  g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(tris.flat()), 3));
-  return bakeColor(g, col);
+  // Every caller is a wall standing in water, so every one carries the tide mark.
+  return grimeWall(ax, az, bx, bz, nx, nz, top, bottom, col);
 }
 
 /** The long sheds on the aprons either side of the channel's last stretch. */

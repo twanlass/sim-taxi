@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { setEdgeFogSky } from './edgefog.js';
+import { setEdgeFogSky, setEdgeFogSun } from './edgefog.js';
 import { MAX_SPAN } from '../city/grid.js';
 import { hazeColor } from './scene.js';
 import { cloudTint } from './clouds.js';
@@ -140,6 +140,8 @@ export function createDaylight({ sun, hemi, sky, fog = null, clouds = null }, st
     setGlossSky(look.top, look.bottom);
     if (fog) hazeColor(look.top, look.bottom, fog.color);
     setEdgeFogSky(look.bottom);
+    // The bank's lit sides face the sun, and fade with it: full at a midday's 3.6, none at night.
+    setEdgeFogSun(sun.position.x, sun.position.z, look.power / 3.6);
     if (clouds) clouds.setLight(look.top, look.bottom);
 
     return look;

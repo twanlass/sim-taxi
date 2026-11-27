@@ -144,6 +144,9 @@ const GLYPHS = {
   E: ['XXXX', 'X...', 'XXX.', 'X...', 'XXXX'],
   O: ['.XX.', 'X..X', 'X..X', 'X..X', '.XX.'],
   P: ['XXX.', 'X..X', 'XXX.', 'X...', 'X...'],
+  // For the donut shop's DONUTS (city/donutshop.js).
+  D: ['XXX.', 'X..X', 'X..X', 'X..X', 'XXX.'],
+  U: ['X..X', 'X..X', 'X..X', 'X..X', '.XX.'],
 };
 const PIXEL = 0.2;
 

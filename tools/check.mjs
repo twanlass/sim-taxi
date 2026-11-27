@@ -11,7 +11,7 @@ import { spawnSync } from 'node:child_process';
 
 // Boot the browser-only modules in node before anything else. They construct fine outside a
 // browser, and a scope slip in scene.js shipped undetected because nothing headless imported it.
-const BOOT = ['../src/game/scene.js', '../src/game/debugpanel.js', '../src/geometry/taxi.js', '../src/game/daycard.js', '../src/game/days.js',
+const BOOT = ['../src/game/scene.js', '../src/game/splitshadow.js', '../src/game/debugpanel.js', '../src/geometry/taxi.js', '../src/game/daycard.js', '../src/game/days.js',
   '../src/game/faremarker.js', '../src/geometry/person.js', '../src/game/routeline.js',
   '../src/game/pathdrag.js', '../src/game/steer.js', '../src/game/joystick.js', '../src/game/steerline.js', '../src/game/freedrive.js', '../src/game/steertip.js', '../src/game/sfx.js', '../src/game/audiopanel.js', '../src/game/soundrings.js',
   '../src/game/soundpins.js', '../src/game/phoneframe.js', '../src/game/quicktips.js', '../src/game/quicktips.js',
@@ -150,6 +150,13 @@ try {
       if (THREE.ShaderLib.standard.uniforms.edgeFog?.value !== fog.edgeFogUniform
         || THREE.UniformsUtils.clone(THREE.ShaderLib.lambert.uniforms).edgeFog.value !== fog.edgeFogUniform) {
         throw new Error('edgefog: a built-in shader does not share the one fog uniform');
+      }
+      // The bank's sun (FOG_SHADE): the same by-reference rule, or the lit sides freeze facing
+      // wherever the sun was on the first frame.
+      if (fog.FOG_SHADE && (THREE.ShaderLib.standard.uniforms.edgeFogSun?.value !== fog.edgeFogSun
+        || THREE.UniformsUtils.clone(THREE.ShaderLib.lambert.uniforms).edgeFogSun.value !== fog.edgeFogSun
+        || !THREE.ShaderChunk.fog_fragment.includes('edgeFogSun'))) {
+        throw new Error('edgefog: the fog bank\'s sun is not shared by every built-in shader');
       }
       if (fog.FOG_START <= -LANE_TO_KERB) throw new Error(`edgefog: FOG_START ${fog.FOG_START} reaches the outer lane`);
     }

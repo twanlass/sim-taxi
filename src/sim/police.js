@@ -3,6 +3,7 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { propMaterial, BODY_EULER_ORDER, FINISH, countInEveryPass } from '../util/geo.js';
 import { PALETTE, color } from '../palette.js';
 import { SILL_Y } from '../geometry/wheels.js';
+import { outlineVehicle, VEHICLE_RIM, WHEEL_RIM } from '../geometry/ghostoutline.js';
 import {
   sirenOn, patrolSwing, sirenPodGeometry, sirenRedAnchor, sirenBlueAnchor, sirenBaseGeometry, sirenBaseAnchor,
   sirenRedMaterial, sirenBlueMaterial,
@@ -174,6 +175,30 @@ function lightBar(shell, carrier, lamps) {
 }
 
 /**
+ * The cruiser parked: the same body, bar and steered wheels, with no lamps, no traffic car and no
+ * fade — the donut shop's (city/donutshop.js). About its own origin, nose down +X, front wheels
+ * turned `kerbLock` towards the kerb (local +Z). Static, so it costs three draws and nothing a frame.
+ */
+export function parkedCruiser({ kerbLock = 0 } = {}) {
+  const group = new THREE.Group();
+  const bodyGeometry = policeGeometry();
+  const body = new THREE.Mesh(bodyGeometry, propMaterial({ gloss: { geometry: bodyGeometry, floor: SILL_Y } }));
+  body.castShadow = true;
+  body.receiveShadow = true;
+  group.add(body);
+  const housing = new THREE.Mesh(sirenBaseGeometry(), propMaterial());
+  housing.position.copy(sirenBaseAnchor(CABIN_X, CABIN_TOP));
+  housing.castShadow = true;
+  housing.receiveShadow = true;
+  group.add(housing);
+  const wheels = steeredWheels(group);
+  // A positive yaw about +Y swings a wheel's leading edge from +X towards -Z, so the kerb (+Z)
+  // wants it negative.
+  wheels.forEach((wheel) => { wheel.rotation.y = -kerbLock; });
+  return { group, body, housing, wheels, occluders: [body, housing, ...wheels] };
+}
+
+/**
  * @param {object} [opts]
  * @param {boolean} [opts.lamps]  Hang the two point lights. The extra patrol cruisers the harder
  *   Difficulty modes add (main.js) go without: every point light in the scene is paid for by every
@@ -218,6 +243,12 @@ export function createPolice(scene, { lamps = true, patrolLights = false } = {})
   const faders = [body.material, lights.housing.material, lights.red.material, lights.blue.material,
     wheels[0].material];
   for (const material of faders) material.alphaHash = true;
+  // Its ghost outline, traced near the taxi like the street traffic's (game/carghosts.js). The
+  // cop cars of the robbery are instances and get theirs from the pool; this one is a skin.
+  outlineVehicle(group, {
+    rims: [[body, VEHICLE_RIM], ...wheels.map((w) => [w, WHEEL_RIM])],
+    tint: color('policeGhost'),
+  });
   shell.visible = false;
   // 'YXZ', not the default — see the note by the ambient euler in sim/traffic.js. The pose arrives
   // as a quaternion from the traffic model, but anything reading `rotation` back gets it in the

@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { unlitMaterial } from '../util/geo.js';
-import { BILLBOARD } from '../game/camera.js';
+import { BILLBOARD, MARKER_OUTLINE_PX, PHONE_PX_PER_UNIT } from '../game/camera.js';
 import { PALETTE } from '../palette.js';
 
 // The outburst a VIP leaves behind when their clock runs out: a jagged comic bubble with a grawlix
@@ -53,8 +53,10 @@ const NOTCH = 0.82;       // how far in the valleys between the spikes cut
 
 // The dark outline around the fill, in **world units** rather than as a scale factor, for the reason
 // `RIM_OFFSET` gives in geometry/diamond.js: this shape is nearly twice as wide as it is tall, so
-// one multiplier would draw a border half as thick at the top as at the sides.
-const RIM = 0.26;
+// one multiplier would draw a border half as thick at the top as at the sides. It lies in the
+// screen plane, so it shows in full: every marker's weight (game/camera.js) converted at play zoom,
+// 0.185. It was 0.26 (2.1px) until 2026-11-26.
+const RIM = MARKER_OUTLINE_PX / PHONE_PX_PER_UNIT;
 
 // The grawlix. Six glyphs on a 1.02-unit advance — 6.1 units wide inside a 7.4-unit bubble, which
 // leaves the outburst's own spikes clear of the ink.

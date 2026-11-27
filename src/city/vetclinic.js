@@ -220,8 +220,11 @@ export function clearOf(towers, self, p) {
   return true;
 }
 
-/** The OPEN sign's place on a tower's shopfront: which face, where along it, and how wide. */
-function signSpot(tower) {
+/**
+ * The OPEN sign's place on a tower's shopfront: which face, where along it, and how wide. Also the
+ * donut shop's (city/donutshop.js), which wears the same sign.
+ */
+export function signSpot(tower) {
   const shops = tower.front.shops.filter((s) => s.side === 0 || s.side === 1);
   // +X first: it is the face the sun is on (FACING in buildings.js), and the brighter of the two.
   shops.sort((a, b) => a.side - b.side);
