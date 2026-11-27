@@ -217,6 +217,7 @@ import { createHitchLogger, getHitchLogger } from './game/hitch.js';
 import { createPerfCapture, perfMark, perfPhase } from './game/perf.js';
 import { warmFirstDraws, warmFirstDrawsInSteps, awaitPrograms } from './game/warmup.js';
 import { createShadowCull } from './game/shadowcull.js';
+import { createSplitShadow } from './game/splitshadow.js';
 import { LOADER, warmStep, compileProgress } from './game/loadbar.js';
 import { createBench } from './game/bench.js';
 import { createSoak } from './game/soak.js';
@@ -465,6 +466,19 @@ gpuFrame?.setSun(sun);   // the rim line on the cars follows it (game/gpuframe.j
 // the island (game/shadowcull.js). `?shadowcull=classic` draws them all, as before.
 const shadowCull = createShadowCull(scene, sun);
 if (new URLSearchParams(location.search).get('shadowcull') === 'classic') shadowCull.setEnabled(false);
+// Two shadow maps (WebGPU): the standing city drawn once at twice the resolution, and only what moves
+// drawn every frame (game/splitshadow.js). `?shadowsplit=classic` is the one 2048² map that redrew
+// the whole island every frame. `busy` is the classic entrance wave, which grows static geometry in
+// its vertex shader — declared further down, so read through a function.
+const splitShadow = GPU && sun.castShadow
+  && new URLSearchParams(location.search).get('shadowsplit') !== 'classic'
+  ? createSplitShadow(sun, {
+    staticSize: Math.min(4096, budget.shadowMapSize * 2),
+    dynamicSize: budget.shadowMapSize,
+    busy: () => cityEntry.running() || Boolean(ltrain?.intro?.running()),
+  })
+  : null;
+if (splitShadow) shadowCull.skipStatic(splitShadow.isStatic);
 
 // The bloom composite, over the city and under every read-out.
 renderPath.addOverlays(scene);
@@ -9229,6 +9243,7 @@ if (!shot && wantsDebugPanel) {
   debugPanel = createDebugPanel({
     phoneFrame,
     sun,
+    shadows: splitShadow,
     hemi,
     sky,
     fog,
@@ -9274,6 +9289,9 @@ window.__taxi = {
   get warmedUp() { return warmedUp; },
   // The shadow-pass cull — `stats()` says how many casters the last frame skipped (game/shadowcull.js).
   shadowCull,
+  // The two shadow maps — `stats()` counts the static casters and the static map's redraws
+  // (game/splitshadow.js). Null under `?shadowsplit=classic` and on WebGL.
+  splitShadow,
   traffic,
   // The CRT screen's `{ state, set, preset }` — see game/crt.js.
   crt,

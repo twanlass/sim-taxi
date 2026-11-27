@@ -163,6 +163,15 @@ The golden-hour sun and fill started at `#FFDEBB` and 1.50 and were held down (t
 over a 1.20 fill) to leave the shadow tint something to work against. The shadow tint's knee (0.45)
 was measured against the 1.50 fill.
 
+### One shadow map, redrawn every frame
+
+Until 2026-11-27 the sun cast into a single 2048² map over the whole island (0.132 units a texel),
+filtered by three's `PCFSoftShadowMap` (16 compares per pixel), and redrawn every frame with every
+caster in it, because the cars move. The sun never moves during a run, so almost all of that work
+reproduced the previous frame's answer, and shadows were the most expensive thing on the phone
+(shadows > AO ≈ MSAA > bloom). It was replaced by [two maps](rendering.md#two-shadow-maps--gamesplitshadowjs):
+the city drawn once at 4096², the movers drawn every frame. `?shadowsplit=classic` is the single map.
+
 ### The shadow tint — `SHADOW_UNIFORMS` in `util/geo.js`
 
 [Current](rendering.md#the-shadow-tint--shadow_uniforms-in-utilgeojs).
