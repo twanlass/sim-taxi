@@ -313,6 +313,10 @@ export const SHOTS = [
   // drive-through. Appended, for the index reason.
   { name: 'donut-order', description: 'a donut order waiting on the donut shop\u2019s corner — needs ?parcels=1', target: [0, 0], zoom: 11, warmup: 12, untilParcel: true, cargoKind: 'donut' },
   { name: 'donut-order-far', description: 'a donut order on the donut shop\u2019s corner at play zoom — needs ?parcels=1', target: [0, 0], zoom: 52, warmup: 12, untilParcel: true, cargoKind: 'donut' },
+  // The construction crane (city/crane.js): close on the mast and jib, and at play zoom, where the
+  // whole of it has to read as a crane over the rooftops. `__craneStep` films it. Appended.
+  { name: 'crane', description: 'the construction crane, close', target: [0, 0], zoom: 16, warmup: 12, atCrane: true },
+  { name: 'crane-far', description: 'the construction crane at play zoom', target: [0, 0], zoom: 52, warmup: 12, atCrane: true },
 ];
 
 export function getActiveShot() {
