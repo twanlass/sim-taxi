@@ -493,11 +493,138 @@ function realTree(kit) {
   return kit.parts;
 }
 
+// --- Card crowns in many shapes (`?trees=cardshapes`) --------------------------------
+//
+// The all-card crown, but with the shape language mixed: a park of round crowns reads as one tree
+// repeated, so each tree picks one of seven outlines off its trunk position. Each is a list of
+// card lobes (`fill`, so the cards fill the volume rather than coat it) over a small dark heart per
+// mass, which is what gives the tree its shadow and its depth.
+
+function cardLobes(kit, crown, clumps, { density = 3.2, cardScale = 1.2, s = null } = {}) {
+  for (const c of clumps) {
+    const tint = jitterColor(c.color ?? kit.canopy, kit.rng, { h: 0.02, s: 0.04, l: 0.06 });
+    kit.record({
+      x: c.x, y: c.y, z: c.z, r: c.r, color: tint, tx: kit.x, tz: kit.z, crown,
+      fill: true, density, cardScale, keepBack: true, s: c.s ?? s,
+    });
+  }
+}
+
+/** A flat ring of clumps at one height: a tier of a layered tree or of a cone. */
+function ringClumps(kit, cx, y, cz, radius, count, size, s = null) {
+  const spin = kit.rng.range(0, Math.PI * 2);
+  const out = [{ x: cx, y, z: cz, r: size * 1.1, s }];
+  for (let k = 0; k < count; k++) {
+    const a = spin + (k / count) * Math.PI * 2 + kit.rng.jitter(0.3);
+    const far = radius * kit.rng.range(0.75, 1);
+    out.push({ x: cx + Math.cos(a) * far, y: y + kit.rng.jitter(size * 0.25), z: cz + Math.sin(a) * far,
+      r: size * kit.rng.range(0.8, 1.1), s });
+  }
+  return out;
+}
+
+function cardShapeTree(kit) {
+  const { rng, x, z } = kit;
+  const { height, trunkH, crownR: r, crownY: cy } = kit.shape;
+  const bark = jitterColor(PALETTE.trunk, rng, { l: 0.05 });
+  const fork = KERB_H + trunkH * 0.78;
+  const p = kit.pick;
+  // Kept small: past ~0.4 of a mass the heart shows through the cards as a smooth dark ball.
+  const core = (crown, frac = 0.35) => addCore(kit, crown, { frac: Math.min(frac, 0.4), shade: 0.4, record: false });
+
+  if (p < 0.15) {
+    // Column: a tall narrow flame, a poplar or a cypress. Taller than the tree it replaces.
+    const crown = { x, y: cy + r * 0.7, z, r, s: [0.5, 1.8, 0.5] };
+    addTrunk(kit, trunkH + r, height * 0.05, height * 0.025, bark);
+    core(crown, 0.5);
+    cardLobes(kit, crown, placeClumps(kit, crown, { count: 9, top: 1, bottom: -0.9, reach: [0.35, 0.55], size: [0.32, 0.42] }));
+    return kit.parts;
+  }
+  if (p < 0.3) {
+    // Cone: a spruce of card rings, wide at the foot and coming to a point.
+    const tiers = 5;
+    const foot = KERB_H + height * 0.2;
+    const span = height * 1.05 - (foot - KERB_H);
+    addTrunk(kit, height * 0.6, height * 0.05, height * 0.02, bark);
+    const crown = { x, y: foot + span * 0.4, z, r: height * 0.28, s: [0.8, 1.5, 0.8] };
+    core(crown, 0.55);
+    const green = PALETTE.conifer;
+    for (let k = 0; k < tiers; k++) {
+      const t = k / (tiers - 1);
+      const ring = ringClumps(kit, x, foot + span * t * 0.88, z, height * 0.2 * (1 - t * 0.85),
+        Math.round(6 - t * 4), height * (0.11 - t * 0.04), [1.05, 0.6, 1.05]);
+      for (const c of ring) c.color = green;
+      cardLobes(kit, crown, ring, { cardScale: 1.0 });
+    }
+    return kit.parts;
+  }
+  if (p < 0.45) {
+    // Umbrella: a wide flat top on a tall bare trunk, an acacia or a stone pine.
+    const top = trunkH + r * 0.9;
+    const crown = { x, y: KERB_H + top + r * 0.1, z, r, s: [1.65, 0.42, 1.65] };
+    addTrunk(kit, top, height * 0.05, height * 0.03, bark);
+    const clumps = placeClumps(kit, crown, { count: 11, top: 0.9, bottom: -0.25, reach: [0.55, 0.8], size: [0.34, 0.46] });
+    addLimbs(kit, clumps, KERB_H + top * 0.7, 5, bark);
+    core(crown, 0.5);
+    cardLobes(kit, crown, clumps, { s: [1.25, 0.55, 1.25] });
+    return kit.parts;
+  }
+  if (p < 0.6) {
+    // Tiered: two or three flat layers with sky between them, a cloud-pruned pine.
+    const tiers = 2 + (rng.next() < 0.5 ? 1 : 0);
+    const top = height * 0.95;
+    addTrunk(kit, top, height * 0.05, height * 0.022, bark);
+    for (let k = 0; k < tiers; k++) {
+      const t = k / tiers;
+      const y = KERB_H + height * (0.42 + t * 0.5);
+      const spread = r * (1.1 - t * 0.45);
+      const crown = { x, y, z, r: spread, s: [1.4, 0.45, 1.4] };
+      const side = rng.range(0, Math.PI * 2);
+      const ox = Math.cos(side) * spread * 0.25;
+      const oz = Math.sin(side) * spread * 0.25;
+      addLimb(kit, new THREE.Vector3(x, y - spread * 0.3, z), new THREE.Vector3(x + ox * 2, y, z + oz * 2),
+        height * 0.018, height * 0.01, bark);
+      const ring = ringClumps(kit, x + ox, y, z + oz, spread * 0.65, 4 + (k ? 0 : 1), spread * 0.42, [1.2, 0.5, 1.2]);
+      core({ ...crown, x: x + ox, z: z + oz }, 0.4);
+      cardLobes(kit, crown, ring);
+    }
+    return kit.parts;
+  }
+  if (p < 0.72) {
+    // Vase: stems splaying out of a low fork into a crown wider at the top than the bottom, an elm.
+    const crown = { x, y: cy + r * 0.25, z, r, s: [1.3, 0.85, 1.3] };
+    addTrunk(kit, trunkH * 0.6, height * 0.06, height * 0.04, bark);
+    const clumps = placeClumps(kit, crown, { count: 10, top: 0.95, bottom: 0.0, reach: [0.6, 0.8], size: [0.36, 0.46] });
+    addLimbs(kit, clumps, KERB_H + trunkH * 0.5, 5, bark);
+    core(crown, 0.45);
+    cardLobes(kit, crown, clumps);
+    return kit.parts;
+  }
+  if (p < 0.86) {
+    // Weeping: a mop of cards hanging round the sides to near the ground.
+    const crown = { x, y: cy + r * 0.15, z, r, s: [1.2, 1.15, 1.2] };
+    addTrunk(kit, trunkH + r * 0.6, height * 0.055, height * 0.03, bark);
+    const clumps = placeClumps(kit, crown, { count: 12, top: 0.85, bottom: -1, reach: [0.7, 0.85], size: [0.3, 0.42] });
+    addLimbs(kit, clumps.filter((c) => c.y > cy), fork, 4, bark);
+    core(crown, 0.5);
+    cardLobes(kit, crown, clumps, { s: [0.85, 1.35, 0.85] });
+    return kit.parts;
+  }
+  // Lollipop: a small tight ball high on a slim trunk, a clipped street tree.
+  const ball = r * 0.7;
+  const crown = { x, y: cy + r * 0.45, z, r: ball };
+  addTrunk(kit, trunkH + r * 0.5, height * 0.04, height * 0.025, bark);
+  core(crown, 0.55);
+  cardLobes(kit, crown, placeClumps(kit, crown, { count: 6, reach: [0.4, 0.55], size: [0.45, 0.55] }), { density: 2.6 });
+  return kit.parts;
+}
+
 const STYLES = {
   clumped: (kit) => clumpedTree(kit),
   shapes: (kit) => shapedTree(kit),
   species: speciesTree,
   cards: cardTree,
+  cardshapes: cardShapeTree,
   lowpoly: lowpolyTree,
   real: realTree,
 };

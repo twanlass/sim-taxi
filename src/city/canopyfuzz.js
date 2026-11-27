@@ -43,6 +43,9 @@ const BACK = -0.22;
 const CLUMP_CARD = 1.45;
 const CLUMP_PROUD = 0.1;
 
+const lobeScale = new THREE.Vector3();
+const scaleOf = (arr) => lobeScale.set(arr[0], arr[1], arr[2]);
+
 // `blob` in props.js scales every lobe by this before placing it.
 const LOBE_SCALE = new THREE.Vector3(1.05, 0.9, 1.05);
 
@@ -129,17 +132,19 @@ export function planCanopyFuzz(rng, crowns) {
       const variant = rng.int(0, VARIANTS - 1);
       const color = jitterColor(lobe.color, rng, { h: 0.015, s: 0.03, l: 0.05 });
 
+      // A lobe may carry its own squash (`s`, the card-shape trees' flat layers and columns).
+      const ls = lobe.s ? scaleOf(lobe.s) : LOBE_SCALE;
       const ux = ring * Math.cos(phi);
       const uz = ring * Math.sin(phi);
       // The point on the scaled lobe, and the ellipsoid's normal there (the gradient, which for a
       // scaled sphere is the direction divided by the scale).
-      n.set(ux / LOBE_SCALE.x, y / LOBE_SCALE.y, uz / LOBE_SCALE.z).normalize();
+      n.set(ux / ls.x, y / ls.y, uz / ls.z).normalize();
       // The cull stays on the lobe's own normal, so it drops the same cards whatever the crown.
       if (!lobe.keepBack && n.dot(TO_CAMERA) < BACK) continue;
       p.set(
-        lobe.x + ux * LOBE_SCALE.x * lobe.r * sink,
-        lobe.y + y * LOBE_SCALE.y * lobe.r * sink,
-        lobe.z + uz * LOBE_SCALE.z * lobe.r * sink,
+        lobe.x + ux * ls.x * lobe.r * sink,
+        lobe.y + y * ls.y * lobe.r * sink,
+        lobe.z + uz * ls.z * lobe.r * sink,
       );
       // On a clump, a card lights and shades the way the clump does at that point (props.js).
       if (lobe.crown) {

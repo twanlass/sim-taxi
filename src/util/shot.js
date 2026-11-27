@@ -317,6 +317,7 @@ export const SHOTS = [
   // Appended, so every index above keeps its shot.
   { name: 'trees', description: 'a stand of park trees, close', target: [0, 0], zoom: 8, warmup: 12, atTrees: true },
   { name: 'trees-far', description: 'park trees at play zoom', target: [0, 0], zoom: 52, warmup: 12, atTrees: true },
+  { name: 'trees-mid', description: 'a whole park of trees, between the two', target: [0, 0], zoom: 18, warmup: 12, atTrees: true },
 ];
 
 export function getActiveShot() {
