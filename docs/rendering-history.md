@@ -39,6 +39,12 @@ over each shopfront were all stacked in the top unit of a three-unit wall. Singl
 of it, the darker plinth included ("what about the dark color band?"), and the fascia went
 everywhere.
 
+## Building pixel grain — removed 2026-11-27
+
+#800 (merged 2026-11-25) laid the pixel street's texel grid over every tower wall and roof and the garage shell: a tone drift (value noise at 8.6 and 0.3 units) plus light and dark speckle texels, on a 0.175-unit grid, rounded to a 0.035 ramp through a 2×2 dither. One diffuse multiply in the facade courses' seam, ~2 to 3% of a SwiftShader frame, with a **Building grain** section in the ⚙️ panel and `?bldgtex=classic`, `?bldgtexamt=`, `?bldgpx=`.
+
+Removed outright two days later (Tyler: "it reads poorly"). At play zoom it read as dirt on the walls rather than texture, and it made the roofs' tone swim towards the walls'. Decided against; the file, the panel section and the three params went with it, and the towers' program lost a noise function.
+
 ## Window glass — `city/buildings.js`
 
 [Current](rendering.md#window-glass--citybuildingsjs). Until 2026-10-24 the windows were the

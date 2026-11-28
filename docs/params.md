@@ -68,15 +68,15 @@ doc; what the classic version was, and why it changed, is in that doc's history 
 | `?streetprops=classic` | No post boxes or hot dog cart on the kerb | `STREETPROPS=classic` | [city.md](city.md#the-post-box-and-the-hot-dog-cart) |
 | `?propsmash=classic` | Loco Mode swipes the taxi onto the kerb into every post box and hot dog cart it passes, instead of only an overtake up the kerb hitting them | `PROPSMASH=classic` | [city.md](city.md#the-post-box-and-the-hot-dog-cart) |
 | `?walls=classic` | Flat building walls: no plinth, storey ledges, cornice, and no frames round the punched windows | `WALLS=classic` | [rendering.md](rendering.md#wall-detail--cityfacadejs) |
-| `?bldgtex=classic` | Building walls and roofs without their pixel grain (tone drift and speckle on the street's texel grid) | | [rendering.md](rendering.md#pixel-grain--citywallgrainjs) |
-| `?bldgtexamt=<n>` | Scales the buildings' pixel grain: 1 as shipped, 2 twice as strong, 0 the same as `?bldgtex=classic` | | [rendering.md](rendering.md#pixel-grain--citywallgrainjs) |
-| `?bldgpx=<n>` | The buildings' texel in world units: 0.175 as shipped, a touch coarser than the pixel street's 0.15 | | [rendering.md](rendering.md#pixel-grain--citywallgrainjs) |
 | `?windows=classic` | Building windows are the faux sky gradient in vertex colour again, instead of glass meshes with stylised 45° light streaks | #681 | [rendering.md](rendering.md#window-glass--citybuildingsjs) |
 | `?garbage=classic` | No bag piles on the kerb and no garbage truck | `GARBAGE=classic` | [city.md](city.md#the-bag-piles-and-the-garbage-truck) |
 | `?robotaxi=classic` | No robo-taxis: nobody else in town takes your riders | | [gameplay.md](gameplay.md#robo-taxis) |
+| `?landmarks=classic` | The vet's dog and the donut shop take any corner shop that fits, whole-block boxes and two-storey walk-ups included, rather than only a low shop sharing its block | | [city.md](city.md#the-vet-clinic) |
 | `?vet=classic` | No vet clinic: the corner shop it picks keeps a bare roof and an empty window | | [city.md](city.md#the-vet-clinic) |
 | `?donut=classic` | No donut shop: the corner shop it picks keeps a bare roof, and no cruiser parks outside | | [city.md](city.md#the-donut-shop) |
 | `?billboard=classic` | No rooftop billboards: the robo-taxi and Dub Burger roofs stay bare | | [city.md](city.md#the-rooftop-billboard) |
+| `?crane=classic` | No construction crane: the mid-rise it stands on keeps a plain roof | | [city.md](city.md#the-construction-crane) |
+| `?crane=shadow` | The crane's moving parts (jib, trolley, rope, beam) cast shadows too; by default only the storey and mast do | | [city.md](city.md#the-construction-crane) |
 | `?vetopen=word` | The vet's OPEN sign spells the word in red neon letters inside its blue frame, instead of one red bar | | [city.md](city.md#the-vet-clinic) |
 | `?roofs=classic` | Solid flat roof caps, with no lip and no sunk deck | #511 | [city.md](city.md) |
 | `?flames=classic` | The drift kick's two plumes splayed into a V off the pipe (0.6 out, 0.32 rad each side) instead of running parallel 0.65 out | | [rendering.md](rendering.md#the-tailpipe-plume--gamelocoflamejs) |
