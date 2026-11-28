@@ -260,10 +260,18 @@ turns the hop into a launch: the same `hopFrom` arc and the same trigger point, 
 `DRIFT_LAUNCH_LEN` = 20 units long and `DRIFT_LAUNCH_HEIGHT` = 10 high (`car.hopBig`). The length
 is derived: from 3.25 into the deck lane it clears the rest of the deck and the whole junction on
 the far bank (8 wide, 10.67 for an arterial) and comes down 3.25 or 0.6 into the next street, five
-units clear of its hold line. So it only fires when the exit at the far bank is **straight on** —
-a turning route there gets the ordinary hop, since the arc would otherwise bend sideways in mid-air.
-The router tips near-tied routes toward going straight on there (`BIG_AIR_TILT`,
-[gameplay.md](gameplay.md#routing)), which took that from 35% of crossings to 69%.
+units clear of its hold line. So the taxi always crosses the far bank **straight on**: a route that
+turns there no longer cancels the launch (Tyler, 2026-11-27). The kick wins — the junction drops
+the route the way an overtake does (`car.launchDetour`, then `detoured`) and main.js re-plans from
+the street the taxi lands in, at the cost of the block or two that takes. That re-plan offers the
+corner back as a late turn (`retakeCrossing`), and a free right on red would take it too; both are
+refused while Big Air is in the air, or the arc bends sideways mid-flight (the first in-game take did). The only crossing left
+without Big Air is a far bank with no straight exit at all (a T into a block). Measured with
+`tools/bigair-turn.mjs`, a kicked taxi on every arched deck of six cities with a route for each
+exit: a turning route launched 0 of 48 times before, 42 of 48 now (the 6 are T junctions). The
+router still tips near-tied routes toward going straight on there (`BIG_AIR_TILT`,
+[gameplay.md](gameplay.md#routing)), which keeps most launches from needing the detour at all.
+`?bigair=classic` gives the turn back to the route, and with it the ordinary hop.
 
 The carry is a clock and the bridge is a place, so the kick also counts for `DRIFT_LAUNCH_GRACE`
 = 12 units of travel after its carry runs out on its own (not braked, turned or crashed out of): a
@@ -277,7 +285,7 @@ touchdown), ignores the brake (a distance-paced arc on a stopping car is a taxi 
 `sim/collisions.js` skips it above `DRIFT_LAUNCH_CLEAR`. main.js slows the sim toward the apex
 (`launchTimeScale`, down to 0.4) so 0.65s of flight hangs for about a second, and the landing is
 the slam: the squat and the pitch kick scaled by `DRIFT_SLAM`, a 1.6 shake, a body thud and a ring of
-dust. `tools/probe.mjs` asserts the chain, the brake, the let-go pill, the turning exit and the collision
+dust. `tools/probe.mjs` asserts the chain, the brake, the let-go pill, the turning exit's detour and the collision
 skip.
 
 Mid-flight the taxi **barrel-rolls**: one full turn about its own long axis (`barrelRollAt` in
