@@ -9,7 +9,7 @@ import {
   surfaceAt,
 } from '../city/skatepark.js';
 
-// The riders on the skatepark (city/skatepark.js): a crew of two or three taking turns on it — see
+// The riders on the skatepark (city/skatepark.js): two of them taking turns on it — see
 // "The session" below for the turn-taking, the coping grinds and sparks, the bails and the deeper
 // knees. Whoever is up rides as the solo rider always did: one person using the whole park,
 // carving across from the funbox lane to the rail's on the quarter pipes, and putting something
@@ -124,7 +124,7 @@ const PUSH_MAX = 3;
 
 // --- The session (the default since `?skaters=classic`) ----------------------------
 //
-// **A crew taking turns.** Two or three riders, one on the ramp at a time — which is how a mini
+// **A crew taking turns.** Two riders, one on the ramp at a time — which is how a mini
 // ramp is actually skated, and what keeps them out of each other's way by construction. The rest
 // wait on the decks out past the lanes with their boards stood on the tail, watching, and throw an
 // arm up when someone lands something. A turn ends in a rest on the deck: the rider steps off,
@@ -373,7 +373,8 @@ export function createSkaters(scene, rng, park, { stiff = false, push = true, de
       mode: 'stall', passes: rng.int(PASSES[0], PASSES[1]), t: rng.next() * 10, dir: -side0,
     }));
   } else {
-    const n = rng.chance(0.6) ? 3 : 2;
+    // Two (Tyler, 2026-11-27): one riding and one waiting reads as a session without crowding it.
+    const n = 2;
     const tops = [PALETTE.skaterA, PALETTE.skaterB, PALETTE.skaterC];
     const decks = [PALETTE.skateDeck, PALETTE.skateDeckB, PALETTE.skateDeckC];
     const hairs = ['#2E2520', '#6B4A33', '#B8863B', '#1E1B19'];

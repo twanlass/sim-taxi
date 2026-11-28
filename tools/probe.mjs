@@ -2376,8 +2376,8 @@ const onGrass = (city, i, j) => {
       }
       neverRode += rode.filter((x) => !x).length;
     }
-    check('the session: two or three riders, one on the ramp at a time, never closer than 0.9',
-      fewest >= 2 && most === 3 && twoUp === 0 && closest > 0.9 && offSlab === 0,
+    check('the session: two riders, one on the ramp at a time, never closer than 0.9',
+      fewest === 2 && most === 2 && twoUp === 0 && closest > 0.9 && offSlab === 0,
       `${fewest}-${most} riders, ${twoUp} frames with two up, closest ${closest.toFixed(2)}, ${offSlab} board-frames off the slab`);
     check('and it is a session: turns handed round, coping grinds, sparks, bails back on the board',
       turns >= 30 && neverRode === 0 && copings >= 10 && truckGrinds >= 30 && thrown.n > 500

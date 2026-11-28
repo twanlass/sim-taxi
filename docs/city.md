@@ -1347,7 +1347,7 @@ only trees it moves are the ones its keep-out turns away. Over 80 seeds every ci
 - Benches go through the court's `clearBenches`, grass through `onCourt` and birds get a keep-out
   rectangle; all three only read a slab's centre, axis and size, which the two share.
 
-The riders are `game/skaters.js`, on the run seed (`+349`): **a crew of two or three taking turns**,
+The riders are `game/skaters.js`, on the run seed (`+349`): **two of them taking turns**,
 one on the ramp at a time, which is how a mini ramp is actually skated and what keeps them out of
 each other's way by construction.
 
@@ -1413,7 +1413,7 @@ travelling toward the tail, and a rock or a 360 is what toggles it.
   other way round it is hidden behind the rider's back for the whole pass.
   `?skatepush=classic` leaves the rider pumping only.
 
-The probe runs the session for five minutes over four runs: two or three riders, never two on the
+The probe runs the session for five minutes over four runs: two riders, never two on the
 ramp at once, every one of them getting turns, coping grinds and sparks thrown, bails that end
 back on the board, and no two figures ever closer than 0.9. Then the solo rider, the same
 way: one rider, no wheel ever under the concrete, the board
