@@ -935,6 +935,15 @@ through every other tower's box (taken 2.6 taller than its walls, for what stand
 That is what keeps the clinic off the downtown corners, where a tower across the street hides the
 window. 30 seeds out of 30 get one.
 
+**Which of those.** Never a roof with a water tower on it: the tank is 3.3 tall and the head went
+straight through one. Among the rest, the kind of building Tyler picked off a contact sheet of 24
+candidates (2026-11-27) wins — `landmarkShop`: a shop **sharing its block** with other buildings and
+no taller than `SHOP_MAX_TOP` (5). He struck every whole-block box (a sign on a lone box reads as a
+warehouse with a mascot) and the two-storey walk-ups. It is a preference, not a filter: about one
+city in fifteen has no such shop, and then any shop that fits will do, so the city keeps its
+landmark. The donut shop follows both rules the same way. `?landmarks=classic` drops the preference
+and keeps the water-tower rule, which is a bug fix.
+
 **The head** (`dogHeadGeometry`, `HEAD_R = 1.75`, about 32px across at play zoom) is squashed
 spheres at twelve segments, a toy the way the burger is, turned 0.5 rad off the camera's bearing
 so the muzzle and tongue show in profile — square on, the snout foreshortens away. It cocks slowly
@@ -951,6 +960,57 @@ units, under half a screen pixel, so the word lands as the same red smudge the b
 
 The model workshop has it as **Vet clinic**: the city's own tower generator building a shop on
 the bench block, with the sign on it.
+
+## The donut shop
+
+Another ordinary corner shop per city is a donut shop (`city/donutshop.js`): a giant cake donut
+stood on edge on its roof — pink frosting with a drippy edge, sprinkles, the paler fried band round
+the outside — and a police cruiser parked out front, bar dark, two wheels up on the kerb. Picked
+exactly the way the vet is (`chooseDonutSite`, after `chooseVetSite`, by hash, never the vet's own
+tower), so it moves nothing in the skyline. The billboards are chosen after it and skip its roof.
+`?donut=classic` leaves both additions off. 40 seeds out of 40 get one.
+
+**Which shop.** A one-tier flat roof (any wall style) on a block's **+X+Z corner lot**, with these
+things true: its generated door and a shopfront pane are on faces the camera sees, the donut's two feet land on the deck clear of the plant room, a ray towards the camera
+from the donut gets out past every other tower (`clearOf`, shared with the vet), and the cruiser has
+somewhere to park that the camera can also see.
+
+**The donut** (`donutGeometry`, ring 1.35, tube 0.8 — 4.3 units across, the dog's head's size) is
+one indexed torus at 44 × 18, smooth-normalled, with its colour put on per face afterwards. The
+frosting is the *same surface* lifted 0.07 where it is frosted, not a second shell, so nothing is
+coplanar and the step between the two radii is the frosting's edge; `frostReach` makes that edge
+wavy and lets it drip in a few places. The 64 sprinkles are tiny boxes half sunk into the frosting,
+in the same mesh: 768 triangles and no extra draw, where a shader fleck would cost a lookup on every
+pixel of the donut to say the same 2px thing. It faces the camera's bearing swung 0.3 rad towards
++Z — towards the golden-hour sun, so the frosting is lit rather than mauve — so the tube's flank shows, tipped back 0.28, and stands 1.75 up on two steel legs — high enough
+to clear any plant room, so only its feet need room on the roof. It is static, so unlike the dog and
+the burger it rides the entrance wave's shader as one stamped mesh, and it goes in the sightline
+field like the vet's pole.
+
+**The shopfront.** The shop also gets the vet's neon OPEN sign in a shopfront pane (`signSpot`,
+blooms as a `window`), and a glass door over the dark one `groundFloor` drew (`glassDoorGeometry`):
+an aluminium frame, a glass pane and a push bar, layered 0.11, 0.15 and 0.245 off the wall so no
+two faces share a plane. That is why the shop has to be one whose generated door is on a face the
+camera sees. Under the donut, **DONUTS** in smooth white bubble letters on no board (`bubbleWordGeometry`):
+each stroke is a tube of 0.16 through a centripetal spline, so corners come out round, with a ball
+on each open end. The letters are 1.0 tall and set nearly touching, each bobbed and tipped a little,
+alternately. The word is 2,864 triangles, lit, and goes in the donut's mesh. The letters overlap the
+bottom of the ring and hang 1.0 in front of the legs. The ring's tilt brings its bottom forward, so
+letters level with the legs had the tube in front of the middle ones. The first cut was pixel
+letters on a chocolate board.
+
+**The cruiser** is the patrol cruiser's own body, housing and steered wheels (`parkedCruiser`,
+sim/police.js), no lamps, front wheels turned in to the kerb. It parks the way traffic beside that
+kerb drives (+Z on a +X face, −X on a +Z face), nose 3 back from the block corner — riders stand on
+the corner — and **up on the kerb** for an arithmetic reason as well as a comic one: the lane is
+2.25 from the kerb, so a car parked *at* the kerb overlaps a passing car by 0.35, and ambient cars do
+not collide with scenery. At 0.35 out, its kerb-side wheels are on the pavement and its road-side
+flank leaves 0.2 to a passing car's. Kerb side up by `KERB_H` over the 1.4 track is a 14° lean. It is
+not in the traffic model. The lamps, the post boxes, the bag piles and the roadworks all keep off it
+(`carRect`, `carPoints`).
+
+The model workshop has it as **Donut shop**: the donut and the parked cruiser side by side (the site
+picking needs the city's road network, which the bench does not have).
 
 ## The rooftop billboard
 
@@ -979,6 +1039,48 @@ the two never share a view. Over 30 seeds every city gets the robo-taxi board an
 as well. The steel and the poster go into the sightline field, so no fare is placed on a corner a
 board hides. Shots `billboard`/`billboard-far` frame the first, `billboard-burger`/`billboard-burger-far`
 the second.
+
+## The construction crane
+
+One mid-rise per city is adding floors (`city/crane.js`): its flat roof grows a bare concrete storey,
+columns and a slab in raw grey concrete a step darker than any finished wall, with the next storey's
+column stubs and rebar on top. A dusty-mustard tower crane stands up through the middle swinging a
+red-oxide steel beam about. Pure background; not tappable. `?crane=classic` leaves the roof a roof.
+
+**Four bars and a few struts.** The mast and the jib are each four main bars (0.17) tied by a ring of
+cross struts every 1.7, with one diagonal per face per bay. The jib tapers to 55% at its tip. Two
+earlier looks were rejected. A full lattice of 0.07–0.12 members was one or two pixels of shimmer at
+play zoom ("too spindly"), and solid banded boxes read as "just blocks". The operator's cab is a blue
+steel box with glass all round, on the slewing platform where the mast meets the jib. There are two
+0.34 red lamps, on the tower head's apex and the jib tip. There are no pendant ties or slings,
+because black hairlines read as scratches. Only the hoist rope is left, one 0.1 grey line.
+
+**It uses a roof rather than a lot.** A fenced pit would mean `createLayout` taking a block and every
+draw after it moving; instead `chooseCraneSite` picks a tower after the billboards, by rule and hash,
+like the vet and the boards, so no draw moves. A real city crane climbs up the building's own core,
+so the mast going down through the slab is the true arrangement.
+
+**Which roof.** A deck at least 3.6 wide on a building 3.2 to 8.5 tall, nowhere near the helipad.
+The jib's underside sits 3.4 over the tallest thing in the circle it sweeps: every tower's roof
+plus 2.6 for its furniture, the bank's dome, the billboards, and the L train's car roofs (8.35).
+The lowest crane wins, because under this camera every unit of height hides 1.09 units of ground
+up-screen. The outer ring of blocks is penalised, since that is where the neighbours are lowest and the
+first cut kept choosing the fog. Every one of 40 seeds gets a crane, with the jib at 10 to 14.4.
+It stays out of the sightline field: a member under a unit across can cover a slice of a 3.5-unit kerb mark, never the whole of one.
+
+**The motion is transforms, not geometry.** The storey and mast are one static mesh, stamped into
+the entrance wave. The slewing top (jib, counter-jib, head, cab), the trolley, the rope (a unit box
+scaled to the drop) and the hook with its beam are four meshes under two groups, grown on the CPU
+by the wave (`entryObject`) because they turn. The crane holds a big I-beam (4 units) out near the tip and
+slews it slowly between headings, 6–9s a move, pausing between moves to let it dangle. The run's
+seed picks the headings. A crane within reach of the L only swings through a 120° arc turned away
+from the line (`ARC`), because a jib over the train read as clipping it even though it cleared it
+in height. The beam hangs on a damped pendulum driven by
+the trolley's radial and tangential acceleration plus a faint breeze, so it swings when the crane starts and stops and never hangs dead still.
+While it is out over the neighbours, its underside stays a unit above the tallest roof in reach.
+The moving parts use `propMaterial({ ao: false })` and stay out of the AO prepass. By default they
+cast no shadow (`?crane=shadow` turns that on). The two red aircraft lamps bloom as `window` and blink (0.6s lit in every 1.5s) by dimming their colour, which the bloom copy follows. Shots
+`crane`/`crane-far` frame it, and `window.__craneStep(dt)` steps it for filming.
 
 ## The roadside lot, and its tube man
 
@@ -1254,7 +1356,36 @@ only trees it moves are the ones its keep-out turns away. Over 80 seeds every ci
 - Benches go through the court's `clearBenches`, grass through `onCourt` and birds get a keep-out
   rectangle; all three only read a slab's centre, axis and size, which the two share.
 
-The rider is `game/skaters.js`, on the run seed (`+349`): **one**, using the whole park. Still a
+The riders are `game/skaters.js`, on the run seed (`+349`): **two of them taking turns**,
+one on the ramp at a time, which is how a mini ramp is actually skated and what keeps them out of
+each other's way by construction.
+
+- **The session.** The ones not riding wait on the decks, out past the lanes (`WAIT_OUT`) and back
+  from the coping (`WAIT_IN`), board stood on its tail on the side away from the middle, watching
+  whoever is up and throwing an arm up when they land something. A turn ends in a rest on the deck
+  (`handover`): the rider steps off, kicks the board up into a hand and walks to a free spot; the
+  next one lays theirs down, hops on and drops in. Whoever is standing on the spot the rider is
+  walking to goes first, so nobody walks into anybody; otherwise the longest waiter goes once the
+  deck is clear (`stepSession`). Each rider has a style of their own (`makeStyle`) — how low they
+  ride, how deep they load a pop, how long a turn lasts, which tricks they like.
+- **Grinds throw sparks.** A 50-50, a 5-0 (back truck, nose up) and a nosegrind on the rail, and a
+  50-50 along the coping from one lane to the other. Steel on steel only — a boardslide throws none.
+  The sparks go through the taxi's own pool (`game/sparks.js`, grown 64 → 96 for it) at about a
+  third of its throw, so a grind costs no draw call of its own.
+- **Bails.** About one kickflip or shove-it over the funbox in five (per rider, 12–26%) does not come
+  back under the feet: the board is late and the rider has jumped clear of it. They land running,
+  the board rolls on up the transition alone and back down, and they trap it with a foot and hop
+  on — or walk to it if it stopped short — then push off toward the near end.
+- **Knees.** Every beat goes deeper than the solo rider's: a pop is loaded lower and for longer
+  (`POP_LOAD`, `POP_WINDOW`), including on the way up to the lip for an air, and leaves with the
+  legs snapping straight (`POP_SNAP`); every landing sinks further (`LAND_SINK`); manuals (and now
+  nose manuals) ride in the deep crouch.
+- **What reads at play zoom.** The figure is ~25px tall there. The turn-taking, the walk with the
+  board, the drop-ins, a bail's runaway board and the bigger crouch-and-pop all read. The grind
+  sparks read as a flicker of orange off the rail or the coping — the bloom does most of that work.
+  The 5-0/nosegrind tilt, the nose manual and the board stood beside a waiter are close-up details.
+
+`?skaters=classic` is the solo rider below, as it was before the session. Each rider is still a
 pendulum on the lane's surface (`surfaceAt`), pumped on entering the flat so the far end peaks
 where its trick wants it, but now with its energy kept (`E`) so a hop or a grind can take it off the
 surface and hand it back at the budgeted speed. Between passes it carves across the transition to
@@ -1291,7 +1422,10 @@ travelling toward the tail, and a rock or a 360 is what toggles it.
   other way round it is hidden behind the rider's back for the whole pass.
   `?skatepush=classic` leaves the rider pumping only.
 
-The probe runs five minutes over four runs: one rider, no wheel ever under the concrete, the board
+The probe runs the session for five minutes over four runs: two riders, never two on the
+ramp at once, every one of them getting turns, coping grinds and sparks thrown, bails that end
+back on the board, and no two figures ever closer than 0.9. Then the solo rider, the same
+way: one rider, no wheel ever under the concrete, the board
 never more than 0.12 rad of pitch in a frame, both lanes and at least ten tricks, and pushes whose
 foot sits on the floor without sliding and leave the rider at least 1.4× faster. `?skater=classic`
 is the first cut (`game/skatersclassic.js`): two riders in 75% of runs, each in its own lane, airs

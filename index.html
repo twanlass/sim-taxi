@@ -113,6 +113,11 @@
          and no input — the site's page is what takes the taps. */
       html.backdrop body > :not(.city-canvas) { display: none !important; }
       html.backdrop, html.backdrop * { pointer-events: none !important; }
+      /* The clean view (game/cleanview.js): Road only and the inspect freeze take every overlay off
+         but the canvas and the ⚙️ panel. `visibility`, so nothing re-lays itself out; `!important`
+         and on every descendant, because the boost flame animates its own visibility back on. */
+      body.clean-view > :not(.city-canvas):not(#dbg-toggle):not(#dbg-panel):not(#phone-frame),
+      body.clean-view > :not(.city-canvas):not(#dbg-toggle):not(#dbg-panel):not(#phone-frame) * { visibility: hidden !important; }
       /* The startup screen (game/splash.js): over everything, the menu included, until it fades. */
       #splash {
         position: fixed; inset: 0; width: 100vw; height: 100vh; z-index: 100;
@@ -1888,8 +1893,10 @@
          it was the highlighted word's yellow until then). Opaque rather than glass: the blur is
          what lets white sit over a pale street, and the purple carries itself. The dark outline is the rider pie's
          1.5px one (MARKER_OUTLINE_PX), drawn round disc and pointer together so the two read as
-         one shape against the rain-grey street. It is built in layers rather than as a filter: a
-         dark disc 1.5px proud of the purple one at the back, the pointer over it stroked in the
+         one shape against the rain-grey street (`--marker-outline`, written on the root by
+         farepointers.js). It is built in layers rather than as a filter: a dark disc that much
+         proud of the purple one at the back, the pointer over it stroked twice as wide (half of it
+         is under the fill) in the
          same dark, and the purple disc on top, which covers the pointer's sunk base and its stroke.
          It was four hard drop-shadows on the tag body until then, and Safari left the pointer out
          of them — the outline stopped at the disc's edge and the tail went bare (Tyler, 2026-10-23).
@@ -1914,11 +1921,11 @@
         isolation: isolate; filter: drop-shadow(0 2px 3px rgba(16, 18, 26, 0.35));
       }
       :is(.tag-quest, .speech-style-white) .speech-tag-pin .speech-tag-body::before {
-        content: ''; position: absolute; inset: -1.5px; border-radius: 50%; background: #121318; z-index: 0;
+        content: ''; position: absolute; inset: calc(-1 * var(--marker-outline, 1.5px)); border-radius: 50%; background: #121318; z-index: 0;
       }
       :is(.tag-quest, .speech-style-white) .speech-tag-pin .speech-pointer { z-index: 1; }
       :is(.tag-quest, .speech-style-white) .speech-tag-pin .speech-pointer path {
-        stroke: #121318; stroke-width: 3px; vector-effect: non-scaling-stroke; paint-order: stroke; stroke-linejoin: round;
+        stroke: #121318; stroke-width: calc(2 * var(--marker-outline, 1.5px)); vector-effect: non-scaling-stroke; paint-order: stroke; stroke-linejoin: round;
       }
       :is(.tag-quest, .speech-style-white) .speech-tag-pin .speech-tag { position: relative; z-index: 2; }
       /* The glass styles fade the disc and pointer themselves rather than the body, so the dark
@@ -2673,7 +2680,7 @@
       .dbg-search::-webkit-search-cancel-button { filter: invert(0.6); }
 
       .dbg-sec { border-top: 1px solid var(--dbg-line); }
-      .dbg-sec[hidden], .dbg-sec-body[hidden], .dbg-miss { display: none !important; }
+      .dbg-sec[hidden], .dbg-sec-body[hidden], .dbg-row[hidden], .dbg-miss { display: none !important; }
       .dbg-sec-head {
         display: flex; align-items: center; gap: 8px; width: 100%; padding: 9px 12px;
         border: 0; background: none; color: var(--dbg-text); cursor: pointer; text-align: left;

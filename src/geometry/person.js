@@ -1008,6 +1008,63 @@ export function createPerson({
   }
 
   /**
+   * Walking, for a skater off the board (game/skaters.js): `run`'s cycle at a walker's amplitude —
+   * the full run swing at a slow cadence reads as a sprint in slow motion. `carry` 0..1 keeps the
+   * `side` arm (+1 the +X arm, −1 the −X) down and a little out, holding a board by its truck.
+   * Returns the bob.
+   */
+  function walk(cadence, carry = 0, side = 1) {
+    const s = Math.sin(cadence);
+    const c = Math.cos(cadence);
+    legL.rotation.set(0.5 * s, 0, 0);
+    legR.rotation.set(-0.5 * s, 0, 0);
+    armL.rotation.set(-0.35 * s, 0, -0.06);
+    armR.rotation.set(0.35 * s, 0, 0.06);
+    const hold = side > 0 ? armR : armL;
+    hold.rotation.set(hold.rotation.x * (1 - carry) - 0.1 * carry, 0, side * (0.06 + 0.22 * carry));
+    bend(0.1 + Math.max(0, -c) * 0.55, 0.1 + Math.max(0, c) * 0.55,
+      -0.25 + (side < 0 ? 0.2 * carry : 0), -0.25 + (side > 0 ? 0.2 * carry : 0));
+    chest.rotation.set(0, 0, 0);
+    group.rotation.set(-0.05, 0, 0);
+    group.position.set(0, 0, 0);
+    group.scale.setScalar(1);
+    return Math.abs(s) * 0.06;
+  }
+
+  /**
+   * Standing about, for a skater waiting a turn on the deck or getting up after a bail. `t` drives
+   * a slow weight shift (`phase` offsets one figure from the next), `hold` 0..1 rests the `side`
+   * arm on a board stood on its tail beside them, `cheer` 0..1 throws the other arm up — someone
+   * landed something — and `hands` 0..1 puts both on the head, which is what a bail looks like from
+   * across a park.
+   */
+  function stand(t, { phase = 0, hold = 0, side = 1, cheer = 0, hands = 0 } = {}) {
+    const s = t * 0.9 + phase;
+    const shift = Math.sin(s * 0.6);
+    legL.rotation.set(0, 0, -0.06);
+    legR.rotation.set(0, 0, 0.06);
+    const hk = 1 - hands;
+    // The free arm hangs, the holding one is out to the board's nose, and a cheer or a bail
+    // overrides both.
+    const free = side > 0 ? armL : armR;
+    const held = side > 0 ? armR : armL;
+    free.rotation.set(0.08 * Math.sin(s * 1.1) * hk, 0, -side * 0.08);
+    held.rotation.set(-0.15 * hold, 0, side * (0.08 + 0.3 * hold));
+    if (cheer > 0) free.rotation.set(-2.7 * cheer, 0, -side * (0.08 + 0.25 * cheer));
+    if (hands > 0) {
+      armL.rotation.set(-2.5 * hands, 0, -0.55 * hands);
+      armR.rotation.set(-2.5 * hands, 0, 0.55 * hands);
+    }
+    bend(0.06 + Math.max(0, shift) * 0.2, 0.06 + Math.max(0, -shift) * 0.2,
+      -0.15 - 1.9 * hands - (side < 0 ? 0.35 * hold : 0) - (side < 0 ? 0.3 * cheer : 0),
+      -0.15 - 1.9 * hands - (side > 0 ? 0.35 * hold : 0) - (side > 0 ? 0.3 * cheer : 0));
+    chest.rotation.set(0.04 * hands, 0, 0);
+    group.rotation.set(0, 0, 0.03 * shift);
+    group.position.set(0, -0.02 * Math.abs(shift), 0);
+    group.scale.setScalar(1);
+  }
+
+  /**
    * Thrown clear of a wreck (game/ejection.js): arms windmilling and legs bicycling while airborne,
    * eased into a sprawled starfish as `limp` goes 0 → 1 once they have come to rest. Only the limbs
    * are written — the tumble itself is a rotation on whatever holds the figure, because it has to
@@ -1045,6 +1102,6 @@ export function createPerson({
   // the limb above them.
   return {
     group, meshes, wave, board, run, hopIn, exit, bail, rest, idle, flee, surrender, highlight, setRobber, setSanta,
-    setOpacity, dribble, shoot, chase, watch, tumble, skate, ride, iceSkate, footAt, plantFoot,
+    setOpacity, dribble, shoot, chase, watch, tumble, skate, ride, iceSkate, footAt, plantFoot, walk, stand,
   };
 }

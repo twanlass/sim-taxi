@@ -582,6 +582,25 @@ const DRIFT_LAUNCH_PITCH = 0.5;
 // that block with room for an arterial's wider box, and stays well short of two blocks (~44).
 // A carry cut short — braked, turned, crashed — clears it; only one that ran out on its own counts.
 const DRIFT_LAUNCH_GRACE = 12;
+// A route that turns at the far bank used to cost the launch outright: the flight crosses that
+// junction in the air, so `big` asked for a straight exit and a turning route flew the ordinary hop
+// (Tyler, 2026-11-27: "if you drift a corner and then hit a bridge, but your route has you taking a
+// hard right or left you won't unlock the combo"). The router's tilt (BIG_AIR_TILT, game/route.js)
+// already sends 75% of bridge routes straight on; the other quarter *have* to turn there. Measured
+// with tools/bigair-turn.mjs — a kicked taxi put on every arched deck of six cities with a route
+// for each exit: straight 21 of 21 launched, a turn 0 of 48.
+//
+// So the kick wins. A taxi carrying a kick onto the hump flies straight over the far bank whatever
+// the route said, and the junction drops the route there the way an overtake does (`detoured`), so
+// main.js re-plans from the street it lands in. That is the player's move, not the game steering:
+// the drift is the choice, and the price is the block or two the re-plan costs on the clock.
+// `?bigair=classic` gives the turn back to the route, and the launch with it.
+let bigAirDetour = true;
+
+/** `?bigair=classic` lets a route's turn at the far bank cancel Big Air; anything else flies it. */
+export function setBigAirStyle(name) {
+  bigAirDetour = name !== 'classic';
+}
 /** Above this much air the taxi is over the traffic rather than in it. A car roof is ~1.5. */
 export const DRIFT_LAUNCH_CLEAR = 1.6;
 
@@ -4171,7 +4190,8 @@ export function createTraffic(
   const {
     group: taxiGroup, setOccupied: setTaxiOccupied, lights: taxiLights,
     setHighlight: setTaxiHighlight, setSteer: setTaxiSteer, setLights: setTaxiLights,
-    damage: taxiDamage, setDoor: setTaxiDoor,
+    damage: taxiDamage, setDoor: setTaxiDoor, signLamp: taxiSignLamp, updateSign: updateTaxiSign,
+    settleSign: settleTaxiSign, douseSign: douseTaxiSign,
   } = createTaxiMesh();
   scene.add(taxiGroup);
 
@@ -5062,7 +5082,7 @@ export function createTraffic(
   // phase happens to be at the moment you sample it.
   const stats = {
     time: 0, violations: 0, minGap: Infinity, moving: 0, waiting: 0,
-    distance: 0, routeDesync: 0, routeRefused: 0, passDetours: 0, rightOnRed: 0, chaseOnRed: 0,
+    distance: 0, routeDesync: 0, routeRefused: 0, passDetours: 0, launchDetours: 0, rightOnRed: 0, chaseOnRed: 0,
     uturns: 0,
   };
 
@@ -5173,6 +5193,8 @@ export function createTraffic(
       // magnitude wider than the pods themselves, and pulling the eye off the two cars the shot
       // exists to show.
       setTaxiLights(0, 0, 0);
+      // ...and the roof sign with them, for the same close-up's sake.
+      douseTaxiSign();
       return taxiGroup;
     }
 
@@ -6133,6 +6155,10 @@ export function createTraffic(
       const late = car.lateTurn;
       car.lateTurn = null;
       if (car.turn?.hand !== 'straight') return;
+      // Not in the air on Big Air: the flight was launched on the promise of crossing straight on,
+      // and the re-plan its own detour asks main.js for (`bigAirDetour`) offers exactly this swap —
+      // in the game it took the corner back on the next frame and bent the arc sideways mid-air.
+      if (car.hopBig && car.hopFrom != null) return;
       const travelled = Math.min(car.turnT, 1) * car.turnLen;
       if (travelled >= car.leadIn) return;
       const next = exitToward(net, car.lane, late[0]);
@@ -7409,8 +7435,9 @@ export function createTraffic(
             const turn = exitToward(net, car.lane, rightOf(car.d));
             const indicatingLeft = !car.route?.length && car.signalHand === 'left';
             // Not for a taxi still out of its lane, which has to carry straight on (see the exit
-            // roll below) — it waits the red out and tucks in while it does.
-            const outOfItsLane = car === taxi && car.pass > 0;
+            // roll below) — it waits the red out and tucks in while it does. Nor for one flying Big
+            // Air over this junction (`bigAirDetour`), which goes straight on whatever its route said.
+            const outOfItsLane = car === taxi && (car.pass > 0 || car.launchDetour === car.lane.id);
             if (turn && !indicatingLeft && !outOfItsLane
               && (!car.route?.length || car.route[0] === rightOf(car.d))) {
               chosen = turn;
@@ -7443,13 +7470,17 @@ export function createTraffic(
             // ...except the taxi still out of its lane from a pass, whose route wanted a corner here.
             // It carries straight on (below, with the unrouted taxi) and main.js re-plans — see
             // `turnsAhead` in the pass block for why the pass was allowed to start at all.
-            if (routed && car === taxi && car.pass > 0 && routed.hand !== 'straight'
+            // ...and the taxi flying Big Air over this junction (`bigAirDetour`): it is in the air.
+            const launched = car === taxi && car.launchDetour === car.lane.id;
+            if (routed && car === taxi && (car.pass > 0 || launched) && routed.hand !== 'straight'
               && options.some((o) => o.hand === 'straight' && !closedLanes.has(o.outLane))) {
               car.route.length = 0;
               car.detoured = true;
               routed = null;
-              stats.passDetours += 1;
+              if (launched) stats.launchDetours += 1;
+              else stats.passDetours += 1;
             }
+            if (launched) car.launchDetour = null;
             if (routed) {
               chosen = routed;
               car.routeConsumed = true;
@@ -7939,7 +7970,20 @@ export function createTraffic(
             const on = car.lane.exits.map((id) => net.turnById.get(id)).find((tn) => tn.hand === 'straight');
             if (on) { car.intentLane = car.lane.id; car.intentTurn = on.id; }
           }
-          const big = kicked && intentFor(car)?.hand === 'straight';
+          let big = kicked && intentFor(car)?.hand === 'straight';
+          // A route turning at the far bank does not cancel the launch — see `bigAirDetour`. The
+          // route stays as it is until the junction drops it; the intent is what the taxi takes
+          // once it has, so it is set straight here, the same way as the free-driving branch above.
+          if (kicked && !big && bigAirDetour && car === taxi && car.route?.length) {
+            const on = car.lane.exits.map((id) => net.turnById.get(id))
+              .find((tn) => tn.hand === 'straight' && !closedLanes.has(tn.outLane));
+            if (on) {
+              car.intentLane = car.lane.id;
+              car.intentTurn = on.id;
+              car.launchDetour = car.lane.id;
+              big = true;
+            }
+          }
           car.kickSpentAt = null;
           launchHop(car, big);
         }
@@ -8403,6 +8447,7 @@ export function createTraffic(
           taxiGroup.position.add(barrelUp).sub(barrelPivot);
         }
         setTaxiSteer(car.driftAmt ? car.driftSteer : car.wheelAngle);
+        updateTaxiSign(dt, car.v);
         setTaxiLights(Math.max(car.brakeLevel, runningFor(car) * TAIL_FLOOR),
           car.turnLeftLevel, car.turnRightLevel);
         continue;
@@ -8490,6 +8535,7 @@ export function createTraffic(
 
   return {
     cars, taxi, taxiGroup, taxiDamage, setTaxiOccupied, setTaxiHighlight, setTaxiDoor, setCarCount, mesh,
+    settleTaxiSign,
     wheelMesh, barMesh, update, warmup,
     /**
      * The rare classics' body meshes, index-aligned with `mesh` — see `classicMeshes`. A car is
@@ -8592,6 +8638,6 @@ export function createTraffic(
      * zero scale by `writeAmbient`, and a degenerate triangle rasterises nothing whichever
      * material it is wearing — so the bloom switches off exactly when the lamp does.
      */
-    emissiveMeshes: [...lightMeshes, ...taxiLights],
+    emissiveMeshes: [...lightMeshes, ...taxiLights, ...(taxiSignLamp ? [taxiSignLamp] : [])],
   };
 }

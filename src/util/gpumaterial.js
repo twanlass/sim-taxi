@@ -84,6 +84,7 @@ class PropLightingModel extends PhongLightingModel {
     // first compile). A display-space multiply in the GLSL, so: encode, pave, decode.
     const paving = material.userData.brush === 2 ? shared.paving() : null;
     if (paving) {
+      outgoingLight.assign(mix(outgoingLight, diffuseColor.rgb, paving.albedo));
       outgoingLight.assign(sRGBTransferEOTF(paving(sRGBTransferOETF(outgoingLight), positionWorld)));
     }
   }

@@ -39,6 +39,12 @@ over each shopfront were all stacked in the top unit of a three-unit wall. Singl
 of it, the darker plinth included ("what about the dark color band?"), and the fascia went
 everywhere.
 
+## Building pixel grain — removed 2026-11-27
+
+#800 (merged 2026-11-25) laid the pixel street's texel grid over every tower wall and roof and the garage shell: a tone drift (value noise at 8.6 and 0.3 units) plus light and dark speckle texels, on a 0.175-unit grid, rounded to a 0.035 ramp through a 2×2 dither. One diffuse multiply in the facade courses' seam, ~2 to 3% of a SwiftShader frame, with a **Building grain** section in the ⚙️ panel and `?bldgtex=classic`, `?bldgtexamt=`, `?bldgpx=`.
+
+Removed outright two days later (Tyler: "it reads poorly"). At play zoom it read as dirt on the walls rather than texture, and it made the roofs' tone swim towards the walls'. Decided against; the file, the panel section and the three params went with it, and the towers' program lost a noise function.
+
 ## Window glass — `city/buildings.js`
 
 [Current](rendering.md#window-glass--citybuildingsjs). Until 2026-10-24 the windows were the
@@ -162,6 +168,15 @@ against a whole city already sliding past under the follow-cam. Verified in a re
 The golden-hour sun and fill started at `#FFDEBB` and 1.50 and were held down (to `#CFBD8C` at 3.55
 over a 1.20 fill) to leave the shadow tint something to work against. The shadow tint's knee (0.45)
 was measured against the 1.50 fill.
+
+### One shadow map, redrawn every frame
+
+Until 2026-11-27 the sun cast into a single 2048² map over the whole island (0.132 units a texel),
+filtered by three's `PCFSoftShadowMap` (16 compares per pixel), and redrawn every frame with every
+caster in it, because the cars move. The sun never moves during a run, so almost all of that work
+reproduced the previous frame's answer, and shadows were the most expensive thing on the phone
+(shadows > AO ≈ MSAA > bloom). It was replaced by [two maps](rendering.md#two-shadow-maps--gamesplitshadowjs):
+the city drawn once at 4096², the movers drawn every frame. `?shadowsplit=classic` is the single map.
 
 ### The shadow tint — `SHADOW_UNIFORMS` in `util/geo.js`
 

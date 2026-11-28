@@ -31,7 +31,7 @@ import {
 import {
   convertibleGeometry, convertibleInteriorGeometry, westfaliaGeometry,
 } from '../geometry/classics.js';
-import { createPolice } from '../sim/police.js';
+import { createPolice, parkedCruiser } from '../sim/police.js';
 import { createFireTruckMesh } from '../geometry/firetruck.js';
 import { createGarbageTruckMesh } from '../geometry/garbage.js';
 import { createRoboTaxiMesh } from '../geometry/robotaxi.js';
@@ -44,9 +44,11 @@ import { createTrainMesh } from '../game/ltrain.js';
 import { createPerson } from '../geometry/person.js';
 import { createParcel } from '../geometry/parcel.js';
 import { createFoodOrder } from '../geometry/food.js';
+import { createDonutOrder } from '../geometry/donutorder.js';
 import { buildBank, bankDomeMesh } from '../city/bank.js';
 import { INSET, buildLotTower } from '../city/buildings.js';
 import { chooseVetSite, createVetClinic } from '../city/vetclinic.js';
+import { donutSignGeometry } from '../city/donutshop.js';
 import { makeRng } from '../util/rng.js';
 
 const shadowed = (mesh) => {
@@ -340,6 +342,26 @@ export const CATALOG = [
     },
   },
 
+  {
+    // The donut shop's sign on its own, stood on edge the way the roof has it, with the cruiser that
+    // parks outside beside it. The site picking needs the city's road network, which the bench does
+    // not have, so the bench shows the two models rather than the shop.
+    id: 'donut', label: 'Donut shop', kind: 'Landmarks',
+    source: 'src/city/donutshop.js · donutGeometry',
+    build: () => {
+      const group = new THREE.Group();
+      const built = donutSignGeometry({ x: 0, z: 0 }, 0);
+      const donut = new THREE.Mesh(built.geometry, propMaterial({ smooth: true }));
+      donut.castShadow = true;
+      donut.add(new THREE.Mesh(built.text, propMaterial({ smooth: true })));
+      const car = parkedCruiser({ kerbLock: 0.32 });
+      car.group.position.set(2.2, 0, 2.2);
+      car.group.rotation.y = -Math.PI / 2;
+      group.add(donut, car.group);
+      return { object: group };
+    },
+  },
+
   // --- People and props -------------------------------------------------------------------------
   {
     id: 'rider', label: 'Rider', kind: 'People & props',
@@ -355,6 +377,11 @@ export const CATALOG = [
     id: 'food', label: 'Food order', kind: 'People & props',
     source: 'src/geometry/food.js · createFoodOrder',
     build: () => ({ object: asObject(createFoodOrder()) }),
+  },
+  {
+    id: 'donut-order', label: 'Donut order', kind: 'People & props',
+    source: 'src/geometry/donutorder.js · createDonutOrder',
+    build: () => ({ object: asObject(createDonutOrder()) }),
   },
 ];
 

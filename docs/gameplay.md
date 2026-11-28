@@ -1320,9 +1320,15 @@ rider, so a colour on the *person* would imply a commitment that doesn't exist. 
 their head and [the disc under their feet](#the-disc-says-it-again-on-the-ground) are both spoken
 for by the clock, which is why the figure between them has to stay out of the way.
 
-The **roof sign** lights up while a rider is aboard and goes dark once they're dropped off — a
-plain on/off, not a colour. The drop-off carries no fare colour, so there is nothing for a coloured
-sign to pair with; its one job is to say at a glance whether the taxi is free. History:
+The **roof sign** (`geometry/roofsign.js`) is lit while the taxi is free and simply not there while a
+rider is aboard, the way a real cab's roof light says "free" — there is no off state to look at, so
+off is the plain chequered roof. It runs nose to tail along the roof, in the chequer's own white
+(`taxiSign`), and its glow pulses at 1.1 Hz so it reads as a lamp rather than paint. On drop-off it
+**pops up** out of the roof, tall and thin, does one forward flip at the top of a ~1.1-unit arc and
+lands in a squash that rings out (0.5s); on pickup it **fades out**, swelling and lifting a touch as
+it goes (0.32s). While lit it breathes on its mount (a 5% volume-preserving squash at 1.5 Hz),
+wobbles when the taxi brakes or boosts, and leans back under acceleration.
+`?roofsign=classic` takes it off the car. History:
 [the roof sign](gameplay-history.md#the-taxis-roof-sign).
 
 #### The drop-off is a ring, and it wears the rider's clock
@@ -1418,8 +1424,8 @@ Two details are load-bearing and easy to lose:
   An editor-drawn arterial has no line index to look either up by.
 
 **Near-ties go straight off an arched bridge**, so there is room for
-[Big Air](river.md#the-drift-launch), which only fires when the route goes straight on at the far
-bank. The taxi's router knocks `BIG_AIR_TILT` (0.11) off the move "straight on past an arched deck"
+[Big Air](river.md#the-drift-launch), which flies straight over the far bank and, when the route
+wanted to turn there, drops it and re-plans from where it lands. The taxi's router knocks `BIG_AIR_TILT` (0.11) off the move "straight on past an arched deck"
 — less than any block costs, so it never lengthens a trip, only picks between routes the hierarchy
 weights already call near enough equal. Over every trip on 12 cities (`tools/bigair-route.mjs`) the
 share of bridge crossings that go straight on rose from 35% to 69%, against a ceiling of 75% (the
@@ -3447,13 +3453,20 @@ from under a player already driving at it.
 ### Two kinds of load, and one of them has an address
 
 A courier job is carrying a **box** or a **food order** — an oversized burger with a soda cup behind
-it (`geometry/parcel.js`, `geometry/food.js`), drawn per package at even odds (`FOOD_CHANCE`).
+it, or the donut shop's pink donut propped against a coffee (`geometry/parcel.js`, `geometry/food.js`,
+`geometry/donutorder.js`), box or food drawn per package at even odds (`FOOD_CHANCE`).
 Everything about the errand is the same either way — same pad, same cyan, same gestures, same money,
 same fuel, same absence of a clock — with **one** exception, and it is the reason the second kind is
 worth having at all:
 
-**A food order is collected at the [burger joint](#the-burger-run).** Not at a corner the draw
-liked: at the one place in the city that sells food. The junction is the joint's own +X+Z corner, so
+**A food order is collected at the shop that sells it.** Not at a corner the draw liked: a burger at
+the [burger joint](#the-burger-run), a donut at the donut shop — the two places in the city that sell
+food. A food draw goes to either at even odds between whichever of the two corners is usable this
+frame (`FOOD_KINDS` in `game/parcels.js`), so a rider standing on one shop's corner hands its order to
+the other shop rather than to a box. There is no `?classic` toggle: a donut order needs the shop, so
+`?donut=classic` (no shop) is also the burger-only board.
+
+For the burger joint The junction is the joint's own +X+Z corner, so
 the pad lands on the lot itself, by the drive-through's exit — `cornerFor` puts a kerb pin on the
 −X−Z side of its junction, which makes `(bi + 1, bj + 1)` the one corner of that block whose pin
 stands on the joint's slab rather than across the road from it. `main.js` derives it and injects it;
@@ -3471,9 +3484,16 @@ in the same place, so how good a job it is depends on where the taxi happens to 
 that never goes near that block, the food half of the board is not for you. That is a landmark
 working, not a bug in the placement.
 
-**A food order that cannot be collected is served as a box.** The joint's corner is unusable in three
-ordinary ways — a rider is standing on it, the taxi is parked on it, or the city failed to place a
-joint at all — and none of them is a reason for the board to sit empty. So `FOOD_CHANCE` is the
+**The donut shop's corner is its own.** The shop stands on its block's +X+Z corner lot, so the
+junction just past that block's +X and +Z edges is the one whose kerb pin lands on the shop's own
+pavement, in front of its door and ahead of the parked cruiser (which already stands `CORNER_CLEAR`
+back from that corner for a rider). `chooseDonutSite` reads it off the block's bounds as `pickup`;
+`tools/probe.mjs` asserts the pin lands inside the shop's block at its corner, and sweeps cities to
+assert the corner is always one the camera can see.
+
+**A food order that cannot be collected is served as a box.** Both shops' corners are unusable in
+three ordinary ways — a rider is standing on one, the taxi is parked on it, or the city failed to place
+that shop at all — and none of them is a reason for the board to sit empty. So `FOOD_CHANCE` is the
 chance of *asking* for food, and what actually gets served is measured in `tools/probe.mjs` rather
 than assumed to match it (43 of 80 on the probe's city). The one thing that would make the whole
 feature vanish silently is a joint whose corner the camera cannot see — the

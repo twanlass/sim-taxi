@@ -1,3 +1,4 @@
+import { ROAD_PAINT_BAKE } from '../city/roadpaintbake.js';
 // Deterministic review framings. ?shot=N pins the seed, warms the sim up a fixed amount, freezes
 // it and fixes the camera, so before/after screenshots differ only by the change under review.
 //
@@ -305,6 +306,20 @@ export const SHOTS = [
   { name: 'billboard-far', description: 'the robo-taxi billboard at play zoom', target: [0, 0], zoom: 52, warmup: 12, atBillboard: 1 },
   { name: 'billboard-burger', description: 'the Dub Burger billboard, close', target: [0, 0], zoom: 12, warmup: 12, atBillboard: 2 },
   { name: 'billboard-burger-far', description: 'the Dub Burger billboard at play zoom', target: [0, 0], zoom: 52, warmup: 12, atBillboard: 2 },
+  // The donut shop (city/donutshop.js): the donut on the roof and the cruiser parked under it, close
+  // and at play zoom, both framed on the point between the two. Appended, for the index reason.
+  { name: 'donut', description: 'the donut shop and its parked cruiser, close', target: [0, 0], zoom: 13, warmup: 12, atDonut: true },
+  { name: 'donut-far', description: 'the donut shop at play zoom', target: [0, 0], zoom: 52, warmup: 12, atDonut: true },
+  // A donut order on the donut shop's corner (geometry/donutorder.js), close and at play zoom —
+  // `food`'s question for the second shop: does a donut and a coffee read as food, and as *that*
+  // shop's, at this size. `untilParcel` frames it on the shop for the reason it frames `food` on the
+  // drive-through. Appended, for the index reason.
+  { name: 'donut-order', description: 'a donut order waiting on the donut shop\u2019s corner — needs ?parcels=1', target: [0, 0], zoom: 11, warmup: 12, untilParcel: true, cargoKind: 'donut' },
+  { name: 'donut-order-far', description: 'a donut order on the donut shop\u2019s corner at play zoom — needs ?parcels=1', target: [0, 0], zoom: 52, warmup: 12, untilParcel: true, cargoKind: 'donut' },
+  // The construction crane (city/crane.js): close on the mast and jib, and at play zoom, where the
+  // whole of it has to read as a crane over the rooftops. `__craneStep` films it. Appended.
+  { name: 'crane', description: 'the construction crane, close', target: [0, 0], zoom: 16, warmup: 12, atCrane: true },
+  { name: 'crane-far', description: 'the construction crane at play zoom', target: [0, 0], zoom: 52, warmup: 12, atCrane: true },
 ];
 
 export function getActiveShot() {
@@ -407,6 +422,10 @@ export function getRunSeed(citySeed, deterministic) {
  * The city itself. Random by default so no two loads share a layout, `?seed=N` to pin one you
  * want back. Shot mode always pins it to the same historical default so review screenshots
  * don't move — a random city per screenshot would make every diff also a layout diff.
+ *
+ * A road paint bake that carries a `seed` (⚙️ Road paint > Lock game to this seed) beats both the
+ * random draw and shot mode's default: the paint is laid in world space, so it only lines up on
+ * the city it was painted on. `?seed=N` still wins, which is how the painter looks at other cities.
  */
 export function getSeed({ deterministic = false } = {}) {
   const params = new URLSearchParams(window.location.search);
@@ -415,6 +434,7 @@ export function getSeed({ deterministic = false } = {}) {
     const parsed = Number.parseInt(raw, 10);
     if (!Number.isNaN(parsed)) return parsed;
   }
+  if (Number.isInteger(ROAD_PAINT_BAKE?.seed)) return ROAD_PAINT_BAKE.seed;
   if (deterministic) return 71624;
   return (Math.random() * 0xffffffff) >>> 0;
 }

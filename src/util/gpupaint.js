@@ -89,7 +89,12 @@ const hash3 = (p) => {
 // the matrix on a second vector.
 function instanceMatrixNode({ instanceMatrix }) {
   if (instanceMatrix.count <= 1000) {
-    return buffer(instanceMatrix.array, 'mat4', Math.max(instanceMatrix.count, 1)).element(instanceIndex);
+    // Named, or WGSL calls it `NodeBuffer_<node id>`, a number new to every build: each instanced
+    // paint mesh then compiled a vertex shader of its own that differed from its neighbours' in that
+    // number alone (13 of the boot's 96 vertex modules, headless, seed 7, 2026-11-26). The buffer is
+    // still each mesh's own; only its name in the source is shared. Same trap as the finish tables.
+    return buffer(instanceMatrix.array, 'mat4', Math.max(instanceMatrix.count, 1)).setName('paintInstanceMatrix')
+      .element(instanceIndex);
   }
   const data = new InstancedInterleavedBuffer(instanceMatrix.array, 16, 1);
   const at = instanceMatrix.usage === DynamicDrawUsage ? instancedDynamicBufferAttribute : instancedBufferAttribute;

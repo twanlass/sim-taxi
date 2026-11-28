@@ -1,9 +1,11 @@
 import * as THREE from 'three';
 import { createParcel, PARCEL_CENTRE_Y, PARCEL_DECK_SCALE, CARGO_SCALE } from './parcel.js';
 import { createFoodOrder, FOOD_CENTRE_Y } from './food.js';
+import { createDonutOrder, DONUT_ORDER_CENTRE_Y } from './donutorder.js';
 
-// What a courier job is carrying: a taped cardboard box (geometry/parcel.js) or a food order
-// (geometry/food.js). One rig that can be either, because one *slot* has to be either — the kerb
+// What a courier job is carrying: a taped cardboard box (geometry/parcel.js), a burger order
+// (geometry/food.js) or a donut order (geometry/donutorder.js). One rig that can be any of them,
+// because one *slot* has to be any of them — the kerb
 // marker, the flying copy and the HUD chip are each built once and reused for the whole run
 // (game/parcels.js), and a load that changes kind every twenty seconds cannot be a mesh built at
 // construction.
@@ -21,7 +23,7 @@ import { createFoodOrder, FOOD_CENTRE_Y } from './food.js';
 // reason, and `tools/probe.mjs` asserts the two meshes against each other rather than trusting it.
 
 /** The kinds a courier job can be carrying, in the order nothing depends on. */
-export const CARGO_KINDS = ['parcel', 'food'];
+export const CARGO_KINDS = ['parcel', 'food', 'donut'];
 
 /**
  * Half a load's standing height — the point a picture of one is centred on, whichever kind it is.
@@ -48,8 +50,8 @@ export const CARGO_DECK_SCALE = PARCEL_DECK_SCALE;
 export { CARGO_SCALE };
 
 /** Sanity, at import time: the two kinds have to agree about where their middle is. */
-if (Math.abs(FOOD_CENTRE_Y - PARCEL_CENTRE_Y) > 1e-6) {
-  throw new Error('cargo: the food order and the parcel disagree about the envelope');
+if (Math.abs(FOOD_CENTRE_Y - PARCEL_CENTRE_Y) > 1e-6 || Math.abs(DONUT_ORDER_CENTRE_Y - PARCEL_CENTRE_Y) > 1e-6) {
+  throw new Error('cargo: the food orders and the parcel disagree about the envelope');
 }
 
 /**
@@ -70,6 +72,7 @@ export function createCargo({ pickable = null } = {}) {
   const rigs = {
     parcel: createParcel({ pickable }),
     food: createFoodOrder({ pickable }),
+    donut: createDonutOrder({ pickable }),
   };
   for (const rig of Object.values(rigs)) group.add(rig.group);
 

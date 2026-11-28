@@ -24,11 +24,16 @@ export const PLAY_ZOOM = 52;
 // the ~7.7 the desktop-era comments quote. A pinch moves it; this is the frame the game is judged in.
 export const PHONE_PX_PER_UNIT = 844 / (2 * PLAY_ZOOM);
 
-// **The black outline every rider mark wears, in CSS px — the one number for both.** The off-screen
-// arrow (game/farepointers.js, a non-scaling SVG stroke) draws it at exactly this width; the pie over
-// the rider (geometry/diamond.js, an inverted hull in world units) converts it at
-// `PHONE_PX_PER_UNIT`, so the two match at play zoom and the pie's grows and shrinks with it under a
-// pinch, as any part of the world does. Measured as the width of the black band you can see: a
+// **The black outline every on-screen marker wears, in CSS px — the one number for all of them.**
+// The DOM marks draw it at exactly this width: the off-screen arrows (game/farepointers.js, a
+// non-scaling SVG stroke), the taxi's triangle (game/taximarker.js) and the speech tags' disc and
+// pointer — the purple "!" and the white "…" (index.html, through `--marker-outline` on the root).
+// The world marks convert it at `PHONE_PX_PER_UNIT`, so they match at play zoom and grow and shrink
+// with a pinch as any part of the world does: the pie over the rider (geometry/diamond.js, an
+// inverted hull) and the VIP's outburst (geometry/cursebubble.js). The taxi's triangle shipped at
+// 2.5 and the outburst at 0.26 units (2.1px) beside everything else's 1.5, and the triangle read
+// visibly heavier than the arrow next to it (Tyler, 2026-11-26: "make sure all on screen markers
+// have the same border outline thickness"). Measured as the width of the black band you can see: a
 // stroke straddles its edge but paints over the fill, so its whole width shows; a hull's whole
 // offset shows outside the shape. The arrow drew 3.3 before this was pulled out (a 3-unit stroke in
 // a 32-unit viewBox at 35px); at that weight the pie's ring took it from 18px across to 25 and was

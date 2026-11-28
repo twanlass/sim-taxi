@@ -51,6 +51,9 @@ export function createShadowCull(scene, sun) {
   let enabled = true;
   let last = { considered: 0, culled: 0 };
   let lastCulled = [];
+  // Casters drawn into a map that is not redrawn every frame (game/splitshadow.js): culling one of
+  // those would bake its absence into the standing city's map, and it costs nothing per frame anyway.
+  let isStatic = () => false;
 
   function rebuild() {
     meshes = [];
@@ -78,7 +81,7 @@ export function createShadowCull(scene, sun) {
     let considered = 0;
     for (let i = 0; i < meshes.length; i++) {
       const mesh = meshes[i];
-      if (!mesh.castShadow || !mesh.visible || !mesh.parent) continue;
+      if (!mesh.castShadow || !mesh.visible || !mesh.parent || isStatic(mesh)) continue;
       const geometry = mesh.geometry;
       if (!geometry) continue;
       if (!geometry.boundingSphere) geometry.computeBoundingSphere();
@@ -109,6 +112,8 @@ export function createShadowCull(scene, sun) {
   return {
     cull,
     restore,
+    /** Leave these alone: they are drawn into a map that is not redrawn every frame. */
+    skipStatic(predicate) { isStatic = predicate; },
     /** `?shadowcull=classic` and the probe: switch the cull off (every caster draws, as before). */
     setEnabled(on) { enabled = on; if (!on) restore(); },
     /** For the probe and `?perf`: how many casters the last frame looked at, and how many it skipped. */

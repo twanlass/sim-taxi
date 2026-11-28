@@ -1,5 +1,4 @@
 import * as THREE from 'three';
-import { patchWallGrain } from './wallgrain.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import {
   FINISH, bakeColor, hash01, propMaterial, setFinish, stampEntry, unlitMaterial,
@@ -819,8 +818,12 @@ export function createGarage(block, rng, {
   // The coping, hollowed into a lip like every flat roof in the city (`lippedCap`). `deck` is the
   // floor inside it, which the pole and the plant stand on.
   const coping = [];
+  // The deck keeps its dark trim rather than taking a roofing finish (`roofDeck`): the garage's
+  // walls are its striped panels, which a dark deck already stands apart from, and a pale gravel
+  // deck put the wrench and the sign over the brightest patch on the block.
+  const copingCol = color('garageTrim');
   const deck = lippedCap(coping, frontX - bx0 + 0.36, 0.34, bz1 - bz0 + 0.36,
-    (bx0 + frontX) / 2, top, (bz0 + bz1) / 2, color('garageTrim'));
+    (bx0 + frontX) / 2, top, (bz0 + bz1) / 2, copingCol, copingCol.clone().multiplyScalar(0.86));
 
   // --- The pole's placement, worked out from the sign rather than chosen.
   //
@@ -988,8 +991,7 @@ export function createGarage(block, rng, {
   const stampAll = (geo) => stampEntry(geo, anchorX, anchorZ, rand);
 
   parts.forEach(stampAll);
-  // The buildings' pixel grain (city/wallgrain.js), so the garage reads like the towers round it.
-  const shell = new THREE.Mesh(mergeGeometries(parts, false), patchWallGrain(propMaterial()));
+  const shell = new THREE.Mesh(mergeGeometries(parts, false), propMaterial());
   parts.forEach((p) => p.dispose());
   shell.castShadow = true;
   shell.receiveShadow = true;

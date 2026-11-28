@@ -1,11 +1,11 @@
 import { ROUTE_BLENDS } from './routeline.js';
-import { HAZE_TOP, setHazeTop, hazeColor, hazeTuning } from './scene.js';
+import { HAZE_TOP, setHazeTop, setHazeOff, hazeColor, hazeTuning } from './scene.js';
 import * as difficulty from './difficulty.js';
 import { SPEED, MPH_PER_UNIT, CAR_W } from '../sim/traffic.js';
 import { PITCH, LANE } from '../city/grid.js';
 import {
   setShadowTint, shadowTint, FINISH_NAMES, glossTuning, setGlossFinish, setGlossGlobal, rimTuning, setRimTuning,
-  resetGlossTuning, ROAD_TEX, ROAD_TEX_DEFAULTS, tuneRoadTexture,
+  resetGlossTuning, ROAD_TEX, ROAD_TEX_DEFAULTS, tuneRoadTexture, setRoadTextureOn, roadTextureOn, setRoadTextureOpacity, roadTextureOpacity, setAsphaltColor, asphaltColor,
 } from '../util/geo.js';
 import { MIN_ELEVATION } from './daylight.js';
 import { BLOOM_INTENSITY, BLOOM_KINDS } from './bloom.js';
@@ -17,7 +17,11 @@ import {
 } from './colorgrade.js';
 import { buildAudioSections } from './audiopanel.js';
 import { attachQuickTips } from './quicktips.js';
-import { wallGrainOn, wallGrainTuning } from '../city/wallgrain.js';
+import {
+  brush as paintBrush, CHANNELS as PAINT_CHANNELS, setPaintAmount, paintAmount, undoRoadPaint, clearRoadPaint, setLockedSeed, lockedSeedValue, bakedSeed,
+  encodeRoadPaint, bakeSource, revertRoadPaint, hasLocalPaint, setAlbedoView, albedoView, setPaintColor, paintColor,
+  hasWear, wearEnabled, setWearEnabled, wearParams, setWearParam, resetWear,
+} from './roadpaint.js';
 
 // A small tweak panel behind a gear button.
 //
@@ -74,6 +78,7 @@ const clockLabel = (hour) => {
 };
 
 export function createDebugPanel({
+  citySeed: bootSeed = null,
   sun, hemi, sky, daylight, fares, carCount, routeLine, ao,
   // The emissive bloom's live uniforms — `{ state, set }` over game/bloom.js. Defaulted like the
   // rest of the optional systems below so the `npm run check` boot pass can build the panel
@@ -85,6 +90,9 @@ export function createDebugPanel({
   // The scene's haze (game/scene.js). Defaulted to null for the same reason `scores` is defaulted:
   // the `npm run check` boot pass builds this panel against nothing.
   fog = null,
+  // The two shadow maps' edge width (game/splitshadow.js) — null under `?shadowsplit=classic` and on
+  // WebGL, where the row is left out.
+  shadows = null,
   // `{ load, clear }` over game/highscores.js. Defaulted so the panel still constructs in the
   // `npm run check` boot pass, which builds it against nothing.
   scores = { load: () => [], clear: () => {} },
@@ -124,6 +132,8 @@ export function createDebugPanel({
   soundPlace = () => null,
   // The wreck fireball's cut — `{ styles, current, set }` over game/blast.js's WRECK_STYLES.
   wreck = null,
+  // The road paint brush (game/roadpaint.js), or null outside debug mode.
+  roadBrush = null,
   // The 🖥 / 📱 switch beside the search (game/phoneframe.js), or null for no switch.
   phoneFrame = null,
 }) {
@@ -268,6 +278,19 @@ export function createDebugPanel({
     shadowAmountValue.textContent = Number(shadowAmount.value).toFixed(2);
   });
   shadowAmountValue.textContent = tint.amount.toFixed(2);
+
+  // How wide a shadow's edge is, in world units: 0 is one texel of the 4096² city map (~0.5px at
+  // play zoom), and the old 2048² PCFSoft edge was about 0.4. A look decision, not a cost one: the
+  // filter takes four taps whatever the width.
+  if (shadows) {
+    const softness = slider(0, 0.5, 0.01, shadows.softness());
+    const softnessValue = row(panel, 'Shadow softness', softness);
+    softness.addEventListener('input', () => {
+      shadows.setSoftness(Number(softness.value));
+      softnessValue.textContent = Number(softness.value).toFixed(2);
+    });
+    softnessValue.textContent = shadows.softness().toFixed(2);
+  }
 
   // Filled in by the haze section below. A stub rather than a direct call because that section is
   // built after this one, so naming its `const` here would be a temporal dead zone waiting for
@@ -1120,6 +1143,250 @@ export function createDebugPanel({
     code.value = JSON.stringify(changed());
   }
 
+  // --- Road paint -------------------------------------------------------------
+  // The brush over the splat map (game/roadpaint.js). Ticking "Paint" turns a left press on the
+  // road into a stroke instead of a pan or a pick; Shift held lets a press pan again. The painting
+  // autosaves to this browser after every stroke; Save to repo writes city/roadpaintbake.js through
+  // the dev server, which is what ships.
+  let syncRoadPaint = () => {};
+  if (roadBrush) {
+    heading('Road paint');
+    const syncs = [];
+    const on = document.createElement('input');
+    on.type = 'checkbox';
+    on.checked = paintBrush.on;
+    row(panel, 'Paint (G)', on);
+    on.addEventListener('change', () => { paintBrush.on = on.checked; roadBrush.sync(); });
+    syncs.push(() => { on.checked = paintBrush.on; });
+
+    const channel = dropdown(PAINT_CHANNELS, PAINT_CHANNELS[paintBrush.channel]);
+    row(panel, 'Channel', channel);
+    channel.addEventListener('change', () => { paintBrush.channel = channel.selectedIndex; syncs.forEach((f) => f()); });
+    syncs.push(() => { channel.selectedIndex = paintBrush.channel; });
+
+    const erase = document.createElement('input');
+    erase.type = 'checkbox';
+    row(panel, 'Erase (E / Alt)', erase);
+    erase.addEventListener('change', () => { paintBrush.erase = erase.checked; });
+    syncs.push(() => { erase.checked = paintBrush.erase; });
+
+    // Viewing aids: the road on its own, the road unlit, and the inspect freeze for getting close.
+    const roadOnly = document.createElement('input');
+    roadOnly.type = 'checkbox';
+    row(panel, 'Road only', roadOnly);
+    roadOnly.addEventListener('change', () => roadBrush.setRoadOnly(roadOnly.checked));
+    syncs.push(() => { roadOnly.checked = roadBrush.roadOnly(); });
+    const unlit = document.createElement('input');
+    unlit.type = 'checkbox';
+    row(panel, 'No lighting (no grade, no haze)', unlit);
+    unlit.addEventListener('change', () => {
+      setAlbedoView(unlit.checked);
+      setGradeBypass(unlit.checked);
+      if (fog) setHazeOff(fog, unlit.checked);
+    });
+    syncs.push(() => { unlit.checked = albedoView(); });
+    if (inspect) {
+      const zoom = document.createElement('button');
+      zoom.type = 'button';
+      zoom.className = 'dbg-wide';
+      const label = () => { zoom.textContent = inspect.state.on ? 'Unfreeze (I)' : 'Freeze & zoom (I): wheel or pinch to zoom, Shift-drag pans'; };
+      // Freezing from here is for painting, so it turns the brush on with it.
+      zoom.addEventListener('click', () => {
+        inspect.toggle();
+        if (inspect.state.on && !paintBrush.on) { paintBrush.on = true; roadBrush.sync(); }
+        zoom.blur();
+        syncs.forEach((f) => f());
+      });
+      label();
+      panel.append(zoom);
+      syncs.push(label);
+    }
+
+    // key, label, min, max, step
+    for (const [key, label, min, max, step] of [
+      ['size', 'Size ([ ])', 0.15, 12, 0.05],
+      ['strength', 'Strength', 0.02, 1, 0.01],
+      ['hardness', 'Hardness', 0, 1, 0.01],
+    ]) {
+      const input = slider(min, max, step, paintBrush[key]);
+      const value = row(panel, label, input);
+      const show = () => { input.value = String(paintBrush[key]); value.textContent = paintBrush[key].toFixed(2); };
+      input.addEventListener('input', () => { paintBrush[key] = Number(input.value); show(); });
+      show();
+      syncs.push(show);
+    }
+    // Each channel's colour and how hard it lands. Both live in the bake beside the strokes, so a
+    // channel can be recoloured after it is painted. Only the selected channel's pair is shown;
+    // the dropdown (or keys 1-4) swaps which.
+    PAINT_CHANNELS.forEach((name, c) => {
+      const well = swatch(paintColor(c));
+      const wellRow = row(panel, `Channel ${name} colour`, well).parentElement;
+      well.addEventListener('input', () => setPaintColor(c, well.value));
+      const input = slider(0, 1, 0.01, paintAmount(c));
+      const value = row(panel, `Channel ${name} amount`, input);
+      const show = () => {
+        input.value = String(paintAmount(c)); value.textContent = paintAmount(c).toFixed(2); well.value = paintColor(c);
+        wellRow.hidden = value.parentElement.hidden = paintBrush.channel !== c;
+      };
+      input.addEventListener('input', () => { setPaintAmount(c, Number(input.value)); show(); });
+      show();
+      syncs.push(show);
+    });
+    // The street texture under the paint (ROAD_TEX in util/geo.js), off without losing its look.
+    const texOn = document.createElement('input');
+    texOn.type = 'checkbox';
+    texOn.checked = roadTextureOn();
+    row(panel, 'Street texture', texOn);
+    texOn.addEventListener('change', () => { setRoadTextureOn(texOn.checked); texOn.blur(); });
+    syncs.push(() => { texOn.checked = roadTextureOn(); });
+    // How much of that texture shows: 0 is plain asphalt, past 1 exaggerates it. Saved in the bake.
+    const texAmt = slider(0, 2, 0.01, roadTextureOpacity());
+    const texAmtValue = row(panel, 'Street texture opacity', texAmt);
+    const showTexAmt = () => { texAmt.value = String(roadTextureOpacity()); texAmtValue.textContent = roadTextureOpacity().toFixed(2); };
+    texAmt.addEventListener('input', () => { setRoadTextureOpacity(Number(texAmt.value)); showTexAmt(); });
+    showTexAmt();
+    syncs.push(showTexAmt);
+    // The procedural wear under the brush (game/roadwear.js): live, not saved — the defaults are
+    // WEAR_DEFAULTS. It lands in channels 1 (manholes, bridge grit) and 3 (the brown dirt), so the
+    // channel colours and amounts above recolour it too.
+    if (hasWear()) {
+      const wearOn = document.createElement('input');
+      wearOn.type = 'checkbox';
+      wearOn.checked = wearEnabled();
+      row(panel, 'Procedural wear', wearOn);
+      wearOn.addEventListener('change', () => { setWearEnabled(wearOn.checked); wearOn.blur(); });
+      syncs.push(() => { wearOn.checked = wearEnabled(); });
+      for (const [key, label, min, max, step] of [
+        ['kerb', 'Wear: kerb', 0, 1, 0.01],
+        ['kerbWidth', 'Wear: kerb width', 0.2, 4, 0.05],
+        ['kerbShare', 'Wear: kerb blocks', 0, 1, 0.05],
+        ['patchy', 'Wear: patchiness', 0, 1, 0.01],
+        ['patchScale', 'Wear: patch size', 1, 16, 0.1],
+        ['median', 'Wear: median', 0, 1, 0.01],
+        ['medianWidth', 'Wear: median width', 0.2, 4, 0.05],
+        ['manhole', 'Wear: manhole', 0, 1, 0.01],
+        ['manholeWidth', 'Wear: manhole width', 0.2, 3, 0.05],
+        ['bridge', 'Wear: bridge', 0, 1, 0.01],
+        ['bridgeLength', 'Wear: bridge length', 0.5, 8, 0.1],
+      ]) {
+        const input = slider(min, max, step, wearParams()[key]);
+        const value = row(panel, label, input);
+        const show = () => { input.value = String(wearParams()[key]); value.textContent = wearParams()[key].toFixed(2); };
+        // On release, not on every tick: a regenerate walks the whole map.
+        input.addEventListener('input', () => { value.textContent = Number(input.value).toFixed(2); });
+        input.addEventListener('change', () => { setWearParam(key, Number(input.value)); show(); input.blur(); });
+        show();
+        syncs.push(show);
+      }
+      const wearReset = document.createElement('button');
+      wearReset.type = 'button';
+      wearReset.className = 'dbg-wide';
+      wearReset.textContent = 'Reset wear';
+      wearReset.addEventListener('click', () => { resetWear(); syncs.forEach((f) => f()); });
+      panel.append(wearReset);
+    }
+    // The city seed: paint is laid in world space, so it belongs to one city. Pick one (a reload
+    // with ?seed=N), paint it, then lock the game to it; the lock rides in the bake (getSeed in
+    // util/shot.js reads it at boot), so it takes hold once saved to the repo.
+    const citySeed = () => window.__taxi?.seed ?? bootSeed;
+    const seedInput = document.createElement('input');
+    seedInput.type = 'text';
+    seedInput.inputMode = 'numeric';
+    seedInput.size = 10;
+    seedInput.value = String(citySeed() ?? '');
+    const goSeed = (n) => {
+      const url = new URL(window.location.href);
+      url.searchParams.set('seed', String(n >>> 0));
+      window.location.href = url.toString();
+    };
+    const seedBtn = (label, fn) => { const b = document.createElement('button'); b.type = 'button'; b.textContent = label; b.addEventListener('click', fn); return b; };
+    const seedGo = seedBtn('Load', () => { const n = Number.parseInt(seedInput.value, 10); if (!Number.isNaN(n)) goSeed(n); });
+    const seedRandom = seedBtn('Random', () => goSeed((Math.random() * 0xffffffff) >>> 0));
+    seedInput.addEventListener('keydown', (e) => { e.stopPropagation(); if (e.key === 'Enter') seedGo.click(); });
+    const seedBox = document.createElement('span');
+    seedBox.append(seedInput, ' ', seedGo, ' ', seedRandom);
+    row(panel, 'City seed', seedBox);
+    const seedLock = document.createElement('input');
+    seedLock.type = 'checkbox';
+    const seedNote = document.createElement('div');
+    seedNote.className = 'dbg-wide';
+    const showSeed = () => {
+      seedLock.checked = lockedSeedValue() !== null && lockedSeedValue() === citySeed();
+      const baked = bakedSeed();
+      const want = lockedSeedValue();
+      seedNote.textContent = baked === want
+        ? (baked === null ? 'Game city: random each load.' : `Game city: locked to ${baked}.`)
+        : `Lock ${want === null ? 'off' : `to ${want}`} applies after Save to repo (repo: ${baked === null ? 'random' : baked}).`;
+    };
+    row(panel, 'Lock game to this seed', seedLock);
+    panel.append(seedNote);
+    seedLock.addEventListener('change', () => { setLockedSeed(seedLock.checked ? citySeed() : null); seedLock.blur(); showSeed(); });
+    showSeed();
+    syncs.push(showSeed);
+    // The asphalt's base colour (setAsphaltColor in util/geo.js), live; saved in the bake.
+    const asphaltWell = document.createElement('input');
+    asphaltWell.type = 'color';
+    asphaltWell.value = asphaltColor();
+    const asphaltReset = document.createElement('button');
+    asphaltReset.type = 'button';
+    asphaltReset.textContent = 'Reset';
+    const asphaltBox = document.createElement('span');
+    asphaltBox.append(asphaltWell, ' ', asphaltReset);
+    row(panel, 'Asphalt colour', asphaltBox);
+    asphaltWell.addEventListener('input', () => setAsphaltColor(asphaltWell.value));
+    asphaltReset.addEventListener('click', () => { asphaltWell.value = setAsphaltColor(null); });
+    syncs.push(() => { asphaltWell.value = asphaltColor(); });
+
+    const status = document.createElement('div');
+    status.className = 'dbg-wide';
+    const say = (text) => { status.textContent = text; };
+    say(hasLocalPaint() ? 'Showing this browser\'s painting (not yet saved to repo).' : 'Showing the repo bake.');
+    const button = (label, fn) => {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.textContent = label;
+      b.addEventListener('click', fn);
+      return b;
+    };
+    const tools = document.createElement('div');
+    tools.className = 'dbg-wide';
+    const sourceNow = async () => bakeSource(await encodeRoadPaint());
+    tools.append(
+      button('Undo (Ctrl+Z)', () => { undoRoadPaint(); }),
+      button('Clear', () => { if (confirmClear()) clearRoadPaint(); }),
+      button('Save to repo', async () => {
+        say('Saving…');
+        try {
+          const res = await fetch('/__roadpaint', { method: 'POST', body: await sourceNow() });
+          // The dev server reloads the page once the bake changes, so this line may not be seen.
+          say(res.ok ? 'Saved to src/city/roadpaintbake.js — commit it.' : `Save refused (${res.status}). Use Download.`);
+        } catch { say('No dev server here. Use Download and send the file over.'); }
+      }),
+      button('Download', async () => {
+        const url = URL.createObjectURL(new Blob([await sourceNow()], { type: 'text/javascript' }));
+        Object.assign(document.createElement('a'), { href: url, download: 'roadpaintbake.js' }).click();
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+      }),
+      button('Revert to repo', async () => { await revertRoadPaint(); syncs.forEach((f) => f()); say('Showing the repo bake.'); }),
+    );
+    panel.append(tools, status);
+    // A second press inside a few seconds clears: no modal dialog, which would stall the page.
+    let clearArmed = 0;
+    function confirmClear() {
+      if (performance.now() - clearArmed < 3000) return true;
+      clearArmed = performance.now();
+      say('Press Clear again to wipe the whole road.');
+      return false;
+    }
+    // A clicked checkbox keeps focus, and a focused input swallows the shortcuts (G here, I in
+    // inspect.js): hand focus back to the page after every toggle in this section.
+    for (const box of [on, erase, roadOnly, unlit]) box.addEventListener('change', () => box.blur());
+    syncRoadPaint = () => {
+      syncs.forEach((f) => f());
+      if (hasLocalPaint()) say('Showing this browser\'s painting (not yet saved to repo).');
+    };
+  }
+
   // --- Clouds -----------------------------------------------------------------
   // Every one of these is a judgement about a whole frame and none of them can be made from the
   // numbers, which is the same argument the haze sliders above are here for — with one extra reason
@@ -1464,68 +1731,6 @@ export function createDebugPanel({
   replayEntry.addEventListener('click', () => cityEntry.replay());
   panel.append(replayEntry);
 
-  // --- Building grain ---------------------------------------------------------
-  // The pixel grain on the towers and the garage (city/wallgrain.js). All uniforms, so every slider
-  // is live. Remembered across reloads in this browser, so a look survives a refresh while it is
-  // being judged; "Copy values" puts the numbers on the clipboard to paste back into the thread,
-  // and they go into WALL_GRAIN. Drift and speckle here are before `?bldgtexamt=` scales them.
-  heading('Building grain');
-  if (!wallGrainOn()) {
-    row(panel, 'Grain', document.createTextNode('')).textContent = 'off (?bldgtex=classic)';
-  } else {
-    const GRAIN_KEY = 'simtaxi.grainTune';
-    try {
-      const saved = JSON.parse(localStorage.getItem(GRAIN_KEY) ?? 'null');
-      if (saved) for (const [k, v] of Object.entries(saved)) if (Number.isFinite(v)) wallGrainTuning.set(k, v);
-    } catch { /* storage blocked: start from shipped */ }
-    const saveGrain = () => {
-      try { localStorage.setItem(GRAIN_KEY, JSON.stringify(wallGrainTuning.get())); } catch { /* fine */ }
-    };
-    const grainSyncs = [];
-    for (const [key, label, min, max, stepSize, digits, unit] of [
-      ['drift', 'Tone drift', 0, 1, 0.01, 2, ''],
-      ['coarse', 'Drift size', 0.5, 10, 0.1, 1, 'u'],
-      ['fine', 'Fine size', 0.2, 4, 0.05, 2, 'u'],
-      ['fineMix', 'Fine share', 0, 1, 0.01, 2, ''],
-      ['speck', 'Speckle', 0, 0.6, 0.01, 2, ''],
-      ['speckRate', 'Speckle rate', 0, 0.25, 0.005, 3, ''],
-      ['step', 'Ramp step', 0.01, 0.25, 0.005, 3, ''],
-      ['texel', 'Texel', 0.05, 1, 0.025, 3, 'u'],
-    ]) {
-      const input = slider(min, max, stepSize, wallGrainTuning.get()[key]);
-      const value = row(panel, label, input);
-      const show = () => {
-        const v = wallGrainTuning.get()[key];
-        input.value = String(v);
-        value.textContent = `${v.toFixed(digits)}${unit}`;
-      };
-      input.addEventListener('input', () => { wallGrainTuning.set(key, Number(input.value)); show(); saveGrain(); });
-      show();
-      grainSyncs.push(show);
-    }
-    const grainButtons = document.createElement('div');
-    grainButtons.className = 'dbg-wide';
-    const copyGrain = document.createElement('button');
-    copyGrain.type = 'button';
-    copyGrain.textContent = 'Copy values';
-    copyGrain.addEventListener('click', async () => {
-      const text = JSON.stringify(wallGrainTuning.get());
-      console.log('[grain]', text);
-      try { await navigator.clipboard.writeText(text); copyGrain.textContent = 'Copied'; } catch { copyGrain.textContent = 'See console'; }
-      setTimeout(() => { copyGrain.textContent = 'Copy values'; }, 1500);
-    });
-    const resetGrain = document.createElement('button');
-    resetGrain.type = 'button';
-    resetGrain.textContent = 'Reset';
-    resetGrain.addEventListener('click', () => {
-      wallGrainTuning.reset();
-      try { localStorage.removeItem(GRAIN_KEY); } catch { /* fine */ }
-      grainSyncs.forEach((sync) => sync());
-    });
-    grainButtons.append(copyGrain, resetGrain);
-    panel.append(grainButtons);
-  }
-
   // --- Needs a rebuild ------------------------------------------------------
   heading('Restart to apply');
 
@@ -1707,6 +1912,9 @@ export function createDebugPanel({
 
   return {
     panel, toggle, snapshot, showSound,
+    syncRoadPaint: () => syncRoadPaint(),
+    /** Whether the panel is open on its Audio tab: the sound chips on the map show only then. */
+    audioTab: () => !panel.hidden && sections.tab() === 'Audio',
     audioFocus: () => audio?.focused() ?? null,
     setPlace: (key, part, value, done) => audio?.setPlace(key, part, value, done),
   };
@@ -1734,7 +1942,7 @@ const TAB_KEY = 'dbg-tab';
  */
 const TABS = [
   ['Audio', ['Audio', 'Engine sound', 'Sounds', 'Music', 'Audio export']],
-  ['Visuals', ['Light', 'Car finish', 'Bloom', 'CRT', 'Colour grade', 'Street texture', 'Haze', 'Clouds', 'Building grain', 'City entrance']],
+  ['Visuals', ['Light', 'Car finish', 'Bloom', 'CRT', 'Colour grade', 'Street texture', 'Road paint', 'Haze', 'Clouds', 'City entrance']],
   ['Game', ['Game', 'Loco Mode', 'Loco weave', 'Restart to apply', 'Scores', 'Export']],
 ];
 const tabOf = (title) => TABS.find(([, titles]) => titles.includes(title))?.[0] ?? 'Game';
@@ -1909,6 +2117,8 @@ function organise(panel, phoneFrame = null) {
   search.addEventListener('keyup', (event) => event.stopPropagation());
 
   return {
+    /** The tab on show: 'Audio', 'Visuals' or 'Game'. */
+    tab: () => tab,
     /** Unfold a section by its heading, clearing any search that might be hiding it. */
     openSection(title) {
       const s = sections.find((x) => x.title === title);
