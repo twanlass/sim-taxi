@@ -80,6 +80,14 @@ const SWERVE_PHASE2 = 1.7;    // offset so the two waves don't start out in step
 // Units of road over which the weave fades in and out with the boost. Paced by distance, like
 // the weave itself, so releasing the button at a red doesn't drift the parked car straight.
 const SWERVE_FADE = 7;
+// The stick's nudge (game/steer.js): the thumb's sideways push, felt as the taxi leaning across its
+// lane. Tyler, 2026-11-24: "a little bit of tap and wiggle from the joystick would feed into a little
+// bit of the motion and movement of the taxi... to create that connection". Room budget as the weave's:
+// a side street's lane leaves ~1.1 between the body and the line, the weave peaks at 0.52, so the
+// nudge gets the rest. Paced by distance like everything else here, so a car held at a red does not
+// slide; NUDGE_EASE units of road to close most of the gap — ~0.3s at cruise.
+const NUDGE_MAX = 0.6;
+const NUDGE_EASE = 2.5;
 
 /**
  * The Loco Mode weave, as a function of distance driven straight (`u`, world units). Returns the
@@ -3760,6 +3768,7 @@ export function stageCar(car, x, z, yaw) {
   car.parked = false;
   car.stalled = false;
   car.lateral = 0;
+  car.nudge = 0;
   car.steer = 0;
   car.pass = 0;
   car.passing = false;
@@ -5714,7 +5723,7 @@ export function createTraffic(
     // taxi is off the lane grid: releasing its priority hold lets signals run.
     // ...and a staged one is off it too — it is standing in its garage, off the road network
     // entirely — so it must claim no junction either.
-    const taxiActive = !taxi.crashed && !taxi.staged;
+    const taxiActive = !taxi.crashed && !taxi.staged && !taxi.free;
     const taxiTurningLeft = taxi.route?.length > 0 && taxi.route[0] === leftOf(taxi.d);
     // ...and a taxi on the drift launch keeps it however the pill is held: the far bank's junction
     // goes by underneath it, and a red there would stop a distance-paced arc in mid-air.
@@ -5781,7 +5790,17 @@ export function createTraffic(
       }
 
       const wave = locoWeave(taxi.swervePhase);
-      taxi.lateral = taxi.swerve * wave.lateral;
+      // The stick's nudge, + toward the centreline like every lateral here. Frozen through a
+      // junction, like the weave, so a corner ends on the offset it started on.
+      let nudgeSlope = 0;
+      if (taxi.state === 'drive') {
+        const ds = taxi.v * dt;
+        const want = Math.max(-1, Math.min(1, taxi.stickNudge ?? 0)) * NUDGE_MAX;
+        const before = taxi.nudge ?? 0;
+        taxi.nudge = before + (want - before) * Math.min(1, ds / NUDGE_EASE);
+        nudgeSlope = ds > 1e-4 ? (taxi.nudge - before) / ds : 0;
+      }
+      taxi.lateral = taxi.swerve * wave.lateral + (taxi.nudge ?? 0);
 
       // Point where it is sliding. Without a yaw offset the car crabs — translating sideways
       // across the road while still aimed straight down it — and that is what read as broken
@@ -5790,7 +5809,7 @@ export function createTraffic(
       // nothing to divide by v here: atan(0.40·k1 + 0.12·k2) ≈ 12° at the peak, against the 13°
       // the old lane change held. Mid-corner the yaw belongs to the arc, so the weave's share of
       // it eases out; the 0.1s ease is only so the wheel straightens instead of snapping.
-      const slope = taxi.state === 'drive' ? taxi.swerve * wave.slope : 0;
+      const slope = taxi.state === 'drive' ? taxi.swerve * wave.slope + nudgeSlope : 0;
       taxi.steer += (Math.atan(slope) - taxi.steer) * Math.min(1, dt / 0.1);
     }
 
@@ -5810,7 +5829,7 @@ export function createTraffic(
       // on the frame it was mid-turn kept that junction held for as long as it stayed hidden — a
       // stand-down cop and an ordinary car sat at the line under it for the whole 90s the probe
       // watched, on the 5 × 5 island's first seed to put the depot beside a ring junction.
-      if (car.state !== 'turn' || car.staged) continue;
+      if (car.state !== 'turn' || car.staged || car.free) continue;
       // The ordinary case: a car that has run out of arc and is waiting for room to land.
       // The brake pedal is the other way into the box and out of it — a taxi hauled to a stop
       // half way across a junction is stranded in exactly the sense this set means, at any `turnT`,
@@ -5834,7 +5853,7 @@ export function createTraffic(
       //
       // A *staged* car is skipped on the crashed car's terms: it is off the network, so a queue
       // must not form behind the lane position it happens to still be holding.
-      if (car.crashed || car.staged) continue;
+      if (car.crashed || car.staged || car.free) continue;
 
       let lane = car.lane;
       let laneS = car.s;
@@ -6096,11 +6115,11 @@ export function createTraffic(
     };
 
     /**
-     * Swap a straight-on crossing for the turn `car.lateTurn` asks for, if it still can be.
+     * Swap a crossing for the exit `car.lateTurn` asks for, if it still can be.
      *
      * The hold line is where a car commits, but it sits `STOP_SETBACK` short of the junction and the
      * run-up from one to the other is the same straight line whatever the car does next. So a
-     * crossing still in its `leadIn` can become a turn by replacing everything *after* the run-up:
+     * crossing still in its `leadIn` can take another exit by replacing everything *after* the run-up:
      * the arc, the exit, `dOut`. `hold` and `entry` are untouched and `turnT` is rescaled so the
      * distance travelled is too — the car does not move on the frame it changes its mind.
      *
@@ -6110,11 +6129,18 @@ export function createTraffic(
      * signal needs no second look — the car crossed on the green for its approach, and a turn out of
      * that approach runs on the same one. A refusal leaves the crossing and the fallback route
      * `main.js` already installed, which plans from the junction after this one.
+     *
+     * Routed play only ever asks to turn a straight crossing (`crossingOrigin` in game/route.js).
+     * The steered taxi asks for any change — a turn back to straight, a right for a left — because
+     * a stick pushed a beat late used to be overruled by the turn already committed at the line,
+     * and the car turned one way with the stick plainly pointing the other (Tyler, 2026-11-24).
+     * Its ask is tagged `force` and skips the yield and the box check as a boosting taxi does —
+     * "we should let users do that. they'll just ram into a car but they'll be in total control".
      */
     const retakeCrossing = (car) => {
       const late = car.lateTurn;
       car.lateTurn = null;
-      if (car.turn?.hand !== 'straight') return;
+      if (!car.turn) return;
       // Not in the air on Big Air: the flight was launched on the promise of crossing straight on,
       // and the re-plan its own detour asks main.js for (`bigAirDetour`) offers exactly this swap —
       // in the game it took the corner back on the next frame and bent the arc sideways mid-air.
@@ -6122,9 +6148,10 @@ export function createTraffic(
       const travelled = Math.min(car.turnT, 1) * car.turnLen;
       if (travelled >= car.leadIn) return;
       const next = exitToward(net, car.lane, late[0]);
-      if (!next || next.hand === 'straight' || closedLanes.has(next.outLane)) return;
+      if (!next || next === car.turn || next.hand === car.turn.hand
+        || closedLanes.has(next.outLane)) return;
       const exitLane = net.laneById.get(next.outLane);
-      if (!bargesThrough(car)) {
+      if (!bargesThrough(car) && !late.force) {
         if (next.hand === 'left' && leftYieldBlocked(car)) return;
         if (exitLaneFull(car, exitLane)) return;
       }
@@ -6414,9 +6441,19 @@ export function createTraffic(
       // And a car the taxi has only just caught (`passGrace`, game/
       // overtake.js): most cars come into range too late to react to before the ram.
       const asking = taxi.passArmed === true || taxi.passPending === true || taxi.passGrace === true;
-      taxi.canPass = (locoHeld || taxi.passPending === true) && gap !== undefined
-        && (room || asking)
-        && (taxi.passArmed !== false || taxi.passing || asking);
+      // The stick's lane (`stickLane`, game/steer.js): steered by the stick, the overtake is a flick
+      // out and a flick back, and the lane is the player's. Out, the taxi has a way round whatever
+      // is in front; in, behind a car with Loco held, it rams — as with the combo unthrown — once
+      // the grace for a newly caught car is spent.
+      const stickLane = taxi.stickLane;
+      // The stick only needs a lane to borrow: the pass is free to end in a corner, taken from the
+      // oncoming lane (game/steer.js), so a T ahead does not refuse it the way it refuses the combo.
+      const stickRoom = Boolean(net.laneByGrid(opposite(roadD), roadI, roadJ));
+      taxi.canPass = stickLane !== undefined
+        ? gap !== undefined && ((stickLane === 'out' && stickRoom) || taxi.passGrace === true)
+        : (locoHeld || taxi.passPending === true) && gap !== undefined
+          && (room || asking)
+          && (taxi.passArmed !== false || taxi.passing || asking);
 
       // ...except a thrown combo (`setOvertakeStyle`), which may pull out half way across a
       // straight-through crossing as well as on a lane. Behind a truck the taxi spends a good
@@ -6445,7 +6482,22 @@ export function createTraffic(
       const cornerOut = overtakeDumb && taxi.passArmed === true && !taxi.passing && cornerLane !== null
         && near && cornerLeader !== undefined && cornerLeader === taxi.passArmedFor
         && cornerLeader.v < DODGE_CREEP;
-      if (taxi.state === 'drive' || thrownInBox || cornerOut) {
+      // Steered by the stick, out is out for as long as the player leaves it there and the road has
+      // an oncoming lane: no leader needed, no Loco held, no `alongside` — tucking back in level with
+      // a car is the player's call too. Decided on a lane or a straight crossing, like the thrown
+      // combo; through a corner the offset stays frozen as for any pass.
+      if (stickLane !== undefined) {
+        const decides = taxi.state === 'drive' || (taxi.state === 'turn' && taxi.turn?.hand === 'straight');
+        if (decides) {
+          const was = taxi.passing;
+          taxi.passing = stickLane === 'out' && stickRoom;
+          if (taxi.passing && !was) {
+            taxi.passTarget = leader ?? null;
+            if (leader) taxi.overtakes += 1;
+          }
+          if (!taxi.passing) taxi.passTarget = null;
+        }
+      } else if (taxi.state === 'drive' || thrownInBox || cornerOut) {
         const was = taxi.passing;
         // Pulling out wants the overtake combo (game/overtake.js) where main.js runs one — a blip
         // off the pill and back on behind the car. `passArmed` undefined is the old rule, holding
@@ -6570,7 +6622,24 @@ export function createTraffic(
       // on a divided arterial against ~32 on a side street), which the boost speed and the
       // straight-on gate below already give it. Read after the decision, so a dodge's first frame
       // swings by its own latched lateral rather than the lane's.
+      // A corner taken from the oncoming lane on the stick (game/steer.js) holds its offset through
+      // the arc, and the two roads can be different widths — an arterial's swing is 6.67 to a side
+      // street's 4 — so it eases from one to the other across the turn. Read the exit road's swing
+      // from 60% round instead, as the combo's corner pull-out does, and the taxi jumped 2.56 units
+      // sideways on the frame it switched.
+      const stickCorner = taxi.stickLane !== undefined && taxi.dodgeLateral == null
+        && taxi.state === 'turn' && taxi.turn && taxi.turn.hand !== 'straight' && taxi.pass > 0;
+      let stickLateral = null;
+      if (stickCorner) {
+        const exitLane = net.laneById.get(taxi.turn.outLane);
+        const [ei, ej] = gridOf(net, exitLane.to);
+        const from = passLateralOn(taxi);
+        const to = 2 * laneOffsetFor(net.dirOfLane(exitLane), ei, ej);
+        const u = Math.min(Math.max(taxi.turnT, 0), 1);
+        stickLateral = from + (to - from) * u * u * (3 - 2 * u);
+      }
       const passLateral = taxi.dodgeLateral
+        ?? stickLateral
         ?? (cornerLane ? 2 * laneOffsetFor(roadD, roadI, roadJ) : passLateralOn(taxi));
       const passFade = PASS_FADE * (Math.abs(passLateral) / PASS_LATERAL);
       const step = Math.sign(delta) * Math.min(Math.abs(delta), ds / passFade);
@@ -6787,7 +6856,7 @@ export function createTraffic(
     // heading rather than its lane, as the cop's is, because a pass through a straight crossing
     // is on two lanes at once.
     for (const car of cars) {
-      if (car.crashed || car.staged) continue;
+      if (car.crashed || car.staged || car.free) continue;
       if (!car.dragStart && !car.racePass && car.racer && car.state === 'drive' && !car.uturn
           && car.pass === 0) {
         const leader = leaderOf.get(car);
@@ -6983,7 +7052,7 @@ export function createTraffic(
     for (const car of cars) {
       // Staged alongside crashed: whoever is driving this car by hand owns its position, and the
       // physics below would drag it straight back onto a lane.
-      if (car.crashed || car.staged) continue;
+      if (car.crashed || car.staged || car.free) continue;
 
       // A car the taxi has just shunted sits on its brakes until it has gathered itself. Through
       // `braking` rather than a speed clamp of its own, so it gets everything the pedal already
@@ -7430,10 +7499,13 @@ export function createTraffic(
             // ...except the taxi still out of its lane from a pass, whose route wanted a corner here.
             // It carries straight on (below, with the unrouted taxi) and main.js re-plans — see
             // `turnsAhead` in the pass block for why the pass was allowed to start at all.
+            // Not on the stick: there a corner from the oncoming lane is the player's to take (Tyler,
+            // 2026-11-24: "Why not just support turning left even when in the oncoming lane?"), and
+            // the frozen offset rides the arc and fades on the lane after it.
             // ...and the taxi flying Big Air over this junction (`bigAirDetour`): it is in the air.
             const launched = car === taxi && car.launchDetour === car.lane.id;
-            if (routed && car === taxi && (car.pass > 0 || launched) && routed.hand !== 'straight'
-              && options.some((o) => o.hand === 'straight' && !closedLanes.has(o.outLane))) {
+            if (routed && car === taxi && ((car.pass > 0 && car.stickLane === undefined) || launched)
+              && routed.hand !== 'straight' && options.some((o) => o.hand === 'straight' && !closedLanes.has(o.outLane))) {
               car.route.length = 0;
               car.detoured = true;
               routed = null;
@@ -7748,8 +7820,10 @@ export function createTraffic(
       // it — everything below the position derivation is suspension, and a car being driven by
       // hand should still bob, dip its nose under braking and bounce off a kerb. Only where its
       // `x/z/yaw` come from changes: from whoever is staging it rather than from a lane.
-      if (car.staged) {
-        // Nothing here — the position derivation is the whole of what is skipped.
+      if (car.staged || car.free) {
+        // Nothing here — the position derivation is the whole of what is skipped. A `free` car is
+        // the free-driven taxi (game/freedrive.js): off the network on the staged car's terms, but
+        // not a cut scene's — collisions, boost and the fare loop all still see it.
       } else if (car.uturn?.sp) {
         // The handbrake turn: round the hairpin, the body on its heading plus the slip.
         const { p, h, dir, yaw0, sp } = car.uturn;
@@ -7909,7 +7983,7 @@ export function createTraffic(
         }
       }
 
-      if (car.isTaxi && car.boost && car.state === 'drive' && car.hopFrom == null
+      if (car.isTaxi && !car.free && car.boost && car.state === 'drive' && car.hopFrom == null
         && (!hopFloorOn || car.v >= HOP_MIN_V)) {
         // `toCrest` is signed in +z and the span runs along Z, so `dirSign` turns it into a
         // distance *ahead* to the top. Infinity off a bridge, so a flat road never satisfies it.

@@ -822,12 +822,13 @@ and because the taxi has one seat, all but one of those are riders waiting on th
    [diamond](#the-fares-clock-travels) over their head, coloured by how much of that clock
    is left. The whole trip is drawn now; none of it is shown until they board — see
    [Neither how far nor where](#neither-how-far-nor-where).
-2. Tap them → the taxi routes there.
+2. Drive through their junction with the seat empty → they board. The player [steers](#steering);
+   under `?steer=classic` a tap on them routes the taxi there instead.
 3. On arrival the passenger boards (the cab's rear door swings open on the kerb side as they reach
    it and slams behind them — `game/taxidoor.js`, pure flourish), their diamond flies from the kerb to the roof of the taxi, a
-   ring in that same urgency colour appears on the road where they're going, and the taxi **drives
-   straight on to it** — because the instruction it used to ask for is now given for you. See
-   [The drop-off dispatches itself](#the-drop-off-dispatches-itself).
+   ring in that same urgency colour appears on the road where they're going, and the player drives
+   them there: through the ring's junction delivers. (`?steer=classic`: the taxi **drives straight
+   on to it** — see [The drop-off dispatches itself](#the-drop-off-dispatches-itself).)
 4. Deliver → the fare pays out (`FARE_BASE + FARE_PER_BLOCK × blocks`, times the shift's
    multiplier, see [Economy](#economy)), and the board refills.
 5. A rider's clock running out, on the kerb or **aboard**, is a [strike](difficulty.md#strikes):
@@ -1389,6 +1390,167 @@ It's a DOM element rather than a mesh so that it stays the same size in pixels a
 reads over a tower standing between the taxi and the camera, and needs no shader on either
 renderer. Flat fill in `taxiBody` with a `taxiTrim` outline and no gloss, and it bobs 4px.
 `?taximarker=classic` takes it off.
+
+## Steering
+
+**The player drives the taxi, freely** (`src/game/freedrive.js`, on test). A virtual stick bottom
+left (`src/game/joystick.js`) is a heading: its direction on screen is turned back into a ground
+direction through the live camera, and the taxi swings toward it. The taxi is a body with a
+position, a heading and a speed, off the lanes altogether. Tyler asked for "the maximalist version
+that just uses real physics... fully responsive to the joystick" after the queued-turn steering
+below still made last-minute turns hard.
+
+- **Speed.** Hands off, it holds its heading and rolls at cruise (8.5 u/s). Loco is the game's own
+  Loco top (`boostCruise()`, 18.7 u/s); the first cut ran 15 and Tyler called it too slow. The
+  brake stops it.
+- **Weight.** The taxi carries a velocity, and turning the nose does not turn it: what was forward
+  becomes partly sideways, and the tyres take that back at `LAT_GRIP` (46 u/s²) and no faster. The
+  swing itself has inertia (`YAW_LAG`) and is capped by what the tyres can hold at that speed, so
+  at cruise the taxi turns in a 2.7-unit circle and at full Loco in 8.4. Measured: a quarter turn
+  at full Loco takes 0.83s and carries 13.5 units before the nose is round, and the course is back
+  on the nose 0.08s after that, so it does not skate. A hard turn above cruise scrubs speed
+  (`TURN_SCRUB`). Lifting off Loco or braking is how a tight corner is made.
+- **The heading magnet.** Streets lie ~29° off the horizontal on screen and a thumb can't hold that
+  to a degree, so a push within 16° of a street's direction is that direction, and a hands-off
+  heading that close settles onto it. `?freeassist=off` drives it raw.
+- **The ground.** The whole island is open: roads, pavements, lawns, plazas. Off the road the taxi
+  rides up 0.35 (`taxi.kerbLift`). What stops it is a building (a height field of the buildings
+  alone, anything over 1.2 tall; trees, lamp posts and street furniture are driven through), the
+  river away from a bridge, and the coast outside the ring road. A wall met at a slant swings the
+  nose along itself and the taxi scrapes on at nearly full speed; square on, it stops at a 1 u/s
+  crawl. Not handled yet: the park lake and duck pond are driven over.
+- **What it keeps.** Collisions and damage, pickups and drop-offs by driving through the junction,
+  the fixed route band, cops, and the scripted trips (garage, drive-through, depot, race), which
+  take the wheel back onto a lane (`taxi.free = false`) and return it afterwards.
+- **What it gives up.** The taxi is out of the traffic model (`taxi.free`, on a staged car's terms
+  in `sim/traffic.js`), so signals and stop lines don't bind it, cars behind don't queue for it,
+  and the lane moves (overtake, U-turn, drift, bridge hop, Big Air) don't exist in this mode.
+
+`?steer=rails` puts back the queued-turn stick, which the rest of this section describes.
+
+`src/game/steer.js`. **Under `?steer=rails` the player drives the taxi** Pac-Man style: a virtual stick bottom left
+(`src/game/joystick.js`) queues the next turn, and the taxi takes it at the first corner that has
+that exit, carrying straight on through every corner until then. Boost and brake are unchanged,
+and moved to the right thumb: the gas sits at the right edge, the brake hangs off its left as
+ever, and the cargo box goes over the brake. There is no routing to
+a fare: driving through a waiting rider's junction with the seat empty collects them, and driving
+through the drop-off's junction delivers — the same `ARRIVE_RADIUS` arrival as ever, with the
+"sent here" test ([Arrival requires direction](#arrival-requires-direction)) replaced by the seat
+(`setSteered` in `fares.js`). A tap on a rider does nothing to the car. `?steer=classic` puts
+back tap-to-route, and with it everything below this section.
+
+**The car still drives the traffic model.** What changed is who writes `car.route`: a one-step plan
+— the exit at the next junction the car can still choose at (`planOrigin`'s junction) — rewritten
+every frame from the queue. So the steered taxi signals, yields, stops at reds and takes the late
+turn in the run-up (`retakeCrossing`) exactly as a routed one did, and it is never left with an
+*empty* route while moving, which would hand its exits to the ambient dice (`rollExit`).
+
+**The stick points at streets.** It snaps to the nearest of the four street directions *as they
+lie on screen* (about 30° above and below the horizontal, measured off the live camera). Notches
+on its rim marking the four were tried and cut — they read as pointing in odd directions rather
+than along the diagonal streets. Snapping absolutely is what makes a
+held stick mean something: held toward up-right, the taxi turns up-right at the next corner that
+has it and keeps going that way, where a heading-relative reading would treat the same hold as a
+fresh turn after every corner and staircase across town. Held, it is re-asserted every frame;
+let go, the last push stays queued, so a flick is enough. Toward the current heading clears the
+queue.
+
+With the streets at ±29°, the borders between the four directions land exactly on screen up, down,
+left and right, which are the pushes a thumb makes most. Tyler said it was "not quite right", and two
+things were costing those pushes. First, the way back won the border. Heading down-right, a push
+straight up was a coin toss between the left turn and backwards, and backwards is ignored, so half of
+those pushes did nothing. A push within 20° of the border between the way back and a turn now takes
+the turn (`BACK_GRACE`), so up is the left turn and left is the right turn. A push squarely backwards
+still says nothing. Leaving the way back out altogether was tried first, and the debug line below
+showed a thumb pushed straight back getting a perpendicular turn. Second, a thumb resting near a border flipped the queue as it wobbled. A held push now
+keeps its direction until it is 15° past the border (`HOLD_MARGIN` in `game/joystick.js`). A swipe on the map read the way below was the first cut; Tyler
+dropped it ("No swipe") and `?steer=swipe` keeps it.
+
+**The queue is a direction on the map, and it waits.** Under `?steer=swipe` a swipe is read against the heading the car
+will have at its next decision: within 40° of it on screen is straight on (and clears the queue),
+within 40° of the reverse clears it too, anything else is a turn to that side. Reading it against
+the heading rather than snapping it to a street is because the camera looks down the diagonal —
+foreshortened, every street lies ~29° off the horizontal on screen, so a thumb's "up" or "left"
+sits between two of them. (Heading up-right, a thumb's "left" is backwards; up and down turn.) The queued
+direction survives corners that do not have it and is spent once the car heads that way, so a
+swipe made too late for one corner lands on the next. Arrow keys and WASD do the same on a desktop.
+
+**Hands off, it keeps rolling.** With nothing queued, the taxi carries straight on and takes the
+first exit at a dead end. It never navigates, rider or not, and it still stops for signals and
+traffic like any car. The first cut held at a dead end until the player chose — the Pac-Man wall —
+and it read as the car stalling (Tyler: "something feels weird about the taxi not moving unless
+you've chosen a direction"). A second cut drove a rider to the drop-off on its own; Tyler meant
+"it kind of just continues forward motion", not that it navigates.
+
+**The band is a suggestion, fixed at the pickup.** On boarding, the best route to the drop-off is
+planned once and drawn as the route band (`steerGuide` in `main.js`), and then left alone — "a
+Google Maps route to your drop-off". It does not follow the player's detours or redraw from the
+car; only a getaway's next checkpoint replans it. The empty taxi has no band.
+
+**The tank is bottomless while this is on test** (Tyler: "unlimited loco for now while we test
+this mechanic"), so how much Loco the driving takes is not tangled up with how it steers.
+`?fuel=limited` puts the tank back.
+
+**A debug line off the taxi's nose shows what the stick is saying** (`game/steerline.js`, while the
+prototype is on test; `?steerline=off` hides it). A thin white line follows the raw thumb. A thick
+yellow one runs along the street that push snapped to, and stays dimmer for the turn still queued
+after the thumb lifts. A short cyan one always shows what the taxi will actually do at the junction
+ahead, so a disagreement between yellow and cyan is the car not doing what the stick says.
+
+**A push a beat late still wins the corner.** The taxi commits to its exit at the hold line, 3.4
+units short of the junction. A turn committed there used to overrule the stick: Tyler pushed for one
+street and watched the car turn the other way. Through that run-up the steered taxi now asks for the
+exit the stick names on every frame (`retake` in `game/steer.js`), and `retakeCrossing` in
+`sim/traffic.js` swaps any exit for any other. The swap is forced: a left into oncoming traffic or
+into a full exit lane goes ahead, and the player owns the crash (Tyler: "they'll just ram into a car
+but they'll be in total control"). Routed play only ever used it to turn a straight
+crossing.
+
+**The overtake is on the stick too** (Tyler: "flicking left around a car will pop the taxi into
+the other lane then flicking back right brings it in the lane"). A flick to the taxi's own left
+with a car within 30 units ahead (`OVERTAKE_ARM_RANGE`) pulls out into the oncoming lane, and a
+flick to its right tucks back in (`flickLane` in `game/steer.js`, read by the pass block in
+`sim/traffic.js` as `taxi.stickLane`). Out is out until the player says otherwise. No Loco and no
+leader are needed to stay there, and tucking in level with a car is the player's call. With no car
+ahead, a flick left is just the left turn. With a car ahead it is told apart by how long the stick
+stays there. A flick only pulls out, and holding past 250 ms (`FLICK_HOLD_MS`) queues the left turn
+as well. Out in the oncoming lane, a turn is taken from that lane. The offset rides the arc, easing
+between the two roads' widths across the turn so an arterial-to-side-street corner doesn't step
+sideways, and it fades on the lane after the corner, so the turn ends the pass. The first cut kept
+an out taxi going straight and swallowed a left flick, and Tyler found it "messing up turns". A T
+ahead doesn't refuse the pass either. The stick only needs an oncoming lane to borrow. The Loco
+blip no longer throws anything. Only the grace
+for a newly caught car is kept, so holding Loco behind a car in lane still rams it once that grace
+runs out. `?stickpass=classic` keeps the blip.
+
+**The stick leans the taxi.** How far the thumb is pushed *across* the taxi, read against the
+taxi's own left on screen, leans it across its lane by up to 0.6 units (`NUDGE_MAX` in
+`sim/traffic.js`), and the nose points where it is sliding. Tyler wanted "a little bit of tap and
+wiggle from the joystick would feed into... the motion" so that steering stops feeling on rails. It
+is paced by road distance like the weave (2.5 units to close most of the gap, about 0.3 s at
+cruise), so a car stopped at a red doesn't slide. It is frozen through a junction, and it is a
+render offset only, so stop lines, following distance and turns are unchanged. The room comes from
+the weave's budget: a side street's lane leaves about 1.1 between the body and the line, and the
+weave peaks at 0.52.
+
+**Landscape.** A phone held sideways keeps the portrait phone's scale, 844 px for `2 * PLAY_ZOOM`
+units (`landscapeFit` in `main.js`), so the extra width is more city on each side and not a smaller
+one. It also pans and follows like a phone. Before this, the frustum's 104 units of height were
+squeezed into ~390 px and the whole map showed at under half size. The stick stays far left and the
+pedals far right without any change. The iOS shell still locks portrait ([ios.md](ios.md)), so this
+is the web build only for now. `?landscape=classic` turns it off.
+
+"Steer with the stick" (`game/steertip.js`) stands on the stick until the player has pushed it
+twice ("Swipe to turn", over the taxi, under `?steer=swipe`). The map still pans with the stick;
+under `?steer=swipe` it does not, since the swipe is the steering.
+
+**Trips that drive themselves still do.** The garage, the drive-through, the depot and the street
+race arrive by a lane a thumb cannot be asked to find, so they route as before (`scriptedRouteTo`
+in `main.js`) and steering stands down while one holds `pendingTarget`. When one hands the taxi back
+to the job it interrupted, that job's corner plans nothing — it is the player's to drive.
+
+Prototype, and the numbers have not caught up: rider clocks are still budgeted from the router's
+best route ([The clock is budgeted](#the-clock-is-budgeted)), and robo-taxis still route perfectly.
 
 ## Routing
 

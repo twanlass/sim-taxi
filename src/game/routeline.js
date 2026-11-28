@@ -991,7 +991,12 @@ export function createRouteLine(scene) {
     revealSpeed = 0;
   }
 
-  function update(car, route, dt = 0) {
+  /**
+   * `path`, when given, is drawn as it stands instead of being walked out of `car`'s live lane and
+   * `route` — the steered ride's fixed suggestion (`steerGuide` in main.js). `car` then only
+   * carries the `pendingTarget` the sweep keys off.
+   */
+  function update(car, route, dt = 0, fixedPath = null) {
     material.uniforms.uTime.value += dt;
 
     // Exponential-ish approach on a per-frame fraction rather than a tween with a start time: the
@@ -1011,7 +1016,7 @@ export function createRouteLine(scene) {
     // though this is also the frame the target just changed on, or the sweep never advances.
     revealElapsed += dt;
 
-    const path = routePath(car, route);
+    const path = fixedPath ?? routePath(car, route);
     if (path.length < 2) { mesh.visible = false; return; }
 
     // Arc length at each point, so the shader can fade against real distance rather than against

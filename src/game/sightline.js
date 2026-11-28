@@ -86,8 +86,18 @@ let field = null;
  * board with no city in the scene should get the fare board, not an empty one.
  */
 export function setCityOccluders(...meshes) {
+  field = buildHeightField(...meshes);
+  return field;
+}
+
+/**
+ * The rasteriser on its own: a height field of these meshes, without making it the city's. Free
+ * driving (game/freedrive.js) builds a second one of the buildings alone, with no trees or lamp
+ * posts in it, to ask what the taxi cannot drive through. Read it with `fieldHeight`.
+ */
+export function buildHeightField(...meshes) {
   const built = meshes.filter(Boolean);
-  if (!built.length) { field = null; return null; }
+  if (!built.length) return null;
 
   // One box round everything, so the buildings, the props and the depot share a grid rather than
   // being asked separately and answered three times.
@@ -141,8 +151,16 @@ export function setCityOccluders(...meshes) {
     }
   }
 
-  field = { x0, z0, nx, nz, cell: CELL, heights };
-  return field;
+  return { x0, z0, nx, nz, cell: CELL, heights };
+}
+
+/** The tallest thing on this patch of ground in a field from `buildHeightField`; 0 outside it. */
+export function fieldHeight(f, x, z) {
+  if (!f) return 0;
+  const ci = Math.floor((x - f.x0) / f.cell);
+  const cj = Math.floor((z - f.z0) / f.cell);
+  if (ci < 0 || cj < 0 || ci >= f.nx || cj >= f.nz) return 0;
+  return f.heights[ci * f.nz + cj];
 }
 
 /**

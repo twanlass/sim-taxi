@@ -1085,6 +1085,8 @@ export function createFareSystem(rng, scene, {
   }
 
   const carrying = () => state.fares.find((f) => f.stage === 'riding') ?? null;
+  // `?steer=classic` off — see `setSteered` and game/steer.js.
+  let steered = false;
   /**
    * A getaway is running: the robber is in the car. For as long as it is, every rider waiting on
    * the kerb is **off the board** — hidden, untappable, out of the HUD and the edge arrows, with
@@ -2197,7 +2199,10 @@ export function createFareSystem(rng, scene, {
 
       // Proximity resolves the arrival, but only for a taxi the player actually sent here. No
       // extra confirmation tap is needed on arrival — the tap that set the route is the intent.
-      if (!fare.directed) continue;
+      // Steered (game/steer.js), there is no sending: driving through the corner is the intent.
+      // The seat still holds one — a waiting rider is skipped while somebody is aboard, and the
+      // first pickup of a frame fills it before the loop reaches a second rider on the same corner.
+      if (!fare.directed && !(steered && (fare.stage === 'riding' || !carrying()))) continue;
       // The bank rider is collected from the steps rather than the corner — see BANK_REACH_ALONG.
       if (fare.stage === 'waiting' && fare.stand && bankStop?.tight) {
         if (!atBankSteps(taxiCar)) continue;
@@ -2580,6 +2585,8 @@ export function createFareSystem(rng, scene, {
     setHold: (fn) => { held = fn ?? (() => false); },
     /** Nobody is the taxi's errand any more — the street race taking it, on the tap. */
     undirect: () => { for (const f of state.fares) f.directed = false; },
+    /** Steering mode: any rider the taxi drives past is collected, and any drop-off delivered. */
+    setSteered: (on) => { steered = Boolean(on); },
     occupiedSpots,
     focus,
     slots,

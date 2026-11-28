@@ -27,7 +27,7 @@ import {
   collectPanes, litWindows, streetLamps, entrances, lampKeepOff, switchedLights, createTaxiHeadlights, setCityLights,
 } from './game/citylights.js';
 import {
-  createCityCamera, attachDragPan, VIEW_DIR, PLAY_ZOOM, LOCO_PUNCH_HOLD, RIGHT,
+  createCityCamera, attachDragPan, VIEW_DIR, PLAY_ZOOM, PHONE_PX_PER_UNIT, LOCO_PUNCH_HOLD, RIGHT,
 } from './game/camera.js';
 import { createLayout } from './city/layout.js';
 import { createGround, KERB_H } from './city/ground.js';
@@ -80,7 +80,7 @@ import { createDriveThru } from './game/drivethru.js';
 import { createBurgerRun } from './game/burgerrun.js';
 import { createDepotRun } from './game/depotrun.js';
 import {
-  createBoost, BOOST_FARE_REWARD, BOOST_PARCEL_REWARD, BOOST_BURGER_REWARD,
+  createBoost, BOOST_FARE_REWARD, BOOST_PARCEL_REWARD, BOOST_BURGER_REWARD, BOOST_DURATION,
 } from './game/boost.js';
 import { createBoostMeter } from './game/boostmeter.js';
 import { bandPath as fuelBandPath, frontAt as fuelFrontAt, glintAt as fuelGlintAt, RIM as FUEL_RIM, CAP as FUEL_CAP, useClassicArc as useClassicFuelArc, useClassicGap as useClassicFuelGap, flameRadius as fuelFlameRadius, bendFlame as fuelBendFlame, flameAngle as fuelFlameAngle } from './game/fuelarc.js';
@@ -203,8 +203,13 @@ import { createRobberLine, ROBBER_LINES } from './game/robberline.js';
 import { createBankJob } from './game/bankjob.js';
 import { createCopLights } from './game/coplights.js';
 import { createCashTrail } from './game/cashtrail.js';
-import { setCityOccluders, sightlineClear } from './game/sightline.js';
+import { setCityOccluders, sightlineClear, buildHeightField, fieldHeight } from './game/sightline.js';
 import { createBootleg, COMBO_GAP_MS as BOOTLEG_GAP_MS } from './game/bootleg.js';
+import { createSteer, decisionLane } from './game/steer.js';
+import { createJoystick, KNOB_TRAVEL as STICK_TRAVEL, DEAD_ZONE as STICK_DEAD_ZONE } from './game/joystick.js';
+import { createFreeDrive } from './game/freedrive.js';
+import { createSteerLine } from './game/steerline.js';
+import { createSteerTip } from './game/steertip.js';
 import { createOvertakeCombo, OVERTAKE_GRACE } from './game/overtake.js';
 import { createNewMove, createSeenFlag, MOVES, REPAIR, SHOW_DELAY } from './game/newmove.js';
 import { demoMode } from './game/progress.js';
@@ -229,7 +234,7 @@ import { isNative } from './util/platform.js';
 import { tap as haptic, setHapticPrefs } from './util/haptics.js';
 import { createSfx, DASH, MUSIC_FADE_AT_HINT } from './game/sfx.js';
 import { attachContextRecovery } from './game/recovery.js';
-import { isCityConnected, GRID_I, GRID_J, MAX_SPAN, lineX, lineZ } from './city/grid.js';
+import { isCityConnected, GRID_I, GRID_J, MAX_SPAN, lineX, lineZ, opposite } from './city/grid.js';
 import { installRoadPaint, createRoadBrush, brush as roadBrushState, roadViewKeep } from './game/roadpaint.js';
 import { cityNetwork } from './city/roadnet.js';
 import { PALETTE, color as paletteColor, roadsClassic } from './palette.js';
@@ -300,6 +305,34 @@ const settings = createSettings();
 const demo = demoMode();
 // The tutorial tips, which Demo mode holds on: a demo is for showing the tips off.
 const tipsOn = () => demo.on() || settings.get().tips;
+
+// Pac-Man steering (game/steer.js) is the default: swipe to queue the next turn, drive past a rider
+// to collect them. `?steer=classic` puts back tap-a-rider auto-routing. Off wherever nothing is
+// holding the phone — a still, the headless bench and soak, the perf bot — all of which drive by
+// routing.
+const steerOn = (() => {
+  const params = new URLSearchParams(window.location.search);
+  if (params.get('steer') === 'classic' || shot) return false;
+  return !['bot', 'bench', 'soak'].some((k) => params.has(k));
+})();
+// Steered with the stick bottom left (game/joystick.js), the default; `?steer=swipe` reads swipes on
+// the map instead, the first cut of the prototype (Tyler: "No swipe", 2026-11-24).
+const fuelLimited = new URLSearchParams(window.location.search).get('fuel') === 'limited';
+const steerStick = steerOn && new URLSearchParams(window.location.search).get('steer') !== 'swipe';
+// Free driving (game/freedrive.js): the stick is a heading and the taxi a body, off the lanes
+// altogether. The default under the stick; `?steer=rails` puts back the queued-turn steering.
+const steerFree = steerStick && new URLSearchParams(window.location.search).get('steer') !== 'rails';
+if (steerStick) document.body.classList.add('steer-stick');
+/** `routeTo` for the trips that drive themselves even when the player steers — see `routeTo`. */
+// The trips that drive themselves hand the taxi back to the job they interrupted by routing at it
+// (`handBack` in game/burgerrun.js and game/depotrun.js); steered, that job is the player's to drive,
+// so a fare's or a package's own corner goes through the plain gate and plans nothing.
+function scriptedRouteTo(target, opts = {}) {
+  const job = fares.state.fares.some((f) => f.target === target || f.dropoff === target)
+    || Boolean(parcels?.state.parcels.some((p) => p.target === target || p.pickup === target
+      || p.dropoff === target));
+  return routeTo(target, { ...opts, scripted: !job });
+}
 // The Difficulty row (Easy / Regular / Hard). Applied here, before the fare system budgets its first
 // clock, and live from then on: a change takes effect from the next rider to spawn. `?difficulty=`
 // pins it for the load and leaves the saved choice alone; shot mode holds Easy, so a stored Hard on
@@ -1261,7 +1294,7 @@ const burgerRun = driveThru
     site: burger.site,
     lot: driveThru,
     taxi: traffic.taxi,
-    routeTo,
+    routeTo: scriptedRouteTo,
     // Both halves of the counter transaction, on the frame the order is handed over. The boost
     // arrives on the same energy bit a delivery pays with (`flyEnergyToBoost`), so the reward reads
     // as the reward rather than as a meter that moved on its own — it is the smallest top-up in the
@@ -1304,7 +1337,7 @@ const depotRun = garage && !shot
     farMouth: garageRouteClassic ? null : entryPath(garage.site, 'far')?.mouth ?? null,
     cars: traffic.cars,
     taxi: traffic.taxi,
-    routeTo,
+    routeTo: scriptedRouteTo,
     onArrive: (s0, handBack, side) => {
       if (!opening?.enter(s0, {
         side,
@@ -1790,9 +1823,21 @@ for (const slot of fares.slots) markOccluder(slot.passenger.group);
 // the game is playable without ever touching it on a desktop — but in portrait the frustum is
 // sized by height, so a phone cuts off both sides of the map and panning stops being optional.
 const aspect = () => viewport.width() / viewport.height();
+// A phone held sideways (Tyler, 2026-11-24: "support a landscape mode so we can see if that's more
+// comfortable"). The frustum is sized by height, so PLAY_ZOOM's 104 units squeezed into a landscape
+// phone's ~390px drew the whole city at under half the portrait scale — a map, not a street. Sideways,
+// the frame keeps the portrait phone's pixels per unit (844px for `2 * PLAY_ZOOM`), so the taxi and
+// the riders are the size they always were and the extra width is simply more city either side.
+// `?landscape=classic` draws it the old way. (The iOS shell still locks portrait — docs/ios.md.)
+const landscapeOn = new URLSearchParams(window.location.search).get('landscape') !== 'classic';
+const LANDSCAPE_MAX_H = 600;
+const isLandscapePhone = () => landscapeOn && !shot
+  && viewport.width() > viewport.height() && viewport.height() < LANDSCAPE_MAX_H;
+const landscapeFit = () => (isLandscapePhone() ? viewport.height() / (2 * PLAY_ZOOM * PHONE_PX_PER_UNIT) : 1);
 const controller = createCityCamera(aspect(), {
   zoom: shot?.zoom ?? PLAY_ZOOM,
   target: shot?.target ?? [0, 0],
+  fit: landscapeFit,
 });
 const { camera } = controller;
 controller.update(aspect());
@@ -1803,7 +1848,8 @@ controller.update(aspect());
 // only move things around for no reason. Live viewport width rather than a media query lets a
 // resize flip modes without a reload.
 const NARROW_VIEWPORT = 768;
-const isNarrow = () => viewport.width() < NARROW_VIEWPORT;
+// A phone held sideways is wider than this and is still a phone: same follow, same pan.
+const isNarrow = () => viewport.width() < NARROW_VIEWPORT || isLandscapePhone();
 
 // The camera trails the taxi from the first frame of the run, and keeps doing it until the player
 // takes the framing over — a swipe, or a tap on a rider-finder chip. Both are the player saying
@@ -1916,8 +1962,81 @@ const releaseCameraToPlayer = () => {
 // and auditioning the court's falloff means being able to put the court there.
 const pan = shot
   ? null
-  : attachDragPan(controller, renderer.domElement, aspect, () => isNarrow() || debugMode,
+  : attachDragPan(controller, renderer.domElement, aspect,
+    () => (isNarrow() || debugMode) && !(steerOn && !steerStick),
     releaseCameraToPlayer);
+
+// Pac-Man steering (game/steer.js): a swipe on the map queues the taxi's next turn, and the map
+// stops panning so the same thumb can do it — the camera follows the car. Live only while the car
+// is the player's to drive and no trip that drives itself (the garage, the drive-through, the depot,
+// the race) holds a `pendingTarget`.
+const steerLive = () => steerOn && runBegun && pedalsLive() && !fares.state.gameOver
+  && !traffic.taxi.pendingTarget && !pause?.state.paused;
+const steerToScreen = (dx, dz) => {
+  const t = traffic.taxi;
+  const a = projectToScreen(t.x, 0, t.z);
+  const b = projectToScreen(t.x + dx, 0, t.z + dz);
+  return { x: b.x - a.x, y: b.y - a.y };
+};
+const steer = steerOn ? createSteer({
+  dom: renderer.domElement,
+  taxi: traffic.taxi,
+  toScreen: steerToScreen,
+  canSteer: steerLive,
+  swipe: !steerStick,
+  // The overtake moves to the stick with it: flick left round a car, flick right to tuck back in.
+  // `?stickpass=classic` keeps the Loco blip combo instead.
+  laneFlick: steerStick && !steerFree
+    && new URLSearchParams(window.location.search).get('stickpass') !== 'classic',
+}) : null;
+// The route to the drop-off, planned once at the pickup and then left alone — "a Google Maps route
+// to your drop-off" (Tyler, 2026-11-24). It does not follow the player's detours; it is a
+// suggestion drawn on the city, re-planned only when the ride's target itself moves (a getaway's
+// next checkpoint). `pendingTarget` on the stand-in car is what keys the band's one rollout sweep.
+let rideGuide = null;
+function steerGuide() {
+  const riding = fares.carrying();
+  if (!riding) { rideGuide = null; return null; }
+  if (rideGuide?.target !== riding.target) {
+    const route = findRoute(planOrigin(traffic.taxi), riding.target);
+    rideGuide = {
+      target: riding.target,
+      car: { pendingTarget: riding.target },
+      path: route ? routePath(traffic.taxi, route, { onward: false }) : null,
+    };
+  }
+  return rideGuide.path ? rideGuide : null;
+}
+const stickEl = document.getElementById('stick');
+const stick = steerStick && stickEl ? createJoystick({
+  el: stickEl,
+  toScreen: steerToScreen,
+  // Free, the stick queues nothing: it is read as a heading every frame (`freeDrive` below), and
+  // a push only counts toward the tip.
+  onPush: steerFree
+    ? (() => { let last = null; return (dir) => { if (dir != null && dir !== last) steer.count(); last = dir; }; })()
+    : (dir) => steer.push(dir),
+  back: () => { const at = decisionLane(traffic.taxi); return at ? opposite(at.d) : null; },
+}) : null;
+fares.setSteered(steerOn);
+// What a free taxi cannot drive through: the buildings, and nothing smaller. A field of its own
+// rather than the sightline's, which has every tree and lamp post in it — Tyler on the first cut:
+// "it gets stuck on everything". Anything under `FREE_SOLID_H` is a kerb, a forecourt or a lawn.
+const FREE_SOLID_H = 1.2;
+const freeSolid = steerFree && stick ? buildHeightField(
+  city.mesh, ...(city.domeMesh ? [city.domeMesh] : []), ...(garage?.meshes ?? []),
+  ...(burger?.meshes ?? []), ...(graveyard?.meshes ?? []), ...(roadside?.meshes ?? []),
+  ...(vet ? [vet.shell] : []),
+) : null;
+const freeDrive = steerFree && stick ? createFreeDrive({
+  solid: (x, z) => fieldHeight(freeSolid, x, z) > FREE_SOLID_H,
+  locoSpeed: () => boostCruise(),
+  taxi: traffic.taxi,
+  stick: () => { const v = stick.vector(); return v && v.len >= STICK_DEAD_ZONE ? v : null; },
+  toScreen: steerToScreen,
+  live: steerLive,
+  assist: new URLSearchParams(window.location.search).get('freeassist') !== 'off',
+}) : null;
 
 const dust = tagFx(scene, () => createDust(scene, camera, makeRng(seed + 77)));
 const spray = tagFx(scene, () => createSpray(scene, makeRng(seed + 78)));
@@ -2535,7 +2654,7 @@ const raceParam = new URLSearchParams(window.location.search).get('race');
 // finish. `?racetap=classic` keeps it — the count waits on a tap on the racer's "Ready?".
 const raceTapClassic = new URLSearchParams(window.location.search).get('racetap') === 'classic';
 race = shot || raceParam === 'classic' ? null : createRace({
-  rng: makeRng(runSeed + 743), scene, traffic, routeTo,
+  rng: makeRng(runSeed + 743), scene, traffic, routeTo: scriptedRouteTo,
   soon: raceParam === 'soon',
   // The racer's body bounces on hydraulics in the race's scenes (game/hydraulics.js).
   hydraulics: new URLSearchParams(window.location.search).get('hydraulics') !== 'classic',
@@ -3459,6 +3578,7 @@ const selected = true;
 // exit through their junction like it did before the look-ahead (see `onwardFrom`).
 const routeLookAhead = new URLSearchParams(window.location.search).get('route') !== 'classic';
 
+
 /**
  * Where the taxi goes *after* `target`, when that is already decided: the drop-off of the waiting
  * rider `target` belongs to. Null for anything else — a drop-off, a package, the depot — because
@@ -3502,8 +3622,16 @@ function onwardFrom(target) {
  * keeps the same destination must pass the same object rather than an equal one — otherwise every
  * frame of a drag replays the sweep and the band never finishes drawing itself.
  */
-function routeTo(target, { via = null, along = null, maxDetour, onto = target?.onto ?? null } = {}) {
+function routeTo(target, { via = null, along = null, maxDetour, onto = target?.onto ?? null,
+  scripted = false } = {}) {
   const car = traffic.taxi;
+  // Steered (game/steer.js), the player drives every trip themselves: a rider, a drop-off, a
+  // package or a tapped street plans nothing, and answers true so whatever asked carries on as if
+  // the trip were under way (the drop-off still marks its fare directed). What still routes is a
+  // *scripted* trip — the garage, the drive-through, the depot, the race — which arrives by a lane
+  // a thumb cannot be asked to find, and re-plans of the one already running (identified by
+  // `pendingTarget`, which steering never sets).
+  if (steerOn && !scripted && !(car.pendingTarget && target === car.pendingTarget)) return true;
   const plan = (from) => (along
     ? findRouteAlong(from, along, target, { maxDetour })
     : via
@@ -3834,8 +3962,8 @@ createPicker(
     }
   },
   // A gesture that moved the map, or one that pulled the route round, is not also a tap on
-  // whatever it happened to finish over.
-  () => Boolean(pan?.didPan() || pathDrag?.didDrag()),
+  // whatever it happened to finish over — nor is a swipe that steered the taxi.
+  () => Boolean(pan?.didPan() || pathDrag?.didDrag() || steer?.didSwipe()),
   // A tap on the depot's or the joint's own wall is a tap on the building, even where a rider's
   // invisible hit box stands in front of it — see the stand-in rule in game/pick.js. The depot only
   // while it would take the car: a tap it would refuse keeps meaning the rider.
@@ -4280,6 +4408,24 @@ tutorial = shot || !wantsTutorial ? null : createTutorial({
     if (!running) revealHud();
   },
 });
+
+// "Swipe to turn" over the taxi until the player has the idea, and again at a dead end — see
+// game/steertip.js. After the tutorial's pan to the first rider, which is framing somewhere else.
+const steerTip = steer ? createSteerTip({
+  project: projectToScreen,
+  viewport,
+  taxi: traffic.taxi,
+  steer,
+  canShow: () => steerLive() && tipsOn() && !tutorial?.holdsCamera(),
+  stickTop: stick ? stick.top : null,
+}) : null;
+// The stick's debug line off the taxi's nose — see game/steerline.js. On while the prototype is on
+// test; `?steerline=off` hides it.
+const steerLine = stick && !steerFree && new URLSearchParams(window.location.search).get('steerline') !== 'off'
+  ? createSteerLine({
+    project: projectToScreen, toScreen: steerToScreen, taxi: traffic.taxi, stick, steer,
+    canShow: () => steerLive() && !traffic.taxi.crashed,
+  }) : null;
 
 // The boost meter, the money counter and the rider chips start off their own screen edge and
 // slide in together — see the HUD entrance block in index.html. A run used to open with all of them
@@ -7146,6 +7292,7 @@ function resetRun({ toTitle = false } = {}) {
   taxi.joltPitch = 0;
   taxi.pendingTarget = null;
   taxi.route = [];
+  steer?.reset();
   taxiDamage.reset();
   hitCue?.clear();
   traffic.setTaxiOccupied(false);
@@ -7564,6 +7711,10 @@ function tick() {
   // is handed back, the taxi is being driven by the vignette.
   if (burgerRun?.holdsTaxi() || opening?.visiting()) boost.release();
   boost.update(dt);
+  // Steering is on test with a bottomless tank (Tyler, 2026-11-24: "unlimited loco for now while we
+  // test this mechanic"), so how much Loco the driving takes is not mixed up with how it steers.
+  // `?fuel=limited` puts the tank back.
+  if (steerOn && !fuelLimited) boost.state.fuel = BOOST_DURATION;
   // A stall waits on a press of the pill (sim/collisions.js BUMP_STOP), so it cannot outlast a
   // pill that will not press: a tank run dry gets driven on, rather than parked for the five
   // seconds the floor takes to come back. And a cut scene owns a staged taxi outright.
@@ -7593,6 +7744,12 @@ function tick() {
     // the pill comes back the tap is a brake (see holdBrake).
     const bootlegBrake = bootleg.update(dt, { brakeHeld: brakeHeld && !fares.state.gameOver });
     overtake.update(dt, { held: boost.isActive() && !traffic.taxi.staged, brakeHeld });
+    // On the stick, the blip no longer throws anything — only the grace for a newly caught car is
+    // kept, which sim/traffic.js reads with `stickLane` (game/steer.js).
+    if (traffic.taxi.stickLane !== undefined) {
+      traffic.taxi.passArmed = false;
+      traffic.taxi.passPending = false;
+    }
     const drifting = driftHolds(traffic.taxi) && traffic.taxi.drift.phase !== 'carry';
     // Or the street race's, for the finale: the winner pulling up and the loser skidding in. Through
     // the pedal because `parked` stops a car dead on the frame it is set (game/race.js).
@@ -7733,6 +7890,23 @@ function tick() {
   // so it is set before it (game/streetprops.js).
   perfPhase('traffic');
   streetProps.update(dt, traffic.taxi);
+  // The steered taxi's one-step route, from the turn the player has queued — read by this very
+  // `traffic.update` at the hold line.
+  if (freeDrive) freeDrive.update(dt);
+  else steer?.update();
+  // The stick's nudge: how far the thumb is pushed across the taxi rather than along it, read
+  // against the taxi's own left on screen (sim/traffic.js leans it across its lane by that much).
+  if (stick) {
+    const v = stick.vector();
+    const t = traffic.taxi;
+    let nudge = 0;
+    if (v && v.len > 0 && steerLive() && !freeDrive) {
+      const left = steerToScreen(-Math.sin(t.yaw), -Math.cos(t.yaw));
+      const ll = Math.hypot(left.x, left.y) || 1;
+      nudge = ((v.dx * left.x + v.dy * left.y) / (v.len * ll)) * Math.min(1, v.len / STICK_TRAVEL);
+    }
+    t.stickNudge = nudge;
+  }
   traffic.update(dt);
   if (traffic.taxi.overtakes > overtakesFelt) {
     overtakesFelt = traffic.taxi.overtakes;
@@ -8068,6 +8242,8 @@ function tick() {
   radio?.update(dt, { over: fares.state.gameOver });
   radioCue?.update(dt, { over: fares.state.gameOver });
   copShout?.update(dt, { over: fares.state.gameOver });
+  steerTip?.update(dt);
+  steerLine?.update();
   orderTalk?.update(dt, { over: fares.state.gameOver });
   hitCue?.update(dt, traffic.taxi);
   // The depot's card: SHOW_DELAY after the car starts smoking, so the hit that did it has landed
@@ -8398,6 +8574,10 @@ function tick() {
   if (selected && traffic.taxi.pendingTarget && !fares.state.gameOver) {
     paintRouteBand();
     routeLine.update(traffic.taxi, traffic.taxi.route, dt);
+  } else if (steer && steerLive() && steerGuide()) {
+    // Steered, the band is the ride's suggested route, fixed from the pickup — see `steerGuide`.
+    paintRouteBand();
+    routeLine.update(rideGuide.car, null, dt, rideGuide.path);
   } else {
     routeLine.hide();
   }
@@ -9357,6 +9537,10 @@ if (!shot && wantsDebugPanel) {
 window.__taxi = {
   scene,
   unported,
+  /** Pac-Man steering (game/steer.js), null under `?steer=classic`; `live()` says whether it is driving. */
+  steer: steer && { ...steer, live: steerLive,
+    why: () => ({ runBegun, pedals: pedalsLive(), over: fares.state.gameOver,
+      target: Boolean(traffic.taxi.pendingTarget), paused: Boolean(pause?.state.paused) }) },
   renderer: GPU ? 'webgpu' : 'webgl',
   gpuCapture: (options) => gpuCapture?.capture(options),
   /** The road paint brush's settings (game/roadpaint.js): size, strength, channel, erase, on. */
@@ -9561,6 +9745,7 @@ window.__taxi = {
   pause,
   routeTo,
   findRoute,
+  planOrigin,
   // The lifting span, so a reel or a hand test can ask for a lift and stage the Mega Air jump.
   drawbridge,
   findRouteVia,

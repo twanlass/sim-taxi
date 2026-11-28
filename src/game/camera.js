@@ -286,7 +286,12 @@ export function aimAtHeight(x, y, z) {
   return { x: x + UP.x * shift, z: z + UP.z * shift };
 }
 
-export function createCityCamera(aspect, { zoom = 46, target = [0, 0] } = {}) {
+/**
+ * @param fit  () => a multiplier on the frustum for the viewport's shape — 1 everywhere but a phone
+ *             held sideways, where main.js keeps the portrait phone's pixels per unit rather than
+ *             fitting `zoom` units into 390px of height (`landscapeFit`)
+ */
+export function createCityCamera(aspect, { zoom = 46, target = [0, 0], fit = () => 1 } = {}) {
   const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 1, 1400);
   const state = {
     zoom,                       // the *base* half-height of the view frustum, in world units
@@ -311,7 +316,7 @@ export function createCityCamera(aspect, { zoom = 46, target = [0, 0] } = {}) {
   // units and the frame — the projection, the lead's half-frame, world-units-per-pixel out in
   // main.js — has to come through here rather than read `state.zoom`, or it measures a frame the
   // renderer isn't drawing.
-  const viewZoom = () => state.zoom * state.punch;
+  const viewZoom = () => state.zoom * state.punch * fit();
 
   // In-flight glide, or null when idle. Held here rather than on `state` because nothing outside
   // reads it — the getters below are the whole interface.
