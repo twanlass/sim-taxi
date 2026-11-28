@@ -3432,6 +3432,7 @@ if (rivalLine) {
 // A first, lane-wide claim band was cut on 2026-11-26 as "too much noise"; this is the thin retry.
 // Opacity is higher than the racer's 0.22 because a thin line has so few pixels to carry it.
 // `?riders=classic` goes without.
+const ROBO_POINTER_COLOUR = paletteColor('roboGlow');
 const ROBO_LINE_HALF = 0.25;
 const ROBO_LINE_OPACITY = 0.7;
 const roboLines = !robotaxis || ridersClassic ? [] : robotaxis.state.robos.map(() => {
@@ -8569,8 +8570,10 @@ function tick() {
   const aboard = fares.carrying();
   // A rider a robo-taxi is after points in its cyan off-screen too, so a robot heading for one of
   // your riders shows from the edge of the frame (Tyler, 2026-11-27).
+  // `farePointers` reads a THREE.Color (`getHexString`), so the cyan is one too — a palette hex
+  // string here took the whole frame loop down on the first lock (Tyler's phone, 2026-11-27).
   const pointerColour = (f) => (f.stage === 'waiting' && riderRace() && robotaxis?.claimOf(f)
-    ? PALETTE.roboGlow : fares.colorOf(f));
+    ? ROBO_POINTER_COLOUR : fares.colorOf(f));
   farePointers.update(aboard, fares.state.gameOver ? [] : fares.waitingAll(), pointerColour);
   // The race's lock-on: a rider a robo-taxi is after wears its cyan on their disc. The first lock
   // of a run is shown rather than just painted (`startLockBeat`): the disc stays its own colour
