@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { bakeColor, propMaterial } from '../util/geo.js';
 import { PALETTE } from '../palette.js';
+import { rigidSkin } from '../util/rigidskin.js';
 
 // The inflatable tube man on the car wash's corner (city/carwash.js): a red tube on a blower,
 // yellow hair, a cartoon face and two floppy arms, flailing (Tyler, 2026-10-17, off a photo of the
@@ -113,13 +114,21 @@ export function createTubeMan(scene, rng, spot, anchor = null) {
 
   const material = propMaterial();
   const col = (name) => new THREE.Color(PALETTE[name]);
+  // **One draw, not fourteen.** Every piece of him — the blower, seven body segments, six arm
+  // segments — used to be a mesh of its own, so he cost 14 draws in the main pass and 14 more in
+  // the movers' shadow map (⚙️ Draw calls, 2026-11-27): the most expensive single thing on screen.
+  // Each piece is now a `Bone` standing exactly where its mesh stood, and all fourteen pieces are
+  // one `SkinnedMesh`, each vertex weighted wholly to its own piece's bone — rigid skinning, which
+  // is the same transform the separate meshes had. The springs below still pose the joint groups;
+  // the girth still scales the piece (now its bone) and not the joint, so it does not carry up the
+  // tube. See util/rigidskin.js.
+  const pieces = [];
   const mesh = (parts) => {
     const geo = mergeGeometries(parts, false);
     parts.forEach((p) => p.dispose());
-    const m = new THREE.Mesh(geo, material);
-    m.castShadow = true;
-    m.receiveShadow = true;
-    return m;
+    const bone = new THREE.Bone();
+    pieces.push({ geo, bone });
+    return bone;
   };
   /** A capsule standing on its own origin, `len` between the centres of its two caps. */
   const capsule = (r, len, c) => {
@@ -227,7 +236,11 @@ export function createTubeMan(scene, rng, spot, anchor = null) {
   // and world −X, both back over the lot and away from the two roads round his corner, and one
   // falls to the screen's right and the other to its left.
   const FOLD_DIRS = [[Math.SQRT1_2, -Math.SQRT1_2], [-Math.SQRT1_2, -Math.SQRT1_2]];
-  const bodyMeshes = joints.map((j) => j.children.find((c) => c.isMesh));
+  const bodyMeshes = joints.map((j) => j.children.find((c) => c.isBone));
+
+  const body = rigidSkin(pieces, material, { name: 'tube-man-body' });
+  pieces.forEach((p) => p.geo.dispose());
+  group.add(body);
   // Per joint: the fold (`f`) and the lateral bend (`l`), each an angle and a rate.
   const springs = joints.map((_, k) => {
     const t = k / (SEGS - 1);

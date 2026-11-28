@@ -221,7 +221,12 @@ geometries are one geometry with a phase, and it counts a still object as mergea
 entrance wave or the static shadow map needs from it. Under `?renderer=classic` the AO prepass draws
 with its own depth materials, so the WebGL list shows a `MeshDepth` group that is really the
 prepass. Measured 2026-11-27, WebGPU, phone viewport, `?bot` for a minute: 228 calls a frame on
-average, peak 264 — main ~140, movers' shadow ~70, post 7.
+average, peak 264 — main ~140, movers' shadow ~70, post 7. The first pass off the back of it took the
+tube man (14 pieces) and each barge's gull flock (15) to one rigidly skinned mesh apiece
+([util/rigidskin.js](../src/util/rigidskin.js): every vertex weighted wholly to its piece's bone, so
+the transforms are the ones the separate meshes had), and every trash pile into one instanced mesh
+for the bags and one for the sheen. Same run after: 202 on average, peak 249; the four shots of
+them (`tubeman`, `barge`, `trash-pile`, `garbage-truck`) came out pixel-identical on WebGPU.
 
 ## Screenshots
 
