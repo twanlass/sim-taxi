@@ -935,6 +935,12 @@ const skaters = (skaterFlag === 'classic' ? createClassicSkaters : createSkaters
     stiff: skaterFlag === 'stiff',
     // `?skatepush=classic`: no pushing — the rider only ever pumps, as it did before the kick.
     push: new URLSearchParams(window.location.search).get('skatepush') !== 'classic',
+    // The session (2026-11-27, Tyler): a crew of two or three taking turns, coping grinds, sparks,
+    // bails, deeper knees. `?skaters=classic` is the one rider before it.
+    deep: new URLSearchParams(window.location.search).get('skaters') !== 'classic',
+    // Grind sparks through the shared pool, built further down — only ever called from the frame
+    // loop (the skaters' own warm-up throws none), by which time it exists.
+    sparks: { burst: (...args) => sparks.burst(...args) },
   });
 
 // The elevated train down the north-south arterial's median and west along the east-west one's
@@ -9099,7 +9105,8 @@ if (shot) {
   // the plumes on and redraws, for filming them (shots `steam` and `steam-far`).
   window.__steamStep = (dt = 1 / 30) => { manholeSteam.update(dt, null); renderFrame(); };
   // The skater the same way, for filming a trick or a push (shots `skatepark` and `skatepark-far`).
-  window.__skateStep = (dt = 1 / 30) => { skaters.update(dt); renderFrame(); };
+  // The spark pool steps with it, or a grind's sparks hang frozen where they were thrown.
+  window.__skateStep = (dt = 1 / 30) => { skaters.update(dt); sparks.update(dt); renderFrame(); };
   // The crane the same way, for filming the slew and the beam's swing (shots `crane` and `crane-far`).
   window.__craneStep = (dt = 1 / 30) => { crane?.update(dt); renderFrame(); };
   const shotDone = () => {

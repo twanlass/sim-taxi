@@ -2204,7 +2204,7 @@ const onGrass = (city, i, j) => {
     && highest > LIP_H + 0.4,
     `${airs} airs, ${turns} kickturns, ${grinds} grinds, ${rests} rests, highest ${highest.toFixed(2)}`);
 
-  // The default rider (game/skaters.js): one of them, five minutes over four runs. Its board is a
+  // The solo rider (`?skaters=classic`, game/skaters.js without `deep`): five minutes over four runs. Its board is a
   // rigid stick on two trucks, so the claim is about the *wheels*: neither truck's contact ever goes
   // under the concrete while the board is on it — which is what the eased pitch could break if
   // `restHeight` were not lifting the board to match. And it uses the whole park: both lanes, and
@@ -2319,6 +2319,71 @@ const onGrass = (city, i, j) => {
     check('and the rider uses both lanes and at least ten different tricks',
       lanesUsed.has('rail') && lanesUsed.has('box') && tricks.length >= 10 && highestAir > LIP_H + 0.4,
       `${tricks.map((k) => `${k} ${seen.get(k)}`).join(', ')}; highest air ${highestAir.toFixed(2)}`);
+  }
+
+  // The session (the default): a crew taking turns. Five minutes over four runs. One on the ramp
+  // at a time is the whole of how they stay out of each other's way, so it is asserted directly,
+  // along with the closest any two figures get — a waiter's shoulder against a rider stalled in
+  // the near lane is the tight spot, measured at 0.97 on the widest park. And every piece of the
+  // session has to actually happen: turns handed over, coping grinds, sparks off the trucks, and
+  // bails that end with the rider back on the board rather than stranded on the flat.
+  {
+    let fewest = Infinity;
+    let most = 0;
+    let twoUp = 0;
+    let closest = Infinity;
+    let offSlab = 0;
+    let turns = 0;
+    let copings = 0;
+    let truckGrinds = 0;
+    let bails = 0;
+    let remounts = 0;
+    let neverRode = 0;
+    const thrown = { n: 0, burst() { this.n += 1; } };
+    const slab = skateRect(park, 0.3);
+    const B = new THREE.Vector3();
+    for (const run of [349, 350, 351, 352]) {
+      const crew = createSkaters(skateScene, makeRng(seed + run), park, { deep: true, sparks: thrown });
+      fewest = Math.min(fewest, crew.riders.length);
+      most = Math.max(most, crew.riders.length);
+      const was = crew.riders.map((rd) => ({ mode: rd.mode, phase: rd.foot?.phase }));
+      const rode = crew.riders.map(() => false);
+      for (let step = 0; step < 300 * 60; step++) {
+        crew.update(1 / 60);
+        crew.group.updateMatrixWorld(true);
+        // Up: anything on the ramp, a bail being picked up, or a drop-in under way.
+        const up = crew.riders.filter((rd) => rd.mode !== 'foot' && !(rd.mode === 'stall'
+          && (rd.stall.kind === 'handover' || rd.stall.kind === 'drop'))).length;
+        if (up > 1) twoUp += 1;
+        const at = crew.riders.map((rd) => rd.bodyRoot.getWorldPosition(new THREE.Vector3()));
+        for (let a = 0; a < at.length; a++) {
+          for (let b = a + 1; b < at.length; b++) closest = Math.min(closest, Math.hypot(at[a].x - at[b].x, at[a].z - at[b].z));
+        }
+        crew.riders.forEach((rd, i) => {
+          const w = was[i];
+          const phase = rd.foot?.phase;
+          if (rd.mode === 'ride') rode[i] = true;
+          if (rd.mode === 'stall' && w.mode !== 'stall' && rd.stall.kind === 'handover') turns += 1;
+          if (rd.mode === 'coping' && w.mode !== 'coping') copings += 1;
+          if (rd.mode === 'grind' && w.mode !== 'grind' && rd.mid !== 'boardslide') truckGrinds += 1;
+          if (phase === 'runout' && w.phase !== 'runout') bails += 1;
+          if (w.phase === 'mount' && rd.mode === 'ride') remounts += 1;
+          rd.holder.getWorldPosition(B);
+          if (B.x < slab.x0 || B.x > slab.x1 || B.z < slab.z0 || B.z > slab.z1) offSlab += 1;
+          w.mode = rd.mode;
+          w.phase = phase;
+        });
+      }
+      neverRode += rode.filter((x) => !x).length;
+    }
+    check('the session: two riders, one on the ramp at a time, never closer than 0.9',
+      fewest === 2 && most === 2 && twoUp === 0 && closest > 0.9 && offSlab === 0,
+      `${fewest}-${most} riders, ${twoUp} frames with two up, closest ${closest.toFixed(2)}, ${offSlab} board-frames off the slab`);
+    check('and it is a session: turns handed round, coping grinds, sparks, bails back on the board',
+      turns >= 30 && neverRode === 0 && copings >= 10 && truckGrinds >= 30 && thrown.n > 500
+        && bails >= 4 && remounts === bails,
+      `${turns} turns (${neverRode} riders never up), ${copings} coping grinds, ${truckGrinds} truck grinds, `
+        + `${thrown.n} sparks, ${bails} bails / ${remounts} back on`);
   }
 }
 
