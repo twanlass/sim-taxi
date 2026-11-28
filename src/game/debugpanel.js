@@ -17,7 +17,6 @@ import {
 } from './colorgrade.js';
 import { buildAudioSections } from './audiopanel.js';
 import { attachQuickTips } from './quicktips.js';
-import { wallGrainOn, wallGrainTuning } from '../city/wallgrain.js';
 import {
   brush as paintBrush, CHANNELS as PAINT_CHANNELS, setPaintAmount, paintAmount, undoRoadPaint, clearRoadPaint, setLockedSeed, lockedSeedValue, bakedSeed,
   encodeRoadPaint, bakeSource, revertRoadPaint, hasLocalPaint, setAlbedoView, albedoView, setPaintColor, paintColor,
@@ -1732,68 +1731,6 @@ export function createDebugPanel({
   replayEntry.addEventListener('click', () => cityEntry.replay());
   panel.append(replayEntry);
 
-  // --- Building grain ---------------------------------------------------------
-  // The pixel grain on the towers and the garage (city/wallgrain.js). All uniforms, so every slider
-  // is live. Remembered across reloads in this browser, so a look survives a refresh while it is
-  // being judged; "Copy values" puts the numbers on the clipboard to paste back into the thread,
-  // and they go into WALL_GRAIN. Drift and speckle here are before `?bldgtexamt=` scales them.
-  heading('Building grain');
-  if (!wallGrainOn()) {
-    row(panel, 'Grain', document.createTextNode('')).textContent = 'off (?bldgtex=classic)';
-  } else {
-    const GRAIN_KEY = 'simtaxi.grainTune';
-    try {
-      const saved = JSON.parse(localStorage.getItem(GRAIN_KEY) ?? 'null');
-      if (saved) for (const [k, v] of Object.entries(saved)) if (Number.isFinite(v)) wallGrainTuning.set(k, v);
-    } catch { /* storage blocked: start from shipped */ }
-    const saveGrain = () => {
-      try { localStorage.setItem(GRAIN_KEY, JSON.stringify(wallGrainTuning.get())); } catch { /* fine */ }
-    };
-    const grainSyncs = [];
-    for (const [key, label, min, max, stepSize, digits, unit] of [
-      ['drift', 'Tone drift', 0, 1, 0.01, 2, ''],
-      ['coarse', 'Drift size', 0.5, 10, 0.1, 1, 'u'],
-      ['fine', 'Fine size', 0.2, 4, 0.05, 2, 'u'],
-      ['fineMix', 'Fine share', 0, 1, 0.01, 2, ''],
-      ['speck', 'Speckle', 0, 0.6, 0.01, 2, ''],
-      ['speckRate', 'Speckle rate', 0, 0.25, 0.005, 3, ''],
-      ['step', 'Ramp step', 0.01, 0.25, 0.005, 3, ''],
-      ['texel', 'Texel', 0.05, 1, 0.025, 3, 'u'],
-    ]) {
-      const input = slider(min, max, stepSize, wallGrainTuning.get()[key]);
-      const value = row(panel, label, input);
-      const show = () => {
-        const v = wallGrainTuning.get()[key];
-        input.value = String(v);
-        value.textContent = `${v.toFixed(digits)}${unit}`;
-      };
-      input.addEventListener('input', () => { wallGrainTuning.set(key, Number(input.value)); show(); saveGrain(); });
-      show();
-      grainSyncs.push(show);
-    }
-    const grainButtons = document.createElement('div');
-    grainButtons.className = 'dbg-wide';
-    const copyGrain = document.createElement('button');
-    copyGrain.type = 'button';
-    copyGrain.textContent = 'Copy values';
-    copyGrain.addEventListener('click', async () => {
-      const text = JSON.stringify(wallGrainTuning.get());
-      console.log('[grain]', text);
-      try { await navigator.clipboard.writeText(text); copyGrain.textContent = 'Copied'; } catch { copyGrain.textContent = 'See console'; }
-      setTimeout(() => { copyGrain.textContent = 'Copy values'; }, 1500);
-    });
-    const resetGrain = document.createElement('button');
-    resetGrain.type = 'button';
-    resetGrain.textContent = 'Reset';
-    resetGrain.addEventListener('click', () => {
-      wallGrainTuning.reset();
-      try { localStorage.removeItem(GRAIN_KEY); } catch { /* fine */ }
-      grainSyncs.forEach((sync) => sync());
-    });
-    grainButtons.append(copyGrain, resetGrain);
-    panel.append(grainButtons);
-  }
-
   // --- Needs a rebuild ------------------------------------------------------
   heading('Restart to apply');
 
@@ -2005,7 +1942,7 @@ const TAB_KEY = 'dbg-tab';
  */
 const TABS = [
   ['Audio', ['Audio', 'Engine sound', 'Sounds', 'Music', 'Audio export']],
-  ['Visuals', ['Light', 'Car finish', 'Bloom', 'CRT', 'Colour grade', 'Street texture', 'Road paint', 'Haze', 'Clouds', 'Building grain', 'City entrance']],
+  ['Visuals', ['Light', 'Car finish', 'Bloom', 'CRT', 'Colour grade', 'Street texture', 'Road paint', 'Haze', 'Clouds', 'City entrance']],
   ['Game', ['Game', 'Loco Mode', 'Loco weave', 'Restart to apply', 'Scores', 'Export']],
 ];
 const tabOf = (title) => TABS.find(([, titles]) => titles.includes(title))?.[0] ?? 'Game';
