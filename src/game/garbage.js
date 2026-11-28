@@ -200,7 +200,13 @@ export function createGarbage({ rng, scene, traffic, plan, blocked = () => false
   if (!plan.length) return none;
   const taxi = traffic.taxi;
 
-  // --- The piles: one instanced mesh each, so the city's entrance wave can grow each as an object.
+  // --- The piles: one instanced mesh for every pile's bags and one for their sheen.
+  // They were a pair of instanced meshes per pile — so the city's entrance wave could grow each as
+  // an object — which made five piles ten draws in the main pass and five more in the movers'
+  // shadow map (⚙️ Draw calls, 2026-11-27). Now each pile is an empty `anchor` standing where its
+  // mesh stood; the entrance wave scales that, and every frame each bag's instance is composed as
+  // anchor × bag, which is the transform the per-pile mesh used to give it. `drawPile` already ran
+  // every frame, so the anchor's scale is picked up without anything new to call.
   const bagGeo = bagGeometry();
   const bagMaterial = propMaterial();
   const streakGeo = bagStreakGeometry();
@@ -215,22 +221,25 @@ export function createGarbage({ rng, scene, traffic, plan, blocked = () => false
   const v = new THREE.Vector3();
   const sc = new THREE.Vector3();
 
-  const piles = plan.map((p) => {
-    const mesh = new THREE.InstancedMesh(bagGeo, bagMaterial, MAX_BAGS);
-    mesh.name = 'trash-pile';
-    mesh.position.set(p.x, KERB_H + 0.01, p.z);
-    mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
-    // Bags fly out of the pile's bounds and into the truck (CLAUDE.md, the box trucks).
-    mesh.frustumCulled = false;
-    mesh.castShadow = true;
-    mesh.receiveShadow = true;
-    group.add(mesh);
-    // The bags' sheen, a child so the city's entrance wave grows it with the pile.
-    const streaks = new THREE.InstancedMesh(streakGeo, streakMaterial, MAX_BAGS);
-    streaks.name = 'trash-pile-sheen';
-    streaks.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
-    streaks.frustumCulled = false;
-    mesh.add(streaks);
+  const bagMesh = new THREE.InstancedMesh(bagGeo, bagMaterial, plan.length * MAX_BAGS);
+  bagMesh.name = 'trash-pile';
+  bagMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+  // Bags fly out of the pile's bounds and into the truck (CLAUDE.md, the box trucks).
+  bagMesh.frustumCulled = false;
+  bagMesh.castShadow = true;
+  bagMesh.receiveShadow = true;
+  group.add(bagMesh);
+  const streakMesh = new THREE.InstancedMesh(streakGeo, streakMaterial, plan.length * MAX_BAGS);
+  streakMesh.name = 'trash-pile-sheen';
+  streakMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+  streakMesh.frustumCulled = false;
+  group.add(streakMesh);
+
+  const piles = plan.map((p, n) => {
+    const anchor = new THREE.Object3D();
+    anchor.name = 'trash-pile-anchor';
+    anchor.position.set(p.x, KERB_H + 0.01, p.z);
+    group.add(anchor);
     const count = rng.int(BAGS[0], BAGS[1]);
     // The top bag only once there are bags to stand it on.
     const slots = SLOTS.slice(0, Math.min(count, 5)).concat(count >= 6 ? [SLOTS[5]] : []);
@@ -243,10 +252,10 @@ export function createGarbage({ rng, scene, traffic, plan, blocked = () => false
       from: new THREE.Vector3(), to: new THREE.Vector3(), spin: new THREE.Vector3(),
     }));
     return {
-      ...p, mesh, streaks, bags,
+      ...p, anchor, first: n * MAX_BAGS, bags,
       state: 'full',          // full | taking | empty | refilling
       refillAt: 0,
-      entry: { object: mesh, x: p.x, z: p.z, rand: hash01(p.x, p.z) },
+      entry: { object: anchor, x: p.x, z: p.z, rand: hash01(p.x, p.z) },
     };
   });
   markOccluder(group);
@@ -263,22 +272,30 @@ export function createGarbage({ rng, scene, traffic, plan, blocked = () => false
   const centre = new THREE.Vector3();
   const sm = new THREE.Matrix4();
   const idQ = new THREE.Quaternion();
+  const placed = new THREE.Matrix4();
+  /** Bag `k` of `pile` in `mesh`, carried by the pile's anchor as the per-pile mesh carried it. */
+  function put(mesh, pile, k, matrix) {
+    mesh.setMatrixAt(pile.first + k, matrix === zero ? zero : placed.multiplyMatrices(pile.anchor.matrix, matrix));
+  }
   function streak(pile, k, matrix) {
-    if (matrix === zero) { pile.streaks.setMatrixAt(k, zero); return; }
+    if (matrix === zero) { put(streakMesh, pile, k, zero); return; }
     matrix.decompose(v, q, sc);
     centre.set(0, BAG_CENTRE_Y, 0).multiply(sc);
     const lifted = centre.clone().applyQuaternion(q).sub(centre);
     sm.compose(v.add(lifted), idQ, sc);
-    pile.streaks.setMatrixAt(k, sm);
+    put(streakMesh, pile, k, sm);
   }
 
   function drawPile(pile) {
+    pile.anchor.updateMatrix();
+    // Slots past this pile's bags stay empty (a fresh InstancedMesh is all identity, not zero).
+    for (let k = pile.bags.length; k < MAX_BAGS; k++) { put(bagMesh, pile, k, zero); put(streakMesh, pile, k, zero); }
     pile.bags.forEach((bag, k) => {
       if (bag.state === 'gone') {
-        pile.mesh.setMatrixAt(k, zero);
+        put(bagMesh, pile, k, zero);
         streak(pile, k, zero);
       } else if (bag.state === 'rest') {
-        pile.mesh.setMatrixAt(k, restMatrix(bag));
+        put(bagMesh, pile, k, restMatrix(bag));
         streak(pile, k, m);
       } else if (bag.state === 'plop') {
         // Dropped in from a little way up, landing with a squash.
@@ -288,7 +305,7 @@ export function createGarbage({ rng, scene, traffic, plan, blocked = () => false
         const squash = u < 1 ? 1 + 0.25 * Math.sin(u * Math.PI) : 1;
         m.compose(v.set(bag.slot.x, bag.slot.y + fall, bag.slot.z), q,
           sc.set(bag.scale * easeOutBack(u * 1.4), bag.scale / squash, bag.scale * easeOutBack(u * 1.4)));
-        pile.mesh.setMatrixAt(k, bag.t <= 0 ? zero : m);
+        put(bagMesh, pile, k, bag.t <= 0 ? zero : m);
         streak(pile, k, bag.t <= 0 ? zero : m);
       } else {
         const u = Math.min(1, bag.t / FLIGHT);
@@ -299,12 +316,12 @@ export function createGarbage({ rng, scene, traffic, plan, blocked = () => false
         q.setFromEuler(e.set(bag.spin.x * u, bag.yaw + bag.spin.y * u, bag.spin.z * u));
         m.compose(v.set(bag.from.x + (bag.to.x - bag.from.x) * u, y, bag.from.z + (bag.to.z - bag.from.z) * u),
           q, sc.setScalar(bag.scale * (1 - 0.25 * u)));
-        pile.mesh.setMatrixAt(k, m);
+        put(bagMesh, pile, k, m);
         streak(pile, k, m);
       }
     });
-    pile.mesh.instanceMatrix.needsUpdate = true;
-    pile.streaks.instanceMatrix.needsUpdate = true;
+    bagMesh.instanceMatrix.needsUpdate = true;
+    streakMesh.instanceMatrix.needsUpdate = true;
   }
   for (const pile of piles) drawPile(pile);
 
@@ -468,7 +485,7 @@ export function createGarbage({ rng, scene, traffic, plan, blocked = () => false
     // Spread along the hopper, so the bags do not all land on one point.
     mouth.x += rng.range(-0.3, 0.3);
     rig.group.localToWorld(mouth);
-    bag.to.set(mouth.x - pile.mesh.position.x, mouth.y - pile.mesh.position.y, mouth.z - pile.mesh.position.z);
+    bag.to.set(mouth.x - pile.anchor.position.x, mouth.y - pile.anchor.position.y, mouth.z - pile.anchor.position.z);
     bag.spin.set(rng.range(-4, 4), rng.range(-3, 3), rng.range(-4, 4));
     return true;
   }

@@ -2738,6 +2738,17 @@
       /* The inspect toolbar is a .dbg-wide div of buttons, not a button: no chrome of its own. */
       div.dbg-wide { padding: 0; border: 0; background: none; }
       div.dbg-wide:hover { background: none; }
+      /* The Draw calls section (game/drawcalls.js): a per-pass line, then the biggest groups. */
+      .dbg-calls { font: 10.5px/1.45 ui-monospace, Menlo, monospace; opacity: 0.8; white-space: pre-line; }
+      .dbg-calls-head { font-size: 10.5px; opacity: 0.55; margin-bottom: 4px; }
+      .dbg-wide button.dbg-calls-row {
+        display: flex; align-items: center; gap: 6px; width: 100%; margin-top: 2px; padding: 4px 6px;
+        text-align: left; font: 11px/1.2 system-ui, -apple-system, sans-serif;
+      }
+      .dbg-wide button.dbg-calls-row.is-active { border-color: var(--dbg-accent); }
+      .dbg-calls-row i { display: block; flex: none; width: 10px; height: 10px; border-radius: 3px; }
+      .dbg-calls-row span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .dbg-calls-row em { flex: none; font-style: normal; opacity: 0.6; font-variant-numeric: tabular-nums; }
       /* The primary action of a pair (Restart with these) is the one solid button in the panel. */
       .dbg-actions button { flex: 1; }
       .dbg-actions button:first-child { background: #ececee; border-color: #ececee; color: #18181b; }

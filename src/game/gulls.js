@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
+import { rigidSkin } from '../util/rigidskin.js';
 import { bakeColor, setFinish, FINISH, BODY_EULER_ORDER } from '../util/geo.js';
 import { PALETTE } from '../palette.js';
 import { GULL_STAND } from '../geometry/boat.js';
@@ -97,18 +98,23 @@ export function gullHeight() {
   return g.body.boundingBox.max.y;
 }
 
-function makeBird(material) {
+// Each bird is a body and two wings, and a flock of five was fifteen meshes: fifteen draws in the
+// main pass and fifteen in the movers' shadow map, per barge (⚙️ Draw calls, 2026-11-27). The pieces
+// are bones now and the whole flock is one rigidly skinned mesh (util/rigidskin.js) — the same
+// transforms, one draw. A wing's bone stands where its mesh stood and takes the same scale and
+// rotation; it is still called `mesh` below because it is posed exactly as one was.
+function makeBird(pieces) {
   const g = gullGeometry();
   const root = new THREE.Group();
-  const body = new THREE.Mesh(g.body, material);
-  body.castShadow = true;
+  const body = new THREE.Bone();
   root.add(body);
+  pieces.push({ geo: g.body, bone: body });
   const wings = [];
   for (const [geo, side] of [[g.left, -1], [g.right, 1]]) {
-    const w = new THREE.Mesh(geo, material);
+    const w = new THREE.Bone();
     w.position.set(side * SHOULDER.x, SHOULDER.y, SHOULDER.z);
-    w.castShadow = true;
     root.add(w);
+    pieces.push({ geo, bone: w });
     wings.push({ mesh: w, side });
   }
   return { root, wings };
@@ -141,8 +147,9 @@ export function createGullFlock(rng, perches, material, count = 5) {
   };
 
   const birds = [];
+  const pieces = [];
   for (let k = 0; k < count; k++) {
-    const bird = makeBird(material);
+    const bird = makeBird(pieces);
     const b = {
       ...bird,
       state: 'fly',
@@ -176,6 +183,9 @@ export function createGullFlock(rng, perches, material, count = 5) {
     group.add(b.root);
     birds.push(b);
   }
+
+  // The flock's one draw. Never receives: the separate meshes did not either.
+  group.add(rigidSkin(pieces, material, { name: 'gull-flock', receiveShadow: false }));
 
   const perchPos = (k) => new THREE.Vector3(perches[k].x, perches[k].y, perches[k].z);
 

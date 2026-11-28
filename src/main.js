@@ -75,6 +75,7 @@ import {
   BOARD_SECONDS, MAX_STRIKES, RATING_FLOOR, ratingFor, SHIFT_SECONDS,
 } from './game/fares.js';
 import { createDebugPanel } from './game/debugpanel.js';
+import { createDrawCallInspector } from './game/drawcalls.js';
 import { createPhoneFrame } from './game/phoneframe.js';
 import { createDriveThru } from './game/drivethru.js';
 import { createBurgerRun } from './game/burgerrun.js';
@@ -9323,6 +9324,10 @@ function startRun() {
   resolveReady();
 }
 
+// The ⚙️ panel's draw-call census and group tint (game/drawcalls.js). Also on `window.__taxi` for the
+// headless tools; inert until something asks it to count.
+const drawCalls = wantsDebugPanel ? createDrawCallInspector({ renderer, scene }) : null;
+
 if (!shot && wantsDebugPanel) {
   debugPanel = createDebugPanel({
     citySeed: seed,
@@ -9359,11 +9364,13 @@ if (!shot && wantsDebugPanel) {
     soundPlace,
     wreck: { styles: Object.keys(WRECK_STYLES), current: getWreckStyle(), set: blast.setStyle },
     roadBrush,
+    drawCalls,
   });
 }
 
 window.__taxi = {
   scene,
+  drawCalls,
   unported,
   renderer: GPU ? 'webgpu' : 'webgl',
   gpuCapture: (options) => gpuCapture?.capture(options),

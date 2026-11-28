@@ -136,6 +136,8 @@ export function createDebugPanel({
   roadBrush = null,
   // The 🖥 / 📱 switch beside the search (game/phoneframe.js), or null for no switch.
   phoneFrame = null,
+  // The draw-call census (game/drawcalls.js), or null in the boot pass, which has no renderer.
+  drawCalls = null,
 }) {
   const toggle = document.createElement('button');
   toggle.id = 'dbg-toggle';
@@ -1731,6 +1733,110 @@ export function createDebugPanel({
   replayEntry.addEventListener('click', () => cityEntry.replay());
   panel.append(replayEntry);
 
+  // --- Draw calls -------------------------------------------------------------
+  // Who the frame's draw calls are and which could be one (game/drawcalls.js). Counting is a hook
+  // on every draw, so it runs only while the box is ticked. The tint colours every mesh by its
+  // group — same colour, same material (or same shader) — from the frame counted when it was
+  // switched on; a row in the list isolates its group and greys out the rest.
+  heading('Draw calls');
+  if (!drawCalls) {
+    row(panel, 'Census', document.createTextNode('')).textContent = 'unavailable';
+  } else {
+    const countBox = document.createElement('input');
+    countBox.type = 'checkbox';
+    row(panel, 'Count draw calls', countBox);
+    const byPick = dropdown(['material', 'shader'], 'material');
+    row(panel, 'Group by', byPick);
+    const tintBox = document.createElement('input');
+    tintBox.type = 'checkbox';
+    row(panel, 'Tint by group', tintBox);
+
+    const summary = document.createElement('div');
+    summary.className = 'dbg-wide dbg-calls';
+    summary.dataset.search = 'draw calls passes';
+    const list = document.createElement('div');
+    list.className = 'dbg-wide dbg-calls-list';
+    list.dataset.search = 'draw calls groups merge instance';
+    const callButtons = document.createElement('div');
+    callButtons.className = 'dbg-wide';
+    const copyCalls = document.createElement('button');
+    copyCalls.type = 'button';
+    copyCalls.textContent = 'Copy report';
+    copyCalls.addEventListener('click', async () => {
+      const text = drawCalls.report(byPick.value, 40);
+      console.log(`[drawcalls]\n${text}`);
+      try { await navigator.clipboard.writeText(text); copyCalls.textContent = 'Copied'; } catch { copyCalls.textContent = 'See console'; }
+      setTimeout(() => { copyCalls.textContent = 'Copy report'; }, 1500);
+    });
+    callButtons.append(copyCalls);
+    panel.append(summary, list, callButtons);
+
+    let callTimer = 0;
+    const showCalls = () => {
+      if (!drawCalls.counting()) {
+        summary.textContent = 'Tick "Count draw calls" to start.';
+        list.replaceChildren();
+        return;
+      }
+      const passes = drawCalls.passes();
+      const st = drawCalls.stats();
+      summary.textContent = `${drawCalls.total()} this frame · avg ${Math.round(st.avg)} · peak ${st.peak}\n`
+        + passes.map(([p, n]) => `${p} ${n}`).join(' · ');
+      const gs = drawCalls.groups(byPick.value);
+      const save = gs.reduce((a, g) => a + g.save, 0);
+      const head = document.createElement('div');
+      head.className = 'dbg-calls-head';
+      head.textContent = `${gs.length} groups · could save ~${save}. draws / meshes / save`;
+      const rows = gs.slice(0, 14).map((g) => {
+        const r = document.createElement('button');
+        r.type = 'button';
+        r.className = `dbg-calls-row${drawCalls.focus() === g.key ? ' is-active' : ''}`;
+        r.title = `${g.type} · ${g.geometries} geometries · ${g.kind}${g.instanced ? ` · ${g.instanced} instanced` : ''}\n${[...g.passes].map(([p, n]) => `${p} ${n}`).join(' · ')}`;
+        const chip = document.createElement('i');
+        const c = drawCalls.colourOf(g.key);
+        chip.style.background = c ? `#${c.getHexString()}` : 'transparent';
+        const label = document.createElement('span');
+        label.textContent = g.label;
+        const nums = document.createElement('em');
+        nums.textContent = `${g.draws} / ${g.meshes} / ${g.save}`;
+        r.append(chip, label, nums);
+        r.addEventListener('click', () => {
+          if (!tintBox.checked) tintBox.checked = true;
+          drawCalls.setTint(byPick.value, drawCalls.focus() === g.key ? null : g.key);
+          showCalls();
+        });
+        return r;
+      });
+      list.replaceChildren(head, ...rows);
+    };
+    const pollCalls = () => {
+      clearTimeout(callTimer);
+      showCalls();
+      if (drawCalls.counting() && !panel.hidden) callTimer = setTimeout(pollCalls, 1000);
+    };
+    countBox.addEventListener('change', () => {
+      drawCalls.setCounting(countBox.checked);
+      if (!countBox.checked && tintBox.checked) { tintBox.checked = false; drawCalls.setTint('off'); }
+      // The first counted frame lands on the next animation frame; give it two before reading.
+      setTimeout(pollCalls, 100);
+    });
+    const retint = () => {
+      if (tintBox.checked && !drawCalls.counting()) {
+        countBox.checked = true;
+        drawCalls.setCounting(true);
+        // The tint needs a counted frame to know what was drawn; wait for one.
+        setTimeout(retint, 100);
+        return;
+      }
+      drawCalls.setTint(tintBox.checked ? byPick.value : 'off');
+      showCalls();
+    };
+    tintBox.addEventListener('change', retint);
+    byPick.addEventListener('change', retint);
+    new MutationObserver(() => { if (!panel.hidden) pollCalls(); }).observe(panel, { attributes: true, attributeFilter: ['hidden'] });
+    showCalls();
+  }
+
   // --- Needs a rebuild ------------------------------------------------------
   heading('Restart to apply');
 
@@ -1942,7 +2048,7 @@ const TAB_KEY = 'dbg-tab';
  */
 const TABS = [
   ['Audio', ['Audio', 'Engine sound', 'Sounds', 'Music', 'Audio export']],
-  ['Visuals', ['Light', 'Car finish', 'Bloom', 'CRT', 'Colour grade', 'Street texture', 'Road paint', 'Haze', 'Clouds', 'City entrance']],
+  ['Visuals', ['Light', 'Car finish', 'Bloom', 'CRT', 'Colour grade', 'Street texture', 'Road paint', 'Haze', 'Clouds', 'City entrance', 'Draw calls']],
   ['Game', ['Game', 'Loco Mode', 'Loco weave', 'Restart to apply', 'Scores', 'Export']],
 ];
 const tabOf = (title) => TABS.find(([, titles]) => titles.includes(title))?.[0] ?? 'Game';

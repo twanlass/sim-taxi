@@ -1818,9 +1818,13 @@ const onGrass = (city, i, j) => {
     if (n % 4) continue;
     man.group.traverse((o) => {
       if (!o.isMesh) return;
+      // He is one rigidly skinned mesh (util/rigidskin.js): the pose is in the bones, not the matrix.
+      o.skeleton?.update();
       const pos = o.geometry.attributes.position;
       for (let i = 0; i < pos.count; i++) {
-        v.fromBufferAttribute(pos, i).applyMatrix4(o.matrixWorld);
+        v.fromBufferAttribute(pos, i);
+        if (o.isSkinnedMesh) o.applyBoneTransform(i, v);
+        v.applyMatrix4(o.matrixWorld);
         below = Math.min(below, v.y);
         if (v.y > CAR_ROOF) continue;
         if (v.x > block.bounds.x1 + reach || v.z > block.bounds.z1 + reach) overRoad += 1;
@@ -22906,7 +22910,7 @@ let chopperOrder; // likewise
       for (const bag of pile.bags) {
         if (bag.state !== 'flying' || bag.t + 1 / 60 < 0.55) continue;
         garbage.truckMesh.group.updateMatrixWorld(true);
-        mouth.copy(bag.to).add(pile.mesh.position);
+        mouth.copy(bag.to).add(pile.anchor.position);
         garbage.truckMesh.group.worldToLocal(mouth);
         const ok = mouth.x > -2.8 + 0.12 && mouth.x < -1.5 && Math.abs(mouth.z) < 1 - 0.12 && mouth.y < 2.4;
         if (ok) inside += 1; else missed += 1;
