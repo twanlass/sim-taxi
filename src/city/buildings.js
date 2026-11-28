@@ -9,11 +9,11 @@ import { buildBank, bankDomeMesh, chooseBankLot } from './bank.js';
 import { chooseVetSite } from './vetclinic.js';
 import { chooseDonutSite } from './donutshop.js';
 import { chooseBillboardSite } from './billboard.js';
+import { chooseCraneSite } from './crane.js';
 import {
   GLASS_RECESS, RECESS_PIER, WALLS_CLASSIC, WALL_STYLE, fillWalls, frameMesh, patchWalls, recessShell, stampWall,
   windowFrames,
 } from './facade.js';
-import { patchWallGrain } from './wallgrain.js';
 
 const FLOOR_H = 2.6;
 // The ground floor is its own storey height. A shopfront is taller than the flats above it, and
@@ -79,6 +79,65 @@ function shade(col, amount = 0.78) {
   return col.clone().multiplyScalar(amount);
 }
 
+// sRGB-linear to OKLab, for the roof's contrast test below. Three's colours are linear already.
+function oklab(c) {
+  const l = Math.cbrt(0.4122214708 * c.r + 0.5363325363 * c.g + 0.0514459929 * c.b);
+  const m = Math.cbrt(0.2119034982 * c.r + 0.6806995451 * c.g + 0.1073969566 * c.b);
+  const s = Math.cbrt(0.0883024619 * c.r + 0.2817188376 * c.g + 0.6299787005 * c.b);
+  return [
+    0.2104542553 * l + 0.793617785 * m - 0.0040720468 * s,
+    1.9779984951 * l - 2.428592205 * m + 0.4505937099 * s,
+    0.0259040371 * l + 0.7827717662 * m - 0.808675766 * s,
+  ];
+}
+
+/**
+ * The deck inside a flat roof's lip: one grey off `ROOF_GREYS`, the one nearest the middle of the
+ * ladder that stands at least `ROOF_MIN_CONTRAST` from the walls as lit (`roofContrast`).
+ *
+ * Tyler, 2026-11-27: "make sure that building roof color is not the same as the building body."
+ * It was the body at 0.67, and at 4:24 PM the deck takes about as much sun as the lit wall does,
+ * so the darkening was spent on the lighting and the two read as one colour (measurements at
+ * `DECK_LIGHT`). Two tries came first. A roofing finish of its own, charcoal tar or warm gravel,
+ * read as random; a shade of the wall's own colour (half the body, or lighter on dark walls) put
+ * pink-brick and sage decks on top and he liked a slate tower's old grey deck better: "lets just
+ * try shades of gray for rooftops instead". So every deck is neutral, and only its value is
+ * picked. Nearest the middle rather than the most contrasting, because the most contrasting is
+ * always an end of the ladder: charcoal on every light building and near-white on every dark one.
+ * As drawn: concrete, brick and glass take the third grey, pale and the bank the fourth, tan the
+ * fifth, slate the second (jitter moves a building a step either way). The lip stays the body darkened, so it frames the deck in the
+ * building's own colour. Held by `tools/probe.mjs`.
+ */
+export const ROOF_GREYS = ['#3E4146', '#4F5257', '#606368', '#72757A', '#85888C', '#9A9C9F', '#AEB0B2'];
+export const ROOF_MIN_CONTRAST = 0.09;
+const ROOF_ORDER = [3, 2, 4, 1, 5, 0, 6];
+export function roofDeck(wall) {
+  const greys = ROOF_GREYS.map((h) => color(h));
+  const score = greys.map((g) => roofContrast(wall, g));
+  const pick = ROOF_ORDER.find((i) => score[i] >= ROOF_MIN_CONTRAST)
+    ?? score.indexOf(Math.max(...score));
+  return greys[pick];
+}
+
+// The light on a deck and on a shaded wall, per channel, relative to the sunny wall. Measured off
+// one tan block in a WebGL render (deck (135, 130, 97) at 0.67 of the body, lit wall
+// (157, 149, 109), shaded wall (80, 95, 112)): the deck takes a touch more than the sunny wall,
+// and the shaded wall is lit by sky, so it loses red and keeps its blue.
+const DECK_LIGHT = [1.07, 1.10, 1.15];
+const SHADE_LIGHT = [0.23, 0.37, 1.06];
+
+/**
+ * How far a deck sits from the wall under it, as it is lit: the smaller OKLab distance to the
+ * sunny wall and to the shaded one. The deck is scaled by the light it takes against the sunny
+ * wall (~1.07, from the tan block in palette.js) and the shaded wall by its own (~0.35).
+ */
+export function roofContrast(wall, deck) {
+  const lit = (c, [r, g, b]) => oklab(new THREE.Color(c.r * r, c.g * g, c.b * b));
+  const d = lit(deck, DECK_LIGHT);
+  const dist = (k) => Math.hypot(...lit(wall, k).map((v, i) => v - d[i]));
+  return Math.min(dist([1, 1, 1]), dist(SHADE_LIGHT));
+}
+
 // `?roofs=classic` keeps the solid cap every flat roof used to be: one box, deck on its top face.
 // Headless tools have no `location` and take `ROOFS=classic` from the environment.
 export const ROOFS_CLASSIC = typeof location !== 'undefined'
@@ -142,7 +201,9 @@ function capClearance(parts, w, h, d, x, base, z) {
   return grow;
 }
 
-export function lippedCap(parts, w, h, d, x, base, z, col, floorCol = shade(col, 0.86)) {
+export function lippedCap(parts, w, h, d, x, base, z, col, floorCol = roofDeck(col)) {
+  // `floorCol` defaults to a deck shaded off the lip; a building whose lip is cut from its body
+  // passes `roofDeck(body)` instead, since the contrast that matters is against the walls.
   h += capClearance(parts, w, h, d, x, base, z);
   if (ROOFS_CLASSIC || w < 4 * LIP_W || d < 4 * LIP_W) {
     parts.push(box(w, h, d, x, base, z, col));
@@ -786,6 +847,17 @@ function choosePad(decks, rng) {
  * the merged city: courtyard trees ship in the same mesh and half of every canopy points downward,
  * which is exactly the false negative a whole-mesh sweep gives you.
  */
+/**
+ * Whether a pitched roof is tile (true) or slate, given the drawn choice: never tile on a red
+ * wall (OKLab a > 0.03: brick, 0.058) and never slate on a blue-grey one (b < 0: slate, glass).
+ */
+export function pitchedFinish(body, drawnTile) {
+  const [, a, b] = oklab(body);
+  if (a > 0.03) return false;
+  if (b < 0) return true;
+  return drawnTile;
+}
+
 export function pitchedRoof(parts, cx, cz, cw, cd, y, body, rng) {
   // The eaves the roof sits on, overhanging the walls by 0.2 all round.
   parts.push(box(cw + 0.4, 0.16, cd + 0.4, cx, y, cz, shade(body, 0.86)));
@@ -806,7 +878,15 @@ export function pitchedRoof(parts, cx, cz, cw, cd, y, body, rng) {
   // Mixed rather than picked per building family: a brick building with a slate roof and a tan one
   // with a tile roof are both ordinary, and tying the two together made a street of low-rise read
   // as two kinds of building rather than as a dozen different ones.
-  const col = rng.chance(0.45)
+  //
+  // Except where that lands the roof on its own wall: a tile roof on brick is the same clay a stop
+  // darker, and a slate roof on a slate or glass building is the same blue-grey — the two Tyler
+  // pointed at (2026-11-27). Those swap to the other finish. Decided on hue rather than on
+  // `roofContrast`, which undersells a pitched roof: its faces tilt toward the sun and a
+  // terracotta hip over a concrete wall reads clearly while scoring 0.062, so a score test
+  // swapped roofs that were fine. The draw is still made, so the city's `rng` stream is unchanged.
+  const tile = pitchedFinish(body, rng.chance(0.45));
+  const col = tile
     ? jitterColor(shade(color('brick'), 0.72), rng, { h: 0.012, l: 0.05 })
     : jitterColor(color('roof'), rng, { h: 0.02, l: 0.07 });
 
@@ -849,10 +929,10 @@ function roofKit(parts, cx, cz, cw, cd, y, style, body, rng, stats) {
   const capH = 0.3;
   // Either way the cap is hollowed into a lip with the deck sunk inside it — see `lippedCap`.
   const deck = style === 'punched'
-    ? lippedCap(parts, cw + 0.36, capH, cd + 0.36, cx, y, cz, shade(body))
+    ? lippedCap(parts, cw + 0.36, capH, cd + 0.36, cx, y, cz, shade(body), roofDeck(body))
     // A curtain wall has no cornice to have — the glass runs to a flush parapet, which is the
     // whole visual difference between the two at a distance.
-    : lippedCap(parts, cw, capH, cd, cx, y, cz, color('rooftop'));
+    : lippedCap(parts, cw, capH, cd, cx, y, cz, color('rooftop'), roofDeck(body));
 
   // Every flat deck in the city, with the slice of `parts` its furniture is about to occupy. One of
   // them becomes the helipad once they are all known — see `choosePad` — and the slice is why the
@@ -921,6 +1001,9 @@ function roofFurniture(parts, cx, cz, cw, cd, deck, rng, keep = []) {
     const tx = cx + rng.jitter(Math.max(0, cw / 2 - TANK_R - 0.5));
     const tz = cz + rng.jitter(Math.max(0, cd / 2 - TANK_R - 0.5));
     footprint(tx, tz, TANK_R * 2, TANK_R * 2);
+    // Flagged on the keep-out itself: a tank is 3.3 tall, so a roof sign (the vet's dog, the donut)
+    // cannot share the deck with one. The dog's head went straight through it (Tyler, 2026-11-27).
+    keep[keep.length - 1].waterTower = true;
 
     for (const [lx, lz] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) {
       parts.push(box(0.13, LEG_H, 0.13, tx + lx * TANK_R * 0.62, deck, tz + lz * TANK_R * 0.62,
@@ -1133,9 +1216,9 @@ export { splitLot };
 
 /** The towers' material: `propMaterial({ smooth })` with the wall detail patched on (city/facade.js). */
 export function wallMaterial() {
-  return patchWallGrain(patchWalls(propMaterial({ smooth: true }), {
+  return patchWalls(propMaterial({ smooth: true }), {
     floorH: FLOOR_H, groundTop: KERB_H + GROUND_H,
-  }));
+  });
 }
 export { fillWalls, frameMesh };
 
@@ -1250,7 +1333,7 @@ function buildCourtyard(lot, block, rng, parts) {
       ribbonWindows(parts, wx, KERB_H, wz, ww, wd, h, firstFloorH, windowColor, peak, body, wing.faces);
     }
     // A cornice per wing, so the stepped heights read as four buildings in a terrace.
-    const deck = lippedCap(parts, ww + 0.3, 0.26, wd + 0.3, wx, KERB_H + h, wz, shade(body));
+    const deck = lippedCap(parts, ww + 0.3, 0.26, wd + 0.3, wx, KERB_H + h, wz, shade(body), roofDeck(body));
     wing.deck = deck;
   }
 
@@ -1523,6 +1606,18 @@ export function createBuildings(rng, blocks) {
   // The rooftop billboards (city/billboard.js): the widest flat roofs left, the same way — by rule
   // and by hash, after everything else, so they move nothing either.
   const billboards = chooseBillboardSite(towers, [site, vet?.roof, donut?.roof].filter(Boolean));
+  // The construction crane (city/crane.js): a mid-rise roof that grows a bare storey and a tower
+  // crane, chosen last of all and the same way, so it moves nothing either.
+  const boardDecks = towers.filter((t) => billboards.some((b) => b.anchor.x === t.cx && b.anchor.z === t.cz)).map((t) => t.deck);
+  const crane = chooseCraneSite(towers, {
+    taken: [site, vet?.roof, donut?.roof, ...boardDecks].filter(Boolean), bank, pad, billboards,
+    // The donut on its roof stands ~6 over the deck (LIFT plus the ring across), far past the 2.6 the
+    // crane allows for roof furniture, so it goes in as an obstacle of its own.
+    extra: donut ? [{
+      x0: donut.roof.cx - donut.roof.cw / 2, x1: donut.roof.cx + donut.roof.cw / 2,
+      z0: donut.roof.cz - donut.roof.cd / 2, z1: donut.roof.cz + donut.roof.cd / 2, top: donut.roof.deck + 6.3,
+    }] : [],
+  });
 
   const count = parts.length;
   const { solid: unframed, frames } = frameMesh(parts, 'buildings');
@@ -1560,6 +1655,8 @@ export function createBuildings(rng, blocks) {
     // The roofs that carry billboards, one per ad (maybe none) — see `chooseBillboardSite`. Built
     // by main.js.
     billboards,
+    // The roof the construction crane stands on, or null — see `chooseCraneSite`. Built by main.js.
+    crane,
     // Every flat roof that is still a roof — the helipad's deck is spoken for — with the footprint
     // of what stands on it. The flocks pick their rooftop roosts from these; see `chooseRoosts` in
     // game/birds.js.
