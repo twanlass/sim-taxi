@@ -62,7 +62,8 @@ const ROOF_CLEAR = 0.02;
  *  always reads as lit, and never so hot the bloom turns it into a white blob (the first cut held
  *  0.45 steady and did). The bloom reads emissiveIntensity, so it pulses with the lens. */
 const PULSE_LOW = 0.12;
-const PULSE_HIGH = 0.5;
+// Raised from 0.5 after Tyler saw it on the phone (2026-11-27): the pulse read as too subtle.
+const PULSE_HIGH = 0.85;
 const PULSE_HZ = 1.1;
 
 // --- The idle ------------------------------------------------------------------------------------
