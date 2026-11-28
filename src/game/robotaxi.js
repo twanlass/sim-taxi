@@ -6,11 +6,13 @@ import { cloneProp, unlitMaterial } from '../util/geo.js';
 import { warmWreckOf } from './vanish.js';
 import { stripGhostOutlines } from '../geometry/ghostoutline.js';
 import { PALETTE } from '../palette.js';
-import { CAR_LEN, CAR_W, ROBO_SPEED, STOP_SETBACK, stopDistance } from '../sim/traffic.js';
+import { CAR_LEN, CAR_W, ROBO_SPEED, STOP_DWELL, STOP_SETBACK, stopDistance } from '../sim/traffic.js';
 import { createRoboTaxiMesh, ROBO_SCALE, ROBO_BAND_TIME, BALL_R } from '../geometry/robotaxi.js';
 import { findRoute, planOrigin, serviceLaneCost } from './route.js';
 import { BOARD_SECONDS, cornerFor, kerbFor } from './fares.js';
 import { markOccluder } from './ssao.js';
+import { createDiamond, DIAMOND_HALF_H } from '../geometry/diamond.js';
+import { MARKER_BASE } from './faremarker.js';
 
 // The robo-taxis: the city council's driverless cabs, arriving in town to take your riders.
 //
@@ -39,6 +41,18 @@ import { markOccluder } from './ssao.js';
 /** How many are about at once. */
 export const ROBO_COUNT = 2;
 
+/**
+ * Arcade's rider race (fares.js RACE_WAITING): quicker, so a rider one of them has claimed is a race
+ * the taxi can lose, and **ramped** rather than all at once (Tyler, 2026-11-26: "starting with a few
+ * is chaotic"): `ramp[n]` is the drop-offs it takes before the (n + 1)th comes on — one after the
+ * first, a second after the fourth, a third after the eighth. Untuned; Tyler expects to tune it. The classic robot — ROBO_SPEED with a
+ * two-second halt at every all-way stop — was so slow that "a rider marked cyan is a race the taxi
+ * nearly always wins if it goes", which made the claim something to ignore. `pace` scales its
+ * cruise and corner speed (sim/traffic.js `car.roboPace`); `dwell` is an ordinary car's halt.
+ * Every number is still a fixed rule of the car, set when it arrives: it never reacts to the taxi.
+ */
+export const RACE = Object.freeze({ count: 3, ramp: Object.freeze([1, 4, 8]), pace: 0.78 / 0.55, dwell: STOP_DWELL });
+
 /** The robo-taxi stays stopped at the drop-off while the rider gets out and clears the car. */
 const DROP_HOLD = 1.6;
 
@@ -59,18 +73,42 @@ const CLAIM_Y = KERB_H + 0.07;
 
 const FADE_TIME = 0.8;
 
+// The gull-wing door (geometry/robotaxi.js `setDoor`), timed off the phase clock: up as the rider
+// closes in, down once they are aboard; up as the car stops at the drop-off, down once they are
+// out. ~72 degrees open. Pure flourish, so render-only: nothing waits on it.
+const DOOR_OPEN = 1.25;
+const DOOR_BOARD_FROM = 0.3 * BOARD_SECONDS;   // opening, as the rider sets off
+const DOOR_BOARD_TO = 0.6 * BOARD_SECONDS;
+const DOOR_SHUT = 0.25;                        // seconds to close
+const DOOR_DROP_OPEN = 0.25;                   // at the drop-off: open over this...
+const DOOR_DROP_SHUT_AT = 1.1;                 // ...and start closing here (DROP_HOLD 1.6)
+
+// The pie over a robo-taxi with a rider aboard (Tyler, 2026-11-27: "show when a robo is occupied.
+// maybe show the pie above them"): the taxi's own aboard marker, in the robot's cyan, at the height
+// a rider's pie hangs. **Always full.** It drained by distance to the drop-off for a build, and a
+// draining pie is this game's word for a clock running out, so it read as a robo ride that could
+// time out (Tyler, 2026-11-27: "slow down the urgency ... so that a robo dropoff never fails"). It
+// never could: a robo ride has no clock. Full and still says "occupied" and nothing else.
+const PIE_Y = MARKER_BASE + DIAMOND_HALF_H;
+
+
 /**
  * @param traffic  the sim — `enterGuest`, `retireGuest`, `wearSkin`, `taxi`
  * @param fares    the fare board — `stealable`, `steal`, `state`
  * @param blocked  () => true while nothing should come on (shot mode, the opening vignette)
  * @param soon     `?robotaxi=soon`: on the map from the start rather than after the first delivery
  */
-export function createRoboTaxis({ rng, scene, traffic, fares, blocked = () => false, soon = false, count = ROBO_COUNT }) {
+export function createRoboTaxis({ rng, scene, traffic, fares, blocked = () => false, soon = false, count = ROBO_COUNT, race = () => false, occupiedPie = true }) {
+  // Built for the bigger of the two fleets; the race decides how many of them come on.
+  const built = Math.max(count, RACE.count);
+  // `?robotaxi=soon` is for looking at them, so it skips the ramp.
+  const fleet = () => (!race() ? count
+    : soon ? RACE.count : RACE.ramp.filter((at) => fares.state.delivered >= at).length);
   const taxi = traffic.taxi;
   const ringGeo = new THREE.RingGeometry(CLAIM_R - CLAIM_W, CLAIM_R, 48);
   ringGeo.rotateX(-Math.PI / 2);
 
-  const robos = Array.from({ length: count }, (_, k) => {
+  const robos = Array.from({ length: built }, (_, k) => {
     const rig = createRoboTaxiMesh(CAR_LEN, CAR_W);
     scene.add(rig.group);
     markOccluder(rig.group);
@@ -82,7 +120,11 @@ export function createRoboTaxis({ rng, scene, traffic, fares, blocked = () => fa
     ring.visible = false;
     ring.renderOrder = 2;
     scene.add(ring);
+    const pie = createDiamond(PALETTE.roboGlow);
+    pie.mesh.visible = false;
+    scene.add(pie.mesh);
     return {
+      pie, door: { side: 0, angle: 0 },
       k, rig, ring, car: null, phase: 'off', t: 0, target: null, arrived: false, fade: 0, fading: 0,
       wait: soon ? 1 + k * 3 : k * ENTER_GAP,
     };
@@ -136,8 +178,12 @@ export function createRoboTaxis({ rng, scene, traffic, fares, blocked = () => fa
     const car = traffic.enterGuest({ x: near.x, z: near.z }, { isTruck: false });
     if (!car) return false;
     car.robo = true;
-    car.v = ROBO_SPEED;
-    car.prevV = ROBO_SPEED;
+    if (race()) {
+      car.roboPace = RACE.pace;
+      car.roboDwell = RACE.dwell;
+    }
+    car.v = ROBO_SPEED * (car.roboPace ?? 1);
+    car.prevV = car.v;
     car.route = [];
     traffic.wearSkin(car, skinFor(robo), robo.rig.group);
     car.guestWreck = wreckFor(robo);
@@ -227,7 +273,12 @@ export function createRoboTaxis({ rng, scene, traffic, fares, blocked = () => fa
       car.roadblock = 0;
       robo.arrived = false;
     }
-    if (!robo.target) robo.target = choose(robo);
+    if (!robo.target) {
+      robo.target = choose(robo);
+      // A fresh claim, for the race's claim line (main.js): the band's rollout sweep keys on this,
+      // so each new claim draws itself out from the car to the rider.
+      if (robo.target) robo.claimedAt = state.clock;
+    }
     const fare = robo.target;
     if (!fare) { wander(robo); return; }
     const { i, j } = fare.pickup;
@@ -236,6 +287,7 @@ export function createRoboTaxis({ rng, scene, traffic, fares, blocked = () => fa
       // Standing at the corner: the rider is theirs.
       const ride = fares.steal(fare, car);
       if (ride) {
+        robo.door.side = sideToward(robo, kerbFor(fare));
         robo.target = null;
         robo.arrived = false;
         robo.ride = ride;
@@ -277,10 +329,44 @@ export function createRoboTaxis({ rng, scene, traffic, fares, blocked = () => fa
     robo.goal = cornerFor(i, j);
     if (!stoppedAt(robo, i, j)) return;
     fares.robotDropoff(robo.ride, robo.car);
+    robo.door.side = sideToward(robo, robo.goal);
     robo.ride = null;
     robo.phase = 'drop';
     robo.t = 0;
     state.delivered += 1;
+  }
+
+  /** Which flank of the pod faces world point `p`: +1 its +z flank, -1 the other. */
+  const local = new THREE.Vector3();
+  function sideToward(robo, p) {
+    robo.rig.group.updateMatrixWorld(true);
+    return robo.rig.group.worldToLocal(local.set(p.x, 0, p.z)).z < 0 ? -1 : 1;
+  }
+
+  /** The door's angle for this frame, off the phase clock. */
+  function doorAngle(robo) {
+    const t = robo.t;
+    const ease = (u) => 1 - (1 - u) * (1 - u);
+    if (robo.phase === 'board') {
+      if (t < DOOR_BOARD_FROM) return 0;
+      if (t < BOARD_SECONDS) return DOOR_OPEN * ease(Math.min(1, (t - DOOR_BOARD_FROM) / (DOOR_BOARD_TO - DOOR_BOARD_FROM)));
+      return DOOR_OPEN * Math.max(0, 1 - (t - BOARD_SECONDS) / DOOR_SHUT) ** 2;
+    }
+    if (robo.phase === 'drop') {
+      if (t < DOOR_DROP_SHUT_AT) return DOOR_OPEN * ease(Math.min(1, t / DOOR_DROP_OPEN));
+      return DOOR_OPEN * Math.max(0, 1 - (t - DOOR_DROP_SHUT_AT) / DOOR_SHUT) ** 2;
+    }
+    return 0;
+  }
+
+  /** The cyan pie over a car with a rider aboard, from boarding to the drop-off. Always full. */
+  function poseOccupied(robo) {
+    const aboard = occupiedPie && robo.car && !fares.state.gameOver
+      && (robo.phase === 'board' || robo.phase === 'ride');
+    robo.pie.mesh.visible = Boolean(aboard);
+    if (!aboard) return;
+    robo.pie.setFill(1);
+    robo.pie.mesh.position.set(robo.car.x, PIE_Y, robo.car.z);
   }
 
   function update(dt) {
@@ -298,7 +384,7 @@ export function createRoboTaxis({ rng, scene, traffic, fares, blocked = () => fa
         robo.wait = RESPAWN_WAIT;
       }
       if (robo.phase === 'off') {
-        const ready = soon || fares.state.delivered >= 1;
+        const ready = (soon || fares.state.delivered >= 1) && robo.k < fleet();
         if (ready && !blocked() && !fares.state.gameOver) {
           robo.wait -= dt;
           if (robo.wait <= 0 && !spawn(robo)) robo.wait = 1;
@@ -329,6 +415,13 @@ export function createRoboTaxis({ rng, scene, traffic, fares, blocked = () => fa
       if (robo.car) robo.car.skinLamps = robo.fade;
       if (!robo.car && robo.phase === 'off') robo.rig.shell.visible = false;
 
+      const angle = robo.car ? doorAngle(robo) : 0;
+      if (angle !== robo.door.angle) {
+        robo.door.angle = angle;
+        robo.rig.setDoor(robo.door.side, angle);
+      }
+      poseOccupied(robo);
+
       // The lamps: a slow breathe while it hunts, steady once it has someone aboard.
       const hunting = robo.phase === 'hunt';
       const breathe = 0.55 + 0.45 * Math.sin(state.clock * 3 + robo.k * 1.7);
@@ -336,7 +429,9 @@ export function createRoboTaxis({ rng, scene, traffic, fares, blocked = () => fa
 
       // The ring under the claimed rider, breathing on the same beat.
       const fare = robo.phase === 'hunt' ? robo.target : null;
-      robo.ring.visible = Boolean(fare) && !fares.state.gameOver;
+      // In the race the claim is the rider's own disc turning cyan (main.js, `setClaimed` on the
+      // marker), not a second ring round it.
+      robo.ring.visible = Boolean(fare) && !fares.state.gameOver && !race();
       if (fare) {
         const kerb = kerbFor(fare);
         robo.ring.position.set(kerb.x, CLAIM_Y, kerb.z);
@@ -356,5 +451,7 @@ export function createRoboTaxis({ rng, scene, traffic, fares, blocked = () => fa
     spawnAll: () => robos.filter((r) => r.car || spawn(r)).length,
     /** The traffic cars, for the probe. */
     cars: () => robos.map((r) => r.car).filter(Boolean),
+    /** The robo-taxi hunting `fare`, or null — the race's price tag wears its colour. */
+    claimOf: (fare) => robos.find((r) => r.phase === 'hunt' && r.target === fare && r.car) ?? null,
   };
 }

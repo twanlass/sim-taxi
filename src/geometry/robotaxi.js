@@ -423,6 +423,112 @@ function glowGeometry(len) {
   return mergeGeometries(parts, false);
 }
 
+// --- The gull-wing door ------------------------------------------------------------------------
+//
+// A rider getting in or out lifts a panel of the kerb-side flank up and out about a hinge along the
+// roof (game/robotaxi.js drives it; Tyler, 2026-11-27: "robos need a door open anim to visually comm
+// that riders are getting in"). Gull-wing rather than the taxi's swing door because the pod is a
+// robot and nothing else in town opens that way, and because the motion is *up*: at play zoom the
+// door is ~10px, and a panel rising off the roofline reads where one swinging along the flank would
+// be lost against the body.
+//
+// The panel is the pod's own surface (`shellPoint`) over the middle of the flank, glass above the
+// belt and silver below, stood DOOR_PROUD off the shell so the opening it leaves can sit between
+// them; that opening is the same patch in the dark sensor colour, GAP_PROUD off. Neither is drawn
+// while the door is shut (`setShown`), so a closed pod is the shell alone with nothing laid on it.
+// Built for the +z flank; the -z door is the same parts turned half round about y, which is a
+// rotation and not a mirror, so the winding holds (asserted in tools/probe.mjs).
+const DOOR_XN = 0.34;          // the panel runs xn -0.34..0.34 along the pod
+const DOOR_V_LOW = -0.62;      // round the section, from just above the floor's turn...
+const DOOR_V_TOP = 1.3;        // ...to just short of the roof's crown (pi/2), where it hinges
+const DOOR_PROUD = 0.035;
+const GAP_PROUD = 0.015;
+const DOOR_STATIONS = 10;
+const DOOR_AROUND = 12;
+
+/** A patch of the flank over xn `x0..x1`, v `v0..v1`, pushed `proud` out along +z. */
+function flankPatch(len, x0, x1, v0, v1, proud) {
+  const pos = [];
+  const index = [];
+  const at = new THREE.Vector3();
+  for (let a = 0; a <= DOOR_STATIONS; a++) {
+    const xn = x0 + (x1 - x0) * (a / DOOR_STATIONS);
+    for (let b = 0; b <= DOOR_AROUND; b++) {
+      shellPoint(len, xn, v0 + (v1 - v0) * (b / DOOR_AROUND), at);
+      pos.push(at.x, at.y, at.z + proud);
+    }
+  }
+  const row = DOOR_AROUND + 1;
+  for (let a = 0; a < DOOR_STATIONS; a++) {
+    for (let b = 0; b < DOOR_AROUND; b++) {
+      const q = a * row + b;
+      // The same order as `patch`: xn rising along a, v rising along b, outward face front.
+      index.push(q, q + row, q + 1, q + 1, q + row, q + row + 1);
+    }
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setIndex(index);
+  return g;
+}
+
+/** The door's hinge, on the +z flank: the panel's top edge at the middle of its run. */
+export function roboDoorHinge(len) {
+  const p = shellPoint(len, 0, DOOR_V_TOP, new THREE.Vector3());
+  return { y: p.y, z: p.z + DOOR_PROUD };
+}
+
+/** The panel (glass over silver) and the dark opening, both for the +z flank, in pod space. */
+export function roboDoorGeometries(len) {
+  const belt = beltAngle(0);
+  const glass = softPart(flankPatch(len, -DOOR_XN, DOOR_XN, belt, DOOR_V_TOP, DOOR_PROUD), 'roboGlass', FINISH.GLASS);
+  const silver = softPart(flankPatch(len, -DOOR_XN, DOOR_XN, DOOR_V_LOW, belt, DOOR_PROUD), 'roboSilver', FINISH.CHROME);
+  const panel = mergeGeometries([glass, silver], false);
+  glass.dispose();
+  silver.dispose();
+  const gap = softPart(flankPatch(len, -DOOR_XN, DOOR_XN, DOOR_V_LOW, DOOR_V_TOP, GAP_PROUD), 'roboSensor', FINISH.TYRE);
+  return { panel, gap };
+}
+
+function buildRoboDoors(shell, len) {
+  const { panel: panelGeo, gap: gapGeo } = roboDoorGeometries(len);
+  const hingeAt = roboDoorHinge(len);
+  // Hinge-local: the panel hangs below and inboard of the pivot.
+  panelGeo.translate(0, -hingeAt.y, -hingeAt.z);
+  // Glossed like the body (its finish slots: chrome below the belt, glass above), or the silver
+  // half lights as flat beige beside the mirror it was cut out of.
+  const panelMat = propMaterial({ gloss: { geometry: panelGeo, floor: SILL_Y }, smooth: true });
+  const gapMat = propMaterial({ smooth: true });
+  const doors = new Map();
+  for (const side of [-1, 1]) {
+    const flank = new THREE.Group();
+    if (side < 0) flank.rotation.y = Math.PI;
+    const hinge = new THREE.Group();
+    hinge.position.set(0, hingeAt.y, hingeAt.z);
+    const panel = new THREE.Mesh(panelGeo, panelMat);
+    panel.castShadow = true;
+    hinge.add(panel);
+    const gap = new THREE.Mesh(gapGeo, gapMat);
+    flank.add(hinge, gap);
+    // No masks of their own: `outlineVehicle` walks the shell after this and masks every opaque
+    // part it finds, these included, under the handle that switches them with the rim.
+    shell.add(flank);
+    doors.set(side, { flank, hinge, panel, gap });
+  }
+  const show = (part, on) => { part.scale.setScalar(on ? 1 : 0); part.visible = on; };
+  const set = (side, angle) => {
+    for (const [s, d] of doors) {
+      const open = s === side && angle > 0;
+      show(d.hinge, open);
+      show(d.gap, open);
+      // Rx(-a) takes a point hanging below the hinge out along +z and up: the gull wing.
+      if (open) d.hinge.rotation.x = -angle;
+    }
+  };
+  set(0, 0);
+  return { set, panels: [...doors.values()].map((d) => d.panel), materials: [panelMat, gapMat] };
+}
+
 /** The shell and the glass laid on it, for tools/probe.mjs to check the winding of. */
 export const roboShellParts = (len, width) => [shellGeometry(len, width), ...glassGeometries(len)];
 
@@ -494,7 +600,9 @@ export function createRoboTaxiMesh(len, width) {
   band.userData.roboLamp = true;
   shell.add(band);
 
-  const faders = [body.material, wheelMat, glowMat, band.material];
+  const door = buildRoboDoors(shell, len);
+
+  const faders = [body.material, wheelMat, glowMat, band.material, ...door.materials];
   for (const material of faders) material.alphaHash = true;
   // Ghost outline (geometry/ghostoutline.js), in its own silver. The rims are divided by the
   // group's scale so they draw at the same width as every other vehicle's.
@@ -504,5 +612,10 @@ export function createRoboTaxiMesh(len, width) {
   });
   shell.visible = false;
 
-  return { group, shell, body, wheels, band, glow, faders, occluders: [body, ...wheels] };
+  return {
+    group, shell, body, wheels, band, glow, faders, occluders: [body, ...wheels],
+    /** Open the gull-wing door on `side` (+1 the pod's +z flank, -1 the other) by `angle` rad. */
+    setDoor: door.set,
+    doorPanels: door.panels,
+  };
 }

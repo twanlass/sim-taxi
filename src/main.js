@@ -1189,7 +1189,18 @@ const shiftScores = {
   record: (run, store) => recordRun(run, store, scoreTable),
   clear: (store) => clearScores(store, scoreTable),
 };
+// Arcade's rider race (game/fares.js RACE_WAITING, Tyler, 2026-11-26): three riders on the kerb on
+// different patience, robo-taxis visibly locking on and racing for them, and a rider passed over
+// walking off free. Arcade only, live because the title picks the
+// mode after this is built; `?riders=classic` is Arcade as it was.
+const ridersClassic = new URLSearchParams(window.location.search).get('riders') === 'classic';
+const riderRace = () => !ridersClassic && runMode === 'arcade' && !shot && !demo.on();
+// Who a robo-taxi is after, filled in once the robo-taxis exist (they are built off the board, so
+// after it). A locked rider's clock holds; `?riders=classic` lets it run.
+let roboClaimOf = () => null;
 const fares = tagFx(scene, () => createFareSystem(makeRng(runSeed + 55), scene, {
+  race: riderRace,
+  clockHeld: (fare) => !ridersClassic && Boolean(roboClaimOf(fare)),
   rating: ratingOn,
   shift: shiftSeconds,
   target: today?.target ?? null,
@@ -1964,7 +1975,11 @@ const robotaxis = roboParam === 'classic' ? null : createRoboTaxis({
   blocked: () => Boolean(shot) || traffic.taxi.staged
     || (today !== null && !today.robo && roboParam !== 'soon'),
   soon: roboParam === 'soon',
+  race: riderRace,
+  // The cyan pie over a car with a rider aboard; `?riders=classic` goes without, as before.
+  occupiedPie: !ridersClassic,
 });
+if (robotaxis) roboClaimOf = robotaxis.claimOf;
 for (const mesh of robotaxis?.emissiveMeshes ?? []) markEmissive(mesh, 'siren');
 // `?robodebug`: each robo-taxi's route and goal drawn on the map (game/robodebug.js).
 const roboDebug = robotaxis && new URLSearchParams(window.location.search).has('robodebug')
@@ -3415,6 +3430,36 @@ if (rivalLine) {
   rain.hideInMirror(rivalLine.mesh);
 }
 
+// The robo-taxis' routes (Tyler, 2026-11-27: "a simple route line for the robo taxis ... 3-4px
+// wide ... teal, shown on pickup and dropoff just like the taxi"): the same band, one per car, in
+// the robot's cyan and thin. 0.25 half-width is 0.5 across, ~3.9px at play zoom (1 unit ~ 7.7px),
+// against the taxi's lane-wide band, so the player's own plan stays the loud one. Drawn while a car
+// drives at a claimed rider and while it carries one; not while it wanders or stands at a corner.
+// A first, lane-wide claim band was cut on 2026-11-26 as "too much noise"; this is the thin retry.
+// Opacity is higher than the racer's 0.22 because a thin line has so few pixels to carry it.
+// `?riders=classic` goes without.
+const ROBO_POINTER_COLOUR = paletteColor('roboGlow');
+const ROBO_LINE_HALF = 0.25;
+const ROBO_LINE_OPACITY = 0.7;
+const roboLines = !robotaxis || ridersClassic ? [] : robotaxis.state.robos.map(() => {
+  const line = createRouteLine(scene, { halfWidth: ROBO_LINE_HALF });
+  line.setColor(PALETTE.roboGlow);
+  line.setOpacity(ROBO_LINE_OPACITY);
+  rain.hideInMirror(line.mesh);
+  return line;
+});
+function updateRoboLines(dt) {
+  robotaxis?.state.robos.forEach((robo, k) => {
+    const line = roboLines[k];
+    if (!line) return;
+    const car = robo.car;
+    const going = car && !fares.state.gameOver && car.route?.length
+      && ((robo.phase === 'hunt' && robo.target) || robo.phase === 'ride');
+    if (going) line.update(car, car.route, dt);
+    else line.hide();
+  });
+}
+
 // `?blend=additive` picks how the band combines with the road. A URL parameter as well as the
 // ⚙️ dropdown because a screenshot has to be able to pin it: the panel doesn't exist in shot mode.
 const blendParam = new URLSearchParams(window.location.search).get('blend');
@@ -3970,6 +4015,47 @@ function panToTaxi() {
     // withdrew.
     flashTaxi();
   });
+}
+
+// The rider race's lock-on, taught once a run (Tyler: "a beat that pans to a robo then back to a
+// rider and turns the rider disk cyan"). The first time a robo-taxi locks on to a rider, the camera
+// rides out to the robo-taxi, holds on it, crosses to the rider it is after, and the disc turns
+// cyan on the frame it lands, so the colour arrives with its cause on screen; then it rides home
+// to the taxi like any peek. After that, every lock just paints the disc.
+//
+// **The world freezes for it**, the way it does for the bank job's cut and the robber's line
+// (Tyler: "freeze frame like the race or robbery vignette that way it's consistent and always
+// shows first robo lock"). The first build ran over live play and had to skip any lock that landed
+// during Loco Mode, since the boost follow cancels a pan and pulling the frame off a boosting taxi
+// puts it in a wall; frozen, nothing is driving, so every run gets it, on every viewport. Clocks,
+// traffic and the robo-taxi all hold, and the tour runs on wall time (`tick`).
+//
+// Still only on a *fresh* lock (`lockSeen`), and not while another cut or a finger owns the
+// camera: a beat that waited for its moment would land on a lock seconds old. Holds: 0.7s on the
+// robo-taxi, the usual peek beat on the rider; with three legs at 0.32-0.75s each, about 3-4s.
+const LOCK_BEAT_ROBO_HOLD = 0.7;
+let lockTaught = false;
+let lockBeat = null;
+let lockSeen = new WeakSet();
+function startLockBeat(fare, robo) {
+  if (fingersOnMap > 0 || controller.isGliding() || opening?.holdsCamera() || tutorial?.holdsCamera()
+    || endSpot || raceShot || raceWatch || bankJob?.running() || robberLine?.isOpen()
+    || fares.state.gameOver) return;
+  lockTaught = true;
+  const beat = { fare, landed: false, frozen: true };
+  lockBeat = beat;
+  let last = { x: robo.car.x, z: robo.car.z };
+  const roboAt = () => {
+    if (robo.car) last = { x: robo.car.x, z: robo.car.z };
+    return last;
+  };
+  releaseCameraToPlayer();
+  controller.tour([
+    { at: roboAt, hold: LOCK_BEAT_ROBO_HOLD },
+    // Painted here as well as by the per-frame loop, because that loop is not running: the world
+    // is frozen until the tour is home.
+    { at: kerbFor(fare), onLand: () => { beat.landed = true; fare.slot.marker.setClaimed?.(true); haptic('snap'); } },
+  ], () => traffic.taxi, () => { cameraTakenOver = false; });
 }
 
 // The camera comes home on its own, too. A swipe hands the framing to the player, and for a long time
@@ -7202,6 +7288,9 @@ function resetRun({ toTitle = false } = {}) {
   cameraIdle = 0;
   arrowLookOut = false;
   tipLook = null;
+  lockTaught = false;
+  lockBeat = null;
+  lockSeen = new WeakSet();
   dayAnnounced = false;
   repairCardIn = -1;
   newMoveIn = -1;
@@ -7485,6 +7574,18 @@ function tick() {
     // pins were on the frame the world stopped (`fadePoints` in game/bankjob.js). Left as they are
     // for the robber's line after it, which is about the same cab.
     if (ltrain && !classicRobberyCam) ltrain.setFadePoints(bankJob.fadePoints());
+    renderFrame();
+    return;
+  }
+  // The rider race's first lock-on (`startLockBeat`): the same freeze again, with only the camera's
+  // tour running, on wall time. It ends when the tour is home, or the moment a drag drops it.
+  if (lockBeat?.frozen) {
+    controller.updateGlide(dt, aspect());
+    if (!controller.isGliding()) {
+      lockBeat.frozen = false;
+      lockBeat.landed = true;
+    }
+    sfx?.still();
     renderFrame();
     return;
   }
@@ -8134,6 +8235,9 @@ function tick() {
     }
     if (type === 'pickup') {
       boardSound();
+      // Beat a robo-taxi to the rider it had locked on to: a combo (COMBO_STEPS.snatch). Read before
+      // the robots' next update, which is what lets go of the claim on a rider who has left the board.
+      if (riderRace() && robotaxis?.claimOf(fare)) landCombo('snatch');
       traffic.taxi.route = [];
       traffic.taxi.pendingTarget = null;
       // The roof sign lights up while the rider is aboard.
@@ -8241,14 +8345,17 @@ function tick() {
       // A robo-taxi got to this rider first (game/robotaxi.js). No strike — the fare is the cost —
       // but the streak goes with them like any rider walking off, and a taxi on its way to collect
       // them has nobody to collect.
-      popLabel('Rider stolen!', 'is-stolen');
+      // No callout any more (Tyler, 2026-11-27: "the 'rider stolen' message is confusing"): the
+      // rider running to the robo-taxi, its door lifting and the cyan pie over it say it.
+      // `?riders=classic` keeps it.
+      if (ridersClassic) popLabel('Rider stolen!', 'is-stolen');
       haptic('perfect-lost');
       if (combo.walkout(fare)) comboTag.lost = true;
       if (fare.directed) {
         traffic.taxi.route = [];
         traffic.taxi.pendingTarget = null;
       }
-    } else if (type === 'vip-missed' || type === 'robber-missed' || type === 'missed') {
+    } else if (type === 'vip-missed' || type === 'robber-missed' || type === 'missed' || type === 'walked') {
       // The rider swearing as they storm off (geometry/cursebubble.js) — out of the cab if they
       // were aboard, off their kerb if not.
       const riding = fare.stage === 'riding';
@@ -8410,6 +8517,7 @@ function tick() {
   // Through the finale too while the racer is the one still coming home.
   // Not in the finale: what it is driving then is the staged drive-in, not a line to race.
   const rivalCar = race?.state.phase === 'racing' ? race.state.car : null;
+  updateRoboLines(dt);
   if (rivalCar && !fares.state.gameOver) rivalLine.update(rivalCar, rivalCar.route, dt);
   else rivalLine?.hide();
 
@@ -8466,7 +8574,30 @@ function tick() {
   // game/farepointers.js. The waiting riders get one too now that the chips are gone, which is
   // what keeps an off-screen fare findable at all.
   const aboard = fares.carrying();
-  farePointers.update(aboard, fares.state.gameOver ? [] : fares.waitingAll(), fares.colorOf);
+  // A rider a robo-taxi is after points in its cyan off-screen too, so a robot heading for one of
+  // your riders shows from the edge of the frame (Tyler, 2026-11-27).
+  // `farePointers` reads a THREE.Color (`getHexString`), so the cyan is one too — a palette hex
+  // string here took the whole frame loop down on the first lock (Tyler's phone, 2026-11-27).
+  const pointerColour = (f) => (f.stage === 'waiting' && riderRace() && robotaxis?.claimOf(f)
+    ? ROBO_POINTER_COLOUR : fares.colorOf(f));
+  farePointers.update(aboard, fares.state.gameOver ? [] : fares.waitingAll(), pointerColour);
+  // The race's lock-on: a rider a robo-taxi is after wears its cyan on their disc. The first lock
+  // of a run is shown rather than just painted (`startLockBeat`): the disc stays its own colour
+  // until the camera has been to the robo-taxi and lands on the rider.
+  if (lockBeat && !lockBeat.landed && !controller.isGliding()) lockBeat.landed = true;
+  for (const f of fares.state.fares) {
+    // Every fare, not only the waiting ones: a rider snatched from a robo-taxi gets into the cab
+    // with their marker still painted cyan, and it has to go back to the clock's colour there
+    // (Tyler, 2026-11-27: "the pie stayed teal when it got into my cab").
+    if (f.stage !== 'waiting') { f.slot.marker.setClaimed?.(false); continue; }
+    const robo = riderRace() ? robotaxis?.claimOf(f) : null;
+    if (robo && !lockSeen.has(f)) {
+      lockSeen.add(f);
+      if (!lockTaught) startLockBeat(f, robo);
+    }
+    const held = lockBeat?.fare === f && !lockBeat.landed;
+    f.slot.marker.setClaimed?.(Boolean(robo) && !held);
+  }
   // After the police update above, so the wash is aimed at where the cruiser is this frame rather
   // than trailing it by one.
   // With more than one cruiser out, the wash warns about the nearest one with its bar up.

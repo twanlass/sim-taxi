@@ -53,8 +53,8 @@ import { isArterialX as gridIsArterialX } from '../src/city/grid.js';
 import { createAsphaltPatches, planPatches, patchGeometry, patchRoadHalf, PATCH_COUNT, SEAL_W } from '../src/city/asphaltpatch.js';
 import { createStreetProps, planStreetProps } from '../src/game/streetprops.js';
 import { createGarbage, planTrashPiles } from '../src/game/garbage.js';
-import { createRoboTaxis } from '../src/game/robotaxi.js';
-import { roboShellParts, roboBandGeometry, roboWellLiners, createRoboTaxiMesh } from '../src/geometry/robotaxi.js';
+import { createRoboTaxis, RACE } from '../src/game/robotaxi.js';
+import { roboShellParts, roboBandGeometry, roboWellLiners, createRoboTaxiMesh, roboDoorGeometries } from '../src/geometry/robotaxi.js';
 import { setFareSeconds } from '../src/game/fares.js';
 import { ROBO_SPEED } from '../src/sim/traffic.js';
 import { HOPPER_MOUTH, createGarbageTruckMesh } from '../src/geometry/garbage.js';
@@ -123,7 +123,7 @@ import {
   stepLevel, frameWash, RISE as ROB_RISE, FALL as ROB_FALL,
 } from '../src/game/robberyglow.js';
 import {
-  createFareSystem, cornerFor, cornerSeen, intersectionCentre, blockDistance, priceFor, MAX_FARES, MAX_STRIKES, RATING_START, RATING_FLOOR, ratingFor,
+  createFareSystem, cornerFor, cornerSeen, intersectionCentre, blockDistance, priceFor, RACE_WAITING, RACE_PATIENCE, MAX_FARES, MAX_STRIKES, RATING_START, RATING_FLOOR, ratingFor,
   ROBBER_CHECKPOINTS,
   ARRIVE_RADIUS, onSameBlock, onWaterBlock, CURSE_LIFT, BURGER_PRICE, waitingTargets, stampFareMarker, BOARD_SECONDS,
 } from '../src/game/fares.js';
@@ -256,7 +256,7 @@ import {
 } from '../src/game/boost.js';
 import { createBoostMeter } from '../src/game/boostmeter.js';
 import * as fuelArc from '../src/game/fuelarc.js';
-import { createComboMeter, comboScope, COMBO_MAX } from '../src/game/combometer.js';
+import { createComboMeter, comboScope, comboValue, COMBO_MAX } from '../src/game/combometer.js';
 import { ORDER_LINES } from '../src/game/ordertalk.js';
 import { createSfx, SHIPPED_MIX, SFX_EVENTS, SOUNDS, LOOPS, RADIO, radioBetween, DRIVE_THRU_SECONDS, DRIVE_THRU_TAIL, GROUPS, BUSES, MIX_PARENT, monitorPass } from '../src/game/sfx.js';
 import MIX_FILE from '../assets/audio/mix.json' with { type: 'json' };
@@ -11905,6 +11905,38 @@ function rideToPickup() {
   check('a drag mid-ride cancels the trip back to the taxi',
     !cam.isGliding() && arrived === 0,
     'the ride survived a drag, or reported arriving anyway');
+
+  // --- The tour: the rider race's lock-on beat ------------------------------
+  // Out to a robo-taxi that keeps driving, followed through its hold; over to the rider, whose
+  // landing is what turns the disc cyan; home to the taxi. The order is the lesson — the colour
+  // arriving before the camera reaches the rider would show the effect without its cause.
+  arrived = 0;
+  car.x = -20; car.z = -20;
+  const robo = { x: 30, z: 30 };
+  const rider = { x: -30, z: 10 };
+  const log = [];
+  cam.cancelGlide();
+  cam.state.target.set(car.x, 0, car.z);
+  cam.tour([
+    { at: () => robo, hold: 0.7, onLand: () => log.push('robo') },
+    { at: rider, onLand: () => log.push(`rider@${cam.state.target.x.toFixed(3)},${cam.state.target.z.toFixed(3)}`) },
+  ], () => car, () => { arrived += 1; log.push('home'); });
+  // Measured over the hold only: the frames after the robo landing, short of 0.7s.
+  let roboMiss = Infinity;
+  let roboHeld = 0;
+  for (let i = 0; i < 1200 && cam.isGliding(); i++) {
+    driveCar(STEP);
+    robo.z += 6 * STEP;
+    cam.updateGlide(STEP, 1.5);
+    if (log.length === 1 && (roboHeld += 1) * STEP < 0.65) roboMiss = Math.max(roboMiss === Infinity ? 0 : roboMiss,
+      Math.hypot(cam.state.target.x - robo.x, cam.state.target.z - robo.z));
+  }
+  check('the lock-on tour visits the robo-taxi, then the rider, then comes home',
+    log.length === 3 && log[0] === 'robo' && log[1] === 'rider@-30.000,10.000' && log[2] === 'home'
+    && arrived === 1 && Math.hypot(cam.state.target.x - car.x, cam.state.target.z - car.z) < 1e-9,
+    log.join(' > '));
+  check('the tour follows a moving robo-taxi through its hold',
+    roboMiss < 1e-9, `${roboMiss.toFixed(6)} units off the robo-taxi during the hold`);
 }
 
 // --- Is the taxi off screen? ------------------------------------------------
@@ -22969,6 +23001,49 @@ let chopperOrder; // likewise
   check('robo-taxi: the shell and its glass are wound to face out', tris > 1000 && inward / tris < 0.01,
     `${inward}/${tris} triangles face in`);
   {
+    // The gull-wing door and the opening it leaves are hand-lofted too: same test, same middle.
+    // Built for the +z flank; the other is a half turn about y (a rotation), so one side covers both.
+    let doorTris = 0;
+    let doorIn = 0;
+    const { panel, gap } = roboDoorGeometries(CAR_LEN);
+    for (const g of [panel, gap]) {
+      const p = g.attributes.position;
+      for (let f = 0; f < p.count; f += 3) {
+        a.fromBufferAttribute(p, f); b.fromBufferAttribute(p, f + 1); c.fromBufferAttribute(p, f + 2);
+        n.subVectors(c, b).cross(a.clone().sub(b));
+        if (n.lengthSq() < 1e-12) continue;
+        const out = new THREE.Vector3(0, (a.y + b.y + c.y) / 3 - 1.45, (a.z + b.z + c.z) / 3);
+        doorTris += 1;
+        if (n.dot(out) <= 0) doorIn += 1;
+      }
+      g.dispose();
+    }
+    check('robo-taxi: the gull-wing door and its opening are wound to face out',
+      doorTris > 200 && doorIn === 0, `${doorIn}/${doorTris} triangles face in`);
+    // And it opens *up and out*: the panel's lowest point, posed open, sits further out and higher.
+    const rig = createRoboTaxiMesh(CAR_LEN, CAR_W);
+    const lowest = (mesh) => {
+      rig.group.updateMatrixWorld(true);
+      const pos = mesh.geometry.attributes.position;
+      let best = null;
+      const v = new THREE.Vector3();
+      for (let i = 0; i < pos.count; i++) {
+        v.fromBufferAttribute(pos, i).applyMatrix4(mesh.matrixWorld);
+        if (!best || v.y < best.y) best = v.clone();
+      }
+      return best;
+    };
+    rig.setDoor(1, 1.25);
+    const plusOpen = lowest(rig.doorPanels[1] ?? rig.doorPanels[0]);
+    rig.setDoor(-1, 1.25);
+    const minusOpen = lowest(rig.doorPanels[0]);
+    rig.setDoor(0, 0);
+    const shut = rig.doorPanels.every((m) => !m.parent.visible);
+    check('robo-taxi: the door lifts up and out on the side asked for, and is put away shut',
+      plusOpen.z > 1.2 && minusOpen.z < -1.2 && plusOpen.y > 0.9 && minusOpen.y > 0.9 && shut,
+      `+z low edge (${plusOpen.z.toFixed(2)}, ${plusOpen.y.toFixed(2)}), -z (${minusOpen.z.toFixed(2)}, ${minusOpen.y.toFixed(2)}), shut ${shut}`);
+  }
+  {
     // The belly band is indexed, so the winding is read off the index (CLAUDE.md); out is away
     // from the pod's vertical axis, which the band's outline is star-shaped about.
     const g = roboBandGeometry(CAR_LEN);
@@ -23066,6 +23141,93 @@ let chopperOrder; // likewise
   clearCityOccluders();
 }
 
+// Arcade's rider race (fares.js RACE_WAITING, robotaxi.js RACE): the same taxi standing still, on
+// real clocks this time, so every rider leaves the board by walking off or by being taken. Checked:
+// the kerb holds at three and no more, a passed-over rider is never a strike, patience is spread
+// across RACE_PATIENCE, both robots come on and neither breaks its own quicker rule.
+{
+  setCityOccluders(buildings.mesh);
+  const rScene = new THREE.Scene();
+  const rTraffic = createTraffic(makeRng(seed + 770), rScene, 24, 24);
+  for (let step = 0; step < 120; step++) rTraffic.update(1 / 60);
+  // A locked rider's clock holds (main.js wires the same thing): filled in once `robos` exists.
+  let rClaim = () => null;
+  const rFares = createFareSystem(makeRng(seed + 771), rScene, { race: () => true, clockHeld: (f) => Boolean(rClaim(f)) });
+  rFares.state.delivered = 1;
+  // The ramp first (RACE.ramp): no robot before the first drop-off, then one more at each step.
+  {
+    const rampFares = createFareSystem(makeRng(seed + 773), new THREE.Scene(), { race: () => true });
+    const ramped = createRoboTaxis({ rng: makeRng(seed + 774), scene: new THREE.Scene(), traffic: rTraffic, fares: rampFares, race: () => true });
+    const onAt = (delivered) => {
+      rampFares.state.delivered = delivered;
+      for (let step = 0; step < 60 * 30; step++) ramped.update(1 / 60);
+      return ramped.cars().length;
+    };
+    const counts = [0, 1, 3, 4, 8].map(onAt);
+    check('rider race: the robo-taxis ramp in with the drop-offs (RACE.ramp)',
+      counts.join(',') === '0,1,1,2,3', `on at 0/1/3/4/8 drop-offs: ${counts.join(',')}`);
+    for (const car of ramped.cars()) rTraffic.retireGuest?.(car);
+  }
+  const robos = createRoboTaxis({ rng: makeRng(seed + 772), scene: rScene, traffic: rTraffic, fares: rFares, soon: true, race: () => true });
+  rClaim = robos.claimOf;
+  let lockedTicked = 0;
+  let lockedFrames = 0;
+  let lockedWalked = 0;
+  let most = 0;
+  let waitingSum = 0;
+  let walked = 0;
+  let steals = 0;
+  let fastest = 0;
+  const patience = [];
+  let crowded = 0;
+  let onAtOnce = 0;
+  const seen = new Set();
+  const frames = 60 * 240;
+  for (let step = 0; step < frames; step++) {
+    rTraffic.update(1 / 60);
+    const lockedBefore = new Map(rFares.state.fares.filter((f) => f.stage === 'waiting' && robos.claimOf(f))
+      .map((f) => [f, f.timeLeft]));
+    for (const e of rFares.update(1 / 60, rTraffic.taxi)) {
+      if (e.type === 'walked') walked += 1;
+      if (e.type === 'walked' && lockedBefore.has(e.fare)) lockedWalked += 1;
+      if (e.type === 'stolen') steals += 1;
+    }
+    for (const [f, left] of lockedBefore) {
+      lockedFrames += 1;
+      if (f.timeLeft < left) lockedTicked += 1;
+    }
+    robos.update(1 / 60);
+    const kerb = rFares.state.fares.filter((f) => f.stage === 'waiting');
+    most = Math.max(most, kerb.length);
+    // Never two riders waiting at one building (Tyler, 2026-11-26).
+    if (kerb.some((a, x) => kerb.some((b, y) => y > x && onSameBlock(a.pickup, b.pickup)))) crowded += 1;
+    if (step > 60 * 20) waitingSum += kerb.length;
+    for (const f of kerb) {
+      if (seen.has(f)) continue;
+      seen.add(f);
+      if (f.patience !== undefined) patience.push(f.patience);
+    }
+    onAtOnce = Math.max(onAtOnce, robos.cars().length);
+    for (const car of robos.cars()) fastest = Math.max(fastest, car.v);
+  }
+  const meanWaiting = waitingSum / (frames - 60 * 20 - 1);
+  check('rider race: the kerb holds three riders, and one passed over walks off with no strike',
+    most === RACE_WAITING && meanWaiting > 2 && walked > 0 && rFares.state.strikes === 0,
+    `most ${most}, mean ${meanWaiting.toFixed(2)} waiting, ${walked} walked off, ${rFares.state.strikes} strikes`);
+  check('rider race: never two riders waiting on one block', crowded === 0, `${crowded} frames with two on one block`);
+  const [pLo, pHi] = [Math.min(...patience), Math.max(...patience)];
+  check('rider race: each rider waits on a patience of their own, spread across RACE_PATIENCE',
+    patience.length >= 6 && pLo >= RACE_PATIENCE[0] && pHi <= RACE_PATIENCE[1] && pHi - pLo > 0.4,
+    `${patience.length} riders, patience ${pLo.toFixed(2)}–${pHi.toFixed(2)}`);
+  check('rider race: the robo-taxis race for riders, never over their own quicker rule',
+    onAtOnce === RACE.count && steals >= 2 && fastest <= ROBO_SPEED * RACE.pace + 1e-6,
+    `${onAtOnce} on at once, ${steals} taken in 240s, fastest ${fastest.toFixed(2)} against ${(ROBO_SPEED * RACE.pace).toFixed(2)}`);
+  check('rider race: a rider a robo-taxi has locked on to never times out — their clock holds',
+    lockedFrames > 600 && lockedTicked === 0 && lockedWalked === 0,
+    `${lockedFrames} locked rider-frames, ${lockedTicked} with the clock moving, ${lockedWalked} walked off locked`);
+  clearCityOccluders();
+}
+
 // --- The combo meter ------------------------------------------------------------
 //
 // game/combometer.js on its own: what steps it, what empties it, and what each scope keeps.
@@ -23110,6 +23272,10 @@ let chopperOrder; // likewise
     && !bystander.lost && bystander.mult === 3
     && !createComboMeter().walkout({ stage: 'riding' }),
     `aboard ×${aboard.mult}, en route ×${enRoute.mult}, bystander ×${bystander.mult}`);
+
+  // Beating a robo-taxi to its rider (the rider race) is a half step, like an overtake.
+  check('snatching a robo-taxi\'s rider is Snatched!, a half step',
+    comboValue('snatch')?.label === 'Snatched!' && comboValue('snatch').step === 0.5);
 
   m = createComboMeter();
   const stunt = m.land('stuntman');

@@ -554,6 +554,27 @@ export function createCityCamera(aspect, { zoom = 46, target = [0, 0] } = {}) {
       });
     },
     /**
+     * A peek with more than one stop: each stop is `{ at, hold, onLand }`, where `at` is a point or
+     * a getter for one that moves, and after the last stop the camera rides home to `getReturn()`
+     * exactly as a peek does. The rider race's lock-on beat (main.js, `startLockBeat`) is the one
+     * caller: out to the robo-taxi, over to the rider it is after, home to the taxi.
+     *
+     * A moving stop is followed through its hold as well as on the way in, so a robo-taxi that
+     * keeps driving during the beat stays in frame instead of sliding out of a camera parked on the
+     * road it left. Same drop rules as a peek: anything that outranks a pan ends the whole tour
+     * where it stands and `onArrive` never comes.
+     */
+    tour(stops, getReturn, onArrive) {
+      const leg = (k) => {
+        if (k >= stops.length) { armChase(getReturn, onArrive); return; }
+        const { at, hold = PEEK_HOLD, onLand = null } = stops[k];
+        const get = typeof at === 'function' ? at : null;
+        const p = get ? get() : at;
+        armGlide(p.x, p.z, { track: get, hold, onLand, next: () => leg(k + 1) });
+      };
+      leg(0);
+    },
+    /**
      * Ride to a point that is moving, and hand the framing over when you get there — the
      * taxi-finder chip's whole camera move (see game/taxifinder.js), and the same leg a peek comes
      * home on.
@@ -620,8 +641,16 @@ export function createCityCamera(aspect, { zoom = 46, target = [0, 0] } = {}) {
 
       // The beat. Nothing moves — the camera just sits on the rider — so this is the one stage
       // that owns the frame without repainting anything.
+      // A tracked stop (a tour's robo-taxi) keeps following what it landed on through the beat;
+      // a peek's rider is a fixed point, so for it this stage paints nothing, as it always did.
       if (glide.hold > 0) {
         glide.hold -= dt;
+        if (glide.track) {
+          const to = glide.track();
+          state.target.x = THREE.MathUtils.clamp(to.x, -HALF_SPAN_X, HALF_SPAN_X);
+          state.target.z = THREE.MathUtils.clamp(to.z, -HALF_SPAN_Z, HALF_SPAN_Z);
+          apply(aspectRatio);
+        }
         return true;
       }
 

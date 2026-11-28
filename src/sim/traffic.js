@@ -1561,6 +1561,9 @@ const TRUCK_RIGHT_TURN_SPEED = TRUCK_CORNER_SPEED * 0.6;
 export const ROBO_SPEED = SPEED * 0.55;      // ~4.7 u/s
 const ROBO_CORNER_SPEED = ROBO_SPEED * 0.6;
 const ROBO_ACCEL_SCALE = 0.45;
+// Arcade's rider race (game/robotaxi.js `RACE`) runs them quicker: `car.roboPace` scales both speeds
+// above and `car.roboDwell` replaces ROBO_STOP_DWELL. Still a fixed rule of the car, set when it
+// arrives and never changed by anything the taxi does.
 // The pitch spring below (search "Rocking") drives the nose-dip/lift on every accel and brake
 // event. A truck gets half the excursion for the same Δv — the weight is on the box, not the cab,
 // so the driver's-eye view pitches less — and damps harder, so what dip there is settles rather
@@ -2660,7 +2663,7 @@ const CHASE_ACCEL = 15;
  * stops the same omission happening to the next factor somebody adds — as it just did to the
  * pull-over, which was added to the drive branch alone.
  */
-const cruiseCapFor = (car) => (car.isTruck ? TRUCK_SPEED : car.robo ? ROBO_SPEED : SPEED)
+const cruiseCapFor = (car) => (car.isTruck ? TRUCK_SPEED : car.robo ? ROBO_SPEED * (car.roboPace ?? 1) : SPEED)
   * (1 + (SCATTER_SPEED - 1) * car.scatter)
   * (1 + (CHASE_SPEED - 1) * car.chase)
   * (1 + (PURSUIT_LIFT - 1) * car.pursuit)
@@ -5581,7 +5584,7 @@ export function createTraffic(
     // ...and so does the street race's rival (game/race.js), which is the whole of what makes it
     // a racer at an all-way stop rather than a fast car that stops at every corner: with the dwell,
     // an unboosted taxi beat it on 8 races in 16.
-    const dwell = car.police || car.racer ? 0 : car.robo ? ROBO_STOP_DWELL : STOP_DWELL;
+    const dwell = car.police || car.racer ? 0 : car.robo ? (car.roboDwell ?? ROBO_STOP_DWELL) : STOP_DWELL;
     if (t - car.stopAt.t < dwell) return false;
 
     const street = car.lane.phase;
@@ -7639,7 +7642,7 @@ export function createTraffic(
           ? (isRight ? cruise * 0.75 : cruise)
           : car.isTruck
             ? (isRight ? TRUCK_RIGHT_TURN_SPEED : TRUCK_CORNER_SPEED)
-            : car.robo ? ROBO_CORNER_SPEED : chaseTurn;
+            : car.robo ? ROBO_CORNER_SPEED * (car.roboPace ?? 1) : chaseTurn;
         // A kicked drift goes round at the boost cruise, rights included.
         const cornerTarget = driftHolds(car) ? car.drift.v : straightOn ? straightTop : boostTurn;
 
