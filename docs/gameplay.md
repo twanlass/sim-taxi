@@ -1313,9 +1313,15 @@ rider, so a colour on the *person* would imply a commitment that doesn't exist. 
 their head and [the disc under their feet](#the-disc-says-it-again-on-the-ground) are both spoken
 for by the clock, which is why the figure between them has to stay out of the way.
 
-The **roof sign** lights up while a rider is aboard and goes dark once they're dropped off — a
-plain on/off, not a colour. The drop-off carries no fare colour, so there is nothing for a coloured
-sign to pair with; its one job is to say at a glance whether the taxi is free. History:
+The **roof sign** (`geometry/roofsign.js`) is lit while the taxi is free and simply not there while a
+rider is aboard, the way a real cab's roof light says "free" — there is no off state to look at, so
+off is the plain chequered roof. It runs nose to tail along the roof, in the chequer's own white
+(`taxiSign`), and its glow pulses at 1.1 Hz so it reads as a lamp rather than paint. On drop-off it
+**pops up** out of the roof, tall and thin, does one forward flip at the top of a ~1.1-unit arc and
+lands in a squash that rings out (0.5s); on pickup it **fades out**, swelling and lifting a touch as
+it goes (0.32s). While lit it breathes on its mount (a 5% volume-preserving squash at 1.5 Hz),
+wobbles when the taxi brakes or boosts, and leans back under acceleration.
+`?roofsign=classic` takes it off the car. History:
 [the roof sign](gameplay-history.md#the-taxis-roof-sign).
 
 #### The drop-off is a ring, and it wears the rider's clock

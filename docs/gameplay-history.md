@@ -352,6 +352,15 @@ palette (`nextFareColor()`), because that colour was what paired a rider with th
 across the map. The drop-off carries no fare colour any more, so with nothing left to pair with,
 the sign's job shrank to the one thing still worth saying at a glance: is the taxi free.
 
+Then it came off altogether, at the workshop bench: lit only with a rider aboard and near-black
+otherwise, it was a dark lump on the newly painted yellow roof for most of every run, and the roof
+already said "taxi" from above. It came back (2026-11-27) with the real-world meaning, lit when
+free. The first cut hopped off the roof with a flip between a lit lens and a grey (then near-black)
+off one, with the roof's chequer taken out from under it so the dark sign would read. Tyler preferred
+the chequer, which reads well from the sky, so the off state went instead: the sign pops up when it
+lights and fades away when it goes out. Orange and a warm cream were both tried for the lens; it
+settled on the chequer's own white with a pulsing glow, and kept the flip, now inside the pop-up.
+
 ### The drop-off is a ring, and it wears the rider's clock
 
 Now: [The drop-off is a ring, and it wears the rider's clock](gameplay.md#the-drop-off-is-a-ring-and-it-wears-the-riders-clock).

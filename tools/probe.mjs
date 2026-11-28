@@ -4791,7 +4791,9 @@ const PRESSURE_END = difficulty.getTuning().pressureEnd;
       //
       // Six, not three: each lamp is a *pair* of pods and each pod is its own Mesh, because on/off
       // is a scale and a scale needs the pod's own anchor as its pivot (geometry/lights.js).
-      dark.filter((h) => h !== 0).length === 6
+      //
+      // Seven with the roof sign's lit lens (geometry/roofsign.js), a lamp with a state of its own too.
+      dark.filter((h) => h !== 0).length === 7
       && dark.filter((h) => h !== 0).every((h, n) => h === lit.filter((_, i) => dark[i] !== 0)[n]),
       `${dark.filter((h) => h !== 0).length} lamps, unchanged`);
   }
@@ -8687,10 +8689,16 @@ function rideToPickup() {
   // of the run. That is now a wreck held in a close-up for the whole run-end beat with the
   // brightest thing in frame on the wrong object. The taxi's pods are the only plain Meshes in
   // `emissiveMeshes`; everything else in there is ambient traffic's instanced pods.
-  const taxiPods = cTraffic.emissiveMeshes.filter((m) => !m.isInstancedMesh);
+  // The roof sign's lens is in there too, and goes out by `visible` rather than by scale, since its
+  // scale is the sign's squash.
+  const taxiLamps = cTraffic.emissiveMeshes.filter((m) => !m.isInstancedMesh);
+  const taxiPods = taxiLamps.filter((m) => m.userData.bloomKind !== 'window');
+  const signLamp = taxiLamps.find((m) => m.userData.bloomKind === 'window');
   check('a wrecked taxi puts its lamps out',
-    taxiPods.length === 6 && taxiPods.every((pod) => pod.scale.x === 0),
-    `${taxiPods.length} pods, levels ${taxiPods.map((pod) => pod.scale.x.toFixed(2)).join(' ')}`);
+    taxiPods.length === 6 && taxiPods.every((pod) => pod.scale.x === 0)
+      && signLamp && !signLamp.visible,
+    `${taxiPods.length} pods, levels ${taxiPods.map((pod) => pod.scale.x.toFixed(2)).join(' ')}, `
+    + `roof sign ${signLamp ? (signLamp.visible ? 'lit' : 'out') : 'missing'}`);
 
   // The shrink-and-fade the game *used* to hand its shells to. It is still the passing lab's ending
   // (see docs/lab.md — there the useful thing about a wreck is where it happened, and the lab wants
@@ -12998,8 +13006,9 @@ function rideToPickup() {
   // than one that stopped mattering. And it was seven until each lamp became two meshes: a pair
   // merged into one geometry cannot be dimmed by a scale without walking up the car
   // (geometry/lights.js), so the pair is two pods pivoting on their own anchors. It was ten while
-  // the roof sign was on.
-  check('taxi wears a ghost outline on every opaque part', rims.length === 9,
+  // the roof sign was on, and it is ten again now the sign is back: one rim on its lens, with the trim
+  // base masked rather than rimmed.
+  check('taxi wears a ghost outline on every opaque part', rims.length === 10,
     `${rims.length} rims`);
 
   // ...and every part that draws at all is in the mask, rim or not. The damage pieces (boot lid,
@@ -13016,8 +13025,8 @@ function rideToPickup() {
   // Two more for the chrome bumpers (geometry/bumpers.js), masked without a rim for the reason the
   // damage pieces are: a 0.2 bar inside the shell's hull, too thin to carry one of its own. The
   // damage pieces include the chequer on the shut bonnet and boot, which go when their lid opens.
-  check('every drawn taxi part is in the ghost stencil mask', unmasked.length === 0 && masks.length === 33,
-    `${unmasked.length} unmasked, ${masks.length} masks (9 outlined parts + 16 damage pieces + 4 door pieces + 2 bumpers + 2 mirrors)`);
+  check('every drawn taxi part is in the ghost stencil mask', unmasked.length === 0 && masks.length === 35,
+    `${unmasked.length} unmasked, ${masks.length} masks (10 outlined parts + 16 damage pieces + 4 door pieces + 2 bumpers + 2 mirrors + the roof sign's base)`);
 
   // Every vehicle drawn as ordinary meshes — a `skin` in sim/traffic.js — wears its own outline
   // (`outlineVehicle`): the instanced pool in game/carghosts.js reads instances, and these have
