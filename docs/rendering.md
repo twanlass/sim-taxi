@@ -187,23 +187,25 @@ are curtain walls or too narrow to take a window.
 
 `?walls=classic` leaves the walls flat and the windows unframed ([history](rendering-history.md#wall-detail--cityfacadejs)).
 
-### Pixel grain — `city/wallgrain.js`
+### Roofs — `roofDeck` in `city/buildings.js`
 
-The towers' walls and roofs, and the garage's shell, carry the pixel street's texel grid at nearly its size (0.175 units against 0.15, ~4 device pixels on a
-phone), so a building reads at the same pixel resolution as the road in front of it. Each texel
-takes one value from a tone drift (value noise at 8.6 and 0.3 units) plus single light and dark
-speckle texels (about one in 17 each), rounded to a 0.035 ramp through a 2×2 ordered dither, so a tone
-step is a checker of pixels rather than an edge. It is one multiply on the diffuse colour in the
-courses' seam, after them, so shadow, AO and the courses all sit on top unchanged; the grid is laid
-in each face's own plane and salted by its facing, so neighbouring walls differ. Glass, frames and
-the dressings (billboards, vents, signs) are separate meshes and stay smooth. No stains or colour:
-painted wall strokes and colour blotches were both tried and dropped.
+A flat roof's lip is the body's own colour a stop darker, and the deck inside it is a neutral grey
+off a seven-step ladder (`ROOF_GREYS`): the step nearest the middle that clears the walls by
+`ROOF_MIN_CONTRAST`, so the city's roofs are a family of greys and only their value varies with
+the building under them. The garage keeps its dark trim deck. Clearance is a lit score
+(`roofContrast`): at 4:24 PM a deck takes about as much sun as the sunny wall beside it, so the old
+deck, the body at 0.67, came out the same tone as that wall. The score is the OKLab distance to the
+sunny wall and to the shaded one (lit by sky: per-channel factors measured off a render,
+`DECK_LIGHT`/`SHADE_LIGHT`), whichever is nearer; the old deck scored 0.057 on slate. Two tries
+came first and were dropped the same afternoon: roofing finishes of their own (charcoal tar, warm
+gravel) read as random, and shades of the wall's own colour put pink and sage decks on top.
 
-Cost about 2 to 3% of a SwiftShader frame (`tools/gpucost.mjs`); not measured on a phone.
+A pitched roof keeps its tile-or-slate draw unless that lands on its own wall (tile on brick, slate
+on slate and glass), where it takes the other (`pitchedFinish`, decided on hue: a tilted roof
+catches more sun than a deck, so the lit score undersells it).
 
-`?bldgtex=classic` compiles none of it; `?bldgtexamt=` scales it; `?bldgpx=` sets the texel.
-
-Every number is a uniform, so the ⚙️ panel (`?debug`) has a **Building grain** section that moves them live (`wallGrainTuning`): drift, both octave sizes and the fine one's share, speckle and its rate, the ramp step and the texel. It remembers a tweak in this browser and copies it as JSON for `WALL_GRAIN`.
+The buildings carried a pixel grain from #800 until 2026-11-27; it was removed
+([history](rendering-history.md#building-pixel-grain--removed-2026-11-27)).
 
 ### Wheel wells — `archedBodyGeometries` in `geometry/wheels.js`
 
@@ -1745,8 +1747,9 @@ ground's paint pass, worked out from the grid arithmetic with no texture and no 
 - **Grain.** Two finer octaves at 1.3 and 0.45 units. The finer is about ten device pixels on a
   phone; a world-locked noise much below that crawls as the camera pans.
 
-**It is drawn as a pixel-art street** (`setRoadPixels`; `?roadtex=smooth` is the same road without
-the grid, `?roadpx=` the texel's size). Every layer above is read at the centre of a 0.15-unit
+**The pixel-art grid is off by default.** Tyler's panel tuning of 2026-11-27 set the texel to 0,
+the smooth road, with no tone runs, sparse stains and the swing sat below the base grey
+(`ROAD_TEX_DEFAULTS`). With a texel (`setRoadPixels`, `?roadpx=0.15` for the previous one) every layer above is read at the centre of a 0.15-unit
 world texel, 60 to an ordinary street and landing on its kerb lines, and the value is rounded to a
 ramp of greys a fiftieth apart. The stains get a hard edge, the grain becomes single light and dark
 pixels (one texel in twenty-five each way; the 1.3-unit octave rounded to the ramp read as static
@@ -1768,6 +1771,76 @@ which is the wet road at night. The asphalt patches and manhole covers are their
 keep their own colour. It costs +8.3% of a SwiftShader WebGL frame at phone size as shipped (630 ms to 682 ms against main, 2026-11-25;
 +6.2% before the pixel grid and the tone noise, +4.3% before the stains and grain); the same code
 runs as nodes on WebGPU (util/gpupaving.js).
+
+### The hand-painted road — `game/roadpaint.js`
+
+On top of the street texture, the road can be painted by hand (Tyler, 2026-11-25: "Make me a vertex
+paint tool for the road"). It is a **splat map, not vertex colour**: one RGBA texture laid over the
+whole island in world space at `PAINT_TEXEL` = 0.15, the pixel street's own texel, snapped to the
+same origin, so a painted texel is exactly one road pixel. The road's paint pass reads it at each
+pixel's centre and multiplies it in *before* the grey ramp, so a stroke comes out in the street's
+own pixels and greys. Four channels, because a texel is four bytes, and each
+has a colour picked in the panel (`uRoadPaintC0..3`, display-space sRGB): a full-strength stroke
+turns the road's albedo into that colour, keeping the road's own sun, shadow and AO, and the four
+mix in order over one another. The colours and each channel's amount (`uRoadPaintAmt`) ride in the
+bake beside the bytes, so a painted channel can be recoloured. More than four would be a second
+texture (another 3.7 MB) and a second read. The panel's Street texture box switches the texture
+off under the paint without losing its look (`setRoadTextureOn`); the paint and its pixel grid stay. Street texture opacity (0-2, saved in the bake as `texture`) fades
+the whole texture toward plain asphalt or exaggerates it past 1, ahead of the paint and the grey ramp
+(`setRoadTextureOpacity`, riding `uRoadTexDetail.y`). Asphalt colour moves the base colour live (`setAsphaltColor`): PALETTE.asphalt is baked
+into vertex colours, so the ground shader multiplies every fragment whose albedo sits near it by the
+ratio to the chosen colour (lane paint, pavement and lawns are too far off to follow). Saved in the
+bake as `asphalt` only when changed; the settled colour belongs in palette.js.
+
+**One city.** The paint is world-space, so it only lines up on the city it was painted on. City seed
+loads another city (`?seed=N`, or Random); Lock game to this seed writes `seed` into the bake, and
+`getSeed` (util/shot.js) then boots every game, shot mode included, on that city unless `?seed=` says
+otherwise. The lock takes hold once saved to the repo. Vertex paint at that detail would have
+meant cutting every road quad into 0.15-unit cells, millions of triangles where the ground is ~20k,
+for the same picture; this is one texture read on fragments the road shader already shades.
+
+- **Painting.** ⚙️ Visuals > Road paint (`?dev`). Tick Paint (or press **G**) and a left press on
+  the road paints instead of panning or picking; hold **Shift** to pan (Space is boost and B the
+  brake). **1-4** pick the channel, **E** or Alt erases, **[ ]** resize, **Cmd/Ctrl+Z** undoes
+  (30 strokes, brush armed or not). Size, strength and hardness are sliders; a second Clear inside three seconds wipes it.
+- **Seeing it.** Road only hides every drawable except the ground, manholes and asphalt patches
+  (meshes only, never a group, so no light drops out of the count; a car spawned while it is on
+  shows until it is toggled again). No lighting draws the ground as its bare colour times the paint
+  (`uAlbedoView`, both renderers), with the colour grade bypassed and the haze pushed past
+  everything (`setHazeOff` in scene.js); the edge fog and the CRT still draw. Freeze & zoom is the
+  inspect freeze (`I`), and pressing it here turns the brush on too: wheel or pinch zooms to a half-height of 2.5, and painting keeps working,
+  with Shift-drag panning. Both Road only and the freeze also take the game off the picture
+  (game/cleanview.js): every page overlay but the canvas and the ⚙️ panel, and every effect built
+  under `tagFx` in main.js — skid marks, spray, dust, sparks, flames, glass, the route band, the fare
+  and courier markers. A new effect wants wrapping there to go with them.
+- **Channel controls.** The panel shows only the selected channel's colour and amount; the
+  dropdown or **1-4** swaps which.
+- **Keeping it.** Every stroke autosaves to the browser (debug mode only, and it wins over the bake
+  on load until Revert to repo). **Save to repo** posts the bake to the dev server
+  (`tools/roadpaint-save.mjs`, loopback only), which writes `src/city/roadpaintbake.js` — commit that.
+  Away from a dev server, **Download** gives the same file.
+- **The bake** is the painted rectangle's raw RGBA, deflated (`CompressionStream`) and base64'd, with
+  its world corner, so it lands where it was painted on a city of any size. No PNG: a canvas
+  premultiplies alpha and would lose every colour under a zero cool channel. An empty bake costs
+  nothing: the texture stays 1x1 and the shader skips the read. A painted one is one texture of
+  ~880 x 1040 (3.7 MB on the GPU on the default city) and decodes asynchronously; shot mode waits for it.
+- **Procedural wear** (`game/roadwear.js`, Tyler 2026-11-27) is stamped into the same map at boot
+  from the city itself, so it fits every seed: brown dirt (channel 3) in the gutter of every
+  block, broken into patches, and round every median island, a dark stain (channel 1) round each manhole, and
+  grit in both where each bridge deck lands on the road. It is never baked — it lives in its own
+  buffer and the texture shows the per-byte max of it and the hand paint, so a stroke only adds and
+  Save to repo writes the brush's bytes alone. Every band is a plain distance from an outline (the
+  kerb's rounded rectangle, the median's stadium) with no mask, because the pavement at `KERB_H`
+  is past the shader's ground test and the band stops at the kerb face on its own. The bridge deck
+  is not ground and takes no paint, so only the road half of each joint gets grit. It means the
+  texture is always allocated now (3.7 MB, one read per road fragment), bake or no bake; the panel
+  has a box to hide it and sliders for each feature's strength and reach (live, not saved — settle
+  numbers into `WEAR_DEFAULTS`). `?roadwear=classic` leaves the road clean.
+- It lives inside the street texture's branch, so `?roadtex=classic` shows no paint either, and it is
+  held off the lawns, the lane paint and the plaza like the texture, but *not* off bright asphalt:
+  sunlit road reads past the texture's 0.42 hold, and the first cut's strokes only showed in shadow. The paint is in
+  world coordinates, and streets move between seeds (the arterial's line, the river row shifts
+  everything south of it, closures and landmarks), which is why the game locks to the painted city.
 
 - **Light bridge decks.** Every crossing, fixed or lifting, wears one light pavement grey
   (`bridgeDeck`, `drawbridgeDeck`), so the river row reads as a different material rather than as
