@@ -16,8 +16,8 @@ const BOOT = ['../src/game/scene.js', '../src/game/splitshadow.js', '../src/game
   '../src/game/pathdrag.js', '../src/game/sfx.js', '../src/game/audiopanel.js', '../src/game/soundrings.js',
   '../src/game/soundpins.js', '../src/game/phoneframe.js', '../src/game/quicktips.js', '../src/game/quicktips.js',
   '../src/game/dust.js', '../src/game/spray.js', '../src/game/blast.js', '../src/game/flyover.js', '../src/game/birds.js', '../src/game/ducks.js',
-  '../src/city/blacktop.js', '../src/game/hoopers.js', '../src/game/tubeman.js', '../src/city/carwash.js', '../src/city/gasstation.js', '../src/city/skatepark.js', '../src/city/northpark.js', '../src/city/southshore.js', '../src/city/parkshore.js', '../src/game/harborships.js', '../src/game/skaters.js', '../src/game/skatersclassic.js',
-  '../src/game/clouds.js', '../src/geometry/cloud.js', '../src/game/rain.js', '../src/game/citylights.js', '../src/game/storm.js', '../src/game/squall.js',
+  '../src/city/blacktop.js', '../src/game/hoopers.js', '../src/game/rink.js', '../src/game/tubeman.js', '../src/city/carwash.js', '../src/city/gasstation.js', '../src/city/skatepark.js', '../src/city/northpark.js', '../src/city/southshore.js', '../src/city/parkshore.js', '../src/game/harborships.js', '../src/game/skaters.js', '../src/game/skatersclassic.js',
+  '../src/game/clouds.js', '../src/geometry/cloud.js', '../src/game/rain.js', '../src/game/citylights.js', '../src/game/storm.js', '../src/game/squall.js', '../src/game/snow.js', '../src/game/holidaylights.js',
   '../src/game/cityentry.js', '../src/city/garage.js', '../src/game/opening.js',
   '../src/city/burgerjoint.js', '../src/game/drivethru.js',
   '../src/city/bank.js', '../src/game/robbery.js', '../src/game/radio.js', '../src/game/radiocue.js', '../src/game/race.js', '../src/geometry/raceflag.js',
@@ -42,7 +42,7 @@ const BOOT = ['../src/game/scene.js', '../src/game/splitshadow.js', '../src/game
   '../src/geometry/crate.js', '../src/game/flatbed.js',
   '../src/geometry/truckdoors.js', '../src/game/boxspill.js',
   '../src/geometry/firetruck.js', '../src/game/fire.js',
-  '../src/geometry/garbage.js', '../src/game/garbage.js',
+  '../src/geometry/garbage.js', '../src/game/garbage.js', '../src/game/plow.js', '../src/geometry/plow.js',
   '../src/geometry/robotaxi.js', '../src/game/robotaxi.js', '../src/game/robodebug.js',
   '../src/city/river.js', '../src/city/harbor.js', '../src/geometry/bridge.js',
   '../src/geometry/boat.js', '../src/game/drawbridge.js', '../src/game/boats.js', '../src/game/wake.js', '../src/game/ltrain.js', '../src/game/leaves.js', '../src/game/gulls.js',
@@ -78,6 +78,9 @@ const TOOLS = [
   // The passing lab at /lab/. Nothing else imports `src/lab/`, so without this the one page in
   // the project whose entire job is to be looked at could stop working silently.
   { name: 'lab',     args: ['tools/lab.mjs'],          pick: /(\d+\/\d+) checks passed/ },
+  // The snowstorm's tyre tracks are a CPU map: asked directly whether a driven street has a tread
+  // under each wheel and none between, and whether the snow fills it back in (game/snow.js).
+  { name: 'snow',    args: ['tools/snow.mjs'],         pick: /(\d+\/\d+) checks passed/ },
   // The model workshop at /workshop/, for the same reason: every model on its bench is built, so a
   // builder whose signature moved fails here rather than on the one model someone opened it for.
   { name: 'workshop', args: ['tools/workshop.mjs'],    pick: /(\d+\/\d+) checks passed/ },

@@ -3,6 +3,7 @@ import { bakeColor } from '../util/geo.js';
 import { PALETTE, jitterColor } from '../palette.js';
 import { KERB_H, PARK_EDGE, onLawn } from './ground.js';
 import { STATUE_PLAZA } from './props.js';
+import { pondNear } from './pond.js';
 
 // A basketball court, in one park, in one city.
 //
@@ -123,7 +124,7 @@ export function planCourt(rng, plots, statue, pond) {
             z: axis === 'x' ? pcz : pcz + along,
           });
           if (statue && overlapsBox(courtRect(court, STATUE_GAP), statue, STATUE_PLAZA / 2)) continue;
-          if (pond && overlapsCircle(courtRect(court, POND_GAP), pond.x, pond.z, pond.r)) continue;
+          if (pond && pondNear(pond, courtRect(court, POND_GAP))) continue;
           candidates.push(court);
         }
       }
@@ -171,12 +172,6 @@ export function onCourt(court, x, z, margin = 0) {
 
 const overlapsBox = (r, c, half) => r.x0 < c.x + half && r.x1 > c.x - half
   && r.z0 < c.z + half && r.z1 > c.z - half;
-
-function overlapsCircle(r, cx, cz, radius) {
-  const dx = Math.max(r.x0 - cx, 0, cx - r.x1);
-  const dz = Math.max(r.z0 - cz, 0, cz - r.z1);
-  return Math.hypot(dx, dz) < radius;
-}
 
 /**
  * The benches the court leaves standing. A bench is struck out if any part of it would stand on
@@ -280,7 +275,7 @@ export function planBoombox(court, { benches = [], benchLen = 0, statue = null, 
     const corners = [[r.x0, r.z0], [r.x1, r.z0], [r.x0, r.z1], [r.x1, r.z1]];
     if (!spot.apron && !corners.every(([x, z]) => onLawn(court.plot.bounds, x, z, 0.1))) continue;
     if (statue && overlapsBox(grow(r, 0.3), statue, statueHalf)) continue;
-    if (pond && overlapsCircle(grow(r, 0.3), pond.x, pond.z, pond.r)) continue;
+    if (pond && pondNear(pond, grow(r, 0.3))) continue;
     if (skateRect && overlapsRect(grow(r, 0.3), skateRect)) continue;
     const onBench = benches.some((bench) => {
       const along = Math.abs(Math.cos(bench.yaw)) > 0.5;

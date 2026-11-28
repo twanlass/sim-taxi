@@ -2068,6 +2068,100 @@ Everything that was a level in the storm becomes a position here:
 
 History: [the wet map's first drying rate, and windows that wiped on](rendering-history.md#a-squall--the-default-weather-gamesqualljs).
 
+### A snowstorm — the holiday weather, `game/snow.js`
+
+**Story's Sunday is the Snow Day** (`snow: true` in game/days.js, read at boot by
+`snowDayAtBoot` through `getSnow` in util/shot.js), in place of the squall; `?snow` forces it on
+any run, `?snow=0.8` pins the cover, and `?snow=off` drops it. Arcade never snows unless asked. It
+stands down where the squall does (shot mode, safe mode, demo, `?rain`/`?storm`) and for an explicit
+`?squall`. It is compiled into the materials, so crossing into or out of Sunday (Play again, or
+picking a mode on the title) reloads the page once and skips the title (`snowMismatch` in main.js).
+The day card says "Snow Day" under the day's name. History:
+[the date season](rendering-history.md#the-snow-season-by-the-devices-date-until-2026-11-26).
+
+Three parts, none of them geometry on the city:
+
+- **The cover** (`SNOW_UNIFORMS`/`SNOW_GLSL` in util/geo.js, `util/gpusnow.js` for WebGPU). One mix
+  on the diffuse colour of every lit `propMaterial()`, after the facade's courses, by how far the
+  screen-space face normal points up (absolute y, as the wet ground reads it): roofs, pavements,
+  lawns, crowns, ledges and streets all go white off the same lines. `uSnow.x` is the depth: two
+  octaves of noise make it patchy at half and solid past one. A run opens on 0.6 (it snowed
+  overnight) and builds by one per 150 s of full snowfall, to 1.1. Out of it: the vehicles (`gloss`),
+  which would wear the street's tracks on their roofs, and every body of water
+  (`userData.snow = false`, set by each patch in city/riverwater.js), because a white river reads as
+  a road.
+- **The tracks** (`stamp` in game/snow.js). A 512² byte map over `MAX_SPAN + 10` units, 0.27 a
+  texel, painted on the CPU where each car's four tyres rolled since the last frame (a 0.5-wide
+  tread, max-blended, so a lane driven twice is no deeper than once) and uploaded at most 12 times a
+  second. The cover reads it below y 0.3 to 0.6 and turns the snow there into dark slush: the street's
+  own colour at 60%, three tenths of the way to grey. A CPU map rather than a GPU render target because
+  it is one code path on both renderers, adds no render pass (the phone pays per draw call), and can
+  be asked what it holds (`trackAt`, tools/snow.mjs). Snowfall fills a track back in linearly over
+  `REFILL` 60 s, so the lanes in use stay carved and a quiet street goes white again. Crashed,
+  parked and airborne cars leave nothing, and a wheel that moved more than 4 units in a frame (a
+  respawn) draws no line. Bridge decks stay clean: a car on one is skipped, and the map is only read
+  at street level.
+- **The fall** (`flakes`). 9,000 soft round flakes, instanced quads placed wholly in the vertex
+  shader in a 140 × 45 × 140 box that wraps round the ground under the middle of the frame (the
+  rain's arrangement), falling at 3.4 u/s on a wind of (2.6, 1.3) and each swaying on its own cycle.
+  Gusts thin the fall to a flurry and back on two slow, unrelated sines (`state.fall`, 0.3 to 1),
+  dropping the flakes a gust does not need off the screen in the vertex shader. Display values like
+  the rain, dimmed with the light so a dusk flake is not a white dot. `game/gpusnowfall.js` is the
+  WebGPU twin.
+
+Around them: a pale, low overcast grade (`grade`, the `snow*` palette entries; the sun at 42% and
+the fill at 95%, dimmed from a first 55% and 115% so the holiday lights have a frame to glow
+against), the haze at 0.3, the city's lights at a level of 0.42 so most windows and every headlight
+are on, and the trees summer green unless `?fall` is given (snow on gold leaves reads as a mistake).
+
+**Slippery.** Two parts. Everyone's brakes go to `GRIP` 0.55 at full cover, the rain's mechanism, so
+traffic stays consistent and nobody runs a red. And the taxi alone oversteers (`setSlip` in
+sim/traffic.js, driven off the cover): its body lags its heading through a corner, the nose turned
+in and the tail swung wide, then catches and wobbles back once. A spring chasing
+`SLIP_GAIN × turn rate × speed`, capped at 0.24 rad (0.3 with the overshoot) and pivoted about the nose like the race's
+fishtail, so the lane and `car.s` carry on and nothing about routing changes.
+
+**The plow** (`game/plow.js`, `geometry/plow.js`). An orange truck with an angled yellow blade and
+an amber beacon, a guest in traffic like the garbage truck: it comes on 6 to 12 s into the run,
+obeys the signals, can be wrecked (back 25 s later) and roams to a far junction each time its route
+runs out, side streets costing it double so it keeps to the arterials and the ring. Its blade
+clears a 2.5-wide swath into the track map (`snow.plow`), which draws as slush and refills over
+`REFILL` like a tread. **The taxi has no slip on a plowed lane**: main.js samples the map at the
+taxi's middle, which treads never reach, and `PLOWED` 0.5 or more there zeroes `setSlip`. It does
+nothing for the player; a player who follows it gets a dry road. Measured: 158 units of lane in
+40 s on seed 71624 (tools/snow.mjs).
+
+**The route band** is painted over snow rather than added (`SNOW_ROUTE_OPACITY` 0.62, normal
+blend): additive over white is white, and the band went to a glare. `?blend=` still wins.
+
+### The holidays — `game/holidaylights.js`, the fir in `city/props.js`
+
+With the snow (`setHoliday`): the statue's plaza holds a 10-unit fir instead of the figure
+(`treeParts(..., { fir: true })`: four stacked cones with soft normals and a leaf-card lobe each,
+so it is drawn the way every tree is; built off a stream of its own so the rest of the park is the
+same park), and its clearing grows to fit. String lights swag along the rooflines of 85% of
+the flat roofs (picked by a hash of the roof), just out past the cornice, sagging between hooks
+every 2.2 units. Half of the strung roofs wind the string through fir garland (squashed
+icosahedron tufts in two greens, just under the bulbs), and 40% hang a wreath with a red bow in the
+middle of each face 0.75 under the parapet (faces 3 or longer); both are lit props kept out of the
+snow cover, one instanced draw each. More than half of those also run a string down each corner, stopping on whatever
+roof or pavement is under it, and some ring the shopfront line at 2.9; about half the trees carry
+bulbs over the outer face of their crowns. Another string spirals the fir six times, with a gold star turning on top. Two
+instanced meshes deal the bulbs alternately, so the city's lights are two draws and the twinkle is
+one colour per mesh per frame; all of it is in the bloom.
+
+**The pond freezes into a rink** (the rink-shaped default, [city.md](city.md#a-duck-pond)). The
+water's fan is kept in `rinkIce`/`rinkIceEdge` under a plain lit material out of the snow cover
+(`rinkIceMesh`), a clear step bluer and darker than the snow round it or the rink is a patch of the
+same white; white boards half a unit high with a red cap stand just inside the shore. The ducks are
+gone and four to six skaters go round it (`game/rink.js`), all anticlockwise, on lanes 1.1 apart
+pulled in from the boards, leaning into the ends and easing behind whoever is ahead on their lane.
+They are the ordinary person posed by `iceSkate`, about a third of them at children's size.
+
+It costs less than the squall it replaces, which brings a second full render of the city for the
+mirror: the cover is a few ALU and one texture fetch per lit fragment, the flakes are one draw, and
+the map is ~0.3 ms of JS a few times a second to fill in (not yet timed on a phone).
+
 ### Autumn, and the leaves a squall strips — `autumnBase` in `city/props.js`, `game/leaves.js`
 
 The city is in autumn: about two thirds of the broadleaves have turned gold, orange or red, the

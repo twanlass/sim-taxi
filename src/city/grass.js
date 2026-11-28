@@ -7,6 +7,7 @@ import { KERB_H, PARK_EDGE, onLawn } from './ground.js';
 import { pointInPolygon, polygonBounds } from './curves.js';
 import { parkPlots, BENCH_LEN, STATUE_PLAZA } from './props.js';
 import { BOOMBOX_W, onCourt } from './blacktop.js';
+import { pondDist } from './pond.js';
 
 // Tufts of long grass on the parks' lawns.
 //
@@ -180,7 +181,7 @@ export function planGrass(rng, blocks, {
   const blocked = (x, z, reach) => {
     if (statue && Math.abs(x - statue.x) < STATUE_PLAZA / 2 + reach
       && Math.abs(z - statue.z) < STATUE_PLAZA / 2 + reach) return true;
-    if (pond && Math.hypot(x - pond.x, z - pond.z) < pond.r + reach * 0.6) return true;
+    if (pond && pondDist(pond, x, z) < reach * 0.6) return true;
     // Off the blacktop, with a card's reach to spare — long grass sprouting from a court's apron
     // reads as the slab being laid under the lawn rather than in it.
     if (court && onCourt(court, x, z, reach)) return true;

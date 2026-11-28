@@ -6,6 +6,14 @@ import { patchPondWater } from './riverwater.js';
 
 // One duck pond, in one park, in one city.
 //
+// **A rink-shaped pond by default** (Tyler, 2026-11-25: "can we turn our duck pond into a larger
+// pond that maybe more rectangular with rounded edges? then in winter, make it an ice skating rink
+// with skaters?"). A rounded rectangle, up to 17 by 7.4, laid along a park district's long axis
+// where one is free, so that at the holidays it freezes into a rink of a believable shape
+// (game/rink.js) rather than an ice puddle. `?pond=classic` keeps the lobed round pond below. Both
+// shapes answer the same three questions — `pondDist`, `pondNear`, `pondKeepOut` — so nothing that
+// keeps off the water needs to know which one it is standing beside.
+//
 // It is the only water in the game and it is scenery on the same terms as the statue: nothing
 // routes around it, nothing can be tapped on it, and the fare loop has never heard of it. What it
 // buys is that a park stops being a lawn with trees on it — a pond reads as a *place* from a fixed
@@ -81,6 +89,17 @@ const LOBE_3 = [0.03, 0.07];
 /** Points round the rim. At a 2.5-unit pond that is a segment every 0.8 units — 6px. */
 const RIM = 20;
 
+// The rink-shaped pond. Half-extents across and along, and the corner radius. The short side is
+// the old pond's radius range nudged up, since it is bounded by the same 12-unit block; the long
+// side is what a district buys, and on a single block the plot clamps it back to about a square.
+const RINK_SHORT = [3.1, 3.7];
+const RINK_LONG = [6.5, 8.5];
+const RINK_CORNER = [1.5, 2.1];
+/** A park this long is a district — two blocks and the closed road between them. */
+const DISTRICT_LONG = 20;
+/** Points round each rounded corner. At a 2-unit radius that is a segment every 0.5 units. */
+const CORNER_SEGS = 6;
+
 const TAU = Math.PI * 2;
 
 /** The outline's radius at an angle, as a fraction of the pond's nominal one. */
@@ -94,10 +113,12 @@ export function pondRadiusAt(pond, angle) {
  * Where the pond goes, and what shape it is. `null` on a city with no park that can hold one, which
  * is a state the whole chain handles rather than one to guard against: no pond, no ducks.
  *
- * @param plots   the park plots, as `parkPlots` returns them
- * @param statue  the statue from `planParkFurniture`, whose plot this must not use
+ * @param plots    the park plots, as `parkPlots` returns them
+ * @param statue   the statue from `planParkFurniture`, whose plot this must not use
+ * @param classic  `?pond=classic`: the lobed round pond
  */
-export function planPond(rng, plots, statue) {
+export function planPond(rng, plots, statue, { classic = false } = {}) {
+  if (!classic) return planRink(rng, plots, statue);
   // Room is always the *short* side: a district is two blocks plus the road between them, so it is
   // 32 by 12 and the 12 is what decides whether a pond fits in it.
   const roomFor = (plot) => Math.min(
@@ -130,11 +151,109 @@ export function planPond(rng, plots, statue) {
   const bank = rng.range(BANK_LOW, BANK_HIGH);
 
   return {
-    x, z, r, bank, lobes, plot,
+    shape: 'round', x, z, r, bank, lobes, plot,
     // The radius the water is guaranteed to cover: the outline at its tightest, less the shore.
     // Exported as a number rather than as "evaluate the outline yourself" because what reads it is
     // `game/ducks.js`, which has no business knowing the pond is made of sinusoids.
     water: r * (1 - lobes.reduce((sum, l) => sum + l.amp, 0)) - bank,
+  };
+}
+
+/**
+ * The rink-shaped pond's plan. Prefers a park district not taken by the statue, laid along its long
+ * axis; otherwise any park the short side fits, where it comes out about square. `r` is the half of
+ * the longer side, kept for whatever only wants a size; everything that keeps off the water goes
+ * through `pondDist`/`pondNear`/`pondKeepOut` instead, because a circle that long would clear half
+ * the park.
+ */
+function planRink(rng, plots, statue) {
+  const size = (p) => [p.bounds.x1 - p.bounds.x0, p.bounds.z1 - p.bounds.z0];
+  const roomShort = (p) => Math.min(...size(p)) / 2 - POND_SET;
+  // Eligible down to the round pond's floor (`POND_R_LOW`, the birds' own), so a city whose parks
+  // are all 10.7 across still gets one, a little under the range.
+  const eligible = plots.filter((p) => p !== statue?.plot && roomShort(p) >= POND_R_LOW);
+  if (!eligible.length) return null;
+  const districts = eligible.filter((p) => Math.max(...size(p)) >= DISTRICT_LONG);
+  const plot = rng.pick(districts.length ? districts : eligible);
+
+  const [w, d] = size(plot);
+  const alongX = w >= d;
+  const short = Math.min(rng.range(RINK_SHORT[0], RINK_SHORT[1]), roomShort(plot));
+  const roomLong = Math.max(w, d) / 2 - POND_SET;
+  const long = Math.max(short, Math.min(rng.range(RINK_LONG[0], RINK_LONG[1]), roomLong));
+  const hx = alongX ? long : short;
+  const hz = alongX ? short : long;
+  const rc = Math.min(rng.range(RINK_CORNER[0], RINK_CORNER[1]), short - 0.4);
+  const bank = rng.range(BANK_LOW, BANK_HIGH);
+
+  const { x0, x1, z0, z1 } = plot.bounds;
+  const x = (x0 + x1) / 2 + rng.jitter(Math.max(0, (x1 - x0) / 2 - POND_SET - hx));
+  const z = (z0 + z1) / 2 + rng.jitter(Math.max(0, (z1 - z0) / 2 - POND_SET - hz));
+  return {
+    shape: 'rink', x, z, hx, hz, rc, bank, plot, r: long,
+    // The ducks' old disc, for anything that only knows the round pond: the short side's water.
+    water: short - bank,
+  };
+}
+
+/** Signed distance from (x, z) to the pond's outline: negative inside, in world units. */
+export function pondDist(pond, x, z) {
+  if (pond.shape !== 'rink') return Math.hypot(x - pond.x, z - pond.z) - pond.r;
+  return roundRectDist(x - pond.x, z - pond.z, pond.hx, pond.hz, pond.rc);
+}
+
+/** Signed distance to a rounded rectangle of half-extents (hx, hz) and corner radius rc, about the origin. */
+export function roundRectDist(dx, dz, hx, hz, rc) {
+  const qx = Math.abs(dx) - hx + rc;
+  const qz = Math.abs(dz) - hz + rc;
+  return Math.hypot(Math.max(qx, 0), Math.max(qz, 0)) + Math.min(Math.max(qx, qz), 0) - rc;
+}
+
+/** Whether an axis-aligned rect `{x0, x1, z0, z1}` comes within `gap` of the pond's outline. */
+export function pondNear(pond, rect, gap = 0) {
+  const ix = pond.shape === 'rink' ? pond.hx - pond.rc : 0;
+  const iz = pond.shape === 'rink' ? pond.hz - pond.rc : 0;
+  const reach = pond.shape === 'rink' ? pond.rc : pond.r;
+  const dx = Math.max(rect.x0 - (pond.x + ix), 0, (pond.x - ix) - rect.x1);
+  const dz = Math.max(rect.z0 - (pond.z + iz), 0, (pond.z - iz) - rect.z1);
+  return Math.hypot(dx, dz) < reach + gap;
+}
+
+/**
+ * The pond as a keep-out for things that take discs or rects — the street lamps and the walking
+ * birds: the round pond's disc as it always was, the rink's bounding rect.
+ */
+export function pondKeepOut(pond, pad = 0) {
+  if (pond.shape !== 'rink') return { x: pond.x, z: pond.z, r: pond.r + pad };
+  return { x0: pond.x - pond.hx - pad, x1: pond.x + pond.hx + pad, z0: pond.z - pond.hz - pad, z1: pond.z + pond.hz + pad };
+}
+
+/**
+ * Points round a rounded rectangle about the origin, anticlockwise from the +x side in plan
+ * (increasing angle, the same sense as the round pond's rim). Each corner contributes the same
+ * count whatever its radius, so two concentric outlines come out point-for-point — the shore and
+ * the waterline share their indices the way the round pond's two rims do.
+ */
+export function roundRectPoints(hx, hz, rc) {
+  const out = [];
+  const corners = [[1, 1], [-1, 1], [-1, -1], [1, -1]];
+  corners.forEach(([sx, sz], k) => {
+    const cx = sx * (hx - rc);
+    const cz = sz * (hz - rc);
+    for (let i = 0; i <= CORNER_SEGS; i++) {
+      const a = (k + i / CORNER_SEGS) * (Math.PI / 2);
+      out.push({ x: cx + Math.cos(a) * rc, z: cz + Math.sin(a) * rc });
+    }
+  });
+  return out;
+}
+
+/** The rink pond's two rims: the shore's outer edge and the waterline. */
+export function rinkRims(pond) {
+  const b = pond.bank;
+  return {
+    outer: roundRectPoints(pond.hx, pond.hz, pond.rc),
+    inner: roundRectPoints(pond.hx - b, pond.hz - b, Math.max(pond.rc - b, 0.1)),
   };
 }
 
@@ -145,19 +264,24 @@ export function planPond(rng, plots, statue) {
  * reason — two coplanar opaque surfaces would pay for the overlap twice — but here it also removes
  * the seam: both rims come off the same point list, so there is no pair of outlines to disagree.
  */
-export function pondParts(pond, rng) {
+export function pondParts(pond, rng, { ice = false } = {}) {
   const parts = [];
 
-  const outer = [];
-  const inner = [];
-  for (let i = 0; i < RIM; i++) {
-    const a = (i / RIM) * TAU;
-    const radius = pondRadiusAt(pond, a);
-    const dx = Math.cos(a);
-    const dz = Math.sin(a);
-    outer.push({ x: dx * radius, z: dz * radius });
-    inner.push({ x: dx * (radius - pond.bank), z: dz * (radius - pond.bank) });
+  let outer = [];
+  let inner = [];
+  if (pond.shape === 'rink') {
+    ({ outer, inner } = rinkRims(pond));
+  } else {
+    for (let i = 0; i < RIM; i++) {
+      const a = (i / RIM) * TAU;
+      const radius = pondRadiusAt(pond, a);
+      const dx = Math.cos(a);
+      const dz = Math.sin(a);
+      outer.push({ x: dx * radius, z: dz * radius });
+      inner.push({ x: dx * (radius - pond.bank), z: dz * (radius - pond.bank) });
+    }
   }
+  const n = inner.length;
 
   // The shore. Built as a Shape in the XY plane and laid flat with the same `rotateX(-π/2)` every
   // other paved surface in the city is laid with, which maps shape-space y onto world **−z** — so
@@ -184,8 +308,10 @@ export function pondParts(pond, rng) {
   // their own increasing-angle order gives a fan pointing at the ground, lit from underneath, and
   // `computeVertexNormals` would launder it into looking deliberate. `tools/probe.mjs` computes the
   // normal from this winding rather than trusting the sentence.
-  const open = jitterColor(PALETTE.pondWater, rng, { l: 0.02 });
-  const shallow = jitterColor(PALETTE.pondShallow, rng, { l: 0.02 });
+  // Frozen (`ice`, the holidays on the rink-shaped pond): the same fan in the ice's two colours,
+  // the same two draws so the stream after it is the stream it always was.
+  const open = jitterColor(ice ? PALETTE.rinkIce : PALETTE.pondWater, rng, { l: 0.02 });
+  const shallow = jitterColor(ice ? PALETTE.rinkIceEdge : PALETTE.pondShallow, rng, { l: 0.02 });
   const pos = [];
   const col = [];
   const vertex = (p, c) => {
@@ -193,9 +319,9 @@ export function pondParts(pond, rng) {
     col.push(c.r, c.g, c.b);
   };
   const centre = { x: 0, z: 0 };
-  for (let i = 0; i < RIM; i++) {
+  for (let i = 0; i < n; i++) {
     vertex(centre, open);
-    vertex(inner[(i + 1) % RIM], shallow);
+    vertex(inner[(i + 1) % n], shallow);
     vertex(inner[i], shallow);
   }
 
@@ -223,6 +349,66 @@ export function pondWaterMesh(geometry, pond) {
   mesh.receiveShadow = true;
   mesh.name = 'pond-water';
   return mesh;
+}
+
+// --- The rink -----------------------------------------------------------------
+//
+// At the holidays the rink-shaped pond freezes (the skaters are game/rink.js). The water's fan is
+// kept in the ice's colours (`pondParts(..., { ice: true })`), and round its waterline stand the
+// boards: a low white wall with a red cap, set a hair inside the shore so its outer face is not on
+// the bank's inner edge.
+
+/** The boards' height above the ice and their thickness; the cap on top of them. */
+// 0.34 first: a hairline at play zoom, the red cap the only thing that read.
+export const BOARD_H = 0.5;
+const BOARD_T = 0.12;
+const CAP_H = 0.08;
+/** In off the waterline, so the boards' outer face stands on the ice rather than on the shore's edge. */
+const BOARD_IN = 0.02;
+
+/** A flat ring between two point-for-point outlines, extruded up by `h` from `y`. */
+function ringWall(outer, inner, y, h, color) {
+  const shape = new THREE.Shape();
+  outer.forEach((p, i) => (i ? shape.lineTo(p.x, -p.z) : shape.moveTo(p.x, -p.z)));
+  const hole = new THREE.Path();
+  inner.forEach((p, i) => (i ? hole.lineTo(p.x, -p.z) : hole.moveTo(p.x, -p.z)));
+  shape.holes.push(hole);
+  const geo = new THREE.ExtrudeGeometry(shape, { depth: h, bevelEnabled: false, curveSegments: 1 });
+  geo.rotateX(-Math.PI / 2);
+  geo.translate(0, y, 0);
+  return bakeColor(geo, color);
+}
+
+/** The boards round the rink, in world space: the wall and its cap. */
+export function rinkBoardParts(pond, rng) {
+  const b = pond.bank + BOARD_IN;
+  const outline = (inset) => roundRectPoints(pond.hx - inset, pond.hz - inset, Math.max(pond.rc - inset, 0.1));
+  const outer = outline(b);
+  const inner = outline(b + BOARD_T);
+  const wall = ringWall(outer, inner, POND_WATER_Y, BOARD_H, jitterColor(PALETTE.rinkBoard, rng, { l: 0.02 }));
+  const cap = ringWall(outer, inner, POND_WATER_Y + BOARD_H, CAP_H, new THREE.Color(PALETTE.rinkBoardCap));
+  for (const part of [wall, cap]) part.translate(pond.x, 0, pond.z);
+  return [wall, cap];
+}
+
+/**
+ * The ice as a mesh of its own: the water's fan under a plain lit material. Out of the snow cover
+ * (`userData.snow = false`) — it is ice, and a rink is the one flat thing in a snowstorm somebody
+ * keeps clear — and out of the AO for the water's reasons.
+ */
+export function rinkIceMesh(geometry) {
+  const material = propMaterial({ ao: false });
+  material.userData.snow = false;
+  const mesh = new THREE.Mesh(geometry, material);
+  mesh.receiveShadow = true;
+  mesh.name = 'rink-ice';
+  return mesh;
+}
+
+/** The ice's skating area, inside the boards: half-extents and corner radius about the pond's centre. */
+export function rinkSurface(pond) {
+  const inset = pond.bank + BOARD_IN + BOARD_T;
+  return { hx: pond.hx - inset, hz: pond.hz - inset, rc: Math.max(pond.rc - inset, 0.1) };
 }
 
 export { POND_R_LOW, POND_R_HIGH };

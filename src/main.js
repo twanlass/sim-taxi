@@ -22,6 +22,8 @@ import { createRain, GRIP } from './game/rain.js';
 import { createStorm } from './game/storm.js';
 import { createComboMeter, comboScope, comboValue, formatMult } from './game/combometer.js';
 import { createSquall, RAMP, RAMP_CLASSIC, CELL_EDGE } from './game/squall.js';
+import { createSnow, GRIP as SNOW_GRIP, SNOW_DARK, SNOW_HAZE, SNOW_ROUTE_OPACITY } from './game/snow.js';
+import { createHolidayLights } from './game/holidaylights.js';
 import { pedalZones as growPedalZones, pedalAfterMove } from './game/pedalzones.js';
 import {
   collectPanes, litWindows, streetLamps, entrances, lampKeepOff, switchedLights, createTaxiHeadlights, setCityLights,
@@ -47,7 +49,7 @@ import { createBoats } from './game/boats.js';
 import { createHarborShips } from './game/harborships.js';
 import { createBridge, jointParts, BRIDGE_NORMALS_CLASSIC } from './geometry/bridge.js';
 import { createBuildings } from './city/buildings.js';
-import { createProps, parkPlots, setAutumn } from './city/props.js';
+import { createProps, parkPlots, setAutumn, setHoliday } from './city/props.js';
 import { createLeaves } from './game/leaves.js';
 import { createGrass } from './city/grass.js';
 import { createCanopyFuzz } from './city/canopyfuzz.js';
@@ -65,6 +67,7 @@ import {
   boostCruise, locoTuning, setLocoTuning, resetLocoTuning, locoRamp, LOCO_DEFAULTS, driftTaxi, kickDrift, driftHolds, DRIFT_CHAIN,
   onDriftLaunch, hopProgress, setSpinStyle, setBarrelRoll, setMegaFlip, setBridgeStunt, setPassTurnGate, setPassPace, setHopStyle, setBigAirStyle, setDodge, setOvertakeStyle, setPeek, setTaxiScatter,
   configureSignals, setGrip, setRunningLights, setRunningLightsAt, runningLightsAt, isLaneClosed, FISHTAIL_TIME,
+  airborneHeight, setSlip,
 } from './sim/traffic.js';
 import { createCollisions, TAXI_HP, setCrush, setCrushSplash } from './sim/collisions.js';
 import { createVanish } from './game/vanish.js';
@@ -114,6 +117,7 @@ import { createPoliceHeli } from './game/policeheli.js';
 import { createBirds, chooseRoosts } from './game/birds.js';
 import { createDucks } from './game/ducks.js';
 import { createHoopers } from './game/hoopers.js';
+import { createRink } from './game/rink.js';
 import { createBoombox } from './game/boombox.js';
 import { createTubeMan } from './game/tubeman.js';
 import { createCarWash, LANDMARK as CARWASH_LANDMARK } from './city/carwash.js';
@@ -121,6 +125,7 @@ import { createGasStation, LANDMARK as GAS_LANDMARK } from './city/gasstation.js
 import { roadsideKind } from './city/roadside.js';
 import { createLTrain, planLTrain, LTRAIN_DIMENSIONS } from './game/ltrain.js';
 import { courtRect } from './city/blacktop.js';
+import { pondKeepOut } from './city/pond.js';
 import { createSkaters } from './game/skaters.js';
 import { createClassicSkaters } from './game/skatersclassic.js';
 import { skateRect } from './city/skatepark.js';
@@ -130,6 +135,7 @@ import { createRoadwork } from './game/roadwork.js';
 import { createStreetProps, planStreetProps } from './game/streetprops.js';
 import { createFire } from './game/fire.js';
 import { createGarbage, planTrashPiles, PROP_KEEP_OUT } from './game/garbage.js';
+import { createPlow, PLOWED } from './game/plow.js';
 import { createRoboTaxis } from './game/robotaxi.js';
 import { createRoboDebug } from './game/robodebug.js';
 import { createRace, WIN_PAY, LOSE_COST, TANK_FLOOR, COUNT_STEP, COUNTDOWN } from './game/race.js';
@@ -188,7 +194,7 @@ import { streetAt, routeDrives, STREET_TAP_MAX_DETOUR } from './game/streettap.j
 import { createPathDrag } from './game/pathdrag.js';
 import { getActiveShot, getSeed, getRunSeed, getCarCount, getDifficultyPin, getDifficultyMode,
   getSafeMode, safeModeSource, getPixelRatioCap,
-  getDiagnostics, getParcelsPin, getRain, getStorm, getSquall, getSquallRampClassic, getSunRaysClassic, getWetTyres, getWreckStyle, getFall, getFoliageClassic, getWater, getUturnStyle, getCrt } from './util/shot.js';
+  getDiagnostics, getParcelsPin, getRain, getStorm, getSquall, getSnow, snowAllowed, snowForced, getSquallRampClassic, getSunRaysClassic, getWetTyres, getWreckStyle, getFall, getFoliageClassic, getWater, getUturnStyle, getCrt } from './util/shot.js';
 import { createParcelSystem, TAP_MAX_DETOUR } from './game/parcels.js';
 import { createRobbery } from './game/robbery.js';
 import { createRadio, LOST_CALL, ROBBERY_CALL } from './game/radio.js';
@@ -435,6 +441,11 @@ const squallRampClassic = getSquallRampClassic();
 const squall = squallFlag ? createSquall({
   ...squallFlag, rng: () => squallRng.next(), ramp: squallRampClassic ? RAMP_CLASSIC : RAMP,
 }) : null;
+// The snowstorm (game/snow.js): in place of the squall for the whole run, on Story's Snow Day
+// (days.js `snow`) or under `?snow`. `getSquall` already stood down for it. Compiled in, so crossing
+// between a snow day and a dry one is a reload (`snowMismatch`).
+const snowFlag = getSnow();
+const snow = snowFlag ? createSnow(snowFlag) : null;
 const rain = createRain(renderer, {
   enabled: Boolean(storm || squall),
   mood: stormFlag?.mood,
@@ -490,6 +501,7 @@ renderPath.addOverlays(scene);
 
 // The falling rain, and the two overlays that must stay out of its mirror pass.
 rain.addTo(scene);
+if (snow) scene.add(snow.flakes);
 rain.hideInMirror(bloom.overlay, scene.getObjectByName('sky'));
 
 // A GPU that takes the context away gets the budget turned down rather than the player getting a
@@ -586,6 +598,7 @@ const daylight = createDaylight({ sun, hemi, sky, fog, clouds });
 daylight.setDayLength(DAY_SECONDS);
 daylight.setCycling(false);
 if (rain.grade) daylight.setGrade(rain.grade);
+if (snow) daylight.setGrade(snow.grade);
 
 /**
  * Hand the storm's three levels (game/storm.js) to everything that reads them. Every frame while a
@@ -699,9 +712,38 @@ const LENS_WET = 0.5;
 const LENS_DRY_SQUALL = 5;
 const LENS_REACH = 15;
 
+/**
+ * The snowstorm's half of `applyWeather`: one city-wide overcast, so everything here is a level.
+ * The tyre tracks are pressed by `snowTracks`, which needs the traffic and so is set once it exists.
+ */
+let snowTracks = null;
+// The bulbs on the rooflines and the fir (game/holidaylights.js), once the city exists.
+let holidayLights = null;
+// The camera, once it exists: the first `applyWeather` below runs before it does.
+let snowCamera = null;
+// Whether the taxi is on a lane the snowplow has just cleared (game/plow.js), once the traffic
+// exists: no slide there.
+let taxiPlowed = () => false;
+function applySnow(dt) {
+  snowTracks?.();
+  holidayLights?.update(dt);
+  setSlip(taxiPlowed() ? 0 : Math.min(1, snow.state.level));
+  // The flakes dim with the light, so a dusk flake is not a white dot on a dark street.
+  snow.update(dt, snowCamera, THREE.MathUtils.clamp(0.35 + 0.5 * hemi.intensity + 0.1 * sun.intensity, 0.35, 1));
+  const cover = Math.min(1, snow.state.level);
+  setGrip(THREE.MathUtils.lerp(1, SNOW_GRIP, cover));
+  runningLevel = THREE.MathUtils.smoothstep(SNOW_DARK, 0.25, 0.42);
+  setRunningLights(runningLevel);
+  setTaxiHeadlights(runningLevel);
+  setCityLights(SNOW_DARK, dt);
+  setHazeTop(fog, SNOW_HAZE);
+  daylight.apply();
+}
+
 // The storm's one city-wide wetness, for the tyres (`groundWetAt`).
 let stormWet = 0;
 function applyWeather(dt = 0) {
+  if (snow) { applySnow(dt); return; }
   if (squall) { applySquall(dt); return; }
   if (!storm) return;
   const w = storm.update(dt);
@@ -823,6 +865,8 @@ const stopPanes = rain.enabled ? collectPanes() : null;
 // same broadleaf, and autumn is one fact about the whole city (`autumnBase` in city/props.js).
 const fall = getFall();
 setAutumn(fall, { classicColours: getFoliageClassic() });
+// The holidays come with the snow: the fir in the park where the statue stands (city/props.js).
+setHoliday(Boolean(snow));
 const city = createBuildings(makeRng(seed + 22), layout);
 // The donut shop's site, or null (city/donutshop.js). Read this early because the street lamps,
 // post boxes and bag piles below keep off its parked cruiser; built further down beside the vet.
@@ -921,6 +965,11 @@ scene.add(canopyFuzz.mesh);
 // game/hoopers.js.
 if (props.courtMesh) scene.add(markOccluder(props.courtMesh));
 const hoopers = createHoopers(scene, makeRng(runSeed + 313), props.court);
+// At the holidays the rink-shaped pond is frozen (city/pond.js) and people skate on it instead of
+// ducks floating on it (game/rink.js). Run seed, like the ducks: who is out on the ice is the
+// situation.
+const frozenPond = snow && props.pond?.shape === 'rink' ? props.pond : null;
+const rink = createRink(scene, makeRng(runSeed + 353), frozenPond);
 // And the boom box on the lawn beside it, playing to them. Where it stands is the map's
 // (`planBoombox`, in the props stream without a draw); which notes it puts out is the run's.
 const boombox = createBoombox(scene, makeRng(runSeed + 317), props.boombox);
@@ -1193,6 +1242,8 @@ const fares = tagFx(scene, () => createFareSystem(makeRng(runSeed + 55), scene, 
   rating: ratingOn,
   shift: shiftSeconds,
   target: today?.target ?? null,
+  // Santa (game/fares.js, SANTA_PAYOUT) comes out with the snow: the Snow Day, or `?snow`.
+  santaOn: () => Boolean(snow),
   bankOpen: () => today === null || today.bank !== 'off',
   // The bank rider's coin loads with every one who rides — BANK_ROBBER_STEP in game/fares.js.
   risingOdds: new URLSearchParams(window.location.search).get('robberyodds') !== 'classic',
@@ -1759,7 +1810,7 @@ for (const mesh of traffic.emissiveMeshes) markEmissive(mesh, mesh.userData.bloo
 if (litPanes) markEmissive(litPanes, 'window');
 // The taxi's own headlights and their cones, hung on its group so they ride the body. The group is
 // also what becomes the wreck (see `wreckShell` in sim/traffic.js), so they go dark while it is one.
-taxiHeadlights = rain.enabled ? createTaxiHeadlights() : null;
+taxiHeadlights = rain.enabled || snow ? createTaxiHeadlights() : null;
 if (taxiHeadlights) {
   taxiNow = () => traffic.taxi;
   setTaxiHeadlights(runningLevel);
@@ -1767,6 +1818,20 @@ if (taxiHeadlights) {
   markEmissive(taxiHeadlights.pods, 'pod');
 }
 if (lamps) markEmissive(lamps.heads, 'bay');
+// Every car's tyres in the snow, each frame (game/snow.js). Bridge decks are left clean: the map is
+// read at street level, and a deck is not.
+if (snow) {
+  const tracked = [traffic.taxi];
+  snowTracks = () => {
+    tracked.length = 1;
+    for (const car of traffic.cars) tracked.push(car);
+    snow.stamp(tracked, { airborne: airborneHeight, lift: (car) => deckHeightAt(car.x, car.z).y });
+  };
+  holidayLights = createHolidayLights({ decks: city.decks, tree: props.holidayTree, crowns: plantedCrowns() });
+  scene.add(holidayLights.group);
+  for (const mesh of holidayLights.meshes) markEmissive(mesh, 'pod');
+  if (holidayLights.star) markEmissive(holidayLights.star, 'pod');
+}
 for (const mesh of cruisers.flatMap((c) => c.emissiveMeshes)) markEmissive(mesh, 'siren');
 if (ltrain?.lamps) markEmissive(ltrain.lamps, 'pod');
 // The landmarks name their own lit meshes (`LANDMARK.glow` in each module), the same list the
@@ -1801,6 +1866,7 @@ const controller = createCityCamera(aspect(), {
   target: shot?.target ?? [0, 0],
 });
 const { camera } = controller;
+snowCamera = camera;
 controller.update(aspect());
 
 // Below this viewport width the frustum is sized by height, so the city runs off both sides and
@@ -1940,6 +2006,15 @@ const streetProps = createStreetProps(scene, streetPropPlan, { dust, rng: makeRn
 // props' swipe), run seed for the bags and the truck. The truck is a car in traffic like the fire
 // engine, and holds off in shot mode and through the opening vignette. `?garbage=soon` brings it on
 // a second in; `?garbage=classic` has neither.
+// The Snow Day's snowplow (game/plow.js): a car in traffic working the main roads, clearing the
+// lane behind its blade, where the taxi gets its grip back. Run seed; off the snow, nothing.
+const plow = createPlow({
+  rng: makeRng(runSeed + 359), scene, traffic, snow,
+  blocked: () => Boolean(shot) || traffic.taxi.staged,
+});
+for (const mesh of plow.emissiveMeshes) markEmissive(mesh, 'siren');
+if (snow) taxiPlowed = () => snow.trackAt(traffic.taxi.x, traffic.taxi.z) >= PLOWED;
+
 const garbage = createGarbage({
   rng: makeRng(runSeed + 731), scene, traffic,
   plan: planTrashPiles(makeRng(seed + 733), layout,
@@ -1993,7 +2068,7 @@ const cityEntry = createCityEntry({
   objects: [...(garage ? [garage.entryObject] : []), ...(burger ? [burger.entryObject] : []),
     ...(vet ? [vet.entryObject] : []), ...(donut?.entryObjects ?? []), ...(crane ? [crane.entryObject] : []),
     ...(graveyard ? [graveyard.entryObject] : []),
-    ...hoopers.entryObjects, ...boombox.entryObjects, ...skaters.entryObjects,
+    ...hoopers.entryObjects, ...rink.entryObjects, ...boombox.entryObjects, ...skaters.entryObjects,
     ...tubeMan.entryObjects, ...(roadside?.entryObjects ?? []), ...(ltrain?.entryObjects ?? []),
     ...streetProps.entryObjects, ...garbage.entryObjects],
   sites: [...city.entrySites, ...(garage ? [garage.entrySite] : []),
@@ -2259,7 +2334,7 @@ for (const offset of [199, 211]) {
   flocks.push(createBirds(scene, makeRng(runSeed + offset), layout, {
     avoid: (state) => flocks.filter((f) => f.state !== state).map((f) => f.state.area),
     keepOut: [
-      ...(props.pond ? [{ x: props.pond.x, z: props.pond.z, r: props.pond.r + 0.7 }] : []),
+      ...(props.pond ? [pondKeepOut(props.pond, 0.7)] : []),
       // And the basketball court, with the same bird's length to spare.
       ...(props.court ? [courtRect(props.court, 0.5)] : []),
       ...(props.skatepark ? [skateRect(props.skatepark, 0.5)] : []),
@@ -2271,7 +2346,7 @@ for (const offset of [199, 211]) {
 // And the birds that are already on it. Their own life, and a much smaller one than a flock's: they
 // paddle about, sit, dabble, and never leave. Run seed like the flocks — which park has the water
 // in it is the map, and what the birds on it are doing is the situation. See game/ducks.js.
-const ducks = createDucks(scene, makeRng(runSeed + 299), props.pond);
+const ducks = createDucks(scene, makeRng(runSeed + 299), frozenPond ? null : props.pond);
 // Leaves the squall strips off the park trees (game/leaves.js). Park crowns only — a median tree
 // shedding onto a carriageway is litter rather than autumn, and a courtyard's falls where no one
 // sees it. Run seed: which leaf comes off when is the situation, not the map.
@@ -3419,6 +3494,14 @@ if (rivalLine) {
 // ⚙️ dropdown because a screenshot has to be able to pin it: the panel doesn't exist in shot mode.
 const blendParam = new URLSearchParams(window.location.search).get('blend');
 if (blendParam) routeLine.setBlend(blendParam);
+// On snow the additive band has nothing to add to: white plus green is white, and the band washed
+// out to a glare. Painted over the snow instead, and stronger, so it reads as the clock's colour.
+else if (snow) {
+  routeLine.setBlend('normal');
+  routeLine.setOpacity(SNOW_ROUTE_OPACITY);
+  rivalLine?.setBlend('normal');
+  rivalLine?.setOpacity(SNOW_ROUTE_OPACITY * 0.6);
+}
 
 /**
  * Paint the band in the clock the drive is spending, so the road ahead, the crystal at the end of
@@ -4321,6 +4404,17 @@ showModeHud();
  * The title's Story or Arcade, before the run starts: re-plan the day and the shift for it, hand
  * the fare loop its clock and target, and remember the pick for Play again.
  */
+/**
+ * Whether the run `mode` would play next disagrees with the snow this page compiled: a Snow Day on
+ * a dry page or the other way round. The snow is in every lit material's program, so the only
+ * honest way across is a reload into the run (`skipTitleNextLoad`), paid once going into Sunday and
+ * once coming out. `?snow` decides for the whole load and never reloads.
+ */
+function snowMismatch(mode) {
+  if (snowForced() || !snowAllowed()) return false;
+  return Boolean(planDay(mode)?.snow) !== Boolean(snow);
+}
+
 function chooseMode(mode) {
   runMode = mode;
   try { weekStore?.setItem(MODE_KEY, mode); } catch { /* the pick just isn't remembered */ }
@@ -4361,7 +4455,7 @@ let dayAnnounced = false;
 function announceDay() {
   if (dayAnnounced || today === null) return;
   dayAnnounced = true;
-  showDayCard(document.body, today.name);
+  showDayCard(document.body, today.name, null, today.snow ? 'Snow Day' : null);
 }
 
 /**
@@ -6747,7 +6841,15 @@ const title = wantsTitle ? createTitleScreen(document.getElementById('title-scre
   // Story or Arcade (`chooseMode`). `?modes=classic` is the one Play, playing whichever was last
   // picked; demo mode keeps the one Play too, since it scripts a run of its own.
   onChoose: new URLSearchParams(window.location.search).get('modes') === 'classic' || demo.on()
-    ? null : chooseMode,
+    ? null : (mode) => {
+      if (snowMismatch(mode)) {
+        try { weekStore?.setItem(MODE_KEY, mode); } catch { /* the pick just isn't remembered */ }
+        skipTitleNextLoad();
+        location.reload();
+        return;
+      }
+      chooseMode(mode);
+    },
   // The first Play on a device hears dispatch out first, over the backdrop, with the gate still shut —
   // see game/backstory.js. `?intro=classic` goes straight to the garage as before.
   beforePlay: (done) => {
@@ -7027,7 +7129,7 @@ const moveExitClassic = new URLSearchParams(window.location.search).get('moveexi
 // the next; only the run is not. `?rerun=classic` is the reload, which is also a new city.
 const rerunClassic = new URLSearchParams(window.location.search).get('rerun') === 'classic';
 function playAgain() {
-  if (rerunClassic) { skipTitleNextLoad(); location.reload(); return; }
+  if (rerunClassic || snowMismatch(runMode)) { skipTitleNextLoad(); location.reload(); return; }
   rerun();
 }
 
@@ -7654,6 +7756,7 @@ function tick() {
   ducks.update(dt);
   leaves?.update(dt);
   hoopers.update(dt);
+  rink.update(dt);
   // No track yet: the box keeps its own time. Once it plays music, pass the track's playback time as
   // the second argument so the bounce and the notes land on the track's beat (game/boombox.js).
   boombox.update(dt);
@@ -7914,6 +8017,7 @@ function tick() {
   fire.update(dt);
   // After the traffic step for the same reason: the bags are aimed at the hopper where it now is.
   garbage.update(dt);
+  plow.update(dt);
   // After the traffic step for the same reason: the robo-taxi's skin is posed by it.
   robotaxis?.update(dt);
   roboDebug?.update();
@@ -8134,6 +8238,7 @@ function tick() {
     }
     if (type === 'pickup') {
       boardSound();
+      if (fare.santa) popLabel('Ho ho ho!');
       traffic.taxi.route = [];
       traffic.taxi.pendingTarget = null;
       // The roof sign lights up while the rider is aboard.
@@ -8739,8 +8844,10 @@ if (shot) {
   // this is one flag and not two: the question the far shot asks is whether the thing you can see
   // close up is still legible in the frame the game is actually played in, and that only means
   // anything if both are pointed at the same water.
-  if (shot.atPond && ducks.pond) {
-    controller.state.target.set(ducks.pond.x, 0, ducks.pond.z);
+  // (At the holidays the ducks have no pond — it is the rink's.)
+  const pondAt = ducks.pond ?? rink.pond;
+  if (shot.atPond && pondAt) {
+    controller.state.target.set(pondAt.x, 0, pondAt.z);
     controller.update(aspect());
   }
 
@@ -9412,6 +9519,10 @@ window.__taxi = {
   storm,
   /** The squall — its `cell`, `state`, `pin(v)`, `seek(t)`, `wetAt`, `rainAt`. Null unless `?squall`. */
   squall,
+  /** The snowstorm — `state`, `pin(v)`, `trackAt(x, z)`, `clearTracks()`. Null unless it is snowing. */
+  snow,
+  /** The holiday lights and the fir's star — `update(dt)`, `count`. Null unless it is snowing. */
+  get holidayLights() { return holidayLights; },
   /** The squall's falling leaves — `stats()`, `positions()`. Null with `?fall=off` or no squall. */
   leaves,
   /**
@@ -9538,6 +9649,8 @@ window.__taxi = {
   flocks,
   /** The birds on the park pond, and `ducks.pond` the water they are on — null if the city has none. */
   ducks,
+  /** The skaters on the frozen pond at the holidays (game/rink.js); `rink.skaters` empty otherwise. */
+  rink,
   /** The players on the basketball court, and `hoopers.court` the court — absent if the city has none. */
   hoopers,
   /** The boom box beside the court — `boombox.emitter` is where its music will play from. */
@@ -9564,6 +9677,8 @@ window.__taxi = {
   fire,
   /** The bag piles and the garbage truck. `garbage.spawn()` brings the truck on now; `piles`, `state`. */
   garbage,
+  /** The Snow Day's snowplow (game/plow.js). `plow.spawn()` brings it on now; `state.truck`, `state.cleared`. */
+  plow,
   /** The robo-taxis (game/robotaxi.js): `state`, `spawnAll()`, `cars()`. Null under `?robotaxi=classic`. */
   robotaxis,
   pause,

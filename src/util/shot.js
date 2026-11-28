@@ -5,6 +5,9 @@ import { ROAD_PAINT_BAKE } from '../city/roadpaintbake.js';
 // `select` and `route` put the game into the state a given shot is meant to show — a screenshot
 // of an unselected taxi says nothing about whether selection or routing renders correctly.
 
+import { snowDayAtBoot } from '../game/days.js';
+import { createDemo } from '../game/progress.js';
+
 export const SHOTS = [
   { name: 'city', description: 'whole city, taxi and waiting fare', target: [0, 0], zoom: 52, warmup: 12 },
   { name: 'routed', description: 'taxi selected with its route drawn', target: [0, 0], zoom: 52, warmup: 12, select: true, route: true },
@@ -577,7 +580,8 @@ export function getWetTyres() {
  * Returns null when off, otherwise `{ pin }`.
  */
 export function getSquall(
-  fallback = !getSafeMode() && getActiveShot() === null && getRain() === null && getStorm() === null,
+  fallback = !getSafeMode() && getActiveShot() === null && getRain() === null && getStorm() === null
+    && getSnow() === null,
 ) {
   const raw = new URLSearchParams(window.location.search).get('squall');
   if (raw === null) return fallback ? { pin: null } : null;
@@ -595,6 +599,11 @@ export function getSquallRampClassic() {
   return new URLSearchParams(window.location.search).get('squallramp') === 'classic';
 }
 
+/** `?pond=classic` — the lobed round duck pond instead of the rink-shaped one (city/pond.js). */
+export function getPondClassic() {
+  return new URLSearchParams(globalThis.window?.location?.search ?? '').get('pond') === 'classic';
+}
+
 /** `?sunrays=classic` — no sun rays in a squall's wake (`SUN_RAYS` in game/rain.js). */
 export function getSunRaysClassic() {
   return new URLSearchParams(window.location.search).get('sunrays') === 'classic';
@@ -606,7 +615,42 @@ export function getSunRaysClassic() {
  * so the switch moves no tree. The leaves are game/leaves.js.
  */
 export function getFall() {
-  return !isOff(new URLSearchParams(window.location.search).get('fall') ?? '');
+  const raw = new URLSearchParams(window.location.search).get('fall');
+  // Under snow the trees default to green: snow on gold reads as a mistake, snow on green as winter.
+  if (raw === null) return getSnow() === null;
+  return !isOff(raw);
+}
+
+/**
+ * The snowstorm (game/snow.js), in place of the squall. **On for Story's Snow Day** (days.js
+ * `snow`, Sunday) and under `?snow`, which forces it on any run; `?snow=0.8` pins the cover that
+ * deep for a still frame, and `?snow=off` drops it. It was on by the device's date from 1 December
+ * to 6 January at first, which made every Story run in that season harder against targets tuned
+ * dry (Tyler, 2026-11-25: "Kill the device date thing").
+ *
+ * A Snow Day stands down where the squall does — shot mode, safe mode, `?rain`/`?storm`, an
+ * explicit `?squall` — and in demo mode (`snowAllowed`). Returns null when off, otherwise `{ pin }`.
+ */
+export function snowAllowed() {
+  const params = new URLSearchParams(window.location.search);
+  const squall = params.get('squall');
+  return !(getSafeMode() || getActiveShot() !== null || getRain() !== null || getStorm() !== null
+    || (squall !== null && !isOff(squall)) || createDemo().on());
+}
+/** Whether `?snow` (in any form) decides the snow for this load, overriding the day. */
+export const snowForced = () => new URLSearchParams(window.location.search).get('snow') !== null;
+export function getSnow() {
+  const params = new URLSearchParams(window.location.search);
+  const raw = params.get('snow');
+  if (raw !== null) {
+    if (isOff(raw)) return null;
+    const pin = Number(raw);
+    return { pin: raw !== '' && Number.isFinite(pin) ? Math.min(1.1, Math.max(0, pin)) : null };
+  }
+  if (!snowAllowed()) return null;
+  let store = null;
+  try { store = globalThis.localStorage ?? null; } catch { /* plays as Friday would */ }
+  return snowDayAtBoot(window.location.search, store) ? { pin: null } : null;
 }
 
 /**

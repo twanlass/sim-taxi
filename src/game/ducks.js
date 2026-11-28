@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { birdBodyGeometry, BIRD_LEN } from '../geometry/bird.js';
-import { POND_WATER_Y } from '../city/pond.js';
+import { POND_WATER_Y, roundRectDist } from '../city/pond.js';
 import { bodyQuaternion, birdTint } from './birds.js';
 
 // The birds on the pond. They paddle from one end of it to the other, sit for a while, tip forward
@@ -34,6 +34,8 @@ import { bodyQuaternion, birdTint } from './birds.js';
 // what it is.
 const DUCK_MIN = 2;
 const DUCK_MAX = 4;
+/** The rink-shaped pond is up to 17 long, and four birds on it look like a pond nobody visits. */
+const DUCK_MAX_RINK = 6;
 /** Ducks per unit of swimming radius — 2 birds on a tight pond, 3 or 4 on a roomy one. */
 const DUCK_DENSITY = 2.2;
 /** How many of them wear the flock's pale morph, against the 0.2 of a flock — see `birdTint`. */
@@ -105,7 +107,16 @@ export function createDucks(scene, rng, pond) {
   // The disc a duck's centre may be in. `pond.water` is the radius the water is guaranteed to
   // cover — the outline at its tightest, less the shore band — so this holds however the pond's
   // wobble came out, without anyone here evaluating it.
-  const swim = pond ? pond.water - SHORE : 0;
+  //
+  // The rink-shaped pond (city/pond.js) swims inside its own rounded rectangle instead, inset by the
+  // shore band and the same `SHORE`; `swim` is then the disc of equal area, which is all the count
+  // below wants of it.
+  const rink = pond?.shape === 'rink';
+  const inset = rink ? pond.bank + SHORE : 0;
+  const box = rink ? { hx: pond.hx - inset, hz: pond.hz - inset, rc: Math.max(pond.rc - inset, 0.05) } : null;
+  const swim = !pond ? 0 : rink
+    ? Math.sqrt((4 * box.hx * box.hz - (4 - Math.PI) * box.rc * box.rc) / Math.PI)
+    : pond.water - SHORE;
   if (!pond || swim <= 0.15) {
     // `pond` is handed straight back rather than nulled: a pond too small to float anything is not
     // the same thing as a city with no pond, and shot mode aims at the water either way.
@@ -114,7 +125,22 @@ export function createDucks(scene, rng, pond) {
 
   scene.add(group);
 
-  const count = clamp(Math.round(swim * DUCK_DENSITY), DUCK_MIN, DUCK_MAX);
+  const count = clamp(Math.round(swim * DUCK_DENSITY), DUCK_MIN, rink ? DUCK_MAX_RINK : DUCK_MAX);
+
+  /** The nearest point on the rink's swimming area to (x, z), or (x, z) itself if it is on it. */
+  function intoRink(x, z) {
+    let dx = clamp(x - pond.x, -box.hx, box.hx);
+    let dz = clamp(z - pond.z, -box.hz, box.hz);
+    if (roundRectDist(dx, dz, box.hx, box.hz, box.rc) > 0) {
+      // Off a rounded corner: back onto that corner's arc.
+      const cx = Math.sign(dx) * (box.hx - box.rc);
+      const cz = Math.sign(dz) * (box.hz - box.rc);
+      const d = Math.hypot(dx - cx, dz - cz);
+      dx = cx + ((dx - cx) / d) * box.rc;
+      dz = cz + ((dz - cz) / d) * box.rc;
+    }
+    return { x: pond.x + dx, z: pond.z + dz };
+  }
 
   // Deliberately not `propMaterial()`, for the reason the flock's isn't either: that recipe carries
   // the screen-space AO lookup, and a mesh that receives occlusion without being in the depth
@@ -151,9 +177,13 @@ export function createDucks(scene, rng, pond) {
   function spot() {
     let at = { x: pond.x, z: pond.z };
     for (let attempt = 0; attempt < APART_TRIES; attempt++) {
-      const angle = rng.range(0, Math.PI * 2);
-      const reach = swim * Math.sqrt(rng.next());
-      at = { x: pond.x + Math.cos(angle) * reach, z: pond.z + Math.sin(angle) * reach };
+      if (rink) {
+        at = intoRink(pond.x + rng.jitter(box.hx), pond.z + rng.jitter(box.hz));
+      } else {
+        const angle = rng.range(0, Math.PI * 2);
+        const reach = swim * Math.sqrt(rng.next());
+        at = { x: pond.x + Math.cos(angle) * reach, z: pond.z + Math.sin(angle) * reach };
+      }
       if (ducks.every((other) => Math.hypot(at.x - other.x, at.z - other.z) > APART)) break;
     }
     return at;
@@ -170,10 +200,15 @@ export function createDucks(scene, rng, pond) {
     let tx = duck.x;
     let tz = duck.z;
     for (let attempt = 0; attempt < APART_TRIES; attempt++) {
-      tx = duck.x + rng.jitter(WANDER);
-      tz = duck.z + rng.jitter(WANDER);
+      // On the rink-shaped pond, anywhere on it: a wander off a duck by the edge of a long straight
+      // lands outside more often than not, and clamping all of those back piles them onto the same
+      // stretch of shore (36 frames of two birds parked together over five minutes).
+      tx = rink ? pond.x + rng.jitter(box.hx) : duck.x + rng.jitter(WANDER);
+      tz = rink ? pond.z + rng.jitter(box.hz) : duck.z + rng.jitter(WANDER);
       const d = Math.hypot(tx - pond.x, tz - pond.z);
-      if (d > swim) {
+      if (rink) {
+        ({ x: tx, z: tz } = intoRink(tx, tz));
+      } else if (d > swim) {
         const s = swim / d;
         tx = pond.x + (tx - pond.x) * s;
         tz = pond.z + (tz - pond.z) * s;

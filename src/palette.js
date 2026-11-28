@@ -1506,6 +1506,55 @@ export const PALETTE = {
   rainSun: '#C9CCD2',
   rainHemiSky: '#9FB0C4',
   rainHemiGround: '#3A3F46',
+  // A snowstorm (game/snow.js). A brighter lid than the rain's: snow light is flat and pale, and
+  // the ground bounces more of it back up (`snowHemiGround` is the snow itself, seen from below).
+  snowSkyTop: '#8E9BAA',
+  snowSkyBottom: '#C9D1D9',
+  snowSun: '#E4E8EE',
+  snowHemiSky: '#B9C6D4',
+  snowHemiGround: '#9AA3AD',
+  // The cover itself, a touch blue of white so a sunlit roof does not clip to paper; and the flakes.
+  snowCover: '#E2E8EE',
+  snowFlake: '#F2F5F8',
+  // The holidays (game/holidaylights.js): the fir in the park, its star, and the bulbs on it and on
+  // the rooflines. Saturated on purpose: they are lamps, and a lamp at 2 px has only its hue.
+  firNeedles: '#2F5A3A',
+  holidayStar: '#FFD25A',
+  holidayRed: '#FF3B3B',
+  holidayGreen: '#3BFF6A',
+  holidayGold: '#FFC23B',
+  holidayBlue: '#3B9BFF',
+  holidayWhite: '#FFF4D6',
+  // The greenery hung with them (game/holidaylights.js): fir garland in two greens, wreaths, red bows.
+  garlandDark: '#1F4A2C',
+  garlandLight: '#2E6B3A',
+  wreathGreen: '#25553A',
+  wreathBow: '#C42430',
+  // The pond frozen into a rink (game/rink.js). The ice a clear step darker and bluer than the snow
+  // round it, or the rink is a patch of the same white; the boards white with a red cap, and the
+  // skaters in winter coats.
+  rinkIce: '#AFC8DA',
+  rinkIceEdge: '#97B4CA',
+  rinkBoard: '#EEF1F4',
+  rinkBoardCap: '#C8343A',
+  skaterCoatA: '#B8323A',
+  skaterCoatB: '#2F5F8F',
+  skaterCoatC: '#3C7A4E',
+  skaterCoatD: '#D49A2A',
+  skaterCoatE: '#6A4C8C',
+  skaterTrousers: '#2C2F38',
+  // The snowplow (geometry/plow.js): a municipal orange truck with a yellow blade, its salt hopper
+  // grey, the amber beacon dark in its housing and lit as it works; and Santa, the Snow Day's rider.
+  plowBody: '#E8742A',
+  plowCab: '#F08A3A',
+  plowBlade: '#F2C230',
+  plowBladeEdge: '#3A3C42',
+  plowHopper: '#7E848C',
+  plowGhost: '#F5B27A',
+  santaRed: '#C8202A',
+  santaFur: '#F4F1EA',
+  santaBelt: '#1C1A1A',
+  santaSack: '#8A5A2E',
   // The streaks and the crowns. Pale and a touch blue, never white: at 0.3 alpha over asphalt a
   // white streak reads as snow.
   rainStreak: '#C8D6E6',

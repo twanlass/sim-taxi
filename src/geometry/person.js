@@ -334,6 +334,41 @@ export function createPerson({
   const sackBag = kit(0.52, 0.50, 0.46, 0, -FOREARM_LEN - 0.22, 0.08, SACK, foreL);
   const sackNeck = kit(0.20, 0.18, 0.20, 0, -FOREARM_LEN + 0.04, 0.08, SACK, foreL);
   const robberKit = [mask, cap, jacket, sackBag, sackNeck];
+  for (const mesh of robberKit) mesh.userData.kit = 'robber';
+
+  // --- Santa's kit, built hidden the same way -------------------------------
+  //
+  // The Snow Day's one special rider (game/fares.js, `wantsSanta`). The same argument as the
+  // robber's: a dozen boxes per figure is cheap, and building them on the frame Santa turns up is
+  // not. The coat is the jacket's box in red, the belt stands proud of the coat by 0.015 all round
+  // and the beard proud of the face, so nothing here shares a plane with what it covers. The sack
+  // is the robber's swag sack grown and browned — the same hand, the same reason: a silhouette that
+  // says what this person is for.
+  const coat = kit(1.07, 1.37, 0.67, 0, 1.8 - HIP_Y, 0, PALETTE.santaRed, chest);
+  const belt = kit(1.1, 0.16, 0.7, 0, 1.36 - HIP_Y, 0, PALETTE.santaBelt, chest);
+  const coatTrim = kit(0.16, 1.39, 0.69, 0, 1.8 - HIP_Y, 0.001, PALETTE.santaFur, chest);
+  // Face front is +z (an elbow's negative bend brings the hand forward). Under the eyes, past the chin.
+  const beard = kit(0.58, 0.42, 0.12, 0, 2.55 - HIP_Y, 0.34, PALETTE.santaFur, chest);
+  // The brim tops out 0.02 over the hair slab rather than level with it: level is a coplanar ring.
+  const hatBrim = kit(0.74, 0.12, 0.74, 0, HAIR_Y + 0.06 - HIP_Y, 0, PALETTE.santaFur, chest);
+  const hatCrown = kit(0.56, 0.34, 0.56, 0, HAIR_Y + 0.27 - HIP_Y, -0.04, PALETTE.santaRed, chest);
+  const hatTip = kit(0.3, 0.22, 0.3, 0, HAIR_Y + 0.5 - HIP_Y, -0.12, PALETTE.santaRed, chest);
+  const bobble = kit(0.18, 0.18, 0.18, 0, HAIR_Y + 0.66 - HIP_Y, -0.2, PALETTE.santaFur, chest);
+  const toySack = kit(0.7, 0.68, 0.62, 0, -FOREARM_LEN - 0.3, 0.1, PALETTE.santaSack, foreL);
+  const toyNeck = kit(0.24, 0.2, 0.24, 0, -FOREARM_LEN + 0.06, 0.1, PALETTE.santaSack, foreL);
+  const santaKit = [coat, belt, coatTrim, beard, hatBrim, hatCrown, hatTip, bobble, toySack, toyNeck];
+  for (const mesh of santaKit) mesh.userData.kit = 'santa';
+  // Sleeves red and boots black, as a multiply on each limb's own baked colour (see `setRobber`):
+  // the ratio of the colour wanted to the colour it was built in, so the arm comes out exactly
+  // santaRed whatever `body` this figure wears.
+  const tintTo = (from, to) => {
+    const a = new THREE.Color(from);
+    const b = new THREE.Color(to);
+    return new THREE.Color(b.r / Math.max(a.r, 1e-3), b.g / Math.max(a.g, 1e-3), b.b / Math.max(a.b, 1e-3));
+  };
+  const sleeveRed = tintTo(body, PALETTE.santaRed);
+  const trouserRed = tintTo(legs, PALETTE.santaRed);
+  const bootBlack = tintTo(legs, PALETTE.santaBelt);
 
   /**
    * One frame of the run cycle, returning the body bob that goes with it.
@@ -369,7 +404,7 @@ export function createPerson({
   // Every mesh on the figure carries its own material (torso + four limbs), so the exit fade can
   // dim all of them together. Collected up front rather than walked from `group.children` on every
   // frame — the set is fixed for the lifetime of the person.
-  const meshes = [torso, legL, legR, armL, armR, shinL, shinR, foreL, foreR, ...robberKit];
+  const meshes = [torso, legL, legR, armL, armR, shinL, shinR, foreL, foreR, ...robberKit, ...santaKit];
   // Every figure stamps the ghost mask where it draws (see stampGhostMask), so the taxi's yellow rim
   // never traces a person. A rim draws wherever something in the depth buffer sits in front of the
   // taxi, and a rider stepping up to the door, climbing out at the kerb or standing between the
@@ -451,6 +486,27 @@ export function createPerson({
     // the *same* garment whatever `body` this figure was built with.
     const sleeve = on ? SLEEVE_TINT : 1;
     for (const arm of [armL, armR, foreL, foreR]) arm.material.color.setScalar(sleeve);
+  }
+
+  /**
+   * Santa on or off: the coat, beard, hat and toy sack, and the limbs tinted to match. Owned the
+   * way the robber's kit is — set at spawn in game/fares.js and cleared there for every ordinary
+   * rider, never by `rest()`.
+   */
+  function setSanta(on) {
+    for (const mesh of santaKit) mesh.visible = on;
+    for (const arm of [armL, armR, foreL, foreR]) {
+      if (on) arm.material.color.copy(sleeveRed);
+      else arm.material.color.setScalar(1);
+    }
+    for (const leg of [legL, legR]) {
+      if (on) leg.material.color.copy(trouserRed);
+      else leg.material.color.setScalar(1);
+    }
+    for (const shin of [shinL, shinR]) {
+      if (on) shin.material.color.copy(bootBlack);
+      else shin.material.color.setScalar(1);
+    }
   }
 
   /**
@@ -884,6 +940,30 @@ export function createPerson({
   }
 
   /**
+   * On ice skates (game/rink.js): facing along +Z, gliding on one bent leg while the other pushes
+   * out to the side and back, then the other way, on `phase` (one stroke each side per 2π). The
+   * body folds forward at the waist with the shoulders turning against the stride and the arms
+   * swinging across, and `lean` tips the whole figure into a turn about the feet.
+   */
+  function iceSkate(phase, lean = 0) {
+    const s = Math.sin(phase);
+    const pushL = Math.max(0, s);
+    const pushR = Math.max(0, -s);
+    const drop = 0.22;
+    const sink = crouch(drop);
+    // The glide leg is the crouch; the push leg straightens and swings back (+x) and out.
+    legL.rotation.set(-sink * (1 - pushL) + 0.35 * pushL, 0, -0.06 - 0.5 * pushL);
+    legR.rotation.set(-sink * (1 - pushR) + 0.35 * pushR, 0, 0.06 + 0.5 * pushR);
+    bend(2 * sink * (1 - pushL), 2 * sink * (1 - pushR), -0.35, -0.35);
+    armL.rotation.set(0.4 * s, 0, -0.25);
+    armR.rotation.set(-0.4 * s, 0, 0.25);
+    chest.rotation.set(0.28, 0.15 * s, 0);
+    group.rotation.set(0.06, 0, -lean);
+    group.position.set(0, -drop, 0);
+    group.scale.setScalar(1);
+  }
+
+  /**
    * The back (−X) foot's sole, in the frame `group` hangs in — for a skater, the stance on the
    * deck. Read after `ride()` has posed the figure: it is where `plantFoot` starts from and goes
    * back to, so taking the foot off the board and putting it back never jumps.
@@ -1021,7 +1101,7 @@ export function createPerson({
   // crew's fade does. `group.children` is not that list any more: the shins and forearms hang off
   // the limb above them.
   return {
-    group, meshes, wave, board, run, hopIn, exit, bail, rest, idle, flee, surrender, highlight, setRobber,
-    setOpacity, dribble, shoot, chase, watch, tumble, skate, ride, footAt, plantFoot, walk, stand,
+    group, meshes, wave, board, run, hopIn, exit, bail, rest, idle, flee, surrender, highlight, setRobber, setSanta,
+    setOpacity, dribble, shoot, chase, watch, tumble, skate, ride, iceSkate, footAt, plantFoot, walk, stand,
   };
 }

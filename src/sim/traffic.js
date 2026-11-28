@@ -2264,6 +2264,43 @@ const FISHTAIL_PIVOT = CAR_LEN / 2;
 // The speed it is let have while it fishtails, from a crawl up to free again by the end.
 const FISHTAIL_CREEP = 2;
 
+/**
+ * A slippery road (`setSlip`, game/snow.js; 0 dry, 1 full snow). The taxi's body lags its heading
+ * through a corner the way a car oversteers on snow: the nose turns in further than the car is
+ * travelling and the tail swings wide, then it catches and wobbles back past straight once before
+ * it settles. The offset is a spring chasing `SLIP_GAIN × turn rate × speed`, under-damped on
+ * purpose so the catch reads. Taxi only: traffic keeps behaving the same, the player takes the risk
+ * (and the softer brake, `setGrip`, is everyone's). Pivoted about the nose like the fishtail, so
+ * at the 0.24 cap (0.3 with the overshoot) the tail moves ~0.5 units off the lane: inside the collision envelope's slack.
+ */
+let slip = 0;
+export const setSlip = (value) => { slip = Math.max(0, Math.min(1, Number(value) || 0)); };
+const SLIP_GAIN = 0.02;
+const SLIP_MAX = 0.24;
+const SLIP_STIFF = 26;
+const SLIP_DAMP = 4.2;
+function slipPose(car, dt) {
+  const st = car.slip ??= { base: car.yaw, off: 0, vel: 0 };
+  let turn = car.yaw - st.base;
+  turn = Math.atan2(Math.sin(turn), Math.cos(turn));
+  st.base = car.yaw;
+  if (slip <= 0 || dt <= 0 || car.crashed || car.parked || car.uturn || car.fishtail || car.hopFrom != null
+    || car.drift || Math.abs(turn) > 0.5) {
+    st.off = 0;
+    st.vel = 0;
+    return;
+  }
+  const target = Math.max(-SLIP_MAX, Math.min(SLIP_MAX, (turn / dt) * car.v * SLIP_GAIN)) * slip;
+  st.vel += (SLIP_STIFF * (target - st.off) - SLIP_DAMP * st.vel) * dt;
+  st.off += st.vel * dt;
+  if (Math.abs(st.off) < 1e-4) return;
+  const px = car.x + Math.cos(car.yaw) * FISHTAIL_PIVOT;
+  const pz = car.z - Math.sin(car.yaw) * FISHTAIL_PIVOT;
+  car.yaw += st.off;
+  car.x = px - Math.cos(car.yaw) * FISHTAIL_PIVOT;
+  car.z = pz + Math.sin(car.yaw) * FISHTAIL_PIVOT;
+}
+
 /** The fishtail's swing (radians off the heading) and speed cap at `t` seconds in. */
 function fishtailAt(t) {
   const u = Math.min(1, t / FISHTAIL_TIME);
@@ -7855,6 +7892,10 @@ export function createTraffic(
           car.z = pz + Math.sin(car.yaw) * FISHTAIL_PIVOT;
         }
       }
+
+      // Snow (`setSlip`, game/snow.js): the taxi's tail steps out through a corner and wobbles
+      // back. Render-side like the fishtail, about the nose, so the lane and `car.s` carry on.
+      if (car.isTaxi) slipPose(car, dt);
 
       // --- Loco Mode over the hump -----------------------------------------
       //

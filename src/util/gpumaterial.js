@@ -20,7 +20,10 @@ import {
 // `clouds` is `() => cloudLight | null`, asked as a material is built: weather is decided after
 // this module loads (`setCloudShadows`), and a city without it compiles none of the field.
 // `paving` is the same shape: `() => paving | null`, the painterly look's junction (util/gpupaving.js).
-const shared = { shadowColor: null, shadowTint: null, shadeKnee: 0.45, clouds: () => null, paving: () => null };
+// `snow` is the same shape again: `() => cover | null`, the snow on whatever faces up (util/gpusnow.js).
+const shared = {
+  shadowColor: null, shadowTint: null, shadeKnee: 0.45, clouds: () => null, paving: () => null, snow: () => null,
+};
 export function bindPropNodes(nodes) {
   Object.assign(shared, nodes);
 }
@@ -121,6 +124,14 @@ const propMaterial = (Base, specular) => class extends Base {
   setupDiffuseColor(builder) {
     super.setupDiffuseColor(builder);
     for (const surface of this.surfaces ?? []) diffuseColor.rgb.mulAssign(surface.paint());
+    // After the surfaces, as the GLSL runs after the facade's courses: snow covers the wall's paint.
+    const snow = this.snowy() ? shared.snow() : null;
+    if (snow) diffuseColor.rgb.assign(snow(diffuseColor.rgb));
+  }
+
+  // Not the vehicles (paint carries `gloss`) and not the water (city/riverwater.js says so).
+  snowy() {
+    return !this.gloss && this.userData.snow !== false && shared.snow() !== null;
   }
 
   copy(source) {
@@ -137,7 +148,7 @@ const propMaterial = (Base, specular) => class extends Base {
   customProgramCacheKey() {
     const surfaces = (this.surfaces ?? []).map((surface) => surface.key).join(',');
     const ao = this.userData.ao === false ? 'flat' : 'ao';
-    return `brush${this.userData.brush ?? 0}|${ao}|${surfaces}|${this.lightingFactory ? this.uuid : ''}`;
+    return `brush${this.userData.brush ?? 0}|${ao}|${surfaces}|${this.lightingFactory ? this.uuid : ''}${this.snowy() ? '|snow' : ''}`;
   }
 };
 

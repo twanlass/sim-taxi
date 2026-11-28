@@ -872,12 +872,19 @@ shows it. A tap skips it.
 |---|---|---|---|
 | Friday | $150 | 0 | No bank rider, no racer |
 | Saturday | $250 | 0.15 | Street race |
-| Sunday | $300 | 0.3 | Street race; the bank is shut |
+| Sunday | $300 | 0.3 | Snow Day: snowstorm, plow, Santa; street race; the bank is shut |
 | Monday | $400 | 0.4 | Street race; the bank robbery, guaranteed |
 
 Every day's clock is **2:30** (Tyler, 2026-10-31, to play it and see; the targets were guessed for
 five minutes and left as they were). A day at its own length ranks on the shift table; the targets
-are **untuned**. Only the bank robbery and the street race are events. The
+are **untuned**, Sunday's doubly so now that it snows. Only the bank robbery, the street race and
+Santa are events.
+
+**Santa** (`wantsSanta` in game/fares.js) comes out with the snow, so on the Snow Day or `?snow`:
+once a run, after the second delivery, never beside a VIP or the bank rider, a kerbside rider wears
+the coat, beard, hat and toy sack (`setSanta` in geometry/person.js) and the purple "!". He pays
+`SANTA_PAYOUT` 3x the distance price on the ordinary clock, waits without a pie, costs no strike if
+left, is never stolen by a robo-taxi, and says "Ho ho ho!" as he gets in. The
 garbage truck, the drawbridge, the fire and the patrols are the world and run every day (Tyler,
 2026-10-30). Clearing Monday clears the week and replays Monday, because the robo-taxis' days are
 not built. Off in shot and demo mode. `?days=classic` is the plain shift; `?day=sat` plays a day

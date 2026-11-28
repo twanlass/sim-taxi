@@ -4,6 +4,7 @@ import { PALETTE, jitterColor } from '../palette.js';
 import { KERB_H, PARK_EDGE } from './ground.js';
 import { STATUE_PLAZA } from './props.js';
 import { courtRect } from './blacktop.js';
+import { pondNear } from './pond.js';
 
 // A skatepark, in one park, in one city — the basketball court's neighbour, on the court's terms:
 // scenery, nothing routes round it, nothing on it can be tapped, the fare loop has never heard of
@@ -105,7 +106,7 @@ export function planSkatepark(plots, statue, pond, court) {
           });
           const r = skateRect(park);
           if (statue && overlapsBox(skateRect(park, STATUE_GAP), statue, STATUE_PLAZA / 2)) continue;
-          if (pond && overlapsCircle(skateRect(park, POND_GAP), pond.x, pond.z, pond.r)) continue;
+          if (pond && pondNear(pond, skateRect(park, POND_GAP))) continue;
           if (courtBox && overlapsRect(r, courtBox)) continue;
           candidates.push(park);
         }
@@ -156,12 +157,6 @@ export function onSkatepark(park, x, z, margin = 0) {
 const overlapsBox = (r, c, half) => r.x0 < c.x + half && r.x1 > c.x - half
   && r.z0 < c.z + half && r.z1 > c.z - half;
 const overlapsRect = (a, b) => a.x0 < b.x1 && a.x1 > b.x0 && a.z0 < b.z1 && a.z1 > b.z0;
-
-function overlapsCircle(r, cx, cz, radius) {
-  const dx = Math.max(r.x0 - cx, 0, cx - r.x1);
-  const dz = Math.max(r.z0 - cz, 0, cz - r.z1);
-  return Math.hypot(dx, dz) < radius;
-}
 
 /**
  * The surface a wheel rolls on along a lane, over the floor: `{ h, slope }` at `u`, `slope` being
