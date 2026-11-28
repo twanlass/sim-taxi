@@ -286,7 +286,27 @@ export function aimAtHeight(x, y, z) {
   return { x: x + UP.x * shift, z: z + UP.z * shift };
 }
 
-export function createCityCamera(aspect, { zoom = 46, target = [0, 0] } = {}) {
+/**
+ * @param fit  () => a multiplier on the frustum for the viewport's shape — 1 everywhere but a phone
+ *             held sideways, where main.js keeps the portrait phone's pixels per unit rather than
+ *             fitting `zoom` units into 390px of height (`landscapeFit`)
+ */
+/**
+ * The city camera's own numbers in free driving, which the Drive panel (game/drivetune.js) writes to
+ * (Tyler, 2026-11-25: "add some camera controls for 3/4 view (i want to zoom in a bit)"), with his
+ * tuned values:
+ * - `zoom`: magnification over the play zoom — 1.6 shows 1/1.6 as much city, bigger. Applied through
+ *   `fit` rather than `state.zoom`, which a wreck, a shot and the opening own;
+ * - `follow`: 0/1, whether the camera stays on the taxi while it is driven freely. Off, it does what
+ *   the game always did: follows on a phone, and on a desktop only under Loco or a pan's momentum —
+ *   and the gas pedal is not Loco, so on a desktop the taxi drove out of the frame;
+ * - `lead`: how far the frame looks ahead of the taxi along its travel, as a share of the game's own
+ *   lead (`followAim` in main.js).
+ * Read live through main.js.
+ */
+export const QUARTER_VIEW = Object.freeze({ zoom: 1.6, follow: 1, lead: 1.5 });
+
+export function createCityCamera(aspect, { zoom = 46, target = [0, 0], fit = () => 1 } = {}) {
   const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 1, 1400);
   const state = {
     zoom,                       // the *base* half-height of the view frustum, in world units
@@ -311,7 +331,7 @@ export function createCityCamera(aspect, { zoom = 46, target = [0, 0] } = {}) {
   // units and the frame — the projection, the lead's half-frame, world-units-per-pixel out in
   // main.js — has to come through here rather than read `state.zoom`, or it measures a frame the
   // renderer isn't drawing.
-  const viewZoom = () => state.zoom * state.punch;
+  const viewZoom = () => state.zoom * state.punch * fit();
 
   // In-flight glide, or null when idle. Held here rather than on `state` because nothing outside
   // reads it — the getters below are the whole interface.

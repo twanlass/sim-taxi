@@ -125,7 +125,19 @@ export function createBoost(duration = BOOST_DURATION, startFraction = BOOST_STA
   // fuel silently deleted at the bottom of the meter is the same bug pointing the other way.
   const EMPTY_FUEL = 1 / 30;
 
+  // Gas-only: free driving's gas pedal (game/freedrive.js, `gasPedal`) — the pill is a plain
+  // accelerator, so a press records that it is down (`state.held`, which every release path already
+  // clears) and starts nothing: no boost, no fuel spent, no kick, no boosted rules.
+  let gasOnly = false;
+
   return {
+    /** Gas-only on or off. Turning it on mid-boost ends the boost the way letting go would. */
+    setGasOnly(on) {
+      if (on === gasOnly) return;
+      gasOnly = on;
+      if (on && state.mode === 'active') enterCooldown();
+    },
+    gasOnly: () => gasOnly,
     reset: () => { Object.assign(state, freshState); },
     state,
     isActive: () => state.mode === 'active',
@@ -155,6 +167,7 @@ export function createBoost(duration = BOOST_DURATION, startFraction = BOOST_STA
       // camera back out of its push-in.
       if (!state.held) state.heldFor = 0;
       state.held = true;
+      if (gasOnly) return false;
       // A re-press mid-cooldown catches the car before the window closes and snaps it straight
       // back to full send — same transition-into-boost feel (wheelie, flame, kick) as a fresh
       // press, just without having let it fully coast back down first.
